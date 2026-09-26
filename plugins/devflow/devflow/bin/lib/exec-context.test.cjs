@@ -464,6 +464,17 @@ describe('exec-context check — shared-index claim (issue #98)', () => {
     }
   });
 
+  test('(h) a claim file created but not yet written is HELD, not treated as dead', () => {
+    // Sibling A has won openSync('wx') and not yet written its record. Sibling B
+    // must not read the empty file as "unreadable, holder gone" and overwrite it.
+    assert.strictEqual(check('98-01').status, 0);
+    const [name] = fs.readdirSync(claimsDir(repo));
+    fs.writeFileSync(path.join(claimsDir(repo), name), '');
+    const r = check('98-02');
+    assert.strictEqual(r.status, 1, `a fresh half-written claim must block; stdout: ${r.stdout}`);
+    assert.match(r.stderr, /SHARED INDEX/);
+  });
+
   test('(e) an expired claim is replaced', () => {
     assert.strictEqual(check('98-01').status, 0);
     const t0 = Date.now();
