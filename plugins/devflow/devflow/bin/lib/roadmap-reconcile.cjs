@@ -43,9 +43,9 @@ function _resetMocks() { _runFs = realFs; }
 // ─── TRD 09-01: Regex constants ───────────────────────────────────────────────
 
 const OBJECTIVE_RE = /^### Objective (\d+):/;
-// TRD checkbox line: indent - [x] NN-NN-slug-TRD.md — description (optional: (failed))
+// TRD checkbox line: indent - [x] NN-NN[-slug]-TRD.md — description (optional: (failed)); the slug is optional
 // Groups: 1=indent, 2=x or ' ', 3=full filename, 4=NN-NN trd_id, 5=description, 6=' (failed)' or undefined
-const TRD_LINE_RE = /^(\s*)- \[([x ])\] ((\d+-\d+)-[^.\s]+-TRD\.md)\s+—\s+(.+?)(\s+\(failed\))?\s*$/;
+const TRD_LINE_RE = /^(\s*)- \[([x ])\] ((\d+-\d+)(?:-[^.\s]+)?-TRD\.md)\s+—\s+(.+?)(\s+\(failed\))?\s*$/;
 
 // ─── TRD 09-01: _walkTrdLines ─────────────────────────────────────────────────
 
@@ -280,8 +280,8 @@ function _findObjectiveSections(lines) {
       if (current.statusLineIdx === -1 && /^\*\*Status:\*\*/.test(line)) {
         current.statusLineIdx = i;
       }
-      // TRD checkbox line: '- [x] NN-NN-slug-TRD.md' or '- [ ] NN-NN-slug-TRD.md'
-      const trdMatch = line.match(/^\s*- \[([x ])\] (\d+-\d+)-[^.\s]+-TRD\.md/);
+      // TRD checkbox line: '- [x] NN-NN[-slug]-TRD.md' or '- [ ] NN-NN[-slug]-TRD.md' (slug optional)
+      const trdMatch = line.match(/^\s*- \[([x ])\] (\d+-\d+)(?:-[^.\s]+)?-TRD\.md/);
       if (trdMatch) {
         current.trdCheckboxLines.push({ idx: i, checked: trdMatch[1] === 'x' });
       }

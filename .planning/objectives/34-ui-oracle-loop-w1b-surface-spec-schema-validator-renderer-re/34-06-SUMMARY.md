@@ -9,12 +9,8 @@ is the sha256 of the canonical **model** — never of the HTML — so editing
 `templates/ui-sheet.html` cannot invalidate a human's look-lock. A declared state with no render
 is a **`MISSING` cell**, never a dropped row.
 
-> ### ⚠ The `checkpoint:human-verify` in task 3 is OUTSTANDING
-> This TRD ran under `--auto`. The executor did **not** answer the checkpoint and did **not**
-> approve the sheet. The three questions, the artifact path and the how-to-verify steps are in
-> [**The human-verify checkpoint**](#the-human-verify-checkpoint-outstanding) below, ready to be
-> routed to a human. The fixture sheet was committed ahead of the answer so the artifact exists
-> on the branch for a verifier to open — see *Deviations*.
+> ### The `checkpoint:human-verify` in task 3 was APPROVED 2026-09-26
+> All three answers are recorded in [**The human-verify checkpoint**](#the-human-verify-checkpoint-approved-2026-09-26) below.
 
 ---
 
@@ -489,9 +485,9 @@ with these five `capture_id`s present and the other three absent.
 
 ---
 
-## The human-verify checkpoint (OUTSTANDING)
+## The human-verify checkpoint (APPROVED 2026-09-26)
 
-**Not answered. Not approved. No answer may be recorded here by anyone but the human.**
+**Approved by Justin Donnaruma, 2026-09-26, after opening `projects-rail.sheet.html` (`sheet_hash` `8befadf8851847d34666b3ae0a8fa81cfd0923083cf617723790dc2848716d7f`).**
 
 The plan's gate for this row is literally *"one fixture sheet committed and eyeballed once"* — a
 review sheet nobody has looked at is not a review artifact, it is a file.
@@ -517,19 +513,19 @@ review sheet nobody has looked at is not a review artifact, it is a file.
 never navigates on close."* If it does not read like that, the fix belongs in **34-05's templates**
 and this TRD waits.
 
-> **Answer:** _(awaiting the human)_
+> **Answer:** Yes — reads as English
 
 **Question 2 — is a MISSING cell unmistakable?**
 It must read as *"this was never rendered"*, not as an empty cell that scans as fine. Compare the
 `error` / `outage` / `guard-denied` rows against the five that carry a render.
 
-> **Answer:** _(awaiting the human)_
+> **Answer:** Yes — MISSING cells are unmistakable
 
 **Question 3 — is the grid legible at the state × theme × width size it will actually be?**
 If eight states × two themes is unusable, say so now — the layout is cheap to change before W1★
 depends on it.
 
-> **Answer:** _(awaiting the human)_
+> **Answer:** Yes — legible
 
 Any "no" becomes a fix **in this TRD** (layout) or a follow-up noted against **34-05** (wording) —
 not a deferred issue.

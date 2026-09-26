@@ -84,7 +84,9 @@ Jobs:
 | 29. Context discipline | v1.3 | 4/4 | Complete | 2026-08-19 |
 | 30. Agent environment hygiene | v1.3 | 4/4 | Complete | 2026-08-19 |
 | 31. Telemetry and retention | v1.3 | 3/3 | Complete | 2026-08-19 |
-| 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Executed (2 checkpoints outstanding) | 2026-09-22 |
+| 32. Visual-eval default path tells the truth | v1.3 | 4/4 | Complete | 2026-08-27 |
+| 33. The visual gate actually runs in CI | v1.3 | 3/3 | Complete | 2026-08-27 |
+| 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
 
 ### Objective 27: Gate correctness ✅
 
@@ -178,10 +180,10 @@ Why: #485 audited the shipped gate and found `makeOfflineLabelEchoJudge` reads o
 Reproduced during planning against the current tree: an unlabelled state reports `"verdict": "pass"`; a stub-shaped state reports `"reviews": [null]`; and a run scoring `verdict: "fail"` exits 0.
 
 TRDs:
-- [ ] 32-01-TRD.md — Wave 1: a state nothing judged stops reporting pass (#485 defect 1, the headline)
-- [ ] 32-02-TRD.md — Wave 2: offline path stops fabricating confidence; every state nameable (#485 defect 2)
-- [ ] 32-03-TRD.md — Wave 3: judge selection explicit; default declares itself advisory (#485 defect 3)
-- [ ] 32-04-TRD.md — Wave 4: a failing run exits non-zero (found in planning; severable)
+- [x] 32-01-TRD.md — Wave 1: a state nothing judged stops reporting pass (#485 defect 1, the headline)
+- [x] 32-02-TRD.md — Wave 2: offline path stops fabricating confidence; every state nameable (#485 defect 2)
+- [x] 32-03-TRD.md — Wave 3: judge selection explicit; default declares itself advisory (#485 defect 3)
+- [x] 32-04-TRD.md — Wave 4: a failing run exits non-zero (found in planning; severable)
 
 
 ### Objective 33: The visual gate actually runs in CI
@@ -194,9 +196,9 @@ TRDs:
 Why: `agents/verifier.md` Step 8c calls `df-tools verify flutter-ui-eval "$OBJECTIVE" --raw`, passing an objective **id**. The handler's first argument is a **manifest path** (`loadManifest(manifestPath)` → `fs.readFileSync`). Reproduced: `verify flutter-ui-eval 32 --raw` → `{"error":"manifest/captureResults not found","path":"32"}`. Step 8c's own contract then routes any `{error}` to `SKIPPED … NEVER a hard fail` — so the gate silently no-ops on every objective. It reports skipped rather than false-green, which is why #485 did not catch it, but CI coverage of the visual gate is currently **zero**.
 
 Jobs:
-- [ ] 33-01-TRD.md — Wave 1: one lookup, in code — objective id to manifest, four honest statuses (`not_applicable`/`absent`/`invalid`/`resolved`)
-- [ ] 33-02-TRD.md — Wave 2: the load-bearing fix — the invocation Step 8c actually contains resolves to something the engine can load
-- [ ] 33-03-TRD.md — Wave 3: what the gate does when it runs and finds nothing (MISSING vs gap vs silent skip) + Step 8c routing
+- [x] 33-01-TRD.md — Wave 1: one lookup, in code — objective id to manifest, four honest statuses (`not_applicable`/`absent`/`invalid`/`resolved`)
+- [x] 33-02-TRD.md — Wave 2: the load-bearing fix — the invocation Step 8c actually contains resolves to something the engine can load
+- [x] 33-03-TRD.md — Wave 3: what the gate does when it runs and finds nothing (MISSING vs gap vs silent skip) + Step 8c routing
 
 Decision recorded in OBJECTIVE.md: **resolution is owned by the handler, not the prose** (option c, implemented as b). Two prose documents already drifted apart on this lookup; the side that owns it is the side that cannot drift, so it moves into code once. The load-bearing test then EXECUTES the invocation extracted from `verifier.md` itself — it pins behaviour, not a string.
 
@@ -206,7 +208,7 @@ Manifest-less policy: `not_applicable` skips silently (existing gate preserved),
 **Goal:** DevFlow can parse and validate a Surface Spec — the one hand-authored description of how a UI surface must function — derive the ui-eval manifest, navigation graph and control table from it, render a review sheet a human approves, record that approval as a look-lock later phases anchor on, and run agent prose that encodes shell semantics against a real harness.
 **Depends on:** Objective 33 (the gate it feeds), UI Oracle Loop wave 0 (shipped v2.8.0)
 **Source:** `docs/PROPOSAL-ui-oracle-loop.md` §4/§8/§12/§21 · `docs/IMPLEMENTATION-PLAN-ui-oracle-loop.md` Part 3 "W1b"
-**Jobs:** 11/11 TRDs executed in 9 waves (two parallel roots: 34-01 schema chain, 34-09 harness chain). **Two checkpoints outstanding** — 34-06 human-verify (verifier returned `gaps_found`) and 34-11 human-action (tag `v2.9.0` not created).
+**Jobs:** 11/11 TRDs executed in 9 waves (two parallel roots: 34-01 schema chain, 34-09 harness chain). Both checkpoints closed — 34-06 human-verify approved 2026-09-26; tag v2.9.0 created 2026-09-23.
 
 Jobs:
 - [x] 34-01-TRD.md — Wave 1: `yaml-lite` — the subset YAML parser, and everything it refuses
@@ -214,9 +216,8 @@ Jobs:
 - [x] 34-03-TRD.md — Wave 3: `validateSurfaceSpec` — invariants I1-I3 and their known-broken fixtures
 - [x] 34-04-TRD.md — Wave 4: invariants I4-I8, six more known-broken fixtures, and the `ui spec validate` arm (exit 1 with codes) — carries the I6 hit-rect decision checkpoint
 - [x] 34-05-TRD.md — Wave 5: `renderSurfaceSpec` — manifest, nav graph, control table, capture list
-- [x] 34-06-TRD.md — Wave 6: the review sheet and a `sheet_hash` that survives a template edit — **human-verify checkpoint OUTSTANDING** (verifier: Q2 pass, Q1/Q3 `gaps_found`)
-- [x] 34-07-TRD.md — Wave 7: look-lock — writing the acceptance block, and clearing it on shape change only
+- [x] 34-06-TRD.md — Wave 6: the review sheet and a `sheet_hash` that survives a template edit- [x] 34-07-TRD.md — Wave 7: look-lock — writing the acceptance block, and clearing it on shape change only
 - [x] 34-08-TRD.md — Wave 8: `frontend-design` build mode step 0 — no composition without a valid, locked spec
 - [x] 34-09-TRD.md — Wave 1: the agent shell harness — extraction, the call model, and cwd that persists
 - [x] 34-10-TRD.md — Wave 2: the harness meets real prose — scratch monorepo, stubs, annotations, and CI
-- [x] 34-11-TRD.md — Wave 9: release 2.9.0 — version trio + CHANGELOG landed; **tag `v2.9.0` NOT created** (human-action checkpoint)
+- [x] 34-11-TRD.md — Wave 9: release 2.9.0 — version trio + CHANGELOG landed

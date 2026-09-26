@@ -6,12 +6,12 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 
 **Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** Planning next milestone (v1.3) — candidate scope carried in ROADMAP.md
+**Current focus:** v1.3 in flight (not formally opened via /devflow:milestone new) — objectives 27–34 complete (27-03 and 28-06 deferred by decision); 26 locked but unplanned; release 2.10.0 being prepared
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
 
 ## Current Position
 
-**Milestone:** v1.2 — SHIPPED 2026-07-22 (v1.1 shipped 2026-05-06; both archived to .planning/milestones/)
+**Milestone:** v1.3 — in flight (v1.2 shipped 2026-07-22; v1.1 shipped 2026-05-06; both archived to .planning/milestones/). Last release v2.9.0 (2026-09-23)
 **Branch:** `main`
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 **Objective complete:** 20 — Daemon polish bundle (verified 2026-05-06, 2053/2055 tests pass + 2 pre-existing failures unchanged + 34 skipped, all 5 TRDs done across 2 waves). Wave 1: 20-01 OS notifications + 20-02 auto-launch + 20-03 multi-project + 20-05 cross-shell (8 commits). Wave 2: 20-04 status-line indicator (2 commits, +25 new tests, statusline.test.js created fresh — first-ever test file for that hook). 10 commits across waves; all 5 daemon polish features (notifications, auto-launch, multi-project, status-line, cross-shell) shipped behind opt-in feature flags with byte-identical default-OFF behavior.
 **Objective complete:** 21 — Bidirectional GH sync + configurable defaults table (verified 2026-05-06, all 5 TRDs done across 2 waves). Wave 1: 21-01 gh-pull CLI (19 tests) + 21-04 defaults-table loader + 21-05 intent provenance. Wave 2: 21-02 sync-state tracking (22 tests, `lib/sync-state.cjs` with hashFrontmatter + recordSync) + 21-03 conflict resolution (25 tests, `lib/conflict.cjs` with detectConflict + 3-way diff + --resolve={disk,gh,merge} flag). Total ~114 new tests (~67 Wave 1 + 47 Wave 2). 11 atomic commits in Wave 2 (RED + GREEN per task pairs). All TDD TRDs followed test-first. `_readSyncStateRaw` stub from 21-01 cleanly removed; `cmdGhSyncObjectives`/`ghStatus` switched to `_runGh` test seam (back-compat preserved).
 **Objective complete:** 25 — Fleet audit fixes (verified 2026-07-22, 6/6 SC met, 6 TRDs done across 2 waves; 2681 tests / 8 pre-existing failures only; fleet: 6 kind: commits + opsCluster/eden-press CLAUDE.md + eden-press editGate warn; global ~/.claude/CLAUDE.md routing + TDD-by-kind playbook)
-**Status:** v1.2 milestone complete — archived 2026-07-22; obj 25 UAT 8/8 pass
+**Status:** v1.3 in flight — objectives 27–34 complete; last release v2.9.0 (2026-09-23); 2.10.0 being prepared
 
 ## Branch State (post-merge)
 
@@ -213,6 +213,7 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 | 15 | Make /devflow:objective model-invocable; gate `objective remove` cascade behind `--confirm` (dry-run by default) (dir numbered 13) | 2026-08-25 | bd12f42 | Verified | [13-make-objective-skill-model-invocable-add](./quick/13-make-objective-skill-model-invocable-add/) |
 | 16 | Bump `mcp` gem 0.12.0 → 0.25.0 in both aosentry-mcp lockfiles (closes 10 Dependabot alerts, 5 advisories) + add missing `.github/dependabot.yml` (dir numbered 14) | 2026-09-01 | 3598bb7 | — | [14-bump-mcp-gem-to-0-25-0-in-aosentry-mcp-l](./quick/14-bump-mcp-gem-to-0-25-0-in-aosentry-mcp-l/) |
 | 17 | Fix `changelog-on-tag` gate to validate the tagged commit's tree instead of the working tree (unblocks retroactive tagging); also backport TRD 27-04 quote/heredoc stripping so mentions no longer false-positive. First test file for this hook, 23 cases (dir numbered 15) | 2026-09-02 | c5770e8 | — | [15-fix-changelog-on-tag-gate-to-validate-th](./quick/15-fix-changelog-on-tag-gate-to-validate-th/) |
+| 18 | Roadmap reconciler accepts slugless `NN-MM-TRD.md` lines (obj 32/33 reconciled); 34-06 checkpoint approved; STATE current position refreshed (dir numbered 16) | 2026-09-26 | a778a7b | — | [16-fix-roadmap-reconciler-slugless-trd-line](./quick/16-fix-roadmap-reconciler-slugless-trd-line/) |
 
 ## Session Continuity
 
