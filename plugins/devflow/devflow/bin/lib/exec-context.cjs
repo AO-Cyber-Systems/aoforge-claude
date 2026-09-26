@@ -104,6 +104,7 @@ function flag(args, name) {
 // ── shared-index claim (issue #98) ───────────────────────────────────────────
 
 const CLAIM_TTL_MS_DEFAULT = 4 * 60 * 60 * 1000;
+const UNREADABLE_CLAIM_GRACE_MS = 30 * 1000;
 
 function claimTtlMs() {
   const n = parseInt(process.env.DEVFLOW_EXEC_CLAIM_TTL_MS, 10);
@@ -169,6 +170,16 @@ function takeClaim(identity, id, baseSha, mainRoot, baseArg) {
   if (existing && existing.id === id) {
     fs.writeFileSync(file, body);
     return record;
+  }
+  if (!existing) {
+    // Unparseable. A holder that won openSync('wx') but has not written yet leaves
+    // an empty file for a few ms; reading that as "holder gone" would reopen the
+    // race 'wx' closed. Judge a fresh unreadable claim by its mtime instead.
+    let mtimeMs = 0;
+    try { mtimeMs = fs.statSync(file).mtimeMs; } catch { /* vanished: treat as dead */ }
+    if (Date.now() - mtimeMs < UNREADABLE_CLAIM_GRACE_MS) {
+      existing = { id: '(claim still being written)', claimed_at: new Date(mtimeMs).toISOString() };
+    }
   }
   const age = existing ? Date.now() - Date.parse(existing.claimed_at) : Infinity;
   if (existing && Number.isFinite(age) && age < claimTtlMs()) {
