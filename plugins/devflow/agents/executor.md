@@ -40,7 +40,7 @@ Prove both before you do any work:
 ```bash
 # One plain command. Substitute the literal absolute path and ref from your dispatch —
 # a shell variable set here does NOT survive into the next Bash call.
-node ~/.claude/devflow/bin/df-tools.cjs exec-context check --repo <REPO_ROOT> --base <WAVE_BASE>
+node ~/.claude/devflow/bin/df-tools.cjs exec-context check --repo <REPO_ROOT> --base <WAVE_BASE> --id <plan_id>
 ```
 
 **Exit 0** — the JSON reports `checkout`, `repo_root`, `branch`, `head_sha`,
@@ -54,14 +54,15 @@ into `.df-worktrees/<repo>/<id>` that writes "absolute from `repo_root`" writes 
 shared tree — exactly the collision explicit provisioning exists to prevent.
 
 **Exit 1 — STOP. Do not proceed, do not "try the paths anyway", do not create files.**
-The two failures it reports are the two halves of issue #86:
+The three failures it reports are the two halves of issue #86, plus the shared-index race of issue #98:
 
 | Message | What happened | What to do |
 |---|---|---|
 | `WRONG REPOSITORY` | You are rooted in a different repo from the one you were given. Every path in your TRD points somewhere you cannot see. | Report it and stop. The dispatch must be re-issued with the working directory inside the named repo, or with a worktree from `exec-context worktree`. Nothing you write here can land. |
 | `BASE NOT VISIBLE` | Your HEAD does not contain the base you were given — you are branched from the default branch rather than from the previous wave's output. | Report it and stop. Re-dispatch from a tree based on `WAVE_BASE`; building on a missing base silently re-does or contradicts the previous wave. |
+| `SHARED INDEX` | Another executor with a different plan id already claimed this checkout for this base — you are a parallel sibling sharing its git index. Commits would interleave. | Report it and stop. Each parallel TRD must be re-dispatched into its own tree from `exec-context worktree --repo <REPO_ROOT> --id <plan_id> --base <WAVE_BASE>`. Only if the other executor is known dead: `exec-context release`. |
 
-Both are hard stops. Say which one fired, quote the command's output, and end your turn —
+All three are hard stops. Say which one fired, quote the command's output, and end your turn —
 a failed preflight is a dispatch defect, not something to work around.
 
 If your dispatch gave you no `REPO_ROOT`, **you cannot run the check at all** — checking

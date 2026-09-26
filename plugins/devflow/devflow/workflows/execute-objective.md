@@ -337,12 +337,13 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
        <repo_and_base>
        REPO_ROOT:  {REPO_ROOT}
        WAVE_BASE:  {WAVE_BASE}
+       PLAN_ID:    {plan_id}
 
        Before anything else, prove you are where you are supposed to be:
 
-         node ~/.claude/devflow/bin/df-tools.cjs exec-context check --repo {REPO_ROOT} --base {WAVE_BASE}
+         node ~/.claude/devflow/bin/df-tools.cjs exec-context check --repo {REPO_ROOT} --base {WAVE_BASE} --id {plan_id}
 
-       Exit 1 means WRONG REPOSITORY or BASE NOT VISIBLE — both are hard stops. Report
+       Exit 1 means WRONG REPOSITORY, BASE NOT VISIBLE or SHARED INDEX — all are hard stops. Report
        which fired, quote the output, and end your turn without writing anything. Do not
        try the paths anyway: a wrong-repo spawn cannot land a single commit where it is
        being looked for, and it fails silently if you let it.
@@ -437,7 +438,9 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
    waves' commits were simply missing from a fresh worktree — each wave silently re-did or
    contradicted the last. Provisioning from `WAVE_BASE` and merging back here is what makes
    wave N+1 see wave N. The executor's `exec-context check --base` proves it rather than
-   trusting it.
+   trusting it. `--id` makes check refuse a second parallel TRD in the same checkout, so
+   skipping `exec-context worktree` for a parallel wave now fails loudly with `SHARED INDEX`
+   (#98); a dead executor's claim is cleared with `exec-context release`.
 
    After all branches are merged, `git log --all --grep` and the file-existence spot-checks
    in step 6 will see every wave commit.
