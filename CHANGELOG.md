@@ -50,6 +50,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a per-wave `WAVE_BASE` before spawning and provisions parallel-wave worktrees itself.
 
 ### Fixed
+- **CI runs node 26, not 22** (#101). A `describe`-scoped `after()` hook that throws exits
+  `0` with no `<failure>` in the junit report on node 22.23.3 **and** 24.13.1 — the suite is
+  red and every channel says green, so the gate could not see it. On 25.9.0 and 26.10.0 the
+  process exits `1`, which the unit gate's Guard 0 already fails. `test.yml` and
+  `agent-shell-harness.yml` now pin `26`; the allowlist's `$environment` is restated.
 - **`df-tools <command> --help` no longer mutates anything** (#87). `--help`/`-h` is
   answered by the dispatcher *before* it selects a subcommand, so no subcommand can
   receive a help flag as data. `df-tools commit --help` used to take `--help` as the
