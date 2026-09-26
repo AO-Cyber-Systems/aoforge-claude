@@ -19,11 +19,19 @@
  * it: the orchestrator states the repo and the base, and these two commands
  * make the statement checkable.
  *
- *   exec-context check --repo <path> [--base <ref>]
+ *   exec-context check --repo <path> [--base <ref>] [--id <plan_id>]
  *     Proves the current directory is in the named repository (a linked
  *     worktree of it counts) and, with --base, that HEAD contains that commit.
  *     Exits 1 with a specific message otherwise. The executor runs this first;
  *     a wrong-repo spawn stops there instead of writing into the void.
+ *
+ *     With --id AND --base it also takes an exclusive claim on (checkout, base):
+ *     a second executor with a different id in the same checkout for the same
+ *     base is refused with SHARED INDEX (issue #98).
+ *
+ *   exec-context release --repo <path> [--id <slug>]
+ *     Clears this checkout's claims (all, or only those held by --id) — for a
+ *     claim left behind by a dead executor.
  *
  *   exec-context worktree --repo <path> --id <slug> [--base <ref>] [--path <dir>]
  *     Provisions isolation explicitly, in the NAMED repo, from an EXPLICIT base
@@ -38,6 +46,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { output, error } = require('./helpers.cjs');
@@ -92,12 +101,112 @@ function flag(args, name) {
   return v;
 }
 
+// ── shared-index claim (issue #98) ───────────────────────────────────────────
+
+const CLAIM_TTL_MS_DEFAULT = 4 * 60 * 60 * 1000;
+const UNREADABLE_CLAIM_GRACE_MS = 30 * 1000;
+
+function claimTtlMs() {
+  const n = parseInt(process.env.DEVFLOW_EXEC_CLAIM_TTL_MS, 10);
+  return Number.isFinite(n) && n > 0 ? n : CLAIM_TTL_MS_DEFAULT;
+}
+
+// Under the git COMMON dir: shared by every linked worktree of the repo, and
+// never part of any working tree, so a claim is neither committed nor invisible
+// to a sibling standing in another worktree.
+function claimDir(identity) {
+  return path.join(identity.commonDir, 'devflow-exec-claims');
+}
+
+function checkoutKey(identity) {
+  // realpath first: macOS reports /var/... and /private/var/... for one dir.
+  return crypto.createHash('sha1').update(realpath(identity.checkout)).digest('hex').slice(0, 12);
+}
+
+function claimFile(identity, baseSha) {
+  return path.join(claimDir(identity), `${checkoutKey(identity)}-${baseSha}.json`);
+}
+
+/**
+ * Take an exclusive claim on (checkout, base) for plan `id` (issue #98).
+ *
+ * After #86 removed forced `isolation: worktree`, parallel executors of one wave
+ * must each be provisioned with `exec-context worktree`. If the orchestrator
+ * skips that, the siblings run in ONE checkout and race on ONE git index — their
+ * commits interleave and land under the wrong TRD. The claim makes that path fail:
+ *
+ *   - parallel siblings of one wave share WAVE_BASE by construction, so a second
+ *     id on the same (checkout, base) IS a sibling on a shared index → refused;
+ *   - a later sequential wave has a DIFFERENT base (the previous wave's tip), so
+ *     it never collides with an earlier wave's claim;
+ *   - linked worktrees each have their own checkout key, so correctly isolated
+ *     siblings never collide either.
+ *
+ * `openSync(..., 'wx')` is the atomicity guarantee: exactly one of two racing
+ * siblings creates the file. The refresh (same id) and expired-replace paths
+ * overwrite — the claim is already ours, or its holder is dead.
+ */
+function takeClaim(identity, id, baseSha, mainRoot, baseArg) {
+  fs.mkdirSync(claimDir(identity), { recursive: true });
+  const file = claimFile(identity, baseSha);
+  const record = {
+    id,
+    checkout: identity.checkout,
+    base_sha: baseSha,
+    claimed_at: new Date().toISOString(),
+  };
+  const body = JSON.stringify(record, null, 2) + '\n';
+  try {
+    const fd = fs.openSync(file, 'wx');
+    try { fs.writeSync(fd, body); } finally { fs.closeSync(fd); }
+    return record;
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+  }
+
+  let existing = null;
+  try { existing = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { existing = null; }
+
+  if (existing && existing.id === id) {
+    fs.writeFileSync(file, body);
+    return record;
+  }
+  if (!existing) {
+    // Unparseable. A holder that won openSync('wx') but has not written yet leaves
+    // an empty file for a few ms; reading that as "holder gone" would reopen the
+    // race 'wx' closed. Judge a fresh unreadable claim by its mtime instead.
+    let mtimeMs = 0;
+    try { mtimeMs = fs.statSync(file).mtimeMs; } catch { /* vanished: treat as dead */ }
+    if (Date.now() - mtimeMs < UNREADABLE_CLAIM_GRACE_MS) {
+      existing = { id: '(claim still being written)', claimed_at: new Date(mtimeMs).toISOString() };
+    }
+  }
+  const age = existing ? Date.now() - Date.parse(existing.claimed_at) : Infinity;
+  if (existing && Number.isFinite(age) && age < claimTtlMs()) {
+    error(
+      `SHARED INDEX — another executor already claimed this checkout for this base.\n` +
+      `  other id : ${existing.id} (claimed ${existing.claimed_at})\n` +
+      `  this id  : ${id}\n` +
+      `  checkout : ${identity.checkout}\n` +
+      `  base     : ${baseSha} (${baseArg})\n` +
+      `Parallel executors of one wave share one git index here: their commits interleave and\n` +
+      `land under the wrong TRD. Each parallel TRD needs its own worktree:\n` +
+      `  df-tools exec-context worktree --repo ${mainRoot} --id ${id} --base ${baseArg}\n` +
+      `If the other executor is dead (stale claim), clear it with:\n` +
+      `  df-tools exec-context release --repo ${mainRoot} --id ${existing.id}`
+    );
+  }
+  // Unreadable or expired: its holder is gone.
+  fs.writeFileSync(file, body);
+  return record;
+}
+
 // ── exec-context check ───────────────────────────────────────────────────────
 
 function cmdExecContextCheck(cwd, args, raw) {
   const repoArg = flag(args, '--repo');
   if (repoArg === null || repoArg === undefined) {
-    error('exec-context check requires --repo <path> — the repository this spawn is supposed to be working in.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--raw]');
+    error('exec-context check requires --repo <path> — the repository this spawn is supposed to be working in.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>] [--raw]');
   }
   // Issue #100 finding 3: a relative --repo resolves against the SPAWN's OWN
   // cwd, so `--repo .` compares the repo the spawn is in with the repo the
@@ -161,7 +270,12 @@ function cmdExecContextCheck(cwd, args, raw) {
 
   const baseArg = flag(args, '--base');
   if (baseArg === undefined) {
-    error('--base was given without a value.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--raw]');
+    error('--base was given without a value.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>] [--raw]');
+  }
+
+  const idArg = flag(args, '--id');
+  if (idArg === undefined) {
+    error('--id was given without a value.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>] [--raw]');
   }
 
   let baseSha = null;
@@ -188,6 +302,12 @@ function cmdExecContextCheck(cwd, args, raw) {
     }
   }
 
+  // Issue #98: only with BOTH an id and a base — without either there is no
+  // (checkout, base) pair to claim, and older callers must keep working.
+  const claim = (idArg && baseSha)
+    ? takeClaim(actual, idArg, baseSha, expected.mainRoot, baseArg)
+    : null;
+
   const result = {
     ok: true,
     repo_root: actual.mainRoot,
@@ -198,8 +318,55 @@ function cmdExecContextCheck(cwd, args, raw) {
     base_ref: baseArg,
     base_sha: baseSha,
     base_visible: baseVisible,
+    claim,
   };
   output(result, raw, 'ok');
+}
+
+// ── exec-context release ─────────────────────────────────────────────────────
+
+function cmdExecContextRelease(cwd, args, raw) {
+  const usage = 'Usage: df-tools exec-context release --repo <path> [--id <plan_id>] [--raw]';
+  const repoArg = flag(args, '--repo');
+  if (repoArg === null || repoArg === undefined) {
+    error(`exec-context release requires --repo <path>.\n${usage}`);
+  }
+  if (!path.isAbsolute(repoArg)) {
+    error(`--repo must be an ABSOLUTE path; got: ${repoArg}\n${usage}`);
+  }
+  if (!fs.existsSync(repoArg)) error(`--repo does not exist: ${repoArg}`);
+  const expected = repoIdentity(repoArg);
+  if (!expected) error(`--repo is not a git repository: ${repoArg}`);
+  const actual = repoIdentity(cwd);
+  if (!actual) {
+    error(`Not inside a git repository at all (cwd: ${cwd}).\nExpected to be in: ${expected.mainRoot}`);
+  }
+  if (actual.commonDir !== expected.commonDir) {
+    error(
+      `WRONG REPOSITORY — release must run from inside the repo whose claims it clears.\n` +
+      `  expected repo : ${expected.mainRoot}\n` +
+      `  actually in   : ${actual.mainRoot}  (cwd: ${cwd})`
+    );
+  }
+  const idArg = flag(args, '--id');
+  if (idArg === undefined) error(`--id was given without a value.\n${usage}`);
+
+  const dir = claimDir(actual);
+  const prefix = `${checkoutKey(actual)}-`;
+  const released = [];
+  let entries = [];
+  try { entries = fs.readdirSync(dir); } catch { entries = []; }
+  for (const name of entries) {
+    if (!name.startsWith(prefix) || !name.endsWith('.json')) continue;
+    const file = path.join(dir, name);
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { rec = null; }
+    const holder = rec && rec.id;
+    if (idArg !== null && holder !== idArg) continue;
+    fs.rmSync(file, { force: true });
+    released.push(holder || null);
+  }
+  output({ ok: true, checkout: actual.checkout, released }, raw, released.join('\n'));
 }
 
 // ── exec-context worktree ────────────────────────────────────────────────────
@@ -300,9 +467,17 @@ function cmdExecContextRoute(cwd, args, raw) {
     cmdExecContextCheck(cwd, args.slice(1), raw);
   } else if (sub === 'worktree') {
     cmdExecContextWorktree(cwd, args.slice(1), raw);
+  } else if (sub === 'release') {
+    cmdExecContextRelease(cwd, args.slice(1), raw);
   } else {
-    error(`Unknown exec-context subcommand${sub ? ': ' + sub : ''}. Available: check, worktree`);
+    error(`Unknown exec-context subcommand${sub ? ': ' + sub : ''}. Available: check, worktree, release`);
   }
 }
 
-module.exports = { cmdExecContextRoute, cmdExecContextCheck, cmdExecContextWorktree, repoIdentity };
+module.exports = {
+  cmdExecContextRoute,
+  cmdExecContextCheck,
+  cmdExecContextWorktree,
+  cmdExecContextRelease,
+  repoIdentity,
+};

@@ -29,8 +29,12 @@ const { execSync, spawnSync } = require('child_process');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
 
-function run(argv, cwd) {
-  const r = spawnSync(process.execPath, [TOOLS_PATH, ...argv], { cwd, encoding: 'utf-8' });
+function run(argv, cwd, env) {
+  const r = spawnSync(process.execPath, [TOOLS_PATH, ...argv], {
+    cwd,
+    encoding: 'utf-8',
+    env: env ? { ...process.env, ...env } : process.env,
+  });
   return { status: r.status, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
 }
 
@@ -377,5 +381,136 @@ describe('exec-context — the guard must not certify itself (issue #100)', () =
       `merge_back must fall back to the named repo when cwd is elsewhere: ${json.merge_back}`);
     assert.ok(!json.merge_back.includes(fs.realpathSync(other)),
       `merge_back must never target an unrelated repo: ${json.merge_back}`);
+  });
+});
+
+/**
+ * Issue #98 — after #86 removed forced isolation, parallel executors of one
+ * wave must each be provisioned by `exec-context worktree`. If the orchestrator
+ * skips that, siblings share ONE checkout and race on ONE git index: commits
+ * interleave and land under the wrong TRD. `check --id <plan> --base <sha>`
+ * takes an exclusive claim on (checkout, base); a second, different id on the
+ * same claim is refused with SHARED INDEX.
+ */
+describe('exec-context check — shared-index claim (issue #98)', () => {
+  let repo;
+  let base;
+
+  beforeEach(() => {
+    repo = makeRepo('claim');
+    base = landWaveOne(repo);
+  });
+  afterEach(cleanupAll);
+
+  function claimsDir(dir) {
+    const common = git(dir, 'rev-parse --git-common-dir');
+    return path.join(fs.realpathSync(path.resolve(dir, common)), 'devflow-exec-claims');
+  }
+
+  function check(id, b = base, cwd = repo, env) {
+    const argv = ['exec-context', 'check', '--repo', repo, '--base', b];
+    if (id) argv.push('--id', id);
+    return run(argv, cwd, env);
+  }
+
+  test('(a) a second plan id on the same checkout and base is refused with SHARED INDEX', () => {
+    const first = check('98-01');
+    assert.strictEqual(first.status, 0, `first claim must pass; stderr: ${first.stderr}`);
+
+    const second = check('98-02');
+    assert.strictEqual(second.status, 1,
+      `a parallel sibling sharing this index must exit 1; stdout: ${second.stdout}`);
+    const said = second.stderr;
+    assert.match(said, /^(?:Error: )?SHARED INDEX —/m, `headline must be SHARED INDEX; got: ${said}`);
+    assert.ok(said.includes('98-01'), `must name the other executor's id; got: ${said}`);
+    assert.ok(said.includes(fs.realpathSync(repo)), `must name the checkout; got: ${said}`);
+    assert.ok(said.includes(base), `must name the base sha; got: ${said}`);
+    assert.ok(said.includes('exec-context worktree'), `must give the worktree fix; got: ${said}`);
+    assert.ok(said.includes('--id 98-02'), `the fix must be for THIS id; got: ${said}`);
+    assert.ok(said.includes('exec-context release'), `must say how to clear a stale claim; got: ${said}`);
+  });
+
+  test('(b) the same id re-running check is a retry, not a collision', () => {
+    assert.strictEqual(check('98-01').status, 0);
+    const again = check('98-01');
+    assert.strictEqual(again.status, 0, `retry must pass; stderr: ${again.stderr}`);
+    assert.strictEqual(JSON.parse(again.stdout).claim.id, '98-01');
+  });
+
+  test('(c) a later sequential wave (different base) in the same checkout passes', () => {
+    assert.strictEqual(check('98-01').status, 0);
+    fs.writeFileSync(path.join(repo, 'wave2.txt'), 'wave 2 output\n');
+    git(repo, 'add -A');
+    git(repo, 'commit -q -m "feat(98-01): wave 2 tip"');
+    const tip = git(repo, 'rev-parse HEAD');
+    const next = check('98-02', tip);
+    assert.strictEqual(next.status, 0, `a sequential wave must not collide; stderr: ${next.stderr}`);
+    assert.strictEqual(JSON.parse(next.stdout).claim.id, '98-02');
+  });
+
+  test('(d) siblings in separately provisioned worktrees with the same base both pass', () => {
+    const paths = [];
+    for (const id of ['98-01', '98-02']) {
+      const w = run(['exec-context', 'worktree', '--repo', repo, '--id', id, '--base', base], repo);
+      assert.strictEqual(w.status, 0, `stderr: ${w.stderr}`);
+      const wt = JSON.parse(w.stdout).worktree_path;
+      tmpRoots.push(wt);
+      paths.push([id, wt]);
+    }
+    for (const [id, wt] of paths) {
+      const r = check(id, base, wt);
+      assert.strictEqual(r.status, 0, `isolated sibling ${id} must pass; stderr: ${r.stderr}`);
+      assert.strictEqual(JSON.parse(r.stdout).claim.id, id);
+    }
+  });
+
+  test('(h) a claim file created but not yet written is HELD, not treated as dead', () => {
+    // Sibling A has won openSync('wx') and not yet written its record. Sibling B
+    // must not read the empty file as "unreadable, holder gone" and overwrite it.
+    assert.strictEqual(check('98-01').status, 0);
+    const [name] = fs.readdirSync(claimsDir(repo));
+    fs.writeFileSync(path.join(claimsDir(repo), name), '');
+    const r = check('98-02');
+    assert.strictEqual(r.status, 1, `a fresh half-written claim must block; stdout: ${r.stdout}`);
+    assert.match(r.stderr, /SHARED INDEX/);
+  });
+
+  test('(e) an expired claim is replaced', () => {
+    assert.strictEqual(check('98-01').status, 0);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 15) { /* let the 1ms TTL lapse */ }
+    const r = check('98-02', base, repo, { DEVFLOW_EXEC_CLAIM_TTL_MS: '1' });
+    assert.strictEqual(r.status, 0, `an expired claim must not block; stderr: ${r.stderr}`);
+    assert.strictEqual(JSON.parse(r.stdout).claim.id, '98-02');
+  });
+
+  test('(f) without --id (or without --base) no claim is taken — back-compat', () => {
+    const noId = check(null);
+    assert.strictEqual(noId.status, 0, noId.stderr);
+    const json = JSON.parse(noId.stdout);
+    assert.ok(Object.prototype.hasOwnProperty.call(json, 'claim'), 'result must carry a `claim` key');
+    assert.strictEqual(json.claim, null);
+    const dir = claimsDir(repo);
+    assert.ok(!fs.existsSync(dir) || fs.readdirSync(dir).length === 0,
+      'a check without --id must not create a claim');
+
+    const noBase = run(['exec-context', 'check', '--repo', repo, '--id', '98-01'], repo);
+    assert.strictEqual(noBase.status, 0, noBase.stderr);
+    assert.strictEqual(JSON.parse(noBase.stdout).claim, null);
+  });
+
+  test('(g) release clears claims; a non-matching --id leaves them', () => {
+    assert.strictEqual(check('98-01').status, 0);
+
+    const miss = run(['exec-context', 'release', '--repo', repo, '--id', '98-99'], repo);
+    assert.strictEqual(miss.status, 0, miss.stderr);
+    assert.deepStrictEqual(JSON.parse(miss.stdout).released, []);
+    assert.strictEqual(check('98-02').status, 1, 'a non-matching release must leave 98-01\'s claim');
+
+    const rel = run(['exec-context', 'release', '--repo', repo], repo);
+    assert.strictEqual(rel.status, 0, rel.stderr);
+    assert.deepStrictEqual(JSON.parse(rel.stdout).released, ['98-01']);
+    const after = check('98-02');
+    assert.strictEqual(after.status, 0, `after release a new id must pass; stderr: ${after.stderr}`);
   });
 });

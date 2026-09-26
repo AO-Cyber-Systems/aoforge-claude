@@ -55,6 +55,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   red and every channel says green, so the gate could not see it. On 25.9.0 and 26.10.0 the
   process exits `1`, which the unit gate's Guard 0 already fails. `test.yml` and
   `agent-shell-harness.yml` now pin `26`; the allowlist's `$environment` is restated.
+- **`exec-context check` refuses a parallel sibling on a shared index** (#98) — with
+  `--id` + `--base`, check claims (checkout, base); a second plan id on the same claim exits 1
+  with `SHARED INDEX` instead of racing on one git index. New `exec-context release` clears a
+  stale claim. Executor prompt and `executor.md` now pass `--id`.
 - **`df-tools <command> --help` no longer mutates anything** (#87). `--help`/`-h` is
   answered by the dispatcher *before* it selects a subcommand, so no subcommand can
   receive a help flag as data. `df-tools commit --help` used to take `--help` as the

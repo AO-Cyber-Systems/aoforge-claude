@@ -1212,8 +1212,9 @@ async function main() {
     }
 
     case 'exec-context': {
-      // df-tools exec-context check --repo <path> [--base <ref>]
+      // df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>]
       // df-tools exec-context worktree --repo <path> --id <slug> [--base <ref>] [--path <dir>]
+      // df-tools exec-context release --repo <path> [--id <slug>]
       cmdExecContextRoute(cwd, args.slice(1), raw);
       break;
     }
