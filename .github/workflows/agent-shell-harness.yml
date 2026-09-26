@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '26'
 
       # The stub binaries are reached through a prepended PATH. If the checkout lost the
       # executable bit, every section would report MISSING rather than pass — but only

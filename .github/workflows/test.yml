@@ -70,7 +70,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # 26, not 22 or 24 (#101): a describe-scoped after() hook that throws exits 0
+          # with no <failure> on node 22.23.3 and 24.13.1 — both channels silent, so the
+          # gate cannot see it. node 25.9.0 / 26.10.0 exit 1, which Guard 0 catches.
+          node-version: '26'
           cache: npm
 
       - name: Install dependencies
