@@ -213,6 +213,7 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 | 15 | Make /devflow:objective model-invocable; gate `objective remove` cascade behind `--confirm` (dry-run by default) (dir numbered 13) | 2026-08-25 | bd12f42 | Verified | [13-make-objective-skill-model-invocable-add](./quick/13-make-objective-skill-model-invocable-add/) |
 | 16 | Bump `mcp` gem 0.12.0 → 0.25.0 in both aosentry-mcp lockfiles (closes 10 Dependabot alerts, 5 advisories) + add missing `.github/dependabot.yml` (dir numbered 14) | 2026-09-01 | 3598bb7 | — | [14-bump-mcp-gem-to-0-25-0-in-aosentry-mcp-l](./quick/14-bump-mcp-gem-to-0-25-0-in-aosentry-mcp-l/) |
 | 17 | Fix `changelog-on-tag` gate to validate the tagged commit's tree instead of the working tree (unblocks retroactive tagging); also backport TRD 27-04 quote/heredoc stripping so mentions no longer false-positive. First test file for this hook, 23 cases (dir numbered 15) | 2026-09-02 | c5770e8 | — | [15-fix-changelog-on-tag-gate-to-validate-th](./quick/15-fix-changelog-on-tag-gate-to-validate-th/) |
+| 18 | Roadmap reconciler accepts slugless `NN-MM-TRD.md` lines (obj 32/33 reconciled); 34-06 checkpoint approved; STATE current position refreshed (dir numbered 16) | 2026-09-26 | a778a7b | — | [16-fix-roadmap-reconciler-slugless-trd-line](./quick/16-fix-roadmap-reconciler-slugless-trd-line/) |
 
 ## Session Continuity
 
