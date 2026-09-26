@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-09-26
+
+Contract hardening after W1b: the tools stop answering yes when nothing was checked, stop
+mutating anything when asked for help, and an executor has to prove which repository and base
+it is standing in. **One BREAKING change, narrow in scope:** `ui spec validate|render`,
+`ui sheet` and `ui lock` (all first shipped in 2.9.0) now exit `2` when a check did not run.
+Any other caller is unaffected.
+
 ### Added
 - **`df-tools exec-context check|worktree`** (#86) — a dispatched executor's repository
   and base are now stated by the orchestrator and proven by the agent, instead of being
@@ -50,6 +58,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a per-wave `WAVE_BASE` before spawning and provisions parallel-wave worktrees itself.
 
 ### Fixed
+- **`sync-roadmap` reconciles slugless TRD lines.** `roadmap-reconcile.cjs` required a slug
+  between the id and `-TRD.md`, so ROADMAP lines of the form `- [ ] 32-01-TRD.md — …` were
+  skipped silently, and `sync-roadmap --dry-run` reported zero drift while objectives 32 and
+  33 had every SUMMARY on disk. The slug is now optional in both the TRD-line and the rollup
+  regex. (#104)
 - **CI runs node 26, not 22** (#101). A `describe`-scoped `after()` hook that throws exits
   `0` with no `<failure>` in the junit report on node 22.23.3 **and** 24.13.1 — the suite is
   red and every channel says green, so the gate could not see it. On 25.9.0 and 26.10.0 the
