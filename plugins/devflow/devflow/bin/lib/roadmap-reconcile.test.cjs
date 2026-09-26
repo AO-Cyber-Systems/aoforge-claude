@@ -1104,3 +1104,102 @@ test('E2E4: drift across multiple objectives — mixed state → correct per-TRD
     cleanup();
   }
 });
+
+// ─── Group SL — slugless TRD lines (quick-16) ─────────────────────────────────
+// ROADMAP lines of the form '- [ ] 32-01-TRD.md — desc' (no slug between the
+// trd_id and '-TRD.md') were invisible to the reconciler, so objectives 32/33
+// never flipped to [x] even with PASSED SUMMARYs on disk.
+
+test('SL1: _walkTrdLines parses a slugless unchecked TRD line', () => {
+  const content = [
+    '### Objective 32: Visual eval',
+    '',
+    '- [ ] 32-01-TRD.md — Wave 1: foo',
+  ].join('\n');
+  const result = reconcile._walkTrdLines(content);
+  assert.strictEqual(result.length, 1);
+  const entry = result[0];
+  assert.strictEqual(entry.trd_id, '32-01');
+  assert.strictEqual(entry.trd_filename, '32-01-TRD.md');
+  assert.strictEqual(entry.description, 'Wave 1: foo');
+  assert.strictEqual(entry.checked, false);
+  assert.strictEqual(entry.has_failed_annotation, false);
+  assert.strictEqual(entry.objective_num, '32');
+});
+
+test('SL2: _walkTrdLines parses a slugless checked line with (failed) suffix', () => {
+  const content = [
+    '### Objective 33: CI gate',
+    '',
+    '- [x] 33-02-TRD.md — Wave 2: bar (failed)',
+  ].join('\n');
+  const result = reconcile._walkTrdLines(content);
+  assert.strictEqual(result.length, 1);
+  assert.strictEqual(result[0].trd_id, '33-02');
+  assert.strictEqual(result[0].trd_filename, '33-02-TRD.md');
+  assert.strictEqual(result[0].checked, true);
+  assert.strictEqual(result[0].has_failed_annotation, true);
+  assert.strictEqual(result[0].description, 'Wave 2: bar');
+});
+
+test('SL3: slugged line still yields trd_id NN-NN and full filename (regression guard)', () => {
+  const content = [
+    '### Objective 01: Foo',
+    '',
+    '- [x] 01-01-foo-TRD.md — bar',
+  ].join('\n');
+  const result = reconcile._walkTrdLines(content);
+  assert.strictEqual(result.length, 1);
+  assert.strictEqual(result[0].trd_id, '01-01');
+  assert.strictEqual(result[0].trd_filename, '01-01-foo-TRD.md');
+  assert.strictEqual(result[0].description, 'bar');
+  assert.strictEqual(result[0].checked, true);
+});
+
+test('SL4: reconcile flips a slugless [ ] line to [x] when NN-MM-SUMMARY.md is PASSED', () => {
+  const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-sl4-'));
+  const objDir = path.join(tmpBase, '.planning', 'objectives', '32-visual-eval');
+  try {
+    fs.mkdirSync(objDir, { recursive: true });
+    fs.writeFileSync(path.join(objDir, '32-01-TRD.md'), '---\nobjective: 32\ntrd: 01\n---\n', 'utf-8');
+    fs.writeFileSync(path.join(objDir, '32-01-SUMMARY.md'), '# Summary\n\n## Self-Check: PASSED\n', 'utf-8');
+    fs.writeFileSync(
+      path.join(tmpBase, '.planning', 'ROADMAP.md'),
+      ['### Objective 32: Visual eval', '', '- [ ] 32-01-TRD.md — Wave 1: foo', ''].join('\n'),
+      'utf-8',
+    );
+
+    const dry = reconcile.reconcile({ projectRoot: tmpBase, mode: 'dry-run', today: '2026-09-26' });
+    const flip = dry.changes.find(c => c.kind === 'trd_summary_exists');
+    assert.ok(flip, 'trd_summary_exists change proposed for slugless line');
+    assert.strictEqual(flip.trd_id, '32-01');
+    assert.strictEqual(flip.after, '- [x] 32-01-TRD.md — Wave 1: foo');
+    assert.strictEqual(dry.warnings.length, 0, 'no orphan warning — slugless TRD file is found');
+
+    reconcile.reconcile({ projectRoot: tmpBase, mode: 'write', today: '2026-09-26' });
+    const written = fs.readFileSync(path.join(tmpBase, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.ok(written.includes('- [x] 32-01-TRD.md — Wave 1: foo'), 'flip applied on disk');
+
+    const again = reconcile.reconcile({ projectRoot: tmpBase, mode: 'dry-run', today: '2026-09-26' });
+    assert.deepStrictEqual(again.changes, [], 'idempotent after write');
+  } finally {
+    fs.rmSync(tmpBase, { recursive: true, force: true });
+  }
+});
+
+test('SL5: objective rollup counts slugless TRD checkbox lines', () => {
+  const lines = [
+    '### Objective 33: CI gate',
+    '',
+    '**Status:** in flight',
+    '',
+    '- [x] 33-01-TRD.md — Wave 1',
+    '- [x] 33-02-TRD.md — Wave 2',
+    '',
+  ];
+  const result = reconcile._rollupObjectiveStatus(lines, '2026-09-26');
+  const ch = result.changes.find(c => c.kind === 'objective_rollup_status');
+  assert.ok(ch, 'all-slugless all-[x] objective is rolled up');
+  assert.strictEqual(ch.objective_num, '33');
+  assert.strictEqual(lines[2], '**Status:** complete 2026-09-26');
+});
