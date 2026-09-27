@@ -1,0 +1,85 @@
+{
+  "mode": "yolo",
+  "depth": "standard",
+  "job_checker_enabled": true,
+  "workflow": {
+    "research": true,
+    "job_check": true,
+    "verifier": true,
+    "auto_advance": true,
+    "verifier_checkpoints": false,
+    "decision_queue": false
+  },
+  "planning": {
+    "commit_docs": true,
+    "search_gitignored": false
+  },
+  "parallelization": {
+    "enabled": true,
+    "job_level": true,
+    "task_level": false,
+    "skip_checkpoints": true,
+    "max_concurrent_agents": 3,
+    "min_jobs_for_parallel": 2
+  },
+  "gates": {
+    "confirm_project": true,
+    "confirm_objectives": true,
+    "confirm_roadmap": true,
+    "confirm_breakdown": true,
+    "confirm_job": true,
+    "execute_next_job": true,
+    "issues_review": true,
+    "confirm_transition": true,
+    "editGate": "strict"
+  },
+  "safety": {
+    "always_confirm_destructive": true,
+    "always_confirm_external_services": true
+  },
+  "workstreams": {
+    "worktree_prefix": "../{project}-ws-",
+    "branch_prefix": "df/ws-",
+    "merge_strategy": "squash"
+  },
+  "github": {
+    "enabled": false,
+    "repo": "",
+    "milestone_prefix": "v",
+    "labels": {
+      "objective": "devflow:objective",
+      "in_progress": "devflow:in-progress",
+      "gaps": "devflow:gaps"
+    }
+  },
+  "awareness": {
+    "cache_ttl_minutes": 10,
+    "peer_stale_days": 30,
+    "branch_patterns": [
+      "feature/*",
+      "df/*",
+      "fix/*",
+      "proposal/*"
+    ],
+    "org_project_id": "PVT_kwDODwqLrc4BRsOP",
+    "sibling_repos": [],
+    "eden_libs_path": null
+  },
+  "daemon": {
+    "notifications": false,
+    "notify_on_start": true,
+    "notify_on_complete": true,
+    "auto_launch": false,
+    "multi_project": false,
+    "cross_shell": [],
+    "status_line": false
+  },
+  "devflow": {
+    "version": "2.10.1",
+    "migrations_applied": [
+      "0001",
+      "0004"
+    ],
+    "upgraded_at": "2026-09-27T23:33:24.984Z"
+  }
+}
