@@ -58,6 +58,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const {
@@ -72,6 +73,7 @@ const {
   snapshot,
   diffSnapshots,
   LEGACY_CLAUDE_MD_BLOCK,
+  FIXTURE_STAMP_TIME,
 } = require('./__fixtures__/upgrade-fixtures.cjs');
 
 const upgrade = require('./upgrade.cjs');
@@ -320,5 +322,477 @@ describe('loadRegistry', () => {
     assert.equal(upgrade.loadRegistry({ registryDir: dir })[0].title, 'first');
     fs.writeFileSync(path.join(dir, '0001-a.cjs'), migrationSource({ id: '0001', title: 'second', ...VALID }));
     assert.equal(upgrade.loadRegistry({ registryDir: dir })[0].title, 'second');
+  });
+});
+
+// ─── Fixture registries for check/apply ───────────────────────────────────────
+
+const PV = '2.11.0';
+const NOW = new Date('2026-09-27T12:00:00.000Z');
+const NOW_DIR = '2026-09-27T12-00-00-000Z';
+const REPORT_KEYS = ['applied', 'backup', 'changed_files', 'failed', 'from', 'pending', 'pending_confirm',
+  'skipped', 'to', 'up_to_date'];
+
+// Idempotent marker migration: applies while `.planning/MIGRATED-<id>` is absent, honours dryRun.
+function markerMigration(id, { safety = 'auto' } = {}) {
+  return migrationSource({
+    id,
+    title: `mark ${id}`,
+    safety,
+    detect: `    const p = path.join(ctx.projectRoot, '.planning', 'MIGRATED-${id}');
+    return fs.existsSync(p) ? { applies: false, reason: 'marker present' } : { applies: true, reason: 'marker ${id} missing' };`,
+    apply: `    if (!ctx.dryRun) fs.writeFileSync(path.join(ctx.projectRoot, '.planning', 'MIGRATED-${id}'), 'ok\\n');
+    return { changed: ['.planning/MIGRATED-${id}'], notes: 'wrote marker ${id}' };`,
+  });
+}
+
+function notApplicable(id) {
+  return migrationSource({
+    id,
+    title: `noop ${id}`,
+    detect: "    return { applies: false, reason: 'not needed here' };",
+    apply: "    throw new Error('a non-applicable migration must never run');",
+  });
+}
+
+function throwingApply(id) {
+  return migrationSource({
+    id,
+    title: `boom ${id}`,
+    detect: "    return { applies: true, reason: 'always' };",
+    apply: `    throw new Error('apply boom ${id}');`,
+  });
+}
+
+// Records every ctx it receives in globalThis.__df36Probe; always applicable; honours dryRun.
+function probeMigration(id) {
+  return migrationSource({
+    id,
+    title: `probe ${id}`,
+    detect: `    (globalThis.__df36Probe = globalThis.__df36Probe || []).push({ phase: 'detect', ctx });
+    return { applies: !fs.existsSync(path.join(ctx.projectRoot, 'PROBE.txt')), reason: 'probe' };`,
+    apply: `    (globalThis.__df36Probe = globalThis.__df36Probe || []).push({ phase: 'apply', ctx });
+    if (!ctx.dryRun) fs.writeFileSync(path.join(ctx.projectRoot, 'PROBE.txt'), 'probe\\n');
+    return { changed: ['PROBE.txt'], notes: null };`,
+  });
+}
+
+// {0001 auto applies, 0002 auto not-applicable, 0003 confirm applies}
+function standardRegistry() {
+  return registry({
+    '0001-mark.cjs': markerMigration('0001'),
+    '0002-noop.cjs': notApplicable('0002'),
+    '0003-confirm.cjs': markerMigration('0003', { safety: 'confirm' }),
+  });
+}
+
+function backupsRoot(h) { return path.join(h, '.claude', 'devflow', 'backups'); }
+
+// ─── check() ──────────────────────────────────────────────────────────────────
+
+describe('check', () => {
+  test('10: classifies pending / pending_confirm / skipped; from null, to pluginVersion', () => {
+    const project = v1();
+    const h = home();
+    const r = upgrade.check({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: standardRegistry() });
+    assert.deepEqual(Object.keys(r).sort(), REPORT_KEYS);
+    assert.deepEqual(r.pending, [{ id: '0001', title: 'mark 0001', safety: 'auto', reason: 'marker 0001 missing' }]);
+    assert.deepEqual(r.pending_confirm, [{ id: '0003', title: 'mark 0003', reason: 'marker 0003 missing' }]);
+    assert.deepEqual(r.skipped, [{ id: '0002', reason: 'not needed here' }]);
+    assert.equal(r.from, null);
+    assert.equal(r.to, PV);
+    assert.equal(r.up_to_date, false);
+    assert.deepEqual(r.applied, []);
+    assert.deepEqual(r.failed, []);
+    assert.deepEqual(r.changed_files, []);
+    assert.equal(r.backup, null);
+  });
+
+  test('10b: `only` narrows check; a stamped project with nothing applicable is up_to_date', () => {
+    const project = v1();
+    const h = home();
+    const narrowed = upgrade.check({ projectRoot: project, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), only: ['0003'] });
+    assert.deepEqual(narrowed.pending, []);
+    assert.deepEqual(narrowed.pending_confirm.map((p) => p.id), ['0003']);
+    assert.deepEqual(narrowed.skipped, []);
+
+    const current = track(makeStampedProject(PV));
+    const r = upgrade.check({ projectRoot: current, userHome: h, pluginVersion: PV,
+      registryDir: registry({ '0002-noop.cjs': notApplicable('0002') }) });
+    assert.equal(r.from, PV);
+    assert.equal(r.up_to_date, true);
+
+    const behind = track(makeStampedProject('2.0.0'));
+    const r2 = upgrade.check({ projectRoot: behind, userHome: h, pluginVersion: PV,
+      registryDir: registry({ '0002-noop.cjs': notApplicable('0002') }) });
+    assert.equal(r2.from, '2.0.0');
+    assert.equal(r2.up_to_date, false);
+  });
+
+  test('11: check() writes nothing — project and home byte-identical, no backups dir', () => {
+    const project = v1();
+    const h = home();
+    const reg = standardRegistry();
+    const before = snapshot(project);
+    const homeBefore = snapshot(h);
+    upgrade.check({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg });
+    assert.deepEqual(diffSnapshots(before, snapshot(project)), []);
+    assert.deepEqual(diffSnapshots(homeBefore, snapshot(h)), []);
+    assert.ok(!fs.existsSync(backupsRoot(h)));
+  });
+
+  test('12: a detect that throws → failed (phase detect); never up_to_date', () => {
+    const project = track(makeStampedProject(PV));
+    const h = home();
+    const reg = registry({
+      '0001-bad.cjs': migrationSource({ id: '0001', detect: "    throw new Error('detect boom');", apply: VALID.apply }),
+    });
+    const r = upgrade.check({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg });
+    assert.equal(r.failed.length, 1);
+    assert.equal(r.failed[0].id, '0001');
+    assert.equal(r.failed[0].phase, 'detect');
+    assert.match(r.failed[0].error, /detect boom/);
+    assert.equal(r.up_to_date, false);
+  });
+});
+
+// ─── apply() ──────────────────────────────────────────────────────────────────
+
+describe('apply', () => {
+  test('13: applies auto 0001 only; confirm 0003 stays pending_confirm; stamp advanced', () => {
+    const project = v1();
+    const h = home();
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), now: NOW });
+    assert.deepEqual(Object.keys(r).sort(), REPORT_KEYS);
+    assert.deepEqual(r.applied, [{ id: '0001', title: 'mark 0001', changed: ['.planning/MIGRATED-0001'],
+      notes: 'wrote marker 0001' }]);
+    assert.deepEqual(r.pending, []);
+    assert.deepEqual(r.pending_confirm.map((p) => p.id), ['0003']);
+    assert.deepEqual(r.skipped, [{ id: '0002', reason: 'not needed here' }]);
+    assert.deepEqual(r.failed, []);
+    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0001', '.planning/config.json']);
+    assert.ok(exists(project, '.planning/MIGRATED-0001'));
+    assert.ok(!exists(project, '.planning/MIGRATED-0003'));
+    assert.deepEqual(upgrade.readStamp(project),
+      { version: PV, migrations_applied: ['0001'], upgraded_at: NOW.toISOString() });
+    assert.equal(r.from, null);
+    assert.equal(r.to, PV);
+  });
+
+  test("14: only ['0003'] runs the confirm migration alone; version not advanced", () => {
+    const project = v1();
+    const h = home();
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), only: ['0003'], now: NOW });
+    assert.deepEqual(r.applied.map((a) => a.id), ['0003']);
+    assert.deepEqual(r.pending.map((p) => [p.id, p.safety]), [['0001', 'auto']]);
+    assert.ok(exists(project, '.planning/MIGRATED-0003'));
+    assert.ok(!exists(project, '.planning/MIGRATED-0001'));
+    const stamp = upgrade.readStamp(project);
+    assert.equal(stamp.version, null);
+    assert.deepEqual(stamp.migrations_applied, ['0003']);
+    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0003', '.planning/config.json']);
+
+    const stamped = track(makeStampedProject('2.0.0'));
+    upgrade.apply({ projectRoot: stamped, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), only: ['0003'], now: NOW });
+    assert.equal(upgrade.readStamp(stamped).version, '2.0.0');
+    assert.deepEqual(upgrade.readStamp(stamped).migrations_applied, ['0003']);
+  });
+
+  test('15: confirm:true runs 0001 and 0003; stamp version === to', () => {
+    const project = v1();
+    const h = home();
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), confirm: true, now: NOW });
+    assert.deepEqual(r.applied.map((a) => a.id), ['0001', '0003']);
+    assert.deepEqual(r.pending_confirm, []);
+    const stamp = upgrade.readStamp(project);
+    assert.equal(stamp.version, PV);
+    assert.deepEqual(stamp.migrations_applied, ['0001', '0003']);
+    assert.equal(r.up_to_date, true);
+  });
+
+  test("16: only ['9999'] → RegistryError 'unknown migration id 9999', nothing written", () => {
+    const project = v1();
+    const h = home();
+    const before = snapshot(project);
+    assert.throws(
+      () => upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
+        registryDir: standardRegistry(), only: ['9999'], now: NOW }),
+      (e) => e instanceof upgrade.RegistryError && /unknown migration id 9999/.test(e.message),
+    );
+    assert.throws(
+      () => upgrade.check({ projectRoot: project, userHome: h, pluginVersion: PV,
+        registryDir: standardRegistry(), only: ['9999'] }),
+      (e) => e instanceof upgrade.RegistryError,
+    );
+    assert.deepEqual(diffSnapshots(before, snapshot(project)), []);
+    assert.ok(!fs.existsSync(backupsRoot(h)));
+  });
+
+  test('17: backup lives under <home>/.claude/devflow/backups/<slug>-<hash8>/<ts>/ with PRE-apply bytes', () => {
+    const project = v1();
+    const h = home();
+    const configBefore = read(project, '.planning/config.json');
+    const claudeBefore = read(project, 'CLAUDE.md');
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), now: NOW });
+
+    const real = fs.realpathSync(project);
+    const slug = path.basename(real).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const hash8 = crypto.createHash('sha1').update(real).digest('hex').slice(0, 8);
+    assert.equal(r.backup, path.join(backupsRoot(h), `${slug}-${hash8}`, NOW_DIR));
+    assert.match(path.basename(path.dirname(r.backup)), /-[0-9a-f]{8}$/);
+    assert.equal(fs.readFileSync(path.join(r.backup, '.planning', 'config.json'), 'utf-8'), configBefore);
+    assert.equal(fs.readFileSync(path.join(r.backup, 'CLAUDE.md'), 'utf-8'), claudeBefore);
+    assert.ok(fs.existsSync(path.join(r.backup, '.planning', 'objectives', '01-alpha', '01-01-JOB.md')));
+    assert.ok(!fs.existsSync(path.join(r.backup, '.planning', 'MIGRATED-0001')), 'backup taken before the first write');
+    assert.ok(path.relative(project, r.backup).startsWith('..'));
+
+    // backupDirFor agrees with apply for a fresh timestamp, and refuses a dir inside the project.
+    const later = new Date('2026-09-27T13:00:00.000Z');
+    assert.equal(upgrade.backupDirFor({ projectRoot: project, userHome: h, now: later }),
+      path.join(backupsRoot(h), `${slug}-${hash8}`, '2026-09-27T13-00-00-000Z'));
+    assert.throws(() => upgrade.backupDirFor({ projectRoot: project, userHome: path.join(project, 'nested-home'), now: later }),
+      /inside the project/);
+
+    // No CLAUDE.md → backup still works and simply has none.
+    const bare = v1({ claudeMdBlock: null });
+    const r2 = upgrade.apply({ projectRoot: bare, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), now: NOW });
+    assert.ok(fs.existsSync(path.join(r2.backup, '.planning', 'config.json')));
+    assert.ok(!fs.existsSync(path.join(r2.backup, 'CLAUDE.md')));
+  });
+
+  test('18: two applies with the same `now` → distinct backup dirs, the first never overwritten', () => {
+    const project = v1();
+    const h = home();
+    const reg = registry({
+      '0001-always.cjs': migrationSource({
+        id: '0001',
+        title: 'always',
+        detect: "    return { applies: true, reason: 'always' };",
+        apply: "    if (!ctx.dryRun) fs.appendFileSync(path.join(ctx.projectRoot, '.planning', 'COUNTER'), 'x');\n    return { changed: ['.planning/COUNTER'], notes: null };",
+      }),
+    });
+    const r1 = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW });
+    const firstBackup = snapshot(r1.backup);
+    const r2 = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW });
+    assert.notEqual(r1.backup, r2.backup);
+    assert.equal(path.basename(r1.backup), NOW_DIR);
+    assert.equal(path.basename(r2.backup), `${NOW_DIR}-1`);
+    assert.deepEqual(diffSnapshots(firstBackup, snapshot(r1.backup)), []);
+    assert.ok(!fs.existsSync(path.join(r1.backup, '.planning', 'COUNTER')));
+    assert.equal(fs.readFileSync(path.join(r2.backup, '.planning', 'COUNTER'), 'utf-8'), 'x');
+  });
+
+  test('19: an apply that throws → failed, later migrations do not run, version not advanced, no throw', () => {
+    const project = v1();
+    const h = home();
+    const reg = registry({
+      '0001-mark.cjs': markerMigration('0001'),
+      '0002-boom.cjs': throwingApply('0002'),
+      '0003-mark.cjs': markerMigration('0003'),
+    });
+    let r;
+    assert.doesNotThrow(() => {
+      r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW });
+    });
+    assert.deepEqual(r.applied.map((a) => a.id), ['0001']);
+    assert.equal(r.failed.length, 1);
+    assert.equal(r.failed[0].id, '0002');
+    assert.equal(r.failed[0].phase, 'apply');
+    assert.match(r.failed[0].error, /apply boom 0002/);
+    assert.ok(!exists(project, '.planning/MIGRATED-0003'), '0003 must not run after 0002 failed');
+    assert.deepEqual(r.pending.map((p) => p.id), ['0003']);
+    const stamp = upgrade.readStamp(project);
+    assert.equal(stamp.version, null);
+    assert.deepEqual(stamp.migrations_applied, ['0001']);
+    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0001', '.planning/config.json']);
+    assert.equal(r.up_to_date, false);
+    assert.ok(r.backup);
+
+    // A stamped project whose only migration throws keeps its version and its config bytes.
+    const stamped = track(makeStampedProject('2.0.0'));
+    const configBefore = read(stamped, '.planning/config.json');
+    const r2 = upgrade.apply({ projectRoot: stamped, userHome: h, pluginVersion: PV,
+      registryDir: registry({ '0001-boom.cjs': throwingApply('0001') }), now: NOW });
+    assert.equal(r2.failed[0].phase, 'apply');
+    assert.equal(read(stamped, '.planning/config.json'), configBefore);
+    assert.deepEqual(r2.changed_files, []);
+  });
+
+  test('20: a migration reporting an absolute or `..` path → failed with a path error', () => {
+    const h = home();
+    for (const bad of ['/abs/x', '../x', 'a/../../x']) {
+      const project = v1();
+      const reg = registry({
+        '0001-bad.cjs': migrationSource({
+          id: '0001',
+          detect: "    return { applies: true, reason: 'always' };",
+          apply: `    return { changed: [${JSON.stringify(bad)}], notes: null };`,
+        }),
+      });
+      const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW });
+      assert.deepEqual(r.applied, [], bad);
+      assert.equal(r.failed.length, 1, bad);
+      assert.equal(r.failed[0].id, '0001');
+      assert.equal(r.failed[0].phase, 'apply');
+      assert.match(r.failed[0].error, /path/i, bad);
+      assert.ok(!r.changed_files.includes(bad), bad);
+      assert.equal(upgrade.readStamp(project), null, bad);
+    }
+  });
+
+  test('21: dryRun → ctx.dryRun true, no stamp, no backup, tree unchanged; changed_files = would-change', () => {
+    const project = v1();
+    const h = home();
+    globalThis.__df36Probe = [];
+    const before = snapshot(project);
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
+      registryDir: registry({ '0001-probe.cjs': probeMigration('0001'), '0002-mark.cjs': markerMigration('0002') }),
+      dryRun: true, now: NOW });
+    assert.ok(globalThis.__df36Probe.length >= 2);
+    assert.ok(globalThis.__df36Probe.every((p) => p.ctx.dryRun === true));
+    assert.deepEqual(globalThis.__df36Probe.map((p) => p.phase), ['detect', 'apply']);
+    assert.equal(r.backup, null);
+    assert.ok(!fs.existsSync(backupsRoot(h)));
+    assert.deepEqual(diffSnapshots(before, snapshot(project)), []);
+    assert.equal(upgrade.readStamp(project), null);
+    assert.deepEqual(r.applied.map((a) => a.id), ['0001', '0002']);
+    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0002', '.planning/config.json', 'PROBE.txt']);
+    assert.equal(r.up_to_date, false);
+  });
+
+  test('22: a second apply is a no-op — nothing applied, no backup, tree byte-identical', () => {
+    const project = v1();
+    const h = home();
+    const reg = standardRegistry();
+    const first = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW });
+    assert.deepEqual(first.applied.map((a) => a.id), ['0001']);
+    const between = snapshot(project);
+    const homeBetween = snapshot(h);
+    const second = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg,
+      now: new Date('2026-09-28T12:00:00.000Z') });
+    assert.deepEqual(second.applied, []);
+    assert.deepEqual(second.changed_files, []);
+    assert.equal(second.backup, null);
+    assert.deepEqual(second.failed, []);
+    assert.equal(second.from, PV);
+    assert.deepEqual(diffSnapshots(between, snapshot(project)), []);
+    assert.deepEqual(diffSnapshots(homeBetween, snapshot(h)), []);
+  });
+
+  test('23: stamp-only — version rewritten, nothing else touched, key order preserved, no backup', () => {
+    const project = track(makeStampedProject('2.0.0', { migrations_applied: ['0001'] }));
+    const h = home();
+    const before = JSON.parse(read(project, '.planning/config.json'));
+    const snapBefore = snapshot(project);
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: '2.10.1',
+      registryDir: registry({ '0002-noop.cjs': notApplicable('0002') }), now: NOW });
+    assert.deepEqual(r.applied, []);
+    assert.deepEqual(r.changed_files, ['.planning/config.json']);
+    assert.equal(r.backup, null);
+    assert.ok(!fs.existsSync(backupsRoot(h)));
+    assert.equal(r.from, '2.0.0');
+    assert.equal(r.to, '2.10.1');
+    assert.equal(r.up_to_date, true);
+    assert.deepEqual(diffSnapshots(snapBefore, snapshot(project)), ['.planning/config.json']);
+
+    const raw = read(project, '.planning/config.json');
+    const after = JSON.parse(raw);
+    assert.equal(raw, JSON.stringify(after, null, 2) + '\n');
+    assert.deepEqual(Object.keys(after), Object.keys(before));
+    for (const key of Object.keys(before)) {
+      if (key !== 'devflow') assert.deepEqual(after[key], before[key], key);
+    }
+    assert.deepEqual(after.devflow, { version: '2.10.1', migrations_applied: ['0001'], upgraded_at: NOW.toISOString() });
+  });
+
+  test('24: ctx is exactly {projectRoot, userHome, pluginVersion, dryRun, options}', () => {
+    const project = v1();
+    const h = home();
+    const reg = registry({ '0001-probe.cjs': probeMigration('0001') });
+    const options = { kind: 'plugin', defaultWork: 'feature' };
+    const expected = { projectRoot: project, userHome: h, pluginVersion: PV, dryRun: false, options };
+
+    globalThis.__df36Probe = [];
+    upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW, options });
+    assert.deepEqual(globalThis.__df36Probe.map((p) => p.phase), ['detect', 'apply']);
+    for (const { ctx } of globalThis.__df36Probe) {
+      assert.deepEqual(Object.keys(ctx).sort(), ['dryRun', 'options', 'pluginVersion', 'projectRoot', 'userHome']);
+      assert.deepEqual(ctx, expected);
+    }
+
+    // check() hands detect the same shape, with dryRun true because check never writes.
+    const fresh = v1();
+    globalThis.__df36Probe = [];
+    upgrade.check({ projectRoot: fresh, userHome: h, pluginVersion: PV, registryDir: reg });
+    assert.equal(globalThis.__df36Probe.length, 1);
+    assert.deepEqual(globalThis.__df36Probe[0].ctx,
+      { projectRoot: fresh, userHome: h, pluginVersion: PV, dryRun: true, options: {} });
+  });
+
+  test('24b: apply/check without an absolute userHome throw before touching anything', () => {
+    const project = v1();
+    const before = snapshot(project);
+    assert.throws(() => upgrade.apply({ projectRoot: project, pluginVersion: PV,
+      registryDir: standardRegistry(), now: NOW }), /userHome/);
+    assert.throws(() => upgrade.check({ projectRoot: project, userHome: 'relative/home', pluginVersion: PV,
+      registryDir: standardRegistry() }), /userHome/);
+    assert.deepEqual(diffSnapshots(before, snapshot(project)), []);
+  });
+});
+
+// ─── Stamp helpers ────────────────────────────────────────────────────────────
+
+describe('stamp helpers', () => {
+  test('25: readStamp → null without config.json or without devflow; the stamp otherwise', () => {
+    assert.equal(upgrade.readStamp(v1()), null);
+    const noConfig = v1();
+    fs.rmSync(path.join(noConfig, '.planning', 'config.json'));
+    assert.equal(upgrade.readStamp(noConfig), null);
+    const noPlanning = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-upgrade-empty-')));
+    assert.equal(upgrade.readStamp(noPlanning), null);
+
+    const stamped = track(makeStampedProject('2.0.0', { migrations_applied: ['0001', '0002'] }));
+    assert.deepEqual(upgrade.readStamp(stamped),
+      { version: '2.0.0', migrations_applied: ['0001', '0002'], upgraded_at: FIXTURE_STAMP_TIME });
+
+    // writeStamp creates config.json when absent, and preserves every other key when present.
+    const stamp = { version: PV, migrations_applied: ['0001'], upgraded_at: NOW.toISOString() };
+    upgrade.writeStamp(noConfig, stamp);
+    assert.equal(read(noConfig, '.planning/config.json'), JSON.stringify({ devflow: stamp }, null, 2) + '\n');
+    const flat = v1();
+    const flatBefore = JSON.parse(read(flat, '.planning/config.json'));
+    upgrade.writeStamp(flat, stamp);
+    const flatAfter = JSON.parse(read(flat, '.planning/config.json'));
+    assert.deepEqual(Object.keys(flatAfter), [...Object.keys(flatBefore), 'devflow']);
+    assert.deepEqual(upgrade.readStamp(flat), stamp);
+  });
+
+  test('26: invalid config.json → apply never writes it; failed has {id:"stamp"}', () => {
+    const project = v1();
+    const h = home();
+    fs.writeFileSync(path.join(project, '.planning', 'config.json'), '{ not json');
+    const before = snapshot(project);
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
+      registryDir: standardRegistry(), now: NOW });
+    assert.equal(read(project, '.planning/config.json'), '{ not json');
+    const stampFailure = r.failed.find((f) => f.id === 'stamp');
+    assert.ok(stampFailure, JSON.stringify(r.failed));
+    assert.equal(typeof stampFailure.error, 'string');
+    assert.ok(stampFailure.error.length > 0);
+    assert.deepEqual(r.applied, []);
+    assert.deepEqual(r.changed_files, []);
+    assert.equal(r.up_to_date, false);
+    assert.deepEqual(diffSnapshots(before, snapshot(project)), []);
+
+    const c = upgrade.check({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: standardRegistry() });
+    assert.ok(c.failed.some((f) => f.id === 'stamp'));
+    assert.equal(c.up_to_date, false);
   });
 });
