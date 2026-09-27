@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-09-26
+
 ### Fixed
 - **`df-tools micro commit` never stages untracked files.** Without `--files` it fell back to
   `git add .`, sweeping every untracked file in the repository into the micro's commit, which
