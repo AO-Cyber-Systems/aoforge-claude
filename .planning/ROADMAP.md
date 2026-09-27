@@ -88,7 +88,7 @@ Jobs:
 | 33. The visual gate actually runs in CI | v1.3 | 3/3 | Complete | 2026-08-27 |
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
-| 36. Upgrade in place | v1.3 | 6/10 | In progress | — |
+| 36. Upgrade in place | v1.3 | 7/10 | In progress | — |
 | 37. Adopt existing repos | v1.3 | 0/— | Registered | — |
 | 38. Doc auto-correction | v1.3 | 0/— | Registered | — |
 
@@ -262,7 +262,7 @@ Jobs:
 - [x] 36-04a-TRD.md — Wave 2: migrations 0001 config-stamp, 0002 job-to-trd, 0003 state-json-seed; health repairs call them
 - [x] 36-04b-TRD.md — Wave 2: migrations 0004 objective-md-backfill (revives `backfillAllObjectives`), 0006 kind-work (confirm, wraps `migrate.cjs`)
 - [x] 36-04c-TRD.md — Wave 2: migration 0005 claude-md-block (existing blocks only); corrected, versioned `templates/claude-md.md`; map-codebase writes versioned markers
-- [ ] 36-06-TRD.md — Wave 2: `lib/global-upgrade.cjs` + `templates/global-claude-md.md` + sync-runtime call — legacy moved to backup, managed `~/.claude/CLAUDE.md` block, first adoption confirm-only
+- [x] 36-06-TRD.md — Wave 2: `lib/global-upgrade.cjs` + `templates/global-claude-md.md` + sync-runtime call — legacy moved to backup, managed `~/.claude/CLAUDE.md` block, first adoption confirm-only
 - [ ] 36-03-TRD.md — Wave 3: `df-tools upgrade [--check|--apply|--only|--confirm|--path|--global]` + HELP_TABLE; health W040; `status check --migrate` runs upgrade
 - [ ] 36-05-TRD.md — Wave 3: `hooks/upgrade-project.js` — fast path, sync apply, detached commit of only `changed_files` with skip rules; notices emitted once via route-results
 - [ ] 36-08-TRD.md — Wave 4: dogfood `upgrade` on this repo; CHANGELOG [Unreleased], CLAUDE.md, USER-GUIDE, intent hint (no version bump or tag)
