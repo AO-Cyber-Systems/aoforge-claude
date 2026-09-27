@@ -106,6 +106,47 @@ function orgProfileGoLike() {
   });
 }
 
+/**
+ * cycleHome() -> fake home with an org-tier `a` <-> `b` extends cycle (id `a` extends `b`,
+ * id `b` extends `a`). Write `extends: a` in the caller's project STACK.md to trip it.
+ * (35-03: shared by validateProfile's STK003 cases and R8-style resolve cases.)
+ */
+function cycleHome() {
+  return makeHome({
+    stacks: {
+      a: profileMd({ yaml: ['schema: 1', 'id: a', 'extends: b'].join('\n') }),
+      b: profileMd({ yaml: ['schema: 1', 'id: b', 'extends: a'].join('\n') }),
+    },
+  });
+}
+
+/**
+ * chainHome(n) -> fake home with `n` org-tier hops `h1..hn`, `h1` extending `general` and each
+ * `h(i)` extending `h(i-1)`. Write `extends: h<n>` in the caller's project STACK.md to walk the
+ * full chain. (35-03: shared by validateProfile's STK004 cases and R9-style resolve cases.)
+ */
+function chainHome(n) {
+  const stacks = {};
+  for (let i = 1; i <= n; i++) {
+    const id = `h${i}`;
+    const parent = i === 1 ? 'general' : `h${i - 1}`;
+    stacks[id] = profileMd({ yaml: ['schema: 1', `id: ${id}`, `extends: ${parent}`].join('\n') });
+  }
+  return makeHome({ stacks });
+}
+
+/**
+ * longBodyProfile(n) -> a minimal profile document (`schema: 1` only, no sections) whose body
+ * is exactly `n + 1` lines: `n` content lines plus the trailing-newline's empty segment that
+ * `parseProfile`'s `bodyLineCount` always counts. Call `longBodyProfile(150)` for a body of 151
+ * lines — one past the 150-line STK007 threshold. (35-05 will need the same boundary control
+ * for its own W-code mapping, so it lives here rather than being inlined per-caller.)
+ */
+function longBodyProfile(n) {
+  const body = Array.from({ length: n }, (_, i) => `Line ${i + 1}.`).join('\n');
+  return `---\nschema: 1\n---\n${body}\n`;
+}
+
 /** cleanup(...dirs) — best-effort recursive removal; never throws. */
 function cleanup(...dirs) {
   for (const dir of dirs) {
@@ -114,4 +155,13 @@ function cleanup(...dirs) {
   }
 }
 
-module.exports = { makeProject, makeHome, profileMd, orgProfileGoLike, cleanup };
+module.exports = {
+  makeProject,
+  makeHome,
+  profileMd,
+  orgProfileGoLike,
+  cycleHome,
+  chainHome,
+  longBodyProfile,
+  cleanup,
+};
