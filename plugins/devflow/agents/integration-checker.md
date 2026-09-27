@@ -76,6 +76,14 @@ A "complete" codebase with broken wiring is a broken product.
 
 <verification_process>
 
+## Probe globs come from the stack profile
+
+Run `node ~/.claude/devflow/bin/df-tools.cjs stack context integration-checker --raw`. If it contains
+a `## Layout & architecture` section, derive the route/handler/entrypoint/export globs for Steps 1–4
+from it and use those. The Next.js / TypeScript probes below are the **fallback for web/TS profiles**
+— use them only when the profile has no Layout & architecture section (or `stack` is unavailable)
+and the repo actually has `src/app`/`src/pages`/`*.ts` files.
+
 ## Step 1: Build Export/Import Map
 
 For each objective, extract what it provides and what it should consume.
@@ -152,14 +160,14 @@ Check that API routes have consumers.
 **Find all API routes:**
 
 ```bash
-# Next.js App Router
+# Fallback (web/TS profiles): Next.js App Router
 find src/app/api -name "route.ts" 2>/dev/null | while read route; do
   # Extract route path from file path
   path=$(echo "$route" | sed 's|src/app/api||' | sed 's|/route.ts||')
   echo "/api$path"
 done
 
-# Next.js Pages Router
+# Fallback (web/TS profiles): Next.js Pages Router
 find src/pages/api -name "*.ts" 2>/dev/null | while read route; do
   path=$(echo "$route" | sed 's|src/pages/api||' | sed 's|\.ts||')
   echo "/api$path"
