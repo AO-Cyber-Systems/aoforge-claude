@@ -88,7 +88,7 @@ Jobs:
 | 33. The visual gate actually runs in CI | v1.3 | 3/3 | Complete | 2026-08-27 |
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
-| 36. Upgrade in place | v1.3 | 2/10 | In progress | — |
+| 36. Upgrade in place | v1.3 | 3/10 | In progress | — |
 | 37. Adopt existing repos | v1.3 | 0/— | Registered | — |
 | 38. Doc auto-correction | v1.3 | 0/— | Registered | — |
 
@@ -258,7 +258,7 @@ Jobs:
 Jobs:
 - [x] 36-01-TRD.md — Wave 1: `lib/upgrade.cjs` runner — registry + contract validation, id order, out-of-repo backup, `config.json devflow{}` stamp, report (owns the shared fixtures)
 - [x] 36-02-TRD.md — Wave 1: `lib/managed-block.cjs` (versioned `DEVFLOW:START v= src=` blocks, legacy = stale, byte-exact outside) + `lib/notices.cjs` one-shot notices
-- [ ] 36-07-TRD.md — Wave 1: plan/execute-objective surface init `bootstrap`/`bootstrap_objectives` in one line; dead import removed
+- [x] 36-07-TRD.md — Wave 1: plan/execute-objective surface init `bootstrap`/`bootstrap_objectives` in one line; dead import removed
 - [ ] 36-04a-TRD.md — Wave 2: migrations 0001 config-stamp, 0002 job-to-trd, 0003 state-json-seed; health repairs call them
 - [ ] 36-04b-TRD.md — Wave 2: migrations 0004 objective-md-backfill (revives `backfillAllObjectives`), 0006 kind-work (confirm, wraps `migrate.cjs`)
 - [ ] 36-04c-TRD.md — Wave 2: migration 0005 claude-md-block (existing blocks only); corrected, versioned `templates/claude-md.md`; map-codebase writes versioned markers
