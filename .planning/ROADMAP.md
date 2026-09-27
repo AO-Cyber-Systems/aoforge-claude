@@ -87,7 +87,7 @@ Jobs:
 | 32. Visual-eval default path tells the truth | v1.3 | 4/4 | Complete | 2026-08-27 |
 | 33. The visual gate actually runs in CI | v1.3 | 3/3 | Complete | 2026-08-27 |
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
-| 35. Stack profile loader | v1.3 | 10/11 | In Progress | — |
+| 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
 
 ### Objective 27: Gate correctness ✅
 
@@ -223,12 +223,12 @@ Jobs:
 - [x] 34-10-TRD.md — Wave 2: the harness meets real prose — scratch monorepo, stubs, annotations, and CI
 - [x] 34-11-TRD.md — Wave 9: release 2.9.0 — version trio + CHANGELOG landed
 
-### Objective 35: Stack profile — loader, CLI, drafting, validation, agent wiring, neutral references
+### Objective 35: Stack profile — loader, CLI, drafting, validation, agent wiring, neutral references ✅
 
 **Goal:** DevFlow resolves a per-project stack profile (`.planning/STACK.md` over bundled `general` → org/pack → project → component tiers), validates and drafts it, and agents read their slice of it instead of branching on stack in prose. No STACK.md means exactly today's behaviour.
 **Depends on:** `docs/PROPOSAL-stack-profile.md` + artifacts (`2946f97`). **Branch decision: stack.** `feat/stack-profile-loader` cut from `docs/stack-packs-proposal` @ `f1106e5`.
 **Source:** Proposal §6 steps 1–5 (step 6, Flutter extraction, stays with `PROPOSAL-stack-packs.md`).
-**Jobs:** 10/11 executed — 11 TRDs in 6 waves (planned 2026-09-27; 35-02 split into 02a/02b per job-checker; objective-local requirement IDs STK-01..STK-10, STK-02 shared by 02a/02b)
+**Jobs:** 11/11 complete, verified passed 10/10 (35-VERIFICATION.md) — 11 TRDs in 6 waves (planned 2026-09-27; 35-02 split into 02a/02b per job-checker; objective-local requirement IDs STK-01..STK-10, STK-02 shared by 02a/02b)
 
 Why: verifier Step 8 selects its runtime check from a `project.md` stack field that does not exist, so every non-Flutter/web project is SKIPPED; the planner scrapes gates out of prose; no detector knows Dart; `testing-strategy.md` guesses the stack from `kind`.
 
@@ -243,4 +243,4 @@ Jobs:
 - [x] 35-07-TRD.md — Wave 4: verifier Step 8 keyed on `verification.runtime` + `gates.objective`; debugger; integration-checker probe globs
 - [x] 35-08-TRD.md — Wave 5: neutral references (testing-strategy, verification-patterns, checkpoints); planner Step 4 reads the Testing section
 - [x] 35-09-TRD.md — Wave 5: detectors know Dart/Kotlin/Swift and read org-profile `detect` via `detectMarkers()`; codebase-mapper list
-- [ ] 35-10-TRD.md — Wave 6: dogfood `.planning/STACK.md`; proposal status; CHANGELOG [Unreleased]; USER-GUIDE (no version bump or tag)
+- [x] 35-10-TRD.md — Wave 6: dogfood `.planning/STACK.md`; proposal status; CHANGELOG [Unreleased]; USER-GUIDE (no version bump or tag)
