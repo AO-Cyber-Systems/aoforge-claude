@@ -216,11 +216,16 @@ function scoreState({ samples } = {}) {
     if (hasHigh) {
       return { verdict: 'fail', advisories, votes: agg.votes };
     }
-    // Majority broken with only medium/low severity → pass with advisories.
+    // Majority broken with only medium/low severity → pass with advisories. The pass is
+    // policy (HIGH-only blocking), but it must never be ANONYMOUS (#72): the state is
+    // flagged known_broken so scoreRun can name it at run level, and the per-state
+    // detail explains why `is_broken: true` sits beside `verdict: 'pass'`.
     for (const d of allDefects) {
       advisories.push(`${d.severity} defect: ${d.type} (${d.region || 'n/a'})`);
     }
-    return { verdict: 'pass', advisories, votes: agg.votes };
+    const max_severity = allDefects.some(d => d && d.severity === 'medium') ? 'medium'
+      : allDefects.some(d => d && d.severity === 'low') ? 'low' : null;
+    return { verdict: 'pass', advisories, votes: agg.votes, known_broken: true, max_severity };
   }
 
   // Unanimous not-broken → pass; surface any non-high defects as advisories.
@@ -247,7 +252,7 @@ function scoreState({ samples } = {}) {
  * @param {'review'|'fail'} [opts.unjudgedPolicy='review'] — what an unjudged state does to
  *   the run verdict. Default 'review' keeps a fully-labelled manifest byte-identical to
  *   pre-fix behaviour; a consumer (e.g. CI) can opt into 'fail' to hard-gate on it.
- * @returns {{verdict:'pass'|'pass-with-reviews'|'fail', counts:object, reviews:string[], fails:string[], unjudged:string[]}}
+ * @returns {{verdict:'pass'|'pass-with-reviews'|'fail', counts:object, reviews:string[], fails:string[], unjudged:string[], known_broken:string[]}}
  */
 function scoreRun(results, opts = {}) {
   if (!Array.isArray(results)) {
@@ -256,12 +261,13 @@ function scoreRun(results, opts = {}) {
   const flakeBudget = typeof opts.flakeBudget === 'number' ? opts.flakeBudget : 1;
   const unjudgedPolicy = opts.unjudgedPolicy === 'fail' ? 'fail' : 'review';
 
-  const counts = { pass: 0, fail: 0, review: 0 };
+  const counts = { pass: 0, fail: 0, review: 0, known_broken: 0 };
   const reviews = [];          // UNEXPECTED reviews (expect=pass) — count against the flake budget
   const fails = [];            // NEW/unexpected failures (expect=pass) — the regression signal
   const known_failing = [];    // expect=fail AND still fail/review — a tracked known-broken state, NOT a new regression
   const resolved = [];         // expect=fail BUT now passes — likely fixed; drop its known_broken flag
   const unjudged = [];         // aodex#485: states nothing examined — a PEER bucket, never reviews[]
+  const known_broken = [];     // #72: judged BROKEN but below the HIGH blocking bar — passes, never anonymously
 
   for (const r of results) {
     // A state may declare its expected verdict (default 'pass'). known_broken states
@@ -273,6 +279,12 @@ function scoreRun(results, opts = {}) {
     if (r.verdict === 'fail') counts.fail += 1;
     else if (r.verdict === 'review') counts.review += 1;
     else counts.pass += 1;
+    // #72: informational, never gating — HIGH-only blocking is policy. A consumer reading only
+    // verdict/counts must still be able to tell this run from a clean one.
+    if (r.known_broken === true && r.verdict === 'pass' && r.unjudged !== true) {
+      counts.known_broken += 1;
+      known_broken.push(r.state_id);
+    }
 
     if (r.unjudged === true) {
       // Excluded from reviews[]/fails[]/known_failing[]/resolved[] ON PURPOSE: the flake
@@ -316,6 +328,7 @@ function scoreRun(results, opts = {}) {
     known_failing,
     resolved,
     unjudged,
+    known_broken,
     // W0-1: every scoreRun output carries the running engine's version + a fixed
     // schema version so a verifier can reject evidence produced by a stale engine
     // (a stale mirror once silently passed unjudged states unnoticed).
@@ -825,7 +838,7 @@ function cmdVerifyFlutterUIEval(cwd, args, raw) {
       }
       const agg = aggregateVotes(liveSamples);
       const stateScore = scoreState({ samples: liveSamples });
-      stateResults.push({ state_id: stateId, verdict: stateScore.verdict, advisories: [...idAdvisories, ...stateScore.advisories], expect: st.expect });
+      stateResults.push({ state_id: stateId, verdict: stateScore.verdict, advisories: [...idAdvisories, ...stateScore.advisories], expect: st.expect, known_broken: stateScore.known_broken === true });
       stateDetail.push({
         state_id: stateId,
         verdict: stateScore.verdict,
@@ -837,6 +850,7 @@ function cmdVerifyFlutterUIEval(cwd, args, raw) {
         // rollup surfaces the same tag so a consumer never has to cross-reference the
         // run-level `judge` field to know a real comparison happened for THIS state.
         evidence: 'vision',
+        ...(stateScore.known_broken ? { known_broken: true, max_severity: stateScore.max_severity } : {}),
         advisories: [...idAdvisories, ...stateScore.advisories],
       });
       continue;
@@ -861,7 +875,7 @@ function cmdVerifyFlutterUIEval(cwd, args, raw) {
     }
     const sampleSet = Array.from({ length: samples }, () => judged.result);
     const stateScore = scoreState({ samples: sampleSet });
-    stateResults.push({ state_id: stateId, verdict: stateScore.verdict, advisories: [...idAdvisories, ...stateScore.advisories], expect: st.expect });
+    stateResults.push({ state_id: stateId, verdict: stateScore.verdict, advisories: [...idAdvisories, ...stateScore.advisories], expect: st.expect, known_broken: stateScore.known_broken === true });
     stateDetail.push({
       state_id: stateId,
       verdict: stateScore.verdict,
@@ -871,6 +885,7 @@ function cmdVerifyFlutterUIEval(cwd, args, raw) {
       // offline path) so a consumer reading ONE state's detail can see the basis of its
       // verdict without cross-referencing the run-level `judge` field.
       evidence: judged.result.evidence,
+      ...(stateScore.known_broken ? { known_broken: true, max_severity: stateScore.max_severity } : {}),
       advisories: [...idAdvisories, ...stateScore.advisories],
     });
   }
@@ -907,6 +922,7 @@ function cmdVerifyFlutterUIEval(cwd, args, raw) {
     known_failing: rollup.known_failing, // expect:fail states still failing — tracked, not a new regression
     resolved: rollup.resolved,           // expect:fail states now passing — likely fixed; drop the known_broken flag
     unjudged: rollup.unjudged,           // aodex#485: states nothing examined — own bucket, never reviews[]
+    known_broken: rollup.known_broken,   // #72: judged broken below the HIGH bar — passes, but named
     usage: liveJudge ? usageTotal : undefined,           // per-run token totals for cost estimation
     states: stateDetail,
   }, rollup.verdict);

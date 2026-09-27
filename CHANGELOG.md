@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   what is already staged, or, if nothing is, tracked modifications only (`git add -u`). A new
   file must be named with `--files`, and the refusal says so. `commitMicro` also removes its
   own `.planning/.micro-description` scratch file, which the sweep used to commit.
+- **A labelled-broken state can no longer pass anonymously** (#72). `scoreState` blocks on
+  HIGH severity only, which is policy and is unchanged, so a state judged `is_broken: true` at
+  MEDIUM/LOW reported `verdict: "pass"` and appeared in none of `fails[]`, `reviews[]` or
+  `unjudged[]`. The run was indistinguishable from a clean one. Such a state now carries
+  `known_broken: true` and `max_severity` in its detail, and the rollup gains a
+  `known_broken[]` bucket and `counts.known_broken`. The verdict and exit code are unchanged.
+  `verifier.md` Step 8c records known-broken states in `notes:`, keeps their surface on the
+  human-verification list, and never retires a surface whose binding pass carries one.
 
 ## [2.10.0] - 2026-09-26
 
