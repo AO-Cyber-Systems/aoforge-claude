@@ -88,6 +88,9 @@ Jobs:
 | 33. The visual gate actually runs in CI | v1.3 | 3/3 | Complete | 2026-08-27 |
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
+| 36. Upgrade in place | v1.3 | 0/10 | Planned | — |
+| 37. Adopt existing repos | v1.3 | 0/— | Registered | — |
+| 38. Doc auto-correction | v1.3 | 0/— | Registered | — |
 
 ### Objective 27: Gate correctness ✅
 
@@ -244,3 +247,34 @@ Jobs:
 - [x] 35-08-TRD.md — Wave 5: neutral references (testing-strategy, verification-patterns, checkpoints); planner Step 4 reads the Testing section
 - [x] 35-09-TRD.md — Wave 5: detectors know Dart/Kotlin/Swift and read org-profile `detect` via `detectMarkers()`; codebase-mapper list
 - [x] 35-10-TRD.md — Wave 6: dogfood `.planning/STACK.md`; proposal status; CHANGELOG [Unreleased]; USER-GUIDE (no version bump or tag)
+
+### Objective 36: Upgrade in place
+
+**Goal:** When DevFlow upgrades, every DevFlow project upgrades itself in place, and so does the global `~/.claude` state. The project records the version that last touched it, detection-based idempotent migrations run from a registry with an out-of-repo backup, safe ones apply and auto-commit at session start, and judgement ones become a notice. `health --migrate` finally runs the migrations.
+**Depends on:** Objective 35 (same branch, `feat/stack-profile-loader`).
+**Source:** 2026-09-27 upgrade/bootstrap audit. **Decisions (user):** auto-apply + auto-commit (only touched files, never bypass signing); a managed block in `~/.claude/CLAUDE.md`; the legacy install is moved to a backup, not deleted.
+**Jobs:** 10 TRDs in 4 waves (planned 2026-09-27; 36-04 split into 04a/04b/04c; notices primitive moved into 36-02; 36-06 and 36-07 moved earlier, 36-03 later, by real dependencies; objective-local requirement IDs UPG-01..UPG-08, UPG-04 shared by 04a/04b/04c)
+
+Jobs:
+- [ ] 36-01-TRD.md — Wave 1: `lib/upgrade.cjs` runner — registry + contract validation, id order, out-of-repo backup, `config.json devflow{}` stamp, report (owns the shared fixtures)
+- [ ] 36-02-TRD.md — Wave 1: `lib/managed-block.cjs` (versioned `DEVFLOW:START v= src=` blocks, legacy = stale, byte-exact outside) + `lib/notices.cjs` one-shot notices
+- [ ] 36-07-TRD.md — Wave 1: plan/execute-objective surface init `bootstrap`/`bootstrap_objectives` in one line; dead import removed
+- [ ] 36-04a-TRD.md — Wave 2: migrations 0001 config-stamp, 0002 job-to-trd, 0003 state-json-seed; health repairs call them
+- [ ] 36-04b-TRD.md — Wave 2: migrations 0004 objective-md-backfill (revives `backfillAllObjectives`), 0006 kind-work (confirm, wraps `migrate.cjs`)
+- [ ] 36-04c-TRD.md — Wave 2: migration 0005 claude-md-block (existing blocks only); corrected, versioned `templates/claude-md.md`; map-codebase writes versioned markers
+- [ ] 36-06-TRD.md — Wave 2: `lib/global-upgrade.cjs` + `templates/global-claude-md.md` + sync-runtime call — legacy moved to backup, managed `~/.claude/CLAUDE.md` block, first adoption confirm-only
+- [ ] 36-03-TRD.md — Wave 3: `df-tools upgrade [--check|--apply|--only|--confirm|--path|--global]` + HELP_TABLE; health W040; `status check --migrate` runs upgrade
+- [ ] 36-05-TRD.md — Wave 3: `hooks/upgrade-project.js` — fast path, sync apply, detached commit of only `changed_files` with skip rules; notices emitted once via route-results
+- [ ] 36-08-TRD.md — Wave 4: dogfood `upgrade` on this repo; CHANGELOG [Unreleased], CLAUDE.md, USER-GUIDE, intent hint (no version bump or tag)
+
+### Objective 37: Adopt existing repos (`/devflow:adopt`)
+
+**Goal:** Turn existing non-DevFlow repos into DevFlow projects unattended, one or many (`--batch`), with a branch + commit and no push, and a per-repo review report of low-confidence inferences. The user has 11 repos waiting.
+**Depends on:** Objective 36 (stamp, upgrade runner, managed blocks).
+**Jobs:** registered, not planned. Needs the list of repos before execution.
+
+### Objective 38: Documentation auto-correction
+
+**Goal:** DevFlow keeps its own, project and global documentation current as it runs: a command-reference checker + rename map (a CI test on the plugin, an auto-fix in projects), staleness advisories (STACK.md review age and drift, codebase-map age, W002), and a one-time cleanup of DevFlow's own stale docs.
+**Depends on:** Objective 36 (managed blocks, upgrade runner).
+**Jobs:** registered, not planned.
