@@ -163,3 +163,155 @@ describe('renderCommand', () => {
     });
   });
 });
+
+// A general-shaped profile: only Principles, Avoid, Testing, Dependencies exist. Used to prove
+// that a section present in the profile is still excluded when the agent's slice doesn't cover it.
+function makeGeneralProfile() {
+  return makeResolved({
+    id: 'general',
+    frontmatter: {
+      commands: { test: { run: 'run-tests' } },
+      loop: ['format', 'test'],
+      gates: { task: ['format', 'test'], objective: ['build', 'test'] },
+      generated: { globs: [] },
+      verification: { runtime: 'cli' },
+    },
+    sections: {
+      Principles: { text: 'Keep it simple.', sources: [] },
+      Avoid: { text: 'Avoid globals.', sources: [] },
+      Testing: { text: 'Write unit tests.', sources: [] },
+      Dependencies: { text: 'Pin versions.', sources: [] },
+    },
+  });
+}
+
+// A fully-shaped profile: every §5.3 row is present. Used to prove that an agent's slice
+// excludes a section even though it exists on the profile.
+function makeFullProfile() {
+  return makeResolved({
+    id: 'full',
+    frontmatter: {
+      commands: { test: { run: 'run-tests' } },
+      loop: ['format', 'test'],
+      gates: { task: ['format', 'test'], objective: ['build', 'test'] },
+      generated: { globs: ['**/*.gen.x'], regenerate: 'codegen' },
+      verification: { runtime: 'cli', runtime_check: 'tool --version' },
+    },
+    sections: {
+      Principles: { text: 'Keep it simple.', sources: [] },
+      Idioms: { text: 'Use the modern form.', sources: [] },
+      Avoid: { text: 'Avoid globals.', sources: [] },
+      'Layout & architecture': { text: 'Organize by feature.', sources: [] },
+      Testing: { text: 'Write unit tests.', sources: [] },
+      Dependencies: { text: 'Pin versions.', sources: [] },
+      'Generated code': { text: 'Do not hand-edit generated files.', sources: [] },
+      Security: { text: 'Validate all input.', sources: [] },
+      UI: { text: 'Follow the design system.', sources: [] },
+    },
+  });
+}
+
+describe('contextFor', () => {
+  test('C8: executor on a general-shaped profile includes Principles, Commands, Avoid, Dependencies; excludes Testing', () => {
+    const p = makeGeneralProfile();
+    const result = stackRender.contextFor(p, 'executor');
+    assert.deepStrictEqual(result.included, ['Principles', 'Commands', 'Avoid', 'Dependencies']);
+    assert.deepStrictEqual(result.omitted, []);
+    assert.strictEqual(result.truncated, false);
+    assert.ok(result.text.includes('## Avoid'));
+    assert.ok(result.text.includes('## Commands'));
+    assert.ok(!result.text.includes('## Testing'));
+  });
+
+  test('C9: verifier excludes Idioms and Layout & architecture even though both are present', () => {
+    const p = makeFullProfile();
+    const result = stackRender.contextFor(p, 'verifier');
+    assert.deepStrictEqual(result.included, ['Principles', 'Commands', 'Avoid', 'Testing', 'Security']);
+    assert.ok(!result.included.includes('Idioms'));
+    assert.ok(!result.included.includes('Layout & architecture'));
+    assert.ok(!result.text.includes('## Idioms'));
+    assert.ok(!result.text.includes('## Layout & architecture'));
+  });
+
+  test('C10: mapper includes Principles, Layout & architecture, Dependencies; no Commands block', () => {
+    const p = makeFullProfile();
+    const result = stackRender.contextFor(p, 'mapper');
+    assert.deepStrictEqual(result.included, ['Principles', 'Layout & architecture', 'Dependencies']);
+    assert.ok(!result.text.includes('## Commands'));
+  });
+
+  test('C11: UI only included when {ui:true}, and only for planner/executor/verifier', () => {
+    const p = makeFullProfile();
+
+    assert.ok(!stackRender.contextFor(p, 'planner').included.includes('UI'));
+    assert.ok(stackRender.contextFor(p, 'planner', { ui: true }).included.includes('UI'));
+    assert.ok(stackRender.contextFor(p, 'executor', { ui: true }).included.includes('UI'));
+    assert.ok(stackRender.contextFor(p, 'verifier', { ui: true }).included.includes('UI'));
+    assert.ok(!stackRender.contextFor(p, 'mapper', { ui: true }).included.includes('UI'));
+    assert.ok(!stackRender.contextFor(p, 'debugger', { ui: true }).included.includes('UI'));
+  });
+
+  test('C12: budget 300 truncates, staying under budget, with Principles first', () => {
+    const filler = 'x'.repeat(400);
+    const p = makeResolved({
+      id: 'full',
+      frontmatter: {
+        commands: { test: { run: 'run-tests' } },
+        loop: [],
+        gates: { task: [], objective: [] },
+        generated: { globs: [] },
+        verification: { runtime: 'cli' },
+      },
+      sections: {
+        Principles: { text: 'Keep it simple.', sources: [] },
+        Idioms: { text: filler, sources: [] },
+        Avoid: { text: filler, sources: [] },
+        'Layout & architecture': { text: filler, sources: [] },
+        Dependencies: { text: filler, sources: [] },
+        'Generated code': { text: filler, sources: [] },
+        Security: { text: filler, sources: [] },
+      },
+    });
+    const result = stackRender.contextFor(p, 'executor', { budget: 300 });
+    assert.strictEqual(result.truncated, true);
+    assert.ok(result.tokens <= 300, `tokens ${result.tokens} should be <= 300`);
+    assert.ok(result.omitted.length > 0);
+    assert.ok(result.text.startsWith('## Principles'));
+  });
+
+  test('extra-1: hard-cuts when even Principles (+Commands) alone exceed the budget', () => {
+    const p = makeResolved({
+      id: 'mini',
+      sections: { Principles: { text: 'p'.repeat(2000), sources: [] } },
+    });
+    const result = stackRender.contextFor(p, 'mapper', { budget: 50 });
+    assert.strictEqual(result.truncated, true);
+    assert.strictEqual(result.tokens, 50);
+    assert.ok(result.text.endsWith('\n…[truncated]'));
+  });
+
+  test('C13: unknown agent throws UNKNOWN_AGENT naming planner; each alias resolves', () => {
+    const p = makeFullProfile();
+    assert.throws(
+      () => stackRender.contextFor(p, 'wizard'),
+      (err) => {
+        assert.strictEqual(err.code, 'UNKNOWN_AGENT');
+        assert.match(err.message, /planner/);
+        return true;
+      }
+    );
+
+    for (const [alias, canonical] of Object.entries(stackRender.AGENT_ALIASES)) {
+      const result = stackRender.contextFor(p, alias);
+      assert.strictEqual(result.agent, canonical);
+    }
+  });
+
+  test('C14: neutrality — stack-render.cjs source names no specific stack', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'stack-render.cjs'), 'utf-8');
+    assert.doesNotMatch(
+      src,
+      /golang|gofmt|\bdart\b|flutter|pubspec|\bnpm\b|cargo|pytest|rails|gradle|swift|kotlin/i
+    );
+  });
+});
