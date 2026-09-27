@@ -158,6 +158,35 @@ test.describe('scoreState (per-state gate)', () => {
     const res = scoreState({ samples });
     assert.strictEqual(res.verdict, 'pass');
     assert.deepStrictEqual(res.advisories, []);
+    assert.ok(!res.known_broken, 'a clean state is not known_broken');
+  });
+
+  // #72: HIGH-only blocking is policy and stays — but a state the judge calls BROKEN must
+  // never pass anonymously. It keeps verdict 'pass' and carries known_broken + max severity.
+  test('Case S5 (#72) — majority broken with only medium/low -> pass, flagged known_broken', () => {
+    const res = scoreState({ samples: samplesWithBroken(2, 3, { severity: 'medium' }) });
+    assert.strictEqual(res.verdict, 'pass', 'HIGH-only blocking policy is unchanged');
+    assert.strictEqual(res.known_broken, true);
+    assert.strictEqual(res.max_severity, 'medium');
+  });
+});
+
+test.describe('scoreRun — known_broken bucket (#72)', () => {
+  test('Case K1 — a known_broken pass lands in known_broken[] and counts, verdict unchanged', () => {
+    const run = scoreRun([
+      { state_id: 'ok', verdict: 'pass' },
+      { state_id: 'narrow_viewport', verdict: 'pass', known_broken: true },
+    ]);
+    assert.strictEqual(run.verdict, 'pass', 'blocking policy unchanged — still a pass');
+    assert.deepStrictEqual(run.known_broken, ['narrow_viewport']);
+    assert.strictEqual(run.counts.known_broken, 1);
+    assert.deepStrictEqual(run.fails, []);
+  });
+
+  test('Case K2 — a clean run reports an empty known_broken[] and a zero count', () => {
+    const run = scoreRun([{ state_id: 'ok', verdict: 'pass' }]);
+    assert.deepStrictEqual(run.known_broken, []);
+    assert.strictEqual(run.counts.known_broken, 0);
   });
 });
 
