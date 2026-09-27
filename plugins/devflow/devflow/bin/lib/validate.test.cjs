@@ -721,3 +721,72 @@ describe('Check 12: stack profile', () => {
     );
   });
 });
+
+// ─── Health repairs delegate to upgrade migrations 0001-0003 (TRD 36-04a) ──
+//
+// Every project is a mkdtemp fixture (upgrade-fixtures.cjs / makePlanningProject) and every run
+// passes homeDir: tmpHome, so the real ~/.claude is never consulted and this repo is never touched.
+
+describe('health repairs delegate to migrations 0001-0003', () => {
+  const upgradeFx = require('./__fixtures__/upgrade-fixtures.cjs');
+  const { buildConfig } = require('./migrations/0001-config-stamp.cjs');
+
+  test('22. --repair with no config.json writes buildConfig(null) (the nested template)', () => {
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
+
+    const written = JSON.parse(fs.readFileSync(path.join(tmpProject, '.planning', 'config.json'), 'utf-8'));
+    assert.deepStrictEqual(written, buildConfig(null));
+    assert.strictEqual(written.planning.commit_docs, true);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(written, 'job_checker'), false);
+    const action = json.repairs_performed.find((r) => r.action === 'createConfig');
+    assert.ok(action && action.success === true, 'createConfig repair recorded as successful');
+  });
+
+  test('23. --repair on the v1 fixture renames both JOB files (W008) and seeds state.json (W009)', () => {
+    tmpProject = upgradeFx.makeV1Project();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
+
+    const objectives = path.join(tmpProject, '.planning', 'objectives');
+    assert.strictEqual(fs.existsSync(path.join(objectives, '01-alpha', '01-01-JOB.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(objectives, '01-alpha', '01-01-TRD.md')), true);
+    assert.strictEqual(fs.existsSync(path.join(objectives, '02-beta', '02-01-JOB.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(objectives, '02-beta', '02-01-TRD.md')), true);
+
+    const seeded = JSON.parse(fs.readFileSync(path.join(tmpProject, '.planning', 'state.json'), 'utf-8'));
+    assert.strictEqual(seeded.current_objective, '01');
+    assert.strictEqual(seeded.status, 'In progress');
+
+    const migrate = json.repairs_performed.find((r) => r.action === 'migrateJobFiles');
+    assert.ok(migrate, 'migrateJobFiles recorded');
+    assert.strictEqual(migrate.success, true);
+    assert.deepStrictEqual(migrate.migrated, [
+      { from: '.planning/objectives/01-alpha/01-01-JOB.md', to: '.planning/objectives/01-alpha/01-01-TRD.md' },
+      { from: '.planning/objectives/02-beta/02-01-JOB.md', to: '.planning/objectives/02-beta/02-01-TRD.md' },
+    ]);
+    const seed = json.repairs_performed.find((r) => r.action === 'createStateJson');
+    assert.ok(seed, 'createStateJson recorded');
+    assert.strictEqual(seed.success, true);
+    assert.strictEqual(seed.path, 'state.json');
+    assert.ok(seed.seeded_fields.includes('current_objective'));
+  });
+
+  test('24. W008 detection unchanged: the v1 fixture reports it with the same message text', () => {
+    tmpProject = upgradeFx.makeV1Project();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w008 = json.warnings.find((w) => w.code === 'W008');
+    assert.ok(w008, 'W008 raised');
+    assert.strictEqual(w008.message, 'Legacy JOB.md format found: 2 file(s). TRD.md is the current format.');
+    assert.strictEqual(w008.fix, 'Run /df:health --repair to auto-rename to TRD.md');
+    assert.strictEqual(w008.repairable, true);
+    // Without --repair nothing moves.
+    assert.strictEqual(
+      fs.existsSync(path.join(tmpProject, '.planning', 'objectives', '01-alpha', '01-01-JOB.md')),
+      true
+    );
+  });
+});
