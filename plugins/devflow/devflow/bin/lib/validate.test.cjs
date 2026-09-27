@@ -19,7 +19,7 @@
  * ~/.claude/plugins/known_marketplaces.json (helpers.marketplaceCheckout).
  */
 
-const { describe, test, afterEach } = require('node:test');
+const { describe, test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -27,6 +27,8 @@ const path = require('path');
 
 const { cmdValidateHealth, compareSemver } = require('./validate.cjs');
 const { installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
+const { _resetCache } = require('./stack-profile.cjs');
+const stackFx = require('./__fixtures__/stack-profile-fixtures.cjs');
 
 let tmpProject;
 let tmpHome;
@@ -556,5 +558,166 @@ describe('cmdValidateHealth — engine lag (E020 mirror-stale, W021 plugin-behin
     );
     assert.strictEqual(json.engine.mirror, '2.5.0');
     assert.strictEqual(json.engine.installed, '2.6.0');
+  });
+});
+
+// ─── Check 12: Stack profile (.planning/STACK.md) ─────────────────────────
+// Never repairable — drafting a profile needs human confirmation (`stack init`).
+// All codes: E030 (invalid), W030 (extends unresolved), W031 (undefined command),
+// W032 (validator warning), I030 (absent but detectable).
+describe('Check 12: stack profile', () => {
+  beforeEach(() => {
+    // validateProfile doesn't itself go through stack-profile.cjs's resolveProfile
+    // cache, but reset it anyway per the fixture contract — this suite reuses the
+    // process across cases.
+    _resetCache();
+  });
+
+  const ALL_STACK_CODES = ['E030', 'W030', 'W031', 'W032', 'I030'];
+
+  function findAny(json, code) {
+    return [...json.errors, ...json.warnings, ...json.info].find((i) => i.code === code);
+  }
+
+  test('H1: valid STACK.md produces no Check 12 issue', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.profileMd({ yaml: 'schema: 1' }) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    for (const code of ALL_STACK_CODES) {
+      assert.strictEqual(findAny(json, code), undefined, `unexpected ${code}: ${JSON.stringify(json)}`);
+    }
+  });
+
+  test('H2: schema violation adds exactly one E030, not repairable, status not healthy', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.profileMd({ yaml: 'schema: 2' }) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const e030s = json.errors.filter((e) => e.code === 'E030');
+    assert.strictEqual(e030s.length, 1, `expected exactly one E030: ${JSON.stringify(json.errors)}`);
+    assert.strictEqual(e030s[0].repairable, false);
+    assert.match(e030s[0].message, /STK001/);
+    assert.notStrictEqual(json.status, 'healthy');
+  });
+
+  test('H3: an extends cycle adds E030, not W030', () => {
+    tmpHome = stackFx.cycleHome();
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: ['schema: 1', 'extends: a'].join('\n') }),
+    });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    assert.ok(json.errors.find((e) => e.code === 'E030'), `expected E030: ${JSON.stringify(json.errors)}`);
+    assert.strictEqual(json.warnings.find((w) => w.code === 'W030'), undefined, 'a cycle must not also fire W030');
+  });
+
+  test('H4: an unresolved extends adds W030 naming the id, no E030', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: ['schema: 1', 'extends: missing'].join('\n') }),
+    });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w030 = json.warnings.find((w) => w.code === 'W030');
+    assert.ok(w030, `expected W030: ${JSON.stringify(json.warnings)}`);
+    assert.match(w030.message, /"missing"/);
+    assert.strictEqual(json.errors.find((e) => e.code === 'E030'), undefined);
+  });
+
+  test('H5: an undefined command in gates.task adds W031 naming the field and key', () => {
+    tmpHome = stackFx.makeHome({});
+    const yaml = ['schema: 1', 'commands:', '  build: { run: "x" }', 'gates:', '  task: [nosuch]'].join('\n');
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.profileMd({ yaml }) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w031 = json.warnings.find((w) => w.code === 'W031');
+    assert.ok(w031, `expected W031: ${JSON.stringify(json.warnings)}`);
+    assert.match(w031.message, /gates\.task/);
+    assert.match(w031.message, /"nosuch"/);
+  });
+
+  test('H6: an over-length body adds W032 only', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.longBodyProfile(150) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w032 = json.warnings.find((w) => w.code === 'W032');
+    assert.ok(w032, `expected W032: ${JSON.stringify(json.warnings)}`);
+    for (const code of ['E030', 'W030', 'W031', 'I030']) {
+      assert.strictEqual(findAny(json, code), undefined, `unexpected ${code}`);
+    }
+  });
+
+  test('H7: no STACK.md with a detectable manifest adds I030 naming stack init', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({ files: { 'package.json': '{}' } });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const i030 = json.info.find((i) => i.code === 'I030');
+    assert.ok(i030, `expected I030: ${JSON.stringify(json.info)}`);
+    assert.match(i030.fix, /df-tools stack init/);
+  });
+
+  test('H8: no STACK.md and no manifest adds no Check 12 issue', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({});
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    for (const code of ALL_STACK_CODES) {
+      assert.strictEqual(findAny(json, code), undefined, `unexpected ${code}: ${JSON.stringify(json)}`);
+    }
+  });
+
+  test('H9: --repair never writes STACK.md — Check 12 is never repairable', () => {
+    tmpHome = stackFx.makeHome({});
+    const stackMd = stackFx.profileMd({ yaml: 'schema: 2' });
+    tmpProject = stackFx.makeProject({ stackMd });
+    const stackPath = path.join(tmpProject, '.planning', 'STACK.md');
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
+
+    assert.strictEqual(fs.readFileSync(stackPath, 'utf-8'), stackMd, 'STACK.md bytes must be unchanged');
+    const e030 = json.errors.find((e) => e.code === 'E030');
+    assert.ok(e030, 'E030 should still be reported');
+    assert.strictEqual(e030.repairable, false);
+    const repairs = json.repairs_performed || [];
+    assert.strictEqual(
+      repairs.find((r) => r.path === 'STACK.md' || r.action === 'stackInit'),
+      undefined,
+      'no repair action should target the stack profile'
+    );
+  });
+
+  test('H10: homeDir is honoured — W030 clears once the fake home gains the extends target', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: ['schema: 1', 'extends: missing'].join('\n') }),
+    });
+
+    const before = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.ok(before.json.warnings.find((w) => w.code === 'W030'), 'expected W030 before the fake home gains the profile');
+
+    fs.mkdirSync(path.join(tmpHome, '.claude', 'devflow', 'stacks'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, '.claude', 'devflow', 'stacks', 'missing.md'),
+      stackFx.profileMd({ yaml: ['schema: 1', 'id: missing'].join('\n') }),
+      'utf-8'
+    );
+
+    const after = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.strictEqual(
+      after.json.warnings.find((w) => w.code === 'W030'),
+      undefined,
+      'W030 should clear once ~/.claude/devflow/stacks/missing.md exists'
+    );
   });
 });
