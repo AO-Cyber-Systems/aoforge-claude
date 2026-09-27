@@ -75,6 +75,18 @@ Template for `.planning/codebase/STACK.md` - captures the technology foundation.
 - [Deployment target: e.g., "Vercel", "AWS Lambda", "Docker container"]
 - [Version requirements]
 
+## Commands
+
+Canonical commands this codebase actually runs, with the evidence. `df-tools stack init` reads this table.
+
+| Key | Command | Evidence |
+|-----|---------|----------|
+| test | `[command]` | [.github/workflows/ci.yml / Makefile target / manifest script] |
+
+Keys are `build test lint format fix typecheck audit codegen deps` (or a project-specific key).
+This file is descriptive — what the codebase already does — while `.planning/STACK.md` is
+prescriptive; `stack init` drafts the latter from this table plus other repo evidence.
+
 ---
 
 *Stack analysis: [date]*
@@ -148,6 +160,20 @@ Template for `.planning/codebase/STACK.md` - captures the technology foundation.
 - Distributed as npm package
 - Installed globally via npm install -g
 - Runs on user's Node.js installation
+
+## Commands
+
+Canonical commands this codebase actually runs, with the evidence. `df-tools stack init` reads this table.
+
+| Key | Command | Evidence |
+|-----|---------|----------|
+| test | `vitest run` | package.json script `test` |
+| lint | `tsc --noEmit` | package.json script `typecheck` |
+| build | `tsc` | package.json script `build` |
+
+Keys are `build test lint format fix typecheck audit codegen deps` (or a project-specific key).
+This file is descriptive — what the codebase already does — while `.planning/STACK.md` is
+prescriptive; `stack init` drafts the latter from this table plus other repo evidence.
 
 ---
 

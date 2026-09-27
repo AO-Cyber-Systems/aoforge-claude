@@ -774,6 +774,19 @@ Display research complete banner and key findings:
 Files: `.planning/research/`
 ```
 
+**Draft the stack profile:**
+
+Skip this step if `.planning/STACK.md` already exists.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs stack init --from research --raw
+```
+
+If the command fails with "Unknown command" (an older DevFlow mirror), skip this step silently.
+Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".
+Only on **yes** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from research --write`.
+STACK.md is prescriptive; research/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
+
 **If "Skip research":** Continue to Step 7.
 
 ## 7. Define Requirements

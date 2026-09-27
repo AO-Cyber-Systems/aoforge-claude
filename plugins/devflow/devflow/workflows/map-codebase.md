@@ -225,6 +225,23 @@ wc -l .planning/codebase/*.md
 
 If any documents missing or empty, note which agents may have failed.
 
+Continue to draft_stack_profile.
+</step>
+
+<step name="draft_stack_profile">
+**Draft the project stack profile (`.planning/STACK.md`) from what was just mapped.**
+
+Skip this step if `.planning/STACK.md` already exists.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --raw
+```
+
+If the command fails with "Unknown command" (an older DevFlow mirror), skip this step silently.
+Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".
+Only on **yes** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --write`.
+STACK.md is prescriptive; codebase/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
+
 Continue to generate_claude_md.
 </step>
 
