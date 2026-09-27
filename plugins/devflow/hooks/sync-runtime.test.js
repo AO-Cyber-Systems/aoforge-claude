@@ -512,3 +512,102 @@ describe('Objective 34: every shipped runtime subdir reaches the mirror', () => 
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 36-06: after a successful mirror, sync-runtime runs the BUNDLED global upgrade.
+// Fake plugin root + fake HOME only (runHook sets HOME); the real ~/.claude is never touched.
+// ---------------------------------------------------------------------------
+
+describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
+  const { makeFakeHome } = require('../devflow/bin/lib/__fixtures__/upgrade-fixtures.cjs');
+  const REAL_LIB = path.join(__dirname, '..', 'devflow', 'bin', 'lib');
+  const REAL_TEMPLATE = path.join(__dirname, '..', 'devflow', 'templates', 'global-claude-md.md');
+  const START = '<!-- DEVFLOW:START v=1 src=global-claude-md -->';
+  // An explicit empty value, so an ambient DEVFLOW_SKIP_GLOBAL_UPGRADE cannot mask these cases.
+  const RUN = { DEVFLOW_SKIP_GLOBAL_UPGRADE: '' };
+
+  function setup(t) {
+    const tmp = makeTmpRoot();
+    const home = makeFakeHome({ legacy: true });
+    t.after(() => {
+      fs.rmSync(tmp.root, { recursive: true, force: true });
+      fs.rmSync(home, { recursive: true, force: true });
+    });
+    for (const f of ['global-upgrade.cjs', 'managed-block.cjs', 'notices.cjs']) {
+      fs.copyFileSync(path.join(REAL_LIB, f), path.join(tmp.devflowSrc, 'bin', 'lib', f));
+    }
+    fs.copyFileSync(REAL_TEMPLATE, path.join(tmp.devflowSrc, 'templates', 'global-claude-md.md'));
+    const targetDir = path.join(home, '.claude', 'devflow');
+    return { ...tmp, home, targetDir, versionFile: path.join(targetDir, '.plugin-version') };
+  }
+
+  function legacyInPlace(home) {
+    const c = path.join(home, '.claude');
+    return ['skills/df-plan/SKILL.md', 'agents/df-planner.md', 'devflow/VERSION']
+      .every(rel => fs.existsSync(path.join(c, rel)));
+  }
+
+  test('15 — after a good mirror, legacy files move to backups and CLAUDE.md gets the block', (t) => {
+    const { pluginRoot, home, targetDir, versionFile } = setup(t);
+
+    const result = runHook(pluginRoot, home, RUN);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), TEST_VERSION);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs')), 'mirror not done');
+
+    const backups = path.join(targetDir, 'backups');
+    const legacyDirs = fs.existsSync(backups)
+      ? fs.readdirSync(backups).filter(d => d.startsWith('legacy-'))
+      : [];
+    assert.equal(legacyDirs.length, 1, `expected one legacy-* backup, got ${legacyDirs.join(', ')}: ${result.stderr}`);
+    const b = path.join(backups, legacyDirs[0]);
+    assert.ok(fs.existsSync(path.join(b, 'skills', 'df-plan', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(b, 'agents', 'df-planner.md')));
+    assert.ok(fs.existsSync(path.join(b, 'devflow', 'VERSION')));
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'df-plan')), false);
+    assert.ok(fs.existsSync(path.join(home, '.claude', 'skills', 'keep-me', 'SKILL.md')), 'non-df sibling moved');
+
+    const md = fs.readFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'utf8');
+    assert.ok(md.includes(START), 'CLAUDE.md lacks the managed block');
+  });
+
+  test('16 — DEVFLOW_SKIP_GLOBAL_UPGRADE=1 mirrors but leaves the global state alone', (t) => {
+    const { pluginRoot, home, targetDir, versionFile } = setup(t);
+
+    const result = runHook(pluginRoot, home, { DEVFLOW_SKIP_GLOBAL_UPGRADE: '1' });
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), TEST_VERSION);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs')), 'mirror not done');
+    assert.ok(legacyInPlace(home), 'legacy files moved despite the skip flag');
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'CLAUDE.md')), false);
+  });
+
+  test('17 — a global-upgrade module that throws on require never undoes a good mirror', (t) => {
+    const { pluginRoot, devflowSrc, home, targetDir, versionFile } = setup(t);
+    fs.writeFileSync(
+      path.join(devflowSrc, 'bin', 'lib', 'global-upgrade.cjs'),
+      "throw new Error('boom on require');\n"
+    );
+
+    const result = runHook(pluginRoot, home, RUN);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), TEST_VERSION);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs')), 'mirror not done');
+    assert.match(result.stderr, /global upgrade skipped: boom on require/);
+    assert.doesNotMatch(result.stderr, /sync-runtime failed/);
+  });
+
+  test('18 — the version-match fast path does not run the global upgrade', (t) => {
+    const { pluginRoot, home, targetDir, versionFile } = setup(t);
+    fs.mkdirSync(path.join(targetDir, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'bin', 'df-tools.cjs'), '// already synced');
+    fs.writeFileSync(versionFile, TEST_VERSION);
+
+    const result = runHook(pluginRoot, home, RUN);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+    assert.ok(legacyInPlace(home), 'global upgrade ran on the fast path');
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'CLAUDE.md')), false);
+  });
+});
