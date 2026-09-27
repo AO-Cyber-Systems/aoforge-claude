@@ -129,6 +129,49 @@ test.describe('flutter-ui-eval CLI dogfood (UI-VISUAL-EVAL-JUDGE-02)', () => {
 // the unlabelled state can never score 'pass' and is named in a top-level unjudged[] array.
 // ──────────────────────────────────────────────────────────────────────────────
 
+// #72: a state labelled is_broken:true at MEDIUM severity reported verdict 'pass', was absent
+// from fails[]/reviews[]/unjudged[], and the run exited 0 indistinguishable from a clean run.
+// HIGH-only blocking is policy and stays; the run must still NAME the broken state.
+test.describe('Case KB1 — a labelled-broken MEDIUM state is named at run level (#72)', () => {
+  let tmpDir;
+
+  test.before(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-eval-kb-'));
+    fs.writeFileSync(path.join(tmpDir, 'labels.json'), JSON.stringify({
+      'good-dashboard': { is_broken: false },
+      'narrow_viewport': { is_broken: true, type: 'overflow', severity: 'medium' },
+    }, null, 2), 'utf-8');
+    fs.copyFileSync(path.join(FIXTURE_DIR, 'good-dashboard.png'), path.join(tmpDir, 'good-dashboard.png'));
+    fs.copyFileSync(path.join(FIXTURE_DIR, 'broken-overflow.png'), path.join(tmpDir, 'narrow_viewport.png'));
+    const state = (id) => ({
+      state_id: id, route: '/dashboard', data_state: 'populated',
+      viewport: { width: 1280, height: 800 },
+      expected: 'Dashboard shows a populated revenue chart; no overflow, no blank regions.',
+      screenshot_path: `./${id}.png`,
+    });
+    fs.writeFileSync(path.join(tmpDir, 'manifest.json'), JSON.stringify({
+      objective: 'ISSUE-72', samples: 3, flakeBudget: 1,
+      states: [state('good-dashboard'), state('narrow_viewport')],
+    }, null, 2), 'utf-8');
+  });
+
+  test.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  test('Case KB1 — known_broken[] names the state; the per-state detail says so; exit stays 0', () => {
+    const r = spawnSync('node', [DF_TOOLS, 'verify', 'flutter-ui-eval', path.join(tmpDir, 'manifest.json'), '--raw'], { encoding: 'utf-8' });
+    assert.strictEqual(r.status, 0, 'HIGH-only blocking is unchanged: a MEDIUM defect does not fail the run');
+    const rollup = JSON.parse(r.stdout);
+    assert.deepStrictEqual(rollup.known_broken, ['narrow_viewport'], 'the broken state must be named at run level');
+    assert.strictEqual(rollup.counts.known_broken, 1);
+    const detail = rollup.states.find(s => s.state_id === 'narrow_viewport');
+    assert.strictEqual(detail.is_broken, true);
+    assert.strictEqual(detail.known_broken, true, 'is_broken:true beside verdict:pass must say why it passed');
+    assert.strictEqual(detail.max_severity, 'medium');
+    const good = rollup.states.find(s => s.state_id === 'good-dashboard');
+    assert.ok(!good.known_broken, 'a clean state is not flagged');
+  });
+});
+
 test.describe('Case U1 — a state absent from labels.json must not report pass (aodex#485)', () => {
   let tmpDir;
 
