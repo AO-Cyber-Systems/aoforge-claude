@@ -22,6 +22,10 @@ const { output, error } = require('./helpers.cjs');
 // 35-02b built command rendering / per-agent context slicing as a separate module so it could
 // run in parallel with 35-02a; re-exported below so every later caller requires only this file.
 const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./stack-render.cjs');
+// 35-04's drafting flow reads repo evidence (CI, task runner, manifest scripts) through this
+// sibling module so this loader itself never has to know a file FORMAT, only the command shape
+// evidence produces — see stack-evidence.cjs's own header for why the split exists.
+const { collectEvidence } = require('./stack-evidence.cjs');
 
 const BUNDLED_PATH = path.join(__dirname, '../../references/stack-general.md');
 const SCHEMA_PATH = path.join(__dirname, '../../schemas/stack-profile.schema.json');
@@ -604,6 +608,259 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
   return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel });
 }
 
+// ─── stack init: draft / serialize / write (35-04) ────────────────────────
+//
+// Drafting turns two inputs — installed org profiles (this operator's own tier) and repo
+// evidence (this project's own CI/task-runner/manifest) — into a project-tier document a human
+// reviews before it becomes `.planning/STACK.md`. Nothing here writes to disk except
+// `initProfile`, and only when its caller asks for `write: true`.
+
+/**
+ * listOrgProfiles({ userHome }) -> [{ id, extends, detect, languages, path }, ...]
+ *
+ * Reads every `*.md` at `<userHome>/.claude/devflow/stacks/`, sorted by filename. A file that
+ * fails to parse is skipped (a listing call reports what it CAN read, never throws over one bad
+ * entry) — `resolveProfile`'s own `extends` walk is what enforces a hard failure for a chain a
+ * project actually depends on. `[]` for a null `userHome` or a directory that doesn't exist —
+ * 35-09's detectMarkers reuses this for the same "there may be nothing installed yet" case.
+ */
+function listOrgProfiles({ userHome = null } = {}) {
+  if (!userHome) return [];
+  const dir = path.join(userHome, '.claude', 'devflow', 'stacks');
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch (_) {
+    return [];
+  }
+  const results = [];
+  for (const entry of entries.filter((e) => e.endsWith('.md')).sort()) {
+    const full = path.join(dir, entry);
+    let parsed;
+    try {
+      parsed = parseProfile(fs.readFileSync(full, 'utf-8'), { source: full });
+    } catch (_) {
+      continue;
+    }
+    const fm = parsed.frontmatter || {};
+    const id = typeof fm.id === 'string' ? fm.id : entry.slice(0, -3);
+    const extendsId = fm.extends === undefined || fm.extends === null ? 'general' : fm.extends;
+    results.push({
+      id,
+      extends: extendsId,
+      detect: Array.isArray(fm.detect) ? fm.detect : [],
+      languages: Array.isArray(fm.languages) ? fm.languages : [],
+      path: full,
+    });
+  }
+  return results;
+}
+
+// A marker either names a file at the project root literally, or (`*.ext`) matches any root
+// entry sharing that suffix.
+function markerMatches(marker, rootEntries) {
+  if (typeof marker !== 'string' || !marker) return false;
+  if (marker.startsWith('*.')) {
+    const suffix = marker.slice(1);
+    return rootEntries.some((e) => e.endsWith(suffix));
+  }
+  return rootEntries.includes(marker);
+}
+
+// True when `candidateId` sits somewhere in `ofId`'s own `extends` chain (an ANCESTOR of it),
+// walking the profile list rather than the filesystem so a caller that already loaded
+// `listOrgProfiles` doesn't re-read every file per comparison.
+function isAncestorOf(candidateId, ofId, byId) {
+  let cur = byId.get(ofId);
+  let depth = 0;
+  while (cur && cur.extends && cur.extends !== 'general' && depth < MAX_EXTENDS_DEPTH) {
+    if (cur.extends === candidateId) return true;
+    cur = byId.get(cur.extends);
+    depth += 1;
+  }
+  return false;
+}
+
+/**
+ * pickExtends({ projectRoot, userHome, explicit }) -> { id, reason, alternatives }
+ *
+ * `explicit` (a `--extends` value) always wins outright. Otherwise: match every installed org
+ * profile's `detect` markers against the project root's own entries; when more than one matches
+ * and one is an ANCESTOR (via `extends`) of another, drop the ancestor — the most specific match
+ * wins, and the dropped ones are reported as `alternatives` alongside any other surviving tie.
+ * A remaining tie breaks alphabetically. No match at all -> `general`.
+ */
+function pickExtends({ projectRoot, userHome = null, explicit = null } = {}) {
+  if (explicit) {
+    return { id: explicit, reason: `explicit --extends ${explicit}`, alternatives: [] };
+  }
+
+  const profiles = listOrgProfiles({ userHome });
+  if (!profiles.length) {
+    return { id: 'general', reason: 'no org profiles installed', alternatives: [] };
+  }
+
+  let rootEntries = [];
+  try {
+    rootEntries = fs.readdirSync(projectRoot);
+  } catch (_) {
+    rootEntries = [];
+  }
+
+  const matched = profiles.filter((p) => p.detect.some((marker) => markerMatches(marker, rootEntries)));
+  if (!matched.length) {
+    return { id: 'general', reason: 'no installed org profile detect marker matched this project', alternatives: [] };
+  }
+
+  const byId = new Map(profiles.map((p) => [p.id, p]));
+  const survivors = matched.filter(
+    (m) => !matched.some((other) => other.id !== m.id && isAncestorOf(m.id, other.id, byId))
+  );
+  survivors.sort((a, b) => a.id.localeCompare(b.id));
+  const winner = survivors[0];
+  const alternatives = matched.filter((m) => m.id !== winner.id).map((m) => m.id);
+
+  return { id: winner.id, reason: `detected via ${winner.detect.join(', ')}`, alternatives };
+}
+
+// `basename(projectRoot)`, lowercased, every run of characters outside `[a-z0-9.-]` collapsed to
+// a single `-`, and any leading non-alphanumeric stripped — the schema's `id` pattern is
+// `^[a-z0-9][a-z0-9.\-]*$`, and a mkdtemp-style directory name (`df-Stack_AbC`) is exactly the
+// shape this needs to survive.
+function slugifyId(name) {
+  const lowered = String(name).toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
+  return lowered.replace(/^[^a-z0-9]+/, '');
+}
+
+/**
+ * draftProfile({ projectRoot, userHome, from, extendsId }) -> { frontmatter, body, evidence, extends }
+ *
+ * Evidence comes from `stack-evidence.collectEvidence`. A command is only added when the PARENT
+ * chain (bundled general plus `extendsId`'s own `extends` chain — computed via a synthetic
+ * target that carries `extendsId` but no commands of its own, so it can never shadow the very
+ * chain it's asking about) leaves that key at `discover` or undefined — never overwriting a
+ * parent's already-configured command, which is exactly how a `scoped` form an org profile
+ * defines survives a draft that also happens to find CI evidence for the same key.
+ */
+function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general' } = {}) {
+  const evidence = collectEvidence(projectRoot, { from });
+
+  const parentResolved = resolveFromParsed(
+    { frontmatter: { schema: 1, extends: extendsId }, sections: [] },
+    { userHome, file: null, projectRoot, targetPath: null }
+  );
+  const parentCommands = (parentResolved.frontmatter && parentResolved.frontmatter.commands) || {};
+
+  const commands = {};
+  const seenKeys = new Set();
+  for (const item of evidence) {
+    if (seenKeys.has(item.key)) continue; // first (highest-priority) entry per key wins
+    seenKeys.add(item.key);
+    const parentEntry = parentCommands[item.key];
+    const parentRun = parentEntry && typeof parentEntry.run === 'string' ? parentEntry.run : undefined;
+    if (parentRun === undefined || parentRun === 'discover') {
+      commands[item.key] = { run: item.command };
+    }
+  }
+
+  const id = slugifyId(path.basename(projectRoot));
+  const today = new Date().toISOString().slice(0, 10);
+  const sources = [...new Set(evidence.map((e) => e.source))];
+
+  const frontmatter = {
+    schema: 1,
+    id,
+    extends: extendsId,
+    commands,
+    provenance: { reviewed: today, sources },
+  };
+
+  const body = `# Stack Profile: ${id}\n\n`
+    + `<!-- Drafted by \`df-tools stack init\`. Add no `
+    + '`## ` heading below unless this project genuinely diverges from `'
+    + `${extendsId}\`: an empty section would replace the parent's. Recognized sections: `
+    + `${SECTION_NAMES.join(', ')}. -->\n`;
+
+  return { frontmatter, body, evidence, extends: extendsId };
+}
+
+function yamlScalar(value) {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean' || typeof value === 'number') return String(value);
+  return JSON.stringify(String(value));
+}
+
+// A value that stays inline: `[a, b]` for arrays (`[]` when empty), `{ k: v }` for a plain object
+// (`{}` when empty), a JSON-quoted string/number/boolean/null otherwise. Recursive so a
+// `commands.<key>` entry's own object value nests correctly on one line.
+function yamlFlowValue(value) {
+  if (Array.isArray(value)) {
+    if (!value.length) return '[]';
+    return `[${value.map(yamlFlowValue).join(', ')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value);
+    if (!entries.length) return '{}';
+    return `{ ${entries.map(([k, v]) => `${k}: ${yamlFlowValue(v)}`).join(', ')} }`;
+  }
+  return yamlScalar(value);
+}
+
+/**
+ * serializeProfile(frontmatter, body) -> text
+ *
+ * Renders front matter yaml-lite can parse back byte-for-byte-equivalent (see `parseProfile`):
+ * every string JSON-quoted, a non-empty plain object as a block key with one indented
+ * `sub: <flow-value>` line per entry (so a human reviewing the draft sees each command on its
+ * own line), an empty object or array collapsed to `{}` / `[]` on the parent's own line.
+ */
+function serializeProfile(frontmatter, body) {
+  const lines = [];
+  for (const [key, value] of Object.entries(frontmatter)) {
+    const isPlainObject = value && typeof value === 'object' && !Array.isArray(value);
+    if (isPlainObject && Object.keys(value).length) {
+      lines.push(`${key}:`);
+      for (const [subKey, subValue] of Object.entries(value)) {
+        lines.push(`  ${subKey}: ${yamlFlowValue(subValue)}`);
+      }
+    } else {
+      lines.push(`${key}: ${yamlFlowValue(value)}`);
+    }
+  }
+  return `---\n${lines.join('\n')}\n---\n\n${body}`;
+}
+
+/**
+ * initProfile({ projectRoot, userHome, from, extendsId, write, force }) ->
+ *   { action: 'preview'|'written'|'refused', path, text, extends, evidence, validation }
+ *
+ * `extendsId` here is the CALLER's `--extends` override (may be null/undefined — `pickExtends`
+ * then detects); the picked id is what ends up in the result and in the draft itself.
+ * Preview (the default, and always the outcome when the draft fails validation): nothing is
+ * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
+ * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
+ */
+function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false } = {}) {
+  const picked = pickExtends({ projectRoot, userHome, explicit: extendsId });
+  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id });
+  const text = serializeProfile(draft.frontmatter, draft.body);
+  const validation = validateProfileText(text, { projectRoot, userHome, file: null });
+  const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
+  const base = { path: targetPath, text, extends: picked.id, evidence: draft.evidence, validation };
+
+  if (!write || !validation.ok) {
+    return { action: 'preview', ...base };
+  }
+
+  if (fs.existsSync(targetPath) && !force) {
+    return { action: 'refused', ...base };
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, text, 'utf-8');
+  return { action: 'written', ...base };
+}
+
 // ─── df-tools stack CLI ────────────────────────────────────────────────────
 
 function parseFlagValue(args, flag) {
@@ -682,7 +939,22 @@ function cmdStack(cwd, args, raw) {
       return;
     }
 
-    error('Unknown stack subcommand. Available: resolve, context, validate, command');
+    if (subcommand === 'init') {
+      const from = parseFlagValue(args, '--from') || 'codebase';
+      const extendsFlag = parseFlagValue(args, '--extends');
+      const write = args.includes('--write');
+      const force = args.includes('--force');
+      const result = initProfile({ projectRoot, userHome, from, extendsId: extendsFlag, write, force });
+      if (result.action === 'refused') {
+        error(`.planning/STACK.md already exists; pass --force to overwrite it (refusing to write ${result.path})`);
+        return;
+      }
+      const exitCode = result.validation.ok ? 0 : 1;
+      output(result, raw, result.text, exitCode);
+      return;
+    }
+
+    error('Unknown stack subcommand. Available: resolve, context, validate, command, init');
   } catch (err) {
     error(err.message);
   }
@@ -694,6 +966,11 @@ module.exports = {
   resolveFromParsed,
   validateProfile,
   validateProfileText,
+  listOrgProfiles,
+  pickExtends,
+  draftProfile,
+  serializeProfile,
+  initProfile,
   cmdStack,
   renderCommand,
   contextFor,

@@ -129,9 +129,10 @@ describe('draftProfile (I6)', () => {
     });
     try {
       const draft = sp.draftProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'golike' });
-      assert.ok(!('test' in draft.commands), 'test is already resolved by golike (non-discover); the draft must not redefine it');
-      assert.ok('lint' in draft.commands, 'lint is discover in golike; the draft should fill it from evidence');
-      assert.equal(draft.commands.lint.run, 'make lint');
+      const commands = draft.frontmatter.commands;
+      assert.ok(!('test' in commands), 'test is already resolved by golike (non-discover); the draft must not redefine it');
+      assert.ok('lint' in commands, 'lint is discover in golike; the draft should fill it from evidence');
+      assert.equal(commands.lint.run, 'make lint');
     } finally {
       fx.cleanup(root, home);
     }
