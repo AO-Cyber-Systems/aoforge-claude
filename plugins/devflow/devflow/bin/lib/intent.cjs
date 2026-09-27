@@ -246,7 +246,7 @@ function resolve({ projectRoot, objectiveId, trdPath, userHome, tablePath } = {}
   const warnings = [];
   let kind = projectFm.kind;
   if (!kind) {
-    warnings.push("PROJECT.md missing 'kind' — defaulting to 'api'. Run /devflow:health --migrate to set it.");
+    warnings.push("PROJECT.md missing 'kind' — defaulting to 'api'. Run /devflow:status check --migrate (df-tools upgrade --apply --only 0006 --kind <kind>) to set it.");
     kind = 'api';
   }
   validateKind(kind);

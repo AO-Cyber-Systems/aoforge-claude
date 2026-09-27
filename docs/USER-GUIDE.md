@@ -188,6 +188,37 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:reapply-patches` | Restore local modifications after update | After `/devflow:update` if you had local edits |
 | `/devflow:health` | Check project integrity, repair state drift | Planning files feel stale or corrupt |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
+| `/devflow:status check --migrate` | Upgrade the project in place (runs `df-tools upgrade`) | After a DevFlow update, or when `validate health` reports W040 |
+
+### Upgrading a Project in Place (`df-tools upgrade`)
+
+When DevFlow updates, projects upgrade themselves. The `upgrade-project.js` SessionStart hook checks whether the project is behind the running version, applies the safe (`auto`) migrations, and commits **exactly the files they changed** in a detached background process, so session start never waits on commit signing. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, when a changed file already had uncommitted edits, or when signing fails. In those cases the change stays applied but uncommitted, and a one-line notice appears on your next prompt. Signing is never bypassed. Set `DEVFLOW_SKIP_UPGRADE=1` to turn it off.
+
+You can also run it by hand:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --check          # what would change (the default)
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply          # apply the auto migrations
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0006 --kind plugin   # a confirm migration
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --global         # preview the ~/.claude upgrade
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --global --confirm   # adopt the managed ~/.claude/CLAUDE.md block
+```
+
+- **Migrations** live in `lib/migrations/NNNN-*.cjs`. Each one detects its own target, so they are safe to re-run: a second `--apply` does nothing. The current set:
+
+  | Id | Migration | Safety |
+  |---|---|---|
+  | 0001 | Normalise `.planning/config.json` to the nested template shape | auto |
+  | 0002 | Rename legacy `*-JOB.md` to `*-TRD.md` | auto |
+  | 0003 | Seed `.planning/state.json` from STATE.md | auto |
+  | 0004 | Backfill `OBJECTIVE.md` for NN-named objective dirs | auto |
+  | 0005 | Refresh an existing CLAUDE.md DevFlow block (never adds one) | auto |
+  | 0006 | Set PROJECT.md `kind` / `default_work` | confirm |
+
+  `confirm` migrations run only when you name them with `--only <id>` or pass `--apply --confirm`.
+- **Stamp.** `.planning/config.json` records `devflow{version, migrations_applied, upgraded_at}`. `validate health` reports **W040** when the project is behind.
+- **Backups** go outside the repo, to `~/.claude/devflow/backups/<repo>-<hash>/<timestamp>/`, before anything is written.
+- **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- DEVFLOW:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. If you already have a hand-written DevFlow section, you get a notice and nothing changes until you run `upgrade --global --confirm`.
 
 ### Integration & Release (1.28+)
 
@@ -570,6 +601,7 @@ DevFlow installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
 | `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. | n/a (warning only) |
 | `check-update.js` | SessionStart | Background npm registry check for newer DevFlow versions. | n/a |
+| `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits, or if signing fails. Notices are emitted once, on the next prompt, by `route-results.js`. See [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade). | `DEVFLOW_SKIP_UPGRADE=1` |
 | `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator. | n/a |
 
 ### "DevFlow blocked my command — why?"

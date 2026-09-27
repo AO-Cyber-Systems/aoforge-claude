@@ -56,6 +56,7 @@ The central CLI utility used by ~50 skill and agent files. CommonJS module invok
 - **GitHub integration** (1.29+, opt-in via `.planning/config.json` `github` block) — `gh status`, `gh sync-objectives`, `gh comment`, `gh close-issue`, `gh sync-release`. Implemented in `lib/gh.cjs`; one-way push to GitHub via the `gh` CLI; planning files remain authoritative.
 - **Telemetry & audit** (2.5+) — `context` (context composition), `session-audit` (blocking-event classification; the acceptance test for objectives 27–30), `transcript-export` (compact per-session index before retention deletes transcripts), `telemetry` (one status-facing view with advisories), `override --gate <g> --reason <why>` (structured, logged gate override). Implemented in `lib/context-audit.cjs`, `lib/session-audit.cjs`, `lib/transcript-export.cjs`, `lib/telemetry.cjs`, `lib/override.cjs`.
 - **Changelog** (1.30+) — `changelog update --version vX.Y.Z [--from <ref> --to <ref>] [--dry-run]`, `changelog check <version>`. Implemented in `lib/changelog.cjs`; generates Keep-a-Changelog entries from conventional-commit history.
+- **Upgrade** (Unreleased) — `upgrade [--check|--apply] [--only id] [--confirm] [--path dir] [--kind k] [--default-work w] [--global]`. Brings a project forward in place and stamps `.planning/config.json` `devflow{version, migrations_applied, upgraded_at}`. The migrations are detection-based and idempotent (`lib/migrations/NNNN-*.cjs`, `auto` | `confirm`), with backups under `~/.claude/devflow/backups/`. `--global` upgrades `~/.claude` instead. Implemented in `lib/upgrade.cjs`, `lib/upgrade-cli.cjs`, `lib/migrations/`, `lib/managed-block.cjs` and `lib/global-upgrade.cjs`. `validate health` reports W040 when a project is behind.
 
 Model profiles are loaded from `plugins/devflow/devflow/references/model-profiles.json` (via `bin/lib/helpers.cjs`), which maps each agent to its opus/sonnet/haiku assignment per profile tier. The JSON also pins the concrete model id for each tier — keep those ids current when models ship; a stale id resolves to a model that never runs.
 
@@ -95,7 +96,7 @@ Static reference documents that agents read during execution: model profiles, ve
 Node.js hooks declared in `plugins/devflow/hooks/hooks.json` and auto-registered when the plugin is enabled. All hook commands use `${CLAUDE_PLUGIN_ROOT}` for path resolution.
 
 **Runtime sync:**
-- `sync-runtime.js` — SessionStart; mirrors `${CLAUDE_PLUGIN_ROOT}/devflow/` to `~/.claude/devflow/` when the bundled plugin version differs from the cached `.plugin-version`
+- `sync-runtime.js` — SessionStart; mirrors `${CLAUDE_PLUGIN_ROOT}/devflow/` to `~/.claude/devflow/` when the bundled plugin version differs from the cached `.plugin-version`. After a successful mirror, it runs the global upgrade (`lib/global-upgrade.cjs`). That moves the legacy `df-*` skills/agents to a backup and maintains the managed `~/.claude/CLAUDE.md` DevFlow block. The first adoption over a hand-written section waits for `df-tools upgrade --global --confirm`.
 
 **Session context (SessionStart / UserPromptSubmit):**
 - `awareness-cache-populate.js` — SessionStart; warms the cross-repo awareness cache
@@ -103,6 +104,7 @@ Node.js hooks declared in `plugins/devflow/hooks/hooks.json` and auto-registered
 - `inject-org-context.js` — injects org/initiative context at planning time
 - `inject-handoff-results.js` — surfaces completed handoff-watcher results back into the session
 - `route-results.js` — UserPromptSubmit; emits queued handoff command results
+- `upgrade-project.js` — SessionStart; upgrades a behind project in place (bundled df-tools; applies auto migrations, background-commits only the changed files; skip rules; notices via route-results). Escape: `DEVFLOW_SKIP_UPGRADE=1`
 
 **Observability (warn-only):**
 - `statusline.js` — StatusLine (declared in plugin.json `statusLine`); renders model, task, context usage
@@ -182,6 +184,6 @@ Every project declares a `kind` (`api | app | library | ui-lib | cli | plugin`) 
 
 **Resolution is exposed via `df-tools intent resolve --objective <id>`** — used by the planner agent, available for inspection. Each resolved field carries provenance metadata so users see exactly which level supplied each value.
 
-**Migration** for projects created before this model: `/devflow:health --migrate`. Always backs up to `.planning/.migrate-backup-{timestamp}/` before writing.
+**Migration** for projects created before this model: `/devflow:status check --migrate`, which runs `df-tools upgrade`. Setting `kind` is a `confirm` migration: `df-tools upgrade --apply --only 0006 --kind <kind>`. Each apply backs up to `~/.claude/devflow/backups/<repo>-<hash>/<timestamp>/`, outside the repo, before writing. The `upgrade-project.js` SessionStart hook applies the `auto` migrations on its own.
 
 See `docs/PROPOSAL-kind-and-work.md` for the full design rationale.

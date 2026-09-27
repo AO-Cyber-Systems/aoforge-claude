@@ -14,6 +14,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `validate health` Check 12: invalid profile (E030), unresolved `extends` (W030), undefined
   loop/gate key (W031), profile warnings (W032), profile absent but detectable (I030). Never auto-repaired.
 - Detectors recognise Dart, Kotlin and Swift, and read installed org profiles' `detect` markers.
+- **Upgrade in place.** `df-tools upgrade [--check|--apply] [--only id] [--confirm] [--path dir]
+  [--kind k] [--default-work w] [--global]` brings a DevFlow project (or `~/.claude` with `--global`)
+  forward to the running version. It reports `{from, to, applied, pending, pending_confirm, skipped,
+  failed, changed_files, backup}`.
+- Migration registry `lib/migrations/` holds detection-based, idempotent migrations, each with an
+  `auto` or `confirm` safety level: 0001 config-stamp, 0002 job-to-trd, 0003 state-json-seed,
+  0004 objective-md-backfill, 0005 claude-md-block and 0006 kind-work (confirm). Backups are written
+  outside the repo, to `~/.claude/devflow/backups/<repo>-<hash>/<ts>/`.
+- A per-project stamp in `.planning/config.json`: `devflow{version, migrations_applied, upgraded_at}`.
+- SessionStart hook `upgrade-project.js`. It applies the auto migrations using the bundled df-tools,
+  then commits exactly the changed files in a detached background process. The commit is skipped
+  during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits, or if
+  signing fails; signing is never bypassed. Escape: `DEVFLOW_SKIP_UPGRADE=1`.
+- One-shot notices (`.planning/.devflow-notices.json`), emitted once through `route-results.js`.
+- Managed, versioned CLAUDE.md blocks (`<!-- DEVFLOW:START v=<ver> src=<template> -->` …
+  `<!-- DEVFLOW:END -->`) via `lib/managed-block.cjs`. Bytes outside the block are preserved
+  exactly, and legacy unversioned markers count as stale.
+- Global upgrade (`lib/global-upgrade.cjs`, run by `sync-runtime.js` after a successful mirror).
+  Legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` are moved
+  to a backup, never deleted. The `~/.claude/CLAUDE.md` DevFlow block is managed; the first adoption
+  over a hand-written section is notice-only until `df-tools upgrade --global --confirm`.
+- `validate health` W040: the project is behind the running DevFlow version.
 
 ### Changed
 - Planner `<validation_gates>` come from `stack command`; the executor runs the profile `loop` and
@@ -21,11 +43,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `testing-strategy.md` no longer guesses a stack from `kind`; its stack cells moved to example
   profiles and the Rails column is gone. Web/TS tables are labelled as examples.
 - `lib/json-schema-lite.cjs` is the shared schema walker (extracted from ui-spec-validate).
+- `/devflow:status check --migrate` (the `health --migrate` workflow) runs `df-tools upgrade`.
+- `validate health --repair` runs migrations 0001-0003 for its config, JOB and `state.json`
+  repairs. The config repair now writes the nested template shape, not the stale flat keys.
+- `templates/claude-md.md` says "Objectives" and uses `~/.claude/devflow` paths.
+- Migration backups are written outside the repo (`~/.claude/devflow/backups/`), not to
+  `.planning/.migrate-backup-*`.
+- The JOB→TRD migration no longer forces STATE.md `Status: Resumed`.
+- The missing-`kind` intent warning points at `/devflow:status check --migrate`
+  (`df-tools upgrade --apply --only 0006 --kind <kind>`).
 
 ### Fixed
 - Verifier Step 8 read a stack field from `project.md` that never existed, so every non-web,
   non-Flutter project was SKIPPED. It now selects by `verification.runtime`, runs `gates.objective`,
   and states its reason when it skips.
+- `health --migrate` advertised a migration it never ran; it now runs the upgrade.
+- Changes made by the `init` bootstrap (created `OBJECTIVE.md` files) were silent. The
+  plan-objective and execute-objective workflows now report them in one line.
+- `backfillAllObjectives` was dead code. It now backs migration 0004.
 
 ## [2.10.1] - 2026-09-26
 
