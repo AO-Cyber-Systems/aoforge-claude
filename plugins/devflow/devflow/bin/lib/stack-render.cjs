@@ -90,6 +90,164 @@ function renderCommand(profile, key, opts = {}) {
   return { key, status: 'ok', form, command, ...passthrough };
 }
 
+// §5.3 matrix: per-agent applicable sections (excluding Principles, which every agent gets, and
+// Commands, which is synthesized from frontmatter rather than profile.sections), in the row
+// order the proposal lists them. `commands`/`ui` gate the two rows that aren't plain sections.
+const AGENT_SLICES = {
+  planner: { commands: true, ui: true, sections: ['Idioms', 'Layout & architecture', 'Testing', 'Dependencies'] },
+  executor: {
+    commands: true,
+    ui: true,
+    sections: ['Idioms', 'Avoid', 'Layout & architecture', 'Dependencies', 'Generated code', 'Security'],
+  },
+  verifier: { commands: true, ui: true, sections: ['Avoid', 'Testing', 'Security'] },
+  debugger: { commands: true, ui: false, sections: ['Avoid', 'Generated code'] },
+  mapper: { commands: false, ui: false, sections: ['Layout & architecture', 'Dependencies'] },
+  researcher: { commands: false, ui: false, sections: ['Layout & architecture', 'Dependencies'] },
+};
+
+const AGENT_ALIASES = {
+  'codebase-mapper': 'mapper',
+  'integration-checker': 'mapper',
+  'objective-researcher': 'researcher',
+  'project-researcher': 'researcher',
+};
+
+function resolveAgent(agent) {
+  const canonical = AGENT_ALIASES[agent] || agent;
+  if (!AGENT_SLICES[canonical]) {
+    const valid = Object.keys(AGENT_SLICES).join(', ');
+    throw Object.assign(new Error(`unknown agent "${agent}"; valid: ${valid}`), {
+      code: 'UNKNOWN_AGENT',
+    });
+  }
+  return canonical;
+}
+
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
+
+function renderSectionBlock(name, profile) {
+  return `## ${name}\n\n${profile.sections[name].text}`;
+}
+
+// Commands block:
+//   ## Commands (profile: <id>)
+//   - <key>: <run>   (scoped: <scoped>)        # 'discover'/'none' shown literally, not filled
+//   loop: a -> b -> c
+//   gates.task: ...
+//   gates.objective: ...
+//   generated: globs [..]; regenerate: <key>    # executor + debugger only
+//   runtime: <verification.runtime> (runtime_check: <key>)   # verifier only
+function renderCommandsBlock(profile, canonicalAgent) {
+  const fm = profile.frontmatter || {};
+  const lines = [`## Commands (profile: ${profile.id})`];
+  const commands = fm.commands || {};
+  for (const [cmdKey, cmd] of Object.entries(commands)) {
+    let line = `- ${cmdKey}: ${cmd.run}`;
+    if (cmd.scoped) line += `   (scoped: ${cmd.scoped})`;
+    lines.push(line);
+  }
+  if (fm.loop && fm.loop.length) {
+    lines.push(`loop: ${fm.loop.join(' → ')}`);
+  }
+  const gates = fm.gates || {};
+  if (gates.task && gates.task.length) lines.push(`gates.task: ${gates.task.join(', ')}`);
+  if (gates.objective && gates.objective.length) {
+    lines.push(`gates.objective: ${gates.objective.join(', ')}`);
+  }
+  if (canonicalAgent === 'executor' || canonicalAgent === 'debugger') {
+    const gen = fm.generated || {};
+    let genLine = `generated: globs [${(gen.globs || []).join(', ')}]`;
+    if (gen.regenerate) genLine += `; regenerate: ${gen.regenerate}`;
+    lines.push(genLine);
+  }
+  if (canonicalAgent === 'verifier') {
+    const ver = fm.verification || {};
+    let runLine = `runtime: ${ver.runtime}`;
+    if (ver.runtime_check) runLine += ` (runtime_check: ${ver.runtime_check})`;
+    lines.push(runLine);
+  }
+  return lines.join('\n');
+}
+
+function renderBlock(name, profile, canonicalAgent) {
+  return name === 'Commands' ? renderCommandsBlock(profile, canonicalAgent) : renderSectionBlock(name, profile);
+}
+
+// Ordered candidate list [Principles, Commands, then the matrix order], filtered to what this
+// agent's slice covers and (for everything but Commands) what the profile actually has.
+function buildCandidates(profile, canonicalAgent, ui) {
+  const slice = AGENT_SLICES[canonicalAgent];
+  const ordered = ['Principles'];
+  if (slice.commands) ordered.push('Commands');
+  for (const name of slice.sections) ordered.push(name);
+  if (slice.ui && ui) ordered.push('UI');
+  const sections = (profile && profile.sections) || {};
+  return ordered.filter((name) => name === 'Commands' || Boolean(sections[name]));
+}
+
+/**
+ * contextFor(profile, agent, { budget, ui }) -> {
+ *   agent, profile_id, text, tokens, budget, truncated, included: [names], omitted: [names]
+ * }
+ *
+ * Slices the §5.3 sections for `agent` (aliases resolve to their canonical agent), renders them
+ * in [Principles, Commands, matrix order], and drops from the end until the result fits the
+ * token budget (`Math.ceil(text.length / 4)`). If Principles (+ Commands) alone still exceed the
+ * budget, hard-cuts the text and appends a truncation marker rather than dropping further.
+ */
+function contextFor(profile, agent, opts = {}) {
+  const { budget = 2500, ui = false } = opts;
+  const canonical = resolveAgent(agent);
+  const included = buildCandidates(profile, canonical, ui);
+  const omitted = [];
+
+  const renderAll = (names) => names.map((name) => renderBlock(name, profile, canonical)).join('\n\n');
+
+  let text = renderAll(included);
+  let tokens = estimateTokens(text);
+  let truncated = false;
+
+  let protectedCount = 0;
+  for (const name of included) {
+    if (name === 'Principles' || name === 'Commands') {
+      protectedCount++;
+    } else {
+      break;
+    }
+  }
+
+  while (tokens > budget && included.length > protectedCount) {
+    omitted.push(included.pop());
+    truncated = true;
+    text = renderAll(included);
+    tokens = estimateTokens(text);
+  }
+
+  if (tokens > budget) {
+    const maxChars = Math.max(0, budget * 4 - 16);
+    text = `${text.slice(0, maxChars)}\n…[truncated]`;
+    tokens = estimateTokens(text);
+    truncated = true;
+  }
+
+  return {
+    agent: canonical,
+    profile_id: profile.id,
+    text,
+    tokens,
+    budget,
+    truncated,
+    included,
+    omitted,
+  };
+}
+
 module.exports = {
   renderCommand,
+  contextFor,
+  AGENT_SLICES,
+  AGENT_ALIASES,
 };
