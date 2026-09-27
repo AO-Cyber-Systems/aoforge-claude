@@ -188,25 +188,48 @@ ${goalLine}
  * Walks .planning/objectives/ subdirectories and calls bootstrapObjectiveMd for each
  * objective directory that is missing an OBJECTIVE.md.
  *
+ * Options (TRD 36-04b, used by upgrade migration 0004):
+ *   match  — RegExp; when given, only directory names matching it are walked. Non-matching
+ *            entries are not counted as scanned and are never touched (scratch dirs such as
+ *            `UI-VISUAL-EVAL-CALLOUT` stay stub-free).
+ *   dryRun — when true, nothing is written; `paths` names the files that WOULD be created.
+ * With no opts the behaviour is exactly the pre-36-04b one (every directory walked).
+ *
  * @param {string} cwd - Project root
- * @returns {{ scanned: number, applied: number, skipped: number, errors: Array }}
+ * @param {{ match?: RegExp|null, dryRun?: boolean }} [opts]
+ * @returns {{ scanned: number, applied: number, skipped: number, errors: Array, paths: string[] }}
+ *   `paths` — project-relative posix paths of the OBJECTIVE.md files created (or, in dryRun,
+ *   that would be created).
  */
-function backfillAllObjectives(cwd) {
+function backfillAllObjectives(cwd, { match = null, dryRun = false } = {}) {
   const objectivesDir = path.join(cwd, '.planning', 'objectives');
-  const result = { scanned: 0, applied: 0, skipped: 0, errors: [] };
+  const result = { scanned: 0, applied: 0, skipped: 0, errors: [], paths: [] };
 
   if (!fs.existsSync(objectivesDir)) return result;
 
   const entries = fs.readdirSync(objectivesDir).sort(); // sort for determinism
   for (const entry of entries) {
+    if (match && !match.test(entry)) continue;
     const dir = path.join(objectivesDir, entry);
+    const rel = path.posix.join('.planning', 'objectives', entry, 'OBJECTIVE.md');
     try {
       const stat = fs.statSync(dir);
       if (!stat.isDirectory()) continue;
       result.scanned++;
+      if (dryRun) {
+        if (fs.existsSync(path.join(dir, 'OBJECTIVE.md'))) {
+          result.skipped++;
+        } else {
+          result.applied++;
+          result.paths.push(rel);
+        }
+        continue;
+      }
       const r = bootstrapObjectiveMd(cwd, entry);
-      if (r.applied) result.applied++;
-      else result.skipped++;
+      if (r.applied) {
+        result.applied++;
+        result.paths.push(rel);
+      } else result.skipped++;
     } catch (e) {
       result.errors.push({ objective: entry, message: e.message });
     }
