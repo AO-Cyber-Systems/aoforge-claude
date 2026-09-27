@@ -60,9 +60,12 @@ const EXTS = new Set([
  * - Symlinks: isDirectory() returns false → naturally skipped without following.
  *
  * @param {string} root - absolute path to walk
+ * @param {{extraExts?: string[]}} [opts] - 35-09: extra `.ext` extensions (from matched
+ *   `*.ext` org-profile markers) to count alongside the built-in EXTS set.
  * @returns {number}
  */
-function countSourceFiles(root) {
+function countSourceFiles(root, { extraExts = [] } = {}) {
+  const extSet = extraExts.length ? new Set([...EXTS, ...extraExts]) : EXTS;
   let count = 0;
 
   function walk(dir) {
@@ -86,7 +89,7 @@ function countSourceFiles(root) {
 
       if (e.isDirectory()) {
         walk(full);
-      } else if (e.isFile() && EXTS.has(path.extname(e.name))) {
+      } else if (e.isFile() && extSet.has(path.extname(e.name))) {
         count++;
       }
       // Symlinks (isSymbolicLink()): isDirectory() returns false, isFile() returns false
@@ -158,8 +161,15 @@ function cmdDetectBrownfieldMap(cwd, targetCwd, raw) {
   const codebaseMapPath = path.join(root, '.planning', 'codebase');
   const codebaseMapExists = planningExists && fs.existsSync(codebaseMapPath);
 
-  // 3. Count source files
-  const sourceFileCount = countSourceFiles(root);
+  // 3. Count source files — 35-09: any installed org profile's `*.ext` detect marker that
+  // matches this root's own entries extends the extension set counted below.
+  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
+  const userHome = require('os').homedir();
+  const matchedMarkers = matchMarkersAt(root, detectMarkers({ userHome }));
+  const extraExts = [...new Set(
+    matchedMarkers.filter((m) => m.marker.startsWith('*.')).map((m) => m.marker.slice(1))
+  )];
+  const sourceFileCount = countSourceFiles(root, { extraExts });
 
   // 4. Run pure detector
   const result = detectBrownfieldMap({ planningExists, codebaseMapExists, sourceFileCount });

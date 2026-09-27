@@ -599,7 +599,7 @@ function cmdInitNewProject(cwd, raw, args = []) {
   let hasCode = false;
   let hasPackageFile = false;
   try {
-    const files = execSync('find . -maxdepth 3 \\( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.swift" -o -name "*.java" \\) 2>/dev/null | grep -v node_modules | grep -v .git | head -5', {
+    const files = execSync('find . -maxdepth 3 \\( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.swift" -o -name "*.java" -o -name "*.dart" -o -name "*.kt" \\) 2>/dev/null | grep -v node_modules | grep -v .git | head -5', {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -607,11 +607,20 @@ function cmdInitNewProject(cwd, raw, args = []) {
     hasCode = files.trim().length > 0;
   } catch {}
 
+  // 35-09: org-profile detect markers present at the project root (e.g. a Flutter/Dart-shaped
+  // pack) count as a package file too, alongside the built-in manifest list.
+  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
+  const orgMarkersHere = matchMarkersAt(cwd, detectMarkers({ userHome: homedir }));
+
   hasPackageFile = pathExistsInternal(cwd, 'package.json') ||
                    pathExistsInternal(cwd, 'requirements.txt') ||
                    pathExistsInternal(cwd, 'Cargo.toml') ||
                    pathExistsInternal(cwd, 'go.mod') ||
-                   pathExistsInternal(cwd, 'Package.swift');
+                   pathExistsInternal(cwd, 'Package.swift') ||
+                   pathExistsInternal(cwd, 'pubspec.yaml') ||
+                   pathExistsInternal(cwd, 'build.gradle') ||
+                   pathExistsInternal(cwd, 'build.gradle.kts') ||
+                   orgMarkersHere.length > 0;
 
   const result = {
     // Models
@@ -1025,6 +1034,19 @@ function cmdInitSecurityAudit(cwd, raw, args = []) {
   if (pathExistsInternal(cwd, 'Cargo.toml')) stack.push('rust');
   if (pathExistsInternal(cwd, 'pom.xml') || pathExistsInternal(cwd, 'build.gradle')) stack.push('java');
   if (pathExistsInternal(cwd, 'Gemfile')) stack.push('ruby');
+  if (pathExistsInternal(cwd, 'pubspec.yaml')) stack.push('dart');
+  if (pathExistsInternal(cwd, 'build.gradle.kts')) stack.push('kotlin');
+  if (pathExistsInternal(cwd, 'Package.swift')) stack.push('swift');
+
+  // 35-09: each matching installed org profile's own `languages`, deduped against the stack
+  // built above (and across markers that share a profile).
+  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
+  const orgMarkersHere = matchMarkersAt(cwd, detectMarkers({ userHome: require('os').homedir() }));
+  for (const m of orgMarkersHere) {
+    for (const lang of m.languages) {
+      if (!stack.includes(lang)) stack.push(lang);
+    }
+  }
 
   const result = {
     auditor_model: auditorModel,
