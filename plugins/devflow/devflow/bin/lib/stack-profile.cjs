@@ -17,10 +17,13 @@
 const fs = require('fs');
 const path = require('path');
 const { parseYamlLite } = require('./yaml-lite.cjs');
+const { validate: schemaValidate } = require('./json-schema-lite.cjs');
 
 const BUNDLED_PATH = path.join(__dirname, '../../references/stack-general.md');
+const SCHEMA_PATH = path.join(__dirname, '../../schemas/stack-profile.schema.json');
 const FENCE = '---';
 const MAX_EXTENDS_DEPTH = 4;
+const MAX_BODY_LINES = 150;
 
 const SECTION_NAMES = [
   'Principles',
@@ -266,51 +269,41 @@ let _cache = new Map();
 function _resetCache() { _cache = new Map(); }
 
 /**
- * Resolve the full tier chain for a project: bundled general (always present), then any org
- * tier(s) reached through an `extends` chain, then the project's own `.planning/STACK.md`
- * (when present), then an optional component override selected by the longest `path` prefix
- * of `file`. Results are cached by the exact triple of arguments; call `_resetCache()` to
- * force a re-read (tests do this in `beforeEach`).
+ * Builds the full tier chain from an ALREADY-PARSED target (bundled general (always present),
+ * then any org tier(s) reached through the target's own `extends` chain, then the target itself
+ * as the top "project" layer, then an optional component override) and merges it. This is the
+ * one place the chain-walk + merge logic lives — `resolveProfile` calls it after reading
+ * `.planning/STACK.md` off disk; `validateProfileText` (35-03) calls it directly on a draft's
+ * parsed frontmatter/sections, so a profile that has not been written to disk yet resolves
+ * exactly the same way a saved one would.
  *
- * @param {{projectRoot?: string, userHome?: string, file?: string}} [opts]
- * @returns {{id, frontmatter, sections, provenance, chain, component, issues, projectFile}}
- * @throws {StackProfileError} only when a file already in the chain fails to parse
+ * @param {{frontmatter: object, sections: Array}|null} parsedTarget  the target's own parse, or
+ *   null when there is no project-tier document at all (bundled general only).
+ * @param {{userHome?: string, file?: string, projectRoot?: string, targetPath?: string}} [ctx]
+ *   `targetPath` is used only as the "project" layer's `path` (component-relative resolution and
+ *   result labelling); it need not exist on disk.
+ * @returns {{id, frontmatter, sections, provenance, chain, component, issues, projectFile, layers}}
+ *   `layers` is the pre-merge list `[{id, tier, path, frontmatter, sections}, ...]` — each
+ *   entry's OWN (unmerged) frontmatter, for callers (validateProfile) that schema-check each
+ *   file in the chain individually rather than the merged result.
  */
-function resolveProfile({ projectRoot = null, userHome = null, file = null } = {}) {
-  const cacheKey = `${projectRoot || ''}|${userHome || ''}|${file || ''}`;
-  if (_cache.has(cacheKey)) return _cache.get(cacheKey);
-
-  if (!fs.existsSync(BUNDLED_PATH)) {
-    throw new StackProfileError(
-      'MISSING_BUNDLED',
-      `bundled stack-general.md not found at ${BUNDLED_PATH}; reinstall the devflow plugin`,
-      BUNDLED_PATH
-    );
-  }
-
+function resolveFromParsed(parsedTarget, { userHome = null, file = null, projectRoot = null, targetPath = null } = {}) {
   const issues = [];
   const generalParsed = parseProfile(fs.readFileSync(BUNDLED_PATH, 'utf-8'), { source: BUNDLED_PATH });
   const layers = [{ id: 'general', tier: 'bundled', path: BUNDLED_PATH, frontmatter: generalParsed.frontmatter, sections: generalParsed.sections }];
 
-  let projectFile = null;
   let projectFrontmatter = null;
 
-  if (projectRoot) {
-    const candidate = path.join(projectRoot, '.planning', 'STACK.md');
-    if (fs.existsSync(candidate)) {
-      projectFile = candidate;
-      const parsed = parseProfile(fs.readFileSync(candidate, 'utf-8'), { source: candidate });
-      projectFrontmatter = parsed.frontmatter;
-
-      const extendsId = parsed.frontmatter.extends === undefined || parsed.frontmatter.extends === null
-        ? 'general'
-        : parsed.frontmatter.extends;
-      const orgHops = walkExtendsChain({ startId: extendsId, userHome, issues });
-      for (const hop of orgHops) {
-        layers.push({ id: hop.id, tier: 'org', path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
-      }
-      layers.push({ id: null, tier: 'project', path: projectFile, frontmatter: parsed.frontmatter, sections: parsed.sections });
+  if (parsedTarget) {
+    projectFrontmatter = parsedTarget.frontmatter;
+    const extendsId = parsedTarget.frontmatter.extends === undefined || parsedTarget.frontmatter.extends === null
+      ? 'general'
+      : parsedTarget.frontmatter.extends;
+    const orgHops = walkExtendsChain({ startId: extendsId, userHome, issues });
+    for (const hop of orgHops) {
+      layers.push({ id: hop.id, tier: 'org', path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
     }
+    layers.push({ id: null, tier: 'project', path: targetPath, frontmatter: parsedTarget.frontmatter, sections: parsedTarget.sections });
   }
 
   // The matched component descriptor, and its own layer, if any.
@@ -353,14 +346,266 @@ function resolveProfile({ projectRoot = null, userHome = null, file = null } = {
 
   const chain = layers.map((l) => ({ id: l.id, tier: l.tier, path: l.path }));
 
-  const result = { id, frontmatter, sections, provenance, chain, component, issues, projectFile };
+  return { id, frontmatter, sections, provenance, chain, component, issues, projectFile: targetPath, layers };
+}
+
+/**
+ * Resolve the full tier chain for a project: bundled general (always present), then any org
+ * tier(s) reached through an `extends` chain, then the project's own `.planning/STACK.md`
+ * (when present), then an optional component override selected by the longest `path` prefix
+ * of `file`. Results are cached by the exact triple of arguments; call `_resetCache()` to
+ * force a re-read (tests do this in `beforeEach`).
+ *
+ * @param {{projectRoot?: string, userHome?: string, file?: string}} [opts]
+ * @returns {{id, frontmatter, sections, provenance, chain, component, issues, projectFile}}
+ * @throws {StackProfileError} only when a file already in the chain fails to parse
+ */
+function resolveProfile({ projectRoot = null, userHome = null, file = null } = {}) {
+  const cacheKey = `${projectRoot || ''}|${userHome || ''}|${file || ''}`;
+  if (_cache.has(cacheKey)) return _cache.get(cacheKey);
+
+  if (!fs.existsSync(BUNDLED_PATH)) {
+    throw new StackProfileError(
+      'MISSING_BUNDLED',
+      `bundled stack-general.md not found at ${BUNDLED_PATH}; reinstall the devflow plugin`,
+      BUNDLED_PATH
+    );
+  }
+
+  let parsedTarget = null;
+  let targetPath = null;
+  if (projectRoot) {
+    const candidate = path.join(projectRoot, '.planning', 'STACK.md');
+    if (fs.existsSync(candidate)) {
+      targetPath = candidate;
+      parsedTarget = parseProfile(fs.readFileSync(candidate, 'utf-8'), { source: candidate });
+    }
+  }
+
+  const result = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath });
   _cache.set(cacheKey, result);
   return result;
+}
+
+// ─── validateProfile / validateProfileText ────────────────────────────────
+//
+// Schema check runs on EACH file's own frontmatter in the chain (errors carry that file);
+// cross-field rules run on the resolved (merged) profile. See the STK code table in the TRD.
+
+let _schema = null;
+let _schemaNoId = null;
+function loadStackProfileSchema() {
+  if (!_schema) {
+    _schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf-8'));
+  }
+  return _schema;
+}
+
+// `id` is required only for the tiers other profiles address BY id (bundled `general` and org/pack
+// profiles reached via `extends`). A project's `.planning/STACK.md` and a file-path component
+// override are leaves — never targeted by another profile's `extends` — so they conventionally omit
+// `id` and inherit it from the chain. This variant drops that one requirement for those two tiers.
+function loadStackProfileSchemaNoId() {
+  if (!_schemaNoId) {
+    const base = loadStackProfileSchema();
+    _schemaNoId = Object.assign({}, base, { required: (base.required || []).filter((k) => k !== 'id') });
+  }
+  return _schemaNoId;
+}
+
+const ISSUE_TO_STK = {
+  EXTENDS_UNRESOLVED: 'STK002',
+  EXTENDS_CYCLE: 'STK003',
+  EXTENDS_DEPTH: 'STK004',
+  COMPONENT_MISSING: 'STK009',
+};
+
+// A parse failure (StackProfileError | YamlLiteError) becomes one STK008 error, never a throw.
+function parseFailureResult(err, targetLabel, targetPath) {
+  return {
+    ok: false,
+    target: targetLabel,
+    errors: [{ code: 'STK008', path: '', msg: err.message, file: targetPath }],
+    warnings: [],
+  };
+}
+
+/**
+ * Runs the schema walk + the four cross-field rules (STK005-STK009) over an already-resolved
+ * chain, plus STK006/STK007 over the TARGET's own (unmerged) parse. Shared by validateProfile
+ * and validateProfileText — both just supply a resolved chain and the target's own parse.
+ */
+function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel }) {
+  const errors = [];
+  const warnings = [];
+  const schema = loadStackProfileSchema();
+  const schemaNoId = loadStackProfileSchemaNoId();
+
+  // STK001 — schema violation, checked on EACH file's own (unmerged) frontmatter. `project` and
+  // `component` tiers use the no-id-required variant (see loadStackProfileSchemaNoId).
+  for (const layer of resolved.layers) {
+    const layerSchema = layer.tier === 'bundled' || layer.tier === 'org' ? schema : schemaNoId;
+    for (const e of schemaValidate(layer.frontmatter, layerSchema)) {
+      errors.push({ code: 'STK001', path: e.path, msg: e.msg, file: layer.path });
+    }
+  }
+
+  // STK002 / STK003 / STK004 / STK009 — issues the chain walk already found.
+  for (const issue of resolved.issues) {
+    const code = ISSUE_TO_STK[issue.code] || 'STK002';
+    const path_ = issue.code === 'COMPONENT_MISSING' ? 'components' : 'extends';
+    errors.push({ code, path: path_, msg: issue.message, file: targetPath });
+  }
+
+  // STK005 — loop / gates.task / gates.objective / generated.regenerate /
+  // verification.runtime_check must each name a key present in the RESOLVED commands (a gate
+  // key defined only in the org parent is fine — this is why it checks the MERGED result).
+  const resolvedCommands = (resolved.frontmatter && resolved.frontmatter.commands) || {};
+  const checkList = (value, fieldPath) => {
+    if (!Array.isArray(value)) return;
+    for (const key of value) {
+      if (!(key in resolvedCommands)) {
+        errors.push({ code: 'STK005', path: fieldPath, msg: `${fieldPath} names '${key}', which is not a defined command`, file: targetPath });
+      }
+    }
+  };
+  const checkScalar = (value, fieldPath) => {
+    if (value === undefined || value === null) return;
+    if (!(value in resolvedCommands)) {
+      errors.push({ code: 'STK005', path: fieldPath, msg: `${fieldPath} names '${value}', which is not a defined command`, file: targetPath });
+    }
+  };
+  checkList(resolved.frontmatter.loop, 'loop');
+  const gates = resolved.frontmatter.gates || {};
+  checkList(gates.task, 'gates.task');
+  checkList(gates.objective, 'gates.objective');
+  const generated = resolved.frontmatter.generated || {};
+  checkScalar(generated.regenerate, 'generated.regenerate');
+  const verification = resolved.frontmatter.verification || {};
+  checkScalar(verification.runtime_check, 'verification.runtime_check');
+
+  // STK006 — an H2 section on the TARGET's OWN document outside SECTION_NAMES.
+  for (const section of parsedTarget.sections) {
+    if (!SECTION_NAMES.includes(section.name)) {
+      errors.push({
+        code: 'STK006',
+        path: `sections.${section.name}`,
+        msg: `section '## ${section.name}' is not one of the recognized sections: ${SECTION_NAMES.join(', ')}`,
+        file: targetPath,
+      });
+    }
+  }
+
+  // STK007 — the TARGET's OWN body over 150 lines (warning only; never flips `ok`).
+  if (parsedTarget.bodyLineCount > MAX_BODY_LINES) {
+    warnings.push({
+      code: 'STK007',
+      path: 'body',
+      msg: `profile body is ${parsedTarget.bodyLineCount} lines, over the ${MAX_BODY_LINES}-line guideline`,
+      file: targetPath,
+    });
+  }
+
+  // STK009 — every declared component's profile eagerly, not only one selected by --file (the
+  // chain walk above only checks a component matched via `file`, which validate never passes).
+  const components = Array.isArray(resolved.frontmatter.components) ? resolved.frontmatter.components : [];
+  for (const comp of components) {
+    if (!comp || typeof comp.profile !== 'string') continue;
+    if (comp.profile.endsWith('.md')) {
+      const compPath = path.isAbsolute(comp.profile) ? comp.profile : path.join(projectRoot || '.', comp.profile);
+      if (!fs.existsSync(compPath)) {
+        errors.push({ code: 'STK009', path: 'components[].profile', msg: `component profile file not found: ${compPath}`, file: targetPath });
+      }
+    } else if (!userHome || !fs.existsSync(orgProfilePath(userHome, comp.profile))) {
+      errors.push({ code: 'STK009', path: 'components[].profile', msg: `component profile '${comp.profile}' not found`, file: targetPath });
+    }
+  }
+
+  return { ok: errors.length === 0, target: targetLabel, errors, warnings };
+}
+
+/**
+ * validateProfileText(text, { projectRoot, userHome, file }) -> { ok, target, errors, warnings }
+ *
+ * Validates `text` as if it WERE the project's `.planning/STACK.md`, without writing it to disk
+ * — 35-04's `init` uses this to check a draft before it commits to a file. Resolves the chain
+ * from the text's own `extends` (via `resolveFromParsed`), exactly as a saved file would.
+ */
+function validateProfileText(text, { projectRoot = null, userHome = null, file = null } = {}) {
+  const targetLabel = file || 'draft';
+  let parsedTarget;
+  try {
+    parsedTarget = parseProfile(text, { source: file });
+  } catch (err) {
+    return parseFailureResult(err, targetLabel, file || null);
+  }
+  const resolved = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath: file || null });
+  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath: file || null, targetLabel });
+}
+
+/**
+ * validateProfile({ projectRoot, userHome, profilePath }) -> { ok, target, errors, warnings }
+ *
+ * Default target: `<projectRoot>/.planning/STACK.md`. When it (and `profilePath`) is absent,
+ * validates the bundled general profile itself — target reads
+ * `'general (bundled; no .planning/STACK.md)'`, and this is always `ok: true` for a healthy
+ * install (general ships schema-valid with every gate/loop key defined).
+ */
+function validateProfile({ projectRoot = null, userHome = null, profilePath = null } = {}) {
+  let targetPath;
+  let targetLabel;
+  let isBundledGeneral = false;
+
+  if (profilePath) {
+    targetPath = path.isAbsolute(profilePath) ? profilePath : path.join(projectRoot || '.', profilePath);
+    targetLabel = targetPath;
+  } else {
+    const candidate = projectRoot ? path.join(projectRoot, '.planning', 'STACK.md') : null;
+    if (candidate && fs.existsSync(candidate)) {
+      targetPath = candidate;
+      targetLabel = candidate;
+    } else {
+      targetPath = BUNDLED_PATH;
+      targetLabel = 'general (bundled; no .planning/STACK.md)';
+      isBundledGeneral = true;
+    }
+  }
+
+  let text;
+  try {
+    text = fs.readFileSync(targetPath, 'utf-8');
+  } catch (err) {
+    return parseFailureResult(err, targetLabel, targetPath);
+  }
+
+  let parsedTarget;
+  try {
+    parsedTarget = parseProfile(text, { source: targetPath });
+  } catch (err) {
+    return parseFailureResult(err, targetLabel, targetPath);
+  }
+
+  // The bundled general profile IS the chain's root — resolving it again on top of itself would
+  // double it up as both 'bundled' and 'project'. Its "chain" is just itself.
+  const resolved = isBundledGeneral
+    ? {
+        frontmatter: parsedTarget.frontmatter,
+        sections: parsedTarget.sections,
+        chain: [{ id: 'general', tier: 'bundled', path: BUNDLED_PATH }],
+        issues: [],
+        layers: [{ id: 'general', tier: 'bundled', path: BUNDLED_PATH, frontmatter: parsedTarget.frontmatter, sections: parsedTarget.sections }],
+      }
+    : resolveFromParsed(parsedTarget, { userHome, file: null, projectRoot, targetPath });
+
+  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel });
 }
 
 module.exports = {
   parseProfile,
   resolveProfile,
+  resolveFromParsed,
+  validateProfile,
+  validateProfileText,
   StackProfileError,
   SECTION_NAMES,
   _resetCache,
