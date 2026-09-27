@@ -23,11 +23,20 @@ if arguments contain "--repair"; then
 fi
 ```
 
-`--migrate` is also accepted (used by the intent-model migration flow). It does not
-change which flags are passed to `validate health` itself, but it DOES trigger the
-stack-profile offer in `offer_repair` below whenever a Check 12 issue (I030, W030,
-W031, E030) is present — since a migration is exactly when a project is likely to
+`--migrate` means **run the upgrade flow**: after the health check, the `migrate` step
+below brings the project forward to the running DevFlow version with `df-tools upgrade`
+(automatic migrations, then the confirm migrations the user accepts, then a commit).
+It does not change which flags are passed to `validate health` itself. It still
+triggers the stack-profile offer in `offer_repair` whenever a Check 12 issue (I030,
+W030, W031, E030) is present — a migration is exactly when a project is likely to
 still be running on the general profile.
+
+```
+MIGRATE_FLAG=""
+if arguments contain "--migrate"; then
+  MIGRATE_FLAG="--migrate"
+fi
+```
 </step>
 
 <step name="run_health_check">
@@ -90,7 +99,14 @@ Errors: N | Warnings: N | Info: N
 
 - [W005] Objective directory "1-setup" doesn't follow NN-name format
   Fix: Rename to match pattern (e.g., 01-setup)
+
+- [W040] project-behind: stamped never, DevFlow v2.10.1; 5 pending, 1 need confirmation
+  Fix: Run `df-tools upgrade --apply` (or /devflow:status check --migrate)
 ```
+
+W040 is listed like any other warning. It is never auto-repaired by `--repair`: the
+migrations are the repair. `upgrade-check-not-available: …` means the upgrade check
+itself could not run — show it, never treat it as a pass.
 
 **If info exists:**
 ```
@@ -105,6 +121,79 @@ Errors: N | Warnings: N | Info: N
 ---
 N issues can be auto-repaired. Run: /devflow:health --repair
 ```
+
+**Footer (if W040 is present and --migrate was NOT used):**
+```
+This project is behind DevFlow. Run: /devflow:status check --migrate
+```
+</step>
+
+<step name="migrate">
+**Only when `--migrate` was passed.** Runs after the health check, before `offer_repair`.
+
+1. **Check.** Run:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs upgrade --check
+   ```
+
+   If the output says `Unknown command` (an older mirror without `upgrade`), tell the
+   user the installed DevFlow predates `df-tools upgrade`, fall back to the old
+   behaviour (the stack-profile offer in `offer_repair` only), and skip the rest of
+   this step. If it exits 1 with `not a DevFlow project`, report that and stop.
+
+2. **Show the plan.** From the JSON, list `pending` (automatic: `id`, `title`,
+   `reason`) and `pending_confirm` (needs the user: `id`, `title`, `reason`), plus
+   `from` → `to`. If `up_to_date` is true, say "Project is up to date (v<to>)" and go
+   to step 6. If `failed` is non-empty, show each `id`/`phase`/`error` and stop — a
+   check that could not run is never treated as nothing to do.
+
+3. **Automatic migrations.** If `pending` is non-empty, ask:
+
+   ```
+   Apply N automatic migrations? (a backup is taken outside the repo first)
+   ```
+
+   On yes:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply
+   ```
+
+   Show `applied` (ids), `changed_files` and `backup`. A non-zero exit means a
+   migration failed: show `failed`, point at `backup`, and stop (nothing later ran).
+   On no, skip to step 4 anyway — confirm migrations are independent.
+
+4. **Confirm migrations.** For each entry in `pending_confirm`, one at a time:
+   - **0006** (project kind / default work): ask the user to choose `kind` —
+     `api | app | library | ui-lib | cli | plugin` — and a default `work` —
+     `feature | port | refactor | foundation | bugfix | prototype | spike`. Never
+     guess the kind. Then run:
+
+     ```bash
+     node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0006 --kind <kind> --default-work <work>
+     ```
+
+     (Omit `--default-work <work>` if the user declines to pick one.)
+   - **Any other id:** describe it using its `title` and `reason`, ask, and on yes run
+     `node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only <id>`.
+
+   Declined migrations stay pending; W040 will keep reporting them.
+
+5. **Commit.** Collect the union of `changed_files` from every apply run above and
+   commit exactly those paths:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs commit "chore(devflow): upgrade project to v<to>" --files <changed_files…>
+   ```
+
+   If commit signing fails or hangs, report it and stop — never bypass signing. Then
+   re-run `node ~/.claude/devflow/bin/df-tools.cjs validate health` so `offer_repair`
+   works from the upgraded project (the migrations already did what W008/W009/W003
+   repairs would).
+
+6. **Stack profile.** Continue to `offer_repair`, which makes the existing
+   stack-profile offer whenever `--migrate` is passed.
 </step>
 
 <step name="offer_repair">
@@ -165,6 +254,7 @@ Report final status.
 | W031 | warning | Check 12: a loop/gates/generated/verification key names an undefined command | No |
 | W032 | warning | Check 12: profile body over 150 lines | No |
 | I030 | info | Check 12: no `.planning/STACK.md` but a manifest is present (general profile in use) | No |
+| W040 | warning | Check 13: project behind the running DevFlow (`project-behind: …`), or the upgrade check could not run (`upgrade-check-not-available: …`). Fix: `df-tools upgrade --apply` or `/devflow:status check --migrate` | No |
 
 </error_codes>
 
