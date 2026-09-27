@@ -129,6 +129,12 @@ const COMMANDS = {
     summary: 'Plan or apply a .planning/ layout migration.',
     mutates: true,
   },
+  'upgrade': {
+    usage: 'df-tools upgrade [--check|--apply] [--only id[,id]] [--confirm] [--path dir] [--kind k] [--default-work w] [--global]',
+    summary: 'Bring this project (or, with --global, ~/.claude) forward to the running DevFlow version.',
+    mutates: true,
+    details: '--check (default) lists pending migrations; --apply runs auto migrations, backs up outside the repo, and stamps config.json. Confirm migrations run only with --apply --only <id> or --apply --confirm; 0006 takes --kind (and --default-work). --global moves legacy df-* files and manages the ~/.claude/CLAUDE.md block; --global --confirm adopts it over a hand-written section.',
+  },
   'intent': {
     usage: 'df-tools intent resolve [--objective N] [--trd path] [--raw]',
     summary: 'Resolve the intent/defaults cell for an objective or TRD.',

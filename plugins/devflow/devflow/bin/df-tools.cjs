@@ -614,6 +614,12 @@ async function main() {
       break;
     }
 
+    case 'upgrade': {
+      const { cmdUpgrade } = require('./lib/upgrade-cli.cjs');
+      cmdUpgrade(cwd, args.slice(1), raw);
+      break;
+    }
+
     case 'migrate': {
       const subcommand = args[1];
       if (subcommand === 'plan') {
