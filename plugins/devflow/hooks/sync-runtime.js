@@ -10,6 +10,8 @@
 //  - Content sentinel: early-exit requires bin/df-tools.cjs present (not just targetDir)
 //  - .plugin-version written ONLY after ALL four subdir swaps succeed
 //  - On any error: stderr warning, best-effort tmp cleanup, exit 0 (retry next session)
+//  - After a good mirror, runs the bundled global upgrade (TRD 36-06); failure-isolated,
+//    skipped with DEVFLOW_SKIP_GLOBAL_UPGRADE=1
 
 const fs = require('fs');
 const path = require('path');
@@ -162,6 +164,24 @@ try {
   // Write version marker ONLY after all swaps succeed
   fs.writeFileSync(versionFile, pluginVersion);
   process.stderr.write(`[devflow] runtime synced to ~/.claude/devflow (v${pluginVersion})\n`);
+
+  // TRD 36-06: bring the global ~/.claude state forward (legacy install → backup, managed block in
+  // ~/.claude/CLAUDE.md). Only after a good mirror, from the BUNDLED module (never the mirror), in its
+  // own try/catch: a missing module or a thrown error never changes the mirror result or exit code.
+  if (process.env.DEVFLOW_SKIP_GLOBAL_UPGRADE !== '1') {
+    const gu = path.join(sourceDir, 'bin', 'lib', 'global-upgrade.cjs');
+    if (fs.existsSync(gu)) {
+      try {
+        require(gu).runGlobalUpgrade({
+          userHome: os.homedir(),
+          pluginVersion,
+          templatePath: path.join(sourceDir, 'templates', 'global-claude-md.md'),
+        });
+      } catch (e) {
+        process.stderr.write(`[devflow] global upgrade skipped: ${e.message}\n`);
+      }
+    }
+  }
 } catch (err) {
   process.stderr.write(`[devflow] sync-runtime failed: ${err.message}\n`);
   // Best-effort cleanup of any tmp dirs that were created but not yet renamed
