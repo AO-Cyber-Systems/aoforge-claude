@@ -656,6 +656,21 @@ function listOrgProfiles({ userHome = null } = {}) {
   return results;
 }
 
+/**
+ * detectMarkers({ userHome }) -> [{ marker, profile, languages }]
+ *
+ * Unions every installed org profile's `detect` markers into one flat, stack-neutral list —
+ * this function never names a language itself (35-02a's P11 neutrality property keeps holding).
+ * The three detector files (project-state.cjs, init.cjs, brownfield-detector.cjs) are the ONE
+ * place allowed to turn a matched marker's `languages` back into a language name (TRD 35-09's
+ * neutrality exception). `[]` when `userHome` is null, via the same listOrgProfiles contract.
+ */
+function detectMarkers({ userHome = null } = {}) {
+  return listOrgProfiles({ userHome }).flatMap((p) =>
+    (p.detect || []).map((marker) => ({ marker, profile: p.id, languages: p.languages || [] }))
+  );
+}
+
 // A marker either names a file at the project root literally, or (`*.ext`) matches any root
 // entry sharing that suffix.
 function markerMatches(marker, rootEntries) {
@@ -665,6 +680,24 @@ function markerMatches(marker, rootEntries) {
     return rootEntries.some((e) => e.endsWith(suffix));
   }
   return rootEntries.includes(marker);
+}
+
+/**
+ * matchMarkersAt(root, markers) -> the subset of `markers` present at `root`
+ *
+ * `markers` is typically `detectMarkers()`'s own output (only its `marker` field is read, so
+ * any `{marker, ...}` array works). A literal marker must equal a root entry; a `*.ext` marker
+ * matches when any root entry shares that suffix (see `markerMatches`). An unreadable `root`
+ * (doesn't exist yet, permissions) matches nothing rather than throwing.
+ */
+function matchMarkersAt(root, markers) {
+  let rootEntries = [];
+  try {
+    rootEntries = fs.readdirSync(root);
+  } catch (_) {
+    rootEntries = [];
+  }
+  return markers.filter((m) => markerMatches(m.marker, rootEntries));
 }
 
 // True when `candidateId` sits somewhere in `ofId`'s own `extends` chain (an ANCESTOR of it),
@@ -967,6 +1000,8 @@ module.exports = {
   validateProfile,
   validateProfileText,
   listOrgProfiles,
+  detectMarkers,
+  matchMarkersAt,
   pickExtends,
   draftProfile,
   serializeProfile,

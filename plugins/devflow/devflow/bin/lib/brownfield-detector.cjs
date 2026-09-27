@@ -46,10 +46,12 @@ const EXCLUDE = new Set([
 
 /**
  * Source file extensions to count (dot-included per path.extname return value).
+ * Matches project-state.cjs EXTS set — must not diverge.
  */
 const EXTS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.cjs', '.mjs',
   '.py', '.go', '.rs', '.rb', '.java',
+  '.dart', '.kt', '.kts', '.swift',
 ]);
 
 /**
@@ -170,4 +172,4 @@ function cmdDetectBrownfieldMap(cwd, targetCwd, raw) {
   output(result, raw, JSON.stringify(result));
 }
 
-module.exports = { cmdDetectBrownfieldMap, detectBrownfieldMap };
+module.exports = { cmdDetectBrownfieldMap, detectBrownfieldMap, countSourceFiles };

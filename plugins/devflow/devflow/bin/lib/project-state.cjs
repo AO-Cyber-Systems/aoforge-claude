@@ -121,6 +121,13 @@ const MANIFEST_LANG = [
   ['go.mod',         'go'],
   ['Gemfile',        'ruby'],
   ['pom.xml',        'java'],
+  // 35-09 additions — APPENDED after the original six so first-match order (and therefore
+  // every pre-existing detector result) for existing repos is unchanged.
+  ['pubspec.yaml',        'dart'],
+  ['build.gradle.kts',    'kotlin'],
+  ['settings.gradle.kts', 'kotlin'],
+  ['build.gradle',        'java'],
+  ['Package.swift',       'swift'],
 ];
 
 /**
@@ -129,10 +136,17 @@ const MANIFEST_LANG = [
  *
  * Special case: package.json + tsconfig.json → 'typescript' (not 'javascript').
  *
+ * 35-09: when no built-in manifest matches, falls back to the union of installed org
+ * profiles' `detect` markers (via stack-profile's `detectMarkers`/`matchMarkersAt`) — the
+ * first matching marker's `languages[0]` (or its `profile` id when `languages` is empty)
+ * becomes `primary_lang`. `[]` when `userHome` is null, so this is a no-op without it.
+ * Lazy `require` avoids a load cycle with stack-profile.cjs.
+ *
  * @param {string} rootDir - absolute path to the project root
+ * @param {{userHome?: string|null}} [opts]
  * @returns {{ has_manifest: boolean, primary_lang: string|null }}
  */
-function detectManifest(rootDir) {
+function detectManifest(rootDir, { userHome = null } = {}) {
   for (const [filename, lang] of MANIFEST_LANG) {
     if (fs.existsSync(path.join(rootDir, filename))) {
       // Refine package.json → 'typescript' when tsconfig.json is also present
@@ -141,6 +155,12 @@ function detectManifest(rootDir) {
       }
       return { has_manifest: true, primary_lang: lang };
     }
+  }
+  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
+  const matched = matchMarkersAt(rootDir, detectMarkers({ userHome }));
+  if (matched.length) {
+    const m = matched[0];
+    return { has_manifest: true, primary_lang: m.languages[0] || m.profile };
   }
   return { has_manifest: false, primary_lang: null };
 }
@@ -169,6 +189,7 @@ const EXCLUDE = new Set([
 const EXTS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.cjs', '.mjs',
   '.py', '.go', '.rs', '.rb', '.java',
+  '.dart', '.kt', '.kts', '.swift',
 ]);
 
 /**
@@ -259,6 +280,7 @@ function gitAgeDays(cwd) {
  * @param {string} cwd - absolute path to the project directory
  * @param {object} [opts]
  * @param {string} [opts.now] - ISO 8601 timestamp for decline expiry check (default: current time)
+ * @param {string|null} [opts.userHome] - org profile home for detectManifest's marker fallback
  * @returns {{
  *   has_planning: boolean,
  *   has_git: boolean,
@@ -270,14 +292,14 @@ function gitAgeDays(cwd) {
  *   decline_expires: string|null
  * }}
  */
-function getProjectState(cwd, { now = new Date().toISOString() } = {}) {
+function getProjectState(cwd, { now = new Date().toISOString(), userHome = null } = {}) {
   const root = path.resolve(cwd);
 
   // 1. Filesystem checks
   const has_planning = fs.existsSync(path.join(root, '.planning'));
   const has_git = fs.existsSync(path.join(root, '.git'));
   const code_files = countSourceFiles(root);
-  const { has_manifest, primary_lang } = detectManifest(root);
+  const { has_manifest, primary_lang } = detectManifest(root, { userHome });
   const is_scratch_dir = isScratchDir(root);
 
   // 2. Git age (only meaningful when .git exists)
@@ -330,7 +352,7 @@ function cmdProjectState(cwd, targetCwd, raw) {
     return; // unreachable — process.exit throws in test harness
   }
 
-  const state = getProjectState(root);
+  const state = getProjectState(root, { userHome: os.homedir() });
   output(state, raw, JSON.stringify(state));
 }
 
@@ -345,3 +367,4 @@ module.exports = {
   getProjectState,
   cmdProjectState,
 };
+
