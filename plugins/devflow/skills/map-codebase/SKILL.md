@@ -72,6 +72,6 @@ Check for .planning/STATE.md - loads context if project already initialized
 - [ ] Documents follow template structure
 - [ ] Parallel agents completed without errors
 - [ ] CLAUDE.md generated at project root with prescriptive coding rules
-- [ ] CLAUDE.md uses <!-- DEVFLOW:START/END --> markers (preserves user content on re-run)
+- [ ] CLAUDE.md uses versioned `<!-- DEVFLOW:START v=… src=claude-md -->` / `<!-- DEVFLOW:END -->` markers (preserves user content on re-run)
 - [ ] User knows next steps
 </success_criteria>

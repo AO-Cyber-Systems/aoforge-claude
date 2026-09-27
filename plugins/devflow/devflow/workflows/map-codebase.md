@@ -267,20 +267,27 @@ Follow the template's section structure and guidelines to synthesize a CLAUDE.md
 - **Concrete:** Include actual file paths, command names, patterns from the analysis docs
 - **Concise:** Aim for 80-150 lines — this is auto-loaded every session, brevity matters
 - **Skip empty sections:** If a section has nothing meaningful (e.g., no integrations), omit it entirely
+- **Development Rules:** Copy the `# Development Rules` section verbatim from the template. It is DevFlow-owned; the upgrade (migration 0005) keeps it current in existing blocks, so do not reword or tailor it.
+
+**Markers (versioned):** Wrap the generated content in
+`<!-- DEVFLOW:START v=<template_version> src=claude-md -->` … `<!-- DEVFLOW:END -->`, where
+`<template_version>` is the `template_version` in the template's frontmatter (currently `2`, i.e.
+`<!-- DEVFLOW:START v=2 src=claude-md -->`).
 
 **Merge with existing CLAUDE.md:**
 
 If `CLAUDE.md` already exists at project root:
 1. Read existing CLAUDE.md
-2. If `<!-- DEVFLOW:START -->` and `<!-- DEVFLOW:END -->` markers found:
-   - Replace everything between markers (inclusive of markers) with new DevFlow section
+2. If a DEVFLOW block is found — a `<!-- DEVFLOW:START v=… src=claude-md -->` marker, or a legacy unversioned `<!-- DEVFLOW:START - Auto-generated … -->` marker (same block) — followed by `<!-- DEVFLOW:END -->`:
+   - Replace everything between markers (inclusive of markers) with the new DevFlow section, written with the versioned start marker
    - Preserve all content before and after the markers exactly as-is
+   - If more than one DEVFLOW:START marker exists, or a START has no END, stop and report it — do not guess which block to replace
 3. If no markers found:
-   - Prepend the new DevFlow section (wrapped in markers) above existing content
+   - Prepend the new DevFlow section (wrapped in the versioned markers) above existing content
    - Add a blank line between the DevFlow section and existing content
 
 If no CLAUDE.md exists:
-1. Write fresh file with markers wrapping the generated content
+1. Write fresh file with the versioned markers wrapping the generated content
 
 Write CLAUDE.md to project root.
 
@@ -391,7 +398,7 @@ End workflow.
 - Read agent output files to collect confirmations
 - All 8 codebase documents exist
 - CLAUDE.md generated at project root with prescriptive coding rules
-- CLAUDE.md wrapped in <!-- DEVFLOW:START/END --> markers
+- CLAUDE.md wrapped in versioned <!-- DEVFLOW:START v=… src=claude-md --> / <!-- DEVFLOW:END --> markers
 - If CLAUDE.md existed, user content outside markers is preserved
 - Clear completion summary with line counts
 - User offered clear next steps in DevFlow style
