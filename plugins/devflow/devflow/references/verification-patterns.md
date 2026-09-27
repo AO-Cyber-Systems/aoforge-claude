@@ -2,7 +2,9 @@
 
 How to verify different types of artifacts are real implementations, not stubs or placeholders.
 
-> **Functional verification (Step 8):** This document covers static patterns (Levels 1–3). For Level 4 functional verification — driving the actual app — the canonical source is the verifier agent's Step 8 in `plugins/devflow/agents/verifier.md`, which selects between Playwright MCP (web) and Maestro MCP (Flutter) based on the project's stack.
+> **Examples for web/TS profiles.** The concrete patterns below (React, Next.js, Express, Prisma, Drizzle) illustrate the Levels 1–3 checks for web/TS stacks. For other stacks, take the equivalents from the project's stack profile (`df-tools stack context verifier`).
+
+> **Functional verification (Step 8):** This document covers static patterns (Levels 1–3). For Level 4 functional verification — driving the actual app — the canonical source is the verifier agent's Step 8 in `plugins/devflow/agents/verifier.md`, which selects its runtime check from TRD `must_haves.platform`, then `verification.runtime` in the resolved stack profile.
 
 <core_principle>
 **Existence ≠ Implementation**

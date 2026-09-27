@@ -510,6 +510,8 @@ I'll verify: vercel whoami returns your account
 
 ## Service CLI Reference
 
+_Examples for web/TS profiles. Use the commands your project's stack profile and CI actually use._
+
 | Service | CLI/API | Key Commands | Auth Gate |
 |---------|---------|--------------|-----------|
 | Vercel | `vercel` | `--yes`, `env add`, `--prod`, `ls` | `vercel login` |
@@ -525,6 +527,8 @@ I'll verify: vercel whoami returns your account
 | Convex | `npx convex` | `dev`, `deploy`, `env set`, `env get` | `npx convex login` |
 
 ## Environment Variable Automation
+
+_Examples for web/TS profiles. Use the commands your project's stack profile and CI actually use._
 
 **Env files:** Use Write/Edit tools. Never ask human to create .env manually.
 
@@ -566,6 +570,8 @@ I'll verify: vercel whoami returns your account
 ```
 
 ## Dev Server Automation
+
+_Examples for web/TS profiles. Use the commands your project's stack profile and CI actually use._
 
 | Framework | Start Command | Ready Signal | Default URL |
 |-----------|---------------|--------------|-------------|
