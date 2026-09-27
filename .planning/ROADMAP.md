@@ -87,7 +87,7 @@ Jobs:
 | 32. Visual-eval default path tells the truth | v1.3 | 4/4 | Complete | 2026-08-27 |
 | 33. The visual gate actually runs in CI | v1.3 | 3/3 | Complete | 2026-08-27 |
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
-| 35. Stack profile loader | v1.3 | 0/11 | Planning | — |
+| 35. Stack profile loader | v1.3 | 3/11 | In Progress | — |
 
 ### Objective 27: Gate correctness ✅
 
@@ -228,14 +228,14 @@ Jobs:
 **Goal:** DevFlow resolves a per-project stack profile (`.planning/STACK.md` over bundled `general` → org/pack → project → component tiers), validates and drafts it, and agents read their slice of it instead of branching on stack in prose. No STACK.md means exactly today's behaviour.
 **Depends on:** `docs/PROPOSAL-stack-profile.md` + artifacts (`2946f97`). **Branch decision: stack.** `feat/stack-profile-loader` cut from `docs/stack-packs-proposal` @ `f1106e5`.
 **Source:** Proposal §6 steps 1–5 (step 6, Flutter extraction, stays with `PROPOSAL-stack-packs.md`).
-**Jobs:** 11 TRDs in 6 waves (planned 2026-09-27; 35-02 split into 02a/02b per job-checker; objective-local requirement IDs STK-01..STK-10, STK-02 shared by 02a/02b)
+**Jobs:** 3/11 executed — 11 TRDs in 6 waves (planned 2026-09-27; 35-02 split into 02a/02b per job-checker; objective-local requirement IDs STK-01..STK-10, STK-02 shared by 02a/02b)
 
 Why: verifier Step 8 selects its runtime check from a `project.md` stack field that does not exist, so every non-Flutter/web project is SKIPPED; the planner scrapes gates out of prose; no detector knows Dart; `testing-strategy.md` guesses the stack from `kind`.
 
 Jobs:
-- [ ] 35-01-TRD.md — Wave 1: extract the schema walker into `json-schema-lite.cjs`, add the stack-profile keywords
-- [ ] 35-02a-TRD.md — Wave 1: `stack-profile.cjs` loader core — parse, tiers + extends chain, merge + provenance, components (owns fixtures)
-- [ ] 35-02b-TRD.md — Wave 1: `stack-render.cjs` — renderCommand + contextFor per-agent slices and token cap
+- [x] 35-01-TRD.md — Wave 1: extract the schema walker into `json-schema-lite.cjs`, add the stack-profile keywords
+- [x] 35-02a-TRD.md — Wave 1: `stack-profile.cjs` loader core — parse, tiers + extends chain, merge + provenance, components (owns fixtures)
+- [x] 35-02b-TRD.md — Wave 1: `stack-render.cjs` — renderCommand + contextFor per-agent slices and token cap
 - [ ] 35-03-TRD.md — Wave 2: `validateProfile` (STK001–STK009) and `df-tools stack resolve|context|validate|command`
 - [ ] 35-04-TRD.md — Wave 3: `df-tools stack init` drafting; codebase/STACK.md Commands section; map-codebase + new-project confirm steps
 - [ ] 35-05-TRD.md — Wave 3: `validate health` Check 12 (E030/W030/W031/W032/I030), never auto-repaired
