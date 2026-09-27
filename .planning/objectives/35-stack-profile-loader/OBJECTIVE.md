@@ -21,9 +21,11 @@ Branch: `feat/stack-profile-loader`, stacked on `docs/stack-packs-proposal` @ `f
 DevFlow resolves a per-project stack profile (`.planning/STACK.md` over the tiers bundled `general`
 → `~/.claude/devflow/stacks/<id>.md` → project → component), validates it, drafts it from repo
 evidence, and hands each agent its slice. The planner, executor, verifier, debugger and
-integration-checker read that profile instead of branching on stack in prose. With **no STACK.md**,
-behaviour is exactly as today, except that the verifier states a reason instead of "stack not
-detected".
+integration-checker read that profile instead of branching on stack in prose. With **no STACK.md**, agents resolve the bundled `general` profile: every command is discovered
+from the repo (CI → task runner → manifest → README), never assumed. The executor's inner loop and
+task gates run for every project — by decision (2026-09-27) the general principles apply
+everywhere; an undiscoverable command is reported `not_available`, never pass. The verifier states
+a reason instead of "stack not detected".
 
 ## Deliverables (the planner may re-cut, not re-scope)
 

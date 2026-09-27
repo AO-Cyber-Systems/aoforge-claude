@@ -225,7 +225,7 @@ Jobs:
 
 ### Objective 35: Stack profile — loader, CLI, drafting, validation, agent wiring, neutral references ✅
 
-**Goal:** DevFlow resolves a per-project stack profile (`.planning/STACK.md` over bundled `general` → org/pack → project → component tiers), validates and drafts it, and agents read their slice of it instead of branching on stack in prose. No STACK.md means exactly today's behaviour.
+**Goal:** DevFlow resolves a per-project stack profile (`.planning/STACK.md` over bundled `general` → org/pack → project → component tiers), validates and drafts it, and agents read their slice of it instead of branching on stack in prose. No STACK.md means the bundled `general` profile: commands discovered, never assumed; the check loop runs everywhere by decision (2026-09-27).
 **Depends on:** `docs/PROPOSAL-stack-profile.md` + artifacts (`2946f97`). **Branch decision: stack.** `feat/stack-profile-loader` cut from `docs/stack-packs-proposal` @ `f1106e5`.
 **Source:** Proposal §6 steps 1–5 (step 6, Flutter extraction, stays with `PROPOSAL-stack-packs.md`).
 **Jobs:** 11/11 complete, verified passed 10/10 (35-VERIFICATION.md) — 11 TRDs in 6 waves (planned 2026-09-27; 35-02 split into 02a/02b per job-checker; objective-local requirement IDs STK-01..STK-10, STK-02 shared by 02a/02b)
