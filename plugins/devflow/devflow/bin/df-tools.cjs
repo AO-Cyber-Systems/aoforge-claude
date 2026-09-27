@@ -967,6 +967,12 @@ async function main() {
       break;
     }
 
+    case 'stack': {
+      const { cmdStack } = require('./lib/stack-profile.cjs');
+      cmdStack(cwd, args.slice(1), raw);
+      break;
+    }
+
     case 'gh': {
       const subcommand = args[1];
       if (subcommand === 'status') {

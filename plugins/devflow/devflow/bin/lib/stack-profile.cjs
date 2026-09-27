@@ -18,6 +18,10 @@ const fs = require('fs');
 const path = require('path');
 const { parseYamlLite } = require('./yaml-lite.cjs');
 const { validate: schemaValidate } = require('./json-schema-lite.cjs');
+const { output, error } = require('./helpers.cjs');
+// 35-02b built command rendering / per-agent context slicing as a separate module so it could
+// run in parallel with 35-02a; re-exported below so every later caller requires only this file.
+const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./stack-render.cjs');
 
 const BUNDLED_PATH = path.join(__dirname, '../../references/stack-general.md');
 const SCHEMA_PATH = path.join(__dirname, '../../schemas/stack-profile.schema.json');
@@ -600,12 +604,101 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
   return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel });
 }
 
+// ─── df-tools stack CLI ────────────────────────────────────────────────────
+
+function parseFlagValue(args, flag) {
+  const i = args.indexOf(flag);
+  if (i === -1) return null;
+  const v = args[i + 1];
+  return v === undefined ? null : v;
+}
+
+function parseCsvFlag(args, flag) {
+  const v = parseFlagValue(args, flag);
+  if (!v) return [];
+  return v.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * cmdStack(cwd, args, raw) — `df-tools stack resolve|context|validate|command`. `stack init` is
+ * 35-04. `os.homedir()` is called ONLY here (never in resolveProfile/validateProfile) so those
+ * stay pure and every test can sandbox HOME by passing `userHome` explicitly.
+ */
+function cmdStack(cwd, args, raw) {
+  const userHome = require('os').homedir();
+  const projectRoot = cwd;
+  const subcommand = args[0];
+
+  try {
+    if (subcommand === 'resolve') {
+      const file = parseFlagValue(args, '--file');
+      const withProvenance = args.includes('--provenance');
+      const resolved = resolveProfile({ projectRoot, userHome, file });
+      const result = {
+        id: resolved.id,
+        chain: resolved.chain,
+        component: resolved.component,
+        frontmatter: resolved.frontmatter,
+        sections: Object.keys(resolved.sections),
+        issues: resolved.issues,
+      };
+      if (withProvenance) result.provenance = resolved.provenance;
+      output(result, raw, resolved.id);
+      return;
+    }
+
+    if (subcommand === 'context') {
+      const agent = args[1];
+      const file = parseFlagValue(args, '--file');
+      const files = parseCsvFlag(args, '--files');
+      const budgetRaw = parseFlagValue(args, '--budget');
+      const ui = args.includes('--ui');
+      const resolved = resolveProfile({ projectRoot, userHome, file });
+      const opts = { ui };
+      if (budgetRaw !== null) opts.budget = parseInt(budgetRaw, 10);
+      void files; // context slices by section, not by file list; kept for CLI-surface symmetry
+      const result = contextFor(resolved, agent, opts);
+      output(result, raw, result.text);
+      return;
+    }
+
+    if (subcommand === 'validate') {
+      const profilePath = parseFlagValue(args, '--profile');
+      const result = validateProfile({ projectRoot, userHome, profilePath });
+      output(result, raw, result.ok ? 'ok' : 'invalid', result.ok ? 0 : 1);
+      return;
+    }
+
+    if (subcommand === 'command') {
+      const key = args[1];
+      const file = parseFlagValue(args, '--file');
+      const files = parseCsvFlag(args, '--files');
+      const packages = parseCsvFlag(args, '--packages');
+      const apply = args.includes('--apply');
+      const resolved = resolveProfile({ projectRoot, userHome, file });
+      const result = renderCommand(resolved, key, { files, packages, apply });
+      const rawValue = result.status === 'ok' ? result.command : '';
+      output(result, raw, rawValue, result.status === 'undefined' ? 1 : 0);
+      return;
+    }
+
+    error('Unknown stack subcommand. Available: resolve, context, validate, command');
+  } catch (err) {
+    error(err.message);
+  }
+}
+
 module.exports = {
   parseProfile,
   resolveProfile,
   resolveFromParsed,
   validateProfile,
   validateProfileText,
+  cmdStack,
+  renderCommand,
+  contextFor,
+  AGENT_SLICES,
+  AGENT_ALIASES,
   StackProfileError,
   SECTION_NAMES,
   _resetCache,

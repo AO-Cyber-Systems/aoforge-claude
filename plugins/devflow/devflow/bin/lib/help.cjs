@@ -221,6 +221,11 @@ const COMMANDS = {
     summary: 'Sync DevFlow planning state to and from GitHub.',
     mutates: true,
   },
+  'stack': {
+    usage: 'df-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply]> [--raw]',
+    summary: 'Resolve, validate and slice the project stack profile (.planning/STACK.md over bundled general).',
+    mutates: true,
+  },
   'awareness': {
     usage: 'df-tools awareness [args] [--raw]',
     summary: 'Peer view — who else is working in this repo.',
