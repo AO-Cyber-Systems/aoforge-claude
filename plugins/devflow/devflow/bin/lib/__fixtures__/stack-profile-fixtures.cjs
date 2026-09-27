@@ -83,7 +83,8 @@ function profileMd({ yaml, sections = [] } = {}) {
 /**
  * orgProfileGoLike() -> string
  *
- * A hand-built org/pack-tier fixture: id `golike`, extends `general`, a `detect` marker, and
+ * A hand-built org/pack-tier fixture: id `golike`, extends `general`, a `detect` marker
+ * (`go.mod` — so `pickExtends` finds it against a go.mod-shaped repo per 35-04's I2/I12), and
  * `commands.build` / `commands.test` (the latter with a `scoped` form so tests can prove atomic
  * command-object replacement), plus `verification.runtime: service`. The name and command
  * strings are deliberately synthetic ("golike", "buildtool …") — this is a stand-in shape for
@@ -95,7 +96,7 @@ function orgProfileGoLike() {
       'schema: 1',
       'id: golike',
       'extends: general',
-      'detect: [marker.lock]',
+      'detect: [go.mod]',
       'commands:',
       '  build: { run: "buildtool build ./..." }',
       '  test: { run: "buildtool test ./...", scoped: "buildtool test -race {packages}" }',
@@ -104,6 +105,21 @@ function orgProfileGoLike() {
     ].join('\n'),
     sections: [{ name: 'Idioms', text: 'Org-tier idiom text for golike.' }],
   });
+}
+
+/**
+ * goShapedRepo() -> absolute project root shaped like a Go project (35-04's I2/I12 DoD fixture):
+ * a `go.mod`, a CI workflow whose one step runs `go test ./...`, and a package file so the
+ * `--packages ./pkg` DoD invocation has somewhere to point. Pass to `makeProject({ files })`
+ * — this returns the `files` object, not a directory, so the caller controls `stackMd`/`stacks`
+ * alongside it in the same `makeProject` call.
+ */
+function goShapedRepo() {
+  return {
+    'go.mod': 'module example.com/x\n',
+    '.github/workflows/ci.yml': 'jobs:\n  t:\n    steps:\n      - run: go test ./...\n',
+    'pkg/a.go': 'package pkg\n',
+  };
 }
 
 /**
@@ -160,6 +176,7 @@ module.exports = {
   makeHome,
   profileMd,
   orgProfileGoLike,
+  goShapedRepo,
   cycleHome,
   chainHome,
   longBodyProfile,
