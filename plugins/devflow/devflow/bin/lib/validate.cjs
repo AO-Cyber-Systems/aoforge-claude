@@ -6,8 +6,12 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { output, error, normalizeObjectiveName, findPlanFiles, stripPlanSuffix, pluginVersion, installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
-const { stateReplaceField, stateExtractField, readStateJson, writeStateJson, STATE_JSON_DEFAULTS } = require('./state.cjs');
 const { getMilestoneInfo } = require('./roadmap.cjs');
+// The config / JOB.md / state.json repairs live in the upgrade migrations (TRD 36-04a); health
+// calls them so each repair exists in exactly one place.
+const m0001 = require('./migrations/0001-config-stamp.cjs');
+const m0002 = require('./migrations/0002-job-to-trd.cjs');
+const m0003 = require('./migrations/0003-state-json-seed.cjs');
 
 // ─── Engine lag helpers (Check 11 in cmdValidateHealth) ───────────────────────
 
@@ -352,19 +356,9 @@ function cmdValidateHealth(cwd, options, raw) {
   }
 
   // ─── Check 9: Legacy JOB.md files (should be TRD.md) ─────────────────────
-  const legacyJobFiles = [];
-  try {
-    const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const objectiveFiles = fs.readdirSync(path.join(objectivesDir, e.name));
-      for (const f of objectiveFiles) {
-        if (f.endsWith('-JOB.md') || f === 'JOB.md') {
-          legacyJobFiles.push(path.join(objectivesDir, e.name, f));
-        }
-      }
-    }
-  } catch {}
+  // A JOB.md whose TRD.md already exists is a conflict migration 0002 never renames, so it is not
+  // counted here (a warning whose --repair cannot fix it would never clear).
+  const legacyJobFiles = m0002.findLegacyJobFiles(cwd).filter((f) => !f.conflict);
   if (legacyJobFiles.length > 0) {
     addIssue(
       'warning',
@@ -565,22 +559,14 @@ function cmdValidateHealth(cwd, options, raw) {
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
+    const migrationCtx = { projectRoot: cwd, userHome: homeDir, pluginVersion: pluginVersion(), dryRun: false, options: {} };
     for (const repair of repairs) {
       try {
         switch (repair) {
           case 'createConfig':
           case 'resetConfig': {
-            const defaults = {
-              model_profile: 'balanced',
-              commit_docs: true,
-              search_gitignored: false,
-              branching_strategy: 'none',
-              research: true,
-              job_checker: true,
-              verifier: true,
-              parallelization: true,
-            };
-            fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf-8');
+            // The nested template shape, from migration 0001 (the only copy of it).
+            fs.writeFileSync(configPath, JSON.stringify(m0001.buildConfig(null), null, 2) + '\n', 'utf-8');
             repairActions.push({ action: repair, success: true, path: 'config.json' });
             break;
           }
@@ -601,58 +587,15 @@ function cmdValidateHealth(cwd, options, raw) {
             break;
           }
           case 'createStateJson': {
-            // Seed state.json from existing STATE.md content
-            const stateContent = fs.existsSync(statePath) ? fs.readFileSync(statePath, 'utf-8') : '';
-            const seeded = Object.assign({}, STATE_JSON_DEFAULTS);
-
-            // Extract what we can from markdown
-            const extractMd = (field) => stateExtractField(stateContent, field);
-            const currentJobRaw  = extractMd('Current Job');
-            const totalJobsRaw   = extractMd('Total Jobs in Objective');
-            const progressRaw    = extractMd('Progress');
-            const statusRaw      = extractMd('Status');
-            const lastActivityRaw = extractMd('Last Activity');
-            const currentObjRaw  = extractMd('Current Objective');
-
-            if (currentJobRaw) seeded.current_job = parseInt(currentJobRaw, 10) || 0;
-            if (totalJobsRaw)  seeded.total_jobs  = parseInt(totalJobsRaw, 10)  || 0;
-            if (progressRaw)   seeded.progress_pct = parseInt(String(progressRaw).replace('%', ''), 10) || 0;
-            if (statusRaw)     seeded.status = statusRaw;
-            if (lastActivityRaw) seeded.last_activity = lastActivityRaw;
-            if (currentObjRaw) seeded.current_objective = currentObjRaw;
-
-            // Extract blockers list
-            const blockersMatch = stateContent.match(/##\s*Blockers[^#]*\n([\s\S]*?)(?=\n##|$)/i);
-            if (blockersMatch) {
-              const items = blockersMatch[1].match(/^-\s+(.+)$/gm) || [];
-              seeded.blockers = items.map(i => i.replace(/^-\s+/, '').trim()).filter(Boolean);
-            }
-
-            writeStateJson(cwd, seeded);
-            repairActions.push({ action: repair, success: true, path: 'state.json', seeded_fields: Object.keys(seeded).filter(k => seeded[k] !== STATE_JSON_DEFAULTS[k]) });
+            // Seed state.json from STATE.md via migration 0003.
+            const res = m0003.apply(migrationCtx);
+            repairActions.push({ action: repair, success: true, path: 'state.json', seeded_fields: res.notes.seeded_fields });
             break;
           }
           case 'migrateJobFiles': {
-            const migrated = [];
-            for (const jobPath of legacyJobFiles) {
-              const trdPath = jobPath.replace(/-JOB\.md$/, '-TRD.md').replace(/JOB\.md$/, 'TRD.md');
-              fs.renameSync(jobPath, trdPath);
-              migrated.push({ from: path.relative(cwd, jobPath), to: path.relative(cwd, trdPath) });
-            }
-            // Record migration in STATE.md if it exists
-            if (fs.existsSync(statePath) && migrated.length > 0) {
-              const today = new Date().toISOString().split('T')[0];
-              let stateContent = fs.readFileSync(statePath, 'utf-8');
-              const note = `- ${today}: Migrated ${migrated.length} JOB.md file(s) to TRD.md format via /df:health --repair\n`;
-              stateContent = stateReplaceField(stateContent, 'Status', 'Resumed') || stateContent;
-              const logSection = stateContent.indexOf('## Session Log');
-              if (logSection !== -1) {
-                const insertAt = stateContent.indexOf('\n', logSection) + 1;
-                stateContent = stateContent.slice(0, insertAt) + note + stateContent.slice(insertAt);
-                fs.writeFileSync(statePath, stateContent, 'utf-8');
-              }
-            }
-            repairActions.push({ action: repair, success: true, migrated });
+            // Rename JOB.md -> TRD.md and log it in STATE.md via migration 0002.
+            const res = m0002.apply(migrationCtx);
+            repairActions.push({ action: repair, success: true, migrated: res.notes.migrated });
             break;
           }
         }
