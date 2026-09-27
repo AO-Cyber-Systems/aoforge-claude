@@ -695,7 +695,7 @@ If exists, load relevant documents by objective type:
 | setup, config | STACK.md, STRUCTURE.md |
 | (default) | STACK.md, ARCHITECTURE.md |
 
-**Note:** STACK.md provides validation commands (test/lint/build) used to populate `<validation_gates>`. PATTERNS.md provides code examples executors can mimic.
+**Note:** `.planning/codebase/STACK.md` (descriptive, from map-codebase) is evidence; `.planning/STACK.md` (prescriptive stack profile) is what `df-tools stack` resolves. Gates come from the profile first. PATTERNS.md provides code examples executors can mimic.
 </step>
 
 <step name="identify_objective">
@@ -1003,7 +1003,13 @@ Include all frontmatter fields.
 - `<file_tree>`: When a TRD creates 2+ new files, add a tree showing where they land. Use `← CREATE` and `← MODIFY` annotations. Reference STRUCTURE.md for correct placement.
 - `<research_context>`: When RESEARCH.md exists, embed relevant findings for this TRD's scope.
 - `<gotchas>`: When CONCERNS.md/RESEARCH.md flag issues for this TRD's files/domain.
-- `<validation_gates>`: Populate from STACK.md with runnable lint/test/build commands.
+- `<validation_gates>`: **Populate from the stack profile.** Read `gates.task` from
+  `node ~/.claude/devflow/bin/df-tools.cjs stack resolve` (JSON `frontmatter.gates.task`). For each key run
+  `node ~/.claude/devflow/bin/df-tools.cjs stack command <key> --raw` (add `--files <comma-list>` from the TRD's `files_modified` when a scoped form helps):
+  - non-empty output → that is the gate command, verbatim;
+  - empty output with JSON status `discover` → fall back to the codebase scrape for that key (`.planning/codebase/STACK.md` Commands table, then `TESTING.md`); if nothing is found, list the gate as `not_available` — never invent a command;
+  - status `none` → omit the gate.
+  If `stack` is an unknown command (older mirror), use the codebase scrape for every gate, as before.
 - `<recovery>` in tasks: For tasks that modify existing files or could fail, include rollback steps or alternative approaches.
 - Pseudocode in `<action>`: For complex tasks, include approach with `# CRITICAL:`, `# GOTCHA:`, `# PATTERN:` markers.
 </step>
@@ -1149,7 +1155,7 @@ Objective planning complete when:
 - [ ] Each TRD: depends_on, files_modified, autonomous, must_haves in frontmatter
 - [ ] Each TRD: user_setup declared if external services involved
 - [ ] Each TRD: Objective, embedded_context, tasks, verification, success criteria, output
-- [ ] Each TRD: validation_gates populated with runnable commands from STACK.md (when available)
+- [ ] Each TRD: validation_gates populated from `df-tools stack command` for each `gates.task` key (codebase scrape only where the key resolves to `discover`)
 - [ ] Each TRD: research_context/gotchas included when relevant source docs exist
 - [ ] Each TRD: codebase_examples populated from scan_codebase_patterns step
 - [ ] Each TRD: file_tree included when 2+ new files created
