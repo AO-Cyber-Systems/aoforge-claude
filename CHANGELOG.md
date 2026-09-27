@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **`df-tools micro commit` never stages untracked files.** Without `--files` it fell back to
+  `git add .`, sweeping every untracked file in the repository into the micro's commit, which
+  once carried a user's unrelated draft documents onto a pushed PR branch. It now commits exactly
+  what is already staged, or, if nothing is, tracked modifications only (`git add -u`). A new
+  file must be named with `--files`, and the refusal says so. `commitMicro` also removes its
+  own `.planning/.micro-description` scratch file, which the sweep used to commit.
+
 ## [2.10.0] - 2026-09-26
 
 Contract hardening after W1b: the tools stop answering yes when nothing was checked, stop

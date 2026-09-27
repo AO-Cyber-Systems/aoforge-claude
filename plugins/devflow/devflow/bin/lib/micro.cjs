@@ -158,12 +158,32 @@ function _appendQuickTaskRow(stateMdPath, row) {
 function _defaultGitRunner(cwd, opts) {
   const safeEnv = { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' };
 
-  // Stage files
-  const filesToStage = opts.files && opts.files.length > 0 ? opts.files : ['.'];
-  for (const f of filesToStage) {
-    const addResult = spawnSync('git', ['add', f], { cwd, encoding: 'utf8', env: safeEnv });
-    if (addResult.status !== 0) {
-      return { exitCode: addResult.status ?? 1, stdout: '', stderr: addResult.stderr || '' };
+  // Stage files. With an explicit list, stage exactly that. Without one, NEVER
+  // stage untracked files: the old `git add .` fallback swept a user's unrelated
+  // drafts into a micro commit and onto a pushed branch. Instead commit what the
+  // caller already staged, or — if nothing is — tracked modifications only.
+  if (opts.files && opts.files.length > 0) {
+    for (const f of opts.files) {
+      const addResult = spawnSync('git', ['add', f], { cwd, encoding: 'utf8', env: safeEnv });
+      if (addResult.status !== 0) {
+        return { exitCode: addResult.status ?? 1, stdout: '', stderr: addResult.stderr || '' };
+      }
+    }
+  } else {
+    const staged = () => spawnSync('git', ['diff', '--cached', '--quiet'], { cwd, env: safeEnv }).status === 1;
+    if (!staged()) {
+      const addResult = spawnSync('git', ['add', '-u'], { cwd, encoding: 'utf8', env: safeEnv });
+      if (addResult.status !== 0) {
+        return { exitCode: addResult.status ?? 1, stdout: '', stderr: addResult.stderr || '' };
+      }
+    }
+    if (!staged()) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'nothing staged and no tracked file is modified. Untracked files are never ' +
+          'swept in — name new files explicitly: df-tools micro commit --files <path>...',
+      };
     }
   }
 
@@ -262,7 +282,7 @@ function startMicro({ planningDir, description, pid, now }) {
  * @param {object} opts
  * @param {string|null} opts.planningDir - absolute path to .planning/
  * @param {string} opts.description - task description (used in commit message)
- * @param {string[]|null} opts.files - files to stage (null = stage everything)
+ * @param {string[]|null} opts.files - files to stage (null = what is already staged, else tracked modifications; never untracked files)
  * @param {string} opts.now - ISO8601 timestamp (for STATE.md date)
  * @param {Function|null} opts.gitRunner - injection for tests; null = real git
  * @returns {{ ok: boolean, commit_hash?: string, removed_marker?: boolean, reason?: string, message?: string, stderr?: string }}
@@ -383,6 +403,10 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // STATE.md commit failure is recoverable; marker cleanup is the user-meaningful
   // unit and must always happen.
   endSkill({ planningDir });
+  // The description scratch file is micro's own state, not project content. It is
+  // never staged (untracked files are never swept in), so remove it here rather
+  // than leave it in the tree for the CLI wrapper alone to clean.
+  try { fs.unlinkSync(path.join(planningDir, '.micro-description')); } catch { /* absent */ }
 
   // F1: second atomic commit for STATE.md (and any pending marker deletion).
   // Mirrors /devflow:quick's 2-commit pattern. Only attempt if the row was

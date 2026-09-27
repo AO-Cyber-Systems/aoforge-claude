@@ -404,6 +404,49 @@ describe('commitMicro: atomic STATE.md (F1)', () => {
       `expected clean tree, got: ${JSON.stringify(statusProc.stdout)}`);
   });
 
+  // No-sweep contract: with no --files, commit never stages UNTRACKED files. A
+  // `git add .` fallback once pushed a user's unrelated untracked drafts to a PR.
+  function headFiles(root) {
+    return spawnSync('git', ['show', '--name-only', '--format=', 'HEAD~1'], { cwd: root, encoding: 'utf8' })
+      .stdout.trim().split('\n').filter(Boolean);
+  }
+
+  test('NS-1: with a staged fix, an unrelated untracked file is NOT committed', () => {
+    startMicro({ planningDir: env.planningDir, description: 'fix typo', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'fix.txt'), 'fix\n');
+    fs.writeFileSync(path.join(env.root, 'draft-proposal.md'), 'unrelated\n');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: env.root, env: { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' } });
+
+    const result = commitMicro({ planningDir: env.planningDir, description: 'fix typo', files: null, now: '2026-05-06T00:01:00Z', gitRunner: null });
+    assert.equal(result.ok, true, `expected ok:true, got: ${result.message}`);
+    assert.deepEqual(headFiles(env.root), ['fix.txt'], 'the source commit holds exactly what was staged');
+    const status = spawnSync('git', ['status', '--porcelain'], { cwd: env.root, encoding: 'utf8' }).stdout;
+    assert.match(status, /^\?\? draft-proposal\.md$/m, `the draft must still be untracked; status: ${status}`);
+  });
+
+  test('NS-2: nothing staged → tracked modifications are committed, untracked files are not', () => {
+    startMicro({ planningDir: env.planningDir, description: 'fix readme', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'README.md'), '# test, fixed\n');
+    fs.writeFileSync(path.join(env.root, 'draft-proposal.md'), 'unrelated\n');
+
+    const result = commitMicro({ planningDir: env.planningDir, description: 'fix readme', files: null, now: '2026-05-06T00:01:00Z', gitRunner: null });
+    assert.equal(result.ok, true, `expected ok:true, got: ${result.message}`);
+    assert.deepEqual(headFiles(env.root), ['README.md']);
+    const status = spawnSync('git', ['status', '--porcelain'], { cwd: env.root, encoding: 'utf8' }).stdout;
+    assert.match(status, /^\?\? draft-proposal\.md$/m, `the draft must still be untracked; status: ${status}`);
+  });
+
+  test('NS-3: only untracked files present → refuses, names --files, commits nothing', () => {
+    startMicro({ planningDir: env.planningDir, description: 'add file', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'new.txt'), 'new\n');
+    const before = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: env.root, encoding: 'utf8' }).stdout;
+
+    const result = commitMicro({ planningDir: env.planningDir, description: 'add file', files: null, now: '2026-05-06T00:01:00Z', gitRunner: null });
+    assert.equal(result.ok, false);
+    assert.match(result.message, /--files/, `must tell the caller how to include a new file; got: ${result.message}`);
+    assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: env.root, encoding: 'utf8' }).stdout, before);
+  });
+
   // Test list F1-7: two commits — `chore(micro): record STATE.md row for ...` then `chore(micro): ...`
   test('F1-7 happy: produces two atomic commits — source then STATE.md row', () => {
     startMicro({ planningDir: env.planningDir, description: 'fix typo in readme', pid: 1, now: '2026-05-06T00:00:00Z' });

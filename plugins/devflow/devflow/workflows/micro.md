@@ -31,7 +31,8 @@ Edit/Write/Read/Bash directly — no agents, no JOB.md, no SUMMARY.md. Scope: �
 **Step 4: Commit**
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs micro commit --raw
+node ~/.claude/devflow/bin/df-tools.cjs micro commit --raw            # commits what you staged, else tracked edits
+node ~/.claude/devflow/bin/df-tools.cjs micro commit --files <path> --raw   # required for a NEW file — untracked files are never swept in
 ```
 
 Produces `chore(micro): ${DESCRIPTION}`, removes marker, appends row to STATE.md "Quick Tasks Completed" table.
