@@ -556,6 +556,36 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('error', 'E030', `stack-profile-check-failed: ${e.message}`, 'Run `df-tools stack validate`');
   }
 
+  // ─── Check 13: Upgrade state (objective 36) ────────────────────────────────
+  // W040 is deliberately NOT repairable: the migrations are the repair, run by
+  // `df-tools upgrade --apply`. `--repair` keeps its own per-issue repairs
+  // (W008/W009/W003) so nothing runs twice. A check that cannot run (a broken
+  // registry, a detect that throws) is reported, never passed silently.
+  try {
+    const upgrade = require('./upgrade.cjs');
+    const r = upgrade.check({
+      projectRoot: cwd,
+      userHome: homeDir,
+      pluginVersion: runningVer,
+      registryDir: options.upgradeRegistryDir,
+    });
+    if (r.failed.length > 0) {
+      const why = r.failed.map((f) => `${f.id} ${f.phase} failed: ${f.error}`).join('; ');
+      addIssue('warning', 'W040', `upgrade-check-not-available: ${why}`, 'Run `df-tools upgrade --check` to see why');
+    } else if (!r.up_to_date) {
+      addIssue(
+        'warning',
+        'W040',
+        `project-behind: stamped ${r.from ? `v${r.from}` : 'never'}, DevFlow v${r.to}; ` +
+          `${r.pending.length} pending, ${r.pending_confirm.length} need confirmation`,
+        'Run `df-tools upgrade --apply` (or /devflow:status check --migrate)'
+      );
+    }
+  } catch (e) {
+    const why = Array.isArray(e.problems) ? `upgrade registry invalid: ${e.problems.join('; ')}` : e.message;
+    addIssue('warning', 'W040', `upgrade-check-not-available: ${why}`, 'Run `df-tools upgrade --check` to see why');
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
