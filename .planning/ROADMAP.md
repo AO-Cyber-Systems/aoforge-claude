@@ -88,7 +88,7 @@ Jobs:
 | 33. The visual gate actually runs in CI | v1.3 | 3/3 | Complete | 2026-08-27 |
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
-| 36. Upgrade in place | v1.3 | 0/10 | Planned | — |
+| 36. Upgrade in place | v1.3 | 1/10 | In progress | — |
 | 37. Adopt existing repos | v1.3 | 0/— | Registered | — |
 | 38. Doc auto-correction | v1.3 | 0/— | Registered | — |
 
@@ -256,7 +256,7 @@ Jobs:
 **Jobs:** 10 TRDs in 4 waves (planned 2026-09-27; 36-04 split into 04a/04b/04c; notices primitive moved into 36-02; 36-06 and 36-07 moved earlier, 36-03 later, by real dependencies; objective-local requirement IDs UPG-01..UPG-08, UPG-04 shared by 04a/04b/04c)
 
 Jobs:
-- [ ] 36-01-TRD.md — Wave 1: `lib/upgrade.cjs` runner — registry + contract validation, id order, out-of-repo backup, `config.json devflow{}` stamp, report (owns the shared fixtures)
+- [x] 36-01-TRD.md — Wave 1: `lib/upgrade.cjs` runner — registry + contract validation, id order, out-of-repo backup, `config.json devflow{}` stamp, report (owns the shared fixtures)
 - [ ] 36-02-TRD.md — Wave 1: `lib/managed-block.cjs` (versioned `DEVFLOW:START v= src=` blocks, legacy = stale, byte-exact outside) + `lib/notices.cjs` one-shot notices
 - [ ] 36-07-TRD.md — Wave 1: plan/execute-objective surface init `bootstrap`/`bootstrap_objectives` in one line; dead import removed
 - [ ] 36-04a-TRD.md — Wave 2: migrations 0001 config-stamp, 0002 job-to-trd, 0003 state-json-seed; health repairs call them
