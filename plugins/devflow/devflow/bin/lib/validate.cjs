@@ -481,6 +481,87 @@ function cmdValidateHealth(cwd, options, raw) {
 
   const engine = { running: runningVer, mirror: mirrorVer, installed: installedVer, main: mainVer };
 
+  // ─── Check 12: Stack profile (.planning/STACK.md) ──────────────────────────
+  // Not auto-repaired: drafting a profile needs human confirmation (`stack init`).
+  // See TRD 35-05's mapping table for the STK -> health code assignments below.
+  try {
+    const { validateProfile } = require('./stack-profile.cjs');
+    const { detectManifest } = require('./project-state.cjs');
+    const stackPath = path.join(planningDir, 'STACK.md');
+
+    if (fs.existsSync(stackPath)) {
+      const v = validateProfile({ projectRoot: cwd, userHome: homeDir });
+
+      // E030 — one aggregate error per run, covering schema violations (STK001),
+      // cycles/depth (STK003/STK004), an unrecognized section (STK006), a parse
+      // failure (STK008), and a missing component profile (STK009).
+      const E030_CODES = new Set(['STK001', 'STK003', 'STK004', 'STK006', 'STK008', 'STK009']);
+      const e030Issues = v.errors.filter((e) => E030_CODES.has(e.code));
+      if (e030Issues.length > 0) {
+        const first = e030Issues[0];
+        const more = e030Issues.length - 1;
+        addIssue(
+          'error',
+          'E030',
+          `stack-profile-invalid: .planning/STACK.md — ${first.code}: ${first.msg}${more > 0 ? ` (+${more} more)` : ''}`,
+          'Run `df-tools stack validate` for the full list and fix .planning/STACK.md'
+        );
+      }
+
+      // W030 — one per unresolved `extends` (STK002). Extract the id from the
+      // issue message (`extends '<id>' ...`) since it isn't carried separately.
+      for (const e of v.errors) {
+        if (e.code !== 'STK002') continue;
+        const idMatch = e.msg.match(/extends '([^']+)'/);
+        const id = idMatch ? idMatch[1] : e.msg;
+        addIssue(
+          'warning',
+          'W030',
+          `stack-extends-unresolved: extends "${id}" not found in ~/.claude/devflow/stacks/`,
+          `Install ~/.claude/devflow/stacks/${id}.md or change \`extends\``
+        );
+      }
+
+      // W031 — one per undefined command key (STK005) in loop/gates/generated/verification.
+      for (const e of v.errors) {
+        if (e.code !== 'STK005') continue;
+        const keyMatch = e.msg.match(/names '([^']+)'/);
+        const key = keyMatch ? keyMatch[1] : e.msg;
+        addIssue(
+          'warning',
+          'W031',
+          `stack-undefined-command: ${e.path} names "${key}", which no tier defines`,
+          `Define commands.${key} in .planning/STACK.md or remove it from ${e.path}`
+        );
+      }
+
+      // W032 — validator warnings (STK007: body over 150 lines). Never flips `ok`.
+      for (const w of v.warnings) {
+        if (w.code !== 'STK007') continue;
+        addIssue(
+          'warning',
+          'W032',
+          `stack-profile-warning: ${w.msg}`,
+          'Trim the profile body; link to skills/docs instead of pasting them'
+        );
+      }
+    } else {
+      const m = detectManifest(cwd, { userHome: homeDir });
+      if (m.has_manifest) {
+        addIssue(
+          'info',
+          'I030',
+          `stack-profile-absent: a ${m.primary_lang} manifest is present but .planning/STACK.md is not (general profile in use)`,
+          'Draft one with `df-tools stack init`, review it, then `df-tools stack init --write`'
+        );
+      }
+    }
+  } catch (e) {
+    // A check that could not run is never silent — surface it as an error
+    // rather than swallowing it (e.g. the bundled general profile is missing).
+    addIssue('error', 'E030', `stack-profile-check-failed: ${e.message}`, 'Run `df-tools stack validate`');
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
