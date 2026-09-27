@@ -7,7 +7,7 @@ const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, M
 const { loadConfig } = require('./config.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { getMilestoneInfo, getRoadmapObjectiveInternal } = require('./roadmap.cjs');
-const { bootstrapProjectMd, bootstrapObjectiveMd, backfillAllObjectives } = require('./project-bootstrap.cjs');
+const { bootstrapProjectMd, bootstrapObjectiveMd } = require('./project-bootstrap.cjs');
 
 // ─── Git plumbing (TRD 22-01) ─────────────────────────────────────────────────
 //
@@ -445,6 +445,9 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
     applied: _bootstrapR.applied ? 1 : 0,
     skipped: _bootstrapR.applied ? 0 : 1,
     errors: [],
+    paths: _bootstrapR.applied
+      ? [path.relative(cwd, _bootstrapR.path).split(path.sep).join('/')]
+      : [],
   };
 
   output(result, raw);
@@ -579,6 +582,9 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
     applied: _bootstrapR.applied ? 1 : 0,
     skipped: _bootstrapR.applied ? 0 : 1,
     errors: [],
+    paths: _bootstrapR.applied
+      ? [path.relative(cwd, _bootstrapR.path).split(path.sep).join('/')]
+      : [],
   };
 
   output(result, raw);
