@@ -216,6 +216,7 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 | 18 | Roadmap reconciler accepts slugless `NN-MM-TRD.md` lines (obj 32/33 reconciled); 34-06 checkpoint approved; STATE current position refreshed (dir numbered 16) | 2026-09-26 | a778a7b | — | [16-fix-roadmap-reconciler-slugless-trd-line](./quick/16-fix-roadmap-reconciler-slugless-trd-line/) |
 | 19 | CI pins node 26 so a throwing `after()` hook fails the gate (#101, micro; merged as #105) | 2026-09-26 | ff5725e | — | micro (no dir) |
 | 20 | `exec-context check --id` refuses a parallel sibling on a shared git index; `exec-context release` (#98) (dir numbered 17) | 2026-09-26 | 8451947 | — | [17-exec-context-check-refuses-a-parallel-si](./quick/17-exec-context-check-refuses-a-parallel-si/) |
+| 21 | Stack profile proposal: per-project `.planning/STACK.md` with a general-purpose default (`references/stack-general.md`), template, schema, and Go/Dart/Flutter example profiles. Docs only, not wired in (dir numbered 18) | 2026-09-27 | 2946f97 | — | [18-stack-profile-proposal-per-project-stack](./quick/18-stack-profile-proposal-per-project-stack/) |
 
 ## Session Continuity
 
