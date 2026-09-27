@@ -29,7 +29,12 @@ else
 fi
 ```
 
-Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `job_checker_enabled`, `commit_docs`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `padded_objective`, `has_research`, `has_context`, `has_jobs`, `job_count`, `planning_exists`, `roadmap_exists`.
+Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `job_checker_enabled`, `commit_docs`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `padded_objective`, `has_research`, `has_context`, `has_jobs`, `job_count`, `planning_exists`, `roadmap_exists`, `bootstrap`, `bootstrap_objectives`.
+
+**Bootstrap surface (one line, only when something changed).** If `bootstrap.applied` is true or
+`bootstrap_objectives.applied > 0`, print exactly one line and continue:
+`DevFlow bootstrap: PROJECT.md +<bootstrap.added_fields joined by ,> · created <bootstrap_objectives.paths joined by , > (uncommitted — folded into the next docs commit)`
+Omit whichever half did not apply. Print nothing when neither applied.
 
 > **Note:** `has_jobs` and `job_count` cover both TRD.md and legacy JOB.md files via `findPlanFiles()` in df-tools.
 
