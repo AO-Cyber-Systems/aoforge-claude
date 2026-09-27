@@ -30,11 +30,14 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const { detectMarkers } = require('./stack-profile.cjs');
 const { detectManifest, countSourceFiles: psCountSourceFiles } = require('./project-state.cjs');
 const { countSourceFiles: bfCountSourceFiles } = require('./brownfield-detector.cjs');
 const { makeHome, profileMd } = require('./__fixtures__/stack-profile-fixtures.cjs');
+
+const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -179,4 +182,63 @@ test('D11: project-state and brownfield-detector EXTS sets stay identical', () =
     return m[1].split(',').map((s) => s.trim()).filter(Boolean).sort();
   };
   assert.deepEqual(extract(psSrc), extract(bfSrc));
+});
+
+// ─── D5, D6, D10 (Task 2 — init.cjs + brownfield CLI) ────────────────────────
+
+test('D5: CLI `init new-project` on Dart-only repo -> has_existing_code, is_brownfield', () => {
+  const root = dartRepo();
+  const home = mkdtemp('df-fake-home-');
+  try {
+    const r = spawnSync('node', [DF_TOOLS, 'init', 'new-project', '--raw'], {
+      cwd: root,
+      encoding: 'utf-8',
+      env: { ...process.env, HOME: home },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    const json = JSON.parse(r.stdout.trim());
+    assert.equal(json.has_existing_code, true);
+    assert.equal(json.is_brownfield, true);
+  } finally {
+    cleanup(root, home);
+  }
+});
+
+test('D6: CLI `init security-audit` on Dart-only repo -> stack includes dart', () => {
+  const root = dartRepo();
+  const home = mkdtemp('df-fake-home-');
+  try {
+    const r = spawnSync('node', [DF_TOOLS, 'init', 'security-audit', '--raw'], {
+      cwd: root,
+      encoding: 'utf-8',
+      env: { ...process.env, HOME: home },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    const json = JSON.parse(r.stdout.trim());
+    assert.ok(json.stack.includes('dart'), JSON.stringify(json.stack));
+  } finally {
+    cleanup(root, home);
+  }
+});
+
+test('D10: brownfield CLI counts *.zz files when HOME=fake supplies the org marker', () => {
+  const root = mkdtemp('df-zz-repo-');
+  const home = zlangHome();
+  try {
+    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    writeFiles(root, {
+      'trigger.zz': '',
+      'nested/other.zz': '',
+    });
+    const r = spawnSync('node', [DF_TOOLS, 'detect', 'brownfield-map', '--raw'], {
+      cwd: root,
+      encoding: 'utf-8',
+      env: { ...process.env, HOME: home },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    const json = JSON.parse(r.stdout.trim());
+    assert.equal(json.source_file_count, 2);
+  } finally {
+    cleanup(root, home);
+  }
 });
