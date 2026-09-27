@@ -212,6 +212,48 @@ describe('migrate.apply', () => {
 });
 
 // ---------------------------------------------------------------------------
+// TRD 36-04b — the `backup` option (test list items 9-10). The upgrade runner backs up outside
+// the repo before migration 0006 calls apply, so 0006 passes `backup: false`; the standalone
+// `df-tools migrate apply` passes nothing and keeps the in-repo `.migrate-backup-*`.
+// ---------------------------------------------------------------------------
+
+function migrateBackupDirs(root) {
+  return fs.readdirSync(path.join(root, '.planning')).filter((e) => e.startsWith('.migrate-backup-'));
+}
+
+describe('migrate.apply backup option (36-04b)', () => {
+  let project;
+  afterEach(() => { if (project) project.cleanup(); project = null; });
+
+  test('9. backup:false → PROJECT.md gains kind: cli and no .migrate-backup-* dir exists', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: {},
+      objectives: [{ id: '01-foo', work: 'feature' }],
+    });
+    const result = migrate.apply({ projectRoot: project.root, kind: 'cli', backup: false });
+
+    assert.strictEqual(result.applied, true);
+    assert.strictEqual(result.backupDir, null);
+    const projectMd = fs.readFileSync(path.join(project.root, '.planning', 'PROJECT.md'), 'utf-8');
+    assert.match(projectMd, /^kind:\s+cli$/m);
+    assert.deepStrictEqual(migrateBackupDirs(project.root), []);
+  });
+
+  test('10. no backup option → still creates .planning/.migrate-backup-* (unchanged default)', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: {},
+      objectives: [{ id: '01-foo', work: 'feature' }],
+    });
+    const result = migrate.apply({ projectRoot: project.root, kind: 'cli' });
+
+    assert.strictEqual(result.applied, true);
+    assert.ok(result.backupDir, 'backupDir reported');
+    assert.strictEqual(migrateBackupDirs(project.root).length, 1);
+    assert.ok(fs.existsSync(path.join(result.backupDir, 'PROJECT.md')));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Group C — migration validation: 07-handoff-watcher regression
 //
 // Uses the REAL disk at REPO_ROOT — not a synthetic fixture.
