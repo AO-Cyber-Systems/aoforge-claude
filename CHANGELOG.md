@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Stack profile (`.planning/STACK.md`).** `df-tools stack resolve|context|validate|command|init`
+  resolves a per-project stack profile over bundled `general` → `~/.claude/devflow/stacks/<id>.md`
+  → project → component tiers, with per-field provenance and per-agent slices. `stack init` drafts
+  one from CI, task-runner and manifest evidence and writes only with `--write`.
+- `validate health` Check 12: invalid profile (E030), unresolved `extends` (W030), undefined
+  loop/gate key (W031), profile warnings (W032), profile absent but detectable (I030). Never auto-repaired.
+- Detectors recognise Dart, Kotlin and Swift, and read installed org profiles' `detect` markers.
+
+### Changed
+- Planner `<validation_gates>` come from `stack command`; the executor runs the profile `loop` and
+  `gates.task`, refuses hand edits to generated files, and lists discovered commands in SUMMARY.
+- `testing-strategy.md` no longer guesses a stack from `kind`; its stack cells moved to example
+  profiles and the Rails column is gone. Web/TS tables are labelled as examples.
+- `lib/json-schema-lite.cjs` is the shared schema walker (extracted from ui-spec-validate).
+
+### Fixed
+- Verifier Step 8 read a stack field from `project.md` that never existed, so every non-web,
+  non-Flutter project was SKIPPED. It now selects by `verification.runtime`, runs `gates.objective`,
+  and states its reason when it skips.
+
 ## [2.10.1] - 2026-09-26
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1 — 2026-09-27 |
+| **Status** | Implemented §6.1–6.5 (objective 35); §6.6 open |
 | **Owner** | Justin Donnaruma |
 | **Reviewed against** | `docs/stack-packs-proposal` @ `09a06ba` (v2.10.1) |
 | **Relates to** | `PROPOSAL-stack-packs.md` v0.5 (the profile is the declarative floor packs build on, §8) · `PROPOSAL-kind-and-work.md` (same resolution style) |
