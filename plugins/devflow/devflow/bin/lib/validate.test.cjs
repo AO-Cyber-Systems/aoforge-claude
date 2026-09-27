@@ -790,3 +790,80 @@ describe('health repairs delegate to migrations 0001-0003', () => {
     );
   });
 });
+
+// ─── Check 13: upgrade state (TRD 36-03, W040) ─────────────────────────────
+//
+// Fixture projects and a tmp home only: upgrade.check never resolves the real ~/.claude, and the
+// one apply below backs up into tmpHome.
+
+describe('Check 13: upgrade state (W040)', () => {
+  const upgradeFx = require('./__fixtures__/upgrade-fixtures.cjs');
+  const upgrade = require('./upgrade.cjs');
+  const { pluginVersion } = require('./helpers.cjs');
+
+  const w040s = (json) => json.warnings.filter((w) => w.code === 'W040');
+
+  test('12. a behind v1 project reports one non-repairable W040 naming the pending counts', () => {
+    tmpProject = upgradeFx.makeV1Project();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const found = w040s(json);
+    assert.strictEqual(found.length, 1, `one W040; got ${JSON.stringify(found)}`);
+    const w = found[0];
+    assert.ok(w.message.startsWith('project-behind:'), w.message);
+    assert.match(w.message, /\b5 pending\b/);
+    assert.match(w.message, /\b1 need confirmation\b/);
+    assert.strictEqual(w.repairable, false);
+    assert.match(w.fix, /df-tools upgrade --apply/);
+  });
+
+  test('13. after upgrade.apply with 0006 confirmed there is no W040', () => {
+    tmpProject = upgradeFx.makeV1Project();
+    tmpHome = makeHome();
+    const report = upgrade.apply({
+      projectRoot: tmpProject,
+      userHome: tmpHome,
+      pluginVersion: pluginVersion(),
+      confirm: true,
+      options: { kind: 'plugin' },
+    });
+    assert.deepStrictEqual(report.failed, []);
+    assert.strictEqual(report.up_to_date, true);
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.deepStrictEqual(w040s(json), []);
+  });
+
+  test('14. stamped with an older version and nothing pending still reports W040', () => {
+    tmpProject = upgradeFx.makeStampedProject('2.0.0');
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const found = w040s(json);
+    assert.strictEqual(found.length, 1, `one W040; got ${JSON.stringify(found)}`);
+    assert.ok(
+      found[0].message.startsWith(`project-behind: stamped v2.0.0, DevFlow v${pluginVersion()}`),
+      found[0].message
+    );
+  });
+
+  test('15. a check that cannot run reports W040 upgrade-check-not-available, never a pass', () => {
+    tmpProject = upgradeFx.makeStampedProject(pluginVersion());
+    tmpHome = makeHome();
+    tmpExtra = upgradeFx.makeRegistryDir({
+      '0001-broken.cjs': upgradeFx.migrationSource({ id: '0001', detect: undefined, apply: 'return { changed: [] };' }),
+    });
+    const { json } = runHealth(
+      tmpProject,
+      { homeDir: tmpHome, mainVersionFn: () => null, upgradeRegistryDir: tmpExtra },
+      false
+    );
+
+    const found = w040s(json);
+    assert.strictEqual(found.length, 1, `one W040; got ${JSON.stringify(found)}`);
+    assert.ok(found[0].message.startsWith('upgrade-check-not-available:'), found[0].message);
+    assert.match(found[0].message, /missing detect/);
+    assert.strictEqual(found[0].repairable, false);
+  });
+});
