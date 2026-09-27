@@ -208,7 +208,10 @@ describe('upgrade-project: apply + detached commit', () => {
 
     const changed = applyNotice(root).detail.changed_files;
     assert.ok(changed.length > 0);
-    const committed = git(root, home, 'show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean);
+    // --no-renames: a JOB→TRD rename is two changed_files entries (old + new path); rename
+    // detection would fold them into one line.
+    const committed = git(root, home, 'show', '--name-only', '--no-renames', '--format=', 'HEAD')
+      .split('\n').filter(Boolean);
     assert.deepEqual([...committed].sort(), [...changed].sort());
     assert.equal(git(root, home, 'status', '--porcelain'), '', 'working tree clean after the commit');
   });
