@@ -267,11 +267,22 @@ describe('hooks.json registration', () => {
     assert.doesNotThrow(() => { hookData = JSON.parse(raw); }, 'hooks.json must be valid JSON');
   });
 
-  test('case 14: SessionStart array has 3 entries (was 2, added classify-session)', () => {
+  test('case 14: SessionStart array has 4 entries (classify-session, then upgrade-project in 36-05)', () => {
     const raw = fs.readFileSync(HOOKS_JSON_PATH, 'utf-8');
     hookData = JSON.parse(raw);
     const ss = hookData.hooks.SessionStart;
-    assert.equal(ss.length, 3, `SessionStart should have 3 entries, got ${ss.length}`);
+    assert.equal(ss.length, 4, `SessionStart should have 4 entries, got ${ss.length}`);
+  });
+
+  test('case 14b: upgrade-project.js is registered right after sync-runtime', () => {
+    const raw = fs.readFileSync(HOOKS_JSON_PATH, 'utf-8');
+    hookData = JSON.parse(raw);
+    const ss = hookData.hooks.SessionStart;
+    const syncIdx = ss.findIndex(e => e.hooks[0].command.includes('sync-runtime'));
+    const upgradeIdx = ss.findIndex(e => e.hooks[0].command.includes('upgrade-project.js'));
+    assert.ok(upgradeIdx >= 0, 'upgrade-project.js must be in SessionStart');
+    assert.equal(upgradeIdx, syncIdx + 1, `upgrade-project (idx ${upgradeIdx}) must follow sync-runtime (idx ${syncIdx})`);
+    assert.equal(ss[upgradeIdx].hooks[0].command, 'node ${CLAUDE_PLUGIN_ROOT}/hooks/upgrade-project.js');
   });
 
   test('case 15: last SessionStart entry command contains classify-session.js', () => {
