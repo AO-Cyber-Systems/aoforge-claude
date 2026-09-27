@@ -22,6 +22,12 @@ if arguments contain "--repair"; then
   REPAIR_FLAG="--repair"
 fi
 ```
+
+`--migrate` is also accepted (used by the intent-model migration flow). It does not
+change which flags are passed to `validate health` itself, but it DOES trigger the
+stack-profile offer in `offer_repair` below whenever a Check 12 issue (I030, W030,
+W031, E030) is present — since a migration is exactly when a project is likely to
+still be running on the general profile.
 </step>
 
 <step name="run_health_check">
@@ -111,6 +117,13 @@ Would you like to run /devflow:health --repair to fix N issues automatically?
 ```
 
 If yes, re-run with --repair flag and display results.
+
+**Stack profile (Check 12) is never auto-repaired.** For I030 (and whenever
+`--migrate` is passed), offer: preview with `node ~/.claude/devflow/bin/df-tools.cjs
+stack init --raw`, and on the user's yes run `stack init --write`. For W030/W031/E030,
+show `node ~/.claude/devflow/bin/df-tools.cjs stack validate` output and let the user
+edit `.planning/STACK.md`. If `stack` is an unknown command (older mirror), say so and
+skip.
 </step>
 
 <step name="verify_repairs">
@@ -147,6 +160,11 @@ Report final status.
 | E020 | error | mirror behind installed plugin (~/.claude/devflow stale) | No |
 | W021 | warning | installed plugin behind origin/main | No |
 | I022 | info | mirror ahead of installed plugin (dev checkout) | No |
+| E030 | error | Check 12: `.planning/STACK.md` invalid (schema, parse, cycle, depth, unknown section, missing component) | No |
+| W030 | warning | Check 12: `extends` in `.planning/STACK.md` cannot be resolved | No |
+| W031 | warning | Check 12: a loop/gates/generated/verification key names an undefined command | No |
+| W032 | warning | Check 12: profile body over 150 lines | No |
+| I030 | info | Check 12: no `.planning/STACK.md` but a manifest is present (general profile in use) | No |
 
 </error_codes>
 
