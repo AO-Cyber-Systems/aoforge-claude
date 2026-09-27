@@ -292,6 +292,94 @@ test('FIX-1: init plan-objective triggers bootstrapObjectiveMd scoped to the tar
   }
 });
 
+// TRD 36-07 test list:
+// 1. init execute-objective 2 on a fixture where 02-bar lacks OBJECTIVE.md ->
+//    bootstrap_objectives.paths deep-equals ['.planning/objectives/02-bar/OBJECTIVE.md'].
+// 2. Same command a second time -> bootstrap_objectives.applied === 0 and paths deep-equals [].
+// 3. init plan-objective 1 on a fixture where 01-foo lacks OBJECTIVE.md -> paths names it
+//    (both init commands carry the field).
+
+test('36-07-1: init execute-objective reports bootstrap_objectives.paths for the created OBJECTIVE.md', () => {
+  const repo = makeFixture({});
+  try {
+    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '02-bar'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '### Objective 2: Bar\n**Goal:** Test bar\n');
+    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+      '---\ngithub_repo: own/repo\ndefault_work: feature\n---\n# P\n');
+
+    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '02-bar', 'OBJECTIVE.md')), false);
+
+    const stdout = execSync(`node "${DF_TOOLS}" init execute-objective 2`, {
+      cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const json = JSON.parse(stdout.trim());
+
+    assert.ok('bootstrap_objectives' in json, 'bootstrap_objectives key must be present');
+    assert.deepStrictEqual(
+      json.bootstrap_objectives.paths,
+      ['.planning/objectives/02-bar/OBJECTIVE.md'],
+      `expected paths to name the created file, got: ${JSON.stringify(json.bootstrap_objectives.paths)}`
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('36-07-2: init execute-objective run a second time reports applied=0 and paths=[]', () => {
+  const repo = makeFixture({});
+  try {
+    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '02-bar'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '### Objective 2: Bar\n**Goal:** Test bar\n');
+    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+      '---\ngithub_repo: own/repo\ndefault_work: feature\n---\n# P\n');
+
+    execSync(`node "${DF_TOOLS}" init execute-objective 2`, {
+      cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const stdout = execSync(`node "${DF_TOOLS}" init execute-objective 2`, {
+      cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const json = JSON.parse(stdout.trim());
+
+    assert.strictEqual(json.bootstrap_objectives.applied, 0,
+      `expected applied=0 on second run, got: ${json.bootstrap_objectives.applied}`);
+    assert.deepStrictEqual(json.bootstrap_objectives.paths, [],
+      `expected paths=[] on second run, got: ${JSON.stringify(json.bootstrap_objectives.paths)}`);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('36-07-3: init plan-objective reports bootstrap_objectives.paths for the created OBJECTIVE.md', () => {
+  const repo = makeFixture({});
+  try {
+    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-foo'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '### Objective 1: Foo\n**Goal:** Test foo\n');
+    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+      '---\ngithub_repo: own/repo\ndefault_work: feature\n---\n# P\n');
+
+    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '01-foo', 'OBJECTIVE.md')), false);
+
+    const stdout = execSync(`node "${DF_TOOLS}" init plan-objective 1`, {
+      cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const json = JSON.parse(stdout.trim());
+
+    assert.ok('bootstrap_objectives' in json, 'bootstrap_objectives key must be present');
+    assert.deepStrictEqual(
+      json.bootstrap_objectives.paths,
+      ['.planning/objectives/01-foo/OBJECTIVE.md'],
+      `expected paths to name the created file, got: ${JSON.stringify(json.bootstrap_objectives.paths)}`
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('18I9 — Integration: cmdInitPlanObjective emits check_todos_preview + awareness_preview + advisories_warnings', () => {
   const repo = makeFixture({
     awarenessCache: {
