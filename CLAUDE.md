@@ -103,8 +103,6 @@ Node.js hooks declared in `plugins/devflow/hooks/hooks.json` and auto-registered
 **Session context (SessionStart / UserPromptSubmit):**
 - `awareness-cache-populate.js` — SessionStart; warms the cross-repo awareness cache
 - `classify-session.js` — SessionStart; classifies the session for routing/telemetry
-- `inject-org-context.js` — injects org/initiative context at planning time
-- `inject-handoff-results.js` — surfaces completed handoff-watcher results back into the session
 - `route-results.js` — UserPromptSubmit; emits queued handoff command results
 - `upgrade-project.js` — SessionStart; upgrades a behind project in place (bundled df-tools; applies auto migrations, background-commits only the changed files; skip rules; notices via route-results). Also runs the throttled backup prune (once per 24h, DevFlow project or not) as the first step of `main()`. Escapes: `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only)
 
@@ -120,6 +118,10 @@ Node.js hooks declared in `plugins/devflow/hooks/hooks.json` and auto-registered
 - `gate-interactive.js` — PreToolUse(Bash); intercepts TTY-requiring commands and routes them to the handoff watcher
 - `guard-no-progress.js` — PreToolUse(all tools); detects the same tool called with identical arguments repeatedly. Warns on stderr at 3 repeats, escalates to `ask` at 5, resets whenever the agent varies its approach. Step limits cannot do this — they fire only after the budget is spent. Deliberately **not** wired to tool errors: those run 3.6–4.3% at every model tier and are dominated by environment friction (TRD 28-04). Escape: `DEVFLOW_SKIP_PROGRESS_GUARD=1`
 - `changelog-on-tag.js` — PreToolUse(Bash); blocks `git tag -a vX.Y.Z` if `CHANGELOG.md` lacks `## [X.Y.Z]`. Escape: `DEVFLOW_SKIP_CHANGELOG_GATE=1`
+
+**Draft (not registered in hooks.json):** these files ship in `hooks/` with a `DRAFT` header (v1.1 coordination-layer work) but no event fires them.
+- `inject-org-context.js` — would inject org/initiative context at planning time
+- `inject-handoff-results.js` — would surface completed handoff-watcher results back into the session
 
 **Not a DevFlow hook:** the worktree-isolation guard ("This agent is isolated in the worktree…") is a Claude Code harness guard. It refuses compound Bash commands it cannot statically verify — including ones with no git in them — and no `DEVFLOW_*` escape hatch applies. Agents mitigate it by emitting one plain command per Bash call (see `agents/executor.md` → `worktree_command_discipline`).
 
