@@ -284,7 +284,7 @@ Jobs:
 - [x] 37-07-TRD.md — Wave 4: `adopt scaffold` — STATE, objective-less ROADMAP, STACK.md, CLAUDE.md block, stamp via the upgrade runner, register; idempotent
 - [x] 37-08-TRD.md — Wave 5: `adopt report` (ADOPT-REPORT.md needs-review, redaction, commit file list) + `adopt-e2e-assert.cjs` structural checker + deterministic 3-stack pipeline test
 - [x] 37-09-TRD.md — Wave 6: `skills/adopt/SKILL.md` + `workflows/adopt.md` (unattended), map-codebase non-interactive mode, new-project points at adopt + registers; contract test
-- [ ] 37-10-TRD.md — Wave 7: routing — route-intent adopt intents (also outside DevFlow projects), global routing template v2, help, init-offer → /devflow:adopt for brownfield
+- [x] 37-10-TRD.md — Wave 7: routing — route-intent adopt intents (also outside DevFlow projects), global routing template v2, help, init-offer → /devflow:adopt for brownfield
 - [ ] 37-11-TRD.md — Wave 8: E2E proof (a) — simulated agent run of the checkout skill on the Go fixture
 - [ ] 37-12-TRD.md — Wave 9: E2E proof (a) — Node fixture + second adopt routes to upgrade (idempotency)
 - [ ] 37-13-TRD.md — Wave 10: E2E proof (a) — Flutter fixture
