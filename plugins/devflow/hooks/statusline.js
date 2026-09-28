@@ -70,18 +70,6 @@ process.stdin.on('end', () => {
       }
     }
 
-    // DevFlow update available?
-    let dfUpdate = '';
-    const cacheFile = path.join(homeDir, '.claude', 'cache', 'df-update-check.json');
-    if (fs.existsSync(cacheFile)) {
-      try {
-        const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        if (cache.update_available) {
-          dfUpdate = '\x1b[33m⬆ /df:update\x1b[0m │ ';
-        }
-      } catch (e) {}
-    }
-
     // 20-04: Watcher status segment (opt-in via daemon.status_line config flag).
     // Reads project-local .planning/config.json, queries the daemon's PID file
     // through the synced watcher-state lib, sums per-project pending counts.
@@ -128,9 +116,9 @@ process.stdin.on('end', () => {
     const dirname = path.basename(dir);
     const wsBlock = watcherStatus ? ` │ ${watcherStatus}` : '';
     if (task) {
-      process.stdout.write(`${dfUpdate}\x1b[2m${model}\x1b[0m │ \x1b[1m${task}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${ctx}`);
+      process.stdout.write(`\x1b[2m${model}\x1b[0m │ \x1b[1m${task}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${ctx}`);
     } else {
-      process.stdout.write(`${dfUpdate}\x1b[2m${model}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${ctx}`);
+      process.stdout.write(`\x1b[2m${model}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${ctx}`);
     }
   } catch (e) {
     // Silent fail - don't break statusline on parse errors
