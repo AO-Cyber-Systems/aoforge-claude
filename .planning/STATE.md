@@ -2,17 +2,17 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
+See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 
 **Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** v1.3 in flight (not formally opened via /devflow:milestone new) — objectives 27–34 complete (27-03 and 28-06 deferred by decision); 26 locked but unplanned; release 2.10.0 being prepared
+**Current focus:** v1.3 complete (2026-09-28, plugin v2.11.0). Next: merge `feat/stack-profile-loader` → `main`, tag, `/plugin update`; then plan v1.4 (`/devflow:milestone new`).
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
 
 ## Current Position
 
-**Milestone:** v1.3 — in flight (v1.2 shipped 2026-07-22; v1.1 shipped 2026-05-06; both archived to .planning/milestones/). Last release v2.9.0 (2026-09-23)
-**Branch:** `main`
+**Milestone:** v1.3 complete 2026-09-28 (objectives 27–41; archived to .planning/milestones/v1.3-ROADMAP.md). v1.4 not yet planned. Last release v2.11.0 (commit b907932; tag local, merge to main pending)
+**Branch:** `feat/stack-profile-loader` (352 commits past v2.10.1; not yet merged to `main`)
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
 **Objective complete:** 2 — Cross-repo awareness layer (verified 2026-05-04, 731/731 tests with integration flags, all 10 SC met, 7 TRDs done)
@@ -29,8 +29,12 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 **Objective complete:** 25 — Fleet audit fixes (verified 2026-07-22, 6/6 SC met, 6 TRDs done across 2 waves; 2681 tests / 8 pre-existing failures only; fleet: 6 kind: commits + opsCluster/eden-press CLAUDE.md + eden-press editGate warn; global ~/.claude/CLAUDE.md routing + TDD-by-kind playbook)
 **Objective complete:** 35 — Stack profile loader (verified 2026-09-27, 10/10 STK requirements, 11 TRDs in 6 waves; branch `feat/stack-profile-loader`. 11 devflow-watch/handoff-e2e failures confirmed pre-existing on base `0fb49ae`. Signing is serialized from wave 2 on — same-wave executors run one after another in the main checkout)
 **Objective complete:** 36 — Upgrade in place (verified 2026-09-27 passed 66/66, UPG-01..UPG-08, 36-VERIFICATION.md 93462b4; branch `feat/stack-profile-loader`; 10/10 TRDs done — 36-01 upgrade runner `lib/upgrade.cjs` + shared `__fixtures__/upgrade-fixtures.cjs` complete 2026-09-27; 36-02 `lib/managed-block.cjs` + `lib/notices.cjs` primitives complete 2026-09-27; 36-07 `bootstrap_objectives.paths` + one-line bootstrap surface in plan/execute-objective workflows + dead `backfillAllObjectives` import removed complete 2026-09-27 — wave 1 closed; wave 2: 36-04a migrations 0001 config-stamp / 0002 job-to-trd / 0003 state-json-seed + `validate health --repair` W003/E005/W008/W009 delegating to them complete 2026-09-27 (JOB migration no longer forces `Status: Resumed`); 36-04b migrations 0004 objective-md-backfill (auto, NN-named dirs only, revives `backfillAllObjectives(cwd, {match, dryRun})` which now returns `paths`) / 0006 kind-work (confirm, needs `options.kind`, wraps `migrate.apply({backup:false})`; default in-repo backup unchanged) complete 2026-09-27; 36-04c migration 0005 claude-md-block (auto; rewrites only the `# Development Rules` section of an EXISTING CLAUDE.md DEVFLOW block, stamps `v=2 src=claude-md`, never adds a block, never downgrades a newer one) + corrected `templates/claude-md.md` (`template_version: "2"`, Objectives, `~/.claude/devflow/` paths) + map-codebase writes versioned markers complete 2026-09-27; 36-06 `lib/global-upgrade.cjs` (legacy `~/.claude/{skills,agents}/df-*` + `devflow/VERSION` MOVED to `devflow/backups/legacy-<ts>/`; managed `v=1 src=global-claude-md` block in `~/.claude/CLAUDE.md` — notice-only over a hand-written DevFlow Routing section, `confirm` adopts, template bump rewrites only the block) + `templates/global-claude-md.md` + sync-runtime runs the bundled module after a good mirror (`DEVFLOW_SKIP_GLOBAL_UPGRADE=1` skips) complete 2026-09-27; wave 3: 36-03 `df-tools upgrade [--check|--apply|--only|--confirm|--path|--kind|--default-work|--global]` (`lib/upgrade-cli.cjs`, HELP_TABLE entry) + `validate health` Check 13 W040 (`project-behind` / `upgrade-check-not-available`, not repairable) + `status check --migrate` runs check → apply → confirm 0006 with `--kind` → `df-tools commit --files` complete 2026-09-27; 36-05 SessionStart `hooks/upgrade-project.js` (fast path on stamp == bundled version, sync apply via bundled `upgrade.cjs`, ONE detached `df-tools commit --files <changed_files>` skipped on rebase/merge/cherry-pick/revert/bisect, detached HEAD, dirty-before, not-a-repo; signing failure reported, never bypassed) + `route-results.js` emits project + global notices once (`DEVFLOW_SKIP_NOTICES=1`) + hooks.json SessionStart index 1 complete 2026-09-27; wave 4: 36-08 dogfood — checkout `upgrade --apply` stamped this repo v2.10.1 (0001 created `.planning/config.json`, 0004 backfilled OBJECTIVE.md for 28/30/31; backup `~/.claude/devflow/backups/devflow-claude-d3dccfe9/2026-09-27T23-33-24-984Z`; commit 6cb8130 = exactly changed_files) + CHANGELOG [Unreleased], CLAUDE.md, USER-GUIDE, intent hint, gen-docs HOOK_DOCS (17c7894) complete 2026-09-27; full-suite gate holds (3781 tests, 1 fail = MA-7 pre-existing); 10/10 TRDs executed and verified)
-**Objective complete:** 40 — Tooling correctness (completed 2026-09-28, 6/6 TRDs)
-**Status:** Objective complete — ready for verification
+**Objective complete:** 37 — /devflow:adopt + backup pruning (verified 2026-09-28, 7/7)
+**Objective complete:** 38 — Documentation auto-correction (verified 2026-09-28, 9/9)
+**Objective complete:** 39 — Wire the telemetry & audit CLI (verified 2026-09-28, 12/12)
+**Objective complete:** 40 — Tooling correctness (completed 2026-09-28, 6/6 TRDs, verified 8/8)
+**Objective complete:** 41 — Retroactive verification of 27–34 (verified 2026-09-28, 6/6)
+**Status:** v1.3 milestone complete
 
 ## Branch State (post-merge)
 
