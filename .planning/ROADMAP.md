@@ -89,7 +89,7 @@ Jobs:
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
 | 36. Upgrade in place | v1.3 | 10/10 | Complete | 2026-09-27 |
-| 37. /devflow:adopt + backup pruning | v1.3 | 0/16 | Planned | — |
+| 37. /devflow:adopt + backup pruning | v1.3 | 16/16 | Complete | 2026-09-28 |
 | 38. Doc auto-correction | v1.3 | 0/— | Registered | — |
 
 ### Objective 27: Gate correctness ✅
@@ -272,7 +272,7 @@ Jobs:
 **Goal:** A user in any repo types `/devflow:adopt [path]` and DevFlow turns it into a DevFlow project unattended: map the code, infer PROJECT.md/STACK.md, scaffold config/STATE/ROADMAP (no invented objectives), add the CLAUDE.md block, stamp the version, and make one signed commit on a `devflow/adopt` branch (no push) with an ADOPT-REPORT.md of low-confidence items. Backups under `~/.claude/devflow/backups/` are pruned daily (14 days / keep 5 per repo, SessionStart-throttled; Claude Code has no persistent local scheduler).
 **Depends on:** Objective 36 (stamp, upgrade runner, managed blocks, SessionStart hook); the ROADMAP-corruption fix (`/devflow:debug`, done first).
 **Decisions (user, 2026-09-28):** re-scoped away from batch-adopting the user's 11 repos (out of scope, never touched); fully unattended; E2E proof = simulated run on scratch fixtures + a local-dev-install human check.
-**Jobs:** 0/16 complete — 16 TRDs in 13 waves (planned 2026-09-28; objective-local requirement IDs ADP-01..ADP-07; simulated runs 37-11→37-14 chained in depends_on so each runs alone and owns its own gate; 37-16 is a human-verify checkpoint, not autonomous)
+**Jobs:** 16/16 complete — 16 TRDs in 13 waves (planned 2026-09-28; objective-local requirement IDs ADP-01..ADP-07; simulated runs 37-11→37-14 chained in depends_on so each runs alone and owns its own gate; 37-16 is a human-verify checkpoint, not autonomous)
 
 Jobs:
 - [x] 37-01-TRD.md — Wave 1: `__fixtures__/adopt-fixtures.cjs` scratch-repo factory (Go, Flutter, Node, empty, DevFlow, dirty) + `lib/repo-state.cjs` detector (devflow|greenfield|brownfield|scratch)
