@@ -210,6 +210,12 @@ function walkExtendsChain({ startId, userHome, issues }) {
 // recursively, so unrelated leaves contributed by other tiers are never lost.
 function mergeFrontmatter(acc, layer, tier, provenance, prefix) {
   for (const [key, value] of Object.entries(layer)) {
+    // js/prototype-pollution-utility: a document-supplied key of exactly one of these three
+    // names must never reach an assignment into `acc` — `__proto__` reaches the real
+    // Object.prototype through the read-then-recurse branch below (acc[key] returns the
+    // inherited prototype when acc has no own `__proto__`), and `constructor`/`prototype`
+    // shadow the accumulator's own identity. Refused before any read or assignment happens.
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     const fieldPath = prefix ? `${prefix}.${key}` : key;
     const atomic = prefix === 'commands'
       || Array.isArray(value)
