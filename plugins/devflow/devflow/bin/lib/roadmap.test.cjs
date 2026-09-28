@@ -431,3 +431,177 @@ describe('roadmap update-job-progress — Jobs-line leading-count seed (quick-20
     );
   });
 });
+
+/**
+ * TRD 40-01 (TOOL-01): getMilestoneInfo reports the in-progress milestone.
+ *
+ * Root cause: the old implementation returned the FIRST `v\d+\.\d+` in
+ * ROADMAP.md, which is the oldest shipped milestone (v1.1 on this repo), and
+ * its name regex latched onto an unrelated `### 📋 v1.4 candidates` heading.
+ * `init milestone-op` therefore reported "v1.1 / candidates" while v1.3 was in
+ * flight. The fix parses the `## Milestones` bullet list and picks by status:
+ * in progress (🚧, or trailing text `in progress` / `current`), then the
+ * highest shipped ✅, then the lowest planned 📋. The legacy first-match
+ * regexes remain only as the fallback for roadmaps with no parsable section.
+ *
+ * Fixtures are hand-built and cover all three bullet shapes the codebase
+ * emits: this repo's `**v1.3 — Name**`, templates/roadmap.md's
+ * `**v1.0 MVP** - ...` and adopt.cjs's `**v0.1 — Adopted** (date, current)`.
+ */
+describe('getMilestoneInfo — status-aware ## Milestones parsing', () => {
+  const { getMilestoneInfo } = require('./roadmap.cjs');
+
+  // Writes `roadmapText` as .planning/ROADMAP.md in a fresh tmp project (or
+  // writes nothing when it is null) and returns getMilestoneInfo(project).
+  function milestoneInfoFor(roadmapText) {
+    const project = tmpProject();
+    if (roadmapText !== null) {
+      fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmapText, 'utf-8');
+    }
+    return getMilestoneInfo(project);
+  }
+
+  test('1: this repo\'s shape (✅ v1.1, ✅ v1.2, 🚧 v1.3, 📋 v1.4, later "### 📋 v1.4 candidates" heading) → the 🚧 v1.3 entry', () => {
+    const roadmap = [
+      '# Roadmap: DevFlow Claude',
+      '',
+      '## Milestones',
+      '',
+      '- ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)',
+      '- ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)',
+      '- 🚧 **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (in progress; audit 2026-09-28 gaps_found → 39–41)',
+      '- 📋 **v1.4 — not yet planned** — candidate: Objective 26 (moved from v1.3 2026-09-28; kill candidate)',
+      '',
+      'Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (contains both v1.1 and v1.2 detail).',
+      '',
+      '## Objectives',
+      '',
+      '<details>',
+      '<summary>✅ v1.1 — SHIPPED 2026-05-06</summary>',
+      '',
+      '- [x] Objective 1: Foundation',
+      '',
+      '</details>',
+      '',
+      '### 📋 v1.4 candidates',
+      '',
+      '### Objective 26: GitHub issue auto-build monitor',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(roadmap), {
+      version: 'v1.3',
+      name: 'Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction',
+    });
+  });
+
+  test('2: no 🚧 entry → the highest ✅ shipped version, compared numerically (out-of-order bullets; v1.10 > v1.9)', () => {
+    const outOfOrder = [
+      '# Roadmap: T',
+      '',
+      '## Milestones',
+      '',
+      '- ✅ **v1.2 — Second** — Objectives 5-8 (shipped 2026-02-01)',
+      '- ✅ **v1.1 — First** — Objectives 1-4 (shipped 2026-01-01)',
+      '',
+      '## Objectives',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(outOfOrder), { version: 'v1.2', name: 'Second' });
+
+    const numeric = [
+      '# Roadmap: T',
+      '',
+      '## Milestones',
+      '',
+      '- ✅ **v1.9 — Nine** — Objectives 1-4 (shipped 2026-01-01)',
+      '- ✅ **v1.10 — Ten** — Objectives 5-8 (shipped 2026-02-01)',
+      '',
+      '## Objectives',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(numeric), { version: 'v1.10', name: 'Ten' });
+
+    // Empty bold name (`**v1.0**`) gives the 'milestone' placeholder name.
+    assert.deepEqual(milestoneInfoFor(FIVE_COLUMN_ROADMAP), { version: 'v1.0', name: 'milestone' });
+  });
+
+  test('3: only 📋 planned entries (v2.0, v1.5) → the lowest planned version', () => {
+    const roadmap = [
+      '# Roadmap: T',
+      '',
+      '## Milestones',
+      '',
+      '- 📋 **v2.0 — Later** — Objectives 9-12 (planned)',
+      '- 📋 **v1.5 — Sooner** — Objectives 5-8 (planned)',
+      '',
+      '## Objectives',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(roadmap), { version: 'v1.5', name: 'Sooner' });
+  });
+
+  test('4: templates/roadmap.md shape (`**v1.0 MVP** - ...`) → 🚧 v1.1 [Name]; ✅ v1.0 MVP alone → v1.0 MVP', () => {
+    const template = [
+      '# Roadmap: T',
+      '',
+      '## Milestones',
+      '',
+      '- ✅ **v1.0 MVP** - Objectives 1-4 (shipped YYYY-MM-DD)',
+      '- 🚧 **v1.1 [Name]** - Objectives 5-6 (in progress)',
+      '- 📋 **v2.0 [Name]** - Objectives 7-10 (planned)',
+      '',
+      '## Objectives',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(template), { version: 'v1.1', name: '[Name]' });
+
+    const mvpOnly = [
+      '# Roadmap: T',
+      '',
+      '## Milestones',
+      '',
+      '- ✅ **v1.0 MVP** - Objectives 1-4 (shipped YYYY-MM-DD)',
+      '',
+      '## Objectives',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(mvpOnly), { version: 'v1.0', name: 'MVP' });
+  });
+
+  test('5: adopt.cjs scaffold shape (no emoji, `(date, current)`) → v0.1 Adopted', () => {
+    const roadmap = [
+      '# Roadmap: adopted-repo',
+      '',
+      '## Milestones',
+      '',
+      '- **v0.1 — Adopted** (2026-01-01, current): no objectives yet.',
+      '',
+      '## Objectives',
+      '',
+      'None yet. Add one with `/devflow:objective add`.',
+      '',
+      '## Progress',
+      '',
+      '| Objective | Milestone | Plans | Status | Completed |',
+      '|---|---|---|---|---|',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(roadmap), { version: 'v0.1', name: 'Adopted' });
+  });
+
+  test('6: no `## Milestones` section → legacy first-match fallback unchanged (`## v2.3: Legacy Name`)', () => {
+    const roadmap = [
+      '# Roadmap: T',
+      '',
+      '## v2.3: Legacy Name',
+      '',
+      '### Objective 1: Foundation',
+      '',
+    ].join('\n');
+    assert.deepEqual(milestoneInfoFor(roadmap), { version: 'v2.3', name: 'Legacy Name' });
+  });
+
+  test('7: no ROADMAP.md → { version: "v1.0", name: "milestone" }', () => {
+    assert.deepEqual(milestoneInfoFor(null), { version: 'v1.0', name: 'milestone' });
+  });
+});
