@@ -345,5 +345,13 @@ Jobs:
 **Goal:** Every v1.3 objective has an independent VERIFICATION.md: run the verifier against objectives 27–34 as they stand (27–31 have only an objective-level SUMMARY; 32–34 have none). Verification only — real gaps become fix TRDs.
 **Depends on:** Objective 39 (29–31 cannot verify while their commands are unreachable)
 **Gap Closure:** v1.3 audit — unverified objectives
-**Jobs:** registered, not planned.
+**Jobs:** 0/6 — 6 TRDs in 2 waves (planned 2026-09-28; objective-local requirement IDs VER-27..VER-34 + VER-ROLL; wave-1 briefs are verifier-executed and write only new NN-VERIFICATION.md files; gap-fix TRDs deferred to a `--gaps` pass; baseline 4234 tests / 1 pre-existing fail)
+
+Jobs:
+- [ ] 41-01-TRD.md — Wave 1: verify 27 (gate correctness) and 28 (model tier binding) → 27/28-VERIFICATION.md (VER-27, VER-28)
+- [ ] 41-02-TRD.md — Wave 1: verify 29 (context discipline) and 30 (environment hygiene) → 29/30-VERIFICATION.md (VER-29, VER-30)
+- [ ] 41-03-TRD.md — Wave 1: verify 31 (telemetry and retention) → 31-VERIFICATION.md (VER-31)
+- [ ] 41-04-TRD.md — Wave 1: verify 32 (visual-eval honesty) and 33 (visual gate runs) → 32/33-VERIFICATION.md (VER-32, VER-33)
+- [ ] 41-05-TRD.md — Wave 1: verify 34 (Surface Spec W1b) → 34-VERIFICATION.md (VER-34)
+- [ ] 41-06-TRD.md — Wave 2: roll verdicts into ROADMAP, CHANGELOG decision, full-suite gate (VER-ROLL)
 
