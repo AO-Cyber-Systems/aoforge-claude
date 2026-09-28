@@ -183,7 +183,7 @@ Track coverage as you go.
 **Integer objectives (1, 2, 3):** Planned milestone work.
 
 **Decimal objectives (2.1, 2.2):** Urgent insertions after planning.
-- Created via `/devflow:insert-objective`
+- Retired in v1.2 — new work is appended with `/devflow:objective add` as the next integer; decimals in older roadmaps are history, keep them
 - Execute between integers: 1 → 1.1 → 1.2 → 2
 
 **Starting number:**

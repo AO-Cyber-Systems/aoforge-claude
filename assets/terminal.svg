@@ -58,7 +58,7 @@
     <text class="text" font-size="15" y="284"><tspan class="green">  ✓</tspan><tspan class="white"> Installed devflow</tspan></text>
 
     <!-- Done message -->
-    <text class="text" font-size="15" y="332"><tspan class="green">  Done!</tspan><tspan class="white"> Launch Claude Code and run </tspan><tspan class="cyan">/df:help</tspan><tspan class="white">.</tspan></text>
+    <text class="text" font-size="15" y="332"><tspan class="green">  Done!</tspan><tspan class="white"> Launch Claude Code and run </tspan><tspan class="cyan">/devflow:help</tspan><tspan class="white">.</tspan></text>
 
     <!-- New prompt -->
     <text class="text prompt" font-size="15" y="380">~</text>

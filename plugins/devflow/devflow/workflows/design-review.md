@@ -89,7 +89,7 @@ Frame it explicitly as ADVISORY:
 
 Report path: `<manifest-dir>/design-review-report.md`.
 
-The high-priority items are the actionable output: they become `/devflow:add-todo` candidates or scope for a future UI-polish objective. The sweep itself never blocks any other workflow.
+The high-priority items are the actionable output: they become `/devflow:todo add` candidates or scope for a future UI-polish objective. The sweep itself never blocks any other workflow.
 </step>
 
 </process>

@@ -443,6 +443,7 @@ Claude Code's built-in plan mode (`EnterPlanMode`) is used by `/devflow:build` a
 
 These old skill names were removed in v2.2. Use the consolidated commands listed below for migration guidance.
 
+<!-- doc-refs:ignore-start — rename table; asserted equal to DEPRECATION_MAP by doc-refs.repo.test.cjs -->
 | Old name (removed) | Use instead |
 |---|---|
 | `/devflow:add-objective` | `/devflow:objective add` |
@@ -458,4 +459,5 @@ These old skill names were removed in v2.2. Use the consolidated commands listed
 | `/devflow:resume-work` | `/devflow:status resume` |
 | `/devflow:progress` | `/devflow:status` |
 | `/devflow:health` | `/devflow:status check` |
+<!-- doc-refs:ignore-end -->
 </reference>
