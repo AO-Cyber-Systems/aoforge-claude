@@ -192,3 +192,14 @@ Every project declares a `kind` (`api | app | library | ui-lib | cli | plugin`) 
 **Migration** for projects created before this model: `/devflow:status check --migrate`, which runs `df-tools upgrade`. Setting `kind` is a `confirm` migration: `df-tools upgrade --apply --only 0006 --kind <kind>`. Each apply backs up to `~/.claude/devflow/backups/<repo>-<hash>/<timestamp>/`, outside the repo, before writing. The `upgrade-project.js` SessionStart hook applies the `auto` migrations on its own.
 
 See `docs/PROPOSAL-kind-and-work.md` for the full design rationale.
+
+## Where we left off (2026-09-28, branch `feat/stack-profile-loader`)
+
+Reviewed the draft go/dart/flutter profiles in `docs/stack-profiles/`. All pass `stack validate --profile`; gopls v0.22 tool names match. Neither `gopls mcp` nor `dart mcp-server` is configured, and nothing reads `agent_tooling` yet.
+
+**Next, small fixes (`/devflow:quick`):**
+- Gates that never fail: go `format: gofmt -l .` exits 0 on unformatted files; dart `audit: dart pub outdated` always exits 0.
+- flutter `enabled_tools` whitelist drops `dtd` (needed before `hot_reload`/`widget_inspector`), `run_tests`, `analyze_files`. Use `disabled_tools` → `dart mcp-server --disable …`; dart profile adds `--disable flutter`. Drop stale go `go_context`. Add maestro to flutter.
+- `stack validate` should warn on `pin: "<sha>"` placeholders and reject a positional path (it silently validates `.planning/STACK.md`).
+
+**Then (`/devflow:build`):** `df-tools stack mcp [--write]` — generate the project `.mcp.json` from the resolved profile (managed entries only), run from `stack init`/`adopt`, add an `upgrade` migration and a `validate health` missing-binary check. Add `mcp__gopls__*` / `mcp__dart__*` to executor/verifier/debugger `tools:`. Drop unused `mcp__context7__*` from agents. Long-term the packs replace these servers with `dflang mcp` (`docs/PROPOSAL-stack-packs.md` §6.12).
