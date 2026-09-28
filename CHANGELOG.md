@@ -153,6 +153,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `Resume file:` lines inside `## Session Continuity` on narrative STATE.md files (previously
   always `recorded: false`).
 - `.planning/.edit-override` is gitignored.
+- `planner` and `ui-evaluator` lost their 28-03 `effort` declarations (`xhigh` / `high`) in the
+  PR #68 merge; both are restored. The agent, workflow and skill prompts that still named the
+  obsolete `df-ui-evaluator` profile key now use the canonical `ui-evaluator`.
+  `model-profiles.test.cjs` now pins the `references/model-profiles.md` effort column to agent
+  frontmatter and fails on any backticked `df-<agent>` profile key in agents, skills or workflows.
 
 ## [2.10.1] - 2026-09-26
 
