@@ -17,6 +17,8 @@ follow_ups:
     where: plugins/devflow/agents/planner.md:730 (tools line :4)
     issue: "planner.md tells the agent to 'spawn objective-researcher via the standard Task(...) pattern', but its tools line (Read, Write, Bash, Glob, Grep, WebFetch, mcp__context7__*) declares neither Task nor Agent. agent-tools.test.cjs does not catch it because KNOWN_TOOLS (agent-tools.test.cjs:27-30) omits Task/Agent."
     in_scope: false
+    status: closed
+    closed_by: "41-08 (12702e7, aa54b18, 9581758)"
     why: "This is the same F-05 defect class (a prompt instructs a tool its allowlist forbids). The 30-01 must-have is scoped to the KNOWN_TOOLS call form, and that holds. Fix-TRD-worthy: either add Task/Agent to KNOWN_TOOLS and resolve planner.md, or reword planner.md:730 to hand the spawn back to the orchestrator, since subagents cannot spawn subagents."
 notes:
   - kind: pending_release
