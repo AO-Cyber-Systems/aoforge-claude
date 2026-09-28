@@ -19,6 +19,10 @@ const fx = require('./__fixtures__/upgrade-fixtures.cjs');
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 const PLUGIN_JSON = path.join(__dirname, '..', '..', '..', '.claude-plugin', 'plugin.json');
 const PLUGIN_VERSION = JSON.parse(fs.readFileSync(PLUGIN_JSON, 'utf-8')).version;
+// TRD 38-08 test 14: 0007 (doc-refs-fix) was decided by running this suite, not by guessing.
+// fx.makeV1Project()'s default CLAUDE.md (fx.LEGACY_CLAUDE_MD_BLOCK) and STATE.md carry no
+// /devflow: or /df: token, so 0007 detects applies:false on the v1 fixture and is left out of
+// AUTO_IDS — it is reported under `skipped`, never `pending` or `applied`. See test 12 below.
 const AUTO_IDS = ['0001', '0002', '0003', '0004', '0005'];
 // v=2 as of TRD 37-10 (global-claude-md template bumped to add /devflow:adopt).
 const MANAGED_START = '<!-- DEVFLOW:START v=2 src=global-claude-md -->';
@@ -254,6 +258,23 @@ describe('df-tools upgrade --help', () => {
     const r = upgrade(['--help'], { cwd: home, home });
     assert.equal(r.status, 0, r.stderr);
     assert.ok(r.stdout.startsWith('Usage: df-tools upgrade'), `got ${r.stdout.slice(0, 120)}`);
+  });
+
+  test('12. TRD 38-08 test 14: v1 fixture has no stale command tokens, so 0007 stays out of AUTO_IDS', () => {
+    const { home, project } = v1Setup();
+
+    const chk = upgrade(['--check', '--path', project], { cwd: home, home });
+    assert.equal(chk.status, 0, chk.stderr);
+    assert.deepEqual(chk.json.pending.map((p) => p.id), AUTO_IDS);
+    assert.ok(chk.json.skipped.some((s) => s.id === '0007'), '0007 is skipped, not pending');
+
+    const before = fx.snapshot(project);
+    const r = upgrade(['--apply', '--path', project], { cwd: project, home });
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    assert.deepEqual(r.json.applied.map((a) => a.id), AUTO_IDS);
+    assert.ok(!r.json.applied.some((a) => a.id === '0007'), '0007 did not run');
+    assert.ok(r.json.skipped.some((s) => s.id === '0007'));
+    assert.deepEqual(fx.diffSnapshots(before, fx.snapshot(project)), r.json.changed_files);
   });
 });
 
