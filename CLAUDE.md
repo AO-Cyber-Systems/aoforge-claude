@@ -54,7 +54,8 @@ The central CLI utility used by ~50 skill and agent files. CommonJS module invok
 - **Model resolution** — `resolve-model <agent-type>` returns the model for an agent based on the active profile (quality/balanced/budget)
 - **Validation** — `validate consistency`, `validate health [--repair]`
 - **GitHub integration** (1.29+, opt-in via `.planning/config.json` `github` block) — `gh status`, `gh sync-objectives`, `gh comment`, `gh close-issue`, `gh sync-release`. Implemented in `lib/gh.cjs`; one-way push to GitHub via the `gh` CLI; planning files remain authoritative.
-- **Telemetry & audit** (2.5+) — `context` (context composition), `session-audit` (blocking-event classification; the acceptance test for objectives 27–30), `transcript-export` (compact per-session index before retention deletes transcripts), `telemetry` (one status-facing view with advisories), `override --gate <g> --reason <why>` (structured, logged gate override). Implemented in `lib/context-audit.cjs`, `lib/session-audit.cjs`, `lib/transcript-export.cjs`, `lib/telemetry.cjs`, `lib/override.cjs`.
+- **Telemetry & audit** (2.5+) — `df-tools telemetry` (one status-facing view with advisories, including documentation staleness). The other audit modules — `lib/context-audit.cjs` (context composition), `lib/session-audit.cjs` (blocking-event classification), `lib/transcript-export.cjs`, `lib/override.cjs` — are libraries not yet wired into the `df-tools` CLI.
+- **Documentation correctness** (Unreleased) — `DEPRECATION_MAP` + `REMOVED_COMMANDS` (`lib/skill-route.cjs`) are the only rename source; `lib/doc-refs.cjs` resolves them. `doc-refs.repo.test.cjs` fails CI on stale command references. Migration 0007 fixes them in a project's CLAUDE.md DEVFLOW block and STATE.md. `validate health` Check 14 / `df-tools validate docs` report W050-W054 (advisory, never repaired).
 - **Changelog** (1.30+) — `changelog update --version vX.Y.Z [--from <ref> --to <ref>] [--dry-run]`, `changelog check <version>`. Implemented in `lib/changelog.cjs`; generates Keep-a-Changelog entries from conventional-commit history.
 - **Upgrade** (Unreleased) — `upgrade [--check|--apply] [--only id] [--confirm] [--path dir] [--kind k] [--default-work w] [--global]`. Brings a project forward in place and stamps `.planning/config.json` `devflow{version, migrations_applied, upgraded_at}`. The migrations are detection-based and idempotent (`lib/migrations/NNNN-*.cjs`, `auto` | `confirm`), with backups under `~/.claude/devflow/backups/`. `--global` upgrades `~/.claude` instead. `--prune [--dry-run]` runs the backup pruner unthrottled and prints its report; `--register [--path dir]` registers a repo for pruning without a full upgrade. Implemented in `lib/upgrade.cjs`, `lib/upgrade-cli.cjs`, `lib/migrations/`, `lib/managed-block.cjs`, `lib/global-upgrade.cjs` and `lib/backup-prune.cjs`. `validate health` reports W040 when a project is behind.
 - **Adopt** (Unreleased) — `adopt preflight|begin|scaffold|report [--cwd dir]`. Unattended bootstrap of an existing repo into a DevFlow project: preflight checks state/cleanliness/branch, scaffold writes config/STATE/`state.json`/ROADMAP and the CLAUDE.md managed block then stamps via `upgrade --apply`, report writes `.planning/ADOPT-REPORT.md`. Idempotent — a half-finished adopt resumes. Implemented in `lib/adopt.cjs`, `lib/adopt-cli.cjs` and `lib/repo-state.cjs` (the one devflow/greenfield/brownfield/scratch detector shared with `project-state.cjs` and `init new-project`). Driven end-to-end by `skills/adopt/SKILL.md` + `workflows/adopt.md`.
@@ -133,9 +134,10 @@ there rather than here on purpose — this file is resident on every turn of eve
 session (currently ~156 lines / ~3.2K tokens), so domain detail belongs in
 references and skills that load on invocation.
 
-Measured composition (see `df-tools context`): tool results 59%, **tool-call
-inputs 34%**, assistant text 6%, images 1.5%. `Read` is ~50% of tool-result
-tokens at 2,311 per call; `Bash` served 7× the calls at 292.
+Measured composition (see `lib/context-audit.cjs`, not yet wired onto the
+`df-tools` CLI): tool results 59%, **tool-call inputs 34%**, assistant text 6%,
+images 1.5%. `Read` is ~50% of tool-result tokens at 2,311 per call; `Bash`
+served 7× the calls at 292.
 
 Policy, stated deliberately rather than inherited as defaults:
 
@@ -151,8 +153,8 @@ Policy, stated deliberately rather than inherited as defaults:
   `offset`/`limit`; prefer a targeted `Edit` over writing a whole file body into a
   tool argument.
 
-`node ~/.claude/devflow/bin/df-tools.cjs context --limit 150` recomputes all of
-the above from session transcripts. It prices images per block (~1.5K tokens),
+`lib/context-audit.cjs` recomputes all of the above from session transcripts
+(the CLI command is not wired). It prices images per block (~1.5K tokens),
 **not** by base64 length — counting base64 chars over-states images ~25× and was
 the one real error in the original audit.
 

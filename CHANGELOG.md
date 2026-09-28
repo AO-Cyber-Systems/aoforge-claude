@@ -52,6 +52,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `backups.retain_days` / `backups.keep_min` in `~/.claude/devflow/global-config.json`. Run or
   preview by hand with `df-tools upgrade --prune [--dry-run]`; register a repo without a full
   upgrade with `upgrade --register`. Skip with `DEVFLOW_SKIP_PRUNE=1`.
+- **Documentation stays truthful as commands change.** `DEPRECATION_MAP` plus a new
+  `REMOVED_COMMANDS` list in `lib/skill-route.cjs` are the only rename source; `lib/doc-refs.cjs`
+  resolves `/df:`/`/devflow:` tokens to ok | prefix | renamed | removed | unknown and rewrites
+  them. `doc-refs.repo.test.cjs` fails `npm test` on any stale or unknown command reference in
+  DevFlow's own live text (agents, skills, workflows, references, templates, README, CLAUDE.md,
+  USER-GUIDE, site content), with a justified exemption list.
+- Migration `0007-doc-refs-fix` (auto) rewrites renamed/`/df:` references inside a project's
+  CLAUDE.md DEVFLOW block and STATE.md (outside `## Session Log`) at session start, leaving
+  historical records and removed commands untouched.
+- `validate health` Check 14 and the new `df-tools validate docs [--raw]` report doc-staleness
+  advisories: W050 (removed-command reference), W051 (STACK.md review age), W052
+  (declared-vs-detected language drift), W053 (codebase maps N commits behind), W054 (the check
+  itself failed) — all advisory-only, never repaired.
+- `df-tools telemetry [--raw]` is now a real CLI command (previously advertised in CLAUDE.md but
+  unimplemented); it merges the same doc-staleness advisories. `/devflow:status`'s report step
+  shows them in a `## Documentation` section.
 
 ### Changed
 - `project-state.cjs`, `detect brownfield-map` and `init new-project` now delegate to
@@ -83,6 +99,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Changes made by the `init` bootstrap (created `OBJECTIVE.md` files) were silent. The
   plan-objective and execute-objective workflows now report them in one line.
 - `backfillAllObjectives` was dead code. It now backs migration 0004.
+- W002 (`validate health`) now matches current STATE.md wording instead of a dead
+  `[Pp]hase\s+N` regex, and is no longer repairable (it can never trigger `regenerateState`).
+- Stale `/df:` and retired command names removed from the health fix text, the `misc.cjs`
+  CONTEXT scaffold, the `workstreams.cjs` worktree STATE.md generator, the statusline's dead
+  `/df:update` segment (no writer ever produced its cache file), and the init todo-lane
+  preview (now `/devflow:todo list`).
+- README, USER-GUIDE, workflows and agents name only live commands — the 13 retired
+  single-purpose names (progress, health, resume-work, pause-work, add/insert/remove-objective,
+  new/audit/complete-milestone, plan-milestone-gaps, add-todo, check-todos) are gone, and
+  `/devflow:update` / `/devflow:reapply-patches` are deleted with no successor.
 
 ## [2.10.1] - 2026-09-26
 

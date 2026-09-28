@@ -740,6 +740,40 @@ node ~/.claude/devflow/bin/df-tools.cjs changelog check 1.29.0
 
 ---
 
+## Keeping documentation current
+
+DevFlow watches its own generated text and your project's planning docs for drift, and surfaces
+what it finds as advisories — nothing here is auto-repaired.
+
+- **W050** — a live doc (a project's CLAUDE.md DEVFLOW block, STATE.md, or DevFlow's own text)
+  references a removed command with no successor.
+- **W051** — `STACK.md`'s `provenance.reviewed` date is missing or older than the staleness
+  threshold.
+- **W052** — `STACK.md`'s declared `languages` disagree with what's actually detected in the repo.
+- **W053** — a `.planning/codebase/*.md` map is more commits behind `HEAD` than the threshold.
+
+They show up in three places: `validate health` (Check 14), `/devflow:status` (via
+`df-tools validate docs --raw`, in a `## Documentation` section when there's something to say),
+and `df-tools telemetry --raw`.
+
+Command-name drift (renamed or removed `/devflow:`/`/df:` references) is the one class that *is*
+fixed for you: migration `0007-doc-refs-fix` runs automatically at session start and rewrites stale
+names inside your project's CLAUDE.md DEVFLOW block and STATE.md (outside `## Session Log`).
+Historical records and removed-command references are never touched.
+
+The staleness thresholds are overridable per project in `.planning/config.json`:
+
+```json
+{
+  "docs": {
+    "stack_review_stale_days": 90,
+    "codebase_map_stale_commits": 50
+  }
+}
+```
+
+---
+
 ## Trying a Local Checkout of DevFlow
 
 To run a feature that hasn't been released yet (e.g. to verify a change before it ships), install
