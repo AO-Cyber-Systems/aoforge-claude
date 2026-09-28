@@ -290,7 +290,7 @@ Jobs:
 - [x] 37-13-TRD.md — Wave 10: E2E proof (a) — Flutter fixture
 - [x] 37-14-TRD.md — Wave 11: E2E proof (a) — routing cases (DevFlow → upgrade, empty → new-project, dirty/non-git refuse unchanged)
 - [x] 37-15-TRD.md — Wave 12: docs (USER-GUIDE, CHANGELOG [Unreleased], CLAUDE.md, gen-docs) + dry-run completion leaves ROADMAP/STATE intact + final full-suite gate
-- [ ] 37-16-TRD.md — Wave 13: E2E proof (b) — checkpoint:human-verify: local install from this checkout, fresh session, `/devflow:adopt`, revert
+- [x] 37-16-TRD.md — Wave 13: E2E proof (b) — checkpoint:human-verify: local install from this checkout, fresh session, `/devflow:adopt`, revert
 
 ### Objective 38: Documentation auto-correction
 
