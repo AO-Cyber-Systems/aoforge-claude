@@ -47,6 +47,7 @@ RAILROAD_ARCHITECTURE.md
 .planning/.devflow-notices.json
 .planning/.progress-guard.json
 .planning/.override-log.jsonl
+.planning/.edit-override
 
 # Documentation site (site/) — Hugo build output and caches
 site/public/
