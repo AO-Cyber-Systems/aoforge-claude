@@ -275,7 +275,7 @@ Jobs:
 **Jobs:** 0/16 complete — 16 TRDs in 13 waves (planned 2026-09-28; objective-local requirement IDs ADP-01..ADP-07; simulated runs 37-11→37-14 chained in depends_on so each runs alone and owns its own gate; 37-16 is a human-verify checkpoint, not autonomous)
 
 Jobs:
-- [ ] 37-01-TRD.md — Wave 1: `__fixtures__/adopt-fixtures.cjs` scratch-repo factory (Go, Flutter, Node, empty, DevFlow, dirty) + `lib/repo-state.cjs` detector (devflow|greenfield|brownfield|scratch)
+- [x] 37-01-TRD.md — Wave 1: `__fixtures__/adopt-fixtures.cjs` scratch-repo factory (Go, Flutter, Node, empty, DevFlow, dirty) + `lib/repo-state.cjs` detector (devflow|greenfield|brownfield|scratch)
 - [ ] 37-02-TRD.md — Wave 2: global `df-tools --cwd <dir>` (chdir before dispatch; flag-region boundary)
 - [ ] 37-03-TRD.md — Wave 1: `lib/backup-prune.cjs` pure retention policy (14 days / newest 5), 24 h throttle, global-config keys, repo registry; `upgrade.repoKey`
 - [ ] 37-04-TRD.md — Wave 2: project-state, brownfield-detector and init new-project delegate to repo-state (parity proven)
