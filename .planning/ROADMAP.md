@@ -272,25 +272,25 @@ Jobs:
 **Goal:** A user in any repo types `/devflow:adopt [path]` and DevFlow turns it into a DevFlow project unattended: map the code, infer PROJECT.md/STACK.md, scaffold config/STATE/ROADMAP (no invented objectives), add the CLAUDE.md block, stamp the version, and make one signed commit on a `devflow/adopt` branch (no push) with an ADOPT-REPORT.md of low-confidence items. Backups under `~/.claude/devflow/backups/` are pruned daily (14 days / keep 5 per repo, SessionStart-throttled; Claude Code has no persistent local scheduler).
 **Depends on:** Objective 36 (stamp, upgrade runner, managed blocks, SessionStart hook); the ROADMAP-corruption fix (`/devflow:debug`, done first).
 **Decisions (user, 2026-09-28):** re-scoped away from batch-adopting the user's 11 repos (out of scope, never touched); fully unattended; E2E proof = simulated run on scratch fixtures + a local-dev-install human check.
-**Jobs:** 0/16 complete — 16 TRDs in 10 waves (planned 2026-09-28; objective-local requirement IDs ADP-01..ADP-07; execution serialized; 37-16 is a human-verify checkpoint, not autonomous)
+**Jobs:** 0/16 complete — 16 TRDs in 13 waves (planned 2026-09-28; objective-local requirement IDs ADP-01..ADP-07; simulated runs 37-11→37-14 chained in depends_on so each runs alone and owns its own gate; 37-16 is a human-verify checkpoint, not autonomous)
 
 Jobs:
 - [ ] 37-01-TRD.md — Wave 1: `__fixtures__/adopt-fixtures.cjs` scratch-repo factory (Go, Flutter, Node, empty, DevFlow, dirty) + `lib/repo-state.cjs` detector (devflow|greenfield|brownfield|scratch)
-- [ ] 37-02-TRD.md — Wave 1: global `df-tools --cwd <dir>` (chdir before dispatch; flag-region boundary)
+- [ ] 37-02-TRD.md — Wave 2: global `df-tools --cwd <dir>` (chdir before dispatch; flag-region boundary)
 - [ ] 37-03-TRD.md — Wave 1: `lib/backup-prune.cjs` pure retention policy (14 days / newest 5), 24 h throttle, global-config keys, repo registry; `upgrade.repoKey`
 - [ ] 37-04-TRD.md — Wave 2: project-state, brownfield-detector and init new-project delegate to repo-state (parity proven)
-- [ ] 37-05-TRD.md — Wave 2: `df-tools adopt preflight|begin` — routing, refusals with zero side effects, devflow/adopt branch, resumable git-dir marker; HELP_TABLE entry
-- [ ] 37-06-TRD.md — Wave 3: prune wired into SessionStart (`upgrade-project.js`, every session) + `upgrade --prune [--dry-run]` / `--register`
-- [ ] 37-07-TRD.md — Wave 3: `adopt scaffold` — STATE, objective-less ROADMAP, STACK.md, CLAUDE.md block, stamp via the upgrade runner, register; idempotent
-- [ ] 37-08-TRD.md — Wave 4: `adopt report` (ADOPT-REPORT.md needs-review, redaction, commit file list) + `adopt-e2e-assert.cjs` structural checker + deterministic 3-stack pipeline test
-- [ ] 37-09-TRD.md — Wave 5: `skills/adopt/SKILL.md` + `workflows/adopt.md` (unattended), map-codebase non-interactive mode, new-project points at adopt + registers; contract test
-- [ ] 37-10-TRD.md — Wave 6: routing — route-intent adopt intents (also outside DevFlow projects), global routing template v2, help, init-offer → /devflow:adopt for brownfield
-- [ ] 37-11-TRD.md — Wave 7: E2E proof (a) — simulated agent run of the checkout skill on the Go fixture
-- [ ] 37-12-TRD.md — Wave 8: E2E proof (a) — Node fixture + second adopt routes to upgrade (idempotency)
-- [ ] 37-13-TRD.md — Wave 8: E2E proof (a) — Flutter fixture
-- [ ] 37-14-TRD.md — Wave 8: E2E proof (a) — routing cases (DevFlow → upgrade, empty → new-project, dirty/non-git refuse unchanged); wave-8 gate
-- [ ] 37-15-TRD.md — Wave 9: docs (USER-GUIDE, CHANGELOG [Unreleased], CLAUDE.md, gen-docs) + dry-run completion leaves ROADMAP/STATE intact + final full-suite gate
-- [ ] 37-16-TRD.md — Wave 10: E2E proof (b) — checkpoint:human-verify: local install from this checkout, fresh session, `/devflow:adopt`, revert
+- [ ] 37-05-TRD.md — Wave 3: `df-tools adopt preflight|begin` — routing, refusals with zero side effects, devflow/adopt branch, resumable git-dir marker; HELP_TABLE entry
+- [ ] 37-06-TRD.md — Wave 4: prune wired into SessionStart (`upgrade-project.js`, every session) + `upgrade --prune [--dry-run]` / `--register`
+- [ ] 37-07-TRD.md — Wave 4: `adopt scaffold` — STATE, objective-less ROADMAP, STACK.md, CLAUDE.md block, stamp via the upgrade runner, register; idempotent
+- [ ] 37-08-TRD.md — Wave 5: `adopt report` (ADOPT-REPORT.md needs-review, redaction, commit file list) + `adopt-e2e-assert.cjs` structural checker + deterministic 3-stack pipeline test
+- [ ] 37-09-TRD.md — Wave 6: `skills/adopt/SKILL.md` + `workflows/adopt.md` (unattended), map-codebase non-interactive mode, new-project points at adopt + registers; contract test
+- [ ] 37-10-TRD.md — Wave 7: routing — route-intent adopt intents (also outside DevFlow projects), global routing template v2, help, init-offer → /devflow:adopt for brownfield
+- [ ] 37-11-TRD.md — Wave 8: E2E proof (a) — simulated agent run of the checkout skill on the Go fixture
+- [ ] 37-12-TRD.md — Wave 9: E2E proof (a) — Node fixture + second adopt routes to upgrade (idempotency)
+- [ ] 37-13-TRD.md — Wave 10: E2E proof (a) — Flutter fixture
+- [ ] 37-14-TRD.md — Wave 11: E2E proof (a) — routing cases (DevFlow → upgrade, empty → new-project, dirty/non-git refuse unchanged)
+- [ ] 37-15-TRD.md — Wave 12: docs (USER-GUIDE, CHANGELOG [Unreleased], CLAUDE.md, gen-docs) + dry-run completion leaves ROADMAP/STATE intact + final full-suite gate
+- [ ] 37-16-TRD.md — Wave 13: E2E proof (b) — checkpoint:human-verify: local install from this checkout, fresh session, `/devflow:adopt`, revert
 
 ### Objective 38: Documentation auto-correction
 
