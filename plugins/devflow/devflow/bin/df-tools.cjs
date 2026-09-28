@@ -210,7 +210,7 @@ const { cmdUiSpec, cmdUiSheet, cmdUiLock } = require('./lib/ui-spec-cli.cjs');
 const { cmdDetectNovelDomain } = require('./lib/novel-domain.cjs');
 const { cmdDetectBrownfieldMap } = require('./lib/brownfield-detector.cjs');
 const { cmdDetectFlutterUIScope } = require('./lib/flutter-ui-scope.cjs');
-const { cmdValidateConsistency, cmdValidateHealth } = require('./lib/validate.cjs');
+const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs } = require('./lib/validate.cjs');
 const {
   cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject,
   cmdInitNewMilestone, cmdInitQuick, cmdInitResume, cmdInitVerifyWork, cmdInitObjectiveOp,
@@ -792,8 +792,10 @@ async function main() {
       } else if (subcommand === 'health') {
         const repairFlag = args.includes('--repair');
         cmdValidateHealth(cwd, { repair: repairFlag }, raw);
+      } else if (subcommand === 'docs') {
+        cmdValidateDocs(cwd, raw);
       } else {
-        error('Unknown validate subcommand. Available: consistency, health');
+        error('Unknown validate subcommand. Available: consistency, health, docs');
       }
       break;
     }

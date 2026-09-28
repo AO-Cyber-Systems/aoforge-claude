@@ -719,8 +719,41 @@ function cmdValidateHealth(cwd, options, raw) {
   }, raw);
 }
 
+// ─── validate docs (TRD 38-10) ──────────────────────────────────────────────
+//
+// A cheap, read-only doc-staleness report for the default /devflow:status view.
+// Full `validate health` does a best-effort `git fetch` in Check 11 (too slow
+// for every status call); this drives the same doc-staleness.collect() as
+// Check 14 above, with no other check attached — no network, no git fetch.
+function cmdValidateDocs(cwd, raw) {
+  const planningDir = path.join(cwd, '.planning');
+  if (!fs.existsSync(planningDir)) {
+    output({ issues: [], checked: {}, note: 'no .planning/' }, raw, 'no .planning/');
+    return;
+  }
+
+  const configPath = path.join(planningDir, 'config.json');
+  let docsConfig = {};
+  try {
+    docsConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    // Missing/malformed config.json: fall back to doc-staleness.cjs's own
+    // DEFAULTS, same as Check 14 above. Not this command's job to report it.
+  }
+
+  const { collect } = require('./doc-staleness.cjs');
+  const { issues, checked } = collect({ projectRoot: cwd, userHome: os.homedir(), config: docsConfig });
+
+  const rawText = issues.length
+    ? issues.map((i) => `${i.code} ${i.message}`).join('\n')
+    : 'no documentation advisories';
+
+  output({ issues, checked }, raw, rawText);
+}
+
 module.exports = {
   cmdValidateConsistency,
   cmdValidateHealth,
+  cmdValidateDocs,
   compareSemver,
 };
