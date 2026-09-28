@@ -93,6 +93,14 @@ Delegating a survey ("find every call site of X") keeps the parent clean.
 from session transcripts. Targets: `Read` below 40% of tool-result tokens, and
 median subagent context per turn trending down.
 
+**Latest re-measurement (2026-09-28, `df-tools context --limit 150`, objective 39):**
+tool results 58.1%, tool-call inputs 33.4%, assistant text 5.7%, images 2.7%. `Read`
+24.5% of tool-result tokens (target < 40%: ok) at 2,684 tokens per call;
+`Bash` 514 per call. Context per turn p50: subagent 229K, main thread 465K. This sample
+predates the pending version re-mirror and is capped by directory order, not recency. It
+mixes sessions from before and after objective 29, so expect it to move after release.
+The 2026-08-18 figures above are the original audit.
+
 **Measurement trap:** `chars/4` over-counts base64 image blocks by ~25×. Images
 are priced by dimension (~1.5K tokens each), not by base64 length. A first pass
 using character count reported screenshots as 19% of context; the true figure is

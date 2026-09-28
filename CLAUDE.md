@@ -133,12 +133,13 @@ Declares the marketplace and the plugins it ships. Users add the marketplace via
 
 Full guidance: `plugins/devflow/devflow/references/context-discipline.md`. Kept
 there rather than here on purpose — this file is resident on every turn of every
-session (currently ~156 lines / ~3.2K tokens), so domain detail belongs in
+session (currently ~194 lines / ~4.6K tokens), so domain detail belongs in
 references and skills that load on invocation.
 
-Measured composition (see `df-tools context`): tool results 59%, **tool-call
-inputs 34%**, assistant text 6%, images 1.5%. `Read` is ~50% of tool-result
-tokens at 2,311 per call; `Bash` served 7× the calls at 292.
+Measured composition (see `df-tools context`): tool results 58%, **tool-call
+inputs 33%**, assistant text 6%, images 3% (`df-tools context --limit 150`,
+2026-09-28; predates the pending re-mirror). `Read` is 25% of tool-result
+tokens at 2,684 per call; `Bash` served 14× the calls at 514.
 
 Policy, stated deliberately rather than inherited as defaults:
 
