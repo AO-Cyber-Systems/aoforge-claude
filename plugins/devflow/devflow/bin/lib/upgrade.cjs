@@ -209,20 +209,30 @@ function assertAbsolute(name, value) {
 }
 
 /**
+ * repoKey(projectRoot) -> <slug>-<hash8>
+ * slug = basename(realpath(projectRoot)) lowercased, non [a-z0-9] runs → '-';
+ * hash8 = sha1(realpath(projectRoot)).slice(0, 8). Shared with backup-prune.cjs (objective 37,
+ * TRD 37-03) so a backup dir and its registry/prune entry always agree on the same repo key.
+ */
+function repoKey(projectRoot) {
+  const real = fs.realpathSync(projectRoot);
+  const slug = path.basename(real).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const hash8 = crypto.createHash('sha1').update(real).digest('hex').slice(0, 8);
+  return `${slug}-${hash8}`;
+}
+
+/**
  * backupDirFor({ projectRoot, userHome, now }) ->
  *   <userHome>/.claude/devflow/backups/<repo-slug>-<hash8>/<ts>[-N]/
- * slug = basename(realpath(projectRoot)) lowercased, non [a-z0-9] runs → '-';
- * hash8 = sha1(realpath(projectRoot)).slice(0, 8); ts = now ISO with ':' and '.' → '-'.
- * An existing dir gets '-1', '-2', … appended — a backup is never overwritten. Throws if the
- * computed dir would sit inside the project.
+ * ts = now ISO with ':' and '.' → '-'. An existing dir gets '-1', '-2', … appended — a backup is
+ * never overwritten. Throws if the computed dir would sit inside the project.
  */
 function backupDirFor({ projectRoot, userHome, now = new Date() }) {
   assertAbsolute('userHome', userHome);
   const real = fs.realpathSync(projectRoot);
-  const slug = path.basename(real).toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  const hash8 = crypto.createHash('sha1').update(real).digest('hex').slice(0, 8);
+  const key = repoKey(projectRoot);
   const ts = now.toISOString().replace(/[:.]/g, '-');
-  const base = path.join(userHome, '.claude', 'devflow', 'backups', `${slug}-${hash8}`);
+  const base = path.join(userHome, '.claude', 'devflow', 'backups', key);
 
   if (isInside(real, realpathLoose(base))) {
     throw new Error(`upgrade: refusing to back up inside the project (${base} is inside ${real})`);
@@ -495,6 +505,7 @@ module.exports = {
   loadRegistry,
   readStamp,
   writeStamp,
+  repoKey,
   backupDirFor,
   backup,
   check,
