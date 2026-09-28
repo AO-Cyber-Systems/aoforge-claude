@@ -10,6 +10,7 @@
  *   .planning/.override-log.jsonl   — structured gate overrides (TRD 30-04)
  *   .planning/.progress-guard.json  — stuck-loop detection state (TRD 28-04)
  *   session transcripts             — blocking events (TRD 31-03)
+ *   doc-staleness.collect()         — documentation-staleness W05x issues (TRD 38-07, merged here TRD 38-11)
  *
  * Deliberately read-only and cheap: it aggregates what exists rather than
  * instrumenting anything new. The expensive part (transcript scanning) is
@@ -24,10 +25,11 @@ const { readOverrides } = require('./override.cjs');
  * @param {object} opts
  * @param {string|null} opts.planningDir
  * @param {object} [opts.sessionReport] - optional output of session-audit analyze()
+ * @param {string|null} [opts.userHome] - passed through to doc-staleness's manifest detection
  * @returns {object}
  */
-function collect({ planningDir, sessionReport }) {
-  const out = { overrides: null, progress_guard: null, blocks: null, advisories: [] };
+function collect({ planningDir, sessionReport, userHome = null }) {
+  const out = { overrides: null, progress_guard: null, blocks: null, docs: null, advisories: [] };
   if (!planningDir) return { ...out, advisories: ['no .planning/ — not a DevFlow project'] };
 
   // --- overrides -----------------------------------------------------------
@@ -69,6 +71,21 @@ function collect({ planningDir, sessionReport }) {
         `objectives 27/30 target these; re-check after the plugin cache re-syncs`
       );
     }
+  }
+
+  // --- documentation staleness (TRD 38-11) ----------------------------------
+  // Inline require (not top-of-file) deliberately: it lets tests replace
+  // require.cache['./doc-staleness.cjs'] to exercise the failure path below.
+  try {
+    const { collect: collectDocs } = require('./doc-staleness.cjs');
+    const projectRoot = path.dirname(planningDir);
+    const { issues, checked } = collectDocs({ projectRoot, userHome });
+    out.docs = { checked, count: issues.length };
+    for (const i of issues) {
+      out.advisories.push(`docs: ${i.code} ${i.message} — ${i.fix}`);
+    }
+  } catch (e) {
+    out.advisories.push(`docs: staleness check failed — ${e.message}`);
   }
 
   if (!out.advisories.length) out.advisories.push('nothing needs attention');
