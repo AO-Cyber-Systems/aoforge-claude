@@ -170,6 +170,29 @@ function parseRenameTable(text) {
 // ─── tests ──────────────────────────────────────────────────────────────────────────
 
 describe('doc-refs.repo.test.cjs', { skip: IS_DEVFLOW_CHECKOUT ? false : 'not a devflow-claude checkout' }, () => {
+  describe('SCAN: raw scan set', () => {
+    test('1: scan set is non-empty (> 150 files) and includes the named anchors', () => {
+      const files = rawScanSet();
+      assert.ok(files.length > 150, `expected > 150 files in the scan set, got ${files.length}`);
+      assert.ok(files.includes('README.md'), 'scan set must include README.md');
+      assert.ok(
+        files.includes('plugins/devflow/devflow/bin/lib/validate.cjs'),
+        'scan set must include plugins/devflow/devflow/bin/lib/validate.cjs',
+      );
+      assert.ok(
+        files.includes('plugins/devflow/hooks/statusline.js'),
+        'scan set must include plugins/devflow/hooks/statusline.js',
+      );
+    });
+  });
+
+  describe('GATE: the CI gate itself', () => {
+    test('2: zero findings across the scan set minus EXEMPT minus legacy workflows', () => {
+      const findings = findAllFindings();
+      assert.deepStrictEqual(findings, [], formatFailureMessage(findings));
+    });
+  });
+
   describe('EXEMPT sanity', () => {
     test('3: every EXEMPT entry has a reason >= 20 chars and matches >= 1 real path', () => {
       for (const entry of EXEMPT) {
@@ -279,5 +302,3 @@ describe('doc-refs.repo.test.cjs', { skip: IS_DEVFLOW_CHECKOUT ? false : 'not a 
     });
   });
 });
-
-// ─── Task 2 will add tests 1 (raw scan set) and 2 (the main gate) below this line. ───
