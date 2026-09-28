@@ -209,7 +209,7 @@ Approach:
 
 ## Intent Resolution (replaces silent TDD heuristic)
 
-**Step 1 — Resolve intent for this objective.** Call `df-tools intent resolve --objective <id>` to load the resolved configuration. The resolver reads PROJECT.md `kind`, OBJECTIVE.md `work`, project + user CLAUDE.md playbooks, and the (kind, work) defaults table at `~/.claude/devflow/references/defaults-table.md`. Output is a JSON object:
+**Step 1 — Resolve intent for this objective.** Call `df-tools intent resolve --objective <id>` to load the resolved configuration. Pass the bare `objective_number` from init (e.g. `40`) or the `objective_dir` basename; bare numbers resolve by prefix match. If `warnings` contains `OBJECTIVE.md not found`, stop and surface it. `work` has fallen back to the project default. The resolver reads PROJECT.md `kind`, OBJECTIVE.md `work`, project + user CLAUDE.md playbooks, and the (kind, work) defaults table at `~/.claude/devflow/references/defaults-table.md`. Output is a JSON object:
 
 ```json
 {
