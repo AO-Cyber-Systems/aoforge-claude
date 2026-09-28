@@ -395,3 +395,120 @@ describe('upgrade-project: notices, lock, exclude', () => {
     assert.equal(warns.length, 1, JSON.stringify(readNotices(root)));
   });
 });
+
+// ─── objective 37 (ADP-05) — SessionStart backup prune ─────────────────────────
+//
+// Local helper: seedBackups(home, repoDir, ages) creates
+//   <home>/.claude/devflow/backups/<repoDir>/<ts>/.planning/config.json for each age in days,
+//   relative to the REAL Date.now() (the hook calls `new Date()` itself, not an injected fixed
+//   time). A name collision (two ages that round to the same ts) gets '-1', '-2', ... appended,
+//   exactly like upgrade.cjs backupDirFor.
+//
+// Test list (TRD 37-06):
+//   1. DoD: cwd = a non-DevFlow mkdtemp dir; fake home with `app-0123abcd` holding 7 backups all
+//      30 days old → after one hook run, exactly the oldest 2 are gone; stdout ''; exit 0.
+//   2. DoD: run the hook again immediately → nothing removed; `.last-prune.json` bytes identical
+//      to after run 1.
+//   3. DEVFLOW_SKIP_PRUNE=1 → nothing removed, no `.last-prune.json`.
+//   4. DEVFLOW_SKIP_UPGRADE=1 (prune not skipped) → prune still happens.
+//   5. `<home>/.claude/devflow/backups` is a FILE → exit 0, stdout '', stderr contains
+//      "backup prune skipped"; in a behind DevFlow fixture the upgrade still applies (config.json
+//      stamp written).
+//   6. In a DevFlow project already stamped at the bundled version (fast path) the prune still
+//      runs (7 ancient → 5).
+//   7. No backups dir in the fake home → nothing created under `<home>/.claude/devflow/` by the
+//      prune.
+//   8. Existing cases unchanged (the whole file passes) — covered by running this file in full.
+
+function backupsRootFor(home) {
+  return path.join(home, '.claude', 'devflow', 'backups');
+}
+
+function seedPruneBackups(home, repoDir, ages) {
+  const names = [];
+  const now = Date.now();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  for (const age of ages) {
+    const t = new Date(now - age * DAY_MS);
+    const ts = t.toISOString().replace(/[:.]/g, '-');
+    let name = ts;
+    for (let n = 1; fs.existsSync(path.join(backupsRootFor(home), repoDir, name)); n++) name = `${ts}-${n}`;
+    fs.mkdirSync(path.join(backupsRootFor(home), repoDir, name, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(backupsRootFor(home), repoDir, name, '.planning', 'config.json'), '{}\n');
+    names.push(name);
+  }
+  return names;
+}
+
+describe('objective 37 — backup prune', () => {
+  test('1 (DoD): non-DevFlow cwd + fake home with 7 ancient backups → oldest 2 pruned', () => {
+    const home = F.makeFakeHome();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-prune-plain-'));
+    cleanup.push(home, dir);
+    seedPruneBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    const r = runHook(dir, home);
+    assert.equal(r.stdout, '');
+    const remaining = fs.readdirSync(path.join(backupsRootFor(home), 'app-0123abcd'));
+    assert.equal(remaining.length, 5, JSON.stringify(remaining));
+  });
+
+  test('2 (DoD): running the hook again immediately removes nothing further; stamp bytes unchanged', () => {
+    const home = F.makeFakeHome();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-prune-plain-'));
+    cleanup.push(home, dir);
+    seedPruneBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    runHook(dir, home);
+    const stampFile = path.join(backupsRootFor(home), '.last-prune.json');
+    const before = fs.readFileSync(stampFile);
+    runHook(dir, home);
+    const after = fs.readFileSync(stampFile);
+    assert.ok(before.equals(after), 'stamp bytes identical after an immediate second run');
+    assert.equal(fs.readdirSync(path.join(backupsRootFor(home), 'app-0123abcd')).length, 5);
+  });
+
+  test('3: DEVFLOW_SKIP_PRUNE=1 → nothing removed, no stamp written', () => {
+    const home = F.makeFakeHome();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-prune-plain-'));
+    cleanup.push(home, dir);
+    seedPruneBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    runHook(dir, home, { DEVFLOW_SKIP_PRUNE: '1' });
+    assert.equal(fs.readdirSync(path.join(backupsRootFor(home), 'app-0123abcd')).length, 7);
+    assert.ok(!fs.existsSync(path.join(backupsRootFor(home), '.last-prune.json')));
+  });
+
+  test('4: DEVFLOW_SKIP_UPGRADE=1 does not skip the prune', () => {
+    const home = F.makeFakeHome();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-prune-plain-'));
+    cleanup.push(home, dir);
+    seedPruneBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    runHook(dir, home, { DEVFLOW_SKIP_UPGRADE: '1' });
+    assert.equal(fs.readdirSync(path.join(backupsRootFor(home), 'app-0123abcd')).length, 5);
+  });
+
+  test('5: backups path is a FILE → prune skipped via stderr; the upgrade still applies', () => {
+    const { home, root } = setup();
+    fs.mkdirSync(path.join(home, '.claude', 'devflow'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'devflow', 'backups'), 'not a dir\n');
+    const r = runHook(root, home);
+    assert.match(r.stderr, /backup prune skipped/);
+    assertMigrated(root);
+  });
+
+  test('6: fast-path project (already stamped at bundled version) still runs the prune', () => {
+    const home = F.makeFakeHome();
+    const root = F.makeStampedProject(BUNDLED);
+    cleanup.push(home, root);
+    F.initGitFixture(root, home);
+    seedPruneBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    runHook(root, home);
+    assert.equal(fs.readdirSync(path.join(backupsRootFor(home), 'app-0123abcd')).length, 5);
+  });
+
+  test('7: no backups dir in the fake home → prune creates nothing under .claude/devflow', () => {
+    const home = F.makeFakeHome();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-prune-plain-'));
+    cleanup.push(home, dir);
+    runHook(dir, home);
+    assert.ok(!fs.existsSync(path.join(home, '.claude', 'devflow')));
+  });
+});
