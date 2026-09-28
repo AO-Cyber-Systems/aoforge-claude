@@ -21,7 +21,7 @@
 //      equal, for each fixture kind.
 //   8. Parity: brownfield-detector.countSourceFiles === repo-state.countSourceFiles and
 //      project-state.countSourceFiles === repo-state.countSourceFiles (same function objects).
-//   9. Source check: `const EXCLUDE` / `const EXTS` appear only in repo-state.cjs among lib/*.cjs.
+//   9. Source check: the EXCLUDE / EXTS set declarations appear only in repo-state.cjs among lib/*.cjs.
 //  10. Existing suites untouched: project-state.test.cjs, brownfield-detector.test.cjs,
 //      init.test.cjs, classifier.test.cjs, hooks/classify-session.test.js pass — run via this
 //      TRD's `<verify>` command alongside this file, not re-executed here.
@@ -174,7 +174,7 @@ describe('adapter parity', () => {
     assert.strictEqual(projectState.countSourceFiles, repoState.countSourceFiles);
   });
 
-  test('9. const EXCLUDE / const EXTS declarations live only in repo-state.cjs', () => {
+  test('9. EXCLUDE / EXTS set declarations live only in repo-state.cjs', () => {
     // Built via concatenation so this test's own source text never contains the literal
     // needle (which would otherwise make the test match itself).
     const needleExclude = ['const', 'EXCLUDE'].join(' ');
