@@ -241,6 +241,40 @@ describe('df-tools intent resolve (CLI)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// TOOL-05 — `--objective <bare number>` finds the slugged objective directory.
+// Before the fix, `--objective 40` looked for objectives/40/OBJECTIVE.md, missed
+// objectives/40-tooling-correctness/, and silently inherited PROJECT.md
+// default_work — every bugfix/refactor/port objective planned by bare number
+// got the wrong TDD posture.
+// ---------------------------------------------------------------------------
+
+describe('df-tools intent resolve --objective <bare number> (TOOL-05)', () => {
+  let project;
+  afterEach(() => {
+    if (project) project.cleanup();
+    project = null;
+    intent._resetCache();
+  });
+
+  test('bare number 40 resolves 40-tooling-correctness and reads its work: bugfix', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [{ id: '40-tooling-correctness', work: 'bugfix' }],
+    });
+
+    const r = runTool(['intent', 'resolve', '--objective', '40'], project.root);
+    assert.ok(r.ok, `CLI failed: ${r.stderr}`);
+    const out = JSON.parse(r.stdout);
+
+    assert.strictEqual(out.kind, 'plugin');
+    assert.strictEqual(out.work, 'bugfix');
+    assert.strictEqual(out.workSource, 'OBJECTIVE.md');
+    assert.strictEqual(out.workInherited, false);
+    assert.deepStrictEqual(out.warnings, [], 'a resolved objective id must not warn');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Full precedence chain — TRD > OBJECTIVE > CLAUDE.md > defaults
 // ---------------------------------------------------------------------------
 
