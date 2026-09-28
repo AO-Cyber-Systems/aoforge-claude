@@ -228,6 +228,6 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 
 ## Session Continuity
 
-Last session: 2026-09-28 — Objective 39 TRD 39-05 executed (final TRD, 5/5): re-ran `df-tools context --limit 150` against real `~/.claude/projects`, re-baselined objective 29's `read_share_pct` (53.6%→24.5%, still `ok`) as a dated/caveated append to context-discipline.md and CLAUDE.md without touching objective 29's own records; added CHANGELOG `[Unreleased]` entries for the four newly-wired commands + two new gate tests + hook-inventory fix; full-suite gate held at 4168/4135/1/32 (MA-7 pre-existing, unchanged).
+Last session: 2026-09-28T16:17:42.605Z
 Resume file: `.planning/SESSION_PICKUP.md`
-Stopped at: Completed 39-05-TRD.md (2026-09-28); objective 39 all 5 TRDs done (db57340 docs, 6656f0e docs). Full suite 4168/4135 pass/1 fail (MA-7 pre-existing)/32 skipped — unchanged from post-39-04. ROADMAP progress table shows 39 as 5/5 Complete; formal objective-complete verdict left to the verifier (objective 41 retroactively verifies 27-31, now unblocked since their CLI commands are reachable). Next: objective 41 (retroactive verification of 27-34) or objective 40 (tooling correctness), both registered but not planned.
+Stopped at: Completed 40-06-TRD.md; objective 40 6/6 TRDs, awaiting verification
