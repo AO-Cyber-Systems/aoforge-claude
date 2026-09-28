@@ -232,6 +232,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 | 21 | Stack profile proposal: per-project `.planning/STACK.md` with a general-purpose default (`references/stack-general.md`), template, schema, and Go/Dart/Flutter example profiles. Docs only, not wired in (dir numbered 18) | 2026-09-27 | 2946f97 | — | [18-stack-profile-proposal-per-project-stack](./quick/18-stack-profile-proposal-per-project-stack/) |
 | 22 | Stack loop runs for every project: restate objective 35 invariant (micro, dir numbered 19; row originally auto-written with wrong number and shifted columns) | 2026-09-27 | c71ecf3 | — | — |
 | 23 | Jobs line replaces its leading count instead of prepending a second one (follow-up to debug fix cbf238d; keeps the author's noun/verb) (dir numbered 20) | 2026-09-28 | 3ee4cfb | — | [20-jobs-line-replaces-its-leading-count-ins](./quick/20-jobs-line-replaces-its-leading-count-ins/) |
+| 23 | note stack-profile review status and next steps in CLAUDE.md | 2026-09-28 | 60f8560 | devflow-claude | Atomic |
 
 ## Session Continuity
 
