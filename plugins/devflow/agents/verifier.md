@@ -655,7 +655,7 @@ Rollup shape (when it runs): `{ advisory:true, total, counts:{high,medium,low}, 
 
 **Routing high-priority debt → candidate todos (reuse the existing todo mechanism):**
 
-Use the SAME capture path as `/devflow:add-todo`. For each `high` (and optionally `medium`) debt item, write a todo file under `.planning/todos/pending/` and commit it via df-tools — exactly the mechanism the add-todo workflow uses:
+Use the SAME capture path as `/devflow:todo add`. For each `high` (and optionally `medium`) debt item, write a todo file under `.planning/todos/pending/` and commit it via df-tools — exactly the mechanism the add-todo workflow uses:
 
 ```bash
 mkdir -p .planning/todos/pending

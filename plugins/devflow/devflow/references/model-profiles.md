@@ -101,7 +101,7 @@ Overrides take precedence over the package defaults. Valid tier values: `opus`, 
 
 ## Switching Profiles
 
-Runtime: `/df:set-profile <profile>`
+Runtime: `/devflow:set-profile <profile>`
 
 Per-project default: Set in `.planning/config.json`:
 ```json
