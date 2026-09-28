@@ -15,6 +15,7 @@ const os = require('os');
 const path = require('path');
 const { collect } = require('./telemetry.cjs');
 const { recordOverride } = require('./override.cjs');
+const stackFx = require('./__fixtures__/stack-profile-fixtures.cjs');
 
 let dir, pd;
 beforeEach(() => {
@@ -86,5 +87,53 @@ describe('collect() — surfaces real signals as advice', () => {
     fs.writeFileSync(path.join(pd, '.progress-guard.json'), '{{{ broken');
     const r = collect({ planningDir: pd });
     assert.equal(r.progress_guard.worst_streak, 0);
+  });
+});
+
+// ─── objective 38 — doc advisories (TRD 38-11 tests 1-3) ───────────────────────────────────
+//
+// `collect()` also runs doc-staleness.collect() and merges its issues in as `docs:`-prefixed
+// advisories, so a stale STACK.md or a broken staleness check is visible from the same one call
+// that already surfaces override and progress-guard signals.
+describe('collect() — objective 38 — doc advisories', () => {
+  test('1. a stale STACK.md surfaces as a docs: W051 advisory', () => {
+    fs.writeFileSync(
+      path.join(pd, 'STACK.md'),
+      stackFx.profileMd({ yaml: 'schema: 1\nprovenance:\n  reviewed: "2025-01-01"\n' }),
+      'utf-8'
+    );
+    const r = collect({ planningDir: pd });
+    assert.ok(
+      r.advisories.some((a) => a.startsWith('docs: W051')),
+      `expected a docs: W051 advisory; got ${JSON.stringify(r.advisories)}`
+    );
+    assert.equal(r.docs.count, 1);
+  });
+
+  test('2. a clean project has zero doc advisories', () => {
+    const r = collect({ planningDir: pd });
+    assert.deepEqual(r.advisories, ['nothing needs attention']);
+    assert.equal(r.docs.count, 0);
+  });
+
+  test('3. a throwing doc-staleness collect() becomes one advisory; other sections stay populated', () => {
+    const docStalenessPath = require.resolve('./doc-staleness.cjs');
+    const original = require.cache[docStalenessPath];
+    require.cache[docStalenessPath] = {
+      id: docStalenessPath,
+      filename: docStalenessPath,
+      loaded: true,
+      exports: { collect: () => { throw new Error('boom'); } },
+    };
+    try {
+      const r = collect({ planningDir: pd });
+      const docsAdvisories = r.advisories.filter((a) => a.startsWith('docs:'));
+      assert.deepEqual(docsAdvisories, ['docs: staleness check failed — boom']);
+      assert.ok(r.overrides, 'overrides section still populated');
+      assert.ok(r.progress_guard, 'progress_guard section still populated');
+    } finally {
+      if (original) require.cache[docStalenessPath] = original;
+      else delete require.cache[docStalenessPath];
+    }
   });
 });
