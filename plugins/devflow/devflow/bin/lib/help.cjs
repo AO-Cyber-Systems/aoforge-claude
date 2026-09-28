@@ -442,7 +442,8 @@ function topLevelUsage() {
   const names = Object.keys(COMMANDS).sort();
   const width = names.reduce((w, n) => Math.max(w, n.length), 0);
   const lines = [
-    'Usage: df-tools <command> [args] [--raw]',
+    'Usage: df-tools [--cwd <dir>] <command> [args] [--raw]',
+    '  --cwd <dir>  run as if started in <dir> (resolved against the current directory)',
     '',
     'Run `df-tools <command> --help` for a command\'s own usage.',
     '(*) marks a command that writes to disk or to git.',

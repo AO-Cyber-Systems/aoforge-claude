@@ -257,6 +257,7 @@ const {
   hasTopLevelHelpFlag, ownsHelp, HELP_FLAGS, printHelp, topLevelUsage, COMMANDS: HELP_TABLE,
 } = require('./lib/help.cjs');
 const { cmdGenerateUAT } = require('./lib/uat-generator.cjs');
+const { extractCwdFlag } = require('./lib/cwd-flag.cjs');
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
@@ -265,6 +266,15 @@ async function main() {
   const rawIndex = args.indexOf('--raw');
   const raw = rawIndex !== -1;
   if (rawIndex !== -1) args.splice(rawIndex, 1);
+
+  // ── Global `--cwd <dir>` (issue 37-02) — chdir BEFORE dispatch, so every
+  // subcommand below (including the `--help` pre-switch right after this) sees
+  // <dir> as its cwd. Must run before `const command = args[0]` reads the
+  // post-flag command name.
+  const cwdFlag = extractCwdFlag(args, { originalCwd: process.cwd() });
+  if (cwdFlag.error) { process.stderr.write(`Error: ${cwdFlag.error}\n`); process.exit(1); }
+  if (cwdFlag.dir) process.chdir(cwdFlag.dir);
+  args.splice(0, args.length, ...cwdFlag.args);
 
   const command = args[0];
   const cwd = process.cwd();
