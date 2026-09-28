@@ -68,6 +68,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `df-tools telemetry [--raw]` is now a real CLI command (previously advertised in CLAUDE.md but
   unimplemented); it merges the same doc-staleness advisories. `/devflow:status`'s report step
   shows them in a `## Documentation` section.
+- `df-tools context [--limit N] [--root <dir>] [--raw]` is now a real CLI command (previously
+  printed `Unknown command`); implemented in `lib/context-audit.cjs`, scanning `~/.claude/projects`
+  by default with `--limit 150` the typical audit window.
+- `df-tools session-audit [--since YYYY-MM-DD] [--limit N] [--root <dir>] [--raw]` is now a real
+  CLI command (previously printed `Unknown command`); implemented in `lib/session-audit.cjs`,
+  classifying blocking events from the same `~/.claude/projects` transcripts.
+- `df-tools transcript-export [--out <file>] [--full <dir>] [--limit N] [--root <dir>] [--raw]` is
+  now a real CLI command (previously printed `Unknown command`); implemented in
+  `lib/transcript-export.cjs`, appending to the index at `~/.claude/devflow/transcript-index.jsonl`
+  before retention deletes transcripts.
+- `df-tools override --gate <g> --reason <why> | --list [--limit N]` is now a real CLI command
+  (previously printed `Unknown command`); implemented in `lib/override.cjs`, a structured, logged
+  replacement for prose gate overrides.
+- The dispatch-completeness test (`lib/dispatch-completeness.test.cjs`) checks CLAUDE.md's command
+  prose against the actual dispatcher; the hook-inventory pin test (`lib/hook-inventory.test.cjs`)
+  checks CLAUDE.md's hook bullets against `hooks.json` registration.
 
 ### Changed
 - `project-state.cjs`, `detect brownfield-map` and `init new-project` now delegate to
@@ -109,6 +125,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   single-purpose names (progress, health, resume-work, pause-work, add/insert/remove-objective,
   new/audit/complete-milestone, plan-milestone-gaps, add-todo, check-todos) are gone, and
   `/devflow:update` / `/devflow:reapply-patches` are deleted with no successor.
+- CLAUDE.md's hook inventory now marks `inject-org-context.js` / `inject-handoff-results.js` as
+  draft/unregistered instead of listing them among live hooks; site doc examples use the real gate
+  name `--gate edits`, not `--gate gate-edits`.
 
 ## [2.10.1] - 2026-09-26
 
