@@ -363,7 +363,7 @@ Jobs:
 **Goal:** Every v1.3 objective has an independent VERIFICATION.md: run the verifier against objectives 27–34 as they stand (27–31 have only an objective-level SUMMARY; 32–34 have none). Verification only — real gaps become fix TRDs.
 **Depends on:** Objective 39 (29–31 cannot verify while their commands are unreachable)
 **Gap Closure:** v1.3 audit — unverified objectives
-**Jobs:** 8/8 jobs executed — 0/6 — 6 TRDs in 2 waves (planned 2026-09-28; objective-local requirement IDs VER-27..VER-34 + VER-ROLL; wave-1 briefs are verifier-executed and write only new NN-VERIFICATION.md files; gap-fix TRDs deferred to a `--gaps` pass; baseline 4234 tests / 1 pre-existing fail)
+**Jobs:** 8/8 jobs executed — 8 TRDs in 3 waves after one gap cycle (planned 2026-09-28; objective-local requirement IDs VER-27..VER-34 + VER-ROLL; wave-1 briefs are verifier-executed and write only new NN-VERIFICATION.md files; gap cycle 1 added 41-07/41-08; baseline 4234 tests / 1 pre-existing fail)
 
 Jobs:
 - [x] 41-01-TRD.md — Wave 1: verify 27 (gate correctness) and 28 (model tier binding) → 27/28-VERIFICATION.md (VER-27, VER-28)
@@ -371,5 +371,7 @@ Jobs:
 - [x] 41-03-TRD.md — Wave 1: verify 31 (telemetry and retention) → 31-VERIFICATION.md (VER-31)
 - [x] 41-04-TRD.md — Wave 1: verify 32 (visual-eval honesty) and 33 (visual gate runs) → 32/33-VERIFICATION.md (VER-32, VER-33)
 - [x] 41-05-TRD.md — Wave 1: verify 34 (Surface Spec W1b) → 34-VERIFICATION.md (VER-34)
-- [x] 41-06-TRD.md — Wave 2: roll verdicts into ROADMAP, CHANGELOG decision, full-suite gate (VER-ROLL)
+- [x] 41-07-TRD.md — Gap fix (VER-28): restore planner/ui-evaluator effort lost in merge b657033; canonical ui-evaluator key; effort-parity test
+- [x] 41-08-TRD.md — Gap fix (VER-30): planner returns RESEARCH NEEDED instead of spawning; agent-tools guard covers Task/Agent
+- [x] 41-06-TRD.md — Wave 3: roll verdicts into ROADMAP, CHANGELOG decision, full-suite gate (VER-ROLL)
 
