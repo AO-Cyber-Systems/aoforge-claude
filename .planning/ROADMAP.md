@@ -281,7 +281,7 @@ Jobs:
 - [x] 37-04-TRD.md — Wave 2: project-state, brownfield-detector and init new-project delegate to repo-state (parity proven)
 - [x] 37-05-TRD.md — Wave 3: `df-tools adopt preflight|begin` — routing, refusals with zero side effects, devflow/adopt branch, resumable git-dir marker; HELP_TABLE entry
 - [x] 37-06-TRD.md — Wave 4: prune wired into SessionStart (`upgrade-project.js`, every session) + `upgrade --prune [--dry-run]` / `--register`
-- [ ] 37-07-TRD.md — Wave 4: `adopt scaffold` — STATE, objective-less ROADMAP, STACK.md, CLAUDE.md block, stamp via the upgrade runner, register; idempotent
+- [x] 37-07-TRD.md — Wave 4: `adopt scaffold` — STATE, objective-less ROADMAP, STACK.md, CLAUDE.md block, stamp via the upgrade runner, register; idempotent
 - [ ] 37-08-TRD.md — Wave 5: `adopt report` (ADOPT-REPORT.md needs-review, redaction, commit file list) + `adopt-e2e-assert.cjs` structural checker + deterministic 3-stack pipeline test
 - [ ] 37-09-TRD.md — Wave 6: `skills/adopt/SKILL.md` + `workflows/adopt.md` (unattended), map-codebase non-interactive mode, new-project points at adopt + registers; contract test
 - [ ] 37-10-TRD.md — Wave 7: routing — route-intent adopt intents (also outside DevFlow projects), global routing template v2, help, init-offer → /devflow:adopt for brownfield
