@@ -18,6 +18,18 @@ A file existing does not mean the feature works. Verification must check:
 Levels 1-3 can be checked via static analysis. Level 4 can be partially automated via browser tools (Playwright MCP) and may require human verification for subjective qualities.
 </core_principle>
 
+<search_commands>
+
+## Search commands in verify blocks
+
+The `grep -E` patterns below are GNU grep. When a `<verify>` or `<done>` check uses ripgrep instead, the flags differ:
+
+**ripgrep flags.** In `rg`, `-E` is `--encoding`, not extended regex (unlike GNU `grep -E` / `egrep`). Never fold `E` into an rg flag cluster such as `-nE`: ripgrep takes the next argument as an encoding name and exits 2 with `unknown encoding`, which prints nothing to stdout — so a "prints nothing" check passes for the wrong reason. For alternation use `rg -n -e 'foo|bar'` (or repeat `-e` once per alternative), and for PCRE features use `rg -nP 'pattern'`. ripgrep's default regex syntax already supports `|`, `+`, `?` and `{n}` without any flag.
+
+CI enforces this over live plugin prose (`bin/lib/rg-flag-guard.test.cjs`).
+
+</search_commands>
+
 <stub_detection>
 
 ## Universal Stub Patterns

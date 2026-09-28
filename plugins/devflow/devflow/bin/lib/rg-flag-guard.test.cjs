@@ -46,8 +46,25 @@ const SCAN_INCLUDE = [
 
 // ─── Detector ──────────────────────────────────────────────────────────────────────
 
-// RED stub — replaced by the real detector in the GREEN commit.
-const findRgFlagMisuse = () => [];
+// An `rg` command word (start of line, or after whitespace, a backtick, a pipe, `;`, `&` or
+// `(`), then its argument run up to the next shell separator or backtick. A finding is any
+// argument token that is a single-dash short-flag cluster containing `E`. `--long` flags do
+// not match (the second character is a dash), and a quoted pattern such as `'foo -E'` splits
+// into `'foo` and `-E'`, where the trailing quote keeps it from matching. At most one finding
+// per line.
+function findRgFlagMisuse(text) {
+  const out = [];
+  text.split('\n').forEach((line, i) => {
+    for (const m of line.matchAll(/(?:^|[\s`|;&(])rg\s+([^|;&`\n]*)/g)) {
+      const bad = m[1].split(/\s+/).find((t) => /^-[A-Za-z]*E[A-Za-z]*$/.test(t));
+      if (bad) {
+        out.push({ line: i + 1, text: line.trim(), token: bad });
+        break;
+      }
+    }
+  });
+  return out;
+}
 
 // ─── 1-2: sensitivity controls (inline fixtures) ───────────────────────────────────
 

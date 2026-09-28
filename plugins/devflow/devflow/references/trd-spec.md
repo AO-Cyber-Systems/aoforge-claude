@@ -113,6 +113,8 @@ After completion, create `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY
 </output>
 ```
 
+**ripgrep flags in `<verify>` and `<done>`.** In `rg`, `-E` is `--encoding`, not extended regex (unlike GNU `grep -E` / `egrep`). Never fold `E` into an rg flag cluster such as `-nE`: ripgrep reads the next argument as an encoding name and the check breaks. For alternation write `rg -n -e 'foo|bar'` (or repeat `-e` once per alternative); for PCRE features write `rg -nP 'pattern'`. CI enforces this over live plugin prose (`bin/lib/rg-flag-guard.test.cjs`).
+
 ## Frontmatter Fields
 
 | Field | Required | Purpose |
