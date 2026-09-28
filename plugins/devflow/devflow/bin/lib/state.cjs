@@ -88,6 +88,34 @@ function stateReplaceField(content, fieldName, newValue) {
   return null;
 }
 
+// Section-scoped plain `Label: value` replace inside `## Session Continuity`.
+// Narrative STATE.md files keep session continuity as plain lines rather than
+// bold `**Field:**` fields, so stateReplaceField never matches them. Only the
+// first matching line inside that section (up to the next `## ` heading or EOF)
+// is rewritten; the file's own label text/case is kept, and a fully
+// backtick-wrapped old value keeps its backticks. Returns null when the
+// section or the label is absent — the section is never created.
+function sessionReplacePlainField(content, label, newValue) {
+  const heading = content.match(/^## Session Continuity[ \t]*$/m);
+  if (!heading) return null;
+  const start = heading.index + heading[0].length;
+  const nextHeading = content.slice(start).search(/^## /m);
+  const end = nextHeading === -1 ? content.length : start + nextHeading;
+  const section = content.slice(start, end);
+
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^(${escaped}:[ \\t]*)(.*)$`, 'im');
+  const hit = section.match(pattern);
+  if (!hit) return null;
+
+  const wrapped = /^`[^`]*`$/.test(hit[2].trim());
+  const value = wrapped ? '`' + newValue + '`' : newValue;
+  // Replacer function: newValue may contain `$&`/`$1`, which a replacement
+  // string would interpolate.
+  const replaced = section.replace(pattern, (_, prefix) => prefix + value);
+  return content.slice(0, start) + replaced + content.slice(end);
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 function cmdStateLoad(cwd, raw) {
@@ -432,8 +460,13 @@ function cmdStateRecordSession(cwd, options, raw) {
   const now = new Date().toISOString();
   const updated = [];
 
+  // Each field: bold legacy `**Field:**` first (unchanged behavior); if absent,
+  // fall back to the plain `Label: value` line inside `## Session Continuity`
+  // (narrative STATE.md). `Last Date` is a bold-only legacy alias — no fallback.
+
   // Update Last session / Last Date
   let result = stateReplaceField(content, 'Last session', now);
+  if (!result) result = sessionReplacePlainField(content, 'Last session', now);
   if (result) { content = result; updated.push('Last session'); }
   result = stateReplaceField(content, 'Last Date', now);
   if (result) { content = result; updated.push('Last Date'); }
@@ -442,6 +475,7 @@ function cmdStateRecordSession(cwd, options, raw) {
   if (options.stopped_at) {
     result = stateReplaceField(content, 'Stopped At', options.stopped_at);
     if (!result) result = stateReplaceField(content, 'Stopped at', options.stopped_at);
+    if (!result) result = sessionReplacePlainField(content, 'Stopped at', options.stopped_at);
     if (result) { content = result; updated.push('Stopped At'); }
   }
 
@@ -449,6 +483,7 @@ function cmdStateRecordSession(cwd, options, raw) {
   const resumeFile = options.resume_file || 'None';
   result = stateReplaceField(content, 'Resume File', resumeFile);
   if (!result) result = stateReplaceField(content, 'Resume file', resumeFile);
+  if (!result) result = sessionReplacePlainField(content, 'Resume file', resumeFile);
   if (result) { content = result; updated.push('Resume File'); }
 
   if (updated.length > 0) {
@@ -566,4 +601,5 @@ module.exports = {
   cmdStateResolveBlocker,
   cmdStateRecordSession,
   cmdStateSnapshot,
+  sessionReplacePlainField,
 };
