@@ -282,10 +282,10 @@ test('12: dryRun reports the plan and writes nothing under the fake home', (t) =
 });
 
 // 13
-test('13: the real global template is version 1 and routes to /devflow: skills only', () => {
+test('13: the real global template is version 2 and routes to /devflow: skills only (TRD 37-10: adopt added)', () => {
   const tpl = gu().loadGlobalTemplate(REAL_TEMPLATE);
-  assert.equal(tpl.version, '1');
-  for (const cmd of ['/devflow:build', '/devflow:plan-objective', '/devflow:status']) {
+  assert.equal(tpl.version, '2');
+  for (const cmd of ['/devflow:build', '/devflow:plan-objective', '/devflow:status', '/devflow:adopt']) {
     assert.ok(tpl.body.includes(cmd), `template body lacks ${cmd}`);
   }
   assert.ok(!tpl.body.includes('/df:'), 'template body still references /df: commands');
