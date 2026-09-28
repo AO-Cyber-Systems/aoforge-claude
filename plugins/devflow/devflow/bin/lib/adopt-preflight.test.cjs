@@ -240,6 +240,119 @@ describe('df-tools adopt preflight (spawned)', () => {
   });
 });
 
+// ─── Spawned: adopt begin, marker, resume (tests 11-17) ───────────────────
+
+describe('df-tools adopt begin (spawned)', () => {
+  test('11. begin on a brownfield repo creates the branch and marker', () => {
+    const fixture = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
+    const beforeSha = gitOut(fixture, ['rev-parse', 'HEAD']).trim();
+    const beforeFiles = snapshot(fixture);
+
+    const { status, report, out } = runAdopt(fixture, 'begin');
+    assert.strictEqual(status, 0, out);
+    assert.strictEqual(report.route, 'adopt');
+    assert.strictEqual(report.created_branch, true);
+
+    assert.strictEqual(gitOut(fixture, ['branch', '--show-current']).trim(), 'devflow/adopt');
+    assert.strictEqual(gitOut(fixture, ['rev-parse', 'HEAD']).trim(), beforeSha);
+    assert.deepStrictEqual(snapshot(fixture), beforeFiles);
+
+    assert.strictEqual(report.adopt.marker.status, 'in_progress');
+    assert.strictEqual(report.adopt.marker.base_branch, 'main');
+    assert.ok(report.adopt.marker.base_sha);
+    assert.ok(report.adopt.marker.started_at);
+    assert.ok(report.adopt.marker.plugin_version);
+  });
+
+  test('12. calling begin again resumes instead of re-branching', () => {
+    const fixture = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
+    const first = runAdopt(fixture, 'begin');
+    assert.strictEqual(first.status, 0, first.out);
+
+    const markerBefore = fs.readFileSync(markerFilePath(fixture), 'utf-8');
+
+    const second = runAdopt(fixture, 'begin');
+    assert.strictEqual(second.status, 0, second.out);
+    assert.strictEqual(second.report.route, 'resume');
+    assert.strictEqual(second.report.created_branch, false);
+
+    const markerAfter = fs.readFileSync(markerFilePath(fixture), 'utf-8');
+    assert.strictEqual(markerAfter, markerBefore);
+  });
+
+  test('13. resume steps reflect mapped/project_md progress on disk', () => {
+    const fixture = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
+    runAdopt(fixture, 'begin');
+    writeMappedDocs(fixture);
+    writeProjectMd(fixture, { name: 'Orders service', kind: 'api' });
+
+    let { status, report, out } = runAdopt(fixture, 'preflight');
+    assert.strictEqual(status, 0, out);
+    assert.strictEqual(report.route, 'resume');
+    assert.deepStrictEqual(report.adopt.steps, { mapped: true, project_md: true, scaffolded: false, reported: false });
+
+    const fixture2 = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
+    runAdopt(fixture2, 'begin');
+    fs.mkdirSync(path.join(fixture2, '.planning', 'codebase'), { recursive: true });
+    fs.writeFileSync(path.join(fixture2, '.planning', 'codebase', 'STACK.md'), '# STACK\n\nSome content.\n', 'utf-8');
+    ({ status, report, out } = runAdopt(fixture2, 'preflight'));
+    assert.strictEqual(status, 0, out);
+    assert.strictEqual(report.route, 'resume');
+    assert.strictEqual(report.adopt.steps.mapped, false);
+  });
+
+  test('14. dirty non-owned files after begin block resume', () => {
+    const fixture = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
+    runAdopt(fixture, 'begin');
+    fs.appendFileSync(path.join(fixture, 'main.go'), '// dirty\n', 'utf-8');
+
+    const { status, report, out } = runAdopt(fixture, 'preflight');
+    assert.strictEqual(status, 3, out);
+    assert.strictEqual(report.reason, 'dirty-tree');
+    assert.match(report.message, /main\.go/);
+  });
+
+  test('15. switching away from devflow/adopt mid-resume refuses', () => {
+    const fixture = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
+    runAdopt(fixture, 'begin');
+    writeMappedDocs(fixture);
+    execFileSync('git', ['-C', fixture, 'switch', 'main'], { env: gitEnv(fakeHome), stdio: ['ignore', 'pipe', 'pipe'] });
+
+    const { status, report, out } = runAdopt(fixture, 'preflight');
+    assert.strictEqual(status, 3, out);
+    assert.strictEqual(report.reason, 'adopt-in-progress-elsewhere');
+  });
+
+  test('16. begin on a non-adopt route is a pure read: no branch, no marker, tree unchanged', () => {
+    for (const kind of ['dirty', 'devflow', 'empty']) {
+      const fixture = makeFixture(kind, { parent: mkdtemp('df-adopt-parent-'), home: fakeHome, name: `f-${kind}` });
+      const pf = runAdopt(fixture, 'preflight');
+      const before = repoSnapshot(fixture);
+
+      const b = runAdopt(fixture, 'begin');
+      assert.strictEqual(b.status, pf.status, kind);
+      assert.strictEqual(b.report.route, pf.report.route, kind);
+      assert.strictEqual(b.report.created_branch, false, kind);
+
+      assert.deepStrictEqual(repoSnapshot(fixture), before, kind);
+    }
+  });
+
+  test('17. once the adopt commit lands, preflight routes to upgrade even with the marker present', () => {
+    const fixture = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
+    runAdopt(fixture, 'begin');
+    writeMappedDocs(fixture);
+    writeProjectMd(fixture, { name: 'Orders service', kind: 'api' });
+    fs.writeFileSync(path.join(fixture, '.planning', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
+    execFileSync('git', ['-C', fixture, 'add', '-A'], { env: gitEnv(fakeHome), stdio: ['ignore', 'pipe', 'pipe'] });
+    execFileSync('git', ['-C', fixture, 'commit', '-q', '-m', 'adopt'], { env: gitEnv(fakeHome), stdio: ['ignore', 'pipe', 'pipe'] });
+
+    const { status, report, out } = runAdopt(fixture, 'preflight');
+    assert.strictEqual(status, 0, out);
+    assert.strictEqual(report.route, 'upgrade');
+  });
+});
+
 // ─── Pure decideRoute — rule-order table (test 18) ─────────────────────────
 
 describe('decideRoute — pure rule-order table (test 18)', () => {
