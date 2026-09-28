@@ -71,7 +71,7 @@ function toolResult(id, text, opts = {}) {
 
 const {
   parseAuditArgs, defaultTranscriptRoot, runContext, formatContextRaw,
-  defaultIndexPath,
+  defaultIndexPath, runOverride,
 } = require('./audit-cli.cjs');
 
 // ─── Unit tests (in-process, no spawn) — tests 12-15 ───────────────────────
@@ -465,6 +465,214 @@ describe('defaultIndexPath()', () => {
       assert.equal(defaultIndexPath(), path.join(tmp, '.claude', 'devflow', 'transcript-index.jsonl'));
     } finally {
       process.env.HOME = originalHome;
+    }
+  });
+});
+
+// ─── df-tools override (CLI) — TRD 39-02 tests 6-15, 16 (half) ─────────────
+describe('df-tools override (CLI) — TRD 39-02', () => {
+  function tmpProject() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-project-'));
+    fs.mkdirSync(path.join(dir, '.planning'));
+    return dir;
+  }
+
+  function tmpHome() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-ovhome-'));
+  }
+
+  function cleanup(...dirs) {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  }
+
+  test('6. record edits gate: exit 0, ok:true, gate:edits, log + marker written', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const r = runCli(['override', '--gate', 'edits', '--reason', 'hand-fixing generated file'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.ok, true);
+      assert.equal(json.gate, 'edits');
+      const log = fs.readFileSync(path.join(cwd, '.planning', '.override-log.jsonl'), 'utf8').trim().split('\n');
+      assert.equal(log.length, 1);
+      assert.ok(fs.existsSync(path.join(cwd, '.planning', '.edit-override')));
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('7. record commits gate: marker is null, no marker file written', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const r = runCli(['override', '--gate', 'commits', '--reason', 'x'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.marker, null);
+      assert.equal(fs.existsSync(path.join(cwd, '.planning', '.edit-override')), false);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('8. an unknown gate is rejected by name, listing the known gates', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const r = runCli(['override', '--gate', 'gate-edits', '--reason', 'x'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /Unknown gate "gate-edits"/);
+      assert.match(r.stderr, /edits, commits, changelog/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('9. a missing or blank reason is rejected', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const noReason = runCli(['override', '--gate', 'edits'], cwd, home);
+      assert.equal(noReason.status, 1);
+      assert.match(noReason.stderr, /A reason is required/);
+
+      const blankReason = runCli(['override', '--gate', 'edits', '--reason', '   '], cwd, home);
+      assert.equal(blankReason.status, 1);
+      assert.match(blankReason.stderr, /A reason is required/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('10. no .planning/ directory fails', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-noplanning-'));
+    const home = tmpHome();
+    try {
+      const r = runCli(['override', '--gate', 'edits', '--reason', 'x'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /No \.planning\/ directory found/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('11. no flags at all prints usage naming df-tools override --gate', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const r = runCli(['override'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /df-tools override --gate/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('12. --list combined with --gate is rejected', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const r = runCli(['override', '--list', '--gate', 'edits'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /--list cannot be combined with --gate\/--reason/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('13. --list is newest-first, respects --limit, --raw prints one line per entry', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      runCli(['override', '--gate', 'edits', '--reason', 'first'], cwd, home);
+      runCli(['override', '--gate', 'commits', '--reason', 'second'], cwd, home);
+
+      const listAll = runCli(['override', '--list'], cwd, home);
+      assert.equal(listAll.status, 0, `stderr: ${listAll.stderr}`);
+      const jsonAll = JSON.parse(listAll.stdout);
+      assert.equal(jsonAll.total, 2);
+      assert.equal(jsonAll.entries[0].reason, 'second');
+      assert.equal(jsonAll.entries[1].reason, 'first');
+
+      const listOne = runCli(['override', '--list', '--limit', '1'], cwd, home);
+      const jsonOne = JSON.parse(listOne.stdout);
+      assert.equal(jsonOne.entries.length, 1);
+
+      const listRaw = runCli(['override', '--list', '--raw'], cwd, home);
+      const lines = listRaw.stdout.split('\n');
+      assert.equal(lines.length, 2);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('14. 5 overrides on one gate trigger a needs-rescoping line', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      for (let i = 0; i < 5; i++) {
+        runCli(['override', '--gate', 'edits', '--reason', `reason-${i}`], cwd, home);
+      }
+      const r = runCli(['override', '--list', '--raw'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.match(r.stdout, /needs rescoping: edits \(5 overrides\)/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('15. an empty log reports no overrides recorded', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const r = runCli(['override', '--list', '--raw'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.equal(r.stdout, 'no overrides recorded');
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('16b. --help is side-effect free (no log file created)', () => {
+    const cwd = tmpProject();
+    const home = tmpHome();
+    try {
+      const r = runCli(['override', '--help'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.match(r.stdout, /df-tools override/);
+      assert.equal(fs.existsSync(path.join(cwd, '.planning', '.override-log.jsonl')), false);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+});
+
+// ─── runOverride() — pruneLog on success (unit) — TRD 39-02 test 18 ────────
+describe('runOverride() — pruneLog on success', () => {
+  test('18. a successful record prunes the log to MAX_ENTRIES (500) lines', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-prune-'));
+    const planningDir = path.join(cwd, '.planning');
+    fs.mkdirSync(planningDir);
+    try {
+      const lines = [];
+      for (let i = 0; i < 501; i++) {
+        lines.push(JSON.stringify({
+          gate: 'edits',
+          reason: `seed-${i}`,
+          at: `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`,
+        }));
+      }
+      fs.writeFileSync(path.join(planningDir, '.override-log.jsonl'), lines.join('\n') + '\n', 'utf8');
+
+      const r = runOverride({ argv: ['--gate', 'edits', '--reason', 'the 502nd'], cwd });
+      assert.equal(r.ok, true, JSON.stringify(r));
+
+      const raw = fs.readFileSync(path.join(planningDir, '.override-log.jsonl'), 'utf8');
+      const kept = raw.split('\n').filter(l => l.trim());
+      assert.equal(kept.length, 500);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
     }
   });
 });
