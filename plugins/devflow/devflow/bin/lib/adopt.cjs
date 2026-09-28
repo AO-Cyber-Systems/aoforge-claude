@@ -404,6 +404,11 @@ function begin(root, opts = {}) {
   let sw = git(target, env, ['switch', '-c', ADOPT_BRANCH]);
   if (!sw.ok) sw = git(target, env, ['checkout', '-b', ADOPT_BRANCH]);
 
+  // Ensure `.planning/` exists before the caller marks a skill active (the
+  // scripted pipeline runs `skill-active --start adopt` here, ahead of the
+  // stand-in maps / scaffold that would otherwise create it first).
+  fs.mkdirSync(path.join(target, '.planning'), { recursive: true });
+
   const marker = {
     version: 1,
     status: 'in_progress',
