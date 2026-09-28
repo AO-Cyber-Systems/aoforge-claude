@@ -21,7 +21,12 @@ const { execFileSync } = require('child_process');
 const { detectRepoState } = require('./repo-state.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { safeReadFile } = require('./helpers.cjs');
-const { VALID_KINDS } = require('./intent.cjs');
+const { VALID_KINDS, VALID_WORKS } = require('./intent.cjs');
+const managedBlock = require('./managed-block.cjs');
+const stackProfile = require('./stack-profile.cjs');
+const { loadClaudeMdTemplate } = require('./migrations/0005-claude-md-block.cjs');
+const upgrade = require('./upgrade.cjs');
+const backupPrune = require('./backup-prune.cjs');
 
 const ADOPT_BRANCH = 'devflow/adopt';
 const MARKER_NAME = 'devflow-adopt.json';
@@ -419,6 +424,239 @@ function begin(root, opts = {}) {
   };
 }
 
+// ─── scaffold(root, opts) — deterministic post-mapping scaffold, resumable ─
+//
+// After begin() + LLM mapping (PROJECT.md + codebase docs), scaffold() produces everything else a
+// DevFlow project needs: STATE.md, an objective-less ROADMAP.md, STACK.md (via stack-profile),
+// the CLAUDE.md managed block, config.json + state.json + version stamp (via upgrade.apply, TRD
+// 36-04), and pruner registration (backup-prune.register, TRD 37-03). Every check runs before the
+// first write; the marker is updated last so a mid-scaffold interruption resumes cleanly.
+
+const CLAUDE_MD_REL = 'CLAUDE.md';
+
+function stripFrontmatter(text) {
+  const m = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(text);
+  return m ? text.slice(m[0].length) : text;
+}
+
+function extractHeading(body) {
+  const m = /^#[ \t]+(.+?)[ \t]*$/m.exec(body);
+  return m ? m[1].trim() : null;
+}
+
+function extractCoreValue(body) {
+  const idx = body.indexOf('## Core Value');
+  if (idx === -1) return null;
+  const after = body.slice(idx + '## Core Value'.length);
+  const nextHeading = after.search(/\n##[ \t]/);
+  const section = nextHeading === -1 ? after : after.slice(0, nextHeading);
+  const line = section.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);
+  return line || null;
+}
+
+/**
+ * readProjectMd(root) -> { ok: true, name, coreValue, kind, default_work } | { ok: false, error }
+ *
+ * Never modifies PROJECT.md. `error` names the exact problem (missing file, or an invalid `kind` /
+ * `default_work` — each error lists the valid values) so the caller can refuse with a precise
+ * message before writing anything.
+ */
+function readProjectMd(root) {
+  const p = path.join(root, '.planning', 'PROJECT.md');
+  const text = safeReadFile(p);
+  if (text === null) {
+    return { ok: false, error: `.planning/PROJECT.md is missing` };
+  }
+  const fm = extractFrontmatter(text);
+  if (!fm.kind || !VALID_KINDS.includes(fm.kind)) {
+    return {
+      ok: false,
+      error: `.planning/PROJECT.md frontmatter 'kind' must be one of ${VALID_KINDS.join(', ')} (got ${JSON.stringify(fm.kind || null)})`,
+    };
+  }
+  if (!fm.default_work || !VALID_WORKS.includes(fm.default_work)) {
+    return {
+      ok: false,
+      error: `.planning/PROJECT.md frontmatter 'default_work' must be one of ${VALID_WORKS.join(', ')} (got ${JSON.stringify(fm.default_work || null)})`,
+    };
+  }
+  const body = stripFrontmatter(text);
+  const name = extractHeading(body) || path.basename(path.resolve(root));
+  const coreValue = extractCoreValue(body) || '(see PROJECT.md)';
+  return { ok: true, name, coreValue, kind: fm.kind, default_work: fm.default_work };
+}
+
+/**
+ * renderState({name, coreValue, date, version}) -> STATE.md text (pure).
+ * `name` is accepted for interface symmetry with renderRoadmap but does not appear in STATE.md.
+ */
+function renderState({ coreValue, date, version }) {
+  return (
+    '# Project State\n\n' +
+    '## Project Reference\n\n' +
+    'See: .planning/PROJECT.md\n\n' +
+    `**Core value:** ${coreValue}\n` +
+    '**Current focus:** No objectives yet — add one with /devflow:objective add\n\n' +
+    '## Current Position\n\n' +
+    '**Current Objective:** None\n' +
+    '**Status:** Adopted — no objectives planned\n' +
+    `**Last Activity:** ${date} — adopted by /devflow:adopt (DevFlow v${version})\n\n` +
+    '## Blockers\n\n' +
+    'None.\n\n' +
+    '## Session Log\n\n' +
+    `- ${date}: Adopted by /devflow:adopt (DevFlow v${version}); see .planning/ADOPT-REPORT.md\n`
+  );
+}
+
+/** renderRoadmap({name, date}) -> ROADMAP.md text (pure). Zero objectives, by design. */
+function renderRoadmap({ name, date }) {
+  return (
+    `# Roadmap: ${name}\n\n` +
+    '## Milestones\n\n' +
+    `- **v0.1 — Adopted** (${date}, current): no objectives yet.\n\n` +
+    '## Objectives\n\n' +
+    'None yet. Add one with `/devflow:objective add`.\n\n' +
+    '## Progress\n\n' +
+    '| Objective | Milestone | Plans | Status | Completed |\n' +
+    '|---|---|---|---|---|\n'
+  );
+}
+
+/** Deterministic CLAUDE.md block content, only ever used when no block exists yet. */
+function renderClaudeMdOverview(tpl) {
+  return (
+    '# Project Overview\n\n' +
+    'See `.planning/PROJECT.md` (what this is, core value) and `.planning/codebase/` (how it is built).\n' +
+    'Adopted by `/devflow:adopt`; review `.planning/ADOPT-REPORT.md`.\n\n' +
+    tpl.rules
+  );
+}
+
+function isoDate(now) {
+  return now.toISOString().slice(0, 10);
+}
+
+/**
+ * scaffold(root, opts) -> preflight-shaped report (route !== 'resume') | scaffold result
+ *
+ * Runs only from the resume state (an in-progress adopt marker on ADOPT_BRANCH); anywhere else it
+ * returns the preflight report untouched and writes nothing (the CLI maps that to exit 3). Every
+ * validation (PROJECT.md, CLAUDE.md block well-formedness) runs before the first write. Never
+ * overwrites an existing STATE.md/ROADMAP.md/STACK.md/PROJECT.md; never forces stack init.
+ */
+function scaffold(root, opts = {}) {
+  const { env = process.env, userHome = null, pluginVersion = '0.0.0', now = new Date() } = opts;
+  const pf = preflight(root, opts);
+
+  if (pf.route !== 'resume') {
+    return { ...pf, created: [], skipped: [] };
+  }
+
+  const target = pf.target;
+  const date = isoDate(now);
+
+  // ── Pre-checks (no writes before all pass) ──────────────────────────────
+  const pm = readProjectMd(target);
+  if (!pm.ok) {
+    throw new Error(pm.error);
+  }
+
+  const claudePath = path.join(target, CLAUDE_MD_REL);
+  const claudeText = fs.existsSync(claudePath) ? fs.readFileSync(claudePath, 'utf-8') : '';
+  let claudeBlock;
+  try {
+    claudeBlock = managedBlock.read(claudeText);
+  } catch (e) {
+    throw new Error(`CLAUDE.md: ${e.message}`);
+  }
+
+  const tpl = loadClaudeMdTemplate();
+
+  // ── Writes (create-if-missing only) ─────────────────────────────────────
+  const created = [];
+  const skipped = [];
+
+  const statePath = path.join(target, '.planning', 'STATE.md');
+  if (!fs.existsSync(statePath)) {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, renderState({ name: pm.name, coreValue: pm.coreValue, date, version: pluginVersion }), 'utf-8');
+    created.push('.planning/STATE.md');
+  } else {
+    skipped.push('.planning/STATE.md');
+  }
+
+  const roadmapPath = path.join(target, '.planning', 'ROADMAP.md');
+  if (!fs.existsSync(roadmapPath)) {
+    fs.mkdirSync(path.dirname(roadmapPath), { recursive: true });
+    fs.writeFileSync(roadmapPath, renderRoadmap({ name: pm.name, date }), 'utf-8');
+    created.push('.planning/ROADMAP.md');
+  } else {
+    skipped.push('.planning/ROADMAP.md');
+  }
+
+  const stackPath = path.join(target, '.planning', 'STACK.md');
+  let stackSummary;
+  if (!fs.existsSync(stackPath)) {
+    const ip = stackProfile.initProfile({ projectRoot: target, userHome, from: 'codebase', write: true });
+    if (ip.action === 'written') created.push('.planning/STACK.md');
+    stackSummary = {
+      action: ip.action,
+      ok: ip.validation ? !!ip.validation.ok : false,
+      errors: ip.validation ? ip.validation.errors : [],
+      evidence_keys: (ip.evidence || []).map((e) => e.key),
+    };
+  } else {
+    const vp = stackProfile.validateProfile({ projectRoot: target, userHome });
+    skipped.push('.planning/STACK.md');
+    stackSummary = { action: 'existing', ok: !!vp.ok, errors: vp.errors || [], evidence_keys: [] };
+  }
+
+  let claudeAction;
+  if (!claudeBlock) {
+    const content = renderClaudeMdOverview(tpl);
+    const next = managedBlock.upsert(claudeText, content, { v: tpl.version, src: 'claude-md' }, { position: 'prepend' });
+    fs.writeFileSync(claudePath, next, 'utf-8');
+    claudeAction = claudeText === '' ? 'created' : 'prepended';
+    created.push('CLAUDE.md');
+  } else {
+    claudeAction = 'unchanged';
+    skipped.push('CLAUDE.md');
+  }
+
+  const upgradeReport = upgrade.apply({ projectRoot: target, userHome, pluginVersion, now });
+  const reg = backupPrune.register({ userHome, projectRoot: target, now });
+
+  const marker = { ...pf.adopt.marker };
+  marker.steps = { ...(marker.steps || {}), scaffolded: true };
+  marker.scaffold = {
+    at: now.toISOString(),
+    created: [...created],
+    skipped: [...skipped],
+    stack: stackSummary,
+    claude_md: claudeAction,
+    upgrade: {
+      from: upgradeReport.from,
+      to: upgradeReport.to,
+      applied: upgradeReport.applied.map((a) => a.id),
+      failed: upgradeReport.failed,
+      backup: upgradeReport.backup,
+    },
+    registry_key: reg.key,
+  };
+  writeMarker(target, env, marker);
+
+  return {
+    route: 'scaffold',
+    target,
+    created,
+    skipped,
+    stack: stackSummary,
+    claude_md: claudeAction,
+    upgrade: marker.scaffold.upgrade,
+    marker,
+  };
+}
+
 module.exports = {
   ADOPT_BRANCH,
   MARKER_NAME,
@@ -430,4 +668,8 @@ module.exports = {
   decideRoute,
   preflight,
   begin,
+  readProjectMd,
+  renderState,
+  renderRoadmap,
+  scaffold,
 };
