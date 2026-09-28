@@ -108,18 +108,51 @@ function updateProgressTableRow(content, objectiveNum, updates) {
 /**
  * The "**Jobs:**" line carries hand-authored planning detail (wave layout,
  * split rationale, requirement IDs). Both callers used to overwrite the
- * whole line with a bare "N/M jobs complete" — this preserves that detail by
- * prepending/refreshing only the machine-owned counter prefix.
+ * whole line with a bare "N/M jobs complete", discarding that detail — a
+ * later fix (quick-20) then over-corrected by only ever PREPENDING the new
+ * counter, which produced a second, stacked count whenever the existing
+ * value already started with one (real ROADMAP.md lines write "0/16
+ * complete" with no "jobs" word, so the old "\d+/\d+\s+jobs\s+..." strip
+ * never matched it and the new counter was tacked on in front instead).
+ *
+ * Correct behaviour (quick-20): replace vs prepend, never both.
+ *   - Leading count present (`N/M complete`, `N/M jobs executed`,
+ *     `N/M TRDs executed`, ...): replace ONLY the `N/M` numbers with the
+ *     new counter's numbers. The author's own noun and verb, and every
+ *     byte after the fragment, are kept untouched (byte-identical tail).
+ *   - No leading count at all: prepend `N/M jobs complete — ` as before.
+ *   - Already-stacked counts (an old bug's leftover, or two runs that both
+ *     wrote a leading count) self-heal to a single count, keeping the
+ *     FIRST fragment's own noun and verb.
  */
 const JOBS_PLACEHOLDER_PATTERN = /^\d+\s+jobs$/i;
-const JOBS_MANAGED_PREFIX_PATTERN = /^\d+\/\d+\s+jobs\s+(?:complete|executed)\b[\s,;—-]*/i;
+// A machine-owned count fragment: numbers, an optional single noun word
+// ("jobs" / "TRDs" / "plans" / ...), then a verb. Anchored so it only
+// matches at the very start of a value — "verified passed 66/66" and
+// "sequential — 33-02" must never be mistaken for it.
+const COUNT_FRAGMENT_SOURCE = String.raw`\d+\/\d+(\s+[A-Za-z]+)?(\s+(?:complete|executed|done)\b)`;
+const JOBS_LEADING_COUNT_PATTERN = new RegExp('^' + COUNT_FRAGMENT_SOURCE, 'i');
+// A further count fragment stacked right after a separator — self-heal for
+// lines an earlier bug already corrupted, or a value that picked up two
+// counts across repeated runs.
+const JOBS_STACKED_COUNT_PATTERN = new RegExp(String.raw`^\s*[—;,-]\s*` + COUNT_FRAGMENT_SOURCE, 'i');
 
 function computeJobsLineText(existingText, counterText) {
   const trimmed = (existingText || '').trim();
   if (trimmed === '' || JOBS_PLACEHOLDER_PATTERN.test(trimmed)) return counterText;
 
-  const stripped = trimmed.replace(JOBS_MANAGED_PREFIX_PATTERN, '').trim();
-  return stripped ? `${counterText} — ${stripped}` : counterText;
+  const lead = trimmed.match(JOBS_LEADING_COUNT_PATTERN);
+  if (!lead) return `${counterText} — ${trimmed}`; // no count present: prepend (unchanged)
+
+  const newNumbersMatch = counterText.match(/^\d+\/\d+/);
+  const newNumbers = newNumbersMatch ? newNumbersMatch[0] : trimmed.match(/^\d+\/\d+/)[0];
+  const nounAndVerb = (lead[1] || '') + lead[2]; // the author's own noun/verb, verbatim
+
+  let rest = trimmed.slice(lead[0].length); // keeps its own ", " / " — " / " in ..."
+  let stacked;
+  while ((stacked = rest.match(JOBS_STACKED_COUNT_PATTERN))) rest = rest.slice(stacked[0].length);
+
+  return newNumbers + nounAndVerb + rest;
 }
 
 /**
