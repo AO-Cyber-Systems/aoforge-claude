@@ -294,12 +294,16 @@ describe('adopt report', () => {
 
   test('9. a fixture in a scratch/tmp location gets a row noting it', () => {
     const root = scaffoldedFixture('go-service');
-    const expectedScratch = isScratchDir(root, { userHome: fakeHome });
+    // `adopt report` runs as a spawned CLI with `--cwd <root>`, which chdir's before dispatch;
+    // process.cwd() then returns the OS's physical (symlink-resolved) path, so match production's
+    // view of the target rather than the logical mkdtemp path (macOS: /var -> /private/var).
+    const physicalRoot = fs.realpathSync(root);
+    const expectedScratch = isScratchDir(physicalRoot, { userHome: fakeHome });
 
     const result = runAdopt(root, 'report');
     assert.strictEqual(result.status, 0, result.out);
     const hasScratchRow = result.report.needs_review.some((r) => r.item.toLowerCase().includes('scratch'));
-    assert.strictEqual(hasScratchRow, expectedScratch, 'scratch row presence must match isScratchDir(root)');
+    assert.strictEqual(hasScratchRow, expectedScratch, 'scratch row presence must match isScratchDir(realpath(root))');
   });
 
   test('10. a validate-health warning appears with its W-code', () => {

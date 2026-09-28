@@ -657,10 +657,385 @@ function scaffold(root, opts = {}) {
   };
 }
 
+// ─── report(root, opts) — deterministic + LLM-inference review report ─────
+//
+// Only runs from the resume state with scaffold already done. Redacts secrets in owned .planning
+// docs + PROJECT.md + the CLAUDE.md block (never touching bytes outside it), folds the LLM's
+// confidence records (`.planning/.adopt-inferences.json`) together with deterministic findings
+// (invalid STACK.md, missing loop evidence, short/missing codebase docs, health warnings/errors,
+// scratch state) into `.planning/ADOPT-REPORT.md`, and returns the exact file list + message the
+// workflow commits with (37-09) — adopt report never commits.
+
+const REPORT_REL = '.planning/ADOPT-REPORT.md';
+const INFERENCES_REL = '.planning/.adopt-inferences.json';
+
+// Verbatim from workflows/map-codebase.md:304, split into named kinds for the report.
+const SECRET_PATTERNS = [
+  { kind: 'openai-key', re: /sk-[a-zA-Z0-9]{20,}/g },
+  { kind: 'stripe-live', re: /sk_live_[a-zA-Z0-9]+/g },
+  { kind: 'stripe-test', re: /sk_test_[a-zA-Z0-9]+/g },
+  { kind: 'github-pat', re: /ghp_[a-zA-Z0-9]{36}/g },
+  { kind: 'github-oauth', re: /gho_[a-zA-Z0-9]{36}/g },
+  { kind: 'gitlab-pat', re: /glpat-[a-zA-Z0-9_-]+/g },
+  { kind: 'aws-access-key', re: /AKIA[A-Z0-9]{16}/g },
+  { kind: 'slack-token', re: /xox[baprs]-[a-zA-Z0-9-]+/g },
+  { kind: 'private-key', re: /-----BEGIN.*PRIVATE KEY/g },
+  { kind: 'jwt', re: /eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\./g },
+];
+
+const TRANSIENT_COMMIT_EXCLUDES = new Set([
+  '.planning/.skill-active',
+  INFERENCES_REL,
+  '.planning/.devflow-notices.json',
+]);
+
+/** redactBlob(text, fileLabel) -> { text, rows:[{file, line, kind}] }. Never returns the secret. */
+function redactBlob(text, fileLabel) {
+  const lines = text.split('\n');
+  const rows = [];
+  const redacted = lines.map((line, idx) => {
+    let out = line;
+    for (const { kind, re } of SECRET_PATTERNS) {
+      re.lastIndex = 0;
+      if (re.test(out)) {
+        re.lastIndex = 0;
+        out = out.replace(re, '[REDACTED]');
+        rows.push({ file: fileLabel, line: idx + 1, kind });
+      }
+    }
+    return out;
+  });
+  return { text: redacted.join('\n'), rows };
+}
+
+/** redactPlainFile(root, relPath) -> { rows }. Rewrites the file only if a match was found. */
+function redactPlainFile(root, relPath) {
+  const abs = path.join(root, relPath);
+  const text = safeReadFile(abs);
+  if (text === null) return { rows: [] };
+  const { text: next, rows } = redactBlob(text, relPath);
+  if (rows.length > 0) fs.writeFileSync(abs, next, 'utf-8');
+  return { rows };
+}
+
+/**
+ * redactClaudeMdBlock(root) -> { rows }. Slices strictly to [block.start, block.end) so every
+ * byte outside the DEVFLOW block is untouched, even if the block itself never changes offsets.
+ */
+function redactClaudeMdBlock(root) {
+  const abs = path.join(root, CLAUDE_MD_REL);
+  const text = safeReadFile(abs);
+  if (text === null) return { rows: [] };
+  let block;
+  try {
+    block = managedBlock.read(text);
+  } catch {
+    return { rows: [] };
+  }
+  if (!block) return { rows: [] };
+  const inner = text.slice(block.start, block.end);
+  const { text: redactedInner, rows } = redactBlob(inner, CLAUDE_MD_REL);
+  if (rows.length === 0) return { rows: [] };
+  const lineOffset = text.slice(0, block.start).split('\n').length - 1;
+  const adjusted = rows.map((r) => ({ ...r, line: r.line + lineOffset }));
+  const next = text.slice(0, block.start) + redactedInner + text.slice(block.end);
+  fs.writeFileSync(abs, next, 'utf-8');
+  return { rows: adjusted };
+}
+
+/** splitInferences(raw) -> { high, low, medium, malformed } (pure). */
+function splitInferences(raw) {
+  const CONF = new Set(['high', 'low', 'medium']);
+  const high = [], low = [], medium = [], malformed = [];
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    const conf = entry && entry.confidence;
+    if (!CONF.has(conf)) { malformed.push(entry); continue; }
+    if (conf === 'high') high.push(entry);
+    else if (conf === 'low') low.push(entry);
+    else medium.push(entry);
+  }
+  return { high, low, medium, malformed };
+}
+
+/**
+ * loadInferences(target, marker) -> { raw, noRecord, markerPatch, deleteInferenceFile }
+ *
+ * Idempotent: once consumed, `marker.inferences` (or `marker.no_inference_record`) is the source
+ * of truth on every later run — the file is gone by then, and re-reading disk would silently
+ * change the answer.
+ */
+function loadInferences(target, marker) {
+  if (Array.isArray(marker.inferences)) {
+    return { raw: marker.inferences, noRecord: false, markerPatch: {}, deleteInferenceFile: null };
+  }
+  if (marker.no_inference_record === true) {
+    return { raw: [], noRecord: true, markerPatch: {}, deleteInferenceFile: null };
+  }
+  const infPath = path.join(target, INFERENCES_REL);
+  const text = safeReadFile(infPath);
+  if (text === null) {
+    return { raw: [], noRecord: true, markerPatch: { no_inference_record: true }, deleteInferenceFile: null };
+  }
+  let raw;
+  try {
+    raw = JSON.parse(text);
+    if (!Array.isArray(raw)) raw = [];
+  } catch {
+    raw = [];
+  }
+  return { raw, noRecord: false, markerPatch: { inferences: raw }, deleteInferenceFile: infPath };
+}
+
+/** runValidateHealth(root, env) -> {errors, warnings} | null (null on spawn/parse failure). */
+function runValidateHealth(root, env) {
+  const dfToolsPath = path.join(__dirname, '..', 'df-tools.cjs');
+  try {
+    const out = execFileSync(process.execPath, [dfToolsPath, '--cwd', root, 'validate', 'health', '--raw'], {
+      env, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return JSON.parse(out);
+  } catch {
+    return null;
+  }
+}
+
+/** computeCommitFiles(root, env) -> sorted owned paths, minus transient files. Called AFTER writes. */
+function computeCommitFiles(root, env) {
+  const statusRes = git(root, env, ['status', '--porcelain=v1', '--untracked-files=all', '-z']);
+  const dirty = statusRes.ok ? parsePorcelainZ(statusRes.out) : [];
+  const files = new Set(dirty.filter((rel) => isOwnedPath(rel) && !TRANSIENT_COMMIT_EXCLUDES.has(rel)));
+  return [...files].sort();
+}
+
+function renderNeedsReviewTable(rows) {
+  if (rows.length === 0) {
+    return 'Nothing needs review — every inference was high confidence.\n';
+  }
+  const lines = ['| # | Item | Inferred | Confidence | Evidence |', '|---|---|---|---|---|'];
+  rows.forEach((r, i) => lines.push(`| ${i + 1} | ${r.item} | ${r.inferred} | ${r.confidence} | ${r.evidence} |`));
+  return lines.join('\n') + '\n';
+}
+
+function renderHighTable(rows) {
+  const lines = ['| Item | Value | Evidence |', '|---|---|'];
+  for (const r of rows) lines.push(`| ${r.item} | ${r.value} | ${r.evidence} |`);
+  return lines.join('\n') + '\n';
+}
+
+function renderReport(ctx) {
+  const {
+    name, date, version, baseBranch, baseSha7, docsCount, claudeVerb, claudeVersion,
+    backupPath, registryKey, needsReviewRows, highRows,
+  } = ctx;
+  return (
+    `# Adopt report — ${name}\n\n` +
+    `**Adopted:** ${date} · **DevFlow:** v${version} · **Branch:** \`${ADOPT_BRANCH}\` (from \`${baseBranch}\` @ \`${baseSha7}\`) · **Pushed:** no\n\n` +
+    '## Needs review\n\n' +
+    renderNeedsReviewTable(needsReviewRows) + '\n' +
+    '## Inferred with high confidence\n\n' +
+    renderHighTable(highRows) + '\n' +
+    '## What adopt did\n\n' +
+    `- Mapped the codebase into \`.planning/codebase/\` (${docsCount} documents).\n` +
+    '- Wrote PROJECT.md, STACK.md, STATE.md, ROADMAP.md (no objectives), config.json, state.json.\n' +
+    `- CLAUDE.md: ${claudeVerb} DevFlow block v${claudeVersion}.\n` +
+    `- Stamped DevFlow v${version}; pre-apply backup: \`${backupPath || 'none'}\`.\n` +
+    `- Registered for backup pruning as \`${registryKey}\`.\n\n` +
+    '## Next steps\n\n' +
+    '1. Work through **Needs review**; edit `.planning/PROJECT.md` / `.planning/STACK.md` as needed.\n' +
+    `2. When satisfied: \`git switch ${baseBranch} && git merge ${ADOPT_BRANCH}\`. Nothing was pushed.\n` +
+    '3. Add a first objective with `/devflow:objective add`.\n'
+  );
+}
+
+/**
+ * report(root, opts) -> preflight-shaped report (route !== 'resume') | report result
+ *
+ * Runs only from the resume state with `steps.scaffolded` true (throws otherwise — the CLI maps
+ * that to exit 1). Redaction and rendering happen before `commit_files` is computed, since the
+ * report file itself becomes part of what gets committed.
+ */
+function report(root, opts = {}) {
+  const { env = process.env, userHome = null, pluginVersion = '0.0.0' } = opts;
+  const pf = preflight(root, opts);
+
+  if (pf.route !== 'resume') {
+    return { ...pf };
+  }
+  if (!pf.adopt.steps || !pf.adopt.steps.scaffolded) {
+    throw new Error('run adopt scaffold first');
+  }
+
+  const target = pf.target;
+  const marker = { ...pf.adopt.marker };
+  const scaffoldInfo = marker.scaffold || {};
+  const rows = [];
+
+  // ── Redaction (before anything else reads these files) ──────────────────
+  let redactions = 0;
+  const pushSecretRows = (found) => {
+    for (const r of found.rows) {
+      redactions += 1;
+      rows.push({ confidence: 'priority', item: `possible secret in ${r.file}:${r.line}`, inferred: '[REDACTED]', evidence: `pattern: ${r.kind}` });
+    }
+  };
+  for (const name of CODEBASE_DOC_NAMES) {
+    pushSecretRows(redactPlainFile(target, `.planning/codebase/${name}.md`));
+  }
+  pushSecretRows(redactPlainFile(target, '.planning/PROJECT.md'));
+  pushSecretRows(redactClaudeMdBlock(target));
+
+  // ── Deterministic finding: STACK.md invalid ──────────────────────────────
+  if (scaffoldInfo.stack && scaffoldInfo.stack.ok === false) {
+    const errs = scaffoldInfo.stack.errors || [];
+    rows.push({
+      confidence: 'priority',
+      item: '.planning/STACK.md failed validation',
+      inferred: errs.length ? errs.join('; ') : '(no error detail recorded)',
+      evidence: 'stack-profile.validateProfile at scaffold time',
+    });
+  }
+
+  // ── Deterministic finding: validate health ───────────────────────────────
+  const health = runValidateHealth(target, env);
+  const healthErrors = (health && Array.isArray(health.errors)) ? health.errors : [];
+  const healthWarnings = (health && Array.isArray(health.warnings)) ? health.warnings : [];
+  for (const e of healthErrors) {
+    rows.push({ confidence: 'priority', item: `validate health error ${e.code}`, inferred: e.message, evidence: e.fix || '(no fix suggested)' });
+  }
+  for (const w of healthWarnings) {
+    rows.push({ confidence: 'low', item: `validate health warning ${w.code}`, inferred: w.message, evidence: w.fix || '(no fix suggested)' });
+  }
+
+  // ── Inferences (idempotent: marker-first, file-second, then consumed) ───
+  const { raw: inferenceRaw, noRecord, markerPatch, deleteInferenceFile } = loadInferences(target, marker);
+  Object.assign(marker, markerPatch);
+  const { high, low: lowInf, medium: mediumInf, malformed } = splitInferences(inferenceRaw);
+
+  if (noRecord) {
+    rows.push({
+      confidence: 'low',
+      item: 'no inference record — PROJECT.md fields are unverified',
+      inferred: '(none)',
+      evidence: `${INFERENCES_REL} was not present at report time`,
+    });
+  }
+  if (malformed.length > 0) {
+    rows.push({
+      confidence: 'low',
+      item: `${malformed.length} malformed inference ${malformed.length === 1 ? 'entry' : 'entries'} ignored`,
+      inferred: malformed.map((m) => (m && m.field) || '(unnamed field)').join(', '),
+      evidence: 'expected confidence: high|medium|low',
+    });
+  }
+  for (const entry of lowInf) {
+    rows.push({ confidence: 'low', item: entry.field, inferred: entry.value, evidence: entry.evidence || '(no evidence recorded)' });
+  }
+  for (const entry of mediumInf) {
+    rows.push({ confidence: 'medium', item: entry.field, inferred: entry.value, evidence: entry.evidence || '(no evidence recorded)' });
+  }
+  const highRows = high.map((entry) => ({ item: entry.field, value: entry.value, evidence: entry.evidence || '(no evidence recorded)' }));
+
+  // ── Deterministic finding: missing loop-command evidence ────────────────
+  let evidenceKeys;
+  if (scaffoldInfo.stack && scaffoldInfo.stack.action === 'written' && Array.isArray(scaffoldInfo.stack.evidence_keys)) {
+    evidenceKeys = new Set(scaffoldInfo.stack.evidence_keys);
+  } else {
+    const draft = stackProfile.draftProfile({ projectRoot: target, userHome, from: 'codebase' });
+    evidenceKeys = new Set((draft.evidence || []).map((e) => e.key));
+  }
+  for (const key of ['test', 'lint', 'build']) {
+    if (!evidenceKeys.has(key)) {
+      rows.push({ confidence: 'low', item: `no command evidence for '${key}'`, inferred: '(none)', evidence: 'checked .planning/STACK.md loop commands at scaffold time' });
+    }
+  }
+
+  // ── Deterministic finding: scratch repo state ────────────────────────────
+  if (pf.repo_state && pf.repo_state.signals && pf.repo_state.signals.is_scratch_dir) {
+    rows.push({ confidence: 'low', item: 'repo root is a scratch/tmp location', inferred: target, evidence: 'repo-state signals: is_scratch_dir' });
+  }
+
+  // ── Deterministic finding: missing/short codebase docs ──────────────────
+  let docsCount = 0;
+  for (const name of CODEBASE_DOC_NAMES) {
+    const rel = `.planning/codebase/${name}.md`;
+    const text = safeReadFile(path.join(target, rel));
+    if (text === null) {
+      rows.push({ confidence: 'medium', item: rel, inferred: '(missing)', evidence: 'expected from adopt mapping' });
+      continue;
+    }
+    docsCount += 1;
+    const lineCount = text.split('\n').length;
+    if (lineCount < 20) {
+      rows.push({ confidence: 'medium', item: rel, inferred: `${lineCount} lines`, evidence: 'under the 20-line floor' });
+    }
+  }
+
+  // ── Order (priority, then low, then medium) and render ───────────────────
+  const RANK = { priority: 0, low: 1, medium: 2 };
+  rows.sort((a, b) => RANK[a.confidence] - RANK[b.confidence]);
+
+  const now = pf.adopt.marker && marker.started_at ? new Date(marker.started_at) : new Date();
+  const date = isoDate(now);
+  const pm = readProjectMd(target);
+  const name = pm.ok ? pm.name : path.basename(target);
+
+  const claudePath = path.join(target, CLAUDE_MD_REL);
+  const claudeTextNow = safeReadFile(claudePath) || '';
+  let claudeVersion = '?';
+  try {
+    const b = managedBlock.read(claudeTextNow);
+    if (b) claudeVersion = String(b.meta.v);
+  } catch { /* leave '?' */ }
+  const claudeVerb = scaffoldInfo.claude_md === 'unchanged' ? 'kept the existing' : 'inserted the';
+
+  const reportText = renderReport({
+    name,
+    date,
+    version: pluginVersion,
+    baseBranch: marker.base_branch || 'main',
+    baseSha7: (marker.base_sha || '').slice(0, 7),
+    docsCount,
+    claudeVerb,
+    claudeVersion,
+    backupPath: (scaffoldInfo.upgrade && scaffoldInfo.upgrade.backup) || null,
+    registryKey: scaffoldInfo.registry_key || '(unregistered)',
+    needsReviewRows: rows,
+    highRows,
+  });
+
+  const reportPath = path.join(target, REPORT_REL);
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, reportText, 'utf-8');
+
+  marker.steps = { ...(marker.steps || {}), reported: true };
+  writeMarker(target, env, marker);
+
+  if (deleteInferenceFile) {
+    try { fs.unlinkSync(deleteInferenceFile); } catch { /* already gone */ }
+  }
+
+  const commitFiles = computeCommitFiles(target, env);
+  const commitMessage = `chore(devflow): adopt repository (DevFlow v${pluginVersion})`;
+
+  return {
+    route: 'report',
+    target,
+    report_path: REPORT_REL,
+    needs_review: rows,
+    high: highRows,
+    redactions,
+    health_errors: healthErrors,
+    commit_files: commitFiles,
+    commit_message: commitMessage,
+    marker,
+  };
+}
+
 module.exports = {
   ADOPT_BRANCH,
   MARKER_NAME,
   OWNED_PATHS,
+  CODEBASE_DOC_NAMES,
   gitFacts,
   readMarker,
   writeMarker,
@@ -672,4 +1047,5 @@ module.exports = {
   renderState,
   renderRoadmap,
   scaffold,
+  report,
 };

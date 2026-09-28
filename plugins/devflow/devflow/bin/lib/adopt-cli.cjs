@@ -37,7 +37,17 @@ function cmdAdopt(cwd, args, raw) {
     return helpers.output(result, raw, `scaffolded: ${result.created.length} created`, 0);
   }
   if (sub === 'report') {
-    return helpers.error(`adopt ${sub}: not implemented yet`);
+    let result;
+    try {
+      result = adopt.report(cwd, { ...opts, pluginVersion: helpers.pluginVersion() });
+    } catch (e) {
+      return helpers.error(e.message);
+    }
+    if (result.route !== 'report') {
+      const tail = result.reason != null ? result.reason : result.next;
+      return helpers.output(result, raw, `${result.route}: ${tail}`, 3);
+    }
+    return helpers.output(result, raw, `report: ${result.needs_review.length} to review`, 0);
   }
   return helpers.error(`adopt: unknown subcommand ${JSON.stringify(sub)}; expected preflight|begin|scaffold|report`);
 }
