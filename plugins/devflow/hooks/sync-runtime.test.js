@@ -16,6 +16,8 @@
  *   8. Atomicity hygiene — no devflow-tmp-* entries remain after sync
  *   9. Failure path — missing CLAUDE_PLUGIN_ROOT → exits 0, writes nothing
  *  10. Failure path — unreadable/missing plugin.json → exits 0, target untouched
+ *
+ * Quick 21: never downgrade the mirror — see 'Quick 21' describe blocks below.
  */
 
 'use strict';
@@ -137,6 +139,42 @@ function listFiles(dir) {
   }
   if (fs.existsSync(dir)) walk(dir, '');
   return results;
+}
+
+/**
+ * Rewrite <pluginRoot>/.claude-plugin/plugin.json with a given version.
+ * Pass v === undefined to write a manifest with NO version field at all.
+ */
+function setPluginVersion(pluginRoot, v) {
+  const manifestPath = path.join(pluginRoot, '.claude-plugin', 'plugin.json');
+  const body = v === undefined ? {} : { version: v };
+  fs.writeFileSync(manifestPath, JSON.stringify(body));
+}
+
+/**
+ * Pre-seed targetDir as an "already mirrored" tree: bin/df-tools.cjs (only
+ * when sentinel is true), a canary file (to prove no-op cases leave the
+ * mirror untouched), and .plugin-version (skipped entirely when v === null,
+ * simulating no version file on disk at all).
+ */
+function seedMirror(targetDir, versionFile, v, { sentinel = true } = {}) {
+  fs.mkdirSync(path.join(targetDir, 'bin'), { recursive: true });
+  if (sentinel) {
+    fs.writeFileSync(path.join(targetDir, 'bin', 'df-tools.cjs'), '// seeded df-tools');
+  }
+  fs.writeFileSync(path.join(targetDir, 'bin', 'canary.txt'), 'canary-content');
+  if (v !== null) {
+    fs.writeFileSync(versionFile, v);
+  }
+}
+
+/** {relPath: content} map of everything under dir, built with listFiles. */
+function snapshot(dir) {
+  const map = {};
+  for (const rel of listFiles(dir)) {
+    map[rel] = fs.readFileSync(path.join(dir, rel), 'utf8');
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +552,228 @@ describe('Objective 34: every shipped runtime subdir reaches the mirror', () => 
 });
 
 // ---------------------------------------------------------------------------
+// Quick 21: never downgrade the mirror
+//
+// The old gate skipped work only on EXACT version equality + intact sentinel.
+// Any other difference re-mirrored — including a session running an OLDER
+// plugin cache against a NEWER mirror, which downgraded it (found at 2.7.1
+// while 2.10.1 was installed). New rule: mirror only when (a) the mirror's
+// .plugin-version is missing or unparseable, (b) the plugin is strictly
+// semver-newer than the mirror, or (c) versions are equal but the sentinel
+// is missing. Every other case is a no-op that leaves the mirror
+// byte-identical and touches nothing.
+// ---------------------------------------------------------------------------
+
+describe('Quick 21: never downgrade the mirror', () => {
+  test('1 — older plugin (2.7.1) over newer mirror (2.10.1): no-op, one-line stderr naming both versions', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.7.1');
+    seedMirror(targetDir, versionFile, '2.10.1');
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+
+    assert.deepEqual(snapshot(targetDir), before, 'mirror must be byte-identical after a refused downgrade');
+
+    const lines = result.stderr.trim().split('\n').filter(Boolean);
+    assert.equal(lines.length, 1, `expected exactly one stderr line, got: ${JSON.stringify(lines)}`);
+    assert.match(lines[0], /2\.7\.1/);
+    assert.match(lines[0], /2\.10\.1/);
+  });
+
+  test('2 — numeric-not-lexical: plugin 2.9.0 over mirror 2.10.1 is a no-op', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.9.0');
+    seedMirror(targetDir, versionFile, '2.10.1');
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(snapshot(targetDir), before);
+  });
+
+  test('3 — downgrade refused even when the mirror sentinel is already missing (broken mirror stays broken, not overwritten)', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.7.1');
+    seedMirror(targetDir, versionFile, '2.10.1', { sentinel: false });
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(snapshot(targetDir), before);
+    assert.ok(!fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs')), 'a downgrade refusal must not repair a broken mirror');
+  });
+
+  test('4 — newer plugin (2.10.1) over older mirror (2.7.1) mirrors; canary gone', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '2.7.1');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1');
+    assert.ok(!fs.existsSync(path.join(targetDir, 'bin', 'canary.txt')), 'canary should be gone after a real re-sync');
+  });
+
+  test('5 — newer plugin (2.10.1) over mirror 2.9.0 mirrors (numeric per part)', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '2.9.0');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1');
+  });
+
+  test('6 — equal versions + intact sentinel: no-op, canary kept', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '2.10.1');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'canary.txt')), 'no-op must leave the canary alone');
+  });
+
+  test('7 — equal versions + missing sentinel: repairs (self-heal), df-tools.cjs present', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '2.10.1', { sentinel: false });
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs')), 'sentinel missing at equal version must self-heal');
+  });
+
+  test('8 — garbage mirror version always re-mirrors', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, 'garbage');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1');
+  });
+
+  test('9 — empty mirror version file always re-mirrors', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1');
+  });
+
+  test('10 — no mirror version file at all always re-mirrors', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, null);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1');
+  });
+
+  test('11 — unparseable plugin version ("unknown") never overwrites a parseable mirror', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, 'unknown');
+    seedMirror(targetDir, versionFile, '2.10.1');
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(snapshot(targetDir), before);
+  });
+
+  test('12 — plugin.json with no version field never overwrites a parseable mirror', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, undefined);
+    seedMirror(targetDir, versionFile, '2.10.1');
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(snapshot(targetDir), before);
+  });
+
+  test('13 — unparseable plugin version still mirrors onto a fresh install (no version to protect)', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, 'banana');
+    // No seedMirror call — targetDir does not exist yet, so the mirror version is missing.
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs')), 'fresh install must still mirror even with an unparseable plugin version');
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), 'banana');
+  });
+
+  test('14 — release beats prerelease: plugin 2.10.1 over mirror 2.10.1-rc.1 mirrors', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '2.10.1-rc.1');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1');
+  });
+
+  test('15 — prerelease loses to release: plugin 2.10.1-rc.1 over mirror 2.10.1 is a no-op', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1-rc.1');
+    seedMirror(targetDir, versionFile, '2.10.1');
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(snapshot(targetDir), before);
+  });
+
+  test('16 — leading v and +build metadata are ignored: v2.10.1 vs 2.10.1+build.5 is equal, no-op, canary kept', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, 'v2.10.1');
+    seedMirror(targetDir, versionFile, '2.10.1+build.5');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'canary.txt')), 'equal-after-normalization must be a no-op');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // TRD 36-06: after a successful mirror, sync-runtime runs the BUNDLED global upgrade.
 // Fake plugin root + fake HOME only (runHook sets HOME); the real ~/.claude is never touched.
 // ---------------------------------------------------------------------------
@@ -610,5 +870,20 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
     assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
     assert.ok(legacyInPlace(home), 'global upgrade ran on the fast path');
     assert.equal(fs.existsSync(path.join(home, '.claude', 'CLAUDE.md')), false);
+  });
+
+  test('Quick 21 case 17 — downgrade refusal inside the 36-06 fixture: legacy files stay in place, global upgrade does not run', (t) => {
+    const { pluginRoot, home, targetDir, versionFile } = setup(t);
+    setPluginVersion(pluginRoot, '2.7.1');
+    fs.mkdirSync(path.join(targetDir, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'bin', 'df-tools.cjs'), '// already synced');
+    fs.writeFileSync(versionFile, '2.10.1');
+
+    const result = runHook(pluginRoot, home, RUN);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1', 'downgrade refusal must not touch .plugin-version');
+    assert.ok(legacyInPlace(home), 'global upgrade ran despite the downgrade refusal');
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'CLAUDE.md')), false, 'CLAUDE.md must not gain the managed block on a refused downgrade');
   });
 });
