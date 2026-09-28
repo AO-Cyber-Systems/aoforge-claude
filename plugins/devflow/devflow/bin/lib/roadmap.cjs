@@ -6,6 +6,7 @@ const { output, error, normalizeObjectiveName, findPlanFiles, generateSlugIntern
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
+const { reconcile } = require('./roadmap-reconcile.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -388,6 +389,34 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
 
   fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
 
+  // Nested per-TRD checkboxes (`- [ ] NN-MM-TRD.md — ...`) from SUMMARY.md
+  // presence + Self-Check verdict. Reuses the LOCKED `reconcile` export of
+  // roadmap-reconcile.cjs in dry-run and applies ONLY this objective's per-TRD
+  // changes. Write mode is deliberately not used: it rewrites every
+  // objective's TRD lines and applies the `**Status:** complete` /
+  // Progress-row rollups repo-wide.
+  // The dry run reads the file written just above, so its line indices match;
+  // the `before` equality check skips any line that no longer does.
+  // roadmap-reconcile only recognises integer `### Objective N:` headers, so a
+  // decimal objective (e.g. 40.1) has no section of its own and is skipped.
+  const trdCheckboxes = [];
+  if (/^\d+$/.test(String(objectiveNum))) {
+    const want = String(parseInt(objectiveNum, 10)); // '040' / '40' -> '40'
+    const mine = reconcile({ projectRoot: cwd, mode: 'dry-run' }).changes.filter(c =>
+      (c.kind === 'trd_summary_exists' || c.kind === 'trd_summary_failed') &&
+      String(parseInt(c.objective_num, 10)) === want);
+    if (mine.length) {
+      const lines = fs.readFileSync(roadmapPath, 'utf-8').split('\n');
+      for (const c of mine) {
+        if (lines[c.line_index] === c.before) {
+          lines[c.line_index] = c.after;
+          trdCheckboxes.push(c.trd_id);
+        }
+      }
+      if (trdCheckboxes.length) fs.writeFileSync(roadmapPath, lines.join('\n'), 'utf-8');
+    }
+  }
+
   output({
     updated: true,
     objective: objectiveNum,
@@ -395,6 +424,8 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
     summary_count: summaryCount,
     status,
     complete: isComplete,
+    trd_checkboxes_ticked: trdCheckboxes.length,
+    trd_checkboxes: trdCheckboxes,
   }, raw, `${summaryCount}/${jobCount} ${status}`);
 }
 
