@@ -622,6 +622,26 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W040', `upgrade-check-not-available: ${why}`, 'Run `df-tools upgrade --check` to see why');
   }
 
+  // ─── Check 14: Documentation staleness (objective 38) ──────────────────────
+  // Advisory only — never repairable. W050 removed-command refs, W051 STACK.md review age,
+  // W052 declared-vs-detected language drift, W053 codebase maps N commits behind. A check
+  // that cannot run is never silent (W054), matching Check 12/13's pattern above.
+  try {
+    const { collect } = require('./doc-staleness.cjs');
+    let docsConfig = {};
+    try {
+      docsConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } catch {
+      // Missing/malformed config.json is already reported by Check 5 (W003/E005);
+      // Check 14 just falls back to doc-staleness.cjs's own DEFAULTS.
+    }
+    for (const i of collect({ projectRoot: cwd, userHome: homeDir, config: docsConfig }).issues) {
+      addIssue('warning', i.code, i.message, i.fix, false);
+    }
+  } catch (e) {
+    addIssue('warning', 'W054', `doc-staleness-check-failed: ${e.message}`, 'Run `df-tools validate docs` to see why');
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {

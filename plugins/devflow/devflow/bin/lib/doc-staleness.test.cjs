@@ -323,6 +323,23 @@ describe('doc-staleness — W050 removed-command references', () => {
     assert.deepStrictEqual(issuesFor(r, 'W050'), []);
     assert.strictEqual(r.checked.removed_refs, 'ok');
   });
+
+  // Regression (TRD 38-10): a live, still-valid /devflow: command (not removed, not renamed,
+  // already devflow:-prefixed) used to throw — scanText was called with `{ liveSkills: [] }`,
+  // and resolveToken's `liveSkills.has(name)` guard has no `.has` on a plain array. collect()
+  // must never throw on ordinary, correct project docs.
+  test("17b. a live, valid /devflow: reference alongside a removed one -> only the removed one W050s, no throw", () => {
+    const claude = '<!-- DEVFLOW:START v=1 -->\n' +
+      'Run /devflow:status for progress, and see /devflow:reapply-patches for details.\n' +
+      '<!-- DEVFLOW:END -->\n';
+    root = makeProject({ files: { 'CLAUDE.md': claude } });
+    let r;
+    assert.doesNotThrow(() => { r = collect({ projectRoot: root, now: NOW, config: {} }); });
+    const issues = issuesFor(r, 'W050');
+    assert.strictEqual(issues.length, 1, `expected exactly one W050; got ${JSON.stringify(issues)}`);
+    assert.match(issues[0].message, /\/devflow:reapply-patches/);
+    assert.doesNotMatch(issues[0].message, /\/devflow:status\b/);
+  });
 });
 
 // ─── General ────────────────────────────────────────────────────────────────────
