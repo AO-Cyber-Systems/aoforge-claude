@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-09-28
+
 ### Added
 - **Stack profile (`.planning/STACK.md`).** `df-tools stack resolve|context|validate|command|init`
   resolves a per-project stack profile over bundled `general` → `~/.claude/devflow/stacks/<id>.md`
