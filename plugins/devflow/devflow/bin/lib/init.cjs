@@ -188,13 +188,13 @@ function _awarenessLoadable() {
  * Read .planning/.check-todos-cache.json (cache-only; never spawn fresh fetch).
  *
  * Returns:
- *   { line: '📋 N todos in Now lane (run /devflow:check-todos)', warning: null }
+ *   { line: '📋 N todos in Now lane (run /devflow:todo list)', warning: null }
  *   when cache exists and the `now` lane has ≥1 entry.
  *   { line: null, warning: null } when cache absent or `now` empty/not-an-array.
  *   { line: null, warning: '<msg>' } on read/parse error.
  *
  * The cache `now` top-level array is written by the post-aggregate check-todos
- * pipeline. If the user has not yet run /devflow:check-todos the field will be
+ * pipeline. If the user has not yet run /devflow:todo list the field will be
  * absent; the helper degrades gracefully to null (no preview line emitted).
  *
  * @param {string} cwd - working directory
@@ -212,7 +212,7 @@ function _buildCheckTodosPreview(cwd) {
   const nowEntries = Array.isArray(parsed.now) ? parsed.now : null;
   if (!nowEntries || nowEntries.length === 0) return { line: null, warning: null };
   return {
-    line: `📋 ${nowEntries.length} todos in Now lane (run /devflow:check-todos)`,
+    line: `📋 ${nowEntries.length} todos in Now lane (run /devflow:todo list)`,
     warning: null,
   };
 }
