@@ -21,7 +21,7 @@ If you are overriding the same gate repeatedly, log it so the friction is
 measurable rather than anecdotal:
 
 ```bash
-df-tools override --gate gate-edits --reason "..."
+df-tools override --gate edits --reason "..."
 df-tools override --list
 ```
 
