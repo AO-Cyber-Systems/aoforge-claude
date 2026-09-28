@@ -312,18 +312,19 @@ describe('runPrune / runThrottled (fake HOME)', () => {
     const home = fakeHome();
     const failRepo = 'app-h-88888888';
     const okRepo = 'app-i-99999999';
-    const failNames = seedBackups(home, failRepo, [20, 30]);
-    const okNames = seedBackups(home, okRepo, [20, 30]);
+    // Both repos need more than keep_min (5) backups, or nothing is ever a removal candidate.
+    const failNames = seedBackups(home, failRepo, [1, 2, 3, 4, 5, 20, 30]);
+    const okNames = seedBackups(home, okRepo, [1, 2, 3, 4, 5, 20, 30]);
     const repoDir = path.join(backupsRoot(home), failRepo);
-    fs.chmodSync(repoDir, 0o555);
+    fs.chmodSync(repoDir, 0o555); // no write on the parent → the final rmdir of a ts entry fails
     try {
       const report = prune.runPrune({ userHome: home, now: NOW });
-      assert.ok(report.failed.length >= 1);
-      assert.ok(report.failed.some((f) => f.path.includes(failRepo)));
-      assert.ok(fs.existsSync(path.join(backupsRoot(home), failRepo, failNames[0])));
-      assert.ok(fs.existsSync(path.join(backupsRoot(home), failRepo, failNames[1])));
-      assert.ok(!fs.existsSync(path.join(backupsRoot(home), okRepo, okNames[0])));
-      assert.ok(!fs.existsSync(path.join(backupsRoot(home), okRepo, okNames[1])));
+      assert.equal(report.failed.length, 2);
+      assert.ok(report.failed.every((f) => f.path.includes(failRepo)));
+      assert.ok(fs.existsSync(path.join(backupsRoot(home), failRepo, failNames[5])));
+      assert.ok(fs.existsSync(path.join(backupsRoot(home), failRepo, failNames[6])));
+      assert.ok(!fs.existsSync(path.join(backupsRoot(home), okRepo, okNames[5])));
+      assert.ok(!fs.existsSync(path.join(backupsRoot(home), okRepo, okNames[6])));
       assert.ok(fs.existsSync(stampPath(home)));
     } finally {
       fs.chmodSync(repoDir, 0o755);
