@@ -605,3 +605,186 @@ describe('getMilestoneInfo — status-aware ## Milestones parsing', () => {
     assert.deepEqual(milestoneInfoFor(null), { version: 'v1.0', name: 'milestone' });
   });
 });
+
+/**
+ * TRD 40-01 (TOOL-06): update-job-progress ticks the objective's nested
+ * `- [ ] NN-MM-TRD.md — ...` checkboxes from SUMMARY.md presence.
+ *
+ * Root cause: cmdRoadmapUpdateJobProgress refreshed the Progress row and the
+ * `**Jobs:**` counter but never the per-TRD checkbox list. That logic lives in
+ * roadmap-reconcile.cjs reconcile(), which only `/devflow:workstreams
+ * reconcile` called, so the list drifted after every autonomous TRD (the
+ * drift roadmap-reconcile E2E1 catches). The fix runs reconcile() in dry-run
+ * and applies ONLY this objective's per-TRD changes: other objectives' lines
+ * and every `**Status:**` rollup stay byte-identical.
+ */
+describe('roadmap update-job-progress — nested TRD checkboxes', () => {
+  const NESTED_ROADMAP = [
+    '# Roadmap: Test Project',
+    '',
+    '## Milestones',
+    '',
+    '- 🚧 **v1.3 — Current** — Objectives 39-40 (in progress)',
+    '',
+    '## Objectives',
+    '',
+    '### Objective 39: Sibling objective',
+    '',
+    '**Goal:** A sibling whose TRD line has real drift but must not be touched.',
+    '**Status:** in flight',
+    '**Jobs:** 0/1 executed',
+    '',
+    'Jobs:',
+    '- [ ] 39-01-TRD.md — x',
+    '',
+    '### Objective 40: Objective under test',
+    '',
+    '**Goal:** Exercise nested TRD checkbox ticking.',
+    '**Status:** in flight',
+    '**Jobs:** 3 TRDs in 1 wave',
+    '',
+    'Jobs:',
+    '- [ ] 40-01-TRD.md — a',
+    '- [ ] 40-02-TRD.md — b',
+    '- [ ] 40-03-TRD.md — c',
+    '',
+    '## Progress',
+    '',
+    '| Objective | Milestone | Plans | Status | Completed |',
+    '|---|---|---|---|---|',
+    '| 39. Sibling objective | v1.3 | 0/1 | Planned | — |',
+    '| 40. Objective under test | v1.3 | 0/3 | Planned | — |',
+    '',
+  ].join('\n');
+
+  // `verdicts40` maps a TRD suffix ('01'..'03') to 'PASSED' | 'FAILED'; a
+  // missing key means no SUMMARY for that TRD. Objective 39 always has a
+  // PASSED 39-01-SUMMARY.md on disk, so reconcile() sees drift there too.
+  function writeNestedFixture(verdicts40) {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), NESTED_ROADMAP, 'utf-8');
+
+    const dir40 = path.join(project, '.planning', 'objectives', '40-fixture');
+    fs.mkdirSync(dir40, { recursive: true });
+    for (const id of ['01', '02', '03']) {
+      fs.writeFileSync(path.join(dir40, `40-${id}-TRD.md`), `# TRD 40-${id}\n`, 'utf-8');
+      if (verdicts40[id]) {
+        fs.writeFileSync(
+          path.join(dir40, `40-${id}-SUMMARY.md`),
+          `# Summary 40-${id}\n\n## Self-Check: ${verdicts40[id]}\n`,
+          'utf-8'
+        );
+      }
+    }
+
+    const dir39 = path.join(project, '.planning', 'objectives', '39-other');
+    fs.mkdirSync(dir39, { recursive: true });
+    fs.writeFileSync(path.join(dir39, '39-01-TRD.md'), '# TRD 39-01\n', 'utf-8');
+    fs.writeFileSync(path.join(dir39, '39-01-SUMMARY.md'), '# Summary 39-01\n\n## Self-Check: PASSED\n', 'utf-8');
+    return project;
+  }
+
+  function readRoadmap(project) {
+    return fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+  }
+
+  // Lines of the `### Objective N:` section, up to the next ##/### heading.
+  function sectionLines(roadmap, objectiveNum) {
+    const lines = roadmap.split('\n');
+    const start = lines.findIndex(l => l.startsWith(`### Objective ${objectiveNum}:`));
+    assert.ok(start >= 0, `Objective ${objectiveNum} section not found`);
+    const out = [];
+    for (let i = start + 1; i < lines.length; i++) {
+      if (/^#{2,3} /.test(lines[i])) break;
+      out.push(lines[i]);
+    }
+    return out;
+  }
+
+  function statusLine(roadmap, objectiveNum) {
+    return sectionLines(roadmap, objectiveNum).find(l => l.startsWith('**Status:**'));
+  }
+
+  test('8: PASSED SUMMARY → [x], FAILED SUMMARY → [ ] (failed), no SUMMARY → unchanged; output reports the ticks', () => {
+    const project = writeNestedFixture({ '01': 'PASSED', '02': 'FAILED' });
+
+    const result = run(['roadmap', 'update-job-progress', '40'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.updated, true);
+
+    const lines40 = sectionLines(readRoadmap(project), 40);
+    assert.ok(lines40.includes('- [x] 40-01-TRD.md — a'), `40-01 not ticked:\n${lines40.join('\n')}`);
+    assert.ok(lines40.includes('- [ ] 40-02-TRD.md — b (failed)'), `40-02 not marked failed:\n${lines40.join('\n')}`);
+    assert.ok(lines40.includes('- [ ] 40-03-TRD.md — c'), `40-03 (no SUMMARY) changed:\n${lines40.join('\n')}`);
+
+    assert.equal(result.json.trd_checkboxes_ticked, 2);
+    assert.deepEqual(result.json.trd_checkboxes, ['40-01', '40-02']);
+
+    // Pre-existing output fields are unchanged.
+    assert.equal(result.json.objective, '40');
+    assert.equal(result.json.job_count, 3);
+    assert.equal(result.json.summary_count, 2);
+    assert.equal(result.json.status, 'In Progress');
+    assert.equal(result.json.complete, false);
+  });
+
+  test('9: scoping — objective 39\'s TRD line stays [ ] (section byte-identical) even though its SUMMARY exists', () => {
+    const project = writeNestedFixture({ '01': 'PASSED', '02': 'FAILED' });
+
+    run(['roadmap', 'update-job-progress', '40'], project);
+    const roadmap = readRoadmap(project);
+
+    assert.deepEqual(sectionLines(roadmap, 39), sectionLines(NESTED_ROADMAP, 39));
+    assert.ok(roadmap.split('\n').includes('- [ ] 39-01-TRD.md — x'));
+
+    // Fixture sanity: the drift on 39 is real — reconcile() still proposes it,
+    // so the untouched line proves scoping, not an absent change.
+    const { reconcile } = require('./roadmap-reconcile.cjs');
+    const pending = reconcile({ projectRoot: project, mode: 'dry-run' }).changes;
+    assert.ok(
+      pending.some(c => c.kind === 'trd_summary_exists' && c.trd_id === '39-01'),
+      'fixture must carry real 39-01 drift for this test to prove scoping'
+    );
+  });
+
+  test('10: rollup suppression — every 40 TRD ticked, yet the **Status:** lines stay byte-identical', () => {
+    const project = writeNestedFixture({ '01': 'PASSED', '02': 'PASSED', '03': 'PASSED' });
+
+    const result = run(['roadmap', 'update-job-progress', '40'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.trd_checkboxes_ticked, 3);
+    assert.deepEqual(result.json.trd_checkboxes, ['40-01', '40-02', '40-03']);
+
+    const roadmap = readRoadmap(project);
+    const lines40 = sectionLines(roadmap, 40);
+    for (const l of ['- [x] 40-01-TRD.md — a', '- [x] 40-02-TRD.md — b', '- [x] 40-03-TRD.md — c']) {
+      assert.ok(lines40.includes(l), `missing "${l}":\n${lines40.join('\n')}`);
+    }
+
+    assert.equal(statusLine(roadmap, 40), '**Status:** in flight');
+    assert.equal(statusLine(roadmap, 39), '**Status:** in flight');
+    // reconcile's Progress-row rollup (` complete YYYY-MM-DD ` in the last cell) is not applied either.
+    assert.doesNotMatch(progressRow(roadmap, 40), /\|\s*complete \d{4}-\d{2}-\d{2}\s*\|/);
+
+    // Fixture sanity: the rollup is real — reconcile() would still change 40's Status line.
+    const { reconcile } = require('./roadmap-reconcile.cjs');
+    const pending = reconcile({ projectRoot: project, mode: 'dry-run' }).changes;
+    assert.ok(
+      pending.some(c => c.kind === 'objective_rollup_status' && c.objective_num === '40'),
+      'fixture must carry a real 40 rollup for this test to prove suppression'
+    );
+  });
+
+  test('11: idempotent — a second run leaves ROADMAP.md byte-identical and reports trd_checkboxes_ticked: 0', () => {
+    const project = writeNestedFixture({ '01': 'PASSED', '02': 'FAILED' });
+
+    run(['roadmap', 'update-job-progress', '40'], project);
+    const first = readRoadmap(project);
+
+    const second = run(['roadmap', 'update-job-progress', '40'], project);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readRoadmap(project), first, 'second run must be byte-identical to the first');
+    assert.equal(second.json.trd_checkboxes_ticked, 0);
+    assert.deepEqual(second.json.trd_checkboxes, []);
+  });
+});
