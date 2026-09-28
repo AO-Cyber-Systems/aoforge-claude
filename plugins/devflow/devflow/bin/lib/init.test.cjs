@@ -86,7 +86,7 @@ function makeFixture({ checkTodosCache, awarenessCache } = {}) {
 //
 // TEST LIST (TDD Playbook habit 2 — documented before test code written):
 //
-// 18I1 — _buildCheckTodosPreview: cache with parsed.now=[a,b] → line='📋 2 todos in Now lane (run /devflow:check-todos)', warning=null
+// 18I1 — _buildCheckTodosPreview: cache with parsed.now=[a,b] → line='📋 2 todos in Now lane (run /devflow:todo list)', warning=null
 // 18I2 — _buildCheckTodosPreview: missing cache file → { line: null, warning: null }
 // 18I3 — _buildCheckTodosPreview: cache with parsed.now=[] → { line: null, warning: null }
 // 18I4 — _buildCheckTodosPreview: malformed JSON → { line: null, warning: <non-empty> }
@@ -101,7 +101,7 @@ test('18I1 — _buildCheckTodosPreview: 2 now entries returns formatted line', (
   const repo = makeFixture({ checkTodosCache: { now: [{ id: 1 }, { id: 2 }], blocked: [], soon: [], ideas: [] } });
   try {
     const r = _buildCheckTodosPreview(repo);
-    assert.strictEqual(r.line, '📋 2 todos in Now lane (run /devflow:check-todos)');
+    assert.strictEqual(r.line, '📋 2 todos in Now lane (run /devflow:todo list)');
     assert.strictEqual(r.warning, null);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
