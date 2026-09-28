@@ -98,3 +98,14 @@ None found in the 30 artifacts.
 ---
 _Verified: 2026-09-28_
 _Verifier: Claude (verifier, TRD 41-02)_
+
+## Re-verification 2026-09-28
+
+Follow-up F1 (out of scope, VER-30) is **closed by TRD 41-08** (12702e7, aa54b18, 9581758). The status stays **passed** and the score stays **5/5**.
+
+- `planner.md:4` tools are still `Read, Write, Bash, Glob, Grep, WebFetch, mcp__context7__*`. The spawn instruction has gone. `planner.md:729` now tells the planner to STOP, write no TRDs and return `## RESEARCH NEEDED` (return format at `:1141`), and it says outright that subagents cannot spawn agents.
+- The orchestrator handles that return: `workflows/plan-objective.md:520` runs objective-researcher and re-spawns the planner, with at most one retry. `workflows/build.md:129` routes through the same handling.
+- The guard now covers the defect class. `agent-tools.test.cjs:30-39` adds `Task`/`Agent` to KNOWN_TOOLS, and a `SPAWN_TOOLS` check fails any agent that passes `subagent_type=` without declaring Task or Agent (`:67-73`).
+- `node --test plugins/devflow/devflow/bin/lib/agent-tools.test.cjs` (run together with model-profiles.test.cjs): 45/45 pass. The classifier and override suites are still green (included in an 87/87 regression run).
+
+_Re-verified: 2026-09-28 · Verifier: Claude (verifier, after TRD 41-08)_
