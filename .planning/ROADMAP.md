@@ -311,7 +311,7 @@ Jobs:
 - [x] 38-11-TRD.md — Wave 4: `df-tools telemetry` wired (doc advisories merged) + Documentation section in `/devflow:status`
 - [x] 38-12-TRD.md — Wave 5: CHANGELOG [Unreleased], CLAUDE.md CLI-inventory correction, USER-GUIDE, dogfood, final full-suite gate (no version bump)
 
-### Objective 39: Wire the telemetry & audit CLI
+### Objective 39: Wire the telemetry & audit CLI ✅
 
 **Goal:** `df-tools context`, `session-audit`, `transcript-export` and `override` are reachable from the CLI (today: "Unknown command"), each backed by its existing tested lib; every documented df-tools command dispatches, proven by CLI-level tests.
 **Depends on:** Objectives 29, 30, 31, 38 (telemetry wiring pattern from 38-11)
