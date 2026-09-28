@@ -1186,3 +1186,70 @@ describe('Check 14: documentation staleness', () => {
     );
   });
 });
+
+// ─── df-tools validate docs (CLI) — TRD 38-10 tests 8-11 ────────────────────
+//
+// A cheap, read-only doc-staleness report for the default /devflow:status view
+// (full `validate health` does a best-effort `git fetch` in Check 11, too slow
+// for every status call). Drives the same doc-staleness.collect() as Check 14
+// above, through cmdValidateDocs and the `validate docs` CLI dispatch.
+describe('df-tools validate docs (CLI)', () => {
+  const { spawnSync } = require('child_process');
+  const DOCS_TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
+
+  function runDocs(args, cwd, home) {
+    const r = spawnSync(process.execPath, [DOCS_TOOLS_PATH, 'validate', ...args], {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: { ...process.env, HOME: home },
+    });
+    return { status: r.status, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
+  }
+
+  test('8. validate docs on the case-1 fixture -> exit 0, issues[0].code === "W051"', () => {
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: 'schema: 1\nprovenance:\n  reviewed: "2025-01-01"\n' }),
+    });
+    tmpHome = makeHome();
+
+    const r = runDocs(['docs'], tmpProject, tmpHome);
+    assert.strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
+    const json = JSON.parse(r.stdout);
+    assert.strictEqual(json.issues[0].code, 'W051', `expected W051 first; got ${r.stdout}`);
+  });
+
+  test('9. validate docs --raw on the clean fixture -> stdout "no documentation advisories"', () => {
+    const reviewed = new Date().toISOString().slice(0, 10);
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: `schema: 1\nlanguages: [go]\nprovenance:\n  reviewed: "${reviewed}"\n` }),
+      files: stackFx.goShapedRepo(),
+    });
+    tmpHome = makeHome();
+
+    const r = runDocs(['docs', '--raw'], tmpProject, tmpHome);
+    assert.strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
+    assert.strictEqual(r.stdout, 'no documentation advisories');
+  });
+
+  test('10. validate docs in a dir with no .planning/ -> exit 0, note: "no .planning/"', () => {
+    tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-docs-noplanning-'));
+    tmpHome = makeHome();
+
+    const r = runDocs(['docs'], tmpProject, tmpHome);
+    assert.strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
+    const json = JSON.parse(r.stdout);
+    assert.deepStrictEqual(json, { issues: [], checked: {}, note: 'no .planning/' });
+  });
+
+  test('11. validate bogus -> non-zero exit, stderr names consistency, health, docs', () => {
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+
+    const r = runDocs(['bogus'], tmpProject, tmpHome);
+    assert.notStrictEqual(r.status, 0);
+    assert.match(r.stderr, /consistency/);
+    assert.match(r.stderr, /health/);
+    assert.match(r.stderr, /docs/);
+  });
+});
