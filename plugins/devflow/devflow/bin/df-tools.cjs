@@ -800,6 +800,19 @@ async function main() {
       break;
     }
 
+    case 'telemetry': {
+      // df-tools telemetry [--raw] — read-only summary (TRD 31-01 module, wired in TRD 38-11)
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const { output: outputTelemetry } = require('./lib/helpers.cjs');
+      const { collect } = require('./lib/telemetry.cjs');
+      const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
+      const r = collect({ planningDir, userHome: os.homedir() });
+      outputTelemetry(r, raw, r.advisories.join('\n'));
+      break;
+    }
+
     case 'progress': {
       const subcommand = args[1] || 'json';
       cmdProgressRender(cwd, subcommand, raw);

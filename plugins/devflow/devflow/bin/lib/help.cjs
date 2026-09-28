@@ -174,6 +174,10 @@ const COMMANDS = {
     summary: 'Check .planning/ integrity, objective numbering, and documentation staleness.',
     mutates: true,
   },
+  'telemetry': {
+    usage: 'df-tools telemetry [--raw]',
+    summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories.',
+  },
   'progress': {
     usage: 'df-tools progress [json|table|bar] [--raw]',
     summary: 'Render roadmap progress.',

@@ -105,6 +105,9 @@ Use this instead of manually reading/parsing ROADMAP.md.
 ```bash
 # Get formatted progress bar
 PROGRESS_BAR=$(node ~/.claude/devflow/bin/df-tools.cjs progress bar --raw)
+
+# Get documentation-staleness advisories (read-only; nothing here is auto-changed)
+DOC_ADVISORIES=$(node ~/.claude/devflow/bin/df-tools.cjs validate docs --raw)
 ```
 
 Present:
@@ -130,6 +133,11 @@ CONTEXT: [✓ if has_context | - if not]
 
 ## Blockers/Concerns
 - [any blockers or concerns from STATE.md]
+
+## Documentation
+- [each line of DOC_ADVISORIES]
+(advisory — /devflow:status check for detail; nothing is auto-changed)
+(Only show this section if DOC_ADVISORIES is not "no documentation advisories")
 
 ## Pending Todos
 - [count] pending — /devflow:todo list to review
