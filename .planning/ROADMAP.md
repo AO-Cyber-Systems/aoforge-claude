@@ -89,7 +89,7 @@ Jobs:
 | 34. UI Oracle Loop W1b — Surface Spec | v1.3 | 11/11 | Complete | 2026-09-22 |
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
 | 36. Upgrade in place | v1.3 | 10/10 | Complete | 2026-09-27 |
-| 37. Adopt existing repos | v1.3 | 0/— | Registered | — |
+| 37. /devflow:adopt + backup pruning | v1.3 | 0/— | Planning | — |
 | 38. Doc auto-correction | v1.3 | 0/— | Registered | — |
 
 ### Objective 27: Gate correctness ✅
@@ -267,11 +267,12 @@ Jobs:
 - [x] 36-05-TRD.md — Wave 3: `hooks/upgrade-project.js` — fast path, sync apply, detached commit of only `changed_files` with skip rules; notices emitted once via route-results
 - [x] 36-08-TRD.md — Wave 4: dogfood `upgrade` on this repo; CHANGELOG [Unreleased], CLAUDE.md, USER-GUIDE, intent hint (no version bump or tag)
 
-### Objective 37: Adopt existing repos (`/devflow:adopt`)
+### Objective 37: `/devflow:adopt` — user-triggered repo adoption + daily backup pruning
 
-**Goal:** Turn existing non-DevFlow repos into DevFlow projects unattended, one or many (`--batch`), with a branch + commit and no push, and a per-repo review report of low-confidence inferences. The user has 11 repos waiting.
-**Depends on:** Objective 36 (stamp, upgrade runner, managed blocks).
-**Jobs:** registered, not planned. Needs the list of repos before execution.
+**Goal:** A user in any repo types `/devflow:adopt [path]` and DevFlow turns it into a DevFlow project unattended: map the code, infer PROJECT.md/STACK.md, scaffold config/STATE/ROADMAP (no invented objectives), add the CLAUDE.md block, stamp the version, and make one signed commit on a `devflow/adopt` branch (no push) with an ADOPT-REPORT.md of low-confidence items. Backups under `~/.claude/devflow/backups/` are pruned daily (14 days / keep 5 per repo, SessionStart-throttled; Claude Code has no persistent local scheduler).
+**Depends on:** Objective 36 (stamp, upgrade runner, managed blocks, SessionStart hook); the ROADMAP-corruption fix (`/devflow:debug`, done first).
+**Decisions (user, 2026-09-28):** re-scoped away from batch-adopting the user's 11 repos (out of scope, never touched); fully unattended; E2E proof = simulated run on scratch fixtures + a local-dev-install human check.
+**Jobs:** planned next
 
 ### Objective 38: Documentation auto-correction
 
