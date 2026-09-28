@@ -320,8 +320,8 @@ Jobs:
 
 Jobs:
 - [x] 39-01-TRD.md — Wave 1: `lib/audit-cli.cjs` + wire `df-tools context` and `session-audit` (default root `~/.claude/projects`, `--limit 150`, `--root`, `--since`), HOME-isolated CLI tests
-- [ ] 39-02-TRD.md — Wave 2: wire `df-tools transcript-export` (index `~/.claude/devflow/transcript-index.jsonl`) and `override --gate/--reason | --list` (recordOverride + pruneLog callers)
-- [ ] 39-03-TRD.md — Wave 1: hook-inventory pin test; CLAUDE.md marks `inject-org-context.js`/`inject-handoff-results.js` DRAFT (unregistered); site `--gate edits` fix
+- [x] 39-02-TRD.md — Wave 2: wire `df-tools transcript-export` (index `~/.claude/devflow/transcript-index.jsonl`) and `override --gate/--reason | --list` (recordOverride + pruneLog callers)
+- [x] 39-03-TRD.md — Wave 1: hook-inventory pin test; CLAUDE.md marks `inject-org-context.js`/`inject-handoff-results.js` DRAFT (unregistered); site `--gate edits` fix
 - [ ] 39-04-TRD.md — Wave 3: dispatch-completeness test (CLAUDE.md-named + HELP_TABLE commands dispatch); CLAUDE.md CLI inventory flipped to live
 - [ ] 39-05-TRD.md — Wave 4: re-baseline objective 29 `read_share_pct` via `df-tools context --limit 150`; CHANGELOG [Unreleased]; full-suite gate (no version bump)
 
