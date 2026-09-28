@@ -504,3 +504,79 @@ describe('neutrality', () => {
     assert.ok(!re.test(src), 'stack-profile.cjs must not name a specific stack');
   });
 });
+
+// ─── mergeFrontmatter prototype-pollution guard (SEC group, quick-22) ─────
+//
+// js/prototype-pollution-utility (stack-profile.cjs:219 in mergeFrontmatter). mergeFrontmatter
+// itself is not exported, so these drive it through the exported `resolveFromParsed` with an
+// already-parsed target whose frontmatter is built via JSON.parse — JSON.parse's internal
+// CreateDataProperty path (unlike an object-literal `{ __proto__: ... }`) leaves `__proto__` as
+// a genuine OWN enumerable key, which is exactly the shape `Object.entries(layer)` in
+// mergeFrontmatter iterates over. Each test polls Object.prototype for its own planted key
+// afterward and deletes it in `finally` regardless of pass/fail, so a RED-phase pollution never
+// bleeds into a later test in this same process.
+describe('mergeFrontmatter prototype-pollution guard (SEC group)', () => {
+  const BLOCKED_KEYS = ['__proto__', 'constructor', 'prototype'];
+
+  test('SEC1: top-level __proto__/constructor/prototype keys are refused, siblings still merge', () => {
+    const malicious = JSON.parse(
+      '{"schema":1,"__proto__":{"polluted":1},"constructor":{"polluted":2},"prototype":{"polluted":3},"safe":{"keep":true}}'
+    );
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(malicious, '__proto__'),
+      'fixture must carry __proto__ as an own key (JSON.parse contract)'
+    );
+
+    try {
+      const r = sp.resolveFromParsed({ frontmatter: malicious, sections: [] }, {});
+
+      assert.strictEqual(({}).polluted, undefined, 'Object.prototype must not be polluted');
+      for (const name of BLOCKED_KEYS) {
+        assert.ok(
+          !Object.prototype.hasOwnProperty.call(r.frontmatter, name),
+          `merged frontmatter must not carry an own '${name}' property`
+        );
+      }
+      for (const p of Object.keys(r.provenance)) {
+        assert.ok(
+          !/(^|\.)(__proto__|constructor|prototype)(\.|$)/.test(p),
+          `provenance path '${p}' must not reference a blocked key`
+        );
+      }
+      assert.strictEqual(r.frontmatter.safe.keep, true, 'a normal sibling key must still merge');
+    } finally {
+      delete Object.prototype.polluted;
+    }
+  });
+
+  test('SEC2: nested __proto__/constructor/prototype keys are refused, siblings still merge', () => {
+    const malicious = JSON.parse(
+      '{"schema":1,"generated":{"__proto__":{"nestedPolluted":1},"constructor":{"nestedPolluted":2},"prototype":{"nestedPolluted":3},"markers":["ok"]}}'
+    );
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(malicious.generated, '__proto__'),
+      'fixture must carry a nested __proto__ as an own key (JSON.parse contract)'
+    );
+
+    try {
+      const r = sp.resolveFromParsed({ frontmatter: malicious, sections: [] }, {});
+
+      assert.strictEqual(({}).nestedPolluted, undefined, 'Object.prototype must not be polluted from a nested merge');
+      for (const name of BLOCKED_KEYS) {
+        assert.ok(
+          !Object.prototype.hasOwnProperty.call(r.frontmatter.generated, name),
+          `merged frontmatter.generated must not carry an own '${name}' property`
+        );
+      }
+      for (const p of Object.keys(r.provenance)) {
+        assert.ok(
+          !/(^|\.)(__proto__|constructor|prototype)(\.|$)/.test(p),
+          `provenance path '${p}' must not reference a blocked key`
+        );
+      }
+      assert.deepStrictEqual(r.frontmatter.generated.markers, ['ok'], 'a normal sibling key must still merge');
+    } finally {
+      delete Object.prototype.nestedPolluted;
+    }
+  });
+});
