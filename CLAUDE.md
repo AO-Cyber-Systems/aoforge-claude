@@ -27,7 +27,7 @@ The plugin is the single source of truth for distribution. Layout:
 ```
 plugins/devflow/
 ├── .claude-plugin/plugin.json    # plugin manifest (name, version, statusLine)
-├── skills/<name>/SKILL.md        # 32 user-invocable slash commands
+├── skills/<name>/SKILL.md        # 33 user-invocable slash commands
 ├── agents/<agent>.md             # 12 subagent prompts
 ├── hooks/
 │   ├── hooks.json                # event registrations (auto-loaded)
@@ -45,7 +45,7 @@ Skill `@path` references (`@~/.claude/devflow/...`) do not interpolate `${CLAUDE
 
 ### Core Tool: `plugins/devflow/devflow/bin/df-tools.cjs`
 
-The central CLI utility used by ~50 skill and agent files. CommonJS module invoked as `node ~/.claude/devflow/bin/df-tools.cjs <command> [args]` (skills resolve the path via the home mirror). Provides:
+The central CLI utility used by ~50 skill and agent files. CommonJS module invoked as `node ~/.claude/devflow/bin/df-tools.cjs <command> [args]` (skills resolve the path via the home mirror). A global `--cwd <dir>` flag, valid before any command name, `chdir`s before dispatch so a command can target a path other than the caller's cwd (used by `/devflow:adopt [path]`). Provides:
 
 - **State operations** — `state load`, `state update`, `state get`, `state patch`, `state-snapshot`
 - **Objective operations** — `objective next-decimal`, `objective add/insert/remove/complete`
@@ -56,7 +56,8 @@ The central CLI utility used by ~50 skill and agent files. CommonJS module invok
 - **GitHub integration** (1.29+, opt-in via `.planning/config.json` `github` block) — `gh status`, `gh sync-objectives`, `gh comment`, `gh close-issue`, `gh sync-release`. Implemented in `lib/gh.cjs`; one-way push to GitHub via the `gh` CLI; planning files remain authoritative.
 - **Telemetry & audit** (2.5+) — `context` (context composition), `session-audit` (blocking-event classification; the acceptance test for objectives 27–30), `transcript-export` (compact per-session index before retention deletes transcripts), `telemetry` (one status-facing view with advisories), `override --gate <g> --reason <why>` (structured, logged gate override). Implemented in `lib/context-audit.cjs`, `lib/session-audit.cjs`, `lib/transcript-export.cjs`, `lib/telemetry.cjs`, `lib/override.cjs`.
 - **Changelog** (1.30+) — `changelog update --version vX.Y.Z [--from <ref> --to <ref>] [--dry-run]`, `changelog check <version>`. Implemented in `lib/changelog.cjs`; generates Keep-a-Changelog entries from conventional-commit history.
-- **Upgrade** (Unreleased) — `upgrade [--check|--apply] [--only id] [--confirm] [--path dir] [--kind k] [--default-work w] [--global]`. Brings a project forward in place and stamps `.planning/config.json` `devflow{version, migrations_applied, upgraded_at}`. The migrations are detection-based and idempotent (`lib/migrations/NNNN-*.cjs`, `auto` | `confirm`), with backups under `~/.claude/devflow/backups/`. `--global` upgrades `~/.claude` instead. Implemented in `lib/upgrade.cjs`, `lib/upgrade-cli.cjs`, `lib/migrations/`, `lib/managed-block.cjs` and `lib/global-upgrade.cjs`. `validate health` reports W040 when a project is behind.
+- **Upgrade** (Unreleased) — `upgrade [--check|--apply] [--only id] [--confirm] [--path dir] [--kind k] [--default-work w] [--global]`. Brings a project forward in place and stamps `.planning/config.json` `devflow{version, migrations_applied, upgraded_at}`. The migrations are detection-based and idempotent (`lib/migrations/NNNN-*.cjs`, `auto` | `confirm`), with backups under `~/.claude/devflow/backups/`. `--global` upgrades `~/.claude` instead. `--prune [--dry-run]` runs the backup pruner unthrottled and prints its report; `--register [--path dir]` registers a repo for pruning without a full upgrade. Implemented in `lib/upgrade.cjs`, `lib/upgrade-cli.cjs`, `lib/migrations/`, `lib/managed-block.cjs`, `lib/global-upgrade.cjs` and `lib/backup-prune.cjs`. `validate health` reports W040 when a project is behind.
+- **Adopt** (Unreleased) — `adopt preflight|begin|scaffold|report [--cwd dir]`. Unattended bootstrap of an existing repo into a DevFlow project: preflight checks state/cleanliness/branch, scaffold writes config/STATE/`state.json`/ROADMAP and the CLAUDE.md managed block then stamps via `upgrade --apply`, report writes `.planning/ADOPT-REPORT.md`. Idempotent — a half-finished adopt resumes. Implemented in `lib/adopt.cjs`, `lib/adopt-cli.cjs` and `lib/repo-state.cjs` (the one devflow/greenfield/brownfield/scratch detector shared with `project-state.cjs` and `init new-project`). Driven end-to-end by `skills/adopt/SKILL.md` + `workflows/adopt.md`.
 
 Model profiles are loaded from `plugins/devflow/devflow/references/model-profiles.json` (via `bin/lib/helpers.cjs`), which maps each agent to its opus/sonnet/haiku assignment per profile tier. The JSON also pins the concrete model id for each tier — keep those ids current when models ship; a stale id resolves to a model that never runs.
 
@@ -104,7 +105,7 @@ Node.js hooks declared in `plugins/devflow/hooks/hooks.json` and auto-registered
 - `inject-org-context.js` — injects org/initiative context at planning time
 - `inject-handoff-results.js` — surfaces completed handoff-watcher results back into the session
 - `route-results.js` — UserPromptSubmit; emits queued handoff command results
-- `upgrade-project.js` — SessionStart; upgrades a behind project in place (bundled df-tools; applies auto migrations, background-commits only the changed files; skip rules; notices via route-results). Escape: `DEVFLOW_SKIP_UPGRADE=1`
+- `upgrade-project.js` — SessionStart; upgrades a behind project in place (bundled df-tools; applies auto migrations, background-commits only the changed files; skip rules; notices via route-results). Also runs the throttled backup prune (once per 24h, DevFlow project or not) as the first step of `main()`. Escapes: `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only)
 
 **Observability (warn-only):**
 - `statusline.js` — StatusLine (declared in plugin.json `statusLine`); renders model, task, context usage

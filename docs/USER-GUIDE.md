@@ -131,6 +131,9 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
         ┌───────▼──────────┐
         │ /devflow:new-project │  <- Questions focus on what you're ADDING
         └──────────────────┘
+
+  (Fully unattended instead? /devflow:adopt scaffolds the same brownfield
+   project without asking anything -- see "Adopting an Existing Repo" below.)
 ```
 
 ---
@@ -178,6 +181,7 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
 | `/devflow:map-codebase` | Analyze existing codebase | Before `/devflow:new-project` on existing code |
+| `/devflow:adopt [path]` | Unattended DevFlow bootstrap for an existing repo (or `[path]`) | Turn a brownfield repo into a DevFlow project without answering questions |
 | `/devflow:security-audit` | OWASP Top 10 scan with confidence tagging | Before a release or after auth/crypto changes |
 | `/devflow:quick` | Ad-hoc task with DevFlow guarantees | Bug fixes, small features, config changes |
 | `/devflow:debug [desc]` | Systematic debugging with persistent state | When something breaks |
@@ -189,6 +193,33 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:health` | Check project integrity, repair state drift | Planning files feel stale or corrupt |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
 | `/devflow:status check --migrate` | Upgrade the project in place (runs `df-tools upgrade`) | After a DevFlow update, or when `validate health` reports W040 |
+
+### Adopting an Existing Repo (`/devflow:adopt`)
+
+`/devflow:adopt [path]` turns an existing codebase into a DevFlow project fully unattended -- it
+never asks a question. The target is the current directory, or `[path]` if given.
+
+**What it does:** maps the codebase (`map-codebase` in non-interactive mode), infers `PROJECT.md`
+(What This Is, Core Value, validated requirements, `kind` + `default_work` with confidence) and
+`STACK.md` from the code, scaffolds `.planning/` (config, STATE, `state.json`, an empty-current-
+milestone ROADMAP), adds the versioned CLAUDE.md managed block, stamps the version, and writes
+`.planning/ADOPT-REPORT.md` listing every low-confidence inference for you to review. Everything
+lands as **one signed commit on a new `devflow/adopt` branch, which is never pushed**. Re-running
+`/devflow:adopt` on a half-finished adopt resumes rather than duplicating.
+
+**Routing by repo state**, decided before anything is written:
+- Already a DevFlow project (`.planning/` present) -> routed to `upgrade` (see below); never
+  re-scaffolded.
+- Empty or greenfield repo -> reports that and points you at `/devflow:new-project`.
+- Existing codebase -> the adopt pipeline described above.
+
+**Refusal rules.** It refuses, and touches nothing, when the target is: a dirty working tree, a
+repo mid-rebase/merge, a detached HEAD, or a path that isn't a git repository at all. It names the
+reason and stops -- it never stashes or resets your work.
+
+Under the hood: `df-tools adopt preflight|begin|scaffold|report` (the deterministic half) plus the
+global `df-tools --cwd <dir>` flag so the CLI can target `[path]` from anywhere. Implemented in
+`lib/adopt.cjs`, `lib/adopt-cli.cjs` and `lib/repo-state.cjs`.
 
 ### Upgrading a Project in Place (`df-tools upgrade`)
 
@@ -219,6 +250,7 @@ node ~/.claude/devflow/bin/df-tools.cjs upgrade --global --confirm   # adopt the
 - **Stamp.** `.planning/config.json` records `devflow{version, migrations_applied, upgraded_at}`. `validate health` reports **W040** when the project is behind.
 - **Backups** go outside the repo, to `~/.claude/devflow/backups/<repo>-<hash>/<timestamp>/`, before anything is written.
 - **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- DEVFLOW:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. If you already have a hand-written DevFlow section, you get a notice and nothing changes until you run `upgrade --global --confirm`.
+- **Backup pruning.** DevFlow installs no scheduler of its own -- pruning runs from the `upgrade-project.js` SessionStart path, throttled to once per 24 hours by a last-prune timestamp. The default policy keeps backups younger than 14 days, and always keeps the newest 5 per repo. It's configurable in `~/.claude/devflow/global-config.json`: `backups.retain_days` and `backups.keep_min`. Run it by hand (or preview it) with `node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune [--dry-run]`; register a repo for pruning without a full upgrade with `upgrade --register`. Both `/devflow:adopt` and `/devflow:new-project` register the repo automatically. Skip pruning entirely with `DEVFLOW_SKIP_PRUNE=1`. If you want an OS-level schedule instead of the once-per-session throttle, add your own cron line, e.g. `0 3 * * * node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune` -- this is opt-in and entirely user-owned; DevFlow never installs it for you.
 
 ### Integration & Release (1.28+)
 
@@ -450,9 +482,10 @@ claude --dangerously-skip-permissions
 ### Existing Codebase
 
 ```bash
+/devflow:adopt                  # Unattended: maps, infers PROJECT.md/STACK.md, scaffolds, commits
+# (normal objective workflow from here -- or, for a manual walkthrough instead:)
 /devflow:map-codebase           # Analyze what exists (parallel agents)
 /devflow:new-project            # Questions focus on what you're ADDING
-# (normal objective workflow from here)
 ```
 
 ### Quick Bug Fix
@@ -601,7 +634,7 @@ DevFlow installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
 | `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. | n/a (warning only) |
 | `check-update.js` | SessionStart | Background npm registry check for newer DevFlow versions. | n/a |
-| `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits, or if signing fails. Notices are emitted once, on the next prompt, by `route-results.js`. See [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade). | `DEVFLOW_SKIP_UPGRADE=1` |
+| `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits, or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade)) as the first step, DevFlow project or not. Notices are emitted once, on the next prompt, by `route-results.js`. | `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only) |
 | `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator. | n/a |
 
 ### "DevFlow blocked my command — why?"
@@ -711,5 +744,36 @@ node ~/.claude/devflow/bin/df-tools.cjs changelog update --version v1.30.0 --dry
 # Check whether a version already has an entry
 node ~/.claude/devflow/bin/df-tools.cjs changelog check 1.29.0
 ```
+
+---
+
+## Trying a Local Checkout of DevFlow
+
+To run a feature that hasn't been released yet (e.g. to verify a change before it ships), install
+the plugin from your local git checkout instead of the published marketplace. This is reversible --
+the published build comes back exactly as it was.
+
+0. Before changing anything:
+   a. In Claude Code, run `/plugin` and note which `@aocyber` plugins are currently enabled.
+   b. Optional, read-only: `node <checkout>/plugins/devflow/devflow/bin/df-tools.cjs upgrade --prune --dry-run` shows what the first prune of your real `~/.claude/devflow/backups/` would remove (it keeps anything younger than 14 days and the newest 5 per repo, and never touches `legacy-*`/`global-*`).
+1. Install from your checkout (in any Claude Code session):
+   - `/plugin marketplace remove aocyber`
+   - `/plugin marketplace add <path-to-your-checkout>`
+   - `/plugin install devflow@aocyber` (or enable it)
+   - In a terminal: `rm ~/.claude/devflow/.plugin-version` -- if your checkout and the published build report the same version, `sync-runtime.js`'s version fast path would otherwise keep the OLD mirror; deleting the marker forces a re-mirror.
+   - Quit that session.
+2. Open a fresh session in a scratch fixture repo (never a real repository): `cd <your-fixture> && claude`. Confirm the mirror is your checkout, e.g. `node ~/.claude/devflow/bin/df-tools.cjs adopt --help` prints usage only if your checkout has `adopt` and the published build doesn't yet.
+3. Exercise the feature (e.g. type `/devflow:adopt`) and check its output against what you expect.
+4. Revert to the published build:
+   - `/plugin marketplace remove aocyber`
+   - `/plugin marketplace add AO-Cyber-Systems/devflow-claude`
+   - `/plugin install devflow@aocyber`, and re-enable the plugins noted in step 0a
+   - In a terminal: `rm ~/.claude/devflow/.plugin-version`, then open a new session (this re-mirrors the published build)
+   - Confirm the revert: a command unique to your checkout (e.g. `adopt --help`) now fails again.
+5. Optional cleanup: remove the scratch fixture and any `~/.claude/devflow/backups/<fixture>-*` your test run created; a leftover `.registry.json` entry is harmless.
+
+**Gotcha:** if your checkout and the published marketplace build report the *same* version number,
+`rm ~/.claude/devflow/.plugin-version` is required both on install **and** on revert -- otherwise
+`sync-runtime.js` sees no version change and keeps serving the mirror it already has.
 
 Commits are grouped by conventional-commit type (`feat` → Added, `fix` → Fixed, `perf` → Performance, etc.). Bare commits without a recognized type land under "Other". The `changelog-on-tag` hook blocks `git tag -a vX.Y.Z` until the entry exists, so you cannot ship a release without documenting it.

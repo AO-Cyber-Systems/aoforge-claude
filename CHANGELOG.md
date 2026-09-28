@@ -36,8 +36,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   to a backup, never deleted. The `~/.claude/CLAUDE.md` DevFlow block is managed; the first adoption
   over a hand-written section is notice-only until `df-tools upgrade --global --confirm`.
 - `validate health` W040: the project is behind the running DevFlow version.
+- **`/devflow:adopt [path]`.** Unattended adoption of an existing repo: maps the code, infers
+  `PROJECT.md`/`STACK.md`, scaffolds config/STATE/`state.json`/ROADMAP with no invented objectives,
+  adds the CLAUDE.md managed block, stamps the version, and lands everything as one signed commit
+  on `devflow/adopt` -- never pushed. `.planning/ADOPT-REPORT.md` lists every low-confidence
+  inference for review. Routes already-DevFlow repos to `upgrade` and empty repos to
+  `/devflow:new-project`; refuses a dirty, mid-rebase/merge, detached-HEAD or non-git target
+  without touching it. Resumable -- a half-finished adopt continues rather than duplicating.
+  `df-tools adopt preflight|begin|scaffold|report`. A global `df-tools --cwd <dir>` flag lets any
+  command target a path other than the caller's cwd. `lib/repo-state.cjs` is the one
+  devflow/greenfield/brownfield/scratch detector shared by adopt, `new-project` and
+  `map-codebase`. `map-codebase` gained a `--non-interactive` mode.
+- **Backup pruning.** Runs from the `upgrade-project.js` SessionStart hook, throttled to once per
+  24 hours, keeping backups younger than 14 days and always the newest 5 per repo; configurable via
+  `backups.retain_days` / `backups.keep_min` in `~/.claude/devflow/global-config.json`. Run or
+  preview by hand with `df-tools upgrade --prune [--dry-run]`; register a repo without a full
+  upgrade with `upgrade --register`. Skip with `DEVFLOW_SKIP_PRUNE=1`.
 
 ### Changed
+- `project-state.cjs`, `detect brownfield-map` and `init new-project` now delegate to
+  `repo-state.cjs` (`init new-project` counts source files at any depth, not only 3 levels).
+- The SessionStart init-offer for brownfield repos now points at `/devflow:adopt`; `route-intent`
+  routes "adopt this repo", "set up devflow here" and "bootstrap this repo" (also outside existing
+  DevFlow projects); the global routing template (v2) lists `/devflow:adopt`. `/devflow:new-project`
+  offers `/devflow:adopt` for existing code and registers the repo for pruning.
 - Planner `<validation_gates>` come from `stack command`; the executor runs the profile `loop` and
   `gates.task`, refuses hand edits to generated files, and lists discovered commands in SUMMARY.
 - `testing-strategy.md` no longer guesses a stack from `kind`; its stack cells moved to example
