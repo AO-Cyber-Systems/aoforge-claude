@@ -655,10 +655,13 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
 
   fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
 
-  // Update STATE.md objective count
+  // Update STATE.md objective count. state_updated reports an actual write,
+  // not whether the file exists (TOOL-02).
   const statePath = path.join(cwd, '.planning', 'STATE.md');
+  let stateUpdated = false;
   if (fs.existsSync(statePath)) {
-    let stateContent = fs.readFileSync(statePath, 'utf-8');
+    const originalState = fs.readFileSync(statePath, 'utf-8');
+    let stateContent = originalState;
     // Update "Total Objectives" field
     const totalPattern = /(\*\*Total Objectives:\*\*\s*)(\d+)/;
     const totalMatch = stateContent.match(totalPattern);
@@ -673,7 +676,10 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
       const oldTotal = parseInt(ofMatch[2], 10);
       stateContent = stateContent.replace(ofPattern, `$1${oldTotal - 1}$3`);
     }
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    if (stateContent !== originalState) {
+      fs.writeFileSync(statePath, stateContent, 'utf-8');
+      stateUpdated = true;
+    }
   }
 
   const result = {
@@ -687,7 +693,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
     renamed_directories: renamedDirs,
     renamed_files: renamedFiles,
     roadmap_updated: true,
-    state_updated: fs.existsSync(statePath),
+    state_updated: stateUpdated,
   };
 
   output(result, raw);
