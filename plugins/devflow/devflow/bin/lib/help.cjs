@@ -170,8 +170,8 @@ const COMMANDS = {
     mutates: true,
   },
   'validate': {
-    usage: 'df-tools validate <consistency|health [--repair]> [--raw]',
-    summary: 'Check .planning/ integrity and objective numbering.',
+    usage: 'df-tools validate <consistency|health [--repair]|docs> [--raw]',
+    summary: 'Check .planning/ integrity, objective numbering, and documentation staleness.',
     mutates: true,
   },
   'progress': {

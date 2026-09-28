@@ -138,7 +138,12 @@ function _checkRemovedRefs({ projectRoot, issues }) {
     try {
       const block = readManagedBlock(text);
       if (block && typeof block.content === 'string') {
-        for (const hit of scanText(block.content, { liveSkills: [] })) {
+        // No liveSkills option: this check only ever acts on kind === 'removed' below, and
+        // `resolveToken` calls `liveSkills.has(name)` when the option is truthy — an array
+        // (or any non-Set) throws there. Omitting it entirely is the documented default
+        // (doc-refs.cjs: "only when liveSkills is given ... -> ok") and is behaviorally
+        // identical for this check's purposes, since 'unknown' kind is never consulted here.
+        for (const hit of scanText(block.content)) {
           if (hit.kind !== 'removed') continue;
           anyIssue = true;
           issues.push({
@@ -161,7 +166,7 @@ function _checkRemovedRefs({ projectRoot, issues }) {
   if (fs.existsSync(stateMdPath)) {
     const text = fs.readFileSync(stateMdPath, 'utf-8');
     const scanned = _excludeSessionLog(text);
-    for (const hit of scanText(scanned, { liveSkills: [] })) {
+    for (const hit of scanText(scanned)) { // see the CLAUDE.md branch above for why no liveSkills
       if (hit.kind !== 'removed') continue;
       anyIssue = true;
       issues.push({
