@@ -24,10 +24,6 @@ const STATE_REL = '.planning/STATE.md';
 const SESSION_LOG_RE = /^##\s+Session Log[^\n]*$/m;
 const NEXT_H2_RE = /^##[ \t]/m;
 
-function isStaleKind(kind) {
-  return kind === 'renamed' || kind === 'prefix';
-}
-
 function readTextIfExists(p) {
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : null;
 }
@@ -119,6 +115,21 @@ function stateTargetInfo(ctx) {
   };
 }
 
+/**
+ * appendSessionLogLine(logSection, line) -> the Session Log section text with `line` inserted
+ * directly after its last non-blank line (the heading itself counts when the section is
+ * otherwise empty). Every existing byte is preserved; only one new "\n" + line is spliced in.
+ */
+function appendSessionLogLine(logSection, line) {
+  const lines = logSection.split('\n');
+  let lastIdx = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim() !== '') { lastIdx = i; break; }
+  }
+  lines.splice(lastIdx + 1, 0, line);
+  return lines.join('\n');
+}
+
 function applyStateTarget(ctx, info) {
   if (!info.present) return { changed: false, rewrites: [], removed: [] };
   if (!info.hasLog) {
@@ -128,7 +139,9 @@ function applyStateTarget(ctx, info) {
   }
   const removed = [...info.rBefore.removed, ...info.rAfter.removed];
   if (info.count === 0) return { changed: false, rewrites: [], removed };
-  const next = info.rBefore.text + info.logSection + info.rAfter.text;
+  const today = new Date().toISOString().split('T')[0];
+  const line = `- ${today}: upgrade 0007 updated ${info.count} command reference(s) to current /devflow: names`;
+  const next = info.rBefore.text + appendSessionLogLine(info.logSection, line) + info.rAfter.text;
   if (!ctx.dryRun) fs.writeFileSync(info.statePath, next);
   return { changed: true, rewrites: [...info.rBefore.changes, ...info.rAfter.changes], removed };
 }
@@ -194,7 +207,7 @@ function apply(ctx) {
 module.exports = {
   id: '0007',
   title: 'Rewrite stale DevFlow command references in live project docs',
-  since: '2.12.0',
+  since: '2.11.0',
   safety: 'auto',
   detect,
   apply,
