@@ -9,9 +9,70 @@ const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.c
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
+// One bullet of the `## Milestones` list. Covers every shape the codebase emits:
+//   - 🚧 **v1.3 — Name** — Objectives 27–41 (in progress; ...)     this repo
+//   - ✅ **v1.0 MVP** - Objectives 1-4 (shipped YYYY-MM-DD)          templates/roadmap.md
+//   - **v0.1 — Adopted** (2026-01-01, current): no objectives yet.   adopt.cjs scaffold
+// Groups: 1 = status emoji (optional), 2 = version digits, 3 = name (may be ''), 4 = trailing text.
+// The emoji are multi-code-unit, hence the `u` flag and literal characters.
+const MILESTONE_BULLET_RE = /^\s*[-*]\s+(?:(✅|🚧|📋)️?\s+)?\*\*v(\d+(?:\.\d+)+)\s*(?:[—–:-]\s*)?([^*]*?)\s*\*\*(.*)$/u;
+const MILESTONE_IN_PROGRESS_RE = /\b(in progress|current)\b/i;
+
+/** Numeric per-dot-segment comparison of '1.10' vs '1.9' (so 1.10 > 1.9). */
+function compareVersionDigits(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/** Parse the bullets between `## Milestones` and the next `#`/`##` heading. [] when absent. */
+function parseMilestoneBullets(roadmap) {
+  const lines = roadmap.split(/\r?\n/);
+  const start = lines.findIndex(l => /^##\s+Milestones\b/i.test(l));
+  if (start < 0) return [];
+  const bullets = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^#{1,2}\s/.test(lines[i])) break;
+    const m = lines[i].match(MILESTONE_BULLET_RE);
+    if (!m) continue;
+    bullets.push({ status: m[1] || null, digits: m[2], name: m[3].trim(), rest: m[4] });
+  }
+  return bullets;
+}
+
+/**
+ * Choose the milestone the project is working in. Priority:
+ *   1. the first 🚧 entry
+ *   2. the first not-shipped entry whose trailing text says `in progress` / `current`
+ *      (the adopt scaffold carries no emoji, only `(date, current)`)
+ *   3. the highest-version ✅ entry
+ *   4. the lowest-version 📋 entry
+ *   5. the first bullet
+ */
+function pickMilestone(bullets) {
+  if (bullets.length === 0) return null;
+  const inProgress = bullets.find(b => b.status === '🚧')
+    || bullets.find(b => b.status !== '✅' && MILESTONE_IN_PROGRESS_RE.test(b.rest));
+  if (inProgress) return inProgress;
+  const extreme = (status, dir) => bullets
+    .filter(b => b.status === status)
+    .sort((a, b) => dir * compareVersionDigits(a.digits, b.digits))[0];
+  return extreme('✅', -1) || extreme('📋', 1) || bullets[0];
+}
+
 function getMilestoneInfo(cwd) {
   try {
     const roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
+    const picked = pickMilestone(parseMilestoneBullets(roadmap));
+    if (picked) {
+      return { version: `v${picked.digits}`, name: picked.name || 'milestone' };
+    }
+    // Legacy fallback — no `## Milestones` section, or no bullet in it parses.
+    // First-match regexes kept verbatim from the pre-40-01 implementation.
     const versionMatch = roadmap.match(/v(\d+\.\d+)/);
     const nameMatch = roadmap.match(/## .*v\d+\.\d+[:\s]+([^\n(]+)/);
     return {
