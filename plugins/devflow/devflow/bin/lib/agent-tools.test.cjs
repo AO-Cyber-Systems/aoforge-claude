@@ -23,11 +23,20 @@ const path = require('path');
 
 const AGENTS_DIR = path.join(__dirname, '..', '..', '..', 'agents');
 
+const WORKFLOWS_DIR = path.join(__dirname, '..', '..', 'workflows');
+
 // Tools whose call-form appears in DevFlow agent prompts.
+//
+// Task / Agent (TRD 41-08, gap VER-30): spawning needs Task/Agent in tools:;
+// subagents cannot spawn, so a subagent prompt that spawns is a defect, not a
+// missing declaration. `\bTask\(` does not match `TaskCreate(`/`TaskUpdate(`.
 const KNOWN_TOOLS = [
   'Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Grep', 'Glob',
   'WebSearch', 'WebFetch', 'TaskCreate', 'TaskUpdate', 'AskUserQuestion',
+  'Task', 'Agent',
 ];
+
+const SPAWN_TOOLS = ['Task', 'Agent'];
 
 function parseAgent(file) {
   const raw = fs.readFileSync(path.join(AGENTS_DIR, file), 'utf8');
@@ -53,7 +62,37 @@ describe('TRD 30-01 — agent tool allowlists cover what the prompt calls', () =
         `${file} instructs ${missing.join(', ')} but does not declare ${missing.length > 1 ? 'them' : 'it'} in tools:`
       );
     });
+
+    // TRD 41-08: `subagent_type=` is a spawn instruction even without a
+    // literal `Task(` beside it.
+    test(`${file.replace(/\.md$/, '')}: subagent_type= only in agents that can spawn`, () => {
+      const { declared, body } = parseAgent(file);
+      if (!/subagent_type\s*=/.test(body)) return;
+      assert.ok(
+        SPAWN_TOOLS.some(t => declared.includes(t)),
+        `${file} passes subagent_type= but declares neither Task nor Agent in tools: ` +
+        '(subagents cannot spawn; return a signal to the orchestrator instead)'
+      );
+    });
   }
+
+  // TRD 41-08: the planner cannot spawn objective-researcher, so it returns
+  // `## RESEARCH NEEDED` and the orchestrator runs the researcher. A return
+  // header nobody handles would strand the run, so the contract is asserted.
+  test('planner RESEARCH NEEDED return is handled by plan-objective and build', () => {
+    const { body } = parseAgent('planner.md');
+    if (!body.includes('## RESEARCH NEEDED')) return;
+    const planObjective = fs.readFileSync(path.join(WORKFLOWS_DIR, 'plan-objective.md'), 'utf8');
+    assert.ok(
+      planObjective.includes('## RESEARCH NEEDED'),
+      'planner.md returns ## RESEARCH NEEDED but plan-objective.md step 10 does not handle it'
+    );
+    const build = fs.readFileSync(path.join(WORKFLOWS_DIR, 'build.md'), 'utf8');
+    assert.ok(
+      build.includes('RESEARCH NEEDED'),
+      'planner.md returns ## RESEARCH NEEDED but build.md does not route it to plan-objective step 10'
+    );
+  });
 
   test('every agent declares a non-empty tools list', () => {
     for (const file of agentFiles) {
