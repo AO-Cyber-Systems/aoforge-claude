@@ -84,6 +84,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The dispatch-completeness test (`lib/dispatch-completeness.test.cjs`) checks CLAUDE.md's command
   prose against the actual dispatcher; the hook-inventory pin test (`lib/hook-inventory.test.cjs`)
   checks CLAUDE.md's hook bullets against `hooks.json` registration.
+- CI guards `lib/rg-flag-guard.test.cjs` (fails on any rg invocation with `E` in a short-flag
+  cluster across live plugin prose) and `lib/gitignore-markers.test.cjs` (every file-backed
+  `override.cjs` gate marker must have a `.planning/<name>` line in `.gitignore`).
 
 ### Changed
 - `project-state.cjs`, `detect brownfield-map` and `init new-project` now delegate to
@@ -128,6 +131,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CLAUDE.md's hook inventory now marks `inject-org-context.js` / `inject-handoff-results.js` as
   draft/unregistered instead of listing them among live hooks; site doc examples use the real gate
   name `--gate edits`, not `--gate gate-edits`.
+- `df-tools init milestone-op` (and the other init compounds) report the in-progress milestone
+  from the `## Milestones` list (the in-progress entry, then the highest shipped, then the lowest
+  planned) instead of the first version string in ROADMAP.md, which named v1.1 "candidates" on
+  this repo.
+- `df-tools objective complete` appends one idempotent `**Objective complete:**` line on narrative
+  STATE.md files, and `state_updated` now reports an actual write, with a `state_update_reason`
+  (`already_logged`, `no_log_anchor`, `state_missing`, `unchanged`) when nothing was written.
+  `objective remove --confirm` likewise reports `state_updated` from an actual write.
+- TRD and verification references state that ripgrep `-E` is `--encoding`, not extended regex,
+  and name `rg -n -e PATTERN` / `rg -nP PATTERN` as the forms to use in `<verify>`/`<done>` checks.
+- `remove-objective.md` takes integer objective numbers and no longer advertises decimal numbers
+  as a live scheme; legacy pre-v1.2 decimal directories are still accepted for removal.
+- `df-tools intent resolve --objective <N>` resolves bare and zero-padded numbers to slugged
+  objective directories (`40` → `40-tooling-correctness`) instead of silently inheriting
+  PROJECT.md `default_work`, and warns `OBJECTIVE.md not found` (or names every candidate when a
+  number is ambiguous).
+- `df-tools roadmap update-job-progress <N>` ticks objective N's nested `- [ ] NN-MM-TRD.md`
+  checkboxes (scoped to N, no Status rollups) and reports `trd_checkboxes_ticked`.
+- `df-tools state record-session` updates the plain-text `Last session:` / `Stopped at:` /
+  `Resume file:` lines inside `## Session Continuity` on narrative STATE.md files (previously
+  always `recorded: false`).
+- `.planning/.edit-override` is gitignored.
 
 ## [2.10.1] - 2026-09-26
 
