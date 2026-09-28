@@ -80,6 +80,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 10]: setState patterns are all MEDIUM/LOW so setState misses route to advisories not blockers, matching flutter-state-patterns.md confidence model
 - [Objective 25-fleet-audit-fixes]: TRD 04 complete: global ~/.claude/CLAUDE.md routing table fixed (status/micro/4 adoption skills) + '## TDD & Quality' by-kind playbook section added; deriveOverrides yields only {_playbookDetected:true}; devflow-claude resolver config unchanged (strict->strict no-op)
 - [Objective 39-telemetry-audit-cli]: TRD 39-02 complete: wired df-tools transcript-export and df-tools override (--gate/--reason, --list) into lib/audit-cli.cjs. 19 new tests, strict TDD, no regressions.
+- [Objective 39-telemetry-audit-cli]: TRD 39-04 complete: dispatch-completeness gate (lib/dispatch-completeness.test.cjs spawns all 71 COMMANDS + pins CLAUDE.md/context-discipline.md prose to a 15-name FLOOR with justified EXEMPT). CLAUDE.md flips context/session-audit/transcript-export/override to live. 7 new tests, strict TDD, no regressions.
 
 ## Performance Metrics
 
@@ -103,4 +104,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 10 P10-04a | 7min | 2 tasks | 3 files |
 | Objective 10 P05 | 12min | 2 tasks | 8 files |
 | Objective 39-telemetry-audit-cli P39-02 | ~35min | 2 tasks | 3 files |
+| Objective 39-telemetry-audit-cli P39-04 | 30min | 2 tasks | 2 files |
 
