@@ -71,8 +71,16 @@ Use AskUserQuestion:
 - header: "Codebase"
 - question: "I detected existing code in this directory. Would you like to map the codebase first?"
 - options:
-  - "Map codebase first" — Run /devflow:map-codebase to understand existing architecture (Recommended)
+  - "Adopt instead" — Run /devflow:adopt (maps the code, infers PROJECT.md, one commit on devflow/adopt) (Recommended)
+  - "Map codebase first" — Run /devflow:map-codebase to understand existing architecture
   - "Skip mapping" — Proceed with project initialization
+
+**If "Adopt instead":**
+```
+Run `/devflow:adopt` instead — it maps the code, infers PROJECT.md, and makes one commit on
+devflow/adopt without further questions.
+```
+Exit command.
 
 **If "Map codebase first":**
 ```
@@ -192,7 +200,10 @@ Create `.planning/config.json` with mode set to "yolo":
 ```bash
 mkdir -p .planning
 node ~/.claude/devflow/bin/df-tools.cjs commit "chore: add project config" --files .planning/config.json
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --register
 ```
+
+Registers this repo for backup pruning; ignore an unknown-flag error from an older mirror.
 
 **Persist auto-advance to config (survives context compaction):**
 
@@ -483,7 +494,10 @@ Create `.planning/config.json` with settings (defaults + any overrides):
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs commit "chore: add project config" --files .planning/config.json
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --register
 ```
+
+Registers this repo for backup pruning; ignore an unknown-flag error from an older mirror.
 
 **Note:** Run `/devflow:settings` anytime to update these preferences.
 

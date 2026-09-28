@@ -4,7 +4,7 @@ description: |
   Analyze an existing codebase to understand its stack, architecture, conventions, and concerns before starting new work.
   Use when the user wants to understand, analyze, or map an existing codebase.
   Triggers on: "understand this codebase", "map the code", "analyze architecture", "what does this codebase look like?", "explore the code structure"
-argument-hint: "[optional: specific area to map, e.g., 'api' or 'auth']"
+argument-hint: "[optional: specific area to map, e.g., 'api' or 'auth'] [--non-interactive]"
 allowed-tools:
   - Read
   - Bash

@@ -23,6 +23,25 @@ Include enough detail to be useful as reference. Prioritize practical examples (
 Documents are reference material for Claude when planning/executing. Always include actual file paths formatted with backticks: `src/services/user.ts`.
 </philosophy>
 
+<non_interactive_mode>
+Used by `/devflow:adopt` (and `/devflow:map-codebase --non-interactive`). No prompts, no waiting
+for a response — every step below resolves itself deterministically. Every `df-tools.cjs` call and
+every path in this mode is under the target directory via `--cwd`.
+
+- **check_existing** — if `.planning/codebase/` already has complete documents, use them as-is;
+  map only the docs that are missing or empty — never delete existing documents.
+- **spawn_agents / collect_confirmations / verify_output** — unchanged; still spawn the 4 mapper
+  agents (or, if the Task tool is unavailable, perform each focus directly in sequence) and verify
+  their output.
+- **draft_stack_profile** — skipped entirely. `adopt scaffold` writes `.planning/STACK.md` itself.
+- **generate_claude_md** — unchanged; still writes the versioned CLAUDE.md block that `adopt`
+  relies on.
+- **scan_for_secrets** — do not pause for confirmation. Any finding is left for `adopt report` to
+  redact and list under "Needs review" — mapping itself never blocks on it.
+- **commit_codebase_map** — skipped. `/devflow:adopt` makes the only commit for the whole run.
+- **offer_next** — skipped. Return control to the caller instead of printing next steps.
+</non_interactive_mode>
+
 <process>
 
 <step name="init_context" priority="first">
@@ -36,6 +55,8 @@ Extract from init JSON: `mapper_model`, `commit_docs`, `codebase_dir`, `existing
 </step>
 
 <step name="check_existing">
+**Non-interactive:** see <non_interactive_mode>.
+
 Check if .planning/codebase/ already exists using `has_maps` from init context.
 
 If `codebase_dir_exists` is true:
@@ -229,6 +250,8 @@ Continue to draft_stack_profile.
 </step>
 
 <step name="draft_stack_profile">
+**Non-interactive:** see <non_interactive_mode>.
+
 **Draft the project stack profile (`.planning/STACK.md`) from what was just mapped.**
 
 Skip this step if `.planning/STACK.md` already exists.
@@ -295,6 +318,8 @@ Continue to scan_for_secrets.
 </step>
 
 <step name="scan_for_secrets">
+**Non-interactive:** see <non_interactive_mode>.
+
 **CRITICAL SECURITY CHECK:** Scan output files for accidentally leaked secrets before committing.
 
 Run secret pattern detection:
@@ -330,6 +355,8 @@ Continue to commit_codebase_map.
 </step>
 
 <step name="commit_codebase_map">
+**Non-interactive:** see <non_interactive_mode>.
+
 Commit the codebase map:
 
 ```bash
@@ -340,6 +367,8 @@ Continue to offer_next.
 </step>
 
 <step name="offer_next">
+**Non-interactive:** see <non_interactive_mode>.
+
 Present completion summary and next steps.
 
 **Get line counts:**
