@@ -203,7 +203,7 @@ describe('makeFixture — self-checks', () => {
 
   test('6. dirty: modified main.go + untracked notes.txt', () => {
     const root = makeFixture('dirty', { parent, home });
-    const status = porcelain(root).trim().split('\n').sort();
+    const status = porcelain(root).split('\n').filter(Boolean).sort();
     assert.deepStrictEqual(status, [' M main.go', '?? notes.txt'].sort());
   });
 
