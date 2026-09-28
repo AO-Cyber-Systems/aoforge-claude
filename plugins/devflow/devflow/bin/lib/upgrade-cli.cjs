@@ -28,6 +28,9 @@ const BOOL_FLAGS = {
   '--apply': 'apply',
   '--confirm': 'confirm',
   '--global': 'global',
+  '--prune': 'prune',
+  '--dry-run': 'dryRun',
+  '--register': 'register',
 };
 const VALUE_FLAGS = {
   '--only': 'only',
@@ -54,7 +57,7 @@ class UsageError extends Error {
  * `--confirm` without `--apply`.
  */
 function parseUpgradeArgs(args = []) {
-  const seen = { check: false, apply: false, confirm: false, global: false };
+  const seen = { check: false, apply: false, confirm: false, global: false, prune: false, dryRun: false, register: false };
   const values = { path: null, kind: null, defaultWork: null };
   const only = [];
   const used = new Set();
@@ -112,6 +115,14 @@ function parseUpgradeArgs(args = []) {
     throw new UsageError('--confirm only means something with --apply (or --global); use --apply --confirm');
   }
 
+  if (seen.prune) {
+    if (seen.apply || seen.check || seen.global) {
+      throw new UsageError('--prune stands alone: it does not take --apply, --check or --global');
+    }
+  } else if (seen.dryRun) {
+    throw new UsageError('--dry-run only means something with --prune; use --prune --dry-run');
+  }
+
   // Project: --apply writes, anything else checks. Global: --apply or --confirm writes unless
   // --check asks for a preview (`--global --check --confirm` previews the adoption).
   const writes = seen.apply || (seen.global && seen.confirm && !seen.check);
@@ -123,6 +134,9 @@ function parseUpgradeArgs(args = []) {
     path: values.path,
     kind: values.kind,
     defaultWork: values.defaultWork,
+    prune: seen.prune,
+    dryRun: seen.dryRun,
+    register: seen.register,
   };
 }
 
@@ -157,6 +171,11 @@ function projectSummary(report, mode) {
   return parts.join('; ');
 }
 
+function pruneSummary(report) {
+  if (report.skipped === 'no-backups') return 'no backups';
+  return report.dry_run ? `would prune ${report.removed.length}` : `pruned ${report.removed.length} backup(s)`;
+}
+
 function globalSummary(result) {
   const parts = [];
   const moved = result.legacy.moved.length;
@@ -177,6 +196,19 @@ function isDevflowProject(root) {
   } catch {
     return false;
   }
+}
+
+function runPruneCmd(opts, raw) {
+  const { runPrune } = require('./backup-prune.cjs');
+  const report = runPrune({ userHome: os.homedir(), dryRun: !!opts.dryRun });
+  helpers.output(report, raw, pruneSummary(report), 0);
+}
+
+function runRegister(cwd, opts, raw) {
+  const { register } = require('./backup-prune.cjs');
+  const projectRoot = path.resolve(cwd, opts.path || '.');
+  const result = register({ userHome: os.homedir(), projectRoot });
+  helpers.output(result, raw, `registered ${result.key}${result.created ? '' : ' (already registered)'}`, 0);
 }
 
 function runGlobal(opts, raw) {
@@ -249,7 +281,9 @@ function cmdUpgrade(cwd, args, raw) {
     }
     throw e;
   }
-  if (opts.global) runGlobal(opts, raw);
+  if (opts.prune) runPruneCmd(opts, raw);
+  else if (opts.register) runRegister(cwd, opts, raw);
+  else if (opts.global) runGlobal(opts, raw);
   else runProject(cwd, opts, raw);
 }
 
