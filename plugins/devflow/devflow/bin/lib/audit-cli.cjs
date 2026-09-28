@@ -25,6 +25,8 @@ const path = require('path');
 const os = require('os');
 const contextAudit = require('./context-audit.cjs');
 const sessionAudit = require('./session-audit.cjs');
+const transcriptExport = require('./transcript-export.cjs');
+const overrideLib = require('./override.cjs');
 
 /** `--limit` default for both commands when the flag is omitted. */
 const DEFAULT_LIMIT = 150;
@@ -156,6 +158,108 @@ function runSessionAudit({ argv = [] } = {}) {
   return { ok: true, result, text: formatSessionAuditRaw(result) };
 }
 
+/**
+ * Default `transcript-export` index path. Read at CALL time (same reasoning
+ * as `defaultTranscriptRoot`) — HOME-isolated tests depend on it.
+ */
+function defaultIndexPath() {
+  return path.join(os.homedir(), '.claude', 'devflow', 'transcript-index.jsonl');
+}
+
+/** Exactly one line: `indexed N, skipped N, copied N of N sessions -> <out>`. */
+function formatExportRaw(result) {
+  return `indexed ${result.indexed}, skipped ${result.skipped}, copied ${result.copied} of ${result.sessions} sessions -> ${result.out}`;
+}
+
+/**
+ * `df-tools transcript-export` — append a compact per-session index of
+ * transcripts (and, with `--full`, copy the raw files too).
+ *
+ * Root resolution runs BEFORE `exportTranscripts` is ever called:
+ * `exportTranscripts` unconditionally `mkdirSync(dirname(out))`s before it
+ * scans, so calling it against a missing root would create a stray
+ * `~/.claude/devflow/` even on failure.
+ *
+ * @param {{argv?: string[]}} [opts]
+ * @returns {{ok:true, result:object, text:string} | {ok:false, message:string}}
+ */
+function runTranscriptExport({ argv = [] } = {}) {
+  const parsed = parseAuditArgs(argv, { values: ['--out', '--full', '--limit', '--root'], bools: [] });
+  if (!parsed.ok) return parsed;
+  const limitCheck = validateLimit(parsed.limit);
+  if (!limitCheck.ok) return limitCheck;
+  const rootResult = resolveRoot(parsed);
+  if (!rootResult.ok) return rootResult;
+  const out = parsed.out || defaultIndexPath();
+  const result = transcriptExport.exportTranscripts({
+    roots: [rootResult.root],
+    out,
+    fullDir: parsed.full,
+    limit: parsed.limit || undefined,
+  });
+  return { ok: true, result, text: formatExportRaw(result) };
+}
+
+/** Usage string reused both for the no-mode CLI error and help.cjs. */
+const OVERRIDE_USAGE = 'df-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]';
+
+/**
+ * Exactly one `<at>  <gate>  <reason>` line per entry (newest first, already
+ * ordered by `readOverrides`), then any needs-rescoping lines, or a single
+ * `no overrides recorded` line when the log is empty.
+ */
+function formatOverrideRaw(result) {
+  const entries = (result && result.entries) || [];
+  if (entries.length === 0) return 'no overrides recorded';
+  const lines = entries.map(e => `${e.at}  ${e.gate}  ${e.reason}`);
+  const rescoping = (result && result.needs_rescoping) || [];
+  for (const r of rescoping) lines.push(`needs rescoping: ${r.gate} (${r.overrides} overrides)`);
+  return lines.join('\n');
+}
+
+/**
+ * `df-tools override` — record a structured, logged gate override
+ * (`--gate <g> --reason <why>`), or list recent overrides (`--list`).
+ *
+ * `planningDir` resolves the same way `telemetry`'s case block does: a plain
+ * existence check against `<cwd>/.planning`, with the `null` case handed to
+ * `recordOverride`, which owns the "No .planning/ directory found" message.
+ * `--list` against a missing `.planning/` is not an error — `readOverrides`
+ * returns an empty result and the CLI exits 0.
+ *
+ * @param {{argv?: string[], cwd: string}} opts
+ * @returns {{ok:true, result:object, text:string} | {ok:false, message:string}}
+ */
+function runOverride({ argv = [], cwd }) {
+  const parsed = parseAuditArgs(argv, { values: ['--gate', '--reason', '--limit'], bools: ['--list'] });
+  if (!parsed.ok) return parsed;
+
+  const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
+
+  if (parsed.list) {
+    if (parsed.gate !== undefined || parsed.reason !== undefined) {
+      return { ok: false, message: '--list cannot be combined with --gate/--reason' };
+    }
+    const result = overrideLib.readOverrides({ planningDir, limit: parsed.limit });
+    return { ok: true, result, text: formatOverrideRaw(result) };
+  }
+
+  if (parsed.gate === undefined) {
+    return { ok: false, message: OVERRIDE_USAGE };
+  }
+
+  const result = overrideLib.recordOverride({ planningDir, gate: parsed.gate, reason: parsed.reason });
+  if (!result.ok) return { ok: false, message: result.message };
+  overrideLib.pruneLog(planningDir);
+  return {
+    ok: true,
+    result,
+    text: result.marker
+      ? `recorded: ${result.gate} — ${result.reason} (marker armed: ${result.marker})`
+      : `recorded: ${result.gate} — ${result.reason}`,
+  };
+}
+
 module.exports = {
   parseAuditArgs,
   defaultTranscriptRoot,
@@ -165,4 +269,9 @@ module.exports = {
   formatContextRaw,
   formatSessionAuditRaw,
   DEFAULT_LIMIT,
+  defaultIndexPath,
+  runTranscriptExport,
+  formatExportRaw,
+  runOverride,
+  formatOverrideRaw,
 };
