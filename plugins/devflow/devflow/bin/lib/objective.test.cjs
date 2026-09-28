@@ -562,3 +562,37 @@ Last session: 2026-01-20
     assert.equal(second.json.state_update_reason, 'already_logged');
   });
 });
+
+// TOOL-02 sibling (TRD 40-02, Rule 1): `objective remove --confirm` had the same
+// `state_updated: fs.existsSync(statePath)` defect — it rewrote STATE.md
+// unconditionally and reported true even when neither count pattern matched.
+describe('objective remove --confirm — truthful state_updated (TOOL-02 sibling)', () => {
+  function removableProject(state) {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    writeObjective12Dir(project, 10);
+    writeObjective13Dir(project);
+    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), state, 'utf-8');
+    return project;
+  }
+
+  test('no objective-count field in STATE.md: nothing written, state_updated false', () => {
+    const project = removableProject(NARRATIVE_STATE);
+
+    const result = run(['objective', 'remove', '13', '--confirm'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.mutated, true);
+    assert.equal(readState(project), NARRATIVE_STATE);
+    assert.equal(result.json.state_updated, false);
+  });
+
+  test('**Total Objectives:** present: decremented, state_updated true', () => {
+    const state = `${TEMPLATE_STATE}**Total Objectives:** 13\n`;
+    const project = removableProject(state);
+
+    const result = run(['objective', 'remove', '13', '--confirm'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(readState(project), /\*\*Total Objectives:\*\* 12\n/);
+    assert.equal(result.json.state_updated, true);
+  });
+});
