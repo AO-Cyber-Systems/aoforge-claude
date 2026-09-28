@@ -294,3 +294,31 @@ describe('objective complete — STATE.md legacy/template schema (backward compa
     assert.match(state, /\*\*Current Job:\*\*\s*Not started/);
   });
 });
+
+describe('objective complete — Jobs-line leading-count seed (quick-20)', () => {
+  const SEEDED_ROADMAP = FIVE_COLUMN_ROADMAP.replace(
+    '**Jobs:** 10 TRDs in 4 waves (planned 2026-01-15; 12-04',
+    '**Jobs:** 0/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04'
+  );
+
+  test('fixture sanity: the seed replace actually changed the string', () => {
+    assert.notEqual(SEEDED_ROADMAP, FIVE_COLUMN_ROADMAP);
+    assert.match(SEEDED_ROADMAP, /\*\*Jobs:\*\* 0\/10 complete — 10 TRDs in 4 waves/);
+  });
+
+  test('14: objective complete 12 — leading count replaced in place, no "jobs" inserted', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
+    writeObjective12Dir(project, 10);
+    writeObjective13Dir(project);
+    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+
+    run(['objective', 'complete', '12'], project);
+
+    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.equal(
+      jobsLine(roadmap, 12),
+      '**Jobs:** 10/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04 split into 04a/04b/04c; notes about wave rebalancing)'
+    );
+  });
+});

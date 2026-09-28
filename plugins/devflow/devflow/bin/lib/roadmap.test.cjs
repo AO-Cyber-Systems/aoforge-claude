@@ -32,6 +32,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
+const { computeJobsLineText } = require('./roadmap-progress.cjs');
 
 const cleanup = [];
 afterEach(() => {
@@ -289,5 +290,144 @@ describe('roadmap update-job-progress — 4-column table (no Milestone column; o
     const line = jobsLine(roadmap, 12);
     assert.match(line, /^\*\*Jobs:\*\*\s*10\/10 jobs complete/);
     assert.match(line, /10 TRDs in 4 waves/, `original planning detail was wiped: ${line}`);
+  });
+});
+
+/**
+ * quick-20: `computeJobsLineText` replaces its leading count instead of
+ * prepending a second one.
+ *
+ * A `**Jobs:**` value that STARTS with a machine-written count fragment
+ * (`N/M complete`, `N/M jobs executed`, `N/M TRDs executed`, ...) must have
+ * ONLY its `N/M` numbers replaced — the author's own noun and verb, and
+ * every byte after the fragment, survive untouched. Only when there is no
+ * leading count at all does the function fall back to prepending
+ * `N/M jobs complete — ` (today's existing behavior for hand-authored
+ * detail with no machine-owned prefix).
+ */
+describe('computeJobsLineText — leading count replace vs prepend', () => {
+  test('1: leading count-only fragment ("N/M complete") — numbers replaced, tail byte-identical', () => {
+    assert.equal(
+      computeJobsLineText('0/16 complete — 16 TRDs in 13 waves (x)', '16/16 jobs complete'),
+      '16/16 complete — 16 TRDs in 13 waves (x)'
+    );
+  });
+
+  test('2: count-only fragment followed by a comma — only numbers replaced, tail byte-identical (no "66/66" false match)', () => {
+    assert.equal(
+      computeJobsLineText(
+        '10/10 complete, verified passed 66/66 (36-VERIFICATION.md) — 10 TRDs in 4 waves (y)',
+        '10/10 jobs complete'
+      ),
+      '10/10 complete, verified passed 66/66 (36-VERIFICATION.md) — 10 TRDs in 4 waves (y)'
+    );
+  });
+
+  test('3: count-only fragment, unchanged numbers — regression guard', () => {
+    assert.equal(computeJobsLineText('6/6 complete', '6/6 jobs complete'), '6/6 complete');
+  });
+
+  test('4: count-only fragment, stale numbers advance — only the numbers change', () => {
+    assert.equal(computeJobsLineText('5/6 complete', '6/6 jobs complete'), '6/6 complete');
+  });
+
+  test('5: noun+verb fragment ("N/M TRDs executed") keeps the author\'s own noun and verb', () => {
+    assert.equal(
+      computeJobsLineText('11/11 TRDs executed in 9 waves (two roots)', '16/16 jobs complete'),
+      '16/16 TRDs executed in 9 waves (two roots)'
+    );
+  });
+
+  test('6: the old managed shape ("N/M jobs executed") keeps its own verb, not the counter\'s', () => {
+    assert.equal(
+      computeJobsLineText('9/10 jobs executed — 10 TRDs in 4 waves (z)', '10/10 jobs complete'),
+      '10/10 jobs executed — 10 TRDs in 4 waves (z)'
+    );
+  });
+
+  test('7: stacked heal — a second leading-count fragment collapses away, keeping the FIRST fragment\'s noun and verb', () => {
+    assert.equal(
+      computeJobsLineText('15/16 jobs executed — 0/16 complete — 16 TRDs in 13 waves (x)', '16/16 jobs complete'),
+      '16/16 jobs executed — 16 TRDs in 13 waves (x)'
+    );
+  });
+
+  test('8: idempotent — running twice with the same counter gives the same result (cases 1, 2, 7)', () => {
+    const counter1 = '16/16 jobs complete';
+    const case1 = '0/16 complete — 16 TRDs in 13 waves (x)';
+    const once1 = computeJobsLineText(case1, counter1);
+    assert.equal(computeJobsLineText(once1, counter1), once1);
+
+    const counter2 = '10/10 jobs complete';
+    const case2 = '10/10 complete, verified passed 66/66 (36-VERIFICATION.md) — 10 TRDs in 4 waves (y)';
+    const once2 = computeJobsLineText(case2, counter2);
+    assert.equal(computeJobsLineText(once2, counter2), once2);
+
+    const case7 = '15/16 jobs executed — 0/16 complete — 16 TRDs in 13 waves (x)';
+    const once7 = computeJobsLineText(case7, counter1);
+    assert.equal(computeJobsLineText(once7, counter1), once7);
+  });
+
+  test('9: no leading count (free text) — prepends "N/M jobs complete — "', () => {
+    assert.equal(
+      computeJobsLineText('registered, not planned.', '0/0 jobs complete'),
+      '0/0 jobs complete — registered, not planned.'
+    );
+  });
+
+  test('10: a bare "N waves" with no slash is not a count — prepends', () => {
+    assert.equal(
+      computeJobsLineText('3 TRDs in 3 waves (sequential — 33-02 and 33-03)', '16/16 jobs complete'),
+      '16/16 jobs complete — 3 TRDs in 3 waves (sequential — 33-02 and 33-03)'
+    );
+  });
+
+  test('11: placeholder "0 jobs" and the empty string both become the bare counter', () => {
+    assert.equal(computeJobsLineText('0 jobs', '16/16 jobs complete'), '16/16 jobs complete');
+    assert.equal(computeJobsLineText('', '16/16 jobs complete'), '16/16 jobs complete');
+  });
+});
+
+describe('roadmap update-job-progress — Jobs-line leading-count seed (quick-20)', () => {
+  const SEEDED_ROADMAP = FIVE_COLUMN_ROADMAP.replace(
+    '**Jobs:** 10 TRDs in 4 waves (planned 2026-01-15; 12-04',
+    '**Jobs:** 0/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04'
+  );
+
+  test('fixture sanity: the seed replace actually changed the string', () => {
+    assert.notEqual(SEEDED_ROADMAP, FIVE_COLUMN_ROADMAP);
+    assert.match(SEEDED_ROADMAP, /\*\*Jobs:\*\* 0\/10 complete — 10 TRDs in 4 waves/);
+  });
+
+  test('12: all 10 summaries present — leading count replaced in place, no "jobs" inserted; idempotent on rerun', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
+    writeObjective12Dir(project, 10);
+
+    run(['roadmap', 'update-job-progress', '12'], project);
+    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.equal(
+      jobsLine(roadmap, 12),
+      '**Jobs:** 10/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04 split into 04a/04b/04c; notes about wave rebalancing)'
+    );
+    assert.equal(jobsLine(roadmap, 11), '**Jobs:** 2/2 complete');
+
+    // Second run: byte-identical file (idempotent).
+    run(['roadmap', 'update-job-progress', '12'], project);
+    const roadmapAgain = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.equal(roadmapAgain, roadmap, 'second run must be byte-identical to the first');
+  });
+
+  test('13: 9 of 10 summaries present — leading count replaced with the partial numbers, author\'s own verb kept', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
+    writeObjective12Dir(project, 9);
+
+    run(['roadmap', 'update-job-progress', '12'], project);
+    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.equal(
+      jobsLine(roadmap, 12),
+      '**Jobs:** 9/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04 split into 04a/04b/04c; notes about wave rebalancing)'
+    );
   });
 });
