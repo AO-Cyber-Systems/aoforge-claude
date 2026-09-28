@@ -451,6 +451,7 @@ Planner prompt:
 <planning_context>
 **Objective:** {objective_number}
 **Mode:** {standard | gap_closure}
+**Flags:** {--skip-research if passed, otherwise none}
 
 **Project State:** {state_content}
 **Roadmap:** {roadmap_content}
@@ -516,6 +517,7 @@ TaskUpdate(taskId=plan_task_id, status="completed")
 - **`## PLANNING COMPLETE`:** Display TRD count. If `--skip-verify` or `job_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
 - **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation (step 12)
 - **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual
+- **`## RESEARCH NEEDED`:** The planner detected a novel domain with no research and wrote no TRDs. It is a subagent and cannot spawn the researcher, so you do. Spawn objective-researcher exactly as in step 6 (same banner, prompt and spawn call; handle its return as in step 6), appending the returned **Signals** to the research prompt's `<additional_context>` as `**Novel-domain signals (why research was triggered):** {signals}`. Then re-run the step 1 init so `has_research` and `research_content` are refreshed, and re-spawn the planner (step 9) with the new research. Allow at most one re-spawn: a second `## RESEARCH NEEDED` is handled as `## PLANNING INCONCLUSIVE`. If `--skip-research` was passed, the planner never emits this (step 9 passes the flag); if it does anyway, handle it as `## PLANNING INCONCLUSIVE` rather than overriding the flag.
 
 ## 11. Spawn job-checker Agent
 

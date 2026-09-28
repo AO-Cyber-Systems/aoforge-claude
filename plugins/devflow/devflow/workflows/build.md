@@ -126,7 +126,7 @@ Display banner:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Spawn planner with full context (same as plan-objective step 9).
+Spawn planner with full context (same as plan-objective step 9). Handle its return as in plan-objective step 10 (including `## RESEARCH NEEDED`).
 
 Pass any inline discussion answers as additional context in the planner prompt.
 

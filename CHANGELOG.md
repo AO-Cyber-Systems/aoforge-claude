@@ -158,6 +158,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   obsolete `df-ui-evaluator` profile key now use the canonical `ui-evaluator`.
   `model-profiles.test.cjs` now pins the `references/model-profiles.md` effort column to agent
   frontmatter and fails on any backticked `df-<agent>` profile key in agents, skills or workflows.
+- The planner's novel-domain auto-research told a subagent to spawn `objective-researcher`, which a
+  subagent cannot do, so the path never ran. The planner now returns `## RESEARCH NEEDED` with the
+  `detect novel-domain` signals, and plan-objective (step 10) and `/devflow:build` run the researcher
+  and re-spawn the planner once. `agent-tools.test.cjs` now catches `Task(` / `Agent(` /
+  `subagent_type=` spawn instructions in agents whose `tools:` cannot spawn.
 
 ## [2.10.1] - 2026-09-26
 

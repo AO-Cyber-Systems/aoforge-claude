@@ -723,14 +723,12 @@ NOVEL_FIRED=$(echo "$NOVEL" | jq -r '.novel')
 if [[ "$NOVEL_FIRED" == "true" ]]; then
   # Surface what fired
   echo "$NOVEL" | jq '.signals'
-  # Auto-spawn objective-researcher before continuing discovery
-  # (Use the researcher_model from init JSON.)
 fi
 ```
 
-If `novel:true` and research has not run: spawn `objective-researcher` via the standard Task(...) pattern with `subagent_type="objective-researcher"` and `model="${researcher_model}"`. Pass the signals block as part of the prompt so the researcher knows what triggered it. Wait for completion before proceeding to the existing Level 0-3 logic.
+If `novel:true`, research has not run (`has_research:false`) and `--skip-research` is absent: **STOP. Write no TRDs.** Return `## RESEARCH NEEDED` (see structured_returns) carrying the `.signals` block above. You are a subagent and subagents cannot spawn agents, so you do not run the researcher yourself: the orchestrator (plan-objective step 10, also used by `/devflow:build`) runs objective-researcher with your signals and re-spawns you with the research loaded.
 
-If `novel:false` OR `--skip-research` was passed OR `has_research:true` already: skip auto-spawn, proceed normally.
+If `novel:false` OR `--skip-research` was passed OR `has_research:true` already: proceed normally.
 
 ---
 
@@ -1133,6 +1131,19 @@ Read `{paths}` for wave/confidence/files/dependencies. Run `/devflow:execute-obj
 - {paths-list, one per line}
 
 Read `{paths}` for gap details. Run `/devflow:execute-objective {objective} --gaps-only` to begin.
+```
+
+## Research Needed
+
+Returned from `mandatory_discovery` Step 0 when the objective is a novel domain and no research exists. No TRDs are written.
+
+```markdown
+## RESEARCH NEEDED
+
+**Objective:** {objective}
+**Signals:** {compact JSON of detect novel-domain .signals}
+
+No TRDs written. Orchestrator: run objective-researcher (plan-objective step 6) with these signals, then re-spawn the planner.
 ```
 
 ## Checkpoint Reached / Revision Complete
