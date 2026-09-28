@@ -79,6 +79,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 10]: Used YAML-key-first parsing strategy in loadCatalog: each yaml block's first line identifies the library — more robust than heading-matching
 - [Objective 10]: setState patterns are all MEDIUM/LOW so setState misses route to advisories not blockers, matching flutter-state-patterns.md confidence model
 - [Objective 25-fleet-audit-fixes]: TRD 04 complete: global ~/.claude/CLAUDE.md routing table fixed (status/micro/4 adoption skills) + '## TDD & Quality' by-kind playbook section added; deriveOverrides yields only {_playbookDetected:true}; devflow-claude resolver config unchanged (strict->strict no-op)
+- [Objective 39-telemetry-audit-cli]: TRD 39-02 complete: wired df-tools transcript-export and df-tools override (--gate/--reason, --list) into lib/audit-cli.cjs. 19 new tests, strict TDD, no regressions.
 
 ## Performance Metrics
 
@@ -101,4 +102,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 10 P03 | 13min | 2 tasks | 7 files |
 | Objective 10 P10-04a | 7min | 2 tasks | 3 files |
 | Objective 10 P05 | 12min | 2 tasks | 8 files |
+| Objective 39-telemetry-audit-cli P39-02 | ~35min | 2 tasks | 3 files |
 
