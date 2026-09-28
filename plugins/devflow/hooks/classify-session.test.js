@@ -329,6 +329,7 @@ describe('classify-session subprocess (17-03 extension)', () => {
       assert.equal(r.status, 0, `must exit 0. stderr: ${r.stderr}`);
       assert.ok(r.stdout.includes('INIT OFFER'), `expected INIT OFFER preamble, got: ${r.stdout.slice(0, 200)}`);
       assert.ok(r.stdout.includes('substantive'), 'must mention substantive');
+      assert.ok(r.stdout.includes('/devflow:adopt'), `expected /devflow:adopt for a brownfield repo, got: ${r.stdout.slice(0, 200)}`);
     } finally {
       if (root) fs.rmSync(root, { recursive: true, force: true });
     }

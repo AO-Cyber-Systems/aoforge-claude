@@ -252,6 +252,33 @@ describe('renderRoutingPreamble (17-03 extension)', () => {
   });
 });
 
+// ─── renderRoutingPreamble (TRD 37-10 extension: repoState-aware init-offer) ──
+
+describe('renderRoutingPreamble (37-10 extension)', () => {
+  test('case 32: mode init-offer + repoState brownfield points at /devflow:adopt, not /devflow:new-project --auto', () => {
+    const result = renderRoutingPreamble({ mode: 'init-offer', repoState: 'brownfield' });
+    assert.ok(result.includes('/devflow:adopt'), 'must mention /devflow:adopt');
+    assert.ok(result.includes('INIT OFFER'), 'must keep INIT OFFER');
+    assert.ok(result.includes('substantive'), 'must keep substantive');
+    assert.ok(result.includes('df-tools project-decline'), 'must keep df-tools project-decline');
+    assert.ok(!result.includes('/devflow:new-project --auto'), 'brownfield offer must not also mention /devflow:new-project --auto');
+  });
+
+  test('case 33: mode init-offer without repoState (or repoState greenfield) is byte-identical to the old INIT_OFFER_PREAMBLE (case 31 unchanged)', () => {
+    const noRepoState = renderRoutingPreamble({ mode: 'init-offer' });
+    const greenfield = renderRoutingPreamble({ mode: 'init-offer', repoState: 'greenfield' });
+    assert.equal(noRepoState, greenfield);
+    assert.ok(noRepoState.includes('/devflow:new-project --auto'));
+    assert.ok(!noRepoState.includes('/devflow:adopt'));
+  });
+
+  test('case 34: mode auto-init + repoState brownfield is unchanged -- still /devflow:new-project --auto', () => {
+    const result = renderRoutingPreamble({ mode: 'auto-init', repoState: 'brownfield' });
+    assert.ok(result.includes('/devflow:new-project --auto'), 'auto-init must still direct to --auto');
+    assert.ok(!result.includes('/devflow:adopt'), 'auto-init must never mention /devflow:adopt (adopt is user-triggered)');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // TRD 30-02 — the routing table must not advertise skills the model cannot call
 //
