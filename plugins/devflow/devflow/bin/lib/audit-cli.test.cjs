@@ -23,6 +23,18 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
+
+const TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
+
+/** Spawn the real binary, HOME-isolated (TRD 39-01 error_recovery: HOME must
+ * reach the child via `env`, and `--cwd` must be used — never a bare `cwd:`). */
+function runCli(args, cwd, home) {
+  const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', cwd, ...args], {
+    encoding: 'utf-8', timeout: 30000, env: { ...process.env, HOME: home },
+  });
+  return { status: r.status, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
+}
 
 // ─── Fixture builders ──────────────────────────────────────────────────────
 
@@ -132,5 +144,197 @@ describe('runContext() — root resolution', () => {
     const r = runContext({ argv: ['--root', nonexistent] });
     assert.deepEqual(r, { ok: false, message: `transcript root not found: ${nonexistent}` });
     assert.deepEqual(fs.readdirSync(parent), before, 'nothing written to disk');
+  });
+});
+
+// ─── df-tools context / session-audit (CLI) — TRD 39-01 tests 1-11 ─────────
+//
+// Wires context-audit.cjs and session-audit.cjs into the dispatcher:
+// `df-tools context [--limit N] [--root <dir>] [--raw]` and
+// `df-tools session-audit [--since YYYY-MM-DD] [--limit N] [--root <dir>] [--raw]`,
+// previously unreachable (`Error: Unknown command: context` / `session-audit`).
+describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
+  function tmpCwd() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-cwd-'));
+  }
+
+  function cleanup(...dirs) {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  }
+
+  test('1. context: exit 0, files_scanned 1, read_share dominated by Read', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [
+        toolUse('r', 'Read', { file_path: '/x' }),
+        toolResult('r', 'x'.repeat(8000)),
+        toolUse('b', 'Bash', { command: 'ls' }),
+        toolResult('b', 'y'.repeat(400)),
+      ]);
+      const r = runCli(['context'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.files_scanned, 1);
+      assert.equal(json.targets.read_share_ok, false);
+      assert.ok(json.targets.read_share_pct > 90, `expected > 90, got ${json.targets.read_share_pct}`);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('2. context --raw: exactly 5 lines', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [
+        toolUse('r', 'Read', { file_path: '/x' }),
+        toolResult('r', 'x'.repeat(8000)),
+        toolUse('b', 'Bash', { command: 'ls' }),
+        toolResult('b', 'y'.repeat(400)),
+      ]);
+      const r = runCli(['context', '--raw'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const lines = r.stdout.split('\n');
+      assert.equal(lines.length, 5, `expected 5 lines, got: ${JSON.stringify(lines)}`);
+      assert.equal(lines[0], 'files_scanned: 1');
+      assert.match(lines[2], /^read_share: /);
+      assert.match(lines[2], /\(target < 40%: OVER\)$/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('3. context against an empty HOME (no .claude/projects) fails', () => {
+    const cwd = tmpCwd();
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-emptyhome-'));
+    try {
+      const r = runCli(['context'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /transcript root not found: .*\.claude[\/\\]projects/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('4. context --root <dir> scans that dir, ignoring HOME', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    writeTranscript(home, 'proj-a', 'sess-1', [toolResult('x', 'from-home')]);
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-root-'));
+    fs.mkdirSync(path.join(rootDir, 'proj-b'), { recursive: true });
+    fs.writeFileSync(path.join(rootDir, 'proj-b', 'sess-a.jsonl'), JSON.stringify(toolResult('a', 'from-root')) + '\n');
+    fs.writeFileSync(path.join(rootDir, 'proj-b', 'sess-b.jsonl'), JSON.stringify(toolResult('b', 'from-root')) + '\n');
+    try {
+      const r = runCli(['context', '--root', rootDir], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.files_scanned, 2, 'must scan --root, not the 1-file HOME default');
+    } finally {
+      cleanup(cwd, home, rootDir);
+    }
+  });
+
+  test('5. context --limit abc fails with a specific message', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      const r = runCli(['context', '--limit', 'abc'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /--limit must be a non-negative integer/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('6. context --bogus fails naming the unknown flag', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      const r = runCli(['context', '--bogus'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /unknown flag: --bogus/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('7. session-audit: exit 0, sessions 1, verdict is a string', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [
+        toolResult('x', 'boom: something failed', { isError: true }),
+      ]);
+      const r = runCli(['session-audit'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.sessions, 1);
+      assert.equal(typeof json.verdict, 'string');
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('8. session-audit --since 2099-01-01 excludes every (predating) row', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [
+        toolResult('x', 'boom: something failed', { isError: true }),
+      ]);
+      const r = runCli(['session-audit', '--since', '2099-01-01'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.total_events, 0);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('9. session-audit --since yesterday fails validation', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      const r = runCli(['session-audit', '--since', 'yesterday'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /--since must be an ISO date \(YYYY-MM-DD\)/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('10. session-audit --raw: exactly 2 lines', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [
+        toolResult('x', 'boom: something failed', { isError: true }),
+      ]);
+      const r = runCli(['session-audit', '--raw'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const lines = r.stdout.split('\n');
+      assert.equal(lines.length, 2, `expected 2 lines, got: ${JSON.stringify(lines)}`);
+      assert.match(lines[0], /^files_scanned: \d+, sessions: \d+, sessions_with_blocks: \d+ \(\d+(\.\d+)?%\)$/);
+      assert.match(lines[1], /^verdict: /);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('11. --help on both commands prints their own usage line', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      const ctxHelp = runCli(['context', '--help'], cwd, home);
+      assert.equal(ctxHelp.status, 0, `stderr: ${ctxHelp.stderr}`);
+      assert.match(ctxHelp.stdout, /df-tools context/);
+
+      const saHelp = runCli(['session-audit', '--help'], cwd, home);
+      assert.equal(saHelp.status, 0, `stderr: ${saHelp.stderr}`);
+      assert.match(saHelp.stdout, /df-tools session-audit/);
+    } finally {
+      cleanup(cwd, home);
+    }
   });
 });
