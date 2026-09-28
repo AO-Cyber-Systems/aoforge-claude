@@ -90,7 +90,7 @@ Jobs:
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
 | 36. Upgrade in place | v1.3 | 10/10 | Complete | 2026-09-27 |
 | 37. /devflow:adopt + backup pruning | v1.3 | 16/16 | Complete | 2026-09-28 |
-| 38. Doc auto-correction | v1.3 | 10/12 | In Progress | — |
+| 38. Doc auto-correction | v1.3 | 11/12 | In Progress | — |
 
 ### Objective 27: Gate correctness ✅
 
@@ -296,7 +296,7 @@ Jobs:
 
 **Goal:** DevFlow keeps its own, project and global documentation current as it runs: a command-reference checker + rename map (a CI test on the plugin, an auto-fix in projects), staleness advisories (STACK.md review age and drift, codebase-map age, W002), and a one-time cleanup of DevFlow's own stale docs.
 **Depends on:** Objective 36 (managed blocks, upgrade runner).
-**Jobs:** 10/12 complete — 12 TRDs in 5 waves (planned 2026-09-28; objective-local requirement IDs DOC-01..DOC-09; single rename source = `DEPRECATION_MAP` + `REMOVED_COMMANDS`, no `command-renames.json`; `df-tools telemetry` wired in the severable 38-11; baseline at `100cade`: 4023 tests / 1 pre-existing fail)
+**Jobs:** 11/12 complete — 12 TRDs in 5 waves (planned 2026-09-28; objective-local requirement IDs DOC-01..DOC-09; single rename source = `DEPRECATION_MAP` + `REMOVED_COMMANDS`, no `command-renames.json`; `df-tools telemetry` wired in the severable 38-11; baseline at `100cade`: 4023 tests / 1 pre-existing fail)
 
 Jobs:
 - [x] 38-01-TRD.md — Wave 1: `lib/doc-refs.cjs` resolver (prefix/renamed/removed/unknown, slash-anchored, ignore regions, idempotent rewrite, walker) + `REMOVED_COMMANDS` in skill-route
@@ -309,5 +309,5 @@ Jobs:
 - [x] 38-08-TRD.md — Wave 2: migration 0007 doc-refs-fix (auto) — CLAUDE.md DEVFLOW block + STATE.md outside Session Log; historical records exempt
 - [x] 38-09-TRD.md — Wave 2: CI gate `doc-refs.repo.test.cjs` — justified EXEMPT list, rename table == DEPRECATION_MAP, sensitivity controls
 - [x] 38-10-TRD.md — Wave 3: `validate health` Check 14 (W050-W054) + `df-tools validate docs`
-- [ ] 38-11-TRD.md — Wave 4: `df-tools telemetry` wired (doc advisories merged) + Documentation section in `/devflow:status`
+- [x] 38-11-TRD.md — Wave 4: `df-tools telemetry` wired (doc advisories merged) + Documentation section in `/devflow:status`
 - [ ] 38-12-TRD.md — Wave 5: CHANGELOG [Unreleased], CLAUDE.md CLI-inventory correction, USER-GUIDE, dogfood, final full-suite gate (no version bump)
