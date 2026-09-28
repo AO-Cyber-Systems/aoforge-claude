@@ -157,3 +157,12 @@ None - no external service configuration required.
 ---
 *Objective: 38-doc-auto-correction*
 *Completed: 2026-09-28*
+
+## Self-Check: PASSED
+
+- FOUND: .planning/objectives/38-doc-auto-correction/38-08-SUMMARY.md
+- FOUND: 3e31274 (Task 1 RED)
+- FOUND: 3d0a839 (Task 1 GREEN)
+- FOUND: fa57b9b (Task 2 RED)
+- FOUND: 8ec633a (Task 2 GREEN)
+- FOUND: 8921878 (docs: SUMMARY.md)
