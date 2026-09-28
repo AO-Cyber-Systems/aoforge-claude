@@ -24,14 +24,14 @@ If `todo_count` is 0:
 ```
 No pending todos.
 
-Todos are captured during work sessions with /devflow:add-todo.
+Todos are captured during work sessions with /devflow:todo add.
 
 ---
 
 Would you like to:
 
 1. Continue with current objective (/devflow:status)
-2. Add a todo now (/devflow:add-todo)
+2. Add a todo now (/devflow:todo add)
 ```
 
 Exit.
@@ -39,8 +39,8 @@ Exit.
 
 <step name="parse_filter">
 Check for area filter in arguments:
-- `/devflow:check-todos` → show all
-- `/devflow:check-todos api` → filter to area:api only
+- `/devflow:todo list` → show all
+- `/devflow:todo list api` → filter to area:api only
 </step>
 
 <step name="list_todos">
@@ -58,7 +58,7 @@ Pending Todos:
 ---
 
 Reply with a number to view details, or:
-- `/devflow:check-todos [area]` to filter by area
+- `/devflow:todo list [area]` to filter by area
 - `q` to exit
 ```
 

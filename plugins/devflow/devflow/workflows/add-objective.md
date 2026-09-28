@@ -14,15 +14,15 @@ Read all files referenced by the invoking prompt's execution_context before star
 <step name="parse_arguments">
 Parse the command arguments:
 - All arguments become the objective description
-- Example: `/devflow:add-objective Add authentication` → description = "Add authentication"
-- Example: `/devflow:add-objective Fix critical performance issues` → description = "Fix critical performance issues"
+- Example: `/devflow:objective add Add authentication` → description = "Add authentication"
+- Example: `/devflow:objective add Fix critical performance issues` → description = "Fix critical performance issues"
 
 If no arguments provided:
 
 ```
 ERROR: Objective description required
-Usage: /devflow:add-objective <description>
-Example: /devflow:add-objective Add authentication system
+Usage: /devflow:objective add <description>
+Example: /devflow:objective add Add authentication system
 ```
 
 Exit.
@@ -96,7 +96,7 @@ Roadmap updated: .planning/ROADMAP.md
 ---
 
 **Also available:**
-- `/devflow:add-objective <description>` — add another objective
+- `/devflow:objective add <description>` — add another objective
 - Review roadmap
 
 ---

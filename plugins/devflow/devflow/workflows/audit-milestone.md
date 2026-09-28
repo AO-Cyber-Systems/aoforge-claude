@@ -199,7 +199,7 @@ All requirements covered. Cross-objective integration verified. E2E flows comple
 
 **Complete milestone** — archive and tag
 
-/devflow:complete-milestone {version}
+/devflow:milestone complete {version}
 
 <sub>/clear first → fresh context window</sub>
 
@@ -236,7 +236,7 @@ All requirements covered. Cross-objective integration verified. E2E flows comple
 
 **Plan gap closure** — create objectives to complete milestone
 
-/devflow:plan-milestone-gaps
+/devflow:milestone gaps
 
 <sub>/clear first → fresh context window</sub>
 
@@ -244,7 +244,7 @@ All requirements covered. Cross-objective integration verified. E2E flows comple
 
 **Also available:**
 - cat .planning/v{version}-MILESTONE-AUDIT.md — see full report
-- /devflow:complete-milestone {version} — proceed anyway (accept tech debt)
+- /devflow:milestone complete {version} — proceed anyway (accept tech debt)
 
 ───────────────────────────────────────────────────────────────
 
@@ -274,11 +274,11 @@ All requirements met. No critical blockers. Accumulated tech debt needs review.
 
 **A. Complete milestone** — accept debt, track in backlog
 
-/devflow:complete-milestone {version}
+/devflow:milestone complete {version}
 
 **B. Plan cleanup objective** — address debt before completing
 
-/devflow:plan-milestone-gaps
+/devflow:milestone gaps
 
 <sub>/clear first → fresh context window</sub>
 

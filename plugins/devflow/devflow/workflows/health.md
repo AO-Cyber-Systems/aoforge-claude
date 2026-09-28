@@ -84,7 +84,7 @@ Errors: N | Warnings: N | Info: N
 ## Errors
 
 - [E001] config.json: JSON parse error at line 5
-  Fix: Run /devflow:health --repair to reset to defaults
+  Fix: Run /devflow:status check --repair to reset to defaults
 
 - [E002] PROJECT.md not found
   Fix: Run /devflow:new-project to create
@@ -95,7 +95,7 @@ Errors: N | Warnings: N | Info: N
 ## Warnings
 
 - [W001] STATE.md references objective 5, but only objectives 1-3 exist
-  Fix: Run /devflow:health --repair to regenerate
+  Fix: Run /devflow:status check --repair to regenerate
 
 - [W005] Objective directory "1-setup" doesn't follow NN-name format
   Fix: Rename to match pattern (e.g., 01-setup)
@@ -119,7 +119,7 @@ itself could not run — show it, never treat it as a pass.
 **Footer (if repairable issues exist and --repair was NOT used):**
 ```
 ---
-N issues can be auto-repaired. Run: /devflow:health --repair
+N issues can be auto-repaired. Run: /devflow:status check --repair
 ```
 
 **Footer (if W040 is present and --migrate was NOT used):**
@@ -202,7 +202,7 @@ This project is behind DevFlow. Run: /devflow:status check --migrate
 Ask user if they want to run repairs:
 
 ```
-Would you like to run /devflow:health --repair to fix N issues automatically?
+Would you like to run /devflow:status check --repair to fix N issues automatically?
 ```
 
 If yes, re-run with --repair flag and display results.
