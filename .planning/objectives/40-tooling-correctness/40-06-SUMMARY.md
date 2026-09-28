@@ -39,7 +39,7 @@ key-files:
     - CHANGELOG.md
 
 key-decisions:
-  - "40-06 is NOT ticked by this TRD. At 6/6 summaries, `update-job-progress 40` also writes the Progress row `6/6 | Complete | <date>` and the Jobs line `6/6 jobs complete`, which marks objective 40 complete. The TRD assigns that tick to the execute workflow after this SUMMARY lands, and the orchestrator reserves completion for after verification"
+  - "40-06 was ticked after the SUMMARY landed, at the orchestrator's direction, via `roadmap update-job-progress 40` (281c2fe). At 6/6 this also writes the Progress row `6/6 | Complete | 2026-09-28`. `objective complete 40` was NOT run; that stays with the orchestrator after verification"
   - "The standard executor state_updates (advance-job, update-progress, record-metric, add-decision, requirements mark-complete) were not run. The TRD limits STATE/ROADMAP changes to its dogfood commands, and its `requirements` entries are prose, not REQUIREMENTS.md IDs"
   - "The `objective.cjs:913` `roadmap_updated: fs.existsSync(roadmapPath)` defect found during TOOL-02 dogfood is recorded as a follow-up, not fixed: it is new work outside this TRD's files_modified"
 
@@ -331,7 +331,7 @@ TOOL-04: `rg -n -e 'integer' plugins/devflow/devflow/workflows/remove-objective.
 1. **Task 1: Dogfood every fix and commit the df-tools-made planning changes** - `8f84ef6` (docs)
 2. **Task 2: CHANGELOG [Unreleased]** - `74753a0` (docs)
 
-**TRD metadata:** this SUMMARY (docs commit, hash in the orchestrator return)
+**TRD metadata:** `7f8737a` (SUMMARY), `281c2fe` (40-06 tick, orchestrator-directed), plus this SUMMARY update
 
 ## Validation Gate Results
 
@@ -376,7 +376,12 @@ The only failure is `MA-7 doctl auth init with unset DIGITALOCEAN_TOKEN — secr
 
 ## Decisions Made
 
-- **40-06's own checkbox is left for the execute workflow.** The TRD says the execute workflow ticks 40-06 after this SUMMARY lands. At 6/6 summaries, `update-job-progress 40` also writes the Progress row `6/6 | Complete | 2026-09-28` and the Jobs line `6/6 jobs complete`, which amounts to marking objective 40 complete. The orchestrator reserves that until the independent verifier passes. **Consequence:** once this SUMMARY is committed, the E2E1 reconcile self-test reports `trd_summary_exists` drift for 40-06 alone until the orchestrator runs `roadmap update-job-progress 40`.
+- **40-06's own checkbox was ticked after this SUMMARY landed, at the orchestrator's direction.** At first it was left for the execute workflow, as the TRD says. Once the SUMMARY was committed (7f8737a), E2E1 reported `trd_summary_exists` drift for 40-06 alone (line 340). The orchestrator then directed the tick, and `roadmap update-job-progress 40` returned `summary_count: 6`, `status: Complete`, `trd_checkboxes_ticked: 1`, `trd_checkboxes: ["40-06"]`. The resulting diff was confined to Objective 40:
+  - Progress row `5/6 | In Progress | —` became `6/6 | Complete | 2026-09-28`.
+  - The Jobs line went from `5/6 jobs executed` to `6/6 jobs executed`. It keeps its own verb, as tested by `roadmap.test.cjs` case 6.
+  - The 40-06 checkbox became `[x]`.
+
+  This was committed in 281c2fe. `objective complete 40` (the STATE.md log line) was not run.
 - **Generic executor state_updates were not run.** `state advance-job`, `update-progress`, `record-metric`, `add-decision` and `requirements mark-complete` were skipped. The TRD restricts STATE.md/ROADMAP.md changes to the dogfood commands. The TRD's `requirements` field is prose, and the TOOL-NN IDs are objective-local (not in REQUIREMENTS.md).
 - **CHANGELOG uses words, not the ✅/🚧/📋 glyphs,** for the milestone status order, which matches the file's existing plain style.
 
@@ -407,7 +412,8 @@ None. No external service configuration is required.
 
 ## Next Objective Readiness
 
-- Objective 40 is ready for independent verification. After it passes, the orchestrator runs `roadmap update-job-progress 40` (ticks 40-06, and the Progress row becomes 6/6 Complete) and `objective complete 40` (appends the STATE.md log line).
+- Objective 40 is ready for independent verification. ROADMAP.md already shows 6/6 with 40-06 ticked (281c2fe). After verification passes, the orchestrator runs `objective complete 40` to append the STATE.md log line.
+- Final gate after the 40-06 tick (281c2fe): `npm test` gives 4234 tests / 4201 pass / 1 fail (MA-7 only) / 32 skipped, and E2E1 is green.
 - Objective 41 (retroactive verification of 27–34) is next. Its directory was not touched.
 
 ## Self-Check: PASSED
