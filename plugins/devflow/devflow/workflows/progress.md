@@ -132,7 +132,7 @@ CONTEXT: [✓ if has_context | - if not]
 - [any blockers or concerns from STATE.md]
 
 ## Pending Todos
-- [count] pending — /devflow:check-todos to review
+- [count] pending — /devflow:todo list to review
 
 ## Active Debug Sessions
 - [count] active — /devflow:debug to continue
@@ -329,7 +329,7 @@ All {N} objectives finished!
 
 **Complete Milestone** — archive and prepare for next
 
-`/devflow:complete-milestone`
+`/devflow:milestone complete`
 
 
 ---
@@ -359,7 +359,7 @@ Ready to plan the next milestone.
 
 **Start Next Milestone** — questioning → research → requirements → roadmap
 
-`/devflow:new-milestone`
+`/devflow:milestone new`
 
 
 ---

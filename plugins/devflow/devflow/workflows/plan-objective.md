@@ -354,7 +354,7 @@ RESOLVE_RESULT=$(node ~/.claude/devflow/bin/df-tools.cjs dup-detect resolve "${O
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   State persisted to: ${RESOLVE_RESULT.defer_path}
-  Resume support is v1.2; for now, run `/df:plan-objective ${OBJECTIVE}` again
+  Resume support is v1.2; for now, run `/devflow:plan-objective ${OBJECTIVE}` again
   after the peer session completes (and consider rebasing).
   ```
 
