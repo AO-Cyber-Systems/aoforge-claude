@@ -147,3 +147,114 @@ describe('TRD 28-02 — agent frontmatter is consistent with the tier table', ()
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 41-07 — the reference's effort column is pinned to agent frontmatter.
+//
+// 28-03 added `effort: xhigh` to planner.md and `effort: high` to
+// ui-evaluator.md. The PR #68 merge (b657033) dropped both lines and reverted
+// ui-evaluator.md's body to the obsolete `df-ui-evaluator` key. CI stayed green
+// because nothing tied references/model-profiles.md to the frontmatter.
+//
+// model-profiles.json deliberately does NOT carry effort (Task() takes no
+// effort argument), and no generator writes the .md — so the .md table is the
+// canonical effort source and these tests compare it against the agent files.
+// ---------------------------------------------------------------------------
+
+const PROFILES_MD_PATH = path.join(__dirname, '..', '..', 'references', 'model-profiles.md');
+const SKILLS_DIR = path.join(__dirname, '..', '..', '..', 'skills');
+const WORKFLOWS_DIR = path.join(__dirname, '..', '..', 'workflows');
+
+// Parse the "## Profile Definitions" table only. The same file also has a
+// "Tier → model id" table whose rows (`opus`, `sonnet`, `haiku`) match the
+// same row shape, so the scan stops at the next `## ` heading.
+function readEffortTable() {
+  const lines = fs.readFileSync(PROFILES_MD_PATH, 'utf8').split('\n');
+  const start = lines.findIndex(l => /^##\s+Profile Definitions\b/.test(l));
+  if (start === -1) return [];
+  const rows = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^##\s/.test(line)) break;
+    if (!/^\|\s*`([a-z-]+)`\s*\|/.test(line)) continue;
+    const cells = line.split('|').map(c => c.trim()).filter(c => c !== '');
+    const agent = cells[0].replace(/`/g, '');
+    const raw = cells[cells.length - 1];
+    const effort = (raw === '—' || raw === '-') ? null : raw;
+    rows.push({ agent, effort, line: i + 1 });
+  }
+  return rows;
+}
+
+function frontmatterEffort(agent) {
+  const file = path.join(AGENTS_DIR, `${agent}.md`);
+  if (!fs.existsSync(file)) return undefined;
+  const fm = fs.readFileSync(file, 'utf8').split('---')[1] || '';
+  const m = /^effort:\s*(\S+)/m.exec(fm);
+  return m ? m[1] : null;
+}
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+describe('TRD 41-07 — reference effort column matches agent frontmatter', () => {
+  const rows = readEffortTable();
+
+  test('every profile key has exactly one row in the Profile Definitions table', () => {
+    const counts = new Map();
+    for (const r of rows) counts.set(r.agent, (counts.get(r.agent) || 0) + 1);
+    const missing = profileKeys.filter(k => !counts.has(k));
+    const duplicated = profileKeys.filter(k => (counts.get(k) || 0) > 1);
+    assert.deepEqual(missing, [],
+      `model-profiles.json agents with no row in references/model-profiles.md: ${missing.join(', ')} ` +
+      `(parsed ${rows.length} rows)`);
+    assert.deepEqual(duplicated, [],
+      `agents with more than one row in references/model-profiles.md: ${duplicated.join(', ')}`);
+  });
+
+  test('documented effort equals frontmatter effort for every row (— means none)', () => {
+    assert.ok(rows.length >= profileKeys.length,
+      `parsed only ${rows.length} table rows; expected at least ${profileKeys.length} — the row regex is too strict`);
+    const mismatches = [];
+    for (const { agent, effort } of rows) {
+      const fm = frontmatterEffort(agent);
+      if (fm === undefined) {
+        mismatches.push(`${agent}: documented ${effort || 'none'}, no agent file`);
+        continue;
+      }
+      if ((effort || null) !== (fm || null)) {
+        mismatches.push(`${agent}: documented ${effort || 'none'}, frontmatter ${fm || 'none'}`);
+      }
+    }
+    assert.deepEqual(mismatches, [],
+      `agent frontmatter effort drifted from references/model-profiles.md:\n  ${mismatches.join('\n  ')}`);
+  });
+
+  test('no agent, skill or workflow prompt names a profile key with the obsolete df- prefix', () => {
+    const keys = Object.keys(profiles.agents).map(escapeRe);
+    const re = new RegExp('`df-(' + keys.join('|') + ')`');
+
+    const files = [];
+    for (const f of fs.readdirSync(AGENTS_DIR)) {
+      if (f.endsWith('.md')) files.push(path.join(AGENTS_DIR, f));
+    }
+    for (const f of fs.readdirSync(SKILLS_DIR, { recursive: true })) {
+      if (path.basename(f) === 'SKILL.md') files.push(path.join(SKILLS_DIR, f));
+    }
+    for (const f of fs.readdirSync(WORKFLOWS_DIR, { recursive: true })) {
+      if (String(f).endsWith('.md')) files.push(path.join(WORKFLOWS_DIR, f));
+    }
+
+    const hits = [];
+    for (const file of files.sort()) {
+      const lines = fs.readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, i) => {
+        const m = re.exec(line);
+        if (m) hits.push(`${path.relative(REPO, file)}:${i + 1} (\`df-${m[1]}\`)`);
+      });
+    }
+    assert.deepEqual(hits, [],
+      `obsolete df- profile keys (canonical keys have no prefix):\n  ${hits.join('\n  ')}`);
+  });
+});
