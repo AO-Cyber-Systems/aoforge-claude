@@ -50,8 +50,8 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
              └─────────────┼──────────────┘
                             │
             ┌───────────────▼──────────────┐
-            │  /devflow:audit-milestone        │
-            │  /devflow:complete-milestone     │
+            │  /devflow:milestone audit        │
+            │  /devflow:milestone complete     │
             └───────────────┬──────────────┘
                             │
                    Another milestone?
@@ -59,7 +59,7 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
                       Yes         No -> Done!
                        │
                ┌───────▼──────────────┐
-               │  /devflow:new-milestone  │
+               │  /devflow:milestone new  │
                └──────────────────────┘
 ```
 
@@ -151,29 +151,27 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:execute-objective <N>` | Execute all jobs in parallel waves | After planning is complete |
 | `/devflow:build <N>` | End-to-end: plan → execute → verify in one command | Confident objective, want single-command flow |
 | `/devflow:verify-work [N]` | Manual UAT with auto-diagnosis | After execution completes |
-| `/devflow:audit-milestone` | Verify milestone met its definition of done | Before completing milestone |
-| `/devflow:complete-milestone` | Archive milestone, tag release | All objectives verified |
-| `/devflow:new-milestone [name]` | Start next version cycle | After completing a milestone |
+| `/devflow:milestone audit` | Verify milestone met its definition of done | Before completing milestone |
+| `/devflow:milestone complete` | Archive milestone, tag release | All objectives verified |
+| `/devflow:milestone new [name]` | Start next version cycle | After completing a milestone |
 
 ### Navigation
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/devflow:progress` | Show status and next steps | Anytime -- "where am I?" |
-| `/devflow:resume-work` | Restore full context from last session | Starting a new session |
-| `/devflow:pause-work` | Save context handoff | Stopping mid-objective |
+| `/devflow:status` | Show status and next steps | Anytime -- "where am I?" |
+| `/devflow:status resume` | Restore full context from last session | Starting a new session |
+| `/devflow:status pause` | Save context handoff | Stopping mid-objective |
 | `/devflow:help` | Show all commands | Quick reference |
-| `/devflow:update` | Update DevFlow with changelog preview | Check for new versions |
 
 ### Objective Management
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/devflow:add-objective` | Append new objective to roadmap | Scope grows after initial planning |
-| `/devflow:insert-objective [N]` | Insert urgent work (decimal numbering) | Urgent fix mid-milestone |
-| `/devflow:remove-objective [N]` | Remove future objective and renumber | Descoping a feature |
+| `/devflow:objective add` | Append new objective to roadmap | Scope grows after initial planning |
+| `/devflow:objective remove [N]` | Remove future objective and renumber | Descoping a feature |
 | `/devflow:list-objective-assumptions [N]` | Preview Claude's intended approach | Before planning, to validate direction |
-| `/devflow:plan-milestone-gaps` | Create objectives for audit gaps | After audit finds missing items |
+| `/devflow:milestone gaps` | Create objectives for audit gaps | After audit finds missing items |
 | `/devflow:research-objective [N]` | Deep ecosystem research only | Complex or unfamiliar domain |
 
 ### Brownfield & Utilities
@@ -185,14 +183,12 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:security-audit` | OWASP Top 10 scan with confidence tagging | Before a release or after auth/crypto changes |
 | `/devflow:quick` | Ad-hoc task with DevFlow guarantees | Bug fixes, small features, config changes |
 | `/devflow:debug [desc]` | Systematic debugging with persistent state | When something breaks |
-| `/devflow:add-todo [desc]` | Capture an idea for later | Think of something during a session |
-| `/devflow:check-todos` | List pending todos | Review captured ideas |
+| `/devflow:todo add [desc]` | Capture an idea for later | Think of something during a session |
+| `/devflow:todo list` | List pending todos | Review captured ideas |
 | `/devflow:settings` | Configure workflow toggles and model profile | Change model, toggle agents |
 | `/devflow:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
-| `/devflow:reapply-patches` | Restore local modifications after update | After `/devflow:update` if you had local edits |
-| `/devflow:health` | Check project integrity, repair state drift | Planning files feel stale or corrupt |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
-| `/devflow:status check --migrate` | Upgrade the project in place (runs `df-tools upgrade`) | After a DevFlow update, or when `validate health` reports W040 |
+| `/devflow:status check [--migrate]` | Validate `.planning/` integrity and fix issues; `--migrate` upgrades the project in place (runs `df-tools upgrade`) | Planning files feel stale or corrupt, after a DevFlow update, or when `validate health` reports W040 |
 
 ### Adopting an Existing Repo (`/devflow:adopt`)
 
@@ -467,8 +463,8 @@ claude --dangerously-skip-permissions
 /clear
 /devflow:discuss-objective 2        # Repeat for each objective
 ...
-/devflow:audit-milestone        # Check everything shipped
-/devflow:complete-milestone     # Archive, tag, done
+/devflow:milestone audit        # Check everything shipped
+/devflow:milestone complete     # Archive, tag, done
 ```
 
 ### New Project from Existing Document
@@ -498,17 +494,17 @@ claude --dangerously-skip-permissions
 ### Resuming After a Break
 
 ```bash
-/devflow:progress               # See where you left off and what's next
+/devflow:status                 # See where you left off and what's next
 # or
-/devflow:resume-work            # Full context restoration from last session
+/devflow:status resume          # Full context restoration from last session
 ```
 
 ### Preparing for Release
 
 ```bash
-/devflow:audit-milestone        # Check requirements coverage, detect stubs
-/devflow:plan-milestone-gaps    # If audit found gaps, create objectives to close them
-/devflow:complete-milestone     # Archive, tag, done
+/devflow:milestone audit        # Check requirements coverage, detect stubs
+/devflow:milestone gaps         # If audit found gaps, create objectives to close them
+/devflow:milestone complete     # Archive, tag, done
 ```
 
 ### Speed vs Quality Presets
@@ -522,11 +518,9 @@ claude --dangerously-skip-permissions
 ### Mid-Milestone Scope Changes
 
 ```bash
-/devflow:add-objective              # Append a new objective to the roadmap
+/devflow:objective add              # Append a new objective to the roadmap
 # or
-/devflow:insert-objective 3         # Insert urgent work between objectives 3 and 4
-# or
-/devflow:remove-objective 7         # Descope objective 7 and renumber
+/devflow:objective remove 7         # Descope objective 7 and renumber
 ```
 
 ---
@@ -539,7 +533,7 @@ You ran `/devflow:new-project` but `.planning/PROJECT.md` already exists. This i
 
 ### Context Degradation During Long Sessions
 
-Clear your context window between major commands: `/clear` in Claude Code. DevFlow is designed around fresh contexts -- every subagent gets a clean 200K window. If quality is dropping in the main session, clear and use `/devflow:resume-work` or `/devflow:progress` to restore state.
+Clear your context window between major commands: `/clear` in Claude Code. DevFlow is designed around fresh contexts -- every subagent gets a clean 200K window. If quality is dropping in the main session, clear and use `/devflow:status resume` or `/devflow:status` to restore state.
 
 ### Plans Seem Wrong or Misaligned
 
@@ -551,7 +545,7 @@ Check that the plan was not too ambitious. Plans should have 2-3 tasks maximum. 
 
 ### Lost Track of Where You Are
 
-Run `/devflow:progress`. It reads all state files and tells you exactly where you are and what to do next.
+Run `/devflow:status`. It reads all state files and tells you exactly where you are and what to do next.
 
 ### Need to Change Something After Execution
 
@@ -565,9 +559,9 @@ Switch to budget profile: `/devflow:set-profile budget`. Disable research and pl
 
 Set `commit_docs: false` during `/devflow:new-project` or via `/devflow:settings`. Add `.planning/` to your `.gitignore`. Planning artifacts stay local and never touch git.
 
-### DevFlow Update Overwrote My Local Changes
+### Updating DevFlow
 
-Since v1.17, the installer backs up locally modified files to `df-local-patches/`. Run `/devflow:reapply-patches` to merge your changes back.
+DevFlow updates through the Claude Code plugin marketplace (`/plugin`), and `/devflow:status check --migrate` brings a project forward.
 
 ### Subagent Appears to Fail but Work Was Done
 
@@ -579,15 +573,14 @@ A known workaround exists for a Claude Code classification bug. DevFlow's orches
 
 | Problem | Solution |
 |---------|----------|
-| Lost context / new session | `/devflow:resume-work` or `/devflow:progress` |
+| Lost context / new session | `/devflow:status resume` or `/devflow:status` |
 | Phase went wrong | `git revert` the objective commits, then re-plan |
-| Need to change scope | `/devflow:add-objective`, `/devflow:insert-objective`, or `/devflow:remove-objective` |
-| Milestone audit found gaps | `/devflow:plan-milestone-gaps` |
+| Need to change scope | `/devflow:objective add` or `/devflow:objective remove` |
+| Milestone audit found gaps | `/devflow:milestone gaps` |
 | Something broke | `/devflow:debug "description"` |
 | Quick targeted fix | `/devflow:quick` |
 | Plan doesn't match your vision | `/devflow:discuss-objective [N]` then re-plan |
 | Costs running high | `/devflow:set-profile budget` and `/devflow:settings` to toggle agents off |
-| Update broke local changes | `/devflow:reapply-patches` |
 
 ---
 
