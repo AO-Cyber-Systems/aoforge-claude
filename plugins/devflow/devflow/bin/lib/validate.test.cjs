@@ -781,7 +781,7 @@ describe('health repairs delegate to migrations 0001-0003', () => {
     const w008 = json.warnings.find((w) => w.code === 'W008');
     assert.ok(w008, 'W008 raised');
     assert.strictEqual(w008.message, 'Legacy JOB.md format found: 2 file(s). TRD.md is the current format.');
-    assert.strictEqual(w008.fix, 'Run /df:health --repair to auto-rename to TRD.md');
+    assert.strictEqual(w008.fix, 'Run /devflow:status check --repair to auto-rename to TRD.md');
     assert.strictEqual(w008.repairable, true);
     // Without --repair nothing moves.
     assert.strictEqual(
@@ -971,5 +971,49 @@ describe('objective 38 — W002 + live fix text', () => {
       w002s(json)[0].fix,
       'Correct the objective number in STATE.md (or restore the objective directory)'
     );
+  });
+
+  test('7. fix text names live devflow commands (E001, E002, E003, E004, W003)', () => {
+    tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'df-w002-noplanning-'));
+    tmpHome = makeHome();
+    const { json: noPlanning } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    const e001 = noPlanning.errors.find((e) => e.code === 'E001');
+    assert.ok(e001, 'E001 raised');
+    assert.strictEqual(e001.fix, 'Run /devflow:new-project to initialize');
+    fs.rmSync(tmpProject, { recursive: true, force: true });
+
+    // Minimal .planning/ with only objectives/ present — PROJECT.md, ROADMAP.md, STATE.md,
+    // config.json all missing, so E002/E003/E004/W003 all fire off the one fixture.
+    tmpProject = makePlanningProject();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const e002 = json.errors.find((e) => e.code === 'E002');
+    assert.ok(e002, 'E002 raised');
+    assert.strictEqual(e002.fix, 'Run /devflow:new-project to create');
+
+    const e003 = json.errors.find((e) => e.code === 'E003');
+    assert.ok(e003, 'E003 raised');
+    assert.strictEqual(e003.fix, 'Run /devflow:milestone new to create roadmap');
+
+    const e004 = json.errors.find((e) => e.code === 'E004');
+    assert.ok(e004, 'E004 raised');
+    assert.strictEqual(e004.fix, 'Run /devflow:status check --repair to regenerate');
+
+    const w003 = json.warnings.find((w) => w.code === 'W003');
+    assert.ok(w003, 'W003 raised');
+    assert.strictEqual(w003.fix, 'Run /devflow:status check --repair to create with defaults');
+  });
+
+  test('8. regenerateState (E004 + --repair) writes a Session Log line naming /devflow:status check --repair and no /df:', () => {
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
+
+    const action = json.repairs_performed.find((r) => r.action === 'regenerateState');
+    assert.ok(action && action.success === true, 'regenerateState repair recorded as successful');
+
+    const written = fs.readFileSync(path.join(tmpProject, '.planning', 'STATE.md'), 'utf-8');
+    assert.match(written, /## Session Log[\s\S]*\/devflow:status check --repair/);
+    assert.ok(!written.includes('/df:'), 'no stale /df: command in regenerated STATE.md');
   });
 });

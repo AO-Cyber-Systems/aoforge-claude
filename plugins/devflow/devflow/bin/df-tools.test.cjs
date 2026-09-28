@@ -2608,6 +2608,10 @@ describe('scaffold command', () => {
     assert.ok(content.includes('Objective 3'), 'should reference objective number');
     assert.ok(content.includes('Decisions'), 'should have decisions section');
     assert.ok(content.includes('Discretion Areas'), 'should have discretion section');
+    // TRD 38-02: the CONTEXT scaffold must name the live discuss-objective skill, not the
+    // retired /df: command family.
+    assert.ok(content.includes('/devflow:discuss-objective 3'), 'should name /devflow:discuss-objective 3');
+    assert.ok(!content.includes('/df:'), 'should not contain any stale /df: command');
   });
 
   test('scaffolds UAT file', () => {
@@ -2797,6 +2801,27 @@ describe('workstreams analyze command', () => {
     const output = JSON.parse(result.output);
     assert.strictEqual(output.workstream_groups.length, 1, 'objective 1 has no deps so is eligible');
     assert.strictEqual(output.parallelism_possible, false, 'only 1 group = no parallelism');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildWorkstreamState (pure generator, TRD 38-02)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildWorkstreamState', () => {
+  const { buildWorkstreamState } = require('./lib/workstreams.cjs');
+
+  test('10. contains /devflow:workstreams merge, the workstream scope, and the position line — never /df:', () => {
+    const content = buildWorkstreamState({
+      ws: { id: 'ws-1', name: 'Auth', objectives: ['3', '4'] },
+      relMain: '..',
+      today: '2026-09-28',
+    });
+
+    assert.ok(content.includes('`/devflow:workstreams merge`'), 'should name /devflow:workstreams merge');
+    assert.ok(content.includes('**Scope:** Objective 3, Objective 4'), 'should list the workstream scope');
+    assert.ok(content.includes('Objective: 3 of 4'), 'should have the position line');
+    assert.ok(!content.includes('/df:'), 'should not contain any stale /df: command');
   });
 });
 
