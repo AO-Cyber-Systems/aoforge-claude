@@ -90,7 +90,7 @@ Jobs:
 | 35. Stack profile loader | v1.3 | 11/11 | Complete | 2026-09-27 |
 | 36. Upgrade in place | v1.3 | 10/10 | Complete | 2026-09-27 |
 | 37. /devflow:adopt + backup pruning | v1.3 | 16/16 | Complete | 2026-09-28 |
-| 38. Doc auto-correction | v1.3 | 7/12 | In Progress | — |
+| 38. Doc auto-correction | v1.3 | 8/12 | In Progress | — |
 
 ### Objective 27: Gate correctness ✅
 
@@ -296,7 +296,7 @@ Jobs:
 
 **Goal:** DevFlow keeps its own, project and global documentation current as it runs: a command-reference checker + rename map (a CI test on the plugin, an auto-fix in projects), staleness advisories (STACK.md review age and drift, codebase-map age, W002), and a one-time cleanup of DevFlow's own stale docs.
 **Depends on:** Objective 36 (managed blocks, upgrade runner).
-**Jobs:** 7/12 complete — 12 TRDs in 5 waves (planned 2026-09-28; objective-local requirement IDs DOC-01..DOC-09; single rename source = `DEPRECATION_MAP` + `REMOVED_COMMANDS`, no `command-renames.json`; `df-tools telemetry` wired in the severable 38-11; baseline at `100cade`: 4023 tests / 1 pre-existing fail)
+**Jobs:** 8/12 complete — 12 TRDs in 5 waves (planned 2026-09-28; objective-local requirement IDs DOC-01..DOC-09; single rename source = `DEPRECATION_MAP` + `REMOVED_COMMANDS`, no `command-renames.json`; `df-tools telemetry` wired in the severable 38-11; baseline at `100cade`: 4023 tests / 1 pre-existing fail)
 
 Jobs:
 - [x] 38-01-TRD.md — Wave 1: `lib/doc-refs.cjs` resolver (prefix/renamed/removed/unknown, slash-anchored, ignore regions, idempotent rewrite, walker) + `REMOVED_COMMANDS` in skill-route
@@ -305,7 +305,7 @@ Jobs:
 - [x] 38-04-TRD.md — Wave 1: consolidated-skill workflow bodies (objective/todo/status/milestone + plan-objective) name live commands
 - [x] 38-05-TRD.md — Wave 1: agents, references, templates, initiatives skill, remaining workflows, help.md rename-table fence, bug template, terminal art
 - [x] 38-06-TRD.md — Wave 1: README + USER-GUIDE — live commands, removed `/devflow:update`/`reapply-patches`, rename lists → pointer to `/devflow:help`
-- [ ] 38-07-TRD.md — Wave 2: `lib/doc-staleness.cjs` — W050 removed refs, W051 STACK.md review age, W052 language drift, W053 codebase maps N commits behind (advisory)
+- [x] 38-07-TRD.md — Wave 2: `lib/doc-staleness.cjs` — W050 removed refs, W051 STACK.md review age, W052 language drift, W053 codebase maps N commits behind (advisory)
 - [ ] 38-08-TRD.md — Wave 2: migration 0007 doc-refs-fix (auto) — CLAUDE.md DEVFLOW block + STATE.md outside Session Log; historical records exempt
 - [x] 38-09-TRD.md — Wave 2: CI gate `doc-refs.repo.test.cjs` — justified EXEMPT list, rename table == DEPRECATION_MAP, sensitivity controls
 - [ ] 38-10-TRD.md — Wave 3: `validate health` Check 14 (W050-W054) + `df-tools validate docs`
