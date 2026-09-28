@@ -178,6 +178,14 @@ const COMMANDS = {
     usage: 'df-tools telemetry [--raw]',
     summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories.',
   },
+  'context': {
+    usage: 'df-tools context [--limit N] [--root <dir>] [--raw]',
+    summary: 'Context-window composition from session transcripts (default root ~/.claude/projects, --limit 150; 0 = all). Read-only.',
+  },
+  'session-audit': {
+    usage: 'df-tools session-audit [--since YYYY-MM-DD] [--limit N] [--root <dir>] [--raw]',
+    summary: 'Classify blocking events in session transcripts (default root ~/.claude/projects, --limit 150). Read-only.',
+  },
   'progress': {
     usage: 'df-tools progress [json|table|bar] [--raw]',
     summary: 'Render roadmap progress.',

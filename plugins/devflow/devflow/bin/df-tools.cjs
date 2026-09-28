@@ -813,6 +813,26 @@ async function main() {
       break;
     }
 
+    case 'context': {
+      // df-tools context [--limit N] [--root <dir>] [--raw] — TRD 29-04 module, wired in TRD 39-01
+      const { output: outputAudit } = require('./lib/helpers.cjs');
+      const { runContext } = require('./lib/audit-cli.cjs');
+      const r = runContext({ argv: args.slice(1) });
+      if (!r.ok) error(r.message);
+      outputAudit(r.result, raw, r.text);
+      break;
+    }
+
+    case 'session-audit': {
+      // df-tools session-audit [--since YYYY-MM-DD] [--limit N] [--root <dir>] [--raw] — TRD 31-03 module, wired in TRD 39-01
+      const { output: outputAudit } = require('./lib/helpers.cjs');
+      const { runSessionAudit } = require('./lib/audit-cli.cjs');
+      const r = runSessionAudit({ argv: args.slice(1) });
+      if (!r.ok) error(r.message);
+      outputAudit(r.result, raw, r.text);
+      break;
+    }
+
     case 'progress': {
       const subcommand = args[1] || 'json';
       cmdProgressRender(cwd, subcommand, raw);
