@@ -205,7 +205,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 1: .planning/ exists ───────────────────────────────────────────
   if (!fs.existsSync(planningDir)) {
-    addIssue('error', 'E001', '.planning/ directory not found', 'Run /df:new-project to initialize');
+    addIssue('error', 'E001', '.planning/ directory not found', 'Run /devflow:new-project to initialize');
     output({
       engine_version: pluginVersion(),
       schema_version: 1,
@@ -220,7 +220,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 2: PROJECT.md exists and has required sections ─────────────────
   if (!fs.existsSync(projectPath)) {
-    addIssue('error', 'E002', 'PROJECT.md not found', 'Run /df:new-project to create');
+    addIssue('error', 'E002', 'PROJECT.md not found', 'Run /devflow:new-project to create');
   } else {
     const content = fs.readFileSync(projectPath, 'utf-8');
     const requiredSections = ['## What This Is', '## Core Value', '## Requirements'];
@@ -233,36 +233,72 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 3: ROADMAP.md exists ───────────────────────────────────────────
   if (!fs.existsSync(roadmapPath)) {
-    addIssue('error', 'E003', 'ROADMAP.md not found', 'Run /df:new-milestone to create roadmap');
+    addIssue('error', 'E003', 'ROADMAP.md not found', 'Run /devflow:milestone new to create roadmap');
   }
 
-  // ─── Check 4: STATE.md exists and references valid objectives ─────────────────
+  // ─── Check 4: STATE.md exists and its position names a real objective ─────
   if (!fs.existsSync(statePath)) {
-    addIssue('error', 'E004', 'STATE.md not found', 'Run /df:health --repair to regenerate', true);
+    addIssue('error', 'E004', 'STATE.md not found', 'Run /devflow:status check --repair to regenerate', true);
     repairs.push('regenerateState');
   } else {
     const stateContent = fs.readFileSync(statePath, 'utf-8');
-    // Extract objective references from STATE.md
-    const phaseRefs = [...stateContent.matchAll(/[Pp]hase\s+(\d+(?:\.\d+)?)/g)].map(m => m[1]);
-    // Get disk objectives
-    const diskObjectives = new Set();
-    try {
-      const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
-      for (const e of entries) {
-        if (e.isDirectory()) {
-          const m = e.name.match(/^(\d+(?:\.\d+)?)/);
-          if (m) diskObjectives.add(m[1]);
-        }
+
+    // Read only the current position-line conventions — never a general
+    // "objective N" prose match, which also matches decisions/status prose
+    // referencing archived or future objectives (e.g. "objectives 27–36
+    // complete", "Phase 9 handoff"). The retired [Pp]hase\s+N regex is gone.
+    const POSITION_RES = [
+      /^\*\*Objective complete:\*\*\s*(\d+(?:\.\d+)?)/gm,
+      /^\*\*Current [Oo]bjective:\*\*\s*(\d+(?:\.\d+)?)/gm,
+      /^Objective:\s*(\d+(?:\.\d+)?)\s+of\b/gm,
+    ];
+    const positionRefs = new Set();
+    for (const re of POSITION_RES) {
+      for (const m of stateContent.matchAll(re)) positionRefs.add(m[1]);
+    }
+
+    // Known objectives: .planning/objectives/<NN-...> UNION any <NN-...> dir one
+    // or two levels under .planning/milestones/ (archived objectives keep their
+    // numbers valid forever — W002 must never fire on history).
+    const knownObjectives = new Set();
+    const addNumberedDirs = (dirPath) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      } catch {
+        return;
       }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        const m = e.name.match(/^(\d+(?:\.\d+)?)-/);
+        if (m) knownObjectives.add(parseFloat(m[1]));
+      }
+    };
+    addNumberedDirs(objectivesDir);
+    const milestonesDir = path.join(planningDir, 'milestones');
+    let milestoneEntries = [];
+    try {
+      milestoneEntries = fs.readdirSync(milestonesDir, { withFileTypes: true }).filter(e => e.isDirectory());
     } catch {}
-    // Check for invalid references
-    for (const ref of phaseRefs) {
-      const normalizedRef = String(parseInt(ref, 10)).padStart(2, '0');
-      if (!diskObjectives.has(ref) && !diskObjectives.has(normalizedRef) && !diskObjectives.has(String(parseInt(ref, 10)))) {
-        // Only warn if objectives dir has any content (not just an empty project)
-        if (diskObjectives.size > 0) {
-          addIssue('warning', 'W002', `STATE.md references objective ${ref}, but only objectives ${[...diskObjectives].sort().join(', ')} exist`, 'Run /df:health --repair to regenerate STATE.md', true);
-          if (!repairs.includes('regenerateState')) repairs.push('regenerateState');
+    for (const e of milestoneEntries) {
+      const selfMatch = e.name.match(/^(\d+(?:\.\d+)?)-/);
+      if (selfMatch) knownObjectives.add(parseFloat(selfMatch[1])); // one level under milestones/
+      addNumberedDirs(path.join(milestonesDir, e.name)); // two levels under milestones/
+    }
+
+    // Only warn if there is a known objective set to compare against (not just an empty project).
+    if (knownObjectives.size > 0) {
+      for (const ref of positionRefs) {
+        if (!knownObjectives.has(parseFloat(ref))) {
+          addIssue(
+            'warning',
+            'W002',
+            `STATE.md references objective ${ref}, but only objectives ${[...knownObjectives].sort((a, b) => a - b).join(', ')} exist`,
+            'Correct the objective number in STATE.md (or restore the objective directory)',
+            false
+          );
+          // W002 is intentionally NOT repairable: a single stale number must never let --repair
+          // overwrite a user's whole STATE.md with the regenerateState stub. Never push it here.
         }
       }
     }
@@ -270,7 +306,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 5: config.json valid JSON + valid schema ───────────────────────
   if (!fs.existsSync(configPath)) {
-    addIssue('warning', 'W003', 'config.json not found', 'Run /df:health --repair to create with defaults', true);
+    addIssue('warning', 'W003', 'config.json not found', 'Run /devflow:status check --repair to create with defaults', true);
     repairs.push('createConfig');
   } else {
     try {
@@ -282,7 +318,7 @@ function cmdValidateHealth(cwd, options, raw) {
         addIssue('warning', 'W004', `config.json: invalid model_profile "${parsed.model_profile}"`, `Valid values: ${validProfiles.join(', ')}`);
       }
     } catch (err) {
-      addIssue('error', 'E005', `config.json: JSON parse error - ${err.message}`, 'Run /df:health --repair to reset to defaults', true);
+      addIssue('error', 'E005', `config.json: JSON parse error - ${err.message}`, 'Run /devflow:status check --repair to reset to defaults', true);
       repairs.push('resetConfig');
     }
   }
@@ -364,7 +400,7 @@ function cmdValidateHealth(cwd, options, raw) {
       'warning',
       'W008',
       `Legacy JOB.md format found: ${legacyJobFiles.length} file(s). TRD.md is the current format.`,
-      'Run /df:health --repair to auto-rename to TRD.md',
+      'Run /devflow:status check --repair to auto-rename to TRD.md',
       true
     );
     repairs.push('migrateJobFiles');
@@ -377,7 +413,7 @@ function cmdValidateHealth(cwd, options, raw) {
       'warning',
       'W009',
       'state.json sidecar not found. Machine-readable state fields use slower markdown parsing.',
-      'Run /df:health --repair to create state.json from existing STATE.md',
+      'Run /devflow:status check --repair to create state.json from existing STATE.md',
       true
     );
     repairs.push('createStateJson');
@@ -611,7 +647,7 @@ function cmdValidateHealth(cwd, options, raw) {
             stateContent += `**Current objective:** (determining...)\n`;
             stateContent += `**Status:** Resuming\n\n`;
             stateContent += `## Session Log\n\n`;
-            stateContent += `- ${new Date().toISOString().split('T')[0]}: STATE.md regenerated by /df:health --repair\n`;
+            stateContent += `- ${new Date().toISOString().split('T')[0]}: STATE.md regenerated by /devflow:status check --repair\n`;
             fs.writeFileSync(statePath, stateContent, 'utf-8');
             repairActions.push({ action: repair, success: true, path: 'STATE.md' });
             break;

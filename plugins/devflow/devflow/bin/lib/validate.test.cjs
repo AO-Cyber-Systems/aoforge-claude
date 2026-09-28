@@ -781,7 +781,7 @@ describe('health repairs delegate to migrations 0001-0003', () => {
     const w008 = json.warnings.find((w) => w.code === 'W008');
     assert.ok(w008, 'W008 raised');
     assert.strictEqual(w008.message, 'Legacy JOB.md format found: 2 file(s). TRD.md is the current format.');
-    assert.strictEqual(w008.fix, 'Run /df:health --repair to auto-rename to TRD.md');
+    assert.strictEqual(w008.fix, 'Run /devflow:status check --repair to auto-rename to TRD.md');
     assert.strictEqual(w008.repairable, true);
     // Without --repair nothing moves.
     assert.strictEqual(
@@ -865,5 +865,155 @@ describe('Check 13: upgrade state (W040)', () => {
     assert.ok(found[0].message.startsWith('upgrade-check-not-available:'), found[0].message);
     assert.match(found[0].message, /missing detect/);
     assert.strictEqual(found[0].repairable, false);
+  });
+});
+
+// ─── Check 4: W002 — STATE.md position vs known objectives (TRD 38-02) ────
+//
+// W002 used to hunt for "[Pp]hase N" text that no current STATE.md convention writes — dead code,
+// so no prior test covered it (grep -c W002 validate.test.cjs was 0). This makes it live: it reads
+// only the current position-line conventions, treats milestones/ archives as still-valid objective
+// numbers, and is deliberately NOT repairable — a single stale number must never let --repair
+// replace a user's whole STATE.md with the regenerateState stub.
+
+describe('objective 38 — W002 + live fix text', () => {
+  function makeObjectivesFixture(objectiveDirNames, opts = {}) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-w002-test-'));
+    for (const dir of objectiveDirNames) {
+      fs.mkdirSync(path.join(tmp, '.planning', 'objectives', dir), { recursive: true });
+    }
+    for (const dir of (opts.milestoneDirs || [])) {
+      // dir is relative to .planning/milestones/, e.g. 'v1.0-objectives/07-x'
+      fs.mkdirSync(path.join(tmp, '.planning', 'milestones', dir), { recursive: true });
+    }
+    return tmp;
+  }
+
+  function writeState(tmp, content) {
+    fs.writeFileSync(path.join(tmp, '.planning', 'STATE.md'), content, 'utf-8');
+  }
+
+  const w002s = (json) => json.warnings.filter((w) => w.code === 'W002');
+
+  test('1. **Objective complete:** 7 with only 01-a on disk -> one W002 naming 7, not repairable', () => {
+    tmpProject = makeObjectivesFixture(['01-a']);
+    tmpHome = makeHome();
+    writeState(tmpProject, '# State\n\n**Objective complete:** 7 — done\n');
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    const found = w002s(json);
+    assert.strictEqual(found.length, 1, `expected exactly one W002; got ${JSON.stringify(found)}`);
+    assert.match(found[0].message, /\b7\b/);
+    assert.strictEqual(found[0].repairable, false);
+  });
+
+  test('2. a matching objectives/ dir clears W002', () => {
+    tmpProject = makeObjectivesFixture(['07-x']);
+    tmpHome = makeHome();
+    writeState(tmpProject, '# State\n\n**Objective complete:** 7 — done\n');
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.strictEqual(w002s(json).length, 0, 'objectives/07-x on disk clears W002');
+  });
+
+  test('3. an archived objective under milestones/ also clears W002', () => {
+    tmpProject = makeObjectivesFixture(['01-a'], { milestoneDirs: ['v1.0-objectives/07-x'] });
+    tmpHome = makeHome();
+    writeState(tmpProject, '# State\n\n**Objective complete:** 7 — done\n');
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.strictEqual(w002s(json).length, 0, 'milestones/v1.0-objectives/07-x clears W002 (archived counts)');
+  });
+
+  test('4. template "Objective: N of M" and "**Current objective:**" both surface W002 for the missing ref', () => {
+    tmpProject = makeObjectivesFixture(['01-a']);
+    tmpHome = makeHome();
+
+    writeState(tmpProject, '# State\n\nObjective: 3 of 5\nJob: Not started\n');
+    const { json: templateForm } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.ok(w002s(templateForm).some((w) => /\b3\b/.test(w.message)), 'W002 names 3 for template form');
+
+    writeState(tmpProject, '# State\n\n**Current objective:** 12\n');
+    const { json: currentForm } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.ok(w002s(currentForm).some((w) => /\b12\b/.test(w.message)), 'W002 names 12 for **Current objective:**');
+  });
+
+  test('5. prose never triggers W002: "objectives 27-36 complete", "Phase 9 handoff", "Phase A handoff snapshot"', () => {
+    tmpProject = makeObjectivesFixture(['01-a']);
+    tmpHome = makeHome();
+    writeState(
+      tmpProject,
+      '# State\n\n**Status:** v1.3 in flight — objectives 27–36 complete\n' +
+      'Phase 9 handoff\n' +
+      'Phase A handoff snapshot\n'
+    );
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.strictEqual(w002s(json).length, 0, `expected no W002; got ${JSON.stringify(w002s(json))}`);
+  });
+
+  test('6. --repair on a W002-only project leaves STATE.md byte-identical and never regenerates it', () => {
+    tmpProject = makeObjectivesFixture(['01-a']);
+    tmpHome = makeHome();
+    const stateContent = '# State\n\n**Objective complete:** 7 — done\n';
+    writeState(tmpProject, stateContent);
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
+    assert.strictEqual(w002s(json).length, 1, 'W002 still raised');
+    const after = fs.readFileSync(path.join(tmpProject, '.planning', 'STATE.md'), 'utf-8');
+    assert.strictEqual(after, stateContent, 'STATE.md bytes unchanged after --repair');
+    assert.strictEqual(
+      (json.repairs_performed || []).some((r) => r.action === 'regenerateState'),
+      false,
+      'W002 never triggers regenerateState'
+    );
+    assert.strictEqual(
+      w002s(json)[0].fix,
+      'Correct the objective number in STATE.md (or restore the objective directory)'
+    );
+  });
+
+  test('7. fix text names live devflow commands (E001, E002, E003, E004, W003)', () => {
+    tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'df-w002-noplanning-'));
+    tmpHome = makeHome();
+    const { json: noPlanning } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    const e001 = noPlanning.errors.find((e) => e.code === 'E001');
+    assert.ok(e001, 'E001 raised');
+    assert.strictEqual(e001.fix, 'Run /devflow:new-project to initialize');
+    fs.rmSync(tmpProject, { recursive: true, force: true });
+
+    // Minimal .planning/ with only objectives/ present — PROJECT.md, ROADMAP.md, STATE.md,
+    // config.json all missing, so E002/E003/E004/W003 all fire off the one fixture.
+    tmpProject = makePlanningProject();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const e002 = json.errors.find((e) => e.code === 'E002');
+    assert.ok(e002, 'E002 raised');
+    assert.strictEqual(e002.fix, 'Run /devflow:new-project to create');
+
+    const e003 = json.errors.find((e) => e.code === 'E003');
+    assert.ok(e003, 'E003 raised');
+    assert.strictEqual(e003.fix, 'Run /devflow:milestone new to create roadmap');
+
+    const e004 = json.errors.find((e) => e.code === 'E004');
+    assert.ok(e004, 'E004 raised');
+    assert.strictEqual(e004.fix, 'Run /devflow:status check --repair to regenerate');
+
+    const w003 = json.warnings.find((w) => w.code === 'W003');
+    assert.ok(w003, 'W003 raised');
+    assert.strictEqual(w003.fix, 'Run /devflow:status check --repair to create with defaults');
+  });
+
+  test('8. regenerateState (E004 + --repair) writes a Session Log line naming /devflow:status check --repair and no /df:', () => {
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
+
+    const action = json.repairs_performed.find((r) => r.action === 'regenerateState');
+    assert.ok(action && action.success === true, 'regenerateState repair recorded as successful');
+
+    const written = fs.readFileSync(path.join(tmpProject, '.planning', 'STATE.md'), 'utf-8');
+    assert.match(written, /## Session Log[\s\S]*\/devflow:status check --repair/);
+    assert.ok(!written.includes('/df:'), 'no stale /df: command in regenerated STATE.md');
   });
 });
