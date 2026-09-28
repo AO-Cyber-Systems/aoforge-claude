@@ -1017,3 +1017,172 @@ describe('objective 38 — W002 + live fix text', () => {
     assert.ok(!written.includes('/df:'), 'no stale /df: command in regenerated STATE.md');
   });
 });
+
+// ─── Check 14: documentation staleness (TRD 38-10) ─────────────────────────
+//
+// Drives the SAME collect() from doc-staleness.cjs (fully unit-tested in
+// doc-staleness.test.cjs) through cmdValidateHealth's Check 14 wiring: every
+// returned issue becomes an advisory `warning` with `repairable: false`, and a
+// throwing collect() becomes exactly one W054 rather than an uncaught crash.
+describe('Check 14: documentation staleness', () => {
+  const { makeFixture, writeMappedDocs, makeFakeHome, gitEnv } = require('./__fixtures__/adopt-fixtures.cjs');
+  const { execFileSync } = require('child_process');
+
+  let gitParent;
+  let gitHome;
+
+  afterEach(() => {
+    for (const dir of [gitParent, gitHome]) {
+      if (dir && fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    }
+    gitParent = null;
+    gitHome = null;
+  });
+
+  function git(root, home, args) {
+    return execFileSync('git', ['-C', root, ...args], {
+      env: gitEnv(home),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    });
+  }
+  function commitAll(root, home, message) {
+    git(root, home, ['add', '-A']);
+    git(root, home, ['commit', '-q', '-m', message]);
+  }
+
+  // A real git repo with codebase maps committed, then 3 more commits touching src/ — matches
+  // doc-staleness.test.cjs cases 10/11 exactly, so a configured threshold of 2 (< 3) fires W053.
+  function makeW053Fixture() {
+    gitParent = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-w053-parent-'));
+    gitHome = makeFakeHome();
+    const root = makeFixture('empty', { parent: gitParent, home: gitHome });
+    writeMappedDocs(root);
+    commitAll(root, gitHome, 'add codebase maps');
+    for (let i = 0; i < 3; i++) {
+      fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'src', `f${i}.txt`), `${i}\n`);
+      commitAll(root, gitHome, `touch src f${i}`);
+    }
+    return root;
+  }
+
+  const w05xCodes = (json) => json.warnings.filter((w) => /^W05\d$/.test(w.code));
+
+  test('1. stale STACK.md (reviewed 2025-01-01) -> health warnings include non-repairable W051', () => {
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: 'schema: 1\nprovenance:\n  reviewed: "2025-01-01"\n' }),
+    });
+    tmpHome = makeHome();
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    const w051 = json.warnings.filter((w) => w.code === 'W051');
+    assert.strictEqual(w051.length, 1, `expected one W051; got ${JSON.stringify(json.warnings)}`);
+    assert.strictEqual(w051[0].repairable, false);
+  });
+
+  test('2. go.mod fixture declaring languages:[python] -> W052', () => {
+    const reviewed = new Date().toISOString().slice(0, 10); // today — never stale in this test
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: `schema: 1\nlanguages: [python]\nprovenance:\n  reviewed: "${reviewed}"\n` }),
+      files: stackFx.goShapedRepo(),
+    });
+    tmpHome = makeHome();
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    const w052 = json.warnings.filter((w) => w.code === 'W052');
+    assert.strictEqual(w052.length, 1, `expected one W052; got ${JSON.stringify(json.warnings)}`);
+    assert.match(w052[0].message, /go/);
+    assert.match(w052[0].message, /python/);
+  });
+
+  test('3. committed maps + config.json docs.codebase_map_stale_commits:2 (3 commits) -> W053', () => {
+    tmpProject = makeW053Fixture();
+    writeJson(path.join(tmpProject, '.planning', 'config.json'), { docs: { codebase_map_stale_commits: 2 } });
+    tmpHome = makeHome();
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    const w053 = json.warnings.filter((w) => w.code === 'W053');
+    assert.strictEqual(w053.length, 1, `expected one W053; got ${JSON.stringify(json.warnings)}`);
+    assert.match(w053[0].message, /3/);
+    assert.match(w053[0].message, /2/);
+  });
+
+  test('4. STATE.md naming /devflow:update -> W050', () => {
+    const state = '# Project State\n\n## Current Position\n\nrun /devflow:update to refresh.\n\n## Session Log\n';
+    tmpProject = stackFx.makeProject({ files: { '.planning/STATE.md': state } });
+    tmpHome = makeHome();
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    const w050 = json.warnings.filter((w) => w.code === 'W050');
+    assert.strictEqual(w050.length, 1, `expected one W050; got ${JSON.stringify(json.warnings)}`);
+    assert.match(w050[0].message, /\/devflow:update/);
+  });
+
+  test('5. clean fixture (fresh STACK.md, matching languages, no maps) -> no W05x', () => {
+    const reviewed = new Date().toISOString().slice(0, 10);
+    tmpProject = stackFx.makeProject({
+      stackMd: stackFx.profileMd({ yaml: `schema: 1\nlanguages: [go]\nprovenance:\n  reviewed: "${reviewed}"\n` }),
+      files: stackFx.goShapedRepo(),
+    });
+    tmpHome = makeHome();
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+    assert.deepStrictEqual(w05xCodes(json), [], `expected no W05x; got ${JSON.stringify(json.warnings)}`);
+  });
+
+  test('6. a throwing collect() adds exactly one W054, never a silent/uncaught failure', () => {
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+
+    const docStalenessPath = require.resolve('./doc-staleness.cjs');
+    const original = require.cache[docStalenessPath];
+    require.cache[docStalenessPath] = {
+      id: docStalenessPath,
+      filename: docStalenessPath,
+      loaded: true,
+      exports: { collect: () => { throw new Error('boom'); } },
+    };
+
+    try {
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+      const w054 = json.warnings.filter((w) => w.code === 'W054');
+      assert.strictEqual(w054.length, 1, `expected exactly one W054; got ${JSON.stringify(json.warnings)}`);
+      assert.match(w054[0].message, /doc-staleness-check-failed: boom/);
+      assert.strictEqual(w054[0].fix, 'Run `df-tools validate docs` to see why');
+    } finally {
+      if (original) require.cache[docStalenessPath] = original;
+      else delete require.cache[docStalenessPath];
+    }
+  });
+
+  test('7. --repair on a W051+W053 fixture leaves STACK.md and codebase maps byte-identical, no repair mentions W05x', () => {
+    tmpProject = makeW053Fixture();
+    const stackMd = stackFx.profileMd({ yaml: 'schema: 1\nprovenance:\n  reviewed: "2025-01-01"\n' });
+    fs.writeFileSync(path.join(tmpProject, '.planning', 'STACK.md'), stackMd, 'utf-8');
+    writeJson(path.join(tmpProject, '.planning', 'config.json'), { docs: { codebase_map_stale_commits: 2 } });
+    tmpHome = makeHome();
+
+    const codebaseDir = path.join(tmpProject, '.planning', 'codebase');
+    const before = fs.readdirSync(codebaseDir).sort()
+      .map((f) => [f, fs.readFileSync(path.join(codebaseDir, f), 'utf-8')]);
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
+
+    assert.strictEqual(json.warnings.filter((w) => w.code === 'W051').length, 1, 'W051 still raised');
+    assert.strictEqual(json.warnings.filter((w) => w.code === 'W053').length, 1, 'W053 still raised');
+
+    const after = fs.readdirSync(codebaseDir).sort()
+      .map((f) => [f, fs.readFileSync(path.join(codebaseDir, f), 'utf-8')]);
+    assert.deepStrictEqual(after, before, 'codebase maps byte-identical after --repair');
+    assert.strictEqual(
+      fs.readFileSync(path.join(tmpProject, '.planning', 'STACK.md'), 'utf-8'),
+      stackMd,
+      'STACK.md byte-identical after --repair'
+    );
+    assert.ok(
+      (json.repairs_performed || []).every((r) => !/W05\d/.test(JSON.stringify(r))),
+      'no repair action mentions a W05x code'
+    );
+  });
+});
