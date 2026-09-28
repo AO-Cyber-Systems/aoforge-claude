@@ -255,3 +255,119 @@ describe('df-tools upgrade --help', () => {
     assert.ok(r.stdout.startsWith('Usage: df-tools upgrade'), `got ${r.stdout.slice(0, 120)}`);
   });
 });
+
+// ─── objective 37 — `upgrade --prune [--dry-run]` / `--register` (tests 9-14) ──────────────
+//
+// 9.  `--prune --dry-run` -> exit 0; JSON dry_run:true, removed lists the 2 would-be removals;
+//     nothing removed; no stamp.
+// 10. `--prune` -> removes them; stamp written; running --prune again at once still runs
+//     (unthrottled, unlike the SessionStart hook) and removes nothing more.
+// 11. `--prune` with no backups dir -> exit 0, skipped: 'no-backups'.
+// 12. `--prune --apply`, `--prune --check`, `--prune --global` -> exit 1, stderr names the
+//     conflict; `--dry-run` alone (no --prune) -> exit 1.
+// 13. `--register` in a mkdtemp project -> exit 0, {key, path, created:true}; .registry.json has
+//     the entry; again -> created:false. `--register --path <other>` registers <other>. Works
+//     with no .planning/.
+// 14. `df-tools upgrade --help` usage line names --prune and --register; help.test.cjs passes
+//     (verified separately, not spawned from this file).
+
+function backupsRoot(home) {
+  return path.join(home, '.claude', 'devflow', 'backups');
+}
+
+// Same shape as the SessionStart hook test's seedPruneBackups: ages are relative to the REAL
+// Date.now(), since runPrune (unlike the hook's runThrottled) is never given a fixed `now`.
+function seedBackups(home, repoDir, ages) {
+  const names = [];
+  const now = Date.now();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  for (const age of ages) {
+    const t = new Date(now - age * DAY_MS);
+    const ts = t.toISOString().replace(/[:.]/g, '-');
+    let name = ts;
+    for (let n = 1; fs.existsSync(path.join(backupsRoot(home), repoDir, name)); n++) name = `${ts}-${n}`;
+    fs.mkdirSync(path.join(backupsRoot(home), repoDir, name, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(backupsRoot(home), repoDir, name, '.planning', 'config.json'), '{}\n');
+    names.push(name);
+  }
+  return names;
+}
+
+describe('df-tools upgrade --prune / --register', () => {
+  test('9: --prune --dry-run lists the 2 would-be removals; nothing removed, no stamp', () => {
+    const home = track(fx.makeFakeHome());
+    seedBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    const r = upgrade(['--prune', '--dry-run'], { cwd: home, home });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.dry_run, true);
+    assert.equal(r.json.removed.length, 2, JSON.stringify(r.json.removed));
+    assert.equal(fs.readdirSync(path.join(backupsRoot(home), 'app-0123abcd')).length, 7, 'dry-run removes nothing');
+    assert.ok(!fs.existsSync(path.join(backupsRoot(home), '.last-prune.json')), 'dry-run writes no stamp');
+  });
+
+  test('10: --prune removes the old backups, stamps, and a second immediate run removes nothing more', () => {
+    const home = track(fx.makeFakeHome());
+    seedBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    const r = upgrade(['--prune'], { cwd: home, home });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.dry_run, false);
+    assert.equal(r.json.removed.length, 2);
+    assert.equal(fs.readdirSync(path.join(backupsRoot(home), 'app-0123abcd')).length, 5);
+    assert.ok(fs.existsSync(path.join(backupsRoot(home), '.last-prune.json')), 'stamp written');
+
+    const again = upgrade(['--prune'], { cwd: home, home });
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(again.json.removed.length, 0, '--prune is never throttled, but nothing left qualifies');
+    assert.equal(fs.readdirSync(path.join(backupsRoot(home), 'app-0123abcd')).length, 5);
+  });
+
+  test('11: --prune with no backups dir -> skipped: no-backups', () => {
+    const home = track(fx.makeFakeHome());
+    const r = upgrade(['--prune'], { cwd: home, home });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.skipped, 'no-backups');
+  });
+
+  test('12: --prune conflicts with --apply/--check/--global; --dry-run alone is rejected', () => {
+    const home = track(fx.makeFakeHome());
+    for (const args of [['--prune', '--apply'], ['--prune', '--check'], ['--prune', '--global']]) {
+      const r = upgrade(args, { cwd: home, home });
+      assert.notEqual(r.status, 0, args.join(' '));
+      assert.match(r.stderr, /--prune/, args.join(' '));
+    }
+    const dryOnly = upgrade(['--dry-run'], { cwd: home, home });
+    assert.notEqual(dryOnly.status, 0);
+    assert.match(dryOnly.stderr, /--dry-run/);
+  });
+
+  test('13: --register records this repo; re-register keeps created:false; --path targets another dir', () => {
+    const home = track(fx.makeFakeHome());
+    const project = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-register-')));
+    const upgradeLib = require('./upgrade.cjs');
+
+    const first = upgrade(['--register'], { cwd: project, home });
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(first.json.created, true);
+    const key = upgradeLib.repoKey(fs.realpathSync(project));
+    assert.equal(first.json.key, key);
+    const registry = JSON.parse(fs.readFileSync(path.join(backupsRoot(home), '.registry.json'), 'utf-8'));
+    assert.ok(registry.repos[key], 'registry entry present');
+
+    const second = upgrade(['--register'], { cwd: project, home });
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(second.json.created, false);
+
+    const other = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-register-other-')));
+    const viaPath = upgrade(['--register', '--path', other], { cwd: project, home });
+    assert.equal(viaPath.status, 0, viaPath.stderr);
+    assert.equal(viaPath.json.key, upgradeLib.repoKey(fs.realpathSync(other)));
+  });
+
+  test('14: --help usage line names --prune and --register', () => {
+    const home = track(fx.makeFakeHome());
+    const r = upgrade(['--help'], { cwd: home, home });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /--prune/);
+    assert.match(r.stdout, /--register/);
+  });
+});

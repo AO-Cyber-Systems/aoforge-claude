@@ -130,10 +130,10 @@ const COMMANDS = {
     mutates: true,
   },
   'upgrade': {
-    usage: 'df-tools upgrade [--check|--apply] [--only id[,id]] [--confirm] [--path dir] [--kind k] [--default-work w] [--global]',
+    usage: 'df-tools upgrade [--check|--apply] [--only id[,id]] [--confirm] [--path dir] [--kind k] [--default-work w] [--global] [--prune [--dry-run]] [--register]',
     summary: 'Bring this project (or, with --global, ~/.claude) forward to the running DevFlow version.',
     mutates: true,
-    details: '--check (default) lists pending migrations; --apply runs auto migrations, backs up outside the repo, and stamps config.json. Confirm migrations run only with --apply --only <id> or --apply --confirm; 0006 takes --kind (and --default-work). --global moves legacy df-* files and manages the ~/.claude/CLAUDE.md block; --global --confirm adopts it over a hand-written section.',
+    details: '--check (default) lists pending migrations; --apply runs auto migrations, backs up outside the repo, and stamps config.json. Confirm migrations run only with --apply --only <id> or --apply --confirm; 0006 takes --kind (and --default-work). --global moves legacy df-* files and manages the ~/.claude/CLAUDE.md block; --global --confirm adopts it over a hand-written section. --prune removes old backups under ~/.claude/devflow/backups (keeps <14 days and the newest 5 per repo; backups.retain_days / backups.keep_min in global-config.json); --dry-run lists without removing. --register records this repo for pruning.',
   },
   'adopt': {
     usage: 'df-tools adopt <preflight|begin|scaffold|report> [--raw]',
