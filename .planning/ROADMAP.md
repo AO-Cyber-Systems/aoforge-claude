@@ -285,7 +285,7 @@ Jobs:
 - [x] 37-08-TRD.md — Wave 5: `adopt report` (ADOPT-REPORT.md needs-review, redaction, commit file list) + `adopt-e2e-assert.cjs` structural checker + deterministic 3-stack pipeline test
 - [x] 37-09-TRD.md — Wave 6: `skills/adopt/SKILL.md` + `workflows/adopt.md` (unattended), map-codebase non-interactive mode, new-project points at adopt + registers; contract test
 - [x] 37-10-TRD.md — Wave 7: routing — route-intent adopt intents (also outside DevFlow projects), global routing template v2, help, init-offer → /devflow:adopt for brownfield
-- [ ] 37-11-TRD.md — Wave 8: E2E proof (a) — simulated agent run of the checkout skill on the Go fixture
+- [x] 37-11-TRD.md — Wave 8: E2E proof (a) — simulated agent run of the checkout skill on the Go fixture
 - [ ] 37-12-TRD.md — Wave 9: E2E proof (a) — Node fixture + second adopt routes to upgrade (idempotency)
 - [ ] 37-13-TRD.md — Wave 10: E2E proof (a) — Flutter fixture
 - [ ] 37-14-TRD.md — Wave 11: E2E proof (a) — routing cases (DevFlow → upgrade, empty → new-project, dirty/non-git refuse unchanged)
