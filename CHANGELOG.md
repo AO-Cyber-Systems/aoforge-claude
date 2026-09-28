@@ -170,6 +170,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   2.10.1 installed. The hook now mirrors only when the mirror's version is missing or unparseable,
   when the plugin is strictly newer (numeric semver, prerelease-aware), or when versions match but
   `bin/df-tools.cjs` is missing. An unparseable plugin version never overwrites a parseable mirror.
+- Two CodeQL alerts new in PR #114: `mergeFrontmatter` (`stack-profile.cjs`) now refuses
+  `__proto__`/`constructor`/`prototype` keys before any read or assignment
+  (js/prototype-pollution-utility), and `roadmap-progress.cjs`'s row/header matchers now fully
+  escape the objective number via a local `escapeRegExp` instead of hand-escaping only the first
+  `.` (js/regex-injection).
 
 ## [2.10.1] - 2026-09-26
 
