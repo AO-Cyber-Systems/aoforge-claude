@@ -486,12 +486,24 @@ describe('objective 37 — backup prune', () => {
   });
 
   test('5: backups path is a FILE → prune skipped via stderr; the upgrade still applies', () => {
-    const { home, root } = setup();
+    // A current-shape project stamped at an OLD version: no registered migration's detect()
+    // matches (the shape is already modern), so apply() advances the stamp via its
+    // `newVersion !== from` bookkeeping WITHOUT ever calling backup() — the version write and
+    // the blocked backups path never collide. This is deliberately NOT setup()/makeV1Project():
+    // that fixture needs real auto migrations to run, and every one of those calls backup()
+    // lazily before it applies, which would collide with the blocked path for a different
+    // reason than the one this test is targeting (prune-vs-upgrade path collision).
+    const home = F.makeFakeHome();
+    const root = F.makeStampedProject('0.0.1');
+    cleanup.push(home, root);
+    F.initGitFixture(root, home);
     fs.mkdirSync(path.join(home, '.claude', 'devflow'), { recursive: true });
     fs.writeFileSync(path.join(home, '.claude', 'devflow', 'backups'), 'not a dir\n');
     const r = runHook(root, home);
     assert.match(r.stderr, /backup prune skipped/);
-    assertMigrated(root);
+    const cfg = readConfig(root);
+    assert.equal(cfg.devflow && cfg.devflow.version, BUNDLED,
+      'config.json stamped with the bundled version despite the blocked backups path');
   });
 
   test('6: fast-path project (already stamped at bundled version) still runs the prune', () => {

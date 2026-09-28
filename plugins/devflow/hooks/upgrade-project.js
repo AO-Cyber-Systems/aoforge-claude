@@ -6,6 +6,16 @@
  *
  * Upgrades a behind DevFlow project in place when a session starts:
  *
+ *   0. Prune (objective 37, ADP-05): `backup-prune.runThrottled` removes old backups under
+ *      ~/.claude/devflow/backups, at most once per 24 h, in EVERY session whether or not cwd is a
+ *      DevFlow project. Runs FIRST — before the DEVFLOW_SKIP_UPGRADE check, the project lookup and
+ *      the stamp fast path below. Why this hook and not sync-runtime.js: sync-runtime exits at its
+ *      own version fast path (sync-runtime.js:44-49) whenever the mirror is already current, i.e.
+ *      in almost every session, and its global-upgrade call only runs right after a re-mirror.
+ *      upgrade-project.js runs on every SessionStart and every one of its own early returns (steps
+ *      1-4) comes AFTER this call, so the prune is not skipped along with them. The call is wrapped
+ *      in its own try/catch: any error writes one `[devflow] backup prune skipped: <msg>` line to
+ *      stderr and the hook continues; stdout stays empty; exit code stays 0.
  *   1. Fast path: `.planning/config.json` `devflow.version` equals the bundled plugin version →
  *      exit. One small JSON read; nothing else is required or written.
  *   2. Apply: run the `auto` migrations synchronously via the BUNDLED upgrade.cjs (never the
@@ -21,7 +31,8 @@
  *   node upgrade-project.js                                   SessionStart hook
  *   node upgrade-project.js --commit-child <root> <ver> <f…>  the detached commit child
  *
- * Escape hatch: DEVFLOW_SKIP_UPGRADE=1.
+ * Escape hatches: DEVFLOW_SKIP_UPGRADE=1 (steps 1-4; the prune still runs),
+ * DEVFLOW_SKIP_PRUNE=1 (step 0 only; the upgrade still runs).
  * Contract: stdout stays empty (SessionStart stdout becomes context), never throws, exit 0.
  */
 
@@ -216,6 +227,16 @@ function skipReason(state, changedFiles) {
 // ─── the hook ─────────────────────────────────────────────────────────────────
 
 function main() {
+  // Objective 37 (ADP-05): prune ~/.claude/devflow/backups at most once per 24 h. Runs first so it
+  // happens in EVERY session (sync-runtime.js exits at its version fast path, so it does not).
+  if (process.env.DEVFLOW_SKIP_PRUNE !== '1') {
+    try {
+      require(path.join(LIB, 'backup-prune.cjs')).runThrottled({ userHome: os.homedir(), now: new Date() });
+    } catch (e) {
+      process.stderr.write(`[devflow] backup prune skipped: ${e.message}\n`);
+    }
+  }
+
   if (process.env.DEVFLOW_SKIP_UPGRADE === '1') return;
   const root = findProjectRoot(process.cwd());
   if (!root) return;
