@@ -601,32 +601,15 @@ function cmdInitNewProject(cwd, raw, args = []) {
   const braveKeyFile = path.join(homedir, '.devflow', 'brave_api_key');
   const hasBraveSearch = !!(process.env.BRAVE_API_KEY || fs.existsSync(braveKeyFile));
 
-  // Detect existing code
-  let hasCode = false;
-  let hasPackageFile = false;
-  try {
-    const files = execSync('find . -maxdepth 3 \\( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.swift" -o -name "*.java" -o -name "*.dart" -o -name "*.kt" \\) 2>/dev/null | grep -v node_modules | grep -v .git | head -5', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    hasCode = files.trim().length > 0;
-  } catch {}
+  // 37-04 (ADP-01): one detector call replaces the `find -maxdepth 3` shell-out, the org-marker
+  // lookup and the manifest list — repo-state.cjs's `detectRepoState` performs all three (and,
+  // unlike `-maxdepth 3`, has no depth limit: a code file nested arbitrarily deep now counts).
+  const { detectRepoState } = require('./repo-state.cjs');
+  const { state: repoStateName, signals: repoSignals } = detectRepoState(cwd, { userHome: homedir });
 
-  // 35-09: org-profile detect markers present at the project root (e.g. a Flutter/Dart-shaped
-  // pack) count as a package file too, alongside the built-in manifest list.
-  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
-  const orgMarkersHere = matchMarkersAt(cwd, detectMarkers({ userHome: homedir }));
-
-  hasPackageFile = pathExistsInternal(cwd, 'package.json') ||
-                   pathExistsInternal(cwd, 'requirements.txt') ||
-                   pathExistsInternal(cwd, 'Cargo.toml') ||
-                   pathExistsInternal(cwd, 'go.mod') ||
-                   pathExistsInternal(cwd, 'Package.swift') ||
-                   pathExistsInternal(cwd, 'pubspec.yaml') ||
-                   pathExistsInternal(cwd, 'build.gradle') ||
-                   pathExistsInternal(cwd, 'build.gradle.kts') ||
-                   orgMarkersHere.length > 0;
+  const hasCode = repoSignals.code_files > 0;
+  const hasPackageFile = repoSignals.has_manifest;
+  const isBrownfield = repoSignals.code_files > 0 || repoSignals.has_manifest;
 
   const result = {
     // Models
@@ -645,14 +628,17 @@ function cmdInitNewProject(cwd, raw, args = []) {
     // Brownfield detection
     has_existing_code: hasCode,
     has_package_file: hasPackageFile,
-    is_brownfield: hasCode || hasPackageFile,
-    needs_codebase_map: (hasCode || hasPackageFile) && !pathExistsInternal(cwd, '.planning/codebase'),
+    is_brownfield: isBrownfield,
+    needs_codebase_map: isBrownfield && !repoSignals.has_codebase_map,
 
     // Git state
     has_git: pathExistsInternal(cwd, '.git'),
 
     // Enhanced search
     brave_search_available: hasBraveSearch,
+
+    // 37-04: additive — repo-state.cjs's full classification, for downstream consumers (37-10)
+    repo_state: { state: repoStateName, signals: repoSignals },
   };
 
   output(result, raw);

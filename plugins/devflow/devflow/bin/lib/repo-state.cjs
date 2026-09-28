@@ -7,11 +7,14 @@
 // init.cjs:597-622) delegate to as of 37-04. `userHome` is injected everywhere — this module never
 // calls `os.homedir()`, so a caller with `userHome: null` gets org-profile markers and the
 // `~/Downloads` scratch rule turned off rather than falling back to the real home.
+//
+// 37-04: MANIFEST_LANG/detectManifest/gitAgeDays moved here (verbatim) from project-state.cjs,
+// inverting the dependency so project-state.cjs now requires this module instead of the reverse
+// (37-01 had it backwards to avoid ordering the two TRDs). project-state.cjs re-exports both.
 
 const fs = require('fs');
 const path = require('path');
-
-const { detectManifest, gitAgeDays } = require('./project-state.cjs');
+const { spawnSync } = require('child_process');
 
 const STATES = Object.freeze(['devflow', 'greenfield', 'brownfield', 'scratch']);
 
@@ -37,19 +40,111 @@ const EXTS = new Set([
 ]);
 
 /**
- * isScratchDir(absPath, { userHome, prefixes }) -> boolean
+ * Locked manifest→language mapping (moved verbatim from project-state.cjs, 37-04).
+ * Order matters: first match wins. package.json checked first.
+ */
+const MANIFEST_LANG = [
+  ['package.json',   'javascript'],  // refined to 'typescript' when tsconfig.json present
+  ['Cargo.toml',     'rust'],
+  ['pyproject.toml', 'python'],
+  ['go.mod',         'go'],
+  ['Gemfile',        'ruby'],
+  ['pom.xml',        'java'],
+  // 35-09 additions — APPENDED after the original six so first-match order (and therefore
+  // every pre-existing detector result) for existing repos is unchanged.
+  ['pubspec.yaml',        'dart'],
+  ['build.gradle.kts',    'kotlin'],
+  ['settings.gradle.kts', 'kotlin'],
+  ['build.gradle',        'java'],
+  ['Package.swift',       'swift'],
+];
+
+/**
+ * Detect the primary language from manifest files in the project root.
+ * First match wins (per MANIFEST_LANG order).
+ *
+ * Special case: package.json + tsconfig.json → 'typescript' (not 'javascript').
+ *
+ * 35-09: when no built-in manifest matches, falls back to the union of installed org
+ * profiles' `detect` markers (via stack-profile's `detectMarkers`/`matchMarkersAt`) — the
+ * first matching marker's `languages[0]` (or its `profile` id when `languages` is empty)
+ * becomes `primary_lang`. `[]` when `userHome` is null, so this is a no-op without it.
+ * Lazy `require` avoids a load cycle with stack-profile.cjs.
+ *
+ * @param {string} rootDir - absolute path to the project root
+ * @param {{userHome?: string|null}} [opts]
+ * @returns {{ has_manifest: boolean, primary_lang: string|null }}
+ */
+function detectManifest(rootDir, { userHome = null } = {}) {
+  for (const [filename, lang] of MANIFEST_LANG) {
+    if (fs.existsSync(path.join(rootDir, filename))) {
+      // Refine package.json → 'typescript' when tsconfig.json is also present
+      if (filename === 'package.json' && fs.existsSync(path.join(rootDir, 'tsconfig.json'))) {
+        return { has_manifest: true, primary_lang: 'typescript' };
+      }
+      return { has_manifest: true, primary_lang: lang };
+    }
+  }
+  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
+  const matched = matchMarkersAt(rootDir, detectMarkers({ userHome }));
+  if (matched.length) {
+    const m = matched[0];
+    return { has_manifest: true, primary_lang: m.languages[0] || m.profile };
+  }
+  return { has_manifest: false, primary_lang: null };
+}
+
+/**
+ * Compute the number of days since the first git commit in the repo at cwd.
+ * Returns null when: no git binary, not a git repo, no commits, or timeout (2s hard limit).
+ * Moved verbatim from project-state.cjs, 37-04.
+ *
+ * @param {string} cwd - absolute path to the git repository root
+ * @returns {number|null}
+ */
+function gitAgeDays(cwd) {
+  try {
+    const r = spawnSync('git', ['log', '--reverse', '--format=%ct', '-n', '1'], {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 2000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (r.error || r.status !== 0) return null;
+
+    const firstCommitUnix = parseInt(r.stdout.trim(), 10);
+    if (isNaN(firstCommitUnix)) return null;
+
+    const nowUnix = Math.floor(Date.now() / 1000);
+    return Math.floor((nowUnix - firstCommitUnix) / 86400);
+  } catch {
+    // ENOENT (no git binary), permission errors, etc.
+    return null;
+  }
+}
+
+/**
+ * isScratchDir(absPath, { userHome, prefixes, downloadsHome }) -> boolean
  *
  * Checks the path AS PROVIDED (no realpath resolution) — matches project-state.cjs's own rule,
  * which 37-04's parity test depends on. `userHome: null` turns the `~/Downloads` rule off instead
  * of falling back to `os.homedir()`.
+ *
+ * `downloadsHome` (37-04) is the home used ONLY for the `~/Downloads` join; it defaults to
+ * `userHome` so every existing caller (repo-state.test.cjs, detectRepoState with a single
+ * `userHome` option) is unaffected. project-state.cjs's adapter passes `downloadsHome:
+ * os.homedir()` explicitly so `getProjectState`'s scratch/substantive computation keeps its
+ * legacy behaviour of always consulting the real home for the Downloads rule, even when its own
+ * `userHome` (which only ever fed the org-marker manifest fallback) is null.
  */
-function isScratchDir(absPath, { userHome = null, prefixes = DEFAULT_SCRATCH_PREFIXES } = {}) {
+function isScratchDir(absPath, { userHome = null, prefixes = DEFAULT_SCRATCH_PREFIXES, downloadsHome = userHome } = {}) {
   for (const prefix of prefixes) {
     if (absPath.startsWith(prefix)) return true;
   }
 
-  if (userHome) {
-    const homeDownloads = path.join(userHome, 'Downloads');
+  if (downloadsHome) {
+    const homeDownloads = path.join(downloadsHome, 'Downloads');
     if (absPath === homeDownloads || absPath.startsWith(homeDownloads + path.sep)) {
       return true;
     }
@@ -98,13 +193,13 @@ function countSourceFiles(root, { extraExts = [] } = {}) {
 }
 
 /**
- * collectSignals(root, { userHome, scratchPrefixes }) -> signals
+ * collectSignals(root, { userHome, scratchPrefixes, downloadsHome }) -> signals
  *
  * IO half of the detector. `scratchPrefixes` defaults to DEFAULT_SCRATCH_PREFIXES — tests that
  * expect `brownfield` on a fixture living under `os.tmpdir()` (which is itself under
  * `/var/folders/` on macOS) must pass `scratchPrefixes: []` explicitly.
  */
-function collectSignals(root, { userHome = null, scratchPrefixes = DEFAULT_SCRATCH_PREFIXES } = {}) {
+function collectSignals(root, { userHome = null, scratchPrefixes = DEFAULT_SCRATCH_PREFIXES, downloadsHome = userHome } = {}) {
   const has_planning = fs.existsSync(path.join(root, '.planning'));
   const has_codebase_map = fs.existsSync(path.join(root, '.planning', 'codebase'));
   const has_git = fs.existsSync(path.join(root, '.git'));
@@ -126,7 +221,7 @@ function collectSignals(root, { userHome = null, scratchPrefixes = DEFAULT_SCRAT
 
   const code_files = countSourceFiles(root, { extraExts });
   const git_age_days = has_git ? gitAgeDays(root) : null;
-  const is_scratch_dir = isScratchDir(root, { userHome, prefixes: scratchPrefixes });
+  const is_scratch_dir = isScratchDir(root, { userHome, prefixes: scratchPrefixes, downloadsHome });
 
   return {
     has_planning,
@@ -179,7 +274,8 @@ function derive(signals, { mapThreshold = 50 } = {}) {
 /**
  * detectRepoState(root, opts) -> { state, signals, derived }
  *
- * opts: { userHome, scratchPrefixes, mapThreshold } — forwarded to collectSignals/derive.
+ * opts: { userHome, scratchPrefixes, downloadsHome, mapThreshold } — forwarded to
+ * collectSignals/derive.
  */
 function detectRepoState(root, opts = {}) {
   const signals = collectSignals(root, opts);
@@ -195,6 +291,9 @@ module.exports = {
   DEFAULT_SCRATCH_PREFIXES,
   EXCLUDE,
   EXTS,
+  MANIFEST_LANG,
+  detectManifest,
+  gitAgeDays,
   isScratchDir,
   countSourceFiles,
   collectSignals,
