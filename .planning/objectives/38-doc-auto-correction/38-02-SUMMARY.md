@@ -168,3 +168,12 @@ None outside the expected RED-phase failures. One self-caught authoring slip: wh
 ---
 *Objective: 38-doc-auto-correction*
 *Completed: 2026-09-28*
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/objectives/38-doc-auto-correction/38-02-SUMMARY.md`
+- FOUND: `3524f7d` (test — Task 1 RED)
+- FOUND: `3508a5a` (fix — Task 1 GREEN)
+- FOUND: `0db1c28` (test — Task 2 RED)
+- FOUND: `d9e6c06` (fix — Task 2 GREEN)
+- FOUND: `3934be2` (docs — this SUMMARY commit)
