@@ -219,7 +219,8 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 | 19 | CI pins node 26 so a throwing `after()` hook fails the gate (#101, micro; merged as #105) | 2026-09-26 | ff5725e | — | micro (no dir) |
 | 20 | `exec-context check --id` refuses a parallel sibling on a shared git index; `exec-context release` (#98) (dir numbered 17) | 2026-09-26 | 8451947 | — | [17-exec-context-check-refuses-a-parallel-si](./quick/17-exec-context-check-refuses-a-parallel-si/) |
 | 21 | Stack profile proposal: per-project `.planning/STACK.md` with a general-purpose default (`references/stack-general.md`), template, schema, and Go/Dart/Flutter example profiles. Docs only, not wired in (dir numbered 18) | 2026-09-27 | 2946f97 | — | [18-stack-profile-proposal-per-project-stack](./quick/18-stack-profile-proposal-per-project-stack/) |
-| 19 | stack loop runs for every project: restate objective 35 invariant | 2026-09-27 | c71ecf3 | devflow-claude | Atomic |
+| 22 | Stack loop runs for every project: restate objective 35 invariant (micro, dir numbered 19; row originally auto-written with wrong number and shifted columns) | 2026-09-27 | c71ecf3 | — | — |
+| 23 | Jobs line replaces its leading count instead of prepending a second one (follow-up to debug fix cbf238d; keeps the author's noun/verb) (dir numbered 20) | 2026-09-28 | 3ee4cfb | — | [20-jobs-line-replaces-its-leading-count-ins](./quick/20-jobs-line-replaces-its-leading-count-ins/) |
 
 ## Session Continuity
 
