@@ -13,7 +13,7 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 <step name="parse_arguments">
 Parse the command arguments:
-- Argument is the objective number to remove (integer or decimal)
+- Argument is the objective number to remove (integer). Legacy decimal directories created before v1.2 (e.g. `12.1`) are still accepted for removal; decimal objectives are no longer created.
 - Example: `/devflow:objective remove 17` → objective = 17
 - Example: `/devflow:objective remove 9` → objective = 9
 
