@@ -87,7 +87,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 36. Upgrade in place | v1.3 | 10/10 | Complete | 2026-09-27 |
 | 37. /devflow:adopt + backup pruning | v1.3 | 16/16 | Complete | 2026-09-28 |
 | 38. Doc auto-correction | v1.3 | 12/12 | Complete | 2026-09-28 |
-| 39. Wire the telemetry & audit CLI | v1.3 | 4/5 | In Progress | — |
+| 39. Wire the telemetry & audit CLI | v1.3 | 5/5 | Complete | 2026-09-28 |
 | 40. Tooling correctness | v1.3 | 0/— | Registered (gap closure) | — |
 | 41. Retroactive verification of 27–34 | v1.3 | 0/— | Registered (gap closure) | — |
 
@@ -316,14 +316,14 @@ Jobs:
 **Goal:** `df-tools context`, `session-audit`, `transcript-export` and `override` are reachable from the CLI (today: "Unknown command"), each backed by its existing tested lib; every documented df-tools command dispatches, proven by CLI-level tests.
 **Depends on:** Objectives 29, 30, 31, 38 (telemetry wiring pattern from 38-11)
 **Gap Closure:** v1.3 audit — integration gap (objectives 29/30/31 → df-tools dispatch)
-**Jobs:** 4/5 complete — 5 TRDs in 4 waves (planned 2026-09-28; objective-local requirement IDs AUD-01..AUD-12; CLI front-end `lib/audit-cli.cjs`; `override` keeps the documented `--gate/--reason` form plus `--list`; `telemetry --scan` deferred; baseline at `f0702de`: 4119 tests / 1 pre-existing fail)
+**Jobs:** 5/5 complete — 5 TRDs in 4 waves (planned 2026-09-28; objective-local requirement IDs AUD-01..AUD-12; CLI front-end `lib/audit-cli.cjs`; `override` keeps the documented `--gate/--reason` form plus `--list`; `telemetry --scan` deferred; baseline at `f0702de`: 4119 tests / 1 pre-existing fail)
 
 Jobs:
 - [x] 39-01-TRD.md — Wave 1: `lib/audit-cli.cjs` + wire `df-tools context` and `session-audit` (default root `~/.claude/projects`, `--limit 150`, `--root`, `--since`), HOME-isolated CLI tests
 - [x] 39-02-TRD.md — Wave 2: wire `df-tools transcript-export` (index `~/.claude/devflow/transcript-index.jsonl`) and `override --gate/--reason | --list` (recordOverride + pruneLog callers)
 - [x] 39-03-TRD.md — Wave 1: hook-inventory pin test; CLAUDE.md marks `inject-org-context.js`/`inject-handoff-results.js` DRAFT (unregistered); site `--gate edits` fix
 - [x] 39-04-TRD.md — Wave 3: dispatch-completeness test (CLAUDE.md-named + HELP_TABLE commands dispatch); CLAUDE.md CLI inventory flipped to live
-- [ ] 39-05-TRD.md — Wave 4: re-baseline objective 29 `read_share_pct` via `df-tools context --limit 150`; CHANGELOG [Unreleased]; full-suite gate (no version bump)
+- [x] 39-05-TRD.md — Wave 4: re-baseline objective 29 `read_share_pct` via `df-tools context --limit 150`; CHANGELOG [Unreleased]; full-suite gate (no version bump)
 
 ### Objective 40: Tooling correctness
 
