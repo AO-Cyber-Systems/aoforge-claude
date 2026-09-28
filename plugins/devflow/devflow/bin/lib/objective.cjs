@@ -797,19 +797,33 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     }
   } catch {}
 
-  // Update STATE.md — but only for projects still on the legacy template
-  // schema (Current Objective / Current Job / Last Activity fields). Projects
-  // that migrated to the narrative convention (a running "**Objective
-  // complete:** N — ..." log plus one free-text "**Status:**" summary line,
-  // with no **Current Objective:** field at all) still have a field literally
-  // named **Status:**, which would otherwise match and get destructively
-  // overwritten with a short templated value — wiping the narrative summary
-  // and moving status backward for an objective that was just completed.
-  // **Current Objective:** is the legacy template's anchor field (still
-  // documented in workflows/transition.md); its absence means this project
-  // dropped that schema, so we leave STATE.md alone rather than guess.
-  if (fs.existsSync(statePath)) {
-    let stateContent = fs.readFileSync(statePath, 'utf-8');
+  // Update STATE.md. Two schemas, told apart by **Current Objective:** — the
+  // legacy template's anchor field (still documented in workflows/transition.md).
+  //
+  // Legacy (field present): advance Current Objective / Status / Current Job /
+  // Last Activity fields as always.
+  //
+  // Narrative (field absent): a running "**Objective complete:** N — ..." log
+  // plus one free-text "**Status:**" summary line. That file still has a field
+  // literally named **Status:**, which the legacy replaces would destructively
+  // overwrite with a short templated value — wiping the narrative summary and
+  // moving status backward for an objective that was just completed. So the
+  // narrative branch is additive only (TOOL-02): it inserts one
+  // "**Objective complete:** N — <title> (completed <date>, S/J TRDs)" line
+  // directly after the LAST existing log line, and never touches **Status:**.
+  // It is idempotent (an existing "N —" line means nothing is written), and it
+  // writes nothing when there is no log line to anchor to — it never guesses a
+  // position such as end-of-file.
+  //
+  // state_updated reports whether STATE.md was actually written, never merely
+  // whether it exists; state_update_reason says why when it was not.
+  let stateUpdated = false;
+  let stateUpdateReason = null;
+  if (!fs.existsSync(statePath)) {
+    stateUpdateReason = 'state_missing';
+  } else {
+    const original = fs.readFileSync(statePath, 'utf-8');
+    let stateContent = original;
     const isLegacyStateSchema = /\*\*Current Objective:\*\*/m.test(stateContent);
 
     if (isLegacyStateSchema) {
@@ -850,8 +864,35 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
         /(\*\*Last Activity Description:\*\*\s*).*/,
         `$1Objective ${objectiveNum} complete${nextObjectiveNum ? `, transitioned to Objective ${nextObjectiveNum}` : ''}`
       );
+    } else {
+      const logNum = logObjectiveNumber(objectiveNum);
+      const alreadyLogged = new RegExp(
+        `^\\*\\*Objective complete:\\*\\*\\s*0*${escapeRegExp(logNum)}\\s*[—–-]`,
+        'm'
+      );
+      const logLines = [...original.matchAll(/^\*\*Objective complete:\*\*.*$/gm)];
 
+      if (alreadyLogged.test(original)) {
+        stateUpdateReason = 'already_logged';
+      } else if (!logLines.length) {
+        stateUpdateReason = 'no_log_anchor';
+      } else {
+        const title = objectiveTitle(roadmapPath, logNum, objectiveInfo.objective_name);
+        const eol = original.includes('\r\n') ? '\r\n' : '\n';
+        const last = logLines[logLines.length - 1];
+        const at = last.index + last[0].length;
+        stateContent =
+          original.slice(0, at) +
+          `${eol}**Objective complete:** ${logNum} — ${title} (completed ${today}, ${summaryCount}/${jobCount} TRDs)` +
+          original.slice(at);
+      }
+    }
+
+    if (stateContent !== original) {
       fs.writeFileSync(statePath, stateContent, 'utf-8');
+      stateUpdated = true;
+    } else if (!stateUpdateReason) {
+      stateUpdateReason = 'unchanged';
     }
   }
 
@@ -864,10 +905,39 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     is_last_objective: isLastObjective,
     date: today,
     roadmap_updated: fs.existsSync(roadmapPath),
-    state_updated: fs.existsSync(statePath),
+    state_updated: stateUpdated,
+    state_update_reason: stateUpdateReason,
   };
 
   output(result, raw);
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// The objective number as written in the narrative log: leading zeros dropped
+// from the integer part ('07' → '7'), decimal part kept ('12.1' stays '12.1',
+// so an inserted objective is never mistaken for its parent).
+function logObjectiveNumber(objectiveNum) {
+  const m = String(objectiveNum).match(/^0*(\d+)((?:\.\d+)?)/);
+  return m ? `${m[1]}${m[2]}` : String(objectiveNum);
+}
+
+// Title for the narrative log line: the ROADMAP.md "### Objective N: <title>"
+// heading with any trailing ✅ stripped; otherwise the objective directory's
+// name with hyphens as spaces; otherwise "Objective N".
+function objectiveTitle(roadmapPath, logNum, objectiveName) {
+  if (fs.existsSync(roadmapPath)) {
+    const roadmap = fs.readFileSync(roadmapPath, 'utf-8');
+    const heading = roadmap.match(new RegExp(
+      `^#{2,4}\\s*Objective\\s+0*${escapeRegExp(logNum)}\\s*:[ \\t]*(.+?)(?:[ \\t]*\\u2705\\uFE0F?)*[ \\t]*$`,
+      'mu'
+    ));
+    if (heading && heading[1].trim()) return heading[1].trim();
+  }
+  if (objectiveName) return objectiveName.replace(/-/g, ' ');
+  return `Objective ${logNum}`;
 }
 
 module.exports = {
