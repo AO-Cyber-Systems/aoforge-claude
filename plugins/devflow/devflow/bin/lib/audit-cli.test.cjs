@@ -71,6 +71,7 @@ function toolResult(id, text, opts = {}) {
 
 const {
   parseAuditArgs, defaultTranscriptRoot, runContext, formatContextRaw,
+  defaultIndexPath,
 } = require('./audit-cli.cjs');
 
 // ─── Unit tests (in-process, no spawn) — tests 12-15 ───────────────────────
@@ -335,6 +336,135 @@ describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
       assert.match(saHelp.stdout, /df-tools session-audit/);
     } finally {
       cleanup(cwd, home);
+    }
+  });
+});
+
+// ─── df-tools transcript-export (CLI) — TRD 39-02 tests 1-5, 16 (half), 17 ─
+describe('df-tools transcript-export (CLI) — TRD 39-02', () => {
+  function tmpCwd() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-cwd-'));
+  }
+
+  function cleanup(...dirs) {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  }
+
+  test('1. no flags: exit 0, {indexed:2, skipped:0, copied:0, sessions:2}, index has 2 lines', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [toolResult('a', 'ok')]);
+      writeTranscript(home, 'proj-a', 'sess-2', [toolResult('b', 'ok')]);
+      const r = runCli(['transcript-export'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.indexed, 2);
+      assert.equal(json.skipped, 0);
+      assert.equal(json.copied, 0);
+      assert.equal(json.sessions, 2);
+      const indexPath = path.join(home, '.claude', 'devflow', 'transcript-index.jsonl');
+      const lines = fs.readFileSync(indexPath, 'utf8').trim().split('\n');
+      assert.equal(lines.length, 2);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('2. a re-run is incremental: {indexed:0, skipped:2}, index still has 2 lines', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [toolResult('a', 'ok')]);
+      writeTranscript(home, 'proj-a', 'sess-2', [toolResult('b', 'ok')]);
+      runCli(['transcript-export'], cwd, home);
+      const r = runCli(['transcript-export'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.indexed, 0);
+      assert.equal(json.skipped, 2);
+      const indexPath = path.join(home, '.claude', 'devflow', 'transcript-index.jsonl');
+      const lines = fs.readFileSync(indexPath, 'utf8').trim().split('\n');
+      assert.equal(lines.length, 2);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('3. --out and --full write to custom paths, copied === 2', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-export-'));
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [toolResult('a', 'ok')]);
+      writeTranscript(home, 'proj-a', 'sess-2', [toolResult('b', 'ok')]);
+      const outFile = path.join(tmp, 'idx.jsonl');
+      const rawDir = path.join(tmp, 'raw');
+      const r = runCli(['transcript-export', '--out', outFile, '--full', rawDir], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.copied, 2);
+      assert.ok(fs.existsSync(outFile), 'custom --out index must exist');
+      const rawFiles = fs.readdirSync(rawDir).filter(f => f.endsWith('.jsonl'));
+      assert.equal(rawFiles.length, 2);
+    } finally {
+      cleanup(cwd, home, tmp);
+    }
+  });
+
+  test('4. --raw prints exactly one summary line', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [toolResult('a', 'ok')]);
+      writeTranscript(home, 'proj-a', 'sess-2', [toolResult('b', 'ok')]);
+      const r = runCli(['transcript-export', '--raw'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const indexPath = path.join(home, '.claude', 'devflow', 'transcript-index.jsonl');
+      assert.equal(r.stdout, `indexed 2, skipped 0, copied 0 of 2 sessions -> ${indexPath}`);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('5. an empty HOME fails without creating ~/.claude/devflow/', () => {
+    const cwd = tmpCwd();
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-emptyhome-'));
+    try {
+      const r = runCli(['transcript-export'], cwd, home);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /transcript root not found/);
+      assert.equal(fs.existsSync(path.join(home, '.claude', 'devflow')), false, 'no stray devflow dir');
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('16a. --help is side-effect free (no files in cwd or HOME)', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      const before = fs.readdirSync(cwd);
+      const r = runCli(['transcript-export', '--help'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.match(r.stdout, /df-tools transcript-export/);
+      assert.deepEqual(fs.readdirSync(cwd), before);
+      assert.equal(fs.existsSync(path.join(home, '.claude', 'devflow')), false);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+});
+
+describe('defaultIndexPath()', () => {
+  test('17. reads HOME at call time, not at module load', () => {
+    const originalHome = process.env.HOME;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-fakehome2-'));
+    try {
+      process.env.HOME = tmp;
+      assert.equal(defaultIndexPath(), path.join(tmp, '.claude', 'devflow', 'transcript-index.jsonl'));
+    } finally {
+      process.env.HOME = originalHome;
     }
   });
 });
