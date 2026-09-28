@@ -137,3 +137,94 @@ describe('collect() — objective 38 — doc advisories', () => {
     }
   });
 });
+
+// ─── df-tools telemetry (CLI) — TRD 38-11 tests 4-7 ────────────────────────────────────────
+//
+// Wires collect() into the dispatcher: `df-tools telemetry [--raw]`, a read-only summary
+// command (previously documented in CLAUDE.md but unreachable — `Unknown command: telemetry`).
+describe('df-tools telemetry (CLI) — objective 38', () => {
+  const { spawnSync } = require('child_process');
+  const TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
+
+  function makeHome() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-home-'));
+  }
+
+  function runTelemetry(args, cwd, home) {
+    const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', cwd, 'telemetry', ...args], {
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: { ...process.env, HOME: home },
+    });
+    return { status: r.status, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
+  }
+
+  test('4. exit 0 with valid JSON and an advisories array', () => {
+    const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
+    const cliHome = makeHome();
+    fs.mkdirSync(path.join(cliDir, '.planning'));
+    try {
+      const r = runTelemetry([], cliDir, cliHome);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.ok(Array.isArray(json.advisories), `expected advisories array; got ${r.stdout}`);
+    } finally {
+      fs.rmSync(cliDir, { recursive: true, force: true });
+      fs.rmSync(cliHome, { recursive: true, force: true });
+    }
+  });
+
+  test('5. --raw stdout lines equal the JSON advisories', () => {
+    const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
+    const cliHome = makeHome();
+    const cliPd = path.join(cliDir, '.planning');
+    fs.mkdirSync(cliPd);
+    for (let i = 0; i < 5; i++) recordOverride({ planningDir: cliPd, gate: 'edits', reason: `r${i}` });
+    fs.writeFileSync(
+      path.join(cliPd, 'STACK.md'),
+      stackFx.profileMd({ yaml: 'schema: 1\nprovenance:\n  reviewed: "2025-01-01"\n' }),
+      'utf-8'
+    );
+    try {
+      const jsonR = runTelemetry([], cliDir, cliHome);
+      assert.equal(jsonR.status, 0, `stderr: ${jsonR.stderr}`);
+      const json = JSON.parse(jsonR.stdout);
+      assert.ok(json.advisories.length >= 2, `expected >= 2 advisories; got ${JSON.stringify(json.advisories)}`);
+
+      const rawR = runTelemetry(['--raw'], cliDir, cliHome);
+      assert.equal(rawR.status, 0, `stderr: ${rawR.stderr}`);
+      assert.deepEqual(rawR.stdout.split('\n'), json.advisories);
+    } finally {
+      fs.rmSync(cliDir, { recursive: true, force: true });
+      fs.rmSync(cliHome, { recursive: true, force: true });
+    }
+  });
+
+  test('6. no .planning/ -> exit 0, "no .planning/ — not a DevFlow project"', () => {
+    const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
+    const cliHome = makeHome();
+    try {
+      const r = runTelemetry(['--raw'], cliDir, cliHome);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.equal(r.stdout, 'no .planning/ — not a DevFlow project');
+    } finally {
+      fs.rmSync(cliDir, { recursive: true, force: true });
+      fs.rmSync(cliHome, { recursive: true, force: true });
+    }
+  });
+
+  test('7. --help prints usage, exit 0, no side effects', () => {
+    const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
+    const cliHome = makeHome();
+    try {
+      const before = fs.readdirSync(cliDir);
+      const r = runTelemetry(['--help'], cliDir, cliHome);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      assert.match(r.stdout, /df-tools telemetry \[--raw\]/);
+      assert.deepEqual(fs.readdirSync(cliDir), before, 'no side effects');
+    } finally {
+      fs.rmSync(cliDir, { recursive: true, force: true });
+      fs.rmSync(cliHome, { recursive: true, force: true });
+    }
+  });
+});
