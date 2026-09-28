@@ -4,7 +4,8 @@
 
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
-- 📋 **v1.3 — not yet planned** (`/devflow:milestone new`)
+- 🚧 **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (in progress; audit 2026-09-28 gaps_found → 39–41)
+- 📋 **v1.4 — not yet planned** — candidate: Objective 26 (moved from v1.3 2026-09-28; kill candidate)
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (contains both v1.1 and v1.2 detail). Milestone history: `.planning/MILESTONES.md`.
 
@@ -50,7 +51,11 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (contains both v1
 
 </details>
 
-### 📋 v1.3 (not yet planned)
+### 📋 v1.4 candidates
+
+- **Objective 26: GitHub issue auto-build monitor** — moved out of v1.3 on 2026-09-28 by user decision; **candidate for killing**. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
+
+### Carried-forward v1.2 deferrals
 
 Candidate scope carried forward from v1.2 deferrals:
 
@@ -62,15 +67,6 @@ Candidate scope carried forward from v1.2 deferrals:
 - Docs cleanup: stale USER-GUIDE.md rows (resume-work/progress/pause-work/add-objective)
 - 09-03 SUMMARY.md backfill (deliverables shipped, summary doc missing)
 
-### Objective 26: GitHub issue auto-build monitor
-
-**Goal:** Discover untracked GitHub issues in the current repo and drive qualifying ones through the full DevFlow pipeline (plan → execute → verify → PR) unattended, behind a trusted-author gate.
-**Depends on:** Objective 25
-**Jobs:** 0 jobs
-
-Jobs:
-- [ ] TBD (run /devflow:plan-objective 26 to break down)
-
 ## Progress
 
 | Objective | Milestone | Plans | Status | Completed |
@@ -78,7 +74,7 @@ Jobs:
 | 0–9, 6, 8, 24 (13 objectives) | v1.1 | 53/53 | Complete | 2026-05-06 |
 | 10–23 (15 objectives) | v1.2 | 71/71 | Complete | 2026-05-25 |
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
-| 26. GitHub issue auto-build monitor | v1.3 | 0/6 | Planning | — |
+| 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
 | 27. Gate correctness | v1.3 | 5/6 | Complete (1 deferred) | 2026-08-18 |
 | 28. Model tier binding and escalation | v1.3 | 5/6 | Complete (1 deferred) | 2026-08-19 |
 | 29. Context discipline | v1.3 | 4/4 | Complete | 2026-08-19 |
@@ -91,6 +87,9 @@ Jobs:
 | 36. Upgrade in place | v1.3 | 10/10 | Complete | 2026-09-27 |
 | 37. /devflow:adopt + backup pruning | v1.3 | 16/16 | Complete | 2026-09-28 |
 | 38. Doc auto-correction | v1.3 | 12/12 | Complete | 2026-09-28 |
+| 39. Wire the telemetry & audit CLI | v1.3 | 0/— | Registered (gap closure) | — |
+| 40. Tooling correctness | v1.3 | 0/— | Registered (gap closure) | — |
+| 41. Retroactive verification of 27–34 | v1.3 | 0/— | Registered (gap closure) | — |
 
 ### Objective 27: Gate correctness ✅
 
@@ -311,3 +310,25 @@ Jobs:
 - [x] 38-10-TRD.md — Wave 3: `validate health` Check 14 (W050-W054) + `df-tools validate docs`
 - [x] 38-11-TRD.md — Wave 4: `df-tools telemetry` wired (doc advisories merged) + Documentation section in `/devflow:status`
 - [x] 38-12-TRD.md — Wave 5: CHANGELOG [Unreleased], CLAUDE.md CLI-inventory correction, USER-GUIDE, dogfood, final full-suite gate (no version bump)
+
+### Objective 39: Wire the telemetry & audit CLI
+
+**Goal:** `df-tools context`, `session-audit`, `transcript-export` and `override` are reachable from the CLI (today: "Unknown command"), each backed by its existing tested lib; every documented df-tools command dispatches, proven by CLI-level tests.
+**Depends on:** Objectives 29, 30, 31, 38 (telemetry wiring pattern from 38-11)
+**Gap Closure:** v1.3 audit — integration gap (objectives 29/30/31 → df-tools dispatch)
+**Jobs:** registered, not planned.
+
+### Objective 40: Tooling correctness
+
+**Goal:** Fix the tooling defects the v1.3 audit and objective 38 surfaced: `init milestone-op` reports v1.1 instead of the current milestone; `objective complete` leaves STATE.md unchanged; planner/TRD templates emit `rg -nE` (ripgrep `-E` is encoding, not ERE); `remove-objective.md` still says "integer or decimal".
+**Depends on:** —
+**Gap Closure:** v1.3 audit — tech debt (tooling)
+**Jobs:** registered, not planned.
+
+### Objective 41: Retroactive verification of 27–34
+
+**Goal:** Every v1.3 objective has an independent VERIFICATION.md: run the verifier against objectives 27–34 as they stand (27–31 have only an objective-level SUMMARY; 32–34 have none). Verification only — real gaps become fix TRDs.
+**Depends on:** Objective 39 (29–31 cannot verify while their commands are unreachable)
+**Gap Closure:** v1.3 audit — unverified objectives
+**Jobs:** registered, not planned.
+
