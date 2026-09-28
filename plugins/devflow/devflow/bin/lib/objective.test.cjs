@@ -25,6 +25,10 @@
  *      matched and got clobbered — silently discarding an accumulated
  *      multi-paragraph project summary and regressing status backward to
  *      "Ready to plan" for an objective that had just been completed.
+ *   4. (TOOL-02) The fix for 3 over-corrected: on the narrative schema it
+ *      wrote nothing at all, so the running log never gained the completed
+ *      objective, and `state_updated` was `fs.existsSync(statePath)` — true
+ *      even though nothing was written.
  *
  * Fixtures mirror this repo's real ROADMAP.md/STATE.md: 5-column Progress
  * table, `<details>`-collapsed milestone blocks with duplicate objective
@@ -202,6 +206,21 @@ function jobsLine(roadmap, objectiveNum) {
   return null;
 }
 
+function statusLine(state) {
+  return state.split('\n').find(l => l.startsWith('**Status:**')) || null;
+}
+
+function removeLines(text, re) {
+  const lines = text.split('\n');
+  const removed = lines.filter(l => re.test(l));
+  const rest = lines.filter(l => !re.test(l)).join('\n');
+  return { rest, removed };
+}
+
+function readState(project) {
+  return fs.readFileSync(path.join(project, '.planning', 'STATE.md'), 'utf-8');
+}
+
 describe('objective complete — ROADMAP.md 5-column table (Milestone column present)', () => {
   test('marks objective 12 Complete without disturbing Milestone or sibling rows', () => {
     const project = tmpProject();
@@ -260,7 +279,11 @@ describe('objective complete — ROADMAP.md 5-column table (Milestone column pre
 });
 
 describe('objective complete — STATE.md narrative schema (no **Current Objective:** field)', () => {
-  test('does not reset **Status:** to "Ready to plan"; narrative content survives byte-identical', () => {
+  // TOOL-02 (TRD 40-02) tightened this from "byte-identical" to "byte-identical
+  // apart from exactly one appended **Objective complete:** 12 log line". The
+  // intent is unchanged: narrative content survives and **Status:** is never
+  // re-derived. Only the running log gains one line.
+  test('does not reset **Status:** to "Ready to plan"; narrative content survives apart from one appended log line', () => {
     const project = tmpProject();
     fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
@@ -272,7 +295,11 @@ describe('objective complete — STATE.md narrative schema (no **Current Objecti
     const state = fs.readFileSync(path.join(project, '.planning', 'STATE.md'), 'utf-8');
     assert.doesNotMatch(state, /\*\*Status:\*\*\s*Ready to plan/, 'STATE.md Status regressed to "Ready to plan"');
     assert.doesNotMatch(state, /\*\*Status:\*\*\s*Milestone complete/, 'STATE.md Status was clobbered with the legacy template value');
-    assert.equal(state, NARRATIVE_STATE, 'narrative STATE.md must be left untouched — this project does not use the legacy Current Objective/Current Job schema');
+    assert.equal(statusLine(state), statusLine(NARRATIVE_STATE), 'the free-text **Status:** line must be byte-identical');
+
+    const { rest, removed } = removeLines(state, /^\*\*Objective complete:\*\* 12 — /);
+    assert.equal(removed.length, 1, `expected exactly one appended objective-12 log line, got ${removed.length}`);
+    assert.equal(rest, NARRATIVE_STATE, 'apart from the one appended log line, narrative STATE.md must be left untouched — this project does not use the legacy Current Objective/Current Job schema');
   });
 });
 
@@ -292,6 +319,29 @@ describe('objective complete — STATE.md legacy/template schema (backward compa
     assert.match(state, /\*\*Current Objective:\*\*\s*13/);
     assert.match(state, /\*\*Status:\*\*\s*Ready to plan/);
     assert.match(state, /\*\*Current Job:\*\*\s*Not started/);
+
+    // TOOL-02: the flag reports an actual write, not file existence.
+    assert.equal(result.json.state_updated, true);
+    assert.equal(result.json.state_update_reason, null);
+  });
+
+  test('TOOL-02: a second run that changes nothing reports state_updated false (unchanged)', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    writeObjective12Dir(project, 10);
+    writeObjective13Dir(project);
+    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), TEMPLATE_STATE, 'utf-8');
+
+    const first = run(['objective', 'complete', '12'], project);
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(first.json.state_updated, true);
+    const afterFirst = readState(project);
+
+    const second = run(['objective', 'complete', '12'], project);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readState(project), afterFirst, 'second run must not rewrite an already-advanced legacy STATE.md');
+    assert.equal(second.json.state_updated, false);
+    assert.equal(second.json.state_update_reason, 'unchanged');
   });
 });
 
@@ -320,5 +370,195 @@ describe('objective complete — Jobs-line leading-count seed (quick-20)', () =>
       jobsLine(roadmap, 12),
       '**Jobs:** 10/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04 split into 04a/04b/04c; notes about wave rebalancing)'
     );
+  });
+});
+
+// TOOL-02 (TRD 40-02): on a narrative STATE.md, `objective complete` used to
+// write nothing at all while reporting `state_updated: fs.existsSync(statePath)`
+// — true whenever the file existed. That is why objectives 37-39 never reached
+// this repo's running `**Objective complete:** N — ...` log. It now appends one
+// log line after the last existing one (idempotent, never touching Status) and
+// reports whether a write actually happened.
+describe('objective complete — narrative log append + truthful state_updated (TOOL-02)', () => {
+  const LOG_12 = /^\*\*Objective complete:\*\* 12 — /;
+
+  function narrativeProject({ roadmap = FIVE_COLUMN_ROADMAP, state = NARRATIVE_STATE } = {}) {
+    const project = tmpProject();
+    if (roadmap !== null) {
+      fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    }
+    writeObjective12Dir(project, 10);
+    writeObjective13Dir(project);
+    if (state !== null) {
+      fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), state, 'utf-8');
+    }
+    return project;
+  }
+
+  test('1: inserts one **Objective complete:** 12 line directly after the last log line; state_updated true', () => {
+    const project = narrativeProject();
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.state_updated, true);
+    assert.equal(result.json.state_update_reason, null);
+
+    const original = NARRATIVE_STATE.split('\n');
+    const idx11 = original.findIndex(l => l.startsWith('**Objective complete:** 11 — '));
+    assert.ok(idx11 >= 0, 'fixture sanity: objective 11 log line present');
+
+    const lines = readState(project).split('\n');
+    const inserted = lines[idx11 + 1];
+    assert.match(
+      inserted,
+      /^\*\*Objective complete:\*\* 12 — .+ \(completed \d{4}-\d{2}-\d{2}, 10\/10 TRDs\)$/,
+      `line after the objective 11 log line is not the new log line: ${inserted}`
+    );
+
+    const expected = original.slice();
+    expected.splice(idx11 + 1, 0, inserted);
+    assert.equal(lines.join('\n'), expected.join('\n'), 'STATE.md must equal the original plus exactly one inserted line');
+  });
+
+  test('2: the title comes from the ROADMAP `### Objective 12:` heading', () => {
+    const project = narrativeProject();
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+
+    const logLine = readState(project).split('\n').find(l => LOG_12.test(l));
+    assert.equal(logLine, `**Objective complete:** 12 — Objective under test (completed ${result.json.date}, 10/10 TRDs)`);
+  });
+
+  test('2b: a trailing ✅ on the ROADMAP heading is stripped from the title', () => {
+    const roadmap = FIVE_COLUMN_ROADMAP.replace(
+      '### Objective 12: Objective under test\n',
+      '### Objective 12: Objective under test ✅\n'
+    );
+    assert.notEqual(roadmap, FIVE_COLUMN_ROADMAP, 'fixture sanity: heading replace applied');
+    const project = narrativeProject({ roadmap });
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+
+    const logLine = readState(project).split('\n').find(l => LOG_12.test(l));
+    assert.equal(logLine, `**Objective complete:** 12 — Objective under test (completed ${result.json.date}, 10/10 TRDs)`);
+  });
+
+  test('2c: with no ROADMAP heading the title falls back to objective_name with hyphens as spaces', () => {
+    const project = narrativeProject({ roadmap: null });
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.state_updated, true);
+
+    const logLine = readState(project).split('\n').find(l => LOG_12.test(l));
+    assert.equal(logLine, `**Objective complete:** 12 — objective under test (completed ${result.json.date}, 10/10 TRDs)`);
+  });
+
+  test('4: idempotent — a second run writes nothing and reports already_logged', () => {
+    const project = narrativeProject();
+
+    const first = run(['objective', 'complete', '12'], project);
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(first.json.state_updated, true);
+    const afterFirst = readState(project);
+
+    const second = run(['objective', 'complete', '12'], project);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(second.json.state_updated, false);
+    assert.equal(second.json.state_update_reason, 'already_logged');
+
+    const afterSecond = readState(project);
+    assert.equal(afterSecond, afterFirst, 'second run must leave STATE.md byte-identical');
+    assert.equal(afterSecond.split('\n').filter(l => LOG_12.test(l)).length, 1);
+  });
+
+  test('5: narrative STATE.md with no log line at all is left byte-identical (no_log_anchor)', () => {
+    const NO_ANCHOR_STATE = `# STATE.md
+
+**Building:** Test Project
+**Milestone:** v1.1 — in flight
+**Status:** v1.1 in flight — objectives 1–11 complete; next 12 (Objective under test, in progress)
+
+## Session Continuity
+
+Last session: 2026-01-20
+`;
+    const project = narrativeProject({ state: NO_ANCHOR_STATE });
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readState(project), NO_ANCHOR_STATE, 'no anchor — nothing may be written, not even at end-of-file');
+    assert.equal(result.json.state_updated, false);
+    assert.equal(result.json.state_update_reason, 'no_log_anchor');
+  });
+
+  test('6: missing STATE.md reports state_missing and still exits 0', () => {
+    const project = narrativeProject({ state: null });
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(project, '.planning', 'STATE.md')), false, 'STATE.md must not be created');
+    assert.equal(result.json.state_updated, false);
+    assert.equal(result.json.state_update_reason, 'state_missing');
+  });
+
+  test('decimal objective 12.1 is not mistaken for an already-logged objective 12', () => {
+    const roadmap = `${FIVE_COLUMN_ROADMAP}
+### Objective 12.1: Hotfix insert
+
+**Goal:** Decimal objective inserted after 12.
+`;
+    const state = NARRATIVE_STATE.replace(
+      '**Status:**',
+      '**Objective complete:** 12 — Objective under test (verified 2026-01-21, 10/10 TRDs)\n**Status:**'
+    );
+    assert.notEqual(state, NARRATIVE_STATE, 'fixture sanity: objective 12 log line added');
+    const project = narrativeProject({ roadmap, state });
+    const dir = path.join(project, '.planning', 'objectives', '12.1-hotfix-insert');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '12.1-01-TRD.md'), '# TRD 01\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '12.1-01-SUMMARY.md'), '# Summary 01\n', 'utf-8');
+
+    const result = run(['objective', 'complete', '12.1'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.state_updated, true, `state_update_reason: ${result.json.state_update_reason}`);
+
+    const lines = readState(project).split('\n');
+    const idx12 = lines.findIndex(l => LOG_12.test(l));
+    assert.equal(lines[idx12 + 1], `**Objective complete:** 12.1 — Hotfix insert (completed ${result.json.date}, 1/1 TRDs)`);
+  });
+
+  test('zero-padded input is normalized: `07` writes `7 —`, and a later `7` is already_logged', () => {
+    const project = tmpProject();
+    const dir = path.join(project, '.planning', 'objectives', '07-seventh');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '07-01-TRD.md'), '# TRD 01\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '07-01-SUMMARY.md'), '# Summary 01\n', 'utf-8');
+    const state = `# STATE.md
+
+**Objective complete:** 6 — Sixth (verified 2026-01-01)
+**Status:** in flight
+`;
+    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), state, 'utf-8');
+
+    const first = run(['objective', 'complete', '07'], project);
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(first.json.state_updated, true);
+    assert.equal(
+      readState(project),
+      `# STATE.md
+
+**Objective complete:** 6 — Sixth (verified 2026-01-01)
+**Objective complete:** 7 — seventh (completed ${first.json.date}, 1/1 TRDs)
+**Status:** in flight
+`
+    );
+
+    const second = run(['objective', 'complete', '7'], project);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(second.json.state_updated, false);
+    assert.equal(second.json.state_update_reason, 'already_logged');
   });
 });
