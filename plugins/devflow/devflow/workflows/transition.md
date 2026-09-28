@@ -463,7 +463,7 @@ Objective {X} marked complete.
 ⚡ Auto-continuing: Complete milestone and archive
 ```
 
-Exit skill and invoke SlashCommand("/devflow:complete-milestone {version}")
+Exit skill and invoke SlashCommand("/devflow:milestone complete {version}")
 
 </if>
 
@@ -480,7 +480,7 @@ Exit skill and invoke SlashCommand("/devflow:complete-milestone {version}")
 
 **Complete Milestone {version}** — archive and prepare for next
 
-`/devflow:complete-milestone {version}`
+`/devflow:milestone complete {version}`
 
 
 ---

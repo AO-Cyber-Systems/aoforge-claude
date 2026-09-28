@@ -54,7 +54,7 @@ INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init new-project)
 
 Parse JSON for: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`.
 
-**If `project_exists` is true:** Error — project already initialized. Use `/devflow:progress`.
+**If `project_exists` is true:** Error — project already initialized. Use `/devflow:status`.
 
 **If `has_git` is false:** Initialize git:
 ```bash

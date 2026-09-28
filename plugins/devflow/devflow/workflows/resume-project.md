@@ -127,7 +127,7 @@ Present complete project status to user:
     Resume with: Task tool (resume parameter with agent ID)
 
 [If pending todos exist:]
-📋 [N] pending todos — /devflow:check-todos to review
+📋 [N] pending todos — /devflow:todo list to review
 
 [If blockers exist:]
 ⚠️  Carried concerns:
