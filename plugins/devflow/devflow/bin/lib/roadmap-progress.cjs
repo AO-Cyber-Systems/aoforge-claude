@@ -17,6 +17,16 @@
 // reads the header row to find each column by name, with a positional
 // fallback (by column count) when header wording varies.
 
+// js/regex-injection: `objectiveNum` is interpolated into `new RegExp(...)` at both call sites
+// below. `.replace('.', '\\.')` (the prior escaping) only ever handled the literal dot, and only
+// its first occurrence — every other regex metacharacter (`+ ( ) * ? ^ $ { } | [ ] \`) reached
+// the constructor unescaped, either matching the wrong objective's row/header (an unescaped `+`
+// in "1+" greedily matches "1" or "11") or throwing on an unbalanced construct like "(".
+// Mirrors objective.cjs's own escapeRegExp (same TRD-locked pattern).
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function splitTableRow(line) {
   const trimmed = line.trim();
   const inner = trimmed.replace(/^\|/, '').replace(/\|$/, '');
@@ -77,7 +87,7 @@ function updateProgressTableRow(content, objectiveNum, updates) {
   const headerCells = splitTableRow(lines[headerIdx]);
   const colIndex = buildColumnIndex(headerCells);
 
-  const objEscaped = objectiveNum.replace('.', '\\.');
+  const objEscaped = escapeRegExp(objectiveNum);
   const rowPattern = new RegExp(`^${objEscaped}\\.?\\s`);
 
   for (let i = headerIdx + 2; i < lines.length; i++) {
@@ -165,7 +175,7 @@ function computeJobsLineText(existingText, counterText) {
  * Returns { content, updated }.
  */
 function updateJobsLine(content, objectiveNum, counterText) {
-  const objEscaped = objectiveNum.replace('.', '\\.');
+  const objEscaped = escapeRegExp(objectiveNum);
   const headerPattern = new RegExp(`^#{2,4}\\s*Objective\\s+${objEscaped}(?:[.:]|\\s|$)`, 'i');
   const anyHeaderPattern = /^#{2,4}\s*Objective\s+\d/i;
 
