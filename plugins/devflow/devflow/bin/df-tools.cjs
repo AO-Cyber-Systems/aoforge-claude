@@ -630,6 +630,12 @@ async function main() {
       break;
     }
 
+    case 'adopt': {
+      const { cmdAdopt } = require('./lib/adopt-cli.cjs');
+      cmdAdopt(cwd, args.slice(1), raw);
+      break;
+    }
+
     case 'migrate': {
       const subcommand = args[1];
       if (subcommand === 'plan') {

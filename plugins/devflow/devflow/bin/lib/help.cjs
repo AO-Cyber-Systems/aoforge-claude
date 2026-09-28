@@ -135,6 +135,12 @@ const COMMANDS = {
     mutates: true,
     details: '--check (default) lists pending migrations; --apply runs auto migrations, backs up outside the repo, and stamps config.json. Confirm migrations run only with --apply --only <id> or --apply --confirm; 0006 takes --kind (and --default-work). --global moves legacy df-* files and manages the ~/.claude/CLAUDE.md block; --global --confirm adopts it over a hand-written section.',
   },
+  'adopt': {
+    usage: 'df-tools adopt <preflight|begin|scaffold|report> [--raw]',
+    summary: 'Adopt an existing repo as a DevFlow project (routes, branches, scaffolds, reports; never pushes).',
+    mutates: true,
+    details: 'preflight is read-only: it routes to adopt | resume | upgrade | new-project | refuse. begin creates the devflow/adopt branch and a progress marker in the git dir. scaffold writes config/STATE/state.json/ROADMAP/STACK.md and the CLAUDE.md block, then stamps. report writes .planning/ADOPT-REPORT.md and prints the files to commit. Refusals (dirty tree, rebase/merge, detached HEAD, not a repo) change nothing and exit 3. Combine with the global --cwd <dir> flag to target another repo.',
+  },
   'intent': {
     usage: 'df-tools intent resolve [--objective N] [--trd path] [--raw]',
     summary: 'Resolve the intent/defaults cell for an objective or TRD.',
