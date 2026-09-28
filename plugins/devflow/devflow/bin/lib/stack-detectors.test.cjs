@@ -174,14 +174,14 @@ test('D9: org-only marker — weird.lock + fake home -> zlang; without userHome 
 // ─── D11 ─────────────────────────────────────────────────────────────────────
 
 test('D11: project-state and brownfield-detector EXTS sets stay identical', () => {
-  const psSrc = fs.readFileSync(path.join(__dirname, 'project-state.cjs'), 'utf-8');
-  const bfSrc = fs.readFileSync(path.join(__dirname, 'brownfield-detector.cjs'), 'utf-8');
-  const extract = (src) => {
-    const m = src.match(/const EXTS = new Set\(\[([\s\S]*?)\]\);/);
-    assert.ok(m, 'EXTS set not found');
-    return m[1].split(',').map((s) => s.trim()).filter(Boolean).sort();
-  };
-  assert.deepEqual(extract(psSrc), extract(bfSrc));
+  // 37-04 (ADP-01): neither module declares its own `EXTS` set any more — both re-export
+  // `countSourceFiles` straight from repo-state.cjs (same function object), so "the sets stay
+  // identical" is now a function-identity check rather than a textual comparison of two source
+  // literals. See repo-state.cjs's own EXTS/EXCLUDE for the single remaining declaration.
+  const repoState = require('./repo-state.cjs');
+  assert.strictEqual(psCountSourceFiles, repoState.countSourceFiles);
+  assert.strictEqual(bfCountSourceFiles, repoState.countSourceFiles);
+  assert.strictEqual(psCountSourceFiles, bfCountSourceFiles);
 });
 
 // ─── D5, D6, D10 (Task 2 — init.cjs + brownfield CLI) ────────────────────────
