@@ -330,7 +330,15 @@ Jobs:
 **Goal:** Fix the tooling defects the v1.3 audit and objective 38 surfaced: `init milestone-op` reports v1.1 instead of the current milestone; `objective complete` leaves STATE.md unchanged; planner/TRD templates emit `rg -nE` (ripgrep `-E` is encoding, not ERE); `remove-objective.md` still says "integer or decimal".
 **Depends on:** —
 **Gap Closure:** v1.3 audit — tech debt (tooling)
-**Jobs:** registered, not planned.
+**Jobs:** 6 TRDs in 2 waves (planned 2026-09-28; objective-local requirement IDs TOOL-01..TOOL-08, one per defect; roadmap.cjs defects 1+6 combined in 40-01 so wave-1 files are disjoint; only 40-06 touches ROADMAP/STATE, via df-tools; baseline at `223dbf1`: 4168 tests / 1 pre-existing fail)
+
+Jobs:
+- [ ] 40-01-TRD.md — Wave 1: `roadmap.cjs` — status-aware `getMilestoneInfo` (v1.3, not v1.1) + `update-job-progress` ticks the objective's nested TRD checkboxes via scoped `reconcile()` dry-run (TOOL-01, TOOL-06)
+- [ ] 40-02-TRD.md — Wave 1: `objective complete` appends the narrative `**Objective complete:**` log line (idempotent) and reports `state_updated` truthfully (TOOL-02)
+- [ ] 40-03-TRD.md — Wave 1: `intent resolve --objective <N>` prefix-matches slugged objective dirs and warns when OBJECTIVE.md is missing; planner.md Step 1 note (TOOL-05)
+- [ ] 40-04-TRD.md — Wave 1: `state record-session` updates plain-text Session Continuity lines (section-scoped); first `state.test.cjs` (TOOL-07)
+- [ ] 40-05-TRD.md — Wave 1: ripgrep `-E` rule in trd-spec/verification-patterns + `rg-flag-guard` CI test; remove-objective integer wording; `.planning/.edit-override` gitignored + GATES↔.gitignore guard (TOOL-03, TOOL-04, TOOL-08)
+- [ ] 40-06-TRD.md — Wave 2: dogfood all fixes on real planning files (df-tools only; TOOL-02 on a scratch copy), CHANGELOG [Unreleased], full-suite gate (no version bump)
 
 ### Objective 41: Retroactive verification of 27–34
 
