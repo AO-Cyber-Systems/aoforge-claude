@@ -279,7 +279,7 @@ Jobs:
 - [x] 37-02-TRD.md — Wave 2: global `df-tools --cwd <dir>` (chdir before dispatch; flag-region boundary)
 - [x] 37-03-TRD.md — Wave 1: `lib/backup-prune.cjs` pure retention policy (14 days / newest 5), 24 h throttle, global-config keys, repo registry; `upgrade.repoKey`
 - [x] 37-04-TRD.md — Wave 2: project-state, brownfield-detector and init new-project delegate to repo-state (parity proven)
-- [ ] 37-05-TRD.md — Wave 3: `df-tools adopt preflight|begin` — routing, refusals with zero side effects, devflow/adopt branch, resumable git-dir marker; HELP_TABLE entry
+- [x] 37-05-TRD.md — Wave 3: `df-tools adopt preflight|begin` — routing, refusals with zero side effects, devflow/adopt branch, resumable git-dir marker; HELP_TABLE entry
 - [ ] 37-06-TRD.md — Wave 4: prune wired into SessionStart (`upgrade-project.js`, every session) + `upgrade --prune [--dry-run]` / `--register`
 - [ ] 37-07-TRD.md — Wave 4: `adopt scaffold` — STATE, objective-less ROADMAP, STACK.md, CLAUDE.md block, stamp via the upgrade runner, register; idempotent
 - [ ] 37-08-TRD.md — Wave 5: `adopt report` (ADOPT-REPORT.md needs-review, redaction, commit file list) + `adopt-e2e-assert.cjs` structural checker + deterministic 3-stack pipeline test
