@@ -20,7 +20,8 @@ const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 const PLUGIN_JSON = path.join(__dirname, '..', '..', '..', '.claude-plugin', 'plugin.json');
 const PLUGIN_VERSION = JSON.parse(fs.readFileSync(PLUGIN_JSON, 'utf-8')).version;
 const AUTO_IDS = ['0001', '0002', '0003', '0004', '0005'];
-const MANAGED_START = '<!-- DEVFLOW:START v=1 src=global-claude-md -->';
+// v=2 as of TRD 37-10 (global-claude-md template bumped to add /devflow:adopt).
+const MANAGED_START = '<!-- DEVFLOW:START v=2 src=global-claude-md -->';
 
 const cleanup = [];
 afterEach(() => {

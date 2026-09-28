@@ -522,7 +522,8 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
   const { makeFakeHome } = require('../devflow/bin/lib/__fixtures__/upgrade-fixtures.cjs');
   const REAL_LIB = path.join(__dirname, '..', 'devflow', 'bin', 'lib');
   const REAL_TEMPLATE = path.join(__dirname, '..', 'devflow', 'templates', 'global-claude-md.md');
-  const START = '<!-- DEVFLOW:START v=1 src=global-claude-md -->';
+  // v=2 as of TRD 37-10 (global-claude-md template bumped to add /devflow:adopt).
+  const START = '<!-- DEVFLOW:START v=2 src=global-claude-md -->';
   // An explicit empty value, so an ambient DEVFLOW_SKIP_GLOBAL_UPGRADE cannot mask these cases.
   const RUN = { DEVFLOW_SKIP_GLOBAL_UPGRADE: '' };
 
