@@ -21,4 +21,10 @@ Fix the tooling defects the v1.3 audit and objective 38 execution surfaced.
 - Planner / TRD templates emit `rg -nE` — in ripgrep `-E` is `--encoding`, not extended regex. Fix the source templates/agent prose; add a doc-refs-style guard if cheap.
 - `workflows/remove-objective.md:16` still says objective numbers may be "integer or decimal" (decimals removed in v1.2).
 
-Source: `.planning/v1.3-MILESTONE-AUDIT.md` (tech debt, tooling).
+- Added from objective 39's run (2026-09-28):
+  - `df-tools intent resolve` ignores the objective's own `work:` (e.g. `bugfix`) and falls back to PROJECT.md `default_work`.
+  - `roadmap update-job-progress` does not tick TRD checkboxes (drives `roadmap-reconcile` E2E1 failures mid-execution).
+  - `state record-session` is a no-op on this repo's STATE.md format.
+  - `.planning/.edit-override` is not in `.gitignore`.
+
+Source: `.planning/v1.3-MILESTONE-AUDIT.md` (tech debt, tooling) + 39 build report.
