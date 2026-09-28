@@ -142,7 +142,7 @@ test('4: first run over a hand-written DevFlow Routing section writes nothing an
   assert.match(pending[0].message, /df-tools upgrade --global --confirm/);
   assert.ok(pending[0].detail.includes('- # DevFlow Routing'), 'detail lacks the removed heading line');
   assert.ok(
-    pending[0].detail.includes('+ <!-- DEVFLOW:START v=1 src=global-claude-md -->'),
+    pending[0].detail.includes('+ <!-- DEVFLOW:START v=2 src=global-claude-md -->'),
     'detail lacks the added START marker line',
   );
   assert.ok(!pending[0].detail.includes('- ## TDD & Quality'), 'the next heading must not be proposed for removal');

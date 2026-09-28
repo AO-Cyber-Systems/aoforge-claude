@@ -57,9 +57,19 @@ Map an existing codebase for brownfield projects.
 - Analyzes codebase with parallel Explore agents
 - Creates `.planning/codebase/` with 7 focused documents
 - Covers stack, architecture, structure, conventions, testing, integrations, concerns
-- Use before `/devflow:new-project` on existing codebases
+- Use before `/devflow:new-project` on existing codebases — or use `/devflow:adopt` to turn an existing codebase into a DevFlow project directly
 
 Usage: `/devflow:map-codebase`
+
+**`/devflow:adopt [path]`**
+Turn an existing repository into a DevFlow project, unattended.
+
+- Maps the code, infers `PROJECT.md` and `STACK.md`, scaffolds `config.json`/`STATE.md`/`ROADMAP.md`
+- Adds the CLAUDE.md routing block and makes ONE recorded commit on a `devflow/adopt` branch (never pushed)
+- Never asks a question — uncertain inferences are written to `.planning/ADOPT-REPORT.md` for review
+- Use when you have an existing repository and want DevFlow set up without answering setup questions yourself
+
+Usage: `/devflow:adopt` or `/devflow:adopt ./path/to/repo`
 
 ### Objective Planning
 

@@ -1,6 +1,6 @@
 ---
 template: global-claude-md
-template_version: "1"
+template_version: "2"
 ---
 # DevFlow Routing
 
@@ -15,6 +15,7 @@ invoke the matching skill via the Skill tool instead of editing files directly.
 - Quick ad-hoc task with atomic commits → `/devflow:quick`
 - Trivial single-token change → `/devflow:micro`
 - New project setup → `/devflow:new-project`
+- Adopt an existing repo (unattended, one commit on devflow/adopt) → `/devflow:adopt`
 - Resume / status / progress / health → `/devflow:status` (`status resume`, `status pause`, `status check`)
 - Milestones → `/devflow:milestone <sub>`
 - Todos → `/devflow:todo add`, `/devflow:todo list`
