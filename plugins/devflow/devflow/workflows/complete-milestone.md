@@ -83,7 +83,7 @@ Requirements: {N}/{M} v1 requirements checked off
 
 MUST present 3 options:
 1. **Proceed anyway** — mark milestone complete with known gaps
-2. **Run audit first** — `/devflow:audit-milestone` to assess gap severity
+2. **Run audit first** — `/devflow:milestone audit` to assess gap severity
 3. **Abort** — return to development
 
 If user selects "Proceed anyway": note incomplete requirements in MILESTONES.md under `### Known Gaps` with REQ-IDs and descriptions.
@@ -648,7 +648,7 @@ Tag: v[X.Y]
 
 **Start Next Milestone** — questioning → research → requirements → roadmap
 
-`/devflow:new-milestone`
+`/devflow:milestone new`
 
 <sub>`/clear` first → fresh context window</sub>
 
@@ -698,6 +698,6 @@ Milestone completion is successful when:
 - [ ] Requirements completion checked against REQUIREMENTS.md traceability table
 - [ ] Incomplete requirements surfaced with proceed/audit/abort options
 - [ ] Known gaps recorded in MILESTONES.md if user proceeded with incomplete requirements
-- [ ] User knows next step (/devflow:new-milestone)
+- [ ] User knows next step (/devflow:milestone new)
 
 </success_criteria>
