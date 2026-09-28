@@ -120,6 +120,52 @@ function cmdWorkstreamsAnalyze(cwd, raw) {
   }, raw);
 }
 
+// Pure generator for a workstream worktree's filtered STATE.md. Exported so tests can assert on
+// its content directly without provisioning a real worktree (TRD 38-02).
+function buildWorkstreamState({ ws, relMain, today }) {
+  const objectiveNames = ws.objectives.map(p => `Objective ${p}`).join(', ');
+
+  return `# Project State
+
+## Workstream Context
+
+**Workstream:** ${ws.name} (${ws.id})
+**Scope:** ${objectiveNames}
+**Main worktree:** ${relMain}
+
+> This is a workstream worktree. Run normal DevFlow commands here.
+> When done, return to the main worktree and run \`/devflow:workstreams merge\`.
+
+## Project Reference
+
+See: .planning/PROJECT.md
+**Current focus:** ${ws.name}
+
+## Current Position
+
+Objective: ${ws.objectives[0]} of ${ws.objectives[ws.objectives.length - 1]}
+Job: Not started
+Status: Ready to plan
+Progress: [░░░░░░░░░░] 0%
+
+## Accumulated Context
+
+### Decisions
+
+(inherited from main worktree)
+
+### Blockers/Concerns
+
+(none)
+
+## Session Continuity
+
+Last session: ${today}
+Stopped at: Workstream provisioned, ready to plan
+Resume file: None
+`;
+}
+
 function cmdWorkstreamsProvision(cwd, wsId, worktreePath, raw) {
   if (!wsId || !worktreePath) {
     error('Usage: workstreams provision <ws-id> <worktree-path>');
@@ -205,47 +251,12 @@ function cmdWorkstreamsProvision(cwd, wsId, worktreePath, raw) {
   // Generate filtered STATE.md
   const statePath = path.join(planningDir, 'STATE.md');
   const stateContent = safeReadFile(statePath) || '';
-  const objectiveNames = ws.objectives.map(p => `Objective ${p}`).join(', ');
 
-  const filteredState = `# Project State
-
-## Workstream Context
-
-**Workstream:** ${ws.name} (${ws.id})
-**Scope:** ${objectiveNames}
-**Main worktree:** ${path.relative(worktreePath, cwd) || '..'}
-
-> This is a workstream worktree. Run normal DevFlow commands here.
-> When done, return to the main worktree and run \`/df:workstreams merge\`.
-
-## Project Reference
-
-See: .planning/PROJECT.md
-**Current focus:** ${ws.name}
-
-## Current Position
-
-Objective: ${ws.objectives[0]} of ${ws.objectives[ws.objectives.length - 1]}
-Job: Not started
-Status: Ready to plan
-Progress: [░░░░░░░░░░] 0%
-
-## Accumulated Context
-
-### Decisions
-
-(inherited from main worktree)
-
-### Blockers/Concerns
-
-(none)
-
-## Session Continuity
-
-Last session: ${new Date().toISOString().split('T')[0]}
-Stopped at: Workstream provisioned, ready to plan
-Resume file: None
-`;
+  const filteredState = buildWorkstreamState({
+    ws,
+    relMain: path.relative(worktreePath, cwd) || '..',
+    today: new Date().toISOString().split('T')[0],
+  });
 
   fs.writeFileSync(path.join(targetPlanning, 'STATE.md'), filteredState);
 
@@ -468,4 +479,5 @@ module.exports = {
   cmdWorkstreamsAnalyze,
   cmdWorkstreamsProvision,
   cmdWorkstreamsReconcile,
+  buildWorkstreamState,
 };

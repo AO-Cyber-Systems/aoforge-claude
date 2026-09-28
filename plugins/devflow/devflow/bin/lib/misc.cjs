@@ -571,7 +571,7 @@ function cmdScaffold(cwd, type, options, raw) {
   switch (type) {
     case 'context': {
       filePath = path.join(objectiveDir, `${padded}-CONTEXT.md`);
-      content = `---\nobjective: "${padded}"\nname: "${name || objectiveInfo?.objective_name || 'Unnamed'}"\ncreated: ${today}\n---\n\n# Objective ${objective}: ${name || objectiveInfo?.objective_name || 'Unnamed'} — Context\n\n## Decisions\n\n_Decisions will be captured during /df:discuss-objective ${objective}_\n\n## Discretion Areas\n\n_Areas where the executor can use judgment_\n\n## Deferred Ideas\n\n_Ideas to consider later_\n`;
+      content = `---\nobjective: "${padded}"\nname: "${name || objectiveInfo?.objective_name || 'Unnamed'}"\ncreated: ${today}\n---\n\n# Objective ${objective}: ${name || objectiveInfo?.objective_name || 'Unnamed'} — Context\n\n## Decisions\n\n_Decisions will be captured during /devflow:discuss-objective ${objective}_\n\n## Discretion Areas\n\n_Areas where the executor can use judgment_\n\n## Deferred Ideas\n\n_Ideas to consider later_\n`;
       break;
     }
     case 'uat': {
