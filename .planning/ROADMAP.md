@@ -108,6 +108,8 @@ Jobs:
 
 Evidence: 2709 tests / 2649 pass / 10 fail — identical failures to the pre-objective baseline (2681/2621/10). 28 tests added, 0 regressions.
 
+**Verified:** passed 6/6 (27-VERIFICATION.md), 2026-09-28
+
 ### Objective 28: Model tier binding and escalation ✅
 
 **Goal:** Make the model profile table actually bind (it was inert for every skill caller), refresh the live model ids, and give DevFlow an escalation signal that is not raw tool-error rate.
@@ -125,6 +127,8 @@ Jobs:
 
 Evidence: 2748 tests / 2689 pass / 9 fail — same pre-existing daemon/timing failures. 39 tests added, 0 regressions.
 
+**Verified:** passed 6/6 (28-VERIFICATION.md), 2026-09-28 — re-verified after gap-fix TRD 41-07 (was gaps_found 5/6)
+
 ### Objective 29: Context discipline ✅
 
 **Goal:** Cut the context DevFlow agents consume — targeting whole-file reads (49.9% of tool-result tokens) and full file bodies written into tool-call arguments (33.8% of the window) — and make the measurement repeatable so the improvement is observed rather than assumed.
@@ -139,6 +143,8 @@ Jobs:
 - [x] 29-04 `df-tools context` — repeatable composition measurement (`173c7f0`)
 
 Evidence: 2761 tests / 2701 pass / 10 fail — same pre-existing daemon/timing failures. 13 tests added, 0 regressions. Tool independently reproduces the audit (Read 53.6% @ 2,301 tok/call, images 1.4%, subagent p50 117K vs main 329K) and reports `read_share_ok: false` at 53.6% as the pre-change baseline.
+
+**Verified:** passed 5/5 (29-VERIFICATION.md), 2026-09-28
 
 ### Objective 30: Agent environment hygiene ✅
 
@@ -155,6 +161,8 @@ Jobs:
 
 Evidence: 2797 tests / 2737 pass / 10 fail — same pre-existing daemon/timing failures. 29 tests added, 0 regressions.
 
+**Verified:** passed 5/5 (30-VERIFICATION.md), 2026-09-28 — follow-up F1 (planner Task spawn) closed by TRD 41-08
+
 ### Objective 31: Telemetry and retention ✅
 
 **Goal:** Make objectives 27–30 verifiable rather than asserted — classify blocking events repeatably, preserve session evidence before retention deletes it, and turn the signals into advisories someone will actually read.
@@ -169,6 +177,8 @@ Jobs:
 
 Evidence: 2839 tests / 2780 pass / 9 fail — same pre-existing daemon/timing failures. 42 tests added, 0 regressions.
 **Caveat:** hooks run from the plugin cache, so 27–30 take effect only after a version bump + `sync-runtime`. Re-run `session-audit --since <release>` then — that comparison is the real verdict.
+
+**Verified:** passed 6/6 (31-VERIFICATION.md), 2026-09-28
 
 
 ### Objective 32: Visual-eval default path tells the truth
@@ -188,6 +198,8 @@ TRDs:
 - [x] 32-03-TRD.md — Wave 3: judge selection explicit; default declares itself advisory (#485 defect 3)
 - [x] 32-04-TRD.md — Wave 4: a failing run exits non-zero (found in planning; severable)
 
+**Verified:** human_needed 23/23 (32-VERIFICATION.md), 2026-09-28 — human: provision the CI ANTHROPIC secret for `--judge live` or accept advisory-only CI (D1); no code gap
+
 
 ### Objective 33: The visual gate actually runs in CI
 
@@ -206,6 +218,9 @@ Jobs:
 Decision recorded in OBJECTIVE.md: **resolution is owned by the handler, not the prose** (option c, implemented as b). Two prose documents already drifted apart on this lookup; the side that owns it is the side that cannot drift, so it moves into code once. The load-bearing test then EXECUTES the invocation extracted from `verifier.md` itself — it pins behaviour, not a string.
 
 Manifest-less policy: `not_applicable` skips silently (existing gate preserved), `absent` is **MISSING** — the surface stays on the human-verification list plus a todo, escalating to a gap only when `visual_gate: true` — and `invalid` gaps loudly. Replacing a gate that never runs with a gate that always gaps would just get it disabled.
+
+**Verified:** passed 22/22 (33-VERIFICATION.md), 2026-09-28
+
 ### Objective 34: UI Oracle Loop W1b — Surface Spec: schema, validator, renderer, review sheet, look-lock, prose harness
 
 **Goal:** DevFlow can parse and validate a Surface Spec — the one hand-authored description of how a UI surface must function — derive the ui-eval manifest, navigation graph and control table from it, render a review sheet a human approves, record that approval as a look-lock later phases anchor on, and run agent prose that encodes shell semantics against a real harness.
@@ -219,11 +234,14 @@ Jobs:
 - [x] 34-03-TRD.md — Wave 3: `validateSurfaceSpec` — invariants I1-I3 and their known-broken fixtures
 - [x] 34-04-TRD.md — Wave 4: invariants I4-I8, six more known-broken fixtures, and the `ui spec validate` arm (exit 1 with codes) — carries the I6 hit-rect decision checkpoint
 - [x] 34-05-TRD.md — Wave 5: `renderSurfaceSpec` — manifest, nav graph, control table, capture list
-- [x] 34-06-TRD.md — Wave 6: the review sheet and a `sheet_hash` that survives a template edit- [x] 34-07-TRD.md — Wave 7: look-lock — writing the acceptance block, and clearing it on shape change only
+- [x] 34-06-TRD.md — Wave 6: the review sheet and a `sheet_hash` that survives a template edit
+- [x] 34-07-TRD.md — Wave 7: look-lock — writing the acceptance block, and clearing it on shape change only
 - [x] 34-08-TRD.md — Wave 8: `frontend-design` build mode step 0 — no composition without a valid, locked spec
 - [x] 34-09-TRD.md — Wave 1: the agent shell harness — extraction, the call model, and cwd that persists
 - [x] 34-10-TRD.md — Wave 2: the harness meets real prose — scratch monorepo, stubs, annotations, and CI
 - [x] 34-11-TRD.md — Wave 9: release 2.9.0 — version trio + CHANGELOG landed
+
+**Verified:** human_needed 9/9 (34-VERIFICATION.md), 2026-09-28 — human: protect `main` with `Agent shell harness / harness` as a required check; no code gap
 
 ### Objective 35: Stack profile — loader, CLI, drafting, validation, agent wiring, neutral references ✅
 
