@@ -38,7 +38,7 @@ Objective or manifest: $ARGUMENTS (optional)
 - If not provided: locate the active objective's ui_eval manifest; if none, report SKIPPED cleanly.
 
 The scoring engine is already shipped (`plugins/devflow/devflow/bin/lib/flutter-ui-eval.cjs`) with the
-`df-ui-evaluator` model profile and the df-tools arms
+`ui-evaluator` model profile and the df-tools arms
 `verify flutter-ui-eval <manifest> [--raw] [--judge live|labels]` / `flutter-ui eval <manifest> [--raw] [--judge live|labels]`.
 Both emit a `scoreRun` rollup
 `{ verdict: 'pass'|'pass-with-reviews'|'fail', gate: 'binding'|'advisory', counts, reviews[], fails[], unjudged[], states[] }`.

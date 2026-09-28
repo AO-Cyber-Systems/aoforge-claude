@@ -4,7 +4,7 @@ description: |
   Analyze an existing codebase to understand its stack, architecture, conventions, and concerns before starting new work.
   Use when the user wants to understand, analyze, or map an existing codebase.
   Triggers on: "understand this codebase", "map the code", "analyze architecture", "what does this codebase look like?", "explore the code structure"
-argument-hint: "[optional: specific area to map, e.g., 'api' or 'auth']"
+argument-hint: "[optional: specific area to map, e.g., 'api' or 'auth'] [--non-interactive]"
 allowed-tools:
   - Read
   - Bash
@@ -72,6 +72,6 @@ Check for .planning/STATE.md - loads context if project already initialized
 - [ ] Documents follow template structure
 - [ ] Parallel agents completed without errors
 - [ ] CLAUDE.md generated at project root with prescriptive coding rules
-- [ ] CLAUDE.md uses <!-- DEVFLOW:START/END --> markers (preserves user content on re-run)
+- [ ] CLAUDE.md uses versioned `<!-- DEVFLOW:START v=… src=claude-md -->` / `<!-- DEVFLOW:END -->` markers (preserves user content on re-run)
 - [ ] User knows next steps
 </success_criteria>

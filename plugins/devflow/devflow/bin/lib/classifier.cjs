@@ -123,6 +123,28 @@ This suppresses future offers in this project for 30 days.
 For trivial changes (single-file, <2 line), proceed directly without offering.`;
 
 /**
+ * Init-offer preamble for brownfield repos -- points at /devflow:adopt instead of
+ * /devflow:new-project --auto (TRD 37-10). LOCKED TEXT for this TRD only; do not
+ * hand-edit outside a dedicated TRD (per the LOCKED TEXT convention above).
+ */
+const ADOPT_OFFER_PREAMBLE = `DEVFLOW INIT OFFER — substantive non-DevFlow project detected
+
+This is a git repository without .planning/ that meets the substantive-project
+heuristic (git history >7 days OR >10 source files, with a manifest, not a
+scratch dir) — an existing codebase. If the user requests a non-trivial change
+(multi-file feature, plan, milestone work), offer:
+
+  "This looks like an existing codebase but DevFlow isn't set up.
+   Want me to run /devflow:adopt to adopt it? It maps the code, infers
+   PROJECT.md and STACK.md, and makes one commit on a devflow/adopt
+   branch (never pushed). Or skip and edit directly?"
+
+If the user declines, run: df-tools project-decline
+This suppresses future offers in this project for 30 days.
+
+For trivial changes (single-file, <2 line), proceed directly without offering.`;
+
+/**
  * Auto-init preamble — emitted when user has opted into auto-init mode
  * (auto_init_substantive_projects=true in ~/.claude/devflow/global-config.json).
  *
@@ -152,11 +174,14 @@ For Q&A or exploration prompts, respond directly without auto-initing.`;
  *
  * @param {object} opts
  * @param {string} opts.mode - 'ambient' | 'init-offer' | 'auto-init' | 'skip' | (any other → '')
+ * @param {string} [opts.repoState] - 'brownfield' | 'greenfield' | 'scratch' | 'devflow' (37-04
+ *   project-state; only consulted for mode === 'init-offer' -- auto-init is never routed to adopt,
+ *   it is user-triggered and LOCKED per objective 37)
  * @returns {string}
  */
-function renderRoutingPreamble({ mode }) {
+function renderRoutingPreamble({ mode, repoState }) {
   if (mode === 'ambient') return AMBIENT_PREAMBLE;
-  if (mode === 'init-offer') return INIT_OFFER_PREAMBLE;
+  if (mode === 'init-offer') return repoState === 'brownfield' ? ADOPT_OFFER_PREAMBLE : INIT_OFFER_PREAMBLE;
   if (mode === 'auto-init') return AUTO_INIT_PREAMBLE;  // 17-03: new mode
   return '';
 }

@@ -176,7 +176,7 @@ The DevFlow plugin (`devflow@aocyber`) is installed. When the user's request fit
 - Debugging a bug → `/devflow:debug`
 - Quick ad-hoc task with atomic commits → `/devflow:quick`
 - New project setup → `/devflow:new-project`
-- Resume / status / progress → `/devflow:resume-work`, `/devflow:progress`
+- Resume / status / progress → `/devflow:status resume`, `/devflow:status`
 
 Skills enforce atomic commits, state tracking, and verification. Bypassing them causes drift. Run `/devflow:help` to list all commands.
 ```
@@ -199,7 +199,7 @@ This project uses DevFlow (`devflow@aocyber`). Planning state lives in `.plannin
 - `/devflow:plan-objective <N>` / `/devflow:execute-objective <N>` / `/devflow:verify-work <N>` — staged workflow
 - `/devflow:quick` — small / ad-hoc tasks (still gets atomic commits + state)
 - `/devflow:debug` — bugs and errors
-- `/devflow:resume-work` — pick up where the last session left off
+- `/devflow:status resume` — pick up where the last session left off
 
 Skills enforce atomic per-task commits, state tracking, and verification gates. Bypassing them breaks the audit trail and trips the `gate-commits` / `gate-edits` hooks. If a request is genuinely out-of-scope for any skill (e.g. a one-line typo fix), proceed directly — otherwise prefer `/devflow:quick`.
 ```
@@ -359,17 +359,17 @@ If everything passes, you move on. If something's broken, you don't manually deb
 /devflow:execute-objective 2
 /devflow:verify-work 2
 ...
-/devflow:complete-milestone
-/devflow:new-milestone
+/devflow:milestone complete
+/devflow:milestone new
 ```
 
 Loop **discuss → plan → execute → verify** until milestone complete.
 
 Each objective gets your input (discuss), proper research (plan), clean execution (execute), and human verification (verify). Context stays fresh. Quality stays high.
 
-When all objectives are done, `/devflow:complete-milestone` archives the milestone and tags the release.
+When all objectives are done, `/devflow:milestone complete` archives the milestone and tags the release.
 
-Then `/devflow:new-milestone` starts the next version — same flow as `new-project` but for your existing codebase. You describe what you want to build next, the system researches the domain, you scope requirements, and it creates a fresh roadmap. Each milestone is a clean cycle: define → build → ship.
+Then `/devflow:milestone new` starts the next version — same flow as `new-project` but for your existing codebase. You describe what you want to build next, the system researches the domain, you scope requirements, and it creates a fresh roadmap. Each milestone is a clean cycle: define → build → ship.
 
 ---
 
@@ -492,17 +492,15 @@ You're never locked in. The system adapts.
 | `/devflow:plan-objective [N] [--auto]` | Research + plan + verify for a objective |
 | `/devflow:execute-objective <N>` | Execute all jobs in parallel waves, verify when complete |
 | `/devflow:verify-work [N]` | Manual user acceptance testing |
-| `/devflow:audit-milestone` | Verify milestone achieved its definition of done |
-| `/devflow:complete-milestone` | Archive milestone, tag release |
-| `/devflow:new-milestone [name]` | Start next version: questions → research → requirements → roadmap |
+| `/devflow:milestone audit` | Verify milestone achieved its definition of done |
+| `/devflow:milestone complete` | Archive milestone, tag release |
+| `/devflow:milestone new [name]` | Start next version: questions → research → requirements → roadmap |
 
 ### Navigation
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:progress` | Where am I? What's next? |
 | `/devflow:help` | Show all commands and usage guide |
-| `/devflow:update` | Update DevFlow with changelog preview |
 
 ### Brownfield
 
@@ -545,7 +543,7 @@ You're never locked in. The system adapts.
 | `/devflow:debug [desc]` | Systematic debugging with persistent state |
 | `/devflow:quick [--full]` | Execute ad-hoc task with DevFlow guarantees (`--full` adds job-checking and verification) |
 
-> **13 legacy skill names** (`/devflow:add-objective`, `/devflow:progress`, `/devflow:health`, `/devflow:pause-work`, `/devflow:resume-work`, `/devflow:add-todo`, `/devflow:check-todos`, and 6 milestone/objective variants) were removed in v2.2; use the consolidated commands (run `/devflow:help` for the migration map).
+> Older single-purpose command names were consolidated in v2.2 — run `/devflow:help` for the rename map.
 
 ---
 
@@ -578,7 +576,7 @@ The planner combines them into a `(kind, work)` lookup that derives TDD posture,
 
 **Override at four levels** (highest wins): TRD frontmatter > `OBJECTIVE.md overrides` block > `~/.claude/CLAUDE.md` or `./CLAUDE.md` user playbook directives > the defaults table. One-shot overrides via skill flags: `--work TYPE`, `--tdd POSTURE`, `--depth LEVEL`, `--model PROFILE` on `/devflow:plan-objective` and `/devflow:build`.
 
-**Migrating an existing project**: `/devflow:health --migrate` walks you through setting `kind` and (optionally) per-objective `work` for projects created before this model. Always backs up before writing.
+**Migrating an existing project**: `/devflow:status check --migrate` walks you through setting `kind` and (optionally) per-objective `work` for projects created before this model. Always backs up before writing.
 
 See `docs/PROPOSAL-kind-and-work.md` for the full design and `plugins/devflow/devflow/references/defaults-table.md` for the 42-cell defaults lookup.
 

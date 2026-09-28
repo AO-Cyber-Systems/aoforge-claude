@@ -22,7 +22,12 @@ Load all context in one call:
 INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init execute-objective "${OBJECTIVE_ARG}")
 ```
 
-Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `jobs`, `incomplete_jobs`, `job_count`, `incomplete_count`, `state_exists`, `roadmap_exists`.
+Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `jobs`, `incomplete_jobs`, `job_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `bootstrap`, `bootstrap_objectives`.
+
+**Bootstrap surface (one line, only when something changed).** If `bootstrap.applied` is true or
+`bootstrap_objectives.applied > 0`, print exactly one line and continue:
+`DevFlow bootstrap: PROJECT.md +<bootstrap.added_fields joined by ,> · created <bootstrap_objectives.paths joined by , > (uncommitted — folded into the next docs commit)`
+Omit whichever half did not apply. Print nothing when neither applied.
 
 **If `objective_found` is false:** Error — objective directory not found.
 **If `job_count` is 0:** Error — no plans found in objective.

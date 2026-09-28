@@ -1,6 +1,7 @@
 ---
 name: planner
 description: Creates detailed execution plans for objectives with task breakdown, dependency ordering, and built-in quality checks.
+effort: xhigh
 tools: Read, Write, Bash, Glob, Grep, WebFetch, mcp__context7__*
 color: green
 ---
@@ -209,7 +210,7 @@ Approach:
 
 ## Intent Resolution (replaces silent TDD heuristic)
 
-**Step 1 — Resolve intent for this objective.** Call `df-tools intent resolve --objective <id>` to load the resolved configuration. The resolver reads PROJECT.md `kind`, OBJECTIVE.md `work`, project + user CLAUDE.md playbooks, and the (kind, work) defaults table at `~/.claude/devflow/references/defaults-table.md`. Output is a JSON object:
+**Step 1 — Resolve intent for this objective.** Call `df-tools intent resolve --objective <id>` to load the resolved configuration. Pass the bare `objective_number` from init (e.g. `40`) or the `objective_dir` basename; bare numbers resolve by prefix match. If `warnings` contains `OBJECTIVE.md not found`, stop and surface it. `work` has fallen back to the project default. The resolver reads PROJECT.md `kind`, OBJECTIVE.md `work`, project + user CLAUDE.md playbooks, and the (kind, work) defaults table at `~/.claude/devflow/references/defaults-table.md`. Output is a JSON object:
 
 ```json
 {
@@ -308,11 +309,11 @@ Non-testable tasks (UI layout/styling, configuration, glue code, one-off scripts
 - `result.config.test_list_first === "required"` → emit a `## Test list` section in the TRD body, listing behavior cases (happy + edge + failure) BEFORE any test code prescription. Required for every TRD with `tdd="true"` tasks, per the user's CLAUDE.md TDD Playbook habit 2.
 - `result.config.fixture_strategy ∈ {"generators", "cassettes"}` → emit a fixture-builder task as Task 1 of the TRD, ahead of the first RED test task. The task instruction must specify hand-built factory functions (no LLM-generated test data, per the `no_llm_test_data` constraint). If `fixture_strategy === "cassettes"`, flag in the task description: "Use recorded cassettes — see existing pattern in tests/cassettes if present."
 - `result.config.security_isolation === "multi_tenant_required"` → inject the wrong-tenant assertion entry from `result.config.verification_commands` into the TRD's `verification_commands` frontmatter (and reference it in the `<verification>` section). This is hard-enforced, not advisory.
-- `result.config.outside_in === true` → order TRDs from outermost layer to innermost (system → integration → unit). For tasks with `tdd="true"`, order test cases within the `## Test list` from outermost to innermost as well. Consult `testing-strategy.md` platform routing section for the outermost layer entry point per stack.
+- `result.config.outside_in === true` → order TRDs from outermost layer to innermost (system → integration → unit). For tasks with `tdd="true"`, order test cases within the `## Test list` from outermost to innermost as well. Consult `testing-strategy.md` platform routing for the outermost layer; take the concrete tool from the resolved stack profile (Step 4).
 - `result.config.back_compat ∈ {"api_parity", "ui_parity", "library_parity", "io_parity", "contract_parity", "behavioral"}` → emit a behavioral parity checklist section in the TRD listing source-behavior cases the new implementation must reproduce. Reference the contract-list-first approach (read source code + tests as documentation, not transplantable fixtures).
 - `result.config.back_compat === "visual_parity"` → emit a parity-target comment in the TRD; skip the actual visual-diff verification step until tooling lands (per the (ui-lib, *) cells' aspirational tagging).
 
-**Step 4 — Consult `testing-strategy.md` for stack-aware verification routing.** After the resolver returns, load `~/.claude/devflow/references/testing-strategy.md` if it exists. It supplies a layer×tool×stack matrix mapping abstract verification layers (unit, integration, system, AI exploratory, visual) to specific tools per stack (Rails: RSpec/Capybara; Go: testing/httpmock; Flutter: integration_test/widget; etc.). When emitting verification commands in the TRD, route the resolver's stack-agnostic verification text to the stack-appropriate tool from this matrix. The resolver's `kind` field anchors the project's stack family; PROJECT.md frontmatter or detected language extension refines it.
+**Step 4 — Read the resolved Testing section, then consult `testing-strategy.md`.** Run `node ~/.claude/devflow/bin/df-tools.cjs stack context planner --raw`. Its `## Testing` section (from `.planning/STACK.md`, else the org profile it extends, else bundled `general`) and its commands name the layers, runner and scoped test form for this project. Route the resolver's stack-agnostic verification text to those. Then load `~/.claude/devflow/references/testing-strategy.md` for the abstract layer definitions and platform routing; its stack tables are examples, and no stack is inferred from `kind`. If `stack` is unavailable (older mirror), use testing-strategy.md alone.
 
 Reference: @~/.claude/devflow/references/testing-strategy.md (loaded conditionally; if missing, fall back to the resolver's stack-agnostic verification text verbatim).
 
@@ -695,7 +696,7 @@ If exists, load relevant documents by objective type:
 | setup, config | STACK.md, STRUCTURE.md |
 | (default) | STACK.md, ARCHITECTURE.md |
 
-**Note:** STACK.md provides validation commands (test/lint/build) used to populate `<validation_gates>`. PATTERNS.md provides code examples executors can mimic.
+**Note:** `.planning/codebase/STACK.md` (descriptive, from map-codebase) is evidence; `.planning/STACK.md` (prescriptive stack profile) is what `df-tools stack` resolves. Gates come from the profile first. PATTERNS.md provides code examples executors can mimic.
 </step>
 
 <step name="identify_objective">
@@ -722,14 +723,12 @@ NOVEL_FIRED=$(echo "$NOVEL" | jq -r '.novel')
 if [[ "$NOVEL_FIRED" == "true" ]]; then
   # Surface what fired
   echo "$NOVEL" | jq '.signals'
-  # Auto-spawn objective-researcher before continuing discovery
-  # (Use the researcher_model from init JSON.)
 fi
 ```
 
-If `novel:true` and research has not run: spawn `objective-researcher` via the standard Task(...) pattern with `subagent_type="objective-researcher"` and `model="${researcher_model}"`. Pass the signals block as part of the prompt so the researcher knows what triggered it. Wait for completion before proceeding to the existing Level 0-3 logic.
+If `novel:true`, research has not run (`has_research:false`) and `--skip-research` is absent: **STOP. Write no TRDs.** Return `## RESEARCH NEEDED` (see structured_returns) carrying the `.signals` block above. You are a subagent and subagents cannot spawn agents, so you do not run the researcher yourself: the orchestrator (plan-objective step 10, also used by `/devflow:build`) runs objective-researcher with your signals and re-spawns you with the research loaded.
 
-If `novel:false` OR `--skip-research` was passed OR `has_research:true` already: skip auto-spawn, proceed normally.
+If `novel:false` OR `--skip-research` was passed OR `has_research:true` already: proceed normally.
 
 ---
 
@@ -1003,7 +1002,13 @@ Include all frontmatter fields.
 - `<file_tree>`: When a TRD creates 2+ new files, add a tree showing where they land. Use `← CREATE` and `← MODIFY` annotations. Reference STRUCTURE.md for correct placement.
 - `<research_context>`: When RESEARCH.md exists, embed relevant findings for this TRD's scope.
 - `<gotchas>`: When CONCERNS.md/RESEARCH.md flag issues for this TRD's files/domain.
-- `<validation_gates>`: Populate from STACK.md with runnable lint/test/build commands.
+- `<validation_gates>`: **Populate from the stack profile.** Read `gates.task` from
+  `node ~/.claude/devflow/bin/df-tools.cjs stack resolve` (JSON `frontmatter.gates.task`). For each key run
+  `node ~/.claude/devflow/bin/df-tools.cjs stack command <key> --raw` (add `--files <comma-list>` from the TRD's `files_modified` when a scoped form helps):
+  - non-empty output → that is the gate command, verbatim;
+  - empty output with JSON status `discover` → fall back to the codebase scrape for that key (`.planning/codebase/STACK.md` Commands table, then `TESTING.md`); if nothing is found, list the gate as `not_available` — never invent a command;
+  - status `none` → omit the gate.
+  If `stack` is an unknown command (older mirror), use the codebase scrape for every gate, as before.
 - `<recovery>` in tasks: For tasks that modify existing files or could fail, include rollback steps or alternative approaches.
 - Pseudocode in `<action>`: For complex tasks, include approach with `# CRITICAL:`, `# GOTCHA:`, `# PATTERN:` markers.
 </step>
@@ -1128,6 +1133,19 @@ Read `{paths}` for wave/confidence/files/dependencies. Run `/devflow:execute-obj
 Read `{paths}` for gap details. Run `/devflow:execute-objective {objective} --gaps-only` to begin.
 ```
 
+## Research Needed
+
+Returned from `mandatory_discovery` Step 0 when the objective is a novel domain and no research exists. No TRDs are written.
+
+```markdown
+## RESEARCH NEEDED
+
+**Objective:** {objective}
+**Signals:** {compact JSON of detect novel-domain .signals}
+
+No TRDs written. Orchestrator: run objective-researcher (plan-objective step 6) with these signals, then re-spawn the planner.
+```
+
 ## Checkpoint Reached / Revision Complete
 
 Follow templates in checkpoints and revision_mode sections respectively.
@@ -1149,7 +1167,7 @@ Objective planning complete when:
 - [ ] Each TRD: depends_on, files_modified, autonomous, must_haves in frontmatter
 - [ ] Each TRD: user_setup declared if external services involved
 - [ ] Each TRD: Objective, embedded_context, tasks, verification, success criteria, output
-- [ ] Each TRD: validation_gates populated with runnable commands from STACK.md (when available)
+- [ ] Each TRD: validation_gates populated from `df-tools stack command` for each `gates.task` key (codebase scrape only where the key resolves to `discover`)
 - [ ] Each TRD: research_context/gotchas included when relevant source docs exist
 - [ ] Each TRD: codebase_examples populated from scan_codebase_patterns step
 - [ ] Each TRD: file_tree included when 2+ new files created

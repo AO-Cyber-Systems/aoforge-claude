@@ -81,8 +81,11 @@ Explore the codebase thoroughly for your focus area.
 
 **For tech focus:**
 ```bash
+# Prescriptive stack profile, if the project has one (you describe; STACK.md directs)
+cat .planning/STACK.md 2>/dev/null | head -60
+
 # Package manifests
-ls package.json requirements.txt Cargo.toml go.mod pyproject.toml 2>/dev/null
+ls package.json requirements.txt Cargo.toml go.mod pyproject.toml pubspec.yaml Gemfile build.gradle build.gradle.kts settings.gradle.kts Package.swift 2>/dev/null
 cat package.json 2>/dev/null | head -100
 
 # Config files (list only - DO NOT read .env contents)
@@ -92,6 +95,8 @@ ls .env* 2>/dev/null  # Note existence only, never read contents
 # Find SDK/API imports
 grep -r "import.*stripe\|import.*supabase\|import.*aws\|import.*@" src/ --include="*.ts" --include="*.tsx" 2>/dev/null | head -50
 ```
+
+Record the commands you find (CI `run:` steps, task-runner targets, manifest scripts) in the `## Commands` table of `codebase/STACK.md` — `df-tools stack init` drafts `.planning/STACK.md` from it.
 
 **For arch focus:**
 ```bash

@@ -69,7 +69,7 @@ describe('df-tools help table (issue #87)', () => {
 
   test('the top-level listing marks writing commands and includes commit', () => {
     const text = topLevelUsage();
-    assert.match(text, /^Usage: df-tools <command>/);
+    assert.match(text, /^Usage: df-tools \[--cwd <dir>\] <command>/);
     assert.match(text, /\n {2}commit\s+\*\s+/, 'commit must be listed and marked as writing');
     assert.match(text, /\n {2}progress\s{2,}\s+/, 'a read-only command must be listed unmarked');
   });
@@ -119,7 +119,7 @@ describe('the global help scan knows what is data and what is addressed to it (i
     // must not read `rc=0`. This exited 1 before the #87 help scan landed.
     const r = run([]);
     assert.strictEqual(r.status, 1, `df-tools with no arguments must exit non-zero: ${r.out}`);
-    assert.match(r.out, /Usage: df-tools <command>/);
+    assert.match(r.out, /Usage: df-tools \[--cwd <dir>\] <command>/);
   });
 
   test('finding 7: a typo with --help is a typo, not a question', () => {
@@ -139,6 +139,6 @@ describe('the global help scan knows what is data and what is addressed to it (i
   test('bare --help still exits 0 with the top-level listing', () => {
     const r = run(['--help']);
     assert.strictEqual(r.status, 0, r.out);
-    assert.match(r.out, /^Usage: df-tools <command>/m);
+    assert.match(r.out, /^Usage: df-tools \[--cwd <dir>\] <command>/m);
   });
 });

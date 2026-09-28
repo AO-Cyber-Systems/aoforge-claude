@@ -23,7 +23,7 @@ const HOOK_PATH = path.join(__dirname, 'route-intent.js');
 
 // Pure-function imports — these tests drive the RED phase failures
 // (route-intent.js currently has no exports)
-const { INTENT_MAP, matchIntent, renderDirective } = require('./route-intent.js');
+const { INTENT_MAP, matchIntent, renderDirective, renderAdoptReminder } = require('./route-intent.js');
 
 // Fixture imports
 const { FIRE_FIXTURES, NO_FIRE_FIXTURES } = require(
@@ -55,7 +55,7 @@ describe('INTENT_MAP — exported shape', () => {
     }
   });
 
-  test('INTENT_MAP contains consolidated skills: build, debug, plan-objective, verify-work, status, status resume, status pause, objective add, new-project, research-objective, micro, execute-objective, todo add, quick, milestone new, milestone audit, todo list, gh-sync, discuss-objective', () => {
+  test('INTENT_MAP contains consolidated skills: build, debug, plan-objective, verify-work, status, status resume, status pause, objective add, new-project, adopt, research-objective, micro, execute-objective, todo add, quick, milestone new, milestone audit, todo list, gh-sync, discuss-objective', () => {
     const skills = new Set(INTENT_MAP.map(e => e.skill));
     const required = [
       '/devflow:build',
@@ -67,6 +67,7 @@ describe('INTENT_MAP — exported shape', () => {
       '/devflow:status pause',
       '/devflow:objective add',
       '/devflow:new-project',
+      '/devflow:adopt',
       '/devflow:research-objective',
       '/devflow:micro',
       '/devflow:execute-objective',
@@ -100,6 +101,68 @@ describe('INTENT_MAP — exported shape', () => {
       assert.ok(!skills.includes(dep),
         `INTENT_MAP still references deprecated skill: ${dep}`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 37-10: ADOPT intent — routes "adopt this repo" etc. to /devflow:adopt,
+// including in directories that are not yet DevFlow projects (no .planning/).
+// ---------------------------------------------------------------------------
+
+describe('matchIntent — ADOPT intent (TRD 37-10)', () => {
+  test('test 1: adopt-flavored prompts fire /devflow:adopt', () => {
+    const prompts = [
+      'adopt this repo',
+      'please adopt the repository',
+      'set up devflow here',
+      'can you set up devflow in this repo',
+      'bootstrap this repo',
+    ];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(matches.length > 0, `expected a match for "${prompt}"`);
+      assert.equal(matches[0].skill, '/devflow:adopt', `expected /devflow:adopt for "${prompt}", got ${matches[0].skill}`);
+    }
+  });
+
+  test('test 2: near-miss prompts do NOT match /devflow:adopt', () => {
+    const prompts = ['adopt a puppy', 'set up the database', 'bootstrap the css grid'];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(!matches.some(m => m.skill === '/devflow:adopt'), `unexpected /devflow:adopt match for "${prompt}"`);
+    }
+  });
+
+  test('test 3: "start a new project" still routes to /devflow:new-project (adopt did not swallow it)', () => {
+    const matches = matchIntent('start a new project');
+    assert.ok(matches.some(m => m.skill === '/devflow:new-project'), 'expected /devflow:new-project match');
+    assert.ok(!matches.some(m => m.skill === '/devflow:adopt'), 'adopt must not also match');
+  });
+
+  test('test 4: no .planning/ + adopt-only prompt → reminder naming /devflow:adopt; other prompts stay silent', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-no-planning-adopt-'));
+    try {
+      const adoptResult = runHook({ prompt: 'adopt this repo' }, root);
+      assert.equal(adoptResult.status, 0, `hook exited non-zero: ${adoptResult.stderr}`);
+      assert.ok(adoptResult.stdout.length > 0, 'expected non-empty stdout for adopt-only prompt with no .planning/');
+      const out = JSON.parse(adoptResult.stdout);
+      assert.ok(
+        out.hookSpecificOutput.additionalContext.includes('/devflow:adopt'),
+        `additionalContext missing "/devflow:adopt":\n${out.hookSpecificOutput.additionalContext}`
+      );
+
+      const otherResult = runHook({ prompt: 'fix the login bug' }, root);
+      assert.equal(otherResult.status, 0, `hook exited non-zero: ${otherResult.stderr}`);
+      assert.equal(otherResult.stdout, '', 'expected empty stdout for a non-adopt prompt with no .planning/');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('renderAdoptReminder returns a short string naming /devflow:adopt', () => {
+    const reminder = renderAdoptReminder();
+    assert.ok(reminder.includes('/devflow:adopt'), 'reminder must name /devflow:adopt');
+    assert.ok(reminder.split('\n').length <= 4, 'reminder should be 3-4 lines');
   });
 });
 

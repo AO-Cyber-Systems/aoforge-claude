@@ -25,10 +25,16 @@
  * Truncation: each record's stdout+stderr capped at MAX_OUTPUT_CHARS
  * to bound additionalContext size.
  *
- * Skipped entirely when:
- *   - No .devflow-handoff/done/ directory in cwd or any parent
- *   - All records consumed or stale
- *   - DEVFLOW_SKIP_HANDOFF_RESULTS=1 (escape hatch)
+ * Upgrade notices (TRD 36-05): unconsumed notices from the project's
+ * .planning/.devflow-notices.json and ~/.claude/devflow/.devflow-notices.json
+ * are appended to the SAME additionalContext and marked consumed, so each is
+ * emitted once. DEVFLOW_SKIP_NOTICES=1 suppresses only the notices (they stay
+ * unconsumed); DEVFLOW_SKIP_HANDOFF_RESULTS=1 suppresses only handoff results.
+ *
+ * Emits nothing when:
+ *   - No .devflow-handoff/done/ directory in cwd or any parent (or all records
+ *     consumed or stale), AND no unconsumed notices
+ *   - Both escape hatches are set
  *
  * Defensive: never throws, never blocks the user prompt. Malformed JSON
  * in done/ is silently skipped.
@@ -204,18 +210,60 @@ function emit(additionalContext) {
   process.stdout.write(JSON.stringify(output));
 }
 
-function main() {
-  if (process.env.DEVFLOW_SKIP_HANDOFF_RESULTS === '1') return;
+// Nearest ancestor (inclusive) holding a `.planning/` directory → that project root, else null.
+function findPlanningDir(start) {
+  let dir = start;
+  while (dir !== path.dirname(dir)) {
+    try {
+      if (fs.statSync(path.join(dir, '.planning')).isDirectory()) return dir;
+    } catch { /* keep walking */ }
+    dir = path.dirname(dir);
+  }
+  return null;
+}
 
+// Unconsumed upgrade notices (TRD 36-05): project `.planning/.devflow-notices.json` plus the
+// global `~/.claude/devflow/.devflow-notices.json`, each taken (marked consumed) exactly once.
+// notices.cjs is resolved from the BUNDLED plugin; when it is absent there are no notices.
+function collectNotices() {
+  if (process.env.DEVFLOW_SKIP_NOTICES === '1') return '';
+  let notices;
+  try {
+    notices = require(path.join(__dirname, '..', 'devflow', 'bin', 'lib', 'notices.cjs'));
+  } catch {
+    return '';
+  }
+  try {
+    const files = [];
+    const projectRoot = findPlanningDir(process.cwd());
+    if (projectRoot) files.push(notices.projectNoticesPath(projectRoot));
+    const home = require('os').homedir();
+    if (home) files.push(notices.globalNoticesPath(home));
+    return notices.renderNotices(notices.takeUnconsumed(files));
+  } catch {
+    return '';
+  }
+}
+
+function collectHandoff() {
+  if (process.env.DEVFLOW_SKIP_HANDOFF_RESULTS === '1') return null;
   const handoffDir = findHandoffDir(process.cwd());
-  if (!handoffDir) return;
-  const doneDir = path.join(handoffDir, 'done');
+  if (!handoffDir) return null;
+  const unconsumed = selectUnconsumed(path.join(handoffDir, 'done'));
+  return unconsumed.length === 0 ? null : unconsumed;
+}
 
-  const unconsumed = selectUnconsumed(doneDir);
-  if (unconsumed.length === 0) return;
+function main() {
+  const records = collectHandoff();
+  const noticeText = collectNotices();
 
-  emit(renderResults(unconsumed));
-  markConsumed(unconsumed);
+  const parts = [];
+  if (records) parts.push(renderResults(records));
+  if (noticeText) parts.push(noticeText);
+  if (parts.length === 0) return;
+
+  emit(parts.join('\n\n'));
+  if (records) markConsumed(records);
 }
 
 if (require.main === module) {
@@ -224,6 +272,7 @@ if (require.main === module) {
 
 module.exports = {
   findHandoffDir,
+  findPlanningDir,
   selectUnconsumed,
   renderRecord,
   renderResults,

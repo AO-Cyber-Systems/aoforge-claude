@@ -3,7 +3,7 @@
  * results into Claude's next turn.
  */
 
-const { test, describe, beforeEach, afterEach } = require('node:test');
+const { test, describe, beforeEach, afterEach, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
@@ -197,12 +197,20 @@ describe('truncate', () => {
 // subprocess integration
 // ---------------------------------------------------------------------------
 
+// route-results also drains the GLOBAL notices file under $HOME (TRD 36-05), so every spawn gets
+// a disposable HOME — a test must never read or consume the real ~/.claude notices.
+const FAKE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'route-results-home-'));
+after(() => rmTmp(FAKE_HOME));
+
 function runHook(cwd, env = {}) {
+  const base = { ...process.env, HOME: FAKE_HOME };
+  delete base.DEVFLOW_SKIP_NOTICES;
+  delete base.DEVFLOW_SKIP_HANDOFF_RESULTS;
   return spawnSync('node', [HOOK_PATH], {
     cwd,
     encoding: 'utf-8',
     input: '',
-    env: { ...process.env, ...env },
+    env: { ...base, ...env },
   });
 }
 
@@ -266,5 +274,78 @@ describe('hook subprocess', () => {
     const r = runHook(child);
     assert.equal(r.status, 0);
     assert.ok(r.stdout.length > 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upgrade notices (TRD 36-05)
+// ---------------------------------------------------------------------------
+
+const notices = require('../devflow/bin/lib/notices.cjs');
+
+describe('upgrade notices', () => {
+  let tmp;
+  let home;
+  beforeEach(() => { tmp = mkTmp(); home = mkTmp(); });
+  afterEach(() => { rmTmp(tmp); rmTmp(home); });
+
+  test('20: a global notice (no .planning in cwd) is emitted exactly once', () => {
+    const file = notices.globalNoticesPath(home);
+    notices.appendNotice(file, { source: 'global-upgrade', level: 'info', message: 'global notice G1' });
+    const r1 = runHook(tmp, { HOME: home });
+    assert.equal(r1.status, 0, r1.stderr);
+    const ctx = JSON.parse(r1.stdout).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /## DevFlow notices/);
+    assert.match(ctx, /global notice G1/);
+    assert.doesNotMatch(ctx, /Deferred command results/);
+    const r2 = runHook(tmp, { HOME: home });
+    assert.equal(r2.stdout, '', 'a consumed notice is not emitted again');
+  });
+
+  test('21: handoff results and a project notice share ONE additionalContext', () => {
+    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    notices.appendNotice(notices.projectNoticesPath(tmp),
+      { source: 'upgrade-project', level: 'warn', message: 'project notice P1' });
+    seedDoneRecord(tmp, 'h-21', { stdout: 'handoff output H1' });
+    const r = runHook(tmp, { HOME: home });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    const ctx = out.hookSpecificOutput.additionalContext;
+    assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+    assert.match(ctx, /handoff output H1/);
+    assert.match(ctx, /project notice P1/);
+    assert.ok(ctx.indexOf('Deferred command results') < ctx.indexOf('DevFlow notices'));
+  });
+
+  test('21b: a project notice is found from a subdirectory of the project', () => {
+    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    notices.appendNotice(notices.projectNoticesPath(tmp),
+      { source: 'upgrade-project', level: 'info', message: 'project notice P2' });
+    const child = path.join(tmp, 'src', 'deep');
+    fs.mkdirSync(child, { recursive: true });
+    const r = runHook(child, { HOME: home });
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /project notice P2/);
+  });
+
+  test('22: DEVFLOW_SKIP_NOTICES=1 suppresses (and keeps) notices; handoff results still emitted', () => {
+    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    const file = notices.projectNoticesPath(tmp);
+    notices.appendNotice(file, { source: 'upgrade-project', level: 'warn', message: 'project notice P3' });
+    seedDoneRecord(tmp, 'h-22', { stdout: 'handoff output H3' });
+    const r = runHook(tmp, { HOME: home, DEVFLOW_SKIP_NOTICES: '1' });
+    const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /handoff output H3/);
+    assert.doesNotMatch(ctx, /project notice P3/);
+    assert.equal(notices.readNotices(file)[0].consumed, false, 'not consumed while suppressed');
+
+    const r2 = runHook(tmp, { HOME: home });
+    assert.match(JSON.parse(r2.stdout).hookSpecificOutput.additionalContext, /project notice P3/);
+  });
+
+  test('handoff-only output is byte-identical to renderResults (no notices)', () => {
+    seedDoneRecord(tmp, 'h-bytes', { stdout: 'same bytes' });
+    const expected = renderResults(selectUnconsumed(path.join(tmp, '.devflow-handoff', 'done')));
+    const r = runHook(tmp, { HOME: home });
+    assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, expected);
   });
 });

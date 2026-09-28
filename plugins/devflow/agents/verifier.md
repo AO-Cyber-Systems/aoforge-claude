@@ -430,14 +430,30 @@ Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ 
 
 **When to run:** If the objective involves UI components, web pages, mobile screens, or user-facing features, drive the app programmatically to verify Level 4 (Functional) before flagging items for human verification.
 
-**Skip if:** Objective is purely backend (API-only, CLI tools, database migrations, libraries).
+**Skip the UI drive (8a/8b) if** the objective is purely backend. A `cli`/`service` runtime check (below) still runs.
 
-**Select backend** from `.planning/project.md` stack (or JOB `must_haves.platform` if set):
+**Select the runtime check** — first match wins:
+1. TRD `must_haves.platform`, if set: web → Step 8a, mobile/Flutter → Step 8b.
+2. The resolved stack profile: `node ~/.claude/devflow/bin/df-tools.cjs stack resolve` → `frontmatter.verification.runtime`:
+   - `web` → Step 8a · `mobile` → Step 8b
+   - `cli` / `service` → run `node ~/.claude/devflow/bin/df-tools.cjs stack command <verification.runtime_check> --raw` and execute it; no `runtime_check`, or empty output → `not_available (no runtime_check command in STACK.md)`
+   - `desktop` → `? SKIPPED (runtime: desktop has no automated check yet)` + human-verify item
+   - `none` → `? SKIPPED (no runtime declared in STACK.md; general profile)` when the profile id is `general`, else `? SKIPPED (verification.runtime: none in STACK.md)`
+3. `stack` unavailable (unknown command in an older mirror) → `? SKIPPED (stack profile unavailable: <error line>)`.
+
+Backend mapping detail (unchanged):
 - **Web** (Hugo, Next.js, static, SPA) → Playwright MCP (Step 8a)
 - **Flutter** (mobile or Flutter web) → Maestro MCP (Step 8b)
 - **Flutter web smoke-only** → Playwright MCP against a `flutter build web --release` bundle served statically, with `?enable-semantics=true` (Step 8a, with caveats). Never `flutter run -d web-server`/`-d chrome` for capture — DWDS wedges into a blank page with no console error.
 
-Unknown stack → skip with status `? SKIPPED (stack not detected)`.
+### Step 8.0: Objective gates (`gates.objective`)
+
+Before any runtime drive, for each key in the resolved `frontmatter.gates.objective`, run
+`node ~/.claude/devflow/bin/df-tools.cjs stack command <key> --raw` and execute the printed command.
+- Exit 0 → PASS · non-zero → FAIL (a gap)
+- Empty output with status `discover` → discover the command per general Principle 1 (CI, task runner, manifest); if none is found or it fails to launch → `not_available`. **`not_available` is never PASS.**
+- Status `none` → skipped (deliberate absence).
+Record a `| Gate | Command | Result |` table in VERIFICATION.md. If `stack` is unavailable, record `not_available (stack profile unavailable)` for the objective gates and continue.
 
 ### Step 8a: Web — Playwright MCP
 
@@ -561,7 +577,7 @@ evidence:
 - ✓ FUNCTIONAL: Flow completes, assertions pass, expected content present
 - ⚠ PARTIAL: Flow completes but missing expected content or non-critical assertion failed
 - ✗ BROKEN: App fails to launch, crashes, or critical assertion failed
-- ? SKIPPED: Not a UI artifact, tooling missing, or stack not detected
+- ? SKIPPED: Not a UI artifact, tooling missing, or the resolved stack profile declares no runtime
 
 **Important:** Functional verification supplements but does not replace Steps 3-5 (static analysis). A component that passes functional verification but fails wiring checks still has gaps.
 
@@ -639,7 +655,7 @@ Rollup shape (when it runs): `{ advisory:true, total, counts:{high,medium,low}, 
 
 **Routing high-priority debt → candidate todos (reuse the existing todo mechanism):**
 
-Use the SAME capture path as `/devflow:add-todo`. For each `high` (and optionally `medium`) debt item, write a todo file under `.planning/todos/pending/` and commit it via df-tools — exactly the mechanism the add-todo workflow uses:
+Use the SAME capture path as `/devflow:todo add`. For each `high` (and optionally `medium`) debt item, write a todo file under `.planning/todos/pending/` and commit it via df-tools — exactly the mechanism the add-todo workflow uses:
 
 ```bash
 mkdir -p .planning/todos/pending

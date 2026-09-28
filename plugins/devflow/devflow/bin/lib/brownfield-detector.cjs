@@ -19,82 +19,19 @@
  *
  * Phase A integration (deferred): classify-session.js will call this on first
  * session per project. This TRD ships the detector helper only.
+ *
+ * 37-04 (ADP-01): the CLI is now a thin adapter over repo-state.cjs's `detectRepoState` — the one
+ * detector shared with project-state.cjs and init.cjs. `countSourceFiles` is re-exported straight
+ * from repo-state.cjs (same function object); `detectBrownfieldMap` (the pure function) is
+ * unchanged.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
 
-// ─── countSourceFiles ─────────────────────────────────────────────────────────
-
-/**
- * Directory names to exclude at every level of the walk.
- * Checked by exact name match (not full path) — per TRD GOTCHA:
- * "src/node_modules_demo/foo.ts" (legitimate name) still counts;
- * only the literal "node_modules" directory name is excluded.
- */
-const EXCLUDE = new Set([
-  'node_modules',
-  '.git',
-  '.planning',
-  'dist',
-  'build',
-  '.next',
-  'out',
-  'coverage',
-]);
-
-/**
- * Source file extensions to count (dot-included per path.extname return value).
- */
-const EXTS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.cjs', '.mjs',
-  '.py', '.go', '.rs', '.rb', '.java',
-]);
-
-/**
- * Recursively count source files under root, excluding directories in EXCLUDE.
- * - ENOENT / EACCES on a subdirectory → skip that dir, continue walk (never crash).
- * - Symlinks: isDirectory() returns false → naturally skipped without following.
- *
- * @param {string} root - absolute path to walk
- * @returns {number}
- */
-function countSourceFiles(root) {
-  let count = 0;
-
-  function walk(dir) {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      // ENOENT, EACCES, etc. — skip this directory, continue walk
-      return;
-    }
-
-    for (const e of entries) {
-      // Skip excluded directory names (by name, not full path)
-      if (EXCLUDE.has(e.name)) continue;
-
-      // Skip dotdirs (e.g. .vscode, .idea) — but don't skip plain files that
-      // start with a dot (edge case: .eslintrc.cjs should count if extension matches)
-      if (e.isDirectory() && e.name.startsWith('.')) continue;
-
-      const full = path.join(dir, e.name);
-
-      if (e.isDirectory()) {
-        walk(full);
-      } else if (e.isFile() && EXTS.has(path.extname(e.name))) {
-        count++;
-      }
-      // Symlinks (isSymbolicLink()): isDirectory() returns false, isFile() returns false
-      // → naturally ignored without following into potentially circular structures.
-    }
-  }
-
-  walk(root);
-  return count;
-}
+const repoState = require('./repo-state.cjs');
+const { countSourceFiles } = repoState;
 
 // ─── detectBrownfieldMap (pure function) ─────────────────────────────────────
 
@@ -130,7 +67,7 @@ function detectBrownfieldMap({ planningExists, codebaseMapExists, sourceFileCoun
 // ─── cmdDetectBrownfieldMap (I/O wrapper) ────────────────────────────────────
 
 /**
- * CLI entry point: reads filesystem state, calls detectBrownfieldMap, emits result.
+ * CLI entry point: reads filesystem state via repo-state.cjs's detector, emits result.
  *
  * @param {string} cwd        - process working directory (default root for resolution)
  * @param {string} targetCwd  - optional override path to inspect (args[2] from CLI)
@@ -148,26 +85,26 @@ function cmdDetectBrownfieldMap(cwd, targetCwd, raw) {
     return; // unreachable — process.exit throws in test harness
   }
 
-  // 1. Check .planning/ existence
-  const planningPath = path.join(root, '.planning');
-  const planningExists = fs.existsSync(planningPath);
+  // 37-04: one detector call replaces the planning/codebase-map filesystem checks and the
+  // local org-marker (`*.ext`) extraExts lookup — detectRepoState's collectSignals already
+  // performs both (35-09 parity preserved: `[]` extraExts when userHome falsy).
+  const userHome = require('os').homedir();
+  const { signals, derived } = repoState.detectRepoState(root, { userHome });
 
-  // 2. Check .planning/codebase/ existence (only meaningful if planning exists)
-  const codebaseMapPath = path.join(root, '.planning', 'codebase');
-  const codebaseMapExists = planningExists && fs.existsSync(codebaseMapPath);
+  const result = {
+    should_offer_map: derived.should_offer_map,
+    planning_exists: signals.has_planning,
+    codebase_map_exists: signals.has_codebase_map,
+    source_file_count: signals.code_files,
+    threshold: 50,
+  };
 
-  // 3. Count source files
-  const sourceFileCount = countSourceFiles(root);
-
-  // 4. Run pure detector
-  const result = detectBrownfieldMap({ planningExists, codebaseMapExists, sourceFileCount });
-
-  // 5. Emit
+  // Emit
   const summaryLine = result.should_offer_map
-    ? `should_offer_map:true — planning exists, no codebase map, ${sourceFileCount} source files`
+    ? `should_offer_map:true — planning exists, no codebase map, ${result.source_file_count} source files`
     : `should_offer_map:false`;
 
   output(result, raw, JSON.stringify(result));
 }
 
-module.exports = { cmdDetectBrownfieldMap, detectBrownfieldMap };
+module.exports = { cmdDetectBrownfieldMap, detectBrownfieldMap, countSourceFiles };

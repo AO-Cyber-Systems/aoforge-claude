@@ -29,7 +29,12 @@ else
 fi
 ```
 
-Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `job_checker_enabled`, `commit_docs`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `padded_objective`, `has_research`, `has_context`, `has_jobs`, `job_count`, `planning_exists`, `roadmap_exists`.
+Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `job_checker_enabled`, `commit_docs`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `padded_objective`, `has_research`, `has_context`, `has_jobs`, `job_count`, `planning_exists`, `roadmap_exists`, `bootstrap`, `bootstrap_objectives`.
+
+**Bootstrap surface (one line, only when something changed).** If `bootstrap.applied` is true or
+`bootstrap_objectives.applied > 0`, print exactly one line and continue:
+`DevFlow bootstrap: PROJECT.md +<bootstrap.added_fields joined by ,> · created <bootstrap_objectives.paths joined by , > (uncommitted — folded into the next docs commit)`
+Omit whichever half did not apply. Print nothing when neither applied.
 
 > **Note:** `has_jobs` and `job_count` cover both TRD.md and legacy JOB.md files via `findPlanFiles()` in df-tools.
 
@@ -349,7 +354,7 @@ RESOLVE_RESULT=$(node ~/.claude/devflow/bin/df-tools.cjs dup-detect resolve "${O
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   State persisted to: ${RESOLVE_RESULT.defer_path}
-  Resume support is v1.2; for now, run `/df:plan-objective ${OBJECTIVE}` again
+  Resume support is v1.2; for now, run `/devflow:plan-objective ${OBJECTIVE}` again
   after the peer session completes (and consider rebasing).
   ```
 
@@ -446,6 +451,7 @@ Planner prompt:
 <planning_context>
 **Objective:** {objective_number}
 **Mode:** {standard | gap_closure}
+**Flags:** {--skip-research if passed, otherwise none}
 
 **Project State:** {state_content}
 **Roadmap:** {roadmap_content}
@@ -511,6 +517,7 @@ TaskUpdate(taskId=plan_task_id, status="completed")
 - **`## PLANNING COMPLETE`:** Display TRD count. If `--skip-verify` or `job_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
 - **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation (step 12)
 - **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual
+- **`## RESEARCH NEEDED`:** The planner detected a novel domain with no research and wrote no TRDs. It is a subagent and cannot spawn the researcher, so you do. Spawn objective-researcher exactly as in step 6 (same banner, prompt and spawn call; handle its return as in step 6), appending the returned **Signals** to the research prompt's `<additional_context>` as `**Novel-domain signals (why research was triggered):** {signals}`. Then re-run the step 1 init so `has_research` and `research_content` are refreshed, and re-spawn the planner (step 9) with the new research. Allow at most one re-spawn: a second `## RESEARCH NEEDED` is handled as `## PLANNING INCONCLUSIVE`. If `--skip-research` was passed, the planner never emits this (step 9 passes the flag); if it does anyway, handle it as `## PLANNING INCONCLUSIVE` rather than overriding the flag.
 
 ## 11. Spawn job-checker Agent
 

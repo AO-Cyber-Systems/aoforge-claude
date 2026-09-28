@@ -385,3 +385,78 @@ test('O10 — bootstrapObjectiveMd: pure file I/O (no execSync dependency — fu
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group O (continued) — backfillAllObjectives opts (TRD 36-04b, test list items 1-3)
+// O11 — {match}: only NN-named dirs are walked; non-matching dirs are neither scanned nor touched
+// O12 — {match, dryRun}: paths names the would-be file; nothing is written
+// O13 — no opts: old keys unchanged (scanned/applied/skipped/errors) plus `paths`
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NN_OBJECTIVE_RE = /^\d+(?:\.\d+)?-/;
+
+test('O11 — backfillAllObjectives {match}: creates only NN dirs missing OBJECTIVE.md; NOTES/ untouched', () => {
+  const repo = makeRepo({
+    projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
+    objectives: {
+      '01-a': null,
+      '02-b': '---\nwork: port\n---\n\n# Existing\n',
+      NOTES: null,
+    },
+  });
+  try {
+    const r = backfillAllObjectives(repo, { match: NN_OBJECTIVE_RE });
+    assert.deepStrictEqual(r.paths, ['.planning/objectives/01-a/OBJECTIVE.md']);
+    assert.strictEqual(r.scanned, 2, 'NOTES does not match, so it is not scanned');
+    assert.strictEqual(r.applied, 1);
+    assert.strictEqual(r.skipped, 1);
+    assert.deepStrictEqual(r.errors, []);
+    assert.ok(fs.existsSync(path.join(repo, '.planning', 'objectives', '01-a', 'OBJECTIVE.md')));
+    assert.deepStrictEqual(fs.readdirSync(path.join(repo, '.planning', 'objectives', 'NOTES')), []);
+    assert.strictEqual(
+      fs.readFileSync(path.join(repo, '.planning', 'objectives', '02-b', 'OBJECTIVE.md'), 'utf-8'),
+      '---\nwork: port\n---\n\n# Existing\n'
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('O12 — backfillAllObjectives {match, dryRun}: paths names the would-be file; nothing written', () => {
+  const repo = makeRepo({
+    projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
+    objectives: { '01-a': null, '02.1-hotfix': null, NOTES: null },
+  });
+  try {
+    const r = backfillAllObjectives(repo, { match: NN_OBJECTIVE_RE, dryRun: true });
+    assert.deepStrictEqual(r.paths, [
+      '.planning/objectives/01-a/OBJECTIVE.md',
+      '.planning/objectives/02.1-hotfix/OBJECTIVE.md',
+    ]);
+    assert.ok(!fs.existsSync(path.join(repo, '.planning', 'objectives', '01-a', 'OBJECTIVE.md')));
+    assert.ok(!fs.existsSync(path.join(repo, '.planning', 'objectives', '02.1-hotfix', 'OBJECTIVE.md')));
+    assert.deepStrictEqual(fs.readdirSync(path.join(repo, '.planning', 'objectives', 'NOTES')), []);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('O13 — backfillAllObjectives no opts: old keys unchanged plus paths (every dir walked)', () => {
+  const repo = makeRepo({
+    projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
+    objectives: { '01-a': null, NOTES: null },
+  });
+  try {
+    const r = backfillAllObjectives(repo);
+    assert.strictEqual(r.scanned, 2);
+    assert.strictEqual(r.applied, 2);
+    assert.strictEqual(r.skipped, 0);
+    assert.deepStrictEqual(r.errors, []);
+    assert.deepStrictEqual(r.paths, [
+      '.planning/objectives/01-a/OBJECTIVE.md',
+      '.planning/objectives/NOTES/OBJECTIVE.md',
+    ]);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

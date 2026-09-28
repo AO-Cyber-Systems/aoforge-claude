@@ -169,7 +169,7 @@ All 4 objectives shipped
 
 **Start v1.1** — questioning → research → requirements → roadmap
 
-`/devflow:new-milestone`
+`/devflow:milestone new`
 
 <sub>`/clear` first → fresh context window</sub>
 

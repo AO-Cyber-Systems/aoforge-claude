@@ -1,19 +1,49 @@
 {
-  "generatedAt": "2026-09-27T01:38:09.661Z",
-  "version": "2.10.1",
-  "packageVersion": "2.10.1",
+  "generatedAt": "2026-09-28T17:54:08.195Z",
+  "version": "2.11.0",
+  "packageVersion": "2.11.0",
   "repo": "AO-Cyber-Systems/devflow-claude",
   "marketplace": "devflow@aocyber",
   "counts": {
-    "skills": 32,
+    "skills": 33,
     "agents": 13,
-    "hooks": 15,
-    "workflows": 40,
-    "references": 36,
-    "templates": 28,
-    "dfToolsCommands": 63
+    "hooks": 16,
+    "workflows": 41,
+    "references": 37,
+    "templates": 30,
+    "dfToolsCommands": 71
   },
   "skills": [
+    {
+      "name": "adopt",
+      "slug": "adopt",
+      "command": "/devflow:adopt",
+      "summary": "Turn an existing repository into a DevFlow project, unattended: map the code, infer PROJECT.md",
+      "notes": [
+        "and STACK.md, scaffold config/STATE/ROADMAP, add the CLAUDE.md block, and make one recorded",
+        "change on a devflow/adopt branch. Never asks a question — uncertain inferences are written down",
+        "with their confidence and evidence for review.",
+        "Use when the user has an existing repository they want DevFlow set up in, without answering",
+        "setup questions themselves."
+      ],
+      "triggers": [
+        "adopt this repo",
+        "set up devflow here",
+        "bootstrap this repo"
+      ],
+      "args": "[path]",
+      "tools": [
+        "Read",
+        "Bash",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Task"
+      ],
+      "agent": null,
+      "userOnly": false
+    },
     {
       "name": "awareness",
       "slug": "awareness",
@@ -376,7 +406,7 @@
         "what does this codebase look like?",
         "explore the code structure"
       ],
-      "args": "[optional: specific area to map, e.g., 'api' or 'auth']",
+      "args": "[optional: specific area to map, e.g., 'api' or 'auth'] [--non-interactive]",
       "tools": [
         "Read",
         "Bash",
@@ -992,7 +1022,7 @@
         "WebFetch",
         "mcp__context7__*"
       ],
-      "effort": null,
+      "effort": "xhigh",
       "color": "green",
       "maxTurns": null,
       "isolation": null,
@@ -1105,7 +1135,7 @@
         "mcp__plugin_playwright_playwright__browser_close",
         "mcp__maestro__*"
       ],
-      "effort": null,
+      "effort": "high",
       "color": "green",
       "maxTurns": null,
       "isolation": null,
@@ -1299,6 +1329,18 @@
       "note": null
     },
     {
+      "file": "upgrade-project.js",
+      "name": "upgrade-project",
+      "group": "Session context",
+      "purpose": "Upgrades a behind DevFlow project in place at session start: applies the safe migrations, then commits exactly the changed files in a detached background process (skipped during rebase/merge/cherry-pick/bisect, on a detached HEAD, over uncommitted edits, or if signing fails). Notices are emitted once on the next prompt. It also prunes ~/.claude/devflow/backups at most once per 24 h (older than 14 days, keeping the newest 5 per repo).",
+      "escape": "DEVFLOW_SKIP_UPGRADE=1, DEVFLOW_SKIP_PRUNE=1",
+      "events": [
+        "SessionStart"
+      ],
+      "registered": true,
+      "note": null
+    },
+    {
       "file": "verify-commits.js",
       "name": "verify-commits",
       "group": "Observability",
@@ -1324,6 +1366,10 @@
     }
   ],
   "dfTools": [
+    {
+      "command": "adopt",
+      "subcommands": []
+    },
     {
       "command": "awareness",
       "subcommands": []
@@ -1357,6 +1403,10 @@
     },
     {
       "command": "config-set",
+      "subcommands": []
+    },
+    {
+      "command": "context",
       "subcommands": []
     },
     {
@@ -1529,6 +1579,10 @@
       "subcommands": []
     },
     {
+      "command": "override",
+      "subcommands": []
+    },
+    {
       "command": "planning",
       "subcommands": [
         "sibling-trd-scan"
@@ -1581,11 +1635,19 @@
       "subcommands": []
     },
     {
+      "command": "session-audit",
+      "subcommands": []
+    },
+    {
       "command": "skill-active",
       "subcommands": []
     },
     {
       "command": "skill-route",
+      "subcommands": []
+    },
+    {
+      "command": "stack",
       "subcommands": []
     },
     {
@@ -1622,6 +1684,10 @@
       "subcommands": []
     },
     {
+      "command": "telemetry",
+      "subcommands": []
+    },
+    {
       "command": "template",
       "subcommands": [
         "select",
@@ -1633,6 +1699,10 @@
       "subcommands": [
         "complete"
       ]
+    },
+    {
+      "command": "transcript-export",
+      "subcommands": []
     },
     {
       "command": "trd-tdd",
@@ -1654,10 +1724,15 @@
       ]
     },
     {
+      "command": "upgrade",
+      "subcommands": []
+    },
+    {
       "command": "validate",
       "subcommands": [
         "consistency",
-        "health"
+        "health",
+        "docs"
       ]
     },
     {
@@ -1704,6 +1779,10 @@
     },
     {
       "name": "add-todo",
+      "status": "active"
+    },
+    {
+      "name": "adopt",
       "status": "active"
     },
     {
@@ -1889,6 +1968,7 @@
     "planning-config",
     "questioning",
     "research-tooling",
+    "stack-general",
     "stub-patterns",
     "tdd",
     "testing-strategy",
@@ -1907,6 +1987,7 @@
     "continue-here.md",
     "debug-subagent-prompt.md",
     "discovery.md",
+    "global-claude-md.md",
     "job-prompt.md",
     "milestone-archive.md",
     "milestone.md",
@@ -1917,6 +1998,7 @@
     "research-project",
     "research.md",
     "roadmap.md",
+    "stack.md",
     "state.json",
     "state.md",
     "state_archive.md",

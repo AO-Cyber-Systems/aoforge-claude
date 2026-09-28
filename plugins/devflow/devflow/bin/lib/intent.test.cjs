@@ -1124,3 +1124,174 @@ describe('cell_provenance (TRD 21-05)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// TOOL-05 — objective id resolution. Planners pass the bare objective number
+// (`40`) as often as the slugged directory name (`40-tooling-correctness`).
+// readObjectiveMd must resolve both, must never let `4` match `40-*`, and must
+// say so out loud — not silently inherit PROJECT.md default_work — when no
+// objective directory matches.
+// ---------------------------------------------------------------------------
+
+describe('objective id resolution (TOOL-05)', () => {
+  let project;
+
+  afterEach(() => {
+    if (project) project.cleanup();
+    project = null;
+    intent._resetCache();
+  });
+
+  const notFoundWarning = (result, id) =>
+    result.warnings.find((w) => /OBJECTIVE\.md not found/.test(w) && w.includes(id));
+
+  function resolveId(objectiveId) {
+    intent._resetCache();
+    return intent.resolve({ projectRoot: project.root, objectiveId, userHome: '/nonexistent' });
+  }
+
+  test('bare number 40 resolves the slugged dir 40-tooling-correctness', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [{ id: '40-tooling-correctness', work: 'bugfix' }],
+    });
+
+    const result = resolveId('40');
+
+    assert.strictEqual(result.work, 'bugfix');
+    assert.strictEqual(result.workSource, 'OBJECTIVE.md');
+    assert.strictEqual(result.workInherited, false);
+    assert.deepStrictEqual(result.warnings, []);
+  });
+
+  test('an all-digit id is also tried zero-padded to 2 digits (7 → 07-foo)', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [{ id: '07-foo', work: 'refactor' }],
+    });
+
+    const result = resolveId('7');
+
+    assert.strictEqual(result.work, 'refactor');
+    assert.strictEqual(result.workSource, 'OBJECTIVE.md');
+    assert.deepStrictEqual(result.warnings, []);
+  });
+
+  test('a decimal id is padded on its integer part (7.1 → 07.1-hotfix)', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [
+        { id: '07-foo', work: 'refactor' },
+        { id: '07.1-hotfix', work: 'bugfix' },
+      ],
+    });
+
+    assert.strictEqual(resolveId('7.1').work, 'bugfix');
+    // and the integer id must not be captured by the decimal sibling
+    assert.strictEqual(resolveId('7').work, 'refactor');
+  });
+
+  test('no false prefix: 4 matches 4-alpha, never 40-beta', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [
+        { id: '4-alpha', work: 'spike' },
+        { id: '40-beta', work: 'bugfix' },
+      ],
+    });
+
+    assert.strictEqual(resolveId('4').work, 'spike');
+    assert.strictEqual(resolveId('40').work, 'bugfix');
+  });
+
+  test('no false prefix: with only 40-beta present, 4 matches nothing', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [{ id: '40-beta', work: 'bugfix' }],
+    });
+
+    const result = resolveId('4');
+
+    assert.strictEqual(result.work, 'feature');
+    assert.strictEqual(result.workSource, 'PROJECT.md default_work');
+    assert.ok(notFoundWarning(result, "'4'"), `expected a not-found warning for '4', got ${JSON.stringify(result.warnings)}`);
+  });
+
+  test('no false prefix: 1 (padded 01) never matches 10-foo', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [{ id: '10-foo', work: 'bugfix' }],
+    });
+
+    const result = resolveId('1');
+
+    assert.strictEqual(result.work, 'feature');
+    assert.ok(notFoundWarning(result, "'1'"), `expected a not-found warning for '1', got ${JSON.stringify(result.warnings)}`);
+  });
+
+  test('not found: falls back to PROJECT.md default_work and warns, naming the id', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [{ id: '40-tooling-correctness', work: 'bugfix' }],
+    });
+
+    const result = resolveId('99');
+
+    assert.strictEqual(result.work, 'feature');
+    assert.strictEqual(result.workSource, 'PROJECT.md default_work');
+    assert.strictEqual(result.workInherited, true);
+    assert.ok(
+      result.warnings.some((w) => /OBJECTIVE\.md not found/.test(w) && w.includes('99')),
+      `expected an 'OBJECTIVE.md not found' warning naming 99, got ${JSON.stringify(result.warnings)}`,
+    );
+  });
+
+  test('not found does not throw and leaves the missing-kind warning first', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: {},
+      objectives: [],
+    });
+
+    const result = resolveId('99');
+
+    assert.strictEqual(result.kind, 'api');
+    assert.match(result.warnings[0], /missing 'kind'/);
+    assert.ok(notFoundWarning(result, '99'));
+  });
+
+  test('ambiguous: duplicate numbers use the lexicographically first dir and warn naming all', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      // created b-first so the result cannot depend on creation order
+      objectives: [
+        { id: '12-b', work: 'port' },
+        { id: '12-a', work: 'refactor' },
+      ],
+    });
+
+    const result = resolveId('12');
+
+    assert.strictEqual(result.work, 'refactor', 'expected 12-a (lexicographically first) to win');
+    assert.strictEqual(result.workSource, 'OBJECTIVE.md');
+    const ambiguous = result.warnings.filter((w) => w.includes('12-a') && w.includes('12-b'));
+    assert.strictEqual(ambiguous.length, 1, `expected one warning naming 12-a and 12-b, got ${JSON.stringify(result.warnings)}`);
+  });
+
+  test('an exact directory name wins over prefix matches and does not warn', () => {
+    project = fixtures.buildProject({
+      projectFrontmatter: { kind: 'plugin', default_work: 'feature' },
+      objectives: [
+        { id: '40', work: 'refactor' },
+        { id: '40-tooling-correctness', work: 'bugfix' },
+      ],
+    });
+
+    const exactBare = resolveId('40');
+    assert.strictEqual(exactBare.work, 'refactor');
+    assert.deepStrictEqual(exactBare.warnings, []);
+
+    const exactSlug = resolveId('40-tooling-correctness');
+    assert.strictEqual(exactSlug.work, 'bugfix');
+    assert.deepStrictEqual(exactSlug.warnings, []);
+  });
+});

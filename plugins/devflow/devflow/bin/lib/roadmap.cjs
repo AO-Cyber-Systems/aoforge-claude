@@ -5,12 +5,75 @@ const path = require('path');
 const { output, error, normalizeObjectiveName, findPlanFiles, generateSlugInternal } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
+const { reconcile } = require('./roadmap-reconcile.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+// One bullet of the `## Milestones` list. Covers every shape the codebase emits:
+//   - 🚧 **v1.3 — Name** — Objectives 27–41 (in progress; ...)     this repo
+//   - ✅ **v1.0 MVP** - Objectives 1-4 (shipped YYYY-MM-DD)          templates/roadmap.md
+//   - **v0.1 — Adopted** (2026-01-01, current): no objectives yet.   adopt.cjs scaffold
+// Groups: 1 = status emoji (optional), 2 = version digits, 3 = name (may be ''), 4 = trailing text.
+// The emoji are multi-code-unit, hence the `u` flag and literal characters.
+const MILESTONE_BULLET_RE = /^\s*[-*]\s+(?:(✅|🚧|📋)️?\s+)?\*\*v(\d+(?:\.\d+)+)\s*(?:[—–:-]\s*)?([^*]*?)\s*\*\*(.*)$/u;
+const MILESTONE_IN_PROGRESS_RE = /\b(in progress|current)\b/i;
+
+/** Numeric per-dot-segment comparison of '1.10' vs '1.9' (so 1.10 > 1.9). */
+function compareVersionDigits(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/** Parse the bullets between `## Milestones` and the next `#`/`##` heading. [] when absent. */
+function parseMilestoneBullets(roadmap) {
+  const lines = roadmap.split(/\r?\n/);
+  const start = lines.findIndex(l => /^##\s+Milestones\b/i.test(l));
+  if (start < 0) return [];
+  const bullets = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^#{1,2}\s/.test(lines[i])) break;
+    const m = lines[i].match(MILESTONE_BULLET_RE);
+    if (!m) continue;
+    bullets.push({ status: m[1] || null, digits: m[2], name: m[3].trim(), rest: m[4] });
+  }
+  return bullets;
+}
+
+/**
+ * Choose the milestone the project is working in. Priority:
+ *   1. the first 🚧 entry
+ *   2. the first not-shipped entry whose trailing text says `in progress` / `current`
+ *      (the adopt scaffold carries no emoji, only `(date, current)`)
+ *   3. the highest-version ✅ entry
+ *   4. the lowest-version 📋 entry
+ *   5. the first bullet
+ */
+function pickMilestone(bullets) {
+  if (bullets.length === 0) return null;
+  const inProgress = bullets.find(b => b.status === '🚧')
+    || bullets.find(b => b.status !== '✅' && MILESTONE_IN_PROGRESS_RE.test(b.rest));
+  if (inProgress) return inProgress;
+  const extreme = (status, dir) => bullets
+    .filter(b => b.status === status)
+    .sort((a, b) => dir * compareVersionDigits(a.digits, b.digits))[0];
+  return extreme('✅', -1) || extreme('📋', 1) || bullets[0];
+}
 
 function getMilestoneInfo(cwd) {
   try {
     const roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
+    const picked = pickMilestone(parseMilestoneBullets(roadmap));
+    if (picked) {
+      return { version: `v${picked.digits}`, name: picked.name || 'milestone' };
+    }
+    // Legacy fallback — no `## Milestones` section, or no bullet in it parses.
+    // First-match regexes kept verbatim from the pre-40-01 implementation.
     const versionMatch = roadmap.match(/v(\d+\.\d+)/);
     const nameMatch = roadmap.match(/## .*v\d+\.\d+[:\s]+([^\n(]+)/);
     return {
@@ -301,26 +364,19 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
   const objectiveEscaped = objectiveNum.replace('.', '\\.');
 
-  // Progress table row: update Plans column (summaries/plans) and Status column
-  const tablePattern = new RegExp(
-    `(\\|\\s*${objectiveEscaped}\\.?\\s[^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-    'i'
-  );
-  const dateField = isComplete ? ` ${today} ` : '  ';
-  roadmapContent = roadmapContent.replace(
-    tablePattern,
-    `$1 ${summaryCount}/${jobCount} $2 ${status.padEnd(11)}$3${dateField}$4`
-  );
+  // Progress table row: update Plans + Status (and Completed, when complete) —
+  // column-name-aware so the Milestone column (when present) is never disturbed.
+  const tableUpdates = { plans: `${summaryCount}/${jobCount}`, status };
+  if (isComplete) tableUpdates.completed = today;
+  ({ content: roadmapContent } = updateProgressTableRow(roadmapContent, objectiveNum, tableUpdates));
 
-  // Update job count in objective detail section
-  const jobCountPattern = new RegExp(
-    `(#{2,4}\\s*Objective\\s+${objectiveEscaped}[\\s\\S]*?\\*\\*Jobs:\\*\\*\\s*)[^\\n]+`,
-    'i'
-  );
+  // Update job count in objective detail section — refreshes only the
+  // machine-owned "N/M jobs complete/executed" prefix, preserving any
+  // hand-authored detail that follows it.
   const jobCountText = isComplete
     ? `${summaryCount}/${jobCount} jobs complete`
     : `${summaryCount}/${jobCount} jobs executed`;
-  roadmapContent = roadmapContent.replace(jobCountPattern, `$1${jobCountText}`);
+  ({ content: roadmapContent } = updateJobsLine(roadmapContent, objectiveNum, jobCountText));
 
   // If complete: check checkbox
   if (isComplete) {
@@ -333,6 +389,34 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
 
   fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
 
+  // Nested per-TRD checkboxes (`- [ ] NN-MM-TRD.md — ...`) from SUMMARY.md
+  // presence + Self-Check verdict. Reuses the LOCKED `reconcile` export of
+  // roadmap-reconcile.cjs in dry-run and applies ONLY this objective's per-TRD
+  // changes. Write mode is deliberately not used: it rewrites every
+  // objective's TRD lines and applies the `**Status:** complete` /
+  // Progress-row rollups repo-wide.
+  // The dry run reads the file written just above, so its line indices match;
+  // the `before` equality check skips any line that no longer does.
+  // roadmap-reconcile only recognises integer `### Objective N:` headers, so a
+  // decimal objective (e.g. 40.1) has no section of its own and is skipped.
+  const trdCheckboxes = [];
+  if (/^\d+$/.test(String(objectiveNum))) {
+    const want = String(parseInt(objectiveNum, 10)); // '040' / '40' -> '40'
+    const mine = reconcile({ projectRoot: cwd, mode: 'dry-run' }).changes.filter(c =>
+      (c.kind === 'trd_summary_exists' || c.kind === 'trd_summary_failed') &&
+      String(parseInt(c.objective_num, 10)) === want);
+    if (mine.length) {
+      const lines = fs.readFileSync(roadmapPath, 'utf-8').split('\n');
+      for (const c of mine) {
+        if (lines[c.line_index] === c.before) {
+          lines[c.line_index] = c.after;
+          trdCheckboxes.push(c.trd_id);
+        }
+      }
+      if (trdCheckboxes.length) fs.writeFileSync(roadmapPath, lines.join('\n'), 'utf-8');
+    }
+  }
+
   output({
     updated: true,
     objective: objectiveNum,
@@ -340,6 +424,8 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
     summary_count: summaryCount,
     status,
     complete: isComplete,
+    trd_checkboxes_ticked: trdCheckboxes.length,
+    trd_checkboxes: trdCheckboxes,
   }, raw, `${summaryCount}/${jobCount} ${status}`);
 }
 

@@ -210,7 +210,7 @@ const { cmdUiSpec, cmdUiSheet, cmdUiLock } = require('./lib/ui-spec-cli.cjs');
 const { cmdDetectNovelDomain } = require('./lib/novel-domain.cjs');
 const { cmdDetectBrownfieldMap } = require('./lib/brownfield-detector.cjs');
 const { cmdDetectFlutterUIScope } = require('./lib/flutter-ui-scope.cjs');
-const { cmdValidateConsistency, cmdValidateHealth } = require('./lib/validate.cjs');
+const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs } = require('./lib/validate.cjs');
 const {
   cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject,
   cmdInitNewMilestone, cmdInitQuick, cmdInitResume, cmdInitVerifyWork, cmdInitObjectiveOp,
@@ -257,6 +257,7 @@ const {
   hasTopLevelHelpFlag, ownsHelp, HELP_FLAGS, printHelp, topLevelUsage, COMMANDS: HELP_TABLE,
 } = require('./lib/help.cjs');
 const { cmdGenerateUAT } = require('./lib/uat-generator.cjs');
+const { extractCwdFlag } = require('./lib/cwd-flag.cjs');
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
@@ -265,6 +266,15 @@ async function main() {
   const rawIndex = args.indexOf('--raw');
   const raw = rawIndex !== -1;
   if (rawIndex !== -1) args.splice(rawIndex, 1);
+
+  // ── Global `--cwd <dir>` (issue 37-02) — chdir BEFORE dispatch, so every
+  // subcommand below (including the `--help` pre-switch right after this) sees
+  // <dir> as its cwd. Must run before `const command = args[0]` reads the
+  // post-flag command name.
+  const cwdFlag = extractCwdFlag(args, { originalCwd: process.cwd() });
+  if (cwdFlag.error) { process.stderr.write(`Error: ${cwdFlag.error}\n`); process.exit(1); }
+  if (cwdFlag.dir) process.chdir(cwdFlag.dir);
+  args.splice(0, args.length, ...cwdFlag.args);
 
   const command = args[0];
   const cwd = process.cwd();
@@ -614,6 +624,18 @@ async function main() {
       break;
     }
 
+    case 'upgrade': {
+      const { cmdUpgrade } = require('./lib/upgrade-cli.cjs');
+      cmdUpgrade(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'adopt': {
+      const { cmdAdopt } = require('./lib/adopt-cli.cjs');
+      cmdAdopt(cwd, args.slice(1), raw);
+      break;
+    }
+
     case 'migrate': {
       const subcommand = args[1];
       if (subcommand === 'plan') {
@@ -770,9 +792,64 @@ async function main() {
       } else if (subcommand === 'health') {
         const repairFlag = args.includes('--repair');
         cmdValidateHealth(cwd, { repair: repairFlag }, raw);
+      } else if (subcommand === 'docs') {
+        cmdValidateDocs(cwd, raw);
       } else {
-        error('Unknown validate subcommand. Available: consistency, health');
+        error('Unknown validate subcommand. Available: consistency, health, docs');
       }
+      break;
+    }
+
+    case 'telemetry': {
+      // df-tools telemetry [--raw] — read-only summary (TRD 31-01 module, wired in TRD 38-11)
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const { output: outputTelemetry } = require('./lib/helpers.cjs');
+      const { collect } = require('./lib/telemetry.cjs');
+      const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
+      const r = collect({ planningDir, userHome: os.homedir() });
+      outputTelemetry(r, raw, r.advisories.join('\n'));
+      break;
+    }
+
+    case 'context': {
+      // df-tools context [--limit N] [--root <dir>] [--raw] — TRD 29-04 module, wired in TRD 39-01
+      const { output: outputAudit } = require('./lib/helpers.cjs');
+      const { runContext } = require('./lib/audit-cli.cjs');
+      const r = runContext({ argv: args.slice(1) });
+      if (!r.ok) error(r.message);
+      outputAudit(r.result, raw, r.text);
+      break;
+    }
+
+    case 'session-audit': {
+      // df-tools session-audit [--since YYYY-MM-DD] [--limit N] [--root <dir>] [--raw] — TRD 31-03 module, wired in TRD 39-01
+      const { output: outputAudit } = require('./lib/helpers.cjs');
+      const { runSessionAudit } = require('./lib/audit-cli.cjs');
+      const r = runSessionAudit({ argv: args.slice(1) });
+      if (!r.ok) error(r.message);
+      outputAudit(r.result, raw, r.text);
+      break;
+    }
+
+    case 'transcript-export': {
+      // df-tools transcript-export [--out <file>] [--full <dir>] [--limit N] [--root <dir>] [--raw] — TRD 31-02 module, wired in TRD 39-02
+      const { output: outputAudit } = require('./lib/helpers.cjs');
+      const { runTranscriptExport } = require('./lib/audit-cli.cjs');
+      const r = runTranscriptExport({ argv: args.slice(1) });
+      if (!r.ok) error(r.message);
+      outputAudit(r.result, raw, r.text);
+      break;
+    }
+
+    case 'override': {
+      // df-tools override --gate <g> --reason <why> | --list [--limit N] — TRD 30-04 module, wired in TRD 39-02
+      const { output: outputAudit } = require('./lib/helpers.cjs');
+      const { runOverride } = require('./lib/audit-cli.cjs');
+      const r = runOverride({ argv: args.slice(1), cwd });
+      if (!r.ok) error(r.message);
+      outputAudit(r.result, raw, r.text);
       break;
     }
 
@@ -964,6 +1041,12 @@ async function main() {
       } else {
         error('Unknown defaults-table subcommand. Available: init');
       }
+      break;
+    }
+
+    case 'stack': {
+      const { cmdStack } = require('./lib/stack-profile.cjs');
+      cmdStack(cwd, args.slice(1), raw);
       break;
     }
 

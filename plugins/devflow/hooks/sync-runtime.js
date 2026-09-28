@@ -2,7 +2,8 @@
 // Mirror plugin-bundled devflow runtime to ~/.claude/devflow/.
 // Skills and agents reference @~/.claude/devflow/* paths which are not
 // interpolated against ${CLAUDE_PLUGIN_ROOT}, so the runtime is mirrored
-// to the home location on each session start when the version differs.
+// to the home location on each session start when the bundled plugin is
+// newer (never downgrades — Quick 21).
 //
 // Design (TRD 23-01):
 //  - Atomic per-subdirectory swap via temp dir + fs.renameSync (POSIX-atomic)
@@ -10,6 +11,11 @@
 //  - Content sentinel: early-exit requires bin/df-tools.cjs present (not just targetDir)
 //  - .plugin-version written ONLY after ALL four subdir swaps succeed
 //  - On any error: stderr warning, best-effort tmp cleanup, exit 0 (retry next session)
+//  - After a good mirror, runs the bundled global upgrade (TRD 36-06); failure-isolated,
+//    skipped with DEVFLOW_SKIP_GLOBAL_UPGRADE=1
+//  - Quick 21: a session running an OLDER plugin cache never downgrades a NEWER mirror.
+//    The mirror decision is semver-gated (parseSemver/compareSemver below), not a bare
+//    string-equality early exit.
 
 const fs = require('fs');
 const path = require('path');
@@ -37,14 +43,82 @@ try {
   installedVersion = fs.readFileSync(versionFile, 'utf8').trim();
 } catch {}
 
-// Content sentinel: version match alone is not proof of an intact mirror.
-// Also require the primary executable to exist (self-heal for corruption mode).
-if (
-  installedVersion === pluginVersion &&
-  fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs'))
-) {
-  process.exit(0);
+// ---------------------------------------------------------------------------
+// Quick 21: semver-gated mirror decision (never downgrade the mirror)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a (possibly `v`-prefixed, possibly `+build`-suffixed) semver string.
+ * Returns { nums: [major, minor, patch] (Number), pre: string[] } or null when
+ * the string is missing, empty, or does not match semver shape.
+ */
+function parseSemver(v) {
+  if (typeof v !== 'string' || v.trim() === '') return null;
+  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(v.trim());
+  if (!m) return null;
+  return {
+    nums: [Number(m[1]), Number(m[2]), Number(m[3])],
+    pre: m[4] ? m[4].split('.') : [],
+  };
 }
+
+/**
+ * Compare two parsed semver values. Numeric per part first; then prerelease
+ * (no-prerelease outranks any prerelease; otherwise identifier-by-identifier,
+ * numeric identifiers compare numerically, numeric < alphanumeric, alphanumeric
+ * compares by ASCII, and a shorter identifier list loses when all shared
+ * identifiers are equal). Returns -1, 0, or 1.
+ */
+function compareSemver(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a.nums[i] !== b.nums[i]) return a.nums[i] > b.nums[i] ? 1 : -1;
+  }
+  if (a.pre.length === 0 && b.pre.length === 0) return 0;
+  if (a.pre.length === 0) return 1; // release > prerelease
+  if (b.pre.length === 0) return -1;
+  const len = Math.max(a.pre.length, b.pre.length);
+  for (let i = 0; i < len; i++) {
+    if (i >= a.pre.length) return -1; // fewer identifiers, all equal so far → lower
+    if (i >= b.pre.length) return 1;
+    const ai = a.pre[i];
+    const bi = b.pre[i];
+    const aNum = /^\d+$/.test(ai);
+    const bNum = /^\d+$/.test(bi);
+    if (aNum && bNum) {
+      const diff = Number(ai) - Number(bi);
+      if (diff !== 0) return diff > 0 ? 1 : -1;
+    } else if (aNum !== bNum) {
+      return aNum ? -1 : 1; // numeric identifiers < alphanumeric
+    } else if (ai !== bi) {
+      return ai > bi ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+const mirrorSv = parseSemver(installedVersion);
+const pluginSv = parseSemver(pluginVersion);
+const sentinelOk = fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs'));
+
+if (mirrorSv) {
+  if (!pluginSv) {
+    // Unparseable plugin version never overwrites a parseable mirror.
+    process.exit(0);
+  }
+  const cmp = compareSemver(pluginSv, mirrorSv);
+  if (cmp < 0) {
+    process.stderr.write(
+      `[devflow] sync-runtime: plugin ${pluginVersion} is older than mirror ${installedVersion}; not downgrading ~/.claude/devflow\n`
+    );
+    process.exit(0);
+  }
+  if (cmp === 0 && sentinelOk) {
+    // Equal versions + intact mirror — nothing to do.
+    process.exit(0);
+  }
+  // cmp > 0 (plugin newer), or equal + sentinel missing (self-heal) → fall through and mirror.
+}
+// mirror missing/unparseable → fall through and mirror (fresh install / broken version file).
 
 if (!fs.existsSync(sourceDir)) {
   process.exit(0);
@@ -162,6 +236,24 @@ try {
   // Write version marker ONLY after all swaps succeed
   fs.writeFileSync(versionFile, pluginVersion);
   process.stderr.write(`[devflow] runtime synced to ~/.claude/devflow (v${pluginVersion})\n`);
+
+  // TRD 36-06: bring the global ~/.claude state forward (legacy install → backup, managed block in
+  // ~/.claude/CLAUDE.md). Only after a good mirror, from the BUNDLED module (never the mirror), in its
+  // own try/catch: a missing module or a thrown error never changes the mirror result or exit code.
+  if (process.env.DEVFLOW_SKIP_GLOBAL_UPGRADE !== '1') {
+    const gu = path.join(sourceDir, 'bin', 'lib', 'global-upgrade.cjs');
+    if (fs.existsSync(gu)) {
+      try {
+        require(gu).runGlobalUpgrade({
+          userHome: os.homedir(),
+          pluginVersion,
+          templatePath: path.join(sourceDir, 'templates', 'global-claude-md.md'),
+        });
+      } catch (e) {
+        process.stderr.write(`[devflow] global upgrade skipped: ${e.message}\n`);
+      }
+    }
+  }
 } catch (err) {
   process.stderr.write(`[devflow] sync-runtime failed: ${err.message}\n`);
   // Best-effort cleanup of any tmp dirs that were created but not yet renamed

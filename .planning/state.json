@@ -2,9 +2,9 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 99,
+  "progress_pct": 96,
   "status": "ready_for_verification",
-  "last_activity": "2026-06-12",
+  "last_activity": "2026-09-28",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -459,6 +459,16 @@
     {
       "objective": "25-fleet-audit-fixes",
       "summary": "TRD 04 complete: global ~/.claude/CLAUDE.md routing table fixed (status/micro/4 adoption skills) + '## TDD & Quality' by-kind playbook section added; deriveOverrides yields only {_playbookDetected:true}; devflow-claude resolver config unchanged (strict->strict no-op)",
+      "rationale": null
+    },
+    {
+      "objective": "39-telemetry-audit-cli",
+      "summary": "TRD 39-02 complete: wired df-tools transcript-export and df-tools override (--gate/--reason, --list) into lib/audit-cli.cjs. 19 new tests, strict TDD, no regressions.",
+      "rationale": null
+    },
+    {
+      "objective": "39-telemetry-audit-cli",
+      "summary": "TRD 39-04 complete: dispatch-completeness gate (lib/dispatch-completeness.test.cjs spawns all 71 COMMANDS + pins CLAUDE.md/context-discipline.md prose to a 15-name FLOOR with justified EXEMPT). CLAUDE.md flips context/session-audit/transcript-export/override to live. 7 new tests, strict TDD, no regressions.",
       "rationale": null
     }
   ],

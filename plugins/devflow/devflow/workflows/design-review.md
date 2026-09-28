@@ -18,7 +18,7 @@ The engine emits an ADVISORY rollup ONLY — `advisory:true` always, never a pas
 - `medium` priority debt → a noticeable polish gap. Track it in the backlog.
 - `low` priority debt → a nitpick. Record but don't prioritize.
 
-The engine runs ONE qualitative critique per state (NOT N-voted — design critique is a single pass, unlike the defect judge's N-sample voting). It resolves the vision model via `references/model-profiles.json` (`df-ui-evaluator`) — the agent never picks a model id. Without `--live` or a credential, every state is recorded as skipped (a clear "live critique required" note) and NO network call occurs.
+The engine runs ONE qualitative critique per state (NOT N-voted — design critique is a single pass, unlike the defect judge's N-sample voting). It resolves the vision model via `references/model-profiles.json` (`ui-evaluator`) — the agent never picks a model id. Without `--live` or a credential, every state is recorded as skipped (a clear "live critique required" note) and NO network call occurs.
 </philosophy>
 
 <process>
@@ -89,7 +89,7 @@ Frame it explicitly as ADVISORY:
 
 Report path: `<manifest-dir>/design-review-report.md`.
 
-The high-priority items are the actionable output: they become `/devflow:add-todo` candidates or scope for a future UI-polish objective. The sweep itself never blocks any other workflow.
+The high-priority items are the actionable output: they become `/devflow:todo add` candidates or scope for a future UI-polish objective. The sweep itself never blocks any other workflow.
 </step>
 
 </process>

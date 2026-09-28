@@ -1,0 +1,10 @@
+plugins/devflow/devflow/bin/df-tools.test.cjs:1472:3	--files commits only named paths; unrelated staged changes remain staged
+plugins/devflow/devflow/bin/df-tools.test.cjs:1494:3	untracked named file passed via --files gets added and committed
+plugins/devflow/devflow/bin/df-tools.test.cjs:1505:3	no --files commits .planning/ ONLY — a staged file elsewhere is not swept in
+plugins/devflow/devflow/bin/df-tools.test.cjs:1527:3	no --files falls back to staging .planning/ and commits normally
+plugins/devflow/devflow/bin/handoff-e2e.test.cjs:795:3	MA-7 doctl auth init with unset DIGITALOCEAN_TOKEN — secret-resolution OR architectural-gap path
+plugins/devflow/devflow/bin/lib/project-state.test.cjs:251:1	case 21a: real git repo with backdated commit → returns integer ≥ 7
+plugins/devflow/devflow/bin/lib/project-state.test.cjs:320:1	case 23: brownfield substantive (git+manifest+50 files, no planning) → is_substantive:true
+plugins/devflow/devflow/bin/lib/project-state.test.cjs:367:1	case 26: declined project → previously_declined:true, decline_expires:non-null
+plugins/devflow/devflow/bin/lib/project-state.test.cjs:438:1	case 29: subprocess smoke — df-tools project-state <brownfield> --raw → valid JSON
+plugins/devflow/hooks/verify-commits.test.js:205:3	Test 5: autonomous + recent commits exist → no block, no warning

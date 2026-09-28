@@ -451,13 +451,14 @@ test('P-2 With task + watcher active: model │ task │ dirname │ ⏸ N pendi
   assert.match(out, / │ ⏸ 2 pending/);
 });
 
-test('P-3 dfUpdate prefix preserved (cache flag triggers ⬆)', (t) => {
+test('objective 38: no update segment — nothing writes df-update-check.json', (t) => {
   const tmp = makeTmp();
   t.after(() => rmSync(tmp, { recursive: true, force: true }));
   const home = path.join(tmp, 'home');
   fs.mkdirSync(home, { recursive: true });
-  // Plant the df-update cache file BEFORE buildStatuslineEnv (which preserves
-  // tmpHome contents).
+  // Plant an orphaned df-update-check.json BEFORE buildStatuslineEnv (which
+  // preserves tmpHome contents). Nothing in the repo writes this file anymore;
+  // if it's present from a stale cache, statusline must ignore it.
   const cacheDir = path.join(home, '.claude', 'cache');
   fs.mkdirSync(cacheDir, { recursive: true });
   fs.writeFileSync(
@@ -478,7 +479,9 @@ test('P-3 dfUpdate prefix preserved (cache flag triggers ⬆)', (t) => {
   });
   assert.equal(result.status, 0);
   const out = fixtures.stripAnsi(result.stdout);
-  assert.match(out, /⬆ \/df:update/);
+  assert.doesNotMatch(out, /⬆/);
+  assert.doesNotMatch(out, /\/df:update/);
+  assert.doesNotMatch(out, /\/devflow:update/);
 });
 
 test('P-4 context bar preserved (color thresholds + scaled %)', (t) => {

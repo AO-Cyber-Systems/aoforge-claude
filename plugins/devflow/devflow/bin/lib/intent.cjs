@@ -191,11 +191,77 @@ function readProjectMd(projectRoot) {
   return extractFrontmatter(content) || {};
 }
 
+// The directory-name keys an objective id may appear under. A numeric id is
+// also tried zero-padded on its integer part, the way objective directories
+// are created: `7` → `07`, `7.1` → `07.1`.
+function objectiveIdKeys(id) {
+  const keys = [id];
+  const m = /^(\d+)(\.\d+)?$/.exec(id);
+  if (m) {
+    const padded = m[1].padStart(2, '0') + (m[2] || '');
+    if (!keys.includes(padded)) keys.push(padded);
+  }
+  return keys;
+}
+
+// Resolve an objective id to its directory under .planning/objectives/ (TOOL-05).
+// Planners pass the bare number (`40`) as often as the slugged directory name
+// (`40-tooling-correctness`), so an exact-path lookup alone silently misses.
+//
+// Order: an exact directory `<id>` wins outright; otherwise every directory
+// equal to, or starting with `<key>-`, for each key from objectiveIdKeys().
+// The `-` is load-bearing: `4` never matches `40-foo`, `1` never matches
+// `10-foo`. Only directories that contain an OBJECTIVE.md count. When several
+// match (duplicate numbers), the lexicographically first is used and all are
+// returned in `candidates` so the caller can warn.
+//
+// Deliberately local rather than reusing objective.cjs findObjectiveInternal:
+// intent.cjs does not depend on objective.cjs, and should not start to.
+function findObjectiveDir(projectRoot, id) {
+  const base = path.join(projectRoot, '.planning', 'objectives');
+  const keys = objectiveIdKeys(id);
+  if (fs.existsSync(path.join(base, id, 'OBJECTIVE.md'))) {
+    return { dir: id, candidates: [id], keys };
+  }
+  let dirs;
+  try {
+    dirs = fs.readdirSync(base, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+  } catch {
+    return { dir: null, candidates: [], keys };
+  }
+  const hits = dirs.filter((d) =>
+    keys.some((k) => d === k || d.startsWith(k + '-')) &&
+    fs.existsSync(path.join(base, d, 'OBJECTIVE.md')));
+  return { dir: hits[0] || null, candidates: hits, keys };
+}
+
+// Returns { fm, dir, warnings }. `fm` is null when no objective directory
+// matches — and then `warnings` says so, because the alternative is resolve()
+// silently inheriting PROJECT.md default_work under the wrong TDD posture.
 function readObjectiveMd(projectRoot, objectiveId) {
-  const objPath = path.join(projectRoot, '.planning', 'objectives', objectiveId, 'OBJECTIVE.md');
-  if (!fs.existsSync(objPath)) return null;
-  const content = fs.readFileSync(objPath, 'utf-8');
-  return extractFrontmatter(content) || {};
+  const { dir, candidates, keys } = findObjectiveDir(projectRoot, objectiveId);
+  const warnings = [];
+  if (!dir) {
+    const named = keys.map((k) => `'${k}'`).join(' or ');
+    const prefixed = keys.map((k) => `'${k}-'`).join(' or ');
+    warnings.push(
+      `OBJECTIVE.md not found for objective '${objectiveId}': no directory under .planning/objectives/ ` +
+      `is named ${named} or starts with ${prefixed}. work was not read from an OBJECTIVE.md ` +
+      `and fell back to the next source (see workSource). Pass the objective number or its directory name.`
+    );
+    return { fm: null, dir: null, warnings };
+  }
+  if (candidates.length > 1) {
+    warnings.push(
+      `Objective id '${objectiveId}' matches ${candidates.length} directories (${candidates.join(', ')}) — ` +
+      `using ${dir}. Pass the full directory name to pick another.`
+    );
+  }
+  const content = fs.readFileSync(path.join(projectRoot, '.planning', 'objectives', dir, 'OBJECTIVE.md'), 'utf-8');
+  return { fm: extractFrontmatter(content) || {}, dir, warnings };
 }
 
 function readTrdFrontmatter(trdPath) {
@@ -221,7 +287,10 @@ function validateWork(work) {
 //
 // Options:
 //   projectRoot — required. Project root containing .planning/ and optionally CLAUDE.md.
-//   objectiveId — optional. If set, reads OBJECTIVE.md from objectives/<id>/.
+//   objectiveId — optional. If set, reads OBJECTIVE.md from the objective's
+//                 directory: the bare number (`40`) or the slugged directory
+//                 name (`40-tooling-correctness`) both resolve (findObjectiveDir).
+//                 No match adds an `OBJECTIVE.md not found` warning; no throw.
 //   trdPath — optional. If set, reads TRD frontmatter for explicit overrides.
 //   userHome — optional. Override $HOME for CLAUDE.md absorption (test hook).
 //   tablePath — optional. Override defaults-table.md path (test hook).
@@ -236,7 +305,8 @@ function resolve({ projectRoot, objectiveId, trdPath, userHome, tablePath } = {}
 
   // Read sources in order
   const projectFm = readProjectMd(projectRoot);
-  const objectiveFm = objectiveId ? readObjectiveMd(projectRoot, objectiveId) : null;
+  const objectiveLookup = objectiveId ? readObjectiveMd(projectRoot, objectiveId) : null;
+  const objectiveFm = objectiveLookup ? objectiveLookup.fm : null;
   const trdFm = trdPath ? readTrdFrontmatter(trdPath) : null;
   const directives = claudeMd.absorb({ userHome, projectRoot });
   const claudeOverrides = claudeMd.deriveOverrides(directives);
@@ -246,10 +316,13 @@ function resolve({ projectRoot, objectiveId, trdPath, userHome, tablePath } = {}
   const warnings = [];
   let kind = projectFm.kind;
   if (!kind) {
-    warnings.push("PROJECT.md missing 'kind' — defaulting to 'api'. Run /devflow:health --migrate to set it.");
+    warnings.push("PROJECT.md missing 'kind' — defaulting to 'api'. Run /devflow:status check --migrate (df-tools upgrade --apply --only 0006 --kind <kind>) to set it.");
     kind = 'api';
   }
   validateKind(kind);
+  // Objective-lookup warnings (not found / ambiguous) go after the kind warning
+  // so an existing warnings[0] stays where callers expect it.
+  if (objectiveLookup) warnings.push(...objectiveLookup.warnings);
 
   // Resolve work — precedence: trd > objective > project default > fallback
   let work, workSource;

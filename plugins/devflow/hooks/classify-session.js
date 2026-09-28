@@ -98,11 +98,13 @@ function main() {
   let isSubstantive = false;
   let previouslyDeclined = false;
   let autoInit = false;
+  let repoState = null;
   try {
     if (hasGit && !planningDir) {
       const state = getProjectState(cwd);
       isSubstantive = state.is_substantive;
       previouslyDeclined = state.previously_declined;
+      repoState = state.state;
       autoInit = shouldAutoInit();
     }
   } catch (e) {
@@ -126,7 +128,7 @@ function main() {
 
   if (mode === 'skip') return;
 
-  const preamble = renderRoutingPreamble({ mode });
+  const preamble = renderRoutingPreamble({ mode, repoState });
   if (!preamble) return;
 
   const out = {

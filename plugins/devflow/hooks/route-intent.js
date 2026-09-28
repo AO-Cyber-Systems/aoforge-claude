@@ -126,6 +126,12 @@ const INTENT_MAP = [
     skill: '/devflow:objective add',
     label: 'objective-add',
   },
+  // ADOPT (objective 37): turn an existing repo into a DevFlow project
+  {
+    rx: /\b(?:adopt\s+(?:this|the|my)\s+(?:repo|repository|project|codebase)|set\s+up\s+devflow\s+(?:here|in\s+(?:this|the|my)\s+(?:repo|repository|project))|bootstrap\s+(?:this|the|my)\s+(?:repo|repository|project|codebase))\b/i,
+    skill: '/devflow:adopt',
+    label: 'adopt',
+  },
   // NEW PROJECT: new project / start a project / initialize devflow
   {
     rx: /\b(?:new\s+project|start\s+a\s+(?:new\s+)?project|initialize\s+(?:devflow|planning))\b/i,
@@ -265,7 +271,12 @@ const INTENT_MAP = [
 function matchIntent(prompt, opts = {}) {
   if (!prompt) return [];
   if (/^\s*\/(devflow:|df:)/i.test(prompt)) return [];
-  if (/^\s*(?:why|how|can|could|would|should|is|are|does|did|do)\b/i.test(prompt)) return [];
+  // Q&A skip-rule: prompts starting with interrogative words return [] -- EXCEPT the
+  // adopt intent, which is routinely phrased as a polite request ("can you set up
+  // devflow in this repo") rather than a question about the code (TRD 37-10).
+  const adoptEntry = INTENT_MAP.find(e => e.label === 'adopt');
+  const matchesAdopt = !!(adoptEntry && adoptEntry.rx.test(prompt));
+  if (!matchesAdopt && /^\s*(?:why|how|can|could|would|should|is|are|does|did|do)\b/i.test(prompt)) return [];
   // Override phrase suppression — returns [] (no directive; main() writes marker separately)
   if (hasOverridePhrase(prompt)) return [];
   // skillActive suppression — pure option, no fs I/O
@@ -374,11 +385,24 @@ function renderDirective(matches, prompt = '') {
   return renderMultiMatch(matches, prompt);
 }
 
+// renderAdoptReminder -- short reminder emitted in NON-DevFlow directories (no .planning/)
+// when the prompt matches ONLY the adopt intent. Deliberately not box-drawn (that treatment
+// is reserved for the "you MUST route" directive inside DevFlow projects); this is a nudge
+// in a repo route-intent otherwise stays silent in.
+
+function renderAdoptReminder() {
+  return [
+    'Not a DevFlow project yet. This prompt matches /devflow:adopt -- it maps the',
+    'code, infers PROJECT.md/STACK.md and makes one commit on a devflow/adopt',
+    'branch (never pushed). Invoke it via the Skill tool.',
+  ].join('\n');
+}
+
 // main -- entry point when executed directly
 //
 // TRD 24-02 wiring:
 //   1. Parse input (prompt from UserPromptSubmit payload)
-//   2. Find planningDir; none → return
+//   2. Find planningDir; none → adopt-only reminder (TRD 37-10), else return
 //   3. If override phrase detected → writeEditOverrideMarker BEFORE matchIntent early-return
 //      (override prompts produce no directive but MUST arm gate bypass — decisions 1+4)
 //   4. Read skillActive from .planning/.skill-active presence (fs I/O here, not in matchIntent)
@@ -392,7 +416,21 @@ function main() {
   if (!prompt) return;
 
   const planningDir = findPlanningDir(process.cwd());
-  if (!planningDir) return;
+  if (!planningDir) {
+    // Not a DevFlow project yet -- route-intent stays silent EXCEPT for the one intent
+    // that applies here: adopt. Only fire when adopt is the sole match (never swallow
+    // an unrelated prompt just because it happens to also mention adopt-ish wording).
+    const matches = matchIntent(prompt);
+    if (matches.length === 1 && matches[0].label === 'adopt') {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: renderAdoptReminder(),
+        },
+      }));
+    }
+    return;
+  }
 
   // CRITICAL: write marker BEFORE matchIntent check — override prompts return [] by design
   // yet MUST still arm the gate bypass (locked decisions 1+4 from 24-CONTEXT.md)
@@ -416,4 +454,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { INTENT_MAP, matchIntent, renderDirective, findPlanningDir };
+module.exports = { INTENT_MAP, matchIntent, renderDirective, findPlanningDir, renderAdoptReminder };

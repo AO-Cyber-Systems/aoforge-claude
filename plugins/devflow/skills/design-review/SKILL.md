@@ -40,7 +40,7 @@ Objective, manifest, or surface: $ARGUMENTS (optional)
 - If not provided: locate the active objective's design-review manifest; if none, report SKIPPED cleanly.
 
 The design-critic ENGINE is already shipped
-(`plugins/devflow/devflow/bin/lib/flutter-ui-design-review.cjs`) with the `df-ui-evaluator` model
+(`plugins/devflow/devflow/bin/lib/flutter-ui-design-review.cjs`) with the `ui-evaluator` model
 profile and the df-tools arm `flutter-ui design-review <manifest> [--live] [--raw]`. It runs ONE
 qualitative critique per state (NOT N-voted — design critique is a single pass), aggregates a
 prioritized design-debt list, and writes the report next to the manifest. It emits `advisory:true`

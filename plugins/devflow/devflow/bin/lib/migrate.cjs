@@ -115,7 +115,11 @@ function backup(projectRoot, label = backupTimestamp()) {
 //   defaultWork — optional default_work
 //   workChoices — { [objectiveId]: workValue } for each objective needing work
 //   dryRun — if true, return plan without writing
-function apply({ projectRoot, kind, defaultWork, workChoices = {}, dryRun = false }) {
+//   backup — default true: copy PROJECT.md + OBJECTIVE.md files into an in-repo
+//            `.planning/.migrate-backup-<ts>/` before writing (the standalone
+//            `df-tools migrate apply`). Upgrade migration 0006 passes false because
+//            the upgrade runner has already backed up outside the repo (TRD 36-04b).
+function apply({ projectRoot, kind, defaultWork, workChoices = {}, dryRun = false, backup: doBackup = true }) {
   const result = plan({ projectRoot });
   if (result.errors.length > 0) {
     throw new Error(result.errors.join('\n'));
@@ -172,8 +176,8 @@ function apply({ projectRoot, kind, defaultWork, workChoices = {}, dryRun = fals
     return { ...result, applied: false, reason: 'dry-run', changes, backupDir: null };
   }
 
-  // Backup before any write
-  const backupDir = backup(projectRoot);
+  // Backup before any write (unless the caller already backed up elsewhere)
+  const backupDir = doBackup ? backup(projectRoot) : null;
 
   // Apply changes
   for (const change of changes) {

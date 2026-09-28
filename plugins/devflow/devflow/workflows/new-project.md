@@ -54,7 +54,7 @@ INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init new-project)
 
 Parse JSON for: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`.
 
-**If `project_exists` is true:** Error — project already initialized. Use `/devflow:progress`.
+**If `project_exists` is true:** Error — project already initialized. Use `/devflow:status`.
 
 **If `has_git` is false:** Initialize git:
 ```bash
@@ -71,8 +71,16 @@ Use AskUserQuestion:
 - header: "Codebase"
 - question: "I detected existing code in this directory. Would you like to map the codebase first?"
 - options:
-  - "Map codebase first" — Run /devflow:map-codebase to understand existing architecture (Recommended)
+  - "Adopt instead" — Run /devflow:adopt (maps the code, infers PROJECT.md, one commit on devflow/adopt) (Recommended)
+  - "Map codebase first" — Run /devflow:map-codebase to understand existing architecture
   - "Skip mapping" — Proceed with project initialization
+
+**If "Adopt instead":**
+```
+Run `/devflow:adopt` instead — it maps the code, infers PROJECT.md, and makes one commit on
+devflow/adopt without further questions.
+```
+Exit command.
 
 **If "Map codebase first":**
 ```
@@ -192,7 +200,10 @@ Create `.planning/config.json` with mode set to "yolo":
 ```bash
 mkdir -p .planning
 node ~/.claude/devflow/bin/df-tools.cjs commit "chore: add project config" --files .planning/config.json
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --register
 ```
+
+Registers this repo for backup pruning; ignore an unknown-flag error from an older mirror.
 
 **Persist auto-advance to config (survives context compaction):**
 
@@ -483,7 +494,10 @@ Create `.planning/config.json` with settings (defaults + any overrides):
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs commit "chore: add project config" --files .planning/config.json
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --register
 ```
+
+Registers this repo for backup pruning; ignore an unknown-flag error from an older mirror.
 
 **Note:** Run `/devflow:settings` anytime to update these preferences.
 
@@ -773,6 +787,19 @@ Display research complete banner and key findings:
 
 Files: `.planning/research/`
 ```
+
+**Draft the stack profile:**
+
+Skip this step if `.planning/STACK.md` already exists.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs stack init --from research --raw
+```
+
+If the command fails with "Unknown command" (an older DevFlow mirror), skip this step silently.
+Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".
+Only on **yes** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from research --write`.
+STACK.md is prescriptive; research/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
 
 **If "Skip research":** Continue to Step 7.
 

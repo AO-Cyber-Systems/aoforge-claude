@@ -8,7 +8,7 @@
  * - I/O assembly (getProjectState)
  * - CLI entry (cmdProjectState)
  *
- * Output schema (locked per #28):
+ * Output schema (locked per #28, `state` added by 37-04):
  * {
  *   "has_planning":       boolean,   — .planning/ exists
  *   "has_git":            boolean,   — .git/ exists
@@ -18,6 +18,7 @@
  *   "is_substantive":     boolean,   — ((git_age_days > 7) OR (code_files > 10)) AND has_manifest AND NOT is_scratch_dir
  *   "previously_declined": boolean,  — user declined DevFlow init for this cwd
  *   "decline_expires":    string|null — ISO 8601 expiry timestamp or null
+ *   "state":              'devflow'|'greenfield'|'brownfield'|'scratch' — 37-04, from repo-state.cjs
  * }
  *
  * Substantive heuristic (locked per #28 + 17-CONTEXT §"Locked decisions"):
@@ -27,26 +28,24 @@
  *
  * Phase C integration: classify-session.js (17-03) consumes getProjectState() JSON
  * to decide between init-offer mode and skip mode for non-DevFlow projects.
+ *
+ * 37-04 (ADP-01): this module is now a thin adapter over repo-state.cjs's `detectRepoState` —
+ * the one detector shared with brownfield-detector.cjs and init.cjs. `detectManifest`,
+ * `gitAgeDays` and `countSourceFiles` are re-exported straight from repo-state.cjs (same function
+ * objects); only `isScratchDir` is a wrapper (it defaults `userHome` to `os.homedir()` here, to
+ * preserve this module's historical single-argument public signature and behaviour).
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
 const { output, error } = require('./helpers.cjs');
 const { readDecline } = require('./decline-tracker.cjs');
 
-// ─── Pure functions (testable without filesystem) ─────────────────────────────
+const repoState = require('./repo-state.cjs');
+const { detectManifest, gitAgeDays, countSourceFiles } = repoState;
 
-/**
- * Unconditional scratch directory prefixes.
- * Paths starting with any of these are always considered scratch/ephemeral.
- * Note: ~/Downloads is handled separately via os.homedir() below.
- */
-const SCRATCH_PREFIXES = [
-  '/tmp/',
-  '/var/folders/',
-];
+// ─── Pure functions (testable without filesystem) ─────────────────────────────
 
 /**
  * Determine if the given absolute path is a scratch/ephemeral directory.
@@ -60,23 +59,15 @@ const SCRATCH_PREFIXES = [
  * GOTCHA: /tmp on macOS is a symlink to /private/tmp. We check the path AS PROVIDED
  * (no realpath resolution) — tests should use the same form.
  *
+ * 37-04: delegates to repo-state.cjs's `isScratchDir`, passing `os.homedir()` as both `userHome`
+ * and (implicitly, since `downloadsHome` defaults to it) the Downloads-join home — this keeps
+ * the module's original single-argument, always-real-home behaviour unchanged.
+ *
  * @param {string} absPath - absolute path to check (not normalized via realpath)
  * @returns {boolean}
  */
 function isScratchDir(absPath) {
-  // Match unconditional scratch prefixes
-  for (const prefix of SCRATCH_PREFIXES) {
-    if (absPath.startsWith(prefix)) return true;
-  }
-
-  // Match ~/Downloads/ — resolved via os.homedir() (not HOME env var)
-  // Also match the Downloads dir itself (without trailing sep)
-  const homeDownloads = path.join(os.homedir(), 'Downloads');
-  if (absPath === homeDownloads || absPath.startsWith(homeDownloads + path.sep)) {
-    return true;
-  }
-
-  return false;
+  return repoState.isScratchDir(absPath, { userHome: os.homedir() });
 }
 
 /**
@@ -87,6 +78,10 @@ function isScratchDir(absPath) {
  *   is_substantive = ((git_age_days > 7) OR (code_files > 10))
  *                    AND has_manifest
  *                    AND NOT is_scratch_dir
+ *
+ * Kept as a standalone pure function (37-04 does not migrate it) — `getProjectState` no longer
+ * calls it directly (it takes `is_substantive` from repo-state's `derive()`, which reproduces
+ * this exact formula), but it remains exported for direct callers/tests.
  *
  * @param {object} opts
  * @param {number|null} opts.git_age_days  - days since first commit; null treated as 0 (not age-substantive)
@@ -110,155 +105,16 @@ function isSubstantive({ git_age_days, code_files, has_manifest, is_scratch_dir 
   return ageOk || filesOk;
 }
 
-/**
- * Locked manifest→language mapping.
- * Order matters: first match wins. package.json checked first.
- */
-const MANIFEST_LANG = [
-  ['package.json',   'javascript'],  // refined to 'typescript' when tsconfig.json present
-  ['Cargo.toml',     'rust'],
-  ['pyproject.toml', 'python'],
-  ['go.mod',         'go'],
-  ['Gemfile',        'ruby'],
-  ['pom.xml',        'java'],
-];
-
-/**
- * Detect the primary language from manifest files in the project root.
- * First match wins (per MANIFEST_LANG order).
- *
- * Special case: package.json + tsconfig.json → 'typescript' (not 'javascript').
- *
- * @param {string} rootDir - absolute path to the project root
- * @returns {{ has_manifest: boolean, primary_lang: string|null }}
- */
-function detectManifest(rootDir) {
-  for (const [filename, lang] of MANIFEST_LANG) {
-    if (fs.existsSync(path.join(rootDir, filename))) {
-      // Refine package.json → 'typescript' when tsconfig.json is also present
-      if (filename === 'package.json' && fs.existsSync(path.join(rootDir, 'tsconfig.json'))) {
-        return { has_manifest: true, primary_lang: 'typescript' };
-      }
-      return { has_manifest: true, primary_lang: lang };
-    }
-  }
-  return { has_manifest: false, primary_lang: null };
-}
-
-// ─── File counting (mirrors brownfield-detector.cjs exactly) ─────────────────
-
-/**
- * Directory names excluded at every level of the walk.
- * Matches brownfield-detector.cjs EXCLUDE set — must not diverge.
- */
-const EXCLUDE = new Set([
-  'node_modules',
-  '.git',
-  '.planning',
-  'dist',
-  'build',
-  '.next',
-  'out',
-  'coverage',
-]);
-
-/**
- * Source file extensions to count.
- * Matches brownfield-detector.cjs EXTS set — must not diverge.
- */
-const EXTS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.cjs', '.mjs',
-  '.py', '.go', '.rs', '.rb', '.java',
-]);
-
-/**
- * Recursively count source files under root, excluding directories in EXCLUDE.
- * Mirrors brownfield-detector.cjs:countSourceFiles exactly.
- * - ENOENT / EACCES on a subdirectory → skip that dir, continue (never crash)
- * - Symlinks: isDirectory() returns false → naturally skipped
- *
- * PARALLEL NOTE: This function is intentionally duplicated from brownfield-detector.cjs.
- * Extract to a shared helper on third use (per TRD comment).
- *
- * @param {string} root - absolute path to walk
- * @returns {number}
- */
-function countSourceFiles(root) {
-  let count = 0;
-
-  function walk(dir) {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      // ENOENT, EACCES, permission denied, etc. — skip and continue
-      return;
-    }
-
-    for (const e of entries) {
-      // Skip excluded directory names (by name, not full path)
-      if (EXCLUDE.has(e.name)) continue;
-
-      // Skip dotdirs (e.g. .vscode) — but allow dotfiles (e.g. .eslintrc.cjs)
-      if (e.isDirectory() && e.name.startsWith('.')) continue;
-
-      const full = path.join(dir, e.name);
-
-      if (e.isDirectory()) {
-        walk(full);
-      } else if (e.isFile() && EXTS.has(path.extname(e.name))) {
-        count++;
-      }
-      // Symlinks: isDirectory() false, isFile() false → ignored (no circular following)
-    }
-  }
-
-  walk(root);
-  return count;
-}
-
 // ─── I/O wrappers ────────────────────────────────────────────────────────────
 
 /**
- * Compute the number of days since the first git commit in the repo at cwd.
- * Returns null when:
- *   - No git binary available (ENOENT)
- *   - No .git directory / not a git repo (non-zero exit)
- *   - No commits yet (empty output)
- *   - Timeout exceeded (2s — hard limit to avoid blocking SessionStart)
- *
- * @param {string} cwd - absolute path to the git repository root
- * @returns {number|null}
- */
-function gitAgeDays(cwd) {
-  try {
-    const r = spawnSync('git', ['log', '--reverse', '--format=%ct', '-n', '1'], {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    if (r.error || r.status !== 0) return null;
-
-    const firstCommitUnix = parseInt(r.stdout.trim(), 10);
-    if (isNaN(firstCommitUnix)) return null;
-
-    const nowUnix = Math.floor(Date.now() / 1000);
-    return Math.floor((nowUnix - firstCommitUnix) / 86400);
-  } catch {
-    // ENOENT (no git binary), permission errors, etc.
-    return null;
-  }
-}
-
-/**
  * Assemble the full project state for the given directory.
- * Composes pure helpers + I/O + decline tracking.
+ * Composes repo-state.cjs's detector + decline tracking.
  *
  * @param {string} cwd - absolute path to the project directory
  * @param {object} [opts]
  * @param {string} [opts.now] - ISO 8601 timestamp for decline expiry check (default: current time)
+ * @param {string|null} [opts.userHome] - org profile home for detectManifest's marker fallback
  * @returns {{
  *   has_planning: boolean,
  *   has_git: boolean,
@@ -267,23 +123,23 @@ function gitAgeDays(cwd) {
  *   primary_lang: string|null,
  *   is_substantive: boolean,
  *   previously_declined: boolean,
- *   decline_expires: string|null
+ *   decline_expires: string|null,
+ *   state: 'devflow'|'greenfield'|'brownfield'|'scratch'
  * }}
  */
-function getProjectState(cwd, { now = new Date().toISOString() } = {}) {
+function getProjectState(cwd, { now = new Date().toISOString(), userHome = null } = {}) {
   const root = path.resolve(cwd);
 
-  // 1. Filesystem checks
-  const has_planning = fs.existsSync(path.join(root, '.planning'));
-  const has_git = fs.existsSync(path.join(root, '.git'));
-  const code_files = countSourceFiles(root);
-  const { has_manifest, primary_lang } = detectManifest(root);
-  const is_scratch_dir = isScratchDir(root);
+  // 37-04: one detector call replaces the has_planning/has_git/code_files/detectManifest/
+  // isScratchDir assembly. `downloadsHome: os.homedir()` keeps the ~/Downloads scratch rule
+  // always consulting the real home (this module's historical behaviour), independent of
+  // `userHome` (which only ever drove detectManifest's org-marker fallback).
+  const { state, signals, derived } = repoState.detectRepoState(root, {
+    userHome,
+    downloadsHome: os.homedir(),
+  });
 
-  // 2. Git age (only meaningful when .git exists)
-  const git_age_days = has_git ? gitAgeDays(root) : null;
-
-  // 3. Decline tracking (from 17-02 decline-tracker)
+  // Decline tracking (from 17-02 decline-tracker)
   let decline = { declined: false, expires_at: null };
   try {
     decline = readDecline(root, { now });
@@ -292,23 +148,16 @@ function getProjectState(cwd, { now = new Date().toISOString() } = {}) {
     process.stderr.write(`[project-state] decline read failed: ${e.message}\n`);
   }
 
-  // 4. Substantiveness heuristic
-  const is_substantive = isSubstantive({
-    git_age_days,
-    code_files,
-    has_manifest,
-    is_scratch_dir,
-  });
-
   return {
-    has_planning,
-    has_git,
-    git_age_days,
-    code_files,
-    primary_lang,
-    is_substantive,
+    has_planning: signals.has_planning,
+    has_git: signals.has_git,
+    git_age_days: signals.git_age_days,
+    code_files: signals.code_files,
+    primary_lang: signals.primary_lang,
+    is_substantive: derived.is_substantive,
     previously_declined: decline.declined,
     decline_expires: decline.expires_at,
+    state,
   };
 }
 
@@ -330,7 +179,7 @@ function cmdProjectState(cwd, targetCwd, raw) {
     return; // unreachable — process.exit throws in test harness
   }
 
-  const state = getProjectState(root);
+  const state = getProjectState(root, { userHome: os.homedir() });
   output(state, raw, JSON.stringify(state));
 }
 

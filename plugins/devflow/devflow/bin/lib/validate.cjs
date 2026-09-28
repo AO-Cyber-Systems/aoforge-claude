@@ -6,8 +6,12 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { output, error, normalizeObjectiveName, findPlanFiles, stripPlanSuffix, pluginVersion, installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
-const { stateReplaceField, stateExtractField, readStateJson, writeStateJson, STATE_JSON_DEFAULTS } = require('./state.cjs');
 const { getMilestoneInfo } = require('./roadmap.cjs');
+// The config / JOB.md / state.json repairs live in the upgrade migrations (TRD 36-04a); health
+// calls them so each repair exists in exactly one place.
+const m0001 = require('./migrations/0001-config-stamp.cjs');
+const m0002 = require('./migrations/0002-job-to-trd.cjs');
+const m0003 = require('./migrations/0003-state-json-seed.cjs');
 
 // ─── Engine lag helpers (Check 11 in cmdValidateHealth) ───────────────────────
 
@@ -201,7 +205,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 1: .planning/ exists ───────────────────────────────────────────
   if (!fs.existsSync(planningDir)) {
-    addIssue('error', 'E001', '.planning/ directory not found', 'Run /df:new-project to initialize');
+    addIssue('error', 'E001', '.planning/ directory not found', 'Run /devflow:new-project to initialize');
     output({
       engine_version: pluginVersion(),
       schema_version: 1,
@@ -216,7 +220,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 2: PROJECT.md exists and has required sections ─────────────────
   if (!fs.existsSync(projectPath)) {
-    addIssue('error', 'E002', 'PROJECT.md not found', 'Run /df:new-project to create');
+    addIssue('error', 'E002', 'PROJECT.md not found', 'Run /devflow:new-project to create');
   } else {
     const content = fs.readFileSync(projectPath, 'utf-8');
     const requiredSections = ['## What This Is', '## Core Value', '## Requirements'];
@@ -229,36 +233,72 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 3: ROADMAP.md exists ───────────────────────────────────────────
   if (!fs.existsSync(roadmapPath)) {
-    addIssue('error', 'E003', 'ROADMAP.md not found', 'Run /df:new-milestone to create roadmap');
+    addIssue('error', 'E003', 'ROADMAP.md not found', 'Run /devflow:milestone new to create roadmap');
   }
 
-  // ─── Check 4: STATE.md exists and references valid objectives ─────────────────
+  // ─── Check 4: STATE.md exists and its position names a real objective ─────
   if (!fs.existsSync(statePath)) {
-    addIssue('error', 'E004', 'STATE.md not found', 'Run /df:health --repair to regenerate', true);
+    addIssue('error', 'E004', 'STATE.md not found', 'Run /devflow:status check --repair to regenerate', true);
     repairs.push('regenerateState');
   } else {
     const stateContent = fs.readFileSync(statePath, 'utf-8');
-    // Extract objective references from STATE.md
-    const phaseRefs = [...stateContent.matchAll(/[Pp]hase\s+(\d+(?:\.\d+)?)/g)].map(m => m[1]);
-    // Get disk objectives
-    const diskObjectives = new Set();
-    try {
-      const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
-      for (const e of entries) {
-        if (e.isDirectory()) {
-          const m = e.name.match(/^(\d+(?:\.\d+)?)/);
-          if (m) diskObjectives.add(m[1]);
-        }
+
+    // Read only the current position-line conventions — never a general
+    // "objective N" prose match, which also matches decisions/status prose
+    // referencing archived or future objectives (e.g. "objectives 27–36
+    // complete", "Phase 9 handoff"). The retired [Pp]hase\s+N regex is gone.
+    const POSITION_RES = [
+      /^\*\*Objective complete:\*\*\s*(\d+(?:\.\d+)?)/gm,
+      /^\*\*Current [Oo]bjective:\*\*\s*(\d+(?:\.\d+)?)/gm,
+      /^Objective:\s*(\d+(?:\.\d+)?)\s+of\b/gm,
+    ];
+    const positionRefs = new Set();
+    for (const re of POSITION_RES) {
+      for (const m of stateContent.matchAll(re)) positionRefs.add(m[1]);
+    }
+
+    // Known objectives: .planning/objectives/<NN-...> UNION any <NN-...> dir one
+    // or two levels under .planning/milestones/ (archived objectives keep their
+    // numbers valid forever — W002 must never fire on history).
+    const knownObjectives = new Set();
+    const addNumberedDirs = (dirPath) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      } catch {
+        return;
       }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        const m = e.name.match(/^(\d+(?:\.\d+)?)-/);
+        if (m) knownObjectives.add(parseFloat(m[1]));
+      }
+    };
+    addNumberedDirs(objectivesDir);
+    const milestonesDir = path.join(planningDir, 'milestones');
+    let milestoneEntries = [];
+    try {
+      milestoneEntries = fs.readdirSync(milestonesDir, { withFileTypes: true }).filter(e => e.isDirectory());
     } catch {}
-    // Check for invalid references
-    for (const ref of phaseRefs) {
-      const normalizedRef = String(parseInt(ref, 10)).padStart(2, '0');
-      if (!diskObjectives.has(ref) && !diskObjectives.has(normalizedRef) && !diskObjectives.has(String(parseInt(ref, 10)))) {
-        // Only warn if objectives dir has any content (not just an empty project)
-        if (diskObjectives.size > 0) {
-          addIssue('warning', 'W002', `STATE.md references objective ${ref}, but only objectives ${[...diskObjectives].sort().join(', ')} exist`, 'Run /df:health --repair to regenerate STATE.md', true);
-          if (!repairs.includes('regenerateState')) repairs.push('regenerateState');
+    for (const e of milestoneEntries) {
+      const selfMatch = e.name.match(/^(\d+(?:\.\d+)?)-/);
+      if (selfMatch) knownObjectives.add(parseFloat(selfMatch[1])); // one level under milestones/
+      addNumberedDirs(path.join(milestonesDir, e.name)); // two levels under milestones/
+    }
+
+    // Only warn if there is a known objective set to compare against (not just an empty project).
+    if (knownObjectives.size > 0) {
+      for (const ref of positionRefs) {
+        if (!knownObjectives.has(parseFloat(ref))) {
+          addIssue(
+            'warning',
+            'W002',
+            `STATE.md references objective ${ref}, but only objectives ${[...knownObjectives].sort((a, b) => a - b).join(', ')} exist`,
+            'Correct the objective number in STATE.md (or restore the objective directory)',
+            false
+          );
+          // W002 is intentionally NOT repairable: a single stale number must never let --repair
+          // overwrite a user's whole STATE.md with the regenerateState stub. Never push it here.
         }
       }
     }
@@ -266,7 +306,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 5: config.json valid JSON + valid schema ───────────────────────
   if (!fs.existsSync(configPath)) {
-    addIssue('warning', 'W003', 'config.json not found', 'Run /df:health --repair to create with defaults', true);
+    addIssue('warning', 'W003', 'config.json not found', 'Run /devflow:status check --repair to create with defaults', true);
     repairs.push('createConfig');
   } else {
     try {
@@ -278,7 +318,7 @@ function cmdValidateHealth(cwd, options, raw) {
         addIssue('warning', 'W004', `config.json: invalid model_profile "${parsed.model_profile}"`, `Valid values: ${validProfiles.join(', ')}`);
       }
     } catch (err) {
-      addIssue('error', 'E005', `config.json: JSON parse error - ${err.message}`, 'Run /df:health --repair to reset to defaults', true);
+      addIssue('error', 'E005', `config.json: JSON parse error - ${err.message}`, 'Run /devflow:status check --repair to reset to defaults', true);
       repairs.push('resetConfig');
     }
   }
@@ -352,25 +392,15 @@ function cmdValidateHealth(cwd, options, raw) {
   }
 
   // ─── Check 9: Legacy JOB.md files (should be TRD.md) ─────────────────────
-  const legacyJobFiles = [];
-  try {
-    const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const objectiveFiles = fs.readdirSync(path.join(objectivesDir, e.name));
-      for (const f of objectiveFiles) {
-        if (f.endsWith('-JOB.md') || f === 'JOB.md') {
-          legacyJobFiles.push(path.join(objectivesDir, e.name, f));
-        }
-      }
-    }
-  } catch {}
+  // A JOB.md whose TRD.md already exists is a conflict migration 0002 never renames, so it is not
+  // counted here (a warning whose --repair cannot fix it would never clear).
+  const legacyJobFiles = m0002.findLegacyJobFiles(cwd).filter((f) => !f.conflict);
   if (legacyJobFiles.length > 0) {
     addIssue(
       'warning',
       'W008',
       `Legacy JOB.md format found: ${legacyJobFiles.length} file(s). TRD.md is the current format.`,
-      'Run /df:health --repair to auto-rename to TRD.md',
+      'Run /devflow:status check --repair to auto-rename to TRD.md',
       true
     );
     repairs.push('migrateJobFiles');
@@ -383,7 +413,7 @@ function cmdValidateHealth(cwd, options, raw) {
       'warning',
       'W009',
       'state.json sidecar not found. Machine-readable state fields use slower markdown parsing.',
-      'Run /df:health --repair to create state.json from existing STATE.md',
+      'Run /devflow:status check --repair to create state.json from existing STATE.md',
       true
     );
     repairs.push('createStateJson');
@@ -481,25 +511,148 @@ function cmdValidateHealth(cwd, options, raw) {
 
   const engine = { running: runningVer, mirror: mirrorVer, installed: installedVer, main: mainVer };
 
+  // ─── Check 12: Stack profile (.planning/STACK.md) ──────────────────────────
+  // Not auto-repaired: drafting a profile needs human confirmation (`stack init`).
+  // See TRD 35-05's mapping table for the STK -> health code assignments below.
+  try {
+    const { validateProfile } = require('./stack-profile.cjs');
+    const { detectManifest } = require('./project-state.cjs');
+    const stackPath = path.join(planningDir, 'STACK.md');
+
+    if (fs.existsSync(stackPath)) {
+      const v = validateProfile({ projectRoot: cwd, userHome: homeDir });
+
+      // E030 — one aggregate error per run, covering schema violations (STK001),
+      // cycles/depth (STK003/STK004), an unrecognized section (STK006), a parse
+      // failure (STK008), and a missing component profile (STK009).
+      const E030_CODES = new Set(['STK001', 'STK003', 'STK004', 'STK006', 'STK008', 'STK009']);
+      const e030Issues = v.errors.filter((e) => E030_CODES.has(e.code));
+      if (e030Issues.length > 0) {
+        const first = e030Issues[0];
+        const more = e030Issues.length - 1;
+        addIssue(
+          'error',
+          'E030',
+          `stack-profile-invalid: .planning/STACK.md — ${first.code}: ${first.msg}${more > 0 ? ` (+${more} more)` : ''}`,
+          'Run `df-tools stack validate` for the full list and fix .planning/STACK.md'
+        );
+      }
+
+      // W030 — one per unresolved `extends` (STK002). Extract the id from the
+      // issue message (`extends '<id>' ...`) since it isn't carried separately.
+      for (const e of v.errors) {
+        if (e.code !== 'STK002') continue;
+        const idMatch = e.msg.match(/extends '([^']+)'/);
+        const id = idMatch ? idMatch[1] : e.msg;
+        addIssue(
+          'warning',
+          'W030',
+          `stack-extends-unresolved: extends "${id}" not found in ~/.claude/devflow/stacks/`,
+          `Install ~/.claude/devflow/stacks/${id}.md or change \`extends\``
+        );
+      }
+
+      // W031 — one per undefined command key (STK005) in loop/gates/generated/verification.
+      for (const e of v.errors) {
+        if (e.code !== 'STK005') continue;
+        const keyMatch = e.msg.match(/names '([^']+)'/);
+        const key = keyMatch ? keyMatch[1] : e.msg;
+        addIssue(
+          'warning',
+          'W031',
+          `stack-undefined-command: ${e.path} names "${key}", which no tier defines`,
+          `Define commands.${key} in .planning/STACK.md or remove it from ${e.path}`
+        );
+      }
+
+      // W032 — validator warnings (STK007: body over 150 lines). Never flips `ok`.
+      for (const w of v.warnings) {
+        if (w.code !== 'STK007') continue;
+        addIssue(
+          'warning',
+          'W032',
+          `stack-profile-warning: ${w.msg}`,
+          'Trim the profile body; link to skills/docs instead of pasting them'
+        );
+      }
+    } else {
+      const m = detectManifest(cwd, { userHome: homeDir });
+      if (m.has_manifest) {
+        addIssue(
+          'info',
+          'I030',
+          `stack-profile-absent: a ${m.primary_lang} manifest is present but .planning/STACK.md is not (general profile in use)`,
+          'Draft one with `df-tools stack init`, review it, then `df-tools stack init --write`'
+        );
+      }
+    }
+  } catch (e) {
+    // A check that could not run is never silent — surface it as an error
+    // rather than swallowing it (e.g. the bundled general profile is missing).
+    addIssue('error', 'E030', `stack-profile-check-failed: ${e.message}`, 'Run `df-tools stack validate`');
+  }
+
+  // ─── Check 13: Upgrade state (objective 36) ────────────────────────────────
+  // W040 is deliberately NOT repairable: the migrations are the repair, run by
+  // `df-tools upgrade --apply`. `--repair` keeps its own per-issue repairs
+  // (W008/W009/W003) so nothing runs twice. A check that cannot run (a broken
+  // registry, a detect that throws) is reported, never passed silently.
+  try {
+    const upgrade = require('./upgrade.cjs');
+    const r = upgrade.check({
+      projectRoot: cwd,
+      userHome: homeDir,
+      pluginVersion: runningVer,
+      registryDir: options.upgradeRegistryDir,
+    });
+    if (r.failed.length > 0) {
+      const why = r.failed.map((f) => `${f.id} ${f.phase} failed: ${f.error}`).join('; ');
+      addIssue('warning', 'W040', `upgrade-check-not-available: ${why}`, 'Run `df-tools upgrade --check` to see why');
+    } else if (!r.up_to_date) {
+      addIssue(
+        'warning',
+        'W040',
+        `project-behind: stamped ${r.from ? `v${r.from}` : 'never'}, DevFlow v${r.to}; ` +
+          `${r.pending.length} pending, ${r.pending_confirm.length} need confirmation`,
+        'Run `df-tools upgrade --apply` (or /devflow:status check --migrate)'
+      );
+    }
+  } catch (e) {
+    const why = Array.isArray(e.problems) ? `upgrade registry invalid: ${e.problems.join('; ')}` : e.message;
+    addIssue('warning', 'W040', `upgrade-check-not-available: ${why}`, 'Run `df-tools upgrade --check` to see why');
+  }
+
+  // ─── Check 14: Documentation staleness (objective 38) ──────────────────────
+  // Advisory only — never repairable. W050 removed-command refs, W051 STACK.md review age,
+  // W052 declared-vs-detected language drift, W053 codebase maps N commits behind. A check
+  // that cannot run is never silent (W054), matching Check 12/13's pattern above.
+  try {
+    const { collect } = require('./doc-staleness.cjs');
+    let docsConfig = {};
+    try {
+      docsConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } catch {
+      // Missing/malformed config.json is already reported by Check 5 (W003/E005);
+      // Check 14 just falls back to doc-staleness.cjs's own DEFAULTS.
+    }
+    for (const i of collect({ projectRoot: cwd, userHome: homeDir, config: docsConfig }).issues) {
+      addIssue('warning', i.code, i.message, i.fix, false);
+    }
+  } catch (e) {
+    addIssue('warning', 'W054', `doc-staleness-check-failed: ${e.message}`, 'Run `df-tools validate docs` to see why');
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
+    const migrationCtx = { projectRoot: cwd, userHome: homeDir, pluginVersion: pluginVersion(), dryRun: false, options: {} };
     for (const repair of repairs) {
       try {
         switch (repair) {
           case 'createConfig':
           case 'resetConfig': {
-            const defaults = {
-              model_profile: 'balanced',
-              commit_docs: true,
-              search_gitignored: false,
-              branching_strategy: 'none',
-              research: true,
-              job_checker: true,
-              verifier: true,
-              parallelization: true,
-            };
-            fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf-8');
+            // The nested template shape, from migration 0001 (the only copy of it).
+            fs.writeFileSync(configPath, JSON.stringify(m0001.buildConfig(null), null, 2) + '\n', 'utf-8');
             repairActions.push({ action: repair, success: true, path: 'config.json' });
             break;
           }
@@ -514,64 +667,21 @@ function cmdValidateHealth(cwd, options, raw) {
             stateContent += `**Current objective:** (determining...)\n`;
             stateContent += `**Status:** Resuming\n\n`;
             stateContent += `## Session Log\n\n`;
-            stateContent += `- ${new Date().toISOString().split('T')[0]}: STATE.md regenerated by /df:health --repair\n`;
+            stateContent += `- ${new Date().toISOString().split('T')[0]}: STATE.md regenerated by /devflow:status check --repair\n`;
             fs.writeFileSync(statePath, stateContent, 'utf-8');
             repairActions.push({ action: repair, success: true, path: 'STATE.md' });
             break;
           }
           case 'createStateJson': {
-            // Seed state.json from existing STATE.md content
-            const stateContent = fs.existsSync(statePath) ? fs.readFileSync(statePath, 'utf-8') : '';
-            const seeded = Object.assign({}, STATE_JSON_DEFAULTS);
-
-            // Extract what we can from markdown
-            const extractMd = (field) => stateExtractField(stateContent, field);
-            const currentJobRaw  = extractMd('Current Job');
-            const totalJobsRaw   = extractMd('Total Jobs in Objective');
-            const progressRaw    = extractMd('Progress');
-            const statusRaw      = extractMd('Status');
-            const lastActivityRaw = extractMd('Last Activity');
-            const currentObjRaw  = extractMd('Current Objective');
-
-            if (currentJobRaw) seeded.current_job = parseInt(currentJobRaw, 10) || 0;
-            if (totalJobsRaw)  seeded.total_jobs  = parseInt(totalJobsRaw, 10)  || 0;
-            if (progressRaw)   seeded.progress_pct = parseInt(String(progressRaw).replace('%', ''), 10) || 0;
-            if (statusRaw)     seeded.status = statusRaw;
-            if (lastActivityRaw) seeded.last_activity = lastActivityRaw;
-            if (currentObjRaw) seeded.current_objective = currentObjRaw;
-
-            // Extract blockers list
-            const blockersMatch = stateContent.match(/##\s*Blockers[^#]*\n([\s\S]*?)(?=\n##|$)/i);
-            if (blockersMatch) {
-              const items = blockersMatch[1].match(/^-\s+(.+)$/gm) || [];
-              seeded.blockers = items.map(i => i.replace(/^-\s+/, '').trim()).filter(Boolean);
-            }
-
-            writeStateJson(cwd, seeded);
-            repairActions.push({ action: repair, success: true, path: 'state.json', seeded_fields: Object.keys(seeded).filter(k => seeded[k] !== STATE_JSON_DEFAULTS[k]) });
+            // Seed state.json from STATE.md via migration 0003.
+            const res = m0003.apply(migrationCtx);
+            repairActions.push({ action: repair, success: true, path: 'state.json', seeded_fields: res.notes.seeded_fields });
             break;
           }
           case 'migrateJobFiles': {
-            const migrated = [];
-            for (const jobPath of legacyJobFiles) {
-              const trdPath = jobPath.replace(/-JOB\.md$/, '-TRD.md').replace(/JOB\.md$/, 'TRD.md');
-              fs.renameSync(jobPath, trdPath);
-              migrated.push({ from: path.relative(cwd, jobPath), to: path.relative(cwd, trdPath) });
-            }
-            // Record migration in STATE.md if it exists
-            if (fs.existsSync(statePath) && migrated.length > 0) {
-              const today = new Date().toISOString().split('T')[0];
-              let stateContent = fs.readFileSync(statePath, 'utf-8');
-              const note = `- ${today}: Migrated ${migrated.length} JOB.md file(s) to TRD.md format via /df:health --repair\n`;
-              stateContent = stateReplaceField(stateContent, 'Status', 'Resumed') || stateContent;
-              const logSection = stateContent.indexOf('## Session Log');
-              if (logSection !== -1) {
-                const insertAt = stateContent.indexOf('\n', logSection) + 1;
-                stateContent = stateContent.slice(0, insertAt) + note + stateContent.slice(insertAt);
-                fs.writeFileSync(statePath, stateContent, 'utf-8');
-              }
-            }
-            repairActions.push({ action: repair, success: true, migrated });
+            // Rename JOB.md -> TRD.md and log it in STATE.md via migration 0002.
+            const res = m0002.apply(migrationCtx);
+            repairActions.push({ action: repair, success: true, migrated: res.notes.migrated });
             break;
           }
         }
@@ -609,8 +719,41 @@ function cmdValidateHealth(cwd, options, raw) {
   }, raw);
 }
 
+// ─── validate docs (TRD 38-10) ──────────────────────────────────────────────
+//
+// A cheap, read-only doc-staleness report for the default /devflow:status view.
+// Full `validate health` does a best-effort `git fetch` in Check 11 (too slow
+// for every status call); this drives the same doc-staleness.collect() as
+// Check 14 above, with no other check attached — no network, no git fetch.
+function cmdValidateDocs(cwd, raw) {
+  const planningDir = path.join(cwd, '.planning');
+  if (!fs.existsSync(planningDir)) {
+    output({ issues: [], checked: {}, note: 'no .planning/' }, raw, 'no .planning/');
+    return;
+  }
+
+  const configPath = path.join(planningDir, 'config.json');
+  let docsConfig = {};
+  try {
+    docsConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    // Missing/malformed config.json: fall back to doc-staleness.cjs's own
+    // DEFAULTS, same as Check 14 above. Not this command's job to report it.
+  }
+
+  const { collect } = require('./doc-staleness.cjs');
+  const { issues, checked } = collect({ projectRoot: cwd, userHome: os.homedir(), config: docsConfig });
+
+  const rawText = issues.length
+    ? issues.map((i) => `${i.code} ${i.message}`).join('\n')
+    : 'no documentation advisories';
+
+  output({ issues, checked }, raw, rawText);
+}
+
 module.exports = {
   cmdValidateConsistency,
   cmdValidateHealth,
+  cmdValidateDocs,
   compareSemver,
 };

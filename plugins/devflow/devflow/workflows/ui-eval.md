@@ -16,7 +16,7 @@ The engine emits a `scoreRun` rollup with three verdicts. Each maps to exactly o
 - `pass-with-reviews` (or any per-state `review`) → advisory. Emit `notes:` + a partial section; the surface STAYS on the human-verify list.
 - `pass` (no fails, no reviews) → machine-verified. REMOVE that surface from the human-verification list.
 
-The engine is offline (label-echo judge, `network:false`) — no pixels leave the machine, no Docker, no network. The agent never picks a vision model id; the engine resolves it via `references/model-profiles.json` (`df-ui-evaluator`).
+The engine is offline (label-echo judge, `network:false`) — no pixels leave the machine, no Docker, no network. The agent never picks a vision model id; the engine resolves it via `references/model-profiles.json` (`ui-evaluator`).
 </philosophy>
 
 <process>

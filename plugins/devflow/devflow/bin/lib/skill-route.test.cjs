@@ -16,6 +16,7 @@ const {
   cmdSkillRouteList,
   SKILL_ROUTES,
   DEPRECATION_MAP,
+  REMOVED_COMMANDS,
   _setRunFs,
   _resetMocks,
 } = require('./skill-route.cjs');
@@ -463,11 +464,12 @@ describe('--list reflects milestone extension', () => {
 // ─── Group EX: export-lock ────────────────────────────────────────────────────
 
 describe('export-lock', () => {
-  test('EX1: module exports exactly 8 entries per banner', () => {
+  test('EX1: module exports exactly 9 entries per banner', () => {
     const mod = require('./skill-route.cjs');
     const keys = Object.keys(mod).sort();
     const expected = [
       'DEPRECATION_MAP',
+      'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
       '_setRunFs',
@@ -487,17 +489,18 @@ describe('export-lock', () => {
     );
   });
 
-  test('EX3: module.exports still exactly 8 entries after milestone extension (no new exports added)', () => {
+  test('EX3: module.exports still exactly 9 entries after milestone extension (no new exports added)', () => {
     const mod = require('./skill-route.cjs');
     const keys = Object.keys(mod);
-    assert.strictEqual(keys.length, 8, `Expected exactly 8 exports, got ${keys.length}: ${keys.join(', ')}`);
+    assert.strictEqual(keys.length, 9, `Expected exactly 9 exports, got ${keys.length}: ${keys.join(', ')}`);
   });
 
-  test('EX4: module.exports still exactly 8 entries after todo+status extension (_normalizeStatusSubcommand NOT exported)', () => {
+  test('EX4: module.exports still exactly 9 entries after todo+status extension (_normalizeStatusSubcommand NOT exported)', () => {
     const mod = require('./skill-route.cjs');
     const keys = Object.keys(mod).sort();
     const expected = [
       'DEPRECATION_MAP',
+      'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
       '_setRunFs',
@@ -780,11 +783,12 @@ describe('DEPRECATION_MAP unchanged — no workstreams entries', () => {
 // ─── Group EX5: export-lock unchanged after workstreams extension ─────────────
 
 describe('export-lock unchanged after workstreams extension', () => {
-  test('EX5: module.exports still exactly 8 entries after workstreams extension', () => {
+  test('EX5: module.exports still exactly 9 entries after workstreams extension', () => {
     const mod = require('./skill-route.cjs');
     const keys = Object.keys(mod).sort();
     const expected = [
       'DEPRECATION_MAP',
+      'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
       '_setRunFs',
@@ -793,7 +797,7 @@ describe('export-lock unchanged after workstreams extension', () => {
       'cmdSkillRouteList',
       'routeSkill',
     ];
-    assert.deepStrictEqual(keys, expected, 'Exports must remain at 8 entries after workstreams extension');
+    assert.deepStrictEqual(keys, expected, 'Exports must remain at 9 entries after workstreams extension');
   });
 });
 
@@ -822,5 +826,16 @@ describe('--list reflects todo + status extensions', () => {
     assert.ok('resume-work' in DEPRECATION_MAP, 'resume-work must be in DEPRECATION_MAP');
     assert.ok('progress' in DEPRECATION_MAP, 'progress must be in DEPRECATION_MAP');
     assert.ok('health' in DEPRECATION_MAP, 'health must be in DEPRECATION_MAP');
+  });
+});
+
+// ─── Group RC: REMOVED_COMMANDS (TRD 38-01, objective 38) ─────────────────────
+
+describe('REMOVED_COMMANDS', () => {
+  test('RC17: deep-equals the removed-with-no-replacement list and shares no key with DEPRECATION_MAP', () => {
+    assert.deepStrictEqual(REMOVED_COMMANDS, ['update', 'reapply-patches']);
+    for (const cmd of REMOVED_COMMANDS) {
+      assert.ok(!(cmd in DEPRECATION_MAP), `${cmd} must not also be a DEPRECATION_MAP key`);
+    }
   });
 });

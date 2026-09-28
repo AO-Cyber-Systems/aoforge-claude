@@ -112,7 +112,7 @@ When you need to bypass a gate for a real reason, record it rather than silently
 escaping:
 
 ```bash
-df-tools override --gate gate-edits --reason "hand-fixing generated file the executor cannot parse"
+df-tools override --gate edits --reason "hand-fixing generated file the executor cannot parse"
 df-tools override --list --limit 20
 ```
 

@@ -23,6 +23,25 @@ Include enough detail to be useful as reference. Prioritize practical examples (
 Documents are reference material for Claude when planning/executing. Always include actual file paths formatted with backticks: `src/services/user.ts`.
 </philosophy>
 
+<non_interactive_mode>
+Used by `/devflow:adopt` (and `/devflow:map-codebase --non-interactive`). No prompts, no waiting
+for a response — every step below resolves itself deterministically. Every `df-tools.cjs` call and
+every path in this mode is under the target directory via `--cwd`.
+
+- **check_existing** — if `.planning/codebase/` already has complete documents, use them as-is;
+  map only the docs that are missing or empty — never delete existing documents.
+- **spawn_agents / collect_confirmations / verify_output** — unchanged; still spawn the 4 mapper
+  agents (or, if the Task tool is unavailable, perform each focus directly in sequence) and verify
+  their output.
+- **draft_stack_profile** — skipped entirely. `adopt scaffold` writes `.planning/STACK.md` itself.
+- **generate_claude_md** — unchanged; still writes the versioned CLAUDE.md block that `adopt`
+  relies on.
+- **scan_for_secrets** — do not pause for confirmation. Any finding is left for `adopt report` to
+  redact and list under "Needs review" — mapping itself never blocks on it.
+- **commit_codebase_map** — skipped. `/devflow:adopt` makes the only commit for the whole run.
+- **offer_next** — skipped. Return control to the caller instead of printing next steps.
+</non_interactive_mode>
+
 <process>
 
 <step name="init_context" priority="first">
@@ -36,6 +55,8 @@ Extract from init JSON: `mapper_model`, `commit_docs`, `codebase_dir`, `existing
 </step>
 
 <step name="check_existing">
+**Non-interactive:** see <non_interactive_mode>.
+
 Check if .planning/codebase/ already exists using `has_maps` from init context.
 
 If `codebase_dir_exists` is true:
@@ -225,6 +246,25 @@ wc -l .planning/codebase/*.md
 
 If any documents missing or empty, note which agents may have failed.
 
+Continue to draft_stack_profile.
+</step>
+
+<step name="draft_stack_profile">
+**Non-interactive:** see <non_interactive_mode>.
+
+**Draft the project stack profile (`.planning/STACK.md`) from what was just mapped.**
+
+Skip this step if `.planning/STACK.md` already exists.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --raw
+```
+
+If the command fails with "Unknown command" (an older DevFlow mirror), skip this step silently.
+Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".
+Only on **yes** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --write`.
+STACK.md is prescriptive; codebase/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
+
 Continue to generate_claude_md.
 </step>
 
@@ -250,20 +290,27 @@ Follow the template's section structure and guidelines to synthesize a CLAUDE.md
 - **Concrete:** Include actual file paths, command names, patterns from the analysis docs
 - **Concise:** Aim for 80-150 lines — this is auto-loaded every session, brevity matters
 - **Skip empty sections:** If a section has nothing meaningful (e.g., no integrations), omit it entirely
+- **Development Rules:** Copy the `# Development Rules` section verbatim from the template. It is DevFlow-owned; the upgrade (migration 0005) keeps it current in existing blocks, so do not reword or tailor it.
+
+**Markers (versioned):** Wrap the generated content in
+`<!-- DEVFLOW:START v=<template_version> src=claude-md -->` … `<!-- DEVFLOW:END -->`, where
+`<template_version>` is the `template_version` in the template's frontmatter (currently `2`, i.e.
+`<!-- DEVFLOW:START v=2 src=claude-md -->`).
 
 **Merge with existing CLAUDE.md:**
 
 If `CLAUDE.md` already exists at project root:
 1. Read existing CLAUDE.md
-2. If `<!-- DEVFLOW:START -->` and `<!-- DEVFLOW:END -->` markers found:
-   - Replace everything between markers (inclusive of markers) with new DevFlow section
+2. If a DEVFLOW block is found — a `<!-- DEVFLOW:START v=… src=claude-md -->` marker, or a legacy unversioned `<!-- DEVFLOW:START - Auto-generated … -->` marker (same block) — followed by `<!-- DEVFLOW:END -->`:
+   - Replace everything between markers (inclusive of markers) with the new DevFlow section, written with the versioned start marker
    - Preserve all content before and after the markers exactly as-is
+   - If more than one DEVFLOW:START marker exists, or a START has no END, stop and report it — do not guess which block to replace
 3. If no markers found:
-   - Prepend the new DevFlow section (wrapped in markers) above existing content
+   - Prepend the new DevFlow section (wrapped in the versioned markers) above existing content
    - Add a blank line between the DevFlow section and existing content
 
 If no CLAUDE.md exists:
-1. Write fresh file with markers wrapping the generated content
+1. Write fresh file with the versioned markers wrapping the generated content
 
 Write CLAUDE.md to project root.
 
@@ -271,6 +318,8 @@ Continue to scan_for_secrets.
 </step>
 
 <step name="scan_for_secrets">
+**Non-interactive:** see <non_interactive_mode>.
+
 **CRITICAL SECURITY CHECK:** Scan output files for accidentally leaked secrets before committing.
 
 Run secret pattern detection:
@@ -306,6 +355,8 @@ Continue to commit_codebase_map.
 </step>
 
 <step name="commit_codebase_map">
+**Non-interactive:** see <non_interactive_mode>.
+
 Commit the codebase map:
 
 ```bash
@@ -316,6 +367,8 @@ Continue to offer_next.
 </step>
 
 <step name="offer_next">
+**Non-interactive:** see <non_interactive_mode>.
+
 Present completion summary and next steps.
 
 **Get line counts:**
@@ -374,7 +427,7 @@ End workflow.
 - Read agent output files to collect confirmations
 - All 8 codebase documents exist
 - CLAUDE.md generated at project root with prescriptive coding rules
-- CLAUDE.md wrapped in <!-- DEVFLOW:START/END --> markers
+- CLAUDE.md wrapped in versioned <!-- DEVFLOW:START v=… src=claude-md --> / <!-- DEVFLOW:END --> markers
 - If CLAUDE.md existed, user content outside markers is preserved
 - Clear completion summary with line counts
 - User offered clear next steps in DevFlow style

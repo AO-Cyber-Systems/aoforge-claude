@@ -65,7 +65,7 @@ out, and the index is what survives.
 ## Override log
 
 ```bash
-df-tools override --gate gate-edits --reason "hand-fixing a generated file"
+df-tools override --gate edits --reason "hand-fixing a generated file"
 df-tools override --list --limit 20
 ```
 

@@ -257,6 +257,7 @@ Gather symptoms through questioning. Update file after EACH answer.
 **Autonomous investigation. Update file continuously.**
 
 **Objective 1: Initial evidence gathering**
+- Load the stack slice once: `node ~/.claude/devflow/bin/df-tools.cjs stack context debugger --raw` (Principles, commands, Avoid, Generated code). Reproduce with its `test`/`build` commands via `stack command <key> --raw`; check the symptom against its Avoid rows; never hand-edit a generated file — fix its source and regenerate. If the command is unavailable, continue as before.
 - Update Current Focus with "gathering initial evidence"
 - If errors exist, search codebase for error text
 - Identify relevant code area from symptoms

@@ -129,6 +129,7 @@
 
 const { loadSurfaceSpecSchema } = require('./ui-spec.cjs');
 const { pluginVersion } = require('./helpers.cjs');
+const { checkStructure, describe, isPlainObject, join } = require('./json-schema-lite.cjs');
 
 /**
  * The single breakpoint constant. A state is `narrow` when its declared viewport width is below
@@ -165,118 +166,11 @@ function missing(code, path, msg) {
   return { code, path, msg, status: 'MISSING' };
 }
 
-function isPlainObject(v) {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
-  const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
-}
-
-function join(ptr, key) {
-  return ptr ? `${ptr}.${key}` : String(key);
-}
-
 // ─── I1: the structural check, over the schema the loader returns ─────────────
 //
-// A hand-rolled walk of the declared structure, NOT a JSON Schema engine: this repo carries one
-// npm dependency (`node-pty`) on purpose and a validator package is not going to be the second.
-// Supported: $ref, type, required, properties, additionalProperties:false, items, enum, pattern,
-// minimum, anyOf, oneOf. Everything else in the file (descriptions, minItems, $id) is ignored.
-
-function deref(node, root) {
-  let seen = 0;
-  while (node && typeof node.$ref === 'string') {
-    if (++seen > 16) return {};
-    const parts = node.$ref.replace(/^#\//, '').split('/');
-    let cur = root;
-    for (const p of parts) {
-      cur = cur && cur[p.replace(/~1/g, '/').replace(/~0/g, '~')];
-    }
-    node = cur || {};
-  }
-  return node || {};
-}
-
-function typeOk(value, type) {
-  switch (type) {
-    case 'object': return isPlainObject(value);
-    case 'array': return Array.isArray(value);
-    case 'string': return typeof value === 'string';
-    case 'integer': return typeof value === 'number' && Number.isInteger(value);
-    case 'number': return typeof value === 'number';
-    case 'boolean': return typeof value === 'boolean';
-    case 'null': return value === null;
-    default: return true;
-  }
-}
-
-function describe(value) {
-  if (value === null) return 'null';
-  if (Array.isArray(value)) return 'array';
-  return typeof value;
-}
-
-/** Collects SPEC001 errors for `value` against schema `node`. Returns the error array. */
-function checkStructure(value, node, root, ptr) {
-  const out = [];
-  const s = deref(node, root);
-
-  if (Array.isArray(s.anyOf) || Array.isArray(s.oneOf)) {
-    const branches = s.anyOf || s.oneOf;
-    const matched = branches.some((b) => checkStructure(value, b, root, ptr).length === 0);
-    if (!matched) {
-      out.push(err('SPEC001', ptr, `value does not match any form the schema declares for this node (got ${describe(value)})`));
-    }
-    return out;
-  }
-
-  if (s.type && !typeOk(value, s.type)) {
-    out.push(err('SPEC001', ptr, `expected type ${s.type} here, got ${describe(value)}`));
-    return out; // every further check on this node would be noise about the same defect
-  }
-
-  if (Array.isArray(s.enum) && !s.enum.includes(value)) {
-    out.push(err('SPEC001', ptr, `value ${JSON.stringify(value)} is not one of the declared values: ${s.enum.join(', ')}`));
-    return out;
-  }
-
-  if (typeof s.pattern === 'string' && typeof value === 'string') {
-    if (!new RegExp(s.pattern).test(value)) {
-      out.push(err('SPEC001', ptr, `${JSON.stringify(value)} does not match the pattern the schema declares here: ${s.pattern}`));
-      return out;
-    }
-  }
-
-  if (typeof s.minimum === 'number' && typeof value === 'number' && value < s.minimum) {
-    out.push(err('SPEC001', ptr, `value ${value} is below the declared minimum ${s.minimum}`));
-  }
-
-  if (Array.isArray(value) && s.items) {
-    value.forEach((el, i) => {
-      out.push(...checkStructure(el, s.items, root, `${ptr}[${i}]`));
-    });
-    return out;
-  }
-
-  if (isPlainObject(value)) {
-    const props = s.properties || {};
-
-    for (const key of s.required || []) {
-      if (!(key in value)) {
-        out.push(err('SPEC001', join(ptr, key), `required key ${JSON.stringify(key)} is absent — the schema declares it here`));
-      }
-    }
-
-    for (const [key, v] of Object.entries(value)) {
-      if (props[key]) {
-        out.push(...checkStructure(v, props[key], root, join(ptr, key)));
-      } else if (s.additionalProperties === false) {
-        out.push(err('SPEC001', join(ptr, key), `unknown key ${JSON.stringify(key)} — the schema declares no such property here`));
-      }
-    }
-  }
-
-  return out;
-}
+// The walk itself (deref, typeOk, checkStructure, describe, isPlainObject, join) lives in
+// ./json-schema-lite.cjs, shared with stack-profile validation (35-01). SPEC001 is this file's
+// own mapping of the walker's `{path, msg}` errors — the walker names no error codes.
 
 // ─── I2: routes ───────────────────────────────────────────────────────────────
 
@@ -1119,7 +1013,7 @@ function validateSurfaceSpec(spec, ctx = {}) {
     }
 
     // I1 — the declared structure.
-    errors.push(...checkStructure(spec, schema, schema, ''));
+    errors.push(...checkStructure(spec, schema, schema, '').map(({ path, msg }) => err('SPEC001', path, msg)));
 
     // I2 — routes.
     checkRoutes(spec, errors);

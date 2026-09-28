@@ -101,6 +101,10 @@ const SKILL_ROUTES = {
 
 // ─── DEPRECATION_MAP ──────────────────────────────────────────────────────────
 // Only objective-related entries in TRD 12-01.
+//
+// DEPRECATION_MAP (below) and REMOVED_COMMANDS (below it) are together the single source of
+// truth for command renames (objective 38). doc-refs.cjs imports both and declares no mapping
+// of its own — every later doc-correction TRD calls into doc-refs rather than re-declaring one.
 
 const DEPRECATION_MAP = {
   'add-objective': 'objective add',
@@ -123,6 +127,11 @@ const DEPRECATION_MAP = {
   'progress': 'status',
   'health': 'status check',
 };
+
+// Commands removed with NO replacement (objective 38). doc-refs reports them as `removed`;
+// nothing rewrites them, because there is nothing to rewrite them to. Updates arrive through
+// the plugin marketplace, so /devflow:update and /devflow:reapply-patches have no successor.
+const REMOVED_COMMANDS = ['update', 'reapply-patches'];
 
 // ─── Argument validation ──────────────────────────────────────────────────────
 
@@ -303,8 +312,9 @@ function cmdDeprecationLog(cwd, oldName, raw) {
   return result;
 }
 
-// ─── module.exports — LOCKED by TRD 12-01 (8-entry surface; SC-G1, SC-G2) ────
-//     DO NOT MODIFY without updating EX1 export-lock test atomically.
+// ─── module.exports — LOCKED by TRD 12-01 (9-entry surface; SC-G1, SC-G2) ────
+//     REMOVED_COMMANDS added by TRD 38-01 (objective 38). DO NOT MODIFY without updating
+//     the EX export-lock tests atomically.
 module.exports = {
   routeSkill,
   cmdSkillRoute,
@@ -312,6 +322,7 @@ module.exports = {
   cmdDeprecationLog,
   SKILL_ROUTES,
   DEPRECATION_MAP,
+  REMOVED_COMMANDS,
   _setRunFs,
   _resetMocks,
 };

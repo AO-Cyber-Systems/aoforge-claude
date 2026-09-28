@@ -95,6 +95,12 @@ cat .planning/STATE.md 2>/dev/null
 If STATE.md missing but .planning/ exists: offer to reconstruct or continue without.
 If .planning/ missing: Error — project not initialized.
 
+**Stack profile (load once):**
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs stack context executor --raw
+```
+Keep the output as your stack slice (Principles, commands, loop, gates, Idioms, Avoid, Layout, Dependencies, Generated code, Security). Also read `frontmatter.loop`, `frontmatter.gates.task` and `frontmatter.generated` from `node ~/.claude/devflow/bin/df-tools.cjs stack resolve`. If either command fails (unknown command in an older mirror), continue exactly as before this step existed.
+
 ## Flutter UI bootstrap detector (REQ-10-07)
 
 If the TRD has `type: ui` AND `stack: flutter`, run the bootstrap detector at executor start (BEFORE executing any tasks):
@@ -218,6 +224,16 @@ For each task:
    - A fresh agent will be spawned to continue
 
 3. After all tasks: run overall verification, confirm success criteria, document deviations
+
+## Stack loop, task gates and generated files
+
+**Generated-file guard (before every edit).** If the target path matches a `generated.globs` pattern, or any of its first 5 lines matches a `generated.markers` regex, do NOT edit it. Edit its source, then run `node ~/.claude/devflow/bin/df-tools.cjs stack command <generated.regenerate> --raw` and execute the printed command. Record this as a deviation if the TRD asked for a direct edit.
+
+**Inner loop (after each edit).** For each key in `loop`, in order: `node ~/.claude/devflow/bin/df-tools.cjs stack command <key> --files <changed files, comma-separated> --raw` and run the printed command. Empty output means `discover` (find the command per general Principle 1; if you can't, record `not_available`) or `none` (skip). Fix failures before moving on.
+
+**Task gates (before each commit).** Same procedure for each key in `gates.task`; results go in the SUMMARY "Validation Gate Results" table. A gate you could not run is `not_available`, never PASS.
+
+**Discovered commands.** Any command you discovered (because the profile said `discover`) goes in the SUMMARY `## Discovered commands` section. Never write `.planning/STACK.md` yourself — the user reviews the proposals in SUMMARY and adopts them.
 
 ## Flutter UI per-task verification (REQ-10-04)
 
@@ -931,6 +947,15 @@ Include these sections in every SUMMARY.md:
 | build | `npm run build` | 0 | PASS |
 ```
 
+**Discovered commands (if any command was discovered rather than read from STACK.md):**
+```markdown
+## Discovered commands
+
+| Key | Command | Evidence |
+|---|---|---|
+| test | `make test` | .github/workflows/ci.yml |
+```
+
 **TDD Evidence (for type: tdd TRDs only):**
 ```markdown
 ## TDD Evidence
@@ -1065,6 +1090,7 @@ TRD execution complete when:
 - [ ] SUMMARY.md includes TDD Evidence table (if type: tdd)
 - [ ] SUMMARY.md includes Validation Gate Results (if gates defined)
 - [ ] SUMMARY.md includes Post-TRD Verification section
+- [ ] Stack loop / task gates run (or reported `not_available`); discovered commands listed in SUMMARY
 - [ ] STATE.md updated (position, blockers, session)
 - [ ] STATE_ARCHIVE.md updated (decisions, metrics)
 - [ ] ROADMAP.md updated with TRD progress (via `roadmap update-job-progress`)

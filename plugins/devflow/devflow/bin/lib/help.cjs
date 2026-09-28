@@ -129,6 +129,18 @@ const COMMANDS = {
     summary: 'Plan or apply a .planning/ layout migration.',
     mutates: true,
   },
+  'upgrade': {
+    usage: 'df-tools upgrade [--check|--apply] [--only id[,id]] [--confirm] [--path dir] [--kind k] [--default-work w] [--global] [--prune [--dry-run]] [--register]',
+    summary: 'Bring this project (or, with --global, ~/.claude) forward to the running DevFlow version.',
+    mutates: true,
+    details: '--check (default) lists pending migrations; --apply runs auto migrations, backs up outside the repo, and stamps config.json. Confirm migrations run only with --apply --only <id> or --apply --confirm; 0006 takes --kind (and --default-work). --global moves legacy df-* files and manages the ~/.claude/CLAUDE.md block; --global --confirm adopts it over a hand-written section. --prune removes old backups under ~/.claude/devflow/backups (keeps <14 days and the newest 5 per repo; backups.retain_days / backups.keep_min in global-config.json); --dry-run lists without removing. --register records this repo for pruning.',
+  },
+  'adopt': {
+    usage: 'df-tools adopt <preflight|begin|scaffold|report> [--raw]',
+    summary: 'Adopt an existing repo as a DevFlow project (routes, branches, scaffolds, reports; never pushes).',
+    mutates: true,
+    details: 'preflight is read-only: it routes to adopt | resume | upgrade | new-project | refuse. begin creates the devflow/adopt branch and a progress marker in the git dir. scaffold writes config/STATE/state.json/ROADMAP/STACK.md and the CLAUDE.md block, then stamps. report writes .planning/ADOPT-REPORT.md and prints the files to commit. Refusals (dirty tree, rebase/merge, detached HEAD, not a repo) change nothing and exit 3. Combine with the global --cwd <dir> flag to target another repo.',
+  },
   'intent': {
     usage: 'df-tools intent resolve [--objective N] [--trd path] [--raw]',
     summary: 'Resolve the intent/defaults cell for an objective or TRD.',
@@ -158,8 +170,30 @@ const COMMANDS = {
     mutates: true,
   },
   'validate': {
-    usage: 'df-tools validate <consistency|health [--repair]> [--raw]',
-    summary: 'Check .planning/ integrity and objective numbering.',
+    usage: 'df-tools validate <consistency|health [--repair]|docs> [--raw]',
+    summary: 'Check .planning/ integrity, objective numbering, and documentation staleness.',
+    mutates: true,
+  },
+  'telemetry': {
+    usage: 'df-tools telemetry [--raw]',
+    summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories.',
+  },
+  'context': {
+    usage: 'df-tools context [--limit N] [--root <dir>] [--raw]',
+    summary: 'Context-window composition from session transcripts (default root ~/.claude/projects, --limit 150; 0 = all). Read-only.',
+  },
+  'session-audit': {
+    usage: 'df-tools session-audit [--since YYYY-MM-DD] [--limit N] [--root <dir>] [--raw]',
+    summary: 'Classify blocking events in session transcripts (default root ~/.claude/projects, --limit 150). Read-only.',
+  },
+  'transcript-export': {
+    usage: 'df-tools transcript-export [--out <file>] [--full <dir>] [--limit N] [--root <dir>] [--raw]',
+    summary: 'Append a compact per-session index of transcripts (default ~/.claude/devflow/transcript-index.jsonl); incremental.',
+    mutates: true,
+  },
+  'override': {
+    usage: 'df-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]',
+    summary: 'Record a structured, logged gate override in .planning/.override-log.jsonl, or list recent overrides.',
     mutates: true,
   },
   'progress': {
@@ -219,6 +253,11 @@ const COMMANDS = {
   'gh': {
     usage: 'df-tools gh <status|sync [objective]|pull <objective> [--apply]|sync-objectives|resolve <objective>|comment <issue> <body>|close-issue <issue> [comment]|sync-release <tag>> [--raw]',
     summary: 'Sync DevFlow planning state to and from GitHub.',
+    mutates: true,
+  },
+  'stack': {
+    usage: 'df-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force]> [--raw]',
+    summary: 'Resolve, validate and slice the project stack profile (.planning/STACK.md over bundled general).',
     mutates: true,
   },
   'awareness': {
@@ -431,7 +470,8 @@ function topLevelUsage() {
   const names = Object.keys(COMMANDS).sort();
   const width = names.reduce((w, n) => Math.max(w, n.length), 0);
   const lines = [
-    'Usage: df-tools <command> [args] [--raw]',
+    'Usage: df-tools [--cwd <dir>] <command> [args] [--raw]',
+    '  --cwd <dir>  run as if started in <dir> (resolved against the current directory)',
     '',
     'Run `df-tools <command> --help` for a command\'s own usage.',
     '(*) marks a command that writes to disk or to git.',

@@ -2,7 +2,9 @@
 
 How to verify different types of artifacts are real implementations, not stubs or placeholders.
 
-> **Functional verification (Step 8):** This document covers static patterns (Levels 1–3). For Level 4 functional verification — driving the actual app — the canonical source is the verifier agent's Step 8 in `plugins/devflow/agents/verifier.md`, which selects between Playwright MCP (web) and Maestro MCP (Flutter) based on the project's stack.
+> **Examples for web/TS profiles.** The concrete patterns below (React, Next.js, Express, Prisma, Drizzle) illustrate the Levels 1–3 checks for web/TS stacks. For other stacks, take the equivalents from the project's stack profile (`df-tools stack context verifier`).
+
+> **Functional verification (Step 8):** This document covers static patterns (Levels 1–3). For Level 4 functional verification — driving the actual app — the canonical source is the verifier agent's Step 8 in `plugins/devflow/agents/verifier.md`, which selects its runtime check from TRD `must_haves.platform`, then `verification.runtime` in the resolved stack profile.
 
 <core_principle>
 **Existence ≠ Implementation**
@@ -15,6 +17,18 @@ A file existing does not mean the feature works. Verification must check:
 
 Levels 1-3 can be checked via static analysis. Level 4 can be partially automated via browser tools (Playwright MCP) and may require human verification for subjective qualities.
 </core_principle>
+
+<search_commands>
+
+## Search commands in verify blocks
+
+The `grep -E` patterns below are GNU grep. When a `<verify>` or `<done>` check uses ripgrep instead, the flags differ:
+
+**ripgrep flags.** In `rg`, `-E` is `--encoding`, not extended regex (unlike GNU `grep -E` / `egrep`). Never fold `E` into an rg flag cluster such as `-nE`: ripgrep takes the next argument as an encoding name and exits 2 with `unknown encoding`, which prints nothing to stdout — so a "prints nothing" check passes for the wrong reason. For alternation use `rg -n -e 'foo|bar'` (or repeat `-e` once per alternative), and for PCRE features use `rg -nP 'pattern'`. ripgrep's default regex syntax already supports `|`, `+`, `?` and `{n}` without any flag.
+
+CI enforces this over live plugin prose (`bin/lib/rg-flag-guard.test.cjs`).
+
+</search_commands>
 
 <stub_detection>
 

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, stripPlanSuffix } = require('./helpers.cjs');
+const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -654,10 +655,13 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
 
   fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
 
-  // Update STATE.md objective count
+  // Update STATE.md objective count. state_updated reports an actual write,
+  // not whether the file exists (TOOL-02).
   const statePath = path.join(cwd, '.planning', 'STATE.md');
+  let stateUpdated = false;
   if (fs.existsSync(statePath)) {
-    let stateContent = fs.readFileSync(statePath, 'utf-8');
+    const originalState = fs.readFileSync(statePath, 'utf-8');
+    let stateContent = originalState;
     // Update "Total Objectives" field
     const totalPattern = /(\*\*Total Objectives:\*\*\s*)(\d+)/;
     const totalMatch = stateContent.match(totalPattern);
@@ -672,7 +676,10 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
       const oldTotal = parseInt(ofMatch[2], 10);
       stateContent = stateContent.replace(ofPattern, `$1${oldTotal - 1}$3`);
     }
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    if (stateContent !== originalState) {
+      fs.writeFileSync(statePath, stateContent, 'utf-8');
+      stateUpdated = true;
+    }
   }
 
   const result = {
@@ -686,7 +693,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
     renamed_directories: renamedDirs,
     renamed_files: renamedFiles,
     roadmap_updated: true,
-    state_updated: fs.existsSync(statePath),
+    state_updated: stateUpdated,
   };
 
   output(result, raw);
@@ -723,26 +730,21 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     );
     roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
 
-    // Progress table: update Status to Complete, add date
+    // Progress table: update Status to Complete, set Completed date — column-name-
+    // aware so the Milestone column (when present) is never disturbed.
     const objectiveEscaped = objectiveNum.replace('.', '\\.');
-    const tablePattern = new RegExp(
-      `(\\|\\s*${objectiveEscaped}\\.?\\s[^|]*\\|[^|]*\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-      'i'
-    );
-    roadmapContent = roadmapContent.replace(
-      tablePattern,
-      `$1 Complete    $2 ${today} $3`
-    );
+    ({ content: roadmapContent } = updateProgressTableRow(roadmapContent, objectiveNum, {
+      status: 'Complete',
+      completed: today,
+    }));
 
-    // Update job count in objective section
-    const jobCountPattern = new RegExp(
-      `(#{2,4}\\s*Objective\\s+${objectiveEscaped}[\\s\\S]*?\\*\\*Jobs:\\*\\*\\s*)[^\\n]+`,
-      'i'
-    );
-    roadmapContent = roadmapContent.replace(
-      jobCountPattern,
-      `$1${summaryCount}/${jobCount} jobs complete`
-    );
+    // Update job count in objective section — refreshes only the machine-owned
+    // "N/M jobs complete" prefix, preserving any hand-authored detail after it.
+    ({ content: roadmapContent } = updateJobsLine(
+      roadmapContent,
+      objectiveNum,
+      `${summaryCount}/${jobCount} jobs complete`
+    ));
 
     fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
 
@@ -801,49 +803,103 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     }
   } catch {}
 
-  // Update STATE.md
-  if (fs.existsSync(statePath)) {
-    let stateContent = fs.readFileSync(statePath, 'utf-8');
+  // Update STATE.md. Two schemas, told apart by **Current Objective:** — the
+  // legacy template's anchor field (still documented in workflows/transition.md).
+  //
+  // Legacy (field present): advance Current Objective / Status / Current Job /
+  // Last Activity fields as always.
+  //
+  // Narrative (field absent): a running "**Objective complete:** N — ..." log
+  // plus one free-text "**Status:**" summary line. That file still has a field
+  // literally named **Status:**, which the legacy replaces would destructively
+  // overwrite with a short templated value — wiping the narrative summary and
+  // moving status backward for an objective that was just completed. So the
+  // narrative branch is additive only (TOOL-02): it inserts one
+  // "**Objective complete:** N — <title> (completed <date>, S/J TRDs)" line
+  // directly after the LAST existing log line, and never touches **Status:**.
+  // It is idempotent (an existing "N —" line means nothing is written), and it
+  // writes nothing when there is no log line to anchor to — it never guesses a
+  // position such as end-of-file.
+  //
+  // state_updated reports whether STATE.md was actually written, never merely
+  // whether it exists; state_update_reason says why when it was not.
+  let stateUpdated = false;
+  let stateUpdateReason = null;
+  if (!fs.existsSync(statePath)) {
+    stateUpdateReason = 'state_missing';
+  } else {
+    const original = fs.readFileSync(statePath, 'utf-8');
+    let stateContent = original;
+    const isLegacyStateSchema = /\*\*Current Objective:\*\*/m.test(stateContent);
 
-    // Update Current Objective
-    stateContent = stateContent.replace(
-      /(\*\*Current Objective:\*\*\s*).*/,
-      `$1${nextObjectiveNum || objectiveNum}`
-    );
-
-    // Update Current Objective Name
-    if (nextObjectiveName) {
+    if (isLegacyStateSchema) {
+      // Update Current Objective
       stateContent = stateContent.replace(
-        /(\*\*Current Objective Name:\*\*\s*).*/,
-        `$1${nextObjectiveName.replace(/-/g, ' ')}`
+        /(\*\*Current Objective:\*\*\s*).*/,
+        `$1${nextObjectiveNum || objectiveNum}`
       );
+
+      // Update Current Objective Name
+      if (nextObjectiveName) {
+        stateContent = stateContent.replace(
+          /(\*\*Current Objective Name:\*\*\s*).*/,
+          `$1${nextObjectiveName.replace(/-/g, ' ')}`
+        );
+      }
+
+      // Update Status
+      stateContent = stateContent.replace(
+        /(\*\*Status:\*\*\s*).*/,
+        `$1${isLastObjective ? 'Milestone complete' : 'Ready to plan'}`
+      );
+
+      // Update Current Job
+      stateContent = stateContent.replace(
+        /(\*\*Current Job:\*\*\s*).*/,
+        `$1Not started`
+      );
+
+      // Update Last Activity
+      stateContent = stateContent.replace(
+        /(\*\*Last Activity:\*\*\s*).*/,
+        `$1${today}`
+      );
+
+      // Update Last Activity Description
+      stateContent = stateContent.replace(
+        /(\*\*Last Activity Description:\*\*\s*).*/,
+        `$1Objective ${objectiveNum} complete${nextObjectiveNum ? `, transitioned to Objective ${nextObjectiveNum}` : ''}`
+      );
+    } else {
+      const logNum = logObjectiveNumber(objectiveNum);
+      const alreadyLogged = new RegExp(
+        `^\\*\\*Objective complete:\\*\\*\\s*0*${escapeRegExp(logNum)}\\s*[—–-]`,
+        'm'
+      );
+      const logLines = [...original.matchAll(/^\*\*Objective complete:\*\*.*$/gm)];
+
+      if (alreadyLogged.test(original)) {
+        stateUpdateReason = 'already_logged';
+      } else if (!logLines.length) {
+        stateUpdateReason = 'no_log_anchor';
+      } else {
+        const title = objectiveTitle(roadmapPath, logNum, objectiveInfo.objective_name);
+        const eol = original.includes('\r\n') ? '\r\n' : '\n';
+        const last = logLines[logLines.length - 1];
+        const at = last.index + last[0].length;
+        stateContent =
+          original.slice(0, at) +
+          `${eol}**Objective complete:** ${logNum} — ${title} (completed ${today}, ${summaryCount}/${jobCount} TRDs)` +
+          original.slice(at);
+      }
     }
 
-    // Update Status
-    stateContent = stateContent.replace(
-      /(\*\*Status:\*\*\s*).*/,
-      `$1${isLastObjective ? 'Milestone complete' : 'Ready to plan'}`
-    );
-
-    // Update Current Job
-    stateContent = stateContent.replace(
-      /(\*\*Current Job:\*\*\s*).*/,
-      `$1Not started`
-    );
-
-    // Update Last Activity
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity:\*\*\s*).*/,
-      `$1${today}`
-    );
-
-    // Update Last Activity Description
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity Description:\*\*\s*).*/,
-      `$1Objective ${objectiveNum} complete${nextObjectiveNum ? `, transitioned to Objective ${nextObjectiveNum}` : ''}`
-    );
-
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    if (stateContent !== original) {
+      fs.writeFileSync(statePath, stateContent, 'utf-8');
+      stateUpdated = true;
+    } else if (!stateUpdateReason) {
+      stateUpdateReason = 'unchanged';
+    }
   }
 
   const result = {
@@ -855,10 +911,39 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     is_last_objective: isLastObjective,
     date: today,
     roadmap_updated: fs.existsSync(roadmapPath),
-    state_updated: fs.existsSync(statePath),
+    state_updated: stateUpdated,
+    state_update_reason: stateUpdateReason,
   };
 
   output(result, raw);
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// The objective number as written in the narrative log: leading zeros dropped
+// from the integer part ('07' → '7'), decimal part kept ('12.1' stays '12.1',
+// so an inserted objective is never mistaken for its parent).
+function logObjectiveNumber(objectiveNum) {
+  const m = String(objectiveNum).match(/^0*(\d+)((?:\.\d+)?)/);
+  return m ? `${m[1]}${m[2]}` : String(objectiveNum);
+}
+
+// Title for the narrative log line: the ROADMAP.md "### Objective N: <title>"
+// heading with any trailing ✅ stripped; otherwise the objective directory's
+// name with hyphens as spaces; otherwise "Objective N".
+function objectiveTitle(roadmapPath, logNum, objectiveName) {
+  if (fs.existsSync(roadmapPath)) {
+    const roadmap = fs.readFileSync(roadmapPath, 'utf-8');
+    const heading = roadmap.match(new RegExp(
+      `^#{2,4}\\s*Objective\\s+0*${escapeRegExp(logNum)}\\s*:[ \\t]*(.+?)(?:[ \\t]*\\u2705\\uFE0F?)*[ \\t]*$`,
+      'mu'
+    ));
+    if (heading && heading[1].trim()) return heading[1].trim();
+  }
+  if (objectiveName) return objectiveName.replace(/-/g, ' ');
+  return `Objective ${logNum}`;
 }
 
 module.exports = {

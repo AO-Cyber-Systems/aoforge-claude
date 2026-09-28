@@ -73,7 +73,7 @@ A one-off escape hatch is fine. A permanently exported one is a gate you removed
 When you need to bypass for a real reason, record it:
 
 ```bash
-df-tools override --gate gate-edits --reason "hand-fixing a generated file the executor cannot parse"
+df-tools override --gate edits --reason "hand-fixing a generated file the executor cannot parse"
 df-tools override --list --limit 20
 ```
 

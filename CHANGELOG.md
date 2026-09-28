@@ -6,6 +6,176 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-09-28
+
+### Added
+- **Stack profile (`.planning/STACK.md`).** `df-tools stack resolve|context|validate|command|init`
+  resolves a per-project stack profile over bundled `general` → `~/.claude/devflow/stacks/<id>.md`
+  → project → component tiers, with per-field provenance and per-agent slices. `stack init` drafts
+  one from CI, task-runner and manifest evidence and writes only with `--write`.
+- `validate health` Check 12: invalid profile (E030), unresolved `extends` (W030), undefined
+  loop/gate key (W031), profile warnings (W032), profile absent but detectable (I030). Never auto-repaired.
+- Detectors recognise Dart, Kotlin and Swift, and read installed org profiles' `detect` markers.
+- **Upgrade in place.** `df-tools upgrade [--check|--apply] [--only id] [--confirm] [--path dir]
+  [--kind k] [--default-work w] [--global]` brings a DevFlow project (or `~/.claude` with `--global`)
+  forward to the running version. It reports `{from, to, applied, pending, pending_confirm, skipped,
+  failed, changed_files, backup}`.
+- Migration registry `lib/migrations/` holds detection-based, idempotent migrations, each with an
+  `auto` or `confirm` safety level: 0001 config-stamp, 0002 job-to-trd, 0003 state-json-seed,
+  0004 objective-md-backfill, 0005 claude-md-block and 0006 kind-work (confirm). Backups are written
+  outside the repo, to `~/.claude/devflow/backups/<repo>-<hash>/<ts>/`.
+- A per-project stamp in `.planning/config.json`: `devflow{version, migrations_applied, upgraded_at}`.
+- SessionStart hook `upgrade-project.js`. It applies the auto migrations using the bundled df-tools,
+  then commits exactly the changed files in a detached background process. The commit is skipped
+  during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits, or if
+  signing fails; signing is never bypassed. Escape: `DEVFLOW_SKIP_UPGRADE=1`.
+- One-shot notices (`.planning/.devflow-notices.json`), emitted once through `route-results.js`.
+- Managed, versioned CLAUDE.md blocks (`<!-- DEVFLOW:START v=<ver> src=<template> -->` …
+  `<!-- DEVFLOW:END -->`) via `lib/managed-block.cjs`. Bytes outside the block are preserved
+  exactly, and legacy unversioned markers count as stale.
+- Global upgrade (`lib/global-upgrade.cjs`, run by `sync-runtime.js` after a successful mirror).
+  Legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` are moved
+  to a backup, never deleted. The `~/.claude/CLAUDE.md` DevFlow block is managed; the first adoption
+  over a hand-written section is notice-only until `df-tools upgrade --global --confirm`.
+- `validate health` W040: the project is behind the running DevFlow version.
+- **`/devflow:adopt [path]`.** Unattended adoption of an existing repo: maps the code, infers
+  `PROJECT.md`/`STACK.md`, scaffolds config/STATE/`state.json`/ROADMAP with no invented objectives,
+  adds the CLAUDE.md managed block, stamps the version, and lands everything as one signed commit
+  on `devflow/adopt` -- never pushed. `.planning/ADOPT-REPORT.md` lists every low-confidence
+  inference for review. Routes already-DevFlow repos to `upgrade` and empty repos to
+  `/devflow:new-project`; refuses a dirty, mid-rebase/merge, detached-HEAD or non-git target
+  without touching it. Resumable -- a half-finished adopt continues rather than duplicating.
+  `df-tools adopt preflight|begin|scaffold|report`. A global `df-tools --cwd <dir>` flag lets any
+  command target a path other than the caller's cwd. `lib/repo-state.cjs` is the one
+  devflow/greenfield/brownfield/scratch detector shared by adopt, `new-project` and
+  `map-codebase`. `map-codebase` gained a `--non-interactive` mode.
+- **Backup pruning.** Runs from the `upgrade-project.js` SessionStart hook, throttled to once per
+  24 hours, keeping backups younger than 14 days and always the newest 5 per repo; configurable via
+  `backups.retain_days` / `backups.keep_min` in `~/.claude/devflow/global-config.json`. Run or
+  preview by hand with `df-tools upgrade --prune [--dry-run]`; register a repo without a full
+  upgrade with `upgrade --register`. Skip with `DEVFLOW_SKIP_PRUNE=1`.
+- **Documentation stays truthful as commands change.** `DEPRECATION_MAP` plus a new
+  `REMOVED_COMMANDS` list in `lib/skill-route.cjs` are the only rename source; `lib/doc-refs.cjs`
+  resolves `/df:`/`/devflow:` tokens to ok | prefix | renamed | removed | unknown and rewrites
+  them. `doc-refs.repo.test.cjs` fails `npm test` on any stale or unknown command reference in
+  DevFlow's own live text (agents, skills, workflows, references, templates, README, CLAUDE.md,
+  USER-GUIDE, site content), with a justified exemption list.
+- Migration `0007-doc-refs-fix` (auto) rewrites renamed/`/df:` references inside a project's
+  CLAUDE.md DEVFLOW block and STATE.md (outside `## Session Log`) at session start, leaving
+  historical records and removed commands untouched.
+- `validate health` Check 14 and the new `df-tools validate docs [--raw]` report doc-staleness
+  advisories: W050 (removed-command reference), W051 (STACK.md review age), W052
+  (declared-vs-detected language drift), W053 (codebase maps N commits behind), W054 (the check
+  itself failed) — all advisory-only, never repaired.
+- `df-tools telemetry [--raw]` is now a real CLI command (previously advertised in CLAUDE.md but
+  unimplemented); it merges the same doc-staleness advisories. `/devflow:status`'s report step
+  shows them in a `## Documentation` section.
+- `df-tools context [--limit N] [--root <dir>] [--raw]` is now a real CLI command (previously
+  printed `Unknown command`); implemented in `lib/context-audit.cjs`, scanning `~/.claude/projects`
+  by default with `--limit 150` the typical audit window.
+- `df-tools session-audit [--since YYYY-MM-DD] [--limit N] [--root <dir>] [--raw]` is now a real
+  CLI command (previously printed `Unknown command`); implemented in `lib/session-audit.cjs`,
+  classifying blocking events from the same `~/.claude/projects` transcripts.
+- `df-tools transcript-export [--out <file>] [--full <dir>] [--limit N] [--root <dir>] [--raw]` is
+  now a real CLI command (previously printed `Unknown command`); implemented in
+  `lib/transcript-export.cjs`, appending to the index at `~/.claude/devflow/transcript-index.jsonl`
+  before retention deletes transcripts.
+- `df-tools override --gate <g> --reason <why> | --list [--limit N]` is now a real CLI command
+  (previously printed `Unknown command`); implemented in `lib/override.cjs`, a structured, logged
+  replacement for prose gate overrides.
+- The dispatch-completeness test (`lib/dispatch-completeness.test.cjs`) checks CLAUDE.md's command
+  prose against the actual dispatcher; the hook-inventory pin test (`lib/hook-inventory.test.cjs`)
+  checks CLAUDE.md's hook bullets against `hooks.json` registration.
+- CI guards `lib/rg-flag-guard.test.cjs` (fails on any rg invocation with `E` in a short-flag
+  cluster across live plugin prose) and `lib/gitignore-markers.test.cjs` (every file-backed
+  `override.cjs` gate marker must have a `.planning/<name>` line in `.gitignore`).
+
+### Changed
+- `project-state.cjs`, `detect brownfield-map` and `init new-project` now delegate to
+  `repo-state.cjs` (`init new-project` counts source files at any depth, not only 3 levels).
+- The SessionStart init-offer for brownfield repos now points at `/devflow:adopt`; `route-intent`
+  routes "adopt this repo", "set up devflow here" and "bootstrap this repo" (also outside existing
+  DevFlow projects); the global routing template (v2) lists `/devflow:adopt`. `/devflow:new-project`
+  offers `/devflow:adopt` for existing code and registers the repo for pruning.
+- Planner `<validation_gates>` come from `stack command`; the executor runs the profile `loop` and
+  `gates.task`, refuses hand edits to generated files, and lists discovered commands in SUMMARY.
+- `testing-strategy.md` no longer guesses a stack from `kind`; its stack cells moved to example
+  profiles and the Rails column is gone. Web/TS tables are labelled as examples.
+- `lib/json-schema-lite.cjs` is the shared schema walker (extracted from ui-spec-validate).
+- `/devflow:status check --migrate` (the `health --migrate` workflow) runs `df-tools upgrade`.
+- `validate health --repair` runs migrations 0001-0003 for its config, JOB and `state.json`
+  repairs. The config repair now writes the nested template shape, not the stale flat keys.
+- `templates/claude-md.md` says "Objectives" and uses `~/.claude/devflow` paths.
+- Migration backups are written outside the repo (`~/.claude/devflow/backups/`), not to
+  `.planning/.migrate-backup-*`.
+- The JOB→TRD migration no longer forces STATE.md `Status: Resumed`.
+- The missing-`kind` intent warning points at `/devflow:status check --migrate`
+  (`df-tools upgrade --apply --only 0006 --kind <kind>`).
+
+### Fixed
+- Verifier Step 8 read a stack field from `project.md` that never existed, so every non-web,
+  non-Flutter project was SKIPPED. It now selects by `verification.runtime`, runs `gates.objective`,
+  and states its reason when it skips.
+- `health --migrate` advertised a migration it never ran; it now runs the upgrade.
+- Changes made by the `init` bootstrap (created `OBJECTIVE.md` files) were silent. The
+  plan-objective and execute-objective workflows now report them in one line.
+- `backfillAllObjectives` was dead code. It now backs migration 0004.
+- W002 (`validate health`) now matches current STATE.md wording instead of a dead
+  `[Pp]hase\s+N` regex, and is no longer repairable (it can never trigger `regenerateState`).
+- Stale `/df:` and retired command names removed from the health fix text, the `misc.cjs`
+  CONTEXT scaffold, the `workstreams.cjs` worktree STATE.md generator, the statusline's dead
+  `/df:update` segment (no writer ever produced its cache file), and the init todo-lane
+  preview (now `/devflow:todo list`).
+- README, USER-GUIDE, workflows and agents name only live commands — the 13 retired
+  single-purpose names (progress, health, resume-work, pause-work, add/insert/remove-objective,
+  new/audit/complete-milestone, plan-milestone-gaps, add-todo, check-todos) are gone, and
+  `/devflow:update` / `/devflow:reapply-patches` are deleted with no successor.
+- CLAUDE.md's hook inventory now marks `inject-org-context.js` / `inject-handoff-results.js` as
+  draft/unregistered instead of listing them among live hooks; site doc examples use the real gate
+  name `--gate edits`, not `--gate gate-edits`.
+- `df-tools init milestone-op` (and the other init compounds) report the in-progress milestone
+  from the `## Milestones` list (the in-progress entry, then the highest shipped, then the lowest
+  planned) instead of the first version string in ROADMAP.md, which named v1.1 "candidates" on
+  this repo.
+- `df-tools objective complete` appends one idempotent `**Objective complete:**` line on narrative
+  STATE.md files, and `state_updated` now reports an actual write, with a `state_update_reason`
+  (`already_logged`, `no_log_anchor`, `state_missing`, `unchanged`) when nothing was written.
+  `objective remove --confirm` likewise reports `state_updated` from an actual write.
+- TRD and verification references state that ripgrep `-E` is `--encoding`, not extended regex,
+  and name `rg -n -e PATTERN` / `rg -nP PATTERN` as the forms to use in `<verify>`/`<done>` checks.
+- `remove-objective.md` takes integer objective numbers and no longer advertises decimal numbers
+  as a live scheme; legacy pre-v1.2 decimal directories are still accepted for removal.
+- `df-tools intent resolve --objective <N>` resolves bare and zero-padded numbers to slugged
+  objective directories (`40` → `40-tooling-correctness`) instead of silently inheriting
+  PROJECT.md `default_work`, and warns `OBJECTIVE.md not found` (or names every candidate when a
+  number is ambiguous).
+- `df-tools roadmap update-job-progress <N>` ticks objective N's nested `- [ ] NN-MM-TRD.md`
+  checkboxes (scoped to N, no Status rollups) and reports `trd_checkboxes_ticked`.
+- `df-tools state record-session` updates the plain-text `Last session:` / `Stopped at:` /
+  `Resume file:` lines inside `## Session Continuity` on narrative STATE.md files (previously
+  always `recorded: false`).
+- `.planning/.edit-override` is gitignored.
+- `planner` and `ui-evaluator` lost their 28-03 `effort` declarations (`xhigh` / `high`) in the
+  PR #68 merge; both are restored. The agent, workflow and skill prompts that still named the
+  obsolete `df-ui-evaluator` profile key now use the canonical `ui-evaluator`.
+  `model-profiles.test.cjs` now pins the `references/model-profiles.md` effort column to agent
+  frontmatter and fails on any backticked `df-<agent>` profile key in agents, skills or workflows.
+- The planner's novel-domain auto-research told a subagent to spawn `objective-researcher`, which a
+  subagent cannot do, so the path never ran. The planner now returns `## RESEARCH NEEDED` with the
+  `detect novel-domain` signals, and plan-objective (step 10) and `/devflow:build` run the researcher
+  and re-spawn the planner once. `agent-tools.test.cjs` now catches `Task(` / `Agent(` /
+  `subagent_type=` spawn instructions in agents whose `tools:` cannot spawn.
+- `sync-runtime` no longer downgrades `~/.claude/devflow`. A session started from an older plugin
+  cache re-mirrored over a newer mirror, so the mirror flip-flopped. It was found at 2.7.1 with
+  2.10.1 installed. The hook now mirrors only when the mirror's version is missing or unparseable,
+  when the plugin is strictly newer (numeric semver, prerelease-aware), or when versions match but
+  `bin/df-tools.cjs` is missing. An unparseable plugin version never overwrites a parseable mirror.
+- Two CodeQL alerts new in PR #114: `mergeFrontmatter` (`stack-profile.cjs`) now refuses
+  `__proto__`/`constructor`/`prototype` keys before any read or assignment
+  (js/prototype-pollution-utility), and `roadmap-progress.cjs`'s row/header matchers now fully
+  escape the objective number via a local `escapeRegExp` instead of hand-escaping only the first
+  `.` (js/regex-injection).
+
 ## [2.10.1] - 2026-09-26
 
 ### Fixed

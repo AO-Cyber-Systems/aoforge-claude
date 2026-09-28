@@ -7,7 +7,7 @@ const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, M
 const { loadConfig } = require('./config.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { getMilestoneInfo, getRoadmapObjectiveInternal } = require('./roadmap.cjs');
-const { bootstrapProjectMd, bootstrapObjectiveMd, backfillAllObjectives } = require('./project-bootstrap.cjs');
+const { bootstrapProjectMd, bootstrapObjectiveMd } = require('./project-bootstrap.cjs');
 
 // ─── Git plumbing (TRD 22-01) ─────────────────────────────────────────────────
 //
@@ -188,13 +188,13 @@ function _awarenessLoadable() {
  * Read .planning/.check-todos-cache.json (cache-only; never spawn fresh fetch).
  *
  * Returns:
- *   { line: '📋 N todos in Now lane (run /devflow:check-todos)', warning: null }
+ *   { line: '📋 N todos in Now lane (run /devflow:todo list)', warning: null }
  *   when cache exists and the `now` lane has ≥1 entry.
  *   { line: null, warning: null } when cache absent or `now` empty/not-an-array.
  *   { line: null, warning: '<msg>' } on read/parse error.
  *
  * The cache `now` top-level array is written by the post-aggregate check-todos
- * pipeline. If the user has not yet run /devflow:check-todos the field will be
+ * pipeline. If the user has not yet run /devflow:todo list the field will be
  * absent; the helper degrades gracefully to null (no preview line emitted).
  *
  * @param {string} cwd - working directory
@@ -212,7 +212,7 @@ function _buildCheckTodosPreview(cwd) {
   const nowEntries = Array.isArray(parsed.now) ? parsed.now : null;
   if (!nowEntries || nowEntries.length === 0) return { line: null, warning: null };
   return {
-    line: `📋 ${nowEntries.length} todos in Now lane (run /devflow:check-todos)`,
+    line: `📋 ${nowEntries.length} todos in Now lane (run /devflow:todo list)`,
     warning: null,
   };
 }
@@ -445,6 +445,9 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
     applied: _bootstrapR.applied ? 1 : 0,
     skipped: _bootstrapR.applied ? 0 : 1,
     errors: [],
+    paths: _bootstrapR.applied
+      ? [path.relative(cwd, _bootstrapR.path).split(path.sep).join('/')]
+      : [],
   };
 
   output(result, raw);
@@ -579,6 +582,9 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
     applied: _bootstrapR.applied ? 1 : 0,
     skipped: _bootstrapR.applied ? 0 : 1,
     errors: [],
+    paths: _bootstrapR.applied
+      ? [path.relative(cwd, _bootstrapR.path).split(path.sep).join('/')]
+      : [],
   };
 
   output(result, raw);
@@ -595,23 +601,15 @@ function cmdInitNewProject(cwd, raw, args = []) {
   const braveKeyFile = path.join(homedir, '.devflow', 'brave_api_key');
   const hasBraveSearch = !!(process.env.BRAVE_API_KEY || fs.existsSync(braveKeyFile));
 
-  // Detect existing code
-  let hasCode = false;
-  let hasPackageFile = false;
-  try {
-    const files = execSync('find . -maxdepth 3 \\( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.swift" -o -name "*.java" \\) 2>/dev/null | grep -v node_modules | grep -v .git | head -5', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    hasCode = files.trim().length > 0;
-  } catch {}
+  // 37-04 (ADP-01): one detector call replaces the `find -maxdepth 3` shell-out, the org-marker
+  // lookup and the manifest list — repo-state.cjs's `detectRepoState` performs all three (and,
+  // unlike `-maxdepth 3`, has no depth limit: a code file nested arbitrarily deep now counts).
+  const { detectRepoState } = require('./repo-state.cjs');
+  const { state: repoStateName, signals: repoSignals } = detectRepoState(cwd, { userHome: homedir });
 
-  hasPackageFile = pathExistsInternal(cwd, 'package.json') ||
-                   pathExistsInternal(cwd, 'requirements.txt') ||
-                   pathExistsInternal(cwd, 'Cargo.toml') ||
-                   pathExistsInternal(cwd, 'go.mod') ||
-                   pathExistsInternal(cwd, 'Package.swift');
+  const hasCode = repoSignals.code_files > 0;
+  const hasPackageFile = repoSignals.has_manifest;
+  const isBrownfield = repoSignals.code_files > 0 || repoSignals.has_manifest;
 
   const result = {
     // Models
@@ -630,14 +628,17 @@ function cmdInitNewProject(cwd, raw, args = []) {
     // Brownfield detection
     has_existing_code: hasCode,
     has_package_file: hasPackageFile,
-    is_brownfield: hasCode || hasPackageFile,
-    needs_codebase_map: (hasCode || hasPackageFile) && !pathExistsInternal(cwd, '.planning/codebase'),
+    is_brownfield: isBrownfield,
+    needs_codebase_map: isBrownfield && !repoSignals.has_codebase_map,
 
     // Git state
     has_git: pathExistsInternal(cwd, '.git'),
 
     // Enhanced search
     brave_search_available: hasBraveSearch,
+
+    // 37-04: additive — repo-state.cjs's full classification, for downstream consumers (37-10)
+    repo_state: { state: repoStateName, signals: repoSignals },
   };
 
   output(result, raw);
@@ -1025,6 +1026,19 @@ function cmdInitSecurityAudit(cwd, raw, args = []) {
   if (pathExistsInternal(cwd, 'Cargo.toml')) stack.push('rust');
   if (pathExistsInternal(cwd, 'pom.xml') || pathExistsInternal(cwd, 'build.gradle')) stack.push('java');
   if (pathExistsInternal(cwd, 'Gemfile')) stack.push('ruby');
+  if (pathExistsInternal(cwd, 'pubspec.yaml')) stack.push('dart');
+  if (pathExistsInternal(cwd, 'build.gradle.kts')) stack.push('kotlin');
+  if (pathExistsInternal(cwd, 'Package.swift')) stack.push('swift');
+
+  // 35-09: each matching installed org profile's own `languages`, deduped against the stack
+  // built above (and across markers that share a profile).
+  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
+  const orgMarkersHere = matchMarkersAt(cwd, detectMarkers({ userHome: require('os').homedir() }));
+  for (const m of orgMarkersHere) {
+    for (const lang of m.languages) {
+      if (!stack.includes(lang)) stack.push(lang);
+    }
+  }
 
   const result = {
     auditor_model: auditorModel,
