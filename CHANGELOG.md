@@ -163,6 +163,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `detect novel-domain` signals, and plan-objective (step 10) and `/devflow:build` run the researcher
   and re-spawn the planner once. `agent-tools.test.cjs` now catches `Task(` / `Agent(` /
   `subagent_type=` spawn instructions in agents whose `tools:` cannot spawn.
+- `sync-runtime` no longer downgrades `~/.claude/devflow`. A session started from an older plugin
+  cache re-mirrored over a newer mirror, so the mirror flip-flopped. It was found at 2.7.1 with
+  2.10.1 installed. The hook now mirrors only when the mirror's version is missing or unparseable,
+  when the plugin is strictly newer (numeric semver, prerelease-aware), or when versions match but
+  `bin/df-tools.cjs` is missing. An unparseable plugin version never overwrites a parseable mirror.
 
 ## [2.10.1] - 2026-09-26
 
