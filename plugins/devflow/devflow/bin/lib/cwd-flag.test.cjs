@@ -39,8 +39,156 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync, execFileSync } = require('child_process');
 
 const { extractCwdFlag } = require('./cwd-flag.cjs');
+const { makeFixture, makeFakeHome, gitEnv } = require('./__fixtures__/adopt-fixtures.cjs');
+
+const TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
+
+// ─── Helpers (spawned tests) ──────────────────────────────────────────────────
+
+function run(argv, cwd, envOverrides) {
+  const r = spawnSync(process.execPath, [TOOLS_PATH, ...argv], {
+    cwd,
+    encoding: 'utf-8',
+    timeout: 30000,
+    env: { ...process.env, ...(envOverrides || {}) },
+  });
+  return {
+    status: r.status,
+    stdout: r.stdout || '',
+    stderr: r.stderr || '',
+    out: (r.stdout || '') + (r.stderr || ''),
+  };
+}
+
+// A minimal DevFlow project — enough for find-objective/state/commit to see a
+// real, distinguishable target. Deliberately NOT a git repo (git only matters
+// for test 8, which uses adopt-fixtures' makeFixture('devflow', ...) instead).
+function makeProject(dir) {
+  fs.mkdirSync(path.join(dir, '.planning', 'objectives', '01-alpha'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.planning', 'objectives', '01-alpha', 'OBJECTIVE.md'), '# alpha\n', 'utf-8');
+  fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '# State\n\n**Status:** active\n', 'utf-8');
+  fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
+  fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{}\n', 'utf-8');
+  return dir;
+}
+
+let spawnedTmpRoots = [];
+function mkdtemp(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  spawnedTmpRoots.push(dir);
+  return dir;
+}
+
+let fakeHome;
+
+// ─── Spawned df-tools — end-to-end (tests 1-9) ────────────────────────────────
+
+describe('df-tools --cwd — end to end (spawned)', () => {
+  beforeEach(() => {
+    spawnedTmpRoots = [];
+    fakeHome = makeFakeHome();
+  });
+
+  afterEach(() => {
+    for (const dir of spawnedTmpRoots) fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(fakeHome, { recursive: true, force: true });
+  });
+
+  test('1. --cwd <proj> find-objective 1 --raw finds the project dir, not the spawn cwd', () => {
+    const proj = makeProject(mkdtemp('df-cwd-proj-'));
+    const spawnCwd = mkdtemp('df-cwd-spawn-');
+    const r = run(['--cwd', proj, 'find-objective', '1', '--raw'], spawnCwd, { HOME: fakeHome });
+    assert.strictEqual(r.status, 0, r.out);
+    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+  });
+
+  test('2. --cwd <proj> state load --raw reads the project STATE.md, not the spawn cwd\'s', () => {
+    const proj = makeProject(mkdtemp('df-cwd-proj-'));
+    const spawnCwd = mkdtemp('df-cwd-spawn-'); // no .planning/ at all
+    const r = run(['--cwd', proj, 'state', 'load', '--raw'], spawnCwd, { HOME: fakeHome });
+    assert.strictEqual(r.status, 0, r.out);
+    assert.match(r.stdout, /state_exists=true/);
+    assert.match(r.stdout, /roadmap_exists=true/);
+    assert.match(r.stdout, /config_exists=true/);
+
+    // Sanity: the spawn cwd on its own reports the opposite.
+    const control = run(['state', 'load', '--raw'], spawnCwd, { HOME: fakeHome });
+    assert.match(control.stdout, /state_exists=false/);
+  });
+
+  test('3. find-objective 1 --raw --cwd <proj> (trailing) — same as 1', () => {
+    const proj = makeProject(mkdtemp('df-cwd-proj-'));
+    const spawnCwd = mkdtemp('df-cwd-spawn-');
+    const r = run(['find-objective', '1', '--raw', '--cwd', proj], spawnCwd, { HOME: fakeHome });
+    assert.strictEqual(r.status, 0, r.out);
+    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+  });
+
+  test('4. --cwd=<proj> find-objective 1 --raw — same as 1', () => {
+    const proj = makeProject(mkdtemp('df-cwd-proj-'));
+    const spawnCwd = mkdtemp('df-cwd-spawn-');
+    const r = run([`--cwd=${proj}`, 'find-objective', '1', '--raw'], spawnCwd, { HOME: fakeHome });
+    assert.strictEqual(r.status, 0, r.out);
+    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+  });
+
+  test('5. relative --cwd resolves against the spawn (original) cwd', () => {
+    const parent = mkdtemp('df-cwd-parent-');
+    makeProject(path.join(parent, 'proj'));
+    const r = run(['--cwd', 'proj', 'find-objective', '1', '--raw'], parent, { HOME: fakeHome });
+    assert.strictEqual(r.status, 0, r.out);
+    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+  });
+
+  test('6. --cwd as the last token errors before running anything', () => {
+    const spawnCwd = mkdtemp('df-cwd-spawn-');
+    const r = run(['--cwd'], spawnCwd, { HOME: fakeHome });
+    assert.strictEqual(r.status, 1, r.out);
+    assert.match(r.stderr, /--cwd requires a directory/);
+  });
+
+  test('7. --cwd rejects a missing path and a non-directory path', () => {
+    const spawnCwd = mkdtemp('df-cwd-spawn-');
+
+    const missing = path.join(spawnCwd, 'does-not-exist');
+    let r = run(['--cwd', missing, 'find-objective', '1'], spawnCwd, { HOME: fakeHome });
+    assert.strictEqual(r.status, 1, r.out);
+    assert.match(r.stderr, /not a directory/);
+
+    const filePath = path.join(spawnCwd, 'a-file.txt');
+    fs.writeFileSync(filePath, 'x', 'utf-8');
+    r = run(['--cwd', filePath, 'find-objective', '1'], spawnCwd, { HOME: fakeHome });
+    assert.strictEqual(r.status, 1, r.out);
+    assert.match(r.stderr, /not a directory/);
+  });
+
+  test('8. --cwd <fixture> commit --help prints help and writes nothing', () => {
+    const parent = mkdtemp('df-cwd-fixture-parent-');
+    const proj = makeFixture('devflow', { parent, home: fakeHome });
+    const before = execFileSync('git', ['-C', proj, 'log', '--oneline'], {
+      env: gitEnv(fakeHome), encoding: 'utf-8',
+    });
+
+    const r = run(['--cwd', proj, 'commit', '--help'], mkdtemp('df-cwd-spawn-'), { HOME: fakeHome });
+    assert.strictEqual(r.status, 0, r.out);
+    assert.match(r.stdout, /^Usage: df-tools commit /m);
+
+    const after = execFileSync('git', ['-C', proj, 'log', '--oneline'], {
+      env: gitEnv(fakeHome), encoding: 'utf-8',
+    });
+    assert.strictEqual(after, before, 'commit --help must never write a commit');
+  });
+
+  test('9. --cwd <proj> with no command still exits 1 with the top-level usage', () => {
+    const proj = makeProject(mkdtemp('df-cwd-proj-'));
+    const r = run(['--cwd', proj], mkdtemp('df-cwd-spawn-'), { HOME: fakeHome });
+    assert.strictEqual(r.status, 1, r.out);
+    assert.match(r.out, /Usage: df-tools \[--cwd <dir>\] <command>/);
+  });
+});
 
 // ─── Pure extractCwdFlag(args, {originalCwd}) (tests 10-17) ──────────────────
 
