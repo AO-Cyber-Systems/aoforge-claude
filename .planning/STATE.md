@@ -229,6 +229,6 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone)
 
 ## Session Continuity
 
-Last session: 2026-09-28T16:17:42.605Z
+Last session: 2026-09-28T17:12:45.567Z
 Resume file: `.planning/SESSION_PICKUP.md`
-Stopped at: Completed 40-06-TRD.md; objective 40 6/6 TRDs, awaiting verification
+Stopped at: Completed 41-06-TRD.md; objective 41 8/8 TRDs, awaiting objective-level verification
