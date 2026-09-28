@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, stripPlanSuffix } = require('./helpers.cjs');
+const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -723,26 +724,21 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     );
     roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
 
-    // Progress table: update Status to Complete, add date
+    // Progress table: update Status to Complete, set Completed date — column-name-
+    // aware so the Milestone column (when present) is never disturbed.
     const objectiveEscaped = objectiveNum.replace('.', '\\.');
-    const tablePattern = new RegExp(
-      `(\\|\\s*${objectiveEscaped}\\.?\\s[^|]*\\|[^|]*\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-      'i'
-    );
-    roadmapContent = roadmapContent.replace(
-      tablePattern,
-      `$1 Complete    $2 ${today} $3`
-    );
+    ({ content: roadmapContent } = updateProgressTableRow(roadmapContent, objectiveNum, {
+      status: 'Complete',
+      completed: today,
+    }));
 
-    // Update job count in objective section
-    const jobCountPattern = new RegExp(
-      `(#{2,4}\\s*Objective\\s+${objectiveEscaped}[\\s\\S]*?\\*\\*Jobs:\\*\\*\\s*)[^\\n]+`,
-      'i'
-    );
-    roadmapContent = roadmapContent.replace(
-      jobCountPattern,
-      `$1${summaryCount}/${jobCount} jobs complete`
-    );
+    // Update job count in objective section — refreshes only the machine-owned
+    // "N/M jobs complete" prefix, preserving any hand-authored detail after it.
+    ({ content: roadmapContent } = updateJobsLine(
+      roadmapContent,
+      objectiveNum,
+      `${summaryCount}/${jobCount} jobs complete`
+    ));
 
     fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
 
@@ -801,49 +797,62 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     }
   } catch {}
 
-  // Update STATE.md
+  // Update STATE.md — but only for projects still on the legacy template
+  // schema (Current Objective / Current Job / Last Activity fields). Projects
+  // that migrated to the narrative convention (a running "**Objective
+  // complete:** N — ..." log plus one free-text "**Status:**" summary line,
+  // with no **Current Objective:** field at all) still have a field literally
+  // named **Status:**, which would otherwise match and get destructively
+  // overwritten with a short templated value — wiping the narrative summary
+  // and moving status backward for an objective that was just completed.
+  // **Current Objective:** is the legacy template's anchor field (still
+  // documented in workflows/transition.md); its absence means this project
+  // dropped that schema, so we leave STATE.md alone rather than guess.
   if (fs.existsSync(statePath)) {
     let stateContent = fs.readFileSync(statePath, 'utf-8');
+    const isLegacyStateSchema = /\*\*Current Objective:\*\*/m.test(stateContent);
 
-    // Update Current Objective
-    stateContent = stateContent.replace(
-      /(\*\*Current Objective:\*\*\s*).*/,
-      `$1${nextObjectiveNum || objectiveNum}`
-    );
-
-    // Update Current Objective Name
-    if (nextObjectiveName) {
+    if (isLegacyStateSchema) {
+      // Update Current Objective
       stateContent = stateContent.replace(
-        /(\*\*Current Objective Name:\*\*\s*).*/,
-        `$1${nextObjectiveName.replace(/-/g, ' ')}`
+        /(\*\*Current Objective:\*\*\s*).*/,
+        `$1${nextObjectiveNum || objectiveNum}`
       );
+
+      // Update Current Objective Name
+      if (nextObjectiveName) {
+        stateContent = stateContent.replace(
+          /(\*\*Current Objective Name:\*\*\s*).*/,
+          `$1${nextObjectiveName.replace(/-/g, ' ')}`
+        );
+      }
+
+      // Update Status
+      stateContent = stateContent.replace(
+        /(\*\*Status:\*\*\s*).*/,
+        `$1${isLastObjective ? 'Milestone complete' : 'Ready to plan'}`
+      );
+
+      // Update Current Job
+      stateContent = stateContent.replace(
+        /(\*\*Current Job:\*\*\s*).*/,
+        `$1Not started`
+      );
+
+      // Update Last Activity
+      stateContent = stateContent.replace(
+        /(\*\*Last Activity:\*\*\s*).*/,
+        `$1${today}`
+      );
+
+      // Update Last Activity Description
+      stateContent = stateContent.replace(
+        /(\*\*Last Activity Description:\*\*\s*).*/,
+        `$1Objective ${objectiveNum} complete${nextObjectiveNum ? `, transitioned to Objective ${nextObjectiveNum}` : ''}`
+      );
+
+      fs.writeFileSync(statePath, stateContent, 'utf-8');
     }
-
-    // Update Status
-    stateContent = stateContent.replace(
-      /(\*\*Status:\*\*\s*).*/,
-      `$1${isLastObjective ? 'Milestone complete' : 'Ready to plan'}`
-    );
-
-    // Update Current Job
-    stateContent = stateContent.replace(
-      /(\*\*Current Job:\*\*\s*).*/,
-      `$1Not started`
-    );
-
-    // Update Last Activity
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity:\*\*\s*).*/,
-      `$1${today}`
-    );
-
-    // Update Last Activity Description
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity Description:\*\*\s*).*/,
-      `$1Objective ${objectiveNum} complete${nextObjectiveNum ? `, transitioned to Objective ${nextObjectiveNum}` : ''}`
-    );
-
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
   }
 
   const result = {

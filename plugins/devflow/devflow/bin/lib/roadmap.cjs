@@ -5,6 +5,7 @@ const path = require('path');
 const { output, error, normalizeObjectiveName, findPlanFiles, generateSlugInternal } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -301,26 +302,19 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
   const objectiveEscaped = objectiveNum.replace('.', '\\.');
 
-  // Progress table row: update Plans column (summaries/plans) and Status column
-  const tablePattern = new RegExp(
-    `(\\|\\s*${objectiveEscaped}\\.?\\s[^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-    'i'
-  );
-  const dateField = isComplete ? ` ${today} ` : '  ';
-  roadmapContent = roadmapContent.replace(
-    tablePattern,
-    `$1 ${summaryCount}/${jobCount} $2 ${status.padEnd(11)}$3${dateField}$4`
-  );
+  // Progress table row: update Plans + Status (and Completed, when complete) —
+  // column-name-aware so the Milestone column (when present) is never disturbed.
+  const tableUpdates = { plans: `${summaryCount}/${jobCount}`, status };
+  if (isComplete) tableUpdates.completed = today;
+  ({ content: roadmapContent } = updateProgressTableRow(roadmapContent, objectiveNum, tableUpdates));
 
-  // Update job count in objective detail section
-  const jobCountPattern = new RegExp(
-    `(#{2,4}\\s*Objective\\s+${objectiveEscaped}[\\s\\S]*?\\*\\*Jobs:\\*\\*\\s*)[^\\n]+`,
-    'i'
-  );
+  // Update job count in objective detail section — refreshes only the
+  // machine-owned "N/M jobs complete/executed" prefix, preserving any
+  // hand-authored detail that follows it.
   const jobCountText = isComplete
     ? `${summaryCount}/${jobCount} jobs complete`
     : `${summaryCount}/${jobCount} jobs executed`;
-  roadmapContent = roadmapContent.replace(jobCountPattern, `$1${jobCountText}`);
+  ({ content: roadmapContent } = updateJobsLine(roadmapContent, objectiveNum, jobCountText));
 
   // If complete: check checkbox
   if (isComplete) {
