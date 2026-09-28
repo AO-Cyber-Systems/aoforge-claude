@@ -843,16 +843,6 @@ async function main() {
       break;
     }
 
-    case 'override': {
-      // df-tools override --gate <g> --reason <why> | --list [--limit N] — TRD 30-04 module, wired in TRD 39-02
-      const { output: outputAudit } = require('./lib/helpers.cjs');
-      const { runOverride } = require('./lib/audit-cli.cjs');
-      const r = runOverride({ argv: args.slice(1), cwd });
-      if (!r.ok) error(r.message);
-      outputAudit(r.result, raw, r.text);
-      break;
-    }
-
     case 'progress': {
       const subcommand = args[1] || 'json';
       cmdProgressRender(cwd, subcommand, raw);

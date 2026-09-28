@@ -191,11 +191,6 @@ const COMMANDS = {
     summary: 'Append a compact per-session index of transcripts (default ~/.claude/devflow/transcript-index.jsonl); incremental.',
     mutates: true,
   },
-  'override': {
-    usage: 'df-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]',
-    summary: 'Record a structured, logged gate override in .planning/.override-log.jsonl, or list recent overrides.',
-    mutates: true,
-  },
   'progress': {
     usage: 'df-tools progress [json|table|bar] [--raw]',
     summary: 'Render roadmap progress.',
