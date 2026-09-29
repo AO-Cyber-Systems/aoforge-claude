@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidate: Objective 26 (moved from v1.3 2026-09-28; kill candidate)
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress)
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -74,6 +74,21 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 
 ### 📋 v1.4 candidates
 
+### Objective 42: Codebase-aware stack drafter
+
+**Goal:** `stack init` / `/devflow:adopt` draft a correct, verified `.planning/STACK.md` grounded in the codebase, wired to language skills + MCP, with a CI/CD + local-testing recommendations report; then roll out to every canonical DevFlow repo in `~/dev`.
+**Requirements:** SDR-01, SDR-02, SDR-03, SDR-04, SDR-05, SDR-06, SDR-07, SDR-08
+**Success Criteria**:
+1. Re-running `stack init` on fixtures shaped like every observed failure yields correct keys, no fragments/comments/echo lines, and `discover` for unverifiable commands
+2. Go/Dart/Flutter repos draft `extends: go|dart|flutter` with the fixed tier-2 profiles installed, and monorepo areas as `components`
+3. Drafts carry `agent_tooling.mcp` + `skills` for detected stacks; the adopt/map-codebase agent path confirms configuration via gopls/dart MCP when available
+4. `.planning/STACK-REPORT.md` lists CI/CD + local-testing recommendations per stack, never auto-applied
+5. `stack validate` warns on `<sha>` pins, rejects positional paths; `reviewed` is the local date
+6. Every canonical DevFlow repo in `~/dev` has a committed, validated STACK.md (unpushed) or is listed as blocked with a reason
+**Plans:** TBD
+
+### Other v1.4 candidates
+
 - **Objective 26: GitHub issue auto-build monitor** — moved out of v1.3 on 2026-09-28 by user decision; **candidate for killing**. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
 
 - **v1.3 delivery (not objectives — user actions):**
@@ -110,4 +125,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 10–23 (15 objectives) | v1.2 | 71/71 | Complete | 2026-05-25 |
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
+| 42. Codebase-aware stack drafter | v1.4 | 0/— | In progress | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
