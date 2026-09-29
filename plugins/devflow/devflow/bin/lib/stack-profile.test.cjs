@@ -54,6 +54,12 @@
 // - B5  `bundledDir` is injectable, and the resolve cache keys on it.
 // - B6  listOrgProfiles merges both tiers, tags `tier`, user shadows bundled by id.
 //
+// Object-form detect markers (TRD 42-05):
+// - M1  `{file, contains}` matches only when the root file exists and its text includes `contains`.
+// - M2  no `contains` -> file presence alone; a path-shaped or non-string `file` never matches.
+// - M3  matchMarkersAt never throws on an object marker (missing file, missing root, a dir).
+// - M4  repo-state's detectManifest reads an object marker; collectSignals does not throw.
+//
 // Neutrality (Task 2):
 // - P11 the source of stack-profile.cjs does not match
 //   `/golang|gofmt|\bdart\b|flutter|pubspec|\bnpm\b|cargo|pytest|rails|gradle|swift|kotlin/i`.
@@ -636,6 +642,82 @@ describe('bundled tier-2 lookup (B group, TRD 42-02)', () => {
       assert.deepStrictEqual(sp.listOrgProfiles({ userHome: empty, bundledDir: null }), []);
     } finally {
       fx.cleanup(empty, withGo);
+    }
+  });
+});
+
+// A `detect` marker is a bare root entry name (or `*.ext`), or an object `{file, contains}` that
+// also requires the file's text to include `contains` (TRD 42-05). The object form is generic: the
+// loader never learns what the text means, a profile's data does.
+describe('object-form detect markers (M group, TRD 42-05)', () => {
+  beforeEach(() => {
+    sp._resetCache();
+  });
+
+  const marker = { file: 'recipe.lock', contains: 'flavor: sour' };
+
+  test('M1: {file, contains} matches only when the file exists AND contains the text', () => {
+    const yes = fx.makeProject({ files: { 'recipe.lock': 'name: x\nflavor: sour\n' } });
+    const no = fx.makeProject({ files: { 'recipe.lock': 'name: x\nflavor: sweet\n' } });
+    const absent = fx.makeProject({ files: { 'other.lock': 'flavor: sour\n' } });
+    try {
+      assert.strictEqual(sp.matchMarkersAt(yes, [{ marker }]).length, 1);
+      assert.strictEqual(sp.matchMarkersAt(no, [{ marker }]).length, 0);
+      assert.strictEqual(sp.matchMarkersAt(absent, [{ marker }]).length, 0);
+    } finally {
+      fx.cleanup(yes, no, absent);
+    }
+  });
+
+  test('M2: an object marker without `contains` matches on the file alone; a path-shaped file never matches', () => {
+    const root = fx.makeProject({ files: { 'recipe.lock': 'x\n', 'sub/recipe.lock': 'flavor: sour\n' } });
+    try {
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'recipe.lock' } }]).length, 1);
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'sub/recipe.lock', contains: 'sour' } }]).length, 0);
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: { file: 42 } }]).length, 0);
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: null }]).length, 0);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('M3 (regression): matchMarkersAt never throws on an object marker, even for a missing root', () => {
+    const root = fx.makeProject({});
+    try {
+      assert.deepStrictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'x', contains: 'y' } }]), []);
+      assert.deepStrictEqual(sp.matchMarkersAt(path.join(root, 'nope'), [{ marker: { file: 'x', contains: 'y' } }]), []);
+      // A directory named like the marker file: the read fails, so it is simply not a match.
+      fs.mkdirSync(path.join(root, 'x'));
+      assert.deepStrictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'x', contains: 'y' } }]), []);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('M4 (regression): repo-state tolerates object markers — detectManifest reads one, collectSignals does not throw', () => {
+    const rs = require('./repo-state.cjs');
+    const home = fx.makeHome({
+      stacks: {
+        sourish: fx.profileMd({
+          yaml: [
+            'schema: 1',
+            'id: sourish',
+            'languages: [sourlang]',
+            'detect: [{file: recipe.lock, contains: "flavor: sour"}]',
+          ].join('\n'),
+        }),
+      },
+    });
+    const sour = fx.makeProject({ files: { 'recipe.lock': 'flavor: sour\n' } });
+    const flutterish = fx.makeProject({
+      files: { 'pubspec.yaml': 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n', 'lib/main.dart': 'void main() {}\n' },
+    });
+    try {
+      assert.deepStrictEqual(rs.detectManifest(sour, { userHome: home }), { has_manifest: true, primary_lang: 'sourlang' });
+      assert.doesNotThrow(() => rs.collectSignals(flutterish, { userHome: home }));
+      assert.doesNotThrow(() => rs.detectManifest(flutterish, { userHome: home }));
+    } finally {
+      fx.cleanup(sour, flutterish, home);
     }
   });
 });

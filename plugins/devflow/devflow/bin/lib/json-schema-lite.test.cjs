@@ -286,4 +286,23 @@ describe('positive control — shipped stack profiles', () => {
     assert.ok(msgs.some((m) => m.includes('minLength')), JSON.stringify(result));
     assert.ok(msgs.some((m) => m.includes('valid date')), JSON.stringify(result));
   });
+
+  // TRD 42-05: a `detect` entry is a bare file name OR `{file, contains}` (flutter.md separates a
+  // Flutter pubspec from a pure Dart one by its content).
+  test('20. detect accepts a string or a {file, contains} object; a non-string file is rejected', () => {
+    const base = { schema: 1, id: 'x' };
+    const ok = Object.assign({}, base, {
+      detect: ['pubspec.yaml', { file: 'pubspec.yaml', contains: 'sdk: flutter' }, { file: 'go.mod' }],
+    });
+    assert.deepStrictEqual(validate(ok, schema), []);
+
+    const badFile = Object.assign({}, base, { detect: [{ file: 1 }] });
+    assert.ok(validate(badFile, schema).length > 0, 'a numeric file is rejected');
+
+    const noFile = Object.assign({}, base, { detect: [{ contains: 'sdk: flutter' }] });
+    assert.ok(validate(noFile, schema).length > 0, 'an object without file is rejected');
+
+    const extraKey = Object.assign({}, base, { detect: [{ file: 'a', glob: '*.x' }] });
+    assert.ok(validate(extraKey, schema).length > 0, 'an unknown key is rejected');
+  });
 });

@@ -164,6 +164,12 @@ describe('C2: profile content fixes', () => {
     assert.equal('disabled_tools' in mcp, false);
   });
 
+  // TRD 42-05: flutter separates itself from pure Dart by the pubspec's content, not its name.
+  test('C2: flutter detect is the object marker {file: pubspec.yaml, contains: "sdk: flutter"}; dart stays [pubspec.yaml]', () => {
+    assert.deepEqual(load('flutter').parsed.frontmatter.detect, [{ file: 'pubspec.yaml', contains: 'sdk: flutter' }]);
+    assert.deepEqual(load('dart').parsed.frontmatter.detect, ['pubspec.yaml']);
+  });
+
   test('C2: flutter build is `discover` (the drafter fills it in)', () => {
     assert.equal(load('flutter').parsed.frontmatter.commands.build.run, 'discover');
   });

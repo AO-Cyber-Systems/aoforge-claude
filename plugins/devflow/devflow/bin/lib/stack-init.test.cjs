@@ -17,6 +17,9 @@
 // - I11 id slug from a mkdtemp-shaped name like `df-Stack_AbC` -> `df-stack-abc`, schema-valid.
 // - I12 CLI end-to-end (DoD): Go-shaped fixture -> `stack init --write` exit 0 -> `stack validate`
 //       exit 0 -> `stack command test --packages ./pkg --raw` prints `go test -race ./pkg`.
+// - I15 (TRD 42-05) bundled tier + object-form detect: pure Dart -> dart, Flutter -> flutter (dart
+//       dropped as its ancestor, reason `pubspec.yaml(sdk: flutter)`), go.mod -> go; initProfile
+//       drafts the matching `extends`.
 //
 // Fixtures are hand-built (`__fixtures__/stack-profile-fixtures.cjs`), never generated — per
 // `no_llm_test_data`.
@@ -335,6 +338,78 @@ describe('bundled tier-2 detection (I14)', () => {
       assert.equal(r.validation.ok, true, JSON.stringify(r.validation.errors));
     } finally {
       fx.cleanup(root, home);
+    }
+  });
+});
+
+// ─── I15: Dart vs Flutter through the object-form detect marker (TRD 42-05) ───────
+//
+// dart.md detects `pubspec.yaml`; flutter.md detects `{file: pubspec.yaml, contains: "sdk: flutter"}`.
+// A pure Dart package matches dart only; a Flutter app matches both, and dart (flutter's own
+// ancestor) is dropped in flutter's favour.
+
+const PURE_DART_PUBSPEC = 'name: invented_api\nenvironment:\n  sdk: ^3.5.0\n\ndependencies:\n  meta: ^1.15.0\n';
+const FLUTTER_PUBSPEC = [
+  'name: invented_app',
+  'environment:',
+  '  sdk: ^3.5.0',
+  '',
+  'dependencies:',
+  '  flutter:',
+  '    sdk: flutter',
+  '',
+].join('\n');
+
+describe('Dart vs Flutter detection (I15)', () => {
+  test('I15a: a pure Dart package picks dart, never flutter', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ files: { 'pubspec.yaml': PURE_DART_PUBSPEC } });
+    try {
+      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null });
+      assert.equal(picked.id, 'dart');
+      assert.equal(picked.alternatives.includes('flutter'), false);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('I15b: a Flutter app picks flutter, with dart (its ancestor) as the alternative', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ files: { 'pubspec.yaml': FLUTTER_PUBSPEC } });
+    try {
+      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null });
+      assert.equal(picked.id, 'flutter');
+      assert.deepEqual(picked.alternatives, ['dart']);
+      // The reason renders an object marker as `file(contains)`, never `[object Object]`.
+      assert.equal(picked.reason, 'detected via pubspec.yaml(sdk: flutter)');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('I15c: a go.mod repo still picks go', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ files: fx.goShapedRepo() });
+    try {
+      assert.equal(sp.pickExtends({ projectRoot: root, userHome: home, explicit: null }).id, 'go');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('I15d: initProfile drafts `extends: "dart"` for pure Dart and `extends: "flutter"` for Flutter, both valid', () => {
+    const home = fx.makeHome({});
+    const dartRoot = fx.makeProject({ files: { 'pubspec.yaml': PURE_DART_PUBSPEC } });
+    const flutterRoot = fx.makeProject({ files: { 'pubspec.yaml': FLUTTER_PUBSPEC } });
+    try {
+      const d = sp.initProfile({ projectRoot: dartRoot, userHome: home });
+      assert.match(d.text, /^extends: "dart"$/m);
+      assert.equal(d.validation.ok, true, JSON.stringify(d.validation.errors));
+      const f = sp.initProfile({ projectRoot: flutterRoot, userHome: home });
+      assert.match(f.text, /^extends: "flutter"$/m);
+      assert.equal(f.validation.ok, true, JSON.stringify(f.validation.errors));
+    } finally {
+      fx.cleanup(dartRoot, flutterRoot, home);
     }
   });
 });
