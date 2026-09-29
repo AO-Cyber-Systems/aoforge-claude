@@ -313,3 +313,198 @@ describe('stack-draft purity (D20)', () => {
     assert.ok(!/require\(['"]fs['"]\)/.test(src));
   });
 });
+
+// ─── TRD 42-13: the repo-wide test is broad; runner picks are canonical ─────────
+//
+// - D21 (test 3) only narrow test candidates + a parent test -> no test key, one `narrow` note each.
+// - D22 (test 4) only narrow test candidates, no parent test -> test: discover, plus the notes.
+// - D23 (test 5) a broad CI test beats a narrow runner target even though runner outranks CI.
+// - D24 (test 6) narrow notes carry the key the candidate FITS (integration / e2e); no new keys.
+// - D25 (test 7) canonical runner ranking for build/test/lint, alternates noted; other keys and
+//       non-runner sources keep their order.
+
+/** rt(key, name, extra) — a runner-target evidence item carrying stack-evidence's target metadata. */
+function rt(key, name, extra = {}) {
+  const { deps = [], isDefault = false, dependedOn = false, order = 0, runner = 'task', body, ...rest } = extra;
+  const tool = { build: 'go', test: 'go', lint: 'go', codegen: 'go' }[key] || null;
+  const defaults = { build: 'go build ./...', test: 'go test ./...', lint: 'go vet ./...', codegen: 'go generate ./...' };
+  return ev(key, `${runner} ${name}`, {
+    source: 'runner',
+    sourceFile: runner === 'make' ? 'Makefile' : 'Taskfile.yml',
+    runner,
+    tool,
+    form: key === 'build' ? 'build' : key === 'codegen' ? 'mutate' : 'check',
+    target: { name, deps, isDefault, dependedOn, order },
+    bodyInvocations: body || [defaults[key] || `${key} ./...`],
+    ...rest,
+  });
+}
+
+describe('assembleDraft narrow test candidates (D21-D24, TRD 42-13)', () => {
+  test('D21: only narrow test candidates + a parent test -> no test override, one narrow note each', () => {
+    const evidence = [
+      ev('test', 'go test -c -o /tmp/guard.test ./tests/guard/', { tool: 'go', sourceFile: '.github/workflows/guard.yml' }),
+      ev('test', 'go test -run TestSmoke ./...', { tool: 'go' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('test'));
+    const narrow = d.notes.filter((n) => n.status === 'narrow');
+    assert.equal(narrow.length, 2, JSON.stringify(d.notes));
+    const guard = narrow.find((n) => n.candidate.startsWith('go test -c'));
+    assert.equal(guard.key, 'test');
+    assert.match(guard.detail, /compile-only/);
+    assert.equal(guard.source, 'ci');
+    assert.match(narrow.find((n) => n.candidate.includes('-run')).detail, /run-filter/);
+  });
+
+  test('D21b: a single non-root area inherits the parent test WITH its cwd when only narrow candidates exist', () => {
+    const areas = [{ dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] }];
+    const evidence = [ev('test', 'go test ./tests/guard/', { tool: 'go', cwd: 'svc', area: 'svc/' })];
+    const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'go test -race ./...', scoped: 'go test -race {packages}', cwd: 'svc' });
+    assert.ok(d.notes.some((n) => n.status === 'narrow' && n.area === 'svc/'));
+  });
+
+  test('D22: only narrow test candidates and no parent test -> test: discover, plus the notes', () => {
+    const evidence = [ev('test', 'go test -c ./tests/guard/', { tool: 'go' })];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'discover' });
+    assert.ok(d.notes.some((n) => n.status === 'narrow' && n.key === 'test'), JSON.stringify(d.notes));
+    assert.equal(d.loop, undefined, 'a discover test is not a loop key');
+  });
+
+  test('D23: a broad CI test beats a narrow runner target, though runner outranks CI', () => {
+    const evidence = [
+      ev('test', 'go test -race ./...', { tool: 'go' }),
+      rt('test', 'test:unit', { body: ['go test ./pkg/unit/'] }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, 'go test -race ./...');
+    const n = d.notes.find((x) => x.candidate === 'task test:unit');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.status, 'narrow');
+    assert.equal(n.key, 'test');
+    assert.match(n.detail, /single-path/);
+  });
+
+  test('D23b: a runner target is narrow only when no test invocation in its body is broad', () => {
+    const evidence = [
+      rt('test', 'test', { body: ['go test ./...', 'go test -tags=integration ./...'] }),
+      ev('test', 'go test -count=1 ./...', { tool: 'go' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, 'task test', 'a broad invocation in the body keeps the target broad');
+    assert.ok(!d.notes.some((n) => n.status === 'narrow'));
+  });
+
+  test('D24: -tags=integration is noted under `integration`, ./e2e/... under `e2e`; neither becomes a key', () => {
+    const evidence = [
+      ev('test', 'go test -tags=integration ./...', { tool: 'go' }),
+      ev('test', 'go test ./e2e/...', { tool: 'go' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    const byCandidate = Object.fromEntries(d.notes.filter((n) => n.status === 'narrow').map((n) => [n.candidate, n.key]));
+    assert.deepStrictEqual(byCandidate, { 'go test -tags=integration ./...': 'integration', 'go test ./e2e/...': 'e2e' });
+    assert.equal('integration' in d.commands, false);
+    assert.equal('e2e' in d.commands, false);
+    assert.equal('test' in d.commands, false);
+  });
+
+  test('D24b: a chosen test whose breadth cannot be read is kept (as today) and noted breadth-unknown', () => {
+    const evidence = [ev('test', 'make test', { source: 'runner', runner: 'make', tool: null, confidence: 'low' })];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, 'make test');
+    const n = d.notes.find((x) => x.status === 'breadth-unknown');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.key, 'test');
+    assert.equal(n.candidate, 'make test');
+  });
+});
+
+describe('assembleDraft canonical runner targets (D25, TRD 42-13 test 7)', () => {
+  const pick = (evidence, key = 'build') => assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll }).commands[key].run;
+
+  test('D25a: bare `build` beats `build:backend`', () => {
+    assert.equal(pick([rt('build', 'build:backend', { order: 0 }), rt('build', 'build', { order: 1 })]), 'task build');
+  });
+
+  test('D25b: with no bare one, the target the Taskfile `default` depends on wins (depended-on)', () => {
+    const evidence = [
+      rt('build', 'build:frontend', { order: 1 }),
+      rt('build', 'build:backend', { order: 2, dependedOn: true, confidence: 'low' }),
+    ];
+    assert.equal(pick(evidence), 'task build:backend', 'depended-on outranks confidence and source order');
+  });
+
+  test('D25c: `build:backend` beats `build:agent:internal` (fewer segments, no variant token)', () => {
+    const evidence = [
+      rt('build', 'build:agent:internal', { order: 3, dependedOn: true }),
+      rt('build', 'build:backend', { order: 5, dependedOn: true, confidence: 'low' }),
+    ];
+    assert.equal(pick(evidence), 'task build:backend');
+  });
+
+  test('D25d: `build` beats `build:macos`; a variant token loses at equal segments', () => {
+    assert.equal(pick([rt('build', 'build:macos', { order: 0 }), rt('build', 'build', { order: 1 })]), 'task build');
+    assert.equal(pick([rt('build', 'build:dev', { order: 0 }), rt('build', 'build:app', { order: 1 })]), 'task build:app');
+  });
+
+  test('D25e: Make `.DEFAULT_GOAL := all` (all classifies to build) beats `build-dev`', () => {
+    const evidence = [
+      rt('build', 'build-dev', { runner: 'make', order: 0 }),
+      rt('build', 'all', { runner: 'make', order: 2, isDefault: true }),
+    ];
+    assert.equal(pick(evidence), 'make all');
+  });
+
+  test('D25f: with every canonical criterion equal, source order decides (never the alphabet)', () => {
+    const evidence = [
+      rt('build', 'build:api', { order: 5 }),
+      rt('build', 'build:web', { order: 2 }),
+    ];
+    assert.equal(pick(evidence), 'task build:web');
+  });
+
+  test('D25g: losing runner candidates become `alternate` notes naming the canonical pick', () => {
+    const evidence = [
+      rt('build', 'build:agent:internal', { order: 3, dependedOn: true }),
+      rt('build', 'build:agent:quickdev', { order: 4 }),
+      rt('build', 'build:backend', { order: 5, dependedOn: true }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.build.run, 'task build:backend');
+    const alternates = d.notes.filter((n) => n.status === 'alternate');
+    assert.deepStrictEqual(alternates.map((n) => n.candidate).sort(), ['task build:agent:internal', 'task build:agent:quickdev']);
+    for (const n of alternates) {
+      assert.equal(n.key, 'build');
+      assert.match(n.detail, /canonical pick: task build:backend/);
+    }
+  });
+
+  test('D25h: an unresolved losing runner candidate is not an alternate', () => {
+    const evidence = [rt('lint', 'lint', { order: 0 }), rt('lint', 'lint:internal', { order: 1 })];
+    const verify = (cmd) => (cmd === 'task lint:internal' ? { status: 'target_missing', detail: 'gone' } : { status: 'resolved', detail: 'ok' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify });
+    assert.equal(d.commands.lint.run, 'task lint');
+    assert.ok(!d.notes.some((n) => n.status === 'alternate'), JSON.stringify(d.notes));
+  });
+
+  test('D25i: canonical ranking is gated to build/test/lint; other keys keep evidence order and add no alternates', () => {
+    const evidence = [
+      rt('codegen', 'gen:proto:internal', { order: 0 }),
+      rt('codegen', 'gen', { order: 1, isDefault: true, dependedOn: true }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'task gen:proto:internal');
+    assert.ok(!d.notes.some((n) => n.status === 'alternate'));
+  });
+
+  test('D25j: the source order is unchanged: a declared build still beats a canonical runner target', () => {
+    const evidence = [
+      rt('build', 'build', { order: 0 }),
+      ev('build', 'go build -o bin/app ./cmd/app', { source: 'declared', form: 'build', tool: 'go' }),
+    ];
+    assert.equal(pick(evidence), 'go build -o bin/app ./cmd/app');
+  });
+});
