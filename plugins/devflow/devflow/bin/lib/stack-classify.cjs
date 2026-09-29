@@ -452,15 +452,15 @@ function classifyInvocation(inv, { hint } = {}) {
 //     pathFlags    flags that restrict to one package/path                     -> single-path
 //     positional   'path' (a package/dir/file) or 'filter' (cargo: a test-name filter)
 //     defaults     positional values that mean the whole suite (`./...`, `.`, dart's `test/`)
-//     recursive    flags that make a directory positional recursive (ginkgo -r)
 //     skip         leading subcommands that are not paths (vitest run)
 //     stopAt       tokens after which the rest belongs to the test binary (go -args, cargo --)
 //     norm         flag-name normaliser (go accepts -flag and --flag alike)
 //   }
 //
 // A positional that is a template or variable (`{{args}}`, `$(PKGS)`) is pass-through and never
-// narrows. A recursive pattern (`./cmd/...`) is not a single package; it narrows only when a path
-// segment names an e2e/integration suite (`./e2e/...`), which is also what `fitsKey` reports.
+// narrows. Any other positional that is not a `defaults` entry narrows: a package, a file, or a
+// sub-tree (`./pkg/x/...` is one package tree, not the repo). A path segment that names an
+// e2e/integration suite (`./e2e/...`) narrows as `suite-path`, and sets `fitsKey`.
 
 const GO_SPEC = Object.freeze({
   value: new Set([
@@ -478,7 +478,6 @@ const GO_SPEC = Object.freeze({
   pathFlags: new Set(),
   positional: 'path',
   defaults: new Set(['', '.', './', './...', '...']),
-  recursive: new Set(),
   skip: new Set(),
   stopAt: new Set(['-args']),
   norm: (f) => f.replace(/^--/, '-'),
@@ -498,7 +497,6 @@ const DART_SPEC = Object.freeze({
   pathFlags: new Set(),
   positional: 'path',
   defaults: new Set(['', '.', './', 'test', 'test/', './test', './test/']),
-  recursive: new Set(),
   skip: new Set(),
   stopAt: new Set(),
   norm: (f) => f,
@@ -518,7 +516,6 @@ const JS_SPEC = Object.freeze({
   pathFlags: new Set(['--testPathPattern']),
   positional: 'path',
   defaults: new Set(['', '.', './']),
-  recursive: new Set(),
   skip: new Set(['run', 'watch', 'dev']),
   stopAt: new Set(),
   norm: (f) => f,
@@ -537,7 +534,6 @@ const PYTEST_SPEC = Object.freeze({
   pathFlags: new Set(),
   positional: 'path',
   defaults: new Set(['', '.', './', 'test', 'test/', 'tests', 'tests/', './tests', './tests/']),
-  recursive: new Set(),
   skip: new Set(),
   stopAt: new Set(),
   norm: (f) => f,
@@ -555,7 +551,6 @@ const CARGO_SPEC = Object.freeze({
   pathFlags: new Set(['-p', '--package', '--test']),
   positional: 'filter',
   defaults: new Set(['']),
-  recursive: new Set(),
   skip: new Set(),
   stopAt: new Set(['--']),
   norm: (f) => f,
@@ -573,7 +568,6 @@ const GINKGO_SPEC = Object.freeze({
   pathFlags: new Set(),
   positional: 'path',
   defaults: new Set(['', '.', './', './...', '...']),
-  recursive: new Set(['-r', '--r', '-recursive', '--recursive']),
   skip: new Set(['run']),
   stopAt: new Set(['--']),
   norm: (f) => f,
@@ -691,7 +685,6 @@ function judgeBreadth(args, spec) {
     reasons.add('compile-only');
     positional.shift();
   }
-  const recursive = flags.some((f) => spec.recursive.has(f.name));
   for (const p of positional) {
     if (/\{\{|\$/.test(p)) continue; // pass-through args: a template or a variable
     if (spec.positional === 'filter') {
@@ -704,8 +697,8 @@ function judgeBreadth(args, spec) {
       hint(suite);
       continue;
     }
-    if (spec.defaults.has(p) || p.endsWith('/...') || recursive) continue;
-    reasons.add('single-path');
+    if (spec.defaults.has(p)) continue;
+    reasons.add('single-path'); // a package, a file, or a sub-tree (`./pkg/x/...`): not the repo
   }
 
   const reason = REASON_ORDER.find((r) => reasons.has(r)) || null;
