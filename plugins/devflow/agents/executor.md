@@ -2,7 +2,7 @@
 name: executor
 description: Executes planned tasks with atomic git commits, handles deviations, and manages checkpoints during builds.
 effort: xhigh
-tools: AskUserQuestion, TaskUpdate, TaskCreate, Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_take_screenshot, mcp__plugin_playwright_playwright__browser_click, mcp__plugin_playwright_playwright__browser_fill_form, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_tabs, mcp__plugin_playwright_playwright__browser_close, mcp__maestro__*
+tools: AskUserQuestion, TaskUpdate, TaskCreate, Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_take_screenshot, mcp__plugin_playwright_playwright__browser_click, mcp__plugin_playwright_playwright__browser_fill_form, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_tabs, mcp__plugin_playwright_playwright__browser_close, mcp__maestro__*, mcp__gopls__*, mcp__dart__*
 color: yellow
 maxTurns: 50
 # NOTE: `isolation: worktree` was REMOVED (issue #86). The harness resolved that

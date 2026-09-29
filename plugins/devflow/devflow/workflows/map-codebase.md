@@ -34,6 +34,7 @@ every path in this mode is under the target directory via `--cwd`.
   agents (or, if the Task tool is unavailable, perform each focus directly in sequence) and verify
   their output.
 - **draft_stack_profile** — skipped entirely. `adopt scaffold` writes `.planning/STACK.md` itself.
+- **confirm_stack_profile** — skipped. `/devflow:adopt` runs its own after `adopt scaffold`.
 - **generate_claude_md** — unchanged; still writes the versioned CLAUDE.md block that `adopt`
   relies on.
 - **scan_for_secrets** — do not pause for confirmation. Any finding is left for `adopt report` to
@@ -264,6 +265,29 @@ If the command fails with "Unknown command" (an older DevFlow mirror), skip this
 Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".
 Only on **yes** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --write`.
 STACK.md is prescriptive; codebase/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
+
+Continue to confirm_stack_profile.
+</step>
+
+<step name="confirm_stack_profile">
+**Non-interactive:** see <non_interactive_mode>.
+
+Skip if `.planning/STACK.md` does not exist. Best-effort: confirm it against the code with the
+gopls/dart MCP tools when this session has them. `.mcp.json` servers need approval and a session
+restart, so their absence is normal — never block on them.
+
+1. Probe: use ToolSearch for `mcp__gopls__go_workspace` and `mcp__dart__analyze_files` (no
+   ToolSearch → look for `mcp__gopls__*` / `mcp__dart__*` in your tool list).
+2. Go (gopls present): `go_workspace` — the module layout must match the drafted `components`;
+   `go_vulncheck` — the `audit` key is meaningful; `go_diagnostics` on 1-2 files.
+3. Dart/Flutter (dart present): `roots` for the project dir, then `analyze_files` (baseline vs the
+   drafted analyze flags); `run_tests` only when the server was started with `--enable cli`.
+4. Otherwise, or additionally (safe keys only):
+   `node ~/.claude/devflow/bin/df-tools.cjs stack verify --run --raw`
+5. Give the user each discrepancy as a note: the key, what the profile says, what the code shows.
+   NEVER edit STACK.md silently — any change goes through the user.
+6. `.mcp.json` is opt-in per repo: suggest `stack mcp --write`; never run it here.
+7. Start no server; if one is ever needed, use port 8091, never 8080.
 
 Continue to generate_claude_md.
 </step>
