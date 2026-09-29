@@ -412,6 +412,123 @@ describe('decide', () => {
   });
 });
 
+// ─── TRD 44-10: the block reason names the concrete SUMMARY path ─────────────
+//
+// Live E2E 2026-09-29: an executor told "the TRD's SUMMARY.md" wrote
+// 99-01-SUMMARY.md at the repo root, where neither this gate nor the
+// orchestrator looks. When the TRD file can be located, name the exact path.
+
+const { trdDirFor } = require('./gate-executor-stop.js');
+
+/** Today's reason when no TRD file is found — kept verbatim (TRD 44-10). */
+function genericReason(id) {
+  return [
+    `DevFlow: you are stopping, but TRD ${id} has no ${id}-SUMMARY.md.`,
+    'If work remains, continue it now (commit each finished task with df-tools commit).',
+    "If you must stop, first write the ## Progress checkpoint to the TRD's SUMMARY.md",
+    '(tasks done with hashes, the next concrete step) and commit it, then stop.',
+    'If you stopped on purpose (checkpoint, escalation, exec-context hard stop), repeat that',
+    'structured return verbatim and stop without writing files.',
+    'Never use port 8080.',
+  ].join(' ');
+}
+
+/** A 99-01 executor scenario: `trdIn` holds 99-demo/99-01-TRD.md (or nothing), cwd is `root`. */
+function makeDemoScenario(root, { trdIn = root, repoRoot = root } = {}) {
+  F.makePlanningRepo(root, { objectiveDir: '99-demo', trdIds: trdIn === root ? ['99-01'] : [] });
+  if (trdIn !== root && trdIn) F.makePlanningRepo(trdIn, { objectiveDir: '99-demo', trdIds: ['99-01'] });
+  const prompt = F.executorPrompt({ planId: '99-01', repoRoot });
+  const transcript = F.writeAgentTranscript(path.join(root, 'transcripts'), prompt);
+  return { root, payload: F.subagentStopPayload({ cwd: root, agent_transcript_path: transcript }) };
+}
+
+describe('trdDirFor (TRD 44-10)', () => {
+  let tmp;
+  before(() => { tmp = mkTmp('ges-trddir-'); });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  test('returns <root>/.planning/objectives/<dir> holding <id>-TRD.md', () => {
+    const root = F.makePlanningRepo(path.join(tmp, 'found'), { objectiveDir: '99-demo', trdIds: ['99-01'] });
+    assert.equal(trdDirFor('99-01', [root]), path.join(root, '.planning', 'objectives', '99-demo'));
+  });
+
+  test('null when no root holds the TRD; roots without objectives are skipped', () => {
+    const other = F.makePlanningRepo(path.join(tmp, 'other'), { objectiveDir: '99-demo', trdIds: ['99-02'] });
+    const bare = path.join(tmp, 'bare');
+    fs.mkdirSync(bare, { recursive: true });
+    assert.equal(trdDirFor('99-01', [bare, path.join(tmp, 'missing'), other]), null);
+    assert.equal(trdDirFor('99-01', []), null);
+    assert.equal(trdDirFor('', [other]), null);
+    assert.equal(trdDirFor('99-01', null), null);
+  });
+
+  test('the first root holding the TRD wins; a later root is still searched', () => {
+    const empty = F.makePlanningRepo(path.join(tmp, 'empty'), { trdIds: [] });
+    const a = F.makePlanningRepo(path.join(tmp, 'a'), { objectiveDir: '99-demo', trdIds: ['99-01'] });
+    const b = F.makePlanningRepo(path.join(tmp, 'b'), { objectiveDir: '99-other', trdIds: ['99-01'] });
+    assert.equal(trdDirFor('99-01', [empty, a, b]), path.join(a, '.planning', 'objectives', '99-demo'));
+    assert.equal(trdDirFor('99-01', [empty, b, a]), path.join(b, '.planning', 'objectives', '99-other'));
+  });
+
+  test('an unreadable objectives dir is skipped (fail-open)', () => {
+    const a = F.makePlanningRepo(path.join(tmp, 'unreadable'), { objectiveDir: '99-demo', trdIds: ['99-01'] });
+    const b = F.makePlanningRepo(path.join(tmp, 'readable'), { objectiveDir: '99-demo', trdIds: ['99-01'] });
+    const fsImpl = {
+      ...fs,
+      readdirSync: (p, ...rest) => {
+        if (p.startsWith(a)) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+        return fs.readdirSync(p, ...rest);
+      },
+    };
+    assert.equal(trdDirFor('99-01', [a, b], fsImpl), path.join(b, '.planning', 'objectives', '99-demo'));
+    assert.equal(trdDirFor('99-01', [a], fsImpl), null);
+  });
+});
+
+describe('decide: block reason names the SUMMARY path (TRD 44-10)', () => {
+  let tmp;
+  before(() => { tmp = mkTmp('ges-reason-'); });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  const deps = (extra = {}) => ({ env: {}, gitWorktrees: () => [], ...extra });
+  const REL = '.planning/objectives/99-demo/99-01-SUMMARY.md';
+
+  test('TRD file found under cwd → reason names the repo-relative SUMMARY path', () => {
+    const { payload } = makeDemoScenario(path.join(tmp, 'found'));
+    const d = decide(payload, deps());
+    assert.equal(d.block, true);
+    assert.ok(d.reason.includes(REL), d.reason);
+    assert.ok(d.reason.includes(`write the ## Progress checkpoint to ${REL}`), d.reason);
+    assert.ok(!d.reason.includes("the TRD's SUMMARY.md"), 'concrete path replaces the generic wording');
+    assert.ok(!d.reason.includes(tmp), 'repo-relative, never the absolute fixture path');
+    assert.match(d.reason, /## Progress/);
+    assert.match(d.reason, /df-tools commit/);
+    assert.match(d.reason, /Never use port 8080\./);
+  });
+
+  test('TRD file found only under REPO_ROOT (another candidate root) → still named', () => {
+    const named = path.join(tmp, 'named-root');
+    const { payload } = makeDemoScenario(path.join(tmp, 'cwd-no-trd'), { trdIn: named, repoRoot: named });
+    const d = decide(payload, deps());
+    assert.equal(d.block, true);
+    assert.ok(d.reason.includes(REL), d.reason);
+  });
+
+  test('no TRD file anywhere (id from the prompt only) → still blocks, generic wording unchanged', () => {
+    const { payload } = makeDemoScenario(path.join(tmp, 'no-trd'), { trdIn: null });
+    const d = decide(payload, deps());
+    assert.equal(d.block, true);
+    assert.equal(d.reason, genericReason('99-01'));
+  });
+
+  test('once-guard and SUMMARY-present short-circuits are unchanged', () => {
+    const { root, payload } = makeDemoScenario(path.join(tmp, 'guards'));
+    assert.equal(decide({ ...payload, stop_hook_active: true }, deps()), null);
+    F.makePlanningRepo(root, { objectiveDir: '99-demo', trdIds: [], summaries: ['99-01'] });
+    assert.equal(decide(payload, deps()), null);
+  });
+});
+
 // ─── gitWorktrees (real git) ──────────────────────────────────────────────────
 
 describe('gitWorktrees (real git)', () => {
@@ -564,6 +681,22 @@ describe('e2e: gate-executor-stop.js as a SubagentStop hook', () => {
     assertSilent(runHook(F.subagentStopPayload({ cwd: root, agent_transcript_path: quick }), { cwd: root }), 'quick-style');
     const ambiguous = F.writeAgentTranscript(path.join(root, 'amb'), 'PLAN_ID: 77-02\n  node df-tools.cjs exec-context check --repo /r --base b --id 77-03');
     assertSilent(runHook(F.subagentStopPayload({ cwd: root, agent_transcript_path: ambiguous }), { cwd: root }), 'ambiguous');
+  });
+
+  test('TRD 44-10: the spawned hook names the concrete SUMMARY path, or keeps the generic text', () => {
+    const found = makeDemoScenario(path.join(tmp, 't-path-found'));
+    const r = runHook(found.payload, { cwd: found.root });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('write the ## Progress checkpoint to .planning/objectives/99-demo/99-01-SUMMARY.md'), out.reason);
+
+    const none = makeDemoScenario(path.join(tmp, 't-path-none'), { trdIn: null });
+    const r2 = runHook(none.payload, { cwd: none.root });
+    assert.equal(r2.status, 0, r2.stderr);
+    const out2 = JSON.parse(r2.stdout);
+    assert.equal(out2.decision, 'block');
+    assert.equal(out2.reason, genericReason('99-01'));
   });
 
   test('bad stdin (not JSON, empty) → no output, exit 0', () => {

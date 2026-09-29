@@ -328,7 +328,8 @@ function assertDeny(result, label) {
   assert.ok(isDeny(result.stdout), `${label}: expected deny JSON, got: ${result.stdout || '(empty)'}`);
 }
 
-const OP_STATES = ['merge', 'rebase-head', 'rebase-merge', 'rebase-apply', 'cherry-pick'];
+// A bare REBASE_HEAD ('rebase-head') is NOT an operation in progress — TRD 44-10.
+const OP_STATES = ['merge', 'rebase-merge', 'rebase-apply', 'cherry-pick'];
 
 describe('TRD 44-03 — git operation in progress is allowed (subprocess e2e)', () => {
   for (const state of OP_STATES) {
@@ -341,6 +342,45 @@ describe('TRD 44-03 — git operation in progress is allowed (subprocess e2e)', 
       }
     });
   }
+
+  // TRD 44-10 (44-VERIFICATION gap, AUT-04): git leaves REBASE_HEAD behind after
+  // a rebase finishes. Counting it made a stale marker a standing bypass of the
+  // gate (the main checkout had one from 2026-09-26 with no rebase running).
+  test('stale REBASE_HEAD (no rebase-merge/, no rebase-apply/) → raw git commit denied', () => {
+    const { root, cleanup } = mkRepo('rebase-head');
+    try {
+      assertDeny(runHook(bash('git commit -m "x"', root), root), 'stale REBASE_HEAD, -m');
+      assertDeny(runHook(bash('git commit --no-edit', root), root), 'stale REBASE_HEAD, --no-edit');
+    } finally {
+      cleanup();
+    }
+  });
+
+  for (const dirState of ['rebase-merge', 'rebase-apply']) {
+    test(`REBASE_HEAD together with ${dirState}/ → a real rebase, git commit --no-edit allowed`, () => {
+      const { root, cleanup } = mkRepo('rebase-head');
+      try {
+        fx.applyGitState(path.join(root, '.git'), dirState);
+        assertPass(runHook(bash('git commit --no-edit', root), root), `REBASE_HEAD + ${dirState}`);
+      } finally {
+        cleanup();
+      }
+    });
+  }
+
+  test('stale REBASE_HEAD in a linked worktree\'s git dir → denied', () => {
+    const base = mkRoot();
+    try {
+      const mainRoot = path.join(base, 'main');
+      const wtRoot = path.join(base, 'wt');
+      fx.makeGitDir(mainRoot, { state: 'none' });
+      fx.makeWorktree(mainRoot, wtRoot, 'wt1', { state: 'rebase-head' });
+      fx.makeDevflowProject(wtRoot);
+      assertDeny(runHook(bash('git commit --no-edit', wtRoot), wtRoot), 'worktree stale REBASE_HEAD');
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
 
   test('test 5: resolved from a subdirectory of the repo too', () => {
     const { root, cleanup } = mkRepo('merge');
@@ -651,7 +691,8 @@ describe('TRD 44-03 — resolveGitDir / gitOpInProgress / gitCPath (unit)', () =
   test('gitOpInProgress: maps each marker to its operation, else null', () => {
     const expected = {
       merge: 'merge',
-      'rebase-head': 'rebase',
+      // TRD 44-10: a bare REBASE_HEAD is a leftover, not a rebase in progress.
+      'rebase-head': null,
       'rebase-merge': 'rebase',
       'rebase-apply': 'rebase',
       'cherry-pick': 'cherry-pick',
@@ -668,6 +709,20 @@ describe('TRD 44-03 — resolveGitDir / gitOpInProgress / gitCPath (unit)', () =
     }
     assert.equal(gateCommits.gitOpInProgress(null), null);
     assert.equal(gateCommits.gitOpInProgress('/definitely/not/a/git/dir'), null);
+  });
+
+  test('gitOpInProgress: REBASE_HEAD plus rebase-merge/ or rebase-apply/ → rebase (TRD 44-10)', () => {
+    for (const dirState of ['rebase-merge', 'rebase-apply']) {
+      const root = mkRoot();
+      try {
+        const gitDir = fx.makeGitDir(root, { state: 'rebase-head' });
+        assert.equal(gateCommits.gitOpInProgress(gitDir), null, `${dirState}: bare REBASE_HEAD first`);
+        fx.applyGitState(gitDir, dirState);
+        assert.equal(gateCommits.gitOpInProgress(gitDir), 'rebase', dirState);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
   });
 
   test('gitCPath: the commit invocation\'s -C operand, resolved against cwd', () => {
