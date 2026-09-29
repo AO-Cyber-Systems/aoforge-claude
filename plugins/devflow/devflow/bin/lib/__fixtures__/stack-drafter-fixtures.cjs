@@ -528,6 +528,177 @@ function terminalShape() {
   }, { track: ['dist/scaffoldapp/go.mod'] });
 }
 
+// ─── TRD 42-15: D1-D5 shapes (git-backed, invented names) ─────────────────────
+//
+// Not in SHAPES: several carry files outside `.planning/STACK.md` under `.planning/`, and all need
+// git (callers skip when hasGit() is false and put gitOnlyBin() on PATH beside the fake tools).
+
+/**
+ * gitOnlyBin() -> a temp dir holding ONLY a `git` symlink to the real git, so an e2e PATH gains
+ * git without the rest of its directory (a real `make` or `npm` there would change verification).
+ */
+function gitOnlyBin() {
+  const fs = require('fs');
+  const os = require('os');
+  const { spawnSync } = require('child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gitbin-'));
+  const found = spawnSync('which', ['git'], { encoding: 'utf-8' });
+  const real = found.status === 0 ? found.stdout.trim().split('\n')[0] : '';
+  if (real) fs.symlinkSync(real, path.join(dir, 'git'));
+  return dir;
+}
+
+/**
+ * termRootPolicyShape({ goTestTarget }) — D3: a Go repo (`termrepo`) whose root commands used to
+ * be taken over by its node sub-areas.
+ *
+ *   go.mod, main.go       the root Go module (extends go)
+ *   package.json          root manifest, `"test": "vitest --root ui"` (a frontend-only test)
+ *   ui/, site/            package.json each: unsupported node areas
+ *   Taskfile.yml          docs:npm:install (`cd site && npm install`), build:backend (`go build
+ *                         ./cmd/x`), and — only with goTestTarget — `test: go test -race -short ./...`
+ *   Makefile              `proto: buf generate` (a language-neutral generator: not off-stack)
+ *   ci.yml                `npm test` at the root
+ *
+ * Expected: test inherits the go profile (or `task test` with goTestTarget), deps absent, build =
+ * `task build:backend`, codegen = `make proto`, off_stack for `npm test`, sub_area for
+ * `task docs:npm:install`.
+ */
+function termRootPolicyShape({ goTestTarget = false } = {}) {
+  const taskfile = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  docs:npm:install:',
+    '    cmds:',
+    '      - cd site && npm install',
+    '',
+    '  build:backend:',
+    '    cmds:',
+    '      - go build -o dist/bin/x ./cmd/x',
+    '',
+    ...(goTestTarget ? ['  test:', '    cmds:', '      - go test -race -short ./...', ''] : []),
+  ].join('\n');
+  return detectFx.makeGitTree({
+    '.gitignore': 'node_modules/\ndist/\n',
+    'go.mod': goMod('termrepo'),
+    'main.go': GO_MAIN,
+    'cmd/x/main.go': GO_MAIN,
+    'package.json': JSON.stringify({ name: 'termrepo', private: true, scripts: { test: 'vitest --root ui' } }, null, 2),
+    'ui/package.json': JSON.stringify({ name: 'termrepo-ui', private: true, scripts: { build: 'vite build', test: 'vitest run' } }, null, 2),
+    'site/package.json': JSON.stringify({ name: 'termrepo-site', private: true, scripts: { build: 'docusaurus build' } }, null, 2),
+    'Taskfile.yml': taskfile,
+    Makefile: 'proto:\n\tbuf generate\n',
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [push]',
+      'jobs:',
+      '  unit:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - run: npm test',
+    ]),
+  });
+}
+
+/**
+ * checkoutPathShape() — D1: CI checks this repo out at `path: svcrepo` and runs in
+ * `working-directory: svcrepo/go`; the repo itself holds `go/`. Expected: the placed cwd is `go`.
+ */
+function checkoutPathShape() {
+  return detectFx.makeGitTree({
+    'README.md': '# invented service\n',
+    'go/go.mod': goMod('svcgo'),
+    'go/main.go': GO_MAIN,
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [push]',
+      'jobs:',
+      '  unit:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '        with:',
+      '          path: svcrepo',
+      '      - name: unit',
+      '        working-directory: svcrepo/go',
+      '        run: go test -race -count=1 ./...',
+    ]),
+  });
+}
+
+/**
+ * ignoredBaselineShape() — D2: a gitignored `.snapshot/api` (a local baseline copy) that CI still
+ * tests in. Expected: no command at `.snapshot/`, a `cwd_ignored` note.
+ */
+function ignoredBaselineShape() {
+  return detectFx.makeGitTree({
+    '.gitignore': '.snapshot/\n',
+    'go.mod': goMod('baselinerepo'),
+    'main.go': GO_MAIN,
+    '.snapshot/api/package.json': JSON.stringify({ name: 'snapshot-api', private: true, scripts: { test: 'vitest run' } }, null, 2),
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [push]',
+      'jobs:',
+      '  unit:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: go vet ./...',
+      '      - name: baseline api',
+      '        working-directory: .snapshot/api',
+      '        run: npm test',
+    ]),
+  });
+}
+
+/**
+ * nestedRepoShape() — D4: `vendored-sdk/` holds its own `.git` DIRECTORY and `other-lib/` a `.git`
+ * FILE (a worktree / submodule link); each has a go.mod and a CI step. Expected: neither is a
+ * component or area, no command cwd under either, `cwd_nested_repo` notes.
+ */
+function nestedRepoShape() {
+  return detectFx.makeGitTree({
+    'go.mod': goMod('hostrepo'),
+    'main.go': GO_MAIN,
+    'vendored-sdk/go.mod': goMod('vendoredsdk'),
+    'vendored-sdk/main.go': GO_MAIN,
+    'vendored-sdk/.git/HEAD': 'ref: refs/heads/main\n',
+    'other-lib/go.mod': goMod('otherlib'),
+    'other-lib/main.go': GO_MAIN,
+    'other-lib/.git': 'gitdir: ../.git/modules/other-lib\n',
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [push]',
+      'jobs:',
+      '  unit:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: go vet ./...',
+      '      - name: sdk tests',
+      '        working-directory: vendored-sdk',
+      '        run: go test -count=1 ./...',
+      '      - name: lib build',
+      '        working-directory: other-lib',
+      '        run: go build ./...',
+    ]),
+  });
+}
+
+/**
+ * trackedPlanningIgnoredShape() — D5: `.planning/` is gitignored but `.planning/config.json` is
+ * tracked (force-added). Expected: the preview lists BOTH stack files in `ignored`.
+ */
+function trackedPlanningIgnoredShape() {
+  return detectFx.makeGitTree({
+    '.gitignore': '.planning/\n',
+    'go.mod': goMod('planrepo'),
+    'main.go': GO_MAIN,
+    '.planning/config.json': '{}\n',
+  }, { track: ['.planning/config.json'] });
+}
+
 /** Every e2e shape, by name, for "for each fixture" assertions. */
 const SHAPES = Object.freeze({
   multiAreaCiShape,
@@ -562,6 +733,12 @@ module.exports = {
   missingBinaryShape,
   evidenceShape,
   terminalShape,
+  termRootPolicyShape,
+  checkoutPathShape,
+  ignoredBaselineShape,
+  nestedRepoShape,
+  trackedPlanningIgnoredShape,
+  gitOnlyBin,
   hasGit: detectFx.hasGit,
   SHAPES,
   // for callers that need the joined path of a fixture file

@@ -597,3 +597,141 @@ describe('assembleDraft command cwd hygiene (D26-D28, TRD 42-14)', () => {
     assert.match(n.detail, /nope does not exist under the repo root/);
   });
 });
+
+// ─── TRD 42-15 tests 8-11: the root-override policy (D3) ──────────────────────
+//
+// Repo-root commands cover the repo's primary stack. For a key the extends profile supplies with a
+// runnable run, only a root candidate whose body runs a tool of the tier's stack family
+// (stack-classify.TIER_STACKS) at the root may override it; the rest are `off_stack` notes and
+// the profile default applies. A candidate whose effectiveArea is an unsupported sub-area is a
+// `sub_area` note for ANY key; one whose effectiveArea is a component is noted against it.
+
+describe('assembleDraft root-override policy (D3, TRD 42-15)', () => {
+  const SITE_AREAS = [
+    ...ROOT_GO,
+    { dir: 'site/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
+    { dir: 'ui/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
+  ];
+
+  test('D29 (test 8): a profile-supplied key with only off-stack root candidates is inherited, with off_stack notes', () => {
+    const evidence = [
+      ev('test', 'npm test', { source: 'manifest', sourceFile: 'package.json', runner: 'npm', tool: 'vitest', bodyStacks: ['node'], effectiveArea: '' }),
+      ev('test', 'npm test', { runner: 'npm', tool: 'vitest', bodyStacks: ['node'], effectiveArea: '' }),
+      ev('test', 'make check-all', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: null, confidence: 'low', bodyStacks: [], effectiveArea: '' }),
+    ];
+    const d = assembleDraft({ areas: SITE_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.extendsId, 'go');
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands.test));
+    assert.ok(d.inheritedKeys.includes('test'));
+    const off = d.notes.filter((n) => n.status === 'off_stack');
+    assert.ok(off.some((n) => n.key === 'test' && n.candidate === 'npm test' && /node/.test(n.detail) && /extends go/.test(n.detail)), JSON.stringify(d.notes));
+    assert.ok(off.some((n) => n.candidate === 'make check-all' && /unknown/.test(n.detail)), 'an opaque body has no stack: never a match');
+  });
+
+  test('D30 (test 9): a stack-matching root candidate overrides as today (runner body decides; flutter covers dart)', () => {
+    const evidence = [
+      ev('test', 'task test', { source: 'runner', sourceFile: 'Taskfile.yml', runner: 'task', tool: 'go', bodyStacks: ['go'], effectiveArea: '' }),
+      ev('test', 'npm test', { source: 'manifest', runner: 'npm', tool: 'vitest', bodyStacks: ['node'], effectiveArea: '' }),
+    ];
+    const d = assembleDraft({ areas: SITE_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, 'task test');
+
+    const flutterRoot = [{ dir: '', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }];
+    const d2 = assembleDraft({
+      areas: flutterRoot,
+      evidence: [ev('lint', 'dart analyze', { tool: 'dart', bodyStacks: ['dart'], effectiveArea: '' })],
+      tierCommands: TIERS,
+      verify: resolvedAll,
+    });
+    assert.equal(d2.commands.lint.run, 'dart analyze', 'TIER_STACKS.flutter includes dart');
+  });
+
+  test('D30b: a mixed body matches only when a tier-stack invocation runs at the root; the mix is noted', () => {
+    const mixed = ev('test', 'task ci', {
+      source: 'runner', runner: 'task', tool: 'go', bodyStacks: ['go', 'node'], effectiveArea: '',
+      bodyScopes: [{ stack: 'go', area: '' }, { stack: 'node', area: 'ui/' }],
+    });
+    const d = assembleDraft({ areas: SITE_AREAS, evidence: [mixed], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, 'task ci');
+    assert.ok(d.notes.some((n) => n.key === 'test' && n.status === 'mixed_stack' && /node/.test(n.detail)), JSON.stringify(d.notes));
+
+    const goOnlyInSub = ev('test', 'task ci', {
+      source: 'runner', runner: 'task', tool: null, bodyStacks: ['go', 'node'], effectiveArea: '',
+      bodyScopes: [{ stack: 'go', area: 'ui/' }, { stack: 'node', area: '' }],
+    });
+    const d2 = assembleDraft({ areas: SITE_AREAS, evidence: [goOnlyInSub], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('test' in d2.commands, false, 'the go invocation does not run at the root');
+    assert.ok(d2.notes.some((n) => n.status === 'off_stack' && n.candidate === 'task ci'));
+  });
+
+  test('D31 (test 10): an effectiveArea in an unsupported sub-area is a sub_area note for ANY key, never a root command', () => {
+    const evidence = [
+      ev('deps', 'task docs:npm:install', { source: 'runner', runner: 'task', form: 'mutate', tool: 'npm', bodyStacks: ['node'], effectiveArea: 'site/' }),
+      ev('e2e', 'npx playwright test', { tool: 'playwright', cwd: 'ui', area: 'ui/', bodyStacks: ['node'], effectiveArea: 'ui/' }),
+      ev('build', 'task build:site', { source: 'runner', runner: 'task', form: 'build', tool: null, bodyStacks: ['node'], effectiveArea: 'site/' }),
+    ];
+    const d = assembleDraft({ areas: SITE_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('deps' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal('e2e' in d.commands, false, 'an attachable key from an unsupported sub-area is not placed either');
+    assert.equal('build' in d.commands, false);
+    const sub = d.notes.filter((n) => n.status === 'sub_area');
+    assert.ok(sub.some((n) => n.key === 'deps' && n.candidate === 'task docs:npm:install' && /site\//.test(n.detail)), JSON.stringify(d.notes));
+    assert.ok(sub.some((n) => n.key === 'e2e' && /ui\//.test(n.detail)));
+    assert.ok(sub.some((n) => n.key === 'build' && n.candidate === 'task build:site'));
+  });
+
+  test('D31b: an effectiveArea that is a component is noted against the component, never a root override', () => {
+    const areas = [
+      ...ROOT_GO,
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    ];
+    const evidence = [
+      ev('test', 'task app:test', { source: 'runner', runner: 'task', tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: 'app/' }),
+    ];
+    const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.components, [{ path: 'app/', profile: 'flutter' }]);
+    assert.equal('test' in d.commands, false);
+    const n = d.notes.find((x) => x.candidate === 'task app:test');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.area, 'app/');
+    assert.match(n.detail, /component app\/ uses tier flutter/);
+  });
+
+  test('D32 (test 11): keys the profile does not supply keep today\'s behaviour for root candidates', () => {
+    const evidence = [
+      ev('e2e', 'npx playwright test', { tool: 'playwright', bodyStacks: ['node'], effectiveArea: '' }),
+      ev('lint_helm', 'helm lint chart/', { tool: 'helm', bodyStacks: ['helm'], effectiveArea: '' }),
+      ev('deps', 'npm ci', { form: 'mutate', tool: 'npm', bodyStacks: ['node'], effectiveArea: '' }),
+    ];
+    const d = assembleDraft({ areas: SITE_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.e2e.run, 'npx playwright test');
+    assert.equal(d.commands.lint_helm.run, 'helm lint chart/');
+    assert.deepStrictEqual(d.commands.deps, { run: 'npm ci', when: 'deps_changed' });
+    assert.ok(!d.notes.some((n) => n.status === 'off_stack'), JSON.stringify(d.notes));
+  });
+
+  test('D32b: with extends general the stack gate is a no-op', () => {
+    const evidence = [ev('test', 'npm test', { source: 'manifest', runner: 'npm', tool: 'vitest', bodyStacks: ['node'], effectiveArea: '' })];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.extendsId, 'general');
+    assert.equal(d.commands.test.run, 'npm test');
+  });
+});
+
+describe('assembleDraft root-override policy: neutral generators (TRD 42-15 recovery)', () => {
+  const { NEUTRAL_STACK } = require('./stack-classify.cjs');
+
+  test('D30c: a codegen whose body runs a language-neutral generator overrides a go profile; a node one does not', () => {
+    const evidence = [
+      ev('codegen', 'make proto', { source: 'runner', runner: 'make', form: 'mutate', tool: 'buf', bodyStacks: [NEUTRAL_STACK], effectiveArea: '' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.codegen, { run: 'make proto', when: 'sources_changed' });
+    assert.ok(!d.notes.some((n) => n.status === 'off_stack' || n.status === 'mixed_stack'), JSON.stringify(d.notes));
+
+    const node = [ev('codegen', 'npm run gen', { source: 'manifest', runner: 'npm', form: 'mutate', tool: null, bodyStacks: ['node'], effectiveArea: '' })];
+    const d2 = assembleDraft({ areas: ROOT_GO, evidence: node, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('codegen' in d2.commands, false);
+    assert.ok(d2.notes.some((n) => n.status === 'off_stack' && n.candidate === 'npm run gen'));
+  });
+});

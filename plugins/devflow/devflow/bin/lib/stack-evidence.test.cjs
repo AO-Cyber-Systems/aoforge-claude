@@ -534,3 +534,164 @@ describe('stack-evidence cwdStatus (E14, TRD 42-14 test 8)', () => {
     }
   });
 });
+
+// ─── TRD 42-15 test 12: items carry bodyStacks and effectiveArea ──────────────
+//
+// bodyStacks: stack-classify.toolStack of each body invocation that classifies to the item's key
+// (a nested runner call is followed to the body it runs); with none, the tools alone (recovery).
+// effectiveArea: the longest area containing where that body runs (a `cd x &&`, a Taskfile
+// `dir:`, `make -C` / `npm --prefix`, a CI working-directory), else the item's own area.
+
+const EFFECTIVE_TASKFILE = [
+  "version: '3'",
+  '',
+  'tasks:',
+  '  docs:npm:install:',
+  '    cmds:',
+  '      - cd site && npm install',
+  '',
+  '  site:deps:',
+  '    dir: site',
+  '    cmd: npm ci',
+  '',
+  '  build:backend:',
+  '    cmds:',
+  '      - task: build:daemon',
+  '',
+  '  build:daemon:',
+  '    cmd: go build -o dist/bin/daemon ./cmd/daemon',
+  '',
+  '  test:',
+  '    cmds:',
+  '      - go test ./...',
+  '      - npm --prefix ui test',
+  '',
+  '  generate:',
+  '    cmds:',
+  '      - ./tools/regen.sh',
+  '',
+].join('\n');
+
+const EFFECTIVE_WF = [
+  'name: ci',
+  'on: [push]',
+  'jobs:',
+  '  t:',
+  '    runs-on: ubuntu-latest',
+  '    steps:',
+  '      - run: go test -race ./...',
+  '      - name: ui unit',
+  '        working-directory: ui',
+  '        run: npm test',
+  '',
+].join('\n');
+
+const EFFECTIVE_AREAS = [
+  { dir: '', kinds: ['go'], tier: 'go', flags: [] },
+  { dir: 'site/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
+  { dir: 'ui/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
+];
+
+describe('stack-evidence bodyStacks / effectiveArea (E15, TRD 42-15 test 12)', () => {
+  function effectiveRepo() {
+    return makeRepo({
+      'go.mod': 'module example.com/termrepo\n',
+      'Taskfile.yml': EFFECTIVE_TASKFILE,
+      Makefile: 'lint-ui:\n\tmake -C ui lint\n',
+      'ui/Makefile': 'lint:\n\tnpx eslint .\n',
+      'ui/package.json': JSON.stringify({ name: 'ui', private: true, scripts: { test: 'vitest run' } }),
+      'site/package.json': JSON.stringify({ name: 'site', private: true, scripts: { build: 'docusaurus build' } }),
+      '.github/workflows/ci.yml': EFFECTIVE_WF,
+    });
+  }
+
+  test('E15a: a `cd x &&` body and a Taskfile `dir:` run in that sub-area', () => {
+    const root = effectiveRepo();
+    try {
+      const evidence = collectEvidence(root, { areas: EFFECTIVE_AREAS, hygiene: () => 'ok' });
+      const cdInstall = evidence.find((e) => e.command === 'task docs:npm:install');
+      assert.ok(cdInstall, JSON.stringify(evidence.map((e) => e.command)));
+      assert.equal(cdInstall.key, 'deps');
+      assert.equal(cdInstall.area, '', 'the item itself is invoked from the root');
+      assert.equal(cdInstall.effectiveArea, 'site/');
+      assert.deepStrictEqual(cdInstall.bodyStacks, ['node']);
+      const dirDeps = evidence.find((e) => e.command === 'task site:deps');
+      assert.ok(dirDeps);
+      assert.equal(dirDeps.effectiveArea, 'site/');
+      assert.deepStrictEqual(dirDeps.bodyStacks, ['node']);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E15b: a nested runner call is followed (task: -> go build; make -C ui -> eslint)', () => {
+    const root = effectiveRepo();
+    try {
+      const evidence = collectEvidence(root, { areas: EFFECTIVE_AREAS, hygiene: () => 'ok' });
+      const backend = evidence.find((e) => e.command === 'task build:backend');
+      assert.ok(backend, JSON.stringify(evidence.map((e) => e.command)));
+      assert.equal(backend.effectiveArea, '');
+      assert.deepStrictEqual(backend.bodyStacks, ['go'], 'the BODY decides the stack, not the runner');
+      const lintUi = evidence.find((e) => e.command === 'make lint-ui');
+      assert.ok(lintUi);
+      assert.equal(lintUi.key, 'lint');
+      assert.equal(lintUi.effectiveArea, 'ui/', 'make -C ui');
+      assert.deepStrictEqual(lintUi.bodyStacks, ['node']);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E15c: a mixed body keeps both stacks; with one invocation at the root it stays a root item', () => {
+    const root = effectiveRepo();
+    try {
+      const evidence = collectEvidence(root, { areas: EFFECTIVE_AREAS, hygiene: () => 'ok' });
+      const mixed = evidence.find((e) => e.command === 'task test');
+      assert.ok(mixed, JSON.stringify(evidence.map((e) => e.command)));
+      assert.deepStrictEqual([...mixed.bodyStacks].sort(), ['go', 'node']);
+      assert.equal(mixed.effectiveArea, '');
+      assert.deepStrictEqual(
+        [...mixed.bodyScopes].sort((a, b) => a.stack.localeCompare(b.stack)),
+        [{ stack: 'go', area: '' }, { stack: 'node', area: 'ui/' }],
+      );
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E15d: CI items: the step cwd is the effective area; a plain root step is go at the root', () => {
+    const root = effectiveRepo();
+    try {
+      const evidence = collectEvidence(root, { areas: EFFECTIVE_AREAS, hygiene: () => 'ok' });
+      const rootTest = evidence.find((e) => e.source === 'ci' && e.command === 'go test -race ./...');
+      assert.ok(rootTest);
+      assert.equal(rootTest.effectiveArea, '');
+      assert.deepStrictEqual(rootTest.bodyStacks, ['go']);
+      const uiTest = evidence.find((e) => e.source === 'ci' && e.command === 'npm test');
+      assert.ok(uiTest, JSON.stringify(evidence.map((e) => [e.source, e.command, e.cwd])));
+      assert.equal(uiTest.area, 'ui/');
+      assert.equal(uiTest.effectiveArea, 'ui/');
+      assert.deepStrictEqual(uiTest.bodyStacks, ['node'], 'npm test is followed to its script body (vitest)');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E15e: fallback: an opaque body (a missing wrapper script) keeps the item area and has no stack', () => {
+    const root = effectiveRepo();
+    try {
+      const evidence = collectEvidence(root, { areas: EFFECTIVE_AREAS, hygiene: () => 'ok' });
+      const gen = evidence.find((e) => e.command === 'task generate');
+      assert.ok(gen, JSON.stringify(evidence.map((e) => e.command)));
+      assert.equal(gen.key, 'codegen', 'classified by its NAME only (low confidence)');
+      assert.equal(gen.effectiveArea, '');
+      assert.deepStrictEqual(gen.bodyStacks, [], 'a name never gives a stack');
+      for (const item of evidence) {
+        assert.ok(Array.isArray(item.bodyStacks), `no bodyStacks: ${JSON.stringify(item)}`);
+        assert.equal(typeof item.effectiveArea, 'string', `no effectiveArea: ${JSON.stringify(item)}`);
+      }
+    } finally {
+      cleanup(root);
+    }
+  });
+});

@@ -52,13 +52,15 @@ before(() => { home = fx.fakeEmptyHome(); });
 after(() => { fx.cleanup(home); });
 
 /** stackInit(repo, { tools, write, raw }) -> { status, stdout, stderr, json, fm, text } */
-function stackInit(repo, { tools = fx.DEFAULT_TOOLCHAIN, write = false, raw = false } = {}) {
+function stackInit(repo, { tools = fx.DEFAULT_TOOLCHAIN, write = false, raw = false, git = false } = {}) {
   const bin = fx.fakeToolchain(tools);
+  const gitDir = git ? fx.gitOnlyBin() : null;
   try {
     const args = [DF_TOOLS, '--cwd', repo, 'stack', 'init'];
     if (write) args.push('--write');
     if (raw) args.push('--raw');
-    const r = spawnSync(process.execPath, args, { encoding: 'utf-8', env: { PATH: bin, HOME: home }, timeout: 60000 });
+    const PATH = gitDir ? `${bin}${path.delimiter}${gitDir}` : bin;
+    const r = spawnSync(process.execPath, args, { encoding: 'utf-8', env: { PATH, HOME: home }, timeout: 60000 });
     let json = null;
     let text = r.stdout;
     if (!raw) {
@@ -68,7 +70,7 @@ function stackInit(repo, { tools = fx.DEFAULT_TOOLCHAIN, write = false, raw = fa
     const fm = text ? parseProfile(text).frontmatter : null;
     return { status: r.status, stdout: r.stdout, stderr: r.stderr, json, fm, text };
   } finally {
-    fx.cleanup(bin);
+    fx.cleanup(bin, gitDir);
   }
 }
 
@@ -283,4 +285,102 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
       });
     }
   });
+});
+
+// ─── TRD 42-15: D1-D5 end to end (git on PATH beside the fake tools) ──────────
+//
+//  12  D3 terminal root policy     test inherits go; deps absent; build task build:backend;
+//                                  off_stack npm test; sub_area task docs:npm:install
+//  13  D3 positive control         a Taskfile `test` running go test overrides: task test
+//  14  D1 checkout path            cwd `go`, never `svcrepo/`
+//  15  D2 ignored baseline         nothing at `.snapshot/`; a cwd_ignored note
+//  16  D4 nested repos             no component/area/cwd under either; cwd_nested_repo notes
+//  17  D5 tracked-but-ignored      the preview lists both stack files in `ignored`
+
+const NO_GIT = fx.hasGit() ? false : 'git not available';
+const cwdsOf = (commands) => Object.values(commands || {}).map((e) => e.cwd).filter(Boolean);
+
+describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
+  test('12: D3 terminal root policy — a node sub-area never takes over a go root key', { skip: NO_GIT }, () => withShape(() => fx.termRootPolicyShape(), (repo) => {
+    const r = stackInit(repo, { git: true, tools: [...fx.DEFAULT_TOOLCHAIN, 'buf'] });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    assert.equal(fm.extends, 'go');
+    assert.deepStrictEqual(fm.commands.codegen, { run: 'make proto', when: 'sources_changed' }, 'a neutral generator is not off-stack');
+    assert.equal('test' in fm.commands, false, `test inherits go test -race ./..., not ${JSON.stringify(fm.commands.test)}`);
+    assert.equal('deps' in fm.commands, false, `the docs install is not a root deps: ${JSON.stringify(fm.commands.deps)}`);
+    assert.equal(fm.commands.build.run, 'task build:backend', JSON.stringify(fm.commands.build));
+    const off = json.notes.find((n) => n.status === 'off_stack' && n.candidate === 'npm test');
+    assert.ok(off, JSON.stringify(json.notes));
+    assert.equal(off.key, 'test');
+    assert.match(off.detail, /node/);
+    const sub = json.notes.find((n) => n.status === 'sub_area' && n.candidate === 'task docs:npm:install');
+    assert.ok(sub, JSON.stringify(json.notes));
+    assert.equal(sub.key, 'deps');
+    assert.match(sub.detail, /site\//);
+    assert.ok(!allRuns(fm.commands).some((v) => /npm|vitest/.test(v)), JSON.stringify(fm.commands));
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+
+    const raw = stackInit(repo, { raw: true, git: true });
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.match(raw.stdout, /<!-- stack init notes[\s\S]*off_stack[\s\S]*sub_area[\s\S]*-->|<!-- stack init notes[\s\S]*sub_area[\s\S]*off_stack[\s\S]*-->/);
+  }));
+
+  test('13: D3 positive control — a root Taskfile `test` running go test overrides the profile', { skip: NO_GIT }, () => withShape(() => fx.termRootPolicyShape({ goTestTarget: true }), (repo) => {
+    const r = stackInit(repo, { git: true });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.fm.extends, 'go');
+    assert.equal(r.fm.commands.test.run, 'task test', JSON.stringify(r.fm.commands.test));
+    assert.equal('deps' in r.fm.commands, false);
+    assert.ok(r.json.notes.some((n) => n.status === 'off_stack' && n.candidate === 'npm test'), JSON.stringify(r.json.notes));
+  }));
+
+  test('14: D1 checkout path — the placed cwd is `go`, never `svcrepo/`', { skip: NO_GIT }, () => withShape(fx.checkoutPathShape, (repo) => {
+    const r = stackInit(repo, { git: true });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    assert.equal(fm.extends, 'go');
+    assert.deepStrictEqual(fm.commands.test, { run: 'go test -race -count=1 ./...', scoped: 'go test -race {packages}', cwd: 'go' });
+    for (const cwd of cwdsOf(fm.commands)) assert.equal(cwd, 'go', JSON.stringify(fm.commands));
+    assert.ok(!json.evidence.some((e) => String(e.cwd || '').startsWith('svcrepo')), JSON.stringify(json.evidence.map((e) => e.cwd)));
+    assert.ok(!JSON.stringify(json.notes).includes('svcrepo/'), JSON.stringify(json.notes));
+  }));
+
+  test('15: D2 ignored baseline — no command at `.snapshot/`, a cwd_ignored note', { skip: NO_GIT }, () => withShape(fx.ignoredBaselineShape, (repo) => {
+    const r = stackInit(repo, { git: true });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    assert.equal(fm.extends, 'go');
+    assert.ok(!cwdsOf(fm.commands).some((c) => c.startsWith('.snapshot')), JSON.stringify(fm.commands));
+    assert.ok(!allRuns(fm.commands).some((v) => /npm/.test(v)), JSON.stringify(fm.commands));
+    const n = json.notes.find((x) => x.status === 'cwd_ignored');
+    assert.ok(n, JSON.stringify(json.notes));
+    assert.equal(n.candidate, 'npm test');
+  }));
+
+  test('16: D4 nested repos — no component, area or cwd under either; cwd_nested_repo notes', { skip: NO_GIT }, () => withShape(fx.nestedRepoShape, (repo) => {
+    const r = stackInit(repo, { git: true });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    assert.equal(fm.extends, 'go');
+    const nested = (p) => /^(vendored-sdk|other-lib)(\/|$)/.test(String(p || ''));
+    assert.ok(!(fm.components || []).some((c) => nested(c.path)), JSON.stringify(fm.components));
+    if (Array.isArray(json.areas)) assert.ok(!json.areas.some((a) => nested(a.dir)), JSON.stringify(json.areas));
+    assert.ok(!cwdsOf(fm.commands).some(nested), JSON.stringify(fm.commands));
+    const notes = json.notes.filter((x) => x.status === 'cwd_nested_repo');
+    assert.ok(notes.some((x) => x.candidate === 'go test -count=1 ./...'), JSON.stringify(json.notes));
+    assert.ok(notes.some((x) => x.candidate === 'go build ./...'), JSON.stringify(json.notes));
+  }));
+
+  test('17: D5 tracked-but-ignored .planning — the preview lists both stack files in `ignored`', { skip: NO_GIT }, () => withShape(fx.trackedPlanningIgnoredShape, (repo) => {
+    const r = stackInit(repo, { git: true });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepStrictEqual([...r.json.ignored].sort(), ['.planning/STACK-REPORT.md', '.planning/STACK.md']);
+    const raw = stackInit(repo, { raw: true, git: true });
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.match(raw.stderr, /\.planning\/STACK\.md/);
+    assert.match(raw.stderr, /\.planning\/STACK-REPORT\.md/);
+    assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false, 'a preview writes nothing');
+  }));
 });

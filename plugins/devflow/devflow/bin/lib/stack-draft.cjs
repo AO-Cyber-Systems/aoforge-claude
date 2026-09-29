@@ -20,10 +20,15 @@
 // Unsupported areas are never components; they are notes. `stack init` never writes a component
 // profile file, so a command that belongs to a component is a NOTE, not a root command.
 //
-// Which items may fill a ROOT key: items in the root area, items in the single non-root area, and
-// items for a root-attachable key (e2e, lint_helm, lint_docker) from any area that is not a
-// component. Everything else is summarised per (area, key) as a note unless it equals the area's
-// tier default.
+// Which items may fill a ROOT key (TRD 42-15, D3): items whose body RUNS (stack-evidence
+// `effectiveArea`) at the root or in the single non-root area. One running in a component is
+// summarised per (area, key) as a component note unless it equals the tier default; one running
+// in an unsupported sub-area is a `sub_area` note per (area, key), for every key.
+// Root-override policy: for a key the extends profile supplies with a runnable run, only a root
+// candidate whose body runs a tool of the tier's stack family (stack-classify.TIER_STACKS, via
+// `bodyScopes` / `bodyStacks`) at the root may override it; others are `off_stack` notes and the
+// profile default applies. A chosen mixed body is noted `mixed_stack`. Keys the profile does not
+// supply, and extends general, are not gated.
 //
 // Per key, candidates are ranked, first difference wins (the tie-break rule, stable otherwise):
 //   1. source      declared > runner > ci > manifest > docs > detected
@@ -61,7 +66,7 @@
 // that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
 // other unresolved candidate. Items without a cwdStatus are treated as ok.
 
-const { classifyInvocation, testBreadth } = require('./stack-classify.cjs');
+const { classifyInvocation, testBreadth, toolStack, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
 const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
@@ -165,6 +170,25 @@ function sameTool(item, key, parentRun) {
   return !!(c && c.key === key && item.tool && c.tool === item.tool);
 }
 
+/** Where an item's body runs (stack-evidence `effectiveArea`); its own area when absent. */
+function effectiveAreaOf(item) {
+  return typeof item.effectiveArea === 'string' ? item.effectiveArea : item.area || '';
+}
+
+/**
+ * scopesOf(item) -> [{ stack, area }]: the stacks an item's body runs and where (stack-evidence
+ * `bodyScopes`, else `bodyStacks` at its effectiveArea). An item built without either (a caller
+ * that predates 42-15) is read through stack-classify.toolStack over its body, command and tool.
+ */
+function scopesOf(item) {
+  if (Array.isArray(item.bodyScopes) && item.bodyScopes.length) return item.bodyScopes;
+  const area = effectiveAreaOf(item);
+  const stacks = Array.isArray(item.bodyStacks)
+    ? item.bodyStacks
+    : unique([item.resolvesTo, item.command, item.tool].map((x) => (x ? toolStack(String(x)) : null)));
+  return stacks.filter(Boolean).map((stack) => ({ stack, area }));
+}
+
 function note(item, key, status, detail, extra = {}) {
   return {
     area: item ? item.area || '' : '',
@@ -208,6 +232,11 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     extendsId = explicit;
   }
   const singleCwd = single ? trimDir(single) : null;
+  // The extends tier's stack family (D3 gate); null for general or a tier this classifier does
+  // not know, which makes the gate a no-op.
+  const family = Object.prototype.hasOwnProperty.call(TIER_STACKS, extendsId) ? TIER_STACKS[extendsId] : null;
+  // A language-neutral generator (NEUTRAL_STACK) belongs to no stack, so it matches any tier.
+  const onFamily = (stack) => stack === NEUTRAL_STACK || (!!family && family.includes(stack));
   const componentDirs = new Set(components.map((c) => c.path));
   const profileByDir = new Map(lang.map((a) => [a.dir, profileOf(a)]));
 
@@ -284,18 +313,34 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   };
 
   // ── placement ───────────────────────────────────────────────────────────
-  const toRoot = (e) => e.area === '' || (single && e.area === single) || (ATTACHABLE_KEYS.has(e.key) && !componentDirs.has(e.area));
+  // TRD 42-15 (D3): an item is placed by where its body RUNS (effectiveArea). One running in an
+  // unsupported sub-area is never a root command for any key: a `sub_area` note, one per
+  // (area, key). One running in a component is noted against that component.
+  // (An attachable key — e2e, lint_helm, lint_docker — from a non-component area used to reach the
+  // root; from an unsupported sub-area it is now a sub_area note like every other key.)
+  const rootAreas = new Set(single ? ['', single] : ['']);
   const rootByKey = new Map();
-  const elsewhere = new Map();
-  for (const e of items) {
-    if (toRoot(e)) {
-      if (!rootByKey.has(e.key)) rootByKey.set(e.key, []);
-      rootByKey.get(e.key).push(e);
+  const elsewhere = new Map(); // component (area, key) -> items
+  const subArea = new Map(); // unsupported sub-area (area, key) -> items
+  const bucket = (map, k, e) => {
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(e);
+  };
+  for (const item of items) {
+    const eff = effectiveAreaOf(item);
+    if (componentDirs.has(eff)) {
+      const e = item.area !== eff ? { ...item, area: eff } : item;
+      bucket(elsewhere, `${eff}\u0000${e.key}`, e);
+    } else if (rootAreas.has(eff)) {
+      bucket(rootByKey, item.key, item);
     } else {
-      const k = `${e.area}\u0000${e.key}`;
-      if (!elsewhere.has(k)) elsewhere.set(k, []);
-      elsewhere.get(k).push(e);
+      bucket(subArea, `${eff}\u0000${item.key}`, item);
     }
+  }
+  for (const list of subArea.values()) {
+    const best = rank(list, list[0].key)[0];
+    const eff = effectiveAreaOf(best);
+    notes.push(note(best, best.key, 'sub_area', `runs in ${eff}: not the primary stack; never a root command`, { effectiveArea: eff }));
   }
 
   // ── root keys ───────────────────────────────────────────────────────────
@@ -304,7 +349,23 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   for (const [key, list] of rootByKey) {
     const parentEntry = parent[key] && typeof parent[key] === 'object' ? parent[key] : null;
     const parentRun = parentEntry ? parentEntry.run : undefined;
-    const ranked = rank(list, key);
+    // D3 (TRD 42-15): a key the extends profile supplies is overridden only by a root candidate
+    // that runs the tier's stack at the root; the rest are off_stack notes (the default applies).
+    const gated = family && runnable(parentRun);
+    const offStackSeen = new Set();
+    const onStack = gated
+      ? list.filter((c) => {
+        const scopes = scopesOf(c);
+        if (scopes.some((s) => onFamily(s.stack) && rootAreas.has(s.area))) return true;
+        if (!offStackSeen.has(c.command)) {
+          offStackSeen.add(c.command);
+          const stacks = unique(scopes.map((s) => s.stack));
+          notes.push(note(c, key, 'off_stack', `tool stack ${stacks.join('+') || 'unknown'} does not match extends ${extendsId}`));
+        }
+        return false;
+      })
+      : list;
+    const ranked = rank(onStack, key);
     let runCands = ranked.filter((e) => RUN_FORMS.has(e.form));
     const applyCands = ranked.filter((e) => e.form === 'apply');
 
@@ -346,6 +407,12 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     }
     if (chosen && key === 'test' && breadthOf(chosen).breadth === 'unknown') {
       notes.push(note(chosen, key, 'breadth-unknown', 'what this command runs could not be read; kept as the repo-wide test'));
+    }
+    if (gated && chosen) {
+      const others = unique(scopesOf(chosen).map((s) => s.stack).filter((s) => !onFamily(s)));
+      if (others.length) {
+        notes.push(note(chosen, key, 'mixed_stack', `also runs ${others.join('+')}; kept because a ${extendsId}-stack invocation runs at the root`));
+      }
     }
     let apply = null;
     for (const a of applyCands) {
