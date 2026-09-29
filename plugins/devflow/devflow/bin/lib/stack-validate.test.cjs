@@ -19,7 +19,7 @@
 // - V10 unterminated frontmatter -> STK008 (not a throw).
 // - V11 component pointing at a missing file -> STK009.
 // - V12 `validateProfileText` on a draft string (no file on disk) behaves like V1.
-// - V13 bundled general and the three docs/stack-profiles (installed into a fake home) validate
+// - V13 bundled general and the three bundled stack-profiles (installed into a fake home) validate
 //       ok — flutter via dart via general.
 // - V14 (TRD 42-01, SDR-07) a placeholder skill pin — any whole-string `<...>` such as "<sha>" or
 //       "<commit>" — is warning STK010, `ok` stays true; a real SHA is not; an inherited org
@@ -255,8 +255,8 @@ describe('validateProfile (V group)', () => {
     assert.deepEqual(r.errors, []);
   });
 
-  test('V13: bundled general and the three docs/stack-profiles validate ok — flutter via dart via general', () => {
-    const PROFILES_DIR = path.join(__dirname, '..', '..', '..', '..', '..', 'docs', 'stack-profiles');
+  test('V13: bundled general and the three bundled stack-profiles validate ok — flutter via dart via general', () => {
+    const PROFILES_DIR = path.join(__dirname, '..', '..', 'stack-profiles');
     const goText = fs.readFileSync(path.join(PROFILES_DIR, 'go.md'), 'utf-8');
     const dartText = fs.readFileSync(path.join(PROFILES_DIR, 'dart.md'), 'utf-8');
     const flutterText = fs.readFileSync(path.join(PROFILES_DIR, 'flutter.md'), 'utf-8');

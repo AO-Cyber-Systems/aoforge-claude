@@ -12,7 +12,7 @@
 // - P7 H1 and prose before the first H2 are not a section.
 // - P8 a `## Heading` line inside a ``` fence is not a split.
 // - P9 `<!-- inherit -->` as the first non-blank line → `inherit:true`, marker removed from `text`.
-// - P10 positive control: `references/stack-general.md` and `docs/stack-profiles/{go,dart,flutter}.md`
+// - P10 positive control: `references/stack-general.md` and `stack-profiles/{go,dart,flutter}.md`
 //   parse; flutter has exactly two `inherit:true` sections; general has sections Principles, Avoid,
 //   Testing, Dependencies.
 //
@@ -163,7 +163,7 @@ describe('parseProfile (P group)', () => {
 
   describe('P10: positive control — shipped profiles parse', () => {
     const GENERAL_PATH = path.join(__dirname, '..', '..', 'references', 'stack-general.md');
-    const PROFILES_DIR = path.join(__dirname, '..', '..', '..', '..', '..', 'docs', 'stack-profiles');
+    const PROFILES_DIR = path.join(__dirname, '..', '..', 'stack-profiles');
 
     test('general.md parses; sections Principles, Avoid, Testing, Dependencies', () => {
       const text = fs.readFileSync(GENERAL_PATH, 'utf-8');
