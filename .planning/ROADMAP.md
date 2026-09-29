@@ -90,8 +90,8 @@ TRDs:
 - [x] 42-01-TRD.md — (W1) validation fixes: STK010 placeholder pins, reject positional path, local-date `reviewed`; `stack verify|report|mcp` lazy dispatch
 - [x] 42-03-TRD.md — (W1) `stack-shell` / `stack-ci` / `stack-classify`: joined logical commands, fragment drop rules, cwd, `uses:`, semantic key table
 - [x] 42-04-TRD.md — (W1) `stack-runners`: Make (`-C dir`) / Task / just / npm-family / conventional scripts with bodies
-- [ ] 42-02-TRD.md — (W2) fixed go/dart/flutter shipped as bundled tier-2 in `devflow/stack-profiles/` + loader bundled-tier lookup + SUBDIRS
-- [ ] 42-06-TRD.md — (W2) `stack-verify` + `stack verify [--run] [--draft]`: resolvability, safe-key run policy, deny list
+- [x] 42-02-TRD.md — (W2) fixed go/dart/flutter shipped as bundled tier-2 in `devflow/stack-profiles/` + loader bundled-tier lookup + SUBDIRS
+- [x] 42-06-TRD.md — (W2) `stack-verify` + `stack verify [--run] [--draft]`: resolvability, safe-key run policy, deny list
 - [ ] 42-05-TRD.md — (W3) `stack-detect` areas (depth 3), Dart-vs-Flutter object `detect`, component extends walk + cwd join
 - [ ] 42-07-TRD.md — (W4) drafter integration: preference order, verify→discover + notes, components, adopt; e2e over every failure shape
 - [ ] 42-09-TRD.md — (W4) `stack mcp [--write]` (opt-in), W033, agent/skill MCP grants, `confirm_stack_profile` workflow step
@@ -137,5 +137,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 10–23 (15 objectives) | v1.2 | 71/71 | Complete | 2026-05-25 |
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
-| 42. Codebase-aware stack drafter | v1.4 | 3/11 | In progress | — |
+| 42. Codebase-aware stack drafter | v1.4 | 5/11 | In progress | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
