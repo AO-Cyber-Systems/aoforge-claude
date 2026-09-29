@@ -40,14 +40,14 @@ function run(args, { cwd, home }) {
 
 describe('listOrgProfiles (I1)', () => {
   test('I1: null userHome -> []; a fake home with two profiles -> both ids, each with its detect list', () => {
-    assert.deepStrictEqual(sp.listOrgProfiles({ userHome: null }), []);
+    assert.deepStrictEqual(sp.listOrgProfiles({ userHome: null, bundledDir: null }), []);
 
     const other = fx.profileMd({
       yaml: ['schema: 1', 'id: other', 'extends: general', 'detect: [pubspec.yaml]'].join('\n'),
     });
     const home = fx.makeHome({ stacks: { golike: fx.orgProfileGoLike(), other } });
     try {
-      const profiles = sp.listOrgProfiles({ userHome: home });
+      const profiles = sp.listOrgProfiles({ userHome: home, bundledDir: null });
       const ids = profiles.map((p) => p.id).sort();
       assert.deepStrictEqual(ids, ['golike', 'other']);
       const golikeEntry = profiles.find((p) => p.id === 'golike');
@@ -64,7 +64,7 @@ describe('pickExtends (I2-I5)', () => {
     const home = fx.makeHome({ stacks: { golike: fx.orgProfileGoLike() } });
     const root = fx.makeProject({ files: fx.goShapedRepo() });
     try {
-      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null });
+      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null, bundledDir: null });
       assert.equal(picked.id, 'golike');
     } finally {
       fx.cleanup(root, home);

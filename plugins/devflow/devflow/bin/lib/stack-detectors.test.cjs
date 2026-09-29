@@ -86,7 +86,7 @@ function zlangHome() {
 // ─── D1 ──────────────────────────────────────────────────────────────────────
 
 test('D1: detectMarkers({userHome:null}) -> []', () => {
-  assert.deepEqual(detectMarkers({ userHome: null }), []);
+  assert.deepEqual(detectMarkers({ userHome: null, bundledDir: null }), []);
 });
 
 // ─── D2 ──────────────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ test('D1: detectMarkers({userHome:null}) -> []', () => {
 test('D2: fake-home profile detect markers become {marker, profile, languages} entries', () => {
   const home = zlangHome();
   try {
-    const markers = detectMarkers({ userHome: home });
+    const markers = detectMarkers({ userHome: home, bundledDir: null });
     assert.deepEqual(markers, [
       { marker: 'weird.lock', profile: 'zlang', languages: ['zlang'] },
       { marker: '*.zz', profile: 'zlang', languages: ['zlang'] },
