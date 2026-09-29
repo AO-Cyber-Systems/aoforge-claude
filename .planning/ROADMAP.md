@@ -85,7 +85,19 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 4. `.planning/STACK-REPORT.md` lists CI/CD + local-testing recommendations per stack, never auto-applied
 5. `stack validate` warns on `<sha>` pins, rejects positional paths; `reviewed` is the local date
 6. Every canonical DevFlow repo in `~/dev` has a committed, validated STACK.md (unpushed) or is listed as blocked with a reason
-**Plans:** TBD
+**Plans:** 11 TRDs in 6 waves
+TRDs:
+- [ ] 42-01-TRD.md — (W1) validation fixes: STK010 placeholder pins, reject positional path, local-date `reviewed`; `stack verify|report|mcp` lazy dispatch
+- [ ] 42-03-TRD.md — (W1) `stack-shell` / `stack-ci` / `stack-classify`: joined logical commands, fragment drop rules, cwd, `uses:`, semantic key table
+- [ ] 42-04-TRD.md — (W1) `stack-runners`: Make (`-C dir`) / Task / just / npm-family / conventional scripts with bodies
+- [ ] 42-02-TRD.md — (W2) fixed go/dart/flutter shipped as bundled tier-2 in `devflow/stack-profiles/` + loader bundled-tier lookup + SUBDIRS
+- [ ] 42-06-TRD.md — (W2) `stack-verify` + `stack verify [--run] [--draft]`: resolvability, safe-key run policy, deny list
+- [ ] 42-05-TRD.md — (W3) `stack-detect` areas (depth 3), Dart-vs-Flutter object `detect`, component extends walk + cwd join
+- [ ] 42-07-TRD.md — (W4) drafter integration: preference order, verify→discover + notes, components, adopt; e2e over every failure shape
+- [ ] 42-09-TRD.md — (W4) `stack mcp [--write]` (opt-in), W033, agent/skill MCP grants, `confirm_stack_profile` workflow step
+- [ ] 42-08-TRD.md — (W5) `stack report [--write] [--draft]` → `.planning/STACK-REPORT.md` catalogue + adopt report link
+- [ ] 42-10-TRD.md — (W6) docs: CLAUDE.md, CHANGELOG [Unreleased], templates/stack.md
+- [ ] 42-11-TRD.md — (W6, checkpoint) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → per-repo write/verify/report/commit (no push)
 
 ### Other v1.4 candidates
 
