@@ -13,6 +13,7 @@ started: 2026-09-29T22:21:25Z
 - [x] Task 1 RED: job-index cases 1-2 added; both fail (`[]` and `['legacy/old.cjs']`).
 - [x] Task 1 RED committed `eaa5114`.
 - [x] Task 1 GREEN: `fm.files_modified ?? fm['files-modified']`; df-tools.test.cjs 147/147 pass.
-- [ ] Task 2 RED
+- [x] Task 1 GREEN committed `31c5ce1`.
+- [x] Task 2 RED: commit-gate cases 4-9 added. 4, 5, 8, 9 fail (whole commit skipped); 6, 7 pass (regression locks, incl. raw `skipped`).
 - [ ] Task 2 GREEN
 - [ ] Task 3 fixture comment + CHANGELOG
