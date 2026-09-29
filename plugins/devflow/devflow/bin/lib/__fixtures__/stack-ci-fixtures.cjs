@@ -221,7 +221,74 @@ jobs:
           go test ./...
 `;
 
+// TRD 42-14 (D1): CI that checks THIS repo out into a subdir (`path: svcrepo`) and a sibling repo
+// into `libs/pkg-a` (`repository:` + `path:`). Invented names; the shape is the observed one.
+// Block `with:` spelling, with the self-checkout path also used as a job default.
+const SELF_CHECKOUT_YML = `name: svc
+on: [push]
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: svcrepo/go
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: svcrepo
+      - name: Checkout pkg-a
+        uses: actions/checkout@v4
+        with:
+          repository: org/pkg-a
+          path: libs/pkg-a
+      - name: Unit
+        run: go test ./...
+      - name: Vet
+        working-directory: svcrepo/go
+        run: go vet ./...
+      - name: Root
+        working-directory: svcrepo
+        run: make check
+      - name: Lib analyze
+        working-directory: libs/pkg-a
+        run: flutter analyze
+  plain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Workspace
+        working-directory: \${{ github.workspace }}/go
+        run: go build ./...
+      - name: Dotted
+        working-directory: ./go
+        run: go vet ./...
+`;
+
+// Flow-map `with: { … }` spelling of the same two checkouts.
+const SIBLING_CHECKOUT_YML = `name: flow
+on: [push]
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: svcrepo }
+      - uses: actions/checkout@v4
+        with: { repository: 'org/pkg-a', path: "libs/pkg-a" }
+      - name: Unit
+        run: go test ./...
+        working-directory: svcrepo/go
+      - name: Lib analyze
+        run: flutter analyze
+        working-directory: libs/pkg-a
+      - name: Lib test
+        run: flutter test
+        working-directory: \${{ github.workspace }}/libs/pkg-a/sub
+`;
+
 // ─── Builders ────────────────────────────────────────────────────────────────
+
+const GO_TREE = { 'go/go.mod': 'module example.com/svcrepo\n\ngo 1.22\n', 'go/main.go': 'package main\n\nfunc main() {}\n' };
 
 const continuationShape = () => makeWorkflowRepo({ workflows: { 'ci.yml': CONTINUATION_YML } });
 const flagFragmentShape = () => makeWorkflowRepo({ workflows: { 'ci.yml': FLAG_FRAGMENT_YML } });
@@ -233,6 +300,10 @@ const usesActionsShape = () => makeWorkflowRepo({ workflows: { 'ci.yml': USES_AC
 const quotedPipeShape = () => makeWorkflowRepo({ workflows: { 'ci.yml': QUOTED_PIPE_YML } });
 const mixedToolsShape = () => makeWorkflowRepo({ workflows: { 'ci.yml': MIXED_TOOLS_YML } });
 const scheduleShape = () => makeWorkflowRepo({ workflows: { 'nightly.yml': SCHEDULE_YML, 'pr.yml': NO_SCHEDULE_YML } });
+/** Self checkout at `path: svcrepo` + sibling `libs/pkg-a` (block `with:`); the repo holds `go/`. */
+const selfCheckoutPathShape = () => makeWorkflowRepo({ workflows: { 'ci.yml': SELF_CHECKOUT_YML }, files: GO_TREE });
+/** The same two checkouts in flow-map `with: { … }` spelling; the repo holds `go/`. */
+const siblingCheckoutShape = () => makeWorkflowRepo({ workflows: { 'ci.yml': SIBLING_CHECKOUT_YML }, files: GO_TREE });
 
 /** Three files in deliberately unsorted creation order, mixing `.yml` and `.yaml`, plus a non-workflow. */
 const multiFileShape = () => makeWorkflowRepo({
@@ -267,6 +338,8 @@ module.exports = {
   scheduleShape,
   multiFileShape,
   malformedShape,
+  selfCheckoutPathShape,
+  siblingCheckoutShape,
   // raw text, for `_parseWorkflowText` unit tests that need no filesystem
   TEXT: {
     CONTINUATION_YML,
@@ -281,5 +354,7 @@ module.exports = {
     SCHEDULE_YML,
     NO_SCHEDULE_YML,
     MALFORMED_YML,
+    SELF_CHECKOUT_YML,
+    SIBLING_CHECKOUT_YML,
   },
 };
