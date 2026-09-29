@@ -552,6 +552,92 @@ describe('Objective 34: every shipped runtime subdir reaches the mirror', () => 
 });
 
 // ---------------------------------------------------------------------------
+// Objective 42 (TRD 42-10): bundled tier-2 profiles mirror, user/org profiles survive
+//
+// TRD 42-02 moved the go/dart/flutter profiles to devflow/stack-profiles/ and added
+// 'stack-profiles' to SUBDIRS. That dir is swapped wholesale on every mirror, exactly like
+// references/ — so it MUST NOT be where a user or org keeps its own profile. Those live in
+// ~/.claude/devflow/stacks/<id>.md, a sibling that is deliberately NOT in SUBDIRS. If it ever
+// joined the allowlist (or the drift guard's "fix" were to add every dir), a mirror run would
+// delete every user override. These cases pin both halves.
+// ---------------------------------------------------------------------------
+
+describe('Objective 42: stack-profiles mirrors; ~/.claude/devflow/stacks/ is never touched', () => {
+  // A byte pattern that would not survive a utf8 round trip, so "byte-identical" is real.
+  const CUSTOM_BYTES = Buffer.concat([
+    Buffer.from('---\nschema: 1\nid: custom\nextends: go\n---\n\n# Org profile\n'),
+    Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x0d, 0x0a]),
+  ]);
+
+  function seedBundledProfile(devflowSrc) {
+    fs.mkdirSync(path.join(devflowSrc, 'stack-profiles'), { recursive: true });
+    fs.writeFileSync(
+      path.join(devflowSrc, 'stack-profiles', 'go.md'),
+      '---\nschema: 1\nid: go\n---\n\n# Stack Profile: go\n'
+    );
+  }
+
+  function seedUserStacks(targetDir) {
+    fs.mkdirSync(path.join(targetDir, 'stacks', 'acme'), { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'stacks', 'custom.md'), CUSTOM_BYTES);
+    fs.writeFileSync(path.join(targetDir, 'stacks', 'acme', 'nested.md'), 'nested org profile');
+  }
+
+  test('fresh mirror creates stack-profiles/go.md and leaves stacks/custom.md byte-identical', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    seedBundledProfile(devflowSrc);
+    seedUserStacks(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+
+    assert.ok(
+      fs.existsSync(path.join(targetDir, 'stack-profiles', 'go.md')),
+      'stack-profiles/go.md not mirrored — SUBDIRS omits stack-profiles'
+    );
+    assert.ok(
+      CUSTOM_BYTES.equals(fs.readFileSync(path.join(targetDir, 'stacks', 'custom.md'))),
+      'stacks/custom.md changed — the mirror touched the user/org profile dir'
+    );
+    assert.equal(
+      fs.readFileSync(path.join(targetDir, 'stacks', 'acme', 'nested.md'), 'utf8'),
+      'nested org profile'
+    );
+  });
+
+  test('a version-bump re-mirror refreshes stack-profiles/ but still leaves stacks/ alone', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    seedBundledProfile(devflowSrc);
+
+    // An older mirror already on disk: a stale bundled profile, plus the user's own profile.
+    seedMirror(targetDir, versionFile, '1.0.0');
+    fs.mkdirSync(path.join(targetDir, 'stack-profiles'), { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'stack-profiles', 'stale.md'), 'removed upstream');
+    seedUserStacks(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), TEST_VERSION, 'mirror did not run');
+
+    assert.ok(fs.existsSync(path.join(targetDir, 'stack-profiles', 'go.md')));
+    assert.ok(
+      !fs.existsSync(path.join(targetDir, 'stack-profiles', 'stale.md')),
+      'stack-profiles/ is a mirror of the bundled dir: a profile removed upstream must not linger'
+    );
+    assert.ok(
+      CUSTOM_BYTES.equals(fs.readFileSync(path.join(targetDir, 'stacks', 'custom.md'))),
+      'stacks/custom.md changed across a re-mirror'
+    );
+    assert.equal(
+      fs.readFileSync(path.join(targetDir, 'stacks', 'acme', 'nested.md'), 'utf8'),
+      'nested org profile'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Quick 21: never downgrade the mirror
 //
 // The old gate skipped work only on EXACT version equality + intact sentinel.
