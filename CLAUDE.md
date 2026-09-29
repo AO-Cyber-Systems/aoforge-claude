@@ -38,7 +38,8 @@ plugins/devflow/
     ├── bin/lib/*.cjs             # df-tools internals
     ├── workflows/<name>.md       # workflow bodies referenced via @~/.claude/devflow/workflows/...
     ├── references/<name>.md      # static reference docs read during execution
-    └── templates/<name>.md       # files copied into user projects' .planning/ dirs
+    ├── templates/<name>.md       # files copied into user projects' .planning/ dirs
+    └── stack-profiles/<id>.md    # bundled tier-2 profiles (go, dart, flutter)
 ```
 
 Skill `@path` references (`@~/.claude/devflow/...`) do not interpolate `${CLAUDE_PLUGIN_ROOT}`, so the `sync-runtime` SessionStart hook mirrors `${CLAUDE_PLUGIN_ROOT}/devflow/` to `~/.claude/devflow/` whenever the version differs. The `.plugin-version` marker file prevents redundant copies.
@@ -59,6 +60,7 @@ The central CLI utility used by ~50 skill and agent files. CommonJS module invok
 - **Changelog** (1.30+) — `changelog update --version vX.Y.Z [--from <ref> --to <ref>] [--dry-run]`, `changelog check <version>`. Implemented in `lib/changelog.cjs`; generates Keep-a-Changelog entries from conventional-commit history.
 - **Upgrade** (Unreleased) — `upgrade [--check|--apply] [--only id] [--confirm] [--path dir] [--kind k] [--default-work w] [--global]`. Brings a project forward in place and stamps `.planning/config.json` `devflow{version, migrations_applied, upgraded_at}`. The migrations are detection-based and idempotent (`lib/migrations/NNNN-*.cjs`, `auto` | `confirm`), with backups under `~/.claude/devflow/backups/`. `--global` upgrades `~/.claude` instead. `--prune [--dry-run]` runs the backup pruner unthrottled and prints its report; `--register [--path dir]` registers a repo for pruning without a full upgrade. Implemented in `lib/upgrade.cjs`, `lib/upgrade-cli.cjs`, `lib/migrations/`, `lib/managed-block.cjs`, `lib/global-upgrade.cjs` and `lib/backup-prune.cjs`. `validate health` reports W040 when a project is behind.
 - **Adopt** (Unreleased) — `adopt preflight|begin|scaffold|report [--cwd dir]`. Unattended bootstrap of an existing repo into a DevFlow project: preflight checks state/cleanliness/branch, scaffold writes config/STATE/`state.json`/ROADMAP and the CLAUDE.md managed block then stamps via `upgrade --apply`, report writes `.planning/ADOPT-REPORT.md`. Idempotent — a half-finished adopt resumes. Implemented in `lib/adopt.cjs`, `lib/adopt-cli.cjs` and `lib/repo-state.cjs` (the one devflow/greenfield/brownfield/scratch detector shared with `project-state.cjs` and `init new-project`). Driven end-to-end by `skills/adopt/SKILL.md` + `workflows/adopt.md`.
+- **Stack profile** (2.11+, drafter Unreleased) — `stack resolve|context|validate|command|init|verify [--run]|report|mcp [--write]`. `.planning/STACK.md` resolves over `general` → tier-2 → project → component. `init` drafts from CI/runner/manifest evidence (writes only with `--write`); `verify` checks each command, `--run` executes safe keys only; `report` proposes to `.planning/STACK-REPORT.md`; `mcp --write` is the only writer of the opt-in `.mcp.json`. Bundled tier-2 profiles live in `devflow/stack-profiles/` (mirrored by sync-runtime); user/org overrides in `~/.claude/devflow/stacks/<id>.md` are never mirrored over. Modules: `lib/stack-profile.cjs` + `stack-evidence|ci|shell|classify|runners|detect|draft|verify|report|mcp|render.cjs`. Guide: `templates/stack.md`.
 
 Model profiles are loaded from `plugins/devflow/devflow/references/model-profiles.json` (via `bin/lib/helpers.cjs`), which maps each agent to its opus/sonnet/haiku assignment per profile tier. The JSON also pins the concrete model id for each tier — keep those ids current when models ship; a stale id resolves to a model that never runs.
 
@@ -193,13 +195,10 @@ Every project declares a `kind` (`api | app | library | ui-lib | cli | plugin`) 
 
 See `docs/PROPOSAL-kind-and-work.md` for the full design rationale.
 
-## Where we left off (2026-09-28, branch `feat/stack-profile-loader`)
+## Where we left off (2026-09-29, branch `feat/stack-profile-loader`)
 
-Reviewed the draft go/dart/flutter profiles in `docs/stack-profiles/`. All pass `stack validate --profile`; gopls v0.22 tool names match. Neither `gopls mcp` nor `dart mcp-server` is configured, and nothing reads `agent_tooling` yet.
+Objective 42 (codebase-aware stack drafter) shipped grounded `stack init`, `stack verify [--run]`, `stack report`, `stack mcp [--write]` and bundled go/dart/flutter profiles. Fleet dry-run result: `.planning/objectives/42-codebase-aware-stack-drafter/42-ROLLOUT.md`.
 
-**Next, small fixes (`/devflow:quick`):**
-- Gates that never fail: go `format: gofmt -l .` exits 0 on unformatted files; dart `audit: dart pub outdated` always exits 0.
-- flutter `enabled_tools` whitelist drops `dtd` (needed before `hot_reload`/`widget_inspector`), `run_tests`, `analyze_files`. Use `disabled_tools` → `dart mcp-server --disable …`; dart profile adds `--disable flutter`. Drop stale go `go_context`. Add maestro to flutter.
-- `stack validate` should warn on `pin: "<sha>"` placeholders and reject a positional path (it silently validates `.planning/STACK.md`).
+No `upgrade` migration writes `.mcp.json`, on purpose: it is opt-in per repo, and `upgrade-project.js` auto-applies and commits migrations. `stack mcp --write` is its only writer.
 
-**Then (`/devflow:build`):** `df-tools stack mcp [--write]` — generate the project `.mcp.json` from the resolved profile (managed entries only), run from `stack init`/`adopt`, add an `upgrade` migration and a `validate health` missing-binary check. Add `mcp__gopls__*` / `mcp__dart__*` to executor/verifier/debugger `tools:`. Drop unused `mcp__context7__*` from agents. Long-term the packs replace these servers with `dflang mcp` (`docs/PROPOSAL-stack-packs.md` §6.12).
+**Still deferred:** `mcp__context7__*` cleanup in agents; Node/Rust/Python tier-2 profiles; the other UTC date sites listed in the 42-01 SUMMARY; long-term `dflang mcp` in place of these servers (`docs/PROPOSAL-stack-packs.md` §6.12).
