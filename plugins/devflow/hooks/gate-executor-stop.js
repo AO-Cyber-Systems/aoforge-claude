@@ -37,6 +37,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 // ─── TRD identification ───────────────────────────────────────────────────────
 
@@ -316,10 +317,115 @@ function isDeliberateStop(text) {
   return typeof text === 'string' && DELIBERATE_STOP_RE.test(text);
 }
 
+// ─── git worktree listing (the one git call) ──────────────────────────────────
+
+/** Paths from `git worktree list --porcelain` output (`worktree <path>` lines). */
+function parseWorktreePorcelain(text) {
+  const out = [];
+  for (const raw of String(text || '').split('\n')) {
+    const m = /^worktree (.+)$/.exec(raw.replace(/\r$/, ''));
+    if (m) out.push(m[1]);
+  }
+  return out;
+}
+
+/**
+ * Every worktree of the repo at `repoRoot` (main checkout included). Returns []
+ * immediately when `<repoRoot>/.git` is absent, and on any git failure: the
+ * other candidate roots are still checked.
+ *
+ * @param {string} repoRoot
+ * @returns {string[]}
+ */
+function gitWorktrees(repoRoot) {
+  try {
+    if (typeof repoRoot !== 'string' || !repoRoot) return [];
+    if (!fs.existsSync(path.join(repoRoot, '.git'))) return [];
+    const r = spawnSync('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain'], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    if (r.error || r.status !== 0) return [];
+    return parseWorktreePorcelain(r.stdout);
+  } catch {
+    return [];
+  }
+}
+
+// ─── Decision ─────────────────────────────────────────────────────────────────
+
+const SKIP_ENV = 'DEVFLOW_SKIP_EXECUTOR_STOP_GATE';
+const EXECUTOR_AGENT_TYPE = 'devflow:executor';
+
+function blockReason(id) {
+  return [
+    `DevFlow: you are stopping, but TRD ${id} has no ${id}-SUMMARY.md.`,
+    'If work remains, continue it now (commit each finished task with df-tools commit).',
+    "If you must stop, first write the ## Progress checkpoint to the TRD's SUMMARY.md",
+    '(tasks done with hashes, the next concrete step) and commit it, then stop.',
+    'If you stopped on purpose (checkpoint, escalation, exec-context hard stop), repeat that',
+    'structured return verbatim and stop without writing files.',
+    'Never use port 8080.',
+  ].join(' ');
+}
+
+/**
+ * Decide whether to block this SubagentStop. Returns `{block: true, reason}`
+ * or null. Checks run cheapest-first, and every one of them fails OPEN:
+ *   env skip → agent_type → stop_hook_active → no .planning → deliberate stop
+ *   → unreadable transcript → unidentifiable TRD → SUMMARY exists.
+ *
+ * @param {object} payload  the SubagentStop stdin payload
+ * @param {{env?: object, fsImpl?: object, gitWorktrees?: Function, cwd?: string}} [deps]
+ * @returns {{block: true, reason: string}|null}
+ */
+function decide(payload, {
+  env = process.env,
+  fsImpl = fs,
+  gitWorktrees: listWorktrees = gitWorktrees,
+  cwd = process.cwd(),
+} = {}) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (env && env[SKIP_ENV] === '1') return null;
+  if (payload.agent_type !== EXECUTOR_AGENT_TYPE) return null;
+  // The verified once-guard. Any truthy value counts: blocking here could loop the agent.
+  if (payload.stop_hook_active) return null;
+
+  const start = path.resolve(typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : cwd);
+  if (!findProjectRoot(start, fsImpl)) return null;
+
+  if (isDeliberateStop(payload.last_assistant_message)) return null;
+
+  const prompt = readFirstUserPrompt(payload.agent_transcript_path, { fsImpl });
+  if (!prompt) return null;
+
+  const trd = identifyTrd(prompt);
+  if (!trd) return null;
+
+  const roots = candidateRoots({ cwd: start, repoRoot: trd.repoRoot, gitWorktrees: listWorktrees, fsImpl });
+  if (summaryExists(trd.id, roots, fsImpl)) return null;
+
+  return { block: true, reason: blockReason(trd.id) };
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+function readStdin() {
+  try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
+}
+
 function main() {
-  // Wired in Task 3 (decide + stdin/stdout). A stub prints nothing: fail open.
+  try {
+    const raw = readStdin();
+    if (!raw.trim()) return;
+    const d = decide(JSON.parse(raw));
+    if (d && d.block) {
+      // TOP-LEVEL shape — the verified SubagentStop form. Not hookSpecificOutput.
+      process.stdout.write(JSON.stringify({ decision: 'block', reason: d.reason }));
+    }
+  } catch {
+    // Fail open: exit 0, no output.
+  }
 }
 
 if (require.main === module) main();
@@ -330,6 +436,9 @@ module.exports = {
   candidateRoots,
   summaryExists,
   isDeliberateStop,
+  decide,
+  gitWorktrees,
+  parseWorktreePorcelain,
   findProjectRoot,
   gitRoots,
 };
