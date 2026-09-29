@@ -556,6 +556,51 @@ function firstCommandWord(segment) {
   return null;
 }
 
+// Launchers that run the command that follows them. stack-shell peels sudo/time/env/nohup/exec; these
+// are the rest, so `timeout 60 ./scripts/release.sh` is read as the script, not as `timeout`.
+const LAUNCHER_TOOLS = new Set(['timeout', 'gtimeout', 'nice', 'ionice', 'xargs', 'stdbuf', 'setsid', 'caffeinate', 'watch', 'unbuffer', 'chronic']);
+const ENV_LAUNCHER_TOOLS = new Set(['doppler', 'dotenv', 'direnv', 'mise', 'asdf', 'op', 'aws-vault']);
+const LAUNCHER_NOISE = /^\d+(?:\.\d+)?[smhd]?$/;
+
+/** The invocation a launcher runs, or null when `inv` is not a launcher (or names nothing to run). */
+function unwrapInvocation(inv) {
+  const envLauncher = ENV_LAUNCHER_TOOLS.has(inv.tool);
+  if (!LAUNCHER_TOOLS.has(inv.tool) && !envLauncher) return null;
+  let rest = inv.argv.slice(1);
+  const dd = rest.indexOf('--');
+  if (dd !== -1) {
+    rest = rest.slice(dd + 1);
+  } else {
+    let i = 0;
+    while (i < rest.length && (rest[i].startsWith('-') || LAUNCHER_NOISE.test(rest[i]) || ENV_ASSIGN_WORD.test(rest[i])
+      || (envLauncher && (rest[i] === 'run' || rest[i] === 'exec')))) i++;
+    rest = rest.slice(i);
+  }
+  if (rest.length === 0) return null;
+  return { text: rest.join(' '), tool: rest[0], argv: rest, cwd: inv.cwd, env: inv.env };
+}
+
+/** Sort one invocation into refs.runners / refs.scripts (looking through launchers and `-c` strings). */
+function collectRefs(inv, refs, depth = 0) {
+  const d = describeInvocation(inv);
+  if (d.kind === 'runner') {
+    refs.runners.push(d);
+  } else if (d.kind === 'script') {
+    if (!INSTALLED_TOOL.test(d.file)) refs.scripts.push(d);
+  } else if (d.kind === 'inline') {
+    const at = inv.argv.findIndex((a, i) => i > 0 && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a));
+    if (at !== -1 && inv.argv[at + 1] !== undefined) {
+      const inner = referencesIn(inv.argv[at + 1], inv.cwd);
+      refs.runners.push(...inner.runners);
+      refs.scripts.push(...inner.scripts);
+      refs.opaque.push(...inner.opaque);
+    }
+  } else if (depth < 4) {
+    const inner = unwrapInvocation(inv);
+    if (inner) collectRefs(inner, refs, depth + 1);
+  }
+}
+
 /**
  * referencesIn(text, cwd) -> { runners: [descriptor], scripts: [descriptor], opaque: [string] }
  *
@@ -580,21 +625,7 @@ function referencesIn(text, cwd) {
     }
     if (CMD_SUBST_EXEC.test(line)) refs.opaque.push('command substitution runs a script or runner, which is not analysed');
   }
-  for (const inv of normalizeScript(src, { cwd: cwd || null })) {
-    const d = describeInvocation(inv);
-    if (d.kind === 'runner') refs.runners.push(d);
-    else if (d.kind === 'script') {
-      if (!INSTALLED_TOOL.test(d.file)) refs.scripts.push(d);
-    } else if (d.kind === 'inline') {
-      const at = inv.argv.findIndex((a, i) => i > 0 && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a));
-      if (at !== -1 && inv.argv[at + 1] !== undefined) {
-        const inner = referencesIn(inv.argv[at + 1], inv.cwd);
-        refs.runners.push(...inner.runners);
-        refs.scripts.push(...inner.scripts);
-        refs.opaque.push(...inner.opaque);
-      }
-    }
-  }
+  for (const inv of normalizeScript(src, { cwd: cwd || null })) collectRefs(inv, refs);
   return refs;
 }
 
@@ -847,6 +878,171 @@ function runCommands(items, { root, include = [], keys = null, timeoutS = null, 
   return items.map((it) => runOne(it, ctx, opts));
 }
 
+// ─── df-tools stack verify ────────────────────────────────────────────────────
+
+const PROBE_FILE = '__probe__';
+
+const VERIFY_FLAGS_WITH_VALUE = new Set(['--include', '--keys', '--timeout']);
+const VERIFY_FLAGS = new Set(['--run', '--draft', ...VERIFY_FLAGS_WITH_VALUE]);
+
+class UsageError extends Error {}
+
+/** Parse `stack verify` args (everything after the subcommand). Unknown flags and positionals throw. */
+function parseVerifyArgs(args) {
+  const opts = { run: false, draft: false, include: [], keys: null, timeoutS: null };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!VERIFY_FLAGS.has(a)) {
+      throw new UsageError(a.startsWith('-')
+        ? `unknown flag ${a}. stack verify takes: --run, --include a,b, --keys a,b, --timeout <seconds>, --draft`
+        : `stack verify takes no positional argument (got "${a}")`);
+    }
+    if (a === '--run') opts.run = true;
+    else if (a === '--draft') opts.draft = true;
+    else {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new UsageError(`${a} needs a value`);
+      i++;
+      if (a === '--timeout') {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n <= 0) throw new UsageError(`--timeout needs a positive number of seconds (got "${value}")`);
+        opts.timeoutS = n;
+      } else {
+        const list = value.split(',').map((s) => s.trim()).filter(Boolean);
+        if (a === '--include') opts.include = list;
+        else opts.keys = list;
+      }
+    }
+  }
+  return opts;
+}
+
+const RESOLVE_BUCKET = { resolved: 'resolved', unverifiable: 'unverifiable', discover: 'discover', none: 'none' };
+
+function summarize(results) {
+  const s = { resolved: 0, missing: 0, unverifiable: 0, discover: 0, none: 0, ran: 0, failed: 0, skipped: 0 };
+  for (const r of results) {
+    const status = r.resolve.status;
+    if (MISSING_STATUSES.has(status)) s.missing++;
+    else if (RESOLVE_BUCKET[status]) s[RESOLVE_BUCKET[status]]++;
+    if (r.run) {
+      if (r.run.skipped !== undefined) s.skipped++;
+      else {
+        s.ran++;
+        if (r.run.exit_code !== 0) s.failed++;
+      }
+    }
+  }
+  return s;
+}
+
+/**
+ * verifyStack({ projectRoot, userHome, draft, run, include, keys, timeoutS, env, spawn, which, fs })
+ *   -> { result: { profile_source, profile_file, results, summary }, exitCode }
+ *
+ * Read-only: `.planning/STACK.md` is only read, and `--draft` verifies `initProfile(write:false)`.
+ * Exported so 42-11 can call it without a subprocess.
+ */
+function verifyStack({ projectRoot, userHome = null, draft = false, run = false, include = [], keys = null, timeoutS = null, env = process.env, spawn = spawnSync, which = null, fs = nodeFs } = {}) {
+  // Required here, not at load time: stack-profile requires this module lazily, and the
+  // extensions require stack-profile, so a top-level require would be a cycle.
+  const sp = require('./stack-profile.cjs');
+  const root = path.resolve(String(projectRoot));
+
+  let viewOf;
+  let profileFile = null;
+  if (draft) {
+    const preview = sp.initProfile({ projectRoot: root, userHome, write: false });
+    const parsed = sp.parseProfile(preview.text, { source: preview.path });
+    viewOf = (file) => sp.resolveFromParsed(parsed, { userHome, file, projectRoot: root, targetPath: preview.path });
+  } else {
+    viewOf = (file) => sp.resolveProfile({ projectRoot: root, userHome, file });
+  }
+
+  const rootView = viewOf(null);
+  if (!draft) profileFile = rootView.projectFile || null;
+  const rootCommands = (rootView.frontmatter && rootView.frontmatter.commands) || {};
+
+  const views = [{ component: null, view: rootView, only: null }];
+  const components = Array.isArray(rootView.frontmatter && rootView.frontmatter.components) ? rootView.frontmatter.components : [];
+  for (const comp of components) {
+    if (!comp || typeof comp.path !== 'string') continue;
+    views.push({ component: comp.path, view: viewOf(path.posix.join(comp.path, PROBE_FILE)), only: rootCommands });
+  }
+
+  const results = [];
+  for (const { component, view, only } of views) {
+    const commands = (view.frontmatter && view.frontmatter.commands) || {};
+    for (const key of Object.keys(commands)) {
+      // A component view inherits the root's commands; report only what it overrides.
+      if (only && JSON.stringify(only[key]) === JSON.stringify(commands[key])) continue;
+      const rendered = sp.renderCommand(view, key, {});
+      const base = { component, key };
+      if (rendered.status !== 'ok') {
+        const item = { ...base, command: null, resolve: { status: rendered.status } };
+        if (rendered.cwd !== undefined) item.cwd = rendered.cwd;
+        results.push(item);
+        continue;
+      }
+      // cwd is taken from renderCommand AS-IS: the component cwd join belongs to renderCommand (42-05).
+      const item = { ...base, command: rendered.command };
+      if (rendered.cwd !== undefined) item.cwd = rendered.cwd;
+      if (rendered.timeout_s !== undefined) item.timeout_s = rendered.timeout_s;
+      item.form = rendered.form;
+      item.resolve = verifyCommand(rendered.command, { root, cwd: rendered.cwd || '', env, home: userHome || os.homedir(), which, fs });
+      results.push(item);
+    }
+  }
+
+  const finalResults = run
+    ? runCommands(results, { root, include, keys, timeoutS, spawn, env, fs })
+    : results;
+  for (const r of finalResults) delete r.form;
+
+  const summary = summarize(finalResults);
+  const result = {
+    profile_source: draft ? 'draft' : 'file',
+    profile_file: profileFile,
+    results: finalResults,
+    summary,
+  };
+  return { result, exitCode: summary.missing > 0 || summary.failed > 0 ? 1 : 0 };
+}
+
+/** The compact `--raw` table: `key[@component] status` (a run appends ` run=<exit>` or ` skipped=<reason>`). */
+function rawTable(result) {
+  const lines = result.results.map((r) => {
+    let line = `${r.key}${r.component ? `@${r.component}` : ''} ${r.resolve.status}`;
+    if (r.run) line += r.run.skipped !== undefined ? ` skipped=${r.run.skipped}` : ` run=${r.run.timed_out ? 'timeout' : r.run.exit_code}`;
+    return line;
+  });
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * cli(cwd, args, raw, { userHome }) — `df-tools stack verify [--run] [--include a,b] [--keys a,b]
+ * [--timeout <s>] [--draft]`. `args` excludes the `verify` token (the STACK_EXTENSIONS contract).
+ * Prints JSON, or the compact table under `--raw`. Exit 1 when any command is missing or any run failed.
+ */
+function cli(cwd, args, raw, { userHome = null } = {}) {
+  const { output, error } = require('./helpers.cjs');
+  let opts;
+  try {
+    opts = parseVerifyArgs(args || []);
+  } catch (err) {
+    if (err instanceof UsageError) { error(err.message); return; }
+    throw err;
+  }
+  let outcome;
+  try {
+    outcome = verifyStack({ projectRoot: cwd, userHome: userHome || os.homedir(), ...opts });
+  } catch (err) {
+    error(err.message);
+    return;
+  }
+  output(outcome.result, raw, rawTable(outcome.result), outcome.exitCode);
+}
+
 module.exports = {
   verifyCommand,
   resolveBinary,
@@ -854,4 +1050,7 @@ module.exports = {
   MISSING_STATUSES,
   runCommands,
   RUN_POLICY,
+  verifyStack,
+  parseVerifyArgs,
+  cli,
 };

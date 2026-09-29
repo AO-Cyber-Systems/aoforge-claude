@@ -647,6 +647,37 @@ describe('runCommands: deny policy on expanded bodies (test 5b)', () => {
   });
 });
 
+describe('runCommands: launcher wrappers do not hide what they run', () => {
+  const ROWS = [
+    ['timeout 60 ./scripts/release.sh', 'body:git-push'],
+    ['nice -n 5 make build', 'body:docker-push'],
+    ['timeout 30 bash scripts/ci.sh', 'body:docker-push'],
+    ['xargs -n1 ./scripts/release.sh', 'body:git-push'],
+    ['doppler run -- ./scripts/deploy.sh', 'body:kubectl-apply'],
+    ['timeout 30 make chain', 'unverifiable-body'],
+    ['sh -c "./scripts/deploy.sh"', 'body:kubectl-apply'],
+    ['bash -c "make chain"', 'unverifiable-body'],
+  ];
+
+  test('each wrapped script or target is expanded and refused', () => {
+    const root = track(fx.bodyRepo());
+    for (const [command, reason] of ROWS) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command)], { root, spawn });
+      assert.equal(r.run.skipped, reason, command);
+      assert.equal(spawn.calls.length, 0, command);
+    }
+  });
+
+  test('a wrapped clean script still runs', () => {
+    const root = track(fx.bodyRepo());
+    const spawn = spySpawn();
+    const [r] = runCommands([item('timeout 60 ./scripts/lint.sh')], { root, spawn });
+    assert.equal(r.run.skipped, undefined);
+    assert.equal(spawn.calls.length, 1);
+  });
+});
+
 describe('runCommands: executor (test 3, unit level)', () => {
   test('spawns `sh -c <command>` in root/cwd with a timeout in ms and records the result', () => {
     const root = track(fx.makeRepo({ 'svc/.keep': '' }));
@@ -764,15 +795,14 @@ function snapshot(dir) {
 }
 
 /**
- * runVerify(repo, args, { bin, home }) — spawns THIS checkout's df-tools with PATH = the stub dir, the node
- * dir and the system dirs `sh` lives in, and HOME = a fake home. Nothing depends on an installed toolchain.
+ * runVerify(repo, args, { bin, home }) — spawns THIS checkout's df-tools with PATH = the stub dir ONLY and
+ * HOME = a fake home. `sh` (needed by `--run`) is symlinked into the stub dir, so no real make/go/npm can
+ * leak in through a system dir. df-tools itself is started by absolute path, so node needs no PATH entry.
  */
 function runVerify(repo, args, { bin, home } = {}) {
   const fakeHome = home || track(fx.fakeHome({}));
-  const env = {
-    PATH: [bin, path.dirname(process.execPath), '/bin', '/usr/bin'].filter(Boolean).join(path.delimiter),
-    HOME: fakeHome,
-  };
+  if (!fs.existsSync(path.join(bin, 'sh'))) fs.symlinkSync('/bin/sh', path.join(bin, 'sh'));
+  const env = { PATH: bin, HOME: fakeHome };
   const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'verify', ...args], { encoding: 'utf-8', env, timeout: 60000 });
   let json = null;
   try { json = JSON.parse(r.stdout); } catch (_) { /* raw mode */ }
@@ -953,7 +983,8 @@ describe('CLI: stack verify --run (test 3)', () => {
   test('--timeout bounds a slow command and the batch continues', () => {
     const repo = projectWith(['  format: { run: "slow-stub" }', '  lint: { run: "lint-stub" }']);
     const bin = track(fx.fakeBin(['lint-stub']));
-    fs.writeFileSync(path.join(bin, 'slow-stub'), '#!/bin/sh\nsleep 20\n');
+    // A shell-builtin busy loop: the restricted PATH has no `sleep`.
+    fs.writeFileSync(path.join(bin, 'slow-stub'), '#!/bin/sh\nwhile :; do :; done\n');
     fs.chmodSync(path.join(bin, 'slow-stub'), 0o755);
     const r = runVerify(repo, ['--run', '--timeout', '1'], { bin });
     assert.equal(r.status, 1);
