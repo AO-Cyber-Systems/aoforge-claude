@@ -914,17 +914,21 @@ describe('CLI: stack verify --draft (test 2)', () => {
     assert.deepEqual(snapshot(repo), before);
   });
 
-  test('a draft command whose target is missing is reported missing (exit 1)', () => {
+  // Since 42-07 the drafter verifies every candidate BEFORE proposing it, with the same resolver
+  // and env, so a draft can no longer carry a command `verify --draft` reports missing: the
+  // unresolvable `make test` (no `make` on PATH) drafts as `discover`, and verify exits 0. (This
+  // test asserted exit 1 / binary_missing for the pre-42-07 unverified draft.)
+  test('an unresolvable draft candidate is proposed as discover, never as a missing command (exit 0)', () => {
     const repo = track(fx.makeRepo({
-      // A stack with no bundled profile, so the draft extends `general` and keeps the
+      // A stack with no bundled profile, so the draft extends `general` and considers the
       // Makefile targets (a go.mod would pull in the bundled go profile since 42-02).
       'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n',
       Makefile: 'test:\n\tgo test ./...\n',
     }));
     const bin = track(fx.fakeBin([]));
     const r = runVerify(repo, ['--draft'], { bin });
-    assert.equal(r.status, 1);
-    assert.equal(resultFor(r.json, 'test').resolve.status, 'binary_missing');
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(resultFor(r.json, 'test').resolve.status, 'discover');
   });
 });
 
