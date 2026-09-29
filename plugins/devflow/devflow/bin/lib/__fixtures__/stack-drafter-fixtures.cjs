@@ -440,8 +440,9 @@ function evidenceShape() {
  *                         build:agent fan-out), build:agent:quickdev, build:backend (a `task:` fan-out
  *                         that `package` depends on), build:frontend, build:macos, dev (G3: the
  *                         canonical pick is build:backend)
- *   guard.yml             `go test -c -o /tmp/guard.test ./tests/guard/` (G2: compile-only, never
- *                         the repo-wide test)
+ *   guard.yml             `go test -c -o /tmp/guard.test ./tests/guard/` (G2: compile-only) and
+ *                         `go test ./pkg/guardnet/...` (G2: one package sub-tree); neither is the
+ *                         repo-wide test
  *
  * Callers skip when stack-detect-fixtures.hasGit() is false.
  */
@@ -521,6 +522,8 @@ function terminalShape() {
       '      - uses: actions/setup-go@v5',
       '      - name: compile the egress guard',
       '        run: go test -c -o /tmp/guard.test ./tests/guard/',
+      '      - name: guard package tests',
+      '        run: go test ./pkg/guardnet/...',
     ]),
   }, { track: ['dist/scaffoldapp/go.mod'] });
 }

@@ -249,6 +249,9 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     assert.ok(narrow, JSON.stringify(json.notes));
     assert.equal(narrow.key, 'test');
     assert.match(narrow.detail, /compile-only/);
+    const subtree = json.notes.find((n) => n.status === 'narrow' && n.candidate === 'go test ./pkg/guardnet/...');
+    assert.ok(subtree, `a package sub-tree is not repo-wide: ${JSON.stringify(json.notes)}`);
+    assert.match(subtree.detail, /single-path/);
     assert.ok(json.notes.some((n) => n.status === 'alternate' && n.key === 'build' && n.candidate === 'task build:agent:internal'), JSON.stringify(json.notes));
     assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
     assertNoFragments(fm.commands);
