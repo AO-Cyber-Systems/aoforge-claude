@@ -340,3 +340,235 @@ describe('isDeliberateStop', () => {
     assert.equal(isDeliberateStop(null), false);
   });
 });
+
+// ─── decide() (unit) ──────────────────────────────────────────────────────────
+
+const { spawnSync } = require('child_process');
+const { decide, gitWorktrees } = require('./gate-executor-stop.js');
+
+/** A fixture project with 77-02-TRD.md and a transcript whose first prompt dispatches 77-02. */
+function makeExecutorScenario(root, { summaries = [], promptOpts = {}, transcriptOpts = {} } = {}) {
+  F.makePlanningRepo(root, { summaries });
+  const prompt = F.executorPrompt({ planId: '77-02', repoRoot: root, ...promptOpts });
+  const transcript = F.writeAgentTranscript(path.join(root, 'transcripts'), prompt, transcriptOpts);
+  const payload = F.subagentStopPayload({ cwd: root, agent_transcript_path: transcript });
+  return { root, transcript, payload };
+}
+
+describe('decide', () => {
+  let tmp;
+  before(() => { tmp = mkTmp('ges-decide-'); });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  const deps = (extra = {}) => ({ env: {}, gitWorktrees: () => [], ...extra });
+
+  test('executor, natural stop, no SUMMARY → block with an actionable reason', () => {
+    const { payload } = makeExecutorScenario(path.join(tmp, 'block'));
+    const d = decide(payload, deps());
+    assert.equal(d.block, true);
+    assert.match(d.reason, /77-02/);
+    assert.match(d.reason, /77-02-SUMMARY\.md/);
+    assert.match(d.reason, /## Progress/);
+    assert.match(d.reason, /df-tools commit/);
+  });
+
+  test('env escape hatch wins over everything', () => {
+    const { payload } = makeExecutorScenario(path.join(tmp, 'env'));
+    assert.equal(decide(payload, deps({ env: { DEVFLOW_SKIP_EXECUTOR_STOP_GATE: '1' } })), null);
+  });
+
+  test('stop_hook_active true → null (the once-guard)', () => {
+    const { payload } = makeExecutorScenario(path.join(tmp, 'active'));
+    assert.equal(decide({ ...payload, stop_hook_active: true }, deps()), null);
+  });
+
+  test('test 5 (unit): SUMMARY only in a linked worktree from injected gitWorktrees → null', () => {
+    const { payload } = makeExecutorScenario(path.join(tmp, 'wt-main'));
+    const wt = F.makePlanningRepo(path.join(tmp, 'wt-linked'), { trdIds: [], summaries: ['77-02'] });
+    const calls = [];
+    const d = decide(payload, deps({ gitWorktrees: (r) => { calls.push(r); return [wt]; } }));
+    assert.equal(d, null);
+    assert.equal(calls.length, 1, 'exactly one gitWorktrees call');
+    assert.ok(decide(payload, deps({ gitWorktrees: () => [] })).block, 'control: blocks without the worktree');
+  });
+
+  test('gitWorktrees throwing still checks the other roots', () => {
+    const { payload } = makeExecutorScenario(path.join(tmp, 'wt-throws'));
+    const d = decide(payload, deps({ gitWorktrees: () => { throw new Error('no git'); } }));
+    assert.equal(d.block, true);
+  });
+
+  test('payload.cwd missing → deps.cwd is used', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 'nocwd'));
+    const p = { ...payload };
+    delete p.cwd;
+    assert.equal(decide(p, deps({ cwd: root })).block, true);
+    assert.equal(decide(p, deps({ cwd: path.join(tmp) })), null, 'no .planning up from tmp → null');
+  });
+
+  test('null / non-object payload → null', () => {
+    assert.equal(decide(null, deps()), null);
+    assert.equal(decide('nope', deps()), null);
+  });
+});
+
+// ─── gitWorktrees (real git) ──────────────────────────────────────────────────
+
+describe('gitWorktrees (real git)', () => {
+  let tmp;
+  let hasGit = true;
+  before(() => {
+    tmp = mkTmp('ges-git-');
+    hasGit = spawnSync('git', ['--version'], { encoding: 'utf8' }).status === 0;
+  });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  const git = (cwd, args) => {
+    const r = spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd, encoding: 'utf8' });
+    assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+    return r;
+  };
+
+  test('lists every worktree of the repo; [] for a non-repo', (t) => {
+    if (!hasGit) { t.skip('git not installed'); return; }
+    const main = path.join(tmp, 'main');
+    fs.mkdirSync(main, { recursive: true });
+    git(main, ['init', '-q']);
+    git(main, ['commit', '-q', '--allow-empty', '-m', 'init']);
+    const wt = path.join(tmp, 'wt-a');
+    git(main, ['worktree', 'add', '-q', '-b', 'fixture-branch', wt]);
+
+    const list = gitWorktrees(main).map((p) => fs.realpathSync(p));
+    assert.ok(list.includes(fs.realpathSync(main)), JSON.stringify(list));
+    assert.ok(list.includes(fs.realpathSync(wt)), JSON.stringify(list));
+    assert.deepEqual(gitWorktrees(path.join(tmp, 'not-a-repo')), []);
+  });
+
+  test('e2e: SUMMARY only in a real linked worktree → no block', (t) => {
+    if (!hasGit) { t.skip('git not installed'); return; }
+    const main = path.join(tmp, 'main2');
+    fs.mkdirSync(main, { recursive: true });
+    git(main, ['init', '-q']);
+    git(main, ['commit', '-q', '--allow-empty', '-m', 'init']);
+    const wt = path.join(tmp, 'wt-b');
+    git(main, ['worktree', 'add', '-q', '-b', 'fixture-branch-2', wt]);
+    const { payload } = makeExecutorScenario(main);
+
+    const control = runHook(payload, { cwd: main });
+    assert.equal(JSON.parse(control.stdout || '{}').decision, 'block', `control: blocks before the worktree has a SUMMARY (${control.stderr})`);
+    F.makePlanningRepo(wt, { trdIds: [], summaries: ['77-02'] });
+    const r = runHook(payload, { cwd: main });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+});
+
+// ─── E2E: spawn the hook with a stdin payload (tests 1-8) ─────────────────────
+
+const HOOK_PATH = path.join(__dirname, 'gate-executor-stop.js');
+
+function runHook(payload, { cwd, env = {} } = {}) {
+  const baseEnv = { ...process.env };
+  delete baseEnv.DEVFLOW_SKIP_EXECUTOR_STOP_GATE;
+  return spawnSync(process.execPath, [HOOK_PATH], {
+    cwd,
+    input: typeof payload === 'string' ? payload : JSON.stringify(payload),
+    encoding: 'utf8',
+    env: { ...baseEnv, ...env },
+    timeout: 15000,
+  });
+}
+
+function assertSilent(r, label) {
+  assert.equal(r.status, 0, `${label}: exit ${r.status} stderr=${r.stderr}`);
+  assert.equal(r.stdout, '', `${label}: expected no output, got ${r.stdout}`);
+}
+
+describe('e2e: gate-executor-stop.js as a SubagentStop hook', () => {
+  let tmp;
+  before(() => { tmp = mkTmp('ges-e2e-'); });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  test('1. executor, stop_hook_active false, no SUMMARY → one top-level block', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't1'));
+    const r = runHook(payload, { cwd: root });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual(Object.keys(out).sort(), ['decision', 'reason'], 'top-level shape, no hookSpecificOutput');
+    assert.equal(out.decision, 'block');
+    assert.match(out.reason, /77-02/);
+    assert.match(out.reason, /SUMMARY\.md/);
+    assert.match(out.reason, /## Progress/);
+  });
+
+  test('1b. payload.cwd absent → falls back to the process cwd', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't1b'));
+    const r = runHook({ ...payload, cwd: undefined }, { cwd: root });
+    assert.equal(JSON.parse(r.stdout).decision, 'block');
+  });
+
+  test('2. stop_hook_active true → no output', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't2'));
+    assertSilent(runHook({ ...payload, stop_hook_active: true }, { cwd: root }), 'stop_hook_active');
+  });
+
+  test('3. non-executor or missing agent_type → no output', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't3'));
+    assertSilent(runHook({ ...payload, agent_type: 'devflow:verifier' }, { cwd: root }), 'verifier');
+    assertSilent(runHook({ ...payload, agent_type: 'general-purpose' }, { cwd: root }), 'general-purpose');
+    assertSilent(runHook(F.subagentStopPayload({ ...payload, agent_type: undefined }), { cwd: root }), 'missing');
+  });
+
+  test('4. SUMMARY exists with only ## Progress → no output', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't4'), { summaries: ['77-02'] });
+    assertSilent(runHook(payload, { cwd: root }), 'progress-only summary');
+  });
+
+  test('5. SUMMARY only under REPO_ROOT while payload.cwd is elsewhere → no block', () => {
+    const named = F.makePlanningRepo(path.join(tmp, 't5-named'), { summaries: ['77-02'] });
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't5-cwd'), { promptOpts: { repoRoot: named } });
+    assertSilent(runHook(payload, { cwd: root }), 'summary under REPO_ROOT');
+
+    const empty = F.makePlanningRepo(path.join(tmp, 't5-empty'));
+    const ctl = makeExecutorScenario(path.join(tmp, 't5-ctl'), { promptOpts: { repoRoot: empty } });
+    assert.equal(JSON.parse(runHook(ctl.payload, { cwd: ctl.root }).stdout).decision, 'block', 'control');
+  });
+
+  test('6. no .planning up from cwd → no output; env escape hatch → no output', () => {
+    const bare = path.join(tmp, 't6-bare');
+    const transcript = F.writeAgentTranscript(bare, F.executorPrompt({ planId: '77-02', repoRoot: bare }));
+    assertSilent(runHook(F.subagentStopPayload({ cwd: bare, agent_transcript_path: transcript }), { cwd: bare }), 'no .planning');
+
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't6-env'));
+    assertSilent(runHook(payload, { cwd: root, env: { DEVFLOW_SKIP_EXECUTOR_STOP_GATE: '1' } }), 'escape hatch');
+  });
+
+  test('7. transcript missing, nonexistent or garbage → no output', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't7'));
+    assertSilent(runHook({ ...payload, agent_transcript_path: undefined }, { cwd: root }), 'missing path');
+    assertSilent(runHook({ ...payload, agent_transcript_path: path.join(root, 'nope.jsonl') }, { cwd: root }), 'nonexistent');
+    const garbage = F.writeAgentTranscript(path.join(root, 'garbage'), null, { leading: ['garbage line', '{"type":"user",', '\u0000\u0001'] });
+    assertSilent(runHook({ ...payload, agent_transcript_path: garbage }, { cwd: root }), 'garbage');
+  });
+
+  test('8. deliberate stops → no output', () => {
+    const { root, payload } = makeExecutorScenario(path.join(tmp, 't8'));
+    assertSilent(runHook({ ...payload, last_assistant_message: '## CHECKPOINT REACHED\n\n**Type:** human-verify' }, { cwd: root }), 'checkpoint');
+    assertSilent(runHook({ ...payload, last_assistant_message: 'exec-context check failed: WRONG REPOSITORY (/elsewhere)' }, { cwd: root }), 'wrong repo');
+    assertSilent(runHook({ ...payload, last_assistant_message: '## ESCALATION REQUESTED\n\n**Trigger:** tests-red-after-2' }, { cwd: root }), 'escalation');
+  });
+
+  test('unidentifiable or ambiguous TRD → no output', () => {
+    const root = F.makePlanningRepo(path.join(tmp, 't-id'));
+    const quick = F.writeAgentTranscript(path.join(root, 'q'), 'Execute quick task 3.\nJob: @.planning/quick/3-fix/3-JOB.md');
+    assertSilent(runHook(F.subagentStopPayload({ cwd: root, agent_transcript_path: quick }), { cwd: root }), 'quick-style');
+    const ambiguous = F.writeAgentTranscript(path.join(root, 'amb'), 'PLAN_ID: 77-02\n  node df-tools.cjs exec-context check --repo /r --base b --id 77-03');
+    assertSilent(runHook(F.subagentStopPayload({ cwd: root, agent_transcript_path: ambiguous }), { cwd: root }), 'ambiguous');
+  });
+
+  test('bad stdin (not JSON, empty) → no output, exit 0', () => {
+    const root = F.makePlanningRepo(path.join(tmp, 't-stdin'));
+    assertSilent(runHook('{not json', { cwd: root }), 'not json');
+    assertSilent(runHook('', { cwd: root }), 'empty');
+  });
+});
