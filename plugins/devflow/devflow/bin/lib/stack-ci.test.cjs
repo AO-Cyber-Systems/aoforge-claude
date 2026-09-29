@@ -159,8 +159,9 @@ describe('C7 uses: steps are recorded, not dropped', () => {
 
   test('`with:` keys never leak into the step (no phantom run / name)', () => {
     const steps = parseWorkflows(use(fx.usesActionsShape()));
-    assert.equal(steps.length, 4);
+    assert.equal(steps.length, 3); // checkout, Setup Go, Lint — the `with:` keys add none
     assert.deepEqual(invTexts(steps), []);
+    assert.deepEqual(steps.map((s) => s.uses), ['actions/checkout@v4', 'actions/setup-go@v5', 'golangci/golangci-lint-action@v6']);
   });
 });
 
