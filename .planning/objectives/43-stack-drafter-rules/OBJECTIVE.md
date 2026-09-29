@@ -21,6 +21,10 @@ Registered 2026-09-29. Objective 42's two gap cycles were exhausted with 11 flee
 7. **`df-tools commit` gitignore check is directory-level** (misses a `.planning/` rule when the dir has tracked files) — same fix as 42-12's file-level preflight.
 8. `stack verify --run` safe keys are not read-only: `flutter analyze --fatal-infos` rewrites analysis_options.yaml (adds analyzer.exclude) and runs an implicit pub get that bumps pubspec.lock. Run Flutter/Dart gates with `--no-pub` / against a temp copy, or refuse them under --run.
 
+9. **`stack mcp` drops Flutter tools in mixed Flutter + pure-Dart repos.** The `dart` server entry is keyed once, so the pure-Dart component's `--disable flutter` args win and the Flutter MCP tools (hot_reload, widget_inspector, dtd) are disabled for the Flutter component. Flutter args must win when any component is Flutter. (Found by 42-VERIFICATION.)
+10. **Run the gates for real.** After defect 8 is fixed, do a read-only `stack verify --run` pass over the 30 fleet repos that were only resolve-checked in 42-11, and record results in each STACK-REPORT.md (42-VERIFICATION gap 2).
+11. **`df-tools verify artifacts` can't parse `must_haves`** in objective 42's TRDs, so the verifier had to check artifacts by hand.
+
 ## Success
 
 Re-drafting each of the 11 override repos' shapes from fixtures yields commands equivalent to the override files; the full fleet dry run shows no row needing a hand-fix.
