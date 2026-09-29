@@ -334,4 +334,410 @@ describe('resolveBinary (test 13)', () => {
   });
 });
 
-// (Tasks 2-3 tests are appended below.)
+// ─── Task 2: --run policy and executor (tests 5, 5b, 6, 3-unit) ────────────────
+
+const { runCommands, RUN_POLICY } = require('./stack-verify.cjs');
+
+/** A spawn spy: records every call, answers with `reply` (a fixed object or a function of the call). */
+function spySpawn(reply = { status: 0, stdout: 'ok\n', stderr: '' }) {
+  const calls = [];
+  const spawn = (cmd, args, opts) => {
+    calls.push({ cmd, args, opts });
+    return typeof reply === 'function' ? reply({ cmd, args, opts }) : reply;
+  };
+  spawn.calls = calls;
+  return spawn;
+}
+
+const item = (command, key = 'build', extra = {}) => ({ component: null, key, command, cwd: '', ...extra });
+
+describe('RUN_POLICY shape', () => {
+  test('key sets match the TRD', () => {
+    assert.deepEqual(RUN_POLICY.defaultKeys, ['format', 'lint', 'typecheck', 'build']);
+    assert.deepEqual(RUN_POLICY.optInKeys, ['test', 'e2e', 'audit', 'sast', 'lint_helm', 'lint_docker']);
+    assert.deepEqual(RUN_POLICY.neverKeys, ['codegen', 'deps']);
+    assert.ok(RUN_POLICY.deny.length >= 15);
+    for (const d of RUN_POLICY.deny) {
+      assert.ok(d.re instanceof RegExp && !d.re.global && !d.re.sticky, `deny regex must be stateless: ${d.reason}`);
+      assert.equal(typeof d.reason, 'string');
+    }
+    assert.ok(RUN_POLICY.skip.some((s) => s.reason === 'container-build'));
+  });
+});
+
+describe('runCommands: deny policy on the command (test 5)', () => {
+  const DENY_ROWS = [
+    ['make deploy', 'deploy-target'],
+    ['npm publish', 'npm-publish'],
+    ['dart pub publish', 'pub-publish'],
+    ['flutter pub publish', 'pub-publish'],
+    ['gh release create', 'gh-release'],
+    ['goreleaser release', 'goreleaser'],
+    ['docker push x', 'docker-push'],
+    ['docker buildx build --push .', 'docker-push'],
+    ['docker build --push .', 'docker-push'],
+    ['kubectl apply -f k8s/', 'kubectl-apply'],
+    ['kubectl delete ns x', 'kubectl-delete'],
+    ['helm upgrade --install x', 'helm-deploy'],
+    ['helm install x ./chart', 'helm-deploy'],
+    ['terraform apply', 'terraform-apply'],
+    ['terraform destroy -auto-approve', 'terraform-apply'],
+    ['npm run dev', 'server-or-watch'],
+    ['pnpm run test:watch', 'server-or-watch'],
+    ['jest --watch', 'server-or-watch'],
+    ['flutter run', 'flutter-run'],
+    ['go run ./cmd/server --port 8080', 'port-8080-forbidden'],
+    ['curl localhost:8080/health', 'port-8080-forbidden'],
+    ['task release:tag', 'deploy-target'],
+    ['git push origin main', 'git-push'],
+    ['go test ./... && git push', 'git-push'],
+    ['cargo publish', 'cargo-publish'],
+    ['twine upload dist/*', 'python-publish'],
+    ['docker compose up', 'container-run'],
+    ['fly deploy', 'deploy-cli'],
+    ['sh -c "git push origin main"', 'git-push'],
+  ];
+
+  test('at least 15 refused commands, each with its named reason and never spawned', () => {
+    assert.ok(DENY_ROWS.length >= 15);
+    const root = track(fx.makeRepo({}));
+    for (const [command, reason] of DENY_ROWS) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command)], { root, spawn });
+      assert.equal(spawn.calls.length, 0, `${command} must not spawn`);
+      assert.equal(r.run.skipped, reason, command);
+      assert.equal(r.skipped, reason, command);
+      assert.equal(r.run.exit_code, undefined, command);
+    }
+  });
+
+  test('`docker build .` is skipped with reason container-build, and not spawned', () => {
+    const root = track(fx.makeRepo({}));
+    for (const command of ['docker build .', 'docker buildx build -t x .', 'docker compose build']) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command)], { root, spawn });
+      assert.equal(spawn.calls.length, 0, command);
+      assert.equal(r.run.skipped, 'container-build', command);
+    }
+  });
+
+  test('a denied command does not lose to a skip in the same command line', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('docker build . && docker push x')], { root, spawn });
+    assert.equal(r.run.skipped, 'docker-push');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('safe commands are not caught by the deny set', () => {
+    const root = track(fx.makeRepo({}));
+    for (const command of ['go build ./...', 'golangci-lint run ./...', 'tsc --noEmit', 'gofmt -l .', 'cargo clippy', 'helm lint chart/', 'kubectl version --client', 'terraform validate', 'git diff --exit-code', 'dart analyze', 'flutter analyze', 'npm run build', 'go vet ./...']) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command)], { root, spawn });
+      assert.equal(r.run.skipped, undefined, `${command} was wrongly refused: ${r.run.skipped}`);
+      assert.equal(spawn.calls.length, 1, command);
+    }
+  });
+});
+
+describe('runCommands: key policy (test 6)', () => {
+  test('codegen, deps, tidy.apply, format.apply and fix.apply are never run, even with --include', () => {
+    const root = track(fx.makeRepo({}));
+    const rows = [
+      ['codegen', 'go generate ./...'],
+      ['deps', 'go mod download'],
+      ['tidy.apply', 'go mod tidy'],
+      ['format.apply', 'gofmt -w .'],
+      ['fix.apply', 'golangci-lint run --fix'],
+    ];
+    for (const [key, command] of rows) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command, key)], { root, spawn, include: ['codegen', 'deps', 'tidy', 'fix', 'format', key] });
+      assert.equal(spawn.calls.length, 0, key);
+      assert.equal(r.run.skipped, 'never-run-key', key);
+    }
+  });
+
+  test('a command that came from the apply form is never run, whatever its key', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('gofmt -w .', 'format', { form: 'apply' })], { root, spawn });
+    assert.equal(spawn.calls.length, 0);
+    assert.equal(r.run.skipped, 'mutating-form');
+  });
+
+  test('default keys run; test needs --include; other keys are not runnable at all', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const items = [
+      item('gofmt -l .', 'format'), item('golangci-lint run', 'lint'), item('go vet ./...', 'typecheck'),
+      item('go build ./...', 'build'), item('go test ./...', 'test'), item('golangci-lint run --fix', 'fix'),
+      item('govulncheck ./...', 'audit'),
+    ];
+    const out = runCommands(items, { root, spawn });
+    const byKey = Object.fromEntries(out.map((r) => [r.key, r]));
+    for (const k of ['format', 'lint', 'typecheck', 'build']) assert.equal(byKey[k].run.exit_code, 0, k);
+    assert.equal(byKey.test.run.skipped, 'not-included');
+    assert.equal(byKey.audit.run.skipped, 'not-included');
+    assert.equal(byKey.fix.run.skipped, 'key-not-runnable');
+    assert.equal(spawn.calls.length, 4);
+  });
+
+  test('--include test runs test; --include cannot promote a non-opt-in key', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const out = runCommands([item('go test ./...', 'test'), item('golangci-lint run --fix', 'fix')], { root, spawn, include: ['test', 'fix'] });
+    assert.equal(out[0].run.exit_code, 0);
+    assert.equal(out[1].run.skipped, 'key-not-runnable');
+    assert.equal(spawn.calls.length, 1);
+  });
+
+  test('--keys narrows the selection; everything else is skipped not-selected', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const out = runCommands([item('gofmt -l .', 'format'), item('golangci-lint run', 'lint')], { root, spawn, keys: ['lint'] });
+    assert.equal(out[0].run.skipped, 'not-selected');
+    assert.equal(out[1].run.exit_code, 0);
+    assert.equal(spawn.calls.length, 1);
+  });
+
+  test('items with no command (discover/none) or already-missing resolution are skipped, never spawned', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const out = runCommands([
+      { component: null, key: 'lint', command: null, cwd: '', resolve: { status: 'discover' } },
+      item('nosuchtool --x', 'build', { resolve: { status: 'binary_missing' } }),
+    ], { root, spawn });
+    assert.equal(out[0].run.skipped, 'no-command');
+    assert.equal(out[1].run.skipped, 'not-resolved');
+    assert.equal(spawn.calls.length, 0);
+  });
+});
+
+describe('runCommands: deny policy on expanded bodies (test 5b)', () => {
+  const REFUSED = [
+    ['make build', 'body:docker-push'],
+    ['task ship', 'body:kubectl-apply'],
+    ['just release', 'body:gh-release'],
+    ['npm run build', 'body:npm-publish'],
+    ['pnpm run lint', 'body:git-push'],
+    ['make chain', 'unverifiable-body'],
+    ['make needs-dep', 'unverifiable-body'],
+    ['make pushes-quoted', 'body:git-push'],
+    ['npm run chained', 'unverifiable-body'],
+    ['npm run hooked', 'body:npm-publish'],
+    ['./scripts/release.sh', 'body:git-push'],
+    ['bash scripts/ci.sh', 'body:docker-push'],
+    ['sh scripts/ci.sh', 'body:docker-push'],
+    ['make deploy-check', 'body:kubectl-apply'],
+    ['bin/check', 'body:npm-publish'],
+    ['./scripts/missing.sh', 'unverifiable-body'],
+    ['./scripts/outer.sh', 'unverifiable-body'],
+    ['./scripts/outer-make.sh', 'unverifiable-body'],
+    ['./scripts/sourced.sh', 'unverifiable-body'],
+    ['./scripts/continued.sh', 'body:docker-push'],
+    ['./scripts/binary.dat', 'unverifiable-body'],
+    ['make -C nowhere test', 'unverifiable-body'],
+    ['make', 'unverifiable-body'],
+    ['npm run lint && ./scripts/release.sh', 'body:git-push'],
+    ['make lint && ./scripts/ci.sh', 'body:docker-push'],
+  ];
+
+  test('every dangerous or unprovable body is refused and never spawned', () => {
+    const root = track(fx.bodyRepo());
+    for (const [command, reason] of REFUSED) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command)], { root, spawn });
+      assert.equal(spawn.calls.length, 0, `${command} must not spawn`);
+      assert.equal(r.run.skipped, reason, command);
+      assert.equal(r.skipped, reason, command);
+      assert.ok(typeof r.run.detail === 'string' && r.run.detail.length > 0, `${command} needs a detail`);
+    }
+  });
+
+  test('a body refusal names the runner, target and offending line', () => {
+    const root = track(fx.bodyRepo());
+    const [r] = runCommands([item('make build')], { root, spawn: spySpawn() });
+    assert.match(r.run.detail, /make build/);
+    assert.match(r.run.detail, /docker push registry\/x:tag/);
+  });
+
+  test('clean targets and clean wrapper scripts run', () => {
+    const root = track(fx.bodyRepo());
+    for (const command of ['make lint', 'make wrapped-ok', './scripts/lint.sh', 'bash scripts/lint.sh', 'task fine', 'just fine', 'npm run check']) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command)], { root, spawn });
+      assert.equal(r.run.skipped, undefined, `${command} was refused: ${r.run.skipped} ${r.run.detail}`);
+      assert.equal(spawn.calls.length, 1, command);
+      assert.equal(r.run.exit_code, 0, command);
+    }
+  });
+
+  test('an include-expanded Makefile target that is not defined statically is refused unverifiable-body', () => {
+    const root = track(fx.verifyRepo());
+    const spawn = spySpawn();
+    const [r] = runCommands([item('make -C inc nope')], { root, spawn });
+    assert.equal(r.run.skipped, 'unverifiable-body');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('a script cwd follows `cd` in the command and the item cwd', () => {
+    const root = track(fx.makeRepo({ 'svc/scripts/lint.sh': '#!/bin/sh\ngolangci-lint run\n', 'svc/scripts/bad.sh': '#!/bin/sh\ngit push\n' }, {
+      modes: { 'svc/scripts/lint.sh': 0o755, 'svc/scripts/bad.sh': 0o755 },
+    }));
+    const spawn = spySpawn();
+    assert.equal(runCommands([item('cd svc && ./scripts/lint.sh')], { root, spawn })[0].run.exit_code, 0);
+    assert.equal(runCommands([item('./scripts/lint.sh', 'lint', { cwd: 'svc' })], { root, spawn })[0].run.exit_code, 0);
+    const bad = runCommands([item('./scripts/bad.sh', 'lint', { cwd: 'svc' })], { root, spawn: spySpawn() })[0];
+    assert.equal(bad.run.skipped, 'body:git-push');
+  });
+
+  test('a command that starts with a variable expansion cannot be proved safe', () => {
+    const root = track(fx.makeRepo({ Makefile: 'build:\n\t$(DOCKER) push registry/x\n\t@echo done\n', 'ok.mk': '' }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('make build')], { root, spawn });
+    assert.equal(r.run.skipped, 'unverifiable-body');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('a heredoc body inside a wrapper script is scanned too', () => {
+    const root = track(fx.makeRepo({ 'scripts/h.sh': '#!/bin/sh\nkubectl apply -f - <<EOF\nkind: X\nEOF\n' }, { modes: { 'scripts/h.sh': 0o755 } }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('./scripts/h.sh')], { root, spawn });
+    assert.equal(r.run.skipped, 'body:kubectl-apply');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('a Taskfile defer: line is scanned even though it is not part of the parsed body', () => {
+    const root = track(fx.makeRepo({
+      'Taskfile.yml': ["version: '3'", 'tasks:', '  build:', '    cmds:', '      - go build ./...', '      - defer: docker push x', ''].join('\n'),
+    }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('task build')], { root, spawn });
+    assert.match(r.run.skipped, /^body:docker-push$/);
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('a task with deps: is refused unverifiable-body (the dependency is not expanded)', () => {
+    const root = track(fx.makeRepo({
+      'Taskfile.yml': ["version: '3'", 'tasks:', '  build:', '    deps: [gen]', '    cmds:', '      - go build ./...', '  gen:', '    cmds:', '      - go generate ./...', ''].join('\n'),
+    }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('task build')], { root, spawn });
+    assert.equal(r.run.skipped, 'unverifiable-body');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('a just recipe with a dependency is refused unverifiable-body', () => {
+    const root = track(fx.makeRepo({ justfile: 'build: gen\n    go build ./...\n\ngen:\n    go generate ./...\n' }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('just build')], { root, spawn });
+    assert.equal(r.run.skipped, 'unverifiable-body');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('installed tools under node_modules/.bin in a body are plain binaries, not wrapper scripts', () => {
+    const root = track(fx.makeRepo({ Makefile: 'lint:\n\t./node_modules/.bin/eslint .\n', 'node_modules/.bin/eslint': '#!/usr/bin/env node\nconsole.log(1)\n' }, {
+      modes: { 'node_modules/.bin/eslint': 0o755 },
+    }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('make lint')], { root, spawn });
+    assert.equal(r.run.skipped, undefined);
+    assert.equal(spawn.calls.length, 1);
+  });
+});
+
+describe('runCommands: executor (test 3, unit level)', () => {
+  test('spawns `sh -c <command>` in root/cwd with a timeout in ms and records the result', () => {
+    const root = track(fx.makeRepo({ 'svc/.keep': '' }));
+    const spawn = spySpawn({ status: 0, stdout: 'line1\nline2\n', stderr: 'warn\n' });
+    const [r] = runCommands([item('golangci-lint run', 'lint', { cwd: 'svc', timeout_s: 45 })], { root, spawn });
+    assert.equal(spawn.calls.length, 1);
+    const call = spawn.calls[0];
+    assert.equal(call.cmd, 'sh');
+    assert.deepEqual(call.args, ['-c', 'golangci-lint run']);
+    assert.equal(call.opts.cwd, path.join(root, 'svc'));
+    assert.equal(call.opts.timeout, 45000);
+    assert.equal(r.run.exit_code, 0);
+    assert.equal(r.run.timed_out, false);
+    assert.equal(typeof r.run.duration_ms, 'number');
+    assert.match(r.run.tail, /line1/);
+    assert.match(r.run.tail, /warn/);
+  });
+
+  test('timeoutS from the options overrides the item and the default; the default is 300s', () => {
+    const root = track(fx.makeRepo({}));
+    const a = spySpawn();
+    runCommands([item('go build ./...', 'build', { timeout_s: 45 })], { root, spawn: a, timeoutS: 7 });
+    assert.equal(a.calls[0].opts.timeout, 7000);
+    const b = spySpawn();
+    runCommands([item('go build ./...')], { root, spawn: b });
+    assert.equal(b.calls[0].opts.timeout, 300000);
+  });
+
+  test('a failing command records its exit code; the batch keeps going', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn(({ args }) => (/fail/.test(args[1]) ? { status: 3, stdout: '', stderr: 'boom\n' } : { status: 0, stdout: 'fine\n', stderr: '' }));
+    const out = runCommands([item('run-fail', 'lint'), item('run-ok', 'build')], { root, spawn });
+    assert.equal(out[0].run.exit_code, 3);
+    assert.match(out[0].run.tail, /boom/);
+    assert.equal(out[1].run.exit_code, 0);
+  });
+
+  test('a timeout records { exit_code: null, timed_out: true } and moves on', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn(({ args }) => (/slow/.test(args[1])
+      ? { status: null, signal: 'SIGTERM', error: Object.assign(new Error('spawnSync sh ETIMEDOUT'), { code: 'ETIMEDOUT' }), stdout: 'partial\n', stderr: '' }
+      : { status: 0, stdout: '', stderr: '' }));
+    const out = runCommands([item('slow-build', 'build'), item('quick', 'lint')], { root, spawn });
+    assert.equal(out[0].run.exit_code, null);
+    assert.equal(out[0].run.timed_out, true);
+    assert.equal(out[1].run.exit_code, 0);
+    assert.equal(spawn.calls.length, 2);
+  });
+
+  test('only the last 40 lines of output are kept', () => {
+    const root = track(fx.makeRepo({}));
+    const lines = Array.from({ length: 100 }, (_, i) => `row${i}`).join('\n');
+    const [r] = runCommands([item('noisy')], { root, spawn: spySpawn({ status: 0, stdout: lines, stderr: '' }) });
+    const tail = r.run.tail.split('\n');
+    assert.ok(tail.length <= 40);
+    assert.ok(tail.includes('row99'));
+    assert.ok(!tail.includes('row10'));
+  });
+
+  test('a spawn error (ENOENT) is recorded as a failure, not a throw', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn({ status: null, error: Object.assign(new Error('spawnSync sh ENOENT'), { code: 'ENOENT' }), stdout: '', stderr: '' });
+    const [r] = runCommands([item('x')], { root, spawn });
+    assert.equal(r.run.exit_code, null);
+    assert.equal(r.run.timed_out, false);
+    assert.match(r.run.error, /ENOENT/);
+  });
+
+  test('a cwd that escapes the repo is refused', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('go build ./...', 'build', { cwd: '../elsewhere' })], { root, spawn });
+    assert.equal(r.run.skipped, 'cwd-outside-repo');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('the input items are not mutated', () => {
+    const root = track(fx.makeRepo({}));
+    const items = [item('go build ./...')];
+    runCommands(items, { root, spawn: spySpawn() });
+    assert.equal(items[0].run, undefined);
+  });
+
+  test('the default spawn is child_process.spawnSync (a real stub binary, no real tool needed)', () => {
+    const root = track(fx.makeRepo({}));
+    const bin = track(fx.fakeBin(['stubtool'], { failing: ['failtool'] }));
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+    const out = runCommands([item('stubtool --go', 'lint'), item('failtool', 'build')], { root, env });
+    assert.equal(out[0].run.exit_code, 0);
+    assert.equal(out[1].run.exit_code, 3);
+  });
+});
+
+// (Task 3 tests are appended below.)
