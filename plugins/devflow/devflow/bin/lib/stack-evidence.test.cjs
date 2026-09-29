@@ -464,3 +464,73 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
     }
   });
 });
+
+// ─── TRD 42-14 test 8: items carry cwdStatus ──────────────────────────────────
+
+const ciFx = require('./__fixtures__/stack-ci-fixtures.cjs');
+
+const HYGIENE_WF = [
+  'name: ci',
+  'on: [push]',
+  'jobs:',
+  '  t:',
+  '    runs-on: ubuntu-latest',
+  '    steps:',
+  '      - name: Root vet',
+  '        run: go vet ./...',
+  '      - name: Svc test',
+  '        working-directory: svc',
+  '        run: go test ./...',
+  '      - name: Vendored test',
+  '        working-directory: vendored-sdk',
+  '        run: go test ./...',
+  '      - name: Gone build',
+  '        working-directory: nope',
+  '        run: go build ./...',
+  '',
+].join('\n');
+
+describe('stack-evidence cwdStatus (E14, TRD 42-14 test 8)', () => {
+  test('E14a: the default hygiene (no git): root ok, real dir ok, nested repo nested_repo, absent dir missing', () => {
+    const root = makeRepo({
+      '.github/workflows/ci.yml': HYGIENE_WF,
+      'svc/go.mod': 'module example.com/svc\n',
+      'vendored-sdk/go.mod': 'module example.com/vendoredsdk\n',
+      'vendored-sdk/.git/HEAD': 'ref: refs/heads/main\n',
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [] });
+      assert.ok(evidence.length >= 4, JSON.stringify(evidence));
+      for (const item of evidence) assert.ok(typeof item.cwdStatus === 'string', `no cwdStatus: ${JSON.stringify(item)}`);
+      const at = (cwd, command) => evidence.find((e) => e.cwd === cwd && e.command === command);
+      assert.equal(at(null, 'go vet ./...').cwdStatus, 'ok');
+      assert.equal(at('svc', 'go test ./...').cwdStatus, 'ok');
+      assert.equal(at('vendored-sdk', 'go test ./...').cwdStatus, 'nested_repo');
+      assert.equal(at('nope', 'go build ./...').cwdStatus, 'missing');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E14b: an injected hygiene is primed ONCE with every distinct cwd; an external CI step is external', () => {
+    const root = ciFx.selfCheckoutPathShape();
+    try {
+      const primed = [];
+      const hygiene = (cwd) => (cwd === 'go' ? 'untracked' : 'ok');
+      hygiene.prime = (cwds) => { primed.push([...cwds]); };
+      const evidence = collectEvidence(root, { areas: [], hygiene });
+      assert.equal(primed.length, 1, JSON.stringify(primed));
+      assert.ok(primed[0].includes('go'), JSON.stringify(primed));
+      const unit = evidence.find((e) => e.command === 'go test ./...');
+      assert.ok(unit, JSON.stringify(evidence));
+      assert.equal(unit.cwd, 'go', 'svcrepo/go is normalised to go');
+      assert.equal(unit.cwdStatus, 'untracked');
+      const lib = evidence.find((e) => e.command === 'flutter analyze');
+      assert.ok(lib, JSON.stringify(evidence));
+      assert.equal(lib.cwd, 'libs/pkg-a');
+      assert.equal(lib.cwdStatus, 'external');
+    } finally {
+      ciFx.cleanup(root);
+    }
+  });
+});

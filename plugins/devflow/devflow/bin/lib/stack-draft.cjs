@@ -55,6 +55,11 @@
 // notes only, never a new key). With no broad candidate left the key is inherited from a runnable
 // parent test, else `discover`. A chosen test whose breadth cannot be read is kept and noted
 // `breadth-unknown`.
+//
+// Command cwd hygiene (TRD 42-14). An item whose `cwdStatus` is ignored / untracked / nested_repo /
+// external is never a candidate: it is a `cwd_<status>` note. A `missing` cwd stays a candidate
+// that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
+// other unresolved candidate. Items without a cwdStatus are treated as ok.
 
 const { classifyInvocation, testBreadth } = require('./stack-classify.cjs');
 
@@ -70,6 +75,13 @@ const LOOP_KEYS = ['format', 'lint', 'test'];
 const RUN_FORMS = new Set(['check', 'build', 'mutate']);
 const GH_EXPR = /\$\{\{/;
 const MAESTRO_COMMAND = 'maestro test .maestro';
+/** Why an item's cwd (stack-evidence `cwdStatus`) keeps it out of placement (TRD 42-14). */
+const CWD_REASON = Object.freeze({
+  ignored: 'is gitignored',
+  untracked: 'holds no tracked file',
+  nested_repo: 'is inside a nested git repository',
+  external: "is another repository's checkout in CI, not this repo",
+});
 
 const runnable = (run) => typeof run === 'string' && run !== '' && run !== 'discover' && run !== 'none';
 const squash = (s) => String(s == null ? '' : s).trim().replace(/\s+/g, ' ');
@@ -216,6 +228,16 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   // ── evidence preparation ────────────────────────────────────────────────
   const maestroAreas = areaList.filter((a) => Array.isArray(a.flags) && a.flags.includes('maestro'));
   let items = evidence.filter((e) => e && e.key && e.command);
+  // Command cwd hygiene (TRD 42-14): an item whose cwd is not a real, tracked, non-ignored dir of
+  // THIS repo is never a candidate, only a `cwd_<status>` note. `missing` stays a candidate so it
+  // takes the unresolved path (check() answers cwd_missing): discover + a note.
+  items = items.filter((e) => {
+    const s = e.cwdStatus;
+    if (!s || s === 'ok' || s === 'missing') return true;
+    const why = CWD_REASON[s] || `is not usable (${s})`;
+    notes.push(note(e, e.key, `cwd_${s}`, `${e.cwd || 'the repo root'} ${why}; the command is never placed`));
+    return false;
+  });
   if (!maestroAreas.length) items = items.filter((e) => !(e.key === 'e2e' && e.tool === 'maestro'));
   for (const a of maestroAreas) {
     items.push({
@@ -243,7 +265,9 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     const k = `${item.command}\u0000${item.cwd || ''}`;
     if (cache.has(k)) return cache.get(k);
     let v;
-    if (GH_EXPR.test(item.command)) {
+    if (item.cwdStatus === 'missing') {
+      v = { status: 'cwd_missing', detail: `${item.cwd} does not exist under the repo root` };
+    } else if (GH_EXPR.test(item.command)) {
       v = { status: 'unverifiable', detail: 'contains a GitHub Actions ${{ }} expression; it only runs inside a workflow' };
     } else if (typeof verify !== 'function') {
       v = { status: 'unverifiable', detail: 'no verifier supplied' };
@@ -301,7 +325,8 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     let inheritedAt = undefined; // null = inherited as-is; a string = inherited but needs that cwd
     for (let i = 0; i < runCands.length; i++) {
       const c = runCands[i];
-      if (equivalent(c, parentRun)) {
+      // A candidate at a missing cwd never makes the key inherited THERE (it would carry that cwd).
+      if (c.cwdStatus !== 'missing' && equivalent(c, parentRun)) {
         inheritedAt = c.cwd || null;
         break;
       }

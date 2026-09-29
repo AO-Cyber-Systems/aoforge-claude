@@ -16,9 +16,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { parseYamlLite } = require('./yaml-lite.cjs');
 const { validate: schemaValidate } = require('./json-schema-lite.cjs');
-const { output, error, localDate, isGitIgnored } = require('./helpers.cjs');
+const { output, error, localDate } = require('./helpers.cjs');
 // 35-02b built command rendering / per-agent context slicing as a separate module so it could
 // run in parallel with 35-02a; re-exported below so every later caller requires only this file.
 const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./stack-render.cjs');
@@ -1047,17 +1048,31 @@ function serializeProfile(frontmatter, body) {
 }
 
 const STACK_REL = '.planning/STACK.md';
+const STACK_REPORT_REL = '.planning/STACK-REPORT.md';
+const STACK_FILES = Object.freeze([STACK_REL, STACK_REPORT_REL]);
 
-// The repo-relative FILE paths among `rels` that git would ignore (helpers.isGitIgnored: file-
-// level, index-aware `git check-ignore -q --`, false on any git failure). Never throws.
+/**
+ * ignoredTargets(projectRoot, rels) -> the repo-relative FILE paths among `rels` that the ignore
+ * RULES match (TRD 42-14, D5). ONE `git -C root check-ignore --no-index --stdin -z` call:
+ * `--no-index` because a tracked file (a force-added `.planning/STACK.md`, or any tracked file
+ * under an ignored `.planning/`) makes the index-aware check say "not ignored" and masks the rule.
+ * helpers.isGitIgnored stays index-aware for its other callers. No git, not a work tree, or any git
+ * failure: `[]`. Never throws.
+ */
 function ignoredTargets(projectRoot, rels) {
-  return rels.filter((rel) => {
-    try {
-      return isGitIgnored(projectRoot, rel);
-    } catch (_) {
-      return false;
-    }
-  });
+  const list = (rels || []).map(String);
+  if (!list.length) return [];
+  let r;
+  try {
+    r = spawnSync('git', ['-C', String(projectRoot), 'check-ignore', '--no-index', '--stdin', '-z'], {
+      input: `${list.join('\0')}\0`, stdio: ['pipe', 'pipe', 'ignore'], timeout: 15000,
+    });
+  } catch (_) {
+    return [];
+  }
+  if (!r || r.error || r.status !== 0) return []; // 1 = nothing ignored; 128 = not a repo / no git
+  const hits = new Set(String(r.stdout).split('\0').filter(Boolean));
+  return list.filter((rel) => hits.has(rel));
 }
 
 /**
@@ -1070,11 +1085,12 @@ function ignoredTargets(projectRoot, rels) {
  * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
  *
- * Every result carries `ignored` and `warnings` (TRD 42-12). With `write`, the target FILE is
- * checked with `git check-ignore -q -- .planning/STACK.md`: a tracked file under `.planning/`
- * makes the dir-level check say "not ignored", so the file is what must be tested. A match puts
- * the path in `ignored` and a warning in `warnings`; it is NOT fatal (adopt relies on the write).
- * No git, not a repo, or any git failure: `ignored: []`.
+ * Every result carries `ignored` and `warnings` (TRD 42-12, 42-14). In PREVIEW and write alike,
+ * both stack FILES (`.planning/STACK.md`, `.planning/STACK-REPORT.md`) are checked with one
+ * `git check-ignore --no-index` call (ignoredTargets): a tracked file under `.planning/` makes a
+ * dir-level or index-aware check say "not ignored", so the rule itself is what must be tested.
+ * Each match is in `ignored` with a warning naming it in `warnings`; it is NOT fatal (adopt relies
+ * on the write; the rollout decides). No git, not a repo, or any git failure: `ignored: []`.
  */
 function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date(), bundledDir = BUNDLED_STACKS_DIR, verifyOpts = {}, verify = null } = {}) {
   // draftProfile picks each area's profile itself; `extendsId` is only the caller's override.
@@ -1082,7 +1098,7 @@ function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsI
   const text = serializeProfile(draft.frontmatter, draft.body);
   const validation = validateProfileText(text, { projectRoot, userHome, file: null, bundledDir });
   const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
-  const ignored = write ? ignoredTargets(projectRoot, [STACK_REL]) : [];
+  const ignored = ignoredTargets(projectRoot, STACK_FILES);
   const base = {
     path: targetPath,
     text,

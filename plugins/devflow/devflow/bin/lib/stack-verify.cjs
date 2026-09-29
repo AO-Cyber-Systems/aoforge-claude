@@ -281,7 +281,8 @@ function describeInvocation(inv) {
 
 // ─── Checking a descriptor against the filesystem ─────────────────────────────
 
-const MISSING_STATUSES = new Set(['binary_missing', 'target_missing', 'script_missing']);
+// `cwd_missing` (TRD 42-14): the command's directory does not exist under the repo root.
+const MISSING_STATUSES = new Set(['binary_missing', 'target_missing', 'script_missing', 'cwd_missing']);
 
 const res = (status, tool, detail, extra = {}) => ({ status, detail, tool, ...extra });
 
@@ -423,7 +424,10 @@ function checkInvocation(inv, ctx) {
 /**
  * verifyCommand(command, { root, cwd = '', env, home, which, fs }) -> { status, detail, tool }
  *
- * status: resolved | binary_missing | target_missing | script_missing | unverifiable. `tool` names
+ * A non-empty `cwd` is checked FIRST: when `<root>/<cwd>` is not a directory the result is
+ * `cwd_missing` and nothing else is looked at (TRD 42-14).
+ *
+ * status: resolved | cwd_missing | binary_missing | target_missing | script_missing | unverifiable. `tool` names
  * the invocation that decided the status; `confidence: 'low'` marks a guess (`npx` with nothing
  * installed). The FIRST invocation of the normalised command is always checked; later ones only when
  * they are make/task/just/npm-family tokens (`make lint && pnpm test` checks both runners). The worst
@@ -439,6 +443,15 @@ function verifyCommand(command, { root, cwd = '', env = process.env, home = os.h
     fs,
     which: which || ((name) => resolveBinary(name, { env, home, fs })),
   };
+  if (cwd) {
+    let dir = false;
+    try {
+      dir = fs.statSync(path.resolve(ctx.root, String(cwd))).isDirectory();
+    } catch (_) {
+      dir = false;
+    }
+    if (!dir) return res('cwd_missing', null, `${cwd} does not exist under the repo root`);
+  }
   const invocations = normalizeScript(String(command), { cwd: cwd || null });
   if (invocations.length === 0) {
     return res('unverifiable', null, 'no checkable invocation: the command is only shell plumbing');

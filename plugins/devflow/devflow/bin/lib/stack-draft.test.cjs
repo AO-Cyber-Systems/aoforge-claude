@@ -508,3 +508,92 @@ describe('assembleDraft canonical runner targets (D25, TRD 42-13 test 7)', () =>
     assert.equal(pick(evidence), 'go build -o bin/app ./cmd/app');
   });
 });
+
+// ─── TRD 42-14: command cwd hygiene (tests 1-3) ───────────────────────────────
+//
+// - D26 (test 1) CI at `working-directory: svcrepo/go` (self checkout `path: svcrepo`) in a repo
+//       with go/ is placed with cwd `go`; `libs/pkg-a` (sibling checkout) is a cwd_external note.
+// - D27 (test 2) ignored / untracked / nested-repo cwds are notes (cwd_ignored, cwd_untracked,
+//       cwd_nested_repo), never commands, and are never even verified.
+// - D28 (test 3) verify's cwd_missing on the only candidate gives `discover` + a note; an item the
+//       hygiene already called `missing` does the same without asking verify, and never inherits.
+
+const { collectEvidence } = require('./stack-evidence.cjs');
+const ciFx = require('./__fixtures__/stack-ci-fixtures.cjs');
+
+describe('assembleDraft command cwd hygiene (D26-D28, TRD 42-14)', () => {
+  test('D26: a self-checkout cwd is placed normalised; a sibling-checkout cwd is a cwd_external note', () => {
+    const root = ciFx.selfCheckoutPathShape();
+    try {
+      const evidence = collectEvidence(root, { areas: [] });
+      const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+      assert.deepStrictEqual(d.commands.test, { run: 'go test ./...', cwd: 'go' }, JSON.stringify(d.commands));
+      for (const [key, entry] of Object.entries(d.commands)) {
+        assert.notEqual(entry.run, 'flutter analyze', `${key}: an external command was placed`);
+        assert.ok(!entry.cwd || !entry.cwd.startsWith('svcrepo') && !entry.cwd.startsWith('libs/'), `${key}: ${JSON.stringify(entry)}`);
+      }
+      const ext = d.notes.find((n) => n.candidate === 'flutter analyze');
+      assert.ok(ext, JSON.stringify(d.notes));
+      assert.equal(ext.status, 'cwd_external');
+      assert.match(ext.detail, /libs\/pkg-a/);
+    } finally {
+      ciFx.cleanup(root);
+    }
+  });
+
+  test('D27: ignored / untracked / nested-repo cwds are notes, never commands, never verified', () => {
+    const verified = [];
+    const verify = (command, cwd) => { verified.push(`${cwd}|${command}`); return { status: 'resolved', detail: 'stub' }; };
+    const evidence = [
+      ev('test', 'go test ./...', { cwd: '.snapshot/api', cwdStatus: 'ignored' }),
+      ev('lint', 'golangci-lint run', { cwd: 'scratch', cwdStatus: 'untracked' }),
+      ev('build', 'go build ./...', { cwd: 'vendored-sdk', cwdStatus: 'nested_repo' }),
+      ev('format', 'dart format --set-exit-if-changed .', { cwd: 'libs/pkg-a', cwdStatus: 'external' }),
+      ev('typecheck', 'tsc --noEmit', { cwdStatus: 'ok' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify });
+    assert.deepStrictEqual(Object.keys(d.commands), ['typecheck'], JSON.stringify(d.commands));
+    assert.deepStrictEqual(verified, ['|tsc --noEmit']);
+    const statusOf = (candidate) => (d.notes.find((n) => n.candidate === candidate) || {}).status;
+    assert.equal(statusOf('go test ./...'), 'cwd_ignored');
+    assert.equal(statusOf('golangci-lint run'), 'cwd_untracked');
+    assert.equal(statusOf('go build ./...'), 'cwd_nested_repo');
+    assert.equal(statusOf('dart format --set-exit-if-changed .'), 'cwd_external');
+    for (const n of d.notes.filter((x) => /^cwd_/.test(x.status))) assert.ok(n.key, JSON.stringify(n));
+  });
+
+  test('D27b: a hygiene-excluded candidate does not block a clean one for the same key', () => {
+    const evidence = [
+      ev('test', 'go test ./...', { source: 'runner', cwd: '.snapshot/api', cwdStatus: 'ignored' }),
+      ev('test', 'go test -count=1 ./...', { cwdStatus: 'ok' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'go test -count=1 ./...' });
+    assert.equal(d.notes.find((n) => n.candidate === 'go test ./...').status, 'cwd_ignored');
+  });
+
+  test('D28: verify says cwd_missing for the only candidate -> discover + a cwd_missing note', () => {
+    const verify = () => ({ status: 'cwd_missing', detail: 'nope does not exist under the repo root' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [ev('test', 'go test ./...', { cwd: 'nope' })], tierCommands: TIERS, verify });
+    assert.deepStrictEqual(d.commands.test, { run: 'discover' });
+    const n = d.notes.find((x) => x.candidate === 'go test ./...');
+    assert.equal(n.status, 'cwd_missing');
+    assert.match(n.detail, /nope does not exist/);
+  });
+
+  test('D28b: an item the hygiene called missing is cwd_missing without verify, and never inherits the tier default there', () => {
+    let calls = 0;
+    const verify = () => { calls += 1; return { status: 'resolved', detail: 'stub' }; };
+    const d = assembleDraft({
+      areas: ROOT_GO,
+      evidence: [ev('test', 'go test -race ./...', { cwd: 'nope', cwdStatus: 'missing' })],
+      tierCommands: TIERS,
+      verify,
+    });
+    assert.equal(calls, 0);
+    assert.deepStrictEqual(d.commands.test, { run: 'discover' }, JSON.stringify(d.commands));
+    const n = d.notes.find((x) => x.candidate === 'go test -race ./...');
+    assert.equal(n.status, 'cwd_missing');
+    assert.match(n.detail, /nope does not exist under the repo root/);
+  });
+});

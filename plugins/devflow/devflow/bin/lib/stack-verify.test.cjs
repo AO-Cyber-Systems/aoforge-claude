@@ -86,6 +86,27 @@ describe('verifyCommand: make targets (test 7)', () => {
   });
 });
 
+// ─── TRD 42-14 test 4: a cwd that does not exist is cwd_missing ───────────────
+
+describe('verifyCommand: cwd_missing (TRD 42-14 test 4)', () => {
+  test('a cwd that does not exist under the root is cwd_missing, before the binary is looked at', () => {
+    const root = track(fx.verifyRepo());
+    for (const which of [whichOf('go'), whichOf()]) {
+      const r = verifyCommand('go vet ./...', { root, cwd: 'nope', which });
+      assert.equal(r.status, 'cwd_missing');
+      assert.equal(r.detail, 'nope does not exist under the repo root');
+    }
+  });
+
+  test('an existing cwd takes the normal path; a cwd that is a FILE is cwd_missing', () => {
+    const root = track(fx.verifyRepo());
+    assert.equal(verifyCommand('go vet ./...', { root, cwd: 'svc', which: whichOf('go') }).status, 'resolved');
+    assert.equal(verifyCommand('go vet ./...', { root, cwd: 'svc', which: whichOf() }).status, 'binary_missing');
+    assert.equal(verifyCommand('go vet ./...', { root, cwd: 'svc/Makefile', which: whichOf('go') }).status, 'cwd_missing');
+    assert.equal(verifyCommand('go vet ./...', { root, cwd: '', which: whichOf('go') }).status, 'resolved');
+  });
+});
+
 // ─── 8. task / just / npm family ───────────────────────────────────────────────
 
 describe('verifyCommand: task, just and npm-family scripts (test 8)', () => {
@@ -865,6 +886,20 @@ describe('CLI: stack verify, static (test 1)', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.equal(resultFor(r.json, 'test').resolve.status, 'unverifiable');
     assert.equal(r.json.summary.unverifiable, 1);
+  });
+
+  test('a command whose cwd does not exist is cwd_missing, counted as missing, exit 1 (TRD 42-14 test 4)', () => {
+    const repo = projectWith(['  test: { run: "go vet ./...", cwd: nope }', '  build: { run: "go build ./..." }']);
+    const bin = track(fx.fakeBin(['go']));
+    const raw = runVerify(repo, ['--raw'], { bin });
+    assert.equal(raw.status, 1, raw.stderr);
+    assert.match(raw.stdout, /^test cwd_missing$/m);
+    assert.match(raw.stdout, /^build resolved$/m);
+    const r = runVerify(repo, [], { bin });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(resultFor(r.json, 'test').resolve.status, 'cwd_missing');
+    assert.equal(r.json.summary.missing, 1);
+    assert.equal(r.json.summary.resolved, 1);
   });
 
   test('--raw prints a compact `key status` table', () => {

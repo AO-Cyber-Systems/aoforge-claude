@@ -501,9 +501,167 @@ function scanSources(root, { onGo, onDartGenerated, admit = (rels) => new Set(re
   }
 }
 
+// ─── command cwd hygiene (TRD 42-14, D2 + D4) ─────────────────────────────
+
+/**
+ * defaultLsFiles(root) -> ((dirs: string[]) => string[]) | null
+ *
+ * null outside a git work tree. Otherwise ONE `git -C root ls-files -z -- ':(glob)*' <dirs>`
+ * spawn: the tracked files under the given dirs PLUS the tracked top-level files (the `:(glob)*`
+ * pathspec never crosses a `/`), so the caller can tell "this dir holds no tracked file" from "this
+ * repo tracks nothing yet". Dirs are `:(literal)` pathspecs. Throws on a spawn failure.
+ */
+function defaultLsFiles(root) {
+  const key = path.resolve(String(root));
+  if (!defaultIsIgnored(key)) return null; // not a work tree (the probe is memoised there)
+  return (dirs) => {
+    const specs = [':(glob)*', ...[...(dirs || [])].map((d) => `:(literal)${String(d).replace(/\/+$/, '')}`)];
+    const r = spawnSync('git', ['-C', key, 'ls-files', '-z', '--', ...specs], {
+      stdio: ['ignore', 'pipe', 'ignore'], timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER,
+    });
+    if (r.error || r.status !== 0) {
+      throw new Error(`git ls-files failed (${r.error ? r.error.code || r.error.message : `exit ${r.status}`})`);
+    }
+    return String(r.stdout).split('\0').filter(Boolean);
+  };
+}
+
+/** A clean repo-relative posix dir; '' for the root; null when it escapes the root or is absolute. */
+function cleanCwd(cwd) {
+  if (cwd === null || cwd === undefined) return '';
+  const raw = String(cwd).replace(/\\/g, '/').trim();
+  if (raw === '') return '';
+  if (raw.startsWith('/')) return null;
+  const n = path.posix.normalize(raw).replace(/\/+$/, '');
+  if (n === '.' || n === '') return '';
+  if (n === '..' || n.startsWith('../')) return null;
+  return n;
+}
+
+/**
+ * cwdHygiene(root, { isIgnored, lsFiles }) -> status(cwd) with `status.prime(cwds)`
+ *
+ * Whether a command's repo-relative cwd is a real, tracked, non-ignored directory of THIS repo:
+ *   ok          the root, or a directory that passes every check below
+ *   external    absolute, or escapes the root (`../x`) — not this repo
+ *   missing     not a directory under the root
+ *   nested_repo some path segment from the root down to the cwd holds a `.git` (dir or file)
+ *   ignored     git ignores the cwd or an ancestor (`check-ignore --no-index`, 42-12's filter);
+ *               with no git, the static IGNORED_DIR_FALLBACK / scaffold-name list instead
+ *   untracked   git tracks no file under it — only computed when the repo tracks SOMETHING among
+ *               the queried dirs and its top-level files (a fresh `git init` says nothing)
+ * `missing` and `nested_repo` are decided on disk and never reach git. `isIgnored` / `lsFiles`
+ * are injectable (undefined = the git defaults, null = none); `prime(cwds)` asks git about every
+ * unknown cwd in ONE batch each, and an unprimed cwd is batched on demand. Answers are memoised.
+ * A throwing filter falls back to the no-git behaviour for the rest of the call. Never throws.
+ */
+function cwdHygiene(root, { isIgnored, lsFiles } = {}) {
+  const rootAbs = path.resolve(String(root));
+  let ignFn = null;
+  let lsFn = null;
+  try {
+    ignFn = isIgnored === undefined ? defaultIsIgnored(rootAbs) : (typeof isIgnored === 'function' ? isIgnored : null);
+  } catch (_) {
+    ignFn = null;
+  }
+  try {
+    lsFn = lsFiles === undefined ? defaultLsFiles(rootAbs) : (typeof lsFiles === 'function' ? lsFiles : null);
+  } catch (_) {
+    lsFn = null;
+  }
+  let staticIgnore = !ignFn;
+  const memo = new Map();
+
+  // Disk-only verdict: a status, or null when git (or the static list) must decide.
+  const onDisk = (rel) => {
+    if (rel === '') return 'ok';
+    if (rel === null) return 'external';
+    let st = null;
+    try {
+      st = fs.statSync(path.join(rootAbs, rel));
+    } catch (_) {
+      st = null;
+    }
+    if (!st || !st.isDirectory()) return 'missing';
+    const segs = rel.split('/');
+    for (let i = 1; i <= segs.length; i += 1) {
+      if (fs.existsSync(path.join(rootAbs, ...segs.slice(0, i), '.git'))) return 'nested_repo';
+    }
+    return null;
+  };
+  const ancestors = (rel) => {
+    const segs = rel.split('/');
+    return segs.map((_, i) => segs.slice(0, i + 1).join('/'));
+  };
+  const staticIgnored = (rel) => rel.split('/').some((s) => IGNORED_FALLBACK_SET.has(s) || SCAFFOLD_NAME.test(s));
+
+  function prime(cwds) {
+    const pending = [];
+    for (const c of cwds || []) {
+      const rel = cleanCwd(c);
+      const k = rel === null ? `\u0000${c}` : rel;
+      if (memo.has(k)) continue;
+      const disk = onDisk(rel);
+      if (disk) memo.set(k, disk);
+      else if (!pending.includes(rel)) pending.push(rel);
+    }
+    if (!pending.length) return;
+
+    let ignored = null;
+    if (ignFn) {
+      const asked = [];
+      for (const rel of pending) for (const a of ancestors(rel)) if (!asked.includes(a)) asked.push(a);
+      try {
+        ignored = new Set(ignFn(asked) || []);
+      } catch (_) {
+        ignFn = null;
+        staticIgnore = true;
+        ignored = null;
+      }
+    }
+    const isIgn = (rel) => (ignored
+      ? ancestors(rel).some((a) => ignored.has(a))
+      : staticIgnore && staticIgnored(rel));
+
+    const toList = pending.filter((rel) => !isIgn(rel));
+    let tracked = null;
+    if (lsFn && toList.length) {
+      try {
+        tracked = (lsFn(toList) || []).map(String);
+      } catch (_) {
+        lsFn = null;
+        tracked = null;
+      }
+    }
+    for (const rel of pending) {
+      let status = 'ok';
+      if (isIgn(rel)) status = 'ignored';
+      else if (tracked && tracked.length && !tracked.some((f) => f.startsWith(`${rel}/`))) status = 'untracked';
+      memo.set(rel, status);
+    }
+  }
+
+  function status(cwd) {
+    const rel = cleanCwd(cwd);
+    const k = rel === null ? `\u0000${cwd}` : rel;
+    if (!memo.has(k)) prime([cwd]);
+    return memo.get(k) || 'ok';
+  }
+  status.prime = (cwds) => {
+    try {
+      prime(cwds);
+    } catch (_) {
+      // never throws: an unanswered cwd is decided on demand
+    }
+  };
+  return status;
+}
+
 module.exports = {
   detectAreas,
   defaultIsIgnored,
+  defaultLsFiles,
+  cwdHygiene,
   AREA_MARKERS,
   SKIP_DIRS,
   IGNORED_DIR_FALLBACK,

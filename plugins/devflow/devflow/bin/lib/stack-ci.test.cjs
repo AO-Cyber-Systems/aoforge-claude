@@ -20,7 +20,7 @@
 const { describe, test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseWorkflows, _parseWorkflowText } = require('./stack-ci.cjs');
+const { parseWorkflows, _parseWorkflowText, normaliseWorkingDirectory } = require('./stack-ci.cjs');
 const fx = require('./__fixtures__/stack-ci-fixtures.cjs');
 
 const roots = [];
@@ -408,7 +408,108 @@ describe('C11 reader robustness', () => {
 
   test('step records carry exactly the contracted fields', () => {
     const [step] = _parseWorkflowText('on: [push]\njobs:\n  j:\n    steps:\n      - name: n\n        run: go vet ./...\n', 'wf.yml');
-    assert.deepEqual(Object.keys(step).sort(), ['continueOnError', 'cwd', 'file', 'invocations', 'job', 'name', 'scheduled', 'uses']);
+    // `checkouts` and `external` joined the contract in TRD 42-14 (D1).
+    assert.deepEqual(Object.keys(step).sort(), ['checkouts', 'continueOnError', 'cwd', 'external', 'file', 'invocations', 'job', 'name', 'scheduled', 'uses']);
     assert.equal(step.file, 'wf.yml');
+    assert.deepEqual(step.checkouts, []);
+    assert.equal(step.external, false);
+  });
+});
+
+// ─── TRD 42-14 (D1): working-directory normalisation ──────────────────────────
+//
+// 5. normaliseWorkingDirectory, table-driven.
+// 6. parseWorkflows records per-job checkouts { path, repository } and the normalised step cwd.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+describe('C12 normaliseWorkingDirectory (TRD 42-14 test 5)', () => {
+  test('the D1 rules, in order', () => {
+    const root = use(fx.makeWorkflowRepo({ files: { 'go/go.mod': 'module x\n' } }));
+    const repoName = path.basename(root);
+    const cases = [
+      [null, {}, { cwd: null, external: false }],
+      ['', {}, { cwd: null, external: false }],
+      ['${{ github.workspace }}/go', {}, { cwd: 'go', external: false }],
+      ['${{github.workspace}}', {}, { cwd: null, external: false }],
+      ['$GITHUB_WORKSPACE/go', {}, { cwd: 'go', external: false }],
+      ['./go', {}, { cwd: 'go', external: false }],
+      ['./go/', {}, { cwd: 'go', external: false }],
+      ['svcrepo/go', { selfCheckoutPath: 'svcrepo' }, { cwd: 'go', external: false }],
+      ['svcrepo', { selfCheckoutPath: 'svcrepo' }, { cwd: null, external: false }],
+      ['./svcrepo/go', { selfCheckoutPath: './svcrepo/' }, { cwd: 'go', external: false }],
+      [`${repoName}/go`, {}, { cwd: 'go', external: false }],
+      ['go', {}, { cwd: 'go', external: false }],
+      ['libs/pkg-a', { selfCheckoutPath: 'svcrepo', otherCheckoutPaths: ['libs/pkg-a'] }, { cwd: 'libs/pkg-a', external: true }],
+      ['libs/pkg-a/sub', { otherCheckoutPaths: ['libs/pkg-a'] }, { cwd: 'libs/pkg-a/sub', external: true }],
+      ['libs/pkg-ab', { otherCheckoutPaths: ['libs/pkg-a'] }, { cwd: 'libs/pkg-ab', external: false }],
+      ['${{ github.workspace }}/libs/pkg-a', { otherCheckoutPaths: ['libs/pkg-a'] }, { cwd: 'libs/pkg-a', external: true }],
+    ];
+    for (const [raw, opts, want] of cases) {
+      assert.deepEqual(normaliseWorkingDirectory(raw, { root, repoName, ...opts }), want, `raw ${JSON.stringify(raw)} ${JSON.stringify(opts)}`);
+    }
+  });
+
+  test('a repo named `go` with a real go/go/ dir keeps `go/go` (never strips a real dir)', () => {
+    const parent = use(fs.mkdtempSync(path.join(os.tmpdir(), 'df-stack-ci-go-')));
+    const root = path.join(parent, 'go');
+    fs.mkdirSync(path.join(root, 'go', 'go'), { recursive: true });
+    assert.deepEqual(normaliseWorkingDirectory('go/go', { root, repoName: 'go' }), { cwd: 'go/go', external: false });
+    assert.deepEqual(normaliseWorkingDirectory('go', { root, repoName: 'go' }), { cwd: 'go', external: false });
+  });
+
+  test('the basename fallback needs <root>/<basename> to be ABSENT, and no root means no fallback', () => {
+    const root = use(fx.makeWorkflowRepo({ files: { 'go/go.mod': 'module x\n' } }));
+    const repoName = path.basename(root);
+    fs.mkdirSync(path.join(root, repoName, 'go'), { recursive: true });
+    assert.deepEqual(normaliseWorkingDirectory(`${repoName}/go`, { root, repoName }), { cwd: `${repoName}/go`, external: false });
+    assert.deepEqual(normaliseWorkingDirectory('svc/go', { repoName: 'svc' }), { cwd: 'svc/go', external: false });
+  });
+});
+
+describe('C13 parseWorkflows records checkouts and normalised cwds (TRD 42-14 test 6)', () => {
+  for (const [name, build] of [['block with:', fx.selfCheckoutPathShape], ['flow with: { }', fx.siblingCheckoutShape]]) {
+    test(`${name}: self checkout stripped, sibling checkout external`, () => {
+      const steps = parseWorkflows(use(build()));
+      const unit = byName(steps, 'Unit');
+      assert.equal(unit.cwd, 'go');
+      assert.equal(unit.external, false);
+      assert.equal(unit.invocations[0].cwd, 'go');
+      assert.deepEqual(unit.checkouts, [
+        { path: 'svcrepo', repository: null },
+        { path: 'libs/pkg-a', repository: 'org/pkg-a' },
+      ]);
+      const lib = byName(steps, 'Lib analyze');
+      assert.equal(lib.cwd, 'libs/pkg-a');
+      assert.equal(lib.external, true);
+      assert.equal(lib.invocations[0].external, true);
+    });
+  }
+
+  test('block shape: job default, step override, the checkout root itself, and a job with no checkout path', () => {
+    const steps = parseWorkflows(use(fx.selfCheckoutPathShape()));
+    assert.equal(byName(steps, 'Vet').cwd, 'go');
+    assert.equal(byName(steps, 'Root').cwd, null);
+    assert.equal(byName(steps, 'Root').invocations[0].cwd, null);
+    assert.equal(byName(steps, 'Workspace').cwd, 'go');
+    assert.equal(byName(steps, 'Dotted').cwd, 'go');
+    assert.deepEqual(byName(steps, 'Workspace').checkouts, [{ path: null, repository: null }]);
+    const checkout = steps.find((s) => s.job === 'go' && s.uses === 'actions/checkout@v4');
+    assert.ok(checkout, 'the checkout step itself is still recorded');
+  });
+
+  test('flow shape: ${{ github.workspace }} into the sibling is external too', () => {
+    const steps = parseWorkflows(use(fx.siblingCheckoutShape()));
+    const t = byName(steps, 'Lib test');
+    assert.equal(t.cwd, 'libs/pkg-a/sub');
+    assert.equal(t.external, true);
+  });
+
+  test('_parseWorkflowText with no root still strips the self checkout path', () => {
+    const steps = _parseWorkflowText(fx.TEXT.SELF_CHECKOUT_YML, 'ci.yml');
+    assert.equal(byName(steps, 'Unit').cwd, 'go');
+    assert.equal(byName(steps, 'Lib analyze').external, true);
   });
 });

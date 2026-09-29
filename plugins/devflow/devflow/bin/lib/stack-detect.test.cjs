@@ -419,3 +419,139 @@ describe('AREA_MARKERS is data', () => {
     assert.equal(tiers.python, null);
   });
 });
+
+// ─── TRD 42-14 test 7: cwdHygiene, and the D4 nested-repo regression ─────────
+//
+// Invented names only: `.snapshot/api` (an ignored dir), `scratch/` (holds no tracked file),
+// `vendored-sdk/` (its own `.git`, as a dir or as a worktree/submodule FILE).
+
+const GO_MAIN_SRC = 'package main\n\nfunc main() {}\n';
+
+function hygieneTree(extra = {}) {
+  return {
+    'go.mod': fx.goMod('ledger'),
+    'main.go': GO_MAIN_SRC,
+    'svc/main.go': GO_MAIN_SRC,
+    '.snapshot/api/main.go': GO_MAIN_SRC,
+    'scratch/notes.txt': 'scratch\n',
+    'vendored-sdk/go.mod': fx.goMod('vendoredsdk'),
+    'vendored-sdk/pkg/a.go': 'package pkg\n',
+    ...extra,
+  };
+}
+
+describe('cwdHygiene (TRD 42-14 test 7)', () => {
+  test('injected filters: ok / ignored / untracked / nested_repo / missing, ONE batch each', () => {
+    const root = fx.makeTree(hygieneTree({ 'vendored-sdk/.git/HEAD': 'ref: refs/heads/main\n' }));
+    try {
+      const ignCalls = [];
+      const lsCalls = [];
+      const isIgnored = (rels) => { ignCalls.push([...rels]); return rels.filter((r) => r === '.snapshot' || r.startsWith('.snapshot/')); };
+      const lsFiles = (dirs) => { lsCalls.push([...dirs]); return ['go.mod', 'main.go', 'svc/main.go']; };
+      const h = sd.cwdHygiene(root, { isIgnored, lsFiles });
+      h.prime(['svc', '.snapshot/api', 'scratch', 'vendored-sdk', 'vendored-sdk/pkg', 'nope', null, '']);
+      assert.equal(h(null), 'ok');
+      assert.equal(h(''), 'ok');
+      assert.equal(h('.'), 'ok');
+      assert.equal(h('svc'), 'ok');
+      assert.equal(h('./svc/'), 'ok');
+      assert.equal(h('.snapshot/api'), 'ignored');
+      assert.equal(h('scratch'), 'untracked');
+      assert.equal(h('vendored-sdk'), 'nested_repo');
+      assert.equal(h('vendored-sdk/pkg'), 'nested_repo');
+      assert.equal(h('nope'), 'missing');
+      assert.equal(h('main.go'), 'missing', 'a FILE is not a directory');
+      assert.equal(ignCalls.length, 1, JSON.stringify(ignCalls));
+      assert.equal(lsCalls.length, 1, JSON.stringify(lsCalls));
+      // Missing and nested-repo cwds are decided on disk and never reach git.
+      assert.equal(ignCalls[0].some((r) => r.startsWith('vendored-sdk') || r === 'nope'), false, JSON.stringify(ignCalls));
+      assert.equal(lsCalls[0].some((r) => r.startsWith('vendored-sdk') || r === 'nope'), false, JSON.stringify(lsCalls));
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('an unprimed cwd is batched on demand and memoised; a repo tracking nothing never says untracked', () => {
+    const root = fx.makeTree(hygieneTree());
+    try {
+      let lsN = 0;
+      const h = sd.cwdHygiene(root, { isIgnored: () => [], lsFiles: () => { lsN += 1; return []; } });
+      assert.equal(h('scratch'), 'ok', 'nothing tracked at all: untracked carries no information');
+      assert.equal(h('scratch'), 'ok');
+      assert.equal(lsN, 1);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('no git (null filters): existence + static ignore list + .git presence; untracked is not computed', () => {
+    const root = fx.makeTree(hygieneTree({ 'dist/app/main.go': GO_MAIN_SRC, 'vendored-sdk/.git': 'gitdir: ../.git/modules/vendored-sdk\n' }));
+    try {
+      const h = sd.cwdHygiene(root, { isIgnored: null, lsFiles: null });
+      assert.equal(h('dist/app'), 'ignored');
+      assert.equal(h('scratch'), 'ok');
+      assert.equal(h('.snapshot/api'), 'ok', 'no git: only the static list decides ignored');
+      assert.equal(h('vendored-sdk/pkg'), 'nested_repo', 'a `.git` FILE marks a nested checkout too');
+      assert.equal(h('nope'), 'missing');
+      assert.equal(h('../elsewhere'), 'external', 'a cwd that escapes the root is not this repo');
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('git-backed: the real defaults answer every status with one check-ignore and one ls-files spawn (spy)', { skip: NO_GIT }, () => {
+    const root = fx.makeGitTree(
+      hygieneTree({ '.gitignore': '.snapshot/\n', 'vendored-sdk/.git': 'gitdir: /nonexistent/modules/vendored-sdk\n' }),
+      { track: ['.gitignore', 'go.mod', 'main.go', 'svc/main.go'] },
+    );
+    try {
+      const realIgn = sd.defaultIsIgnored(root);
+      const realLs = sd.defaultLsFiles(root);
+      assert.equal(typeof realIgn, 'function');
+      assert.equal(typeof realLs, 'function');
+      let ignN = 0;
+      let lsN = 0;
+      const h = sd.cwdHygiene(root, {
+        isIgnored: (rels) => { ignN += 1; return realIgn(rels); },
+        lsFiles: (dirs) => { lsN += 1; return realLs(dirs); },
+      });
+      h.prime(['svc', '.snapshot/api', 'scratch', 'vendored-sdk/pkg', 'nope']);
+      assert.deepEqual(
+        ['svc', '.snapshot/api', 'scratch', 'vendored-sdk/pkg', 'nope', null].map((c) => h(c)),
+        ['ok', 'ignored', 'untracked', 'nested_repo', 'missing', 'ok'],
+      );
+      assert.equal(ignN, 1);
+      assert.equal(lsN, 1);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+});
+
+describe('detectAreas never returns a nested repository (D4 regression, TRD 42-14 test 7)', () => {
+  for (const [name, gitEntry] of [
+    ['.git directory', { 'vendored-sdk/.git/HEAD': 'ref: refs/heads/main\n' }],
+    ['.git file', { 'vendored-sdk/.git': 'gitdir: ../.git/modules/vendored-sdk\n' }],
+  ]) {
+    test(`vendored-sdk/ with a ${name} is not an area`, () => {
+      const root = fx.makeTree(hygieneTree(gitEntry));
+      try {
+        const dirs = sd.detectAreas(root, { isIgnored: null }).map((a) => a.dir);
+        assert.equal(dirs.includes(''), true, JSON.stringify(dirs));
+        assert.equal(dirs.some((d) => d.startsWith('vendored-sdk')), false, JSON.stringify(dirs));
+      } finally {
+        fx.cleanup(root);
+      }
+    });
+  }
+
+  test('control: without its .git, vendored-sdk/ IS an area (the fixture would otherwise be detected)', () => {
+    const root = fx.makeTree(hygieneTree());
+    try {
+      const dirs = sd.detectAreas(root, { isIgnored: null }).map((a) => a.dir);
+      assert.equal(dirs.includes('vendored-sdk/'), true, JSON.stringify(dirs));
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+});
