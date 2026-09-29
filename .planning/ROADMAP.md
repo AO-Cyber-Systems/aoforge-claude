@@ -98,7 +98,7 @@ TRDs:
 - [x] 42-08-TRD.md — (W5) `stack report [--write] [--draft]` → `.planning/STACK-REPORT.md` catalogue + adopt report link
 - [x] 42-10-TRD.md — (W6) docs (CLAUDE.md, CHANGELOG [Unreleased], templates/stack.md) + sync-runtime SUBDIRS `stack-profiles` mirror + doc pointers
 - [x] 42-12-TRD.md — (W6, gap G1) gitignore-aware area detection, report components = STACK.md components, file-level STACK.md gitignore preflight
-- [ ] 42-13-TRD.md — (W7, gap G2/G3) broad repo-wide `test` (narrow → notes, inherit profile default), canonical runner targets (alternates → notes)
+- [x] 42-13-TRD.md — (W7, gap G2/G3) broad repo-wide `test` (narrow → notes, inherit profile default), canonical runner targets (alternates → notes)
 - [ ] 42-11-TRD.md — (W8, checkpoint; Task 1 re-run after 42-12/42-13) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → clean repos write/verify/report/commit, dirty repos listed (no push)
 
 ### Other v1.4 candidates
@@ -139,5 +139,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 10–23 (15 objectives) | v1.2 | 71/71 | Complete | 2026-05-25 |
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
-| 42. Codebase-aware stack drafter | v1.4 | 11/13 | In progress | — |
+| 42. Codebase-aware stack drafter | v1.4 | 12/13 | In progress | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
