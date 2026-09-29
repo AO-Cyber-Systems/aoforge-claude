@@ -781,6 +781,138 @@ objective: Manual review needed
     const output = JSON.parse(result.output);
     assert.strictEqual(output.error, 'Objective not found', 'should report objective not found');
   });
+
+  // TRD 44-08 test 1: a SUMMARY that holds a `## Progress` checkpoint but no `## Self-Check`
+  // is a checkpoint written mid-run (44-01 executor contract), not a completion. Old-style
+  // SUMMARYs with neither heading stay complete, so historical objectives never re-run.
+  test('Progress-only SUMMARY is a checkpoint (incomplete); Self-Check and old-style SUMMARYs stay complete', () => {
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+
+    const trd = (wave) => `---\nwave: ${wave}\n---\n\n<tasks>\n<task type="auto">\n  <name>Task 1: do it</name>\n</task>\n</tasks>\n`;
+    for (const id of ['77-01', '77-02', '77-03', '77-04']) {
+      fs.writeFileSync(path.join(objectiveDir, `${id}-TRD.md`), trd(1));
+    }
+
+    // Final SUMMARY: Progress + Self-Check: PASSED
+    fs.writeFileSync(
+      path.join(objectiveDir, '77-01-SUMMARY.md'),
+      `# 77-01 Summary\n\n## Progress\n- [x] Task 1: do it — abc1234\n\n## Self-Check: PASSED\n`,
+    );
+    // Checkpoint SUMMARY: Progress only — the executor was cut short
+    fs.writeFileSync(
+      path.join(objectiveDir, '77-02-SUMMARY.md'),
+      `# 77-02 Summary\n\n## Progress\n- [x] Task 1: do it — abc1234\n- [ ] Task 2: the rest\n`,
+    );
+    // Old-style SUMMARY: neither heading (every pre-44 SUMMARY) — back-compat, still complete
+    fs.writeFileSync(
+      path.join(objectiveDir, '77-03-SUMMARY.md'),
+      `# 77-03 Summary\n\nShipped the thing.\n\n## Task Evidence\n\n| Task | Status |\n|---|---|\n| 1 | PASS |\n`,
+    );
+    // Final SUMMARY that failed its self-check is still final (execute-objective 5c: final = PASSED|FAILED)
+    fs.writeFileSync(
+      path.join(objectiveDir, '77-04-SUMMARY.md'),
+      `# 77-04 Summary\n\n## Progress\n- [x] Task 1: do it — def5678\n\n## Self-Check: FAILED\n\n- MISSING: src/x.ts\n`,
+    );
+
+    const result = runGsdTools('objective-job-index 77', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    const byId = Object.fromEntries(output.jobs.map((j) => [j.id, j.has_summary]));
+    assert.deepStrictEqual(
+      byId,
+      { '77-01': true, '77-02': false, '77-03': true, '77-04': true },
+      'only the Progress-only checkpoint SUMMARY is incomplete',
+    );
+    assert.deepStrictEqual(output.incomplete, ['77-02'], 'the checkpoint TRD is listed in incomplete so a re-run resumes it');
+  });
+
+  // TRD 44-08 test 2: task_count counts `<task ...>` XML elements (the TRD format), else the
+  // legacy `## Task N` headings. Before 44-08 it read 0 for every modern TRD.
+  test('task_count counts <task> XML elements in a TRD (the <tasks> wrapper does not count)', () => {
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(objectiveDir, '77-01-TRD.md'),
+      `---\nwave: 1\n---\n\n<tasks>\n\n<task type="auto">\n  <name>Task 1: a</name>\n</task>\n\n<task type="auto" tdd="true">\n  <name>Task 2: b</name>\n</task>\n\n<task type="auto">\n  <name>Task 3: c</name>\n</task>\n\n</tasks>\n`,
+    );
+
+    const result = runGsdTools('objective-job-index 77', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs[0].task_count, 3, 'three <task> elements -> 3');
+  });
+
+  test('task_count falls back to ## Task N headings for a legacy JOB', () => {
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '78-legacy');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(objectiveDir, '78-01-JOB.md'),
+      `---\nwave: 1\n---\n\n## Task 1: Schema\n\nDo the schema.\n\n## Task 2: Client\n\nGenerate the client.\n`,
+    );
+
+    const result = runGsdTools('objective-job-index 78', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs[0].task_count, 2, 'two ## Task headings -> 2');
+  });
+
+  test('task_count prefers the XML count when a TRD has both forms', () => {
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(objectiveDir, '77-01-TRD.md'),
+      `---\nwave: 1\n---\n\n## Task 1: overview\n## Task 2: more overview\n## Task 3: even more\n\n<tasks>\n<task type="auto">\n  <name>Task 1: a</name>\n</task>\n<task type="auto">\n  <name>Task 2: b</name>\n</task>\n</tasks>\n`,
+    );
+
+    const result = runGsdTools('objective-job-index 77', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs[0].task_count, 2, 'XML count (2) wins over the heading count (3)');
+  });
+
+  // [Rule 1 - Bug, 44-08] A bare /<task\b/g also counts prose that MENTIONS a task tag in
+  // backticks and XML examples inside fenced code blocks — it read 5 for 44-08-TRD.md (2 real
+  // tasks) and 11 for 14-01's TRD (3). task_count picks the executor's model tier
+  // (execute-objective: <=2 sonnet, >5 opus), so only real task elements may count.
+  test('task_count ignores inline `<task` mentions and fenced XML examples', () => {
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(objectiveDir, '77-01-TRD.md'),
+      [
+        '---',
+        'wave: 1',
+        '---',
+        '',
+        '- a TRD with three `<task type="auto">` elements should count 3; use content.match(/<task\\b/g)',
+        '',
+        'Example of the setup task the detector emits:',
+        '',
+        '```xml',
+        '<task type="auto" caution="pause-before-destructive">',
+        '  <name>Example</name>',
+        '</task>',
+        '```',
+        '',
+        '<tasks>',
+        '<task type="auto">',
+        '  <name>Task 1: a</name>',
+        '</task>',
+        '  <task type="checkpoint:human-verify">',
+        '    <name>Task 2: indented, still a real element</name>',
+        '  </task>',
+        '</tasks>',
+        '',
+      ].join('\n'),
+    );
+
+    const result = runGsdTools('objective-job-index 77', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs[0].task_count, 2, 'only the two real <task> elements count');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
