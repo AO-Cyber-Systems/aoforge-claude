@@ -197,6 +197,35 @@ function cmdHistoryDigest(cwd, raw) {
   }
 }
 
+// A SUMMARY carrying a `## Progress` checkpoint but no `## Self-Check` heading was written
+// mid-run: the executor contract (44-01) says "A SUMMARY without `## Self-Check` means
+// checkpoint, not complete". Requiring `## Progress` as well keeps every old-style SUMMARY
+// (neither heading) complete, so historical objectives never re-run. Scope (TRD 44-08): only
+// objective-job-index reads this — roadmap analyze, progress bars and verify-completion.js
+// still count any SUMMARY file.
+function _isCheckpointOnlySummary(text) {
+  return /^##\s+Progress\b/m.test(text) && !/^##\s+Self-Check\b/m.test(text);
+}
+
+function _summaryIsComplete(summaryPath) {
+  let text;
+  try {
+    text = fs.readFileSync(summaryPath, 'utf-8');
+  } catch {
+    return true; // unreadable: keep the pre-44-08 behaviour (a SUMMARY file means done)
+  }
+  return !_isCheckpointOnlySummary(text);
+}
+
+// Opening `<task ...>` elements of the XML TRD format: at the start of a line (optionally
+// indented) and outside fenced code blocks. A bare /<task\b/g also counts prose that mentions
+// a task tag in backticks and XML examples inside fences (it read 5 for 44-08-TRD.md, which
+// has 2 tasks). `<tasks>` (the wrapper) and `</task>` never match.
+function _countTaskElements(content) {
+  const unfenced = content.replace(/^[ \t]*(```|~~~)[\s\S]*?^[ \t]*\1/gm, '');
+  return (unfenced.match(/^[ \t]*<task\b/gm) || []).length;
+}
+
 function cmdObjectiveJobIndex(cwd, objective, raw) {
   if (!objective) {
     error('objective required for objective-job-index');
@@ -230,9 +259,11 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
   const jobFiles = findPlanFiles(objectiveFiles).sort();
   const summaryFiles = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
 
-  // Build set of job IDs with summaries
+  // Build set of job IDs with a completed SUMMARY (a Progress-only checkpoint is not complete)
   const completedJobIds = new Set(
-    summaryFiles.map(s => s.replace('-SUMMARY.md', '').replace('SUMMARY.md', ''))
+    summaryFiles
+      .filter(s => _summaryIsComplete(path.join(objectiveDir, s)))
+      .map(s => s.replace('-SUMMARY.md', '').replace('SUMMARY.md', ''))
   );
 
   const plans = [];
@@ -246,9 +277,9 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
     const content = fs.readFileSync(jobPath, 'utf-8');
     const fm = extractFrontmatter(content);
 
-    // Count tasks (## Task N patterns)
-    const taskMatches = content.match(/##\s*Task\s*\d+/gi) || [];
-    const taskCount = taskMatches.length;
+    // Count tasks: <task> XML elements (TRD format), else legacy `## Task N` headings (JOB format)
+    const taskCount =
+      _countTaskElements(content) || (content.match(/##\s*Task\s*\d+/gi) || []).length;
 
     // Parse wave as integer
     const wave = parseInt(fm.wave, 10) || 1;
