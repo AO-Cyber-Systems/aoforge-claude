@@ -19,10 +19,12 @@
  *     can never reach it; the inline prefix is the only in-command form it can
  *     read.
  *   - A merge, rebase or cherry-pick is in progress in the git dir of every
- *     commit invocation's target repo — MERGE_HEAD, REBASE_HEAD, rebase-merge/,
+ *     commit invocation's target repo — MERGE_HEAD, rebase-merge/,
  *     rebase-apply/ or CHERRY_PICK_HEAD (objective 44, DF-02(b)). Finishing one
  *     needs a whole-index commit, which `df-tools commit`'s pathspec-scoped
- *     commit can't make. The git dir is resolved fs-only (no git spawn) from
+ *     commit can't make. REBASE_HEAD alone is ignored: git leaves it behind
+ *     after a rebase finishes, so a stale one would silently disable this gate
+ *     (TRD 44-10). The git dir is resolved fs-only (no git spawn) from
  *     `git -C <path>` or cwd, following a linked worktree's `.git` file to its
  *     per-worktree git dir. An unresolvable target is "no op in progress".
  *
@@ -324,6 +326,12 @@ function resolveGitDir(start) {
  * The git operation in progress in `gitDir`, from the markers git leaves while
  * one is paused waiting for a commit.
  *
+ * A rebase counts ONLY via `rebase-merge/` or `rebase-apply/`. Both rebase
+ * backends keep one of those dirs for the whole time a rebase is stopped, and
+ * git's own status detection uses them. REBASE_HEAD is deliberately not a
+ * signal: git leaves it behind after a rebase finishes, so it made a stale
+ * marker a standing bypass of this gate (TRD 44-10, 44-VERIFICATION AUT-04).
+ *
  * @param {string|null} gitDir
  * @returns {'merge'|'rebase'|'cherry-pick'|null}
  */
@@ -333,7 +341,7 @@ function gitOpInProgress(gitDir) {
     try { return fs.existsSync(path.join(gitDir, name)); } catch { return false; }
   };
   if (has('MERGE_HEAD')) return 'merge';
-  if (has('REBASE_HEAD') || has('rebase-merge') || has('rebase-apply')) return 'rebase';
+  if (has('rebase-merge') || has('rebase-apply')) return 'rebase';
   if (has('CHERRY_PICK_HEAD')) return 'cherry-pick';
   return null;
 }
