@@ -896,8 +896,9 @@ describe('CLI: stack verify, static (test 1)', () => {
 describe('CLI: stack verify --draft (test 2)', () => {
   test('verifies the stack init preview and never creates .planning/STACK.md', () => {
     const repo = track(fx.makeRepo({
-      'go.mod': 'module example.com/x\n\ngo 1.22\n',
-      'main.go': 'package main\nfunc main() {}\n',
+      // A stack with no bundled profile, so the draft extends `general` and keeps the
+      // Makefile targets (a go.mod would pull in the bundled go profile since 42-02).
+      'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n',
       Makefile: 'test:\n\tgo test ./...\n\nlint:\n\tgolangci-lint run\n\nbuild:\n\tgo build ./...\n',
     }));
     const bin = track(fx.fakeBin(['make']));
@@ -915,8 +916,9 @@ describe('CLI: stack verify --draft (test 2)', () => {
 
   test('a draft command whose target is missing is reported missing (exit 1)', () => {
     const repo = track(fx.makeRepo({
-      'go.mod': 'module example.com/x\n\ngo 1.22\n',
-      'main.go': 'package main\nfunc main() {}\n',
+      // A stack with no bundled profile, so the draft extends `general` and keeps the
+      // Makefile targets (a go.mod would pull in the bundled go profile since 42-02).
+      'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n',
       Makefile: 'test:\n\tgo test ./...\n',
     }));
     const bin = track(fx.fakeBin([]));
@@ -995,8 +997,9 @@ describe('CLI: stack verify --run (test 3)', () => {
 
   test('--run --draft runs the safe commands of the draft, and still writes no STACK.md', () => {
     const repo = track(fx.makeRepo({
-      'go.mod': 'module example.com/x\n\ngo 1.22\n',
-      'main.go': 'package main\nfunc main() {}\n',
+      // A stack with no bundled profile, so the draft extends `general` and keeps the
+      // Makefile targets (a go.mod would pull in the bundled go profile since 42-02).
+      'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n',
       Makefile: 'build:\n\tgo build ./...\n',
     }));
     const bin = track(fx.fakeBin(['make', 'go']));
