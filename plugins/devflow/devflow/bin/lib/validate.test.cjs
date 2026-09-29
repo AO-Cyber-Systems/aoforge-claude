@@ -626,6 +626,7 @@ describe('Check 12: stack profile', () => {
     const w030 = json.warnings.find((w) => w.code === 'W030');
     assert.ok(w030, `expected W030: ${JSON.stringify(json.warnings)}`);
     assert.match(w030.message, /"missing"/);
+    assert.match(w030.message, /~\/\.claude\/devflow\/stacks\/ or the bundled stack-profiles\//);
     assert.strictEqual(json.errors.find((e) => e.code === 'E030'), undefined);
   });
 

@@ -86,7 +86,7 @@ function zlangHome() {
 // ─── D1 ──────────────────────────────────────────────────────────────────────
 
 test('D1: detectMarkers({userHome:null}) -> []', () => {
-  assert.deepEqual(detectMarkers({ userHome: null }), []);
+  assert.deepEqual(detectMarkers({ userHome: null, bundledDir: null }), []);
 });
 
 // ─── D2 ──────────────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ test('D1: detectMarkers({userHome:null}) -> []', () => {
 test('D2: fake-home profile detect markers become {marker, profile, languages} entries', () => {
   const home = zlangHome();
   try {
-    const markers = detectMarkers({ userHome: home });
+    const markers = detectMarkers({ userHome: home, bundledDir: null });
     assert.deepEqual(markers, [
       { marker: 'weird.lock', profile: 'zlang', languages: ['zlang'] },
       { marker: '*.zz', profile: 'zlang', languages: ['zlang'] },
@@ -241,4 +241,15 @@ test('D10: brownfield CLI counts *.zz files when HOME=fake supplies the org mark
   } finally {
     cleanup(root, home);
   }
+});
+
+// ─── D12 (TRD 42-02) ─────────────────────────────────────────────────────────
+
+test('D12: detectMarkers sees the bundled tier-2 profiles without any home; bundledDir:null turns them off', () => {
+  const markers = detectMarkers({ userHome: null });
+  assert.ok(
+    markers.some((m) => m.marker === 'go.mod' && m.profile === 'go' && m.languages.includes('go')),
+    JSON.stringify(markers)
+  );
+  assert.deepEqual(detectMarkers({ userHome: null, bundledDir: null }), []);
 });

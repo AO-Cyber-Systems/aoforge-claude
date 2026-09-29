@@ -547,7 +547,7 @@ function cmdValidateHealth(cwd, options, raw) {
         addIssue(
           'warning',
           'W030',
-          `stack-extends-unresolved: extends "${id}" not found in ~/.claude/devflow/stacks/`,
+          `stack-extends-unresolved: extends "${id}" not found in ~/.claude/devflow/stacks/ or the bundled stack-profiles/`,
           `Install ~/.claude/devflow/stacks/${id}.md or change \`extends\``
         );
       }

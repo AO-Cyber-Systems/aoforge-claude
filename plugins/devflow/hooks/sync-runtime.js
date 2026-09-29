@@ -185,7 +185,7 @@ function removeDir(dir) {
 // Atomic per-subdir swap
 // ---------------------------------------------------------------------------
 
-const SUBDIRS = ['workflows', 'references', 'templates', 'bin', 'schemas'];
+const SUBDIRS = ['workflows', 'references', 'templates', 'bin', 'schemas', 'stack-profiles'];
 
 // Sweep any stale devflow-tmp-* entries left by a previously crashed run.
 function sweepStaleTmpDirs() {

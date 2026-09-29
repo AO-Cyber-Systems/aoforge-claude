@@ -22,7 +22,7 @@
 //   16. additionalProperties: {$ref: "#/$defs/command"}: an extra key whose value violates the referenced schema yields errors at commands.test.run; a conforming one yields none
 //   17. minItems: 1 with [] -> NO error (documents the deliberate non-support; see gotchas)
 // Positive control (integration):
-//   18. Frontmatter of references/stack-general.md and docs/stack-profiles/{go,dart,flutter}.md validates against schemas/stack-profile.schema.json with []
+//   18. Frontmatter of references/stack-general.md and stack-profiles/{go,dart,flutter}.md validates against schemas/stack-profile.schema.json with []
 //   19. A copy of the go profile with commands.test.run = "" and provenance.reviewed = "soon" yields exactly two errors (minLength, format)
 
 const { test, describe } = require('node:test');
@@ -52,10 +52,8 @@ const STACK_PROFILE_SCHEMA_PATH = path.join(
   '..', '..', 'schemas', 'stack-profile.schema.json'
 );
 const STACK_GENERAL_PATH = path.join(__dirname, '..', '..', 'references', 'stack-general.md');
-// docs/ is not in the ~/.claude/devflow mirror — walk up to the checkout root from __dirname.
-const STACK_PROFILES_DOCS_DIR = path.join(
-  __dirname, '..', '..', '..', '..', '..', 'docs', 'stack-profiles'
-);
+// The tier-2 profiles ship bundled in the plugin beside references/ and schemas/ (TRD 42-02).
+const STACK_PROFILES_DIR = path.join(__dirname, '..', '..', 'stack-profiles');
 
 function loadStackProfileSchema() {
   return JSON.parse(fs.readFileSync(STACK_PROFILE_SCHEMA_PATH, 'utf8'));
@@ -271,14 +269,14 @@ describe('positive control — shipped stack profiles', () => {
   });
 
   for (const name of ['go', 'dart', 'flutter']) {
-    test(`18b. docs/stack-profiles/${name}.md frontmatter validates with []`, () => {
-      const fm = readFrontmatter(path.join(STACK_PROFILES_DOCS_DIR, `${name}.md`));
+    test(`18b. stack-profiles/${name}.md frontmatter validates with []`, () => {
+      const fm = readFrontmatter(path.join(STACK_PROFILES_DIR, `${name}.md`));
       assert.deepStrictEqual(validate(fm, schema), []);
     });
   }
 
   test('19. a broken copy of the go profile yields exactly two errors (minLength, format)', () => {
-    const fm = readFrontmatter(path.join(STACK_PROFILES_DOCS_DIR, 'go.md'));
+    const fm = readFrontmatter(path.join(STACK_PROFILES_DIR, 'go.md'));
     const broken = JSON.parse(JSON.stringify(fm));
     broken.commands.test.run = '';
     broken.provenance.reviewed = 'soon';

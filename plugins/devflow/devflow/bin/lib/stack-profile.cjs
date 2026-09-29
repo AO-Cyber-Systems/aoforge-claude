@@ -28,6 +28,10 @@ const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./st
 const { collectEvidence } = require('./stack-evidence.cjs');
 
 const BUNDLED_PATH = path.join(__dirname, '../../references/stack-general.md');
+// Tier-2 profiles shipped with the plugin (TRD 42-02). Resolved AFTER the user/org tier at
+// `<home>/.claude/devflow/stacks/`, so a user profile with the same id always wins. The same
+// `__dirname` join works from the repo checkout and from the `~/.claude/devflow` mirror.
+const BUNDLED_STACKS_DIR = path.join(__dirname, '../../stack-profiles');
 const SCHEMA_PATH = path.join(__dirname, '../../schemas/stack-profile.schema.json');
 const FENCE = '---';
 const MAX_EXTENDS_DEPTH = 4;
@@ -160,12 +164,46 @@ function orgProfilePath(userHome, id) {
   return path.join(userHome, '.claude', 'devflow', 'stacks', `${id}.md`);
 }
 
+/**
+ * profileLookup(id, { userHome, bundledDir }) -> { path, tier: 'user'|'bundled' } | null
+ *
+ * The user/org tier (`<userHome>/.claude/devflow/stacks/<id>.md`) first, then the bundled tier
+ * (`<bundledDir>/<id>.md`). Either tier is skipped when its root is null, so `bundledDir: null`
+ * restores the single-tier lookup exactly.
+ */
+function profileLookup(id, { userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  if (userHome) {
+    const userPath = orgProfilePath(userHome, id);
+    if (fs.existsSync(userPath)) return { path: userPath, tier: 'user' };
+  }
+  if (bundledDir) {
+    const bundledPath = path.join(bundledDir, `${id}.md`);
+    if (fs.existsSync(bundledPath)) return { path: bundledPath, tier: 'bundled' };
+  }
+  return null;
+}
+
+// The EXTENDS_UNRESOLVED message. With the bundled tier off it is byte-identical to the
+// pre-42-02 single-tier text; with it on it names every place that was looked at.
+function unresolvedMessage(id, { userHome, bundledDir }) {
+  if (!bundledDir) {
+    return userHome
+      ? `extends '${id}' not found at ${orgProfilePath(userHome, id)}`
+      : `extends '${id}' cannot be resolved: no org home was provided`;
+  }
+  const bundledPath = path.join(bundledDir, `${id}.md`);
+  return userHome
+    ? `extends '${id}' not found at ${orgProfilePath(userHome, id)} or ${bundledPath}`
+    : `extends '${id}' not found at ${bundledPath} (no org home was provided)`;
+}
+
 // Walks an `extends` chain starting at `startId`, stopping at `general`. Returns hops in
-// LOW -> HIGH order (the farthest ancestor first), never including `general` itself. A cycle, a
-// chain deeper than MAX_EXTENDS_DEPTH, or an id that cannot be found are all recorded as issues
-// and stop the walk at that point — never thrown, so a caller always gets a usable, if partial,
+// LOW -> HIGH order (the farthest ancestor first), never including `general` itself. Each hop
+// carries `source` ('user' | 'bundled'): the tier `profileLookup` found it in. A cycle, a chain
+// deeper than MAX_EXTENDS_DEPTH, or an id that cannot be found are all recorded as issues and
+// stop the walk at that point — never thrown, so a caller always gets a usable, if partial,
 // chain back.
-function walkExtendsChain({ startId, userHome, issues }) {
+function walkExtendsChain({ startId, userHome, bundledDir = BUNDLED_STACKS_DIR, issues }) {
   const collected = [];
   const seen = new Set();
   let id = startId;
@@ -180,19 +218,15 @@ function walkExtendsChain({ startId, userHome, issues }) {
       issues.push({ code: 'EXTENDS_CYCLE', message: `extends cycle detected at '${id}'`, id });
       break;
     }
-    if (!userHome) {
-      issues.push({ code: 'EXTENDS_UNRESOLVED', message: `extends '${id}' cannot be resolved: no org home was provided`, id });
+    const found = profileLookup(id, { userHome, bundledDir });
+    if (!found) {
+      issues.push({ code: 'EXTENDS_UNRESOLVED', message: unresolvedMessage(id, { userHome, bundledDir }), id });
       break;
     }
-    const orgPath = orgProfilePath(userHome, id);
-    if (!fs.existsSync(orgPath)) {
-      issues.push({ code: 'EXTENDS_UNRESOLVED', message: `extends '${id}' not found at ${orgPath}`, id });
-      break;
-    }
-    const text = fs.readFileSync(orgPath, 'utf-8');
-    const parsed = parseProfile(text, { source: orgPath }); // a malformed org-tier file throws, per contract
+    const text = fs.readFileSync(found.path, 'utf-8');
+    const parsed = parseProfile(text, { source: found.path }); // a malformed org-tier file throws, per contract
     seen.add(id);
-    collected.push({ id, path: orgPath, frontmatter: parsed.frontmatter, sections: parsed.sections });
+    collected.push({ id, path: found.path, source: found.tier, frontmatter: parsed.frontmatter, sections: parsed.sections });
     depth += 1;
     id = parsed.frontmatter.extends === undefined || parsed.frontmatter.extends === null
       ? 'general'
@@ -301,7 +335,7 @@ function _resetCache() { _cache = new Map(); }
  *   entry's OWN (unmerged) frontmatter, for callers (validateProfile) that schema-check each
  *   file in the chain individually rather than the merged result.
  */
-function resolveFromParsed(parsedTarget, { userHome = null, file = null, projectRoot = null, targetPath = null } = {}) {
+function resolveFromParsed(parsedTarget, { userHome = null, file = null, projectRoot = null, targetPath = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   const issues = [];
   const generalParsed = parseProfile(fs.readFileSync(BUNDLED_PATH, 'utf-8'), { source: BUNDLED_PATH });
   const layers = [{ id: 'general', tier: 'bundled', path: BUNDLED_PATH, frontmatter: generalParsed.frontmatter, sections: generalParsed.sections }];
@@ -313,9 +347,9 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
     const extendsId = parsedTarget.frontmatter.extends === undefined || parsedTarget.frontmatter.extends === null
       ? 'general'
       : parsedTarget.frontmatter.extends;
-    const orgHops = walkExtendsChain({ startId: extendsId, userHome, issues });
+    const orgHops = walkExtendsChain({ startId: extendsId, userHome, bundledDir, issues });
     for (const hop of orgHops) {
-      layers.push({ id: hop.id, tier: 'org', path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
+      layers.push({ id: hop.id, tier: 'org', source: hop.source, path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
     }
     layers.push({ id: null, tier: 'project', path: targetPath, frontmatter: parsedTarget.frontmatter, sections: parsedTarget.sections });
   }
@@ -337,10 +371,10 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
           issues.push({ code: 'COMPONENT_MISSING', message: `component profile file not found: ${compPath}`, id: match.profile });
         }
       } else if (typeof match.profile === 'string') {
-        const compHops = walkExtendsChain({ startId: match.profile, userHome, issues });
+        const compHops = walkExtendsChain({ startId: match.profile, userHome, bundledDir, issues });
         for (const hop of compHops) {
           if (chainIds.has(hop.id)) continue;
-          layers.push({ id: hop.id, tier: 'component', path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
+          layers.push({ id: hop.id, tier: 'component', source: hop.source, path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
         }
       }
     }
@@ -358,7 +392,10 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
     if (layer.tier === 'bundled' || layer.tier === 'org') id = layer.id;
   }
 
-  const chain = layers.map((l) => ({ id: l.id, tier: l.tier, path: l.path }));
+  // `source` ('user' | 'bundled') is present only on hops found through profileLookup.
+  const chain = layers.map((l) => (l.source
+    ? { id: l.id, tier: l.tier, path: l.path, source: l.source }
+    : { id: l.id, tier: l.tier, path: l.path }));
 
   return { id, frontmatter, sections, provenance, chain, component, issues, projectFile: targetPath, layers };
 }
@@ -374,8 +411,8 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
  * @returns {{id, frontmatter, sections, provenance, chain, component, issues, projectFile}}
  * @throws {StackProfileError} only when a file already in the chain fails to parse
  */
-function resolveProfile({ projectRoot = null, userHome = null, file = null } = {}) {
-  const cacheKey = `${projectRoot || ''}|${userHome || ''}|${file || ''}`;
+function resolveProfile({ projectRoot = null, userHome = null, file = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  const cacheKey = `${projectRoot || ''}|${userHome || ''}|${file || ''}|${bundledDir || ''}`;
   if (_cache.has(cacheKey)) return _cache.get(cacheKey);
 
   if (!fs.existsSync(BUNDLED_PATH)) {
@@ -396,7 +433,7 @@ function resolveProfile({ projectRoot = null, userHome = null, file = null } = {
     }
   }
 
-  const result = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath });
+  const result = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath, bundledDir });
   _cache.set(cacheKey, result);
   return result;
 }
@@ -452,7 +489,7 @@ function parseFailureResult(err, targetLabel, targetPath) {
  * chain, plus STK006/STK007 over the TARGET's own (unmerged) parse. Shared by validateProfile
  * and validateProfileText — both just supply a resolved chain and the target's own parse.
  */
-function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel }) {
+function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel, bundledDir = BUNDLED_STACKS_DIR }) {
   const errors = [];
   const warnings = [];
   const schema = loadStackProfileSchema();
@@ -560,7 +597,7 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
       if (!fs.existsSync(compPath)) {
         errors.push({ code: 'STK009', path: 'components[].profile', msg: `component profile file not found: ${compPath}`, file: targetPath });
       }
-    } else if (!userHome || !fs.existsSync(orgProfilePath(userHome, comp.profile))) {
+    } else if (!profileLookup(comp.profile, { userHome, bundledDir })) {
       errors.push({ code: 'STK009', path: 'components[].profile', msg: `component profile '${comp.profile}' not found`, file: targetPath });
     }
   }
@@ -575,7 +612,7 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
  * — 35-04's `init` uses this to check a draft before it commits to a file. Resolves the chain
  * from the text's own `extends` (via `resolveFromParsed`), exactly as a saved file would.
  */
-function validateProfileText(text, { projectRoot = null, userHome = null, file = null } = {}) {
+function validateProfileText(text, { projectRoot = null, userHome = null, file = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   const targetLabel = file || 'draft';
   let parsedTarget;
   try {
@@ -583,8 +620,8 @@ function validateProfileText(text, { projectRoot = null, userHome = null, file =
   } catch (err) {
     return parseFailureResult(err, targetLabel, file || null);
   }
-  const resolved = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath: file || null });
-  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath: file || null, targetLabel });
+  const resolved = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath: file || null, bundledDir });
+  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath: file || null, targetLabel, bundledDir });
 }
 
 /**
@@ -595,7 +632,7 @@ function validateProfileText(text, { projectRoot = null, userHome = null, file =
  * `'general (bundled; no .planning/STACK.md)'`, and this is always `ok: true` for a healthy
  * install (general ships schema-valid with every gate/loop key defined).
  */
-function validateProfile({ projectRoot = null, userHome = null, profilePath = null } = {}) {
+function validateProfile({ projectRoot = null, userHome = null, profilePath = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   let targetPath;
   let targetLabel;
   let isBundledGeneral = false;
@@ -639,9 +676,9 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
         issues: [],
         layers: [{ id: 'general', tier: 'bundled', path: BUNDLED_PATH, frontmatter: parsedTarget.frontmatter, sections: parsedTarget.sections }],
       }
-    : resolveFromParsed(parsedTarget, { userHome, file: null, projectRoot, targetPath });
+    : resolveFromParsed(parsedTarget, { userHome, file: null, projectRoot, targetPath, bundledDir });
 
-  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel });
+  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel, bundledDir });
 }
 
 // ─── stack init: draft / serialize / write (35-04) ────────────────────────
@@ -652,17 +689,27 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
 // `initProfile`, and only when its caller asks for `write: true`.
 
 /**
- * listOrgProfiles({ userHome }) -> [{ id, extends, detect, languages, path }, ...]
+ * listOrgProfiles({ userHome, bundledDir }) -> [{ id, extends, detect, languages, path, tier }, ...]
  *
- * Reads every `*.md` at `<userHome>/.claude/devflow/stacks/`, sorted by filename. A file that
- * fails to parse is skipped (a listing call reports what it CAN read, never throws over one bad
- * entry) — `resolveProfile`'s own `extends` walk is what enforces a hard failure for a chain a
- * project actually depends on. `[]` for a null `userHome` or a directory that doesn't exist —
- * 35-09's detectMarkers reuses this for the same "there may be nothing installed yet" case.
+ * Reads every `*.md` in the user tier (`<userHome>/.claude/devflow/stacks/`, `tier: 'user'`),
+ * then every `*.md` in the bundled tier (`bundledDir`, `tier: 'bundled'`), each sorted by
+ * filename. A bundled entry whose id a user entry already has is dropped: the user tier shadows
+ * it, exactly as `profileLookup` resolves an `extends`. A file that fails to parse is skipped (a
+ * listing call reports what it CAN read, never throws over one bad entry) — `resolveProfile`'s
+ * own `extends` walk is what enforces a hard failure for a chain a project actually depends on.
+ * A null root or a directory that doesn't exist contributes nothing, so `bundledDir: null` with
+ * a null `userHome` is `[]` — 35-09's detectMarkers reuses this for the same "there may be
+ * nothing installed yet" case.
  */
-function listOrgProfiles({ userHome = null } = {}) {
-  if (!userHome) return [];
-  const dir = path.join(userHome, '.claude', 'devflow', 'stacks');
+function listOrgProfiles({ userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  const user = userHome ? listProfileDir(path.join(userHome, '.claude', 'devflow', 'stacks'), 'user') : [];
+  const bundled = bundledDir ? listProfileDir(bundledDir, 'bundled') : [];
+  const userIds = new Set(user.map((p) => p.id));
+  return user.concat(bundled.filter((p) => !userIds.has(p.id)));
+}
+
+// One tier's directory listing for listOrgProfiles. `[]` when the directory can't be read.
+function listProfileDir(dir, tier) {
   let entries;
   try {
     entries = fs.readdirSync(dir);
@@ -687,6 +734,7 @@ function listOrgProfiles({ userHome = null } = {}) {
       detect: Array.isArray(fm.detect) ? fm.detect : [],
       languages: Array.isArray(fm.languages) ? fm.languages : [],
       path: full,
+      tier,
     });
   }
   return results;
@@ -699,10 +747,11 @@ function listOrgProfiles({ userHome = null } = {}) {
  * this function never names a language itself (35-02a's P11 neutrality property keeps holding).
  * The three detector files (project-state.cjs, init.cjs, brownfield-detector.cjs) are the ONE
  * place allowed to turn a matched marker's `languages` back into a language name (TRD 35-09's
- * neutrality exception). `[]` when `userHome` is null, via the same listOrgProfiles contract.
+ * neutrality exception). Covers both tiers via listOrgProfiles, user entries first; `[]` only
+ * when `userHome` is null AND `bundledDir` is null.
  */
-function detectMarkers({ userHome = null } = {}) {
-  return listOrgProfiles({ userHome }).flatMap((p) =>
+function detectMarkers({ userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  return listOrgProfiles({ userHome, bundledDir }).flatMap((p) =>
     (p.detect || []).map((marker) => ({ marker, profile: p.id, languages: p.languages || [] }))
   );
 }
@@ -759,12 +808,12 @@ function isAncestorOf(candidateId, ofId, byId) {
  * wins, and the dropped ones are reported as `alternatives` alongside any other surviving tie.
  * A remaining tie breaks alphabetically. No match at all -> `general`.
  */
-function pickExtends({ projectRoot, userHome = null, explicit = null } = {}) {
+function pickExtends({ projectRoot, userHome = null, explicit = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   if (explicit) {
     return { id: explicit, reason: `explicit --extends ${explicit}`, alternatives: [] };
   }
 
-  const profiles = listOrgProfiles({ userHome });
+  const profiles = listOrgProfiles({ userHome, bundledDir });
   if (!profiles.length) {
     return { id: 'general', reason: 'no org profiles installed', alternatives: [] };
   }
@@ -811,12 +860,12 @@ function slugifyId(name) {
  * parent's already-configured command, which is exactly how a `scoped` form an org profile
  * defines survives a draft that also happens to find CI evidence for the same key.
  */
-function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general', now = new Date() } = {}) {
+function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general', now = new Date(), bundledDir = BUNDLED_STACKS_DIR } = {}) {
   const evidence = collectEvidence(projectRoot, { from });
 
   const parentResolved = resolveFromParsed(
     { frontmatter: { schema: 1, extends: extendsId }, sections: [] },
-    { userHome, file: null, projectRoot, targetPath: null }
+    { userHome, file: null, projectRoot, targetPath: null, bundledDir }
   );
   const parentCommands = (parentResolved.frontmatter && parentResolved.frontmatter.commands) || {};
 
@@ -910,11 +959,11 @@ function serializeProfile(frontmatter, body) {
  * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
  */
-function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date() } = {}) {
-  const picked = pickExtends({ projectRoot, userHome, explicit: extendsId });
-  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id, now });
+function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date(), bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  const picked = pickExtends({ projectRoot, userHome, explicit: extendsId, bundledDir });
+  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id, now, bundledDir });
   const text = serializeProfile(draft.frontmatter, draft.body);
-  const validation = validateProfileText(text, { projectRoot, userHome, file: null });
+  const validation = validateProfileText(text, { projectRoot, userHome, file: null, bundledDir });
   const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
   const base = { path: targetPath, text, extends: picked.id, evidence: draft.evidence, validation };
 
@@ -1100,4 +1149,5 @@ module.exports = {
   SECTION_NAMES,
   _resetCache,
   BUNDLED_PATH,
+  BUNDLED_STACKS_DIR,
 };

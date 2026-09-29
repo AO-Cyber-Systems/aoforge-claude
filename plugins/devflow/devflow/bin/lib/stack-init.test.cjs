@@ -40,14 +40,14 @@ function run(args, { cwd, home }) {
 
 describe('listOrgProfiles (I1)', () => {
   test('I1: null userHome -> []; a fake home with two profiles -> both ids, each with its detect list', () => {
-    assert.deepStrictEqual(sp.listOrgProfiles({ userHome: null }), []);
+    assert.deepStrictEqual(sp.listOrgProfiles({ userHome: null, bundledDir: null }), []);
 
     const other = fx.profileMd({
       yaml: ['schema: 1', 'id: other', 'extends: general', 'detect: [pubspec.yaml]'].join('\n'),
     });
     const home = fx.makeHome({ stacks: { golike: fx.orgProfileGoLike(), other } });
     try {
-      const profiles = sp.listOrgProfiles({ userHome: home });
+      const profiles = sp.listOrgProfiles({ userHome: home, bundledDir: null });
       const ids = profiles.map((p) => p.id).sort();
       assert.deepStrictEqual(ids, ['golike', 'other']);
       const golikeEntry = profiles.find((p) => p.id === 'golike');
@@ -64,7 +64,7 @@ describe('pickExtends (I2-I5)', () => {
     const home = fx.makeHome({ stacks: { golike: fx.orgProfileGoLike() } });
     const root = fx.makeProject({ files: fx.goShapedRepo() });
     try {
-      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null });
+      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null, bundledDir: null });
       assert.equal(picked.id, 'golike');
     } finally {
       fx.cleanup(root, home);
@@ -302,6 +302,37 @@ describe('provenance.reviewed is the local date (I13)', () => {
       const after = localDate();
       const reviewed = sp.parseProfile(result.text).frontmatter.provenance.reviewed;
       assert.ok(reviewed === before || reviewed === after, `reviewed ${reviewed}, expected ${before} or ${after}`);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+});
+
+// ─── I14: bundled tier-2 profiles are detected (TRD 42-02) ─────────────────────
+
+describe('bundled tier-2 detection (I14)', () => {
+  test('I14a: a root go.mod and an empty fake home -> pickExtends picks the bundled go', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ files: fx.goShapedRepo() });
+    try {
+      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null });
+      assert.equal(picked.id, 'go');
+      const off = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null, bundledDir: null });
+      assert.equal(off.id, 'general');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('I14b: initProfile on a go.mod repo with an empty fake home drafts `extends: "go"` and validates', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ files: fx.goShapedRepo() });
+    try {
+      const r = sp.initProfile({ projectRoot: root, userHome: home });
+      assert.equal(r.action, 'preview');
+      assert.equal(r.extends, 'go');
+      assert.match(r.text, /^extends: "go"$/m);
+      assert.equal(r.validation.ok, true, JSON.stringify(r.validation.errors));
     } finally {
       fx.cleanup(root, home);
     }
