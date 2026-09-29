@@ -3,7 +3,7 @@ schema: 1
 id: flutter
 extends: dart
 languages: [dart]
-detect: [pubspec.yaml]                    # plus `sdk: flutter` under dependencies
+detect: [{file: pubspec.yaml, contains: "sdk: flutter"}]   # the Flutter SDK dependency; a pure Dart pubspec matches dart only
 
 toolchain:
   flutter: { version_source: pubspec.yaml }  # environment.flutter, else .fvmrc / .tool-versions

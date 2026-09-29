@@ -757,8 +757,20 @@ function detectMarkers({ userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}
 }
 
 // A marker either names a file at the project root literally, or (`*.ext`) matches any root
-// entry sharing that suffix.
-function markerMatches(marker, rootEntries) {
+// entry sharing that suffix. The object form `{file, contains}` (TRD 42-05) names a root entry
+// literally AND, when `contains` is set, requires that file's text to include it — read from
+// `root`, so without a root (or on any read error) a content marker never matches. `file` must
+// be a root entry name, which also keeps the read inside `root` (a path-shaped name never is one).
+function markerMatches(marker, rootEntries, root = null) {
+  if (marker && typeof marker === 'object' && !Array.isArray(marker)) {
+    if (typeof marker.file !== 'string' || !marker.file || !rootEntries.includes(marker.file)) return false;
+    if (marker.contains === undefined || marker.contains === null) return true;
+    try {
+      return fs.readFileSync(path.join(root, marker.file), 'utf-8').includes(String(marker.contains));
+    } catch (_) {
+      return false;
+    }
+  }
   if (typeof marker !== 'string' || !marker) return false;
   if (marker.startsWith('*.')) {
     const suffix = marker.slice(1);
@@ -767,13 +779,24 @@ function markerMatches(marker, rootEntries) {
   return rootEntries.includes(marker);
 }
 
+// A marker as text for a human-facing reason: a string as-is, an object as `file(contains)`.
+function markerLabel(marker) {
+  if (marker && typeof marker === 'object') {
+    return marker.contains === undefined || marker.contains === null
+      ? String(marker.file)
+      : `${marker.file}(${marker.contains})`;
+  }
+  return String(marker);
+}
+
 /**
  * matchMarkersAt(root, markers) -> the subset of `markers` present at `root`
  *
  * `markers` is typically `detectMarkers()`'s own output (only its `marker` field is read, so
  * any `{marker, ...}` array works). A literal marker must equal a root entry; a `*.ext` marker
- * matches when any root entry shares that suffix (see `markerMatches`). An unreadable `root`
- * (doesn't exist yet, permissions) matches nothing rather than throwing.
+ * matches when any root entry shares that suffix; a `{file, contains}` marker also reads that
+ * file (see `markerMatches`). An unreadable `root` (doesn't exist yet, permissions) matches
+ * nothing rather than throwing.
  */
 function matchMarkersAt(root, markers) {
   let rootEntries = [];
@@ -782,7 +805,7 @@ function matchMarkersAt(root, markers) {
   } catch (_) {
     rootEntries = [];
   }
-  return markers.filter((m) => markerMatches(m.marker, rootEntries));
+  return markers.filter((m) => markerMatches(m.marker, rootEntries, root));
 }
 
 // True when `candidateId` sits somewhere in `ofId`'s own `extends` chain (an ANCESTOR of it),
@@ -825,7 +848,7 @@ function pickExtends({ projectRoot, userHome = null, explicit = null, bundledDir
     rootEntries = [];
   }
 
-  const matched = profiles.filter((p) => p.detect.some((marker) => markerMatches(marker, rootEntries)));
+  const matched = profiles.filter((p) => p.detect.some((marker) => markerMatches(marker, rootEntries, projectRoot)));
   if (!matched.length) {
     return { id: 'general', reason: 'no installed org profile detect marker matched this project', alternatives: [] };
   }
@@ -838,7 +861,7 @@ function pickExtends({ projectRoot, userHome = null, explicit = null, bundledDir
   const winner = survivors[0];
   const alternatives = matched.filter((m) => m.id !== winner.id).map((m) => m.id);
 
-  return { id: winner.id, reason: `detected via ${winner.detect.join(', ')}`, alternatives };
+  return { id: winner.id, reason: `detected via ${winner.detect.map(markerLabel).join(', ')}`, alternatives };
 }
 
 // `basename(projectRoot)`, lowercased, every run of characters outside `[a-z0-9.-]` collapsed to
