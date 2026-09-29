@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseYamlLite } = require('./yaml-lite.cjs');
 const { validate: schemaValidate } = require('./json-schema-lite.cjs');
-const { output, error, localDate } = require('./helpers.cjs');
+const { output, error, localDate, isGitIgnored } = require('./helpers.cjs');
 // 35-02b built command rendering / per-agent context slicing as a separate module so it could
 // run in parallel with 35-02a; re-exported below so every later caller requires only this file.
 const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./stack-render.cjs');
@@ -1046,6 +1046,20 @@ function serializeProfile(frontmatter, body) {
   return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }
 
+const STACK_REL = '.planning/STACK.md';
+
+// The repo-relative FILE paths among `rels` that git would ignore (helpers.isGitIgnored: file-
+// level, index-aware `git check-ignore -q --`, false on any git failure). Never throws.
+function ignoredTargets(projectRoot, rels) {
+  return rels.filter((rel) => {
+    try {
+      return isGitIgnored(projectRoot, rel);
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
 /**
  * initProfile({ projectRoot, userHome, from, extendsId, write, force, now }) ->
  *   { action: 'preview'|'written'|'refused', path, text, extends, evidence, validation }
@@ -1055,6 +1069,12 @@ function serializeProfile(frontmatter, body) {
  * Preview (the default, and always the outcome when the draft fails validation): nothing is
  * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
+ *
+ * Every result carries `ignored` and `warnings` (TRD 42-12). With `write`, the target FILE is
+ * checked with `git check-ignore -q -- .planning/STACK.md`: a tracked file under `.planning/`
+ * makes the dir-level check say "not ignored", so the file is what must be tested. A match puts
+ * the path in `ignored` and a warning in `warnings`; it is NOT fatal (adopt relies on the write).
+ * No git, not a repo, or any git failure: `ignored: []`.
  */
 function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date(), bundledDir = BUNDLED_STACKS_DIR, verifyOpts = {}, verify = null } = {}) {
   // draftProfile picks each area's profile itself; `extendsId` is only the caller's override.
@@ -1062,6 +1082,7 @@ function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsI
   const text = serializeProfile(draft.frontmatter, draft.body);
   const validation = validateProfileText(text, { projectRoot, userHome, file: null, bundledDir });
   const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
+  const ignored = write ? ignoredTargets(projectRoot, [STACK_REL]) : [];
   const base = {
     path: targetPath,
     text,
@@ -1071,6 +1092,8 @@ function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsI
     resolvedKeys: draft.resolvedKeys,
     inheritedKeys: draft.inheritedKeys,
     validation,
+    ignored,
+    warnings: ignored.map((rel) => `${rel} is gitignored; df-tools commit will skip it`),
   };
 
   if (!write || !validation.ok) {
@@ -1211,6 +1234,7 @@ function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
         error(`.planning/STACK.md already exists; pass --force to overwrite it (refusing to write ${result.path})`);
         return;
       }
+      for (const w of result.warnings || []) process.stderr.write(`warning: ${w}\n`);
       const exitCode = result.validation.ok ? 0 : 1;
       output(result, raw, result.text, exitCode);
       return;
