@@ -236,6 +236,6 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 
 ## Session Continuity
 
-Last session: 2026-09-28T17:12:45.567Z
-Resume file: `.planning/SESSION_PICKUP.md`
-Stopped at: Completed 41-06-TRD.md; objective 41 8/8 TRDs, awaiting objective-level verification
+Last session: 2026-09-29T04:43:03.254Z
+Resume file: `.planning/objectives/42-codebase-aware-stack-drafter/42-ROLLOUT.md`
+Stopped at: Objective 42: 10/11 TRDs done; 42-11 Task 1 dry run written (42-ROLLOUT.md, untracked); paused at Task 2 checkpoint:human-verify — no fleet writes yet
