@@ -19,7 +19,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { pluginVersion } = require('./helpers.cjs');
+const helpers = require('./helpers.cjs');
+
+const { pluginVersion } = helpers;
 
 let tmpHome;
 
@@ -63,5 +65,40 @@ describe('pluginVersion() — final fallback', () => {
 
     const version = pluginVersion({ homeDir: tmpHome, manifestPath: missingManifest });
     assert.strictEqual(version, '0.0.0', 'a whitespace-only marker trims to empty and should not be returned as a version');
+  });
+});
+
+// ─── localDate() — TRD 42-01 (SDR-07) ─────────────────────────────────────────
+//
+// Every Date below is built with the LOCAL constructor (`new Date(y, m, d, h, min)`), never from an
+// ISO string, so each assertion holds in every time zone. 23:30 local is the next UTC day west of
+// Greenwich; 00:30 local is the previous UTC day east of it — between them, a UTC-based
+// implementation fails in any non-UTC zone.
+
+describe('localDate() — the local calendar date, never the UTC date', () => {
+  test('is exported as a function', () => {
+    assert.strictEqual(typeof helpers.localDate, 'function');
+  });
+
+  test("local 23:30 on 2026-09-28 -> '2026-09-28'", () => {
+    assert.strictEqual(helpers.localDate(new Date(2026, 8, 28, 23, 30)), '2026-09-28');
+  });
+
+  test("local 00:30 on 2026-09-28 -> '2026-09-28'", () => {
+    assert.strictEqual(helpers.localDate(new Date(2026, 8, 28, 0, 30)), '2026-09-28');
+  });
+
+  test('month and day are zero-padded', () => {
+    assert.strictEqual(helpers.localDate(new Date(2026, 0, 5)), '2026-01-05');
+    assert.strictEqual(helpers.localDate(new Date(2026, 11, 31, 23, 59)), '2026-12-31');
+  });
+
+  test('defaults to now, read with the local getters', () => {
+    const before = new Date();
+    const got = helpers.localDate();
+    const after = new Date();
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // A call straddling local midnight may legitimately return either side.
+    assert.ok(got === fmt(before) || got === fmt(after), `got ${got}, expected ${fmt(before)} or ${fmt(after)}`);
   });
 });

@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseYamlLite } = require('./yaml-lite.cjs');
 const { validate: schemaValidate } = require('./json-schema-lite.cjs');
-const { output, error } = require('./helpers.cjs');
+const { output, error, localDate } = require('./helpers.cjs');
 // 35-02b built command rendering / per-agent context slicing as a separate module so it could
 // run in parallel with 35-02a; re-exported below so every later caller requires only this file.
 const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./stack-render.cjs');
@@ -427,6 +427,9 @@ function loadStackProfileSchemaNoId() {
   return _schemaNoId;
 }
 
+// STK010: a skill pin that is a whole-string template placeholder (`<sha>`, `<commit>`, ...).
+const PLACEHOLDER_PIN = /^<[^<>]+>$/;
+
 const ISSUE_TO_STK = {
   EXTENDS_UNRESOLVED: 'STK002',
   EXTENDS_CYCLE: 'STK003',
@@ -517,6 +520,33 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
       path: 'body',
       msg: `profile body is ${parsedTarget.bodyLineCount} lines, over the ${MAX_BODY_LINES}-line guideline`,
       file: targetPath,
+    });
+  }
+
+  // STK010 — a placeholder skill pin (any whole-string `<...>`, e.g. "<sha>") on ANY layer of the
+  // chain, plus the target's own parse (warning only; never flips `ok`). A placeholder is an
+  // unpinned upstream, which is the thing a pin exists to prevent. One warning per
+  // (source, pin, layer path), so a repeated entry in one file is reported once.
+  const pinLayers = [...resolved.layers];
+  if (parsedTarget && !pinLayers.some((l) => l.frontmatter === parsedTarget.frontmatter)) {
+    pinLayers.push({ id: null, tier: 'project', path: targetPath, frontmatter: parsedTarget.frontmatter });
+  }
+  const seenPins = new Set();
+  for (const layer of pinLayers) {
+    const tooling = layer.frontmatter && layer.frontmatter.agent_tooling;
+    const skills = tooling && Array.isArray(tooling.skills) ? tooling.skills : [];
+    skills.forEach((skill, i) => {
+      if (!skill || typeof skill.pin !== 'string' || !PLACEHOLDER_PIN.test(skill.pin)) return;
+      const key = JSON.stringify([skill.source, skill.pin, layer.path]);
+      if (seenPins.has(key)) return;
+      seenPins.add(key);
+      const label = `${layer.tier} layer${layer.id ? ` '${layer.id}'` : ''}`;
+      warnings.push({
+        code: 'STK010',
+        path: `agent_tooling.skills[${i}].pin`,
+        msg: `${label}: skill ${skill.source} has placeholder pin "${skill.pin}"; pin a real commit`,
+        file: layer.path,
+      });
     });
   }
 
@@ -781,7 +811,7 @@ function slugifyId(name) {
  * parent's already-configured command, which is exactly how a `scoped` form an org profile
  * defines survives a draft that also happens to find CI evidence for the same key.
  */
-function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general' } = {}) {
+function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general', now = new Date() } = {}) {
   const evidence = collectEvidence(projectRoot, { from });
 
   const parentResolved = resolveFromParsed(
@@ -803,7 +833,8 @@ function draftProfile({ projectRoot, userHome = null, from = 'codebase', extends
   }
 
   const id = slugifyId(path.basename(projectRoot));
-  const today = new Date().toISOString().slice(0, 10);
+  // The LOCAL calendar day: `reviewed` is a date a human reads, not a UTC instant (SDR-07).
+  const today = localDate(now);
   const sources = [...new Set(evidence.map((e) => e.source))];
 
   const frontmatter = {
@@ -870,7 +901,7 @@ function serializeProfile(frontmatter, body) {
 }
 
 /**
- * initProfile({ projectRoot, userHome, from, extendsId, write, force }) ->
+ * initProfile({ projectRoot, userHome, from, extendsId, write, force, now }) ->
  *   { action: 'preview'|'written'|'refused', path, text, extends, evidence, validation }
  *
  * `extendsId` here is the CALLER's `--extends` override (may be null/undefined — `pickExtends`
@@ -879,9 +910,9 @@ function serializeProfile(frontmatter, body) {
  * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
  */
-function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false } = {}) {
+function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date() } = {}) {
   const picked = pickExtends({ projectRoot, userHome, explicit: extendsId });
-  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id });
+  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id, now });
   const text = serializeProfile(draft.frontmatter, draft.body);
   const validation = validateProfileText(text, { projectRoot, userHome, file: null });
   const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
@@ -902,6 +933,37 @@ function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsI
 
 // ─── df-tools stack CLI ────────────────────────────────────────────────────
 
+/**
+ * Stack extensions — `stack <sub>` subcommands implemented in sibling modules, so a later TRD can
+ * ship one without editing this file (42-06 stack-verify.cjs, 42-08 stack-report.cjs, 42-09
+ * stack-mcp.cjs).
+ *
+ * Contract for an extension module: export `cli(cwd, args, raw, { userHome })`, where `args` is
+ * everything after the subcommand name. It reports through helpers `output` / `error` like every
+ * other df-tools command. The module is required LAZILY, inside the dispatch branch, never at
+ * load time: a missing or broken extension must not break `stack resolve`, and the extensions
+ * require this module, so a top-level require would be a cycle.
+ */
+const STACK_EXTENSIONS = Object.freeze({
+  verify: 'stack-verify.cjs',
+  report: 'stack-report.cjs',
+  mcp: 'stack-mcp.cjs',
+});
+
+/**
+ * loadStackExtension(sub, { libDir }) -> module | null
+ *
+ * null when `sub` is not an extension or its module file is absent. A module that exists but
+ * throws while loading (a syntax error, a bad require) is NOT caught: that is a broken build and
+ * must surface, not read as "not available".
+ */
+function loadStackExtension(sub, { libDir = __dirname } = {}) {
+  if (!Object.prototype.hasOwnProperty.call(STACK_EXTENSIONS, sub)) return null;
+  const modulePath = path.join(libDir, STACK_EXTENSIONS[sub]);
+  if (!fs.existsSync(modulePath)) return null;
+  return require(modulePath);
+}
+
 function parseFlagValue(args, flag) {
   const i = args.indexOf(flag);
   if (i === -1) return null;
@@ -920,7 +982,7 @@ function parseCsvFlag(args, flag) {
  * 35-04. `os.homedir()` is called ONLY here (never in resolveProfile/validateProfile) so those
  * stay pure and every test can sandbox HOME by passing `userHome` explicitly.
  */
-function cmdStack(cwd, args, raw) {
+function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
   const userHome = require('os').homedir();
   const projectRoot = cwd;
   const subcommand = args[0];
@@ -959,6 +1021,12 @@ function cmdStack(cwd, args, raw) {
     }
 
     if (subcommand === 'validate') {
+      // A positional path used to be ignored, so `stack validate x.md` validated .planning/STACK.md
+      // and reported ITS result — a green run for a file it never read (SDR-07).
+      if (args[1] !== undefined && !String(args[1]).startsWith('-')) {
+        error('stack validate takes --profile <path>, not a positional path');
+        return;
+      }
       const profilePath = parseFlagValue(args, '--profile');
       const result = validateProfile({ projectRoot, userHome, profilePath });
       output(result, raw, result.ok ? 'ok' : 'invalid', result.ok ? 0 : 1);
@@ -993,7 +1061,16 @@ function cmdStack(cwd, args, raw) {
       return;
     }
 
-    error('Unknown stack subcommand. Available: resolve, context, validate, command, init');
+    if (Object.prototype.hasOwnProperty.call(STACK_EXTENSIONS, subcommand)) {
+      const mod = loadStackExtension(subcommand, { libDir });
+      if (!mod || typeof mod.cli !== 'function') {
+        error(`stack ${subcommand} is not available in this build`);
+        return;
+      }
+      return mod.cli(cwd, args.slice(1), raw, { userHome });
+    }
+
+    error(`Unknown stack subcommand. Available: resolve, context, validate, command, init, ${Object.keys(STACK_EXTENSIONS).join(', ')}`);
   } catch (err) {
     error(err.message);
   }
@@ -1013,6 +1090,8 @@ module.exports = {
   serializeProfile,
   initProfile,
   cmdStack,
+  STACK_EXTENSIONS,
+  loadStackExtension,
   renderCommand,
   contextFor,
   AGENT_SLICES,
