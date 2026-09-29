@@ -34,6 +34,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 39 — Wire the telemetry & audit CLI (verified 2026-09-28, 12/12)
 **Objective complete:** 40 — Tooling correctness (completed 2026-09-28, 6/6 TRDs, verified 8/8)
 **Objective complete:** 41 — Retroactive verification of 27–34 (verified 2026-09-28, 6/6)
+**Objective complete:** 44 — Autonomy hardening (verified 2026-09-29, 7/7 SC after gap cycle 1; 10 TRDs in 4 waves. Changes: executor/verifier turn caps removed; INCOMPLETE outcome with SendMessage resume; SubagentStop executor gate; auto-continue Stop hook; edit gate allows devflow:* agents; commit gate allows merge/rebase/cherry-pick completion via rebase-merge/rebase-apply only, plus the inline bypass; migration 0008; config-get defaults; 13 legacy agent-read instructions removed and CI-guarded. Both hooks were E2E-tested live on Claude Code 2.1.284. Full npm test 5341/5374, with the single failure being environmental MA-7 doctl. Not yet released: installed plugin is 2.11.0)
 **Status:** v1.3 milestone complete
 
 ## Branch State (post-merge)

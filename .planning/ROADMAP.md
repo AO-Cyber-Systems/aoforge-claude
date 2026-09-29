@@ -127,7 +127,7 @@ TRDs:
 - [x] 44-07-TRD.md — (W1, tdd) `config-get` returns documented defaults for known unset keys (AUT-07)
 - [x] 44-08-TRD.md — (W2, tdd) objective-job-index: Progress-only SUMMARY is incomplete + XML task_count; doc-refs legacy agent-path CI guard (AUT-01, AUT-03)
 - [x] 44-09-TRD.md — (W3) register hooks in hooks.json; CLAUDE.md hook inventory, HOOK_DOCS, CHANGELOG [Unreleased]; full `npm test` (AUT-01..07)
-- [ ] 44-10-TRD.md — (W4, tdd, gap closure) gate-commits ignores stale bare REBASE_HEAD; executor-stop reason names the concrete SUMMARY path (AUT-04, AUT-02)
+- [x] 44-10-TRD.md — (W4, tdd, gap closure) gate-commits ignores stale bare REBASE_HEAD; executor-stop reason names the concrete SUMMARY path (AUT-04, AUT-02)
 
 ### Objective 43: Stack drafter rules
 
@@ -174,6 +174,6 @@ Candidate scope carried forward from v1.2 deferrals:
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
-| 44. Autonomy hardening | v1.4 | 9/10 | Gap closure | — |
+| 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |

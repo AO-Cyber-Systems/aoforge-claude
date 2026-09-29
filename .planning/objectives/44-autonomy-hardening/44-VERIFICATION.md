@@ -1,11 +1,12 @@
 ---
 objective: 44-autonomy-hardening
 verified: 2026-09-29T00:00:00Z
-status: gaps_found
-score: 6/7 success criteria fully verified (1 partial)
+status: passed
+score: 7/7 success criteria verified (SC4 gap closed by 44-10, re-verified 2026-09-29)
+re_verification: true
 gaps:
   - truth: "gate-commits allows merge/rebase/cherry-pick completion (SC4) without opening a standing bypass"
-    status: partial
+    status: closed_by_44-10
     reason: >
       gitOpInProgress() treats a bare `REBASE_HEAD` file as "rebase in progress". Git can leave
       REBASE_HEAD behind after a rebase has finished. This checkout has one right now
@@ -102,3 +103,15 @@ There is one gap, with one root cause. `gate-commits.js` counts a bare `.git/REB
 ---
 
 _Verifier: Claude (verifier)_
+
+
+## Re-verification after gap cycle 1 (44-10), 2026-09-29
+
+- **SC4 / AUT-04: CLOSED.**
+  - `gitOpInProgress()` now detects a rebase only from `rebase-merge/` or `rebase-apply/`.
+  - Run against this checkout, whose stale `.git/REBASE_HEAD` (2026-09-26) is still present, the merged hook returns `permissionDecision: deny` for `git commit -m x`. The deny text names the inline `DEVFLOW_ALLOW_RAW_COMMIT=1 git commit …` form and says merge/rebase/cherry-pick completions are allowed automatically.
+  - The `rebase-head` matrix case now expects deny.
+- **AUT-02 hardening (from live E2E):** when the TRD file is found, the executor-stop block reason names the concrete `.planning/objectives/<dir>/<id>-SUMMARY.md` path (44-10 Task 2).
+- **Tests on the merged tree:** gate-commits, gate-edits, gate-executor-stop, auto-continue, doc-refs.repo and roadmap-reconcile pass 336/336.
+- **Full `npm test`** (main checkout, before 44-10): 5341/5374 pass. The single failure, MA-7 `doctl auth init`, is environmental: doctl is already authenticated.
+- **Result:** all 7 success criteria are verified. Status is **passed**.
