@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **`df-tools stack verify [--run]`.** Checks that every command in the resolved profile can run:
+  the binary is on PATH (or under GOPATH/bin, `~/.local/bin`, mise shims), the runner target
+  exists, the script exists. Reports `resolved | binary_missing | target_missing | script_missing |
+  unverifiable`. `--run` executes only safe keys (`format`, `lint`, `typecheck`, `build`; add
+  `test`, `e2e`, `audit`, `sast` and the helm/docker lints with `--include`) and refuses anything
+  that pushes, deploys, applies or uses port 8080, even inside a runner target's body.
+- **`df-tools stack report [--write] [--draft]`.** Compares the repo's CI and local tooling with
+  the profile (33 checks: missing lint/format/vuln gates, no race or coverage flags, CI-only gates
+  with no local mirror, Flutter without Maestro) and writes `.planning/STACK-REPORT.md`. Proposals
+  only; nothing is applied.
+- **`df-tools stack mcp [--write]`.** Generates the project `.mcp.json` from each `agent_tooling.mcp`
+  entry in the resolved profile (root plus components). Opt-in: it writes only managed entries
+  (`env.DEVFLOW_MANAGED: "stack"`), keeps foreign entries and key order, and skips a server a plugin
+  already declares or whose binary is missing. `stack init` and `upgrade` never write `.mcp.json`.
+- **Bundled tier-2 profiles** `go`, `dart` and `flutter` in `devflow/stack-profiles/`, mirrored by
+  `sync-runtime`. An `extends` id resolves from the user/org tier
+  (`~/.claude/devflow/stacks/<id>.md`) first, then the bundled tier; the mirror never touches the
+  user/org dir.
+- **Components drafting.** `stack init` finds language areas up to three directories deep and drafts
+  `components` for monorepos (path with a trailing slash, joined onto each command's cwd). A
+  `{file, contains}` detect marker tells pure Dart from Flutter.
+- `validate health` W033: a `.mcp.json` server whose binary is missing (advisory, never repaired).
+- `confirm_stack_profile` step in the `adopt` and `map-codebase` workflows, and `mcp__gopls__*` /
+  `mcp__dart__*` grants on the executor, verifier and debugger agents.
+
+### Changed
+- **`stack init` is grounded in the codebase.** It reads GitHub Actions structurally, classifies
+  shell by the tool it runs, and reads Makefile/Taskfile/justfile/npm-family/`bin/` targets. Every
+  candidate command is verified before it is written; a key whose candidates all fail becomes
+  `run: discover`, with a note in the draft and in `STACK-REPORT.md`, rather than a guessed command.
+- The example go/dart/flutter profiles moved from `docs/stack-profiles/` to
+  `plugins/devflow/devflow/stack-profiles/`. The go `format` gate now fails on unformatted files,
+  dart `audit` is `none` with a non-gating `outdated`, and the dart/flutter MCP servers use
+  `--enable`/`--disable` feature flags instead of a tool whitelist that dropped `dtd`.
+
+### Fixed
+- CI drafting no longer emits `\` continuation fragments, comments, `echo` lines, bare flags or
+  `${{ }}`-only lines as commands.
+- `provenance.reviewed` in a drafted STACK.md is the local date, not the UTC date
+  (`helpers.localDate`).
+- `stack validate` warns on placeholder skill pins at every tier (STK010, also surfaced by
+  `validate health` W032) and rejects a positional path instead of silently validating
+  `.planning/STACK.md`.
+
 ## [2.11.0] - 2026-09-28
 
 ### Added

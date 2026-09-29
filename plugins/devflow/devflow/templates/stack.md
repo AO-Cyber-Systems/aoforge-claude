@@ -22,8 +22,9 @@ Schema: `schemas/stack-profile.schema.json`. Full design: `docs/PROPOSAL-stack-p
 ---
 schema: 1
 id: my-service              # this profile's id (kebab-case)
-extends: general            # parent profile: `general` (implicit), or an org/pack profile id
-                            # such as `go` or `flutter`, resolved from ~/.claude/devflow/stacks/<id>.md
+extends: general            # parent profile: `general` (implicit), or a profile id such as `go`,
+                            # `dart` or `flutter`: ~/.claude/devflow/stacks/<id>.md first, then the
+                            # bundled devflow/stack-profiles/<id>.md
 languages: [go]             # informational; used for detection and telemetry
 
 # versions gate which idioms are allowed (Principle 2)
@@ -66,8 +67,9 @@ verification:
   runtime: service          # none | cli | service | web | mobile | desktop
                             # selects the verifier's runtime check (verifier Step 8)
 
-components: []              # monorepos only. Each entry: { path: "go/", profile: ".planning/stacks/go.md" }
+components: []              # monorepos only. Each entry: { path: "go/", profile: go }
                             # A file resolves to the component with the longest matching path prefix.
+                            # See "Components, discover and notes" below.
 
 provenance:
   reviewed: "YYYY-MM-DD"      # the upstream tooling changes monthly, so re-review on toolchain bumps
@@ -130,5 +132,26 @@ mechanically (`go fix`, `dart fix`, a lint ID). A row with no enforcing tool bel
 
 **When to update:** toolchain or language version bump, new generator, new MCP server or skill set,
 or when an executor SUMMARY records a discovered command that differs from this file.
+
+**Components, discover and notes (a drafted STACK.md).** `df-tools stack init` reads CI, the task
+runner and manifests, verifies each command it would write, and drafts what it can stand behind.
+- `components: [{ path: "go/", profile: go }]`. `path` is a directory relative to the repo root and
+  ends with a trailing slash, so `go/` never matches `golang/`. `profile` is a tier id (`go`, `dart`,
+  `flutter`: user/org profile first, then the bundled one) or a path to a component profile file. A
+  component's commands run from `path`: the command's own `cwd` is joined onto it. Only commands
+  that differ from the parent's are repeated.
+- `run: discover` marks a key whose candidates could not be verified, and `run: none` a key that does
+  not exist here. The draft also opens the body with a `stack init notes` comment, one line per
+  unverified or weak candidate. Replace each `discover` with the real command (or `none`), then
+  delete the comment.
+- `df-tools stack report --write` writes `.planning/STACK-REPORT.md`: CI and local-testing gaps, each
+  with a proposal and snippet. Proposals only. Nothing edits STACK.md, CI or the repo for you.
+- `df-tools stack verify` checks every command statically (binary resolves, runner target exists).
+  `--run` executes only safe keys (`format`, `lint`, `typecheck`, `build`); `--include test,audit`
+  opts heavier keys in. It never runs `codegen`, `deps`, an `apply` form or any push/deploy/apply
+  command.
+- `.mcp.json` is opt-in per repo. `df-tools stack mcp` previews the servers `agent_tooling.mcp` would
+  add; `stack mcp --write` writes them as managed entries and leaves every other entry alone.
+  Nothing else (not `stack init`, not `upgrade`) writes it.
 
 </guidelines>

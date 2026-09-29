@@ -6,7 +6,7 @@
 | **Owner** | Justin Donnaruma |
 | **Reviewed against** | `docs/stack-packs-proposal` @ `09a06ba` (v2.10.1) |
 | **Relates to** | `PROPOSAL-stack-packs.md` v0.5 (the profile is the declarative floor packs build on, §8) · `PROPOSAL-kind-and-work.md` (same resolution style) |
-| **Ships with this proposal** | `templates/stack.md` · `references/stack-general.md` · `schemas/stack-profile.schema.json` · example profiles in `docs/stack-profiles/{go,dart,flutter}.md` |
+| **Ships with this proposal** | `templates/stack.md` · `references/stack-general.md` · `schemas/stack-profile.schema.json` · tier-2 profiles `go`, `dart`, `flutter`, bundled in `plugins/devflow/devflow/stack-profiles/` (objective 42 moved them there from `docs/stack-profiles/`) |
 
 ## 1. Summary
 
@@ -183,6 +183,8 @@ projects without a STACK.md.
      `stack init`. It picks `extends` from installed tier-2 profiles by `detect`, lifts commands out
      of CI config and `codebase/TESTING.md`, and asks the user to confirm.
    - `templates/codebase/stack.md` gains a Commands section so that evidence exists.
+   - *Implemented in objective 42:* grounded drafting (structural CI, runner and area detection,
+     verified commands, `components`), plus `stack verify`, `stack report` and `stack mcp`.
 3. **Validation.** `validate health` checks the schema, that `extends` resolves, that loop/gates keys
    exist, and declared-vs-detected drift. `/devflow:health --migrate` offers `stack init` to
    existing projects.
@@ -202,6 +204,8 @@ projects without a STACK.md.
    - `verification-patterns.md` keeps its patterns but is labelled as examples for web/TS profiles.
    - The detectors read `detect` from tier-2 profiles instead of hard-coded language lists, which
      fixes the missing-`pubspec` gaps.
+   - *Implemented in objective 42:* the go/dart/flutter tier-2 profiles ship bundled in
+     `devflow/stack-profiles/`, and a user/org `~/.claude/devflow/stacks/<id>.md` overrides one.
 6. **Flutter logic becomes a profile plus a pack.**
    - The TRD fields `stack`, `platform` and `state_management` become profile fields
      (`extends: flutter`, `verification.runtime`, Layout & architecture).
