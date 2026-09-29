@@ -21,6 +21,10 @@
 // - V12 `validateProfileText` on a draft string (no file on disk) behaves like V1.
 // - V13 bundled general and the three docs/stack-profiles (installed into a fake home) validate
 //       ok — flutter via dart via general.
+// - V14 (TRD 42-01, SDR-07) a placeholder skill pin — any whole-string `<...>` such as "<sha>" or
+//       "<commit>" — is warning STK010, `ok` stays true; a real SHA is not; an inherited org
+//       layer's placeholder is reported against that layer; entries dedupe per (source, pin,
+//       layer path); validateProfile (on disk) surfaces it too.
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -271,6 +275,104 @@ describe('validateProfile (V group)', () => {
       assert.equal(flutterResult.ok, true, JSON.stringify(flutterResult.errors));
     } finally {
       fx.cleanup(home);
+    }
+  });
+});
+
+// ─── V14: placeholder skill pins -> STK010 (TRD 42-01, SDR-07) ────────────────
+
+function skillsYaml(entries, extra = []) {
+  return [
+    'schema: 1',
+    ...extra,
+    'agent_tooling:',
+    '  skills:',
+    ...entries.map(({ source, pin }) => `    - { source: ${JSON.stringify(source)}, pin: ${JSON.stringify(pin)} }`),
+  ].join('\n');
+}
+
+function stk010(list) {
+  return list.filter((w) => w.code === 'STK010');
+}
+
+describe('validateProfile — STK010 placeholder skill pin (V14)', () => {
+  test('V14a: pin "<sha>" -> one STK010 warning naming the source and the pin; ok stays true', () => {
+    const text = fx.profileMd({ yaml: skillsYaml([{ source: 'github.com/acme/skills', pin: '<sha>' }]) });
+    const r = sp.validateProfileText(text, {});
+    assert.equal(r.ok, true, JSON.stringify(r.errors));
+    assert.deepEqual(r.errors, []);
+    const hits = stk010(r.warnings);
+    assert.equal(hits.length, 1, JSON.stringify(r.warnings));
+    assert.match(hits[0].msg, /github\.com\/acme\/skills/);
+    assert.match(hits[0].msg, /placeholder pin "<sha>"/);
+    assert.match(hits[0].msg, /pin a real commit/);
+  });
+
+  test('V14b: any whole-string <...> placeholder counts — pin "<commit>" -> STK010', () => {
+    const text = fx.profileMd({ yaml: skillsYaml([{ source: 'github.com/acme/skills', pin: '<commit>' }]) });
+    const r = sp.validateProfileText(text, {});
+    assert.equal(r.ok, true);
+    assert.equal(stk010(r.warnings).length, 1, JSON.stringify(r.warnings));
+    assert.match(stk010(r.warnings)[0].msg, /"<commit>"/);
+  });
+
+  test('V14c: a real SHA, or a string merely containing angle brackets, is not a placeholder', () => {
+    const text = fx.profileMd({
+      yaml: skillsYaml([
+        { source: 'github.com/acme/skills', pin: '155dc7ca10da' },
+        { source: 'github.com/acme/other', pin: 'v1.2.3<beta>' },
+      ]),
+    });
+    const r = sp.validateProfileText(text, {});
+    assert.equal(r.ok, true);
+    assert.deepEqual(stk010(r.warnings), [], JSON.stringify(r.warnings));
+  });
+
+  test('V14d: a placeholder on an inherited org layer is reported against that layer', () => {
+    const orgMd = fx.profileMd({
+      yaml: skillsYaml([{ source: 'github.com/acme/org-skills', pin: '<sha>' }], ['id: acme', 'extends: general']),
+    });
+    const home = fx.makeHome({ stacks: { acme: orgMd } });
+    const root = fx.makeProject({ stackMd: fx.profileMd({ yaml: ['schema: 1', 'extends: acme'].join('\n') }) });
+    try {
+      const r = sp.validateProfile({ projectRoot: root, userHome: home });
+      assert.equal(r.ok, true, JSON.stringify(r.errors));
+      const hits = stk010(r.warnings);
+      assert.equal(hits.length, 1, JSON.stringify(r.warnings));
+      assert.match(hits[0].msg, /github\.com\/acme\/org-skills/);
+      assert.match(hits[0].msg, /acme/);
+      assert.equal(hits[0].file, path.join(home, '.claude', 'devflow', 'stacks', 'acme.md'));
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('V14e: dedupes by (source, pin, layer path) — a repeat in one layer warns once, the same entry in two layers warns twice', () => {
+    const entry = { source: 'github.com/acme/skills', pin: '<sha>' };
+    const orgMd = fx.profileMd({ yaml: skillsYaml([entry], ['id: acme', 'extends: general']) });
+    const home = fx.makeHome({ stacks: { acme: orgMd } });
+    const root = fx.makeProject({ stackMd: fx.profileMd({ yaml: skillsYaml([entry, entry], ['extends: acme']) }) });
+    try {
+      const r = sp.validateProfile({ projectRoot: root, userHome: home });
+      assert.equal(r.ok, true, JSON.stringify(r.errors));
+      const hits = stk010(r.warnings);
+      assert.equal(hits.length, 2, JSON.stringify(hits));
+      const files = hits.map((w) => w.file).sort();
+      assert.deepEqual(files, [path.join(home, '.claude', 'devflow', 'stacks', 'acme.md'), path.join(root, '.planning', 'STACK.md')].sort());
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('V14f: validateProfile on an on-disk STACK.md surfaces STK010 (the code survives the file path)', () => {
+    const root = fx.makeProject({ stackMd: fx.profileMd({ yaml: skillsYaml([{ source: 'github.com/acme/skills', pin: '<sha>' }]) }) });
+    try {
+      const r = sp.validateProfile({ projectRoot: root });
+      assert.equal(r.ok, true, JSON.stringify(r.errors));
+      assert.equal(stk010(r.warnings).length, 1, JSON.stringify(r.warnings));
+      assert.equal(stk010(r.warnings)[0].file, path.join(root, '.planning', 'STACK.md'));
+    } finally {
+      fx.cleanup(root);
     }
   });
 });

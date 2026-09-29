@@ -18,6 +18,9 @@
 // - L8  `stack validate` valid -> exit 0, `ok: true`.
 // - L9  `stack` alone and `stack bogus` -> exit 1 naming the available subcommands.
 // - L10 `stack --help` prints `Usage: df-tools stack`.
+// - L11 (TRD 42-01, SDR-07) `stack validate path/x.md` -> exit 1, stderr names `--profile` (it
+//       used to validate .planning/STACK.md silently); `stack validate --profile path/x.md` still
+//       validates that file.
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -208,6 +211,41 @@ describe('df-tools stack CLI (L group)', () => {
       const r = run(['stack', '--help'], { cwd: root, home });
       assert.equal(r.code, 0);
       assert.match(r.stdout, /^Usage: df-tools stack/);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('L11: stack validate rejects a positional path; --profile <path> still validates that file', () => {
+    // A VALID .planning/STACK.md beside an INVALID path/x.md: before the fix, the positional form
+    // validated STACK.md and exited 0 — a green result for a file it never read.
+    const home = fx.makeHome({});
+    const root = fx.makeProject({
+      stackMd: fx.profileMd({ yaml: 'schema: 1' }),
+      files: {
+        'path/x.md': fx.profileMd({ yaml: 'schema: 2' }),
+        'path/ok.md': fx.profileMd({ yaml: 'schema: 1' }),
+      },
+    });
+    try {
+      const positional = run(['stack', 'validate', 'path/x.md'], { cwd: root, home });
+      assert.equal(positional.code, 1, positional.stdout);
+      assert.match(positional.stderr, /stack validate takes --profile <path>, not a positional path/);
+      assert.equal(positional.stdout, '', 'a rejected positional must not also print a validation result');
+
+      const flagged = run(['stack', 'validate', '--profile', 'path/x.md'], { cwd: root, home });
+      assert.equal(flagged.code, 1);
+      const parsed = JSON.parse(flagged.stdout);
+      // Suffix match: the child's cwd is the realpath (/private/var/... on macOS), not `root`.
+      assert.ok(parsed.errors.some((e) => e.code === 'STK001' && e.file.endsWith(path.join('path', 'x.md'))), flagged.stdout);
+
+      const flaggedOk = run(['stack', 'validate', '--profile', 'path/ok.md'], { cwd: root, home });
+      assert.equal(flaggedOk.code, 0, flaggedOk.stderr);
+      assert.equal(JSON.parse(flaggedOk.stdout).ok, true);
+
+      const bare = run(['stack', 'validate', '--raw'], { cwd: root, home });
+      assert.equal(bare.code, 0, bare.stderr);
+      assert.equal(bare.stdout, 'ok');
     } finally {
       fx.cleanup(root, home);
     }

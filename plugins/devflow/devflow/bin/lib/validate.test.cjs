@@ -720,6 +720,39 @@ describe('Check 12: stack profile', () => {
       'W030 should clear once ~/.claude/devflow/stacks/missing.md exists'
     );
   });
+
+  // TRD 42-01 (SDR-07): W032 carries STK010 as well as STK007, each with its own fix hint.
+  test('H11: a placeholder skill pin adds W032 (STK010) with a pin-specific fix; no error, not broken', () => {
+    tmpHome = stackFx.makeHome({});
+    const yaml = [
+      'schema: 1',
+      'agent_tooling:',
+      '  skills:',
+      '    - { source: "x", pin: "<sha>" }',
+    ].join('\n');
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.profileMd({ yaml }) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w032s = json.warnings.filter((w) => w.code === 'W032');
+    assert.strictEqual(w032s.length, 1, `expected exactly one W032: ${JSON.stringify(json.warnings)}`);
+    assert.match(w032s[0].message, /placeholder pin "<sha>"/);
+    assert.match(w032s[0].fix, /Pin agent_tooling\.skills\[\]\.pin to a real commit SHA/);
+    assert.doesNotMatch(w032s[0].fix, /Trim the profile body/, 'STK010 must not borrow the STK007 fix hint');
+    assert.strictEqual(findAny(json, 'E030'), undefined, 'a placeholder pin is a warning, never E030');
+    assert.notStrictEqual(json.status, 'broken');
+  });
+
+  test('H12: STK007 keeps its own W032 fix hint beside STK010', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.longBodyProfile(150) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w032 = json.warnings.find((w) => w.code === 'W032');
+    assert.ok(w032, `expected W032: ${JSON.stringify(json.warnings)}`);
+    assert.match(w032.fix, /Trim the profile body/);
+  });
 });
 
 // ─── Health repairs delegate to upgrade migrations 0001-0003 (TRD 36-04a) ──
