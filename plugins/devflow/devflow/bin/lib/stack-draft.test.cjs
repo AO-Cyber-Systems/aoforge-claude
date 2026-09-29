@@ -717,3 +717,21 @@ describe('assembleDraft root-override policy (D3, TRD 42-15)', () => {
     assert.equal(d.commands.test.run, 'npm test');
   });
 });
+
+describe('assembleDraft root-override policy: neutral generators (TRD 42-15 recovery)', () => {
+  const { NEUTRAL_STACK } = require('./stack-classify.cjs');
+
+  test('D30c: a codegen whose body runs a language-neutral generator overrides a go profile; a node one does not', () => {
+    const evidence = [
+      ev('codegen', 'make proto', { source: 'runner', runner: 'make', form: 'mutate', tool: 'buf', bodyStacks: [NEUTRAL_STACK], effectiveArea: '' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.codegen, { run: 'make proto', when: 'sources_changed' });
+    assert.ok(!d.notes.some((n) => n.status === 'off_stack' || n.status === 'mixed_stack'), JSON.stringify(d.notes));
+
+    const node = [ev('codegen', 'npm run gen', { source: 'manifest', runner: 'npm', form: 'mutate', tool: null, bodyStacks: ['node'], effectiveArea: '' })];
+    const d2 = assembleDraft({ areas: ROOT_GO, evidence: node, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('codegen' in d2.commands, false);
+    assert.ok(d2.notes.some((n) => n.status === 'off_stack' && n.candidate === 'npm run gen'));
+  });
+});

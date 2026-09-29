@@ -302,10 +302,11 @@ const cwdsOf = (commands) => Object.values(commands || {}).map((e) => e.cwd).fil
 
 describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
   test('12: D3 terminal root policy — a node sub-area never takes over a go root key', { skip: NO_GIT }, () => withShape(() => fx.termRootPolicyShape(), (repo) => {
-    const r = stackInit(repo, { git: true });
+    const r = stackInit(repo, { git: true, tools: [...fx.DEFAULT_TOOLCHAIN, 'buf'] });
     assert.equal(r.status, 0, r.stderr);
     const { fm, json } = r;
     assert.equal(fm.extends, 'go');
+    assert.deepStrictEqual(fm.commands.codegen, { run: 'make proto', when: 'sources_changed' }, 'a neutral generator is not off-stack');
     assert.equal('test' in fm.commands, false, `test inherits go test -race ./..., not ${JSON.stringify(fm.commands.test)}`);
     assert.equal('deps' in fm.commands, false, `the docs install is not a root deps: ${JSON.stringify(fm.commands.deps)}`);
     assert.equal(fm.commands.build.run, 'task build:backend', JSON.stringify(fm.commands.build));

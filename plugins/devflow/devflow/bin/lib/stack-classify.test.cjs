@@ -731,3 +731,22 @@ describe('toolStack / TIER_STACKS (TRD 42-15 test 13)', () => {
     assert.ok(Object.isFrozen(TIER_STACKS));
   });
 });
+
+// TRD 42-15 recovery (over-block found by the fleet preview): a language-neutral generator
+// (`buf generate`, `sqlc generate`, `protoc`) belongs to no stack, so it must not be off-stack
+// for a go repo's codegen. It is its own value, NEUTRAL_STACK, which stack-draft treats as
+// matching any tier.
+describe('toolStack: language-neutral generators (TRD 42-15 recovery)', () => {
+  const { toolStack, NEUTRAL_STACK } = require('./stack-classify.cjs');
+
+  test('NEUTRAL_STACK is a string distinct from every tier stack', () => {
+    assert.equal(typeof NEUTRAL_STACK, 'string');
+    assert.ok(!['go', 'dart', 'flutter', 'node'].includes(NEUTRAL_STACK));
+  });
+
+  for (const input of ['buf generate', 'sqlc generate', 'protoc --go_out=. api.proto']) {
+    test(`toolStack(${JSON.stringify(input)}) -> NEUTRAL_STACK`, () => {
+      assert.equal(toolStack(input), NEUTRAL_STACK);
+    });
+  }
+});

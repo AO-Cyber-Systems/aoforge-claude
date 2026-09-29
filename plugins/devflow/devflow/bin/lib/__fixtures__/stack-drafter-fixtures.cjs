@@ -557,10 +557,12 @@ function gitOnlyBin() {
  *   ui/, site/            package.json each: unsupported node areas
  *   Taskfile.yml          docs:npm:install (`cd site && npm install`), build:backend (`go build
  *                         ./cmd/x`), and — only with goTestTarget — `test: go test -race -short ./...`
+ *   Makefile              `proto: buf generate` (a language-neutral generator: not off-stack)
  *   ci.yml                `npm test` at the root
  *
  * Expected: test inherits the go profile (or `task test` with goTestTarget), deps absent, build =
- * `task build:backend`, off_stack for `npm test`, sub_area for `task docs:npm:install`.
+ * `task build:backend`, codegen = `make proto`, off_stack for `npm test`, sub_area for
+ * `task docs:npm:install`.
  */
 function termRootPolicyShape({ goTestTarget = false } = {}) {
   const taskfile = [
@@ -586,6 +588,7 @@ function termRootPolicyShape({ goTestTarget = false } = {}) {
     'ui/package.json': JSON.stringify({ name: 'termrepo-ui', private: true, scripts: { build: 'vite build', test: 'vitest run' } }, null, 2),
     'site/package.json': JSON.stringify({ name: 'termrepo-site', private: true, scripts: { build: 'docusaurus build' } }, null, 2),
     'Taskfile.yml': taskfile,
+    Makefile: 'proto:\n\tbuf generate\n',
     '.github/workflows/ci.yml': wf([
       'name: ci',
       'on: [push]',
