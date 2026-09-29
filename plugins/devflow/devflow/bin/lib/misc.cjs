@@ -294,11 +294,10 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
       hasCheckpoints = true;
     }
 
-    // Parse files-modified
+    // Parse files_modified (TRD key; legacy files-modified accepted)
     let filesModified = [];
-    if (fm['files-modified']) {
-      filesModified = Array.isArray(fm['files-modified']) ? fm['files-modified'] : [fm['files-modified']];
-    }
+    const fmFiles = fm.files_modified ?? fm['files-modified'];
+    if (fmFiles) filesModified = Array.isArray(fmFiles) ? fmFiles : [fmFiles];
 
     const hasSummary = completedJobIds.has(jobId);
     if (!hasSummary) {
