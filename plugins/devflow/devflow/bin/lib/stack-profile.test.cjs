@@ -646,6 +646,87 @@ describe('bundled tier-2 lookup (B group, TRD 42-02)', () => {
   });
 });
 
+// A component profile FILE follows its own `extends` (TRD 42-05), and a component path without a
+// trailing slash still matches only its own directory.
+describe('component extends walk (CX group, TRD 42-05)', () => {
+  beforeEach(() => {
+    sp._resetCache();
+  });
+
+  const rootWithSvc = (svcYaml, rootYaml = ['schema: 1']) => fx.makeProject({
+    stackMd: fx.profileMd({
+      yaml: rootYaml.concat(['components:', '  - { path: "svc/", profile: ".planning/stacks/svc.md" }']).join('\n'),
+    }),
+    stacks: { svc: fx.profileMd({ yaml: svcYaml.join('\n') }) },
+  });
+
+  test('CX1: a component file with `extends: go` inherits go — chain [..., go (component), file (component)]', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: go']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go' });
+      assert.deepStrictEqual(r.issues, []);
+      const comp = r.chain.filter((c) => c.tier === 'component');
+      assert.deepStrictEqual(comp.map((c) => c.id), ['go', null]);
+      assert.strictEqual(r.frontmatter.commands.test.run, 'go test -race ./...');
+      assert.strictEqual(r.provenance['commands.test'], 'component');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX2: the component file overrides its parent (the file layer comes after the hop)', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: go', 'commands:', '  test: { run: "svc-test" }']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go' });
+      assert.strictEqual(r.frontmatter.commands.test.run, 'svc-test');
+      assert.ok(r.frontmatter.commands.lint, 'lint still inherited from go');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX3: a hop already in the root chain is not added twice', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: go'], ['schema: 1', 'extends: go']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go' });
+      assert.strictEqual(r.chain.filter((c) => c.id === 'go').length, 1);
+      assert.deepStrictEqual(r.chain.map((c) => c.tier), ['bundled', 'org', 'project', 'component']);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX4: a component file with an unresolvable `extends` reports EXTENDS_UNRESOLVED, not a throw', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: nosuchtier']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go', bundledDir: null });
+      assert.ok(r.issues.some((i) => i.code === 'EXTENDS_UNRESOLVED' && i.id === 'nosuchtier'));
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX5: a component path without a trailing slash matches `svc/...` but never `svcx/...`', () => {
+    const root = fx.makeProject({
+      stackMd: fx.profileMd({
+        yaml: ['schema: 1', 'components:', '  - { path: "svc", profile: ".planning/stacks/svc.md" }'].join('\n'),
+      }),
+      stacks: { svc: fx.profileMd({ yaml: ['schema: 1', 'commands:', '  build: { run: "svc-build" }'].join('\n') }) },
+    });
+    try {
+      assert.strictEqual(sp.resolveProfile({ projectRoot: root, file: 'svc/a.go' }).component.path, 'svc');
+      sp._resetCache();
+      assert.strictEqual(sp.resolveProfile({ projectRoot: root, file: 'svcx/a.go' }).component, null);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+});
+
 // A `detect` marker is a bare root entry name (or `*.ext`), or an object `{file, contains}` that
 // also requires the file's text to include `contains` (TRD 42-05). The object form is generic: the
 // loader never learns what the text means, a profile's data does.

@@ -1035,9 +1035,10 @@ describe('CLI: stack verify with components (test 4)', () => {
     assert.ok(t, 'a result tagged component svc/');
     assert.equal(t.resolve.status, 'resolved');
     assert.equal(t.command, 'make -C svc test');
-    // cwd is exactly what renderCommand returned for the component view. Before 42-05 that is
-    // undefined for a command without its own cwd; 42-05 changes this to 'svc'. It is NEVER 'svc/svc'.
-    assert.equal(t.cwd, undefined);
+    // cwd is exactly what renderCommand returned for the component view: since 42-05 renderCommand
+    // joins the component path, so a command without its own cwd runs in 'svc'. It is NEVER 'svc/svc'
+    // (stack-verify must not join a second time).
+    assert.equal(t.cwd, 'svc');
     assert.notEqual(t.cwd, 'svc/svc');
     for (const x of r.json.results) assert.notEqual(x.cwd, 'svc/svc');
   });
