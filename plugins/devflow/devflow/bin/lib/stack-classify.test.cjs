@@ -667,3 +667,67 @@ describe('K24 testBreadth — narrow, with reasons (TRD 42-13 test 9)', () => {
     }
   });
 });
+
+// ─── TRD 42-15 test 13: toolStack + TIER_STACKS (D3 root-override policy) ─────
+//
+// toolStack(inv) names the language/ecosystem a command's TOOL belongs to, so stack-draft can ask
+// "does this root candidate run the extends tier's stack?" without naming a tool itself. An opaque
+// wrapper (a script path, a task runner, a shell) is null: its body, not its name, decides.
+
+describe('toolStack / TIER_STACKS (TRD 42-15 test 13)', () => {
+  const { toolStack, TIER_STACKS } = require('./stack-classify.cjs');
+
+  const CASES = [
+    ['go test ./...', 'go'],
+    ['go build -o dist/x ./cmd/x', 'go'],
+    ['gofmt -l .', 'go'],
+    ['golangci-lint run', 'go'],
+    ['govulncheck ./...', 'go'],
+    ['gosec ./...', 'go'],
+    ['dart analyze', 'dart'],
+    ['dart run build_runner build', 'dart'],
+    ['flutter test', 'flutter'],
+    ['flutter pub get', 'flutter'],
+    ['npm test', 'node'],
+    ['vitest', 'node'],
+    ['vitest --root ui', 'node'],
+    ['pnpm run x', 'node'],
+    ['npx tsc --noEmit', 'node'],
+    ['cargo test', 'rust'],
+    ['pytest -q', 'python'],
+    ['python -m pytest', 'python'],
+    ['helm lint chart/', 'helm'],
+    ['docker build .', 'docker'],
+    ['hadolint Dockerfile', 'docker'],
+    ['./x.sh', null],
+    ['bash scripts/ci.sh', null],
+    ['make test', null],
+    ['task build', null],
+    ['echo hi', null],
+    ['', null],
+  ];
+
+  for (const [input, want] of CASES) {
+    test(`toolStack(${JSON.stringify(input)}) -> ${want}`, () => {
+      assert.equal(toolStack(input), want);
+    });
+  }
+
+  test('env assignments and a templated leading token are skipped; the tool decides', () => {
+    assert.equal(toolStack('CGO_ENABLED=1 go build ./...'), 'go');
+    assert.equal(toolStack('CGO_ENABLED=1 {{.GO_ENV_VARS}} go build -o x ./cmd/x'), 'go');
+    assert.equal(toolStack('cd site && npm install'), 'node');
+  });
+
+  test('a normalised invocation object and non-string input', () => {
+    assert.equal(toolStack({ text: 'go vet ./...', argv: ['go', 'vet', './...'] }), 'go');
+    assert.equal(toolStack({ text: 'npm ci' }), 'node');
+    assert.equal(toolStack(null), null);
+    assert.equal(toolStack(42), null);
+  });
+
+  test('TIER_STACKS maps each bundled tier to its stack family', () => {
+    assert.deepStrictEqual(TIER_STACKS, { go: ['go'], dart: ['dart'], flutter: ['dart', 'flutter'] });
+    assert.ok(Object.isFrozen(TIER_STACKS));
+  });
+});
