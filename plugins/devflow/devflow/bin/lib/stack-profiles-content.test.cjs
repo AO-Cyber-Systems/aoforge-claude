@@ -9,6 +9,8 @@
 // Test list:
 // - C1a go.md and dart.md each pass validateProfile with ok, no errors and no warnings (so no
 //       STK010). Both extend `general`, so no tier lookup is involved.
+// - C1b flutter.md passes validateProfile with an empty fake home: `extends: dart` resolves
+//       through the bundled tier, so there is no STK002 and no warning.
 // - C2  go: `format.run` is `test -z "$(gofmt -l .)"` (survives a serialize/parse round trip, and
 //       really exits non-zero on unformatted code); the gopls MCP entry has no tool lists.
 //       dart: `audit.run` is `none`, `outdated` exists and sits in no gate, `gates.objective` has
@@ -74,6 +76,20 @@ describe('C1a: go and dart validate clean', () => {
       assert.deepEqual(r.warnings, []);
     });
   }
+});
+
+describe('C1b: flutter validates clean through the bundled tier', () => {
+  test('C1b: flutter.md with an empty fake home -> ok, no STK002, no warnings (extends dart resolves bundled)', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-stack-empty-home-'));
+    try {
+      const r = sp.validateProfile({ profilePath: path.join(PROFILES_DIR, 'flutter.md'), userHome: home });
+      assert.equal(r.ok, true, JSON.stringify(r.errors));
+      assert.deepEqual(r.errors, []);
+      assert.deepEqual(r.warnings, []);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('C2: profile content fixes', () => {

@@ -307,3 +307,34 @@ describe('provenance.reviewed is the local date (I13)', () => {
     }
   });
 });
+
+// ─── I14: bundled tier-2 profiles are detected (TRD 42-02) ─────────────────────
+
+describe('bundled tier-2 detection (I14)', () => {
+  test('I14a: a root go.mod and an empty fake home -> pickExtends picks the bundled go', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ files: fx.goShapedRepo() });
+    try {
+      const picked = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null });
+      assert.equal(picked.id, 'go');
+      const off = sp.pickExtends({ projectRoot: root, userHome: home, explicit: null, bundledDir: null });
+      assert.equal(off.id, 'general');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('I14b: initProfile on a go.mod repo with an empty fake home drafts `extends: "go"` and validates', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ files: fx.goShapedRepo() });
+    try {
+      const r = sp.initProfile({ projectRoot: root, userHome: home });
+      assert.equal(r.action, 'preview');
+      assert.equal(r.extends, 'go');
+      assert.match(r.text, /^extends: "go"$/m);
+      assert.equal(r.validation.ok, true, JSON.stringify(r.validation.errors));
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+});

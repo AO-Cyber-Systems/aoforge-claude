@@ -45,6 +45,15 @@
 //   `userHome` → different entry.
 // - R17 malformed STACK.md → throws `StackProfileError` whose message contains the file path.
 //
+// Bundled tier-2 lookup (TRD 42-02):
+// - B1  empty fake home, `extends: go` → chain [go] from the bundled tier, no issues; B1b the
+//       same with a null userHome.
+// - B2  a user-tier go.md (different `commands.test.run`) wins over the bundled one.
+// - B3  `bundledDir: null` → the old EXTENDS_UNRESOLVED issues, byte for byte.
+// - B4  an id in neither tier → EXTENDS_UNRESOLVED naming both paths.
+// - B5  `bundledDir` is injectable, and the resolve cache keys on it.
+// - B6  listOrgProfiles merges both tiers, tags `tier`, user shadows bundled by id.
+//
 // Neutrality (Task 2):
 // - P11 the source of stack-profile.cjs does not match
 //   `/golang|gofmt|\bdart\b|flutter|pubspec|\bnpm\b|cargo|pytest|rails|gradle|swift|kotlin/i`.
@@ -492,6 +501,141 @@ describe('resolveProfile (R group)', () => {
       );
     } finally {
       fx.cleanup(root);
+    }
+  });
+});
+
+// ─── bundled tier-2 lookup (B group, TRD 42-02) ───────────────────────────
+//
+// An `extends` id resolves from the user tier (`<home>/.claude/devflow/stacks/<id>.md`) first,
+// then the bundled tier (`sp.BUNDLED_STACKS_DIR/<id>.md`, shipped in the plugin). `bundledDir:
+// null` switches the bundled tier off, which is exactly the pre-42-02 behaviour.
+describe('bundled tier-2 lookup (B group, TRD 42-02)', () => {
+  beforeEach(() => {
+    sp._resetCache();
+  });
+
+  const extendsMd = (id) => fx.profileMd({ yaml: ['schema: 1', `extends: ${id}`].join('\n') });
+  const userGoOverride = () => fx.profileMd({
+    yaml: ['schema: 1', 'id: go', 'commands:', '  test: { run: "user-tier-test" }'].join('\n'),
+  });
+  const userPath = (home, id) => path.join(home, '.claude', 'devflow', 'stacks', `${id}.md`);
+
+  test('B1: an empty fake home resolves `extends: go` from the bundled tier — chain [go], no issues', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home });
+      assert.deepStrictEqual(r.issues, []);
+      const hops = r.chain.filter((c) => c.tier === 'org');
+      assert.deepStrictEqual(hops.map((c) => c.id), ['go']);
+      assert.strictEqual(hops[0].path, path.join(sp.BUNDLED_STACKS_DIR, 'go.md'));
+      assert.strictEqual(hops[0].source, 'bundled');
+      assert.strictEqual(r.id, 'go');
+      assert.strictEqual(r.frontmatter.commands.test.run, 'go test -race ./...');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B1b: a null userHome no longer short-circuits when the bundled tier resolves the id', () => {
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: null });
+      assert.deepStrictEqual(r.issues, []);
+      assert.deepStrictEqual(r.chain.map((c) => c.id), ['general', 'go', null]);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('B2: a user-tier go.md wins over the bundled one', () => {
+    const home = fx.makeHome({ stacks: { go: userGoOverride() } });
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home });
+      assert.deepStrictEqual(r.issues, []);
+      const hops = r.chain.filter((c) => c.tier === 'org');
+      assert.deepStrictEqual(hops.map((c) => c.id), ['go']);
+      assert.strictEqual(hops[0].path, userPath(home, 'go'));
+      assert.strictEqual(hops[0].source, 'user');
+      assert.strictEqual(r.frontmatter.commands.test.run, 'user-tier-test');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B3: bundledDir null gives the old behaviour exactly — EXTENDS_UNRESOLVED for go', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const withHome = sp.resolveProfile({ projectRoot: root, userHome: home, bundledDir: null });
+      assert.deepStrictEqual(withHome.issues, [
+        { code: 'EXTENDS_UNRESOLVED', message: `extends 'go' not found at ${userPath(home, 'go')}`, id: 'go' },
+      ]);
+      const noHome = sp.resolveProfile({ projectRoot: root, userHome: null, bundledDir: null });
+      assert.deepStrictEqual(noHome.issues, [
+        { code: 'EXTENDS_UNRESOLVED', message: "extends 'go' cannot be resolved: no org home was provided", id: 'go' },
+      ]);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B4: an id in neither tier is EXTENDS_UNRESOLVED, and the message names both places looked', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ stackMd: extendsMd('nosuch') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home });
+      assert.deepStrictEqual(r.issues.map((i) => i.code), ['EXTENDS_UNRESOLVED']);
+      assert.ok(r.issues[0].message.startsWith("extends 'nosuch' not found at "), r.issues[0].message);
+      assert.ok(r.issues[0].message.includes(userPath(home, 'nosuch')), r.issues[0].message);
+      assert.ok(r.issues[0].message.includes(path.join(sp.BUNDLED_STACKS_DIR, 'nosuch.md')), r.issues[0].message);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B5: bundledDir is injectable, and the cache keys on it', () => {
+    const bundled = fs.mkdtempSync(path.join(require('os').tmpdir(), 'df-stack-bundled-'));
+    fs.writeFileSync(path.join(bundled, 'zz.md'), fx.profileMd({
+      yaml: ['schema: 1', 'id: zz', 'commands:', '  test: { run: "zz-test" }'].join('\n'),
+    }));
+    const root = fx.makeProject({ stackMd: extendsMd('zz') });
+    try {
+      const found = sp.resolveProfile({ projectRoot: root, userHome: null, bundledDir: bundled });
+      assert.deepStrictEqual(found.issues, []);
+      assert.strictEqual(found.frontmatter.commands.test.run, 'zz-test');
+      const off = sp.resolveProfile({ projectRoot: root, userHome: null, bundledDir: null });
+      assert.notStrictEqual(off, found, 'a different bundledDir must not hit the cached result');
+      assert.deepStrictEqual(off.issues.map((i) => i.code), ['EXTENDS_UNRESOLVED']);
+    } finally {
+      fx.cleanup(root, bundled);
+    }
+  });
+
+  test('B6: listOrgProfiles merges both tiers; user entries shadow bundled ones by id; each is tagged', () => {
+    const empty = fx.makeHome({});
+    const withGo = fx.makeHome({ stacks: { go: userGoOverride() } });
+    try {
+      const listed = sp.listOrgProfiles({ userHome: empty });
+      for (const id of ['go', 'dart', 'flutter']) {
+        const entry = listed.find((p) => p.id === id);
+        assert.ok(entry, `bundled ${id} should be listed: ${JSON.stringify(listed.map((p) => p.id))}`);
+        assert.strictEqual(entry.tier, 'bundled');
+        assert.strictEqual(entry.path, path.join(sp.BUNDLED_STACKS_DIR, `${id}.md`));
+      }
+
+      const shadowed = sp.listOrgProfiles({ userHome: withGo });
+      const goEntries = shadowed.filter((p) => p.id === 'go');
+      assert.strictEqual(goEntries.length, 1, 'the user go.md shadows the bundled one');
+      assert.strictEqual(goEntries[0].tier, 'user');
+      assert.strictEqual(goEntries[0].path, userPath(withGo, 'go'));
+      assert.strictEqual(shadowed.find((p) => p.id === 'dart').tier, 'bundled');
+
+      assert.deepStrictEqual(sp.listOrgProfiles({ userHome: empty, bundledDir: null }), []);
+    } finally {
+      fx.cleanup(empty, withGo);
     }
   });
 });

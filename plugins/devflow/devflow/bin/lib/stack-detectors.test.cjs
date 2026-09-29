@@ -242,3 +242,14 @@ test('D10: brownfield CLI counts *.zz files when HOME=fake supplies the org mark
     cleanup(root, home);
   }
 });
+
+// ─── D12 (TRD 42-02) ─────────────────────────────────────────────────────────
+
+test('D12: detectMarkers sees the bundled tier-2 profiles without any home; bundledDir:null turns them off', () => {
+  const markers = detectMarkers({ userHome: null });
+  assert.ok(
+    markers.some((m) => m.marker === 'go.mod' && m.profile === 'go' && m.languages.includes('go')),
+    JSON.stringify(markers)
+  );
+  assert.deepEqual(detectMarkers({ userHome: null, bundledDir: null }), []);
+});
