@@ -215,11 +215,27 @@ function ensureExcluded(root) {
   } catch { /* best effort */ }
 }
 
+/**
+ * TRD 44-06: runtime-state paths untracked by migration 0008. Hooks rewrite them constantly, so
+ * they are dirty in almost every session; the upgrade commits them as DELETIONS only (df-tools
+ * commit's staged-removal path), never as content, so a pre-upgrade edit cannot be swept in.
+ * Loaded lazily from the bundled migration so the fast path requires nothing; [] if unavailable.
+ */
+function runtimeStateFiles() {
+  try {
+    const list = require(path.join(LIB, 'migrations', '0008-runtime-state-untrack.cjs')).RUNTIME_STATE_FILES;
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
 function skipReason(state, changedFiles) {
   if (!state.isRepo) return 'not a git repository';
   if (state.busy) return `${state.busy} in progress`;
   if (state.detached) return 'detached HEAD';
-  const dirty = changedFiles.filter((f) => state.dirty.has(state.prefix + f));
+  const exempt = new Set(runtimeStateFiles());
+  const dirty = changedFiles.filter((f) => !exempt.has(f) && state.dirty.has(state.prefix + f));
   if (dirty.length) return `uncommitted edits existed before the upgrade in ${dirty.join(', ')}`;
   return null;
 }

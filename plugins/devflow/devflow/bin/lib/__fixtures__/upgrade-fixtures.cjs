@@ -318,6 +318,58 @@ function initGitFixture(root, home) {
   git('commit', '-q', '-m', 'init');
 }
 
+// Hand-written runtime-state bodies (TRD 44-06). Shaped like what guard-no-progress.js and
+// awareness-cache-populate.js write, but literal and tiny — the migration never parses them.
+const RUNTIME_STATE_CONTENT = {
+  '.planning/.progress-guard.json': '{\n  "last": "Bash:9f2c1e",\n  "count": 1\n}\n',
+  '.planning/.awareness-cache.json': '{\n  "generated_at": "2026-01-01T00:00:00.000Z",\n  "branches": []\n}\n',
+};
+
+/**
+ * makeTrackedRuntimeStateProject(opts) -> { root, home }  (TRD 44-06, migration 0008)
+ *
+ * A stamped project (makeStampedProject) turned into a git fixture with DevFlow runtime-state
+ * files in a chosen git state:
+ *
+ *   tracked           paths written BEFORE the init commit, so they are committed (tracked)
+ *   untrackedPresent  paths written AFTER every commit — on disk, never added
+ *   gitignore         null → no .gitignore; a string → written verbatim as `.gitignore` and
+ *                     committed in a SECOND commit, after `tracked` is already in HEAD. That is the
+ *                     real-world shape: a file tracked first and ignored later stays tracked.
+ *   version           the devflow stamp version (default '2.0.0', i.e. behind any bundled version)
+ *   home              an existing fake home; default: a fresh makeFakeHome()
+ *
+ * Every git call runs through initGitFixture/gitEnv(home) — local identity, no signing.
+ */
+function makeTrackedRuntimeStateProject({
+  tracked = ['.planning/.progress-guard.json'],
+  untrackedPresent = [],
+  gitignore = null,
+  version = '2.0.0',
+  home = null,
+} = {}) {
+  const fakeHome = home || makeFakeHome();
+  const root = makeStampedProject(version);
+  const contentFor = (rel) => RUNTIME_STATE_CONTENT[rel] || '{\n  "fixture": true\n}\n';
+
+  for (const rel of tracked) writeRel(root, rel, contentFor(rel));
+  initGitFixture(root, fakeHome);
+
+  if (gitignore !== null) {
+    writeRel(root, '.gitignore', gitignore);
+    const git = (...args) => execFileSync('git', ['-C', root, ...args], {
+      env: gitEnv(fakeHome),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    });
+    git('add', '--', '.gitignore');
+    git('commit', '-q', '-m', 'add .gitignore');
+  }
+
+  for (const rel of untrackedPresent) writeRel(root, rel, contentFor(rel));
+  return { root, home: fakeHome };
+}
+
 /**
  * migrationSource({ id, title, since, safety, detect, apply }) -> CommonJS source string
  *
@@ -387,6 +439,8 @@ module.exports = {
   makeStampedProject,
   initGitFixture,
   gitEnv,
+  makeTrackedRuntimeStateProject,
+  RUNTIME_STATE_CONTENT,
   migrationSource,
   makeRegistryDir,
   snapshot,

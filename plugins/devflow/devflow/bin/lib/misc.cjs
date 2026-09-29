@@ -430,6 +430,44 @@ function mergeInProgress(cwd) {
   return execGit(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).exitCode === 0;
 }
 
+/** A --files argument as a repo-root-relative posix path ('' means the whole repo). */
+function repoPathOf(prefix, file) {
+  const full = path.posix.normalize(prefix + String(file).replace(/\\/g, '/')).replace(/\/+$/, '');
+  return full === '.' ? '' : full;
+}
+
+/**
+ * Staged removals under `files` whose working copy still exists (TRD 44-06).
+ *
+ * Why this matters: for a pathspec commit (`git commit -m msg -- <paths>`, git's `--only` mode)
+ * git re-stages every matching path from the WORKING TREE, including paths it finds only in HEAD.
+ * A file that was `git rm --cached` but is still on disk — migration 0008 does exactly that to
+ * runtime-state files that hooks keep rewriting — is silently re-added, and the removal is lost.
+ * A removal whose file is also gone from disk is safe in pathspec mode, so it is not counted.
+ *
+ * → null when there is nothing to handle (the common case costs one `git diff --cached`), else
+ *   { removals: [repo paths], skipAdd: Set<file args naming a removal>, specs: [repo paths] }.
+ * An unborn branch or any git error also returns null: there is no HEAD to remove from.
+ */
+function stagedRemovalsOnDisk(cwd, files) {
+  const del = execGit(cwd, ['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=D', '-z', '--', ...files]);
+  if (del.exitCode !== 0) return null;
+  const deleted = del.stdout.split('\0').filter(Boolean);
+  if (deleted.length === 0) return null;
+
+  const top = execGit(cwd, ['rev-parse', '--show-toplevel']);
+  if (top.exitCode !== 0 || !top.stdout) return null;
+  const prefixRes = execGit(cwd, ['rev-parse', '--show-prefix']);
+  const prefix = prefixRes.exitCode === 0 ? prefixRes.stdout : '';
+
+  const removals = deleted.filter((p) => fs.existsSync(path.join(top.stdout, p)));
+  if (removals.length === 0) return null;
+
+  const removalSet = new Set(removals);
+  const skipAdd = new Set(files.filter((f) => removalSet.has(repoPathOf(prefix, f))));
+  return { removals, skipAdd, specs: files.map((f) => repoPathOf(prefix, f)) };
+}
+
 function cmdCommit(cwd, message, files, raw, amend) {
   if (!message && !amend) {
     error('commit message required');
@@ -453,7 +491,13 @@ function cmdCommit(cwd, message, files, raw, amend) {
 
   // Stage files
   const filesToStage = files && files.length > 0 ? files : ['.planning/'];
+
+  // TRD 44-06: staged removals whose working copy survives cannot go through the pathspec commit
+  // below (it would re-add them from disk). Detect them first; `git add` must skip them too, or
+  // an un-ignored one would be re-staged here instead. null → the ordinary path, unchanged.
+  const removal = amend ? null : stagedRemovalsOnDisk(cwd, filesToStage);
   for (const file of filesToStage) {
+    if (removal && removal.skipAdd.has(file)) continue;
     execGit(cwd, ['add', file]);
   }
 
@@ -468,9 +512,16 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // `.planning/` and nothing else. Passing --files stays the recommended form.
   //
   // Do NOT add pathspecs to the amend branch — --amend --no-edit -- <paths> changes amend semantics.
+  //
+  // TRD 44-06: with a staged removal still on disk, the commit uses the WHOLE index and no
+  // pathspec — git's `--only` pathspec mode re-stages listed paths from the working tree, which
+  // would re-track the removed file. That is only safe when the index holds nothing outside
+  // --files, so the foreign-index check below refuses otherwise (never sweep in other work).
   let commitArgs;
   if (amend) {
     commitArgs = ['commit', '--amend', '--no-edit'];
+  } else if (removal) {
+    commitArgs = ['commit', '-m', message];
   } else {
     commitArgs = ['commit', '-m', message, '--', ...filesToStage];
   }
@@ -494,6 +545,31 @@ function cmdCommit(cwd, message, files, raw, amend) {
     };
     output(result, raw, 'merge_in_progress', 1);
     return;
+  }
+
+  if (removal) {
+    const stagedRes = execGit(cwd, ['diff', '--cached', '--name-only', '--no-renames', '-z']);
+    const staged = stagedRes.stdout.split('\0').filter(Boolean);
+    const covered = (p) => removal.specs.some((s) => s === '' || p === s || p.startsWith(s + '/'));
+    const foreign = stagedRes.exitCode === 0 ? staged.filter((p) => !covered(p)) : ['(git diff --cached failed)'];
+    if (foreign.length) {
+      const result = {
+        committed: false,
+        hash: null,
+        reason: 'staged_removal_with_foreign_index',
+        staged,
+        foreign,
+        removals: removal.removals,
+        error:
+          `Recording the staged removal of ${removal.removals.join(', ')} needs a whole-index ` +
+          'commit (a pathspec commit re-adds a removed file from the working tree), but the ' +
+          `index also holds staged changes outside --files: ${foreign.join(', ')}. Nothing was ` +
+          'committed and nothing was unstaged. Commit or unstage those paths ' +
+          '(git restore --staged <path>), then retry.',
+      };
+      output(result, raw, 'staged_removal_with_foreign_index', 1);
+      return;
+    }
   }
 
   const commitResult = execGit(cwd, commitArgs);
