@@ -295,6 +295,98 @@ function hasRunningBackground(tasks) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// decide / main
+// ---------------------------------------------------------------------------
+
+/**
+ * gate-edits.js owns the marker logic (TRD 27-01: expiry + the worktree's
+ * MAIN checkout). Required lazily so a moved or broken file fails open instead
+ * of crashing the hook at load time.
+ */
+function loadMarkerHelpers() {
+  const { hasSkillActiveMarker, findPlanningDir, sharedPlanningDir } = require('./gate-edits.js');
+  return { hasSkillActiveMarker, findPlanningDir, sharedPlanningDir };
+}
+
+function reasonFor(action) {
+  return (
+    `DevFlow auto-continue: you announced "${action}" and then ended your turn. ` +
+    'Take that step now, in this turn. If you actually need the user\'s input, ask one explicit ' +
+    'question instead of announcing. Never use port 8080.'
+  );
+}
+
+function skipRequested(env) {
+  const v = env && env.DEVFLOW_SKIP_AUTOCONTINUE;
+  return v === '1' || v === 'true';
+}
+
+/**
+ * The whole decision, in order. Returns null (no block) or {block, reason}.
+ *
+ * @param {object} payload  the Stop payload
+ * @param {object} [deps]
+ * @param {object} [deps.env]          defaults to process.env
+ * @param {string} [deps.cwd]          used when payload.cwd is absent
+ * @param {Function} [deps.markerLive] (planningDir, sharedDir) → boolean;
+ *                                     defaults to gate-edits hasSkillActiveMarker
+ * @param {Function} [deps.loadHelpers] test seam for the gate-edits require
+ */
+function decide(payload, deps = {}) {
+  const env = deps.env || process.env;
+  if (skipRequested(env)) return null;
+  if (!payload || typeof payload !== 'object') return null;
+
+  // Once-guard: the re-stop after a block carries stop_hook_active: true.
+  if (payload.stop_hook_active) return null;
+
+  // Main loop only. A subagent's stop belongs to the SubagentStop gate (44-02).
+  if (payload.hook_event_name && payload.hook_event_name !== 'Stop') return null;
+
+  let helpers;
+  try {
+    helpers = (deps.loadHelpers || loadMarkerHelpers)();
+  } catch {
+    return null;
+  }
+  if (!helpers || typeof helpers.findPlanningDir !== 'function') return null;
+
+  const cwd = (typeof payload.cwd === 'string' && payload.cwd) || deps.cwd || process.cwd();
+  const planningDir = helpers.findPlanningDir(cwd);
+  if (!planningDir) return null;
+
+  const markerLive =
+    typeof deps.markerLive === 'function'
+      ? deps.markerLive
+      : (pd, sd) => helpers.hasSkillActiveMarker(pd, sd);
+  if (!markerLive(planningDir, helpers.sharedPlanningDir(cwd))) return null;
+
+  if (hasRunningBackground(payload.background_tasks)) return null;
+
+  const action = announcedAction(payload.last_assistant_message);
+  if (!action) return null;
+
+  return { block: true, reason: reasonFor(action) };
+}
+
+function main() {
+  try {
+    const raw = require('fs').readFileSync(0, 'utf8');
+    if (!raw || !raw.trim()) return;
+    const out = decide(JSON.parse(raw), { env: process.env, cwd: process.cwd() });
+    if (out && out.block) {
+      process.stdout.write(JSON.stringify({ decision: 'block', reason: out.reason }));
+    }
+  } catch {
+    // Fail open: no output, exit 0.
+  }
+}
+
+// No process.exit(): on macOS a pipe write is asynchronous and an explicit
+// exit could truncate the JSON. The process ends naturally with code 0.
+if (require.main === module) main();
+
 module.exports = {
   finalParagraph,
   isQuestionToUser,
@@ -302,4 +394,6 @@ module.exports = {
   isWaitingOnBackground,
   announcedAction,
   hasRunningBackground,
+  decide,
+  reasonFor,
 };
