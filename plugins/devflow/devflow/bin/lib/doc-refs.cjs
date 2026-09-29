@@ -178,6 +178,32 @@ function rewriteText(text) {
   return { text: result, changes, removed };
 }
 
+// ─── scanLegacyAgentPaths ────────────────────────────────────────────────────────
+//
+// Objective 44 (AUT-03, TRD 44-08). Agents ship inside the plugin, and a typed subagent gets
+// its definition as the system prompt; global-upgrade moves the legacy home-directory copies
+// into a backup. A spawn prompt telling an agent to read "<home>/.claude/agents/<name>.md"
+// therefore spends a turn on a Read that fails. This matches a concrete <name>.md, with or
+// without a leading "@"; a glob naming the legacy location ("agents/df-*") never matches.
+//
+// Deliberately NOT part of scanText/rewriteText: those power migration 0007's rewrite, which
+// must never touch agent paths. The CI gate (doc-refs.repo.test.cjs tests 11-14) calls this.
+const LEGACY_AGENT_PATH_RE = /@?~\/\.claude\/agents\/[A-Za-z0-9_-]+\.md/g;
+
+/** Every legacy agent-path token in `text`: [{line, token}], 1-based lines (as scanText). */
+function scanLegacyAgentPaths(text) {
+  const results = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const re = new RegExp(LEGACY_AGENT_PATH_RE.source, 'g');
+    let m;
+    while ((m = re.exec(lines[i])) !== null) {
+      results.push({ line: i + 1, token: m[0] });
+    }
+  }
+  return results;
+}
+
 // ─── liveSkillNames ──────────────────────────────────────────────────────────────
 
 /** Subdirectory names of `skillsDir` that contain a SKILL.md file. */
@@ -273,4 +299,6 @@ module.exports = {
   walkFiles,
   TOKEN_RE,
   DocRefsError,
+  scanLegacyAgentPaths,
+  LEGACY_AGENT_PATH_RE,
 };
