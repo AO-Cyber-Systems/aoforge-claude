@@ -116,7 +116,17 @@ TRDs:
 5. Migration 0008 gitignores and untracks `.progress-guard.json` / `.awareness-cache.json`, idempotently
 6. A Stop hook auto-continues an announced-but-not-taken step once (skill marker live, no running background tasks, no question); `yolo` counts as autonomous between waves; `DEVFLOW_SKIP_AUTOCONTINUE=1` disables it
 7. Synthesizer returns text, planner has Edit, executor forbids `sleep`-poll, `config-get` returns defaults for known unset keys; `npm test` green
-**Plans:** TBD
+**Plans:** 9 TRDs in 3 waves
+TRDs:
+- [ ] 43-01-TRD.md — (W1) uncap executor/verifier; per-task commit + `## Progress` checkpoint + no sleep-poll; execute-objective INCOMPLETE → SendMessage resume (≤3), dependents never skipped; yolo continues between waves (AUT-01, AUT-06, AUT-07, AUT-03)
+- [ ] 43-02-TRD.md — (W1) drop legacy `~/.claude/agents/*.md` read instructions (typed research-objective spawns); synthesizer returns text, orchestrators write SUMMARY.md; planner gets Edit (AUT-03, AUT-07)
+- [ ] 43-03-TRD.md — (W1, tdd) gate-edits allows `devflow:*` agent_type; gate-commits allows merge/rebase/cherry-pick completion + inline `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix, no `export` advice (AUT-04)
+- [ ] 43-04-TRD.md — (W1, tdd) `gate-executor-stop.js` SubagentStop completion gate for `devflow:executor` (AUT-02)
+- [ ] 43-05-TRD.md — (W1, tdd) `auto-continue.js` Stop hook: announced-but-not-taken step, once (AUT-06)
+- [ ] 43-06-TRD.md — (W1, tdd) migration 0008 untracks runtime state files; `df-tools commit` records staged removals; upgrade hook dirty-exemption (AUT-05)
+- [ ] 43-07-TRD.md — (W1, tdd) `config-get` returns documented defaults for known unset keys (AUT-07)
+- [ ] 43-08-TRD.md — (W2, tdd) objective-job-index: Progress-only SUMMARY is incomplete + XML task_count; doc-refs legacy agent-path CI guard (AUT-01, AUT-03)
+- [ ] 43-09-TRD.md — (W3) register hooks in hooks.json; CLAUDE.md hook inventory, HOOK_DOCS, CHANGELOG [Unreleased]; full `npm test` (AUT-01..07)
 
 ### Objective 43: Stack drafter rules
 
