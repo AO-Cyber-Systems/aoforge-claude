@@ -126,6 +126,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   refused with `staged_removal_with_foreign_index`.
 - `config-get constructor` and other prototype names no longer resolve to Object built-ins; they
   fail with `Key not found` (objective 44, AUT-07).
+- `objective-job-index` reads the `files_modified` frontmatter key TRDs actually write (legacy
+  `files-modified` still accepted), so the >8-files executor-model rule can fire.
+- `df-tools commit`: `commit_docs: false` and a gitignored `.planning` now skip only `.planning/`
+  paths. Code passed via `--files` still commits, and the dropped paths are reported as
+  `skipped_planning`.
 
 ## [2.11.0] - 2026-09-28
 

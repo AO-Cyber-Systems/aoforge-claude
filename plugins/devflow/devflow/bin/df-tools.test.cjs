@@ -681,6 +681,62 @@ files-modified: [prisma/schema.prisma, src/lib/db.ts]
     assert.strictEqual(output.jobs[0].has_summary, false, 'no summary yet');
   });
 
+  test('reads the files_modified key TRDs write (YAML block list)', () => {
+    // quick-24: TRDs write `files_modified:`, but the index only read the legacy
+    // `files-modified:` key, so files_modified was always [] and the >8-files
+    // executor-model rule never fired.
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(objectiveDir, '03-01-TRD.md'),
+      `---
+wave: 1
+autonomous: true
+files_modified:
+  - plugins/x/a.cjs
+  - plugins/x/b.cjs
+---
+
+<task type="auto"><name>x</name></task>
+`
+    );
+
+    const result = runGsdTools('objective-job-index 03', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs.length, 1, 'should have 1 job');
+    assert.deepStrictEqual(output.jobs[0].files_modified, ['plugins/x/a.cjs', 'plugins/x/b.cjs']);
+  });
+
+  test('files_modified wins over legacy files-modified when both are present', () => {
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(objectiveDir, '03-01-TRD.md'),
+      `---
+wave: 1
+autonomous: true
+files-modified: [legacy/old.cjs]
+files_modified:
+  - plugins/x/new-a.cjs
+  - plugins/x/new-b.cjs
+---
+
+<task type="auto"><name>x</name></task>
+`
+    );
+
+    const result = runGsdTools('objective-job-index 03', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs.length, 1, 'should have 1 job');
+    assert.deepStrictEqual(output.jobs[0].files_modified, ['plugins/x/new-a.cjs', 'plugins/x/new-b.cjs']);
+  });
+
   test('groups multiple jobs by wave', () => {
     const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
@@ -1665,6 +1721,146 @@ describe('commit command pathspec isolation', () => {
 
     const showResult = execSync('git show --name-only --format= HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     assert.ok(showResult.includes('.planning/DEFAULT.md'), `DEFAULT.md not in commit; got: ${showResult}`);
+  });
+
+  // ── quick-24: commit_docs:false / gitignored .planning gate ONLY .planning/ paths ──
+  // Both gates used to skip the WHOLE commit, so code passed via --files was silently
+  // never committed. They now drop only the planning paths and report them.
+
+  function setCommitDocsFalse(dir) {
+    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{"commit_docs":false}\n');
+  }
+
+  // One approach throughout: write .gitignore and commit it with plain git in the setup.
+  function gitignorePlanning(dir) {
+    fs.writeFileSync(path.join(dir, '.gitignore'), '.planning/\n');
+    execSync('git add .gitignore', { cwd: dir, stdio: 'pipe' });
+    execSync('git commit -m "chore: ignore .planning"', {
+      cwd: dir,
+      stdio: 'pipe',
+      env: { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' },
+    });
+  }
+
+  function writeCodeAndState(dir) {
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'a.js'), 'module.exports = 1;\n');
+    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '# State\n');
+  }
+
+  function headSha(dir) {
+    return execSync('git rev-parse HEAD', { cwd: dir, encoding: 'utf-8' }).trim();
+  }
+
+  function headFiles(dir) {
+    return execSync('git show --name-only --format= HEAD', { cwd: dir, encoding: 'utf-8' })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+  }
+
+  test('quick-24 case 4: commit_docs:false commits code, drops and reports the planning path', () => {
+    setCommitDocsFalse(tmpDir);
+    writeCodeAndState(tmpDir);
+    const before = headSha(tmpDir);
+
+    const result = runGsdTools('commit "fix(q24): code with docs off" --files src/a.js .planning/STATE.md', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const out = JSON.parse(result.output);
+
+    assert.strictEqual(out.committed, true, `expected a commit; got ${result.output}`);
+    assert.strictEqual(out.reason, 'committed');
+    assert.ok(out.hash, 'hash reported');
+    assert.deepStrictEqual(out.skipped_planning, ['.planning/STATE.md']);
+    assert.notStrictEqual(headSha(tmpDir), before, 'HEAD moved');
+    assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js'], 'only the code file is in HEAD');
+    const tracked = execSync('git ls-files -- .planning/STATE.md', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+    assert.strictEqual(tracked, '', 'STATE.md was never staged');
+  });
+
+  test('quick-24 case 5: gitignored .planning commits code, drops and reports the planning path', () => {
+    gitignorePlanning(tmpDir);
+    writeCodeAndState(tmpDir);
+    const before = headSha(tmpDir);
+
+    const result = runGsdTools('commit "fix(q24): code with planning ignored" --files src/a.js .planning/STATE.md', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error} / ${result.output}`);
+    const out = JSON.parse(result.output);
+
+    assert.strictEqual(out.committed, true, `expected a commit; got ${result.output}`);
+    assert.strictEqual(out.reason, 'committed');
+    assert.deepStrictEqual(out.skipped_planning, ['.planning/STATE.md']);
+    assert.notStrictEqual(headSha(tmpDir), before, 'HEAD moved');
+    assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js'], 'only the code file is in HEAD');
+  });
+
+  test('quick-24 case 6: commit_docs:false with only planning paths is exactly today\'s skip', () => {
+    setCommitDocsFalse(tmpDir);
+    writeCodeAndState(tmpDir);
+    const before = headSha(tmpDir);
+
+    const result = runGsdTools('commit "docs(q24): planning only" --files .planning/STATE.md', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    assert.deepStrictEqual(JSON.parse(result.output), {
+      committed: false,
+      hash: null,
+      reason: 'skipped_commit_docs_false',
+    });
+    assert.strictEqual(headSha(tmpDir), before, 'HEAD unchanged');
+
+    const rawResult = runGsdTools('commit "docs(q24): planning only" --files .planning/STATE.md --raw', tmpDir);
+    assert.ok(rawResult.success, `Command failed: ${rawResult.error}`);
+    assert.strictEqual(rawResult.output, 'skipped', 'raw output unchanged');
+    assert.strictEqual(headSha(tmpDir), before, 'HEAD unchanged after raw run');
+  });
+
+  test('quick-24 case 7: gitignored .planning with no --files is exactly today\'s skip', () => {
+    gitignorePlanning(tmpDir);
+    writeCodeAndState(tmpDir);
+    const before = headSha(tmpDir);
+
+    const result = runGsdTools('commit "docs(q24): default scope ignored"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    assert.deepStrictEqual(JSON.parse(result.output), {
+      committed: false,
+      hash: null,
+      reason: 'skipped_gitignored',
+    });
+    assert.strictEqual(headSha(tmpDir), before, 'HEAD unchanged');
+
+    const rawResult = runGsdTools('commit "docs(q24): default scope ignored" --raw', tmpDir);
+    assert.ok(rawResult.success, `Command failed: ${rawResult.error}`);
+    assert.strictEqual(rawResult.output, 'skipped', 'raw output unchanged');
+    assert.strictEqual(headSha(tmpDir), before, 'HEAD unchanged after raw run');
+  });
+
+  test('quick-24 case 8: commit_docs:false with only code commits and adds no skipped_planning key', () => {
+    setCommitDocsFalse(tmpDir);
+    writeCodeAndState(tmpDir);
+
+    const result = runGsdTools('commit "fix(q24): code only" --files src/a.js', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const out = JSON.parse(result.output);
+
+    assert.strictEqual(out.committed, true, `expected a commit; got ${result.output}`);
+    assert.deepStrictEqual(Object.keys(out).sort(), ['committed', 'hash', 'reason'], 'result shape unchanged');
+    assert.ok(!('skipped_planning' in out), 'no skipped_planning key when nothing was dropped');
+    assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js']);
+  });
+
+  test('quick-24 case 9: ./.planning/STATE.md spelling counts as a planning path', () => {
+    setCommitDocsFalse(tmpDir);
+    writeCodeAndState(tmpDir);
+
+    const result = runGsdTools('commit "fix(q24): dot-slash spelling" --files src/a.js ./.planning/STATE.md', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const out = JSON.parse(result.output);
+
+    assert.strictEqual(out.committed, true, `expected a commit; got ${result.output}`);
+    assert.deepStrictEqual(out.skipped_planning, ['./.planning/STATE.md']);
+    assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js'], 'only the code file is in HEAD');
   });
 });
 

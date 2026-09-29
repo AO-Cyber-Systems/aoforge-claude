@@ -3,11 +3,13 @@
 /**
  * Hand-built fixture builders for the gate hooks' tests (TRD 44-03).
  *
- * No generated data and no real git: git state is simulated by writing the
- * same marker files/dirs git itself leaves behind while an operation is in
- * progress (MERGE_HEAD, REBASE_HEAD, rebase-merge/, rebase-apply/,
- * CHERRY_PICK_HEAD) inside a hand-made `.git` dir. A linked worktree is
- * simulated by a `.git` FILE carrying `gitdir: <main>/.git/worktrees/<name>`.
+ * No generated data and no real git: git state is simulated by writing marker
+ * files/dirs inside a hand-made `.git` dir — MERGE_HEAD and CHERRY_PICK_HEAD,
+ * plus `rebase-merge/` or `rebase-apply/`, which are the only rebase markers
+ * that count as in progress (TRD 44-10). The `rebase-head` state writes a lone
+ * REBASE_HEAD: it models a STALE marker git can leave behind after a rebase,
+ * which must NOT read as a rebase in progress. A linked worktree is simulated
+ * by a `.git` FILE carrying `gitdir: <main>/.git/worktrees/<name>`.
  *
  * Not a test file — no `*.test.js` glob picks it up.
  */
