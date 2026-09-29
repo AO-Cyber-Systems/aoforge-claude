@@ -21,6 +21,14 @@
 //       dropped as its ancestor, reason `pubspec.yaml(sdk: flutter)`), go.mod -> go; initProfile
 //       drafts the matching `extends`.
 //
+// - I17 (TRD 42-12 test 1, CLI) `stack init --raw` on a git fixture with `.gitignore: dist/` and a
+//       force-tracked dist/scaffoldapp/go.mod (plus a root go.mod and a Flutter app/): components
+//       hold app/ and never the ignored tree; the same with a non-fallback `bundle/` rule.
+// - I18 (TRD 42-12 test 7) `stack init --write` with `.gitignore: .planning/` and a force-tracked
+//       .planning/config.json: result `ignored: ['.planning/STACK.md']` plus a warning, the file is
+//       still written, and the dir-level `git check-ignore -q .planning` misses it (the bug). A
+//       clean fixture gives `ignored: []`; git missing from PATH gives `ignored: []`, no throw.
+//
 // Fixtures are hand-built (`__fixtures__/stack-profile-fixtures.cjs`), never generated — per
 // `no_llm_test_data`.
 
@@ -508,5 +516,122 @@ describe('grounded draftProfile / initProfile (I16, TRD 42-07)', () => {
     assert.equal(noteLines.length, 40);
     assert.match(body, /\(\+15 more in STACK-REPORT\.md\)/);
     assert.ok(body.split('\n').length < 150);
+  });
+});
+
+// ─── I17/I18: ignore-aware drafting and the STACK.md gitignore preflight (TRD 42-12) ──
+
+const detectFx = require('./__fixtures__/stack-detect-fixtures.cjs');
+const { isGitIgnored } = require('./helpers.cjs');
+
+const NO_GIT = detectFx.hasGit() ? false : 'git is not on PATH';
+const STACK_IGNORED_WARNING = '.planning/STACK.md is gitignored; df-tools commit will skip it';
+const stubVerify = () => ({ status: 'resolved', detail: 'stub', tool: null });
+
+/** A git repo with a root go.mod; `.gitignore` = `ignore` and `track` force-added. */
+function gitGoRepo({ ignore = '*.log\n', files = {}, track = [] } = {}) {
+  return detectFx.makeGitTree({
+    '.gitignore': ignore,
+    'go.mod': detectFx.goMod('ledger'),
+    'main.go': 'package main\n\nfunc main() {}\n',
+    ...files,
+  }, { track });
+}
+
+describe('stack init CLI skips gitignored areas (I17, TRD 42-12 test 1)', () => {
+  for (const shape of [
+    { name: 'dist/ + dist/scaffoldapp/', opts: {}, bad: 'dist/' },
+    { name: 'bundle/ + bundle/svcapp/ (git only)', opts: { ruleSpelling: 'bundle/', child: 'svcapp' }, bad: 'bundle/' },
+  ]) {
+    test(`I17: ${shape.name} -> components hold app/ and never the ignored tree`, { skip: NO_GIT }, () => {
+      const root = detectFx.gitIgnoredScaffoldShape(shape.opts);
+      const home = drafterFx.fakeEmptyHome();
+      try {
+        const r = run(['stack', 'init', '--raw'], { cwd: root, home });
+        assert.equal(r.code, 0, r.stderr);
+        const fm = sp.parseProfile(r.stdout).frontmatter;
+        const paths = (fm.components || []).map((c) => c.path);
+        assert.ok(paths.includes('app/'), JSON.stringify(fm.components));
+        assert.equal(paths.some((p) => p.startsWith(shape.bad)), false, JSON.stringify(fm.components));
+        assert.equal(r.stdout.includes(shape.bad), false, 'the ignored tree is not even noted');
+        assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), false, 'no --write, no file');
+      } finally {
+        detectFx.cleanup(root);
+        drafterFx.cleanup(home);
+      }
+    });
+  }
+});
+
+describe('stack init --write gitignore preflight (I18, TRD 42-12 test 7)', () => {
+  test('I18a: `.planning/` ignored with a tracked config.json -> ignored [STACK.md] + warning; written anyway; the dir check misses it', { skip: NO_GIT }, () => {
+    const root = gitGoRepo({ ignore: '.planning/\n', files: { '.planning/config.json': '{}\n' }, track: ['.planning/config.json'] });
+    const home = drafterFx.fakeEmptyHome();
+    try {
+      // The bug this preflight fixes: a tracked file under the dir masks the dir-level check.
+      assert.equal(spawnSync('git', ['-C', root, 'check-ignore', '-q', '.planning']).status, 1);
+      assert.equal(isGitIgnored(root, '.planning'), false);
+
+      const r = sp.initProfile({ projectRoot: root, userHome: home, write: true, verify: stubVerify });
+      assert.equal(r.action, 'written', JSON.stringify(r.validation));
+      assert.deepStrictEqual(r.ignored, ['.planning/STACK.md']);
+      assert.deepStrictEqual(r.warnings, [STACK_IGNORED_WARNING]);
+      assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), true, 'non-fatal: still written');
+    } finally {
+      detectFx.cleanup(root);
+      drafterFx.cleanup(home);
+    }
+  });
+
+  test('I18b: a clean git fixture -> ignored [] and no warning', { skip: NO_GIT }, () => {
+    const root = gitGoRepo();
+    const home = drafterFx.fakeEmptyHome();
+    try {
+      const r = sp.initProfile({ projectRoot: root, userHome: home, write: true, verify: stubVerify });
+      assert.equal(r.action, 'written', JSON.stringify(r.validation));
+      assert.deepStrictEqual(r.ignored, []);
+      assert.deepStrictEqual(r.warnings, []);
+    } finally {
+      detectFx.cleanup(root);
+      drafterFx.cleanup(home);
+    }
+  });
+
+  test('I18c: git missing from PATH -> ignored [] and no throw', { skip: NO_GIT }, () => {
+    const root = gitGoRepo({ ignore: '.planning/\n', files: { '.planning/config.json': '{}\n' }, track: ['.planning/config.json'] });
+    const home = drafterFx.fakeEmptyHome();
+    const saved = process.env.PATH;
+    try {
+      process.env.PATH = '';
+      let r;
+      try {
+        r = sp.initProfile({ projectRoot: root, userHome: home, write: true, verify: stubVerify });
+      } finally {
+        process.env.PATH = saved;
+      }
+      assert.equal(r.action, 'written', JSON.stringify(r.validation));
+      assert.deepStrictEqual(r.ignored, []);
+    } finally {
+      process.env.PATH = saved;
+      detectFx.cleanup(root);
+      drafterFx.cleanup(home);
+    }
+  });
+
+  test('I18d: CLI `stack init --write` reports ignored + the warning in its JSON and on stderr', { skip: NO_GIT }, () => {
+    const root = gitGoRepo({ ignore: '.planning/\n', files: { '.planning/config.json': '{}\n' }, track: ['.planning/config.json'] });
+    const home = drafterFx.fakeEmptyHome();
+    try {
+      const r = run(['stack', 'init', '--write'], { cwd: root, home });
+      assert.equal(r.code, 0, r.stderr);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.action, 'written');
+      assert.deepStrictEqual(json.ignored, ['.planning/STACK.md']);
+      assert.deepStrictEqual(json.warnings, [STACK_IGNORED_WARNING]);
+      assert.ok(r.stderr.includes(STACK_IGNORED_WARNING), r.stderr);
+    } finally {
+      detectFx.cleanup(root);
+      drafterFx.cleanup(home);
+    }
   });
 });
