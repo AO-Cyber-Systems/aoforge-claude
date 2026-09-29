@@ -498,6 +498,12 @@ function stagedRemovalsOnDisk(cwd, files) {
   return { removals, skipAdd, specs: files.map((f) => repoPathOf(prefix, f)) };
 }
 
+/** True when a --files argument names `.planning` or something under it (quick-24). */
+function isPlanningPath(cwd, p) {
+  const rel = path.relative(cwd, path.resolve(cwd, String(p))).split(path.sep).join('/');
+  return rel === '.planning' || rel.startsWith('.planning/');
+}
+
 function cmdCommit(cwd, message, files, raw, amend) {
   if (!message && !amend) {
     error('commit message required');
@@ -505,22 +511,26 @@ function cmdCommit(cwd, message, files, raw, amend) {
 
   const config = loadConfig(cwd);
 
-  // Check commit_docs config
-  if (!config.commit_docs) {
-    const result = { committed: false, hash: null, reason: 'skipped_commit_docs_false' };
-    output(result, raw, 'skipped');
-    return;
-  }
+  const requested = files && files.length > 0 ? files : ['.planning/'];
 
-  // Check if .planning is gitignored
-  if (isGitIgnored(cwd, '.planning')) {
-    const result = { committed: false, hash: null, reason: 'skipped_gitignored' };
-    output(result, raw, 'skipped');
-    return;
+  // Gates cover planning docs only; code passed via --files still commits (quick-24).
+  // Order matters: commit_docs first, and only then the gitignore probe. The filter runs
+  // BEFORE the TRD 44-06 removal detection below, so it and the foreign-index check see only
+  // the filtered list — a staged planning path then counts as foreign and is never swept in.
+  const blocked = !config.commit_docs ? 'skipped_commit_docs_false'
+    : isGitIgnored(cwd, '.planning') ? 'skipped_gitignored' : null;
+  let filesToStage = requested;
+  let skippedPlanning = [];
+  if (blocked) {
+    skippedPlanning = requested.filter((f) => isPlanningPath(cwd, f));
+    filesToStage = requested.filter((f) => !isPlanningPath(cwd, f));
+    if (filesToStage.length === 0) {
+      const result = { committed: false, hash: null, reason: blocked };
+      output(result, raw, 'skipped');
+      return;
+    }
   }
-
-  // Stage files
-  const filesToStage = files && files.length > 0 ? files : ['.planning/'];
+  const skippedField = skippedPlanning.length ? { skipped_planning: skippedPlanning } : {};
 
   // TRD 44-06: staged removals whose working copy survives cannot go through the pathspec commit
   // below (it would re-add them from disk). Detect them first; `git add` must skip them too, or
@@ -608,7 +618,7 @@ function cmdCommit(cwd, message, files, raw, amend) {
     if (said.includes('nothing to commit')) {
       // The benign case, and the ONLY one that keeps exit 0: there was simply
       // nothing staged under the pathspecs.
-      const result = { committed: false, hash: null, reason: 'nothing_to_commit' };
+      const result = { committed: false, hash: null, reason: 'nothing_to_commit', ...skippedField };
       output(result, raw, 'nothing');
       return;
     }
@@ -628,7 +638,7 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // Get short hash
   const hashResult = execGit(cwd, ['rev-parse', '--short', 'HEAD']);
   const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
-  const result = { committed: true, hash, reason: 'committed' };
+  const result = { committed: true, hash, reason: 'committed', ...skippedField };
   output(result, raw, hash || 'committed');
 }
 

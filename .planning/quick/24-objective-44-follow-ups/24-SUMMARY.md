@@ -15,5 +15,6 @@ started: 2026-09-29T22:21:25Z
 - [x] Task 1 GREEN: `fm.files_modified ?? fm['files-modified']`; df-tools.test.cjs 147/147 pass.
 - [x] Task 1 GREEN committed `31c5ce1`.
 - [x] Task 2 RED: commit-gate cases 4-9 added. 4, 5, 8, 9 fail (whole commit skipped); 6, 7 pass (regression locks, incl. raw `skipped`).
-- [ ] Task 2 GREEN
+- [x] Task 2 RED committed `010a098`.
+- [x] Task 2 GREEN: gate filter + `isPlanningPath` before `stagedRemovalsOnDisk`; df-tools + commit-staged-removal + commit-failure 163/163 pass.
 - [ ] Task 3 fixture comment + CHANGELOG
