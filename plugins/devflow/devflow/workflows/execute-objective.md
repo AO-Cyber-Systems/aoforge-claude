@@ -221,6 +221,14 @@ Report:
 <step name="execute_waves">
 Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`, sequential if `false`.
 
+**Read the mode ONCE, before the first wave** (the same form `checkpoint_handling` uses):
+```bash
+MODE=$(node ~/.claude/devflow/bin/df-tools.cjs config-get mode 2>/dev/null || echo "yolo"); echo "MODE=$MODE"
+```
+Note the printed `MODE` value as a literal. A shell variable does not survive into the next Bash call.
+
+`AUTONOMOUS_CONTINUE` = `MODE` is `"autonomous"` or `"yolo"`. It governs ONE thing: whether you move on to the next wave without asking (items 6 and 9). It does not change failure handling. The autonomous failure protocol in item 7 stays keyed on `MODE == "autonomous"`, so a real failure in yolo still gets the non-autonomous failure prompt.
+
 **For each wave:**
 
 0. **Fix the repo and the base for this wave (BEFORE spawning) — issue #86:**
@@ -366,6 +374,7 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
        <success_criteria>
        - [ ] All tasks executed
        - [ ] Each task committed individually
+       - [ ] Committed after every task; SUMMARY.md ## Progress kept current (a cut-short run is resumed, not redone)
        - [ ] SUMMARY.md created in plan directory and committed
        - [ ] STATE.md updated with position and decisions
        - [ ] ROADMAP.md updated with job progress (via `roadmap update-job-progress`)
@@ -409,6 +418,13 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
 
 5b. **Merge the wave's worktree branches (parallel waves only):**
 
+   **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads each plan's own
+   checkout, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
+   executor is resumed inside its worktree, so merging that branch or removing that worktree
+   would strand it. It is merged here, like any other plan, once a resume leaves it COMPLETE.
+   A plan that falls through to item 7 keeps its worktree, so the fresh-respawn retry builds
+   on its partial commits instead of redoing them.
+
    A sequential wave has nothing to merge — the executor committed to the branch you are
    already on, which is why `WAVE_BASE` for the next wave is simply the new HEAD.
 
@@ -450,6 +466,79 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
    After all branches are merged, `git log --all --grep` and the file-existence spot-checks
    in step 6 will see every wave commit.
 
+5c. **Classify each returned executor: COMPLETE / INCOMPLETE / FAILED.**
+
+   An executor can come back with `<status>completed</status>` and still be unfinished. When a
+   run is cut short, the task-notification `<summary>` reads like
+   `Agent "<desc>" stopped at its N-turn limit (partial result; SendMessage to task-id to continue)`,
+   and SubagentStop never fires, so no hook catches it. A truncation is not a failure. It is
+   its own outcome with its own budget. Record each executor's **task id** (from the Task
+   result or its task-notification) when you spawn it, because 5d resumes by that id.
+
+   For each plan, gather three facts:
+   - **TRD_TASKS** = the number of opening `<task` elements in `TRD_CONTENT` (`<task type=...>`
+     or `<task>`; the `<tasks>` wrapper does not count). Do NOT rely on `task_count` from
+     `objective-job-index`, because 44-08 fixes that field.
+   - **COMMITS** = the line count of
+     `git log --oneline --all --grep="({objective}-{trd})"`
+     (`--all` sees an unmerged worktree branch too).
+   - **SUMMARY state**, read from the plan's own checkout (its worktree for a parallel wave, the
+     current tree for a sequential one). It is one of:
+     - `missing`: no `{objective}-{trd}-SUMMARY.md`;
+     - `checkpoint`: the file exists but has no `## Self-Check` heading. The executor contract
+       says "A SUMMARY without `## Self-Check` means checkpoint, not complete";
+     - `final`: it has `## Self-Check: PASSED` or `## Self-Check: FAILED`.
+
+   The plan is **INCOMPLETE** when EITHER:
+   - (a) the task-notification summary contains `turn limit` or `partial result`; OR
+   - (b) SUMMARY is `missing` or `checkpoint` AND COMMITS < TRD_TASKS.
+
+   (b) does not apply to a structured stop, which has its own handler and is never resumed as
+   INCOMPLETE. These are: a `## CHECKPOINT REACHED` return (go to `<checkpoint_handling>`), a
+   Rule 4 `decision:` return, an `## ESCALATION REQUESTED` return, or a preflight hard stop
+   (`WRONG REPOSITORY`, `BASE NOT VISIBLE`, `SHARED INDEX`). The last three are FAILED.
+
+   **COMPLETE** (not INCOMPLETE, SUMMARY `final`) → go to item 6's spot-checks.
+   **INCOMPLETE** → item 5d.
+   **Anything else is FAILED** → item 6/7, as today.
+
+5d. **Resume INCOMPLETE plans.**
+
+   A cut-short executor still holds its context: every file it read and every decision it made.
+   A fresh `Task(...)` spawn throws all of that away and redoes it. So resume the SAME executor.
+   Up to **3 times per plan**, call `SendMessage(to=<that executor's task id>, message=...)` with:
+   ```
+   Your run stopped before the TRD was finished (INCOMPLETE, not failed). Your context is intact:
+   do NOT re-research and do NOT re-read files you already read.
+   Already committed: {git log lines for this plan}
+   Remaining steps:
+   1. {first unticked ## Progress item, or first TRD task with no commit}
+   2. ...
+   N. Write the final SUMMARY.md with ## Self-Check and commit it.
+   ```
+   Build the numbered steps from the plan's SUMMARY `## Progress` section when there is one: its
+   unticked items in order, with the `next step:` line as step 1. Without one, list the TRD's
+   tasks that have no commit yet. The last step is always the final SUMMARY with
+   `## Self-Check`.
+
+   Re-classify (5c) after each resume.
+   - COMPLETE → item 6.
+   - FAILED → item 7.
+   - Still INCOMPLETE → resume again, up to the budget.
+
+   After the 3rd resume, a plan that is still INCOMPLETE falls through to item 7 with a
+   `<failure_feedback>` block noting "truncated 4 times". It goes to the autonomous fresh-respawn
+   failure protocol when `MODE` is `"autonomous"`, and to the non-autonomous failure prompt
+   otherwise.
+
+   The INCOMPLETE budget is separate from the failure retry. Resumes do not consume the one
+   fresh-respawn retry, and a truncation never counts as a failure.
+
+   This happens in EVERY mode, because resuming a truncated run is not a user decision: never
+   ask whether to resume. Run the INCOMPLETE resumes for different plans of the same wave in
+   parallel. While any plan in the wave is still being resumed, the next wave does not start:
+   its dependents are `waiting on {id}`.
+
 6. **Report completion — spot-check claims first:**
 
    **Update progress (if available):** For each completed plan:
@@ -480,9 +569,22 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
    - Bad: "Wave 2 complete. Proceeding to Wave 3."
    - Good: "Terrain system complete — 3 biome types, height-based texturing, physics collision meshes. Vehicle physics (Wave 3) can now reference ground surfaces."
 
+   **When `AUTONOMOUS_CONTINUE` is true (`MODE` is `"autonomous"` or `"yolo"`)**, this report
+   is an announcement, not a question. Post it, then go straight on to item 9 and spawn the next
+   wave in the SAME turn. Never end the turn on "Ready for wave N?", "Continue?", "Shall I
+   proceed?" or "on your word". In other interactive modes, behaviour is unchanged.
+
 7. **Handle failures:**
 
    **Known Claude Code bug (classifyHandoffIfNeeded):** If an agent reports "failed" with error containing `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a DevFlow or agent issue. The error fires in the completion handler AFTER all tool calls finish. In this case: run the same spot-checks as step 4 (SUMMARY.md exists, git commits present, no Self-Check: FAILED). If spot-checks PASS → treat as **successful**. If spot-checks FAIL → treat as real failure below.
+
+   **A truncation is not a failure.** A plan that ends INCOMPLETE (5c) never puts its
+   dependents in the skipped set. Only a plan whose fresh-respawn retry produced a real FAILED
+   outcome, not another truncation, triggers the dependent-set SKIP below. A plan reaches
+   this item after its 3 resumes (5d) are spent. If its fresh-respawn retry is itself cut short,
+   it is INCOMPLETE again. Report it `⏳ Incomplete`, and list its dependents as
+   `waiting on {id}`, not `⏭ Skipped`. Re-running `/devflow:execute-objective` picks it up
+   from its `## Progress` checkpoint.
 
    **Autonomous failure protocol (when `MODE` is `"autonomous"`):**
 
@@ -507,7 +609,11 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
       | ✓ Complete | {id} | {one-liner from SUMMARY.md} |
       | ✗ Failed | {id} | {last error summary} |
       | ⏭ Skipped | {id} | blocked by {failed-plan-id} |
+      | ⏳ Incomplete | {id} | truncated; resumable — re-run /devflow:execute-objective |
       | ⏸ Parked | {id} | pending DECISION-NNN |
+
+      A dependent of an `⏳ Incomplete` plan is reported as `waiting on {id}`, never
+      `⏭ Skipped`: nothing it depends on has failed.
 
       Never ask "Continue?/Stop?" mid-run in autonomous mode.
 
@@ -517,7 +623,12 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
 
 8. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
-9. **Proceed to next wave.**
+9. **Proceed to next wave.** When `AUTONOMOUS_CONTINUE` is true (`MODE` is `"autonomous"` or
+   `"yolo"`), do it now, in this turn. Announce the wave (item 1) and spawn it (item 4) without
+   asking "Ready for wave {N}?" / "Continue?". Stopping to ask between waves in yolo mode was
+   58 of the 186 human nudges in the objective-44 session review. In other interactive modes,
+   behaviour is unchanged. This covers between-wave continuation only. A real FAILURE in yolo
+   still follows the non-autonomous failure handling in item 7.
 </step>
 
 <step name="checkpoint_handling">
@@ -815,8 +926,7 @@ MAX_GAP_CYCLES=2
    Spawn planner with `--gaps` flag:
    ```
    Task(
-     prompt="First, read ~/.claude/agents/planner.md for your role and instructions.\n\n
-     <planning_context>
+     prompt="<planning_context>
      **Objective:** {objective_number}
      **Mode:** gap_closure
      **Gap Closure:** {verification_content}
@@ -942,7 +1052,8 @@ Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling (Task bloc
 
 <failure_handling>
 - **classifyHandoffIfNeeded false failure:** Agent reports "failed" but error is `classifyHandoffIfNeeded is not defined` → Claude Code bug, not DevFlow. Spot-check (SUMMARY exists, commits present) → if pass, treat as success
-- **Agent fails mid-plan:** Missing SUMMARY.md → report, ask user how to proceed
+- **Truncated executor (turn limit / partial result) → INCOMPLETE → SendMessage resume (≤3), never a failure.** Its dependents wait; they are never skipped (items 5c, 5d, 7)
+- **Agent fails mid-plan:** Missing SUMMARY.md → classify first (5c). With COMMITS < TRD_TASKS it is INCOMPLETE, so resume it (5d). Otherwise, or once the resumes are spent, report and ask the user how to proceed
 - **Dependency chain breaks:** Wave 1 fails → Wave 2 dependents likely fail → user chooses attempt or skip
 - **All agents in wave fail:** Systemic issue → stop, report for investigation
 - **Checkpoint unresolvable:** "Skip this job?" or "Abort objective execution?" → record partial progress in STATE.md
