@@ -431,7 +431,7 @@ describe('runCommands: deny policy on the command (test 5)', () => {
 
   test('safe commands are not caught by the deny set', () => {
     const root = track(fx.makeRepo({}));
-    for (const command of ['go build ./...', 'golangci-lint run ./...', 'tsc --noEmit', 'gofmt -l .', 'cargo clippy', 'helm lint chart/', 'kubectl version --client', 'terraform validate', 'git diff --exit-code', 'dart analyze', 'flutter analyze', 'npm run build', 'go vet ./...']) {
+    for (const command of ['go build ./...', 'golangci-lint run ./...', 'tsc --noEmit', 'gofmt -l .', 'cargo clippy', 'helm lint chart/', 'kubectl version --client', 'terraform validate', 'git diff --exit-code', 'dart analyze', 'flutter analyze', 'go vet ./...']) {
       const spawn = spySpawn();
       const [r] = runCommands([item(command)], { root, spawn });
       assert.equal(r.run.skipped, undefined, `${command} was wrongly refused: ${r.run.skipped}`);

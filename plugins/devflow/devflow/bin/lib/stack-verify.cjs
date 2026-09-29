@@ -20,8 +20,9 @@
 const nodeFs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
-const { normalizeScript } = require('./stack-shell.cjs');
+const { normalizeScript, splitTopLevel, splitWords, findHeredocs } = require('./stack-shell.cjs');
 const runners = require('./stack-runners.cjs');
 
 // ─── Binary lookup ────────────────────────────────────────────────────────────
@@ -451,9 +452,406 @@ function verifyCommand(command, { root, cwd = '', env = process.env, home = os.h
     || results[0];
 }
 
+// ─── --run policy ─────────────────────────────────────────────────────────────
+//
+// `--run` executes a profile's gate commands, so it is the one place this module can do damage. The
+// posture is REFUSE UNLESS PROVEN SAFE:
+//
+//   * only the `run` form of a key ever executes (never `apply`, never codegen/deps),
+//   * a deny list is matched against the command AND against everything the command would run:
+//     the body of a make/task/just target or npm-family script, and the text of a wrapper script,
+//   * expansion is ONE level. A body that invokes another runner target, or a wrapper that invokes
+//     another script, cannot be proved safe, so the command is refused as `unverifiable-body`,
+//   * a false positive (a `release` target that only builds) is a refusal, never a run. Do not
+//     weaken the deny set to fix one; refuse and record it.
+//
+// The deny list is text, deliberately loose (`git` ... `push` anywhere on the line): over-refusing
+// is safe, under-refusing is not.
+
+/** `<tool> ... <verb>` on one shell line: stops at a pipe, `;`, `&` or newline. */
+const toolVerb = (tool, verbs) => new RegExp(`\\b(?:${tool})\\b[^|;&\\n]*?\\b(?:${verbs})\\b`);
+
+const RUN_POLICY = Object.freeze({
+  defaultKeys: Object.freeze(['format', 'lint', 'typecheck', 'build']),
+  optInKeys: Object.freeze(['test', 'e2e', 'audit', 'sast', 'lint_helm', 'lint_docker']),
+  neverKeys: Object.freeze(['codegen', 'deps']),
+  // Order matters: the first regex that matches a line names the refusal.
+  deny: Object.freeze([
+    { re: /\b8080\b/, reason: 'port-8080-forbidden' },
+    { re: toolVerb('git', 'push'), reason: 'git-push' },
+    { re: toolVerb('docker|docker-compose|podman|buildah|nerdctl', 'push'), reason: 'docker-push' },
+    { re: /(?:^|\s)--push(?:[\s=]|$)|\bpush=true\b|\btype=registry\b/, reason: 'push-flag' },
+    { re: toolVerb('kubectl', 'delete'), reason: 'kubectl-delete' },
+    { re: toolVerb('kubectl', 'apply|create|replace|patch|rollout|scale|set|edit|drain|cordon|uncordon|taint|annotate|label|exec|cp|port-forward|run'), reason: 'kubectl-apply' },
+    { re: toolVerb('helm|helmfile', 'install|upgrade|uninstall|rollback|delete|apply|sync|destroy'), reason: 'helm-deploy' },
+    { re: toolVerb('terraform|tofu|terragrunt|pulumi', 'apply|destroy|import|taint|untaint|up|state|run-all'), reason: 'terraform-apply' },
+    { re: toolVerb('gh', 'release'), reason: 'gh-release' },
+    { re: /\bgoreleaser\b/, reason: 'goreleaser' },
+    { re: new RegExp(`${toolVerb('npm|pnpm|yarn|bun|lerna|changeset|changesets', 'publish').source}|\\b(?:semantic-release|release-it)\\b`), reason: 'npm-publish' },
+    { re: /\b(?:dart|flutter)\b[^|;&\n]*?\bpub\b[^|;&\n]*?\bpublish\b/, reason: 'pub-publish' },
+    { re: toolVerb('cargo', 'publish|login|yank|owner'), reason: 'cargo-publish' },
+    { re: toolVerb('twine|poetry|uv|flit|hatch|pdm', 'upload|publish'), reason: 'python-publish' },
+    { re: toolVerb('gem', 'push'), reason: 'gem-push' },
+    { re: toolVerb('mvn|mvnw|gradle|gradlew', 'deploy|publish|release'), reason: 'maven-deploy' },
+    { re: new RegExp(`${toolVerb('flyctl|fly|vercel|wrangler|firebase|netlify|serverless|sls|cdk|sam|kamal|cap|heroku|railway|doctl|az|aws', 'deploy|publish|release').source}|\\bansible-playbook\\b`), reason: 'deploy-cli' },
+    { re: /\bflutter\b[^|;&\n]*?\b(?:run|attach)\b/, reason: 'flutter-run' },
+    { re: toolVerb('npm|pnpm|yarn|bun', 'dev|start|serve|watch|preview|storybook'), reason: 'server-or-watch' },
+    { re: /\b(?:nodemon|watchexec|webpack-dev-server|live-server|http-server|browser-sync|storybook)\b/, reason: 'server-or-watch' },
+    { re: /\b(?:vite|next|nuxt|astro|remix|gatsby|hugo|jekyll|mkdocs|docusaurus|ng|webpack|rails|uvicorn|gunicorn|flask|manage\.py)\s+(?:dev|serve|server|start|preview|s|run|runserver)\b/, reason: 'server-or-watch' },
+    { re: /(?:^|\s)--watch(?:All)?\b/, reason: 'server-or-watch' },
+    { re: /\b(?:docker|podman|nerdctl)(?:\s+(?:container|compose))?\s+(?:run|up|start|exec)\b|\bdocker-compose\s+(?:run|up|start|exec)\b/, reason: 'container-run' },
+  ]),
+  skip: Object.freeze([
+    { re: toolVerb('docker|docker-compose|podman|buildah|nerdctl', 'build|buildx'), reason: 'container-build' },
+  ]),
+});
+
+// A runner TARGET named for a release or a server is refused by name (its body may not say so).
+const RELEASE_TARGET_NAME = /(?:^|[:_./-])(?:deploy|publish|release|push|ship|promote|rollout|upload)(?:$|[:_./-])/i;
+const SERVER_TARGET_NAME = /(?:^|[:_./-])(?:dev|serve|server|watch|run|start|up|preview)(?:$|[:_./-])/i;
+
+// A path that is an installed tool, not a wrapper script to read.
+const INSTALLED_TOOL = /(?:^|\/)(?:node_modules\/\.bin|\.venv\/bin|venv\/bin|vendor\/bin)\//;
+
+const MAX_SCRIPT_BYTES = 1024 * 1024;
+const TAIL_LINES = 40;
+const DEFAULT_TIMEOUT_S = 300;
+
+/** Comment-free logical lines: `\` continuations joined, blanks and `#` lines dropped. Heredoc bodies are KEPT. */
+function logicalLines(text) {
+  return String(text == null ? '' : text)
+    .replace(/\r\n?/g, '\n')
+    .replace(/\\\n[ \t]*/g, ' ')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !l.startsWith('#'));
+}
+
+/** scanText(text) -> { deny: {reason, line}|null, skip: {reason, line}|null }. Deny outranks skip. */
+function scanText(text) {
+  const lines = logicalLines(text);
+  for (const line of lines) {
+    for (const d of RUN_POLICY.deny) if (d.re.test(line)) return { deny: { reason: d.reason, line }, skip: null };
+  }
+  for (const line of lines) {
+    for (const s of RUN_POLICY.skip) if (s.re.test(line)) return { deny: null, skip: { reason: s.reason, line } };
+  }
+  return { deny: null, skip: null };
+}
+
+const WRAPPER_WORDS = new Set(['sudo', 'time', 'env', 'nohup', 'exec', 'command', 'builtin', 'if', 'elif', 'while', 'until', 'then', 'do', 'else', '!', '{', '}']);
+const ENV_ASSIGN_WORD = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const CMD_SUBST_EXEC = /(?:\$\(|`)\s*(?:\.{1,2}\/|\/|(?:bin|scripts)\/|(?:bash|sh|zsh|dash|make|task|just|npm|pnpm|yarn|bun)\s)/;
+
+/** The word a shell segment actually runs, past env assignments and wrapper words; null when none. */
+function firstCommandWord(segment) {
+  const words = splitWords(String(segment).replace(/^[\s@+-]+/, '').replace(/^\(+\s*/, ''));
+  let sawWrapper = false;
+  for (const w of words) {
+    if (ENV_ASSIGN_WORD.test(w)) continue;
+    if (WRAPPER_WORDS.has(w)) { sawWrapper = true; continue; }
+    if (sawWrapper && w.startsWith('-')) continue;
+    return w;
+  }
+  return null;
+}
+
+/**
+ * referencesIn(text, cwd) -> { runners: [descriptor], scripts: [descriptor], opaque: [string] }
+ *
+ * What a body or script REFERENCES that this module would have to expand to prove it safe.
+ * `opaque` lists constructs it cannot expand at all: a command that starts with an expansion
+ * (`$(DOCKER) push`), `source` / `.` / `eval`, a shell fed a heredoc, and command substitution that
+ * runs a script or runner. `$(MAKE)` is read as `make`.
+ */
+function referencesIn(text, cwd) {
+  const refs = { runners: [], scripts: [], opaque: [] };
+  const src = String(text == null ? '' : text).replace(/\$\(MAKE\)|\$\{MAKE\}/g, 'make');
+  for (const line of logicalLines(src)) {
+    const segments = splitTopLevel(line);
+    for (const seg of segments) {
+      const first = firstCommandWord(seg);
+      if (first === null) continue;
+      if (first.startsWith('$')) refs.opaque.push(`the command starts with an expansion (${first}), so its tool is unknown`);
+      else if (first === 'source' || first === '.' || first === 'eval') refs.opaque.push(`${first} runs code that is not analysed`);
+    }
+    if (findHeredocs(line).length && segments.some((s) => SHELL_INTERPRETERS.has(firstCommandWord(s)))) {
+      refs.opaque.push('a shell is fed a heredoc, which is not analysed');
+    }
+    if (CMD_SUBST_EXEC.test(line)) refs.opaque.push('command substitution runs a script or runner, which is not analysed');
+  }
+  for (const inv of normalizeScript(src, { cwd: cwd || null })) {
+    const d = describeInvocation(inv);
+    if (d.kind === 'runner') refs.runners.push(d);
+    else if (d.kind === 'script') {
+      if (!INSTALLED_TOOL.test(d.file)) refs.scripts.push(d);
+    } else if (d.kind === 'inline') {
+      const at = inv.argv.findIndex((a, i) => i > 0 && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a));
+      if (at !== -1 && inv.argv[at + 1] !== undefined) {
+        const inner = referencesIn(inv.argv[at + 1], inv.cwd);
+        refs.runners.push(...inner.runners);
+        refs.scripts.push(...inner.scripts);
+        refs.opaque.push(...inner.opaque);
+      }
+    }
+  }
+  return refs;
+}
+
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Prerequisites named on a Makefile rule line for `name` (`build: gen lint`); order-only `|` ignored. */
+function makePrereqs(text, name) {
+  const found = [];
+  const flat = String(text).replace(/\r\n?/g, '\n').replace(/\\\n[ \t]*/g, ' ');
+  for (const line of flat.split('\n')) {
+    if (line.startsWith('\t') || /^\s*#/.test(line)) continue;
+    const m = /^([^:=#\s][^:=#]*?)\s*:{1,2}(?!=)([^#]*)$/.exec(line);
+    if (!m || !m[1].trim().split(/\s+/).includes(name)) continue;
+    const rest = m[2];
+    const semi = rest.indexOf(';');
+    const head = semi >= 0 ? rest.slice(0, semi) : rest;
+    found.push(...head.split(/\s+/).filter((t) => t && t !== '|'));
+  }
+  return found;
+}
+
+/** Dependencies on the justfile recipe line for `name` (`build: gen`). */
+function justPrereqs(text, name) {
+  const found = [];
+  const re = new RegExp(`^@?${escapeRe(name)}\\b(?:\\s+[^:]*?)?\\s*:(?![=:])\\s*([^#]*)$`);
+  for (const line of String(text).replace(/\r\n?/g, '\n').split('\n')) {
+    if (/^\s/.test(line)) continue;
+    const m = re.exec(line);
+    if (m) found.push(...m[1].split(/\s+/).filter(Boolean));
+  }
+  return found;
+}
+
+/** A Taskfile task's raw YAML block (so `defer:` and friends are scanned) and whether it has `deps:`. */
+function taskBlock(text, name) {
+  const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+  const re = new RegExp(`^(\\s+)(?:${escapeRe(name)}|'${escapeRe(name)}'|"${escapeRe(name)}")\\s*:`);
+  const blocks = [];
+  let hasDeps = false;
+  for (let i = 0; i < lines.length; i++) {
+    const m = re.exec(lines[i]);
+    if (!m) continue;
+    const indent = m[1].length;
+    const block = [lines[i]];
+    for (let j = i + 1; j < lines.length; j++) {
+      const l = lines[j];
+      if (l.trim() !== '' && !/^\s*#/.test(l) && /^\s*/.exec(l)[0].length <= indent) break;
+      block.push(l);
+    }
+    if (block.slice(1).some((l) => /^\s*deps\s*:/.test(l))) hasDeps = true;
+    blocks.push(block.join('\n'));
+  }
+  return { raw: blocks.length ? blocks.join('\n') : null, hasDeps };
+}
+
+/** { prereqs: [string], raw: string|null } for a readRunners target, or null when its file is unreadable. */
+function targetInfo(ctx, target) {
+  let text;
+  try {
+    text = ctx.fs.readFileSync(path.join(ctx.root, target.file), 'utf-8');
+  } catch (_) {
+    return null;
+  }
+  if (target.runner === 'make') return { prereqs: makePrereqs(text, target.name), raw: null };
+  if (target.runner === 'just') return { prereqs: justPrereqs(text, target.name), raw: null };
+  if (target.runner === 'task') {
+    const t = taskBlock(text, target.name);
+    return { prereqs: t.hasDeps ? ['deps:'] : [], raw: t.raw };
+  }
+  return { prereqs: [], raw: null };
+}
+
+function getRunners(ctx) {
+  if (ctx.runnerList === null) ctx.runnerList = runners.readRunners(ctx.root, { maxDepth: 2 });
+  return ctx.runnerList;
+}
+
+function findTarget(ctx, d, name) {
+  return getRunners(ctx).find((t) => t.runner === d.runner && t.dir === d.dir
+    && (t.name === name || (t.aliases || []).includes(name))) || null;
+}
+
+const unv = (detail) => ({ type: 'unverifiable', reason: 'unverifiable-body', detail });
+
+/**
+ * analyzeText(text, cwd, ctx, { mode, label, scanExtra }) -> [finding]
+ *
+ * `mode`: 'command' (the gate command itself: runners AND scripts it names are expanded),
+ * 'runner-body' (a runner target's body: a wrapper it references is expanded, a runner is not),
+ * 'script' (a wrapper script's text: nothing it references is expanded). A finding is
+ * { type: deny|name-deny|unverifiable|skip, reason, detail }.
+ */
+function analyzeText(text, cwd, ctx, { mode, label, scanExtra = null }) {
+  const out = [];
+  const prefix = mode === 'command' ? '' : 'body:';
+  for (const scanned of [text, scanExtra]) {
+    if (scanned === null) continue;
+    const scan = scanText(scanned);
+    if (scan.deny) out.push({ type: 'deny', reason: `${prefix}${scan.deny.reason}`, detail: `${label}: ${scan.deny.line}` });
+    if (scan.skip) out.push({ type: 'skip', reason: `${prefix}${scan.skip.reason}`, detail: `${label}: ${scan.skip.line}` });
+  }
+  const refs = referencesIn(text, cwd);
+  for (const o of refs.opaque) out.push(unv(`${label}: ${o}`));
+  if (mode === 'command') {
+    for (const d of refs.runners) out.push(...analyzeRunner(d, ctx));
+    for (const d of refs.scripts) out.push(...analyzeScript(d, ctx));
+  } else if (mode === 'runner-body') {
+    for (const d of refs.runners) out.push(unv(`${label}: invokes another runner target (${d.tool} ${d.names.join(' ')}); one level only, not expanded`));
+    for (const d of refs.scripts) out.push(...analyzeScript(d, ctx, label));
+  } else {
+    for (const d of refs.runners) out.push(unv(`${label}: invokes another runner target (${d.tool} ${d.names.join(' ')}); not expanded`));
+    for (const d of refs.scripts) out.push(unv(`${label}: invokes another script (${d.file}); not expanded`));
+  }
+  return out;
+}
+
+function analyzeScript(d, ctx, via = null) {
+  const rel = path.isAbsolute(d.file) ? d.file : path.posix.join(d.cwd || '', d.file);
+  const label = `${via ? `${via} -> ` : ''}script ${rel}`;
+  const abs = path.isAbsolute(rel) ? rel : path.join(ctx.root, rel);
+  let text;
+  try {
+    const st = ctx.fs.statSync(abs);
+    if (!st.isFile()) return [unv(`${label}: not a file`)];
+    if (st.size > MAX_SCRIPT_BYTES) return [unv(`${label}: larger than ${MAX_SCRIPT_BYTES} bytes; not analysed`)];
+    text = ctx.fs.readFileSync(abs, 'utf-8');
+  } catch (_) {
+    return [unv(`${label}: absent or unreadable`)];
+  }
+  if (text.includes('\u0000')) return [unv(`${label}: binary file; not analysed`)];
+  return analyzeText(text, d.cwd || '', ctx, { mode: 'script', label });
+}
+
+function analyzeRunner(d, ctx) {
+  const out = [];
+  if (d.unresolvable) return [unv(`${d.tool}: ${d.unresolvable}`)];
+  if (d.info) return out;
+  if (d.names.length === 0) return [unv(`${d.tool}: the default target is not expanded`)];
+  for (const name of d.names) {
+    const label = `${d.tool} ${name}`;
+    if (RELEASE_TARGET_NAME.test(name)) out.push({ type: 'name-deny', reason: 'deploy-target', detail: `${label}: target name reads as a release or deploy` });
+    else if (SERVER_TARGET_NAME.test(name)) out.push({ type: 'name-deny', reason: 'server-target', detail: `${label}: target name reads as a server or watcher` });
+    const target = findTarget(ctx, d, name);
+    if (!target) {
+      out.push(unv(`${label}: target not found statically (included/imported file, or beyond the scanned depth)`));
+      continue;
+    }
+    const info = targetInfo(ctx, target);
+    if (!info) {
+      out.push(unv(`${label}: runner file unreadable`));
+      continue;
+    }
+    if (info.prereqs.length) out.push(unv(`${label}: has prerequisites (${info.prereqs.join(' ')}); not expanded`));
+    const bodies = [{ label, lines: target.body, raw: info.raw }];
+    if (d.runner === 'npm') {
+      for (const hook of [`pre${name}`, `post${name}`]) {
+        const h = findTarget(ctx, d, hook);
+        if (h) bodies.push({ label: `${d.tool} ${hook} (npm hook of ${name})`, lines: h.body, raw: null });
+      }
+    }
+    const base = target.cwd !== undefined ? target.cwd : target.dir;
+    for (const b of bodies) {
+      out.push(...analyzeText(b.lines.join('\n'), base, ctx, { mode: 'runner-body', label: b.label, scanExtra: b.raw }));
+    }
+  }
+  return out;
+}
+
+const FINDING_ORDER = ['deny', 'name-deny', 'unverifiable', 'skip'];
+
+function pickFinding(findings) {
+  for (const type of FINDING_ORDER) {
+    const hit = findings.find((f) => f.type === type);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function keyVerdict(key, form, { include, keys }) {
+  if (RUN_POLICY.neverKeys.includes(key) || /\.apply$/.test(String(key))) return 'never-run-key';
+  if (form && form !== 'run') return 'mutating-form';
+  if (keys && !keys.includes(key)) return 'not-selected';
+  if (RUN_POLICY.defaultKeys.includes(key)) return null;
+  if (RUN_POLICY.optInKeys.includes(key)) return include.includes(key) ? null : 'not-included';
+  return 'key-not-runnable';
+}
+
+function tailOf(r) {
+  const text = `${r.stdout == null ? '' : r.stdout}${r.stderr == null ? '' : r.stderr}`.replace(/\r\n?/g, '\n');
+  const lines = text.split('\n');
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines.slice(-TAIL_LINES).join('\n');
+}
+
+function withSkip(it, reason, detail) {
+  return { ...it, skipped: reason, run: { skipped: reason, detail } };
+}
+
+function runOne(it, ctx, opts) {
+  if (!it || typeof it.command !== 'string' || it.command === '') {
+    return withSkip(it, 'no-command', `no command to run (${(it && it.resolve && it.resolve.status) || 'none'})`);
+  }
+  const why = keyVerdict(it.key, it.form, opts);
+  if (why) return withSkip(it, why, `key "${it.key}" is not run by --run (${why})`);
+  if (it.resolve && MISSING_STATUSES.has(it.resolve.status)) {
+    return withSkip(it, 'not-resolved', `static check said ${it.resolve.status}: ${it.resolve.detail || ''}`.trim());
+  }
+  const cwdAbs = path.resolve(ctx.root, it.cwd || '');
+  const back = path.relative(ctx.root, cwdAbs);
+  if (back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back)) {
+    return withSkip(it, 'cwd-outside-repo', `cwd ${it.cwd} is outside the repository`);
+  }
+  const finding = pickFinding(analyzeText(it.command, it.cwd || '', ctx, { mode: 'command', label: 'command' }));
+  if (finding) return withSkip(it, finding.reason, finding.detail);
+
+  const seconds = opts.timeoutS != null ? opts.timeoutS : (it.timeout_s != null ? it.timeout_s : DEFAULT_TIMEOUT_S);
+  const started = Date.now();
+  const r = opts.spawn('sh', ['-c', it.command], {
+    cwd: cwdAbs,
+    timeout: seconds * 1000,
+    killSignal: 'SIGKILL',
+    env: opts.env,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 16 * 1024 * 1024,
+  }) || {};
+  const timedOut = !!(r.error && r.error.code === 'ETIMEDOUT');
+  const run = {
+    exit_code: typeof r.status === 'number' ? r.status : null,
+    duration_ms: Date.now() - started,
+    timed_out: timedOut,
+    tail: tailOf(r),
+  };
+  if (r.error && !timedOut) run.error = String(r.error.message || r.error);
+  return { ...it, run };
+}
+
+/**
+ * runCommands(items, { root, include = [], keys = null, timeoutS = null, spawn = spawnSync, env, fs })
+ *   -> items, each with `run: { exit_code, duration_ms, timed_out, tail }` or `run: { skipped, detail }`
+ *
+ * `items` are `{ component, key, command, cwd, timeout_s?, form?, resolve? }`. Nothing is spawned for
+ * a skipped item, and a skipped item also carries a top-level `skipped` reason (42-11 counts them).
+ * The timeout is `timeoutS` when given, else the item's own `timeout_s`, else 300s. A slow or failing
+ * command never aborts the batch. The input array and its items are not mutated.
+ */
+function runCommands(items, { root, include = [], keys = null, timeoutS = null, spawn = spawnSync, env = process.env, fs = nodeFs } = {}) {
+  const ctx = { root: path.resolve(String(root)), fs, runnerList: null };
+  const opts = { include: include || [], keys: keys && keys.length ? keys : null, timeoutS, spawn, env };
+  return items.map((it) => runOne(it, ctx, opts));
+}
+
 module.exports = {
   verifyCommand,
   resolveBinary,
   describeInvocation,
   MISSING_STATUSES,
+  runCommands,
+  RUN_POLICY,
 };
