@@ -675,6 +675,112 @@ function enrichJust(exec, d, file, targets) {
   }
 }
 
+// ─── package.json scripts (npm family) ────────────────────────────────────────
+
+// Lockfile -> manager, in precedence order (pnpm > yarn > bun > npm). Only the lockfile in the
+// package's own directory counts; with none (or only package-lock.json) the manager is npm.
+const LOCKFILES = [
+  ['pnpm-lock.yaml', 'pnpm'],
+  ['yarn.lock', 'yarn'],
+  ['bun.lockb', 'bun'],
+  ['bun.lock', 'bun'],
+];
+
+// The flag that points each manager at a package directory below the repo root.
+const DIR_FLAG = { npm: '--prefix', pnpm: '-C', yarn: '--cwd', bun: '--cwd' };
+
+function detectManager(entries) {
+  const names = new Set(entries.filter((e) => !e.isDirectory()).map((e) => e.name));
+  for (const [file, manager] of LOCKFILES) if (names.has(file)) return manager;
+  return 'npm';
+}
+
+/** `[[name, script]]` for the string-valued scripts of package.json text; [] for anything else. */
+function readPackageScripts(text) {
+  let pkg;
+  try {
+    pkg = JSON.parse(text);
+  } catch (_) {
+    return [];
+  }
+  const scripts = pkg && typeof pkg === 'object' && !Array.isArray(pkg) ? pkg.scripts : null;
+  if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) return [];
+  return Object.entries(scripts).filter(([, script]) => typeof script === 'string');
+}
+
+/**
+ * `<mgr> test` for `test`, else `<mgr> run <name>`. bun is the exception: `bun test` is bun's own
+ * test runner and never looks at the package.json script, so bun always uses `bun run`.
+ */
+function npmInvocation(manager, dir, name) {
+  const verb = name === 'test' && manager !== 'bun' ? ['test'] : ['run', shq(name)];
+  const at = dir ? [DIR_FLAG[manager], shq(dir)] : [];
+  return [manager, ...at, ...verb].join(' ');
+}
+
+function collectNpm(d, targets) {
+  const file = pickFile(d.entries, RUNNER_FILES.npm);
+  if (!file) return;
+  const text = readText(path.join(d.abs, file));
+  if (text === null) return;
+  const manager = detectManager(d.entries);
+  for (const [name, script] of readPackageScripts(text)) {
+    targets.push({
+      runner: 'npm',
+      dir: d.rel,
+      file: joinRel(d.rel, file),
+      name,
+      aliases: [],
+      body: [script],
+      invocation: npmInvocation(manager, d.rel, name),
+      manager,
+    });
+  }
+}
+
+// ─── conventional scripts (bin/ and scripts/) ─────────────────────────────────
+
+const SCRIPT_DIRS = ['bin', 'scripts'];
+const CONVENTIONAL_SCRIPTS = new Set(['test', 'build', 'lint', 'verify', 'check', 'fmt', 'format', 'e2e']);
+const SCRIPT_BODY_LINES = 40;
+
+/**
+ * `<dir>/bin/<n>.sh` and `<dir>/scripts/<n>.sh` for the conventional names. `name` is the path
+ * inside `dir`, `file` the repo-relative path, and the invocation `./<file>` (runnable from the
+ * repo root). A file without the executable bit is still listed, with `executable: false`.
+ */
+function collectScripts(d, targets) {
+  for (const sub of SCRIPT_DIRS) {
+    if (!d.entries.some((e) => e.isDirectory() && e.name === sub)) continue;
+    const names = readDir(path.join(d.abs, sub))
+      .filter((e) => !e.isDirectory() && e.name.endsWith('.sh') && CONVENTIONAL_SCRIPTS.has(e.name.slice(0, -3)))
+      .map((e) => e.name)
+      .sort();
+    for (const base of names) {
+      const abs = path.join(d.abs, sub, base);
+      let stat;
+      try {
+        stat = fs.statSync(abs);
+      } catch (_) {
+        continue;
+      }
+      const text = stat.isFile() ? readText(abs) : null;
+      if (text === null) continue;
+      const file = joinRel(joinRel(d.rel, sub), base);
+      targets.push({
+        runner: 'script',
+        dir: d.rel,
+        file,
+        name: `${sub}/${base}`,
+        aliases: [],
+        body: text.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#')).slice(0, SCRIPT_BODY_LINES),
+        invocation: shq(`./${file}`),
+        executable: (stat.mode & 0o111) !== 0,
+      });
+    }
+  }
+}
+
 // ─── public API ───────────────────────────────────────────────────────────────
 
 function compareTargets(a, b) {
@@ -701,6 +807,8 @@ function readRunners(root, { maxDepth = 1, exec = null } = {}) {
     collectMake(d, targets);
     collectTask(d, targets, exec);
     collectJust(d, targets, exec);
+    collectNpm(d, targets);
+    collectScripts(d, targets);
   }
   return targets.sort(compareTargets);
 }
@@ -713,12 +821,30 @@ function readRunners(root, { maxDepth = 1, exec = null } = {}) {
  */
 function hasTarget(root, { runner, dir = '', name } = {}) {
   if (typeof name !== 'string' || name === '') return false;
+  const rootAbs = path.resolve(String(root));
   const rel = normDir(dir);
-  const abs = insideRoot(path.resolve(String(root)), rel);
+  const abs = insideRoot(rootAbs, rel);
   if (abs === null) return false;
   const entries = readDir(abs);
 
   switch (runner) {
+    case 'npm':
+    case 'pnpm':
+    case 'yarn':
+    case 'bun': {
+      const file = pickFile(entries, RUNNER_FILES.npm);
+      const text = file ? readText(path.join(abs, file)) : null;
+      if (text === null) return false;
+      return readPackageScripts(text).some(([script]) => script === name);
+    }
+    case 'script': {
+      const target = insideRoot(rootAbs, joinRel(rel, name));
+      try {
+        return target !== null && fs.statSync(target).isFile();
+      } catch (_) {
+        return false;
+      }
+    }
     case 'make': {
       const file = pickFile(entries, RUNNER_FILES.make);
       const text = file ? readText(path.join(abs, file)) : null;
