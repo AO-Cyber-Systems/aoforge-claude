@@ -28,6 +28,10 @@
 //       .planning/config.json: result `ignored: ['.planning/STACK.md']` plus a warning, the file is
 //       still written, and the dir-level `git check-ignore -q .planning` misses it (the bug). A
 //       clean fixture gives `ignored: []`; git missing from PATH gives `ignored: []`, no throw.
+//       Since TRD 42-14 STACK-REPORT.md is listed too.
+// - I19 (TRD 42-14 test 9, D5) `.planning/` ignored with config.json AND STACK.md force-tracked:
+//       the PREVIEW (initProfile, CLI JSON, CLI --raw stderr) reports both stack files, and
+//       --write agrees; a clean fixture gives `ignored: []` in both modes.
 //
 // Fixtures are hand-built (`__fixtures__/stack-profile-fixtures.cjs`), never generated — per
 // `no_llm_test_data`.
@@ -526,6 +530,9 @@ const { isGitIgnored } = require('./helpers.cjs');
 
 const NO_GIT = detectFx.hasGit() ? false : 'git is not on PATH';
 const STACK_IGNORED_WARNING = '.planning/STACK.md is gitignored; df-tools commit will skip it';
+// TRD 42-14 (D5): both stack files are checked, file by file, with `--no-index`.
+const REPORT_IGNORED_WARNING = '.planning/STACK-REPORT.md is gitignored; df-tools commit will skip it';
+const BOTH_STACK_FILES = ['.planning/STACK.md', '.planning/STACK-REPORT.md'];
 const stubVerify = () => ({ status: 'resolved', detail: 'stub', tool: null });
 
 /** A git repo with a root go.mod; `.gitignore` = `ignore` and `track` force-added. */
@@ -574,8 +581,9 @@ describe('stack init --write gitignore preflight (I18, TRD 42-12 test 7)', () =>
 
       const r = sp.initProfile({ projectRoot: root, userHome: home, write: true, verify: stubVerify });
       assert.equal(r.action, 'written', JSON.stringify(r.validation));
-      assert.deepStrictEqual(r.ignored, ['.planning/STACK.md']);
-      assert.deepStrictEqual(r.warnings, [STACK_IGNORED_WARNING]);
+      // Since TRD 42-14 STACK-REPORT.md is checked too (same `.planning/` rule).
+      assert.deepStrictEqual(r.ignored, BOTH_STACK_FILES);
+      assert.deepStrictEqual(r.warnings, [STACK_IGNORED_WARNING, REPORT_IGNORED_WARNING]);
       assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), true, 'non-fatal: still written');
     } finally {
       detectFx.cleanup(root);
@@ -626,9 +634,75 @@ describe('stack init --write gitignore preflight (I18, TRD 42-12 test 7)', () =>
       assert.equal(r.code, 0, r.stderr);
       const json = JSON.parse(r.stdout);
       assert.equal(json.action, 'written');
-      assert.deepStrictEqual(json.ignored, ['.planning/STACK.md']);
-      assert.deepStrictEqual(json.warnings, [STACK_IGNORED_WARNING]);
+      assert.deepStrictEqual(json.ignored, BOTH_STACK_FILES);
+      assert.deepStrictEqual(json.warnings, [STACK_IGNORED_WARNING, REPORT_IGNORED_WARNING]);
       assert.ok(r.stderr.includes(STACK_IGNORED_WARNING), r.stderr);
+      assert.ok(r.stderr.includes(REPORT_IGNORED_WARNING), r.stderr);
+    } finally {
+      detectFx.cleanup(root);
+      drafterFx.cleanup(home);
+    }
+  });
+});
+
+// ─── I19 (TRD 42-14 test 9, D5): the file-level `--no-index` check in PREVIEW and write ──
+
+describe('stack init ignored stack files, preview and write (I19, TRD 42-14 test 9)', () => {
+  // `.planning/` ignored, with config.json AND STACK.md force-tracked: an index-aware check calls
+  // the tracked STACK.md "not ignored", and before 42-14 the preview never checked at all.
+  const trackedPlanningRepo = () => gitGoRepo({
+    ignore: '.planning/\n',
+    files: {
+      '.planning/config.json': '{}\n',
+      '.planning/STACK.md': fx.profileMd({ yaml: ['schema: 1', 'extends: general'].join('\n') }),
+    },
+    track: ['.planning/config.json', '.planning/STACK.md'],
+  });
+
+  test('I19a: initProfile PREVIEW reports both stack files (today\'s [] is the bug); --write --force agrees', { skip: NO_GIT }, () => {
+    const root = trackedPlanningRepo();
+    const home = drafterFx.fakeEmptyHome();
+    try {
+      const preview = sp.initProfile({ projectRoot: root, userHome: home, write: false, verify: stubVerify });
+      assert.equal(preview.action, 'preview');
+      assert.deepStrictEqual(preview.ignored, BOTH_STACK_FILES);
+      assert.deepStrictEqual(preview.warnings, [STACK_IGNORED_WARNING, REPORT_IGNORED_WARNING]);
+      const written = sp.initProfile({ projectRoot: root, userHome: home, write: true, force: true, verify: stubVerify });
+      assert.equal(written.action, 'written', JSON.stringify(written.validation));
+      assert.deepStrictEqual(written.ignored, preview.ignored);
+    } finally {
+      detectFx.cleanup(root);
+      drafterFx.cleanup(home);
+    }
+  });
+
+  test('I19b: CLI `stack init` (JSON) and `stack init --raw` preview report both files; nothing is written', { skip: NO_GIT }, () => {
+    const root = trackedPlanningRepo();
+    const home = drafterFx.fakeEmptyHome();
+    try {
+      const before = fs.readFileSync(path.join(root, '.planning', 'STACK.md'), 'utf-8');
+      const r = run(['stack', 'init'], { cwd: root, home });
+      assert.equal(r.code, 0, r.stderr);
+      const json = JSON.parse(r.stdout);
+      assert.equal(json.action, 'preview');
+      assert.deepStrictEqual(json.ignored, BOTH_STACK_FILES);
+      const raw = run(['stack', 'init', '--raw'], { cwd: root, home });
+      assert.equal(raw.code, 0, raw.stderr);
+      assert.ok(raw.stderr.includes(STACK_IGNORED_WARNING), raw.stderr);
+      assert.ok(raw.stderr.includes(REPORT_IGNORED_WARNING), raw.stderr);
+      assert.equal(fs.readFileSync(path.join(root, '.planning', 'STACK.md'), 'utf-8'), before, 'a preview never writes');
+    } finally {
+      detectFx.cleanup(root);
+      drafterFx.cleanup(home);
+    }
+  });
+
+  test('I19c: a clean git fixture gives ignored [] in preview and write', { skip: NO_GIT }, () => {
+    const root = gitGoRepo();
+    const home = drafterFx.fakeEmptyHome();
+    try {
+      assert.deepStrictEqual(sp.initProfile({ projectRoot: root, userHome: home, write: false, verify: stubVerify }).ignored, []);
+      assert.deepStrictEqual(sp.initProfile({ projectRoot: root, userHome: home, write: true, verify: stubVerify }).ignored, []);
     } finally {
       detectFx.cleanup(root);
       drafterFx.cleanup(home);
