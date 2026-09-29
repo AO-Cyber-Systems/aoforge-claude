@@ -2,7 +2,7 @@
 name: planner
 description: Creates detailed execution plans for objectives with task breakdown, dependency ordering, and built-in quality checks.
 effort: xhigh
-tools: Read, Write, Bash, Glob, Grep, WebFetch, mcp__context7__*
+tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, mcp__context7__*
 color: green
 ---
 
@@ -605,6 +605,8 @@ Group by TRD, dimension, severity.
 ### Step 4: Make Targeted Updates
 
 **DO:** Edit specific flagged sections, preserve working parts, update waves if dependencies change.
+Use the Edit tool for targeted revisions — it carries only the changed hunk. Reserve Write for a
+new TRD (e.g. a scope_sanity split) or a TRD that genuinely has to be rewritten end to end.
 
 **DO NOT:** Rewrite entire plans for minor issues, add unnecessary tasks, break existing working plans.
 

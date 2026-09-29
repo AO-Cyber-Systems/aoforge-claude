@@ -736,7 +736,8 @@ TaskCreate(subject="Synthesize research", description="Combining 4 research outp
 
 Calculate total research output size. If all 4 research files combined are < 3000 words: use haiku for synthesis (simple aggregation task). Otherwise: use `synthesizer_model` from profile. Log override if applied: `Model override: research-synthesizer {synthesizer_model} → haiku (reason: small research output)`
 
-Spawn synthesizer to create SUMMARY.md:
+Spawn synthesizer to compose SUMMARY.md. It returns the content as text — the harness blocks
+subagent report files, so the orchestrator (you) writes and commits it:
 
 ```
 Task(prompt="
@@ -753,12 +754,27 @@ Read these files:
 </research_files>
 
 <output>
-Write to: .planning/research/SUMMARY.md
 Use template: ~/.claude/devflow/templates/research-project/SUMMARY.md
-Commit after writing.
+Return the SUMMARY.md content between the BEGIN/END markers. Do not write files.
 </output>
 ", subagent_type="research-synthesizer", model="{synthesizer_model}", description="Synthesize research")
 ```
+
+**Write and commit SUMMARY.md (orchestrator):**
+
+a. **Extract** the text strictly between the `--- BEGIN SUMMARY.md ---` and
+   `--- END SUMMARY.md ---` lines of the synthesizer's final message (markers excluded).
+   *Fallback — markers missing:* take the whole final message minus a leading
+   `## SYNTHESIS COMPLETE` header block (the header line and the file list / `**Output:**` lines
+   that follow it, up to the first line of the summary body).
+   If the message is `## SYNTHESIS BLOCKED`, surface the blocker instead of writing anything.
+b. **Write** it verbatim to `.planning/research/SUMMARY.md` with the Write tool. Do not
+   summarise, reword or reformat it.
+c. **Commit** all research in one commit. The researchers wrote their four files without
+   committing, so this single commit covers all 5 files:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs commit "docs: complete project research" --files .planning/research/
+   ```
 
 **Update progress (if available):**
 ```
