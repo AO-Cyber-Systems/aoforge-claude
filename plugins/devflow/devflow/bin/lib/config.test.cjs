@@ -5,8 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
-const { loadConfig } = require('./config.cjs');
+const { loadConfig, documentedDefault, resolveConfigValue } = require('./config.cjs');
 const { buildPlanningDirWithConfig } = require('./__fixtures__/autonomous-fixtures.cjs');
 
 let tmpdir;
@@ -208,6 +209,209 @@ describe('dead gates removed', () => {
     const cfg = loadConfig(tmpdir);
     assert.strictEqual('require_verification' in cfg, false, 'require_verification must not be in defaults');
     assert.strictEqual('require_tests' in cfg, false, 'require_tests must not be in defaults');
+  });
+
+});
+
+// ─── TRD 44-07: config-get answers known-but-unset keys with the documented default ──
+//
+// The real df-tools is spawned with `--cwd <tmp>`, so no case ever reads this repo's own
+// .planning/config.json. The documented defaults live in templates/config.json — the tests read
+// that same file for their expectations rather than restating its values.
+
+const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
+const TEMPLATE_CONFIG = path.join(__dirname, '..', '..', 'templates', 'config.json');
+
+function runConfigGet(dir, args) {
+  const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', dir, 'config-get', ...args], {
+    encoding: 'utf-8',
+  });
+  return { stdout: r.stdout, stderr: r.stderr, status: r.status };
+}
+
+/** Every leaf dot-path of an object (arrays and null are leaves; plain objects are sections). */
+function leafPaths(obj, prefix = '') {
+  const out = [];
+  for (const [key, value] of Object.entries(obj)) {
+    const p = prefix ? `${prefix}.${key}` : key;
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) out.push(...leafPaths(value, p));
+    else out.push(p);
+  }
+  return out;
+}
+
+describe('config-get documented defaults', () => {
+  const made = [];
+
+  function projectWith(configObj) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-config-get-'));
+    made.push(dir);
+    buildPlanningDirWithConfig(dir, configObj);
+    return dir;
+  }
+
+  afterEach(() => {
+    while (made.length) fs.rmSync(made.pop(), { recursive: true, force: true });
+  });
+
+  test('1. known keys unset in config.json answer with the documented default, exit 0 (--raw)', () => {
+    const dir = projectWith({ mode: 'yolo' });
+    for (const [key, expected] of [
+      ['workflow.auto_advance', 'true'],
+      ['workflow.parallelization', 'true'],
+      ['gates.editGate', 'strict'],
+      ['parallelization.max_concurrent_agents', '3'],
+    ]) {
+      const r = runConfigGet(dir, [key, '--raw']);
+      assert.strictEqual(r.status, 0, `${key}: expected exit 0, stderr=${r.stderr}`);
+      assert.strictEqual(r.stdout, expected, key);
+      assert.strictEqual(r.stderr, '', `${key}: expected no error text`);
+    }
+  });
+
+  test('2. a set key returns its configured value, not the default', () => {
+    const dir = projectWith({ workflow: { auto_advance: false } });
+    const r = runConfigGet(dir, ['workflow.auto_advance', '--raw']);
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.strictEqual(r.stdout, 'false');
+  });
+
+  test('3. unknown keys, sections and prototype names still fail with Key not found', () => {
+    const dir = projectWith({ mode: 'yolo' });
+    for (const key of ['workflow.nope', 'totally.unknown.key', 'workflow', 'constructor', 'toString']) {
+      const r = runConfigGet(dir, [key, '--raw']);
+      assert.strictEqual(r.status, 1, `${key}: expected exit 1, stdout=${r.stdout}`);
+      assert.strictEqual(r.stdout, '', `${key}: expected no stdout`);
+      assert.ok(r.stderr.includes(`Key not found: ${key}`), `${key}: stderr=${r.stderr}`);
+    }
+  });
+
+  test('4. a missing config.json keeps the existing error', () => {
+    const dir = projectWith(null);
+    const r = runConfigGet(dir, ['workflow.auto_advance', '--raw']);
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /No config\.json found/);
+  });
+
+  test('5. a default prints exactly what the same value set in config.json prints (JSON and --raw)', () => {
+    const unset = projectWith({ mode: 'yolo' });
+    const set = projectWith(JSON.parse(fs.readFileSync(TEMPLATE_CONFIG, 'utf-8')));
+    for (const key of [
+      'workflow.auto_advance',
+      'gates.editGate',
+      'parallelization.max_concurrent_agents',
+      'awareness.branch_patterns', // array leaf
+      'awareness.eden_libs_path', // null leaf
+    ]) {
+      for (const flags of [[], ['--raw']]) {
+        const fromDefault = runConfigGet(unset, [key, ...flags]);
+        const fromSet = runConfigGet(set, [key, ...flags]);
+        assert.strictEqual(fromSet.status, 0, `${key} ${flags}: set-value control failed: ${fromSet.stderr}`);
+        assert.strictEqual(fromDefault.status, 0, `${key} ${flags}: stderr=${fromDefault.stderr}`);
+        assert.strictEqual(fromDefault.stdout, fromSet.stdout, `${key} ${flags}`);
+      }
+    }
+  });
+
+  test('6. documentedDefault answers only for leaf keys and documented aliases', () => {
+    const template = JSON.parse(fs.readFileSync(TEMPLATE_CONFIG, 'utf-8'));
+    assert.deepStrictEqual(documentedDefault('workflow.auto_advance'), { known: true, value: true });
+    assert.deepStrictEqual(documentedDefault('workflow.parallelization'), { known: true, value: true });
+    assert.deepStrictEqual(documentedDefault('workflow.mode'), { known: true, value: template.mode });
+    const patterns = documentedDefault('awareness.branch_patterns');
+    assert.strictEqual(patterns.known, true);
+    assert.ok(Array.isArray(patterns.value));
+    assert.deepStrictEqual(patterns.value, template.awareness.branch_patterns);
+    assert.deepStrictEqual(documentedDefault('awareness.eden_libs_path'), { known: true, value: null });
+    assert.deepStrictEqual(documentedDefault('workflow'), { known: false });
+    assert.deepStrictEqual(documentedDefault('github.labels'), { known: false });
+    assert.deepStrictEqual(documentedDefault('nope'), { known: false });
+    assert.deepStrictEqual(documentedDefault('constructor'), { known: false });
+    assert.deepStrictEqual(documentedDefault('workflow.auto_advance.x'), { known: false });
+    assert.deepStrictEqual(documentedDefault('awareness.branch_patterns.0'), { known: false });
+  });
+
+  test('7. every leaf of templates/config.json is a known key with the template value (single source)', () => {
+    const template = JSON.parse(fs.readFileSync(TEMPLATE_CONFIG, 'utf-8'));
+    const leaves = leafPaths(template);
+    assert.ok(leaves.length > 40, `expected the full template, got ${leaves.length} leaves`);
+    for (const leaf of leaves) {
+      const expected = leaf.split('.').reduce((node, k) => node[k], template);
+      assert.deepStrictEqual(documentedDefault(leaf), { known: true, value: expected }, leaf);
+    }
+  });
+
+  test('8. an unreadable or malformed template falls back to unknown (today\'s Key not found)', () => {
+    const dir = projectWith(null);
+    const broken = path.join(dir, 'broken-config.json');
+    fs.writeFileSync(broken, '{ not json');
+    assert.deepStrictEqual(documentedDefault('workflow.auto_advance', path.join(dir, 'absent.json')), { known: false });
+    assert.deepStrictEqual(documentedDefault('workflow.auto_advance', broken), { known: false });
+  });
+
+  // A default must never contradict a value the user DID set in a form loadConfig reads:
+  // `"parallelization": true|false` (the shape new-project and config-ensure-section write),
+  // flat `commit_docs`/`auto_advance`, `workflow.mode`, and the mode-derived
+  // verifier_checkpoints/decision_queue.
+  test('9. an alias or legacy form the user set wins over the template default (CLI)', () => {
+    for (const [config, key, expected] of [
+      [{ parallelization: { enabled: false } }, 'workflow.parallelization', 'false'],
+      [{ parallelization: false }, 'workflow.parallelization', 'false'],
+      [{ parallelization: false }, 'parallelization.enabled', 'false'],
+      [{ parallelization: false }, 'parallelization.max_concurrent_agents', '3'],
+      [{ mode: 'autonomous' }, 'workflow.mode', 'autonomous'],
+      [{ workflow: { mode: 'autonomous' } }, 'mode', 'autonomous'],
+      [{ auto_advance: false }, 'workflow.auto_advance', 'false'],
+      [{ commit_docs: false }, 'planning.commit_docs', 'false'],
+      [{ mode: 'autonomous' }, 'workflow.decision_queue', 'true'],
+    ]) {
+      const r = runConfigGet(projectWith(config), [key, '--raw']);
+      assert.strictEqual(r.status, 0, `${JSON.stringify(config)} ${key}: stderr=${r.stderr}`);
+      assert.strictEqual(r.stdout, expected, `${JSON.stringify(config)} ${key}`);
+    }
+  });
+
+  test('10. resolveConfigValue agrees with loadConfig on every field loadConfig resolves', () => {
+    const PAIRS = [
+      ['mode', 'mode'],
+      ['auto_advance', 'workflow.auto_advance'],
+      ['commit_docs', 'planning.commit_docs'],
+      ['search_gitignored', 'planning.search_gitignored'],
+      ['research', 'workflow.research'],
+      ['job_checker', 'workflow.job_check'],
+      ['verifier', 'workflow.verifier'],
+      ['parallelization', 'workflow.parallelization'],
+      ['parallelization', 'parallelization.enabled'],
+      ['verifier_checkpoints', 'workflow.verifier_checkpoints'],
+      ['decision_queue', 'workflow.decision_queue'],
+    ];
+    const SHAPES = [
+      {},
+      { mode: 'autonomous' },
+      { workflow: { mode: 'autonomous' } },
+      { parallelization: false },
+      { parallelization: null },
+      { parallelization: { enabled: false, job_level: true } },
+      { parallelization: { job_level: true } },
+      {
+        auto_advance: false, commit_docs: false, search_gitignored: true, research: false,
+        job_checker: false, verifier: false, verifier_checkpoints: true, decision_queue: true,
+      },
+      {
+        mode: 'autonomous',
+        workflow: { auto_advance: false, research: false, job_check: false, verifier: false, verifier_checkpoints: false },
+        planning: { commit_docs: false, search_gitignored: true },
+      },
+    ];
+    for (const shape of SHAPES) {
+      const cfg = loadConfig(projectWith(shape));
+      for (const [field, key] of PAIRS) {
+        const r = resolveConfigValue(shape, key);
+        assert.strictEqual(r.found, true, `${JSON.stringify(shape)} ${key}`);
+        assert.deepStrictEqual(r.value, cfg[field], `${JSON.stringify(shape)} ${key} vs loadConfig().${field}`);
+      }
+    }
+    assert.deepStrictEqual(resolveConfigValue({}, 'workflow.nope'), { found: false });
   });
 
 });
