@@ -95,7 +95,7 @@ TRDs:
 - [x] 42-05-TRD.md — (W3) `stack-detect` areas (depth 3), Dart-vs-Flutter object `detect`, component extends walk + cwd join
 - [x] 42-07-TRD.md — (W4) drafter integration: preference order, verify→discover + notes, components, adopt; e2e over every failure shape
 - [x] 42-09-TRD.md — (W4) `stack mcp [--write]` (opt-in), W033, agent/skill MCP grants, `confirm_stack_profile` workflow step
-- [ ] 42-08-TRD.md — (W5) `stack report [--write] [--draft]` → `.planning/STACK-REPORT.md` catalogue + adopt report link
+- [x] 42-08-TRD.md — (W5) `stack report [--write] [--draft]` → `.planning/STACK-REPORT.md` catalogue + adopt report link
 - [ ] 42-10-TRD.md — (W6) docs (CLAUDE.md, CHANGELOG [Unreleased], templates/stack.md) + sync-runtime SUBDIRS `stack-profiles` mirror + doc pointers
 - [ ] 42-11-TRD.md — (W6, checkpoint) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → clean repos write/verify/report/commit, dirty repos listed (no push)
 
@@ -137,5 +137,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 10–23 (15 objectives) | v1.2 | 71/71 | Complete | 2026-05-25 |
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
-| 42. Codebase-aware stack drafter | v1.4 | 8/11 | In progress | — |
+| 42. Codebase-aware stack drafter | v1.4 | 9/11 | In progress | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
