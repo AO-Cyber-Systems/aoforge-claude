@@ -836,13 +836,16 @@ function renderHighTable(rows) {
 function renderReport(ctx) {
   const {
     name, date, version, baseBranch, baseSha7, docsCount, claudeVerb, claudeVersion,
-    backupPath, registryKey, needsReviewRows, highRows,
+    backupPath, registryKey, needsReviewRows, highRows, stackReportLinked,
   } = ctx;
   return (
     `# Adopt report — ${name}\n\n` +
     `**Adopted:** ${date} · **DevFlow:** v${version} · **Branch:** \`${ADOPT_BRANCH}\` (from \`${baseBranch}\` @ \`${baseSha7}\`) · **Pushed:** no\n\n` +
     '## Needs review\n\n' +
     renderNeedsReviewTable(needsReviewRows) + '\n' +
+    (stackReportLinked
+      ? 'See .planning/STACK-REPORT.md for CI/CD and local-testing recommendations (proposals only).\n\n'
+      : '') +
     '## Inferred with high confidence\n\n' +
     renderHighTable(highRows) + '\n' +
     '## What adopt did\n\n' +
@@ -1004,11 +1007,32 @@ function report(root, opts = {}) {
     }
   }
 
+  const now = pf.adopt.marker && marker.started_at ? new Date(marker.started_at) : new Date();
+
+  // ── Stack report (TRD 42-08): CI/CD + local-testing proposals ────────────
+  // Written only when absent (a present one may be hand-edited); the rows always come from a
+  // fresh computation. Lazy: the report is adopt's only caller-side dependency on it.
+  let stackReportLinked = false;
+  try {
+    const stackReport = require('./stack-report.cjs');
+    const built = stackReport.buildReport({ projectRoot: target, userHome, now, verifyOpts: { env } });
+    if (!fs.existsSync(path.join(target, stackReport.REPORT_REL))) stackReport.writeReport(target, built.text);
+    for (const f of built.findings.filter((x) => x.severity === 'gap')) {
+      const proposal = f.snippet ? `${f.proposal} \`${f.snippet}\`` : f.proposal;
+      rows.push({
+        confidence: 'medium',
+        item: `${f.id}: ${f.finding}`.replace(/\|/g, '\\|'),
+        inferred: proposal.replace(/\|/g, '\\|'),
+        evidence: 'STACK-REPORT.md',
+      });
+    }
+    stackReportLinked = true;
+  } catch { /* the stack report is advisory; adopt never fails on it */ }
+
   // ── Order (priority, then low, then medium) and render ───────────────────
   const RANK = { priority: 0, low: 1, medium: 2 };
   rows.sort((a, b) => RANK[a.confidence] - RANK[b.confidence]);
 
-  const now = pf.adopt.marker && marker.started_at ? new Date(marker.started_at) : new Date();
   const date = localDate(now);
   const pm = readProjectMd(target);
   const name = pm.ok ? pm.name : path.basename(target);
@@ -1035,6 +1059,7 @@ function report(root, opts = {}) {
     registryKey: scaffoldInfo.registry_key || '(unregistered)',
     needsReviewRows: rows,
     highRows,
+    stackReportLinked,
   });
 
   const reportPath = path.join(target, REPORT_REL);
