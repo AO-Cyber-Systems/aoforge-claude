@@ -565,15 +565,15 @@ function cmdValidateHealth(cwd, options, raw) {
         );
       }
 
-      // W032 — validator warnings (STK007: body over 150 lines). Never flips `ok`.
+      // W032 — validator warnings, each with its own fix hint. Never flips `ok`.
+      //   STK007: body over 150 lines.   STK010: placeholder skill pin (e.g. "<sha>").
+      const W032_FIX = {
+        STK007: 'Trim the profile body; link to skills/docs instead of pasting them',
+        STK010: 'Pin agent_tooling.skills[].pin to a real commit SHA',
+      };
       for (const w of v.warnings) {
-        if (w.code !== 'STK007') continue;
-        addIssue(
-          'warning',
-          'W032',
-          `stack-profile-warning: ${w.msg}`,
-          'Trim the profile body; link to skills/docs instead of pasting them'
-        );
+        if (!Object.prototype.hasOwnProperty.call(W032_FIX, w.code)) continue;
+        addIssue('warning', 'W032', `stack-profile-warning: ${w.msg}`, W032_FIX[w.code]);
       }
     } else {
       const m = detectManifest(cwd, { userHome: homeDir });

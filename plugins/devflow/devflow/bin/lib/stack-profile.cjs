@@ -427,6 +427,9 @@ function loadStackProfileSchemaNoId() {
   return _schemaNoId;
 }
 
+// STK010: a skill pin that is a whole-string template placeholder (`<sha>`, `<commit>`, ...).
+const PLACEHOLDER_PIN = /^<[^<>]+>$/;
+
 const ISSUE_TO_STK = {
   EXTENDS_UNRESOLVED: 'STK002',
   EXTENDS_CYCLE: 'STK003',
@@ -517,6 +520,33 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
       path: 'body',
       msg: `profile body is ${parsedTarget.bodyLineCount} lines, over the ${MAX_BODY_LINES}-line guideline`,
       file: targetPath,
+    });
+  }
+
+  // STK010 — a placeholder skill pin (any whole-string `<...>`, e.g. "<sha>") on ANY layer of the
+  // chain, plus the target's own parse (warning only; never flips `ok`). A placeholder is an
+  // unpinned upstream, which is the thing a pin exists to prevent. One warning per
+  // (source, pin, layer path), so a repeated entry in one file is reported once.
+  const pinLayers = [...resolved.layers];
+  if (parsedTarget && !pinLayers.some((l) => l.frontmatter === parsedTarget.frontmatter)) {
+    pinLayers.push({ id: null, tier: 'project', path: targetPath, frontmatter: parsedTarget.frontmatter });
+  }
+  const seenPins = new Set();
+  for (const layer of pinLayers) {
+    const tooling = layer.frontmatter && layer.frontmatter.agent_tooling;
+    const skills = tooling && Array.isArray(tooling.skills) ? tooling.skills : [];
+    skills.forEach((skill, i) => {
+      if (!skill || typeof skill.pin !== 'string' || !PLACEHOLDER_PIN.test(skill.pin)) return;
+      const key = JSON.stringify([skill.source, skill.pin, layer.path]);
+      if (seenPins.has(key)) return;
+      seenPins.add(key);
+      const label = `${layer.tier} layer${layer.id ? ` '${layer.id}'` : ''}`;
+      warnings.push({
+        code: 'STK010',
+        path: `agent_tooling.skills[${i}].pin`,
+        msg: `${label}: skill ${skill.source} has placeholder pin "${skill.pin}"; pin a real commit`,
+        file: layer.path,
+      });
     });
   }
 
@@ -960,6 +990,12 @@ function cmdStack(cwd, args, raw) {
     }
 
     if (subcommand === 'validate') {
+      // A positional path used to be ignored, so `stack validate x.md` validated .planning/STACK.md
+      // and reported ITS result — a green run for a file it never read (SDR-07).
+      if (args[1] !== undefined && !String(args[1]).startsWith('-')) {
+        error('stack validate takes --profile <path>, not a positional path');
+        return;
+      }
       const profilePath = parseFlagValue(args, '--profile');
       const result = validateProfile({ projectRoot, userHome, profilePath });
       output(result, raw, result.ok ? 'ok' : 'invalid', result.ok ? 0 : 1);

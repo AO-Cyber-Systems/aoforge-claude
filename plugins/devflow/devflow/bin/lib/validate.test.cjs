@@ -740,7 +740,9 @@ describe('Check 12: stack profile', () => {
     assert.match(w032s[0].fix, /Pin agent_tooling\.skills\[\]\.pin to a real commit SHA/);
     assert.doesNotMatch(w032s[0].fix, /Trim the profile body/, 'STK010 must not borrow the STK007 fix hint');
     assert.strictEqual(findAny(json, 'E030'), undefined, 'a placeholder pin is a warning, never E030');
-    assert.notStrictEqual(json.status, 'broken');
+    // (The bare fixture is `broken` for unrelated reasons — no PROJECT.md/STATE.md — so assert on
+    // the error list rather than the overall status.)
+    assert.ok(!json.errors.some((e) => /placeholder|STK010/.test(e.message)), JSON.stringify(json.errors));
   });
 
   test('H12: STK007 keeps its own W032 fix hint beside STK010', () => {
