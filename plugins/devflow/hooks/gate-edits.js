@@ -5,7 +5,7 @@
  *
  * Strict DENY by default in ambient mode (DevFlow project detected, no skill running).
  *
- * Three escape hatches:
+ * Escape hatches:
  *   1. .planning/.skill-active marker file — written by `df-tools skill-active --start`,
  *      removed by `--end`. Indicates an executor/skill is actively running.
  *   2. Override phrase in user prompt — detected by route-intent.js (UserPromptSubmit)
@@ -20,6 +20,13 @@
  *      emits nothing, same as DEVFLOW_SKIP_EDIT_GATE=1). Any missing file/key,
  *      malformed JSON, or unrecognized value falls back to "strict" — never
  *      silently softens the gate.
+ *   5. PreToolUse payload agent_type `devflow:*` (objective 44, DF-03) — a
+ *      PreToolUse fired inside a subagent carries `agent_type` (e.g.
+ *      "devflow:executor"). DevFlow's own agents ARE the skill path, so they
+ *      are allowed without depending on a marker they may never see. Only the
+ *      exact, case-sensitive `devflow:` prefix with a non-empty name is trusted;
+ *      `agent_id` presence alone proves nothing. Allowed in "warn" mode too
+ *      (never 'ask').
  *
  * Permits edits to:
  *   - .planning/**        (planning artifacts are edited directly)
@@ -226,6 +233,23 @@ function isOutsideProject(projectRoot, filePath) {
   return true;
 }
 
+const DEVFLOW_AGENT_PREFIX = 'devflow:';
+
+/**
+ * True when a PreToolUse payload's `agent_type` names one of DevFlow's own
+ * agents (objective 44, DF-03): the exact, case-sensitive `devflow:` prefix
+ * followed by a non-empty agent name. `devflowx:y`, `x:devflow:y`,
+ * `devflow:`, `DEVFLOW:executor` and non-strings are all rejected.
+ *
+ * @param {unknown} agentType
+ * @returns {boolean}
+ */
+function isDevflowAgent(agentType) {
+  return typeof agentType === 'string' &&
+    agentType.startsWith(DEVFLOW_AGENT_PREFIX) &&
+    agentType.length > DEVFLOW_AGENT_PREFIX.length;
+}
+
 /**
  * Core gate decision — pure function, no I/O.
  *
@@ -235,9 +259,10 @@ function isOutsideProject(projectRoot, filePath) {
  * @param {string|null} opts.planningDir  - Ancestor .planning dir or null
  * @param {boolean} opts.skillActive - True if .skill-active marker exists
  * @param {boolean} opts.overrideActive  - True if .edit-override marker was fresh (consumed)
+ * @param {unknown} [opts.agentType] - PreToolUse payload `agent_type` (subagents only)
  * @returns {{ decision: 'deny'|'allow'|'noop', reason?: string }}
  */
-function shouldGate({ tool, filePath, planningDir, skillActive, overrideActive }) {
+function shouldGate({ tool, filePath, planningDir, skillActive, overrideActive, agentType }) {
   // Only gate Edit/Write/MultiEdit — defensive check for future matcher changes
   if (!/^(Edit|Write|MultiEdit)$/.test(tool)) return { decision: 'noop' };
 
@@ -259,6 +284,11 @@ function shouldGate({ tool, filePath, planningDir, skillActive, overrideActive }
   if (isOutsideProject(path.dirname(planningDir), filePath)) {
     return { decision: 'allow', reason: 'target outside project root' };
   }
+
+  // Objective 44 (DF-03) — DevFlow's own agents, identified by the payload's
+  // agent_type. 114 denials of them in 44-EVIDENCE §2.1 came from relying on
+  // the .skill-active marker alone.
+  if (isDevflowAgent(agentType)) return { decision: 'allow', reason: 'devflow agent' };
 
   // Escape hatch: active skill marker
   if (skillActive) return { decision: 'allow', reason: 'skill-active marker present' };
@@ -310,7 +340,9 @@ function main() {
   //  PreToolUse payloads carry no user_message/prompt field — consume the marker instead)
   const overrideActive = consumeEditOverrideMarker(planningDir);
 
-  const result = shouldGate({ tool, filePath, planningDir, skillActive, overrideActive });
+  const agentType = input.agent_type;
+
+  const result = shouldGate({ tool, filePath, planningDir, skillActive, overrideActive, agentType });
 
   if (result.decision === 'noop' || result.decision === 'allow') return;
 
@@ -341,6 +373,7 @@ module.exports = {
   isOutsideProject,
   hasOverridePhrase,
   shouldGate,
+  isDevflowAgent,
   findPlanningDir,
   readEditGateMode,
   VALID_EDIT_GATE_MODES,
