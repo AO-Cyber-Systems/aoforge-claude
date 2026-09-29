@@ -146,12 +146,14 @@ The following limits prevent a runaway session from consuming unbounded resource
 | Stop-hook resume cap | 3 attempts per objective | Counter file `.planning/.autonomous-resume-{objectiveKey}`; cleared on completion or cap |
 | Executor retry (subagent) | 1 retry per agent | Marker file `.planning/.autonomous-retry-{sanitized-agent-id}`; stale markers swept after 1 hour |
 | Wave failure | Retry once, then skip dependents | Fresh executor spawn with `<failure_feedback>` block; only transitive dependents skipped |
-| maxTurns — executor | 50 | Set in agent frontmatter |
-| maxTurns — verifier | 30 | Set in agent frontmatter |
+| maxTurns — executor/verifier | none | Removed in objective 44; guard-no-progress.js (repeat-call detection) is the runaway guard |
+| Truncated executor (INCOMPLETE) | Up to 3 SendMessage resumes, then the wave-failure path | `execute-objective` classifies a turn-limit / partial-result return as INCOMPLETE, not failed; dependents wait, never skipped |
 
 After the 3-attempt cap the session exits normally; remaining work is documented in the
 end-of-run report in STATE.md. After a wave failure + retry the orchestrator skips only
-TRDs that `depends_on` the failed TRD, then continues all independent ones.
+TRDs that `depends_on` the failed TRD, then continues all independent ones. A truncated
+executor is not a failure. It is resumed in place with its context intact, and only a
+real FAILED outcome after the fresh-respawn retry puts dependents in the skipped set.
 
 ---
 

@@ -4,7 +4,7 @@ description: Executes planned tasks with atomic git commits, handles deviations,
 effort: xhigh
 tools: AskUserQuestion, TaskUpdate, TaskCreate, Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_take_screenshot, mcp__plugin_playwright_playwright__browser_click, mcp__plugin_playwright_playwright__browser_fill_form, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_tabs, mcp__plugin_playwright_playwright__browser_close, mcp__maestro__*, mcp__gopls__*, mcp__dart__*
 color: yellow
-maxTurns: 50
+# No turn cap: runaway protection is hooks/guard-no-progress.js (repetition), not a length cap (objective 44).
 # NOTE: `isolation: worktree` was REMOVED (issue #86). The harness resolved that
 # isolation implicitly and got both halves wrong in a multi-repo programme: the
 # repo came from the CONTROLLER session's cwd (an aodex dispatch landed in
@@ -216,7 +216,8 @@ For each task:
    - Execute task, apply deviation rules as needed
    - Handle auth errors as authentication gates
    - Run verification, confirm done criteria (see per_task_verification)
-   - Commit (see task_commit_protocol)
+   - Update the `## Progress` checkpoint in SUMMARY.md (see below)
+   - Commit immediately, the task's files and SUMMARY.md together (see task_commit_protocol). One task, one commit
    - Track completion + commit hash for Summary
 
 2. **If `type="checkpoint:*"`:**
@@ -224,6 +225,31 @@ For each task:
    - A fresh agent will be spawned to continue
 
 3. After all tasks: run overall verification, confirm success criteria, document deviations
+
+## Progress checkpoint (after every task)
+
+Every task commit leaves a resumable trail. Before the task's commit, create or update the TRD's SUMMARY.md at its output path (`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`) with a `## Progress` section, and commit it in the SAME `df-tools commit` as the task (the same `--files` list):
+
+```
+## Progress
+- [x] Task 1: <name> — <hash>
+- [x] Task 2: <name> — (this commit)
+- [ ] Task 3: <name> — next step: <one concrete sentence>
+```
+
+A commit cannot contain its own hash, so the task being committed is ticked as `(this commit)`. The next update replaces that with the short hash from `git rev-parse --short HEAD`. Keep exactly one `next step:` line, on the first unticked task, and make it concrete: which file, which change, which command. "Continue Task 3" is not a next step.
+
+The final SUMMARY keeps `## Progress` with every item ticked, and adds the usual sections plus `## Self-Check: PASSED|FAILED` (see summary_creation and self_check).
+
+**A SUMMARY without `## Self-Check` means "checkpoint, not complete".** The orchestrator relies on that sentence: it treats such a SUMMARY as an INCOMPLETE run to resume, never as a finished TRD. So write `## Self-Check` only once, at the very end, after the self-check has actually run.
+
+**Resumed runs.** When you receive a SendMessage continuation, your context is intact.
+- Don't re-read files you already read.
+- Don't re-research.
+- Run `git log --oneline -n 20` once to confirm what's committed.
+- Continue from the first unticked `## Progress` item.
+
+A resume is not a restart. Redoing a committed task duplicates its commit, and the orchestrator's commit count then goes wrong.
 
 ## Stack loop, task gates and generated files
 
@@ -847,20 +873,26 @@ max 600000) for anything that compiles or runs tests:
 | full test suite | 600000 (10 min) |
 | single focused test | default is fine |
 
-If a suite genuinely needs longer than 10 minutes, run it in the background and
-poll rather than blocking a single call on it.
+If a suite genuinely needs longer than 10 minutes, run it with
+`run_in_background: true` rather than blocking a single call on it (see below).
+
+**Never `sleep N` then poll. The harness blocks it. For a long build/test/server
+wait, run the command with `run_in_background: true` and wait with an until-loop
+condition, or with Monitor.** A `sleep 30` followed by a status check spends a
+turn doing nothing, and it still guesses the wait length. A background run
+re-invokes you when it exits. An until-loop on the real condition, such as the
+port answering or the output file existing, returns the moment the condition
+holds. This applies to dev servers, emulators, builds and test suites alike.
 </worktree_command_discipline>
 
 <task_commit_protocol>
 After each task completes (verification passed, done criteria met), commit immediately.
 
+**Commit immediately after EACH task passes verify. Never batch two tasks into one commit, and never defer commits to the end.** A run can be cut short at any turn; a task that is done but uncommitted is a task the resumed or re-run executor has to redo. The per-task commit, together with the `## Progress` checkpoint it carries (see `execute_tasks`), is the trail the orchestrator resumes from.
+
 **1. Check modified files:** `git status --short`
 
-**2. Stage task-related files individually** (NEVER `git add .` or `git add -A`):
-```bash
-git add src/api/auth.ts
-git add src/types/user.ts
-```
+**2. List the task-related files individually** (NEVER `.`, `-A`, or a whole directory you did not fully author). There is no separate `git add` step: `df-tools commit --files` stages exactly the paths it is given, and commits only those paths.
 
 **3. Commit type:**
 
@@ -872,16 +904,14 @@ git add src/types/user.ts
 | `refactor` | Code cleanup, no behavior change                |
 | `chore`    | Config, tooling, dependencies                   |
 
-**4. Commit:**
+**4. Commit** with `df-tools commit`, one plain command. A raw `git commit` is denied by `gate-commits.js` in every DevFlow project, so do not reach for it. The `--files` list is the task's files **plus** the TRD's SUMMARY.md carrying the updated `## Progress` checkpoint:
 ```bash
-git commit -m "{type}({objective}-{trd}): {concise task description}
-
-- {key change 1}
-- {key change 2}
-"
+node ~/.claude/devflow/bin/df-tools.cjs commit "{type}({objective}-{trd}): {concise task description}" --files src/api/auth.ts src/types/user.ts .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md
 ```
 
-**5. Record hash:** `TASK_COMMIT=$(git rev-parse --short HEAD)` — track for SUMMARY.
+Read the JSON it prints: `committed: true` with a hash is the only success. A `skipped_*` reason (`commit_docs` is false, or `.planning/` is gitignored) means NOTHING was committed. Record that as a blocker in SUMMARY.md, and do not report the task as committed.
+
+**5. Record hash:** `git rev-parse --short HEAD` — track it for SUMMARY and for the next `## Progress` update.
 
 **6. Update progress (if available):**
 ```
