@@ -681,6 +681,62 @@ files-modified: [prisma/schema.prisma, src/lib/db.ts]
     assert.strictEqual(output.jobs[0].has_summary, false, 'no summary yet');
   });
 
+  test('reads the files_modified key TRDs write (YAML block list)', () => {
+    // quick-24: TRDs write `files_modified:`, but the index only read the legacy
+    // `files-modified:` key, so files_modified was always [] and the >8-files
+    // executor-model rule never fired.
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(objectiveDir, '03-01-TRD.md'),
+      `---
+wave: 1
+autonomous: true
+files_modified:
+  - plugins/x/a.cjs
+  - plugins/x/b.cjs
+---
+
+<task type="auto"><name>x</name></task>
+`
+    );
+
+    const result = runGsdTools('objective-job-index 03', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs.length, 1, 'should have 1 job');
+    assert.deepStrictEqual(output.jobs[0].files_modified, ['plugins/x/a.cjs', 'plugins/x/b.cjs']);
+  });
+
+  test('files_modified wins over legacy files-modified when both are present', () => {
+    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    fs.mkdirSync(objectiveDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(objectiveDir, '03-01-TRD.md'),
+      `---
+wave: 1
+autonomous: true
+files-modified: [legacy/old.cjs]
+files_modified:
+  - plugins/x/new-a.cjs
+  - plugins/x/new-b.cjs
+---
+
+<task type="auto"><name>x</name></task>
+`
+    );
+
+    const result = runGsdTools('objective-job-index 03', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.jobs.length, 1, 'should have 1 job');
+    assert.deepStrictEqual(output.jobs[0].files_modified, ['plugins/x/new-a.cjs', 'plugins/x/new-b.cjs']);
+  });
+
   test('groups multiple jobs by wave', () => {
     const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
