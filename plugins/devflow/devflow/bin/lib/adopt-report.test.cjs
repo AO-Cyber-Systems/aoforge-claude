@@ -412,6 +412,40 @@ describe('adopt report', () => {
     assert.strictEqual(result.report.commit_message, `chore(devflow): adopt repository (DevFlow v${pluginJson.version})`);
   });
 
+  // TRD 42-08 test 13: the stack report is written when absent (never overwritten), linked from
+  // ADOPT-REPORT.md, and every `gap` finding becomes one medium row.
+  test('42-08/13. writes STACK-REPORT.md when absent, never overwrites it, links it, and adds one medium row per gap', () => {
+    const root = scaffoldedFixture('go-service');
+    const stackReportPath = path.join(root, '.planning', 'STACK-REPORT.md');
+    assert.ok(!fs.existsSync(stackReportPath), 'scaffold does not write the stack report');
+
+    const result = runAdopt(root, 'report');
+    assert.strictEqual(result.status, 0, result.out);
+    assert.ok(fs.existsSync(stackReportPath), 'STACK-REPORT.md written');
+    const written = fs.readFileSync(stackReportPath, 'utf-8');
+    assert.match(written, /^---\ngenerated: /);
+    assert.match(written, /^# Stack Report: /m);
+
+    const text = readReport(root);
+    assert.ok(text.includes('See .planning/STACK-REPORT.md for CI/CD and local-testing recommendations (proposals only).'), text);
+
+    const { buildReport } = require('./stack-report.cjs');
+    const gaps = buildReport({ projectRoot: root, userHome: fakeHome }).findings.filter((f) => f.severity === 'gap');
+    assert.ok(gaps.length > 0, 'the go-service fixture has at least one CI gap');
+    const gapRows = result.report.needs_review.filter((r) => r.evidence === 'STACK-REPORT.md');
+    assert.strictEqual(gapRows.length, gaps.length, JSON.stringify(gapRows));
+    for (const r of gapRows) assert.strictEqual(r.confidence, 'medium');
+    for (const g of gaps) assert.ok(gapRows.some((r) => r.item.startsWith(`${g.id}: `)), `missing a row for ${g.id}`);
+    assert.ok(result.report.commit_files.includes('.planning/STACK-REPORT.md'), 'owned path, so adopt commits it');
+
+    // Present: never overwritten; the rows still come from a fresh computation.
+    fs.writeFileSync(stackReportPath, 'hand-edited stack report\n', 'utf-8');
+    const again = runAdopt(root, 'report');
+    assert.strictEqual(again.status, 0, again.out);
+    assert.strictEqual(fs.readFileSync(stackReportPath, 'utf-8'), 'hand-edited stack report\n');
+    assert.strictEqual(again.report.needs_review.filter((r) => r.evidence === 'STACK-REPORT.md').length, gaps.length);
+  });
+
   test('14. guards: on main (never begun) exits 3; resume-but-not-scaffolded exits 1', () => {
     const rootMain = makeFixture('go-service', { parent: mkdtemp('df-report-guard-main-'), home: fakeHome });
     const onMain = runAdopt(rootMain, 'report');
