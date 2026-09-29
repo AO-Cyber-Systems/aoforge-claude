@@ -793,11 +793,22 @@ function compareTargets(a, b) {
 
 /**
  * readRunners(root, { maxDepth = 1, exec = null }) ->
- *   [{ runner, dir, file, name, aliases, body, invocation, executable? }]
+ *   [{ runner, dir, file, name, aliases, body, invocation, ...extras }]
  *
- * `dir` is the repo-relative directory holding the runner file ('' for the root); `file` is the
- * repo-relative runner file; `invocation` is runnable from the repo root. Sorted by
- * (dir, runner, name). Never throws: an unreadable root or file yields fewer (or no) targets.
+ * `runner` is make | task | just | npm | script. `dir` is the repo-relative directory holding the
+ * runner file ('' for the root); `file` is the repo-relative runner file; `invocation` is
+ * runnable from the repo root (`make -C svc test`, `task -d svc test`, `just --justfile
+ * svc/justfile test`, `npm --prefix web run build`, `./bin/test.sh`). `body` is the raw logical
+ * lines, unclassified. Sorted by (dir, runner, name). Never throws: an unreadable root or file
+ * yields fewer (or no) targets.
+ *
+ * Extras, present only where they apply:
+ *   cwd         task   the task's own `dir:`, repo-relative (skipped when templated)
+ *   manager     npm    pnpm | yarn | bun | npm, from the lockfile beside package.json
+ *   executable  script true when any execute bit is set
+ *   via         task, just   'exec' for names only the injected exec enrichment found
+ *
+ * `exec(cmd, args, { cwd })` is optional and synchronous; see "exec enrichment" below.
  */
 function readRunners(root, { maxDepth = 1, exec = null } = {}) {
   const depth = Number.isInteger(maxDepth) && maxDepth >= 0 ? maxDepth : 1;
