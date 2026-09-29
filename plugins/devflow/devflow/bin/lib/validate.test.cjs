@@ -758,6 +758,91 @@ describe('Check 12: stack profile', () => {
   });
 });
 
+// ─── Check 12b: managed .mcp.json server binaries (TRD 42-09, W033) ────────
+// Advisory only: a managed (`env.DEVFLOW_MANAGED === 'stack'`) server whose command does not
+// resolve. Foreign servers are never inspected. `env` and `homeDir` are injected, so the real
+// PATH and ~/go/bin are never consulted.
+describe('Check 12b: managed MCP server binaries (W033)', () => {
+  const stubDirs = [];
+  afterEach(() => {
+    while (stubDirs.length) fs.rmSync(stubDirs.pop(), { recursive: true, force: true });
+  });
+
+  function stubBin(names) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-bin-'));
+    stubDirs.push(dir);
+    for (const n of names) {
+      fs.writeFileSync(path.join(dir, n), '#!/bin/sh\nexit 0\n', 'utf-8');
+      fs.chmodSync(path.join(dir, n), 0o755);
+    }
+    return dir;
+  }
+
+  function withMcp(servers) {
+    tmpProject = makePlanningProject();
+    fs.writeFileSync(path.join(tmpProject, '.mcp.json'), `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`, 'utf-8');
+    tmpHome = makeHome();
+  }
+
+  const managed = (command) => ({ command, args: ['mcp'], env: { DEVFLOW_MANAGED: 'stack' } });
+
+  test('M1: a managed gopls entry with gopls absent adds W033 (advisory, not repairable)', () => {
+    withMcp({ gopls: managed('gopls') });
+    const env = { PATH: stubBin([]) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+
+    const w033 = json.warnings.filter((w) => w.code === 'W033');
+    assert.strictEqual(w033.length, 1, `expected one W033: ${JSON.stringify(json.warnings)}`);
+    assert.match(w033[0].message, /^stack-mcp-binary-missing: gopls \(gopls\)$/);
+    assert.match(w033[0].fix, /Install gopls or run df-tools stack mcp --write to prune/);
+    assert.strictEqual(w033[0].repairable, false);
+    assert.strictEqual(json.errors.find((e) => e.code === 'W033'), undefined, 'W033 never becomes an error');
+  });
+
+  test('M2: a foreign server with a missing binary adds no W033', () => {
+    withMcp({ playwright: { command: 'npx-not-here', args: ['x'] }, other: { command: 'nope', env: { DEVFLOW_MANAGED: 'other' } } });
+    const env = { PATH: stubBin([]) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+
+    assert.strictEqual(json.warnings.find((w) => w.code === 'W033'), undefined, JSON.stringify(json.warnings));
+  });
+
+  test('M3: a managed entry whose binary resolves adds no W033', () => {
+    withMcp({ gopls: managed('gopls'), dart: managed('dart') });
+    const env = { PATH: stubBin(['gopls', 'dart']) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+
+    assert.strictEqual(json.warnings.find((w) => w.code === 'W033'), undefined, JSON.stringify(json.warnings));
+  });
+
+  test('M4: no .mcp.json, or an unparseable one, adds no W033 and does not break health', () => {
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+    const env = { PATH: stubBin([]) };
+    const none = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+    assert.strictEqual(none.json.warnings.find((w) => w.code === 'W033'), undefined);
+
+    fs.writeFileSync(path.join(tmpProject, '.mcp.json'), '{ not json', 'utf-8');
+    const bad = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+    assert.ok(bad.json, 'health still reports');
+    assert.strictEqual(bad.json.warnings.find((w) => w.code === 'W033'), undefined);
+  });
+
+  test('M5: --repair leaves .mcp.json untouched', () => {
+    withMcp({ gopls: managed('gopls') });
+    const before = fs.readFileSync(path.join(tmpProject, '.mcp.json'), 'utf-8');
+    const env = { PATH: stubBin([]) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env, repair: true }, false);
+
+    assert.ok(json.warnings.find((w) => w.code === 'W033'));
+    assert.strictEqual(fs.readFileSync(path.join(tmpProject, '.mcp.json'), 'utf-8'), before);
+  });
+});
+
 // ─── Health repairs delegate to upgrade migrations 0001-0003 (TRD 36-04a) ──
 //
 // Every project is a mkdtemp fixture (upgrade-fixtures.cjs / makePlanningProject) and every run

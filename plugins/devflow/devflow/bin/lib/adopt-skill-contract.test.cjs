@@ -37,6 +37,8 @@
 // 11. skills/map-codebase/SKILL.md argument-hint contains `--non-interactive`.
 // 12. new-project.md's `## 2. Brownfield Offer` section mentions `/devflow:adopt`; the file
 //     contains `upgrade --register`.
+// 13. (TRD 42-09) adopt.md step order: `scaffold` -> `confirm_stack_profile` -> `health`, and
+//     `scaffold` hands off to `confirm_stack_profile`, which hands off to `health`.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -215,4 +217,17 @@ test('12 - new-project.md Brownfield Offer mentions /devflow:adopt; file has upg
   const section = md.slice(start, nextHeading === -1 ? md.length : nextHeading);
   assert.match(section, /\/devflow:adopt/, 'Brownfield Offer must mention /devflow:adopt');
   assert.match(md, /upgrade --register/, 'new-project.md must call df-tools upgrade --register');
+});
+
+test('13 - adopt.md: scaffold -> confirm_stack_profile -> health, each handing off to the next', () => {
+  const wf = readFile(ADOPT_WORKFLOW);
+  const idx = (name) => wf.indexOf(`<step name="${name}">`);
+  const order = ['scaffold', 'confirm_stack_profile', 'health'].map((n) => ({ n, i: idx(n) }));
+  for (const { n, i } of order) assert.ok(i !== -1, `adopt.md must have a <step name="${n}"> step`);
+  for (let k = 1; k < order.length; k++) {
+    assert.ok(order[k].i > order[k - 1].i, `expected step ${order[k].n} after ${order[k - 1].n}`);
+  }
+  const body = (name) => wf.slice(idx(name), wf.indexOf('</step>', idx(name)));
+  assert.match(body('scaffold'), /Continue to `confirm_stack_profile`/);
+  assert.match(body('confirm_stack_profile'), /Continue to `health`/);
 });

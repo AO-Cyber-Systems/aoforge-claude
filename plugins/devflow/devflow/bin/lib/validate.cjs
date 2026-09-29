@@ -592,6 +592,41 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('error', 'E030', `stack-profile-check-failed: ${e.message}`, 'Run `df-tools stack validate`');
   }
 
+  // ─── Check 12b: Managed .mcp.json server binaries (TRD 42-09) ───────────────
+  // W033 — a server `df-tools stack mcp --write` owns (env.DEVFLOW_MANAGED === 'stack') whose
+  // command does not resolve. Advisory and never repaired: `.mcp.json` is opt-in per repo, so
+  // health never writes it. Foreign servers are not ours to judge. An absent or unparseable
+  // `.mcp.json` is skipped — Claude Code itself reports a broken one. `options.env` is the test
+  // seam for PATH (defaults to process.env), like `homeDir` above.
+  try {
+    const mcpFile = path.join(cwd, '.mcp.json');
+    if (fs.existsSync(mcpFile)) {
+      let doc = null;
+      try { doc = JSON.parse(fs.readFileSync(mcpFile, 'utf-8')); } catch (_) { doc = null; }
+      const servers = doc && typeof doc === 'object' && doc.mcpServers && typeof doc.mcpServers === 'object' ? doc.mcpServers : {};
+      const managedNames = Object.keys(servers).filter((n) => {
+        const s = servers[n];
+        return s && typeof s === 'object' && s.env && s.env.DEVFLOW_MANAGED === 'stack';
+      });
+      if (managedNames.length > 0) {
+        const { resolveBinary } = require('./stack-verify.cjs');
+        const env = options.env || process.env;
+        for (const name of managedNames) {
+          const command = servers[name].command;
+          if (typeof command === 'string' && resolveBinary(command, { env, home: homeDir })) continue;
+          addIssue(
+            'warning',
+            'W033',
+            `stack-mcp-binary-missing: ${name} (${command})`,
+            `Install ${command} or run df-tools stack mcp --write to prune`
+          );
+        }
+      }
+    }
+  } catch (e) {
+    addIssue('warning', 'W033', `stack-mcp-check-failed: ${e.message}`, 'Run `df-tools stack mcp` to see the managed servers');
+  }
+
   // ─── Check 13: Upgrade state (objective 36) ────────────────────────────────
   // W040 is deliberately NOT repairable: the migrations are the repair, run by
   // `df-tools upgrade --apply`. `--repair` keeps its own per-issue repairs

@@ -12,6 +12,8 @@ allowed-tools:
   - Grep
   - Write
   - Task
+  - mcp__gopls__*
+  - mcp__dart__*
 ---
 
 <objective>
