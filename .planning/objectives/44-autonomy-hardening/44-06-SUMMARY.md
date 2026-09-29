@@ -9,10 +9,10 @@ status: in-progress
 ## Progress
 
 - [x] Task 1 step 1: `makeTrackedRuntimeStateProject` fixture builder in `upgrade-fixtures.cjs`
-- [ ] Task 1 step 2: RED tests 5-8 (`0008-runtime-state-untrack.test.cjs`)
-- [ ] Task 1 step 3: GREEN migration 0008
+- [x] Task 1 step 2: RED tests 5-8 (`0008-runtime-state-untrack.test.cjs`) — 2af55e3
+- [x] Task 1 step 3: GREEN migration 0008 (138/138 across migrations + upgrade + upgrade-cli)
 - [ ] Task 2: RED tests 2-4 (`commit-staged-removal.test.cjs`), then GREEN in `cmdCommit`
 - [ ] Task 3: RED hook test 1 + `skipReason` unit test, then GREEN in `upgrade-project.js`
 - [ ] Validation gates, `npm test`, final SUMMARY with Self-Check
 
-Next step: write the RED tests for migration 0008.
+Next step: write the RED tests for the staged-removal commit (Task 2).

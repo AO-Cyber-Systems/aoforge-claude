@@ -206,6 +206,26 @@ describe('migration 0008 runtime-state-untrack', () => {
     assert.equal(git(p, 'status', '--porcelain', '--', CACHE), '', 'cache no longer shows as untracked');
   });
 
+  test('6f. staged copy differs from HEAD and from the working file (hook rewrote it after git add) -> still untracked', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [GUARD] });
+    fs.writeFileSync(path.join(p.root, GUARD), '{\n  "count": 2\n}\n');
+    git(p, 'add', '--', GUARD);
+    const latest = '{\n  "count": 3\n}\n';
+    fs.writeFileSync(path.join(p.root, GUARD), latest);
+
+    // Precondition: this is the state in which a plain `git rm --cached` refuses.
+    const plain = spawnSync('git', ['-C', p.root, 'rm', '--cached', '--quiet', '--', GUARD], {
+      env: fx.gitEnv(p.home), encoding: 'utf-8',
+    });
+    assert.notEqual(plain.status, 0, 'plain rm --cached refuses a staged copy that differs from both sides');
+
+    const res = m0008().apply(ctxFor(p));
+    assert.deepEqual(res.changed, [GITIGNORE, GUARD]);
+    assert.deepEqual(trackedRuntime(p), []);
+    assert.equal(readRel(p.root, GUARD), latest, 'working copy keeps the latest bytes');
+  });
+
   // ─── 7. idempotency ─────────────────────────────────────────────────────────
 
   test('7. apply -> detect applies:false; a second apply is a no-op (changed [], .gitignore byte-identical)', (t) => {
