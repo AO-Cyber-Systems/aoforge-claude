@@ -10,4 +10,4 @@ status: in-progress
 
 - [x] Task 1: Stop fixture builders + hand-written message corpus (13 ANNOUNCE / 22 NOT_ANNOUNCE)
 - [x] Task 2: announcedAction classifier + hasRunningBackground — RED 5c37063 + ab27e73 (exit 1), GREEN 65/65 (exit 0)
-- [ ] Task 3: decide() + main() wired to the live-marker check (RED, GREEN)
+- [~] Task 3: decide() + main() wired to the live-marker check — RED committed (exit 1: decide not a function, no block output); GREEN pending
