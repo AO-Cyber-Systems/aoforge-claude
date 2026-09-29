@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress)
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress), Objective 43 (autonomy hardening)
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -103,6 +103,21 @@ TRDs:
 - [x] 42-15-TRD.md — (W9, gap cycle 2: D3) root-override policy (primary-stack match; sub-area candidates to notes), D1-D5 e2e, 42-11 re-run hand-off
 - [ ] 42-11-TRD.md — (W10, checkpoint; Task 1 re-run after 42-14/42-15) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → write/verify/report + two-file commit on the current branch incl. dirty repos (user decision 2026-09-29; no push)
 
+### Objective 43: Autonomy hardening
+
+**Goal:** Executors and orchestrators run to completion without human nudges: no self-imposed turn caps, truncation handled as resumable INCOMPLETE (never failure), gates stop blocking DevFlow's own agents and merge completions, runtime state files stop dirtying repos, and premature main-loop stops auto-continue. Evidence: `objectives/43-autonomy-hardening/43-EVIDENCE.md` (2026-09-29 session review: 506/1337 executor runs capped, 186 human nudges, 3,725 errors catalogued).
+**Requirements:** AUT-01, AUT-02, AUT-03, AUT-04, AUT-05, AUT-06, AUT-07
+**Depends on:** none
+**Success Criteria**:
+1. executor.md / verifier.md carry no `maxTurns`; execute-objective has an INCOMPLETE outcome resumed via SendMessage (≤3) that never skips dependents
+2. A SubagentStop hook blocks a `devflow:executor` natural stop once when its TRD has no SUMMARY.md, never when `stop_hook_active` is true
+3. No shipped workflow/skill tells an agent to read `~/.claude/agents/*.md`; the doc-refs CI test fails if one returns
+4. gate-edits allows `agent_type` `devflow:*`; gate-commits allows merge/rebase/cherry-pick completion and inline `DEVFLOW_ALLOW_RAW_COMMIT=1 git commit`, and its message no longer suggests `export`
+5. Migration 0008 gitignores and untracks `.progress-guard.json` / `.awareness-cache.json`, idempotently
+6. A Stop hook auto-continues an announced-but-not-taken step once (skill marker live, no running background tasks, no question); `yolo` counts as autonomous between waves; `DEVFLOW_SKIP_AUTOCONTINUE=1` disables it
+7. Synthesizer returns text, planner has Edit, executor forbids `sleep`-poll, `config-get` returns defaults for known unset keys; `npm test` green
+**Plans:** TBD
+
 ### Other v1.4 candidates
 
 - **Objective 26: GitHub issue auto-build monitor** — moved out of v1.3 on 2026-09-28 by user decision; **candidate for killing**. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
@@ -142,4 +157,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 14/15 | In progress | — |
+| 43. Autonomy hardening | v1.4 | 0/— | Planning | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
