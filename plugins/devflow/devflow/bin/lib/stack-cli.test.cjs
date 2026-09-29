@@ -21,13 +21,23 @@
 // - L11 (TRD 42-01, SDR-07) `stack validate path/x.md` -> exit 1, stderr names `--profile` (it
 //       used to validate .planning/STACK.md silently); `stack validate --profile path/x.md` still
 //       validates that file.
+// - L12 (TRD 42-01) `stack frobnicate` -> the error lists all eight subcommands, including the
+//       lazily-dispatched extensions verify, report, mcp.
+// - L13 (TRD 42-01) STACK_EXTENSIONS / loadStackExtension: an absent module -> null and a clean
+//       "stack verify is not available in this build"; a stub exporting `cli` is called with
+//       (cwd, args.slice(1), raw, { userHome }); a module without `cli` is "not available"; a
+//       syntax error inside an existing module surfaces. Every case uses a temp libDir, so none
+//       depends on whether a real stack-verify.cjs has shipped yet.
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const fx = require('./__fixtures__/stack-profile-fixtures.cjs');
+const sp = require('./stack-profile.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
 
@@ -248,6 +258,124 @@ describe('df-tools stack CLI (L group)', () => {
       assert.equal(bare.stdout, 'ok');
     } finally {
       fx.cleanup(root, home);
+    }
+  });
+});
+
+// ─── L12-L13: lazy stack-extension dispatch (TRD 42-01) ──────────────────────
+
+function makeLibDir(files = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-stack-ext-'));
+  for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body, 'utf-8');
+  return dir;
+}
+
+// cmdStack ends in helpers `error()` -> process.exit(1). Trap both so the test process survives.
+function runInProcess(fn) {
+  const stderr = [];
+  const origErr = process.stderr.write.bind(process.stderr);
+  const origExit = process.exit.bind(process);
+  let exitCode = null;
+  let returned;
+  process.stderr.write = (chunk) => { stderr.push(String(chunk)); return true; };
+  process.exit = (code) => { exitCode = code; throw new Error(`process.exit(${code})`); };
+  try {
+    returned = fn();
+  } catch (e) {
+    if (!String(e.message).startsWith('process.exit')) throw e;
+  } finally {
+    process.stderr.write = origErr;
+    process.exit = origExit;
+  }
+  return { exitCode, stderr: stderr.join(''), returned };
+}
+
+describe('df-tools stack extensions (L12-L13)', () => {
+  test('L12: stack frobnicate -> the error lists all eight subcommands', () => {
+    const root = fx.makeProject({});
+    const home = fx.makeHome({});
+    try {
+      const r = run(['stack', 'frobnicate'], { cwd: root, home });
+      assert.equal(r.code, 1);
+      assert.match(r.stderr, /resolve, context, validate, command, init, verify, report, mcp/);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('L13a: STACK_EXTENSIONS maps verify/report/mcp to their sibling module files', () => {
+    assert.deepEqual(sp.STACK_EXTENSIONS, { verify: 'stack-verify.cjs', report: 'stack-report.cjs', mcp: 'stack-mcp.cjs' });
+  });
+
+  test('L13b: an absent module -> loadStackExtension returns null; cmdStack fails cleanly with "not available in this build"', () => {
+    const libDir = makeLibDir();
+    try {
+      assert.equal(sp.loadStackExtension('verify', { libDir }), null);
+      const r = runInProcess(() => sp.cmdStack(libDir, ['verify'], false, { libDir }));
+      assert.equal(r.exitCode, 1);
+      assert.match(r.stderr, /stack verify is not available in this build/);
+    } finally {
+      fs.rmSync(libDir, { recursive: true, force: true });
+    }
+  });
+
+  test('L13c: a stub exporting cli is called with (cwd, args.slice(1), raw, { userHome })', () => {
+    const stub = [
+      "'use strict';",
+      'module.exports = {',
+      '  cli(cwd, args, raw, ctx) {',
+      '    globalThis.__dfStackExtCall = { cwd, args, raw, ctx };',
+      "    return 'stub-result';",
+      '  },',
+      '};',
+    ].join('\n');
+    const libDir = makeLibDir({ 'stack-report.cjs': stub });
+    try {
+      const mod = sp.loadStackExtension('report', { libDir });
+      assert.equal(typeof mod.cli, 'function');
+
+      const r = runInProcess(() => sp.cmdStack('/some/project', ['report', '--json', 'x'], true, { libDir }));
+      assert.equal(r.exitCode, null, r.stderr);
+      assert.equal(r.returned, 'stub-result');
+      assert.deepEqual(globalThis.__dfStackExtCall, {
+        cwd: '/some/project',
+        args: ['--json', 'x'],
+        raw: true,
+        ctx: { userHome: os.homedir() },
+      });
+    } finally {
+      delete globalThis.__dfStackExtCall;
+      fs.rmSync(libDir, { recursive: true, force: true });
+    }
+  });
+
+  test('L13d: a module without a cli function is "not available in this build"', () => {
+    const libDir = makeLibDir({ 'stack-mcp.cjs': "'use strict';\nmodule.exports = { notCli: true };\n" });
+    try {
+      const r = runInProcess(() => sp.cmdStack(libDir, ['mcp'], false, { libDir }));
+      assert.equal(r.exitCode, 1);
+      assert.match(r.stderr, /stack mcp is not available in this build/);
+    } finally {
+      fs.rmSync(libDir, { recursive: true, force: true });
+    }
+  });
+
+  test('L13e: a syntax error inside an existing module surfaces instead of reading as "absent"', () => {
+    const libDir = makeLibDir({ 'stack-verify.cjs': 'module.exports = { cli( {\n' });
+    try {
+      assert.throws(() => sp.loadStackExtension('verify', { libDir }), SyntaxError);
+    } finally {
+      fs.rmSync(libDir, { recursive: true, force: true });
+    }
+  });
+
+  test('L13f: a non-extension name is never loaded', () => {
+    const libDir = makeLibDir({ 'stack-resolve.cjs': "module.exports = { cli() { return 'no'; } };\n" });
+    try {
+      assert.equal(sp.loadStackExtension('resolve', { libDir }), null);
+      assert.equal(sp.loadStackExtension('__proto__', { libDir }), null);
+    } finally {
+      fs.rmSync(libDir, { recursive: true, force: true });
     }
   });
 });
