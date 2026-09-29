@@ -740,4 +740,303 @@ describe('runCommands: executor (test 3, unit level)', () => {
   });
 });
 
-// (Task 3 tests are appended below.)
+// ─── Task 3: the `stack verify` CLI (tests 1-4, through the real df-tools) ─────
+
+const { spawnSync } = require('child_process');
+const profileFx = require('./__fixtures__/stack-profile-fixtures.cjs');
+
+const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
+
+/** Every file and directory under `dir` with its mtime and size — a snapshot to prove nothing was written. */
+function snapshot(dir) {
+  const out = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      const st = fs.statSync(full);
+      out.push(`${path.relative(dir, full)}|${st.mtimeMs}|${st.size}`);
+      if (e.isDirectory()) walk(full);
+    }
+  };
+  walk(dir);
+  out.push(`.|${fs.statSync(dir).mtimeMs}`);
+  return out.sort();
+}
+
+/**
+ * runVerify(repo, args, { bin, home }) — spawns THIS checkout's df-tools with PATH = the stub dir, the node
+ * dir and the system dirs `sh` lives in, and HOME = a fake home. Nothing depends on an installed toolchain.
+ */
+function runVerify(repo, args, { bin, home } = {}) {
+  const fakeHome = home || track(fx.fakeHome({}));
+  const env = {
+    PATH: [bin, path.dirname(process.execPath), '/bin', '/usr/bin'].filter(Boolean).join(path.delimiter),
+    HOME: fakeHome,
+  };
+  const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'verify', ...args], { encoding: 'utf-8', env, timeout: 60000 });
+  let json = null;
+  try { json = JSON.parse(r.stdout); } catch (_) { /* raw mode */ }
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };
+}
+
+const gateYaml = (lines) => ['schema: 1', 'extends: general', 'commands:', ...lines].join('\n');
+
+function projectWith(yamlLines, files = {}, extra = {}) {
+  return track(profileFx.makeProject({
+    stackMd: profileFx.profileMd({ yaml: gateYaml(yamlLines) }),
+    files,
+    ...extra,
+  }));
+}
+
+const resultFor = (json, key, component = null) => json.results.find((r) => r.key === key && r.component === component);
+
+describe('CLI: stack verify, static (test 1)', () => {
+  test('resolved / binary_missing / script_missing per command; exit 1; nothing written', () => {
+    const repo = projectWith([
+      '  test: { run: "make test" }',
+      '  lint: { run: "golint-x ./..." }',
+      '  format: { run: "./scripts/fmt-check.sh" }',
+    ], { Makefile: 'test:\n\tgo test ./...\n' });
+    const bin = track(fx.fakeBin(['make']));
+    const before = snapshot(repo);
+    const r = runVerify(repo, [], { bin });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(r.json.profile_source, 'file');
+    assert.equal(resultFor(r.json, 'test').resolve.status, 'resolved');
+    assert.equal(resultFor(r.json, 'lint').resolve.status, 'binary_missing');
+    assert.equal(resultFor(r.json, 'format').resolve.status, 'script_missing');
+    assert.equal(resultFor(r.json, 'test').command, 'make test');
+    assert.equal(r.json.summary.resolved, 1);
+    assert.equal(r.json.summary.missing, 2);
+    assert.deepEqual(snapshot(repo), before, 'stack verify must not write anything');
+  });
+
+  test('exit 0 when everything resolves; discover and none are reported as-is and are not failures', () => {
+    const repo = projectWith([
+      '  test: { run: "make test" }',
+      '  lint: { run: none }',
+      '  build: { run: discover }',
+    ], { Makefile: 'test:\n\tgo test ./...\n' });
+    const bin = track(fx.fakeBin(['make']));
+    const r = runVerify(repo, [], { bin });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(resultFor(r.json, 'lint').resolve.status, 'none');
+    assert.equal(resultFor(r.json, 'lint').command, null);
+    assert.equal(resultFor(r.json, 'build').resolve.status, 'discover');
+    assert.ok(r.json.summary.discover >= 1);
+    assert.equal(r.json.summary.missing, 0);
+  });
+
+  test('an unverifiable command does not fail the run', () => {
+    const repo = projectWith(['  test: { run: "make -C inc nope" }'], { 'inc/Makefile': 'include common.mk\n\nbuild:\n\t@echo build\n' });
+    const bin = track(fx.fakeBin(['make']));
+    const r = runVerify(repo, [], { bin });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(resultFor(r.json, 'test').resolve.status, 'unverifiable');
+    assert.equal(r.json.summary.unverifiable, 1);
+  });
+
+  test('--raw prints a compact `key status` table', () => {
+    const repo = projectWith(['  test: { run: "make test" }', '  lint: { run: "golint-x ./..." }'], { Makefile: 'test:\n\tgo test ./...\n' });
+    const bin = track(fx.fakeBin(['make']));
+    const r = runVerify(repo, ['--raw'], { bin });
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /^test resolved$/m);
+    assert.match(r.stdout, /^lint binary_missing$/m);
+  });
+
+  test('a repo with no STACK.md resolves the bundled profile: everything is discover, exit 0', () => {
+    const repo = track(profileFx.makeProject({}));
+    const r = runVerify(repo, [], { bin: track(fx.fakeBin([])) });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(r.json.results.length > 0);
+    assert.ok(r.json.results.every((x) => x.resolve.status === 'discover'));
+  });
+
+  test('bad flags are errors, not silent', () => {
+    const repo = projectWith(['  test: { run: "make test" }']);
+    const bin = track(fx.fakeBin([]));
+    assert.equal(runVerify(repo, ['--bogus'], { bin }).status, 1);
+    assert.equal(runVerify(repo, ['--timeout', 'soon'], { bin }).status, 1);
+    assert.equal(runVerify(repo, ['positional'], { bin }).status, 1);
+  });
+});
+
+describe('CLI: stack verify --draft (test 2)', () => {
+  test('verifies the stack init preview and never creates .planning/STACK.md', () => {
+    const repo = track(fx.makeRepo({
+      'go.mod': 'module example.com/x\n\ngo 1.22\n',
+      'main.go': 'package main\nfunc main() {}\n',
+      Makefile: 'test:\n\tgo test ./...\n\nlint:\n\tgolangci-lint run\n\nbuild:\n\tgo build ./...\n',
+    }));
+    const bin = track(fx.fakeBin(['make']));
+    const before = snapshot(repo);
+    const r = runVerify(repo, ['--draft'], { bin });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.profile_source, 'draft');
+    for (const key of ['test', 'lint', 'build']) {
+      assert.equal(resultFor(r.json, key).resolve.status, 'resolved', key);
+      assert.equal(resultFor(r.json, key).command, `make ${key}`);
+    }
+    assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false);
+    assert.deepEqual(snapshot(repo), before);
+  });
+
+  test('a draft command whose target is missing is reported missing (exit 1)', () => {
+    const repo = track(fx.makeRepo({
+      'go.mod': 'module example.com/x\n\ngo 1.22\n',
+      'main.go': 'package main\nfunc main() {}\n',
+      Makefile: 'test:\n\tgo test ./...\n',
+    }));
+    const bin = track(fx.fakeBin([]));
+    const r = runVerify(repo, ['--draft'], { bin });
+    assert.equal(r.status, 1);
+    assert.equal(resultFor(r.json, 'test').resolve.status, 'binary_missing');
+  });
+});
+
+describe('CLI: stack verify --run (test 3)', () => {
+  test('format and lint run; test is skipped not-included; --include test runs it', () => {
+    const repo = projectWith([
+      '  format: { run: "fmt-stub" }',
+      '  lint: { run: "lint-stub" }',
+      '  test: { run: "test-stub" }',
+    ]);
+    const bin = track(fx.fakeBin(['fmt-stub', 'lint-stub', 'test-stub']));
+    const before = snapshot(repo);
+    const r = runVerify(repo, ['--run'], { bin });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(resultFor(r.json, 'format').run.exit_code, 0);
+    assert.equal(resultFor(r.json, 'lint').run.exit_code, 0);
+    assert.equal(resultFor(r.json, 'test').run.skipped, 'not-included');
+    assert.equal(r.json.summary.ran, 2);
+    assert.equal(r.json.summary.failed, 0);
+    assert.ok(r.json.summary.skipped >= 1);
+    assert.deepEqual(snapshot(repo), before);
+
+    const withTest = runVerify(repo, ['--run', '--include', 'test'], { bin });
+    assert.equal(withTest.status, 0, withTest.stderr);
+    assert.equal(resultFor(withTest.json, 'test').run.exit_code, 0);
+    assert.equal(withTest.json.summary.ran, 3);
+  });
+
+  test('a failing stub records run.exit_code 3 and the CLI exits 1', () => {
+    const repo = projectWith(['  lint: { run: "fail-stub" }', '  format: { run: "fmt-stub" }']);
+    const bin = track(fx.fakeBin(['fmt-stub'], { failing: ['fail-stub'] }));
+    const r = runVerify(repo, ['--run'], { bin });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(resultFor(r.json, 'lint').run.exit_code, 3);
+    assert.equal(resultFor(r.json, 'format').run.exit_code, 0);
+    assert.equal(r.json.summary.failed, 1);
+  });
+
+  test('a command that is not resolved is not run', () => {
+    const repo = projectWith(['  lint: { run: "no-such-tool-xyz" }']);
+    const r = runVerify(repo, ['--run'], { bin: track(fx.fakeBin([])) });
+    assert.equal(r.status, 1);
+    assert.equal(resultFor(r.json, 'lint').run.skipped, 'not-resolved');
+    assert.equal(r.json.summary.ran, 0);
+  });
+
+  test('--keys narrows what runs; a denied command is refused end to end', () => {
+    const repo = projectWith(['  format: { run: "fmt-stub" }', '  lint: { run: "lint-stub" }', '  build: { run: "git push origin main" }']);
+    const bin = track(fx.fakeBin(['fmt-stub', 'lint-stub', 'git']));
+    const only = runVerify(repo, ['--run', '--keys', 'lint'], { bin });
+    assert.equal(resultFor(only.json, 'lint').run.exit_code, 0);
+    assert.equal(resultFor(only.json, 'format').run.skipped, 'not-selected');
+    const denied = runVerify(repo, ['--run'], { bin });
+    assert.equal(resultFor(denied.json, 'build').run.skipped, 'git-push');
+    assert.equal(denied.json.summary.ran, 2);
+  });
+
+  test('--timeout bounds a slow command and the batch continues', () => {
+    const repo = projectWith(['  format: { run: "slow-stub" }', '  lint: { run: "lint-stub" }']);
+    const bin = track(fx.fakeBin(['lint-stub']));
+    fs.writeFileSync(path.join(bin, 'slow-stub'), '#!/bin/sh\nsleep 20\n');
+    fs.chmodSync(path.join(bin, 'slow-stub'), 0o755);
+    const r = runVerify(repo, ['--run', '--timeout', '1'], { bin });
+    assert.equal(r.status, 1);
+    assert.equal(resultFor(r.json, 'format').run.timed_out, true);
+    assert.equal(resultFor(r.json, 'format').run.exit_code, null);
+    assert.equal(resultFor(r.json, 'lint').run.exit_code, 0);
+  });
+
+  test('--run --draft runs the safe commands of the draft, and still writes no STACK.md', () => {
+    const repo = track(fx.makeRepo({
+      'go.mod': 'module example.com/x\n\ngo 1.22\n',
+      'main.go': 'package main\nfunc main() {}\n',
+      Makefile: 'build:\n\tgo build ./...\n',
+    }));
+    const bin = track(fx.fakeBin(['make', 'go']));
+    const r = runVerify(repo, ['--draft', '--run'], { bin });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(resultFor(r.json, 'build').run.exit_code, 0);
+    assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false);
+  });
+});
+
+describe('CLI: stack verify with components (test 4)', () => {
+  function componentRepo() {
+    const stackMd = profileFx.profileMd({
+      yaml: [
+        'schema: 1',
+        'extends: general',
+        'commands:',
+        '  lint: { run: "lint-stub" }',
+        'components:',
+        '  - { path: "svc/", profile: ".planning/stacks/svc.md" }',
+      ].join('\n'),
+    });
+    const svc = profileFx.profileMd({ yaml: ['schema: 1', 'commands:', '  test: { run: "make -C svc test" }'].join('\n') });
+    return track(profileFx.makeProject({ stackMd, stacks: { svc }, files: { 'svc/Makefile': 'test:\n\tgo test ./...\n' } }));
+  }
+
+  test('component results are tagged with the component path and carry the rendered cwd as-is', () => {
+    const repo = componentRepo();
+    const bin = track(fx.fakeBin(['make', 'lint-stub']));
+    const r = runVerify(repo, [], { bin });
+    assert.equal(r.status, 0, r.stderr);
+    const t = resultFor(r.json, 'test', 'svc/');
+    assert.ok(t, 'a result tagged component svc/');
+    assert.equal(t.resolve.status, 'resolved');
+    assert.equal(t.command, 'make -C svc test');
+    // cwd is exactly what renderCommand returned for the component view. Before 42-05 that is
+    // undefined for a command without its own cwd; 42-05 changes this to 'svc'. It is NEVER 'svc/svc'.
+    assert.equal(t.cwd, undefined);
+    assert.notEqual(t.cwd, 'svc/svc');
+    for (const x of r.json.results) assert.notEqual(x.cwd, 'svc/svc');
+  });
+
+  test('the root view is still reported, with component null, and inherited commands are not repeated', () => {
+    const repo = componentRepo();
+    const bin = track(fx.fakeBin(['make', 'lint-stub']));
+    const r = runVerify(repo, [], { bin });
+    assert.equal(resultFor(r.json, 'lint').resolve.status, 'resolved');
+    assert.equal(resultFor(r.json, 'lint', 'svc/'), undefined);
+    assert.equal(r.json.results.filter((x) => x.key === 'lint').length, 1);
+  });
+
+  test('a component command whose binary is missing fails the run and names the component', () => {
+    const repo = componentRepo();
+    const bin = track(fx.fakeBin(['lint-stub']));
+    const r = runVerify(repo, [], { bin });
+    assert.equal(r.status, 1);
+    assert.equal(resultFor(r.json, 'test', 'svc/').resolve.status, 'binary_missing');
+  });
+});
+
+describe('CLI: this repo (the build gate)', () => {
+  // The one real-binary test (TRD 42 binding rules): it needs the real `npm` to resolve `npm test`.
+  test('stack verify against the checkout runs, reports test via npm, and writes nothing', (t) => {
+    const repoRoot = path.join(__dirname, '..', '..', '..', '..', '..');
+    if (!fs.existsSync(path.join(repoRoot, '.planning', 'STACK.md'))) return t.skip('no .planning/STACK.md in this checkout');
+    if (!resolveBinary('npm')) return t.skip('npm is not installed');
+    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repoRoot, 'stack', 'verify'], { encoding: 'utf-8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const json = JSON.parse(r.stdout);
+    assert.equal(resultFor(json, 'test').command, 'npm test');
+    assert.equal(resultFor(json, 'test').resolve.status, 'resolved');
+    assert.equal(resultFor(json, 'build').resolve.status, 'none');
+  });
+});
