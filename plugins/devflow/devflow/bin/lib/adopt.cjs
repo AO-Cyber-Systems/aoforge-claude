@@ -20,7 +20,7 @@ const { execFileSync } = require('child_process');
 
 const { detectRepoState } = require('./repo-state.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
-const { safeReadFile } = require('./helpers.cjs');
+const { safeReadFile, localDate } = require('./helpers.cjs');
 const { VALID_KINDS, VALID_WORKS } = require('./intent.cjs');
 const managedBlock = require('./managed-block.cjs');
 const stackProfile = require('./stack-profile.cjs');
@@ -537,10 +537,6 @@ function renderClaudeMdOverview(tpl) {
   );
 }
 
-function isoDate(now) {
-  return now.toISOString().slice(0, 10);
-}
-
 /**
  * scaffold(root, opts) -> preflight-shaped report (route !== 'resume') | scaffold result
  *
@@ -558,7 +554,8 @@ function scaffold(root, opts = {}) {
   }
 
   const target = pf.target;
-  const date = isoDate(now);
+  // The LOCAL calendar day (SDR-07): STATE/ROADMAP dates are read by a human as "today".
+  const date = localDate(now);
 
   // ── Pre-checks (no writes before all pass) ──────────────────────────────
   const pm = readProjectMd(target);
@@ -602,7 +599,7 @@ function scaffold(root, opts = {}) {
   const stackPath = path.join(target, '.planning', 'STACK.md');
   let stackSummary;
   if (!fs.existsSync(stackPath)) {
-    const ip = stackProfile.initProfile({ projectRoot: target, userHome, from: 'codebase', write: true });
+    const ip = stackProfile.initProfile({ projectRoot: target, userHome, from: 'codebase', write: true, now });
     if (ip.action === 'written') created.push('.planning/STACK.md');
     stackSummary = {
       action: ip.action,
@@ -980,7 +977,7 @@ function report(root, opts = {}) {
   rows.sort((a, b) => RANK[a.confidence] - RANK[b.confidence]);
 
   const now = pf.adopt.marker && marker.started_at ? new Date(marker.started_at) : new Date();
-  const date = isoDate(now);
+  const date = localDate(now);
   const pm = readProjectMd(target);
   const name = pm.ok ? pm.name : path.basename(target);
 

@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseYamlLite } = require('./yaml-lite.cjs');
 const { validate: schemaValidate } = require('./json-schema-lite.cjs');
-const { output, error } = require('./helpers.cjs');
+const { output, error, localDate } = require('./helpers.cjs');
 // 35-02b built command rendering / per-agent context slicing as a separate module so it could
 // run in parallel with 35-02a; re-exported below so every later caller requires only this file.
 const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./stack-render.cjs');
@@ -781,7 +781,7 @@ function slugifyId(name) {
  * parent's already-configured command, which is exactly how a `scoped` form an org profile
  * defines survives a draft that also happens to find CI evidence for the same key.
  */
-function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general' } = {}) {
+function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general', now = new Date() } = {}) {
   const evidence = collectEvidence(projectRoot, { from });
 
   const parentResolved = resolveFromParsed(
@@ -803,7 +803,8 @@ function draftProfile({ projectRoot, userHome = null, from = 'codebase', extends
   }
 
   const id = slugifyId(path.basename(projectRoot));
-  const today = new Date().toISOString().slice(0, 10);
+  // The LOCAL calendar day: `reviewed` is a date a human reads, not a UTC instant (SDR-07).
+  const today = localDate(now);
   const sources = [...new Set(evidence.map((e) => e.source))];
 
   const frontmatter = {
@@ -870,7 +871,7 @@ function serializeProfile(frontmatter, body) {
 }
 
 /**
- * initProfile({ projectRoot, userHome, from, extendsId, write, force }) ->
+ * initProfile({ projectRoot, userHome, from, extendsId, write, force, now }) ->
  *   { action: 'preview'|'written'|'refused', path, text, extends, evidence, validation }
  *
  * `extendsId` here is the CALLER's `--extends` override (may be null/undefined — `pickExtends`
@@ -879,9 +880,9 @@ function serializeProfile(frontmatter, body) {
  * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
  */
-function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false } = {}) {
+function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date() } = {}) {
   const picked = pickExtends({ projectRoot, userHome, explicit: extendsId });
-  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id });
+  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id, now });
   const text = serializeProfile(draft.frontmatter, draft.body);
   const validation = validateProfileText(text, { projectRoot, userHome, file: null });
   const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
