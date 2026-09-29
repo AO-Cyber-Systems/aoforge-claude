@@ -21,6 +21,10 @@
 //   bodyInvocations  the normalised command texts the item REALLY runs: a runner target's recipe
 //               (also for a CI step that calls it), a wrapper script's lines, else [command].
 //               stack-draft judges test breadth over these (TRD 42-13).
+//   cwdStatus   ok | external | missing | nested_repo | ignored | untracked (TRD 42-14): whether
+//               cwd is a real, tracked, non-ignored dir of THIS repo (stack-detect.cwdHygiene;
+//               `external` = a CI step inside another repo's checkout). stack-draft places only ok
+//               items; the rest become `cwd_<status>` notes (`missing` goes through verify).
 //   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
 //               dependedOn is true when another target in the same file lists it in its deps;
 //               order is its position in that file. stack-draft's canonical ranking reads it.
@@ -40,7 +44,7 @@ const { normalizeScript } = require('./stack-shell.cjs');
 const { classifyInvocation } = require('./stack-classify.cjs');
 const { parseWorkflows } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
-const { detectAreas } = require('./stack-detect.cjs');
+const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
 const { describeInvocation } = require('./stack-verify.cjs');
 
 const STANDARD_KEYS = ['build', 'test', 'lint', 'format', 'fix', 'typecheck', 'audit', 'codegen', 'deps'];
@@ -363,6 +367,7 @@ function readCi(projectRoot, index, push) {
         tool: cls.tool,
         resolvesTo: cls.resolvesTo,
         bodyInvocations,
+        external: inv.external === true || step.external === true,
       });
     }
   }
@@ -423,11 +428,12 @@ function readTestingMd(projectRoot, index, push) {
  * key, verifying it and deciding what reaches the profile is stack-draft.assembleDraft's job.
  * `areas` (detectAreas output) is read when not supplied. Never throws on an unreadable file.
  */
-function collectEvidence(projectRoot, { from = 'codebase', areas = null } = {}) {
+function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene = null } = {}) {
   const detected = Array.isArray(areas) ? areas : safeAreas(projectRoot);
   const areaDirs = detected.filter((a) => a && Array.isArray(a.kinds) && a.kinds.length).map((a) => a.dir).filter(Boolean);
 
   const buckets = { declared: [], runner: [], ci: [], manifest: [], docs: [] };
+  const externalItems = new Set();
   const push = (raw) => {
     if (!raw || !raw.key || !raw.command) return;
     const cwd = raw.cwd === undefined ? null : raw.cwd;
@@ -449,6 +455,7 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null } = {}) 
     out.bodyInvocations = Array.isArray(raw.bodyInvocations) && raw.bodyInvocations.length
       ? [...raw.bodyInvocations]
       : [raw.command];
+    if (raw.external === true) externalItems.add(out);
     (buckets[raw.source] || buckets.docs).push(out);
   };
 
@@ -465,7 +472,44 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null } = {}) 
   readCi(projectRoot, index, push);
   if (from === 'codebase') readTestingMd(projectRoot, index, push);
 
-  return [...buckets.declared, ...buckets.runner, ...buckets.ci, ...buckets.manifest, ...buckets.docs];
+  const all = [...buckets.declared, ...buckets.runner, ...buckets.ci, ...buckets.manifest, ...buckets.docs];
+
+  // cwdStatus (TRD 42-14): `external` for a CI step inside another repo's checkout, else the
+  // stack-detect.cwdHygiene verdict, primed ONCE with every distinct cwd (one git batch each).
+  const h = typeof hygiene === 'function' ? hygiene : safeHygiene(projectRoot);
+  const cwds = [];
+  for (const item of all) {
+    if (item.cwd && !externalItems.has(item) && !cwds.includes(item.cwd)) cwds.push(item.cwd);
+  }
+  if (h && typeof h.prime === 'function' && cwds.length) {
+    try {
+      h.prime(cwds);
+    } catch (_) {
+      // each cwd is then asked on its own
+    }
+  }
+  for (const item of all) {
+    if (externalItems.has(item)) item.cwdStatus = 'external';
+    else if (!item.cwd || !h) item.cwdStatus = 'ok';
+    else {
+      let s = 'ok';
+      try {
+        s = h(item.cwd) || 'ok';
+      } catch (_) {
+        s = 'ok';
+      }
+      item.cwdStatus = s;
+    }
+  }
+  return all;
+}
+
+function safeHygiene(projectRoot) {
+  try {
+    return cwdHygiene(projectRoot);
+  } catch (_) {
+    return null;
+  }
 }
 
 function safeAreas(projectRoot) {
