@@ -9,5 +9,5 @@ status: in-progress
 ## Progress
 
 - [x] Task 1: Stop fixture builders + hand-written message corpus (13 ANNOUNCE / 22 NOT_ANNOUNCE)
-- [ ] Task 2: announcedAction classifier + hasRunningBackground (RED, GREEN)
+- [~] Task 2: announcedAction classifier + hasRunningBackground — RED committed (exit 1, MODULE_NOT_FOUND); GREEN pending
 - [ ] Task 3: decide() + main() wired to the live-marker check (RED, GREEN)
