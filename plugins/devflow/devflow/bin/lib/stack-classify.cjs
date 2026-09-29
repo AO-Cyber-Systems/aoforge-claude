@@ -746,7 +746,13 @@ const TOOL_STACKS = Object.freeze({
   python: ['python', 'python3', 'pytest', 'ruff', 'mypy', 'pyright', 'pip', 'pip3', 'pip-audit', 'poetry', 'uv', 'pipenv', 'black', 'flake8', 'tox'],
   helm: ['helm', 'kubeconform'],
   docker: ['docker', 'hadolint', 'podman'],
+  // Language-neutral generators: they emit code for whichever stack the repo is, so they belong
+  // to none and stack-draft treats them as matching any tier (TRD 42-15 recovery).
+  neutral: ['buf', 'protoc', 'sqlc'],
 });
+
+/** The toolStack of a language-neutral generator (TOOL_STACKS.neutral): matches any tier. */
+const NEUTRAL_STACK = 'neutral';
 
 const STACK_OF_TOOL = new Map();
 for (const [stack, tools] of Object.entries(TOOL_STACKS)) for (const t of tools) STACK_OF_TOOL.set(t, stack);
@@ -763,7 +769,7 @@ const TIER_STACKS = Object.freeze({
 const LEADING_NOISE = /^(?:\{\{.*\}\}|[A-Za-z_][A-Za-z0-9_]*=.*)$/;
 
 /**
- * toolStack(inv) -> 'go'|'dart'|'flutter'|'node'|'rust'|'python'|'helm'|'docker'|null
+ * toolStack(inv) -> 'go'|'dart'|'flutter'|'node'|'rust'|'python'|'helm'|'docker'|'neutral'|null
  *
  * `inv` is a normalised invocation (`{ text, argv? }`) or a shell string (the first invocation in
  * it decides). null for an opaque wrapper, an unknown tool, a fragment or non-string input.
@@ -783,6 +789,7 @@ module.exports = {
   CLASSIFY_TABLE,
   TOOL_STACKS,
   TIER_STACKS,
+  NEUTRAL_STACK,
   toolStack,
   classifyInvocation,
   classifyUses,

@@ -66,7 +66,7 @@
 // that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
 // other unresolved candidate. Items without a cwdStatus are treated as ok.
 
-const { classifyInvocation, testBreadth, toolStack, TIER_STACKS } = require('./stack-classify.cjs');
+const { classifyInvocation, testBreadth, toolStack, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
 const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
@@ -235,6 +235,8 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   // The extends tier's stack family (D3 gate); null for general or a tier this classifier does
   // not know, which makes the gate a no-op.
   const family = Object.prototype.hasOwnProperty.call(TIER_STACKS, extendsId) ? TIER_STACKS[extendsId] : null;
+  // A language-neutral generator (NEUTRAL_STACK) belongs to no stack, so it matches any tier.
+  const onFamily = (stack) => stack === NEUTRAL_STACK || (!!family && family.includes(stack));
   const componentDirs = new Set(components.map((c) => c.path));
   const profileByDir = new Map(lang.map((a) => [a.dir, profileOf(a)]));
 
@@ -354,7 +356,7 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     const onStack = gated
       ? list.filter((c) => {
         const scopes = scopesOf(c);
-        if (scopes.some((s) => family.includes(s.stack) && rootAreas.has(s.area))) return true;
+        if (scopes.some((s) => onFamily(s.stack) && rootAreas.has(s.area))) return true;
         if (!offStackSeen.has(c.command)) {
           offStackSeen.add(c.command);
           const stacks = unique(scopes.map((s) => s.stack));
@@ -407,7 +409,7 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       notes.push(note(chosen, key, 'breadth-unknown', 'what this command runs could not be read; kept as the repo-wide test'));
     }
     if (gated && chosen) {
-      const others = unique(scopesOf(chosen).map((s) => s.stack).filter((s) => !family.includes(s)));
+      const others = unique(scopesOf(chosen).map((s) => s.stack).filter((s) => !onFamily(s)));
       if (others.length) {
         notes.push(note(chosen, key, 'mixed_stack', `also runs ${others.join('+')}; kept because a ${extendsId}-stack invocation runs at the root`));
       }
