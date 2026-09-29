@@ -85,7 +85,7 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 4. `.planning/STACK-REPORT.md` lists CI/CD + local-testing recommendations per stack, never auto-applied
 5. `stack validate` warns on `<sha>` pins, rejects positional paths; `reviewed` is the local date
 6. Every canonical DevFlow repo in `~/dev` has a committed, validated STACK.md (unpushed) or is listed as blocked with a reason
-**Plans:** 11 TRDs in 6 waves
+**Plans:** 13 TRDs in 8 waves (42-12/42-13 = gap closure from the 42-11 dry-run review)
 TRDs:
 - [x] 42-01-TRD.md — (W1) validation fixes: STK010 placeholder pins, reject positional path, local-date `reviewed`; `stack verify|report|mcp` lazy dispatch
 - [x] 42-03-TRD.md — (W1) `stack-shell` / `stack-ci` / `stack-classify`: joined logical commands, fragment drop rules, cwd, `uses:`, semantic key table
@@ -97,7 +97,9 @@ TRDs:
 - [x] 42-09-TRD.md — (W4) `stack mcp [--write]` (opt-in), W033, agent/skill MCP grants, `confirm_stack_profile` workflow step
 - [x] 42-08-TRD.md — (W5) `stack report [--write] [--draft]` → `.planning/STACK-REPORT.md` catalogue + adopt report link
 - [x] 42-10-TRD.md — (W6) docs (CLAUDE.md, CHANGELOG [Unreleased], templates/stack.md) + sync-runtime SUBDIRS `stack-profiles` mirror + doc pointers
-- [ ] 42-11-TRD.md — (W6, checkpoint) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → clean repos write/verify/report/commit, dirty repos listed (no push)
+- [ ] 42-12-TRD.md — (W6, gap G1) gitignore-aware area detection, report components = STACK.md components, file-level STACK.md gitignore preflight
+- [ ] 42-13-TRD.md — (W7, gap G2/G3) broad repo-wide `test` (narrow → notes, inherit profile default), canonical runner targets (alternates → notes)
+- [ ] 42-11-TRD.md — (W8, checkpoint; Task 1 re-run after 42-12/42-13) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → clean repos write/verify/report/commit, dirty repos listed (no push)
 
 ### Other v1.4 candidates
 
