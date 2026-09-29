@@ -712,6 +712,102 @@ describe('readRunners — conventional scripts', () => {
   });
 });
 
+// ─── deps / isDefault / order (TRD 42-13 tests 10-12) ─────────────────────────
+
+describe('readRunners — deps, isDefault and source order (TRD 42-13)', () => {
+  test('42-13/10. Make: prerequisites become deps; the first real target is the default', () => {
+    const root = track(fx.makeDepsShape());
+    const targets = readRunners(root);
+    const build = find(targets, 'make', '', 'build');
+    assert.deepEqual(build.deps, ['gen', 'fmt']);
+    assert.equal(build.isDefault, true, 'no .DEFAULT_GOAL: the first real target is the default');
+    assert.deepEqual(find(targets, 'make', '', 'package').deps, ['build', 'out'], 'order-only prerequisites are deps too');
+    assert.deepEqual(find(targets, 'make', '', 'test').deps, [], 'a target-specific variable line is not a prerequisite list');
+    assert.deepEqual(find(targets, 'make', '', 'gen').deps, []);
+    for (const name of ['gen', 'fmt', 'package', 'test', 'out']) {
+      assert.equal(find(targets, 'make', '', name).isDefault, false, name);
+    }
+  });
+
+  test('42-13/10b. Make: `.DEFAULT_GOAL := all` makes `all` the default even when it is not first', () => {
+    const root = track(fx.makeDepsShape());
+    const targets = readRunners(root);
+    assert.equal(find(targets, 'make', 'svc', 'all').isDefault, true);
+    assert.equal(find(targets, 'make', 'svc', 'lint').isDefault, false, 'first, but .DEFAULT_GOAL names another');
+    assert.deepEqual(find(targets, 'make', 'svc', 'all').deps, ['lint', 'build-dev']);
+    assert.deepEqual(find(targets, 'make', 'svc', 'build-dev').deps, ['gen']);
+  });
+
+  test('42-13/10c. _parseMakefile keeps its target shape; deps and the default goal ride alongside', () => {
+    const parsed = _parseMakefile('.DEFAULT_GOAL ?= b\na: x y\n\techo a\nb:\n\techo b\n');
+    assert.deepEqual(parsed.targets, [{ name: 'a', body: ['echo a'] }, { name: 'b', body: ['echo b'] }]);
+    assert.deepEqual(parsed.deps, { a: ['x', 'y'], b: [] });
+    assert.equal(parsed.defaultGoal, 'b');
+  });
+
+  test('42-13/11. Taskfile: flow and block `deps:` (bare and `- task:` items); `default` is the default', () => {
+    const root = track(fx.taskfileDepsShape());
+    const targets = readRunners(root);
+    assert.deepEqual(find(targets, 'task', '', 'default').deps, ['build:bundle'], 'flow list');
+    assert.deepEqual(find(targets, 'task', '', 'build:bundle').deps, ['gen', 'tidy'], 'block list: bare and `- task:` items');
+    assert.deepEqual(find(targets, 'task', '', 'dev').deps, ['gen', 'tidy'], 'quoted flow items are unquoted');
+    assert.deepEqual(find(targets, 'task', '', 'build:macos').deps, []);
+    assert.equal(find(targets, 'task', '', 'default').isDefault, true);
+    for (const t of targets.filter((x) => x.name !== 'default')) assert.equal(t.isDefault, false, t.name);
+    // `deps:` never leaks into the body.
+    assert.deepEqual(find(targets, 'task', '', 'build:bundle').body, ['task build:daemon', 'task build:relay:internal']);
+  });
+
+  test('42-13/11b. targets carry their source order in the file, whatever the sorted output order', () => {
+    const root = track(fx.taskfileDepsShape());
+    const targets = readRunners(root);
+    const order = (name) => find(targets, 'task', '', name).order;
+    assert.equal(order('default'), 0);
+    assert.ok(order('build:relay:quickdev') < order('build:bundle'), 'file order, not alphabetical');
+    assert.ok(order('build:bundle') < order('build:relay:internal'));
+    assert.ok(order('build:relay:internal') < order('dev'));
+  });
+
+  test('42-13/11c. _parseTaskfile tasks carry deps', () => {
+    const text = 'tasks:\n  a:\n    deps: [b, {task: c}]\n    cmd: x\n  b:\n    cmd: y\n';
+    const byName = Object.fromEntries(_parseTaskfile(text).tasks.map((t) => [t.name, t]));
+    assert.deepEqual(byName.a.deps, ['b', 'c'], 'a flow map item names its task');
+    assert.deepEqual(byName.b.deps, []);
+  });
+
+  test('42-13/12. justfile: recipe deps (plain, parameterised, post); the first recipe is the default', () => {
+    const root = track(fx.justDepsShape());
+    const targets = readRunners(root);
+    assert.deepEqual(find(targets, 'just', '', 'build').deps, ['gen']);
+    assert.deepEqual(find(targets, 'just', '', 'check').deps, ['build', 'lint'], 'a (recipe "arg") dependency names its recipe');
+    assert.deepEqual(find(targets, 'just', '', 'release').deps, ['build', 'notify'], 'post-dependencies after && count');
+    assert.deepEqual(find(targets, 'just', '', 'lint').deps, [], 'a parameter default is not a dependency');
+    assert.equal(find(targets, 'just', '', 'build').isDefault, true, 'first recipe');
+    assert.equal(find(targets, 'just', '', 'gen').isDefault, false);
+  });
+
+  test('42-13/12b. justfile: a recipe named `default` is the default even when it is not first', () => {
+    const root = track(fx.justDepsShape());
+    const targets = readRunners(root);
+    assert.equal(find(targets, 'just', 'lib', 'default').isDefault, true);
+    assert.deepEqual(find(targets, 'just', 'lib', 'default').deps, ['test']);
+    assert.equal(find(targets, 'just', 'lib', 'test').isDefault, false);
+  });
+
+  test('42-13/12c. every target carries deps (an array) and isDefault (a boolean), npm and scripts included', () => {
+    const root = track(fx.makeRepo({
+      'package.json': '{"scripts":{"test":"vitest run","build":"tsc"}}',
+      'bin/test.sh': 'go test ./...\n',
+    }));
+    for (const t of readRunners(root)) {
+      assert.ok(Array.isArray(t.deps), `${t.runner}:${t.name} deps`);
+      assert.equal(typeof t.isDefault, 'boolean', `${t.runner}:${t.name} isDefault`);
+      assert.equal(typeof t.order, 'number', `${t.runner}:${t.name} order`);
+      assert.equal(t.isDefault, false, 'no npm script or script file is a runner default');
+    }
+  });
+});
+
 describe('stack-runners module surface', () => {
   test('requires only fs and path', () => {
     const src = require('node:fs').readFileSync(require.resolve('./stack-runners.cjs'), 'utf-8');

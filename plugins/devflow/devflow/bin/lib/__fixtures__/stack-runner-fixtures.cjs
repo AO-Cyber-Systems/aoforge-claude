@@ -277,6 +277,157 @@ function emptyRepo() {
   return makeRepo({});
 }
 
+// ─── deps / default-target shapes (TRD 42-13) ─────────────────────────────────
+//
+// Canonical-target ranking needs to know which target a runner runs by default and which targets
+// other targets depend on. These builders carry both, with invented names.
+
+/**
+ * makeDepsShape() — two Makefiles.
+ *
+ * Root (no `.DEFAULT_GOAL`, so the FIRST real target `build` is the default): `build: gen fmt`,
+ * an order-only prerequisite (`package: build | out`), a target-specific variable line that is
+ * not a prerequisite list, and a pattern rule that is not a target.
+ * svc/ (`.DEFAULT_GOAL := all`): `lint` comes first but `all` is the default; `all` depends on
+ * `lint build-dev`, and `build-dev` depends on `gen`.
+ */
+function makeDepsShape() {
+  const root = [
+    '.PHONY: build gen fmt package',
+    'BIN := out/relay',
+    '',
+    'build: gen fmt',
+    '\tgo build -o $(BIN) ./...',
+    '',
+    'gen:',
+    '\tgo generate ./...',
+    '',
+    'fmt:',
+    '\tgofmt -w .',
+    '',
+    'package: build | out',
+    '\ttar czf out/relay.tgz $(BIN)',
+    '',
+    'test: GOFLAGS += -count=1',
+    'test:',
+    '\tgo test ./...',
+    '',
+    'out:',
+    '\tmkdir -p out',
+    '',
+    '%.pb.go: %.proto',
+    '\tprotoc $<',
+    '',
+  ].join('\n');
+
+  const svc = [
+    '.DEFAULT_GOAL := all',
+    '',
+    'lint:',
+    '\tgo vet ./...',
+    '',
+    'build-dev: gen',
+    '\tgo build -tags dev ./...',
+    '',
+    'all: lint build-dev',
+    '\tgo build ./...',
+    '',
+    'gen:',
+    '\tgo generate ./...',
+    '',
+  ].join('\n');
+
+  return makeRepo({ Makefile: root, 'svc/Makefile': svc });
+}
+
+/**
+ * taskfileDepsShape(extra) — a Taskfile with a `default` task whose `deps:` is a FLOW list, a
+ * `build:bundle` whose `deps:` is a BLOCK list mixing a bare name and a `- task: x` item (with
+ * vars under it), `:`-namespaced targets and variant targets (internal / quickdev / macos). The
+ * task order in the file is deliberately NOT alphabetical. `extra` adds files (a workflow, ...).
+ */
+function taskfileDepsShape(extra = {}) {
+  const taskfile = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  default:',
+    '    deps: [build:bundle]',
+    '',
+    '  build:relay:quickdev:',
+    '    cmds:',
+    '      - go build -o out/relay ./cmd/relay',
+    '',
+    '  build:bundle:',
+    '    desc: Build the daemon and the agent.',
+    '    deps:',
+    '      - gen',
+    '      - task: tidy',
+    '        vars:',
+    '          MODE: strict',
+    '    cmds:',
+    '      - task: build:daemon',
+    '      - task: build:relay:internal',
+    '',
+    '  build:relay:internal:',
+    '    cmd: go build -trimpath -o out/relay ./cmd/relay',
+    '    internal: true',
+    '',
+    '  build:macos:',
+    '    cmd: go build -o out/daemon-darwin ./cmd/daemon',
+    '',
+    '  gen:',
+    '    cmd: go generate ./...',
+    '',
+    '  tidy:',
+    '    cmd: go mod tidy',
+    '',
+    '  dev:',
+    '    deps: [gen, "tidy"]',
+    '    cmd: go run ./cmd/daemon',
+    '',
+  ].join('\n');
+  return makeRepo({ 'Taskfile.yml': taskfile, ...extra });
+}
+
+/**
+ * justDepsShape() — a root justfile whose FIRST recipe (`build`) is the default, with `build: gen`,
+ * a parameterised dependency (`check: build (lint "strict")`) and a post-dependency
+ * (`release: build && notify`); and `lib/justfile` whose `default` recipe is NOT first.
+ */
+function justDepsShape() {
+  const root = [
+    'set shell := ["bash", "-c"]',
+    '',
+    'build: gen',
+    '  go build ./...',
+    '',
+    'gen:',
+    '  go generate ./...',
+    '',
+    'lint mode="loose":',
+    '  go vet ./...',
+    '',
+    'check: build (lint "strict")',
+    '  go test ./...',
+    '',
+    'release: build && notify',
+    '  goreleaser release',
+    '',
+    'notify:',
+    '  echo released',
+    '',
+  ].join('\n');
+  const lib = [
+    'test:',
+    '  dart test',
+    '',
+    'default: test',
+    '',
+  ].join('\n');
+  return makeRepo({ justfile: root, 'lib/justfile': lib });
+}
+
 module.exports = {
   makeRepo,
   cleanup,
@@ -289,4 +440,7 @@ module.exports = {
   npmFamily,
   scriptsOnlyRepo,
   emptyRepo,
+  makeDepsShape,
+  taskfileDepsShape,
+  justDepsShape,
 };

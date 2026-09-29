@@ -550,3 +550,118 @@ describe('K22 table integrity', () => {
     assert.equal(classifyInvocation({ text: './scripts/check-vuln.sh', tool: './scripts/check-vuln.sh', argv: ['./scripts/check-vuln.sh'] }, { hint: 'govulncheck' }).key, 'audit');
   });
 });
+
+// ─── testBreadth (TRD 42-13 tests 8-9) ────────────────────────────────────────
+//
+// The repo-wide `test` must be broad. testBreadth reads the test runner's own flags and positional
+// paths (data per tool, in stack-classify) and says whether a test invocation runs the whole suite.
+
+const { testBreadth } = require('./stack-classify.cjs');
+
+describe('K23 testBreadth — broad (TRD 42-13 test 8)', () => {
+  const BROAD = [
+    'go test ./...',
+    'go test -race -short ./...',
+    'go test -coverprofile=c.out ./...',
+    'go test -race -coverprofile=c.out ./...',
+    'go test -count=1 -v -timeout 10m ./...',
+    'go test -json ./... | tee report.json',
+    'go test -tags osusergo,netgo ./...',
+    'go test ./cmd/...',
+    'go test',
+    'go test .',
+    'gotestsum --format pkgname -- -race ./...',
+    'gotestsum',
+    'dart test',
+    'dart test test/',
+    'flutter test',
+    'flutter test --coverage',
+    'dart test {{args}}',
+    'npm test',
+    'pnpm test',
+    'yarn run test',
+    'vitest run',
+    'jest --ci',
+    'pytest',
+    'pytest tests/',
+    'pytest -m "not integration"',
+    'cargo test --workspace',
+    'ginkgo -r -p',
+    'CGO_ENABLED=1 go test -race ./...',
+  ];
+  for (const input of BROAD) {
+    test(`${input}  ->  broad`, () => {
+      const r = testBreadth(input);
+      assert.ok(r, `${input} is a test invocation`);
+      assert.equal(r.breadth, 'broad', JSON.stringify(r));
+      assert.equal(r.reason, null);
+      assert.equal(r.fitsKey, 'test');
+    });
+  }
+});
+
+describe('K24 testBreadth — narrow, with reasons (TRD 42-13 test 9)', () => {
+  const NARROW = [
+    ['go test -c ./x/', 'compile-only', 'test'],
+    ['go test -o bin/t ./x/', 'compile-only', 'test'],
+    ['go test -c -o /tmp/guard.test ./tests/guard/', 'compile-only', 'test'],
+    ['go test -run TestFoo ./...', 'run-filter', 'test'],
+    ['go test -run=TestFoo ./...', 'run-filter', 'test'],
+    ['go test -tags=integration ./...', 'tag', 'integration'],
+    ['go test -tags e2e ./...', 'tag', 'e2e'],
+    ['go test ./tests/guard/', 'single-path', 'test'],
+    ['go test ./e2e/...', 'suite-path', 'e2e'],
+    ['go test ./integration/...', 'suite-path', 'integration'],
+    ['gotestsum -- -run TestSlow ./...', 'run-filter', 'test'],
+    ['dart test test/foo_test.dart', 'single-path', 'test'],
+    ['dart test --name parses', 'run-filter', 'test'],
+    ['dart test -t integration', 'tag', 'integration'],
+    ['flutter test integration_test', 'suite-path', 'e2e'],
+    ['flutter test test/widget_test.dart', 'single-path', 'test'],
+    ['npm test -- src/api.test.ts', 'single-path', 'test'],
+    ['vitest run src/api', 'single-path', 'test'],
+    ['jest -t "parses dates"', 'run-filter', 'test'],
+    ['pytest tests/unit/test_api.py', 'single-path', 'test'],
+    ['pytest -k slow', 'run-filter', 'test'],
+    ['pytest -m integration', 'tag', 'integration'],
+    ['cargo test parser', 'run-filter', 'test'],
+    ['ginkgo --focus Slow ./...', 'run-filter', 'test'],
+  ];
+  for (const [input, reason, fitsKey] of NARROW) {
+    test(`${input}  ->  narrow (${reason}, fits ${fitsKey})`, () => {
+      const r = testBreadth(input);
+      assert.ok(r, `${input} is a test invocation`);
+      assert.equal(r.breadth, 'narrow', JSON.stringify(r));
+      assert.equal(r.reason, reason, JSON.stringify(r));
+      assert.equal(r.fitsKey, fitsKey, JSON.stringify(r));
+      assert.equal(typeof r.detail, 'string');
+      assert.ok(r.detail.length > 0);
+    });
+  }
+
+  test('compile-only outranks every other reason', () => {
+    assert.equal(testBreadth('go test -c -run TestX -tags=integration ./tests/guard/').reason, 'compile-only');
+    assert.equal(testBreadth('go test -c -run TestX -tags=integration ./tests/guard/').fitsKey, 'integration');
+  });
+
+  test('a non-test invocation has no breadth (null); so does non-string input', () => {
+    for (const input of ['go build ./...', 'go vet ./...', 'make test', 'task test:unit', 'echo go test -c', '', null, 42]) {
+      assert.equal(testBreadth(input), null, String(input));
+    }
+  });
+
+  test('a normalised invocation object is read like its text', () => {
+    assert.equal(testBreadth({ text: 'go test -c ./x/', argv: ['go', 'test', '-c', './x/'] }).reason, 'compile-only');
+    assert.equal(testBreadth({ text: 'go test ./...' }).breadth, 'broad');
+  });
+
+  test('TEST_BREADTH is data: every row names a tool matcher and a spec', () => {
+    const { TEST_BREADTH } = require('./stack-classify.cjs');
+    assert.ok(Array.isArray(TEST_BREADTH) && TEST_BREADTH.length >= 8);
+    for (const row of TEST_BREADTH) {
+      assert.equal(typeof row.match, 'function');
+      assert.equal(typeof row.args, 'function');
+      assert.equal(typeof row.spec, 'object');
+    }
+  });
+});
