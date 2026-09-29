@@ -25,6 +25,13 @@
 //               cwd is a real, tracked, non-ignored dir of THIS repo (stack-detect.cwdHygiene;
 //               `external` = a CI step inside another repo's checkout). stack-draft places only ok
 //               items; the rest become `cwd_<status>` notes (`missing` goes through verify).
+//   bodyStacks  stack-classify.toolStack of each body invocation that classifies to `key` (a nested
+//               runner call / readable script is followed to what it runs); with none, of every
+//               body invocation (the tools alone). [] = unknown. (TRD 42-15)
+//   bodyScopes  [{ stack, area }]: each of those stacks with the area it runs in (mixed bodies)
+//   effectiveArea  the area the body really runs in: from a `cd x &&`, a Taskfile `dir:`, `make -C`
+//               / `npm --prefix`, a CI working-directory or a script's cwd; else `area`. stack-draft
+//               never places an item whose effectiveArea is an unsupported sub-area at the root.
 //   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
 //               dependedOn is true when another target in the same file lists it in its deps;
 //               order is its position in that file. stack-draft's canonical ranking reads it.
@@ -41,7 +48,7 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizeScript } = require('./stack-shell.cjs');
-const { classifyInvocation } = require('./stack-classify.cjs');
+const { classifyInvocation, toolStack } = require('./stack-classify.cjs');
 const { parseWorkflows } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
@@ -278,10 +285,109 @@ function classifyStep(inv, index, projectRoot) {
   return { cls: classifyInvocation(inv), runner: null };
 }
 
+// ─── body units: what an item really runs, and where (TRD 42-15, D3) ──────────
+//
+// A unit is one leaf invocation of an item's body with the directory it runs in. A runner call
+// that names a known target (`task build:daemon`, `make -C ui lint`, `npm --prefix ui test`) is
+// replaced by that target's body, run in the target's own dir / `dir:`; a prerequisites-only
+// target runs its deps; a readable wrapper script runs its lines. Bounded and cycle-safe.
+
+const MAX_EXPAND_DEPTH = 6;
+
+/** The dir a leaf invocation runs in: a runner's `-C` / `--prefix` / `-d` dir, else its own cwd. */
+function unitCwd(inv) {
+  const d = safeDescribe(inv);
+  if (d.kind === 'runner') return normDir(d.dir);
+  return normDir(inv.cwd);
+}
+
+function targetUnits(t, ctx, depth, seen) {
+  seen.add(t);
+  const cwd = normDir(t.cwd) || normDir(t.dir);
+  const body = Array.isArray(t.body) ? t.body : [];
+  const invs = safeNormalize(body.join('\n'), cwd);
+  const units = expandUnits(invs, ctx, depth, seen);
+  if (!invs.length && depth < MAX_EXPAND_DEPTH) {
+    // A prerequisites-only target (`build:agent: deps: [build:agent:internal]`) runs its deps.
+    for (const dep of Array.isArray(t.deps) ? t.deps : []) {
+      const dt = ctx.index.get(`${t.runner}|${normDir(t.dir) || ''}|${dep}`);
+      if (dt && !seen.has(dt)) units.push(...targetUnits(dt, ctx, depth + 1, seen));
+    }
+  }
+  return units;
+}
+
+/** A runner call or wrapper script -> the units it runs; null when it is a leaf (or unreadable). */
+function expandCall(inv, ctx, depth, seen) {
+  if (depth >= MAX_EXPAND_DEPTH) return null;
+  const d = safeDescribe(inv);
+  if (d.kind === 'runner') {
+    const name = Array.isArray(d.names) && d.names.length === 1 ? d.names[0] : null;
+    if (!name || d.unresolvable) return null;
+    const t = ctx.index.get(`${d.runner}|${normDir(d.dir) || ''}|${name}`);
+    if (!t) return null;
+    return seen.has(t) ? [] : targetUnits(t, ctx, depth + 1, seen);
+  }
+  if (d.kind === 'script' && d.file) {
+    const fileRel = joinDir(d.cwd, d.file);
+    if (!fileRel) return null;
+    const mark = `script:${fileRel}`;
+    if (seen.has(mark)) return [];
+    const text = readSmall(path.join(ctx.root, fileRel));
+    if (text === null) return null;
+    seen.add(mark);
+    return expandUnits(safeNormalize(text, normDir(inv.cwd)), ctx, depth + 1, seen);
+  }
+  return null;
+}
+
+/** expandUnits(invs, ctx, depth, seen) -> [{ inv, cwd }] leaf invocations (see the section header). */
+function expandUnits(invs, ctx, depth = 0, seen = new Set()) {
+  const out = [];
+  for (const inv of invs) {
+    const nested = expandCall(inv, ctx, depth, seen);
+    if (nested) out.push(...nested);
+    else out.push({ inv, cwd: unitCwd(inv) });
+  }
+  return out;
+}
+
+/**
+ * scopeOf(units, key, itemArea, areaDirs) -> { bodyStacks, bodyScopes, effectiveArea }
+ *
+ * Judged over the units that classify to `key`; with none (a name-only classification, a body
+ * of unknown tools) over every unit — the tools alone (TRD 42-15 recovery). `bodyStacks` are the
+ * non-null toolStacks; `bodyScopes` pair each with the area it runs in. `effectiveArea` is the one
+ * area those units run in; when they disagree, the item's own area if any unit runs there, else
+ * the first unit's area; with no unit at all, the item's own area.
+ */
+function scopeOf(units, key, itemArea, areaDirs) {
+  const keyed = units.filter((u) => {
+    const c = classifyInvocation(u.inv);
+    return !!c && c.key === key;
+  });
+  const basis = keyed.length ? keyed : units;
+  const bodyStacks = [];
+  const bodyScopes = [];
+  const areas = [];
+  for (const u of basis) {
+    const area = areaFor(u.cwd, areaDirs);
+    if (!areas.includes(area)) areas.push(area);
+    const stack = toolStack(u.inv);
+    if (!stack) continue;
+    if (!bodyStacks.includes(stack)) bodyStacks.push(stack);
+    if (!bodyScopes.some((s) => s.stack === stack && s.area === area)) bodyScopes.push({ stack, area });
+  }
+  let effectiveArea = itemArea;
+  if (areas.length === 1) effectiveArea = areas[0];
+  else if (areas.length > 1 && !areas.includes(itemArea)) effectiveArea = areas[0];
+  return { bodyStacks, bodyScopes, effectiveArea };
+}
+
 // ─── readers ──────────────────────────────────────────────────────────────────
 
 // 1. Explicit table: .planning/<from>/STACK.md `## Commands` rows (declared).
-function readCommandsTable(projectRoot, from, push) {
+function readCommandsTable(projectRoot, from, push, ctx) {
   const full = path.join(projectRoot, '.planning', from, 'STACK.md');
   let text;
   try {
@@ -318,12 +424,13 @@ function readCommandsTable(projectRoot, from, push) {
       confidence: 'high',
       weak: agrees ? cls.weak : [],
       tool: agrees ? cls.tool : invs[0].tool,
+      units: expandUnits(invs, ctx),
     });
   }
 }
 
 // 2. Task runners: Makefile / Taskfile / justfile / scripts (runner) and package.json (manifest).
-function readRunnerTargets(targets, push) {
+function readRunnerTargets(targets, push, ctx) {
   const depended = dependedOnIndex(targets);
   for (const t of targets) {
     const cls = classifyTarget(t);
@@ -342,12 +449,13 @@ function readRunnerTargets(targets, push) {
       resolvesTo: cls.resolvesTo,
       target: targetMeta(t, depended),
       bodyInvocations: targetInvocations(t),
+      units: targetUnits(t, ctx, 0, new Set()),
     });
   }
 }
 
 // 3. CI: every logical invocation of every workflow step (stack-ci).
-function readCi(projectRoot, index, push) {
+function readCi(projectRoot, index, push, ctx) {
   for (const step of parseWorkflows(projectRoot)) {
     for (const inv of step.invocations || []) {
       const { cls, runner, bodyInvocations } = classifyStep(inv, index, projectRoot);
@@ -368,13 +476,14 @@ function readCi(projectRoot, index, push) {
         resolvesTo: cls.resolvesTo,
         bodyInvocations,
         external: inv.external === true || step.external === true,
+        units: expandUnits([inv], ctx),
       });
     }
   }
 }
 
 // 4. .planning/codebase/TESTING.md fenced bash/sh blocks (docs; from=codebase only).
-function readTestingMd(projectRoot, index, push) {
+function readTestingMd(projectRoot, index, push, ctx) {
   const full = path.join(projectRoot, '.planning', 'codebase', 'TESTING.md');
   let text;
   try {
@@ -415,6 +524,7 @@ function readTestingMd(projectRoot, index, push) {
         weak: cls.weak,
         tool: cls.tool,
         bodyInvocations,
+        units: expandUnits([inv], ctx),
       });
     }
   }
@@ -434,6 +544,7 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
 
   const buckets = { declared: [], runner: [], ci: [], manifest: [], docs: [] };
   const externalItems = new Set();
+  const ctx = { root: projectRoot, index: new Map() };
   const push = (raw) => {
     if (!raw || !raw.key || !raw.command) return;
     const cwd = raw.cwd === undefined ? null : raw.cwd;
@@ -455,6 +566,9 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
     out.bodyInvocations = Array.isArray(raw.bodyInvocations) && raw.bodyInvocations.length
       ? [...raw.bodyInvocations]
       : [raw.command];
+    // TRD 42-15: the stacks the body runs and the area it runs in (stack-draft's D3 gate).
+    const units = Array.isArray(raw.units) ? raw.units : expandUnits(safeNormalize(raw.command, cwd), ctx);
+    Object.assign(out, scopeOf(units, out.key, out.area, areaDirs));
     if (raw.external === true) externalItems.add(out);
     (buckets[raw.source] || buckets.docs).push(out);
   };
@@ -466,11 +580,12 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
     targets = [];
   }
   const index = buildRunnerIndex(targets);
+  ctx.index = index;
 
-  readCommandsTable(projectRoot, from, push);
-  readRunnerTargets(targets, push);
-  readCi(projectRoot, index, push);
-  if (from === 'codebase') readTestingMd(projectRoot, index, push);
+  readCommandsTable(projectRoot, from, push, ctx);
+  readRunnerTargets(targets, push, ctx);
+  readCi(projectRoot, index, push, ctx);
+  if (from === 'codebase') readTestingMd(projectRoot, index, push, ctx);
 
   const all = [...buckets.declared, ...buckets.runner, ...buckets.ci, ...buckets.manifest, ...buckets.docs];
 

@@ -729,8 +729,61 @@ function testBreadth(inv) {
   return null;
 }
 
+// ─── Tool stack (TRD 42-15, D3) ───────────────────────────────────────────────
+//
+// Which language / ecosystem a command's TOOL belongs to, so stack-draft can ask "does this root
+// candidate run the extends tier's stack?" without naming a tool itself. Data, keyed on the tool
+// binary (the same families CLASSIFY_TABLE rows name). A wrapper that is itself stack-typed
+// (`npx`, `python -m`, `go run`, `dart run`) needs no unwrapping: the wrapper IS the stack. An
+// opaque tool (a script path, a shell, make/task/just) is null: its BODY decides, never its name.
+
+const TOOL_STACKS = Object.freeze({
+  go: ['go', 'gofmt', 'gofumpt', 'goimports', 'golangci-lint', 'staticcheck', 'govulncheck', 'gosec', 'gotestsum', 'ginkgo', 'gopls', 'templ'],
+  dart: ['dart', 'build_runner'],
+  flutter: ['flutter', 'patrol', 'fvm'],
+  node: ['node', 'npm', 'pnpm', 'yarn', 'bun', 'npx', 'bunx', 'vitest', 'jest', 'eslint', 'prettier', 'tsc', 'playwright', 'cypress', 'vite', 'tsx'],
+  rust: ['cargo', 'rustc', 'rustfmt'],
+  python: ['python', 'python3', 'pytest', 'ruff', 'mypy', 'pyright', 'pip', 'pip3', 'pip-audit', 'poetry', 'uv', 'pipenv', 'black', 'flake8', 'tox'],
+  helm: ['helm', 'kubeconform'],
+  docker: ['docker', 'hadolint', 'podman'],
+});
+
+const STACK_OF_TOOL = new Map();
+for (const [stack, tools] of Object.entries(TOOL_STACKS)) for (const t of tools) STACK_OF_TOOL.set(t, stack);
+
+/** The stack family each bundled tier-2 profile covers: a root command matches when its tool is in it. */
+const TIER_STACKS = Object.freeze({
+  go: Object.freeze(['go']),
+  dart: Object.freeze(['dart']),
+  flutter: Object.freeze(['dart', 'flutter']),
+});
+
+// A leading Taskfile / Helm template (`{{.GO_ENV_VARS}}`) or `VAR=val` expands to environment, not
+// a tool; skip it to reach the tool it prefixes.
+const LEADING_NOISE = /^(?:\{\{.*\}\}|[A-Za-z_][A-Za-z0-9_]*=.*)$/;
+
+/**
+ * toolStack(inv) -> 'go'|'dart'|'flutter'|'node'|'rust'|'python'|'helm'|'docker'|null
+ *
+ * `inv` is a normalised invocation (`{ text, argv? }`) or a shell string (the first invocation in
+ * it decides). null for an opaque wrapper, an unknown tool, a fragment or non-string input.
+ */
+function toolStack(inv) {
+  for (const c of toInvocations(inv)) {
+    let i = 0;
+    while (i < c.argv.length - 1 && LEADING_NOISE.test(c.argv[i])) i++;
+    const tool = c.argv[i];
+    if (!tool) continue;
+    return STACK_OF_TOOL.get(basename(tool)) || null;
+  }
+  return null;
+}
+
 module.exports = {
   CLASSIFY_TABLE,
+  TOOL_STACKS,
+  TIER_STACKS,
+  toolStack,
   classifyInvocation,
   classifyUses,
   lookupUses,
