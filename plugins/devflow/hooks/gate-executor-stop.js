@@ -303,6 +303,50 @@ function summaryExists(id, roots, fsImpl = fs) {
   return false;
 }
 
+/**
+ * The objective dir holding this TRD: the first `<root>/.planning/objectives/<dir>`
+ * that contains `<id>-TRD.md`, searched in `roots` order. Mirrors
+ * `summaryExists`: a root without (or with an unreadable) `.planning/objectives`
+ * is skipped, and any failure yields null (TRD 44-10).
+ *
+ * @param {string} id
+ * @param {string[]} roots
+ * @param {object} [fsImpl]
+ * @returns {string|null}
+ */
+function trdDirFor(id, roots, fsImpl = fs) {
+  if (!id || !Array.isArray(roots)) return null;
+  const file = `${id}-TRD.md`;
+  for (const root of roots) {
+    if (typeof root !== 'string' || !root) continue;
+    const objectivesDir = path.join(root, '.planning', 'objectives');
+    let entries;
+    try { entries = fsImpl.readdirSync(objectivesDir); } catch { continue; }
+    for (const entry of entries) {
+      const dir = path.join(objectivesDir, String(entry));
+      try {
+        if (fsImpl.existsSync(path.join(dir, file))) return dir;
+      } catch { /* skip entry */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * The repo-relative SUMMARY path for this TRD (`.planning/objectives/<dir>/<id>-SUMMARY.md`,
+ * forward slashes), or null when the TRD file can't be located.
+ *
+ * @param {string} id
+ * @param {string[]} roots
+ * @param {object} [fsImpl]
+ * @returns {string|null}
+ */
+function summaryRelPath(id, roots, fsImpl = fs) {
+  const dir = trdDirFor(id, roots, fsImpl);
+  if (!dir) return null;
+  return ['.planning', 'objectives', path.basename(dir), `${id}-SUMMARY.md`].join('/');
+}
+
 // ─── Deliberate stops ─────────────────────────────────────────────────────────
 
 // executor.md structured returns (## CHECKPOINT REACHED, ## ESCALATION
@@ -357,12 +401,31 @@ function gitWorktrees(repoRoot) {
 const SKIP_ENV = 'DEVFLOW_SKIP_EXECUTOR_STOP_GATE';
 const EXECUTOR_AGENT_TYPE = 'devflow:executor';
 
-function blockReason(id) {
+/**
+ * The block reason. With `summaryRel` (the TRD file was located) it names the
+ * exact repo-relative SUMMARY path. An agent told only "the TRD's SUMMARY.md"
+ * wrote it at the repo root, where neither this gate nor the orchestrator
+ * looks (TRD 44-10). Without a path, the wording is unchanged.
+ *
+ * @param {string} id
+ * @param {string|null} [summaryRel]
+ * @returns {string}
+ */
+function blockReason(id, summaryRel = null) {
+  const checkpoint = summaryRel
+    ? [
+      `If you must stop, first write the ## Progress checkpoint to ${summaryRel}`,
+      '(a path relative to your checkout root), listing the tasks done with hashes and the next',
+      'concrete step. Commit it, then stop.',
+    ]
+    : [
+      "If you must stop, first write the ## Progress checkpoint to the TRD's SUMMARY.md",
+      '(tasks done with hashes, the next concrete step) and commit it, then stop.',
+    ];
   return [
     `DevFlow: you are stopping, but TRD ${id} has no ${id}-SUMMARY.md.`,
     'If work remains, continue it now (commit each finished task with df-tools commit).',
-    "If you must stop, first write the ## Progress checkpoint to the TRD's SUMMARY.md",
-    '(tasks done with hashes, the next concrete step) and commit it, then stop.',
+    ...checkpoint,
     'If you stopped on purpose (checkpoint, escalation, exec-context hard stop), repeat that',
     'structured return verbatim and stop without writing files.',
     'Never use port 8080.',
@@ -405,7 +468,7 @@ function decide(payload, {
   const roots = candidateRoots({ cwd: start, repoRoot: trd.repoRoot, gitWorktrees: listWorktrees, fsImpl });
   if (summaryExists(trd.id, roots, fsImpl)) return null;
 
-  return { block: true, reason: blockReason(trd.id) };
+  return { block: true, reason: blockReason(trd.id, summaryRelPath(trd.id, roots, fsImpl)) };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -435,6 +498,9 @@ module.exports = {
   readFirstUserPrompt,
   candidateRoots,
   summaryExists,
+  trdDirFor,
+  summaryRelPath,
+  blockReason,
   isDeliberateStop,
   decide,
   gitWorktrees,
