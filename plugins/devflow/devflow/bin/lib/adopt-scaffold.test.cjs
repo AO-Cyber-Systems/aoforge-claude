@@ -218,6 +218,26 @@ describe('df-tools adopt scaffold — outermost validity', () => {
     assert.strictEqual(report.marker.steps.scaffolded, true, out);
     assert.strictEqual(report.marker.scaffold.stack.ok, true, JSON.stringify(report.marker.scaffold.stack));
   });
+
+  // TRD 42-07 test 17: the grounded draft's keys and notes reach the marker, so `adopt report`
+  // can tell a verified or inherited key from one with no evidence at all.
+  test('17. scaffold records evidence_keys, resolved_keys, inherited_keys and notes from the draft', () => {
+    const root = readyFixture('go-service');
+    const { report, out } = runAdopt(root, 'scaffold');
+    const st = report.marker.scaffold.stack;
+    assert.strictEqual(st.action, 'written', out);
+    for (const field of ['evidence_keys', 'resolved_keys', 'inherited_keys', 'notes']) {
+      assert.ok(Array.isArray(st[field]), `scaffold.stack.${field} missing: ${JSON.stringify(st)}`);
+    }
+    // go-service: Makefile test/lint/build over a go.mod, so the draft extends go.
+    for (const key of ['test', 'lint', 'build']) assert.ok(st.evidence_keys.includes(key), JSON.stringify(st.evidence_keys));
+    for (const key of st.resolved_keys) assert.ok(st.evidence_keys.includes(key), `resolved ${key} not in evidence_keys`);
+    // Every loop key is accounted for: verified, inherited from go, or explained by a note.
+    for (const key of ['test', 'lint', 'build']) {
+      const covered = st.resolved_keys.includes(key) || st.inherited_keys.includes(key) || st.notes.some((n) => n.key === key);
+      assert.ok(covered, `${key}: ${JSON.stringify(st)}`);
+    }
+  });
 });
 
 // ─── Idempotency / resume (tests 6-8) ──────────────────────────────────────

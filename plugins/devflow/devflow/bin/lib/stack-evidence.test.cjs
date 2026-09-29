@@ -2,7 +2,9 @@
 
 // stack-evidence.test.cjs — Test list (TRD 35-04, E group)
 //
-// - E1 CI `run: make test` → {key:'test', command:'make test', source:'.github/workflows/ci.yml'}.
+// - E1 CI `run: make test` (no Makefile to read) → {key:'test', command:'make test', source:'ci',
+//   sourceFile:'.github/workflows/ci.yml', confidence:'low'} — the key comes from the target NAME only
+//   because there is no body to read (TRD 42-07 changed `source` from the file to the evidence kind).
 // - E2 `run: |` block → each indented line considered.
 // - E3 Makefile targets → `make <t>`; `.PHONY:` and `X := y` ignored.
 // - E4 justfile recipes → `just <r>`.
@@ -10,9 +12,13 @@
 //   evidence, no throw.
 // - E6 codebase/STACK.md Commands table beats CI for the same key.
 // - E7 `from:'research'` reads `.planning/research/STACK.md`, not codebase.
-// - E8 same key in CI, Makefile, package.json → CI wins; all three present in the list.
+// - E8 same key in a Makefile, CI and package.json → all three present, in preference order
+//   runner > ci > manifest (TRD 42-07 truth 2; it was CI-first under the 35-04 scraper).
 // - E9 `echo hi` → unclassified, dropped.
 // - E10 empty repo → [].
+// - E11 (42-07 test 16) CI steps and runner targets compose: items carry source, sourceFile, cwd,
+//   area, form, runner, confidence and weak; comments, echo and continuations yield no fragment.
+// - E12 TESTING.md fenced blocks are read for from=codebase only, as source 'docs'.
 //
 // Fixtures are hand-built (`makeRepo` below), never generated — per `no_llm_test_data`.
 
@@ -65,10 +71,15 @@ describe('stack-evidence collectEvidence (E group)', () => {
     });
     try {
       const evidence = collectEvidence(root, { from: 'codebase' });
-      assert.deepStrictEqual(
-        evidence.find((e) => e.key === 'test'),
-        { key: 'test', command: 'make test', source: '.github/workflows/ci.yml' }
-      );
+      const item = evidence.find((e) => e.key === 'test');
+      assert.ok(item, JSON.stringify(evidence));
+      assert.equal(item.command, 'make test');
+      assert.equal(item.source, 'ci');
+      assert.equal(item.sourceFile, '.github/workflows/ci.yml');
+      assert.equal(item.cwd, null);
+      assert.equal(item.area, '');
+      assert.equal(item.runner, 'make');
+      assert.equal(item.confidence, 'low', 'no Makefile to read: the key is only the target name');
     } finally {
       cleanup(root);
     }
@@ -181,7 +192,8 @@ describe('stack-evidence collectEvidence (E group)', () => {
       const testEntries = evidence.filter((e) => e.key === 'test');
       assert.equal(testEntries.length, 2);
       assert.equal(testEntries[0].command, 'go test -race ./...');
-      assert.equal(testEntries[0].source, '.planning/codebase/STACK.md');
+      assert.equal(testEntries[0].source, 'declared');
+      assert.equal(testEntries[0].sourceFile, '.planning/codebase/STACK.md');
     } finally {
       cleanup(root);
     }
@@ -209,30 +221,35 @@ describe('stack-evidence collectEvidence (E group)', () => {
       const testEntries = evidence.filter((e) => e.key === 'test');
       assert.equal(testEntries.length, 1);
       assert.equal(testEntries[0].command, 'research test');
-      assert.equal(testEntries[0].source, '.planning/research/STACK.md');
+      assert.equal(testEntries[0].sourceFile, '.planning/research/STACK.md');
     } finally {
       cleanup(root);
     }
   });
 
-  test('E8: same key in CI, Makefile and package.json — CI wins, all three present', () => {
+  test('E8: same key in a Makefile, CI and package.json — all three present, runner > ci > manifest', () => {
+    // 35-04 used `ci test` / `maketool test`, which only classified through the English token
+    // `test`; tool semantics (42-03) read the tool, so the fixture now names real test runners.
     const root = makeRepo({
       '.github/workflows/ci.yml': [
         'jobs:',
         '  t:',
         '    steps:',
-        '      - run: ci test',
+        '      - run: go test ./...',
       ].join('\n'),
-      Makefile: ['test:', '\tmaketool test'].join('\n'),
+      Makefile: ['test:', '\tgo test -race ./...'].join('\n'),
       'package.json': JSON.stringify({ scripts: { test: 'jest' } }),
     });
     try {
       const evidence = collectEvidence(root, { from: 'codebase' });
       const testEntries = evidence.filter((e) => e.key === 'test');
-      assert.equal(testEntries.length, 3);
-      assert.equal(testEntries[0].command, 'ci test');
-      assert.ok(testEntries.some((e) => e.command === 'make test'));
-      assert.ok(testEntries.some((e) => e.command === 'npm test'));
+      assert.equal(testEntries.length, 3, JSON.stringify(testEntries));
+      assert.deepStrictEqual(testEntries.map((e) => [e.source, e.command]), [
+        ['runner', 'make test'],
+        ['ci', 'go test ./...'],
+        ['manifest', 'npm test'],
+      ]);
+      assert.ok(testEntries.every((e) => e.confidence === 'high'), 'every body names a real test tool');
     } finally {
       cleanup(root);
     }
@@ -259,6 +276,105 @@ describe('stack-evidence collectEvidence (E group)', () => {
     const root = makeRepo({});
     try {
       assert.deepStrictEqual(collectEvidence(root, { from: 'codebase' }), []);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// ─── E11 / E12: structured composition (TRD 42-07 test 16) ──────────────────────
+
+const drafterFx = require('./__fixtures__/stack-drafter-fixtures.cjs');
+
+const FRAGMENT = /^\s*(#|-|\$\{\{|echo\b|printf\b|test -f|\[|if\b|then\b|fi\b|\{|\})|\\\s*$/;
+
+describe('stack-evidence collectEvidence composition (E11-E12, TRD 42-07)', () => {
+  test('E11: CI steps and runner targets compose into structured items with cwd, area, form, source', () => {
+    const root = drafterFx.evidenceShape();
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase' });
+      for (const item of evidence) {
+        for (const field of ['key', 'command', 'form', 'source', 'sourceFile', 'cwd', 'area', 'runner', 'confidence', 'weak']) {
+          assert.ok(field in item, `item lacks ${field}: ${JSON.stringify(item)}`);
+        }
+        assert.ok(!FRAGMENT.test(item.command), `fragment item: ${JSON.stringify(item)}`);
+        assert.ok(Array.isArray(item.weak));
+      }
+
+      // The continued CI go test is ONE item, in svc (workflow default), in the svc/ area.
+      const ciTest = evidence.find((e) => e.source === 'ci' && e.command.startsWith('go test'));
+      assert.ok(ciTest, JSON.stringify(evidence));
+      assert.equal(ciTest.command, 'go test -count=1 ./...');
+      assert.equal(ciTest.key, 'test');
+      assert.equal(ciTest.form, 'check');
+      assert.equal(ciTest.cwd, 'svc');
+      assert.equal(ciTest.area, 'svc/');
+      assert.equal(ciTest.runner, null);
+      assert.equal(ciTest.confidence, 'high');
+      assert.equal(ciTest.sourceFile, '.github/workflows/ci.yml');
+
+      // The CI `make test` (run in svc) reads svc/Makefile's body: a high-confidence test.
+      const ciMake = evidence.find((e) => e.source === 'ci' && e.command === 'make test');
+      assert.ok(ciMake, JSON.stringify(evidence));
+      assert.equal(ciMake.key, 'test');
+      assert.equal(ciMake.cwd, 'svc');
+      assert.equal(ciMake.runner, 'make');
+      assert.equal(ciMake.confidence, 'high');
+
+      // Runner targets are invoked from their own dir: `make test` with cwd svc, not `make -C svc test`.
+      const runnerTest = evidence.find((e) => e.source === 'runner' && e.key === 'test');
+      assert.ok(runnerTest, JSON.stringify(evidence));
+      assert.equal(runnerTest.command, 'make test');
+      assert.equal(runnerTest.cwd, 'svc');
+      assert.equal(runnerTest.area, 'svc/');
+      assert.equal(runnerTest.runner, 'make');
+      assert.equal(runnerTest.sourceFile, 'svc/Makefile');
+      assert.equal(runnerTest.confidence, 'high');
+
+      // `fmt: gofmt -w .` is the APPLY form of format; `announce: @echo done` is not evidence.
+      const fmt = evidence.find((e) => e.key === 'format');
+      assert.ok(fmt, JSON.stringify(evidence));
+      assert.equal(fmt.command, 'make fmt');
+      assert.equal(fmt.form, 'apply');
+      assert.ok(!evidence.some((e) => e.command.includes('announce')), 'an echo-only target is not evidence');
+
+      // The root package.json script is a manifest item at the root.
+      const lint = evidence.find((e) => e.key === 'lint');
+      assert.ok(lint, JSON.stringify(evidence));
+      assert.equal(lint.command, 'npm run lint');
+      assert.equal(lint.source, 'manifest');
+      assert.equal(lint.cwd, null);
+      assert.equal(lint.area, '');
+
+      // Nothing from the comment or the echo.
+      assert.ok(!evidence.some((e) => /^#|echo/.test(e.command)));
+    } finally {
+      drafterFx.cleanup(root);
+    }
+  });
+
+  test('E12: TESTING.md fenced commands are docs evidence for from=codebase only', () => {
+    const root = makeRepo({
+      '.planning/codebase/TESTING.md': [
+        '# Testing',
+        '',
+        '```bash',
+        '# unit tests',
+        'go test -race \\',
+        '  ./...',
+        '```',
+        '',
+        '```yaml',
+        'test: not-a-command',
+        '```',
+      ].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase' });
+      assert.deepStrictEqual(evidence.map((e) => [e.key, e.command, e.source, e.sourceFile]), [
+        ['test', 'go test -race ./...', 'docs', '.planning/codebase/TESTING.md'],
+      ]);
+      assert.deepStrictEqual(collectEvidence(root, { from: 'research' }), []);
     } finally {
       cleanup(root);
     }

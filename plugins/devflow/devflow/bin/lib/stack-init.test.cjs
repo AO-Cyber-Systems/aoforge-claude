@@ -36,8 +36,12 @@ const fx = require('./__fixtures__/stack-profile-fixtures.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
 
-function run(args, { cwd, home }) {
-  const r = spawnSync('node', [TOOLS_PATH, ...args], { cwd, encoding: 'utf-8', env: { ...process.env, HOME: home } });
+const verifyFx = require('./__fixtures__/stack-verify-fixtures.cjs');
+const drafterFx = require('./__fixtures__/stack-drafter-fixtures.cjs');
+
+function run(args, { cwd, home, path: pathEnv = null }) {
+  const env = pathEnv ? { HOME: home, PATH: pathEnv } : { ...process.env, HOME: home };
+  const r = spawnSync(process.execPath, [TOOLS_PATH, ...args], { cwd, encoding: 'utf-8', env });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
@@ -117,23 +121,39 @@ describe('pickExtends (I2-I5)', () => {
 });
 
 describe('draftProfile (I6)', () => {
-  test('I6: omits a key the parent already resolves (keeping its inherited scoped form); includes a key the parent leaves at discover', () => {
-    const home = fx.makeHome({ stacks: { golike: fx.orgProfileGoLike() } });
+  // 42-07 rewrote this case. Under 35-04 ANY evidence for a key the parent already resolved was
+  // dropped, and `make test`/`make lint` with no Makefile were proposed unverified. Now the repo's
+  // own verified command outranks the tier default (TRD 42-07 truth 2) EXCEPT when it is the same
+  // command, which stays inherited so the parent's scoped form survives.
+  test('I6: a candidate equal to the parent run stays inherited (scoped kept); a discover key is filled from verified evidence', () => {
+    const golike = fx.profileMd({
+      yaml: [
+        'schema: 1',
+        'id: golike',
+        'extends: general',
+        'detect: [go.mod]',
+        'commands:',
+        '  test: { run: "go test ./...", scoped: "go test -race {packages}" }',
+      ].join('\n'),
+    });
+    const home = fx.makeHome({ stacks: { golike } });
     const root = fx.makeProject({
       files: {
+        Makefile: 'lint:\n\tgo vet ./...\n',
         '.github/workflows/ci.yml': [
           'jobs:',
           '  t:',
           '    steps:',
-          '      - run: make test',
+          '      - run: go test ./...',
           '      - run: make lint',
         ].join('\n'),
       },
     });
     try {
-      const draft = sp.draftProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'golike' });
+      const verify = () => ({ status: 'resolved', detail: 'stub' });
+      const draft = sp.draftProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'golike', verify });
       const commands = draft.frontmatter.commands;
-      assert.ok(!('test' in commands), 'test is already resolved by golike (non-discover); the draft must not redefine it');
+      assert.ok(!('test' in commands), 'test equals golike\'s run; the draft must not redefine it');
       assert.ok('lint' in commands, 'lint is discover in golike; the draft should fill it from evidence');
       assert.equal(commands.lint.run, 'make lint');
     } finally {
@@ -154,6 +174,21 @@ describe('serializeProfile (I7)', () => {
     const text = sp.serializeProfile(fm, '# Stack Profile: myproj\n\n<!-- no H2 below -->\n');
     const reparsed = sp.parseProfile(text).frontmatter;
     assert.deepStrictEqual(reparsed, fm);
+  });
+
+  test('I7c (42-07): components serialize as a flow array of flow maps and round-trip exactly', () => {
+    const fm = {
+      schema: 1,
+      id: 'myproj',
+      extends: 'general',
+      components: [{ path: 'svc/', profile: 'go' }, { path: 'app/', profile: 'flutter' }],
+      commands: { lint_helm: { run: 'helm lint chart/' }, e2e: { run: 'discover' } },
+      loop: ['lint'],
+      provenance: { reviewed: '2026-01-01', sources: ['.github/workflows/ci.yml'] },
+    };
+    const text = sp.serializeProfile(fm, '# Stack Profile: myproj\n');
+    assert.match(text, /^components: \[\{ path: "svc\/", profile: "go" \}, \{ path: "app\/", profile: "flutter" \}\]$/m);
+    assert.deepStrictEqual(sp.parseProfile(text).frontmatter, fm);
   });
 
   test('I7b: an empty commands object round-trips as an empty object, not null', () => {
@@ -244,8 +279,11 @@ describe('stack init CLI end-to-end (I12, DoD)', () => {
     });
     const home = fx.makeHome({ stacks: { golike } });
     const root = fx.makeProject({ files: fx.goShapedRepo() });
+    // 42-07: stack init verifies each command before proposing it, so the run needs a PATH with a
+    // `go` on it. A stub keeps the test independent of the machine (was: the real process PATH).
+    const bin = verifyFx.fakeBin(['go']);
     try {
-      const initRes = run(['stack', 'init', '--from', 'codebase', '--write'], { cwd: root, home });
+      const initRes = run(['stack', 'init', '--from', 'codebase', '--write'], { cwd: root, home, path: bin });
       assert.equal(initRes.code, 0);
       assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), true);
 
@@ -257,6 +295,7 @@ describe('stack init CLI end-to-end (I12, DoD)', () => {
       assert.equal(cmdRes.stdout, 'go test -race ./pkg');
     } finally {
       fx.cleanup(root, home);
+      verifyFx.cleanup(bin);
     }
   });
 });
@@ -411,5 +450,63 @@ describe('Dart vs Flutter detection (I15)', () => {
     } finally {
       fx.cleanup(dartRoot, flutterRoot, home);
     }
+  });
+});
+
+// ─── I16: grounded drafting (TRD 42-07) ────────────────────────────────────────
+//
+// draftProfile = detectAreas + collectEvidence + per-area pickExtends + assembleDraft, with the
+// verifier injected through `verifyOpts` (a fake PATH/home) so nothing depends on the machine.
+
+describe('grounded draftProfile / initProfile (I16, TRD 42-07)', () => {
+  test('I16a: a multi-area repo drafts general + components by tier id and returns notes', () => {
+    const root = drafterFx.multiAreaCiShape();
+    const home = drafterFx.fakeEmptyHome();
+    const bin = drafterFx.fakeToolchain();
+    try {
+      const verifyOpts = { env: { PATH: bin }, home };
+      const draft = sp.draftProfile({ projectRoot: root, userHome: home, verifyOpts });
+      assert.equal(draft.extends, 'general');
+      assert.deepStrictEqual(draft.frontmatter.components, [
+        { path: 'admin/', profile: 'flutter' },
+        { path: 'app/', profile: 'flutter' },
+        { path: 'svc/', profile: 'go' },
+      ]);
+      assert.ok(Array.isArray(draft.notes) && draft.notes.length > 0);
+      assert.match(draft.body, /<!-- stack init notes \(see \.planning\/STACK-REPORT\.md\):/);
+      assert.ok(draft.frontmatter.provenance.sources.includes('.github/workflows/ci.yml'));
+      assert.ok(draft.frontmatter.provenance.sources.every((s) => !['ci', 'runner', 'manifest'].includes(s)), 'sources are files');
+    } finally {
+      drafterFx.cleanup(root, home, bin);
+    }
+  });
+
+  test('I16b: initProfile threads verifyOpts/now, returns notes, and never writes .planning/stacks/', () => {
+    const root = drafterFx.missingBinaryShape();
+    const home = drafterFx.fakeEmptyHome();
+    const bin = drafterFx.fakeToolchain();
+    try {
+      const r = sp.initProfile({
+        projectRoot: root, userHome: home, write: true, now: new Date(2026, 8, 28, 23, 30), verifyOpts: { env: { PATH: bin }, home },
+      });
+      assert.equal(r.action, 'written', JSON.stringify(r.validation));
+      assert.equal(r.extends, 'go');
+      const fm = sp.parseProfile(r.text).frontmatter;
+      assert.deepStrictEqual(fm.commands.test, { run: 'discover' });
+      assert.equal(fm.provenance.reviewed, '2026-09-28');
+      assert.ok(r.notes.some((n) => n.key === 'test' && n.status === 'binary_missing' && n.candidate === 'ginkgo -r -p'));
+      assert.equal(fs.existsSync(path.join(root, '.planning', 'stacks')), false);
+    } finally {
+      drafterFx.cleanup(root, home, bin);
+    }
+  });
+
+  test('I16c: the notes comment is capped at 40 lines with a (+N more) trailer and the body stays under 150 lines', () => {
+    const notes = Array.from({ length: 55 }, (_, i) => ({ area: '', key: 'test', candidate: `tool${i} run`, status: 'binary_missing', detail: 'x', source: 'ci' }));
+    const body = sp.renderDraftBody('proj', 'general', notes);
+    const noteLines = body.split('\n').filter((l) => l.startsWith('- '));
+    assert.equal(noteLines.length, 40);
+    assert.match(body, /\(\+15 more in STACK-REPORT\.md\)/);
+    assert.ok(body.split('\n').length < 150);
   });
 });

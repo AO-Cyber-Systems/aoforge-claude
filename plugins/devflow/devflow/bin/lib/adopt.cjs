@@ -31,6 +31,9 @@ const backupPrune = require('./backup-prune.cjs');
 const ADOPT_BRANCH = 'devflow/adopt';
 const MARKER_NAME = 'devflow-adopt.json';
 const OWNED_PATHS = ['.planning', 'CLAUDE.md'];
+// Stack-draft notes carried in the marker and turned into report rows (TRD 42-07); bounded so a
+// sprawling monorepo cannot bloat the marker or the report.
+const MAX_STACK_NOTES = 100;
 
 const CODEBASE_DOC_NAMES = [
   'STACK', 'INTEGRATIONS', 'ARCHITECTURE', 'STRUCTURE',
@@ -601,11 +604,17 @@ function scaffold(root, opts = {}) {
   if (!fs.existsSync(stackPath)) {
     const ip = stackProfile.initProfile({ projectRoot: target, userHome, from: 'codebase', write: true, now });
     if (ip.action === 'written') created.push('.planning/STACK.md');
+    // TRD 42-07: the grounded draft says which keys it VERIFIED, which the tier supplies, and why
+    // any candidate was not proposed (notes); the report reads all of it back from the marker.
+    const resolvedKeys = Array.isArray(ip.resolvedKeys) ? ip.resolvedKeys : [];
     stackSummary = {
       action: ip.action,
       ok: ip.validation ? !!ip.validation.ok : false,
       errors: ip.validation ? ip.validation.errors : [],
-      evidence_keys: (ip.evidence || []).map((e) => e.key),
+      evidence_keys: [...new Set([...(ip.evidence || []).map((e) => e.key), ...resolvedKeys])],
+      resolved_keys: resolvedKeys,
+      inherited_keys: Array.isArray(ip.inheritedKeys) ? ip.inheritedKeys : [],
+      notes: (Array.isArray(ip.notes) ? ip.notes : []).slice(0, MAX_STACK_NOTES),
     };
   } else {
     const vp = stackProfile.validateProfile({ projectRoot: target, userHome });
@@ -937,18 +946,41 @@ function report(root, opts = {}) {
   }
   const highRows = high.map((entry) => ({ item: entry.field, value: entry.value, evidence: entry.evidence || '(no evidence recorded)' }));
 
-  // ── Deterministic finding: missing loop-command evidence ────────────────
+  // ── Deterministic finding: stack draft notes + missing loop-command evidence ─
+  // TRD 42-07: each draft note (a candidate that was not verified, a weak gate kept verbatim, an
+  // unsupported area) is one low row; a loop key gets the missing-evidence row only when it is
+  // neither verified, nor inherited from the tier, nor evidenced at all.
+  const st = scaffoldInfo.stack;
   let evidenceKeys;
-  if (scaffoldInfo.stack && scaffoldInfo.stack.action === 'written' && Array.isArray(scaffoldInfo.stack.evidence_keys)) {
-    evidenceKeys = new Set(scaffoldInfo.stack.evidence_keys);
+  let resolvedKeys;
+  let inheritedKeys;
+  let draftNotes;
+  if (st && st.action === 'written' && Array.isArray(st.evidence_keys)) {
+    evidenceKeys = new Set(st.evidence_keys);
+    resolvedKeys = new Set(Array.isArray(st.resolved_keys) ? st.resolved_keys : []);
+    inheritedKeys = new Set(Array.isArray(st.inherited_keys) ? st.inherited_keys : []);
+    draftNotes = Array.isArray(st.notes) ? st.notes : [];
   } else {
     const draft = stackProfile.draftProfile({ projectRoot: target, userHome, from: 'codebase' });
     evidenceKeys = new Set((draft.evidence || []).map((e) => e.key));
+    resolvedKeys = new Set(draft.resolvedKeys || []);
+    inheritedKeys = new Set(draft.inheritedKeys || []);
+    // An existing STACK.md was not drafted by adopt; notes about a re-draft do not apply to it.
+    draftNotes = st && st.action === 'existing' ? [] : (draft.notes || []);
+  }
+  for (const n of draftNotes.slice(0, MAX_STACK_NOTES)) {
+    if (!n || typeof n !== 'object') continue;
+    const item = `${n.key || 'stack'}: ${n.candidate || n.detail || '(no detail)'} — ${n.status || 'note'}`;
+    rows.push({
+      confidence: 'low',
+      item: item.replace(/\|/g, '\\|'),
+      inferred: n.area ? n.area : '(root)',
+      evidence: String(n.detail || `stack init ${n.source || 'draft'}`).replace(/\|/g, '\\|'),
+    });
   }
   for (const key of ['test', 'lint', 'build']) {
-    if (!evidenceKeys.has(key)) {
-      rows.push({ confidence: 'low', item: `no command evidence for '${key}'`, inferred: '(none)', evidence: 'checked .planning/STACK.md loop commands at scaffold time' });
-    }
+    if (resolvedKeys.has(key) || inheritedKeys.has(key) || evidenceKeys.has(key)) continue;
+    rows.push({ confidence: 'low', item: `no command evidence for '${key}'`, inferred: '(none)', evidence: 'checked .planning/STACK.md loop commands at scaffold time' });
   }
 
   // ── Deterministic finding: scratch repo state ────────────────────────────

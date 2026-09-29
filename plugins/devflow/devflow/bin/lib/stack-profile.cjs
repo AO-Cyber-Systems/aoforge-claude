@@ -891,57 +891,113 @@ function slugifyId(name) {
   return lowered.replace(/^[^a-z0-9]+/, '');
 }
 
+// The body's notes comment is capped so a draft with many notes stays under MAX_BODY_LINES (STK007).
+const MAX_NOTE_LINES = 40;
+
+function noteLine(n) {
+  const where = n.area ? n.area : 'root';
+  const what = n.candidate ? `${n.key}: ${n.candidate}` : (n.key || 'stack');
+  const detail = n.detail ? ` (${n.detail})` : '';
+  // Never close the HTML comment early, never break it across lines.
+  return `- ${where} ${what} — ${n.status}${detail}`.replace(/\r?\n/g, ' ').replace(/-->/g, '-- >');
+}
+
 /**
- * draftProfile({ projectRoot, userHome, from, extendsId }) -> { frontmatter, body, evidence, extends }
- *
- * Evidence comes from `stack-evidence.collectEvidence`. A command is only added when the PARENT
- * chain (bundled general plus `extendsId`'s own `extends` chain — computed via a synthetic
- * target that carries `extendsId` but no commands of its own, so it can never shadow the very
- * chain it's asking about) leaves that key at `discover` or undefined — never overwriting a
- * parent's already-configured command, which is exactly how a `scoped` form an org profile
- * defines survives a draft that also happens to find CI evidence for the same key.
+ * renderDraftBody(id, extendsId, notes) -> the drafted body: a title, the "no empty sections"
+ * comment, and — when there are notes — a second comment listing them, capped at 40 lines with a
+ * `(+N more in STACK-REPORT.md)` trailer.
  */
-function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general', now = new Date(), bundledDir = BUNDLED_STACKS_DIR } = {}) {
-  const evidence = collectEvidence(projectRoot, { from });
-
-  const parentResolved = resolveFromParsed(
-    { frontmatter: { schema: 1, extends: extendsId }, sections: [] },
-    { userHome, file: null, projectRoot, targetPath: null, bundledDir }
-  );
-  const parentCommands = (parentResolved.frontmatter && parentResolved.frontmatter.commands) || {};
-
-  const commands = {};
-  const seenKeys = new Set();
-  for (const item of evidence) {
-    if (seenKeys.has(item.key)) continue; // first (highest-priority) entry per key wins
-    seenKeys.add(item.key);
-    const parentEntry = parentCommands[item.key];
-    const parentRun = parentEntry && typeof parentEntry.run === 'string' ? parentEntry.run : undefined;
-    if (parentRun === undefined || parentRun === 'discover') {
-      commands[item.key] = { run: item.command };
-    }
-  }
-
-  const id = slugifyId(path.basename(projectRoot));
-  // The LOCAL calendar day: `reviewed` is a date a human reads, not a UTC instant (SDR-07).
-  const today = localDate(now);
-  const sources = [...new Set(evidence.map((e) => e.source))];
-
-  const frontmatter = {
-    schema: 1,
-    id,
-    extends: extendsId,
-    commands,
-    provenance: { reviewed: today, sources },
-  };
-
-  const body = `# Stack Profile: ${id}\n\n`
+function renderDraftBody(id, extendsId, notes = []) {
+  let body = `# Stack Profile: ${id}\n\n`
     + `<!-- Drafted by \`df-tools stack init\`. Add no `
     + '`## ` heading below unless this project genuinely diverges from `'
     + `${extendsId}\`: an empty section would replace the parent's. Recognized sections: `
     + `${SECTION_NAMES.join(', ')}. -->\n`;
+  const list = Array.isArray(notes) ? notes : [];
+  if (list.length) {
+    const lines = list.slice(0, MAX_NOTE_LINES).map(noteLine);
+    if (list.length > MAX_NOTE_LINES) lines.push(`(+${list.length - MAX_NOTE_LINES} more in STACK-REPORT.md)`);
+    body += `\n<!-- stack init notes (see .planning/STACK-REPORT.md):\n${lines.join('\n')}\n-->\n`;
+  }
+  return body;
+}
 
-  return { frontmatter, body, evidence, extends: extendsId };
+/** The default draft verifier: stack-verify's static resolver, run against the real env unless overridden. */
+function defaultVerifier(projectRoot, verifyOpts = {}) {
+  // Lazy: stack-verify.cjs requires this module (inside verifyStack); a top-level require would cycle.
+  const { verifyCommand } = require('./stack-verify.cjs');
+  return (command, cwd) => verifyCommand(command, { root: projectRoot, cwd: cwd || '', ...verifyOpts });
+}
+
+/**
+ * draftProfile({ projectRoot, userHome, from, extendsId, now, bundledDir, verifyOpts, verify }) ->
+ *   { frontmatter, body, evidence, extends, notes, resolvedKeys, inheritedKeys }
+ *
+ * Grounded drafting (TRD 42-07): detect the repo's areas, pick each language area's profile with
+ * `pickExtends` (an explicit `extendsId` wins for the root), collect structured evidence, resolve
+ * each involved profile's commands (a synthetic target carrying only `extends`, so it cannot
+ * shadow the chain it asks about), and hand all of it to stack-draft.assembleDraft with a
+ * verifier — `verify(command, cwd)` when given, else stack-verify with `verifyOpts` (env, home).
+ * Only STACK.md is ever drafted: components name a profile id, never a file under .planning/.
+ */
+function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, now = new Date(), bundledDir = BUNDLED_STACKS_DIR, verifyOpts = {}, verify = null } = {}) {
+  // Lazy: stack-draft/stack-detect are drafting-only, and keeping them out of the loader's load
+  // path means every `stack resolve` caller never pays for them.
+  const { detectAreas } = require('./stack-detect.cjs');
+  const { assembleDraft } = require('./stack-draft.cjs');
+
+  let areas = [];
+  try {
+    areas = detectAreas(projectRoot);
+  } catch (_) {
+    areas = [];
+  }
+  const withProfiles = areas.map((a) => {
+    if (!Array.isArray(a.kinds) || !a.kinds.length) return a;
+    const dirAbs = a.dir ? path.join(projectRoot, a.dir) : projectRoot;
+    return { ...a, profile: pickExtends({ projectRoot: dirAbs, userHome, bundledDir }).id };
+  });
+  const evidence = collectEvidence(projectRoot, { from, areas });
+
+  const ids = new Set(['general']);
+  if (extendsId) ids.add(extendsId);
+  for (const a of withProfiles) if (a.profile) ids.add(a.profile);
+  const tierCommands = {};
+  for (const tierId of ids) {
+    const resolved = resolveFromParsed(
+      { frontmatter: { schema: 1, extends: tierId }, sections: [] },
+      { userHome, file: null, projectRoot, targetPath: null, bundledDir }
+    );
+    tierCommands[tierId] = (resolved.frontmatter && resolved.frontmatter.commands) || {};
+  }
+
+  const draft = assembleDraft({
+    areas: withProfiles,
+    evidence,
+    tierCommands,
+    verify: typeof verify === 'function' ? verify : defaultVerifier(projectRoot, verifyOpts),
+    extendsId,
+  });
+
+  const id = slugifyId(path.basename(projectRoot));
+  // The LOCAL calendar day: `reviewed` is a date a human reads, not a UTC instant (SDR-07).
+  const today = localDate(now);
+
+  const frontmatter = { schema: 1, id, extends: draft.extendsId };
+  if (draft.components.length) frontmatter.components = draft.components;
+  frontmatter.commands = draft.commands;
+  if (draft.loop) frontmatter.loop = draft.loop;
+  frontmatter.provenance = { reviewed: today, sources: draft.sources };
+
+  return {
+    frontmatter,
+    body: renderDraftBody(id, draft.extendsId, draft.notes),
+    evidence,
+    extends: draft.extendsId,
+    notes: draft.notes,
+    resolvedKeys: draft.resolvedKeys,
+    inheritedKeys: draft.inheritedKeys,
+  };
 }
 
 function yamlScalar(value) {
@@ -1000,13 +1056,22 @@ function serializeProfile(frontmatter, body) {
  * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
  */
-function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date(), bundledDir = BUNDLED_STACKS_DIR } = {}) {
-  const picked = pickExtends({ projectRoot, userHome, explicit: extendsId, bundledDir });
-  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id, now, bundledDir });
+function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date(), bundledDir = BUNDLED_STACKS_DIR, verifyOpts = {}, verify = null } = {}) {
+  // draftProfile picks each area's profile itself; `extendsId` is only the caller's override.
+  const draft = draftProfile({ projectRoot, userHome, from, extendsId, now, bundledDir, verifyOpts, verify });
   const text = serializeProfile(draft.frontmatter, draft.body);
   const validation = validateProfileText(text, { projectRoot, userHome, file: null, bundledDir });
   const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
-  const base = { path: targetPath, text, extends: picked.id, evidence: draft.evidence, validation };
+  const base = {
+    path: targetPath,
+    text,
+    extends: draft.extends,
+    evidence: draft.evidence,
+    notes: draft.notes,
+    resolvedKeys: draft.resolvedKeys,
+    inheritedKeys: draft.inheritedKeys,
+    validation,
+  };
 
   if (!write || !validation.ok) {
     return { action: 'preview', ...base };
@@ -1177,6 +1242,7 @@ module.exports = {
   matchMarkersAt,
   pickExtends,
   draftProfile,
+  renderDraftBody,
   serializeProfile,
   initProfile,
   cmdStack,

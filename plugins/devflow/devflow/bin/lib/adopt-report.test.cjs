@@ -241,6 +241,45 @@ describe('adopt report', () => {
     }
   });
 
+  // TRD 42-07 test 17: one low row per draft note; the missing-evidence rows only for keys that
+  // are neither resolved nor inherited (and have no evidence at all).
+  test('17. draft notes become low rows; resolved and inherited keys get no missing-evidence row', () => {
+    const root = scaffoldedFixture('go-service');
+    const marker = readMarkerFile(root);
+    marker.scaffold.stack = {
+      action: 'written',
+      ok: true,
+      errors: [],
+      evidence_keys: ['test'],
+      resolved_keys: ['lint'],
+      inherited_keys: [],
+      notes: [
+        { area: '', key: 'test', candidate: 'ginkgo -r -p', status: 'binary_missing', detail: 'ginkgo not found on PATH', source: 'ci' },
+        { area: 'portal/', key: null, candidate: null, status: 'info', detail: 'unsupported area (node)', source: null },
+      ],
+    };
+    adopt.writeMarker(root, gitEnv(fakeHome), marker);
+
+    const result = runAdopt(root, 'report');
+    assert.strictEqual(result.status, 0, result.out);
+    const rows = result.report.needs_review;
+    const noteRow = rows.find((r) => r.item === 'test: ginkgo -r -p — binary_missing');
+    assert.ok(noteRow, JSON.stringify(rows));
+    assert.strictEqual(noteRow.confidence, 'low');
+    assert.ok(rows.some((r) => r.confidence === 'low' && r.item === 'stack: unsupported area (node) — info'), JSON.stringify(rows));
+    assert.ok(!rows.some((r) => r.item === "no command evidence for 'lint'"), 'lint is resolved');
+    assert.ok(!rows.some((r) => r.item === "no command evidence for 'test'"), 'test has evidence (and a note)');
+    assert.ok(rows.some((r) => r.item === "no command evidence for 'build'"), 'build: no evidence, not resolved, not inherited');
+
+    // Inherited keys are covered too.
+    marker.scaffold.stack.inherited_keys = ['build'];
+    adopt.writeMarker(root, gitEnv(fakeHome), marker);
+    fs.rmSync(path.join(root, '.planning', 'ADOPT-REPORT.md'), { force: true });
+    const again = runAdopt(root, 'report');
+    assert.strictEqual(again.status, 0, again.out);
+    assert.ok(!again.report.needs_review.some((r) => r.item === "no command evidence for 'build'"), JSON.stringify(again.report.needs_review));
+  });
+
   test('7. a codebase doc under 20 lines gets a medium row naming it', () => {
     const root = scaffoldedFixture('go-service');
     fs.writeFileSync(path.join(root, '.planning', 'codebase', 'STACK.md'), '# STACK\n\nShort.\n', 'utf-8');
