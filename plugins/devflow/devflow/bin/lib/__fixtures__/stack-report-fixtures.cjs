@@ -448,6 +448,7 @@ const SHAPES = Object.freeze({
 });
 
 module.exports = {
+  DEFAULT_TOOLCHAIN: drafterFx.DEFAULT_TOOLCHAIN,
   makeWhole,
   cleanup,
   fakeToolchain,

@@ -23,10 +23,77 @@
 //   12. Deterministic: two runs byte-identical with the date injected.
 //   14. Q8 probe (skip-only): `dart test --coverage=coverage` in a temp package; diagnostic only.
 
-const { describe, test } = require('node:test');
+const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
 
 const fx = require('./__fixtures__/stack-report-fixtures.cjs');
+
+const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
+const FIXED_NOW = new Date(2026, 8, 28, 12, 0, 0);
+const SEVERITY_RANK = { gap: 0, weak: 1, info: 2 };
+
+// Every ID in the TRD must_haves, in catalogue order.
+const CATALOGUE_IDS = [
+  'GO-FMT', 'GO-VET', 'GO-LINT', 'GO-VULN', 'GO-RACE', 'GO-COVER', 'GO-TIDY', 'GO-FIX', 'GO-GEN-DRIFT',
+  'GO-BUF', 'GO-SAST', 'DART-ANALYZE', 'DART-FORMAT', 'DART-TEST', 'DART-COVER', 'FLUT-INTEG',
+  'FLUT-MAESTRO', 'FLUT-GOLDEN', 'DART-CODEGEN', 'DART-LOCK', 'DART-OUTDATED', 'JS-CI', 'JS-AUDIT',
+  'JS-LINT', 'JS-TYPE', 'JS-E2E', 'HELM-LINT', 'DOCKER-LINT', 'DOCKER-SCAN', 'DOCKER-PIN',
+  'CI-HYGIENE', 'LOCAL-MIRROR', 'CI-MISSING',
+];
+
+let home;
+before(() => { home = fx.fakeEmptyHome(); });
+after(() => { fx.cleanup(home); });
+
+// A verifier stub: findings never depend on it; it keeps in-process drafts off the host PATH.
+const stubVerify = () => ({ status: 'resolved', detail: 'stub', tool: null });
+
+/** In-process report with the date injected and a stub verifier. */
+function reportOf(repo, opts = {}) {
+  return lazyReport().buildReport({ projectRoot: repo, userHome: home, now: FIXED_NOW, verify: stubVerify, ...opts });
+}
+
+/** runCli(repo, args, { tools }) -> { status, stdout, stderr, json }. PATH = stub tools ONLY. */
+function runCli(repo, args, { tools = fx.DEFAULT_TOOLCHAIN } = {}) {
+  const bin = fx.fakeToolchain(tools);
+  try {
+    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'report', ...args], {
+      encoding: 'utf-8', env: { PATH: bin, HOME: home }, timeout: 60000,
+    });
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch (_) { json = null; }
+    return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '', json };
+  } finally {
+    fx.cleanup(bin);
+  }
+}
+
+/** Every file under root (relative path -> sha256), for "nothing was written" assertions. */
+function snapshot(root) {
+  const out = {};
+  const walk = (abs, rel) => {
+    for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(abs, e.name), r);
+      else out[r] = crypto.createHash('sha256').update(fs.readFileSync(path.join(abs, e.name))).digest('hex');
+    }
+  };
+  walk(root, '');
+  return out;
+}
+
+const rows = (findings, id) => findings.filter((f) => f.id === id);
+const one = (findings, id) => {
+  const hit = rows(findings, id);
+  assert.equal(hit.length, 1, `expected exactly one ${id} row, got ${JSON.stringify(findings, null, 2)}`);
+  return hit[0];
+};
+const none = (findings, id) => assert.equal(rows(findings, id).length, 0, `unexpected ${id} row: ${JSON.stringify(rows(findings, id))}`);
 
 function withShape(build, fn) {
   const repo = build();
@@ -137,5 +204,262 @@ describe('buildRecords (TRD 42-08 test 7r)', () => {
         }
       }
     });
+  });
+});
+
+describe('stack report CLI (TRD 42-08 tests 1-3)', () => {
+  test('1. --write on a Go gaps repo writes STACK-REPORT.md with correct counts; GO-RACE/GO-VET/GO-VULN are gaps; workflows untouched', () => {
+    withShape(fx.goGapsShape, (repo) => {
+      const wfDir = path.join(repo, '.github', 'workflows');
+      const wfBefore = snapshot(wfDir);
+      const makeBefore = fs.readFileSync(path.join(repo, 'Makefile'), 'utf-8');
+
+      const r = runCli(repo, ['--write']);
+      assert.equal(r.status, 0, r.stderr);
+      const file = path.join(repo, '.planning', 'STACK-REPORT.md');
+      assert.ok(fs.existsSync(file), 'STACK-REPORT.md written');
+      const text = fs.readFileSync(file, 'utf-8');
+
+      const raw = runCli(repo, ['--raw']);
+      assert.equal(raw.status, 0, raw.stderr);
+      const { findings } = raw.json;
+      const tally = { gap: 0, weak: 0, info: 0 };
+      for (const f of findings) tally[f.severity]++;
+      const m = /^counts: \{ gap: (\d+), weak: (\d+), info: (\d+) \}$/m.exec(text);
+      assert.ok(m, text);
+      assert.deepEqual({ gap: Number(m[1]), weak: Number(m[2]), info: Number(m[3]) }, tally);
+      assert.deepEqual(raw.json.counts, tally);
+
+      for (const id of ['GO-RACE', 'GO-VET', 'GO-VULN']) assert.equal(one(findings, id).severity, 'gap', id);
+
+      // The documented format.
+      assert.match(text, /^---\ngenerated: "\d{4}-\d{2}-\d{2}"\nprofile: "go"\nprofile_source: draft\ncomponents: \[\]\ncounts: /);
+      assert.match(text, /^# Stack Report: /m);
+      assert.match(text, /^Proposals only — nothing here has been applied\. Review, then change CI\/runners yourself\.$/m);
+      for (const h of ['## Gaps', '## Weak', '## Info', '## Draft notes']) assert.ok(text.includes(`\n${h}\n`), h);
+      assert.match(text, /\| ID \| Component \| Finding \| Evidence \| Proposal \|/);
+      assert.match(text, /\| Key \| Candidate \| Status \| Source \|/);
+      assert.match(text, /\| GO-RACE \|/);
+
+      // Proposals only: CI, runner files and STACK.md are never touched.
+      assert.deepEqual(snapshot(wfDir), wfBefore);
+      assert.equal(fs.readFileSync(path.join(repo, 'Makefile'), 'utf-8'), makeBefore);
+      assert.ok(!fs.existsSync(path.join(repo, '.planning', 'STACK.md')));
+      assert.deepEqual(fs.readdirSync(path.join(repo, '.planning')), ['STACK-REPORT.md']);
+    });
+  });
+
+  test('2. --raw writes nothing and returns JSON findings sorted by (severity, component, id)', () => {
+    withShape(fx.polyglotShape, (repo) => {
+      const before = snapshot(repo);
+      const r = runCli(repo, ['--raw']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(snapshot(repo), before, 'nothing may be written');
+      assert.ok(r.json && Array.isArray(r.json.findings) && r.json.findings.length > 5, r.stdout);
+      const { findings } = r.json;
+      for (let i = 1; i < findings.length; i++) {
+        const a = findings[i - 1];
+        const b = findings[i];
+        const ka = [SEVERITY_RANK[a.severity], a.component, a.id];
+        const kb = [SEVERITY_RANK[b.severity], b.component, b.id];
+        const cmp = ka[0] - kb[0] || (ka[1] < kb[1] ? -1 : ka[1] > kb[1] ? 1 : 0) || (ka[2] < kb[2] ? -1 : ka[2] > kb[2] ? 1 : 0);
+        assert.ok(cmp <= 0, `out of order: ${JSON.stringify(a)} before ${JSON.stringify(b)}`);
+      }
+      for (const f of findings) {
+        assert.ok(['gap', 'weak', 'info'].includes(f.severity), JSON.stringify(f));
+        for (const k of ['id', 'component', 'finding', 'proposal']) assert.equal(typeof f[k], 'string', `${k} on ${JSON.stringify(f)}`);
+        assert.ok(Array.isArray(f.evidence), JSON.stringify(f));
+      }
+    });
+  });
+
+  test('3. --draft --raw without STACK.md reports profile_source draft and writes no STACK.md; a STACK.md file is used when present', () => {
+    withShape(fx.goGapsShape, (repo) => {
+      const r = runCli(repo, ['--draft', '--raw']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.json.profile_source, 'draft');
+      assert.equal(r.json.profile, 'go');
+      assert.ok(!fs.existsSync(path.join(repo, '.planning')), '.planning must not be created');
+
+      fs.mkdirSync(path.join(repo, '.planning'));
+      fs.writeFileSync(path.join(repo, '.planning', 'STACK.md'), '---\nschema: 1\nid: "ledger"\nextends: "go"\ncommands: {}\n---\n\n# ledger\n', 'utf-8');
+      const fromFile = runCli(repo, ['--raw']);
+      assert.equal(fromFile.status, 0, fromFile.stderr);
+      assert.equal(fromFile.json.profile_source, 'file');
+      assert.equal(fromFile.json.id, 'ledger');
+      const forced = runCli(repo, ['--draft', '--raw']);
+      assert.equal(forced.json.profile_source, 'draft');
+    });
+  });
+
+  test('3b. an unknown flag or a positional argument is a usage error (exit 1)', () => {
+    withShape(fx.goGapsShape, (repo) => {
+      assert.equal(runCli(repo, ['--bogus']).status, 1);
+      assert.equal(runCli(repo, ['somewhere']).status, 1);
+    });
+  });
+});
+
+describe('computeFindings (TRD 42-08 tests 4-11)', () => {
+  test('4. applicability: pure Go has no DART/FLUT/JS/HELM/DOCKER rows; a Flutter app without .maestro gets FLUT-MAESTRO info; with .maestro run in CI there is none', () => {
+    withShape(fx.goGapsShape, (repo) => {
+      const { findings } = reportOf(repo);
+      const foreign = findings.filter((f) => /^(DART|FLUT|JS|HELM|DOCKER)-/.test(f.id));
+      assert.deepEqual(foreign, []);
+    });
+    withShape(fx.flutterAppNoMaestro, (repo) => {
+      const { findings } = reportOf(repo);
+      const row = one(findings, 'FLUT-MAESTRO');
+      assert.equal(row.severity, 'info');
+      assert.match(row.snippet, /^maestro test \.maestro$/);
+      assert.deepEqual(findings.filter((f) => /^GO-/.test(f.id)), []);
+    });
+    withShape(fx.flutterAppWithMaestro, (repo) => {
+      none(reportOf(repo).findings, 'FLUT-MAESTRO');
+    });
+  });
+
+  test('5. weak: --no-fatal-infos, bare gofmt -l and continue-on-error golangci-lint are weak rows', () => {
+    withShape(fx.weakAnalyzersShape, (repo) => {
+      const { findings } = reportOf(repo);
+      const analyze = one(findings, 'DART-ANALYZE');
+      assert.equal(analyze.severity, 'weak');
+      assert.equal(analyze.component, 'app/');
+      assert.match(analyze.finding, /--no-fatal-infos/);
+      const fmt = one(findings, 'GO-FMT');
+      assert.equal(fmt.severity, 'weak');
+      assert.equal(fmt.component, 'svc/');
+      assert.match(fmt.finding, /bare gofmt -l/);
+      const lint = one(findings, 'GO-LINT');
+      assert.equal(lint.severity, 'weak');
+      assert.match(lint.finding, /continue-on-error/);
+      assert.equal(one(findings, 'DART-TEST').severity, 'gap');
+    });
+  });
+
+  test('6. expansion: CI `make lint` into golangci-lint counts as GO-LINT present; a govulncheck wrapper script counts as GO-VULN present', () => {
+    withShape(fx.makeExpansionShape, (repo) => none(reportOf(repo).findings, 'GO-LINT'));
+    withShape(fx.wrapperScriptShape, (repo) => none(reportOf(repo).findings, 'GO-VULN'));
+  });
+
+  test('7. `uses: golangci/golangci-lint-action` counts as GO-LINT present', () => {
+    withShape(fx.usesActionShape, (repo) => none(reportOf(repo).findings, 'GO-LINT'));
+  });
+
+  test('8. LOCAL-MIRROR: a CI-only go vet names `lint`; a runner vet target removes the row', () => {
+    withShape(fx.SHAPES.localMirrorWithoutVet, (repo) => {
+      const row = one(reportOf(repo).findings, 'LOCAL-MIRROR');
+      assert.equal(row.severity, 'gap');
+      assert.match(row.finding, /\blint\b/);
+    });
+    withShape(fx.SHAPES.localMirrorWithVet, (repo) => none(reportOf(repo).findings, 'LOCAL-MIRROR'));
+  });
+
+  test('9. CI-MISSING is info when there are no workflows (and CI gates are not listed one by one); HELM-LINT is a gap on lint only', () => {
+    withShape(fx.noCiShape, (repo) => {
+      const { findings } = reportOf(repo);
+      assert.equal(one(findings, 'CI-MISSING').severity, 'info');
+      none(findings, 'GO-VET');
+      none(findings, 'GO-RACE');
+      none(findings, 'LOCAL-MIRROR');
+    });
+    withShape(fx.helmOnlyLintShape, (repo) => {
+      const row = one(reportOf(repo).findings, 'HELM-LINT');
+      assert.equal(row.severity, 'gap');
+      assert.match(row.finding, /kubeconform/);
+    });
+  });
+
+  test('10. GO-GEN-DRIFT is a gap when sqlc.yaml exists and no `git diff --exit-code` follows the generator', () => {
+    withShape(fx.sqlcNoDriftShape, (repo) => assert.equal(one(reportOf(repo).findings, 'GO-GEN-DRIFT').severity, 'gap'));
+    withShape(fx.sqlcWithDriftShape, (repo) => none(reportOf(repo).findings, 'GO-GEN-DRIFT'));
+  });
+
+  test('11. draft notes: a missing ginkgo becomes a DRAFT-NOTE-test info row naming the candidate and binary_missing', () => {
+    withShape(fx.missingBinaryShape, (repo) => {
+      const r = runCli(repo, ['--raw']);
+      assert.equal(r.status, 0, r.stderr);
+      const note = r.json.findings.find((f) => f.id === 'DRAFT-NOTE-test');
+      assert.ok(note, JSON.stringify(r.json.findings, null, 2));
+      assert.equal(note.severity, 'info');
+      assert.match(note.finding, /ginkgo -r -p/);
+      assert.match(note.finding, /binary_missing/);
+
+      const md = runCli(repo, []);
+      assert.equal(md.status, 0, md.stderr);
+      assert.match(md.stdout, /## Draft notes\n\n\| Key \| Candidate \| Status \| Source \|\n\|---\|---\|---\|---\|\n\| test \| `ginkgo -r -p` \| binary_missing \|/);
+    });
+  });
+
+  test('every catalogue ID is data in REPORT_CHECKS and is exercised by at least one fixture', () => {
+    const { REPORT_CHECKS } = lazyReport();
+    assert.deepEqual(REPORT_CHECKS.map((c) => c.id), CATALOGUE_IDS);
+    for (const c of REPORT_CHECKS) {
+      assert.ok(['go', 'dart', 'flutter', 'js', 'helm', 'docker', 'any'].includes(c.stack), c.id);
+      assert.ok(['gap', 'weak', 'info'].includes(c.severity), c.id);
+      assert.equal(typeof c.proposal, 'string', c.id);
+      for (const re of c.ci || []) assert.ok(re instanceof RegExp, c.id);
+    }
+    const seen = new Set();
+    for (const [name, build] of Object.entries(fx.SHAPES)) {
+      withShape(build, (repo) => {
+        for (const f of reportOf(repo).findings) seen.add(f.id);
+      });
+      assert.ok(name);
+    }
+    const missing = CATALOGUE_IDS.filter((id) => !seen.has(id));
+    assert.deepEqual(missing, [], `IDs no fixture produced: ${missing.join(', ')}`);
+  });
+
+  test('DART-COVER proposes `flutter test --coverage` for Flutter and the Q8-verified `dart test --coverage=coverage` for Dart', () => {
+    withShape(fx.flutterAppNoMaestro, (repo) => assert.equal(one(reportOf(repo).findings, 'DART-COVER').snippet, 'flutter test --coverage'));
+    withShape(fx.pureDartShape, (repo) => {
+      const { findings } = reportOf(repo);
+      assert.equal(one(findings, 'DART-COVER').snippet, 'dart test --coverage=coverage');
+      none(findings, 'DART-ANALYZE'); // `dart analyze --fatal-infos` is the strict form
+      none(findings, 'DART-TEST');
+    });
+  });
+});
+
+describe('determinism and render (TRD 42-08 test 12)', () => {
+  test('12. two runs give byte-identical output with the date injected', () => {
+    withShape(fx.polyglotShape, (repo) => {
+      const a = reportOf(repo);
+      const b = reportOf(repo);
+      assert.equal(a.text, b.text);
+      assert.deepEqual(a.findings, b.findings);
+      assert.match(a.text, /^---\ngenerated: "2026-09-28"\n/);
+      const { renderReport } = lazyReport();
+      assert.equal(renderReport(a.findings, a.meta), a.text);
+    });
+  });
+});
+
+describe('Q8 probe (TRD 42-08 test 14, skip-only)', () => {
+  test('14. `dart test --coverage=coverage` in a temp minimal Dart package (diagnostic only; never fails on the outcome)', (t) => {
+    const probe = spawnSync('dart', ['--version'], { encoding: 'utf-8', timeout: 30000 });
+    if (probe.error || probe.status !== 0) {
+      t.skip('dart is not installed');
+      return;
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-q8-probe-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'test'));
+      fs.writeFileSync(path.join(dir, 'pubspec.yaml'), 'name: q8_probe\npublish_to: none\nenvironment:\n  sdk: ^3.5.0\ndev_dependencies:\n  test: any\n', 'utf-8');
+      fs.writeFileSync(path.join(dir, 'test', 'probe_test.dart'), "import 'package:test/test.dart';\n\nvoid main() {\n  test('adds', () => expect(1 + 1, 2));\n}\n", 'utf-8');
+      const get = spawnSync('dart', ['pub', 'get', '--offline'], { cwd: dir, encoding: 'utf-8', timeout: 120000 });
+      if (get.status !== 0) {
+        t.diagnostic(`Q8: dart pub get --offline failed (package:test not cached): ${(get.stderr || '').trim().split('\n').pop()}`);
+        t.skip('package:test is not in the offline pub cache');
+        return;
+      }
+      const run = spawnSync('dart', ['test', '--coverage=coverage'], { cwd: dir, encoding: 'utf-8', timeout: 180000 });
+      let produced = [];
+      try { produced = fs.readdirSync(path.join(dir, 'coverage'), { recursive: true }).map(String).sort(); } catch (_) { produced = []; }
+      t.diagnostic(`Q8: dart test --coverage=coverage exit=${run.status}; coverage/ contains: ${produced.join(', ') || '(nothing)'}`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
