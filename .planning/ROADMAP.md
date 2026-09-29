@@ -101,7 +101,7 @@ TRDs:
 - [x] 42-13-TRD.md — (W7, gap G2/G3) broad repo-wide `test` (narrow → notes, inherit profile default), canonical runner targets (alternates → notes)
 - [ ] 42-14-TRD.md — (W8, gap cycle 2: D1/D2/D4/D5) CI checkout-path cwd normalisation + `cwd_missing`, ignored/untracked/nested-repo cwds to notes, `--no-index` stack-file ignore check in preview
 - [ ] 42-15-TRD.md — (W9, gap cycle 2: D3) root-override policy (primary-stack match; sub-area candidates to notes), D1-D5 e2e, 42-11 re-run hand-off
-- [ ] 42-11-TRD.md — (W10, checkpoint; Task 1 re-run after 42-14/42-15) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → clean repos write/verify/report/commit, dirty repos listed (no push)
+- [ ] 42-11-TRD.md — (W10, checkpoint; Task 1 re-run after 42-14/42-15) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → write/verify/report + two-file commit on the current branch incl. dirty repos (user decision 2026-09-29; no push)
 
 ### Other v1.4 candidates
 
