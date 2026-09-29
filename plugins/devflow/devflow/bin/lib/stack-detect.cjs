@@ -16,9 +16,26 @@
 //
 // Pure Dart vs Flutter reuses flutter-ui-scope's `detectPubspecFlutter` — the one shared test for
 // "this pubspec depends on the Flutter SDK". There is deliberately no second pubspec regex here.
+//
+// Ignored directories (TRD 42-12, gap G1). A gitignored build output such as `dist/<scaffold>/`
+// once became a drafted component. Two filters now keep such trees out, and both PRUNE — an
+// ignored dir is never listed, so a huge ignored `dist/` is never walked:
+//   - a static fallback, always applied: IGNORED_DIR_FALLBACK names plus any dir whose name
+//     contains `scaffold` (case-insensitive). Outside a git work tree, or when git is missing or
+//     fails, it is the only filter.
+//   - in a git work tree, `git check-ignore --no-index --stdin -z`, ONE spawn per breadth-first
+//     level carrying every candidate dir of that level. `--no-index` because the default,
+//     index-aware check calls a dir "not ignored" as soon as it holds a tracked file (the
+//     `.planning` miss). Dirs are queried BARE (`dist/app`, no trailing slash): git lstat()s the
+//     path, so a dir-only rule (`dist/`) still matches, while a trailing slash makes `x/*` match
+//     `x/` itself and would wrongly prune `x/keep/` under `x/*` + `!x/keep/`.
+// Pass 1 is therefore planned breadth-first (one batch per level), then processed depth-first
+// over the cached listings exactly as before; pass 2 (codegen) is breadth-first already and
+// batches per level too. Decisions are cached per call, so no dir is ever asked about twice.
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { detectPubspecFlutter } = require('./flutter-ui-scope.cjs');
 
 // ─── marker data ──────────────────────────────────────────────────────────
@@ -74,6 +91,16 @@ const SKIP_DIRS = new Set([
   'example', 'test_support', 'android', 'ios', 'macos', 'linux', 'windows', 'web',
 ]);
 
+// Build outputs, caches and scaffolding that are ignored in practice whether or not a
+// `.gitignore` says so (TRD 42-12). Always applied; the only filter outside a git work tree.
+const IGNORED_DIR_FALLBACK = Object.freeze(['dist', 'build', 'out', 'vendor', 'node_modules', '.dart_tool', 'target', 'coverage']);
+const IGNORED_FALLBACK_SET = new Set(IGNORED_DIR_FALLBACK);
+const SCAFFOLD_NAME = /scaffold/i;
+
+// Bounds for the git ignore filter: a stuck git must never hang detection.
+const GIT_TIMEOUT_MS = 15000;
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+
 const KIND_ORDER = AREA_MARKERS.languages.map((l) => l.kind);
 const TIER_BY_KIND = Object.fromEntries(AREA_MARKERS.languages.map((l) => [l.kind, l.tier]));
 
@@ -111,12 +138,95 @@ function readTextSafe(abs, maxBytes = MAX_READ_BYTES) {
   }
 }
 
-// True when the walk may enter `name` under `parentAbs`: not on the skip list, not a
-// dot-directory, and not a nested checkout (a `.git` FILE marks a worktree, a `.git` DIRECTORY a
-// nested repository — either way it is somebody else's tree).
+// True when the walk may enter `name` under `parentAbs`: not on the skip list or the static
+// ignore fallback, not a scaffold dir, not a dot-directory, and not a nested checkout (a `.git`
+// FILE marks a worktree, a `.git` DIRECTORY a nested repository — either way it is somebody
+// else's tree). The git ignore filter is applied on top of this, per level (see makeDirFilter).
 function mayDescend(parentAbs, name) {
-  if (SKIP_DIRS.has(name) || name.startsWith('.')) return false;
+  if (SKIP_DIRS.has(name) || IGNORED_FALLBACK_SET.has(name) || SCAFFOLD_NAME.test(name) || name.startsWith('.')) return false;
   return !fs.existsSync(path.join(parentAbs, name, '.git'));
+}
+
+// The Tauri shell dir (`src-tauri`) of a dir holding package.json + src-tauri/Cargo.toml, else
+// null. Pass 1 folds it into the parent's area and never descends into it.
+function tauriDirOf(abs, entries) {
+  const { tauri } = AREA_MARKERS;
+  const hasPackage = entries.some((e) => !e.isDirectory() && e.name === 'package.json');
+  const hasShell = entries.some((e) => e.isDirectory() && e.name === tauri.dir);
+  return hasPackage && hasShell && fs.existsSync(path.join(abs, tauri.dir, tauri.file)) ? tauri.dir : null;
+}
+
+// ─── ignore filter ────────────────────────────────────────────────────────
+
+// Per-root memo of "is this root inside a git work tree" — the probe is the only spawn that is
+// not a check-ignore batch, and a draft calls detectAreas several times for one root.
+const WORK_TREE_CACHE = new Map();
+
+/**
+ * defaultIsIgnored(root) -> ((rels: string[]) => string[]) | null
+ *
+ * null when `root` is not inside a git work tree or git cannot run. Otherwise a BATCH filter:
+ * given repo-relative dirs (`svc/`, `dist/app/`) it returns the subset git ignores, from ONE
+ * `git -C root check-ignore --no-index --stdin -z` spawn (exit 1 = none ignored, not an error).
+ * Throws on a spawn failure or any other exit; detectAreas catches that and falls back to static.
+ */
+function defaultIsIgnored(root) {
+  const key = path.resolve(String(root));
+  let inside = WORK_TREE_CACHE.get(key);
+  if (inside === undefined) {
+    const probe = spawnSync('git', ['-C', key, 'rev-parse', '--is-inside-work-tree'], {
+      encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: GIT_TIMEOUT_MS,
+    });
+    inside = !probe.error && probe.status === 0 && String(probe.stdout).trim() === 'true';
+    WORK_TREE_CACHE.set(key, inside);
+  }
+  if (!inside) return null;
+
+  const isIgnored = (rels) => {
+    const list = [...(rels || [])].map(String);
+    if (!list.length) return [];
+    // Bare paths: git lstat()s each one, so dir-only rules still match (see the header).
+    const bare = list.map((r) => r.replace(/\/+$/, ''));
+    const r = spawnSync('git', ['-C', key, 'check-ignore', '--no-index', '--stdin', '-z'], {
+      input: `${bare.join('\0')}\0`, stdio: ['pipe', 'pipe', 'ignore'], timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER,
+    });
+    if (r.error || (r.status !== 0 && r.status !== 1)) {
+      throw new Error(`git check-ignore failed (${r.error ? r.error.code || r.error.message : `exit ${r.status}`})`);
+    }
+    const hits = new Set(String(r.stdout).split('\0').filter(Boolean));
+    return list.filter((_, i) => hits.has(bare[i]));
+  };
+  isIgnored.ignoreSource = 'git';
+  return isIgnored;
+}
+
+// Wraps a batch `isIgnored` (or null) into `admit(rels) -> Set<kept rel>`, remembering every
+// decision so a dir is asked about at most once per detectAreas call and an empty batch never
+// spawns. The static fallback is NOT applied here — callers only offer dirs mayDescend accepted.
+// A throwing filter is dropped for the rest of the call (static only from then on).
+function makeDirFilter(isIgnored, source) {
+  const ignored = new Map();
+  let fn = typeof isIgnored === 'function' ? isIgnored : null;
+  let src = fn ? source : 'static';
+  return {
+    admit(rels) {
+      const unknown = rels.filter((r) => !ignored.has(r));
+      if (fn && unknown.length) {
+        let hits = null;
+        try {
+          hits = new Set(fn(unknown) || []);
+        } catch (_) {
+          fn = null;
+          src = 'static';
+        }
+        if (hits) for (const r of unknown) ignored.set(r, hits.has(r));
+      }
+      return new Set(rels.filter((r) => !ignored.get(r)));
+    },
+    get source() {
+      return src;
+    },
+  };
 }
 
 // `build_runner` listed under the pubspec's `dev_dependencies:` block. A line scan, not a YAML
@@ -135,7 +245,7 @@ function hasBuildRunnerDevDep(pubspec) {
 // ─── detectAreas ──────────────────────────────────────────────────────────
 
 /**
- * detectAreas(root, { maxDepth = 3 }) -> [{ dir, kinds, tier, evidence, flags, unsupported? }]
+ * detectAreas(root, { maxDepth = 3, isIgnored }) -> [{ dir, kinds, tier, evidence, flags, unsupported? }]
  *
  * - `dir` is `''` for the repo root, else a repo-relative path with a TRAILING SLASH (`svc/`,
  *   `product/go/`) — stack-profile's `matchComponent` is a prefix match, so `go/` must never be
@@ -150,8 +260,51 @@ function hasBuildRunnerDevDep(pubspec) {
  * The walk reads directories at depth < maxDepth (root = 0), so a manifest at path depth 3
  * (`product/go/go.mod`) is found and one at depth 4 is not. Returns entries sorted by `dir`;
  * `[]` for an empty, docs-only, missing or unreadable root. Never throws on an unreadable dir.
+ *
+ * `isIgnored` (TRD 42-12) is a batch filter `(rels: string[]) -> Iterable<rel>` returning the
+ * ignored subset. Omitted: defaultIsIgnored(root) (git in a work tree, else static only); `null`:
+ * static fallback only; a function: used as given. It is called at most once per level with that
+ * level's candidates, and an ignored dir is pruned before anything inside it is read. The array
+ * carries a NON-enumerable `ignore_source`: 'git' | 'static' | 'custom' (debugging only; the
+ * return shape is unchanged for JSON and deepEqual).
  */
-function detectAreas(root, { maxDepth = 3 } = {}) {
+function detectAreas(root, { maxDepth = 3, isIgnored } = {}) {
+  let filterFn = null;
+  let filterSource = 'static';
+  if (isIgnored === undefined) {
+    try {
+      filterFn = defaultIsIgnored(root);
+    } catch (_) {
+      filterFn = null;
+    }
+    if (filterFn) filterSource = 'git';
+  } else if (typeof isIgnored === 'function') {
+    filterFn = isIgnored;
+    filterSource = isIgnored.ignoreSource || 'custom';
+  }
+  const filter = makeDirFilter(filterFn, filterSource);
+
+  // ── pass 0: plan the bounded walk breadth-first, one ignore batch per level ──
+  // `listing` holds the entries of every dir pass 1 may visit; a pruned dir is never listed.
+  const listing = new Map();
+  let level = [{ abs: root, rel: '' }];
+  for (let depth = 0; level.length; depth += 1) {
+    const next = [];
+    for (const node of level) {
+      const entries = readDirSafe(node.abs);
+      listing.set(node.rel, entries);
+      if (!entries || depth + 1 >= maxDepth) continue;
+      const shell = tauriDirOf(node.abs, entries);
+      const names = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+      for (const name of names) {
+        if (name === shell || !mayDescend(node.abs, name)) continue;
+        next.push({ abs: path.join(node.abs, name), rel: `${node.rel}${name}/` });
+      }
+    }
+    const kept = filter.admit(next.map((n) => n.rel));
+    level = next.filter((n) => kept.has(n.rel));
+  }
+
   const records = new Map();
   const recordFor = (dir) => {
     if (!records.has(dir)) {
@@ -162,9 +315,9 @@ function detectAreas(root, { maxDepth = 3 } = {}) {
   const flagHits = [];
   const cppHits = [];
 
-  // ── pass 1: the bounded walk over manifests and marker entries ──
+  // ── pass 1: the bounded walk over manifests and marker entries (planned dirs only) ──
   const walk = (abs, rel, depth) => {
-    const entries = readDirSafe(abs);
+    const entries = listing.get(rel);
     if (!entries) return;
     const files = new Set(entries.filter((e) => !e.isDirectory()).map((e) => e.name));
     const dirs = new Set(entries.filter((e) => e.isDirectory()).map((e) => e.name));
@@ -211,8 +364,9 @@ function detectAreas(root, { maxDepth = 3 } = {}) {
 
     if (depth + 1 >= maxDepth) return;
     for (const name of [...dirs].sort()) {
-      if (noDescend.has(name) || !mayDescend(abs, name)) continue;
-      walk(path.join(abs, name), `${rel}${name}/`, depth + 1);
+      const childRel = `${rel}${name}/`;
+      if (noDescend.has(name) || !listing.has(childRel)) continue;
+      walk(path.join(abs, name), childRel, depth + 1);
     }
   };
   walk(root, '', 0);
@@ -240,6 +394,7 @@ function detectAreas(root, { maxDepth = 3 } = {}) {
   const hasKind = (...kinds) => (rec) => kinds.some((k) => rec.kinds.has(k));
   if ([...records.values()].some(hasKind('go', 'dart', 'flutter'))) {
     scanSources(root, {
+      admit: (rels) => filter.admit(rels),
       onGo: (rel, text) => {
         const dir = nearest(rel, hasKind('go'));
         if (dir === null) return;
@@ -287,7 +442,7 @@ function detectAreas(root, { maxDepth = 3 } = {}) {
     rec.evidence.push(...buildFirst.slice(0, MAX_CPP_EVIDENCE));
   }
 
-  return [...records.values()]
+  const result = [...records.values()]
     .filter((r) => r.kinds.size > 0 || r.flags.size > 0 || r.unsupported)
     .map((r) => {
       const kinds = KIND_ORDER.filter((k) => r.kinds.has(k));
@@ -303,42 +458,53 @@ function detectAreas(root, { maxDepth = 3 } = {}) {
       return area;
     })
     .sort((a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0));
+  Object.defineProperty(result, 'ignore_source', { value: filter.source, enumerable: false });
+  return result;
 }
 
 // Breadth-first over the repo (same skip rules as pass 1, deeper), handing each `.go` file's text
 // (at most MAX_GO_FILES of them) and each Dart codegen file's path to the callbacks. Shallow files
-// come first, so the budget is spent where the module roots are.
-function scanSources(root, { onGo, onDartGenerated }) {
-  const queue = [{ abs: root, rel: '', depth: 0 }];
+// come first, so the budget is spent where the module roots are. Each level's candidate dirs go
+// through ONE `admit` batch (the ignore filter) before any of them is read.
+function scanSources(root, { onGo, onDartGenerated, admit = (rels) => new Set(rels) }) {
+  let level = [{ abs: root, rel: '', depth: 0 }];
   let goRead = 0;
   let dirsSeen = 0;
   const { dartSuffixes } = AREA_MARKERS.generated;
 
-  while (queue.length && dirsSeen < MAX_DEEP_DIRS) {
-    const { abs, rel, depth } = queue.shift();
-    dirsSeen += 1;
-    const entries = readDirSafe(abs);
-    if (!entries) continue;
-    for (const e of entries.slice().sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      if (e.isDirectory()) {
-        if (depth + 1 <= MAX_DEEP_DEPTH && mayDescend(abs, e.name)) {
-          queue.push({ abs: path.join(abs, e.name), rel: `${rel}${e.name}/`, depth: depth + 1 });
+  while (level.length && dirsSeen < MAX_DEEP_DIRS) {
+    const next = [];
+    for (const { abs, rel, depth } of level) {
+      if (dirsSeen >= MAX_DEEP_DIRS) break;
+      dirsSeen += 1;
+      const entries = readDirSafe(abs);
+      if (!entries) continue;
+      for (const e of entries.slice().sort((a, b) => (a.name < b.name ? -1 : 1))) {
+        if (e.isDirectory()) {
+          if (depth + 1 <= MAX_DEEP_DEPTH && mayDescend(abs, e.name)) {
+            next.push({ abs: path.join(abs, e.name), rel: `${rel}${e.name}/`, depth: depth + 1 });
+          }
+          continue;
         }
-        continue;
-      }
-      if (e.name.endsWith('.go') && goRead < MAX_GO_FILES) {
-        goRead += 1;
-        const text = readTextSafe(path.join(abs, e.name));
-        if (text !== null) onGo(rel + e.name, text);
-      } else if (dartSuffixes.some((s) => e.name.endsWith(s))) {
-        onDartGenerated(rel + e.name);
+        if (e.name.endsWith('.go') && goRead < MAX_GO_FILES) {
+          goRead += 1;
+          const text = readTextSafe(path.join(abs, e.name));
+          if (text !== null) onGo(rel + e.name, text);
+        } else if (dartSuffixes.some((s) => e.name.endsWith(s))) {
+          onDartGenerated(rel + e.name);
+        }
       }
     }
+    if (dirsSeen >= MAX_DEEP_DIRS) break;
+    const kept = admit(next.map((n) => n.rel));
+    level = next.filter((n) => kept.has(n.rel));
   }
 }
 
 module.exports = {
   detectAreas,
+  defaultIsIgnored,
   AREA_MARKERS,
   SKIP_DIRS,
+  IGNORED_DIR_FALLBACK,
 };
