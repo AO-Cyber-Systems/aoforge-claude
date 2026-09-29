@@ -18,6 +18,12 @@
 //   confidence  high (a recognised tool) | low (only a target/script NAME said what it does)
 //   weak        reasons the gate looks stricter than it is (`--no-fatal-infos`, `continue-on-error`)
 //   tool        the tool that decided the key (`gosec`, `go`), for the drafter's collapse rules
+//   bodyInvocations  the normalised command texts the item REALLY runs: a runner target's recipe
+//               (also for a CI step that calls it), a wrapper script's lines, else [command].
+//               stack-draft judges test breadth over these (TRD 42-13).
+//   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
+//               dependedOn is true when another target in the same file lists it in its deps;
+//               order is its position in that file. stack-draft's canonical ranking reads it.
 //
 // It composes the 42-03..05 readers instead of scraping lines: `.planning/<from>/STACK.md`
 // Commands rows (declared), stack-runners targets whose BODY is normalised and classified
@@ -194,6 +200,36 @@ function classifyTarget(t) {
   return classifyInvocation(localInvocation(t), { hint: hintFor(t) });
 }
 
+/** The normalised invocation texts of a runner target's body (what the target actually runs). */
+function targetInvocations(t) {
+  const cwd = normDir(t.cwd) || normDir(t.dir);
+  const body = Array.isArray(t.body) ? t.body : [];
+  return safeNormalize(body.join('\n'), cwd).map((i) => i.text);
+}
+
+/** file -> Set of every target name some target in that file lists in its deps. */
+function dependedOnIndex(targets) {
+  const byFile = new Map();
+  for (const t of targets) {
+    if (!byFile.has(t.file)) byFile.set(t.file, new Set());
+    for (const d of Array.isArray(t.deps) ? t.deps : []) byFile.get(t.file).add(d);
+  }
+  return byFile;
+}
+
+/** The ranking metadata of a runner target (TRD 42-13): stack-draft's canonical ordering reads it. */
+function targetMeta(t, depended) {
+  const names = [t.name, ...(Array.isArray(t.aliases) ? t.aliases : [])];
+  const set = depended.get(t.file);
+  return {
+    name: t.name,
+    deps: Array.isArray(t.deps) ? [...t.deps] : [],
+    isDefault: t.isDefault === true,
+    dependedOn: !!set && names.some((n) => set.has(n)),
+    order: Number.isInteger(t.order) ? t.order : 0,
+  };
+}
+
 function buildRunnerIndex(targets) {
   const index = new Map();
   for (const t of targets) {
@@ -208,16 +244,18 @@ function buildRunnerIndex(targets) {
 }
 
 /**
- * A CI (or docs) invocation -> { cls, runner }. A `make x` / `npm run x` / `task x` step is
- * classified by the target body it runs; a wrapper script by its file's text; anything else by
- * its own tool. With no body to read, the target or script NAME is the (low-confidence) hint.
+ * A CI (or docs) invocation -> { cls, runner, bodyInvocations? }. A `make x` / `npm run x` /
+ * `task x` step is classified by the target body it runs; a wrapper script by its file's text;
+ * anything else by its own tool. With no body to read, the target or script NAME is the
+ * (low-confidence) hint. `bodyInvocations` is what the step really runs when that is a body this
+ * reader could see (a target's recipe, a script's lines); otherwise the caller uses the command.
  */
 function classifyStep(inv, index, projectRoot) {
   const d = safeDescribe(inv);
   if (d.kind === 'runner') {
     const name = Array.isArray(d.names) && d.names.length === 1 ? d.names[0] : null;
     const target = name && !d.unresolvable ? index.get(`${d.runner}|${normDir(d.dir) || ''}|${name}`) : null;
-    if (target) return { cls: classifyTarget(target), runner: d.runner };
+    if (target) return { cls: classifyTarget(target), runner: d.runner, bodyInvocations: targetInvocations(target) };
     const direct = classifyInvocation(inv, { hint: name || undefined });
     return { cls: direct, runner: d.runner };
   }
@@ -227,7 +265,8 @@ function classifyStep(inv, index, projectRoot) {
     const hint = path.posix.basename(String(d.file)).replace(/\.[^.]+$/, '');
     if (text !== null) {
       const b = classifyBody(text, normDir(inv.cwd));
-      if (b.result) return { cls: { ...b.result, resolvesTo: b.inv.text }, runner: 'script' };
+      const bodyInvocations = safeNormalize(text, normDir(inv.cwd)).map((i) => i.text);
+      if (b.result) return { cls: { ...b.result, resolvesTo: b.inv.text }, runner: 'script', bodyInvocations };
       if (b.empty) return { cls: null, runner: 'script' };
     }
     return { cls: classifyInvocation(inv, { hint }), runner: 'script' };
@@ -281,6 +320,7 @@ function readCommandsTable(projectRoot, from, push) {
 
 // 2. Task runners: Makefile / Taskfile / justfile / scripts (runner) and package.json (manifest).
 function readRunnerTargets(targets, push) {
+  const depended = dependedOnIndex(targets);
   for (const t of targets) {
     const cls = classifyTarget(t);
     if (!cls) continue;
@@ -296,6 +336,8 @@ function readRunnerTargets(targets, push) {
       weak: cls.weak,
       tool: cls.tool,
       resolvesTo: cls.resolvesTo,
+      target: targetMeta(t, depended),
+      bodyInvocations: targetInvocations(t),
     });
   }
 }
@@ -304,7 +346,7 @@ function readRunnerTargets(targets, push) {
 function readCi(projectRoot, index, push) {
   for (const step of parseWorkflows(projectRoot)) {
     for (const inv of step.invocations || []) {
-      const { cls, runner } = classifyStep(inv, index, projectRoot);
+      const { cls, runner, bodyInvocations } = classifyStep(inv, index, projectRoot);
       if (!cls) continue;
       const weak = [...(cls.weak || [])];
       if (step.continueOnError && !weak.includes('continue-on-error')) weak.push('continue-on-error');
@@ -320,6 +362,7 @@ function readCi(projectRoot, index, push) {
         weak,
         tool: cls.tool,
         resolvesTo: cls.resolvesTo,
+        bodyInvocations,
       });
     }
   }
@@ -353,7 +396,7 @@ function readTestingMd(projectRoot, index, push) {
   }
   for (const block of blocks) {
     for (const inv of safeNormalize(block, null)) {
-      const { cls, runner } = classifyStep(inv, index, projectRoot);
+      const { cls, runner, bodyInvocations } = classifyStep(inv, index, projectRoot);
       if (!cls) continue;
       push({
         key: cls.key,
@@ -366,6 +409,7 @@ function readTestingMd(projectRoot, index, push) {
         confidence: cls.confidence,
         weak: cls.weak,
         tool: cls.tool,
+        bodyInvocations,
       });
     }
   }
@@ -401,6 +445,10 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null } = {}) 
       tool: raw.tool || null,
     };
     if (raw.resolvesTo) out.resolvesTo = raw.resolvesTo;
+    if (raw.target) out.target = raw.target;
+    out.bodyInvocations = Array.isArray(raw.bodyInvocations) && raw.bodyInvocations.length
+      ? [...raw.bodyInvocations]
+      : [raw.command];
     (buckets[raw.source] || buckets.docs).push(out);
   };
 

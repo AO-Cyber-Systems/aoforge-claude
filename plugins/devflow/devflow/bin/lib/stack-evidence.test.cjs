@@ -380,3 +380,87 @@ describe('stack-evidence collectEvidence composition (E11-E12, TRD 42-07)', () =
     }
   });
 });
+
+// ─── E13: runner target metadata + body invocations (TRD 42-13 test 13) ─────────
+
+const runnerFx = require('./__fixtures__/stack-runner-fixtures.cjs');
+
+describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', () => {
+  const guardWorkflow = [
+    'name: guard',
+    'on: [push]',
+    'jobs:',
+    '  guard:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: go test -c -o /tmp/guard.test ./tests/guard/',
+    '      - run: task build:macos',
+    '',
+  ].join('\n');
+
+  test('E13: runner items carry target {name, deps, isDefault, dependedOn, order} and bodyInvocations', () => {
+    const root = runnerFx.taskfileDepsShape({ '.github/workflows/guard.yml': guardWorkflow });
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
+      const runner = (name) => evidence.find((e) => e.source === 'runner' && e.target && e.target.name === name);
+
+      const bundle = runner('build:bundle');
+      assert.ok(bundle, JSON.stringify(evidence));
+      assert.equal(bundle.key, 'build');
+      assert.deepStrictEqual(
+        { ...bundle.target, order: typeof bundle.target.order },
+        { name: 'build:bundle', deps: ['gen', 'tidy'], isDefault: false, dependedOn: true, order: 'number' },
+        'the `default` task depends on build:bundle',
+      );
+      assert.deepStrictEqual(bundle.bodyInvocations, ['task build:daemon', 'task build:relay:internal']);
+
+      const internal = runner('build:relay:internal');
+      assert.ok(internal, JSON.stringify(evidence));
+      assert.equal(internal.target.dependedOn, false, 'called from cmds, not listed in any deps');
+      assert.deepStrictEqual(internal.bodyInvocations, ['go build -trimpath -o out/relay ./cmd/relay']);
+
+      const gen = runner('gen');
+      assert.ok(gen, JSON.stringify(evidence));
+      assert.equal(gen.target.dependedOn, true);
+      assert.equal(gen.target.isDefault, false);
+      assert.ok(bundle.target.order < internal.target.order, 'file order survives the sorted target list');
+
+      // A direct CI command carries itself as its one body invocation, and no target.
+      const guard = evidence.find((e) => e.source === 'ci' && e.key === 'test');
+      assert.ok(guard, JSON.stringify(evidence));
+      assert.deepStrictEqual(guard.bodyInvocations, ['go test -c -o /tmp/guard.test ./tests/guard/']);
+      assert.equal(guard.target, undefined);
+
+      // A CI step that runs a runner target carries that target's body invocations.
+      const ciTask = evidence.find((e) => e.source === 'ci' && e.command === 'task build:macos');
+      assert.ok(ciTask, JSON.stringify(evidence));
+      assert.deepStrictEqual(ciTask.bodyInvocations, ['go build -o out/daemon-darwin ./cmd/daemon']);
+      assert.equal(ciTask.target, undefined, 'only runner/manifest items carry a target');
+    } finally {
+      runnerFx.cleanup(root);
+    }
+  });
+
+  test('E13b: every item carries a non-empty bodyInvocations array; manifest items carry a target', () => {
+    const root = makeRepo({
+      'package.json': JSON.stringify({ scripts: { test: 'vitest run', lint: 'eslint .' } }),
+      '.planning/codebase/STACK.md': '# Stack\n\n## Commands\n\n| Key | Command |\n|---|---|\n| build | `go build ./...` |\n',
+    });
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
+      assert.ok(evidence.length >= 3, JSON.stringify(evidence));
+      for (const e of evidence) {
+        assert.ok(Array.isArray(e.bodyInvocations) && e.bodyInvocations.length > 0, JSON.stringify(e));
+      }
+      const declared = evidence.find((e) => e.source === 'declared');
+      assert.deepStrictEqual(declared.bodyInvocations, ['go build ./...']);
+      const test_ = evidence.find((e) => e.source === 'manifest' && e.key === 'test');
+      assert.deepStrictEqual(test_.bodyInvocations, ['vitest run']);
+      assert.equal(test_.target.name, 'test');
+      assert.equal(test_.target.isDefault, false);
+    } finally {
+      cleanup(root);
+    }
+  });
+});

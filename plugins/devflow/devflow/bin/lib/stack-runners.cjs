@@ -148,17 +148,35 @@ function cleanRecipeText(text) {
   return s === '' || s.startsWith('#') ? null : s;
 }
 
+// `.DEFAULT_GOAL := all` (any assignment operator) names the target a bare `make` runs.
+const MAKE_DEFAULT_GOAL = /^\.DEFAULT_GOAL\s*(?:::=|:=|\?=|\+=|!=|=)\s*([^\s#]+)/;
+
 /**
- * Parse Makefile text -> `{ targets: [{ name, body }], hasInclude }`.
+ * Prerequisite names from the text after a rule's colon: everything before a `;` inline recipe,
+ * order-only prerequisites (after `|`) included. A target-specific variable line
+ * (`test: GOFLAGS += -v`) has no prerequisites; variable references and patterns are skipped.
+ */
+function makePrereqs(rest) {
+  const semi = rest.indexOf(';');
+  const part = (semi >= 0 ? rest.slice(0, semi) : rest).replace(/#.*$/, '');
+  if (part.includes('=')) return [];
+  return part.trim().split(/\s+/).filter((n) => n && n !== '|' && !/[%$()]/.test(n));
+}
+
+/**
+ * Parse Makefile text -> `{ targets: [{ name, body }], hasInclude, deps: { name: [...] }, defaultGoal }`.
  *
  * Recipe lines REQUIRE a leading tab (the GNU default; `.RECIPEPREFIX` is not honoured), so a
  * space-indented line is never a recipe line. Variable assignments, `.PHONY` and other special
  * targets, pattern rules (`%`) and targets containing `$(...)` are not targets. `define` blocks
- * are skipped. A target defined twice accumulates its recipes.
+ * are skipped. A target defined twice accumulates its recipes and its prerequisites. `deps` maps
+ * every target to its prerequisite names; `defaultGoal` is the `.DEFAULT_GOAL` value or null.
  */
 function parseMakefile(text) {
   const byName = new Map();
+  const depsOf = new Map();
   let hasInclude = false;
+  let defaultGoal = null;
   let current = []; // entries receiving recipe lines
   let defineDepth = 0;
 
@@ -189,6 +207,12 @@ function parseMakefile(text) {
       current = [];
       continue;
     }
+    const goal = MAKE_DEFAULT_GOAL.exec(line);
+    if (goal) {
+      defaultGoal = goal[1];
+      current = [];
+      continue;
+    }
 
     const rule = MAKE_RULE.exec(line);
     current = [];
@@ -199,17 +223,21 @@ function parseMakefile(text) {
     const rest = rule[2];
     const semi = rest.indexOf(';');
     const inline = semi >= 0 ? cleanRecipeText(rest.slice(semi + 1)) : null;
+    const prereqs = makePrereqs(rest);
     for (const name of names) {
       let entry = byName.get(name);
       if (!entry) {
         entry = { name, body: [] };
         byName.set(name, entry);
+        depsOf.set(name, []);
       }
+      const deps = depsOf.get(name);
+      for (const p of prereqs) if (!deps.includes(p)) deps.push(p);
       if (inline !== null) entry.body.push(inline);
       current.push(entry);
     }
   }
-  return { targets: [...byName.values()], hasInclude };
+  return { targets: [...byName.values()], hasInclude, deps: Object.fromEntries(depsOf), defaultGoal };
 }
 
 function makeInvocation(dir, name) {
@@ -221,7 +249,11 @@ function collectMake(d, targets) {
   if (!file) return;
   const text = readText(path.join(d.abs, file));
   if (text === null) return;
-  for (const t of parseMakefile(text).targets) {
+  const parsed = parseMakefile(text);
+  // A bare `make` runs `.DEFAULT_GOAL`, else the first target whose name does not start with `.`.
+  const first = parsed.targets.find((t) => !t.name.startsWith('.'));
+  const goal = parsed.defaultGoal !== null ? parsed.defaultGoal : (first ? first.name : null);
+  parsed.targets.forEach((t, order) => {
     targets.push({
       runner: 'make',
       dir: d.rel,
@@ -230,8 +262,11 @@ function collectMake(d, targets) {
       aliases: [],
       body: t.body,
       invocation: makeInvocation(d.rel, t.name),
+      deps: [...(parsed.deps[t.name] || [])],
+      isDefault: t.name === goal,
+      order,
     });
-  }
+  });
 }
 
 // ─── Taskfile ─────────────────────────────────────────────────────────────────
@@ -407,9 +442,38 @@ function listValues(entry) {
   return flow || listItems(entry.rows).map((it) => yamlScalar(it.text)).filter((s) => s !== '');
 }
 
+// A `deps:` item is a task name (`- gen`) or a map naming one (`- task: gen` with `vars:` under
+// it, or the flow form `{task: gen}`). Anything else (a `vars:` fragment of a split flow map) is
+// not a name.
+const DEP_TASK = /^\{?\s*task:\s*["']?([^"',}\s]+)/;
+const DEP_NAME = /^[^\s{}[\],]+$/;
+
+function depName(text) {
+  const m = DEP_TASK.exec(String(text).trim());
+  if (m) return m[1];
+  const s = yamlScalar(text);
+  return DEP_NAME.test(s) ? s : null;
+}
+
+/** Task names a Taskfile `deps:` entry lists, flow or block, in order. */
+function taskDeps(entry) {
+  const flow = flowItems(cleanValue(entry.value));
+  const raw = flow || listItems(entry.rows).map((it) => {
+    if (it.text !== '') return it.text;
+    const first = it.rows.find(significant); // `-` alone, the map on the next line
+    return first ? first.text : '';
+  });
+  const out = [];
+  for (const text of raw) {
+    const name = depName(text);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
 /** One task's properties from its header value and the rows under it. */
 function readTaskProps(value, rows) {
-  const task = { body: [], aliases: [], dir: null };
+  const task = { body: [], aliases: [], dir: null, deps: [] };
   const v = cleanValue(value);
   if (v !== '') { // shorthand: `name: go build ./...`, `name: [a, b]`, `name: |`
     task.body = valueLines(v, rows);
@@ -424,6 +488,7 @@ function readTaskProps(value, rows) {
       if (flow) task.body.push(...flow);
       else for (const it of listItems(e.rows)) task.body.push(...itemLines(it));
     } else if (e.key === 'aliases') task.aliases.push(...listValues(e));
+    else if (e.key === 'deps') task.deps.push(...taskDeps(e));
     else if (e.key === 'dir') {
       const d = yamlScalar(e.value);
       if (d !== '') task.dir = d;
@@ -433,9 +498,9 @@ function readTaskProps(value, rows) {
 }
 
 /**
- * Parse Taskfile text -> `{ tasks: [{ name, aliases, body, dir }], hasIncludes }`.
- * `dir` is the task's own `dir:` verbatim; `hasIncludes` is true when a top-level `includes:`
- * brings in tasks this reader cannot see.
+ * Parse Taskfile text -> `{ tasks: [{ name, aliases, body, dir, deps }], hasIncludes }`.
+ * `dir` is the task's own `dir:` verbatim; `deps` the task names its `deps:` lists; `hasIncludes`
+ * is true when a top-level `includes:` brings in tasks this reader cannot see.
  */
 function parseTaskfile(text) {
   const rows = yamlRows(text);
@@ -455,7 +520,7 @@ function parseTaskfile(text) {
     if (first) {
       for (const e of mapEntries(section, first.indent, matchTaskName)) {
         const p = readTaskProps(e.value, e.rows);
-        tasks.push({ name: e.key, aliases: p.aliases, body: p.body, dir: p.dir });
+        tasks.push({ name: e.key, aliases: p.aliases, body: p.body, dir: p.dir, deps: p.deps });
       }
     }
     i = end - 1;
@@ -495,10 +560,26 @@ function justBody(lines) {
   return out;
 }
 
+// A dependency after the recipe colon: `gen`, `(lint "strict")` (a recipe with arguments), and
+// the post-dependencies after `&&`, which count too.
+const JUST_DEP = /\(\s*([A-Za-z_][\w-]*)[^)]*\)|"(?:[^"\\]|\\.)*"|'[^']*'|([A-Za-z_][\w-]*)/g;
+
+/** Recipe names in the text after a justfile recipe's colon (a trailing `# comment` dropped). */
+function justDeps(rest) {
+  const out = [];
+  const text = String(rest).replace(/\s#.*$/, '');
+  for (const m of text.matchAll(JUST_DEP)) {
+    const name = m[1] || m[2];
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
 /**
- * Parse justfile text -> `{ recipes: [{ name, body }], aliases: { alias: target }, hasImport }`.
+ * Parse justfile text -> `{ recipes: [{ name, body, deps }], aliases: { alias: target }, hasImport }`.
  * `set`, `export`, `alias`, `import`, `mod` and `[attribute]` lines are not recipes. Bodies keep
- * their shell text as written (a `(cd x && ...)` subshell stays whole).
+ * their shell text as written (a `(cd x && ...)` subshell stays whole). `deps` are the recipe
+ * names after the colon, post-dependencies included.
  */
 function parseJustfile(text) {
   const recipes = [];
@@ -525,12 +606,12 @@ function parseJustfile(text) {
     if (/^(?:set|export|unexport)\s/.test(line)) continue;
     const recipe = JUST_RECIPE.exec(line);
     if (recipe) {
-      current = { name: recipe[1], raw: [] };
+      current = { name: recipe[1], raw: [], deps: justDeps(line.slice(recipe[0].length)) };
       recipes.push(current);
     }
   }
   return {
-    recipes: recipes.map((r) => ({ name: r.name, body: justBody(r.raw) })),
+    recipes: recipes.map((r) => ({ name: r.name, body: justBody(r.raw), deps: r.deps })),
     aliases: Object.fromEntries(aliases),
     hasImport,
   };
@@ -550,7 +631,7 @@ function collectTask(d, targets, exec) {
   const text = readText(path.join(d.abs, file));
   if (text === null) return;
   const relFile = joinRel(d.rel, file);
-  for (const t of parseTaskfile(text).tasks) {
+  parseTaskfile(text).tasks.forEach((t, order) => {
     const target = {
       runner: 'task',
       dir: d.rel,
@@ -559,11 +640,14 @@ function collectTask(d, targets, exec) {
       aliases: t.aliases,
       body: t.body,
       invocation: taskInvocation(d.rel, t.name),
+      deps: t.deps,
+      isDefault: t.name === 'default', // a bare `task` runs the task named `default`
+      order,
     };
     const cwd = taskCwd(d.rel, t.dir);
     if (cwd !== undefined) target.cwd = cwd;
     targets.push(target);
-  }
+  });
   if (exec) enrichTask(exec, d, relFile, targets);
 }
 
@@ -574,7 +658,10 @@ function collectJust(d, targets, exec) {
   if (text === null) return;
   const relFile = joinRel(d.rel, file);
   const parsed = parseJustfile(text);
-  for (const r of parsed.recipes) {
+  // A bare `just` runs the recipe named `default`, else the first recipe in the file.
+  const named = parsed.recipes.find((r) => r.name === 'default');
+  const goal = named ? named.name : (parsed.recipes[0] ? parsed.recipes[0].name : null);
+  parsed.recipes.forEach((r, order) => {
     targets.push({
       runner: 'just',
       dir: d.rel,
@@ -583,8 +670,11 @@ function collectJust(d, targets, exec) {
       aliases: Object.keys(parsed.aliases).filter((a) => parsed.aliases[a] === r.name),
       body: r.body,
       invocation: justInvocation(d.rel, file, r.name),
+      deps: r.deps,
+      isDefault: r.name === goal,
+      order,
     });
-  }
+  });
   if (exec) enrichJust(exec, d, file, targets);
 }
 
@@ -621,6 +711,9 @@ function upsertExec(targets, d, { runner, file, name, aliases, body, invocation 
     aliases: [...new Set(aliases.filter((a) => a !== name))],
     body,
     invocation,
+    deps: [],
+    isDefault: name === 'default',
+    order: targets.filter((t) => t.file === file).length, // after every statically read target
     via: 'exec',
   });
 }
@@ -724,7 +817,7 @@ function collectNpm(d, targets) {
   const text = readText(path.join(d.abs, file));
   if (text === null) return;
   const manager = detectManager(d.entries);
-  for (const [name, script] of readPackageScripts(text)) {
+  readPackageScripts(text).forEach(([name, script], order) => {
     targets.push({
       runner: 'npm',
       dir: d.rel,
@@ -733,9 +826,12 @@ function collectNpm(d, targets) {
       aliases: [],
       body: [script],
       invocation: npmInvocation(manager, d.rel, name),
+      deps: [],
+      isDefault: false, // a bare `npm run` lists scripts; it runs none
+      order,
       manager,
     });
-  }
+  });
 }
 
 // ─── conventional scripts (bin/ and scripts/) ─────────────────────────────────
@@ -775,6 +871,9 @@ function collectScripts(d, targets) {
         aliases: [],
         body: text.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#')).slice(0, SCRIPT_BODY_LINES),
         invocation: shq(`./${file}`),
+        deps: [],
+        isDefault: false,
+        order: 0, // one script per file
         executable: (stat.mode & 0o111) !== 0,
       });
     }
@@ -801,6 +900,14 @@ function compareTargets(a, b) {
  * svc/justfile test`, `npm --prefix web run build`, `./bin/test.sh`). `body` is the raw logical
  * lines, unclassified. Sorted by (dir, runner, name). Never throws: an unreadable root or file
  * yields fewer (or no) targets.
+ *
+ * Every target also carries (TRD 42-13):
+ *   deps        the target names it depends on: Make prerequisites (order-only included),
+ *               Taskfile `deps:` (`- x` and `- task: x`), justfile recipe dependencies
+ *   isDefault   true for the target a bare runner invocation runs: Make `.DEFAULT_GOAL` else the
+ *               first target, Taskfile `default`, justfile `default` else the first recipe
+ *   order       its position in its runner file (the output is sorted by name, so this keeps
+ *               the source order a ranking can fall back on)
  *
  * Extras, present only where they apply:
  *   cwd         task   the task's own `dir:`, repo-relative (skipped when templated)

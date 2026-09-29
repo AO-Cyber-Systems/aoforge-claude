@@ -40,9 +40,30 @@
 // dir), which also contributes `maestro test .maestro`. codegen/deps keep a `when`. A
 // re-emitted command run by the SAME tool as the tier default keeps the tier's scoped/apply forms.
 
-const { classifyInvocation } = require('./stack-classify.cjs');
+//
+// Canonical runner targets (TRD 42-13). For build/test/lint only, items carrying stack-evidence's
+// `target` metadata (runner and manifest items) are ordered, right after the source rank, by:
+//   bare key name (`build`) > the runner's default target > a target others depend on
+//   > fewer `:` segments > no VARIANT_TOKENS token
+// then confidence and weak as above, then source order within the same runner file (never the
+// alphabet). When a runner target wins, every other resolved runner candidate for the key is an
+// `alternate` note.
+//
+// Repo-wide test (TRD 42-13). For `test`, a candidate is NARROW when some invocation it runs
+// (`bodyInvocations`) is narrow by stack-classify.testBreadth and none is broad. Narrow candidates
+// never fill `test`: each becomes a `narrow` note under the key it fits (test / integration / e2e;
+// notes only, never a new key). With no broad candidate left the key is inherited from a runnable
+// parent test, else `discover`. A chosen test whose breadth cannot be read is kept and noted
+// `breadth-unknown`.
+
+const { classifyInvocation, testBreadth } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
+const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
+/** Name tokens that mark a target as a variant of the canonical one (a platform, a mode, a helper). */
+const VARIANT_TOKENS = Object.freeze([
+  'internal', 'quickdev', 'dev', 'preview', 'debug', 'local', 'macos', 'windows', 'linux', 'darwin', 'arm64', 'amd64',
+]);
 const ATTACHABLE_KEYS = new Set(['e2e', 'lint_helm', 'lint_docker']);
 const WHEN_DEFAULT = Object.freeze({ codegen: 'sources_changed', deps: 'deps_changed' });
 const LOOP_KEYS = ['format', 'lint', 'test'];
@@ -61,17 +82,61 @@ function unique(list) {
   return out;
 }
 
-function rankOf(item) {
-  const s = SOURCE_RANK[item.source];
-  return [s === undefined ? 9 : s, item.confidence === 'low' ? 1 : 0, item.weak && item.weak.length ? 1 : 0];
+const NEUTRAL = Object.freeze([0, 0, 0, 0, 0]);
+
+/** A runner target's canonical tuple for `key` (see the header); neutral for other keys and items. */
+function canonicalOf(item, key) {
+  const t = item.target;
+  if (!CANONICAL_KEYS.has(key) || !t || typeof t.name !== 'string') return NEUTRAL;
+  const tokens = t.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return [
+    t.name === key ? 0 : 1,
+    t.isDefault === true && item.key === key ? 0 : 1,
+    t.dependedOn === true ? 0 : 1,
+    t.name.split(':').filter(Boolean).length,
+    tokens.some((x) => VARIANT_TOKENS.includes(x)) ? 1 : 0,
+  ];
 }
 
-/** Stable ranking by (source, confidence, weak). */
-function rank(items) {
+function rankOf(item, key) {
+  const s = SOURCE_RANK[item.source];
+  return [
+    s === undefined ? 9 : s,
+    ...canonicalOf(item, key),
+    item.confidence === 'low' ? 1 : 0,
+    item.weak && item.weak.length ? 1 : 0,
+  ];
+}
+
+/** Two targets of the same runner file compare by their position in it; anything else ties. */
+function sourceOrder(a, b) {
+  if (!a.target || !b.target || a.sourceFile !== b.sourceFile) return 0;
+  return (a.target.order || 0) - (b.target.order || 0);
+}
+
+/** Stable ranking by (source, canonical target tuple, confidence, weak, source order). */
+function rank(items, key) {
   return items
-    .map((item, i) => ({ item, i, r: rankOf(item) }))
-    .sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.r[2] - b.r[2] || a.i - b.i)
+    .map((item, i) => ({ item, i, r: rankOf(item, key) }))
+    .sort((a, b) => {
+      for (let k = 0; k < a.r.length; k++) if (a.r[k] !== b.r[k]) return a.r[k] - b.r[k];
+      return sourceOrder(a.item, b.item) || a.i - b.i;
+    })
     .map((x) => x.item);
+}
+
+/**
+ * breadthOf(item) -> { breadth: 'broad'|'narrow'|'unknown', reason?, fitsKey?, detail? }. Judged
+ * over every invocation the item runs; any broad one makes it broad, else the first narrow one
+ * decides; nothing recognisable is `unknown` (treated as broad by the caller).
+ */
+function breadthOf(item) {
+  const invs = Array.isArray(item.bodyInvocations) && item.bodyInvocations.length
+    ? item.bodyInvocations
+    : [item.command, item.resolvesTo].filter(Boolean);
+  const judged = invs.map((inv) => testBreadth(inv)).filter(Boolean);
+  if (judged.some((j) => j.breadth === 'broad')) return { breadth: 'broad' };
+  return judged.find((j) => j.breadth === 'narrow') || { breadth: 'unknown' };
 }
 
 /** The candidate IS the tier default: same text, or a runner target whose body is that text. */
@@ -215,13 +280,27 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   for (const [key, list] of rootByKey) {
     const parentEntry = parent[key] && typeof parent[key] === 'object' ? parent[key] : null;
     const parentRun = parentEntry ? parentEntry.run : undefined;
-    const ranked = rank(list);
-    const runCands = ranked.filter((e) => RUN_FORMS.has(e.form));
+    const ranked = rank(list, key);
+    let runCands = ranked.filter((e) => RUN_FORMS.has(e.form));
     const applyCands = ranked.filter((e) => e.form === 'apply');
 
+    // The repo-wide test must be broad: narrow candidates are notes under the key they fit.
+    let narrowed = 0;
+    if (key === 'test') {
+      runCands = runCands.filter((c) => {
+        const b = breadthOf(c);
+        if (b.breadth !== 'narrow') return true;
+        notes.push(note(c, b.fitsKey, 'narrow', `not the repo-wide test (${b.detail})`));
+        narrowed += 1;
+        return false;
+      });
+    }
+
     let chosen = null;
+    let chosenAt = -1;
     let inheritedAt = undefined; // null = inherited as-is; a string = inherited but needs that cwd
-    for (const c of runCands) {
+    for (let i = 0; i < runCands.length; i++) {
+      const c = runCands[i];
       if (equivalent(c, parentRun)) {
         inheritedAt = c.cwd || null;
         break;
@@ -229,9 +308,19 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       const v = check(c);
       if (v.status === 'resolved') {
         chosen = c;
+        chosenAt = i;
         break;
       }
       notes.push(note(c, key, v.status, v.detail));
+    }
+    if (chosen && chosen.target && CANONICAL_KEYS.has(key)) {
+      for (const c of runCands.slice(chosenAt + 1)) {
+        if (!c.target || squash(c.command) === squash(chosen.command)) continue;
+        if (check(c).status === 'resolved') notes.push(note(c, key, 'alternate', `canonical pick: ${chosen.command}`));
+      }
+    }
+    if (chosen && key === 'test' && breadthOf(chosen).breadth === 'unknown') {
+      notes.push(note(chosen, key, 'breadth-unknown', 'what this command runs could not be read; kept as the repo-wide test'));
     }
     let apply = null;
     for (const a of applyCands) {
@@ -270,7 +359,8 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       if (chosen.weak && chosen.weak.length) {
         notes.push(note(chosen, key, 'resolved', `weak gate kept verbatim: ${chosen.weak.join(', ')}`, { weak: [...chosen.weak] }));
       }
-    } else if (runCands.length) {
+    } else if (runCands.length || (narrowed && !runnable(parentRun))) {
+      // Unresolved candidates, or only narrow tests with no parent test to inherit.
       entry = withWhen({ run: 'discover' });
       if (apply) {
         entry.apply = apply.command;
@@ -294,7 +384,8 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
 
   // ── commands that belong to a component or an unsupported area: one note per (area, key) ──
   for (const list of elsewhere.values()) {
-    const best = rank(list).find((e) => RUN_FORMS.has(e.form)) || rank(list)[0];
+    const ordered = rank(list, list[0].key);
+    const best = ordered.find((e) => RUN_FORMS.has(e.form)) || ordered[0];
     const areaProfile = profileByDir.get(best.area) || null;
     const tier = areaProfile && areaProfile !== 'general' ? (tierCommands[areaProfile] || {}) : {};
     const tierEntry = tier[best.key];

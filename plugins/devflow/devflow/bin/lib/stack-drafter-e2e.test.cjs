@@ -237,6 +237,34 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     assert.deepStrictEqual(parseProfile(raw.stdout).frontmatter.commands.test, { run: 'discover' });
   }));
 
+  test('11: ao-terminal-shaped repo (TRD 42-13: G1 ignored dist/, G2 broad test, G3 canonical build)', { skip: !fx.hasGit() && 'git not available' }, () => withShape(fx.terminalShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    assert.equal(fm.extends, 'go');
+    assert.ok(!(fm.components || []).some((c) => c.path.startsWith('dist/')), `G1: ${JSON.stringify(fm.components)}`);
+    assert.equal('test' in fm.commands, false, `G2: the go profile's test applies, not ${JSON.stringify(fm.commands.test)}`);
+    assert.equal(fm.commands.build.run, 'task build:backend', `G3: ${JSON.stringify(fm.commands.build)}`);
+    const narrow = json.notes.find((n) => n.status === 'narrow' && n.candidate === 'go test -c -o /tmp/guard.test ./tests/guard/');
+    assert.ok(narrow, JSON.stringify(json.notes));
+    assert.equal(narrow.key, 'test');
+    assert.match(narrow.detail, /compile-only/);
+    const subtree = json.notes.find((n) => n.status === 'narrow' && n.candidate === 'go test ./pkg/guardnet/...');
+    assert.ok(subtree, `a package sub-tree is not repo-wide: ${JSON.stringify(json.notes)}`);
+    assert.match(subtree.detail, /single-path/);
+    assert.ok(json.notes.some((n) => n.status === 'alternate' && n.key === 'build' && n.candidate === 'task build:agent:internal'), JSON.stringify(json.notes));
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+
+    // --raw prints the same STACK.md, with the notes in its comment block.
+    const raw = stackInit(repo, { raw: true });
+    assert.equal(raw.status, 0, raw.stderr);
+    const rawFm = parseProfile(raw.stdout).frontmatter;
+    assert.equal(rawFm.commands.build.run, 'task build:backend');
+    assert.equal('test' in rawFm.commands, false);
+    assert.match(raw.stdout, /<!-- stack init notes[\s\S]*narrow[\s\S]*-->/);
+  }));
+
   test('10: every shape validates, is reviewed today, and --write never creates .planning/stacks/', () => {
     for (const [name, build] of Object.entries(fx.SHAPES)) {
       withShape(build, (repo) => {
