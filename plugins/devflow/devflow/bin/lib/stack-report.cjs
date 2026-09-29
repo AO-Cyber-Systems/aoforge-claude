@@ -1132,11 +1132,14 @@ function notesTable(rows) {
 
 /**
  * renderReport(findings, meta) -> markdown. `meta` = { generated, id, profile, profile_source,
- * components }. Pure and deterministic: the date is an input, never read here.
+ * components, unsupported_areas? }. `unsupported_areas` is rendered only when non-empty. Pure
+ * and deterministic: the date is an input, never read here.
  */
 function renderReport(findings, meta) {
   const counts = countsOf(findings);
+  const flowList = (list) => `[${list.map((c) => JSON.stringify(c)).join(', ')}]`;
   const components = Array.isArray(meta.components) ? meta.components : [];
+  const unsupported = Array.isArray(meta.unsupported_areas) ? meta.unsupported_areas : [];
   const isNote = (f) => /^DRAFT-NOTE-/.test(f.id);
   const bySeverity = (s) => findings.filter((f) => f.severity === s && !isNote(f));
   return [
@@ -1144,7 +1147,8 @@ function renderReport(findings, meta) {
     `generated: ${JSON.stringify(String(meta.generated))}`,
     `profile: ${JSON.stringify(String(meta.profile || 'general'))}`,
     `profile_source: ${meta.profile_source}`,
-    `components: [${components.map((c) => JSON.stringify(c)).join(', ')}]`,
+    `components: ${flowList(components)}`,
+    ...(unsupported.length ? [`unsupported_areas: ${flowList(unsupported)}`] : []),
     `counts: { gap: ${counts.gap}, weak: ${counts.weak}, info: ${counts.info} }`,
     '---',
     '',
@@ -1171,10 +1175,16 @@ function renderReport(findings, meta) {
 
 /**
  * buildReport({ projectRoot, userHome, draft, now, verifyOpts, verify }) ->
- *   { meta: { generated, id, profile, profile_source, components, counts }, findings, text }
+ *   { meta: { generated, id, profile, profile_source, components, unsupported_areas, counts },
+ *     findings, text }
  *
  * The profile is `.planning/STACK.md` when it exists (and `draft` is false), else the in-memory
  * draft. Notes always come from a fresh draftProfile. Reads only; writes nothing.
+ *
+ * `components` is EXACTLY that profile's `components[].path` (TRD 42-12, gap G1) — never the
+ * detected areas, which once listed unsupported node dirs the draft itself calls "not a
+ * component". `unsupported_areas` lists the non-root language areas with no tier-2 profile that
+ * the profile does not name as components. Findings stay per detected area either way.
  */
 function buildReport({ projectRoot, userHome = null, draft = false, now = new Date(), verifyOpts = {}, verify = null } = {}) {
   // Lazy: stack-profile loads this module lazily through STACK_EXTENSIONS; a top-level require
@@ -1208,12 +1218,21 @@ function buildReport({ projectRoot, userHome = null, draft = false, now = new Da
 
   const records = buildRecords(root, { areas });
   const findings = computeFindings({ areas, records, notes: drafted ? drafted.notes : [], root });
+  const components = (Array.isArray(fm.components) ? fm.components : [])
+    .map((c) => (c && typeof c === 'object' ? c.path : null))
+    .filter((p) => typeof p === 'string' && p !== '');
+  const componentDirs = new Set(components.map(normDir));
+  const unsupportedAreas = areas
+    .filter((a) => a && a.dir && Array.isArray(a.kinds) && a.kinds.length && !a.tier)
+    .map((a) => a.dir)
+    .filter((dir) => !componentDirs.has(normDir(dir)));
   const meta = {
     generated: localDate(now),
     id: String(fm.id || path.basename(root)),
     profile: String(fm.extends || 'general'),
     profile_source: source,
-    components: areas.filter((a) => a.dir && Array.isArray(a.kinds) && a.kinds.length).map((a) => a.dir),
+    components,
+    unsupported_areas: unsupportedAreas,
     counts: countsOf(findings),
   };
   return { meta, findings, text: renderReport(findings, meta) };

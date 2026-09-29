@@ -22,6 +22,15 @@
 //   11. Draft notes: missing ginkgo -> a DRAFT-NOTE-test info row naming binary_missing.
 //   12. Deterministic: two runs byte-identical with the date injected.
 //   14. Q8 probe (skip-only): `dart test --coverage=coverage` in a temp package; diagnostic only.
+//
+// TRD 42-12 (gap G1: the report's components column listed unsupported node areas the draft calls
+// "not a component"):
+//   G2. CLI --draft --raw, supported svc/ (go) + unsupported node site/ and ui/frontend/:
+//       meta.components equals the draft's component paths ([] for one supported area,
+//       ['admin/', 'svc/'] for two); meta.unsupported_areas is ['site/', 'ui/frontend/']; the
+//       header renders both lines (unsupported_areas omitted when empty).
+//   G3. CLI --raw with a STACK.md naming components [svc/] while detection also sees tools/x/ (go):
+//       meta.components is exactly ['svc/'], from the file.
 
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -433,6 +442,79 @@ describe('determinism and render (TRD 42-08 test 12)', () => {
       const { renderReport } = lazyReport();
       assert.equal(renderReport(a.findings, a.meta), a.text);
     });
+  });
+});
+
+// ─── TRD 42-12: report components = the profile's components ───────────────
+
+const { goMod } = require('./__fixtures__/stack-detect-fixtures.cjs');
+
+const NODE_PKG = (name) => `{ "name": "${name}", "private": true, "scripts": { "build": "vite build" } }\n`;
+
+/** One supported go area (svc/) and two unsupported node areas (site/, ui/frontend/). */
+function svcPlusNodeShape({ admin = false } = {}) {
+  const files = {
+    'README.md': '# invented portal\n',
+    'svc/go.mod': goMod('svc'),
+    'svc/main.go': 'package main\n\nfunc main() {}\n',
+    'site/package.json': NODE_PKG('invented-site'),
+    'ui/frontend/package.json': NODE_PKG('invented-frontend'),
+  };
+  if (admin) files['admin/go.mod'] = goMod('admin');
+  return fx.makeWhole(files);
+}
+
+describe('report components come from the profile (TRD 42-12 G2-G3)', () => {
+  test('G2: --draft --raw: components are the draft\'s ([] for one supported area); node areas are unsupported_areas', () => {
+    withShape(() => svcPlusNodeShape(), (repo) => {
+      const r = runCli(repo, ['--draft', '--raw']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.json.profile_source, 'draft');
+      assert.deepEqual(r.json.components, []);
+      assert.deepEqual(r.json.unsupported_areas, ['site/', 'ui/frontend/']);
+
+      const md = runCli(repo, ['--draft']);
+      assert.equal(md.status, 0, md.stderr);
+      assert.match(md.stdout, /\ncomponents: \[\]\nunsupported_areas: \["site\/", "ui\/frontend\/"\]\ncounts: /);
+    });
+  });
+
+  test('G2b: two supported areas -> components [admin/, svc/], equal to the draft; node areas stay out of them', () => {
+    withShape(() => svcPlusNodeShape({ admin: true }), (repo) => {
+      const r = runCli(repo, ['--draft', '--raw']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(r.json.components, ['admin/', 'svc/']);
+      assert.deepEqual(r.json.unsupported_areas, ['site/', 'ui/frontend/']);
+
+      // In-process: meta.components deep-equals the draft's own components[].path.
+      const sp = require('./stack-profile.cjs');
+      const draft = sp.draftProfile({ projectRoot: repo, userHome: home, now: FIXED_NOW, verify: stubVerify });
+      const built = reportOf(repo, { draft: true });
+      assert.deepEqual(built.meta.components, (draft.frontmatter.components || []).map((c) => c.path));
+      assert.match(built.text, /\ncomponents: \["admin\/", "svc\/"\]\nunsupported_areas: \["site\/", "ui\/frontend\/"\]\n/);
+    });
+  });
+
+  test('G3: --raw with STACK.md components [svc/] -> components exactly [svc/] even though tools/x/ is detected', () => {
+    const repo = fx.makeWhole({
+      'go.mod': goMod('ledger'),
+      'main.go': 'package main\n\nfunc main() {}\n',
+      'svc/go.mod': goMod('svc'),
+      'tools/x/go.mod': goMod('tools-x'),
+      '.planning/STACK.md': '---\nschema: 1\nid: "ledger"\nextends: "go"\ncomponents: [{ path: "svc/", profile: "go" }]\ncommands: {}\n---\n\n# ledger\n',
+    });
+    try {
+      const r = runCli(repo, ['--raw']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.json.profile_source, 'file');
+      assert.deepEqual(r.json.components, ['svc/']);
+      assert.deepEqual(r.json.unsupported_areas, []);
+      const md = runCli(repo, []);
+      assert.match(md.stdout, /\ncomponents: \["svc\/"\]\ncounts: /);
+      assert.equal(md.stdout.includes('unsupported_areas'), false, 'an empty unsupported_areas is not rendered');
+    } finally {
+      fx.cleanup(repo);
+    }
   });
 });
 

@@ -12,6 +12,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync, spawnSync } = require('child_process');
 
 /**
  * makeTree(files) -> absolute root
@@ -255,8 +256,99 @@ function flutterAppShape({ maestro = false, integration = false, buildRunner = f
   return makeTree(files);
 }
 
+// ─── git-backed shapes (TRD 42-12) ────────────────────────────────────────
+//
+// The 42-11 dry run drafted a go component inside a gitignored `dist/<scaffold>/` tree and the
+// dir-level `.planning` ignore check missed a rule because the dir held a tracked file. These
+// builders reproduce both SHAPES with invented names: `git init -q` in the mkdtemp root, a
+// `.gitignore`, and optionally `git add -f` of a file under the ignored dir ("tracked under
+// ignored"). Tests that use them skip when `hasGit()` is false.
+
+/** True when a working `git` binary is on PATH. */
+function hasGit() {
+  const r = spawnSync('git', ['--version'], { stdio: 'ignore' });
+  return !r.error && r.status === 0;
+}
+
+function git(root, args) {
+  execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+}
+
+/**
+ * makeGitTree(files, { track }) -> absolute root. `makeTree(files)`, then `git init -q`, then
+ * `git add -f -- <rel>` for every path in `track` (so it is tracked even under an ignore rule).
+ */
+function makeGitTree(files = {}, { track = [] } = {}) {
+  const root = makeTree(files);
+  git(root, ['init', '-q']);
+  for (const rel of track) git(root, ['add', '-f', '--', rel]);
+  return root;
+}
+
+/**
+ * gitIgnoredScaffoldShape({ ruleSpelling, trackUnderIgnored, child }) — a root Go module and a
+ * Flutter `app/`, plus a Go module at `<dir>/<child>/` where `<dir>` is what `.gitignore`'s one
+ * rule (`ruleSpelling`, e.g. `dist/` or `dist`) names. With `trackUnderIgnored` one file under it
+ * is force-added. Expected areas: '' (go) and app/ (flutter) — never `<dir>/<child>/`.
+ *
+ * The default `dist/` + `scaffoldapp` is ALSO caught by the static fallback (both names are on
+ * it), so a test that must prove git did the pruning passes a non-fallback rule (`bundle/`) and a
+ * non-scaffold child (`svcapp`).
+ */
+function gitIgnoredScaffoldShape({ ruleSpelling = 'dist/', trackUnderIgnored = true, child = 'scaffoldapp' } = {}) {
+  const dir = ruleSpelling.replace(/^\/+/, '').replace(/\/+$/, '');
+  const under = `${dir}/${child}`;
+  return makeGitTree({
+    '.gitignore': `${ruleSpelling}\n`,
+    'go.mod': goMod('root'),
+    'main.go': 'package main\n\nfunc main() {}\n',
+    'app/pubspec.yaml': flutterPubspec('invented_client'),
+    'app/lib/main.dart': 'void main() {}\n',
+    [`${under}/go.mod`]: goMod(child),
+    [`${under}/main.go`]: 'package main\n\nfunc main() {}\n',
+  }, { track: trackUnderIgnored ? [`${under}/go.mod`] : [] });
+}
+
+/**
+ * staticFallbackShape() — NOT a git repo. Go modules in dist/, out/, target/, coverage/,
+ * foo-scaffold/ and AppScaffold/ (the name rule is case-insensitive) must all be excluded by the
+ * static fallback alone; src/ is kept. Expected areas: ['src/'].
+ */
+function staticFallbackShape() {
+  return makeTree({
+    'README.md': '# invented build outputs\n',
+    'src/go.mod': goMod('src'),
+    'dist/go.mod': goMod('dist'),
+    'out/go.mod': goMod('out'),
+    'target/go.mod': goMod('target'),
+    'coverage/go.mod': goMod('coverage'),
+    'foo-scaffold/go.mod': goMod('foo-scaffold'),
+    'AppScaffold/pubspec.yaml': flutterPubspec('invented_scaffold'),
+  });
+}
+
+/**
+ * negatedRuleShape({ dir }) — a git repo whose `.gitignore` is `<dir>/*` + `!<dir>/keep/`, a root
+ * Go module, and Go modules at `<dir>/keep/` and `<dir>/drop/`. Git keeps `<dir>/` itself and
+ * `<dir>/keep/` and ignores `<dir>/drop/`. With the default `gen` expected areas are '' and
+ * gen/keep/; with `dir: 'dist'` the static fallback wins and neither dist/ child is an area.
+ */
+function negatedRuleShape({ dir = 'gen' } = {}) {
+  return makeGitTree({
+    '.gitignore': `${dir}/*\n!${dir}/keep/\n`,
+    'go.mod': goMod('root'),
+    [`${dir}/keep/go.mod`]: goMod('keep'),
+    [`${dir}/drop/go.mod`]: goMod('drop'),
+  });
+}
+
 module.exports = {
   makeTree,
+  makeGitTree,
+  hasGit,
+  gitIgnoredScaffoldShape,
+  staticFallbackShape,
+  negatedRuleShape,
   cleanup,
   goMod,
   flutterPubspec,
