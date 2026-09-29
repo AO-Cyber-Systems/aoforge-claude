@@ -104,6 +104,7 @@ const ANNOUNCE = [
   { label: 'real-e: Next I\'ll (no comma)', text: 'Wave 3 merged.\n\nNext I\'ll spawn the wave 4 executors.' },
   { label: 'real-f: announcement followed by a trailing code fence', text: 'Build is clean.\n\nNow running the focused test:\n\n```bash\nnode --test plugins/devflow/hooks/auto-continue.test.js\n```' },
   { label: 'real-g: Starting wave after a merge report', text: 'Merged df/exec-44-03 and df/exec-44-06.\n\nStarting wave 2: 44-02, 44-04, 44-07.' },
+  { label: 'real-z: bold announcement', text: 'RED is committed.\n\n**Now writing the implementation.**' },
 ];
 
 /** Messages that must NOT auto-continue — must classify null. */
@@ -176,6 +177,12 @@ const NOT_ANNOUNCE = [
   { label: 'real-s: let me know', text: 'Writing to main is blocked while the other session is active. Let me know when it is free.' },
   { label: 'real-t: you\'ll need to', text: 'Next, you\'ll need to run `gh auth login` in your terminal.' },
   { label: 'real-u: want me to … ?', text: 'Starting wave 3 would touch hooks.json. Want me to go ahead?' },
+
+  // --- real phrasing: gerund-led sentences that report a result ---
+  { label: 'real-v: gerund subject + finite verb is a report', text: 'Running the suite showed three failures in gate-edits.' },
+  { label: 'real-w: announcement carrying its own result', text: 'Now running the full suite: 412 pass, 0 fail.' },
+  { label: 'real-x: announcement followed by its result in the same paragraph', text: 'Now running the full suite. All 412 pass.' },
+  { label: 'real-y: needs your approval', text: 'Writing the SUMMARY is the last step, and it needs your look-lock approval first.' },
 ];
 
 module.exports = {
