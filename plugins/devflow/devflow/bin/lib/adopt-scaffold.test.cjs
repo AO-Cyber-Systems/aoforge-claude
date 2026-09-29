@@ -39,6 +39,10 @@
 // Pure renderers (exact literal expectations):
 //   15. renderState({...}) equals the expected STATE.md string.
 //   16. renderRoadmap({...}) equals the expected ROADMAP.md string (no `### Objective` heading).
+//
+// Local date (TRD 42-01, SDR-07):
+//   17. in-process scaffold with an injected `now` at LOCAL 23:30 on 2026-09-28 -> STATE.md,
+//       ROADMAP.md and STACK.md provenance.reviewed all carry 2026-09-28 (never the UTC date).
 
 const { describe, test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -56,7 +60,8 @@ const {
   writeProjectMd,
 } = require('./__fixtures__/adopt-fixtures.cjs');
 
-const { renderState, renderRoadmap } = require('./adopt.cjs');
+const { renderState, renderRoadmap, scaffold } = require('./adopt.cjs');
+const stackProfile = require('./stack-profile.cjs');
 const { repoKey } = require('./upgrade.cjs');
 const { loadClaudeMdTemplate } = require('./migrations/0005-claude-md-block.cjs');
 const managedBlock = require('./managed-block.cjs');
@@ -424,5 +429,29 @@ describe('df-tools adopt scaffold — pure renderers (exact literal expectations
       '|---|---|---|---|---|\n';
     assert.strictEqual(text, expected);
     assert.ok(!/#{2,4}\s*Objective\s+\d/i.test(text), text);
+  });
+});
+
+// ─── Local date (test 17, TRD 42-01) ───────────────────────────────────────
+
+describe('df-tools adopt scaffold — dates are the LOCAL calendar date', () => {
+  test('17. an injected `now` at local 23:30 on 2026-09-28 writes 2026-09-28 into STATE, ROADMAP and STACK', () => {
+    const root = readyFixture('go-service');
+    // The LOCAL constructor: 23:30 here is already 2026-09-29 in UTC anywhere west of Greenwich,
+    // which is exactly the date the UTC-based code used to write.
+    const now = new Date(2026, 8, 28, 23, 30);
+    const pluginJson = JSON.parse(fs.readFileSync(PLUGIN_JSON_PATH, 'utf-8'));
+    const result = scaffold(root, { env: gitEnv(fakeHome), userHome: fakeHome, pluginVersion: pluginJson.version, now });
+    assert.strictEqual(result.route, 'scaffold', JSON.stringify(result));
+
+    const state = readFile(root, '.planning/STATE.md');
+    assert.ok(state.includes('**Last Activity:** 2026-09-28 '), state);
+    assert.ok(state.includes('- 2026-09-28: Adopted by /devflow:adopt'), state);
+
+    const roadmap = readFile(root, '.planning/ROADMAP.md');
+    assert.ok(roadmap.includes('(2026-09-28, current)'), roadmap);
+
+    const stack = stackProfile.parseProfile(readFile(root, '.planning/STACK.md'));
+    assert.strictEqual(stack.frontmatter.provenance.reviewed, '2026-09-28');
   });
 });

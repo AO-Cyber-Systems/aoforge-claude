@@ -257,3 +257,53 @@ describe('stack init CLI end-to-end (I12, DoD)', () => {
     }
   });
 });
+
+// ─── I13: provenance.reviewed is the LOCAL calendar date (TRD 42-01, SDR-07) ──
+//
+// The fleet dry-run drafted `reviewed: 2026-09-29` at 21:47 local on 2026-09-28: the draft read
+// the UTC date. Dates here come from the LOCAL constructor so each assertion holds in every time
+// zone (23:30 local is the next UTC day west of Greenwich, 00:30 the previous one east of it).
+// Never compare against `toISOString()`.
+
+describe('provenance.reviewed is the local date (I13)', () => {
+  const { localDate } = require('./helpers.cjs');
+
+  test('I13a: draftProfile with an injected local 23:30 / 00:30 `now` -> reviewed is that local calendar date', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({});
+    try {
+      const late = sp.draftProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'general', now: new Date(2026, 8, 28, 23, 30) });
+      assert.equal(late.frontmatter.provenance.reviewed, '2026-09-28');
+      const early = sp.draftProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'general', now: new Date(2026, 8, 28, 0, 30) });
+      assert.equal(early.frontmatter.provenance.reviewed, '2026-09-28');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('I13b: initProfile passes `now` through to the drafted text (stack init preview)', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({});
+    try {
+      const result = sp.initProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'general', write: false, now: new Date(2026, 8, 28, 23, 30) });
+      assert.equal(result.action, 'preview');
+      assert.equal(sp.parseProfile(result.text).frontmatter.provenance.reviewed, '2026-09-28');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('I13c: without an injected `now`, reviewed === helpers.localDate()', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({});
+    try {
+      const before = localDate();
+      const result = sp.initProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'general', write: false });
+      const after = localDate();
+      const reviewed = sp.parseProfile(result.text).frontmatter.provenance.reviewed;
+      assert.ok(reviewed === before || reviewed === after, `reviewed ${reviewed}, expected ${before} or ${after}`);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+});
