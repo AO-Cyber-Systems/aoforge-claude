@@ -234,6 +234,447 @@ function collectMake(d, targets) {
   }
 }
 
+// ─── Taskfile ─────────────────────────────────────────────────────────────────
+//
+// A small indentation reader (the stack-ci approach), NOT yaml-lite: Taskfiles use `{{.VAR}}`
+// templating and anchors, and task names contain `:`. Unknown shapes are skipped, never thrown.
+
+const PROP_KEY = /^([A-Za-z_<][\w.<-]*)\s*:(?:\s+(.*))?$/;
+const BLOCK_SCALAR = /^([|>])[+-]?\d*$/;
+
+function yamlRows(text) {
+  return String(text).replace(/\r\n?/g, '\n').split('\n').map((raw) => {
+    const t = raw.trim();
+    return { raw, indent: raw.length - raw.trimStart().length, text: t, blank: t === '' };
+  });
+}
+
+function significant(row) {
+  return !row.blank && !row.text.startsWith('#');
+}
+
+function isListItem(text) {
+  return text === '-' || text.startsWith('- ');
+}
+
+/** A YAML scalar: unquote, or cut a trailing ` # comment` from a plain one. */
+function yamlScalar(str) {
+  const s = String(str).trim();
+  if (s.startsWith('"')) {
+    const m = /^"((?:[^"\\]|\\.)*)"/.exec(s);
+    if (m) return m[1].replace(/\\(["\\])/g, '$1');
+  }
+  if (s.startsWith("'")) {
+    const m = /^'((?:[^']|'')*)'/.exec(s);
+    if (m) return m[1].replace(/''/g, "'");
+  }
+  return s.replace(/(^|\s)#.*$/, '').trim();
+}
+
+/** `[a, "b, c"]` -> ['a', 'b, c']; null when it is not a flow list. */
+function flowItems(str) {
+  const m = /^\[(.*)\]\s*(?:#.*)?$/.exec(String(str).trim());
+  if (!m) return null;
+  const items = [];
+  let cur = '';
+  let quote = null;
+  for (const ch of m[1]) {
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      cur += ch;
+    } else if (ch === ',') {
+      items.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  items.push(cur);
+  return items.map(yamlScalar).filter((s) => s !== '');
+}
+
+/** The value after a key: an anchor definition and comment-only values count as empty. */
+function cleanValue(value) {
+  let v = String(value || '').trim();
+  if (v.startsWith('#')) return '';
+  v = v.replace(/^&\S+\s*/, '');
+  return v.startsWith('#') ? '' : v.trim();
+}
+
+/** Lines of a `|` (one per line) or `>` (folded to one) block scalar; `#` lines are shell comments. */
+function blockScalarLines(style, rows) {
+  const filled = rows.filter((r) => !r.blank);
+  if (filled.length === 0) return [];
+  const base = Math.min(...filled.map((r) => r.indent));
+  const lines = filled
+    .map((r) => r.raw.slice(base).trim())
+    .filter((l) => l !== '' && !l.startsWith('#'));
+  if (lines.length === 0) return [];
+  return style === '>' ? [lines.join(' ')] : lines;
+}
+
+/** Body lines for `key: value` where the value may open a block scalar over `rows`. */
+function valueLines(value, rows) {
+  const v = cleanValue(value);
+  if (v === '' || v.startsWith('*') || v.startsWith('{')) return [];
+  const block = BLOCK_SCALAR.exec(v);
+  if (block) return blockScalarLines(block[1], rows);
+  const flow = flowItems(v);
+  if (flow) return flow;
+  const s = yamlScalar(v);
+  return s === '' ? [] : [s];
+}
+
+/**
+ * Split `rows` into `{ key, value, rows }` entries at `keyIndent`. Deeper rows (and blanks)
+ * belong to the entry above; so do same-indent `- item` rows (YAML's compact list form).
+ */
+function mapEntries(rows, keyIndent, matchKey = matchProp) {
+  const entries = [];
+  for (const row of rows) {
+    const cur = entries[entries.length - 1];
+    if (row.blank) {
+      if (cur) cur.rows.push(row);
+    } else if (row.indent === keyIndent && !row.text.startsWith('#')) {
+      const hit = matchKey(row.text);
+      if (hit) entries.push({ key: hit.key, value: hit.value, rows: [] });
+      else if (cur && isListItem(row.text)) cur.rows.push(row);
+    } else if (cur && row.indent > keyIndent) {
+      cur.rows.push(row);
+    }
+  }
+  return entries;
+}
+
+function matchProp(text) {
+  const m = PROP_KEY.exec(text);
+  return m ? { key: m[1], value: m[2] || '' } : null;
+}
+
+/** A task header: `name:` / `lint:go:` / `"quoted:name":`, with an optional inline value. */
+function matchTaskName(text) {
+  let m = /^(["'])(.+?)\1:(?:\s+(.*))?$/.exec(text);
+  if (m) return { key: m[2], value: m[3] || '' };
+  m = /^([^\s#"'&*<[{-][^#]*?):(?:\s+(.*))?$/.exec(text);
+  return m ? { key: m[1].trim(), value: m[2] || '' } : null;
+}
+
+/** Block-list items (`- x`) in `rows`, each with the column its content starts at. */
+function listItems(rows) {
+  const first = rows.find((r) => significant(r) && isListItem(r.text));
+  if (!first) return [];
+  const items = [];
+  for (const row of rows) {
+    if (row.indent === first.indent && isListItem(row.text)) {
+      const inner = row.text.slice(1).trimStart();
+      items.push({ text: inner, col: row.indent + (row.text.length - inner.length), rows: [] });
+    } else if (items.length > 0 && (row.blank || row.indent > first.indent)) {
+      items[items.length - 1].rows.push(row);
+    }
+  }
+  return items;
+}
+
+function entriesLines(entries) {
+  const out = [];
+  for (const e of entries) {
+    if (e.key === 'cmd') out.push(...valueLines(e.value, e.rows));
+    else if (e.key === 'task') {
+      const name = yamlScalar(e.value);
+      if (name !== '') out.push(`task ${name}`);
+    }
+  }
+  return out;
+}
+
+/** Body lines of one `cmds:` item: a bare command, `- cmd:`, `- task:`, or a block scalar. */
+function itemLines(item) {
+  const t = item.text;
+  if (t === '') {
+    const first = item.rows.find(significant);
+    return first ? entriesLines(mapEntries(item.rows, first.indent)) : [];
+  }
+  if (!PROP_KEY.test(t)) return valueLines(t, item.rows);
+  const head = { raw: `${' '.repeat(item.col)}${t}`, indent: item.col, text: t, blank: false };
+  return entriesLines(mapEntries([head, ...item.rows], item.col));
+}
+
+function listValues(entry) {
+  const flow = flowItems(cleanValue(entry.value));
+  return flow || listItems(entry.rows).map((it) => yamlScalar(it.text)).filter((s) => s !== '');
+}
+
+/** One task's properties from its header value and the rows under it. */
+function readTaskProps(value, rows) {
+  const task = { body: [], aliases: [], dir: null };
+  const v = cleanValue(value);
+  if (v !== '') { // shorthand: `name: go build ./...`, `name: [a, b]`, `name: |`
+    task.body = valueLines(v, rows);
+    return task;
+  }
+  const first = rows.find(significant);
+  if (!first) return task;
+  for (const e of mapEntries(rows, first.indent)) {
+    if (e.key === 'cmd') task.body.push(...valueLines(e.value, e.rows));
+    else if (e.key === 'cmds') {
+      const flow = flowItems(cleanValue(e.value));
+      if (flow) task.body.push(...flow);
+      else for (const it of listItems(e.rows)) task.body.push(...itemLines(it));
+    } else if (e.key === 'aliases') task.aliases.push(...listValues(e));
+    else if (e.key === 'dir') {
+      const d = yamlScalar(e.value);
+      if (d !== '') task.dir = d;
+    }
+  }
+  return task;
+}
+
+/**
+ * Parse Taskfile text -> `{ tasks: [{ name, aliases, body, dir }], hasIncludes }`.
+ * `dir` is the task's own `dir:` verbatim; `hasIncludes` is true when a top-level `includes:`
+ * brings in tasks this reader cannot see.
+ */
+function parseTaskfile(text) {
+  const rows = yamlRows(text);
+  const tasks = [];
+  let hasIncludes = false;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!significant(row) || row.indent !== 0) continue;
+    const m = /^([A-Za-z_][\w-]*)\s*:/.exec(row.text);
+    if (!m) continue;
+    if (m[1] === 'includes') hasIncludes = true;
+    if (m[1] !== 'tasks') continue;
+    let end = i + 1;
+    while (end < rows.length && !(significant(rows[end]) && rows[end].indent === 0)) end += 1;
+    const section = rows.slice(i + 1, end);
+    const first = section.find(significant);
+    if (first) {
+      for (const e of mapEntries(section, first.indent, matchTaskName)) {
+        const p = readTaskProps(e.value, e.rows);
+        tasks.push({ name: e.key, aliases: p.aliases, body: p.body, dir: p.dir });
+      }
+    }
+    i = end - 1;
+  }
+  return { tasks, hasIncludes };
+}
+
+/** A task-level `dir:` as a repo-relative cwd, or undefined when it is templated or escapes the repo. */
+function taskCwd(taskfileDir, value) {
+  if (!value) return undefined;
+  const v = value.replace(/^\{\{\s*\.(?:ROOT_DIR|TASKFILE_DIR)\s*\}\}\/?/, '');
+  if (v.includes('{{') || v.startsWith('/')) return undefined;
+  const joined = path.posix.normalize(joinRel(taskfileDir, v === '' ? '.' : v));
+  if (joined === '..' || joined.startsWith('../')) return undefined;
+  return joined === '.' ? '' : joined;
+}
+
+function taskInvocation(dir, name) {
+  return dir ? `task -d ${shq(dir)} ${shq(name)}` : `task ${shq(name)}`;
+}
+
+// ─── justfile ─────────────────────────────────────────────────────────────────
+
+// `name params: deps`, with an optional `@` quiet prefix. `x := y`, `set shell := ...` and
+// `alias a := b` never match: the colon must not be followed by `=` (or `:`).
+const JUST_RECIPE = /^@?([A-Za-z_][\w-]*)(?:\s+[^:]*?)?\s*:(?![=:])/;
+
+/** Recipe body lines: comments and a shebang line dropped; `@` / `-` line prefixes stripped. */
+function justBody(lines) {
+  const trimmed = lines.map((l) => String(l).trim()).filter((l) => l !== '');
+  const shebang = trimmed.length > 0 && trimmed[0].startsWith('#!');
+  const out = [];
+  for (const line of trimmed) {
+    if (line.startsWith('#')) continue;
+    out.push(shebang ? line : line.replace(/^[@-]+\s*/, ''));
+  }
+  return out;
+}
+
+/**
+ * Parse justfile text -> `{ recipes: [{ name, body }], aliases: { alias: target }, hasImport }`.
+ * `set`, `export`, `alias`, `import`, `mod` and `[attribute]` lines are not recipes. Bodies keep
+ * their shell text as written (a `(cd x && ...)` subshell stays whole).
+ */
+function parseJustfile(text) {
+  const recipes = [];
+  const aliases = new Map();
+  let hasImport = false;
+  let current = null;
+  for (const line of logicalLines(text)) {
+    if (/^[ \t]+\S/.test(line)) {
+      if (current) current.raw.push(line);
+      continue;
+    }
+    if (/^\s*$/.test(line) || line.startsWith('#')) continue; // do not end a recipe
+    current = null;
+    if (line.startsWith('[')) continue; // attribute line
+    const alias = /^alias\s+([\w-]+)\s*:=\s*([\w-]+)/.exec(line);
+    if (alias) {
+      aliases.set(alias[1], alias[2]);
+      continue;
+    }
+    if (/^(?:import|mod)\??(?:\s|$)/.test(line)) {
+      hasImport = true;
+      continue;
+    }
+    if (/^(?:set|export|unexport)\s/.test(line)) continue;
+    const recipe = JUST_RECIPE.exec(line);
+    if (recipe) {
+      current = { name: recipe[1], raw: [] };
+      recipes.push(current);
+    }
+  }
+  return {
+    recipes: recipes.map((r) => ({ name: r.name, body: justBody(r.raw) })),
+    aliases: Object.fromEntries(aliases),
+    hasImport,
+  };
+}
+
+function justInvocation(dir, file, name) {
+  return dir
+    ? `just --justfile ${shq(joinRel(dir, file))} ${shq(name)}`
+    : `just ${shq(name)}`;
+}
+
+// ─── collectors (static parse; exec enrichment adds names, never removes) ─────
+
+function collectTask(d, targets, exec) {
+  const file = pickFile(d.entries, RUNNER_FILES.task);
+  if (!file) return;
+  const text = readText(path.join(d.abs, file));
+  if (text === null) return;
+  const relFile = joinRel(d.rel, file);
+  for (const t of parseTaskfile(text).tasks) {
+    const target = {
+      runner: 'task',
+      dir: d.rel,
+      file: relFile,
+      name: t.name,
+      aliases: t.aliases,
+      body: t.body,
+      invocation: taskInvocation(d.rel, t.name),
+    };
+    const cwd = taskCwd(d.rel, t.dir);
+    if (cwd !== undefined) target.cwd = cwd;
+    targets.push(target);
+  }
+  if (exec) enrichTask(exec, d, relFile, targets);
+}
+
+function collectJust(d, targets, exec) {
+  const file = pickFile(d.entries, RUNNER_FILES.just);
+  if (!file) return;
+  const text = readText(path.join(d.abs, file));
+  if (text === null) return;
+  const relFile = joinRel(d.rel, file);
+  const parsed = parseJustfile(text);
+  for (const r of parsed.recipes) {
+    targets.push({
+      runner: 'just',
+      dir: d.rel,
+      file: relFile,
+      name: r.name,
+      aliases: Object.keys(parsed.aliases).filter((a) => parsed.aliases[a] === r.name),
+      body: r.body,
+      invocation: justInvocation(d.rel, file, r.name),
+    });
+  }
+  if (exec) enrichJust(exec, d, file, targets);
+}
+
+// ─── exec enrichment ──────────────────────────────────────────────────────────
+//
+// `exec(cmd, args, { cwd })` is injected and synchronous (like execFileSync); it returns stdout
+// as a string, a Buffer or `{ stdout }`. Any throw (ENOENT when the runner is absent included),
+// bad JSON or unexpected shape is swallowed: the static result stays as it was.
+
+function execJson(exec, cmd, args, cwd) {
+  if (typeof exec !== 'function') return null;
+  try {
+    const out = exec(cmd, args, { cwd });
+    const raw = out && typeof out === 'object' && !Buffer.isBuffer(out) ? out.stdout : out;
+    const json = JSON.parse(String(raw));
+    return json && typeof json === 'object' ? json : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Add a name the static pass missed (marked `via: 'exec'`) or merge aliases into a known one. */
+function upsertExec(targets, d, { runner, file, name, aliases, body, invocation }) {
+  const known = targets.find((t) => t.runner === runner && t.dir === d.rel && t.name === name);
+  if (known) {
+    for (const a of aliases) if (a !== name && !known.aliases.includes(a)) known.aliases.push(a);
+    return;
+  }
+  targets.push({
+    runner,
+    dir: d.rel,
+    file,
+    name,
+    aliases: [...new Set(aliases.filter((a) => a !== name))],
+    body,
+    invocation,
+    via: 'exec',
+  });
+}
+
+function stringList(v) {
+  return Array.isArray(v) ? v.filter((s) => typeof s === 'string' && s !== '') : [];
+}
+
+function enrichTask(exec, d, file, targets) {
+  const json = execJson(exec, 'task', ['--list-all', '--json'], d.abs);
+  if (!json || !Array.isArray(json.tasks)) return;
+  for (const t of json.tasks) {
+    if (!t || typeof t.name !== 'string' || t.name === '') continue;
+    upsertExec(targets, d, {
+      runner: 'task',
+      file,
+      name: t.name,
+      aliases: stringList(t.aliases),
+      body: [],
+      invocation: taskInvocation(d.rel, t.name),
+    });
+  }
+}
+
+/** One just JSON body line: fragments are strings or expression arrays like ["variable","x"]. */
+function renderJustLine(line) {
+  if (typeof line === 'string') return line;
+  if (!Array.isArray(line)) return '';
+  return line
+    .map((f) => (typeof f === 'string' ? f : `{{${Array.isArray(f) && typeof f[1] === 'string' ? f[1] : ''}}}`))
+    .join('');
+}
+
+function enrichJust(exec, d, file, targets) {
+  const json = execJson(exec, 'just', ['--dump', '--dump-format', 'json'], d.abs);
+  if (!json || !json.recipes || typeof json.recipes !== 'object') return;
+  const aliasesOf = new Map();
+  for (const [alias, a] of Object.entries(json.aliases && typeof json.aliases === 'object' ? json.aliases : {})) {
+    if (!a || typeof a.target !== 'string') continue;
+    aliasesOf.set(a.target, [...(aliasesOf.get(a.target) || []), alias]);
+  }
+  for (const [name, r] of Object.entries(json.recipes)) {
+    if (!r || typeof r !== 'object' || r.private === true) continue;
+    upsertExec(targets, d, {
+      runner: 'just',
+      file: joinRel(d.rel, file),
+      name,
+      aliases: aliasesOf.get(name) || [],
+      body: Array.isArray(r.body) ? justBody(r.body.map(renderJustLine)) : [],
+      invocation: justInvocation(d.rel, file, name),
+    });
+  }
+}
+
 // ─── public API ───────────────────────────────────────────────────────────────
 
 function compareTargets(a, b) {
@@ -252,12 +693,14 @@ function compareTargets(a, b) {
  * repo-relative runner file; `invocation` is runnable from the repo root. Sorted by
  * (dir, runner, name). Never throws: an unreadable root or file yields fewer (or no) targets.
  */
-function readRunners(root, { maxDepth = 1 } = {}) {
+function readRunners(root, { maxDepth = 1, exec = null } = {}) {
   const depth = Number.isInteger(maxDepth) && maxDepth >= 0 ? maxDepth : 1;
   const abs = path.resolve(String(root));
   const targets = [];
   for (const d of listDirs(abs, depth)) {
     collectMake(d, targets);
+    collectTask(d, targets, exec);
+    collectJust(d, targets, exec);
   }
   return targets.sort(compareTargets);
 }
@@ -284,6 +727,22 @@ function hasTarget(root, { runner, dir = '', name } = {}) {
       if (parsed.targets.some((t) => t.name === name)) return true;
       return parsed.hasInclude ? 'unknown' : false;
     }
+    case 'task': {
+      const file = pickFile(entries, RUNNER_FILES.task);
+      const text = file ? readText(path.join(abs, file)) : null;
+      if (text === null) return false;
+      const parsed = parseTaskfile(text);
+      if (parsed.tasks.some((t) => t.name === name || t.aliases.includes(name))) return true;
+      return parsed.hasIncludes ? 'unknown' : false;
+    }
+    case 'just': {
+      const file = pickFile(entries, RUNNER_FILES.just);
+      const text = file ? readText(path.join(abs, file)) : null;
+      if (text === null) return false;
+      const parsed = parseJustfile(text);
+      if (parsed.recipes.some((r) => r.name === name) || Object.hasOwn(parsed.aliases, name)) return true;
+      return parsed.hasImport ? 'unknown' : false;
+    }
     default:
       return 'unknown';
   }
@@ -296,4 +755,6 @@ module.exports = {
   SKIP_DIRS,
   // parsers, exported for unit tests
   _parseMakefile: parseMakefile,
+  _parseTaskfile: parseTaskfile,
+  _parseJustfile: parseJustfile,
 };
