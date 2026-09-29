@@ -238,7 +238,7 @@ Return what changed.
 
 ```
 Task(
-  prompt="First, read ~/.claude/agents/planner.md for your role and instructions.\n\n" + revision_prompt,
+  prompt=revision_prompt,
   subagent_type="planner",
   model="{planner_model}",
   description="Revise quick plan: ${DESCRIPTION}"

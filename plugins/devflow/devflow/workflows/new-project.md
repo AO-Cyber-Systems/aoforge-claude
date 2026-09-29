@@ -564,9 +564,7 @@ TaskCreate(subject="Research: Pitfalls", description="Finding common mistakes an
 Spawn 4 parallel project-researcher agents with rich context:
 
 ```
-Task(prompt="First, read ~/.claude/agents/project-researcher.md for your role and instructions.
-
-<research_type>
+Task(prompt="<research_type>
 Project Research — Stack dimension for [domain].
 </research_type>
 
@@ -604,9 +602,7 @@ Use template: ~/.claude/devflow/templates/research-project/STACK.md
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="Stack research")
 
-Task(prompt="First, read ~/.claude/agents/project-researcher.md for your role and instructions.
-
-<research_type>
+Task(prompt="<research_type>
 Project Research — Features dimension for [domain].
 </research_type>
 
@@ -644,9 +640,7 @@ Use template: ~/.claude/devflow/templates/research-project/FEATURES.md
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="Features research")
 
-Task(prompt="First, read ~/.claude/agents/project-researcher.md for your role and instructions.
-
-<research_type>
+Task(prompt="<research_type>
 Project Research — Architecture dimension for [domain].
 </research_type>
 
@@ -684,9 +678,7 @@ Use template: ~/.claude/devflow/templates/research-project/ARCHITECTURE.md
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="Architecture research")
 
-Task(prompt="First, read ~/.claude/agents/project-researcher.md for your role and instructions.
-
-<research_type>
+Task(prompt="<research_type>
 Project Research — Pitfalls dimension for [domain].
 </research_type>
 
