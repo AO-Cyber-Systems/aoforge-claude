@@ -519,3 +519,203 @@ describe('readRunners — exec enrichment (injected exec only)', () => {
     assert.ok(find(viaObject, 'task', '', 'extra'));
   });
 });
+
+describe('readRunners — package.json scripts (npm family)', () => {
+  const npmTargets = (root) => readRunners(root).filter((t) => t.runner === 'npm');
+  const invocations = (root) => Object.fromEntries(npmTargets(root).map((t) => [t.name, t.invocation]));
+
+  test('7. pnpm-lock.yaml -> pnpm: `pnpm test`, `pnpm run build`', () => {
+    const root = track(fx.npmFamily({ lock: 'pnpm-lock.yaml' }));
+    assert.deepEqual(invocations(root), {
+      build: 'pnpm run build',
+      lint: 'pnpm run lint',
+      test: 'pnpm test',
+    });
+    const t = find(readRunners(root), 'npm', '', 'test');
+    assert.equal(t.manager, 'pnpm');
+    assert.deepEqual(t.body, ['vitest run'], 'the body is the script string');
+    assert.equal(t.file, 'package.json');
+    assert.deepEqual(t.aliases, []);
+  });
+
+  test('7b. yarn.lock -> yarn; no lockfile or package-lock.json -> npm', () => {
+    const yarn = track(fx.npmFamily({ lock: 'yarn.lock' }));
+    assert.equal(invocations(yarn).test, 'yarn test');
+    assert.equal(invocations(yarn).build, 'yarn run build');
+    assert.equal(npmTargets(yarn)[0].manager, 'yarn');
+
+    const none = track(fx.npmFamily({ lock: null }));
+    assert.equal(invocations(none).test, 'npm test');
+    assert.equal(invocations(none).build, 'npm run build');
+    assert.equal(npmTargets(none)[0].manager, 'npm');
+
+    const lock = track(fx.npmFamily({ lock: 'package-lock.json' }));
+    assert.equal(invocations(lock).test, 'npm test');
+  });
+
+  test('7c. bun.lockb and bun.lock -> bun; `bun test` is bun\'s own runner, so test runs as `bun run test`', () => {
+    for (const lock of ['bun.lockb', 'bun.lock']) {
+      const root = track(fx.npmFamily({ lock }));
+      assert.equal(invocations(root).test, 'bun run test', lock);
+      assert.equal(invocations(root).build, 'bun run build', lock);
+      assert.equal(npmTargets(root)[0].manager, 'bun', lock);
+    }
+  });
+
+  test('7d. lockfile precedence: pnpm > yarn > bun > npm', () => {
+    const managerWith = (...locks) => {
+      const files = { 'package.json': '{"scripts":{"test":"x"}}' };
+      for (const l of locks) files[l] = '';
+      const root = track(fx.makeRepo(files));
+      return npmTargets(root)[0].manager;
+    };
+    assert.equal(managerWith('package-lock.json', 'bun.lockb', 'yarn.lock', 'pnpm-lock.yaml'), 'pnpm');
+    assert.equal(managerWith('package-lock.json', 'bun.lockb', 'yarn.lock'), 'yarn');
+    assert.equal(managerWith('package-lock.json', 'bun.lock'), 'bun');
+    assert.equal(managerWith('package-lock.json'), 'npm');
+  });
+
+  test('7e. the manager comes from the lockfile in the same directory; a subdirectory package gets a dir prefix', () => {
+    const root = track(fx.makeRepo({
+      'pnpm-lock.yaml': '',
+      'package.json': '{"scripts":{"test":"a"}}',
+      'web/package.json': '{"scripts":{"test":"b","build":"c"}}',
+      'ui/package.json': '{"scripts":{"build":"d"}}',
+      'ui/yarn.lock': '',
+      'app/package.json': '{"scripts":{"build":"e"}}',
+      'app/bun.lockb': '',
+    }));
+    const targets = readRunners(root);
+    assert.equal(find(targets, 'npm', '', 'test').invocation, 'pnpm test');
+    assert.equal(find(targets, 'npm', 'web', 'test').invocation, 'npm --prefix web test', 'no lockfile in web/: npm');
+    assert.equal(find(targets, 'npm', 'web', 'build').invocation, 'npm --prefix web run build');
+    assert.equal(find(targets, 'npm', 'ui', 'build').invocation, 'yarn --cwd ui run build');
+    assert.equal(find(targets, 'npm', 'app', 'build').invocation, 'bun --cwd app run build');
+
+    const pnpmSub = track(fx.npmFamily({ lock: 'pnpm-lock.yaml', dir: 'web' }));
+    assert.equal(find(readRunners(pnpmSub), 'npm', 'web', 'test').invocation, 'pnpm -C web test');
+    assert.equal(find(readRunners(pnpmSub), 'npm', 'web', 'build').invocation, 'pnpm -C web run build');
+  });
+
+  test('7f. malformed JSON, no scripts, non-object scripts and non-string scripts: quietly nothing', () => {
+    assert.deepEqual(npmTargets(track(fx.npmFamily({ malformed: true }))), []);
+    const cases = ['{}', '{"scripts":[]}', '{"scripts":null}', '[]', '"str"', 'null', '{"scripts":{"a":1,"b":null,"c":{"x":1}}}'];
+    for (const json of cases) {
+      const root = track(fx.makeRepo({ 'package.json': json }));
+      assert.deepEqual(npmTargets(root), [], json);
+    }
+  });
+
+  test('7g. hasTarget over package.json scripts, whichever manager spelling the caller uses', () => {
+    const root = track(fx.npmFamily({ lock: 'pnpm-lock.yaml' }));
+    for (const runner of ['npm', 'pnpm', 'yarn', 'bun']) {
+      assert.equal(hasTarget(root, { runner, dir: '', name: 'build' }), true, runner);
+      assert.equal(hasTarget(root, { runner, dir: '', name: 'nope' }), false, runner);
+    }
+    assert.equal(hasTarget(root, { runner: 'npm', dir: '', name: 'constructor' }), false, 'own properties only');
+    assert.equal(hasTarget(track(fx.npmFamily({ malformed: true })), { runner: 'npm', dir: '', name: 'test' }), false);
+    assert.equal(hasTarget(track(fx.emptyRepo()), { runner: 'npm', dir: '', name: 'test' }), false);
+  });
+});
+
+describe('readRunners — conventional scripts', () => {
+  const scriptTargets = (root, opts) => readRunners(root, opts).filter((t) => t.runner === 'script');
+
+  test('8. bin/ and scripts/ test|build|lint|verify|... .sh files become ./<path> targets', () => {
+    const root = track(fx.scriptsOnlyRepo());
+    const targets = scriptTargets(root);
+    assert.deepEqual(
+      targets.map((t) => t.name),
+      ['bin/build.sh', 'bin/test.sh', 'bin/verify.sh', 'scripts/lint.sh', 'scripts/verify.sh'],
+    );
+
+    const test_ = find(targets, 'script', '', 'bin/test.sh');
+    assert.equal(test_.invocation, './bin/test.sh');
+    assert.equal(test_.file, 'bin/test.sh');
+    assert.equal(test_.executable, true);
+    assert.deepEqual(test_.aliases, []);
+    assert.equal(find(targets, 'script', '', 'scripts/verify.sh').invocation, './scripts/verify.sh');
+    assert.equal(find(targets, 'script', '', 'bin/build.sh').executable, true);
+  });
+
+  test('8b. a non-executable .sh is still listed, with executable: false', () => {
+    const root = track(fx.scriptsOnlyRepo());
+    const verify = find(readRunners(root), 'script', '', 'bin/verify.sh');
+    assert.ok(verify, 'listed');
+    assert.equal(verify.executable, false);
+  });
+
+  test('8c. body is the non-comment lines (shebang and comments dropped), first 40 only', () => {
+    const root = track(fx.scriptsOnlyRepo());
+    assert.deepEqual(
+      find(readRunners(root), 'script', '', 'bin/test.sh').body,
+      ['set -euo pipefail', 'go test ./...'],
+    );
+    const long = ['#!/bin/sh', '# header', ''];
+    for (let i = 0; i < 60; i++) long.push(`echo line-${i}`);
+    const big = track(fx.makeRepo({ 'scripts/build.sh': `${long.join('\n')}\n` }));
+    const body = scriptTargets(big)[0].body;
+    assert.equal(body.length, 40);
+    assert.equal(body[0], 'echo line-0');
+    assert.equal(body[39], 'echo line-39');
+  });
+
+  test('8d. only the conventional basenames; a directory named like one is not a script', () => {
+    const files = {};
+    for (const n of ['test', 'build', 'lint', 'verify', 'check', 'fmt', 'format', 'e2e']) files[`bin/${n}.sh`] = 'echo x\n';
+    for (const n of ['deploy', 'up', 'doctor', 'testing', 'build-all']) files[`bin/${n}.sh`] = 'echo x\n';
+    files['bin/test.bash'] = 'echo x\n';
+    files['scripts/test.sh/inner.txt'] = 'a directory that happens to be called test.sh\n';
+    const root = track(fx.makeRepo(files));
+    assert.deepEqual(
+      scriptTargets(root).map((t) => t.name),
+      ['bin/build.sh', 'bin/check.sh', 'bin/e2e.sh', 'bin/fmt.sh', 'bin/format.sh', 'bin/lint.sh', 'bin/test.sh', 'bin/verify.sh'],
+    );
+  });
+
+  test('8e. one level down: dir names the base directory, invocation is runnable from the root', () => {
+    const root = track(fx.makeRepo({
+      'svc/bin/test.sh': 'go test ./...\n',
+      'a/b/bin/test.sh': 'too deep\n',
+    }));
+    const targets = scriptTargets(root);
+    assert.equal(targets.length, 1);
+    assert.equal(targets[0].dir, 'svc');
+    assert.equal(targets[0].name, 'bin/test.sh');
+    assert.equal(targets[0].file, 'svc/bin/test.sh');
+    assert.equal(targets[0].invocation, './svc/bin/test.sh');
+    assert.equal(scriptTargets(root, { maxDepth: 2 }).length, 2);
+  });
+
+  test('8f. hasTarget for scripts is file existence, confined to the repo', () => {
+    const root = track(fx.scriptsOnlyRepo());
+    assert.equal(hasTarget(root, { runner: 'script', dir: '', name: 'bin/test.sh' }), true);
+    assert.equal(hasTarget(root, { runner: 'script', dir: '', name: 'bin/deploy.sh' }), true, 'any file, not only conventional names');
+    assert.equal(hasTarget(root, { runner: 'script', dir: '', name: 'bin/nope.sh' }), false);
+    assert.equal(hasTarget(root, { runner: 'script', dir: '', name: 'bin' }), false, 'a directory is not a script');
+    assert.equal(hasTarget(root, { runner: 'script', dir: '', name: '../outside.sh' }), false);
+    assert.equal(hasTarget(root, { runner: 'script', dir: 'bin', name: 'test.sh' }), true);
+  });
+
+  test('8g. every runner kind is read together and sorted by (dir, runner, name)', () => {
+    const root = track(fx.makeRepo({
+      'Makefile': 'build:\n\tgo build ./...\n',
+      'justfile': 'lint:\n  golangci-lint run\n',
+      'Taskfile.yml': 'version: "3"\ntasks:\n  test:\n    cmd: go test ./...\n',
+      'package.json': '{"scripts":{"e2e":"playwright test"}}',
+      'bin/verify.sh': 'make build\n',
+    }));
+    assert.deepEqual(
+      readRunners(root).map((t) => `${t.runner}:${t.name}`),
+      ['just:lint', 'make:build', 'npm:e2e', 'script:bin/verify.sh', 'task:test'],
+    );
+  });
+});
+
+describe('stack-runners module surface', () => {
+  test('requires only fs and path', () => {
+    const src = require('node:fs').readFileSync(require.resolve('./stack-runners.cjs'), 'utf-8');
+    const required = [...src.matchAll(/require\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]).sort();
+    assert.deepEqual(required, ['fs', 'path'], 'no stack-shell / stack-classify: those are built in parallel by 42-03');
+  });
+});
