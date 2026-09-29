@@ -298,15 +298,22 @@ function normalizeSlashes(p) {
 }
 
 // Picks the component whose `path` is the LONGEST prefix of `file` (both compared with forward
-// slashes so a caller on any platform gets the same match). Returns null when nothing matches.
+// slashes so a caller on any platform gets the same match). A non-empty path without a trailing
+// slash gets one appended before comparing (TRD 42-05), so `svc` matches `svc/x` but never
+// `svcx/y`. Returns null when nothing matches.
+function componentPrefix(p) {
+  const norm = normalizeSlashes(p);
+  return norm && !norm.endsWith('/') ? `${norm}/` : norm;
+}
+
 function matchComponent(components, file) {
   if (!Array.isArray(components) || !file) return null;
   const normFile = normalizeSlashes(file);
   let best = null;
   for (const candidate of components) {
     if (!candidate || typeof candidate.path !== 'string') continue;
-    const p = normalizeSlashes(candidate.path);
-    if (normFile.startsWith(p) && (!best || p.length > normalizeSlashes(best.path).length)) {
+    const p = componentPrefix(candidate.path);
+    if (normFile.startsWith(p) && (!best || p.length > componentPrefix(best.path).length)) {
       best = candidate;
     }
   }
@@ -366,6 +373,17 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
         const compPath = path.isAbsolute(match.profile) ? match.profile : path.join(projectRoot, match.profile);
         if (fs.existsSync(compPath)) {
           const parsed = parseProfile(fs.readFileSync(compPath, 'utf-8'), { source: compPath });
+          // The file's own `extends` chain (TRD 42-05): each hop goes in BEFORE the file, so the
+          // file overrides its parent. A hop the root chain already holds is not added twice.
+          const compExtends = parsed.frontmatter.extends;
+          if (compExtends !== undefined && compExtends !== null && compExtends !== 'general') {
+            const fileHops = walkExtendsChain({ startId: compExtends, userHome, bundledDir, issues });
+            for (const hop of fileHops) {
+              if (chainIds.has(hop.id)) continue;
+              chainIds.add(hop.id);
+              layers.push({ id: hop.id, tier: 'component', source: hop.source, path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
+            }
+          }
           layers.push({ id: null, tier: 'component', path: compPath, frontmatter: parsed.frontmatter, sections: parsed.sections });
         } else {
           issues.push({ code: 'COMPONENT_MISSING', message: `component profile file not found: ${compPath}`, id: match.profile });

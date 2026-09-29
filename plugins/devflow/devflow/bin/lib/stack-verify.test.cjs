@@ -1022,7 +1022,9 @@ describe('CLI: stack verify with components (test 4)', () => {
         '  - { path: "svc/", profile: ".planning/stacks/svc.md" }',
       ].join('\n'),
     });
-    const svc = profileFx.profileMd({ yaml: ['schema: 1', 'commands:', '  test: { run: "make -C svc test" }'].join('\n') });
+    // Since 42-05 a component command already runs in its component dir, so it names its own
+    // Makefile plainly (`make -C svc` from inside svc/ would look for svc/svc/Makefile).
+    const svc = profileFx.profileMd({ yaml: ['schema: 1', 'commands:', '  test: { run: "make test" }'].join('\n') });
     return track(profileFx.makeProject({ stackMd, stacks: { svc }, files: { 'svc/Makefile': 'test:\n\tgo test ./...\n' } }));
   }
 
@@ -1034,7 +1036,7 @@ describe('CLI: stack verify with components (test 4)', () => {
     const t = resultFor(r.json, 'test', 'svc/');
     assert.ok(t, 'a result tagged component svc/');
     assert.equal(t.resolve.status, 'resolved');
-    assert.equal(t.command, 'make -C svc test');
+    assert.equal(t.command, 'make test');
     // cwd is exactly what renderCommand returned for the component view: since 42-05 renderCommand
     // joins the component path, so a command without its own cwd runs in 'svc'. It is NEVER 'svc/svc'
     // (stack-verify must not join a second time).

@@ -78,6 +78,16 @@ function renderCommand(profile, key, opts = {}) {
   const passthrough = {};
   if (cmd.timeout_s !== undefined) passthrough.timeout_s = cmd.timeout_s;
   if (cmd.cwd !== undefined) passthrough.cwd = cmd.cwd;
+  // A resolved component runs its commands in its own directory (TRD 42-05). This is the ONLY
+  // place the component path joins the command cwd; callers use the rendered cwd as-is. A
+  // root-shaped component path ('' or './') and an absolute command cwd are left untouched.
+  const componentPath = profile && profile.component && typeof profile.component.path === 'string'
+    ? profile.component.path.replace(/\\/g, '/')
+    : '';
+  if (componentPath && componentPath !== './' && componentPath !== '.'
+      && !(typeof cmd.cwd === 'string' && path.posix.isAbsolute(cmd.cwd))) {
+    passthrough.cwd = path.posix.join(componentPath, cmd.cwd || '').replace(/\/$/, '');
+  }
 
   if (template === 'discover') {
     return { key, status: 'discover', form: null, command: null, ...passthrough };
