@@ -428,6 +428,103 @@ function evidenceShape() {
   });
 }
 
+/**
+ * terminalShape() — ao-terminal-SHAPED (TRD 42-13: G1 + G2 + G3 together), git-backed, invented
+ * names throughout.
+ *
+ *   .gitignore            `dist/`, with a Go module generated into dist/scaffoldapp/ (G1: never
+ *                         a component)
+ *   go.mod, main.go       the root Go module
+ *   frontend/, docs/      package.json each: unsupported node areas
+ *   Taskfile.yml          build:agent:internal (a real `go build`, listed FIRST, depended on by the
+ *                         build:agent fan-out), build:agent:quickdev, build:backend (a `task:` fan-out
+ *                         that `package` depends on), build:frontend, build:macos, dev (G3: the
+ *                         canonical pick is build:backend)
+ *   guard.yml             `go test -c -o /tmp/guard.test ./tests/guard/` (G2: compile-only, never
+ *                         the repo-wide test)
+ *
+ * Callers skip when stack-detect-fixtures.hasGit() is false.
+ */
+function terminalShape() {
+  const taskfile = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  build:agent:internal:',
+    '    cmd: go build -trimpath -o dist/bin/agent ./cmd/agent',
+    '    internal: true',
+    '',
+    '  build:agent:quickdev:',
+    '    cmds:',
+    '      - go build -o dist/bin/agent-dev ./cmd/agent',
+    '',
+    '  build:agent:',
+    '    deps:',
+    '      - task: build:agent:internal',
+    '        vars:',
+    '          GOOS: linux',
+    '      - task: build:agent:internal',
+    '        vars:',
+    '          GOOS: darwin',
+    '',
+    '  build:backend:',
+    '    desc: Build the daemon and the agent.',
+    '    cmds:',
+    '      - task: build:daemon',
+    '      - task: build:agent',
+    '',
+    '  build:daemon:',
+    '    cmd: go build -o dist/bin/daemon ./cmd/daemon',
+    '',
+    '  build:frontend:',
+    '    cmd: npm --prefix frontend run build',
+    '',
+    '  build:macos:',
+    '    cmd: go build -o dist/bin/daemon-darwin ./cmd/daemon',
+    '',
+    '  dev:',
+    '    deps: [build:agent:quickdev]',
+    '    cmd: go run ./cmd/daemon',
+    '',
+    '  package:',
+    '    deps:',
+    '      - build:backend',
+    '    cmds:',
+    '      - npm --prefix frontend run package',
+    '',
+  ].join('\n');
+  return detectFx.makeGitTree({
+    '.gitignore': 'dist/\nnode_modules/\n',
+    'go.mod': goMod('beacon'),
+    'main.go': GO_MAIN,
+    'dist/scaffoldapp/go.mod': goMod('scaffoldapp'),
+    'dist/scaffoldapp/main.go': GO_MAIN,
+    'frontend/package.json': JSON.stringify({
+      name: 'beacon-frontend',
+      private: true,
+      scripts: { build: 'vite build', test: 'vitest run' },
+    }, null, 2),
+    'docs/package.json': JSON.stringify({
+      name: 'beacon-docs',
+      private: true,
+      scripts: { build: 'docusaurus build' },
+    }, null, 2),
+    'Taskfile.yml': taskfile,
+    '.github/workflows/guard.yml': wf([
+      'name: guard',
+      'on: [push]',
+      'jobs:',
+      '  guard:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - name: compile the egress guard',
+      '        run: go test -c -o /tmp/guard.test ./tests/guard/',
+    ]),
+  }, { track: ['dist/scaffoldapp/go.mod'] });
+}
+
 /** Every e2e shape, by name, for "for each fixture" assertions. */
 const SHAPES = Object.freeze({
   multiAreaCiShape,
@@ -461,6 +558,8 @@ module.exports = {
   gosecOnlyShape,
   missingBinaryShape,
   evidenceShape,
+  terminalShape,
+  hasGit: detectFx.hasGit,
   SHAPES,
   // for callers that need the joined path of a fixture file
   join: (root, rel) => path.join(root, rel),
