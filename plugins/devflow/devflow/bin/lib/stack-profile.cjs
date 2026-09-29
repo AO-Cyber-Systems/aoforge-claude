@@ -933,6 +933,37 @@ function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsI
 
 // ─── df-tools stack CLI ────────────────────────────────────────────────────
 
+/**
+ * Stack extensions — `stack <sub>` subcommands implemented in sibling modules, so a later TRD can
+ * ship one without editing this file (42-06 stack-verify.cjs, 42-08 stack-report.cjs, 42-09
+ * stack-mcp.cjs).
+ *
+ * Contract for an extension module: export `cli(cwd, args, raw, { userHome })`, where `args` is
+ * everything after the subcommand name. It reports through helpers `output` / `error` like every
+ * other df-tools command. The module is required LAZILY, inside the dispatch branch, never at
+ * load time: a missing or broken extension must not break `stack resolve`, and the extensions
+ * require this module, so a top-level require would be a cycle.
+ */
+const STACK_EXTENSIONS = Object.freeze({
+  verify: 'stack-verify.cjs',
+  report: 'stack-report.cjs',
+  mcp: 'stack-mcp.cjs',
+});
+
+/**
+ * loadStackExtension(sub, { libDir }) -> module | null
+ *
+ * null when `sub` is not an extension or its module file is absent. A module that exists but
+ * throws while loading (a syntax error, a bad require) is NOT caught: that is a broken build and
+ * must surface, not read as "not available".
+ */
+function loadStackExtension(sub, { libDir = __dirname } = {}) {
+  if (!Object.prototype.hasOwnProperty.call(STACK_EXTENSIONS, sub)) return null;
+  const modulePath = path.join(libDir, STACK_EXTENSIONS[sub]);
+  if (!fs.existsSync(modulePath)) return null;
+  return require(modulePath);
+}
+
 function parseFlagValue(args, flag) {
   const i = args.indexOf(flag);
   if (i === -1) return null;
@@ -951,7 +982,7 @@ function parseCsvFlag(args, flag) {
  * 35-04. `os.homedir()` is called ONLY here (never in resolveProfile/validateProfile) so those
  * stay pure and every test can sandbox HOME by passing `userHome` explicitly.
  */
-function cmdStack(cwd, args, raw) {
+function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
   const userHome = require('os').homedir();
   const projectRoot = cwd;
   const subcommand = args[0];
@@ -1030,7 +1061,16 @@ function cmdStack(cwd, args, raw) {
       return;
     }
 
-    error('Unknown stack subcommand. Available: resolve, context, validate, command, init');
+    if (Object.prototype.hasOwnProperty.call(STACK_EXTENSIONS, subcommand)) {
+      const mod = loadStackExtension(subcommand, { libDir });
+      if (!mod || typeof mod.cli !== 'function') {
+        error(`stack ${subcommand} is not available in this build`);
+        return;
+      }
+      return mod.cli(cwd, args.slice(1), raw, { userHome });
+    }
+
+    error(`Unknown stack subcommand. Available: resolve, context, validate, command, init, ${Object.keys(STACK_EXTENSIONS).join(', ')}`);
   } catch (err) {
     error(err.message);
   }
@@ -1050,6 +1090,8 @@ module.exports = {
   serializeProfile,
   initProfile,
   cmdStack,
+  STACK_EXTENSIONS,
+  loadStackExtension,
   renderCommand,
   contextFor,
   AGENT_SLICES,
