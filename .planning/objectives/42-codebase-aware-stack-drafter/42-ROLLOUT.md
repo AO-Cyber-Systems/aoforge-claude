@@ -1310,3 +1310,65 @@ Edit a line to `approve` / `skip` / `report-only` / `force`, append `+test` wher
   }
 }
 ```
+
+## Results (PARTIAL — rollout HALTED 2026-09-29T14:12:04.464Z)
+
+Halted after 8 of 36 rows. Cause: the safe-key flutter `lint` gate (`flutter analyze --fatal-infos`) is not read-only. On this Flutter SDK it rewrites `analysis_options.yaml` (adds `analyzer.exclude: [build/**, web/**]`). Reproduced in a scratch export of aoid/portal. In the real repos aoid `portal/pubspec.lock` also changed; which step changed it is unconfirmed. The per-repo delta check caught every case and reverted only our two files. The mutated user files were left in place per the rules (listed below). Remaining rows were not processed.
+
+| repo | decision | action | verify | report g/w/i | hash or reason | delta paths | pre-existing dirty paths |
+|---|---|---|---|---|---|---|---|
+| ao-terminal | approve override:overrides/ao-terminal.STACK.md (dirty: 1) | committed | ran 2 (lint=1 format=1); unverifiable-body 2 [gate-red (pre-existing): lint=1,format=1] | 19/4/42 | ff97b2ea |  | ?? .planning/.progress-guard.json |
+| aocore | approve override:overrides/aocore.STACK.md (dirty: 22) | stopped | ran 12 (build=0 lint=1 admin/:lint=0 admin/:format=1 dev/devedge/:build=0 dev/devedge/:lint=0 dev/devedge/:format=0 go/:build=0 go/:lint=0 go/:format=1 portal/:lint=0 portal/:format=1); unverifiable-body 0 [gate-red (pre-existing): lint=1,admin/:format=1,go/:format=1,portal/:format=1] | 15/7/29 | porcelain-delta | + M portal/analysis_options.yaml<br>content: portal/analysis_options.yaml |  M .planning/.awareness-cache.json<br> M .planning/.progress-guard.json<br> M admin/analysis_options.yaml<br> M admin/pubspec.lock<br> M go/.planning/.awareness-cache.json<br>?? 92-provenance-graph.png<br>?? admin-dashboard.png<br>?? admin/e2e/uat-report/interaction-sweep.json<br>?? admin/e2e/uat-report/post-rebase/_analytics.png<br>?? admin/e2e/uat-report/post-rebase/_dashboard.png<br>?? admin/e2e/uat-report/post-rebase/_quotas.png<br>?? admin/e2e/uat-report/post-rebase/_spend.png (+125 more) |
+| aocyber-deploy | skip (user: PoC/reference-only) | skipped |  |  | user: PoC/reference-only |  |  |
+| aodex | approve override:overrides/aodex.STACK.md (dirty: 206) | committed | ran 6 (build=0 flutter/:lint=1 flutter/:format=1 go/:build=0 go/:lint=0 go/:format=1); unverifiable-body 0 [gate-red (pre-existing): flutter/:lint=1,flutter/:format=1,go/:format=1] | 7/6/20 | 68b545e2 |  |  M .planning/.awareness-cache.json<br> M .planning/.progress-guard.json<br> M CLAUDE.md<br> M flutter/.planning/.progress-guard.json<br> M flutter/analysis_options.yaml<br> M flutter/pubspec.lock<br> M flutter/test/ui_eval/failures/grid-edited_isolatedDiff.png<br> M flutter/test/ui_eval/failures/grid-edited_maskedDiff.png<br> M flutter/test/ui_eval/failures/grid-edited_masterImage.png<br> M flutter/test/ui_eval/failures/grid-edited_testImage.png<br> M flutter/test/ui_eval/failures/grid-narrow-mobile_isolatedDiff.png<br> M flutter/test/ui_eval/failures/grid-narrow-mobile_maskedDiff.png (+245 more) |
+| aoedge | approve override:overrides/aoedge.STACK.md (dirty: 1) | committed | ran 3 (build=0 lint=0 format=1); unverifiable-body 0 [gate-red (pre-existing): format=1] | 4/1/30 | bedacb4 |  |  M .planning/PROJECT.md |
+| aofamily | approve (dirty: 4) | stopped | ran 20 (ai/flutter/:lint=1 ai/flutter/:format=1 ai/go/:build=0 ai/go/:lint=0 ai/go/:format=1 billing/go/:build=0 billing/go/:lint=0 billing/go/:format=1 browser/flutter/:lint=1 browser/flutter/:format=1 browser/go/:build=0 browser/go/:lint=0 browser/go/:format=1 connect/flutter/:lint=1 connect/flutter/:format=1 connect/go/:build=0 connect/go/:lint=0 connect/go/:format=1 theme/:lint=0 theme/:format=1); unverifiable-body 0 [gate-red (pre-existing): ai/flutter/:lint=1,ai/flutter/:format=1,ai/go/:format=1,billing/go/:format=1,browser/flutter/:lint=1,browser/flutter/:format=1,browser/go/:format=1,connect/flutter/:lint=1,connect/flutter/:format=1,connect/go/:format=1,theme/:format=1] | 23/12/54 | porcelain-delta | + M ai/flutter/analysis_options.yaml<br>+ M browser/flutter/analysis_options.yaml<br>content: ai/flutter/analysis_options.yaml<br>content: browser/flutter/analysis_options.yaml | ?? .planning/.progress-guard.json<br>?? ai/.planning/.progress-guard.json<br>?? browser/.planning/.progress-guard.json<br>?? connect/.planning/.progress-guard.json |
+| aoid | approve (dirty: 14) | stopped | ran 5 (build=0 lint=0 format=1 portal/:lint=1 portal/:format=1); unverifiable-body 0 [gate-red (pre-existing): format=1,portal/:lint=1,portal/:format=1] | 6/2/14 | porcelain-delta | + M portal/analysis_options.yaml<br>+ M portal/pubspec.lock<br>content: portal/analysis_options.yaml<br>content: portal/pubspec.lock |  M .planning/.awareness-cache.json<br>?? .claude/worktrees/agent-a0bf2f67124fe3426/<br>?? .claude/worktrees/agent-a0e11a608c4633978/<br>?? .claude/worktrees/agent-a21e8034d7e10ee11/<br>?? .claude/worktrees/agent-a328d1ff3e373edb6/<br>?? .claude/worktrees/agent-a389375d1a58909f0/<br>?? .claude/worktrees/agent-a4772248efc74ce51/<br>?? .claude/worktrees/agent-a56c96f9c9c756b7d/<br>?? .claude/worktrees/agent-a5d850400845772c2/<br>?? .claude/worktrees/agent-a6532598df92e623b/<br>?? .claude/worktrees/agent-a6abb3aaa0f449985/<br>?? .claude/worktrees/agent-a6f878a18bbb5e3f6/ (+64 more) |
+| aoinference |  | stopped |  |  | rollout halted mid verify --run (flutter-analyze mutation found in other repos); our STACK.md deleted |  |  |
+
+User files modified by our gate run and NOT restored (restore with `git -C <repo> restore -- <path>` if unwanted): aocore portal/analysis_options.yaml; aofamily ai/flutter/analysis_options.yaml, browser/flutter/analysis_options.yaml; aoid portal/analysis_options.yaml, portal/pubspec.lock.
+
+```json results-partial
+{
+  "/Users/justin/dev/ao-terminal": {
+    "action": "committed",
+    "hash": "ff97b2ea",
+    "reason": ""
+  },
+  "/Users/justin/dev/aocore": {
+    "action": "stopped",
+    "hash": null,
+    "reason": "porcelain-delta"
+  },
+  "/Users/justin/dev/aocyber-deploy": {
+    "action": "skipped",
+    "hash": null,
+    "reason": "user: PoC/reference-only"
+  },
+  "/Users/justin/dev/aodex": {
+    "action": "committed",
+    "hash": "68b545e2",
+    "reason": ""
+  },
+  "/Users/justin/dev/aoedge": {
+    "action": "committed",
+    "hash": "bedacb4",
+    "reason": ""
+  },
+  "/Users/justin/dev/aofamily": {
+    "action": "stopped",
+    "hash": null,
+    "reason": "porcelain-delta"
+  },
+  "/Users/justin/dev/aoid": {
+    "action": "stopped",
+    "hash": null,
+    "reason": "porcelain-delta"
+  },
+  "/Users/justin/dev/aoinference": {
+    "action": "stopped",
+    "hash": null,
+    "reason": "rollout halted mid verify --run (flutter-analyze mutation found in other repos); our STACK.md deleted"
+  }
+}
+```
