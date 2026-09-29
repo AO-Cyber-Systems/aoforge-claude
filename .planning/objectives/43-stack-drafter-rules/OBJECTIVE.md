@@ -19,6 +19,7 @@ Registered 2026-09-29. Objective 42's two gap cycles were exhausted with 11 flee
 5. **Internal Taskfile tasks verified as resolvable.** `internal: true` tasks (ao-terminal `go:mod:tidy`, `npm:install`) can't be invoked from the CLI but `stack verify` reports `resolved`. Treat them as `target_missing` (not invocable) and never propose them.
 6. **Thin coverage when a justfile/Makefile recipe wraps a component command.** navigators `just test-go` (`cd navigators-go && go test ./...`) and aodex `go/Makefile` targets were dropped, leaving only e2e / `discover`.
 7. **`df-tools commit` gitignore check is directory-level** (misses a `.planning/` rule when the dir has tracked files) — same fix as 42-12's file-level preflight.
+8. `stack verify --run` safe keys are not read-only: `flutter analyze --fatal-infos` rewrites analysis_options.yaml (adds analyzer.exclude) and runs an implicit pub get that bumps pubspec.lock. Run Flutter/Dart gates with `--no-pub` / against a temp copy, or refuse them under --run.
 
 ## Success
 

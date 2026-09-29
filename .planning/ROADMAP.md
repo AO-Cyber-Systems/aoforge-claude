@@ -101,7 +101,7 @@ TRDs:
 - [x] 42-13-TRD.md — (W7, gap G2/G3) broad repo-wide `test` (narrow → notes, inherit profile default), canonical runner targets (alternates → notes)
 - [x] 42-14-TRD.md — (W8, gap cycle 2: D1/D2/D4/D5) CI checkout-path cwd normalisation + `cwd_missing`, ignored/untracked/nested-repo cwds to notes, `--no-index` stack-file ignore check in preview
 - [x] 42-15-TRD.md — (W9, gap cycle 2: D3) root-override policy (primary-stack match; sub-area candidates to notes), D1-D5 e2e, 42-11 re-run hand-off
-- [ ] 42-11-TRD.md — (W10, checkpoint; Task 1 re-run after 42-14/42-15) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → write/verify/report + two-file commit on the current branch incl. dirty repos (user decision 2026-09-29; no push)
+- [x] 42-11-TRD.md — (W10, checkpoint; Task 1 re-run after 42-14/42-15) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → write/verify/report + two-file commit on the current branch incl. dirty repos (user decision 2026-09-29; no push)
 
 ### Objective 44: Autonomy hardening
 
@@ -172,7 +172,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 10–23 (15 objectives) | v1.2 | 71/71 | Complete | 2026-05-25 |
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
-| 42. Codebase-aware stack drafter | v1.4 | 14/15 | In progress | — |
+| 42. Codebase-aware stack drafter | v1.4 | 15/15 | Executed (objective verification pending) | — |
 | 44. Autonomy hardening | v1.4 | 0/— | Planning | — |
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |

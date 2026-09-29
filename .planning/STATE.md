@@ -236,6 +236,6 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 
 ## Session Continuity
 
-Last session: 2026-09-29T14:12:15.751Z
-Resume file: `.planning/objectives/42-codebase-aware-stack-drafter/42-ROLLOUT.md`
-Stopped at: Objective 42: 42-11 Task 3 HALTED after 8/36 rows (3 committed, 4 stopped, 1 skipped): flutter analyze lint gate rewrites analysis_options.yaml; see 42-ROLLOUT.md Results (PARTIAL)
+Last session: 2026-09-29T14:15:46.820Z
+Resume file: `.planning/objectives/42-codebase-aware-stack-drafter/42-11-SUMMARY.md`
+Stopped at: Objective 42: all 15 TRDs executed; 42-11 fleet rollout done (33 committed, 2 skipped, 1 blocked; resolve-only after flutter side-effect halt). Next: objective-level verification, then objective 43

@@ -1311,64 +1311,269 @@ Edit a line to `approve` / `skip` / `report-only` / `force`, append `+test` wher
 }
 ```
 
-## Results (PARTIAL — rollout HALTED 2026-09-29T14:12:04.464Z)
 
-Halted after 8 of 36 rows. Cause: the safe-key flutter `lint` gate (`flutter analyze --fatal-infos`) is not read-only. On this Flutter SDK it rewrites `analysis_options.yaml` (adds `analyzer.exclude: [build/**, web/**]`). Reproduced in a scratch export of aoid/portal. In the real repos aoid `portal/pubspec.lock` also changed; which step changed it is unconfirmed. The per-repo delta check caught every case and reverted only our two files. The mutated user files were left in place per the rules (listed below). Remaining rows were not processed.
+## Results
 
-| repo | decision | action | verify | report g/w/i | hash or reason | delta paths | pre-existing dirty paths |
-|---|---|---|---|---|---|---|---|
-| ao-terminal | approve override:overrides/ao-terminal.STACK.md (dirty: 1) | committed | ran 2 (lint=1 format=1); unverifiable-body 2 [gate-red (pre-existing): lint=1,format=1] | 19/4/42 | ff97b2ea |  | ?? .planning/.progress-guard.json |
-| aocore | approve override:overrides/aocore.STACK.md (dirty: 22) | stopped | ran 12 (build=0 lint=1 admin/:lint=0 admin/:format=1 dev/devedge/:build=0 dev/devedge/:lint=0 dev/devedge/:format=0 go/:build=0 go/:lint=0 go/:format=1 portal/:lint=0 portal/:format=1); unverifiable-body 0 [gate-red (pre-existing): lint=1,admin/:format=1,go/:format=1,portal/:format=1] | 15/7/29 | porcelain-delta | + M portal/analysis_options.yaml<br>content: portal/analysis_options.yaml |  M .planning/.awareness-cache.json<br> M .planning/.progress-guard.json<br> M admin/analysis_options.yaml<br> M admin/pubspec.lock<br> M go/.planning/.awareness-cache.json<br>?? 92-provenance-graph.png<br>?? admin-dashboard.png<br>?? admin/e2e/uat-report/interaction-sweep.json<br>?? admin/e2e/uat-report/post-rebase/_analytics.png<br>?? admin/e2e/uat-report/post-rebase/_dashboard.png<br>?? admin/e2e/uat-report/post-rebase/_quotas.png<br>?? admin/e2e/uat-report/post-rebase/_spend.png (+125 more) |
-| aocyber-deploy | skip (user: PoC/reference-only) | skipped |  |  | user: PoC/reference-only |  |  |
-| aodex | approve override:overrides/aodex.STACK.md (dirty: 206) | committed | ran 6 (build=0 flutter/:lint=1 flutter/:format=1 go/:build=0 go/:lint=0 go/:format=1); unverifiable-body 0 [gate-red (pre-existing): flutter/:lint=1,flutter/:format=1,go/:format=1] | 7/6/20 | 68b545e2 |  |  M .planning/.awareness-cache.json<br> M .planning/.progress-guard.json<br> M CLAUDE.md<br> M flutter/.planning/.progress-guard.json<br> M flutter/analysis_options.yaml<br> M flutter/pubspec.lock<br> M flutter/test/ui_eval/failures/grid-edited_isolatedDiff.png<br> M flutter/test/ui_eval/failures/grid-edited_maskedDiff.png<br> M flutter/test/ui_eval/failures/grid-edited_masterImage.png<br> M flutter/test/ui_eval/failures/grid-edited_testImage.png<br> M flutter/test/ui_eval/failures/grid-narrow-mobile_isolatedDiff.png<br> M flutter/test/ui_eval/failures/grid-narrow-mobile_maskedDiff.png (+245 more) |
-| aoedge | approve override:overrides/aoedge.STACK.md (dirty: 1) | committed | ran 3 (build=0 lint=0 format=1); unverifiable-body 0 [gate-red (pre-existing): format=1] | 4/1/30 | bedacb4 |  |  M .planning/PROJECT.md |
-| aofamily | approve (dirty: 4) | stopped | ran 20 (ai/flutter/:lint=1 ai/flutter/:format=1 ai/go/:build=0 ai/go/:lint=0 ai/go/:format=1 billing/go/:build=0 billing/go/:lint=0 billing/go/:format=1 browser/flutter/:lint=1 browser/flutter/:format=1 browser/go/:build=0 browser/go/:lint=0 browser/go/:format=1 connect/flutter/:lint=1 connect/flutter/:format=1 connect/go/:build=0 connect/go/:lint=0 connect/go/:format=1 theme/:lint=0 theme/:format=1); unverifiable-body 0 [gate-red (pre-existing): ai/flutter/:lint=1,ai/flutter/:format=1,ai/go/:format=1,billing/go/:format=1,browser/flutter/:lint=1,browser/flutter/:format=1,browser/go/:format=1,connect/flutter/:lint=1,connect/flutter/:format=1,connect/go/:format=1,theme/:format=1] | 23/12/54 | porcelain-delta | + M ai/flutter/analysis_options.yaml<br>+ M browser/flutter/analysis_options.yaml<br>content: ai/flutter/analysis_options.yaml<br>content: browser/flutter/analysis_options.yaml | ?? .planning/.progress-guard.json<br>?? ai/.planning/.progress-guard.json<br>?? browser/.planning/.progress-guard.json<br>?? connect/.planning/.progress-guard.json |
-| aoid | approve (dirty: 14) | stopped | ran 5 (build=0 lint=0 format=1 portal/:lint=1 portal/:format=1); unverifiable-body 0 [gate-red (pre-existing): format=1,portal/:lint=1,portal/:format=1] | 6/2/14 | porcelain-delta | + M portal/analysis_options.yaml<br>+ M portal/pubspec.lock<br>content: portal/analysis_options.yaml<br>content: portal/pubspec.lock |  M .planning/.awareness-cache.json<br>?? .claude/worktrees/agent-a0bf2f67124fe3426/<br>?? .claude/worktrees/agent-a0e11a608c4633978/<br>?? .claude/worktrees/agent-a21e8034d7e10ee11/<br>?? .claude/worktrees/agent-a328d1ff3e373edb6/<br>?? .claude/worktrees/agent-a389375d1a58909f0/<br>?? .claude/worktrees/agent-a4772248efc74ce51/<br>?? .claude/worktrees/agent-a56c96f9c9c756b7d/<br>?? .claude/worktrees/agent-a5d850400845772c2/<br>?? .claude/worktrees/agent-a6532598df92e623b/<br>?? .claude/worktrees/agent-a6abb3aaa0f449985/<br>?? .claude/worktrees/agent-a6f878a18bbb5e3f6/ (+64 more) |
-| aoinference |  | stopped |  |  | rollout halted mid verify --run (flutter-analyze mutation found in other repos); our STACK.md deleted |  |  |
+Run 2026-09-29. Task 3 was halted once after 8 rows: the safe-key flutter `lint` gate (`flutter analyze --fatal-infos`) rewrote `analysis_options.yaml` and bumped `pubspec.lock` in aocore, aofamily and aoid. The delta check stopped each of those repos. The coordinator restored the 5 side-effect files, and every remaining row plus the 4 retries (aocore, aofamily, aoid, aoinference, re-snapshotted) ran with **resolve-only** `stack verify` (no gate commands executed). ao-terminal, aodex and aoedge had committed before the halt with `--run`. Their results are shown as such, and those runs left no delta.
 
-User files modified by our gate run and NOT restored (restore with `git -C <repo> restore -- <path>` if unwanted): aocore portal/analysis_options.yaml; aofamily ai/flutter/analysis_options.yaml, browser/flutter/analysis_options.yaml; aoid portal/analysis_options.yaml, portal/pubspec.lock.
+| repo | branch | decision | action | verify | report g/w/i | hash or reason | info | pre-existing dirty paths (untouched) |
+|---|---|---|---|---|---|---|---|---|
+| ao-terminal | ao-main | approve override:overrides/ao-terminal.STACK.md (dirty: 1) | committed | --run (before halt): ran 2 [lint=1 format=1]; unverifiable-body 2 | 19/4/42 | ff97b2ea | gate-red (pre-existing): lint=1,format=1 | ?? .planning/.progress-guard.json |
+| aocore | df/saas-wave2 | approve override:overrides/aocore.STACK.md (dirty: 22) | committed | resolve-only (run disabled: flutter side effects): resolved 41 | 15/7/29 | 48e6a0784 | retry after halt (first attempt: porcelain-delta) |  M .planning/.awareness-cache.json<br> M .planning/.progress-guard.json<br> M admin/analysis_options.yaml<br> M admin/pubspec.lock<br> M go/.planning/.awareness-cache.json<br>?? 92-provenance-graph.png<br>?? admin-dashboard.png<br>?? admin/e2e/uat-report/interaction-sweep.json (+129 more) |
+| aocyber-deploy | main | skip (user: PoC/reference-only) | skipped |  |  | user: PoC/reference-only |  |  |
+| aodex | fix/ci-listtile-material | approve override:overrides/aodex.STACK.md (dirty: 206) | committed | --run (before halt): ran 6 [build=0 flutter/:lint=1 flutter/:format=1 go/:build=0 go/:lint=0 go/:format=1]; unverifiable-body 0 | 7/6/20 | 68b545e2 | gate-red (pre-existing): flutter/:lint=1,flutter/:format=1,go/:format=1 |  M .planning/.awareness-cache.json<br> M .planning/.progress-guard.json<br> M CLAUDE.md<br> M flutter/.planning/.progress-guard.json<br> M flutter/analysis_options.yaml<br> M flutter/pubspec.lock<br> M flutter/test/ui_eval/failures/grid-edited_isolatedDiff.png<br> M flutter/test/ui_eval/failures/grid-edited_maskedDiff.png (+249 more) |
+| aoedge | fix/strip-inbound-aoid-trust-headers | approve override:overrides/aoedge.STACK.md (dirty: 1) | committed | --run (before halt): ran 3 [build=0 lint=0 format=1]; unverifiable-body 0 | 4/1/30 | bedacb4 | gate-red (pre-existing): format=1 |  M .planning/PROJECT.md |
+| aofamily | df/riverpod3-rebase | approve (dirty: 4) | committed | resolve-only (run disabled: flutter side effects): resolved 69 | 23/12/54 | 94fb090 | retry after halt (first attempt: porcelain-delta) | ?? .planning/.progress-guard.json<br>?? ai/.planning/.progress-guard.json<br>?? browser/.planning/.progress-guard.json<br>?? connect/.planning/.progress-guard.json |
+| aoid | main | approve (dirty: 14) | committed | resolve-only (run disabled: flutter side effects): resolved 18 | 6/2/14 | 1def474 | retry after halt (first attempt: porcelain-delta) |  M .planning/.awareness-cache.json<br>?? .claude/worktrees/agent-a0bf2f67124fe3426/<br>?? .claude/worktrees/agent-a0e11a608c4633978/<br>?? .claude/worktrees/agent-a21e8034d7e10ee11/<br>?? .claude/worktrees/agent-a328d1ff3e373edb6/<br>?? .claude/worktrees/agent-a389375d1a58909f0/<br>?? .claude/worktrees/agent-a4772248efc74ce51/<br>?? .claude/worktrees/agent-a56c96f9c9c756b7d/ (+68 more) |
+| aoinference | fix/obj31-oci-source-label | approve (dirty: 3) | committed | resolve-only (run disabled: flutter side effects): resolved 8 | 5/2/9 | c9f1bdc | retry after halt (first attempt: rollout halted mid verify --run (flutter-analyze mutation found in other repos); our STACK.md deleted) | ?? .claude/settings.json<br>?? .planning/.dup-detect-log.jsonl<br>?? docs/MODEL-SELECTION-2026-09.md |
+| AOSignal | main | approve (dirty: 1) | committed | resolve-only (run disabled: flutter side effects):  | 0/0/2 | 37ccb12 |  |  M .planning/config.json |
+| aostudio | main | approve (dirty: 3) | committed | resolve-only (run disabled: flutter side effects):  | 0/0/2 | 7dd81bd |  | ?? .planning/.awareness-cache.json<br>?? .planning/.progress-guard.json<br>?? .playwright-mcp/console-2026-09-12T19-23-27-759Z.log<br>?? .playwright-mcp/page-2026-09-12T19-23-27-865Z.yml |
+| devcluster | main | approve override:overrides/devcluster.STACK.md (dirty: 11) | committed | resolve-only (run disabled: flutter side effects): resolved 11 | 0/0/3 | e038d4b |  |  M t2-cluster/ctl.sh<br>?? .planning/.awareness-cache.json<br>?? .planning/.progress-guard.json<br>?? .planning/PROJECT.md<br>?? .planning/REQUIREMENTS.md<br>?? .planning/objectives/01-developer-auth-personas/01-CONTEXT.md<br>?? .planning/objectives/01-developer-auth-personas/OBJECTIVE.md<br>A  t2-cluster/values/aoedge.yaml (+3 more) |
+| devflow | main | approve (dirty: 2) | committed | resolve-only (run disabled: flutter side effects): resolved 8 | 4/1/5 | 36a8eb1 |  | ?? .planning/.progress-guard.json<br>?? .planning/journal.jsonl |
+| devflow-claude | feat/stack-profile-loader | skip (self) | skipped |  |  | self |  |  |
+| devflow-test | main | approve (dirty: 3) | committed | resolve-only (run disabled: flutter side effects):  | 0/0/2 | 3baa599 |  |  M .planning/config.json<br>?? .planning/.dup-detect-log.jsonl<br>?? .planning/objectives/01-scaffold-config-and-model-client/OBJECTIVE.md |
+| devflowops | main | approve override:overrides/devflowops.STACK.md (dirty: 2) | committed | resolve-only (run disabled: flutter side effects): resolved 19 | 10/3/58 | 0083c97 |  |  M .planning/.dup-detect-log.jsonl<br>?? .planning/.progress-guard.json |
+| dfip | main | approve | committed | resolve-only (run disabled: flutter side effects): resolved 8 | 5/2/9 | ffcff7d |  |  |
+| eden-biz | main | approve override:overrides/eden-biz.STACK.md (dirty: 9) | committed | resolve-only (run disabled: flutter side effects): resolved 46 | 14/9/31 | 6f1b8f15d | head-moved-since-dry-run |  M .planning/.awareness-cache.json<br> M .planning/.dup-detect-log.jsonl<br> M .planning/.progress-guard.json<br> M go/.planning/.progress-guard.json<br>?? .devflow-handoff/pending/h-183d024e.json<br>?? .planning/handoffs/subscription-created-cancelled-context.md<br>?? .planning/objectives/720-polymorphic-coupon-redemption-source/720-VERIFICATION.md<br>?? .planning/objectives/723-wire-money-paths-to-coupon-resolver/OBJECTIVE.md (+2 more) |
+| eden-circle | obj-36-initstate-audit | approve (dirty: 36) | committed | resolve-only (run disabled: flutter side effects): resolved 17 | 5/4/13 | 25c2cfa |  |  M .claude/agent-memory/devflow-verifier/MEMORY.md<br> M .planning/.awareness-cache.json<br> M .planning/.progress-guard.json<br> M test/calling-harness/ev-01-callee-incall.jpg<br> M test/calling-harness/ev-01-ringing.jpg<br> M test/calling-harness/ev-stale-ringing.jpg<br>?? .claude/agent-memory/devflow-verifier/obj35-return-to-dm-verification.md<br>?? .claude/agent-memory/devflow-verifier/obj36-initstate-audit-verification.md (+28 more) |
+| eden-libs | main | approve (dirty: 75) | committed | resolve-only (run disabled: flutter side effects): resolved 114 | 31/16/45 | d321277 |  |  D .planning/.micro-description<br> M .claude/worktrees/ws-platform-household-claims-go<br> M eden-experience-flutter/pubspec.lock<br> M eden-platform-api-dart/.dart_tool/package_config.json<br> M eden-platform-api-dart/.dart_tool/package_graph.json<br>?? .claude/worktrees/ws-aofamily-billing-ent-go/<br>?? .devflow-handoff/pending/h-a9f39b48.json<br>?? .planning/.awareness-cache.json (+68 more) |
+| eden-platform-go | fix/cf-email-retry-on-throttle | approve (dirty: 3) | committed | resolve-only (run disabled: flutter side effects): resolved 8 | 4/1/8 | 0326e88 |  | ?? .claude/worktrees/agent-a008f790ccf1585c2/<br>?? .claude/worktrees/agent-a00b178874edcc1a6/<br>?? .claude/worktrees/agent-a3c9dff6a14add2ce/<br>?? .claude/worktrees/agent-a51febcb42b439952/<br>?? .claude/worktrees/agent-a649a958774bc9e72/<br>?? .claude/worktrees/agent-a7466c7167a066ee3/<br>?? .claude/worktrees/agent-a7dc2bd453a9bdfb4/<br>?? .claude/worktrees/agent-a8a70d4735736e49e/ (+11 more) |
+| eden-press | main | approve (dirty: 3) | committed | resolve-only (run disabled: flutter side effects): resolved 17 | 10/3/12 | 40e4c9e |  | ?? .claude/agent-memory/devflow-verifier/MEMORY.md<br>?? .claude/agent-memory/devflow-verifier/eden-press-requirements-drift.md<br>?? .planning/.awareness-cache.json<br>?? .planning/.dup-detect-log.jsonl |
+| eden-ui-flutter | main | approve (dirty: 2) | committed | resolve-only (run disabled: flutter side effects): resolved 11 | 4/4/9 | f8b0487 |  |  M analysis_options.yaml<br>?? .planning/.progress-guard.json |
+| EdenDocs | eden-main | approve override:overrides/EdenDocs.STACK.md (dirty: 3) | committed | resolve-only (run disabled: flutter side effects): resolved 12 | 13/1/20 | 50e3b449645 | changed-since-dry-run | ?? .planning/.awareness-cache.json<br>?? .planning/.dup-detect-log.jsonl<br>?? .planning/.progress-guard.json<br>?? .planning/state.json |
+| github-enterprise-migration | main | approve (dirty: 2) | committed | resolve-only (run disabled: flutter side effects):  | 0/0/2 | 93e3162 |  | ?? .planning/.awareness-cache.json<br>?? .planning/.progress-guard.json |
+| justin-donnaruma-us-go | df/riverpod3-bump | blocked (stack-files-gitignored) | blocked |  |  | stack-files-gitignored |  |  |
+| justinforme | df/riverpod3-bump | approve (dirty: 125) | committed | resolve-only (run disabled: flutter side effects): resolved 27 | 0/0/12 | e430560 |  |  M .planning/.awareness-cache.json<br> M .planning/.dup-detect-log.jsonl<br> M .planning/objectives/39-policy-alignment-content-refresh/39-01-alice-canonical-callout-block-TRD.md<br> M .planning/objectives/39-policy-alignment-content-refresh/39-07-homepage-refresh-TRD.md<br> M .planning/objectives/39-policy-alignment-content-refresh/39-11-strategic-frame-grep-gate-TRD.md<br> M .planning/state.json<br> M vendor/github.com/aocybersystems/eden-platform-go/platform/server/interceptors.go<br>?? .claude/scheduled_tasks.lock (+577 more) |
+| navigators | df/riverpod3-bump | approve override:overrides/navigators.STACK.md (dirty: 24) | committed | resolve-only (run disabled: flutter side effects): resolved 21 | 0/0/4 | c3a8274 | changed-since-dry-run | ?? .planning/.awareness-cache.json<br>?? .planning/.progress-guard.json<br>?? .planning/objectives/02-voter-data-pipeline/02-04-TRD.md<br>?? .planning/objectives/08-tasks-collaboration/08-04-TRD.md<br>?? .planning/objectives/10-volunteer-management-events/10-03-TRD.md<br>?? .playwright-mcp/console-2026-04-12T00-10-23-013Z.log<br>?? .playwright-mcp/console-2026-04-12T00-16-06-849Z.log<br>?? .playwright-mcp/console-2026-04-12T00-16-14-143Z.log (+46 more) |
+| opsCluster | main | approve (dirty: 7) | committed | resolve-only (run disabled: flutter side effects): resolved 9 | 3/1/8 | 51d0f15 |  |  M .claude/agent-memory/devflow-verifier/MEMORY.md<br> M .planning/.progress-guard.json<br> M control-plane/.planning/.progress-guard.json<br>?? .claude/agent-memory/devflow-verifier/obj64-eden-dataroom-artifact-verified.md<br>?? .claude/agent-memory/devflow-verifier/obj67-ghscim-verified.md<br>?? .planning/objectives/67-github-emu-scim-sync-from-google-workspace-keyless-wif-cronj/.gitkeep<br>?? dataroom-login.png |
+| politihub | main | approve override:overrides/politihub.STACK.md (dirty: 2) | committed | resolve-only (run disabled: flutter side effects): resolved 28 | 10/4/23 | 686cb0b |  |  M .planning/.progress-guard.json<br>?? .devflow-handoff/pending/h-db90c47b.json<br>?? .devflow-handoff/pending/h-ffb0c75c.json |
+| qrCodeBuilder | main | approve (dirty: 2) | committed | resolve-only (run disabled: flutter side effects): resolved 9 | 2/0/6 | e55991b |  | ?? .claude/agent-memory/devflow-verifier/MEMORY.md<br>?? .claude/agent-memory/devflow-verifier/project_inert_test_history.md<br>?? .devflow-handoff/pending/h-3a8c8570.json<br>?? .devflow-handoff/pending/h-99a13878.json |
+| quanta-local | main | approve override:overrides/quanta-local.STACK.md | committed | resolve-only (run disabled: flutter side effects): resolved 3 | 0/0/20 | 3b9e5d3 |  |  |
+| recycling-oracle | main | approve (dirty: 281) | committed | resolve-only (run disabled: flutter side effects): resolved 17 | 0/0/6 | 78190b8 |  |  D dashboard/.dockerignore<br> D dashboard/.gitattributes<br> D dashboard/.github/dependabot.yml<br> D dashboard/.github/workflows/ci.yml<br> D dashboard/.gitignore<br> D dashboard/.kamal/hooks/docker-setup.sample<br> D dashboard/.kamal/hooks/post-app-boot.sample<br> D dashboard/.kamal/hooks/post-deploy.sample (+420 more) |
+| smartWellness | df/riverpod3-bump | approve (dirty: 4) | committed | resolve-only (run disabled: flutter side effects): resolved 18 | 7/3/18 | 23271c4 |  |  D .planning/.micro-description<br> M .planning/.awareness-cache.json<br>?? .review/mob-nav-collapsed.jpeg<br>?? .review/mob-nav-expanded.jpeg |
+| torrentConsole | main | approve | committed | resolve-only (run disabled: flutter side effects): resolved 10 | 0/1/1 | 3aca26f |  |  |
+| trades | main | approve | committed | resolve-only (run disabled: flutter side effects): resolved 6 | 3/0/15 | 1c9ba00c |  |  |
+| videoArchive | main | approve (dirty: 16) | committed | resolve-only (run disabled: flutter side effects): resolved 11 | 2/3/3 | 61f039d |  |  M ios/Podfile.lock<br> M ios/Runner.xcodeproj/project.pbxproj<br> M ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme<br> M pubspec.lock<br>?? .claude/agent-memory/devflow-verifier/MEMORY.md<br>?? .claude/agent-memory/devflow-verifier/project_videoarchive_known_issues.md<br>?? .claude/agent-memory/devflow-verifier/project_videoarchive_verification_quality.md<br>?? .claude/settings.json (+16 more) |
 
-```json results-partial
+**Totals:** committed 33 / skipped 2 / blocked 1 / stopped 0 = 36 (canonical 36). Nothing pushed; no `.mcp.json` written.
+
+```json results
 {
   "/Users/justin/dev/ao-terminal": {
     "action": "committed",
     "hash": "ff97b2ea",
-    "reason": ""
+    "reason": "",
+    "verify_mode": "run"
   },
   "/Users/justin/dev/aocore": {
-    "action": "stopped",
-    "hash": null,
-    "reason": "porcelain-delta"
+    "action": "committed",
+    "hash": "48e6a0784",
+    "reason": "",
+    "verify_mode": "resolve-only"
   },
   "/Users/justin/dev/aocyber-deploy": {
     "action": "skipped",
     "hash": null,
-    "reason": "user: PoC/reference-only"
+    "reason": "user: PoC/reference-only",
+    "verify_mode": null
   },
   "/Users/justin/dev/aodex": {
     "action": "committed",
     "hash": "68b545e2",
-    "reason": ""
+    "reason": "",
+    "verify_mode": "run"
   },
   "/Users/justin/dev/aoedge": {
     "action": "committed",
     "hash": "bedacb4",
-    "reason": ""
+    "reason": "",
+    "verify_mode": "run"
   },
   "/Users/justin/dev/aofamily": {
-    "action": "stopped",
-    "hash": null,
-    "reason": "porcelain-delta"
+    "action": "committed",
+    "hash": "94fb090",
+    "reason": "",
+    "verify_mode": "resolve-only"
   },
   "/Users/justin/dev/aoid": {
-    "action": "stopped",
-    "hash": null,
-    "reason": "porcelain-delta"
+    "action": "committed",
+    "hash": "1def474",
+    "reason": "",
+    "verify_mode": "resolve-only"
   },
   "/Users/justin/dev/aoinference": {
-    "action": "stopped",
+    "action": "committed",
+    "hash": "c9f1bdc",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/AOSignal": {
+    "action": "committed",
+    "hash": "37ccb12",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/aostudio": {
+    "action": "committed",
+    "hash": "7dd81bd",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/devcluster": {
+    "action": "committed",
+    "hash": "e038d4b",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/devflow": {
+    "action": "committed",
+    "hash": "36a8eb1",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/devflow-claude": {
+    "action": "skipped",
     "hash": null,
-    "reason": "rollout halted mid verify --run (flutter-analyze mutation found in other repos); our STACK.md deleted"
+    "reason": "self",
+    "verify_mode": null
+  },
+  "/Users/justin/dev/devflow-test": {
+    "action": "committed",
+    "hash": "3baa599",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/devflowops": {
+    "action": "committed",
+    "hash": "0083c97",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/dfip": {
+    "action": "committed",
+    "hash": "ffcff7d",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/eden-biz": {
+    "action": "committed",
+    "hash": "6f1b8f15d",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/eden-circle": {
+    "action": "committed",
+    "hash": "25c2cfa",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/eden-libs": {
+    "action": "committed",
+    "hash": "d321277",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/eden-platform-go": {
+    "action": "committed",
+    "hash": "0326e88",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/eden-press": {
+    "action": "committed",
+    "hash": "40e4c9e",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/eden-ui-flutter": {
+    "action": "committed",
+    "hash": "f8b0487",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/EdenDocs": {
+    "action": "committed",
+    "hash": "50e3b449645",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/github-enterprise-migration": {
+    "action": "committed",
+    "hash": "93e3162",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/justin-donnaruma-us-go": {
+    "action": "blocked",
+    "hash": null,
+    "reason": "stack-files-gitignored",
+    "verify_mode": null
+  },
+  "/Users/justin/dev/justinforme": {
+    "action": "committed",
+    "hash": "e430560",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/navigators": {
+    "action": "committed",
+    "hash": "c3a8274",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/opsCluster": {
+    "action": "committed",
+    "hash": "51d0f15",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/politihub": {
+    "action": "committed",
+    "hash": "686cb0b",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/qrCodeBuilder": {
+    "action": "committed",
+    "hash": "e55991b",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/quanta-local": {
+    "action": "committed",
+    "hash": "3b9e5d3",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/recycling-oracle": {
+    "action": "committed",
+    "hash": "78190b8",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/smartWellness": {
+    "action": "committed",
+    "hash": "23271c4",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/torrentConsole": {
+    "action": "committed",
+    "hash": "3aca26f",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/trades": {
+    "action": "committed",
+    "hash": "1c9ba00c",
+    "reason": "",
+    "verify_mode": "resolve-only"
+  },
+  "/Users/justin/dev/videoArchive": {
+    "action": "committed",
+    "hash": "61f039d",
+    "reason": "",
+    "verify_mode": "resolve-only"
   }
 }
 ```
