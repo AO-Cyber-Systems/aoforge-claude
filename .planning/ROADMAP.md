@@ -96,8 +96,8 @@ TRDs:
 - [ ] 42-07-TRD.md — (W4) drafter integration: preference order, verify→discover + notes, components, adopt; e2e over every failure shape
 - [ ] 42-09-TRD.md — (W4) `stack mcp [--write]` (opt-in), W033, agent/skill MCP grants, `confirm_stack_profile` workflow step
 - [ ] 42-08-TRD.md — (W5) `stack report [--write] [--draft]` → `.planning/STACK-REPORT.md` catalogue + adopt report link
-- [ ] 42-10-TRD.md — (W6) docs: CLAUDE.md, CHANGELOG [Unreleased], templates/stack.md
-- [ ] 42-11-TRD.md — (W6, checkpoint) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → per-repo write/verify/report/commit (no push)
+- [ ] 42-10-TRD.md — (W6) docs (CLAUDE.md, CHANGELOG [Unreleased], templates/stack.md) + sync-runtime SUBDIRS `stack-profiles` mirror + doc pointers
+- [ ] 42-11-TRD.md — (W6, checkpoint) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → clean repos write/verify/report/commit, dirty repos listed (no push)
 
 ### Other v1.4 candidates
 
