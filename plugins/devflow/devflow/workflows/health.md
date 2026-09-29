@@ -254,6 +254,7 @@ Report final status.
 | W031 | warning | Check 12: a loop/gates/generated/verification key names an undefined command | No |
 | W032 | warning | Check 12: profile body over 150 lines | No |
 | I030 | info | Check 12: no `.planning/STACK.md` but a manifest is present (general profile in use) | No |
+| W033 | warning | Check 12b: a `.mcp.json` server owned by `stack mcp --write` (`env.DEVFLOW_MANAGED: stack`) names a command that is not installed. Fix: install it, or `df-tools stack mcp --write` to prune | No |
 | W040 | warning | Check 13: project behind the running DevFlow (`project-behind: …`), or the upgrade check could not run (`upgrade-check-not-available: …`). Fix: `df-tools upgrade --apply` or `/devflow:status check --migrate` | No |
 
 </error_codes>
