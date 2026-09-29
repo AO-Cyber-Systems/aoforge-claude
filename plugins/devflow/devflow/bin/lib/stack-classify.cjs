@@ -434,11 +434,316 @@ function classifyInvocation(inv, { hint } = {}) {
   return null;
 }
 
+// ─── Test breadth (TRD 42-13) ─────────────────────────────────────────────────
+//
+// The repo-wide `test` must run the whole suite. `go test -c -o /tmp/x.test ./tests/x/` compiles
+// one package and runs nothing; `go test -run TestX ./...` runs one test; `-tags=integration`
+// selects the integration suite; `go test ./tests/x/` tests one package. testBreadth reads a test
+// runner's OWN flags and positional paths, per tool, from the TEST_BREADTH data below, and says
+// whether the invocation is broad or narrow and why. It never judges `-short`, `-race`, `-count`,
+// `-v`, `-timeout` or a coverage flag: those change how the suite runs, not how much of it.
+//
+//   spec = {
+//     value        flags that take a separate value (`-run X`), so X is not read as a path
+//     compileOnly  flags that build the test binary and run nothing            -> compile-only
+//     runFilter    flags that select tests by name                             -> run-filter
+//     tags         flags that name tags; tagMode 'suite' (go build tags ADD files, so only an
+//                  integration/e2e tag narrows) or 'filter' (a selection; narrows unless `not …`)
+//     pathFlags    flags that restrict to one package/path                     -> single-path
+//     positional   'path' (a package/dir/file) or 'filter' (cargo: a test-name filter)
+//     defaults     positional values that mean the whole suite (`./...`, `.`, dart's `test/`)
+//     recursive    flags that make a directory positional recursive (ginkgo -r)
+//     skip         leading subcommands that are not paths (vitest run)
+//     stopAt       tokens after which the rest belongs to the test binary (go -args, cargo --)
+//     norm         flag-name normaliser (go accepts -flag and --flag alike)
+//   }
+//
+// A positional that is a template or variable (`{{args}}`, `$(PKGS)`) is pass-through and never
+// narrows. A recursive pattern (`./cmd/...`) is not a single package; it narrows only when a path
+// segment names an e2e/integration suite (`./e2e/...`), which is also what `fitsKey` reports.
+
+const GO_SPEC = Object.freeze({
+  value: new Set([
+    '-run', '-skip', '-o', '-tags', '-timeout', '-count', '-coverprofile', '-covermode', '-coverpkg',
+    '-cpu', '-parallel', '-bench', '-benchtime', '-p', '-exec', '-ldflags', '-gcflags', '-asmflags',
+    '-mod', '-modfile', '-overlay', '-pkgdir', '-toolexec', '-outputdir', '-blockprofile',
+    '-blockprofilerate', '-cpuprofile', '-memprofile', '-memprofilerate', '-mutexprofile',
+    '-mutexprofilefraction', '-trace', '-shuffle', '-fuzz', '-fuzztime', '-fuzzminimizetime', '-list',
+    '-vet', '-buildmode', '-compiler', '-installsuffix', '-C',
+  ]),
+  compileOnly: new Set(['-c', '-o']),
+  runFilter: new Set(['-run']),
+  tags: new Set(['-tags']),
+  tagMode: 'suite',
+  pathFlags: new Set(),
+  positional: 'path',
+  defaults: new Set(['', '.', './', './...', '...']),
+  recursive: new Set(),
+  skip: new Set(),
+  stopAt: new Set(['-args']),
+  norm: (f) => f.replace(/^--/, '-'),
+});
+
+const DART_SPEC = Object.freeze({
+  value: new Set([
+    '--name', '-n', '--plain-name', '-N', '--tags', '-t', '--exclude-tags', '-x', '--platform', '-p',
+    '--preset', '-P', '--concurrency', '-j', '--total-shards', '--shard-index', '--timeout',
+    '--reporter', '-r', '--file-reporter', '--coverage-path', '--test-randomize-ordering-seed',
+    '-d', '--device-id', '--dart-define', '--dart-define-from-file', '--flavor', '--compiler',
+  ]),
+  compileOnly: new Set(),
+  runFilter: new Set(['--name', '-n', '--plain-name', '-N']),
+  tags: new Set(['--tags', '-t']),
+  tagMode: 'filter',
+  pathFlags: new Set(),
+  positional: 'path',
+  defaults: new Set(['', '.', './', 'test', 'test/', './test', './test/']),
+  recursive: new Set(),
+  skip: new Set(),
+  stopAt: new Set(),
+  norm: (f) => f,
+});
+
+const JS_SPEC = Object.freeze({
+  value: new Set([
+    '-t', '--testNamePattern', '-c', '--config', '--testPathPattern', '--testPathIgnorePatterns',
+    '--maxWorkers', '-w', '--coverageDirectory', '--reporters', '--reporter', '--selectProjects',
+    '--shard', '--testTimeout', '--rootDir', '--roots', '--root', '-r', '--dir', '--project',
+    '--outputFile', '--environment', '--pool', '--mode',
+  ]),
+  compileOnly: new Set(),
+  runFilter: new Set(['-t', '--testNamePattern']),
+  tags: new Set(),
+  tagMode: 'filter',
+  pathFlags: new Set(['--testPathPattern']),
+  positional: 'path',
+  defaults: new Set(['', '.', './']),
+  recursive: new Set(),
+  skip: new Set(['run', 'watch', 'dev']),
+  stopAt: new Set(),
+  norm: (f) => f,
+});
+
+const PYTEST_SPEC = Object.freeze({
+  value: new Set([
+    '-k', '-m', '-c', '-p', '-o', '-n', '--rootdir', '--maxfail', '--junitxml', '--junit-xml', '--cov',
+    '--cov-report', '--tb', '--durations', '--basetemp', '--deselect', '--ignore', '--ignore-glob',
+    '--confcutdir', '--log-level', '--timeout',
+  ]),
+  compileOnly: new Set(),
+  runFilter: new Set(['-k']),
+  tags: new Set(['-m']),
+  tagMode: 'filter',
+  pathFlags: new Set(),
+  positional: 'path',
+  defaults: new Set(['', '.', './', 'test', 'test/', 'tests', 'tests/', './tests', './tests/']),
+  recursive: new Set(),
+  skip: new Set(),
+  stopAt: new Set(),
+  norm: (f) => f,
+});
+
+const CARGO_SPEC = Object.freeze({
+  value: new Set([
+    '-p', '--package', '--test', '--bench', '--example', '--bin', '--features', '-F', '--target', '-j',
+    '--jobs', '--manifest-path', '--profile', '--target-dir', '--exclude', '--color', '-Z',
+  ]),
+  compileOnly: new Set(['--no-run']),
+  runFilter: new Set(),
+  tags: new Set(),
+  tagMode: 'filter',
+  pathFlags: new Set(['-p', '--package', '--test']),
+  positional: 'filter',
+  defaults: new Set(['']),
+  recursive: new Set(),
+  skip: new Set(),
+  stopAt: new Set(['--']),
+  norm: (f) => f,
+});
+
+const GINKGO_SPEC = Object.freeze({
+  value: new Set([
+    '--focus', '-focus', '--focus-file', '--skip', '-skip', '--skip-file', '--label-filter', '--procs',
+    '--timeout', '--output-dir', '--junit-report', '--json-report', '--coverprofile', '--tags',
+  ]),
+  compileOnly: new Set(['build']),
+  runFilter: new Set(['--focus', '-focus', '--focus-file', '--label-filter']),
+  tags: new Set(['--tags']),
+  tagMode: 'suite',
+  pathFlags: new Set(),
+  positional: 'path',
+  defaults: new Set(['', '.', './', './...', '...']),
+  recursive: new Set(['-r', '--r', '-recursive', '--recursive']),
+  skip: new Set(['run']),
+  stopAt: new Set(['--']),
+  norm: (f) => f,
+});
+
+/** Args after `--` (gotestsum hands them to go test); null when there are none: gotestsum runs ./... */
+function afterDashDash(a) {
+  const i = a.indexOf('--');
+  return i === -1 ? null : a.slice(i + 1);
+}
+
+const TEST_BREADTH = [
+  { tool: 'go', match: (a) => is(a, 'go', 'test'), args: (a) => a.slice(2), spec: GO_SPEC },
+  { tool: 'gotestsum', match: (a) => a[0] === 'gotestsum', args: afterDashDash, spec: GO_SPEC },
+  { tool: 'dart', match: (a) => is(a, 'dart', 'test'), args: (a) => a.slice(2), spec: DART_SPEC },
+  { tool: 'flutter', match: (a) => is(a, 'flutter', 'test'), args: (a) => a.slice(2), spec: DART_SPEC },
+  {
+    tool: null,
+    match: (a) => JS_PM.has(a[0]) && (a[1] === 'test' || a[1] === 't' || (a[1] === 'run' && a[2] === 'test')),
+    args: (a) => a.slice(a[1] === 'run' ? 3 : 2),
+    spec: JS_SPEC,
+  },
+  { tool: 'jest', match: (a) => a[0] === 'jest', args: (a) => a.slice(1), spec: JS_SPEC },
+  { tool: 'vitest', match: (a) => a[0] === 'vitest', args: (a) => a.slice(1), spec: JS_SPEC },
+  { tool: 'pytest', match: (a) => a[0] === 'pytest', args: (a) => a.slice(1), spec: PYTEST_SPEC },
+  { tool: 'cargo', match: (a) => is(a, 'cargo', 'test'), args: (a) => a.slice(2), spec: CARGO_SPEC },
+  { tool: 'ginkgo', match: (a) => a[0] === 'ginkgo', args: (a) => a.slice(1), spec: GINKGO_SPEC },
+];
+
+/** Why a test invocation is narrow, most decisive first, with the words a note prints. */
+const BREADTH_REASONS = Object.freeze({
+  'compile-only': 'builds the test binary and runs no test',
+  'run-filter': 'runs only the tests a name filter selects',
+  tag: 'selects a tagged suite, not the whole one',
+  'suite-path': 'runs an integration/e2e suite path',
+  'single-path': 'tests one package or path, not the whole repo',
+});
+const REASON_ORDER = Object.keys(BREADTH_REASONS);
+
+/** A path segment or tag that names an e2e / integration suite. `integration_test` is Flutter's e2e dir. */
+function suiteOf(token) {
+  const t = String(token).toLowerCase();
+  if (t === 'integration_test') return 'e2e';
+  if (t === 'e2e' || /^e2e[-_]/.test(t) || /[-_]e2e$/.test(t)) return 'e2e';
+  if (t === 'integration' || /^integration[-_]/.test(t) || /[-_]integration$/.test(t)) return 'integration';
+  return null;
+}
+
+function suiteOfPath(p) {
+  for (const seg of String(p).split('/')) {
+    const s = suiteOf(seg);
+    if (s) return s;
+  }
+  return null;
+}
+
+function suiteOfTags(value) {
+  for (const t of String(value || '').split(/[,\s]+/)) {
+    const s = suiteOf(t);
+    if (s) return s;
+  }
+  return null;
+}
+
+/** Split test-runner args into `{ flags: [{ name, value }], positional: [] }` by the spec. */
+function parseTestArgs(args, spec) {
+  const flags = [];
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    const x = String(args[i]);
+    if (spec.stopAt.has(x)) break;
+    if (x === '--') continue;
+    if (x.startsWith('-') && x !== '-') {
+      const eq = x.indexOf('=');
+      const name = spec.norm(eq === -1 ? x : x.slice(0, eq));
+      let value = eq === -1 ? null : x.slice(eq + 1);
+      if (value === null && spec.value.has(name) && i + 1 < args.length) value = String(args[++i]);
+      flags.push({ name, value });
+    } else {
+      positional.push(x);
+    }
+  }
+  while (positional.length && spec.skip.has(positional[0])) positional.shift();
+  return { flags, positional };
+}
+
+/** `{ breadth, reason, fitsKey, detail }` for one tool's args (see the section header). */
+function judgeBreadth(args, spec) {
+  const { flags, positional } = parseTestArgs(args, spec);
+  const reasons = new Set();
+  let fits = null;
+  const hint = (s) => { if (s && !fits) fits = s; };
+
+  for (const f of flags) {
+    if (spec.compileOnly.has(f.name)) reasons.add('compile-only');
+    if (spec.runFilter.has(f.name)) reasons.add('run-filter');
+    if (spec.pathFlags.has(f.name)) {
+      reasons.add('single-path');
+      hint(suiteOfPath(f.value || ''));
+    }
+    if (spec.tags.has(f.name)) {
+      const suite = suiteOfTags(f.value);
+      if (spec.tagMode === 'suite') {
+        if (suite) {
+          reasons.add('tag');
+          hint(suite);
+        }
+      } else if (!/^\s*not\b/.test(String(f.value || ''))) {
+        reasons.add('tag');
+        hint(suite);
+      }
+    }
+  }
+  if (spec.compileOnly.has(positional[0])) { // `ginkgo build`
+    reasons.add('compile-only');
+    positional.shift();
+  }
+  const recursive = flags.some((f) => spec.recursive.has(f.name));
+  for (const p of positional) {
+    if (/\{\{|\$/.test(p)) continue; // pass-through args: a template or a variable
+    if (spec.positional === 'filter') {
+      reasons.add('run-filter');
+      continue;
+    }
+    const suite = suiteOfPath(p);
+    if (suite) {
+      reasons.add('suite-path');
+      hint(suite);
+      continue;
+    }
+    if (spec.defaults.has(p) || p.endsWith('/...') || recursive) continue;
+    reasons.add('single-path');
+  }
+
+  const reason = REASON_ORDER.find((r) => reasons.has(r)) || null;
+  if (!reason) return { breadth: 'broad', reason: null, fitsKey: 'test', detail: 'runs the whole suite' };
+  return { breadth: 'narrow', reason, fitsKey: fits || 'test', detail: `${reason}: ${BREADTH_REASONS[reason]}` };
+}
+
+/**
+ * testBreadth(inv) -> { breadth: 'broad'|'narrow', reason, fitsKey, detail, tool } | null
+ *
+ * `inv` is a normalised invocation (`{ text, argv? }`) or a shell string; the first invocation
+ * that runs a known test runner decides. null when nothing in it is a test runner (a build, a
+ * `make test` wrapper whose body is elsewhere, an echo). `reason` is null for a broad invocation,
+ * else compile-only | run-filter | tag | suite-path | single-path (most decisive wins).
+ * `fitsKey` is `e2e` / `integration` when a tag or path names that suite, else `test`: where a
+ * narrow candidate belongs, for a note (the drafter never emits a new key from it).
+ */
+function testBreadth(inv) {
+  for (const c of toInvocations(inv)) {
+    const stage = unwrap(firstStage(c.argv));
+    for (const row of TEST_BREADTH) {
+      if (!row.match(stage)) continue;
+      const args = row.args(stage);
+      const judged = judgeBreadth(Array.isArray(args) ? args : [], row.spec);
+      return { ...judged, tool: row.tool || basename(stage[0]) };
+    }
+  }
+  return null;
+}
+
 module.exports = {
   CLASSIFY_TABLE,
   classifyInvocation,
   classifyUses,
   lookupUses,
+  testBreadth,
+  TEST_BREADTH,
+  BREADTH_REASONS,
   WEAK_MARKERS,
   STANDARD_KEYS_EXT,
   USES_MAP,
