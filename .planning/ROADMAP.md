@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress), Objective 43 (autonomy hardening)
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening)
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -103,9 +103,9 @@ TRDs:
 - [x] 42-15-TRD.md — (W9, gap cycle 2: D3) root-override policy (primary-stack match; sub-area candidates to notes), D1-D5 e2e, 42-11 re-run hand-off
 - [ ] 42-11-TRD.md — (W10, checkpoint; Task 1 re-run after 42-14/42-15) fleet rollout: dry-run table 42-ROLLOUT.md → human approval → write/verify/report + two-file commit on the current branch incl. dirty repos (user decision 2026-09-29; no push)
 
-### Objective 43: Autonomy hardening
+### Objective 44: Autonomy hardening
 
-**Goal:** Executors and orchestrators run to completion without human nudges: no self-imposed turn caps, truncation handled as resumable INCOMPLETE (never failure), gates stop blocking DevFlow's own agents and merge completions, runtime state files stop dirtying repos, and premature main-loop stops auto-continue. Evidence: `objectives/43-autonomy-hardening/43-EVIDENCE.md` (2026-09-29 session review: 506/1337 executor runs capped, 186 human nudges, 3,725 errors catalogued).
+**Goal:** Executors and orchestrators run to completion without human nudges: no self-imposed turn caps, truncation handled as resumable INCOMPLETE (never failure), gates stop blocking DevFlow's own agents and merge completions, runtime state files stop dirtying repos, and premature main-loop stops auto-continue. Evidence: `objectives/44-autonomy-hardening/44-EVIDENCE.md` (2026-09-29 session review: 506/1337 executor runs capped, 186 human nudges, 3,725 errors catalogued).
 **Requirements:** AUT-01, AUT-02, AUT-03, AUT-04, AUT-05, AUT-06, AUT-07
 **Depends on:** none
 **Success Criteria**:
@@ -118,15 +118,15 @@ TRDs:
 7. Synthesizer returns text, planner has Edit, executor forbids `sleep`-poll, `config-get` returns defaults for known unset keys; `npm test` green
 **Plans:** 9 TRDs in 3 waves
 TRDs:
-- [ ] 43-01-TRD.md — (W1) uncap executor/verifier; per-task commit + `## Progress` checkpoint + no sleep-poll; execute-objective INCOMPLETE → SendMessage resume (≤3), dependents never skipped; yolo continues between waves (AUT-01, AUT-06, AUT-07, AUT-03)
-- [ ] 43-02-TRD.md — (W1) drop legacy `~/.claude/agents/*.md` read instructions (typed research-objective spawns); synthesizer returns text, orchestrators write SUMMARY.md; planner gets Edit (AUT-03, AUT-07)
-- [ ] 43-03-TRD.md — (W1, tdd) gate-edits allows `devflow:*` agent_type; gate-commits allows merge/rebase/cherry-pick completion + inline `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix, no `export` advice (AUT-04)
-- [ ] 43-04-TRD.md — (W1, tdd) `gate-executor-stop.js` SubagentStop completion gate for `devflow:executor` (AUT-02)
-- [ ] 43-05-TRD.md — (W1, tdd) `auto-continue.js` Stop hook: announced-but-not-taken step, once (AUT-06)
-- [ ] 43-06-TRD.md — (W1, tdd) migration 0008 untracks runtime state files; `df-tools commit` records staged removals; upgrade hook dirty-exemption (AUT-05)
-- [ ] 43-07-TRD.md — (W1, tdd) `config-get` returns documented defaults for known unset keys (AUT-07)
-- [ ] 43-08-TRD.md — (W2, tdd) objective-job-index: Progress-only SUMMARY is incomplete + XML task_count; doc-refs legacy agent-path CI guard (AUT-01, AUT-03)
-- [ ] 43-09-TRD.md — (W3) register hooks in hooks.json; CLAUDE.md hook inventory, HOOK_DOCS, CHANGELOG [Unreleased]; full `npm test` (AUT-01..07)
+- [ ] 44-01-TRD.md — (W1) uncap executor/verifier; per-task commit + `## Progress` checkpoint + no sleep-poll; execute-objective INCOMPLETE → SendMessage resume (≤3), dependents never skipped; yolo continues between waves (AUT-01, AUT-06, AUT-07, AUT-03)
+- [ ] 44-02-TRD.md — (W1) drop legacy `~/.claude/agents/*.md` read instructions (typed research-objective spawns); synthesizer returns text, orchestrators write SUMMARY.md; planner gets Edit (AUT-03, AUT-07)
+- [ ] 44-03-TRD.md — (W1, tdd) gate-edits allows `devflow:*` agent_type; gate-commits allows merge/rebase/cherry-pick completion + inline `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix, no `export` advice (AUT-04)
+- [ ] 44-04-TRD.md — (W1, tdd) `gate-executor-stop.js` SubagentStop completion gate for `devflow:executor` (AUT-02)
+- [ ] 44-05-TRD.md — (W1, tdd) `auto-continue.js` Stop hook: announced-but-not-taken step, once (AUT-06)
+- [ ] 44-06-TRD.md — (W1, tdd) migration 0008 untracks runtime state files; `df-tools commit` records staged removals; upgrade hook dirty-exemption (AUT-05)
+- [ ] 44-07-TRD.md — (W1, tdd) `config-get` returns documented defaults for known unset keys (AUT-07)
+- [ ] 44-08-TRD.md — (W2, tdd) objective-job-index: Progress-only SUMMARY is incomplete + XML task_count; doc-refs legacy agent-path CI guard (AUT-01, AUT-03)
+- [ ] 44-09-TRD.md — (W3) register hooks in hooks.json; CLAUDE.md hook inventory, HOOK_DOCS, CHANGELOG [Unreleased]; full `npm test` (AUT-01..07)
 
 ### Objective 43: Stack drafter rules
 
@@ -173,6 +173,6 @@ Candidate scope carried forward from v1.2 deferrals:
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 14/15 | In progress | — |
-| 43. Autonomy hardening | v1.4 | 0/— | Planning | — |
+| 44. Autonomy hardening | v1.4 | 0/— | Planning | — |
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
