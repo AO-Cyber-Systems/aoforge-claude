@@ -31,6 +31,8 @@ const {
   RUNNER_FILES,
   SKIP_DIRS,
   _parseMakefile,
+  _parseTaskfile,
+  _parseJustfile,
 } = require('./stack-runners.cjs');
 
 const roots = [];
@@ -225,5 +227,295 @@ describe('readRunners — walk limits', () => {
     const root = track(fx.emptyRepo());
     assert.deepEqual(readRunners(root), []);
     assert.deepEqual(readRunners(`${root}/does-not-exist`), []);
+  });
+});
+
+describe('readRunners — Taskfile', () => {
+  test('4. names with `:`, cmd / cmds (flow list), aliases; hasTarget resolves an alias', () => {
+    const root = track(fx.taskfileRepo());
+    const targets = readRunners(root);
+    const tasks = targets.filter((t) => t.runner === 'task');
+    assert.deepEqual(
+      tasks.map((t) => t.name).sort(),
+      ['ci', 'default', 'gen', 'lint:go', 'test'],
+    );
+
+    const lint = find(targets, 'task', '', 'lint:go');
+    assert.deepEqual(lint.body, ['golangci-lint run']);
+    assert.equal(lint.invocation, 'task lint:go');
+    assert.equal(lint.file, 'Taskfile.yml');
+    assert.equal(lint.cwd, 'go', 'a task-level `dir:` becomes the target cwd');
+
+    const t = find(targets, 'task', '', 'test');
+    assert.deepEqual(t.body, ['go test ./...']);
+    assert.deepEqual(t.aliases, ['t']);
+    assert.equal(t.invocation, 'task test');
+    assert.equal(t.cwd, undefined);
+
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'test' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 't' }), true, 'alias');
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'lint:go' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'nope' }), false);
+  });
+
+  test('5. cmds items in `- cmd:`, `- task:` and bare forms, plus a block-scalar item', () => {
+    const root = track(fx.taskfileRepo());
+    const targets = readRunners(root);
+    assert.deepEqual(
+      find(targets, 'task', '', 'ci').body,
+      ['go vet ./...', 'task lint:go', 'go build ./...'],
+    );
+    assert.deepEqual(find(targets, 'task', '', 'default').body, ['task test']);
+    const gen = find(targets, 'task', '', 'gen');
+    assert.deepEqual(gen.body, ['buf generate', 'sqlc generate']);
+    assert.deepEqual(gen.aliases, ['g', 'generate'], 'block-list aliases');
+  });
+
+  test('5b. a Taskfile below the root is invoked with `task -d <dir>`', () => {
+    const root = track(fx.makeRepo({
+      'svc/Taskfile.yaml': 'version: "3"\ntasks:\n  build:\n    cmd: go build ./...\n',
+    }));
+    const t = find(readRunners(root), 'task', 'svc', 'build');
+    assert.equal(t.invocation, 'task -d svc build');
+    assert.equal(t.file, 'svc/Taskfile.yaml');
+    assert.equal(hasTarget(root, { runner: 'task', dir: 'svc', name: 'build' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'build' }), false);
+  });
+
+  test('5c. `includes:` makes an unmatched name unknown; a defined one is still true', () => {
+    const root = track(fx.taskfileWithIncludes());
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'build' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'web:build' }), 'unknown');
+  });
+
+  test('5d. _parseTaskfile: string shorthand, quoted names, anchors, comments, unknown shapes', () => {
+    const text = [
+      'version: "3"',
+      '# a comment',
+      'tasks:',
+      '  build: go build ./...   # trailing comment',
+      '  "quoted:name":',
+      '    cmds:',
+      '      - "echo \\"hi\\""',
+      "      - 'it''s'",
+      '  anchored: &anchored',
+      '    cmd: make all',
+      '  merged:',
+      '    <<: *anchored',
+      '  folded:',
+      '    cmd: >',
+      '      go test',
+      '      ./...',
+      '  compact:',
+      '    cmds:',
+      '    - go vet ./...',
+      '    - defer: rm -f x',
+      '  flow: [a, "b, c"]',
+      '',
+    ].join('\n');
+    const byName = Object.fromEntries(_parseTaskfile(text).tasks.map((t) => [t.name, t]));
+    assert.deepEqual(byName.build.body, ['go build ./...']);
+    assert.deepEqual(byName['quoted:name'].body, ['echo "hi"', "it's"]);
+    assert.deepEqual(byName.anchored.body, ['make all']);
+    assert.deepEqual(byName.merged.body, [], 'a merge key is an unknown shape, skipped');
+    assert.deepEqual(byName.folded.body, ['go test ./...']);
+    assert.deepEqual(byName.compact.body, ['go vet ./...'], 'same-indent list items; defer is skipped');
+    assert.deepEqual(byName.flow.body, ['a', 'b, c']);
+  });
+
+  test('5e. _parseTaskfile: no `tasks:` -> no tasks, and hasIncludes only from a top-level includes key', () => {
+    assert.deepEqual(_parseTaskfile("version: '3'\n").tasks, []);
+    assert.equal(_parseTaskfile("version: '3'\nincludes:\n  a: ./a\n").hasIncludes, true);
+    assert.equal(_parseTaskfile("version: '3'\ntasks:\n  includes:\n    cmd: x\n").hasIncludes, false);
+  });
+
+  test('5f. a templated or escaping `dir:` never becomes a cwd', () => {
+    const text = [
+      'tasks:',
+      '  a:',
+      '    dir: "{{.ROOT_DIR}}/go"',
+      '    cmd: x',
+      '  b:',
+      '    dir: "{{.SOMETHING_ELSE}}/go"',
+      '    cmd: x',
+      '  c:',
+      '    dir: ../../etc',
+      '    cmd: x',
+      '',
+    ].join('\n');
+    const root = track(fx.makeRepo({ 'Taskfile.yml': text }));
+    const targets = readRunners(root);
+    assert.equal(find(targets, 'task', '', 'a').cwd, 'go');
+    assert.equal(find(targets, 'task', '', 'b').cwd, undefined);
+    assert.equal(find(targets, 'task', '', 'c').cwd, undefined);
+  });
+});
+
+describe('readRunners — justfile', () => {
+  test('6. recipes with params and @ quiet prefix, alias, set; bodies keep their subshell fan-out', () => {
+    const root = track(fx.justfileFanOut());
+    const targets = readRunners(root);
+    const recipes = targets.filter((t) => t.runner === 'just');
+    assert.deepEqual(recipes.map((t) => t.name).sort(), ['fmt', 'lint', 'test']);
+
+    assert.deepEqual(find(targets, 'just', '', 'fmt').body, [
+      '(cd lib-a && dart format .)',
+      '(cd lib-b && dart format .)',
+    ]);
+    const test_ = find(targets, 'just', '', 'test');
+    assert.deepEqual(test_.body, [
+      '(cd lib-a && dart test {{args}})',
+      '(cd lib-b && dart test {{args}})',
+    ]);
+    assert.deepEqual(test_.aliases, ['t']);
+    assert.equal(test_.invocation, 'just test');
+    assert.equal(test_.file, 'justfile');
+    assert.deepEqual(find(targets, 'just', '', 'lint').body, [
+      '(cd lib-a && dart analyze)',
+      '(cd lib-b && dart analyze)',
+    ]);
+
+    assert.equal(hasTarget(root, { runner: 'just', dir: '', name: 'lint' }), true);
+    assert.equal(hasTarget(root, { runner: 'just', dir: '', name: 't' }), true, 'alias');
+    assert.equal(hasTarget(root, { runner: 'just', dir: '', name: 'shell' }), false, '`set shell` is not a recipe');
+    assert.equal(hasTarget(root, { runner: 'just', dir: '', name: 'nope' }), false);
+  });
+
+  test('6b. import / mod make an unmatched recipe unknown', () => {
+    const root = track(fx.justfileWithImport());
+    assert.equal(hasTarget(root, { runner: 'just', dir: '', name: 'build' }), true);
+    assert.equal(hasTarget(root, { runner: 'just', dir: '', name: 'docs::build' }), 'unknown');
+    assert.deepEqual(readRunners(root).map((t) => t.name), ['build'], 'import/mod lines are not recipes');
+  });
+
+  test('6c. a justfile below the root is invoked with --justfile', () => {
+    const root = track(fx.makeRepo({ 'lib/justfile': 'test:\n  dart test\n' }));
+    const t = find(readRunners(root), 'just', 'lib', 'test');
+    assert.equal(t.invocation, 'just --justfile lib/justfile test');
+    assert.equal(hasTarget(root, { runner: 'just', dir: 'lib', name: 'test' }), true);
+  });
+
+  test('6d. _parseJustfile: dependencies, defaulted params, attributes, continuations, shebang, prefixes', () => {
+    const text = [
+      'export RUST_LOG := "debug"',
+      'alias b := build',
+      '',
+      '[private]',
+      'helper:',
+      '  echo helper',
+      '',
+      '# build it',
+      'build target="release" *flags: helper',
+      '  @cargo build --profile {{target}} \\',
+      '    {{flags}}',
+      '',
+      '  -cargo doc',
+      '# a comment at column 0 does not end the recipe',
+      '  echo done',
+      '',
+      'script:',
+      '  #!/usr/bin/env bash',
+      '  set -eu',
+      '  echo from-script',
+      '',
+    ].join('\n');
+    const parsed = _parseJustfile(text);
+    const byName = Object.fromEntries(parsed.recipes.map((r) => [r.name, r.body]));
+    assert.deepEqual(Object.keys(byName).sort(), ['build', 'helper', 'script']);
+    assert.deepEqual(byName.helper, ['echo helper']);
+    assert.deepEqual(byName.build, ['cargo build --profile {{target}} {{flags}}', 'cargo doc', 'echo done']);
+    assert.deepEqual(byName.script, ['set -eu', 'echo from-script'], 'the shebang line is not a command');
+    assert.deepEqual(parsed.aliases, { b: 'build' });
+    assert.equal(parsed.hasImport, false);
+  });
+});
+
+describe('readRunners — exec enrichment (injected exec only)', () => {
+  test('10. task --list-all --json adds tasks missed statically; static entries are kept', () => {
+    const root = track(fx.makeRepo({
+      'Taskfile.yml': 'version: "3"\nincludes:\n  web: ./web\ntasks:\n  build:\n    cmd: go build ./...\n',
+    }));
+    const calls = [];
+    const exec = (cmd, args, opts) => {
+      calls.push([cmd, args, opts.cwd]);
+      return JSON.stringify({
+        tasks: [
+          { name: 'build', aliases: ['b'] },
+          { name: 'web:build', aliases: ['wb'] },
+        ],
+      });
+    };
+    const targets = readRunners(root, { exec });
+    assert.deepEqual(calls, [['task', ['--list-all', '--json'], root]]);
+
+    const build = find(targets, 'task', '', 'build');
+    assert.deepEqual(build.body, ['go build ./...'], 'the static body wins');
+    assert.deepEqual(build.aliases, ['b'], 'aliases from exec are merged in');
+    const web = find(targets, 'task', '', 'web:build');
+    assert.ok(web, 'a task only exec knows about is added');
+    assert.deepEqual(web.body, []);
+    assert.deepEqual(web.aliases, ['wb']);
+    assert.equal(web.invocation, 'task web:build');
+    assert.equal(web.file, 'Taskfile.yml');
+    assert.equal(web.via, 'exec');
+    assert.equal(build.via, undefined);
+  });
+
+  test('10b. just --dump --dump-format json adds recipes with bodies; private recipes are skipped', () => {
+    const root = track(fx.makeRepo({ justfile: 'build:\n  cargo build\n' }));
+    const calls = [];
+    const exec = (cmd, args, opts) => {
+      calls.push([cmd, args, opts.cwd]);
+      return JSON.stringify({
+        aliases: { d: { name: 'd', target: 'deploy' }, b: { name: 'b', target: 'build' } },
+        recipes: {
+          build: { name: 'build', body: [['cargo build']], private: false },
+          deploy: {
+            name: 'deploy',
+            body: [['cargo publish'], ['echo ', ['variable', 'target']]],
+            private: false,
+          },
+          _helper: { name: '_helper', body: [['true']], private: true },
+        },
+      });
+    };
+    const targets = readRunners(root, { exec });
+    assert.deepEqual(calls, [['just', ['--dump', '--dump-format', 'json'], root]]);
+    const deploy = find(targets, 'just', '', 'deploy');
+    assert.ok(deploy);
+    assert.deepEqual(deploy.body, ['cargo publish', 'echo {{target}}']);
+    assert.deepEqual(deploy.aliases, ['d']);
+    assert.equal(deploy.via, 'exec');
+    assert.deepEqual(find(targets, 'just', '', 'build').aliases, ['b']);
+    assert.equal(find(targets, 'just', '', 'build').via, undefined);
+    assert.equal(find(targets, 'just', '', '_helper'), undefined);
+  });
+
+  test('10c. exec is only consulted where a Taskfile / justfile exists', () => {
+    const root = track(fx.makefileMonorepo());
+    let called = 0;
+    readRunners(root, { exec: () => { called += 1; return '{}'; } });
+    assert.equal(called, 0);
+  });
+
+  test('10d. ENOENT, a bad payload or a non-function exec leave the static result unchanged', () => {
+    const root = track(fx.taskfileRepo());
+    const baseline = readRunners(root);
+    const enoent = () => { const e = new Error('spawn task ENOENT'); e.code = 'ENOENT'; throw e; };
+    assert.deepEqual(readRunners(root, { exec: enoent }), baseline);
+    assert.deepEqual(readRunners(root, { exec: () => 'not json' }), baseline);
+    assert.deepEqual(readRunners(root, { exec: () => undefined }), baseline);
+    assert.deepEqual(readRunners(root, { exec: () => '{"tasks":"nope"}' }), baseline);
+    assert.deepEqual(readRunners(root, { exec: 'task' }), baseline);
+    assert.deepEqual(readRunners(root, { exec: null }), baseline);
+  });
+
+  test('10e. exec may return a Buffer or { stdout }', () => {
+    const root = track(fx.makeRepo({ 'Taskfile.yml': 'version: "3"\ntasks:\n  a:\n    cmd: x\n' }));
+    const payload = JSON.stringify({ tasks: [{ name: 'extra', aliases: [] }] });
+    const viaBuffer = readRunners(root, { exec: () => Buffer.from(payload) });
+    const viaObject = readRunners(root, { exec: () => ({ stdout: payload }) });
+    assert.ok(find(viaBuffer, 'task', '', 'extra'));
+    assert.ok(find(viaObject, 'task', '', 'extra'));
   });
 });
