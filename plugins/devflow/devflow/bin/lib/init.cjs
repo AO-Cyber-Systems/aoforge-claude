@@ -218,26 +218,29 @@ function _buildCheckTodosPreview(cwd) {
 }
 
 /**
- * Read .planning/.awareness-cache.json (cache-only). Filters out the current branch.
+ * Read the awareness cache (cache-only) from the out-of-tree awareness store
+ * (~/.claude/devflow/state/awareness/<repo-key>.json, TRD 45-01) via awareness.cjs readCache.
+ * Filters out the current branch. A legacy in-tree .planning/.awareness-cache.json is ignored.
  *
  * Returns:
  *   { line: '⚠ N other branches active (run df-tools awareness show)', warning: null }
  *   when cache exists and ≥1 peer branch (excluding current) is present.
- *   { line: null, warning: null } when cache absent, peer.branches missing, or all branches filtered.
- *   { line: null, warning: '<msg>' } on read/parse error.
+ *   { line: null, warning: null } when cache absent (or unreadable — readCache treats a
+ *   parse error as "no cache"), peer.branches missing, or all branches filtered.
+ *   The warning slot is kept for the caller's contract but is always null here.
  *
  * @param {string} cwd - working directory
  * @returns {{ line: string|null, warning: string|null }}
  */
 function _buildAwarenessPreview(cwd) {
-  const cachePath = path.join(cwd, '.planning', '.awareness-cache.json');
-  if (!fs.existsSync(cachePath)) return { line: null, warning: null };
+  // Fail open: a broken awareness.cjs (see _awarenessLoadable) must not break init.
   let parsed;
   try {
-    parsed = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-  } catch (e) {
-    return { line: null, warning: `awareness-cache parse error: ${e.message}` };
+    parsed = require('./awareness.cjs').readCache(cwd);
+  } catch {
+    return { line: null, warning: null };
   }
+  if (!parsed) return { line: null, warning: null };
   const branches =
     parsed && parsed.peer && Array.isArray(parsed.peer.branches)
       ? parsed.peer.branches

@@ -4,6 +4,12 @@
 /**
  * SessionStart hook — populate awareness cache lazily when stale or missing.
  *
+ * Where the cache lives (TRD 45-01): OUT of the repo, in
+ * $DEVFLOW_AWARENESS_DIR, else ~/.claude/devflow/state/awareness/<repo-key>.json
+ * (see lib/awareness-store.cjs). Staleness is decided from that file. This hook never
+ * creates or reads anything under <cwd>/.planning/ except to test that the directory
+ * exists. A legacy in-tree .planning/.awareness-cache.json is dead state and ignored.
+ *
  * Fire-and-forget: spawns child process as detached + unref() so the parent
  * exits within milliseconds regardless of how long the scan takes (30s+).
  * Never blocks session start.
@@ -31,9 +37,9 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 const { spawn } = require('child_process');
+const store = require('../devflow/bin/lib/awareness-store.cjs');
 
 const DEFAULT_TTL_MINUTES = 10;
-const CACHE_REL = path.join('.planning', '.awareness-cache.json');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -56,22 +62,22 @@ function _findDfTools(env) {
 }
 
 /**
- * Read the awareness cache file.
- * Returns null on missing / empty / parse error (silent; regeneration is cheap).
+ * Read the awareness cache from the out-of-tree store (lib/awareness-store.cjs).
+ * Returns only the { peer, org } sections — the store's own bookkeeping
+ * (project, updated) is stripped. Returns null on missing / empty / parse error
+ * (silent; regeneration is cheap). A legacy in-tree cache file is never consulted.
  *
  * @param {string} cwd
+ * @param {object} [env] - environment carrying DEVFLOW_AWARENESS_DIR (defaults to process.env)
  * @returns {{ peer?: object, org?: object } | null}
  */
-function _readCache(cwd) {
-  const p = path.join(cwd, CACHE_REL);
-  if (!fs.existsSync(p)) return null;
-  try {
-    const content = fs.readFileSync(p, 'utf-8').trim();
-    if (!content) return null;
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
+function _readCache(cwd, env = process.env) {
+  const entry = store.readEntry(store.cacheFile(cwd, { env }));
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const out = {};
+  if (entry.peer !== undefined) out.peer = entry.peer;
+  if (entry.org !== undefined) out.org = entry.org;
+  return out;
 }
 
 /**
@@ -113,7 +119,7 @@ function _main({ cwd = process.cwd(), env = process.env, _spawn = spawn } = {}) 
   // Not a DevFlow project — no .planning/ directory
   if (!fs.existsSync(path.join(cwd, '.planning'))) return;
 
-  const cache  = _readCache(cwd) || {};
+  const cache  = _readCache(cwd, env) || {};
   const ttl    = DEFAULT_TTL_MINUTES;
   const peerStale = _isStale(cache.peer && cache.peer.fetched_at, ttl);
   const orgStale  = _isStale(cache.org  && cache.org.fetched_at,  ttl);
@@ -137,6 +143,8 @@ function _main({ cwd = process.cwd(), env = process.env, _spawn = spawn } = {}) 
     spawnArgs = [dfTools, 'awareness', 'show', '--refresh', '--raw'];
   }
 
+  // The env is handed to the child unchanged, so a DEVFLOW_AWARENESS_DIR override
+  // reaches the scan and it writes the same store file this hook just read.
   // Fire-and-forget: detached + stdio:'ignore' + unref().
   // - detached:true   — child runs in its own process group
   // - stdio:'ignore'  — no open pipe fd's that would prevent parent exit
