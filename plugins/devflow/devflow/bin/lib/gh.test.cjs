@@ -379,6 +379,16 @@ describe('findRoadmapIssue', () => {
 // ─── Group F: addToProject + linkSubIssue ────────────────────────────────────
 
 describe('addToProject / linkSubIssue', () => {
+  // TRD 46-08: the mutations are gh-client ghWrite now (paced). A no-op sleep keeps pacing off the wall clock.
+  beforeEach(() => {
+    require('./gh-client.cjs')._resetClient();
+    require('./gh-client.cjs')._setSleep(() => {});
+  });
+  afterEach(() => {
+    require('./gh-client.cjs')._resetClient();
+    require('./gh-client.cjs')._setSleep(null);
+  });
+
   test('F1: addToProject happy path → returns { ok: true, item_id }', () => {
     const nodeIdResp = fx.buildGhResponse_issueNodeId({ nodeId: 'I_kwDO_issue10' });
     const addItemResp = fx.buildGhResponse_addProjectItem({ itemId: 'PVTI_addedItem' });
@@ -625,6 +635,9 @@ describe('cmdGhResolve / df-tools gh resolve', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gh-test-'));
     // Create required .planning structure
     fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
+    // TRD 46-08: resolve sits behind the enabled gate (disabled -> skipped, zero gh calls).
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify({ github: { enabled: true, repo: 'AO-Cyber-Systems/devflow-claude' } }));
   });
 
   afterEach(() => {
@@ -1116,6 +1129,9 @@ describe('cmdGhResolve — auth hard-fail', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gh-auth-test-'));
     fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
+    // TRD 46-08: resolve sits behind the enabled gate. D3 removes this file to test the disabled path.
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify({ github: { enabled: true, repo: 'AO-Cyber-Systems/devflow-claude' } }));
 
     // Create a valid OBJECTIVE.md so cmdGhResolve doesn't fail on missing file
     const objDir = path.join(tmpDir, '.planning', 'objectives', '01-test');
@@ -1223,6 +1239,7 @@ describe('cmdGhResolve — auth hard-fail', () => {
     process.exit = (code) => { exitCodeCalled = code; };
 
     // No config.json in tmpDir — so ghStatus returns enabled:false, reason: 'github.enabled is false...'
+    fs.rmSync(path.join(tmpDir, '.planning', 'config.json'), { force: true });
     try {
       gh.cmdGhSyncObjectives(tmpDir, false);
     } finally {

@@ -1072,8 +1072,8 @@ async function main() {
         // Deprecated alias of `gh sync --all` (TRD 46-08; skill-route DF_TOOLS_DEPRECATIONS)
         cmdGhSyncObjectives(cwd, raw);
       } else if (subcommand === 'comment') {
-        // df-tools gh comment <issue|objective> <body|@file:path>
-        cmdGhComment(cwd, args[2], args[3], raw);
+        // df-tools gh comment <objective|#issue> <body|@file:path> [--kind k]
+        cmdGhComment(cwd, args.slice(2), raw);
       } else if (subcommand === 'close-issue') {
         // df-tools gh close-issue <objective|#issue> [comment]
         cmdGhCloseIssue(cwd, args[2], args[3] || null, raw);

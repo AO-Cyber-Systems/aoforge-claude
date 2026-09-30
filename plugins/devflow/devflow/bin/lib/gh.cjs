@@ -23,7 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { output } = require('./helpers.cjs');
+const { output, execGit } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { recordSync, hashFrontmatter } = require('./sync-state.cjs');
@@ -157,7 +157,7 @@ function parseScopes(stdout) {
  * @param {string[]} requiredScopes - scope strings that must be present
  */
 function requireGhAuth(requiredScopes = []) {
-  const r = _runGh(['auth', 'status']);
+  const r = client.ghRead(['auth', 'status']);
 
   if (!r.ok) {
     const stderr = r.stderr || '';
@@ -276,7 +276,7 @@ function _walkParent(parentIssueRef) {
 
   const query = `query($owner: String!, $name: String!, $number: Int!) {\n    repository(owner: $owner, name: $name) {\n      issue(number: $number) {\n        title\n        projectItems(first: 5) {\n          nodes {\n            project { id title }\n            fieldValues(first: 10) {\n              nodes {\n                ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }\n                ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2Field { name } } }\n              }\n            }\n          }\n        }\n      }\n    }\n  }`;
 
-  const r = _runGh(['api', 'graphql', '-f', `query=${query}`, '-F', `owner=${owner}`, '-F', `name=${repo}`, '-F', `number=${num}`]);
+  const r = client.ghRead(['api', 'graphql', '-f', `query=${query}`, '-F', `owner=${owner}`, '-F', `name=${repo}`, '-F', `number=${num}`]);
 
   if (!r.ok) {
     return {
@@ -351,7 +351,7 @@ function _walkParent(parentIssueRef) {
 function findRoadmapIssue(repo) {
   if (!repo || !/^[^/]+\/[^/]+$/.test(repo)) return null;
 
-  const r = _runGh([
+  const r = client.ghRead([
     'issue', 'list',
     '--repo', repo,
     '--state', 'open',
@@ -493,7 +493,7 @@ function addToProject(issueRef, projectId) {
 
   // Step 1: Look up the issue's GitHub-internal node ID
   const idQuery = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { id } } }`;
-  const idR = _runGh(['api', 'graphql', '-f', `query=${idQuery}`, '-F', `owner=${owner}`, '-F', `name=${repo}`, '-F', `number=${num}`]);
+  const idR = client.ghRead(['api', 'graphql', '-f', `query=${idQuery}`, '-F', `owner=${owner}`, '-F', `name=${repo}`, '-F', `number=${num}`]);
   if (!idR.ok) return { ok: false, error: idR.stderr || 'failed to look up issue node ID' };
 
   let issueId;
@@ -505,7 +505,7 @@ function addToProject(issueRef, projectId) {
 
   // Step 2: Add issue to project via mutation
   const mutation = `mutation($projectId: ID!, $contentId: ID!) { addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) { item { id } } }`;
-  const r = _runGh(['api', 'graphql', '-f', `query=${mutation}`, '-F', `projectId=${projectId}`, '-F', `contentId=${issueId}`]);
+  const r = client.ghWrite(['api', 'graphql', '-f', `query=${mutation}`, '-F', `projectId=${projectId}`, '-F', `contentId=${issueId}`]);
   if (!r.ok) return { ok: false, error: r.stderr || 'addProjectV2ItemById mutation failed' };
 
   let item_id;
@@ -534,7 +534,7 @@ function linkSubIssue(parentRef, childRef) {
     if (!m) return null;
     const [, owner, repo, num] = m;
     const q = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { id } } }`;
-    const r = _runGh(['api', 'graphql', '-f', `query=${q}`, '-F', `owner=${owner}`, '-F', `name=${repo}`, '-F', `number=${num}`]);
+    const r = client.ghRead(['api', 'graphql', '-f', `query=${q}`, '-F', `owner=${owner}`, '-F', `name=${repo}`, '-F', `number=${num}`]);
     if (!r.ok) return null;
     try {
       return JSON.parse(r.stdout).data.repository.issue.id;
@@ -554,7 +554,7 @@ function linkSubIssue(parentRef, childRef) {
   }
 
   const mutation = `mutation($issueId: ID!, $subIssueId: ID!) { addSubIssue(input: { issueId: $issueId, subIssueId: $subIssueId }) { issue { id } } }`;
-  const r = _runGh(['api', 'graphql', '-f', `query=${mutation}`, '-F', `issueId=${parentId}`, '-F', `subIssueId=${childId}`]);
+  const r = client.ghWrite(['api', 'graphql', '-f', `query=${mutation}`, '-F', `issueId=${parentId}`, '-F', `subIssueId=${childId}`]);
   if (!r.ok) return { ok: false, error: r.stderr || 'addSubIssue mutation failed' };
 
   return { ok: true };
@@ -589,6 +589,9 @@ function cmdGhResolve(cwd, objectiveId, raw, argv) {
     return;
   }
 
+  // The enabled gate (TRD 46-08): disabled -> skipped, exit 0, zero gh calls.
+  if (!gateOrSkip(cwd, raw)) return;
+
   // Hard-fail auth check before any gh API calls (SC-8)
   try {
     requireGhAuth(['project', 'read:project', 'repo']);
@@ -607,7 +610,10 @@ function cmdGhResolve(cwd, objectiveId, raw, argv) {
     throw e; // Unknown error — propagate up
   }
 
-  const objPath = path.join(cwd, '.planning', 'objectives', objectiveId, 'OBJECTIVE.md');
+  // Any spelling of the objective (2, 02, 02-name); an exact directory name still works.
+  const resolvedObj = mappingLib.resolveObjective(cwd, objectiveId);
+  const objDirName = resolvedObj && resolvedObj.dir ? resolvedObj.dir : objectiveId;
+  const objPath = path.join(cwd, '.planning', 'objectives', objDirName, 'OBJECTIVE.md');
   if (!fs.existsSync(objPath)) {
     process.stderr.write(`Error: objective not found: ${objectiveId}\n`);
     process.stderr.write(`  expected: ${objPath}\n`);
@@ -633,27 +639,25 @@ function cmdGhResolve(cwd, objectiveId, raw, argv) {
 
   const result = resolveChain(objFm, projectCtx);
   const prettyJson = JSON.stringify(result, null, 2);
-  output(result, raw, prettyJson);
+  client.emitResult(result, raw, prettyJson);
 }
 
+/**
+ * `gh status`: the enabled gate, then gh presence (`gh --version`) and auth (`gh auth status`) through the
+ * gh-client seam — never `which`, so tests stay hermetic and the one seam sees every gh invocation.
+ */
 function ghStatus(cwd) {
-  const cfg = readConfig(cwd);
-  const ghCfg = cfg && cfg.github ? cfg.github : null;
-  if (!ghCfg || !ghCfg.enabled) {
-    return { enabled: false, reason: 'github.enabled is false in .planning/config.json' };
-  }
-  if (!ghCfg.repo || !/^[^/]+\/[^/]+$/.test(ghCfg.repo)) {
-    return { enabled: false, reason: 'github.repo must be set as "owner/name"' };
-  }
-  const which = spawnSync('which', ['gh'], { encoding: 'utf-8' });
-  if (which.status !== 0) {
+  const gate = client.requireEnabled(cwd);
+  if (gate.skipped) return { enabled: false, reason: gate.reason };
+  const version = client.ghRead(['--version']);
+  if (!version.ok) {
     return { enabled: false, reason: 'gh CLI not installed (https://cli.github.com)' };
   }
-  const auth = _runGh(['auth', 'status']);
+  const auth = client.ghRead(['auth', 'status']);
   if (!auth.ok) {
     return { enabled: false, reason: 'gh not authenticated — run `gh auth login`' };
   }
-  return { enabled: true, repo: ghCfg.repo, labels: ghCfg.labels || {}, milestone_prefix: ghCfg.milestone_prefix || 'v' };
+  return { enabled: true, repo: gate.repo, labels: gate.labels || {}, milestone_prefix: gate.milestone_prefix || 'v' };
 }
 
 // ─── ROADMAP parsing ─────────────────────────────────────────────────────────
@@ -738,96 +742,174 @@ function cmdGhSyncObjectives(cwd, raw) {
   cmdGhSync(cwd, ['--all'], raw);
 }
 
-function cmdGhComment(cwd, issueOrObjective, body, raw) {
-  const status = ghStatus(cwd);
-  if (!status.enabled) {
-    output({ ok: false, skipped: true, reason: status.reason }, raw, '');
-    return;
-  }
-  if (!issueOrObjective || body === undefined) {
-    output({ ok: false, reason: 'Usage: gh comment <issue#|objective#> <body|@file:path>' }, raw, '');
-    return;
-  }
+// ─── Targets: objective first, `#N` forces a raw issue (TRD 46-08) ────────────
 
-  // Resolve objective number to issue number via mapping
-  const mapping = readMapping(cwd);
-  let issue = parseInt(issueOrObjective, 10);
-  if (!issueOrObjective.match(/^\d+$/) || mapping.objectives[issueOrObjective]) {
-    const mapped = mapping.objectives[issueOrObjective];
-    if (mapped) issue = mapped;
+/**
+ * resolveTarget(cwd, target, mapping) — the issue a `comment` / `close-issue` target names.
+ *   "#N"                          -> { ok, issue:N, id:null }           (raw issue, forced)
+ *   any objective spelling        -> { ok, issue:<mapped issue_id>, id } (mapping v3)
+ *   an objective with no mapping  -> { ok:false, error: 'no GitHub issue for objective …; run gh sync …' }
+ *   digits that are no objective  -> { ok, issue:N, id:null }           (numeric fallback)
+ *   anything else                 -> { ok:false, error }
+ * Ambiguity rule: a bare number is tried as an objective id BEFORE it is read as an issue number.
+ */
+function resolveTarget(cwd, target, mapping) {
+  const t = String(target == null ? '' : target).trim();
+  const forced = /^#(\d+)$/.exec(t);
+  if (forced) return { ok: true, issue: Number(forced[1]), id: null };
+  const resolved = t === '' ? null : mappingLib.resolveObjective(cwd, t);
+  if (resolved) {
+    const entry = mappingLib.getEntry(mapping, resolved.id);
+    if (entry && entry.issue_id) return { ok: true, issue: entry.issue_id, id: resolved.id };
+    return { ok: false, error: `no GitHub issue for objective ${resolved.id}; run gh sync ${resolved.id}` };
   }
-  if (!issue) {
-    output({ ok: false, reason: `No issue mapped for ${issueOrObjective}` }, raw, '');
-    return;
-  }
-
-  // Body may be @file:/path/to/file.md
-  let actualBody = body;
-  if (body.startsWith('@file:')) {
-    const filePath = body.slice('@file:'.length);
-    if (!fs.existsSync(filePath)) {
-      output({ ok: false, reason: `File not found: ${filePath}` }, raw, '');
-      return;
-    }
-    actualBody = fs.readFileSync(filePath, 'utf-8');
-  }
-
-  const r = runGh(['issue', 'comment', String(issue), '--repo', status.repo, '--body', actualBody]);
-  output(
-    { ok: r.ok, issue, error: r.ok ? null : r.stderr, url: r.ok ? r.stdout : null },
-    raw,
-    ''
-  );
+  if (/^\d+$/.test(t)) return { ok: true, issue: Number(t), id: null };
+  return { ok: false, error: `unknown objective or issue: ${JSON.stringify(t)} (use #N for a raw issue number)` };
 }
 
-function cmdGhCloseIssue(cwd, objectiveOrIssue, comment, raw) {
-  const status = ghStatus(cwd);
-  if (!status.enabled) {
-    output({ ok: false, skipped: true, reason: status.reason }, raw, '');
+// The enabled gate as a command result: `skipped` (exit 0, zero gh calls) or the gate itself.
+function gateOrSkip(cwd, raw) {
+  const gate = client.requireEnabled(cwd);
+  if (gate.skipped) {
+    client.emitResult({ ok: false, skipped: true, reason: gate.reason }, raw, '');
+    return null;
+  }
+  return gate;
+}
+
+// Read mapping v3 (legacy v1/v2 files are migrated in memory) and resolve a target against it.
+function resolveCommandTarget(cwd, target) {
+  const report = mappingLib.readMappingV3WithReport(cwd);
+  if (report.error) return { ok: false, error: report.error };
+  return resolveTarget(cwd, target, report.mapping);
+}
+
+// `comment` argv: positionals <target> <body>, plus `--kind <k>` / `--kind=<k>` anywhere after the target.
+function parseCommentArgs(argv) {
+  const positional = [];
+  let kind = null;
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i] == null ? '' : String(argv[i]);
+    if (tok === '--kind') kind = argv[++i] == null ? '' : String(argv[i]);
+    else if (tok.startsWith('--kind=')) kind = tok.slice('--kind='.length);
+    else positional.push(tok);
+  }
+  return { target: positional[0], body: positional[1], kind };
+}
+
+/**
+ * `df-tools gh comment <objective|#issue> <body|@file:path> [--kind k]`.
+ * Accepts the argv array (`cmdGhComment(cwd, args, raw)`) or the legacy positional shape
+ * (`cmdGhComment(cwd, target, body, raw)`). A comment on a known objective opens with
+ * `<!-- devflow:id=<id> kind=<kind> -->` (kind defaults to `comment`); a raw `#N` with no objective is
+ * posted as written (`marker:false`). Exit 1 on any failure; `skipped` (github disabled) exits 0.
+ */
+function cmdGhComment(cwd, argsOrTarget, bodyOrRaw, maybeRaw) {
+  let target;
+  let body;
+  let kind;
+  let raw;
+  if (Array.isArray(argsOrTarget)) {
+    ({ target, body, kind } = parseCommentArgs(argsOrTarget));
+    raw = bodyOrRaw;
+  } else {
+    target = argsOrTarget;
+    body = bodyOrRaw;
+    raw = maybeRaw;
+  }
+
+  const gate = gateOrSkip(cwd, raw);
+  if (!gate) return;
+  const fail = (error, extra = {}) => client.emitResult({ ok: false, error, ...extra }, raw, '');
+  if (!target || body === undefined) {
+    fail('Usage: gh comment <objective|#issue> <body|@file:path> [--kind k]');
     return;
   }
-  const mapping = readMapping(cwd);
-  let issue = mapping.objectives[objectiveOrIssue] || parseInt(objectiveOrIssue, 10);
-  if (!issue) {
-    output({ ok: false, reason: `No issue mapped for ${objectiveOrIssue}` }, raw, '');
+
+  let text = String(body);
+  if (text.startsWith('@file:')) {
+    const filePath = text.slice('@file:'.length);
+    if (!fs.existsSync(filePath)) {
+      fail(`File not found: ${filePath}`);
+      return;
+    }
+    text = fs.readFileSync(filePath, 'utf-8');
+  }
+
+  const t = resolveCommandTarget(cwd, target);
+  if (!t.ok) {
+    fail(t.error);
     return;
   }
-  const args = ['issue', 'close', String(issue), '--repo', status.repo];
-  if (comment) args.push('--comment', comment);
-  const r = runGh(args);
-  output({ ok: r.ok, issue, error: r.ok ? null : r.stderr }, raw, '');
+
+  let finalBody = text;
+  if (t.id) {
+    try {
+      finalBody = bodyLib.withCommentMarker(t.id, kind || 'comment', text);
+    } catch (e) {
+      fail(e.message, { issue: t.issue });
+      return;
+    }
+  }
+
+  const r = client.ghWrite(['issue', 'comment', String(t.issue), '--repo', gate.repo, '--body', finalBody]);
+  client.emitResult({
+    ok: r.ok,
+    issue: t.issue,
+    id: t.id,
+    kind: t.id ? (kind || 'comment') : null,
+    marker: Boolean(t.id),
+    error: r.ok ? null : (r.error || r.stderr || r.stdout || 'gh issue comment failed'),
+    url: r.ok ? r.stdout : null,
+  }, raw, '');
+}
+
+/**
+ * `df-tools gh close-issue <objective|#issue> [comment]`. Same target resolution as `comment`; the
+ * closing comment of a known objective carries a `kind=close` marker. Exit 1 on failure.
+ */
+function cmdGhCloseIssue(cwd, target, comment, raw) {
+  const gate = gateOrSkip(cwd, raw);
+  if (!gate) return;
+  const t = resolveCommandTarget(cwd, target);
+  if (!t.ok) {
+    client.emitResult({ ok: false, error: t.error }, raw, '');
+    return;
+  }
+  const args = ['issue', 'close', String(t.issue), '--repo', gate.repo];
+  if (comment) args.push('--comment', t.id ? bodyLib.withCommentMarker(t.id, 'close', comment) : String(comment));
+  const r = client.ghWrite(args);
+  client.emitResult({
+    ok: r.ok,
+    issue: t.issue,
+    id: t.id,
+    marker: Boolean(t.id && comment),
+    error: r.ok ? null : (r.error || r.stderr || r.stdout || 'gh issue close failed'),
+  }, raw, '');
 }
 
 function cmdGhSyncRelease(cwd, tag, raw) {
-  const status = ghStatus(cwd);
-  if (!status.enabled) {
-    output({ ok: false, skipped: true, reason: status.reason }, raw, '');
-    return;
-  }
+  const gate = gateOrSkip(cwd, raw);
+  if (!gate) return;
   if (!tag) {
-    output({ ok: false, reason: 'Usage: gh sync-release <tag>' }, raw, '');
+    client.emitResult({ ok: false, error: 'Usage: gh sync-release <tag>' }, raw, '');
     return;
   }
 
   // Find previous tag
-  const prevTag = spawnSync('git', ['describe', '--tags', '--abbrev=0', `${tag}^`], {
-    encoding: 'utf-8', cwd,
-  });
-  const prev = prevTag.status === 0 ? prevTag.stdout.trim() : null;
+  const prevTag = execGit(cwd, ['describe', '--tags', '--abbrev=0', `${tag}^`]);
+  const prev = prevTag.exitCode === 0 && prevTag.stdout ? prevTag.stdout : null;
   const range = prev ? `${prev}..${tag}` : tag;
 
   // Pull SUMMARY.md and metadata commits in range
-  const log = spawnSync(
-    'git',
-    ['log', range, '--no-merges', '--pretty=format:%h|%s', '--name-only', '-z'],
-    { encoding: 'utf-8', cwd }
-  );
+  const log = execGit(cwd, ['log', range, '--no-merges', '--pretty=format:%h|%s', '--name-only', '-z']);
+  const logOk = log.exitCode === 0 && Boolean(log.stdout);
 
   const lines = [`# Release ${tag}`, '', prev ? `Changes since ${prev}.` : 'Initial release.', ''];
 
   // Group commits by type prefix (feat/fix/docs/etc)
   const groups = { feat: [], fix: [], perf: [], refactor: [], chore: [], docs: [], other: [] };
-  if (log.status === 0 && log.stdout) {
+  if (logOk) {
     const commitRe = /([a-f0-9]+)\|([^\n\0]+)/g;
     let m;
     while ((m = commitRe.exec(log.stdout)) !== null) {
@@ -848,7 +930,7 @@ function cmdGhSyncRelease(cwd, tag, raw) {
 
   // Append SUMMARY.md highlights from objectives completed in range
   const summaryFiles = [];
-  if (log.status === 0 && log.stdout) {
+  if (logOk) {
     const filePartRe = /\0([^\0\n]+SUMMARY\.md)/g;
     let m;
     while ((m = filePartRe.exec(log.stdout)) !== null) {
@@ -869,20 +951,18 @@ function cmdGhSyncRelease(cwd, tag, raw) {
   const tmpNotes = path.join(require('os').tmpdir(), `df-release-${Date.now()}.md`);
   fs.writeFileSync(tmpNotes, lines.join('\n'));
 
-  // Check if release already exists
-  const existing = runGh(['release', 'view', tag, '--repo', status.repo]);
-  let r;
-  if (existing.ok) {
-    r = runGh(['release', 'edit', tag, '--repo', status.repo, '--notes-file', tmpNotes]);
-  } else {
-    r = runGh(['release', 'create', tag, '--repo', status.repo, '--title', tag, '--notes-file', tmpNotes]);
-  }
+  // Edit the release when it exists, else create it. Every call goes through the gh-client seam.
+  const existing = client.ghRead(['release', 'view', tag, '--repo', gate.repo]);
+  const r = existing.ok
+    ? client.ghWrite(['release', 'edit', tag, '--repo', gate.repo, '--notes-file', tmpNotes])
+    : client.ghWrite(['release', 'create', tag, '--repo', gate.repo, '--title', tag, '--notes-file', tmpNotes]);
 
-  output(
-    { ok: r.ok, tag, prev_tag: prev, range, notes_file: tmpNotes, action: existing.ok ? 'edited' : 'created', error: r.ok ? null : r.stderr, url: r.ok ? r.stdout : null },
-    raw,
-    ''
-  );
+  client.emitResult({
+    ok: r.ok, tag, prev_tag: prev, range, notes_file: tmpNotes,
+    action: existing.ok ? 'edited' : 'created',
+    error: r.ok ? null : (r.error || r.stderr || r.stdout || 'gh release failed'),
+    url: r.ok ? r.stdout : null,
+  }, raw, '');
 }
 
 // ─── TRD 01-04: syncObjective helpers + orchestrator ─────────────────────────
@@ -1605,7 +1685,7 @@ function walkProject(projectId) {
     const args = ['api', 'graphql', '-f', `query=${query}`, '-F', `projectId=${projectId}`];
     if (cursor) args.push('-F', `cursor=${cursor}`);
 
-    const r = _runGh(args);
+    const r = client.ghRead(args);
     if (!r.ok) {
       warnings.push(`walkProject failed: ${r.stderr || 'unknown gh error'}`);
       break;
@@ -1685,7 +1765,7 @@ function walkProject(projectId) {
  *   stdout is JSON: { state: 'OPEN' | 'CLOSED', closed: bool }
  */
 function readIssueState(issueRef) {
-  return _runGh(['issue', 'view', issueRef, '--json', 'state,closed']);
+  return client.ghRead(['issue', 'view', issueRef, '--json', 'state,closed']);
 }
 
 module.exports = {

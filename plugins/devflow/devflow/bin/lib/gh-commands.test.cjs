@@ -301,11 +301,13 @@ describe('enabled gate, exit codes and status', () => {
       'close-issue': () => gh.cmdGhCloseIssue(root, '2', 'x', false),
       'sync-release v1': () => gh.cmdGhSyncRelease(root, 'v1', false),
       'resolve 2': () => gh.cmdGhResolve(root, '2', false, ['2']),
-      'pull 2': () => cmdGhPull(root, ['2'], false),
+      // gh-pull prints prose unless --raw (its 46-06 contract) and exits 0 by returning.
+      'pull 2': () => cmdGhPull(root, ['2'], true),
     };
     for (const [name, run] of Object.entries(runs)) {
       const r = capture(run);
-      assert.strictEqual(r.code, 0, `${name}: exit ${r.code} ${r.stdout}${r.stderr}`);
+      const code = r.code === null ? 0 : r.code;
+      assert.strictEqual(code, 0, `${name}: exit ${r.code} ${r.stdout}${r.stderr}`);
       assert.strictEqual(json(r.stdout).skipped, true, `${name}: ${r.stdout}`);
     }
     assert.deepStrictEqual(fake.calls(), []);
