@@ -95,6 +95,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   so executor model selection sees the true size.
 
 ### Fixed
+- The no-progress guard (`hooks/guard-no-progress.js`) no longer writes into the repo. It kept its
+  state in `.planning/.progress-guard.json`, which it rewrote on every tool call; the file watcher
+  attached the whole file to every tool result (~800 tokens per call), and concurrent sessions raced
+  on the shared file. State now lives per session in
+  `~/.claude/devflow/state/progress-guard/<session>.json` (override: `DEVFLOW_PROGRESS_GUARD_DIR`),
+  files older than 24h are pruned on a session's first write, and `df-tools telemetry` reads from
+  there, filtered to the current project. Migration 0008 still untracks the legacy file.
 - CI drafting no longer emits `\` continuation fragments, comments, `echo` lines, bare flags or
   `${{ }}`-only lines as commands.
 - `provenance.reviewed` in a drafted STACK.md is the local date, not the UTC date
