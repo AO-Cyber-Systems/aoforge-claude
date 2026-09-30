@@ -135,6 +135,23 @@ TRDs:
 **Requirements:** see `.planning/objectives/43-stack-drafter-rules/OBJECTIVE.md`
 **Plans:** TBD
 
+### Objective 45: DevFlow doctor + runtime hygiene
+
+**Goal:** `df-tools doctor` / `/devflow:doctor` diagnose and safely repair environment problems (stale runtime mirror, in-repo runtime state, pending migrations, stale markers/state/backups, hook drift); awareness cache leaves the repo; 0008 covers nested `.planning/`; sync-runtime re-mirrors same-version content changes.
+**Requirements:** DOC-01..DOC-07 (see `.planning/objectives/45-devflow-doctor/OBJECTIVE.md`)
+**Plans:** 9 TRDs in 4 waves
+
+TRDs:
+- [ ] 45-01-TRD.md — awareness cache out of the repo via awareness-store (DOC-01) [W1]
+- [ ] 45-02-TRD.md — migration 0008 covers nested .planning runtime state (DOC-02) [W1]
+- [ ] 45-03-TRD.md — sync-runtime version + content digest marker (DOC-03) [W1]
+- [ ] 45-04-TRD.md — doctor engine, check registry, CLI + dispatch + help (DOC-04) [W1]
+- [ ] 45-05-TRD.md — global install checks: runtime mirror, plugin cache, hooks registry, model ids (DOC-05) [W2]
+- [ ] 45-06-TRD.md — project checks + staged-changes guard: legacy state, migrations, health, markers (DOC-05/06) [W2]
+- [ ] 45-07-TRD.md — state-hygiene checks: guard state, awareness state, backups (DOC-05) [W2]
+- [ ] 45-08-TRD.md — end-to-end doctor on aodex-like fixture (SC4/SC5) [W3]
+- [ ] 45-09-TRD.md — /devflow:doctor skill, route-intent, docs, full npm test (DOC-07) [W4]
+
 ### Other v1.4 candidates
 
 - **Objective 26: GitHub issue auto-build monitor** — moved out of v1.3 on 2026-09-28 by user decision; **candidate for killing**. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
@@ -176,4 +193,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
+| 45. DevFlow doctor + runtime hygiene | v1.4 | 0/— | Registered | — |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
