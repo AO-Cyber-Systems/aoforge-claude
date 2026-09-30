@@ -349,20 +349,24 @@ test('buildOrgScanResult O2: returns shape compatible with aggregateOrgByProduct
 //
 // Test list (enumerated before test code — TDD Playbook habit 2):
 //
-// Group C — readCache happy paths:
+// Group C — readCache (TRD 45-01: reads the out-of-tree awareness-store file, seeded via the store):
 //   C1: cache file absent → returns null
 //   C2: cache file empty → returns null (JSON.parse fails on empty string)
 //   C3: cache file contains valid { peer: {...} } → returns object with peer section
 //   C4: cache file contains both peer + org → returns object with both
 //   C5: cache file contains malformed JSON → returns null (does not throw)
+//   C6: project/updated are stripped → {peer, org} only
+//   C7: legacy in-tree file + no store file → null (no fallback)
 //
-// Group W — writeCache merge semantics:
-//   W1: empty dir + writeCache({peer:X}) → file contains {peer:X} only
-//   W2: existing file {org:Y} + writeCache({peer:X}) → file contains BOTH peer:X AND org:Y (merge)
-//   W3: existing file {peer:OLD, org:Y} + writeCache({peer:NEW}) → peer overwritten, org preserved
-//   W4: existing file {peer:OLD, org:Y} + writeCache({peer:NEW, org:Y2}) → both replaced
-//   W5: missing .planning/ directory → writeCache creates it
+// Group W — writeCache merge semantics (TRD 45-01: through the store):
+//   W1: empty dir + writeCache({peer:X}) → store file contains {peer:X} only (+ project/updated)
+//   W2: existing entry {org:Y} + writeCache({peer:X}) → entry contains BOTH peer:X AND org:Y (merge)
+//   W3: existing entry {peer:OLD, org:Y} + writeCache({peer:NEW}) → peer overwritten, org preserved
+//   W4: existing entry {peer:OLD, org:Y} + writeCache({peer:NEW, org:Y2}) → both replaced
+//   W5: writeCache creates the store file and NOTHING under <cwd>/.planning/
 //   W6: writeCache produces pretty JSON with trailing newline
+//   W7: a legacy in-tree file is neither merged in nor modified
+//   W8: two repos get two separate store files
 //
 // Group I — isStale TTL math:
 //   I1: fetched_at=null → returns true
@@ -388,6 +392,40 @@ test('buildOrgScanResult O2: returns shape compatible with aggregateOrgByProduct
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { readCache, writeCache, isStale } = require('./awareness.cjs');
+const store = require('./awareness-store.cjs');
+
+// TRD 45-01 isolation: the awareness cache lives outside the repo, so every test in this
+// file runs against a throwaway DEVFLOW_AWARENESS_DIR — never the real ~/.claude. The
+// hooks are file-level (root) hooks, so they wrap every test below, and they restore the env.
+const { beforeEach, afterEach } = test;
+let _awarenessDir;
+let _savedAwarenessEnv;
+beforeEach(() => {
+  _savedAwarenessEnv = process.env.DEVFLOW_AWARENESS_DIR;
+  _awarenessDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-awareness-store-'));
+  process.env.DEVFLOW_AWARENESS_DIR = _awarenessDir;
+});
+afterEach(() => {
+  if (_savedAwarenessEnv === undefined) delete process.env.DEVFLOW_AWARENESS_DIR;
+  else process.env.DEVFLOW_AWARENESS_DIR = _savedAwarenessEnv;
+  try { fs.rmSync(_awarenessDir, { recursive: true, force: true }); } catch (_) {}
+});
+
+/** Seed the awareness cache the way the product does: through the store. */
+function seedStore(cwd, sections) {
+  const file = store.cacheFile(cwd);
+  const ok = store.writeEntry(
+    file,
+    Object.assign({ project: fs.realpathSync(cwd), updated: new Date().toISOString() }, sections)
+  );
+  assert.ok(ok, 'seeding the store must succeed');
+  return file;
+}
+
+/** Raw stored entry (including project/updated) for cwd, or null. */
+function readStoreRaw(cwd) {
+  return store.readEntry(store.cacheFile(cwd));
+}
 
 function tempCwd() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-awareness-cache-'));
@@ -397,7 +435,20 @@ function tempCwd() {
   };
 }
 
-// ─── Group C: readCache happy paths ──────────────────────────────────────────
+// ─── Group C: readCache (out-of-tree store — TRD 45-01) ──────────────────────
+//
+// Every test below seeds and reads through awareness-store under the temp
+// DEVFLOW_AWARENESS_DIR the file-level beforeEach installs. Nothing writes
+// <cwd>/.planning/.awareness-cache.json to seed a cache.
+
+test('env isolation: DEVFLOW_AWARENESS_DIR points at a temp dir for every test in this file', () => {
+  assert.ok(process.env.DEVFLOW_AWARENESS_DIR, 'override is set');
+  assert.ok(
+    process.env.DEVFLOW_AWARENESS_DIR.startsWith(os.tmpdir()) ||
+      fs.realpathSync(process.env.DEVFLOW_AWARENESS_DIR).startsWith(fs.realpathSync(os.tmpdir())),
+    'override is under os.tmpdir(), never the real ~/.claude'
+  );
+});
 
 test('readCache C1: cache file absent returns null', () => {
   const t = tempCwd();
@@ -410,8 +461,9 @@ test('readCache C1: cache file absent returns null', () => {
 test('readCache C2: cache file empty returns null', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(t.cwd, '.planning', '.awareness-cache.json'), '');
+    const file = store.cacheFile(t.cwd);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '');
     const result = readCache(t.cwd);
     assert.strictEqual(result, null);
   } finally { t.cleanup(); }
@@ -420,12 +472,7 @@ test('readCache C2: cache file empty returns null', () => {
 test('readCache C3: cache file with peer section returns object with peer', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    const cacheData = { peer: { fetched_at: '2026-05-04T00:00:00Z', branches: ['main'] } };
-    fs.writeFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
-      JSON.stringify(cacheData, null, 2) + '\n'
-    );
+    seedStore(t.cwd, { peer: { fetched_at: '2026-05-04T00:00:00Z', branches: ['main'] } });
     const result = readCache(t.cwd);
     assert.ok(result, 'result should not be null');
     assert.ok(result.peer, 'peer section present');
@@ -437,15 +484,10 @@ test('readCache C3: cache file with peer section returns object with peer', () =
 test('readCache C4: cache file with both peer + org returns both sections', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    const cacheData = {
+    seedStore(t.cwd, {
       peer: { fetched_at: '2026-05-04T00:00:00Z', branches: ['main'] },
       org: { fetched_at: '2026-05-04T00:00:00Z', items: ['item1'] },
-    };
-    fs.writeFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
-      JSON.stringify(cacheData, null, 2) + '\n'
-    );
+    });
     const result = readCache(t.cwd);
     assert.ok(result, 'result should not be null');
     assert.ok(result.peer, 'peer section present');
@@ -458,44 +500,77 @@ test('readCache C4: cache file with both peer + org returns both sections', () =
 test('readCache C5: malformed JSON returns null (does not throw)', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    fs.writeFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
-      '{ "peer": { broken json here }}}'
-    );
+    const file = store.cacheFile(t.cwd);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{ "peer": { broken json here }}}');
     const result = readCache(t.cwd);
     assert.strictEqual(result, null);
   } finally { t.cleanup(); }
 });
 
-// ─── Group W: writeCache merge semantics ─────────────────────────────────────
+test('readCache C6: strips project/updated — returns {peer, org} sections only', () => {
+  const t = tempCwd();
+  try {
+    seedStore(t.cwd, { peer: { branches: ['p'] }, org: { items: ['o'] } });
+    const raw = store.readEntry(store.cacheFile(t.cwd));
+    assert.ok(raw.project && raw.updated, 'the stored entry carries project/updated');
+    const result = readCache(t.cwd);
+    assert.deepStrictEqual(Object.keys(result).sort(), ['org', 'peer']);
+    assert.deepStrictEqual(result, { peer: { branches: ['p'] }, org: { items: ['o'] } });
+  } finally { t.cleanup(); }
+});
 
-test('writeCache W1: empty dir + writeCache({peer:X}) → file contains {peer:X} only', () => {
+test('readCache C6b: a peer-only entry returns only {peer}', () => {
+  const t = tempCwd();
+  try {
+    seedStore(t.cwd, { peer: { branches: ['p'] } });
+    assert.deepStrictEqual(readCache(t.cwd), { peer: { branches: ['p'] } });
+  } finally { t.cleanup(); }
+});
+
+test('readCache C7: a legacy in-tree file with no store file reads as null (no fallback)', () => {
   const t = tempCwd();
   try {
     fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    writeCache(t.cwd, { peer: { branches: ['new'] } });
-    const after = JSON.parse(
-      fs.readFileSync(path.join(t.cwd, '.planning', '.awareness-cache.json'), 'utf-8')
+    fs.writeFileSync(
+      path.join(t.cwd, '.planning', '.awareness-cache.json'),
+      JSON.stringify({ peer: { branches: ['legacy'] } }, null, 2) + '\n'
     );
+    assert.ok(!fs.existsSync(store.cacheFile(t.cwd)), 'precondition: no store file');
+    assert.strictEqual(readCache(t.cwd), null);
+  } finally { t.cleanup(); }
+});
+
+test('AWARENESS_CACHE_REL is kept only as the legacy in-tree path', () => {
+  assert.strictEqual(AWARENESS_CACHE_REL, path.join('.planning', '.awareness-cache.json'));
+  assert.strictEqual(
+    AWARENESS_CACHE_REL.split(path.sep).join('/'),
+    store.LEGACY_CACHE_REL
+  );
+});
+
+// ─── Group W: writeCache merge semantics (through the store) ─────────────────
+
+test('writeCache W1: empty dir + writeCache({peer:X}) → store file contains {peer:X} only', () => {
+  const t = tempCwd();
+  try {
+    writeCache(t.cwd, { peer: { branches: ['new'] } });
+    const after = readStoreRaw(t.cwd);
+    assert.ok(after, 'store file written');
     assert.ok(after.peer, 'peer section written');
     assert.deepStrictEqual(after.peer.branches, ['new']);
     assert.strictEqual(after.org, undefined);
+    assert.strictEqual(after.project, fs.realpathSync(t.cwd), 'project is the realpath of cwd');
+    assert.ok(Number.isFinite(Date.parse(after.updated)), 'updated is an ISO timestamp');
   } finally { t.cleanup(); }
 });
 
 test('writeCache W2: existing {org:Y} + writeCache({peer:X}) → BOTH sections preserved', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    fs.writeFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
-      JSON.stringify({ org: { items: ['existing'] } }, null, 2) + '\n'
-    );
+    seedStore(t.cwd, { org: { items: ['existing'] } });
     writeCache(t.cwd, { peer: { branches: ['new'] } });
-    const after = JSON.parse(
-      fs.readFileSync(path.join(t.cwd, '.planning', '.awareness-cache.json'), 'utf-8')
-    );
+    const after = readStoreRaw(t.cwd);
     assert.ok(after.peer, 'peer section present');
     assert.deepStrictEqual(after.peer.branches, ['new']);
     assert.ok(after.org, 'org section preserved');
@@ -506,15 +581,9 @@ test('writeCache W2: existing {org:Y} + writeCache({peer:X}) → BOTH sections p
 test('writeCache W3: existing {peer:OLD, org:Y} + writeCache({peer:NEW}) → peer overwritten, org preserved', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    fs.writeFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
-      JSON.stringify({ peer: { branches: ['old'] }, org: { items: ['keep'] } }, null, 2) + '\n'
-    );
+    seedStore(t.cwd, { peer: { branches: ['old'] }, org: { items: ['keep'] } });
     writeCache(t.cwd, { peer: { branches: ['new'] } });
-    const after = JSON.parse(
-      fs.readFileSync(path.join(t.cwd, '.planning', '.awareness-cache.json'), 'utf-8')
-    );
+    const after = readStoreRaw(t.cwd);
     assert.deepStrictEqual(after.peer.branches, ['new'], 'peer overwritten');
     assert.ok(after.org, 'org section preserved');
     assert.deepStrictEqual(after.org.items, ['keep'], 'org items unchanged');
@@ -524,31 +593,35 @@ test('writeCache W3: existing {peer:OLD, org:Y} + writeCache({peer:NEW}) → pee
 test('writeCache W4: existing {peer:OLD, org:Y} + writeCache({peer:NEW, org:Y2}) → both replaced', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-    fs.writeFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
-      JSON.stringify({ peer: { branches: ['old'] }, org: { items: ['old-org'] } }, null, 2) + '\n'
-    );
+    seedStore(t.cwd, { peer: { branches: ['old'] }, org: { items: ['old-org'] } });
     writeCache(t.cwd, { peer: { branches: ['new-peer'] }, org: { items: ['new-org'] } });
-    const after = JSON.parse(
-      fs.readFileSync(path.join(t.cwd, '.planning', '.awareness-cache.json'), 'utf-8')
-    );
+    const after = readStoreRaw(t.cwd);
     assert.deepStrictEqual(after.peer.branches, ['new-peer'], 'peer replaced');
     assert.deepStrictEqual(after.org.items, ['new-org'], 'org replaced');
   } finally { t.cleanup(); }
 });
 
-test('writeCache W5: missing .planning/ directory → writeCache creates it', () => {
+test('writeCache W5: creates the store file and NEVER anything under <cwd>/.planning/', () => {
   const t = tempCwd();
   try {
-    // Do NOT create .planning/ — let writeCache create it
     assert.ok(!fs.existsSync(path.join(t.cwd, '.planning')), '.planning should not exist yet');
     writeCache(t.cwd, { peer: { branches: ['x'] } });
-    assert.ok(fs.existsSync(path.join(t.cwd, '.planning')), '.planning directory created');
+    assert.ok(fs.existsSync(store.cacheFile(t.cwd)), 'store file created');
     assert.ok(
-      fs.existsSync(path.join(t.cwd, '.planning', '.awareness-cache.json')),
-      'cache file created'
+      !fs.existsSync(path.join(t.cwd, '.planning', '.awareness-cache.json')),
+      'legacy in-tree cache file NOT created'
     );
+    assert.ok(!fs.existsSync(path.join(t.cwd, '.planning')), '.planning/ NOT created');
+    assert.deepStrictEqual(fs.readdirSync(t.cwd), [], 'nothing at all was written under cwd');
+  } finally { t.cleanup(); }
+});
+
+test('writeCache W5b: with .planning/ present, no file is added under it', () => {
+  const t = tempCwd();
+  try {
+    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+    writeCache(t.cwd, { peer: { branches: ['x'] } });
+    assert.deepStrictEqual(fs.readdirSync(path.join(t.cwd, '.planning')), []);
   } finally { t.cleanup(); }
 });
 
@@ -556,10 +629,7 @@ test('writeCache W6: produces pretty JSON with trailing newline', () => {
   const t = tempCwd();
   try {
     writeCache(t.cwd, { peer: { branches: ['a'] } });
-    const raw = fs.readFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
-      'utf-8'
-    );
+    const raw = fs.readFileSync(store.cacheFile(t.cwd), 'utf-8');
     // Must end with newline
     assert.ok(raw.endsWith('\n'), 'file ends with newline');
     // Must be pretty-printed (contains indented keys)
@@ -569,6 +639,33 @@ test('writeCache W6: produces pretty JSON with trailing newline', () => {
     assert.ok(parsed.peer, 'parsed object has peer section');
   } finally { t.cleanup(); }
 });
+
+test('writeCache W7: a legacy in-tree file is neither merged in nor modified', () => {
+  const t = tempCwd();
+  try {
+    const legacy = path.join(t.cwd, '.planning', '.awareness-cache.json');
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    const legacyBody = JSON.stringify({ org: { items: ['legacy-org'] } }, null, 2) + '\n';
+    fs.writeFileSync(legacy, legacyBody);
+    writeCache(t.cwd, { peer: { branches: ['new'] } });
+    const after = readStoreRaw(t.cwd);
+    assert.strictEqual(after.org, undefined, 'legacy org section was not merged');
+    assert.strictEqual(fs.readFileSync(legacy, 'utf-8'), legacyBody, 'legacy file untouched');
+  } finally { t.cleanup(); }
+});
+
+test('writeCache W8: two repos get two separate store files', () => {
+  const a = tempCwd();
+  const b = tempCwd();
+  try {
+    writeCache(a.cwd, { peer: { branches: ['a'] } });
+    writeCache(b.cwd, { peer: { branches: ['b'] } });
+    assert.notStrictEqual(store.cacheFile(a.cwd), store.cacheFile(b.cwd));
+    assert.deepStrictEqual(readCache(a.cwd).peer.branches, ['a']);
+    assert.deepStrictEqual(readCache(b.cwd).peer.branches, ['b']);
+  } finally { a.cleanup(); b.cleanup(); }
+});
+
 
 // ─── Group I: isStale TTL math ────────────────────────────────────────────────
 
@@ -1804,8 +1901,7 @@ test('CT3 (02-07): cache file remains valid JSON after round-trip', () => {
   const t = tempCwdCT();
   try {
     writeCache(t.cwd, { peer: { x: 1, y: [1, 2, 3] }, org: { z: 'hello' } });
-    const cacheFile = path.join(t.cwd, '.planning', '.awareness-cache.json');
-    const content = fs.readFileSync(cacheFile, 'utf-8');
+    const content = fs.readFileSync(store.cacheFile(t.cwd), 'utf-8');
     assert.doesNotThrow(() => JSON.parse(content), 'cache file must be valid JSON');
     // Verify it ends with newline (pretty-print contract from writeCache)
     assert.ok(content.endsWith('\n'), 'cache file should end with newline');
