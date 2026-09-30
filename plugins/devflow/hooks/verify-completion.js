@@ -11,12 +11,18 @@
  * (or DEVFLOW_AUDIT_LOG_PATH) for post-pilot obedience measurement.
  * Audit logging is best-effort — never blocks the Stop event.
  *
+ * In autonomous mode it also keeps a per-objective resume counter (block the Stop
+ * up to 3 times while execution is mid-flight). The counter lives in the hook
+ * marker store under ~/.claude/devflow/state/hook-markers/<repo-key>/, never under
+ * the project's .planning/ (objective 45, TRD 45-10, SC1).
+ *
  * Hook type: Stop (fires when conversation ends or context resets)
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const store = require('../devflow/bin/lib/hook-marker-store.cjs');
 
 // ─── DevFlow project detection ────────────────────────────────────────────────
 
@@ -170,27 +176,36 @@ function parseObjectiveKey(planningDir) {
   }
 }
 
-function resumeCounterPath(planningDir, objectiveKey) {
-  return path.join(planningDir, `.autonomous-resume-${objectiveKey}`);
+// The per-objective resume counter lives in the hook marker store, NOT under .planning/
+// (objective 45, TRD 45-10, SC1): $DEVFLOW_HOOK_MARKER_DIR, else
+// ~/.claude/devflow/state/hook-markers/<repo-key>/autonomous-resume-<objective>.
+// The project root is the directory that contains `planningDir`. An in-tree
+// .planning/.autonomous-resume-* left by an older DevFlow is neither read nor
+// written here; the doctor cleans it. `key` comes from STATE.md, so the store
+// sanitizes it (no separator or dot-segment escapes the marker directory).
+function resumeCounterPath(planningDir, objectiveKey, env = process.env) {
+  return store.markerFile(path.dirname(planningDir), `autonomous-resume-${store.sanitize(objectiveKey)}`, { env });
 }
 
-function readResumeCount(planningDir, key) {
+function readResumeCount(planningDir, key, env = process.env) {
   try {
-    return parseInt(fs.readFileSync(resumeCounterPath(planningDir, key), 'utf8').trim(), 10) || 0;
+    return parseInt(fs.readFileSync(resumeCounterPath(planningDir, key, env), 'utf8').trim(), 10) || 0;
   } catch {
     return 0;
   }
 }
 
-function writeResumeCount(planningDir, key, count) {
+function writeResumeCount(planningDir, key, count, env = process.env) {
   try {
-    fs.writeFileSync(resumeCounterPath(planningDir, key), String(count));
+    const file = resumeCounterPath(planningDir, key, env);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, String(count));
   } catch {}
 }
 
-function clearResumeCount(planningDir, key) {
+function clearResumeCount(planningDir, key, env = process.env) {
   try {
-    fs.unlinkSync(resumeCounterPath(planningDir, key));
+    fs.unlinkSync(resumeCounterPath(planningDir, key, env));
   } catch {}
 }
 
