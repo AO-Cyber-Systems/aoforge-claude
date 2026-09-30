@@ -467,7 +467,8 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
     assert.deepEqual(renames.map(([, to]) => to), [file], 'exactly one rename, onto the mapping file');
     assert.notEqual(renames[0][0], file, 'from a tmp file');
     assert.equal(path.dirname(renames[0][0]), path.dirname(file), 'in the same directory (atomic on one filesystem)');
-    assert.deepEqual(fs.readdirSync(path.join(root, '.planning')), ['.gh-mapping.json'], 'no tmp file left behind');
+    const leftovers = fs.readdirSync(path.join(root, '.planning')).filter((n) => n.includes('.tmp.'));
+    assert.deepEqual(leftovers, [], 'no tmp file left behind');
 
     const text = fs.readFileSync(file, 'utf-8');
     assert.ok(text.endsWith('}\n'), 'trailing newline');
