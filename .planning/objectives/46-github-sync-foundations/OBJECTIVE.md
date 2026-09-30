@@ -41,4 +41,4 @@ The existing GitHub sync is correct, idempotent and rate-safe, so the authoritat
 3. A human edit outside the managed section survives two consecutive syncs.
 4. A mocked 403 secondary-limit response is retried after `retry-after`; no concurrent writes.
 5. Execute-objective's sync step runs against a fixture and a failure is reported, not swallowed.
-6. `npm test` green.
+6. `npm test` green, apart from the one pre-existing environmental failure recorded at baseline: `MA-7 doctl auth init` in `handoff-e2e.test.cjs` (46-RESEARCH.md, "Baseline"). Any other failure is a regression.

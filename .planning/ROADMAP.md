@@ -158,14 +158,26 @@ TRDs:
 ### Objective 46: GitHub sync foundations
 
 **Goal:** The existing GitHub sync is correct, idempotent and rate-safe, so the authoritative store can be built on it.
-**Requirements:** GSF-01..GSF-08 (see `.planning/objectives/46-github-sync-foundations/OBJECTIVE.md`)
+**Requirements:** GSF-01, GSF-02, GSF-03, GSF-04, GSF-05, GSF-06, GSF-07, GSF-08
 **Depends on:** none
 **Success Criteria**:
 1. Push and pull resolve the same issue through one v3 mapping keyed by DevFlow id
 2. Losing the mapping never creates duplicate issues
 3. Human text outside managed body sections survives syncs
 4. Secondary rate limits are retried after `retry-after`; post-execute sync failures are reported
-**Plans:** TBD (run /devflow:plan-objective 46)
+**Plans:** 10 TRDs in 6 waves
+
+TRDs:
+- [ ] 46-01-gh-client-TRD.md — (W1, tdd) `gh-client.cjs`: one gh seam, writes paced ≥1 s, secondary-limit retry honouring `retry-after`, `--paginate --slurp`, `github.enabled` gate, exit codes; gh PATH shim (GSF-08)
+- [ ] 46-02-gh-mapping-v3-TRD.md — (W1, tdd) `gh-mapping.cjs`: objective id normaliser, mapping v3, pure v1/v2→v3 conversion; migration 0009 (auto) (GSF-01)
+- [ ] 46-03-gh-body-markers-TRD.md — (W1, tdd) `gh-body.cjs`: `devflow:id` markers, managed body sections that preserve human text, sticky-marker compat, marker index (GSF-02, GSF-06)
+- [ ] 46-04-gh-project-discovery-TRD.md — (W1, tdd) `gh-project.cjs`: Project v2 fields via GraphQL, out-of-repo TTL cache, live options (GSF-07)
+- [ ] 46-05-gh-issue-resolution-TRD.md — (W2, tdd) `gh-issue.cjs` find-or-create (mapping → frontmatter → marker → title → create) + `gh-milestone.cjs` current milestone; stateful fake GitHub (GSF-02, GSF-01, GSF-05)
+- [ ] 46-06-pull-syncstate-rewire-TRD.md — (W2, tdd) `setFrontmatterField`; sync-state keyed by id; `gh pull`/conflict on v3 mapping, `resolveRepo`, enabled gate, client seam (GSF-01, GSF-04, GSF-08)
+- [ ] 46-07-sync-core-rewire-TRD.md — (W3, tdd) `gh sync <objective>` rebuilt: create-if-absent, managed body, paginated sticky comment, live Project fields, `github_issue` write-back; fixture read removed (GSF-01, 02, 04, 06, 07, 08)
+- [ ] 46-08-command-surface-TRD.md — (W4, tdd) `gh sync --all`, deprecated `sync-objectives` alias, comment/close-issue/sync-release/resolve/status on the seam + v3 + markers + gate + exit codes; gen-1 code deleted; repo guard (GSF-01, GSF-02, GSF-08)
+- [ ] 46-09-e2e-push-pull-TRD.md — (W5) end-to-end push → pull on one fake GitHub: SC1-SC4 + legacy mapping matrix
+- [ ] 46-10-sync-step-and-docs-TRD.md — (W6, tdd) execute-objective sync step passes the dir and reports failures (GSF-03, SC5); deprecation guard; skill/agent/workflow/template/CLAUDE.md/USER-GUIDE/CHANGELOG; full `npm test` (SC6)
 
 ### Objective 47: GitHub authoritative store
 
