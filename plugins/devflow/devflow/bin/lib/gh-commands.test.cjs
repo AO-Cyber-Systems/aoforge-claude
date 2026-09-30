@@ -176,3 +176,165 @@ describe('gh sync [--all|<objective>]', () => {
     assert.deepStrictEqual(fake.calls(), []);
   });
 });
+
+// ─── comment / close-issue (tests 7-13) ──────────────────────────────────────
+
+function syncAllQuietly() {
+  const r = capture(() => gh.cmdGhSync(root, ['--all'], false));
+  assert.strictEqual(r.code, 0, r.stderr);
+  return json(fs.readFileSync(MAPPING(root), 'utf-8'));
+}
+
+const commentCalls = (f) => callsOf(f, 'issue', 'comment');
+const bodyOf = (argv) => argv[argv.indexOf('--body') + 1];
+
+describe('gh comment / close-issue on mapping v3 + markers', () => {
+  test('7: 2, 02-a and 02 all comment on the same issue, each body opening with the kind=comment marker', () => {
+    install();
+    const mapping = syncAllQuietly();
+    const n = String(mapping.objectives['2'].issue_id);
+    for (const target of ['2', '02-a', '02']) {
+      const r = capture(() => gh.cmdGhComment(root, [target, 'hi'], false));
+      assert.strictEqual(r.code, 0, `${target}: ${r.stdout}${r.stderr}`);
+      const res = json(r.stdout);
+      assert.strictEqual(res.ok, true);
+      assert.strictEqual(res.marker, true);
+    }
+    const posted = commentCalls(fake);
+    assert.strictEqual(posted.length, 3);
+    for (const argv of posted) {
+      assert.strictEqual(argv[2], n);
+      assert.deepStrictEqual(argv.slice(3, 5), ['--repo', 'o/r']);
+      assert.ok(bodyOf(argv).startsWith('<!-- devflow:id=2 kind=comment -->'), bodyOf(argv));
+    }
+  });
+
+  test('8: 2.1 comments on its own issue, not objective 2\'s', () => {
+    install();
+    const mapping = syncAllQuietly();
+    const r = capture(() => gh.cmdGhComment(root, ['2.1', 'x'], false));
+    assert.strictEqual(r.code, 0, r.stdout + r.stderr);
+    const [argv] = commentCalls(fake);
+    assert.strictEqual(argv[2], String(mapping.objectives['2.1'].issue_id));
+    assert.notStrictEqual(argv[2], String(mapping.objectives['2'].issue_id));
+    assert.ok(bodyOf(argv).startsWith('<!-- devflow:id=2.1 kind=comment -->'));
+  });
+
+  test('9: #7 posts to issue 7 raw, without a marker', () => {
+    install();
+    for (let i = 0; i < 7; i++) fake.seedIssue({ title: `seed ${i + 1}` });
+    const r = capture(() => gh.cmdGhComment(root, ['#7', 'x'], false));
+    assert.strictEqual(r.code, 0, r.stdout + r.stderr);
+    const res = json(r.stdout);
+    assert.strictEqual(res.issue, 7);
+    assert.strictEqual(res.marker, false);
+    const [argv] = commentCalls(fake);
+    assert.strictEqual(argv[2], '7');
+    assert.strictEqual(bodyOf(argv), 'x');
+  });
+
+  test('10: @file: body with --kind verification is the file content under a kind=verification marker', () => {
+    install();
+    syncAllQuietly();
+    const file = path.join(root, 'V.md');
+    fs.writeFileSync(file, '# Verification\n\nall green\n');
+    const r = capture(() => gh.cmdGhComment(root, ['2', `@file:${file}`, '--kind', 'verification'], false));
+    assert.strictEqual(r.code, 0, r.stdout + r.stderr);
+    const [argv] = commentCalls(fake);
+    assert.strictEqual(bodyOf(argv), '<!-- devflow:id=2 kind=verification -->\n# Verification\n\nall green\n');
+  });
+
+  test('11: close-issue 2 "Verified" closes with a kind=close marked comment', () => {
+    install();
+    const mapping = syncAllQuietly();
+    const n = String(mapping.objectives['2'].issue_id);
+    const r = capture(() => gh.cmdGhCloseIssue(root, '2', 'Verified', false));
+    assert.strictEqual(r.code, 0, r.stdout + r.stderr);
+    const closes = callsOf(fake, 'issue', 'close');
+    assert.deepStrictEqual(closes, [['issue', 'close', n, '--repo', 'o/r', '--comment', '<!-- devflow:id=2 kind=close -->\nVerified']]);
+  });
+
+  for (const [label, legacy] of [
+    ['v1', { objectives: { 2: 1 } }],
+    ['v2', { objectives: { 2: { issue_id: 1, state_comment_id: null } } }],
+  ]) {
+    test(`12 (${label}): a legacy mapping resolves comment 2 and close-issue 2 to issue 1`, () => {
+      install();
+      fake.seedIssue({ title: '[Objective 2] a' });
+      fs.writeFileSync(MAPPING(root), JSON.stringify(legacy));
+      const c = capture(() => gh.cmdGhComment(root, ['2', 'x'], false));
+      assert.strictEqual(c.code, 0, c.stdout + c.stderr);
+      const k = capture(() => gh.cmdGhCloseIssue(root, '2', null, false));
+      assert.strictEqual(k.code, 0, k.stdout + k.stderr);
+      assert.strictEqual(commentCalls(fake)[0][2], '1');
+      assert.strictEqual(callsOf(fake, 'issue', 'close')[0][2], '1');
+    });
+  }
+
+  test('13: a failed comment exits 1; an unknown objective with no numeric fallback exits 1', () => {
+    install();
+    syncAllQuietly();
+    fake.failNext((a) => a[0] === 'issue' && a[1] === 'comment', { stderr: 'HTTP 500' });
+    const r = capture(() => gh.cmdGhComment(root, ['2', 'x'], false));
+    assert.strictEqual(r.code, 1);
+    assert.strictEqual(json(r.stdout).ok, false);
+    const u = capture(() => gh.cmdGhComment(root, ['nope', 'x'], false));
+    assert.strictEqual(u.code, 1);
+    const c = capture(() => gh.cmdGhCloseIssue(root, 'nope', null, false));
+    assert.strictEqual(c.code, 1);
+  });
+});
+
+// ─── enabled gate / exit codes / status (tests 14-15) ────────────────────────
+
+describe('enabled gate, exit codes and status', () => {
+  test('14: github.enabled false -> every subcommand but status is skipped, exits 0, makes zero gh calls', () => {
+    fs.rmSync(root, { recursive: true, force: true });
+    root = buildProject({ enabled: false });
+    install();
+    const { cmdGhPull } = require('./gh-pull.cjs');
+    const runs = {
+      'sync 2': () => gh.cmdGhSync(root, ['2'], false),
+      'sync --all': () => gh.cmdGhSync(root, ['--all'], false),
+      'sync-objectives': () => gh.cmdGhSyncObjectives(root, false),
+      'comment': () => gh.cmdGhComment(root, ['2', 'x'], false),
+      'close-issue': () => gh.cmdGhCloseIssue(root, '2', 'x', false),
+      'sync-release v1': () => gh.cmdGhSyncRelease(root, 'v1', false),
+      'resolve 2': () => gh.cmdGhResolve(root, '2', false, ['2']),
+      'pull 2': () => cmdGhPull(root, ['2'], false),
+    };
+    for (const [name, run] of Object.entries(runs)) {
+      const r = capture(run);
+      assert.strictEqual(r.code, 0, `${name}: exit ${r.code} ${r.stdout}${r.stderr}`);
+      assert.strictEqual(json(r.stdout).skipped, true, `${name}: ${r.stdout}`);
+    }
+    assert.deepStrictEqual(fake.calls(), []);
+    const s = capture(() => gh.cmdGhStatus(root, false));
+    assert.strictEqual(json(s.stdout).enabled, false);
+  });
+
+  test('14b: sync-release with no tag is a usage error (exit 1); with a tag it goes through the seam', () => {
+    install();
+    const u = capture(() => gh.cmdGhSyncRelease(root, undefined, false));
+    assert.strictEqual(u.code, 1);
+    fake.failNext((a) => a[0] === 'release' && a[1] === 'view', { stderr: 'release not found' });
+    fake.failNext((a) => a[0] === 'release' && a[1] === 'create', { ok: true, stdout: 'https://github.com/o/r/releases/tag/v1' });
+    const r = capture(() => gh.cmdGhSyncRelease(root, 'v1', false));
+    assert.strictEqual(r.code, 0, r.stdout + r.stderr);
+    const res = json(r.stdout);
+    assert.strictEqual(res.action, 'created');
+    const [create] = callsOf(fake, 'release', 'create');
+    assert.deepStrictEqual(create.slice(0, 5), ['release', 'create', 'v1', '--repo', 'o/r']);
+  });
+
+  test('15: ghStatus checks gh through the seam (--version), not `which`', () => {
+    install();
+    const okStatus = gh.ghStatus(root);
+    assert.strictEqual(okStatus.enabled, true, JSON.stringify(okStatus));
+    assert.ok(fake.calls().some((a) => a.length === 1 && a[0] === '--version'), 'gh --version via the seam');
+    fake.failNext((a) => a[0] === '--version', { status: null, stderr: 'spawnSync gh ENOENT' });
+    const missing = gh.ghStatus(root);
+    assert.strictEqual(missing.enabled, false);
+    assert.match(missing.reason, /gh CLI not installed/);
+  });
+});
