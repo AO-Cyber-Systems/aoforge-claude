@@ -27,6 +27,9 @@ const { output } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { recordSync, hashFrontmatter } = require('./sync-state.cjs');
+const client = require('./gh-client.cjs');
+const bodyLib = require('./gh-body.cjs');
+const mappingLib = require('./gh-mapping.cjs');
 
 const MAPPING_REL = path.join('.planning', '.gh-mapping.json');
 
@@ -76,8 +79,15 @@ function runGh(args, opts = {}) {
 
 // Test injection hook — production code always calls _runGh; tests inject a mock.
 // Existing functions (cmdGhSyncObjectives etc.) keep using runGh directly (back-compat).
-let _runGh = runGh;
-function _setRunGh(fn) { _runGh = (fn != null) ? fn : runGh; }
+// TRD 46-07: the seam is gh-client's. The local default forwards to gh-client, so an injection made
+// directly on gh-client (gh-pull._setRunGh, tests) is also what gh.cjs sees; `_setRunGh(fn)` installs
+// `fn` on BOTH (the remaining legacy call sites here still read the local `_runGh` until 46-08).
+const _clientRunGh = (...a) => client._runGh(...a);
+let _runGh = _clientRunGh;
+function _setRunGh(fn) {
+  _runGh = (fn != null) ? fn : _clientRunGh;
+  client._setRunGh(fn);
+}
 
 // ─── Auth + error handling (TRD 01-03) ───────────────────────────────────────
 
@@ -1106,82 +1116,82 @@ function buildStickyComment(state, isoTimestamp) {
   return lines.join('\n');
 }
 
+// ─── Sticky state comment (TRD 46-07) ───────────────────────────────────────
+
+function parseIssueRef(issueRef) {
+  const m = typeof issueRef === 'string' && issueRef.match(/^([^/]+)\/([^#]+)#(\d+)$/);
+  return m ? { repo: `${m[1]}/${m[2]}`, number: m[3] } : null;
+}
+
+// The sticky comment's timestamp line changes on every sync; it alone never justifies a PATCH.
+const stripStickyTimestamp = (b) => String(b == null ? '' : b).replace(/\r\n/g, '\n').replace(/last synced [^*\n]*/, 'last synced');
+
 /**
- * findStickyComment(issueRef) — find existing <!-- df:state --> comment via marker substring.
- * Returns the comment ID (integer) or null.
- * Uses _runGh; tests inject mock via _setRunGh.
+ * One paginated read of every comment on the issue; the state comment is the one with id `knownId`
+ * (when it still carries a state marker), else the first whose first line is the state marker for
+ * `id` or the legacy `<!-- df:state -->`.
+ *   -> { ok:true, comment: {id, body} | null, via: 'mapping' | 'marker' | null } | { ok:false, error }
  */
-function findStickyComment(issueRef) {
-  const m = issueRef && issueRef.match(/^([^/]+)\/([^#]+)#(\d+)$/);
-  if (!m) return null;
-  const [, owner, repo, num] = m;
-
-  const r = _runGh(['api', `repos/${owner}/${repo}/issues/${num}/comments`]);
-  if (!r.ok) return null;
-
-  let arr;
-  try { arr = JSON.parse(r.stdout); } catch { return null; }
-  if (!Array.isArray(arr)) return null;
-
-  // Return FIRST comment whose body starts with the marker (startsWith is intentional — D3 fallback)
-  for (const c of arr) {
-    if (typeof c.body === 'string' && c.body.startsWith('<!-- df:state -->\n')) {
-      return c.id;
-    }
+function locateStickyComment(issueRef, id, knownId) {
+  const ref = parseIssueRef(issueRef);
+  if (!ref) return { ok: false, error: `malformed issueRef: ${issueRef}` };
+  const r = client.ghPaginate(`repos/${ref.repo}/issues/${ref.number}/comments`);
+  if (!r.ok) return { ok: false, error: r.error || 'could not list comments' };
+  const isState = (c) => c && typeof c.body === 'string' && bodyLib.isStateComment(c.body, id);
+  if (knownId) {
+    const c = r.items.find((x) => x && x.id === knownId && isState(x));
+    if (c) return { ok: true, comment: c, via: 'mapping' };
   }
-  return null;
+  const c = r.items.find(isState);
+  return { ok: true, comment: c || null, via: c ? 'marker' : null };
 }
 
 /**
- * upsertStickyComment(issueRef, body, mappingState) — create or edit the sticky comment.
- * Priority:
- *   1. If mappingState.state_comment_id is set → PATCH (edit in-place, no scan)
- *   2. If not set, search by marker → edit found comment (edited_via_marker)
- *   3. If no existing → POST new comment (created)
- *
- * Returns { action: 'created' | 'edited' | 'edited_via_marker' | 'failed', comment_id }
+ * findStickyComment(issueRef, id) — the state comment's id across ALL comment pages, matched by the
+ * `devflow:id=<id> kind=state` marker or the legacy `<!-- df:state -->`. Null when absent or unreadable.
  */
-function upsertStickyComment(issueRef, body, mappingState = {}) {
-  const m = issueRef && issueRef.match(/^([^/]+)\/([^#]+)#(\d+)$/);
-  if (!m) return { action: 'failed', error: `malformed issueRef: ${issueRef}` };
-  const [, owner, repo, num] = m;
+function findStickyComment(issueRef, id) {
+  const f = locateStickyComment(issueRef, id, null);
+  return f.ok && f.comment ? f.comment.id : null;
+}
 
-  // Path 1: known comment ID → PATCH
-  if (mappingState.state_comment_id) {
-    const r = _runGh([
-      'api', `repos/${owner}/${repo}/issues/comments/${mappingState.state_comment_id}`,
-      '-X', 'PATCH', '-f', `body=${body}`,
-    ]);
-    if (r.ok) {
-      return { action: 'edited', comment_id: mappingState.state_comment_id };
+/**
+ * upsertStickyComment(issueRef, body, mappingState, id) — edit the state comment in place or create it.
+ *   1. comment `mappingState.state_comment_id` (still a state comment)  -> 'edited'
+ *   2. else the first state comment by marker                           -> 'edited_via_marker'
+ *   3. else POST a new comment                                          -> 'created'
+ * A comment whose body differs only in the `last synced` timestamp is not re-PATCHed ('unchanged').
+ * Every write goes through gh-client ghWrite.
+ * Returns { action: 'created' | 'edited' | 'edited_via_marker' | 'unchanged' | 'failed', comment_id, error? }
+ */
+function upsertStickyComment(issueRef, body, mappingState = {}, id) {
+  const ref = parseIssueRef(issueRef);
+  if (!ref) return { action: 'failed', error: `malformed issueRef: ${issueRef}` };
+  const known = mappingState && mappingState.state_comment_id ? mappingState.state_comment_id : null;
+  const f = locateStickyComment(issueRef, id, known);
+  if (!f.ok) return { action: 'failed', error: f.error };
+
+  if (f.comment) {
+    const cid = f.comment.id;
+    if (stripStickyTimestamp(f.comment.body) === stripStickyTimestamp(body)) {
+      return { action: 'unchanged', comment_id: cid };
     }
-    // Fall through on PATCH failure (e.g., comment was deleted)
+    const r = client.ghWrite(['api', `repos/${ref.repo}/issues/comments/${cid}`, '-X', 'PATCH', '-f', `body=${body}`]);
+    if (!r.ok) return { action: 'failed', comment_id: cid, error: r.error || r.stderr || 'comment PATCH failed' };
+    return { action: f.via === 'mapping' ? 'edited' : 'edited_via_marker', comment_id: cid };
   }
 
-  // Path 2: scan by marker
-  const found = findStickyComment(issueRef);
-  if (found) {
-    const r = _runGh([
-      'api', `repos/${owner}/${repo}/issues/comments/${found}`,
-      '-X', 'PATCH', '-f', `body=${body}`,
-    ]);
-    if (r.ok) {
-      return { action: 'edited_via_marker', comment_id: found };
-    }
+  const r = client.ghWrite(['api', `repos/${ref.repo}/issues/${ref.number}/comments`, '-f', `body=${body}`]);
+  if (!r.ok) return { action: 'failed', error: r.error || r.stderr || 'comment create failed' };
+  let cid = null;
+  try {
+    const parsed = JSON.parse(r.stdout);
+    if (Number.isInteger(parsed.id)) cid = parsed.id;
+  } catch {
+    const m = /issuecomment-(\d+)/.exec(r.stdout || '');
+    if (m) cid = Number(m[1]);
   }
-
-  // Path 3: create new comment
-  const r = _runGh([
-    'issue', 'comment', String(num),
-    '--repo', `${owner}/${repo}`,
-    '--body', body,
-  ]);
-  if (!r.ok) return { action: 'failed', error: r.stderr };
-
-  // Parse comment ID from URL: ".../issues/N#issuecomment-12345"
-  const idMatch = r.stdout && r.stdout.match(/issuecomment-(\d+)/);
-  const comment_id = idMatch ? parseInt(idMatch[1], 10) : null;
-  return { action: 'created', comment_id };
+  return { action: 'created', comment_id: cid };
 }
 
 /**
@@ -1221,7 +1231,7 @@ const PRODUCT_ROADMAP_FIELDS = (() => {
  *
  * Field shape: PRODUCT_ROADMAP_FIELDS[fieldName] = { field_id, options: { optionName: optionId } }
  */
-function updateProjectFields(issueRef, projectId, fields = {}) {
+function updateProjectFields(issueRef, projectId, fields = {}, opts = {}) { // eslint-disable-line no-unused-vars
   if (!projectId) {
     return { ok: false, error: 'no projectId; cannot update fields', fields_updated: [] };
   }
@@ -1318,9 +1328,14 @@ function readObjectiveState(objectiveId, projectRoot) {
   const trds = files.filter(f => /-TRD\.md$/.test(f));
   const summaries = files.filter(f => /-SUMMARY\.md$/.test(f));
 
-  // Match TRD → SUMMARY by stem
+  // Match TRD → SUMMARY by the `<objective>-<trd>` id prefix (TRD 46-07): a slugged TRD
+  // (`46-01-gh-client-TRD.md`) pairs with `46-01-SUMMARY.md` and with `46-01-gh-client-SUMMARY.md`.
+  const idPrefix = (f, suffix) => {
+    const m = /^(\d+(?:\.\d+)?-\d+)(?:-|$)/.exec(f.replace(suffix, ''));
+    return m ? m[1] : f.replace(suffix, '');
+  };
   const trdStems = trds.map(f => f.replace(/-TRD\.md$/, ''));
-  const summaryStems = new Set(summaries.map(f => f.replace(/-SUMMARY\.md$/, '')));
+  const summaryStems = new Set(summaries.map(f => idPrefix(f, /-SUMMARY\.md$/)));
 
   const trdEntries = trdStems.map(stem => {
     let brief = null;
@@ -1333,7 +1348,7 @@ function readObjectiveState(objectiveId, projectRoot) {
         wave = parseInt(fm.wave, 10) || 1;
       }
     } catch {}
-    return { name: stem + '-TRD.md', done: summaryStems.has(stem), brief, wave };
+    return { name: stem + '-TRD.md', done: summaryStems.has(idPrefix(stem, /-TRD\.md$/)), brief, wave };
   });
 
   // current_wave: max wave among incomplete TRDs; if all done, max wave overall
@@ -1365,10 +1380,11 @@ function readObjectiveState(objectiveId, projectRoot) {
   const branch = branchR.status === 0 && branchR.stdout ? branchR.stdout.trim() : null;
 
   // Goal + name + number + success_criteria from ROADMAP.md
-  const numMatch = objectiveId.match(/^(\d+)/);
-  const number = numMatch ? String(parseInt(numMatch[1], 10)) : objectiveId;
+  // Canonical id (`02.1-b` -> `2.1`), so a decimal objective never reads the integer one's entry.
+  const canonical = mappingLib.toObjectiveId(objectiveId);
+  const number = canonical !== null ? canonical : objectiveId;
   const all = listObjectives(projectRoot);
-  const found = all.find(o => o.number === number || o.number === String(parseInt(number, 10)));
+  const found = all.find(o => mappingLib.toObjectiveId(o.number) === number);
 
   // Done detection for SC: scan SUMMARY file contents for "SC-N" mentions
   const scDone = (scIdx) =>
@@ -1400,109 +1416,212 @@ function readObjectiveState(objectiveId, projectRoot) {
   };
 }
 
-/**
- * syncObjective(objectiveId, projectRoot) — orchestrate disk → GitHub state push.
- * Steps: requireGhAuth → resolveChain → readObjectiveState → buildIssueBody →
- *   gh issue edit → buildStickyComment → upsertStickyComment → updateProjectFields → return result.
- *
- * Returns { ok, issue_updated, comment_action, comment_id, project_fields_updated, chain, state, warnings }
- * or { ok: false, error, warnings }.
- */
-function syncObjective(objectiveId, projectRoot) {
-  // 1. Hard-fail auth check
-  requireGhAuth(['project', 'read:project', 'repo']);
-
-  // 2. Read OBJECTIVE.md
-  const objPath = path.join(projectRoot, '.planning', 'objectives', objectiveId, 'OBJECTIVE.md');
-  if (!fs.existsSync(objPath)) {
-    return { ok: false, error: `objective not found: ${objectiveId}`, warnings: [] };
-  }
-  const objFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
-  objFm._objectiveId = objectiveId;
-
-  if (!objFm.github_issue) {
-    return {
-      ok: false,
-      error: 'objective has no github_issue; run df:gh-sync objectives to create it',
-      warnings: [],
-    };
-  }
-
-  // 3. Read PROJECT.md
-  const projectPath = path.join(projectRoot, '.planning', 'PROJECT.md');
-  let projectFm = {};
-  if (fs.existsSync(projectPath)) {
-    projectFm = extractFrontmatter(fs.readFileSync(projectPath, 'utf-8')) || {};
-  }
-  const projectCtx = {
-    github_repo: projectFm.github_repo || null,
-    org_project: projectFm.org_project || null,
+/** Minimal state for a ROADMAP-only objective (no directory): name and goal, 0/0 TRDs. */
+function roadmapOnlyState(projectRoot, resolved) {
+  const roadmap = require('./roadmap.cjs');
+  const rm = roadmap.getRoadmapObjectiveInternal(projectRoot, resolved.roadmapNumber || resolved.id);
+  return {
+    objectiveId: resolved.id,
+    number: resolved.id,
+    name: (rm && rm.objective_name) || `objective ${resolved.id}`,
+    goal: (rm && rm.goal) || null,
+    success_criteria: [],
+    trds: [],
+    trd_total: 0,
+    trd_done: 0,
+    summary_count: 0,
+    current_wave: 1,
+    last_commit: null,
+    branch: null,
   };
+}
 
-  // 4. Resolve chain (cached; finds parent + project)
+function readProjectFrontmatter(projectRoot) {
+  const projectPath = path.join(projectRoot, '.planning', 'PROJECT.md');
+  if (!fs.existsSync(projectPath)) return {};
+  try {
+    return extractFrontmatter(fs.readFileSync(projectPath, 'utf-8')) || {};
+  } catch {
+    return {};
+  }
+}
+
+/** Status rule (unchanged): all TRDs done -> Done, some -> In Progress, none -> Todo. Quarter from the chain. */
+function projectFieldUpdates(state, chain) {
+  const fields = {};
+  if (state.trd_done === state.trd_total && state.trd_total > 0) fields.Status = 'Done';
+  else if (state.trd_done > 0) fields.Status = 'In Progress';
+  else fields.Status = 'Todo';
+  if (chain.milestone && chain.milestone.quarter) fields.Quarter = chain.milestone.quarter;
+  return fields;
+}
+
+/**
+ * syncObjective(objectiveArg, projectRoot) — push one objective's disk state to GitHub (TRD 46-07).
+ *
+ * createRunContext (github.enabled gate, mapping v3) -> resolveObjective (any spelling) -> requireGhAuth
+ * (project scopes only when org_project resolves) -> readObjectiveState -> gh-issue find-or-create (the
+ * only create path; duplicates are errors) -> gh-body mergeManaged + `issue edit` only when a managed
+ * section changed -> sticky state comment (all pages, edited in place) -> Project fields via gh-project
+ * discovery -> `github_issue` write-back -> mapping v3 written once -> sync-state under the same id.
+ *
+ * Returns { ok:true, issue_number, issue_source, created, issue_updated, comment_action, comment_id,
+ *           project_fields_updated, frontmatter_written, mapping_written, chain, state, warnings }
+ *       | { ok:false, skipped:true, reason, warnings }  (github disabled; zero gh calls)
+ *       | { ok:false, error, warnings, ... }
+ * Throws GhAuthError when gh is missing, unauthenticated or lacks a required scope.
+ */
+function syncObjective(objectiveArg, projectRoot) {
+  const issueLib = require('./gh-issue.cjs');
+  const milestoneLib = require('./gh-milestone.cjs');
+  const { setFrontmatterField } = require('./frontmatter.cjs');
+
+  // 1. Enabled gate + run context (zero gh calls).
+  const runCtx = issueLib.createRunContext(projectRoot);
+  if (runCtx.skipped) return { ok: false, skipped: true, reason: runCtx.reason, warnings: [] };
+  if (runCtx.ok === false) return { ok: false, error: runCtx.error, warnings: [] };
+
+  const warnings = [];
+  const allWarnings = (chain) => [...new Set([...runCtx.warnings, ...((chain && chain.warnings) || []), ...warnings])];
+
+  // 2. Any spelling of the objective.
+  const resolved = mappingLib.resolveObjective(projectRoot, objectiveArg);
+  if (!resolved) return { ok: false, error: `objective not found: ${objectiveArg}`, warnings: allWarnings() };
+
+  const objPath = resolved.dir
+    ? path.join(projectRoot, '.planning', 'objectives', resolved.dir, 'OBJECTIVE.md')
+    : null;
+  let objFm = {};
+  if (objPath && fs.existsSync(objPath)) {
+    try { objFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {}; } catch { objFm = {}; }
+  }
+  objFm._objectiveId = resolved.id;
+
+  // 3. Auth before any other gh call; project scopes only when a project resolves (Pitfall 13).
+  const projectFm = readProjectFrontmatter(projectRoot);
+  const projectCtx = { github_repo: projectFm.github_repo || null, org_project: projectFm.org_project || null };
+  const orgProject = objFm.org_project || projectCtx.org_project || null;
+  requireGhAuth(orgProject ? ['project', 'read:project', 'repo'] : ['repo']);
   const chain = resolveChain(objFm, projectCtx);
 
-  // 5. Read disk state
-  const state = readObjectiveState(objectiveId, projectRoot);
+  // 4. Disk state and the managed sections.
+  const state = resolved.dir ? readObjectiveState(resolved.dir, projectRoot) : roadmapOnlyState(projectRoot, resolved);
+  const sections = bodyLib.buildObjectiveSections({ ...state, objectiveId: resolved.id, dir: resolved.dir });
+  const initial = bodyLib.mergeManaged('', sections, resolved.id);
+  if (!initial.ok) return { ok: false, error: initial.error, warnings: allWarnings(chain) };
 
-  // 6. Update issue body
-  const issueRef = chain.github_issue;
-  const issueMatch = issueRef && issueRef.match(/^([^/]+)\/([^#]+)#(\d+)$/);
-  if (!issueMatch) {
-    return { ok: false, error: `malformed github_issue: ${issueRef}`, warnings: chain.warnings || [] };
-  }
-  const [, owner, repo, num] = issueMatch;
+  // 5. Find or create (the only create path; duplicates and conflicts are errors, never a create).
+  const found = issueLib.findOrCreateObjectiveIssue(runCtx, resolved, { name: state.name, createBody: initial.body });
+  if (!found.ok) return { ...found, warnings: allWarnings(chain) };
 
-  const body = buildIssueBody(state);
-  const editR = _runGh(['issue', 'edit', String(num), '--repo', `${owner}/${repo}`, '--body', body]);
+  const repo = runCtx.repo;
+  const n = found.issue_number;
+  const issueRef = `${repo}#${n}`;
 
-  // 7. Upsert sticky comment
-  const mapping = readMappingV2(projectRoot);
-  const mappingEntry = (mapping.objectives[state.number] && typeof mapping.objectives[state.number] === 'object')
-    ? mapping.objectives[state.number]
-    : { issue_id: parseInt(num, 10), state_comment_id: null };
-
-  const stickyBody = buildStickyComment(state, new Date().toISOString());
-  const upsert = upsertStickyComment(issueRef, stickyBody, mappingEntry);
-
-  // Persist comment ID if newly created or found
-  if (upsert.comment_id && upsert.comment_id !== mappingEntry.state_comment_id) {
-    mappingEntry.state_comment_id = upsert.comment_id;
-    mapping.objectives[state.number] = mappingEntry;
-    writeMappingV2(projectRoot, mapping);
-  }
-
-  // 8. Update Project v2 fields (best-effort — skip if project absent)
-  const fieldUpdates = {};
-  if (state.trd_done === state.trd_total && state.trd_total > 0) {
-    fieldUpdates.Status = 'Done';
-  } else if (state.trd_done > 0) {
-    fieldUpdates.Status = 'In Progress';
-  } else {
-    fieldUpdates.Status = 'Todo';
-  }
-  if (chain.milestone && chain.milestone.quarter) {
-    fieldUpdates.Quarter = chain.milestone.quarter;
+  // 6. Merge managed sections; edit only when one changed. Human text outside sections is kept.
+  let issueUpdated = false;
+  let finalBody = found.body || '';
+  if (!found.created) {
+    const merged = bodyLib.mergeManaged(found.body || '', sections, resolved.id);
+    if (!merged.ok) {
+      return { ok: false, error: merged.error, issue_number: n, warnings: allWarnings(chain) };
+    }
+    for (const w of merged.warnings || []) warnings.push(w);
+    if (merged.changed) {
+      const e = client.ghWrite(['issue', 'edit', String(n), '--repo', repo, '--body', merged.body]);
+      if (!e.ok) {
+        return {
+          ok: false, error: `issue edit failed for #${n}: ${e.error || e.stderr || e.stdout || 'gh issue edit failed'}`,
+          issue_number: n, warnings: allWarnings(chain),
+        };
+      }
+      issueUpdated = true;
+      finalBody = merged.body;
+    }
   }
 
-  const projectUpdate = updateProjectFields(issueRef, chain.org_project, fieldUpdates);
+  // 7. Sticky state comment.
+  const nowIso = new Date().toISOString();
+  const prior = mappingLib.getEntry(runCtx.mapping, resolved.id) || {};
+  const stickyBody = bodyLib.buildStateComment(resolved.id, state, nowIso);
+  const upsert = upsertStickyComment(issueRef, stickyBody, { state_comment_id: prior.state_comment_id }, resolved.id);
+  if (upsert.action === 'failed') warnings.push(`state comment not updated: ${upsert.error}`);
+
+  // 8. Project fields (best effort; failures are warnings).
+  let projectUpdate = { fields_updated: [] };
+  if (chain.org_project) {
+    const cfg = client.readConfig(projectRoot) || {};
+    const ttl = cfg.github && cfg.github.project_cache_ttl_minutes;
+    projectUpdate = updateProjectFields(issueRef, chain.org_project, projectFieldUpdates(state, chain), { ttlMinutes: ttl });
+    for (const w of projectUpdate.warnings || []) warnings.push(w);
+    if (projectUpdate.error) warnings.push(`project fields not updated: ${projectUpdate.error}`);
+    for (const err of projectUpdate.errors || []) warnings.push(`project field ${err.field} not updated: ${err.error}`);
+  }
+
+  // 9. github_issue write-back (only when absent or equal; a differing human value is kept).
+  let frontmatterWritten = false;
+  if (objPath) {
+    const fw = setFrontmatterField(objPath, 'github_issue', issueRef, { ifAbsentOrEqual: true });
+    if (!fw.ok) warnings.push(`github_issue not written: ${fw.error}`);
+    else if (fw.conflict) {
+      warnings.push(`frontmatter_conflict: OBJECTIVE.md github_issue is ${fw.existing} but objective ${resolved.id} syncs to ${issueRef}; the existing value was kept`);
+    } else if (fw.warning) warnings.push(fw.warning);
+    else frontmatterWritten = Boolean(fw.changed);
+  }
+
+  // 10. Mapping v3, written once; verified_at once the body carries this objective's marker.
+  const marker = bodyLib.extractMarker(finalBody);
+  const verified = Boolean(marker && marker.kind === null && marker.id === resolved.id);
+  const entry = mappingLib.getEntry(runCtx.mapping, resolved.id) || {};
+  mappingLib.setEntry(runCtx.mapping, resolved.id, {
+    issue_id: n,
+    state_comment_id: upsert.comment_id || entry.state_comment_id || null,
+    verified_at: verified ? (entry.verified_at || nowIso) : null,
+  });
+  const wm = mappingLib.writeMappingV3(projectRoot, runCtx.mapping);
+  if (!wm.ok) warnings.push(`mapping not written: ${wm.error}`);
+
+  // 11. Sync-state under the same id.
+  try {
+    let diskFm = {};
+    if (objPath && fs.existsSync(objPath)) diskFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
+    const ms = milestoneLib.resolveObjectiveMilestone(projectRoot, resolved.dir, runCtx.prefix);
+    recordSync(projectRoot, resolved.id, {
+      issue_ref: issueRef,
+      etag: null,
+      gh_updated_at: nowIso,
+      label_set: [runCtx.label],
+      assignees: [],
+      milestone: ms.title || null,
+      status: 'open',
+      last_synced_at: nowIso,
+      last_synced_disk_hash: hashFrontmatter(diskFm),
+    });
+  } catch (e) {
+    warnings.push(`sync-state not recorded: ${e.message}`);
+  }
 
   return {
     ok: true,
-    issue_updated: editR.ok,
+    issue_number: n,
+    issue_source: found.source,
+    created: found.created,
+    issue_updated: issueUpdated,
     comment_action: upsert.action,
-    comment_id: upsert.comment_id,
+    comment_id: upsert.comment_id || null,
     project_fields_updated: projectUpdate.fields_updated || [],
+    frontmatter_written: frontmatterWritten,
+    mapping_written: wm.ok === true,
     chain,
     state,
-    warnings: [...(chain.warnings || []), ...(projectUpdate.warnings || [])],
+    warnings: allWarnings(chain),
   };
 }
 
 /**
- * cmdGhSyncObjective(cwd, objectiveId, raw) — CLI entry point for `df-tools gh sync <objectiveId>`.
- * Calls requireGhAuth first (hard-fail per SC-8); on success calls syncObjective and emits JSON.
- * Structured JSON to stderr + exit(1) on any failure.
+ * cmdGhSyncObjective(cwd, objectiveArg, raw) — CLI entry for `df-tools gh sync <objective>`.
+ * Success and `skipped` (github disabled) go to stdout with exit 0; failures are JSON on stderr + exit 1;
+ * a GhAuthError is rendered as structured stderr + exit 1.
  */
 function cmdGhSyncObjective(cwd, objectiveId, raw) {
   if (!objectiveId) {
@@ -1513,12 +1632,12 @@ function cmdGhSyncObjective(cwd, objectiveId, raw) {
 
   try {
     const result = syncObjective(objectiveId, cwd);
-    if (!result.ok) {
+    if (!result.ok && !result.skipped) {
       process.stderr.write(JSON.stringify(result, null, 2) + '\n');
       process.exit(1);
       return;
     }
-    output(result, raw, JSON.stringify(result, null, 2));
+    client.emitResult(result, raw, JSON.stringify(result, null, 2));
   } catch (e) {
     if (e.name === 'GhAuthError') {
       process.stderr.write(JSON.stringify({

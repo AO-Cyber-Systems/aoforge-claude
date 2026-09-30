@@ -290,10 +290,8 @@ function cmdGhPull(cwd, args, raw) {
     return;
   }
 
-  // Reuse auth from lib/gh.cjs (bridge stays until gh.cjs moves onto gh-client, TRD 46-07)
-  const { requireGhAuth, _setRunGh: ghSetRunGh } = require('./gh.cjs');
-  // Bridge the test injection: route gh.cjs through the same gh-client seam gh-pull uses
-  ghSetRunGh((...a) => ghClient._runGh(...a));
+  // gh.cjs requireGhAuth runs on the gh-client seam (TRD 46-07), so no bridge is needed.
+  const { requireGhAuth } = require('./gh.cjs');
   try {
     requireGhAuth(['repo']);
   } catch (e) {
