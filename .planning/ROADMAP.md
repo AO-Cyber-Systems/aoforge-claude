@@ -150,7 +150,7 @@ TRDs:
 - [x] 45-06-TRD.md — project checks + staged-changes guard: legacy state, migrations, health, markers (DOC-05/06) [W2]
 - [x] 45-07-TRD.md — state-hygiene checks: guard state, awareness state, backups (DOC-05) [W2]
 - [x] 45-08-TRD.md — end-to-end doctor on aodex-like fixture (SC4/SC5) [W3]
-- [ ] 45-09-TRD.md — /devflow:doctor skill, route-intent, docs, full npm test (DOC-07) [W4]
+- [x] 45-09-TRD.md — /devflow:doctor skill, route-intent, docs, full npm test (DOC-07) [W4]
 - [x] 45-10-TRD.md — autonomous hook markers out of .planning + SC1 planning-writes audit [W1]
 
 ### Other v1.4 candidates
@@ -194,5 +194,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
-| 45. DevFlow doctor + runtime hygiene | v1.4 | 9/10 | In Progress | — |
+| 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
