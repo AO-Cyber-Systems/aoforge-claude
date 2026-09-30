@@ -189,6 +189,7 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
 | `/devflow:status check [--migrate]` | Validate `.planning/` integrity and fix issues; `--migrate` upgrades the project in place (runs `df-tools upgrade`) | Planning files feel stale or corrupt, after a DevFlow update, or when `validate health` reports W040 |
+| `/devflow:doctor [--fix] [--global] [path]` | Diagnose the DevFlow environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale markers and backups); read-only unless `--fix`, which applies only safe, reversible repairs | DevFlow behaves oddly, after a plugin update, or a repo shows `.planning` runtime files changing |
 
 ### Adopting an Existing Repo (`/devflow:adopt`)
 
@@ -578,6 +579,7 @@ A known workaround exists for a Claude Code classification bug. DevFlow's orches
 | Need to change scope | `/devflow:objective add` or `/devflow:objective remove` |
 | Milestone audit found gaps | `/devflow:milestone gaps` |
 | Something broke | `/devflow:debug "description"` |
+| DevFlow itself misbehaves, or runtime files keep dirtying a repo | `/devflow:doctor` (add `--fix` to apply the safe repairs) |
 | Quick targeted fix | `/devflow:quick` |
 | Plan doesn't match your vision | `/devflow:discuss-objective [N]` then re-plan |
 | Costs running high | `/devflow:set-profile budget` and `/devflow:settings` to toggle agents off |

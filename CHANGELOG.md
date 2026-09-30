@@ -54,8 +54,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **doc-refs legacy agent-path guard** (objective 44, AUT-03, DF-04). `doc-refs.repo.test.cjs` fails
   CI when shipped text tells an agent to read a `~/.claude/agents/<name>.md` file
   (`scanLegacyAgentPaths`, `LEGACY_AGENT_EXEMPT`).
+- **`df-tools doctor [--fix] [--json] [--path dir] [--global]` and `/devflow:doctor`** (objective 45,
+  DOC-04..07). One command that diagnoses the DevFlow environment: the runtime mirror against the
+  installed plugin, the plugin cache and hook registry, model ids, runtime state that leaked into a
+  repo (including nested `.planning/` dirs), pending migrations, `validate health`, stale skill
+  markers, progress-guard state, the awareness cache, and backup retention. Read-only by default.
+  `--fix` applies only safe, reversible fixes and re-runs every check; it refuses an index-changing
+  fix while unrelated changes are staged, never commits, and reports plugin cache dirs without
+  deleting them. Each check is a module in `lib/doctor-checks/NN-<id>.cjs` (contract in that
+  directory's README). The skill is model-invocable, and `route-intent` routes explicit doctor
+  intent ("devflow doctor", "diagnose devflow", "devflow is broken") to it.
+- **Audit guard for runtime dotfiles** (objective 45, DOC-01). `hooks/planning-writes.audit.test.js`
+  spawns every registered hook and scans the hook sources, and fails CI when a hook writes a runtime
+  dotfile into `.planning/`. The allowlist is `.skill-active`, `.edit-override` and
+  `.devflow-notices.json`.
 
 ### Changed
+- **The awareness cache moves out of the repo** (objective 45, DOC-01). It now lives at
+  `~/.claude/devflow/state/awareness/<repo-key>.json` (`lib/awareness-store.cjs`; override
+  `DEVFLOW_AWARENESS_DIR`) instead of `.planning/.awareness-cache.json`. There is no legacy
+  fallback; `df-tools doctor --fix` removes the old in-repo copies.
+- **The autonomous hook markers move out of `.planning/`** (objective 45, DOC-01). `verify-commits`'
+  retry marker and `verify-completion`'s resume counter now live in
+  `~/.claude/devflow/state/hook-markers/<repo-key>/` (`lib/hook-marker-store.cjs`; override
+  `DEVFLOW_HOOK_MARKER_DIR`). Retry and resume semantics are unchanged.
+- **`sync-runtime` re-mirrors on same-version content drift** (objective 45, DOC-03). It writes a
+  content digest (`.plugin-digest`, `lib/runtime-digest.cjs`) beside `.plugin-version`, so an edited
+  bundle re-mirrors without a version bump.
+- **Migration 0008 covers nested `.planning/` dirs** (objective 45, DOC-02). It now gitignores and
+  untracks runtime state under `**/.planning/`, not only the repo-root `.planning/`.
 - **`stack init` is grounded in the codebase.** It reads GitHub Actions structurally, classifies
   shell by the tool it runs, and reads Makefile/Taskfile/justfile/npm-family/`bin/` targets. Every
   candidate command is verified before it is written; a key whose candidates all fail becomes
