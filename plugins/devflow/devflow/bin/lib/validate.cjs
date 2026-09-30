@@ -363,6 +363,32 @@ function cmdValidateHealth(cwd, options, raw) {
       roadmapObjectives.add(m[1]);
     }
 
+    // W007 only: an objective is "known" if any roadmap lists it — current or archived — as a
+    // heading or as a checklist/bullet line. W006 keeps reading ROADMAP.md headings only.
+    // The patterns are built per call: /g regexes are stateful across exec() loops.
+    const collectListedObjectives = (text, set) => {
+      const patterns = [
+        /#{2,4}\s*Objective\s+(\d+(?:\.\d+)?)\s*:/gi,
+        // Anchored to a list marker so prose ("**Depends on:** Objective 23") never counts.
+        /^\s*-\s*(?:\[[ xX]\]\s*)?\*{0,2}Objective\s+(\d+(?:\.\d+)?)\s*:/gim,
+      ];
+      for (const re of patterns) {
+        let mm;
+        while ((mm = re.exec(text)) !== null) set.add(mm[1]);
+      }
+    };
+    const w007KnownObjectives = new Set(roadmapObjectives);
+    collectListedObjectives(roadmapContent, w007KnownObjectives);
+    try {
+      const milestonesDir = path.join(planningDir, 'milestones');
+      for (const f of fs.readdirSync(milestonesDir)) {
+        if (!/-ROADMAP\.md$/.test(f)) continue;
+        try {
+          collectListedObjectives(fs.readFileSync(path.join(milestonesDir, f), 'utf-8'), w007KnownObjectives);
+        } catch {}
+      }
+    } catch {}
+
     const diskObjectives = new Set();
     try {
       const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
@@ -385,7 +411,7 @@ function cmdValidateHealth(cwd, options, raw) {
     // Objectives on disk but not in ROADMAP
     for (const p of diskObjectives) {
       const unpadded = String(parseInt(p, 10));
-      if (!roadmapObjectives.has(p) && !roadmapObjectives.has(unpadded)) {
+      if (!w007KnownObjectives.has(p) && !w007KnownObjectives.has(unpadded)) {
         addIssue('warning', 'W007', `Objective ${p} exists on disk but not in ROADMAP.md`, 'Add to roadmap or remove directory');
       }
     }

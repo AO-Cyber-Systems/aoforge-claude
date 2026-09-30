@@ -122,6 +122,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   so executor model selection sees the true size.
 
 ### Fixed
+- **`validate health` W007 no longer flags archived objectives.** It now also reads
+  `.planning/milestones/*-ROADMAP.md` and counts checklist/bullet lines (`- [x] Objective 27: …`), not only
+  `### Objective N:` headings. W006 is unchanged.
 - The no-progress guard (`hooks/guard-no-progress.js`) no longer writes into the repo. It kept its
   state in `.planning/.progress-guard.json`, which it rewrote on every tool call; the file watcher
   attached the whole file to every tool result (~800 tokens per call), and concurrent sessions raced
