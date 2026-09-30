@@ -54,6 +54,7 @@ describe('readSyncState (S1-S4)', () => {
     }
   });
 
+  // 46-06: keys are objective ids, so the dir-name key '21-foo' on disk reads back as '21'.
   test('S2: file present with v1 schema → returns parsed content', () => {
     const record = fx.buildSyncStateRecord({ gh_updated_at: '2026-05-01T12:00:00Z' });
     const project = fx.buildTempProjectWithSyncState({
@@ -62,8 +63,8 @@ describe('readSyncState (S1-S4)', () => {
     try {
       const r = ss.readSyncState(project.root);
       assert.strictEqual(r.version, 1);
-      assert.strictEqual(r.objectives['21-foo'].gh_updated_at, '2026-05-01T12:00:00Z');
-      assert.deepStrictEqual(r.objectives['21-foo'].label_set, ['devflow:objective']);
+      assert.strictEqual(r.objectives['21'].gh_updated_at, '2026-05-01T12:00:00Z');
+      assert.deepStrictEqual(r.objectives['21'].label_set, ['devflow:objective']);
     } finally {
       project.cleanup();
     }
@@ -190,7 +191,7 @@ describe('recordSync (R1-R4)', () => {
       const record = fx.buildSyncStateRecord();
       const updated = ss.recordSync(project.root, '21-foo', record);
       assert.strictEqual(updated.version, 1);
-      assert.deepStrictEqual(updated.objectives['21-foo'].label_set, ['devflow:objective']);
+      assert.deepStrictEqual(updated.objectives['21'].label_set, ['devflow:objective']);
     } finally {
       project.cleanup();
     }
@@ -225,7 +226,7 @@ describe('recordSync (R1-R4)', () => {
       const filePath = path.join(project.root, '.planning', '.gh-sync-state.json');
       assert.ok(fs.existsSync(filePath));
       const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      assert.ok(parsed.objectives['21-foo']);
+      assert.ok(parsed.objectives['21']);
     } finally {
       project.cleanup();
     }
@@ -239,7 +240,7 @@ describe('recordSync (R1-R4)', () => {
       // Mutate the input record after recordSync; the disk state must be unaffected
       inputRecord.label_set.push('mutated');
       const re = ss.readSyncState(project.root);
-      assert.deepStrictEqual(re.objectives['21-foo'].label_set, ['a', 'b']);
+      assert.deepStrictEqual(re.objectives['21'].label_set, ['a', 'b']);
     } finally {
       project.cleanup();
     }

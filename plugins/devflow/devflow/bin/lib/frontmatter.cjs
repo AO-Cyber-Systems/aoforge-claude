@@ -154,6 +154,87 @@ function spliceFrontmatter(content, newObj) {
   return `---\n${yamlStr}\n---\n\n` + content;
 }
 
+// ─── Comment-preserving scalar setter (TRD 46-06) ─────────────────────────────
+
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const unquote = (s) => String(s).trim().replace(/^(["'])(.*)\1$/, '$2');
+
+/**
+ * Set ONE scalar `key: value` line inside the first `---` block of `filePath`, touching nothing else.
+ *
+ * Unlike `cmdFrontmatterSet` this never round-trips the block through extract/reconstruct, so comments
+ * (`# OPTIONAL: set manually`), key order, blank lines, the line endings and the body survive byte for byte.
+ * The file is written only when the content actually changes, so an already-correct value leaves the mtime
+ * alone (a touched OBJECTIVE.md reads as drift to the pull side).
+ *
+ *   value  the text to write verbatim after `key: `; the caller serialises it. One line, no newline.
+ *   opts.ifAbsentOrEqual  refuse to overwrite a DIFFERENT non-empty existing value (reported as a conflict).
+ *
+ * Returns `{ ok, changed, conflict?, existing?, warning?, error? }`:
+ *   missing/unreadable file, or a key/value that would break the line  -> { ok:false, error }
+ *   no frontmatter block (file untouched)                              -> { ok:true, changed:false, warning }
+ *   existing value differs and ifAbsentOrEqual                         -> { ok:true, changed:false, conflict:true, existing }
+ * A bare `key:` counts as absent. Replacing a key that holds a block list/map also removes its continuation
+ * lines, so no orphaned `- item` lines are left behind.
+ */
+function setFrontmatterField(filePath, key, value, opts = {}) {
+  const k = String(key);
+  const v = String(value);
+  if (k === '' || /[\r\n:]/.test(k)) return { ok: false, error: `invalid frontmatter key: ${JSON.stringify(k)}` };
+  if (/[\r\n]/.test(v)) return { ok: false, error: `frontmatter value for ${k} must be a single line` };
+
+  let content;
+  try {
+    content = fs.readFileSync(filePath, 'utf-8');
+  } catch (e) {
+    return { ok: false, error: `cannot read ${filePath}: ${e.code || e.message}` };
+  }
+
+  // Group 1 = the line ending of the opening fence, group 2 = the block (undefined for `---\n---`).
+  const m = content.match(/^---(\r?\n)(?:---|([\s\S]*?)\r?\n---)(?=[ \t]*(?:\r?\n|$))/);
+  if (!m) return { ok: true, changed: false, warning: `no frontmatter block in ${filePath}; ${k} not written` };
+
+  const eol = m[1];
+  const emptyBlock = m[2] === undefined;
+  const blockStart = 3 + eol.length;
+  const block = emptyBlock ? '' : m[2];
+  const blockEnd = blockStart + block.length;
+  const newLine = `${k}: ${v}`;
+
+  let nextBlock;
+  const lines = block.split('\n');
+  const keyRe = new RegExp('^' + escapeRe(k) + ':[ \\t]*(.*)(\\r?)$');
+  let at = -1;
+  let inline = '';
+  let cr = '';
+  if (!emptyBlock) {
+    for (let i = 0; i < lines.length; i++) {
+      const lm = lines[i].match(keyRe);
+      if (lm) { at = i; inline = lm[1]; cr = lm[2]; break; }
+    }
+  }
+
+  if (at === -1) {
+    nextBlock = emptyBlock ? `${newLine}${eol}` : block + eol + newLine;
+  } else {
+    // A bare `key:` owns the indented / `- item` lines that follow it.
+    let end = at + 1;
+    if (inline.trim() === '') {
+      while (end < lines.length && /^(?:[ \t]+\S|-(?:[ \t]|\r?$))/.test(lines[end])) end++;
+    }
+    const existing = inline.trim() !== '' ? unquote(inline) : lines.slice(at + 1, end).join(' ').trim();
+    if (existing === unquote(v)) return { ok: true, changed: false };
+    if (opts.ifAbsentOrEqual && existing !== '') return { ok: true, changed: false, conflict: true, existing };
+    lines.splice(at, end - at, newLine + cr);
+    nextBlock = lines.join('\n');
+  }
+
+  const next = content.slice(0, blockStart) + nextBlock + content.slice(blockEnd);
+  if (next === content) return { ok: true, changed: false };
+  fs.writeFileSync(filePath, next, 'utf-8');
+  return { ok: true, changed: true };
+}
+
 function parseMustHavesBlock(content, blockName) {
   // Extract a specific block from must_haves in raw frontmatter YAML
   // Handles 3-level nesting: must_haves > artifacts/key_links > [{path, provides, ...}]
@@ -290,6 +371,7 @@ module.exports = {
   extractFrontmatter,
   reconstructFrontmatter,
   spliceFrontmatter,
+  setFrontmatterField,
   parseMustHavesBlock,
   FRONTMATTER_SCHEMAS,
   cmdFrontmatterGet,
