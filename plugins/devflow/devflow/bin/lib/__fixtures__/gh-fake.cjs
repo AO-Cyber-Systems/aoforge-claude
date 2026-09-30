@@ -93,16 +93,20 @@ function matcherFor(match) {
 /**
  * @param {{repo?:string, scopes?:string[], commentPageSize?:number}} [opts]
  * `graphql` (optional): handler for `gh api graphql` argv; returns stdout, a full result, or null.
+ * `now` (optional, 46-09): `() => ms`, the caller's clock. Every call is stamped with it, and
+ *   `writeTimes()` returns the stamps of the mutating calls, aligned with `writes()` (null without a
+ *   clock). The caller's clock is the gh-client `_setNow` one, so pacing is checkable in fake time.
  * @returns {{runGh:Function, issues:object[], comments:object[], milestones:object[], labels:string[],
- *   calls:()=>string[][], writes:()=>string[][], failNext:Function, humanEditBody:Function,
- *   seedIssue:Function, seedComment:Function, seedMilestone:Function}}
+ *   calls:()=>string[][], writes:()=>string[][], writeTimes:()=>(number|null)[], failNext:Function,
+ *   humanEditBody:Function, seedIssue:Function, seedComment:Function, seedMilestone:Function}}
  */
-function createFakeGitHub({ repo = 'o/r', scopes = ['repo', 'project', 'read:project'], commentPageSize = 30, graphql = null } = {}) {
+function createFakeGitHub({ repo = 'o/r', scopes = ['repo', 'project', 'read:project'], commentPageSize = 30, graphql = null, now = null } = {}) {
   const issues = [];
   const comments = [];
   const milestones = []; // { number, title, description, state }
   const labels = [];     // names
   const log = [];        // every argv runGh saw, in order
+  const stamps = [];     // the `now()` reading for each entry of `log` (null without a clock)
   const failures = [];   // { test, response }
   let clock = 0;
   let nextIssue = 1;
@@ -445,6 +449,7 @@ function createFakeGitHub({ repo = 'o/r', scopes = ['repo', 'project', 'read:pro
   function runGh(args) {
     const argv = Array.isArray(args) ? args.map(String) : [];
     log.push(argv);
+    stamps.push(typeof now === 'function' ? now() : null);
     const at = failures.findIndex((f) => f.test(argv));
     if (at >= 0) {
       const [{ response }] = failures.splice(at, 1);
@@ -482,6 +487,7 @@ function createFakeGitHub({ repo = 'o/r', scopes = ['repo', 'project', 'read:pro
     labels,
     calls: () => log.map((a) => a.slice()),
     writes: () => log.filter((a) => isWriteArgs(a)).map((a) => a.slice()),
+    writeTimes: () => log.flatMap((a, i) => (isWriteArgs(a) ? [stamps[i]] : [])),
     failNext,
     humanEditBody,
     seedIssue,

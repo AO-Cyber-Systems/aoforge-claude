@@ -327,6 +327,27 @@ describe('test controls', () => {
     assert.match(r.stderr, /^\[gh-fake\] unsupported: release view v1/);
   });
 
+  it('8g. with a `now` option, writeTimes() stamps every mutating call (and only those) with the caller\'s clock', () => {
+    let clock = 5000;
+    const fake = createFakeGitHub({ now: () => clock });
+    fake.seedIssue({ title: 't', body: 'b' });
+
+    fake.runGh(['issue', 'view', '1', ...R, '--json', 'number']); // read: not a write
+    clock = 6000;
+    fake.runGh(['issue', 'comment', '1', ...R, '--body', 'hi']);
+    clock = 9500;
+    fake.runGh(['issue', 'edit', '1', ...R, '--body', 'new']);
+
+    assert.deepEqual(fake.writeTimes(), [6000, 9500]);
+    assert.equal(fake.writes().length, 2, 'writeTimes() lines up with writes()');
+
+    // Without a clock the stamps are simply absent, never a crash.
+    const plain = createFakeGitHub();
+    plain.seedIssue({ title: 't', body: 'b' });
+    plain.runGh(['issue', 'comment', '1', ...R, '--body', 'hi']);
+    assert.deepEqual(plain.writeTimes(), [null]);
+  });
+
   it('8f. seedIssue registers its labels, so a later label create reports "already exists"', () => {
     const fake = createFakeGitHub();
     fake.seedIssue({ title: 't', body: 'b', labels: ['devflow:objective'] });
