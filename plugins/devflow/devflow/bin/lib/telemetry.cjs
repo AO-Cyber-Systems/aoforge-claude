@@ -8,7 +8,9 @@
  *
  * Sources, all local and already being written:
  *   .planning/.override-log.jsonl   — structured gate overrides (TRD 30-04)
- *   .planning/.progress-guard.json  — stuck-loop detection state (TRD 28-04)
+ *   ~/.claude/devflow/state/progress-guard/<session>.json — stuck-loop detection state, one
+ *                                     file per session, filtered to this project (TRD 28-04;
+ *                                     moved out of .planning/ in quick task 25)
  *   session transcripts             — blocking events (TRD 31-03)
  *   doc-staleness.collect()         — documentation-staleness W05x issues (TRD 38-07, merged here TRD 38-11)
  *
@@ -20,15 +22,17 @@
 const fs = require('fs');
 const path = require('path');
 const { readOverrides } = require('./override.cjs');
+const store = require('./progress-guard-store.cjs');
 
 /**
  * @param {object} opts
  * @param {string|null} opts.planningDir
  * @param {object} [opts.sessionReport] - optional output of session-audit analyze()
  * @param {string|null} [opts.userHome] - passed through to doc-staleness's manifest detection
+ * @param {string} [opts.progressGuardDir] - where per-session guard files live (default: store.stateDir())
  * @returns {object}
  */
-function collect({ planningDir, sessionReport, userHome = null }) {
+function collect({ planningDir, sessionReport, userHome = null, progressGuardDir = store.stateDir() }) {
   const out = { overrides: null, progress_guard: null, blocks: null, docs: null, advisories: [] };
   if (!planningDir) return { ...out, advisories: ['no .planning/ — not a DevFlow project'] };
 
@@ -42,11 +46,16 @@ function collect({ planningDir, sessionReport, userHome = null }) {
   }
 
   // --- progress guard ------------------------------------------------------
+  // Per-session files are shared across every project on the machine, so keep only this
+  // project's. No fallback to the legacy .planning/.progress-guard.json: migration 0008
+  // untracks it, so it is dead and stale, and reading it would report ghost streaks.
   try {
-    const raw = fs.readFileSync(path.join(planningDir, '.progress-guard.json'), 'utf8');
-    const all = JSON.parse(raw);
-    const sessions = Object.entries(all)
-      .map(([sid, e]) => ({ session: sid, streak: (e && e.guard && e.guard.streak) || 0, updated: e && e.updated }))
+    const dirOfProject = path.dirname(planningDir);
+    let project = dirOfProject;
+    try { project = fs.realpathSync(dirOfProject); } catch { /* keep the raw path */ }
+    const sessions = store.listSessions(progressGuardDir)
+      .filter((s) => s.project === project)
+      .map((s) => ({ session: s.session, streak: (s.guard && s.guard.streak) || 0, updated: s.updated }))
       .sort((a, b) => b.streak - a.streak);
     out.progress_guard = { sessions_tracked: sessions.length, worst_streak: sessions[0] ? sessions[0].streak : 0 };
     if (out.progress_guard.worst_streak >= 3) {
