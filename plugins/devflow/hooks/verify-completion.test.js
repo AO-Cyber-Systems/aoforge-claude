@@ -250,6 +250,46 @@ describe('subprocess integration — Stop hook in ambient mode', () => {
 });
 
 // ─── Autonomous resume — subprocess integration ───────────────────────────────
+//
+// Objective 45, TRD 45-10 (SC1): the per-objective resume counter no longer lives
+// in <project>/.planning/.autonomous-resume-<objective>. It lives in the hook marker
+// store (bin/lib/hook-marker-store.cjs): $DEVFLOW_HOOK_MARKER_DIR, else
+// ~/.claude/devflow/state/hook-markers/<repo-key>/autonomous-resume-<objective>.
+// Every spawned hook and every in-process helper call below gets
+// DEVFLOW_HOOK_MARKER_DIR pointing at a temp dir, so nothing touches ~/.claude.
+
+const store = require('../devflow/bin/lib/hook-marker-store.cjs');
+
+/** A sibling temp dir, so the marker root is never inside the fixture project. */
+function markerRootOf(tmp) {
+  return `${tmp}-markers`;
+}
+
+function markerEnv(tmp) {
+  return { DEVFLOW_HOOK_MARKER_DIR: markerRootOf(tmp) };
+}
+
+/** Where the store keeps the resume counter for `key` in the fixture project. */
+function resumeFileFor(tmp, key) {
+  return store.markerFile(tmp, `autonomous-resume-${key}`, { env: markerEnv(tmp) });
+}
+
+function seedResumeCount(tmp, key, count) {
+  const file = resumeFileFor(tmp, key);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, String(count));
+  return file;
+}
+
+/** Dotfiles directly inside <tmp>/.planning (the SC1 concern). */
+function planningDotfiles(tmp) {
+  return fs.readdirSync(path.join(tmp, '.planning')).filter((f) => f.startsWith('.')).sort();
+}
+
+function cleanupFixture(tmp) {
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(markerRootOf(tmp), { recursive: true, force: true });
+}
 
 /**
  * Build a minimal autonomous fixture for subprocess tests.
@@ -292,10 +332,10 @@ function buildAutonomousFixture(tmp, opts = {}) {
   const stateContent = `# DevFlow State\n\n## Current Position\n\n${objectiveLine}\n${statusLine}\n`;
   fs.writeFileSync(path.join(planningDir, 'STATE.md'), stateContent);
 
-  // Write resume counter if specified
+  // Write resume counter if specified — into the store, not under .planning/
   if (opts.resumeCount !== undefined) {
     const objKey = objectiveLine.match(/Objective:\s*(\w+)/) ? objectiveLine.match(/Objective:\s*(\w+)/)[1] : 'current';
-    fs.writeFileSync(path.join(planningDir, `.autonomous-resume-${objKey}`), String(opts.resumeCount));
+    seedResumeCount(tmp, objKey, opts.resumeCount);
   }
 
   // Write pending decisions if specified
@@ -321,17 +361,19 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: '{}',
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0, `hook crashed: ${result.stderr}`);
       const parsed = JSON.parse(result.stdout);
       assert.equal(parsed.decision, 'block');
       assert.match(parsed.reason, /resuming \(attempt 1\/3\)/);
-      // Counter file should now be 1
-      const counterFile = path.join(planningDir, '.autonomous-resume-10');
+      // Counter file should now be 1 — in the store, and .planning/ gains no file
+      const counterFile = resumeFileFor(tmp, '10');
       assert.equal(fs.readFileSync(counterFile, 'utf8').trim(), '1');
+      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.equal(fs.existsSync(path.join(planningDir, '.autonomous-resume-10')), false);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
     }
   });
 
@@ -345,15 +387,16 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: '{}',
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0);
       assert.equal(result.stdout, '', 'at cap 3 must not emit block JSON');
-      // Counter file should be deleted
-      const counterFile = path.join(planningDir, '.autonomous-resume-10');
+      // Counter file should be deleted from the store
+      const counterFile = resumeFileFor(tmp, '10');
       assert.equal(fs.existsSync(counterFile), false, 'counter file should be cleared at cap');
+      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
     }
   });
 
@@ -367,12 +410,12 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: '{}',
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0);
       assert.equal(result.stdout, '', 'yolo mode must not emit block JSON');
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
     }
   });
 
@@ -386,15 +429,16 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: '{}',
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0);
       assert.equal(result.stdout, '', 'idle state must not emit block JSON');
-      // Counter file should be cleared
-      const counterFile = path.join(planningDir, '.autonomous-resume-10');
+      // Counter file should be cleared from the store
+      const counterFile = resumeFileFor(tmp, '10');
       assert.equal(fs.existsSync(counterFile), false, 'counter should be cleared when not mid-execution');
+      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
     }
   });
 
@@ -410,7 +454,7 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: '{}',
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0);
       const parsed = JSON.parse(result.stdout);
@@ -418,7 +462,7 @@ describe('autonomous resume — subprocess', () => {
       assert.match(parsed.reason, /DECISION-001/);
       assert.match(parsed.reason, /DECISION-002/);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
     }
   });
 
@@ -432,12 +476,12 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: '{}',
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0);
       assert.equal(result.stdout, '');
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
     }
   });
 
@@ -451,12 +495,12 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: '{}',
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0);
       assert.equal(result.stdout, '', 'malformed config must not emit block JSON');
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
     }
   });
 
@@ -470,7 +514,7 @@ describe('autonomous resume — subprocess', () => {
         cwd: tmp,
         input: JSON.stringify({ session_id: 'audit-coexist-test' }),
         encoding: 'utf8',
-        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath },
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
       });
       assert.equal(result.status, 0);
       // Block JSON on stdout
@@ -482,7 +526,52 @@ describe('autonomous resume — subprocess', () => {
       const auditEntry = JSON.parse(lines[0]);
       assert.equal(auditEntry.session_id, 'audit-coexist-test');
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      cleanupFixture(tmp);
+    }
+  });
+});
+
+describe('autonomous resume — counter lives in the store (TRD 45-10 #8)', () => {
+  test('the counter increments 1 → 2 across successive stops, and .planning/ gains no file', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-auto-inc-'));
+    const logPath = path.join(tmp, 'audit.log');
+    try {
+      buildAutonomousFixture(tmp, {});
+      const run = () => spawnSync(process.execPath, [HOOK_PATH], {
+        cwd: tmp,
+        input: '{}',
+        encoding: 'utf8',
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
+      });
+      const counter = resumeFileFor(tmp, '10');
+
+      assert.match(JSON.parse(run().stdout).reason, /attempt 1\/3/);
+      assert.equal(fs.readFileSync(counter, 'utf8').trim(), '1');
+      assert.match(JSON.parse(run().stdout).reason, /attempt 2\/3/);
+      assert.equal(fs.readFileSync(counter, 'utf8').trim(), '2');
+      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+    } finally {
+      cleanupFixture(tmp);
+    }
+  });
+
+  test('an in-tree legacy counter at the cap is not consulted: the stop is still blocked once', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-auto-legacy-'));
+    const logPath = path.join(tmp, 'audit.log');
+    try {
+      const planningDir = buildAutonomousFixture(tmp, {});
+      const legacy = path.join(planningDir, '.autonomous-resume-10');
+      fs.writeFileSync(legacy, '3');
+      const result = spawnSync(process.execPath, [HOOK_PATH], {
+        cwd: tmp,
+        input: '{}',
+        encoding: 'utf8',
+        env: { ...process.env, DEVFLOW_AUDIT_LOG_PATH: logPath, ...markerEnv(tmp) },
+      });
+      assert.equal(JSON.parse(result.stdout).decision, 'block');
+      assert.equal(fs.readFileSync(legacy, 'utf8'), '3', 'the legacy file is left alone for the doctor');
+    } finally {
+      cleanupFixture(tmp);
     }
   });
 });
@@ -500,7 +589,7 @@ describe('autonomous resume — helpers', () => {
   });
 
   afterEach(() => {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try { cleanupFixture(tmpDir); } catch {}
   });
 
   // Test 9: isAutonomousMode
@@ -524,28 +613,46 @@ describe('autonomous resume — helpers', () => {
     assert.equal(isAutonomousMode(planningDir), false);
   });
 
-  // Test 10: readResumeCount
+  // Test 10: readResumeCount — through the store (TRD 45-10 #9)
   test('readResumeCount: missing file → 0', () => {
-    assert.equal(readResumeCount(planningDir, 'test'), 0);
+    assert.equal(readResumeCount(planningDir, 'test', markerEnv(tmpDir)), 0);
   });
 
   test('readResumeCount: garbage content → 0', () => {
-    fs.writeFileSync(path.join(planningDir, '.autonomous-resume-test'), 'not-a-number');
-    assert.equal(readResumeCount(planningDir, 'test'), 0);
+    seedResumeCount(tmpDir, 'test', 'not-a-number');
+    assert.equal(readResumeCount(planningDir, 'test', markerEnv(tmpDir)), 0);
   });
 
   test('readResumeCount: "2" → 2', () => {
+    seedResumeCount(tmpDir, 'test', '2');
+    assert.equal(readResumeCount(planningDir, 'test', markerEnv(tmpDir)), 2);
+  });
+
+  test('readResumeCount: an in-tree legacy counter is never consulted', () => {
     fs.writeFileSync(path.join(planningDir, '.autonomous-resume-test'), '2');
-    assert.equal(readResumeCount(planningDir, 'test'), 2);
+    assert.equal(readResumeCount(planningDir, 'test', markerEnv(tmpDir)), 0);
   });
 
   // Test 11: writeResumeCount + clearResumeCount round-trip
-  test('writeResumeCount + clearResumeCount round-trip', () => {
-    writeResumeCount(planningDir, 'rt', 5);
-    assert.equal(readResumeCount(planningDir, 'rt'), 5);
-    clearResumeCount(planningDir, 'rt');
-    assert.equal(readResumeCount(planningDir, 'rt'), 0);
-    assert.equal(fs.existsSync(path.join(planningDir, '.autonomous-resume-rt')), false);
+  test('writeResumeCount + clearResumeCount round-trip; the file lives in the store and clearing removes it', () => {
+    const env = markerEnv(tmpDir);
+    writeResumeCount(planningDir, 'rt', 5, env);
+    assert.equal(fs.existsSync(resumeFileFor(tmpDir, 'rt')), true, 'counter is written to the store');
+    assert.equal(readResumeCount(planningDir, 'rt', env), 5);
+    assert.deepEqual(planningDotfiles(tmpDir), [], '.planning/ must gain no dotfile');
+    clearResumeCount(planningDir, 'rt', env);
+    assert.equal(readResumeCount(planningDir, 'rt', env), 0);
+    assert.equal(fs.existsSync(resumeFileFor(tmpDir, 'rt')), false, 'clearing removes the store file');
+  });
+
+  test('writeResumeCount: a hostile objective key cannot escape the store directory', () => {
+    const env = markerEnv(tmpDir);
+    writeResumeCount(planningDir, '../../evil', 1, env);
+    const dir = store.markerDir(tmpDir, { env });
+    const written = fs.readdirSync(dir);
+    assert.equal(written.length, 1);
+    assert.match(written[0], /^autonomous-resume-[A-Za-z0-9_-]+$/);
+    assert.deepEqual(planningDotfiles(tmpDir), []);
   });
 
   // Test 12: isMidExecution
@@ -571,12 +678,13 @@ describe('autonomous resume — helpers', () => {
 
   // Test 13: counter file is per-objective (independent keys)
   test('counter files are per-objective key (10 and 11 are independent)', () => {
-    writeResumeCount(planningDir, '10', 1);
-    writeResumeCount(planningDir, '11', 2);
-    assert.equal(readResumeCount(planningDir, '10'), 1);
-    assert.equal(readResumeCount(planningDir, '11'), 2);
-    clearResumeCount(planningDir, '10');
-    assert.equal(readResumeCount(planningDir, '10'), 0);
-    assert.equal(readResumeCount(planningDir, '11'), 2); // unaffected
+    const env = markerEnv(tmpDir);
+    writeResumeCount(planningDir, '10', 1, env);
+    writeResumeCount(planningDir, '11', 2, env);
+    assert.equal(readResumeCount(planningDir, '10', env), 1);
+    assert.equal(readResumeCount(planningDir, '11', env), 2);
+    clearResumeCount(planningDir, '10', env);
+    assert.equal(readResumeCount(planningDir, '10', env), 0);
+    assert.equal(readResumeCount(planningDir, '11', env), 2); // unaffected
   });
 });
