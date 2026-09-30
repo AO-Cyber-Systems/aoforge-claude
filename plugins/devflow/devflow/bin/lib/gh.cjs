@@ -1195,123 +1195,31 @@ function upsertStickyComment(issueRef, body, mappingState = {}, id) {
 }
 
 /**
- * Project v2 field IDs and option IDs for "Product Roadmap" (#3) — loaded from cassette at module init.
- * Shape: { _captured: true, _project_id: 'PVT_...', Status: { field_id, options }, Product: { ... }, Quarter: { ... } }
- * _captured: false when cassette file is absent or unreadable (safe fallback for environments without captured data).
- * Exported so TRD 01-06 tests can read PRODUCT_ROADMAP_FIELDS directly.
+ * PRODUCT_ROADMAP_FIELDS — deprecated (TRD 46-07). Field and option ids now come from gh-project live
+ * discovery (cached out of the repo); the runtime no longer reads test fixtures. The export is kept as a
+ * frozen stub so older requirers do not crash.
  */
-const PRODUCT_ROADMAP_FIELDS = (() => {
-  const cassettePath = path.join(__dirname, '__fixtures__', 'gh-cassettes', 'product-roadmap-fields.json');
-  if (!fs.existsSync(cassettePath)) {
-    return { _captured: false };
-  }
-  let cassette;
-  try {
-    cassette = JSON.parse(fs.readFileSync(cassettePath, 'utf-8'));
-  } catch {
-    return { _captured: false };
-  }
-  const out = { _captured: true, _project_id: 'PVT_kwDODwqLrc4BRsOP' };
-  for (const f of (cassette.fields || [])) {
-    if (!['Status', 'Product', 'Quarter'].includes(f.name)) continue;
-    const options = {};
-    for (const o of (f.options || [])) {
-      options[o.name] = o.id;
-    }
-    out[f.name] = { field_id: f.id, options };
-  }
-  return out;
-})();
+const PRODUCT_ROADMAP_FIELDS = Object.freeze({ _captured: false, deprecated: 'use gh-project discovery' });
 
 /**
- * updateProjectFields(issueRef, projectId, fields) — update Project v2 field values.
- * Uses PRODUCT_ROADMAP_FIELDS (populated from cassette at module load).
- * Stubs safely if PRODUCT_ROADMAP_FIELDS._captured is false.
- * Returns { ok, fields_updated, warnings?, errors?, error? }.
- *
- * Field shape: PRODUCT_ROADMAP_FIELDS[fieldName] = { field_id, options: { optionName: optionId } }
+ * updateProjectFields(issueRef, projectId, fields, opts) — set Project v2 field values by NAME.
+ * Delegates to gh-project.updateItemFields: fields and options come from live discovery (TTL cache,
+ * one refresh for an unseen option), the issue is added to the project first, and every call runs
+ * through gh-client (reads paced as reads, mutations as writes). Unknown fields/options are warnings.
+ *   opts: { ttlMinutes, env, now }
+ * Returns { ok, item_id, fields_updated, warnings, errors? } | { ok:false, error, fields_updated, warnings }.
  */
-function updateProjectFields(issueRef, projectId, fields = {}, opts = {}) { // eslint-disable-line no-unused-vars
-  if (!projectId) {
-    return { ok: false, error: 'no projectId; cannot update fields', fields_updated: [] };
-  }
-
-  if (!PRODUCT_ROADMAP_FIELDS._captured) {
-    return {
-      ok: false,
-      error: 'Project field IDs not yet captured (cassette missing)',
-      fields_updated: [],
-      warnings: ['field IDs missing — Project field updates skipped'],
-    };
-  }
-
-  if (!issueRef || !/^[^/]+\/[^#]+#\d+$/.test(issueRef)) {
-    return { ok: false, error: `malformed issueRef: ${issueRef}`, fields_updated: [] };
-  }
-
-  // Step 1: Add issue to project (idempotent — already_exists is OK).
-  // We need the project item_id for the mutation.
-  const addR = addToProject(issueRef, projectId);
-  let itemId = addR.item_id;
-  if (!addR.ok && !/already.?exists/i.test(addR.error || '')) {
-    // If it truly failed (not just "already exists"), fall back to querying project items
-    const m = issueRef.match(/^([^/]+)\/([^#]+)#(\d+)$/);
-    const [, owner, repo, num] = m;
-    const itemIdQuery = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { projectItems(first: 5) { nodes { id project { id } } } } } }`;
-    const idR = _runGh(['api', 'graphql', '-f', `query=${itemIdQuery}`, '-F', `owner=${owner}`, '-F', `name=${repo}`, '-F', `number=${num}`]);
-    if (idR.ok) {
-      try {
-        const data = JSON.parse(idR.stdout);
-        const nodes = data.data.repository.issue.projectItems.nodes;
-        const item = (nodes || []).find(n => n.project && n.project.id === projectId) || (nodes || [])[0];
-        if (item) itemId = item.id;
-      } catch {}
-    }
-  }
-
-  if (!itemId) {
-    return { ok: false, error: 'issue not found in project and could not be added', fields_updated: [] };
-  }
-
-  // Step 2: Mutate each field. Unknown fields/options are warnings (not errors).
-  const fields_updated = [];
-  const warnings = [];
-  const errors = [];
-
-  for (const [fieldName, fieldValue] of Object.entries(fields)) {
-    const fieldDef = PRODUCT_ROADMAP_FIELDS[fieldName];
-    if (!fieldDef || !fieldDef.field_id) {
-      warnings.push(`unknown field: ${fieldName}`);
-      continue;
-    }
-    const optionId = fieldDef.options && fieldDef.options[fieldValue];
-    if (!optionId) {
-      warnings.push(`unknown option for ${fieldName}: ${fieldValue}`);
-      continue;
-    }
-
-    const mutation = `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) { updateProjectV2ItemFieldValue(input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: { singleSelectOptionId: $optionId } }) { projectV2Item { id } } }`;
-    const r = _runGh([
-      'api', 'graphql',
-      '-f', `query=${mutation}`,
-      '-F', `projectId=${projectId}`,
-      '-F', `itemId=${itemId}`,
-      '-F', `fieldId=${fieldDef.field_id}`,
-      '-F', `optionId=${optionId}`,
-    ]);
-    if (r.ok) {
-      fields_updated.push(fieldName);
-    } else {
-      errors.push({ field: fieldName, error: r.stderr || 'mutation failed' });
-    }
-  }
-
-  return {
-    ok: errors.length === 0,
-    fields_updated,
-    ...(warnings.length > 0 ? { warnings } : {}),
-    ...(errors.length > 0 ? { errors } : {}),
-  };
+function updateProjectFields(issueRef, projectId, fields = {}, opts = {}) {
+  const projectLib = require('./gh-project.cjs');
+  return projectLib.updateItemFields({
+    issueRef,
+    projectId,
+    fields,
+    run: client.ghRun,
+    env: opts.env || process.env,
+    now: opts.now,
+    ttlMinutes: opts.ttlMinutes,
+  });
 }
 
 /**

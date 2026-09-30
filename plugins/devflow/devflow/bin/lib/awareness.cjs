@@ -469,23 +469,36 @@ function parseTaskListFallback(body) {
  * Throws GhAuthError on auth failure — caller (skill / CLI) renders the structured error.
  *
  * @param {object} [opts]
- * @param {string} [opts.project_id] - Project node ID; defaults to PRODUCT_ROADMAP_FIELDS._project_id
+ * @param {string} [opts.project_id] - Project node ID; defaults to `<cwd>/.planning/PROJECT.md` `org_project`
+ * @param {string} [opts.cwd] - project root for that default; defaults to process.cwd() (df-tools --cwd chdirs)
  * @returns {{ items: object[], fetched_at: string, project_id: string|null, warnings: string[] }}
  */
+/** `org_project` from `<cwd>/.planning/PROJECT.md` frontmatter, or null. Never a test fixture (TRD 46-07). */
+function readOrgProject(cwd) {
+  const { extractFrontmatter } = require('./frontmatter.cjs');
+  try {
+    const fm = extractFrontmatter(fs.readFileSync(path.join(cwd, '.planning', 'PROJECT.md'), 'utf-8')) || {};
+    return typeof fm.org_project === 'string' && fm.org_project.trim() !== '' ? fm.org_project.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function scanOrg({
   project_id,
+  cwd = process.cwd(),
 } = {}) {
   // 1. Hard-fail auth (locked decision #10) — MUST be first action
   gh.requireGhAuth(['project', 'read:project', 'repo']);
 
-  // 2. Resolve default project_id (org Product Roadmap from cassette)
-  const resolvedId = project_id || (gh.PRODUCT_ROADMAP_FIELDS && gh.PRODUCT_ROADMAP_FIELDS._project_id) || null;
+  // 2. Resolve the project: opts.project_id, else PROJECT.md org_project (never the cassette)
+  const resolvedId = project_id || readOrgProject(cwd) || null;
   if (!resolvedId) {
     return {
       items: [],
       fetched_at: new Date().toISOString(),
       project_id: null,
-      warnings: ['scanOrg: no project_id supplied and no default available (cassette missing?)'],
+      warnings: ['scanOrg: no project_id supplied and no org_project in .planning/PROJECT.md'],
     };
   }
 

@@ -2000,7 +2000,8 @@ test('CR3 (02-07): scanOrg with cassette replay → items with sub_issues_source
     return { ok: true, status: 0, stdout: cassetteContent, stderr: '' };
   });
   try {
-    const result = scanOrg();
+    // 46-07: the default project id no longer comes from the fixture; name the walked board explicitly.
+    const result = scanOrg({ project_id: 'PVT_cassette_board' });
     assert.ok(Array.isArray(result.items), 'CR3: result.items must be array');
     assert.ok(result.items.length > 0, 'CR3: result.items must have at least 1 entry');
     for (const item of result.items) {
