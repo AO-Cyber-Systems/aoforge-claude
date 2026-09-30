@@ -20,7 +20,7 @@ const { execFileSync } = require('child_process');
 
 const { detectRepoState } = require('./repo-state.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
-const { safeReadFile } = require('./helpers.cjs');
+const { safeReadFile, localDate } = require('./helpers.cjs');
 const { VALID_KINDS, VALID_WORKS } = require('./intent.cjs');
 const managedBlock = require('./managed-block.cjs');
 const stackProfile = require('./stack-profile.cjs');
@@ -31,6 +31,9 @@ const backupPrune = require('./backup-prune.cjs');
 const ADOPT_BRANCH = 'devflow/adopt';
 const MARKER_NAME = 'devflow-adopt.json';
 const OWNED_PATHS = ['.planning', 'CLAUDE.md'];
+// Stack-draft notes carried in the marker and turned into report rows (TRD 42-07); bounded so a
+// sprawling monorepo cannot bloat the marker or the report.
+const MAX_STACK_NOTES = 100;
 
 const CODEBASE_DOC_NAMES = [
   'STACK', 'INTEGRATIONS', 'ARCHITECTURE', 'STRUCTURE',
@@ -537,10 +540,6 @@ function renderClaudeMdOverview(tpl) {
   );
 }
 
-function isoDate(now) {
-  return now.toISOString().slice(0, 10);
-}
-
 /**
  * scaffold(root, opts) -> preflight-shaped report (route !== 'resume') | scaffold result
  *
@@ -558,7 +557,8 @@ function scaffold(root, opts = {}) {
   }
 
   const target = pf.target;
-  const date = isoDate(now);
+  // The LOCAL calendar day (SDR-07): STATE/ROADMAP dates are read by a human as "today".
+  const date = localDate(now);
 
   // ── Pre-checks (no writes before all pass) ──────────────────────────────
   const pm = readProjectMd(target);
@@ -602,13 +602,19 @@ function scaffold(root, opts = {}) {
   const stackPath = path.join(target, '.planning', 'STACK.md');
   let stackSummary;
   if (!fs.existsSync(stackPath)) {
-    const ip = stackProfile.initProfile({ projectRoot: target, userHome, from: 'codebase', write: true });
+    const ip = stackProfile.initProfile({ projectRoot: target, userHome, from: 'codebase', write: true, now });
     if (ip.action === 'written') created.push('.planning/STACK.md');
+    // TRD 42-07: the grounded draft says which keys it VERIFIED, which the tier supplies, and why
+    // any candidate was not proposed (notes); the report reads all of it back from the marker.
+    const resolvedKeys = Array.isArray(ip.resolvedKeys) ? ip.resolvedKeys : [];
     stackSummary = {
       action: ip.action,
       ok: ip.validation ? !!ip.validation.ok : false,
       errors: ip.validation ? ip.validation.errors : [],
-      evidence_keys: (ip.evidence || []).map((e) => e.key),
+      evidence_keys: [...new Set([...(ip.evidence || []).map((e) => e.key), ...resolvedKeys])],
+      resolved_keys: resolvedKeys,
+      inherited_keys: Array.isArray(ip.inheritedKeys) ? ip.inheritedKeys : [],
+      notes: (Array.isArray(ip.notes) ? ip.notes : []).slice(0, MAX_STACK_NOTES),
     };
   } else {
     const vp = stackProfile.validateProfile({ projectRoot: target, userHome });
@@ -830,13 +836,16 @@ function renderHighTable(rows) {
 function renderReport(ctx) {
   const {
     name, date, version, baseBranch, baseSha7, docsCount, claudeVerb, claudeVersion,
-    backupPath, registryKey, needsReviewRows, highRows,
+    backupPath, registryKey, needsReviewRows, highRows, stackReportLinked,
   } = ctx;
   return (
     `# Adopt report — ${name}\n\n` +
     `**Adopted:** ${date} · **DevFlow:** v${version} · **Branch:** \`${ADOPT_BRANCH}\` (from \`${baseBranch}\` @ \`${baseSha7}\`) · **Pushed:** no\n\n` +
     '## Needs review\n\n' +
     renderNeedsReviewTable(needsReviewRows) + '\n' +
+    (stackReportLinked
+      ? 'See .planning/STACK-REPORT.md for CI/CD and local-testing recommendations (proposals only).\n\n'
+      : '') +
     '## Inferred with high confidence\n\n' +
     renderHighTable(highRows) + '\n' +
     '## What adopt did\n\n' +
@@ -940,18 +949,41 @@ function report(root, opts = {}) {
   }
   const highRows = high.map((entry) => ({ item: entry.field, value: entry.value, evidence: entry.evidence || '(no evidence recorded)' }));
 
-  // ── Deterministic finding: missing loop-command evidence ────────────────
+  // ── Deterministic finding: stack draft notes + missing loop-command evidence ─
+  // TRD 42-07: each draft note (a candidate that was not verified, a weak gate kept verbatim, an
+  // unsupported area) is one low row; a loop key gets the missing-evidence row only when it is
+  // neither verified, nor inherited from the tier, nor evidenced at all.
+  const st = scaffoldInfo.stack;
   let evidenceKeys;
-  if (scaffoldInfo.stack && scaffoldInfo.stack.action === 'written' && Array.isArray(scaffoldInfo.stack.evidence_keys)) {
-    evidenceKeys = new Set(scaffoldInfo.stack.evidence_keys);
+  let resolvedKeys;
+  let inheritedKeys;
+  let draftNotes;
+  if (st && st.action === 'written' && Array.isArray(st.evidence_keys)) {
+    evidenceKeys = new Set(st.evidence_keys);
+    resolvedKeys = new Set(Array.isArray(st.resolved_keys) ? st.resolved_keys : []);
+    inheritedKeys = new Set(Array.isArray(st.inherited_keys) ? st.inherited_keys : []);
+    draftNotes = Array.isArray(st.notes) ? st.notes : [];
   } else {
     const draft = stackProfile.draftProfile({ projectRoot: target, userHome, from: 'codebase' });
     evidenceKeys = new Set((draft.evidence || []).map((e) => e.key));
+    resolvedKeys = new Set(draft.resolvedKeys || []);
+    inheritedKeys = new Set(draft.inheritedKeys || []);
+    // An existing STACK.md was not drafted by adopt; notes about a re-draft do not apply to it.
+    draftNotes = st && st.action === 'existing' ? [] : (draft.notes || []);
+  }
+  for (const n of draftNotes.slice(0, MAX_STACK_NOTES)) {
+    if (!n || typeof n !== 'object') continue;
+    const item = `${n.key || 'stack'}: ${n.candidate || n.detail || '(no detail)'} — ${n.status || 'note'}`;
+    rows.push({
+      confidence: 'low',
+      item: item.replace(/\|/g, '\\|'),
+      inferred: n.area ? n.area : '(root)',
+      evidence: String(n.detail || `stack init ${n.source || 'draft'}`).replace(/\|/g, '\\|'),
+    });
   }
   for (const key of ['test', 'lint', 'build']) {
-    if (!evidenceKeys.has(key)) {
-      rows.push({ confidence: 'low', item: `no command evidence for '${key}'`, inferred: '(none)', evidence: 'checked .planning/STACK.md loop commands at scaffold time' });
-    }
+    if (resolvedKeys.has(key) || inheritedKeys.has(key) || evidenceKeys.has(key)) continue;
+    rows.push({ confidence: 'low', item: `no command evidence for '${key}'`, inferred: '(none)', evidence: 'checked .planning/STACK.md loop commands at scaffold time' });
   }
 
   // ── Deterministic finding: scratch repo state ────────────────────────────
@@ -975,12 +1007,33 @@ function report(root, opts = {}) {
     }
   }
 
+  const now = pf.adopt.marker && marker.started_at ? new Date(marker.started_at) : new Date();
+
+  // ── Stack report (TRD 42-08): CI/CD + local-testing proposals ────────────
+  // Written only when absent (a present one may be hand-edited); the rows always come from a
+  // fresh computation. Lazy: the report is adopt's only caller-side dependency on it.
+  let stackReportLinked = false;
+  try {
+    const stackReport = require('./stack-report.cjs');
+    const built = stackReport.buildReport({ projectRoot: target, userHome, now, verifyOpts: { env } });
+    if (!fs.existsSync(path.join(target, stackReport.REPORT_REL))) stackReport.writeReport(target, built.text);
+    for (const f of built.findings.filter((x) => x.severity === 'gap')) {
+      const proposal = f.snippet ? `${f.proposal} \`${f.snippet}\`` : f.proposal;
+      rows.push({
+        confidence: 'medium',
+        item: `${f.id}: ${f.finding}`.replace(/\|/g, '\\|'),
+        inferred: proposal.replace(/\|/g, '\\|'),
+        evidence: 'STACK-REPORT.md',
+      });
+    }
+    stackReportLinked = true;
+  } catch { /* the stack report is advisory; adopt never fails on it */ }
+
   // ── Order (priority, then low, then medium) and render ───────────────────
   const RANK = { priority: 0, low: 1, medium: 2 };
   rows.sort((a, b) => RANK[a.confidence] - RANK[b.confidence]);
 
-  const now = pf.adopt.marker && marker.started_at ? new Date(marker.started_at) : new Date();
-  const date = isoDate(now);
+  const date = localDate(now);
   const pm = readProjectMd(target);
   const name = pm.ok ? pm.name : path.basename(target);
 
@@ -1006,6 +1059,7 @@ function report(root, opts = {}) {
     registryKey: scaffoldInfo.registry_key || '(unregistered)',
     needsReviewRows: rows,
     highRows,
+    stackReportLinked,
   });
 
   const reportPath = path.join(target, REPORT_REL);

@@ -823,3 +823,220 @@ describe('TRD 27-02 — targets outside the project root are not gated', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 44-03 (AUT-04, DF-03) — DevFlow's own agents are identified by the
+// PreToolUse payload's `agent_type`, not by a `.skill-active` marker they may
+// never see. 114 denials of DevFlow's own agents in 44-EVIDENCE §2.1.
+//
+// Only the exact, case-sensitive `devflow:` prefix with a non-empty agent name
+// is trusted. `agent_id` presence alone proves nothing (any subagent has one).
+// ---------------------------------------------------------------------------
+
+const { preToolUsePayload, makeDevflowProject } = require('./__fixtures__/gate-fixtures.js');
+
+function makeAgentTmp(mode) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-agent-')));
+  makeDevflowProject(root);
+  if (mode !== undefined) {
+    fs.writeFileSync(
+      path.join(root, '.planning', 'config.json'),
+      JSON.stringify({ gates: { editGate: mode } })
+    );
+  }
+  return root;
+}
+
+/** 'none' when the hook printed nothing (allowed / noop), else the decision. */
+function hookDecision(result) {
+  assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+  if (!result.stdout || result.stdout.trim() === '') return 'none';
+  return JSON.parse(result.stdout).hookSpecificOutput.permissionDecision;
+}
+
+describe('TRD 44-03 — gate-edits allows devflow:* agents (subprocess e2e)', () => {
+  test('test 1: devflow:executor Write to src/a.js, DevFlow project, no marker → allowed (no output)', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Write',
+        filePath: path.join(root, 'src', 'a.js'),
+        agentType: 'devflow:executor',
+        agentId: 'a-fixture-1',
+        cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'none', `expected allow, got: ${result.stdout}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 1b: devflow agent Edit and MultiEdit are allowed too', () => {
+    const root = makeAgentTmp();
+    try {
+      for (const tool of ['Edit', 'MultiEdit']) {
+        const payload = preToolUsePayload({
+          tool, filePath: path.join(root, 'src', 'a.js'), agentType: 'devflow:verifier', cwd: root,
+        });
+        const { result } = runHook(payload, { cwd: root });
+        assert.equal(hookDecision(result), 'none', `${tool}: expected allow, got: ${result.stdout}`);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 2a: agent_type general-purpose → deny', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Write',
+        filePath: path.join(root, 'src', 'a.js'),
+        agentType: 'general-purpose',
+        agentId: 'a-fixture-2',
+        cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'deny');
+      assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /ambient mode/i);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 2b: no agent_type (main thread) → deny (regression)', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({ tool: 'Write', filePath: path.join(root, 'src', 'a.js'), cwd: root });
+      assert.ok(!('agent_type' in payload), 'fixture must omit agent_type when not given');
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'deny');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 2c: agent_id without a devflow agent_type is NOT trusted → deny', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Write', filePath: path.join(root, 'src', 'a.js'), agentId: 'a-only-id', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'deny');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 4a: editGate "warn" + devflow agent → allowed (never ask)', () => {
+    const root = makeAgentTmp('warn');
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Edit', filePath: path.join(root, 'src', 'a.js'), agentType: 'devflow:executor', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'none', `expected allow, got: ${result.stdout}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 4b: editGate "warn" + general-purpose → still ask (control)', () => {
+    const root = makeAgentTmp('warn');
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Edit', filePath: path.join(root, 'src', 'a.js'), agentType: 'general-purpose', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'ask');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 4c: editGate "off" + devflow agent → noop (unchanged)', () => {
+    const root = makeAgentTmp('off');
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Edit', filePath: path.join(root, 'src', 'a.js'), agentType: 'devflow:executor', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'none');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('TRD 44-03 — shouldGate agentType + isDevflowAgent (unit)', () => {
+  const gateEdits = require('./gate-edits.js');
+  const base = {
+    tool: 'Edit',
+    filePath: '/proj/src/foo.ts',
+    planningDir: '/proj/.planning',
+    skillActive: false,
+    overrideActive: false,
+  };
+
+  test('test 3: agentType devflow:verifier → allow "devflow agent"', () => {
+    const result = gateEdits.shouldGate({ ...base, agentType: 'devflow:verifier' });
+    assert.equal(result.decision, 'allow');
+    assert.equal(result.reason, 'devflow agent');
+  });
+
+  const UNTRUSTED = [
+    ['devflowx:y', 'devflowx:y'],
+    ['x:devflow:y', 'x:devflow:y'],
+    ['devflow: (empty name)', 'devflow:'],
+    ['DEVFLOW:executor (case)', 'DEVFLOW:executor'],
+    ['42 (number)', 42],
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['general-purpose', 'general-purpose'],
+    ['Explore', 'Explore'],
+  ];
+  for (const [label, agentType] of UNTRUSTED) {
+    test(`test 3: agentType ${label} → deny`, () => {
+      assert.equal(gateEdits.shouldGate({ ...base, agentType }).decision, 'deny');
+    });
+  }
+
+  test('isDevflowAgent: exported, exact case-sensitive prefix with a non-empty name', () => {
+    assert.equal(typeof gateEdits.isDevflowAgent, 'function');
+    assert.equal(gateEdits.isDevflowAgent('devflow:executor'), true);
+    assert.equal(gateEdits.isDevflowAgent('devflow:x'), true);
+    for (const [, t] of UNTRUSTED) {
+      assert.equal(gateEdits.isDevflowAgent(t), false, `isDevflowAgent(${JSON.stringify(t)})`);
+    }
+  });
+
+  test('placement: planning / markdown / noop / outside-project results are unchanged for a devflow agent', () => {
+    const a = { agentType: 'devflow:executor' };
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, filePath: '/proj/.planning/x.cjs' }).reason, 'planning artifact');
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, filePath: '/proj/README.md' }).reason, 'markdown doc');
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, planningDir: null }).decision, 'noop');
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, tool: 'Read' }).decision, 'noop');
+    assert.equal(
+      gateEdits.shouldGate({ ...base, ...a, filePath: '/elsewhere/x.cjs' }).reason,
+      'target outside project root'
+    );
+  });
+
+  test('placement: the devflow-agent allow comes before the skill-active allow', () => {
+    const result = gateEdits.shouldGate({ ...base, agentType: 'devflow:executor', skillActive: true });
+    assert.equal(result.decision, 'allow');
+    assert.equal(result.reason, 'devflow agent');
+  });
+
+  test('44-05 contract: hasSkillActiveMarker / findPlanningDir / sharedPlanningDir keep their names and arity', () => {
+    assert.equal(typeof gateEdits.hasSkillActiveMarker, 'function');
+    assert.equal(gateEdits.hasSkillActiveMarker.length, 3);
+    assert.equal(typeof gateEdits.findPlanningDir, 'function');
+    assert.equal(gateEdits.findPlanningDir.length, 1);
+    assert.equal(typeof gateEdits.sharedPlanningDir, 'function');
+    assert.equal(gateEdits.sharedPlanningDir.length, 1);
+  });
+});

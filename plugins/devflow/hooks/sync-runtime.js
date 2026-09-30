@@ -16,10 +16,37 @@
 //  - Quick 21: a session running an OLDER plugin cache never downgrades a NEWER mirror.
 //    The mirror decision is semver-gated (parseSemver/compareSemver below), not a bare
 //    string-equality early exit.
+//  - Objective 45 (DOC-03): the marker is version + content digest. After a good mirror the
+//    digest of the bundled runtime (devflow/bin/lib/runtime-digest.cjs, shared with the doctor
+//    check) is written to `.plugin-digest` beside `.plugin-version`, which keeps holding the bare
+//    version (validate.cjs / helpers.cjs parse it as semver). The equal-version fast path exits
+//    only when the digest marker matches, so a rebuilt plugin with the SAME version but different
+//    content (a dev branch, an in-place update of an unreleased build) re-mirrors. A missing
+//    marker (a pre-45 mirror) re-mirrors once. Downgrade refusal is unchanged and precedes it.
+//    If the digest module cannot be loaded the hook falls back to version-only behavior.
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+
+// Objective 45: load the shared digest module from THIS hook's own plugin tree, not from
+// CLAUDE_PLUGIN_ROOT (a stub plugin root must still load it). Fail-safe: any load error leaves
+// `rd` null and the hook behaves exactly as it did before the digest existed.
+let rd = null;
+try {
+  rd = require(path.join(__dirname, '..', 'devflow', 'bin', 'lib', 'runtime-digest.cjs'));
+} catch {}
+
+// Literals used only when the digest module is unavailable; pinned to the module by
+// sync-runtime.test.js so they cannot drift.
+const FALLBACK_SUBDIRS = ['workflows', 'references', 'templates', 'bin', 'schemas', 'stack-profiles'];
+const FALLBACK_MIRROR_EXCLUDE = [
+  /\.test\.cjs$/,
+  /\.test\.js$/,
+  /(^|\/)__fixtures__(\/|$)/,
+];
+const SUBDIRS = rd ? rd.SUBDIRS : FALLBACK_SUBDIRS;
+const MIRROR_EXCLUDE = rd ? rd.MIRROR_EXCLUDE : FALLBACK_MIRROR_EXCLUDE;
 
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
 if (!pluginRoot) {
@@ -42,6 +69,21 @@ let installedVersion = null;
 try {
   installedVersion = fs.readFileSync(versionFile, 'utf8').trim();
 } catch {}
+
+// Digest of the bundled runtime, computed at most once and BEFORE any copy, so the marker never
+// claims more than what was in the bundle when the mirror started (a bundle edited mid-copy just
+// re-mirrors next session). null = unavailable (module missing or the digest threw).
+let bundledDigestMemo;
+function bundledDigest() {
+  if (bundledDigestMemo === undefined) {
+    try {
+      bundledDigestMemo = rd ? rd.digestTree(sourceDir) : null;
+    } catch {
+      bundledDigestMemo = null;
+    }
+  }
+  return bundledDigestMemo;
+}
 
 // ---------------------------------------------------------------------------
 // Quick 21: semver-gated mirror decision (never downgrade the mirror)
@@ -113,10 +155,18 @@ if (mirrorSv) {
     process.exit(0);
   }
   if (cmp === 0 && sentinelOk) {
-    // Equal versions + intact mirror — nothing to do.
-    process.exit(0);
+    // Equal versions + intact mirror — nothing to do, unless the bundled content differs from what
+    // the last good mirror recorded (Objective 45). No digest available => version-only behavior.
+    const bd = bundledDigest();
+    if (bd === null || bd === rd.readMarkerDigest(targetDir)) {
+      process.exit(0);
+    }
+    process.stderr.write(
+      `[devflow] sync-runtime: same version ${pluginVersion}, content changed; re-mirroring\n`
+    );
   }
-  // cmp > 0 (plugin newer), or equal + sentinel missing (self-heal) → fall through and mirror.
+  // cmp > 0 (plugin newer), or equal + sentinel missing (self-heal), or equal + content changed
+  // → fall through and mirror.
 }
 // mirror missing/unparseable → fall through and mirror (fresh install / broken version file).
 
@@ -128,11 +178,7 @@ if (!fs.existsSync(sourceDir)) {
 // Exclusion filter
 // ---------------------------------------------------------------------------
 
-const MIRROR_EXCLUDE = [
-  /\.test\.cjs$/,
-  /\.test\.js$/,
-  /(^|\/)__fixtures__(\/|$)/,
-];
+// MIRROR_EXCLUDE (imported from runtime-digest.cjs above, so the digest covers exactly what is copied).
 
 /**
  * Returns true if the entry should be excluded from the mirror.
@@ -185,7 +231,7 @@ function removeDir(dir) {
 // Atomic per-subdir swap
 // ---------------------------------------------------------------------------
 
-const SUBDIRS = ['workflows', 'references', 'templates', 'bin', 'schemas'];
+// SUBDIRS (the mirror allowlist) is imported from runtime-digest.cjs above.
 
 // Sweep any stale devflow-tmp-* entries left by a previously crashed run.
 function sweepStaleTmpDirs() {
@@ -204,6 +250,9 @@ function sweepStaleTmpDirs() {
 const tmpDirsCreated = [];
 
 try {
+  // Digest the bundle before touching the mirror (memoized: already computed on the equal-version path).
+  const digestToRecord = bundledDigest();
+
   fs.mkdirSync(targetDir, { recursive: true });
 
   sweepStaleTmpDirs();
@@ -236,6 +285,20 @@ try {
   // Write version marker ONLY after all swaps succeed
   fs.writeFileSync(versionFile, pluginVersion);
   process.stderr.write(`[devflow] runtime synced to ~/.claude/devflow (v${pluginVersion})\n`);
+
+  // Objective 45: record the content digest beside the version, again only after a good mirror. With
+  // no digest available, drop any old marker so it can never vouch for content it did not describe.
+  // Its own try/catch: a marker I/O error never undoes a good mirror or skips the global upgrade.
+  try {
+    const digestFile = path.join(targetDir, rd ? rd.DIGEST_FILE : '.plugin-digest');
+    if (digestToRecord !== null) {
+      fs.writeFileSync(digestFile, digestToRecord);
+    } else {
+      fs.rmSync(digestFile, { force: true });
+    }
+  } catch (e) {
+    process.stderr.write(`[devflow] digest marker skipped: ${e.message}\n`);
+  }
 
   // TRD 36-06: bring the global ~/.claude state forward (legacy install → backup, managed block in
   // ~/.claude/CLAUDE.md). Only after a good mirror, from the BUNDLED module (never the mirror), in its

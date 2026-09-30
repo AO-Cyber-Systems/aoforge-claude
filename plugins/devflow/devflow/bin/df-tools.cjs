@@ -813,6 +813,20 @@ async function main() {
       break;
     }
 
+    case 'doctor': {
+      // df-tools doctor [--fix] [--json] [--path <dir>] [--global] — TRD 45-04 (DOC-04).
+      // Read-only unless --fix. Exit 0 for any completed run (the verdict is result.status);
+      // exit 1 only for usage errors.
+      const os = require('os');
+      const { output: outputDoctor } = require('./lib/helpers.cjs');
+      const { runDoctorCli } = require('./lib/doctor-cli.cjs');
+      const r = runDoctorCli({ cwd, argv: args.slice(1), env: process.env, userHome: os.homedir() });
+      if (!r.ok) error(r.message);
+      if (r.json) outputDoctor(r.result, false);
+      else outputDoctor(r.result, true, r.text);
+      break;
+    }
+
     case 'context': {
       // df-tools context [--limit N] [--root <dir>] [--raw] — TRD 29-04 module, wired in TRD 39-01
       const { output: outputAudit } = require('./lib/helpers.cjs');

@@ -34,7 +34,8 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 39 — Wire the telemetry & audit CLI (verified 2026-09-28, 12/12)
 **Objective complete:** 40 — Tooling correctness (completed 2026-09-28, 6/6 TRDs, verified 8/8)
 **Objective complete:** 41 — Retroactive verification of 27–34 (verified 2026-09-28, 6/6)
-**Status:** v1.3 milestone complete
+**Objective complete:** 44 — Autonomy hardening (verified 2026-09-29, 7/7 SC after gap cycle 1; 10 TRDs in 4 waves. Changes: executor/verifier turn caps removed; INCOMPLETE outcome with SendMessage resume; SubagentStop executor gate; auto-continue Stop hook; edit gate allows devflow:* agents; commit gate allows merge/rebase/cherry-pick completion via rebase-merge/rebase-apply only, plus the inline bypass; migration 0008; config-get defaults; 13 legacy agent-read instructions removed and CI-guarded. Both hooks were E2E-tested live on Claude Code 2.1.284. Full npm test 5341/5374, with the single failure being environmental MA-7 doctl. Not yet released: installed plugin is 2.11.0)
+**Status:** Objective complete — ready for verification
 
 ## Branch State (post-merge)
 
@@ -232,9 +233,13 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 | 21 | Stack profile proposal: per-project `.planning/STACK.md` with a general-purpose default (`references/stack-general.md`), template, schema, and Go/Dart/Flutter example profiles. Docs only, not wired in (dir numbered 18) | 2026-09-27 | 2946f97 | — | [18-stack-profile-proposal-per-project-stack](./quick/18-stack-profile-proposal-per-project-stack/) |
 | 22 | Stack loop runs for every project: restate objective 35 invariant (micro, dir numbered 19; row originally auto-written with wrong number and shifted columns) | 2026-09-27 | c71ecf3 | — | — |
 | 23 | Jobs line replaces its leading count instead of prepending a second one (follow-up to debug fix cbf238d; keeps the author's noun/verb) (dir numbered 20) | 2026-09-28 | 3ee4cfb | — | [20-jobs-line-replaces-its-leading-count-ins](./quick/20-jobs-line-replaces-its-leading-count-ins/) |
+| 23 | note stack-profile review status and next steps in CLAUDE.md | 2026-09-28 | 60f8560 | devflow-claude | Atomic |
+| 24 | Objective 44 follow-ups: job-index reads files_modified; commit_docs/gitignore gates skip only .planning paths; stale-REBASE_HEAD fixture comment (security-audit report-file follow-up closed by live harness test: not blocked) | 2026-09-29 | b7057a3 | — | [24-objective-44-follow-ups](./quick/24-objective-44-follow-ups/) |
+| 25 | Move no-progress guard state out of the repo: per-session files under ~/.claude/devflow/state/progress-guard/; telemetry reads them; stops per-call file-watcher dumps | 2026-09-30 | 2b673aa | — | [25-move-progress-guard-state-out-of-project](./quick/25-move-progress-guard-state-out-of-project/) |
+| 26 | validate health W007 reads archived milestone roadmaps and ROADMAP.md checklist lines (no false positives for archived objectives) | 2026-09-30 | 13be101 | — | [26-validate-health-w007-reads-archived-mile](./quick/26-validate-health-w007-reads-archived-mile/) |
 
 ## Session Continuity
 
-Last session: 2026-09-28T17:12:45.567Z
-Resume file: `.planning/SESSION_PICKUP.md`
-Stopped at: Completed 41-06-TRD.md; objective 41 8/8 TRDs, awaiting objective-level verification
+Last session: 2026-09-30T11:56:09.893Z
+Resume file: `None`
+Stopped at: Completed 45-09-TRD.md

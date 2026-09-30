@@ -55,6 +55,18 @@ function parseIncludeFlag(args) {
   return new Set(includeValue.split(',').map(s => s.trim()));
 }
 
+/**
+ * localDate(now = new Date()) -> 'YYYY-MM-DD' for the LOCAL calendar day.
+ *
+ * A date a human reads as "today" (`provenance.reviewed`, a STATE/ROADMAP date) must come from the
+ * local getters. `now.toISOString().slice(0, 10)` is the UTC day, which runs a day ahead every
+ * evening west of Greenwich (and a day behind every early morning east of it).
+ */
+function localDate(now = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 function safeReadFile(filePath) {
   try {
     return fs.readFileSync(filePath, 'utf-8');
@@ -242,6 +254,7 @@ module.exports = {
   output,
   error,
   parseIncludeFlag,
+  localDate,
   safeReadFile,
   pluginVersion,
   installedPlugin,

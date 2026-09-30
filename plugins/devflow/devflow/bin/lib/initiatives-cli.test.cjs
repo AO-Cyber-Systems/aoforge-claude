@@ -195,17 +195,26 @@ test('I1: df-tools initiatives list routes through case "initiatives" arm (subpr
 });
 
 test('I2: Other case arms still work — awareness, org-awareness, dup-detect no regressions', () => {
-  // awareness scan-peer --no-fetch smoke test
-  const r = spawnSync('node', [DF_TOOLS, 'awareness', 'scan-peer', '--no-fetch'], {
-    encoding: 'utf-8',
-    cwd: path.join(__dirname, '..', '..', '..', '..', '..'),
-  });
-  // scan-peer may fail if no git repo but should not crash with unknown command
-  const stderr = r.stderr || '';
-  assert.ok(
-    !stderr.includes('Unknown command: awareness'),
-    `awareness case arm broken; stderr: ${stderr}`,
-  );
+  // awareness scan-peer --no-fetch smoke test.
+  // TRD 45-01: scan-peer writes the awareness cache, which lives out of tree under
+  // ~/.claude/devflow/state/awareness. Point the child at a throwaway dir so this test
+  // never writes to the real home.
+  const awarenessDir = mkTmp('df-init-cli-awareness-');
+  try {
+    const r = spawnSync('node', [DF_TOOLS, 'awareness', 'scan-peer', '--no-fetch'], {
+      encoding: 'utf-8',
+      cwd: path.join(__dirname, '..', '..', '..', '..', '..'),
+      env: Object.assign({}, process.env, { DEVFLOW_AWARENESS_DIR: awarenessDir }),
+    });
+    // scan-peer may fail if no git repo but should not crash with unknown command
+    const stderr = r.stderr || '';
+    assert.ok(
+      !stderr.includes('Unknown command: awareness'),
+      `awareness case arm broken; stderr: ${stderr}`,
+    );
+  } finally {
+    fs.rmSync(awarenessDir, { recursive: true, force: true });
+  }
 });
 
 // ─── TRD 05-02: Group CLI2 — cmdInitiativesSync (real implementation) ────────

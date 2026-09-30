@@ -12,7 +12,7 @@
 // - P7 H1 and prose before the first H2 are not a section.
 // - P8 a `## Heading` line inside a ``` fence is not a split.
 // - P9 `<!-- inherit -->` as the first non-blank line → `inherit:true`, marker removed from `text`.
-// - P10 positive control: `references/stack-general.md` and `docs/stack-profiles/{go,dart,flutter}.md`
+// - P10 positive control: `references/stack-general.md` and `stack-profiles/{go,dart,flutter}.md`
 //   parse; flutter has exactly two `inherit:true` sections; general has sections Principles, Avoid,
 //   Testing, Dependencies.
 //
@@ -44,6 +44,21 @@
 // - R16 cache: same args → same object (`===`); `_resetCache()` → fresh object; different
 //   `userHome` → different entry.
 // - R17 malformed STACK.md → throws `StackProfileError` whose message contains the file path.
+//
+// Bundled tier-2 lookup (TRD 42-02):
+// - B1  empty fake home, `extends: go` → chain [go] from the bundled tier, no issues; B1b the
+//       same with a null userHome.
+// - B2  a user-tier go.md (different `commands.test.run`) wins over the bundled one.
+// - B3  `bundledDir: null` → the old EXTENDS_UNRESOLVED issues, byte for byte.
+// - B4  an id in neither tier → EXTENDS_UNRESOLVED naming both paths.
+// - B5  `bundledDir` is injectable, and the resolve cache keys on it.
+// - B6  listOrgProfiles merges both tiers, tags `tier`, user shadows bundled by id.
+//
+// Object-form detect markers (TRD 42-05):
+// - M1  `{file, contains}` matches only when the root file exists and its text includes `contains`.
+// - M2  no `contains` -> file presence alone; a path-shaped or non-string `file` never matches.
+// - M3  matchMarkersAt never throws on an object marker (missing file, missing root, a dir).
+// - M4  repo-state's detectManifest reads an object marker; collectSignals does not throw.
 //
 // Neutrality (Task 2):
 // - P11 the source of stack-profile.cjs does not match
@@ -163,7 +178,7 @@ describe('parseProfile (P group)', () => {
 
   describe('P10: positive control — shipped profiles parse', () => {
     const GENERAL_PATH = path.join(__dirname, '..', '..', 'references', 'stack-general.md');
-    const PROFILES_DIR = path.join(__dirname, '..', '..', '..', '..', '..', 'docs', 'stack-profiles');
+    const PROFILES_DIR = path.join(__dirname, '..', '..', 'stack-profiles');
 
     test('general.md parses; sections Principles, Avoid, Testing, Dependencies', () => {
       const text = fs.readFileSync(GENERAL_PATH, 'utf-8');
@@ -492,6 +507,298 @@ describe('resolveProfile (R group)', () => {
       );
     } finally {
       fx.cleanup(root);
+    }
+  });
+});
+
+// ─── bundled tier-2 lookup (B group, TRD 42-02) ───────────────────────────
+//
+// An `extends` id resolves from the user tier (`<home>/.claude/devflow/stacks/<id>.md`) first,
+// then the bundled tier (`sp.BUNDLED_STACKS_DIR/<id>.md`, shipped in the plugin). `bundledDir:
+// null` switches the bundled tier off, which is exactly the pre-42-02 behaviour.
+describe('bundled tier-2 lookup (B group, TRD 42-02)', () => {
+  beforeEach(() => {
+    sp._resetCache();
+  });
+
+  const extendsMd = (id) => fx.profileMd({ yaml: ['schema: 1', `extends: ${id}`].join('\n') });
+  const userGoOverride = () => fx.profileMd({
+    yaml: ['schema: 1', 'id: go', 'commands:', '  test: { run: "user-tier-test" }'].join('\n'),
+  });
+  const userPath = (home, id) => path.join(home, '.claude', 'devflow', 'stacks', `${id}.md`);
+
+  test('B1: an empty fake home resolves `extends: go` from the bundled tier — chain [go], no issues', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home });
+      assert.deepStrictEqual(r.issues, []);
+      const hops = r.chain.filter((c) => c.tier === 'org');
+      assert.deepStrictEqual(hops.map((c) => c.id), ['go']);
+      assert.strictEqual(hops[0].path, path.join(sp.BUNDLED_STACKS_DIR, 'go.md'));
+      assert.strictEqual(hops[0].source, 'bundled');
+      assert.strictEqual(r.id, 'go');
+      assert.strictEqual(r.frontmatter.commands.test.run, 'go test -race ./...');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B1b: a null userHome no longer short-circuits when the bundled tier resolves the id', () => {
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: null });
+      assert.deepStrictEqual(r.issues, []);
+      assert.deepStrictEqual(r.chain.map((c) => c.id), ['general', 'go', null]);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('B2: a user-tier go.md wins over the bundled one', () => {
+    const home = fx.makeHome({ stacks: { go: userGoOverride() } });
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home });
+      assert.deepStrictEqual(r.issues, []);
+      const hops = r.chain.filter((c) => c.tier === 'org');
+      assert.deepStrictEqual(hops.map((c) => c.id), ['go']);
+      assert.strictEqual(hops[0].path, userPath(home, 'go'));
+      assert.strictEqual(hops[0].source, 'user');
+      assert.strictEqual(r.frontmatter.commands.test.run, 'user-tier-test');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B3: bundledDir null gives the old behaviour exactly — EXTENDS_UNRESOLVED for go', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ stackMd: extendsMd('go') });
+    try {
+      const withHome = sp.resolveProfile({ projectRoot: root, userHome: home, bundledDir: null });
+      assert.deepStrictEqual(withHome.issues, [
+        { code: 'EXTENDS_UNRESOLVED', message: `extends 'go' not found at ${userPath(home, 'go')}`, id: 'go' },
+      ]);
+      const noHome = sp.resolveProfile({ projectRoot: root, userHome: null, bundledDir: null });
+      assert.deepStrictEqual(noHome.issues, [
+        { code: 'EXTENDS_UNRESOLVED', message: "extends 'go' cannot be resolved: no org home was provided", id: 'go' },
+      ]);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B4: an id in neither tier is EXTENDS_UNRESOLVED, and the message names both places looked', () => {
+    const home = fx.makeHome({});
+    const root = fx.makeProject({ stackMd: extendsMd('nosuch') });
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home });
+      assert.deepStrictEqual(r.issues.map((i) => i.code), ['EXTENDS_UNRESOLVED']);
+      assert.ok(r.issues[0].message.startsWith("extends 'nosuch' not found at "), r.issues[0].message);
+      assert.ok(r.issues[0].message.includes(userPath(home, 'nosuch')), r.issues[0].message);
+      assert.ok(r.issues[0].message.includes(path.join(sp.BUNDLED_STACKS_DIR, 'nosuch.md')), r.issues[0].message);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('B5: bundledDir is injectable, and the cache keys on it', () => {
+    const bundled = fs.mkdtempSync(path.join(require('os').tmpdir(), 'df-stack-bundled-'));
+    fs.writeFileSync(path.join(bundled, 'zz.md'), fx.profileMd({
+      yaml: ['schema: 1', 'id: zz', 'commands:', '  test: { run: "zz-test" }'].join('\n'),
+    }));
+    const root = fx.makeProject({ stackMd: extendsMd('zz') });
+    try {
+      const found = sp.resolveProfile({ projectRoot: root, userHome: null, bundledDir: bundled });
+      assert.deepStrictEqual(found.issues, []);
+      assert.strictEqual(found.frontmatter.commands.test.run, 'zz-test');
+      const off = sp.resolveProfile({ projectRoot: root, userHome: null, bundledDir: null });
+      assert.notStrictEqual(off, found, 'a different bundledDir must not hit the cached result');
+      assert.deepStrictEqual(off.issues.map((i) => i.code), ['EXTENDS_UNRESOLVED']);
+    } finally {
+      fx.cleanup(root, bundled);
+    }
+  });
+
+  test('B6: listOrgProfiles merges both tiers; user entries shadow bundled ones by id; each is tagged', () => {
+    const empty = fx.makeHome({});
+    const withGo = fx.makeHome({ stacks: { go: userGoOverride() } });
+    try {
+      const listed = sp.listOrgProfiles({ userHome: empty });
+      for (const id of ['go', 'dart', 'flutter']) {
+        const entry = listed.find((p) => p.id === id);
+        assert.ok(entry, `bundled ${id} should be listed: ${JSON.stringify(listed.map((p) => p.id))}`);
+        assert.strictEqual(entry.tier, 'bundled');
+        assert.strictEqual(entry.path, path.join(sp.BUNDLED_STACKS_DIR, `${id}.md`));
+      }
+
+      const shadowed = sp.listOrgProfiles({ userHome: withGo });
+      const goEntries = shadowed.filter((p) => p.id === 'go');
+      assert.strictEqual(goEntries.length, 1, 'the user go.md shadows the bundled one');
+      assert.strictEqual(goEntries[0].tier, 'user');
+      assert.strictEqual(goEntries[0].path, userPath(withGo, 'go'));
+      assert.strictEqual(shadowed.find((p) => p.id === 'dart').tier, 'bundled');
+
+      assert.deepStrictEqual(sp.listOrgProfiles({ userHome: empty, bundledDir: null }), []);
+    } finally {
+      fx.cleanup(empty, withGo);
+    }
+  });
+});
+
+// A component profile FILE follows its own `extends` (TRD 42-05), and a component path without a
+// trailing slash still matches only its own directory.
+describe('component extends walk (CX group, TRD 42-05)', () => {
+  beforeEach(() => {
+    sp._resetCache();
+  });
+
+  const rootWithSvc = (svcYaml, rootYaml = ['schema: 1']) => fx.makeProject({
+    stackMd: fx.profileMd({
+      yaml: rootYaml.concat(['components:', '  - { path: "svc/", profile: ".planning/stacks/svc.md" }']).join('\n'),
+    }),
+    stacks: { svc: fx.profileMd({ yaml: svcYaml.join('\n') }) },
+  });
+
+  test('CX1: a component file with `extends: go` inherits go — chain [..., go (component), file (component)]', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: go']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go' });
+      assert.deepStrictEqual(r.issues, []);
+      const comp = r.chain.filter((c) => c.tier === 'component');
+      assert.deepStrictEqual(comp.map((c) => c.id), ['go', null]);
+      assert.strictEqual(r.frontmatter.commands.test.run, 'go test -race ./...');
+      assert.strictEqual(r.provenance['commands.test'], 'component');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX2: the component file overrides its parent (the file layer comes after the hop)', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: go', 'commands:', '  test: { run: "svc-test" }']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go' });
+      assert.strictEqual(r.frontmatter.commands.test.run, 'svc-test');
+      assert.ok(r.frontmatter.commands.lint, 'lint still inherited from go');
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX3: a hop already in the root chain is not added twice', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: go'], ['schema: 1', 'extends: go']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go' });
+      assert.strictEqual(r.chain.filter((c) => c.id === 'go').length, 1);
+      assert.deepStrictEqual(r.chain.map((c) => c.tier), ['bundled', 'org', 'project', 'component']);
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX4: a component file with an unresolvable `extends` reports EXTENDS_UNRESOLVED, not a throw', () => {
+    const home = fx.makeHome({});
+    const root = rootWithSvc(['schema: 1', 'extends: nosuchtier']);
+    try {
+      const r = sp.resolveProfile({ projectRoot: root, userHome: home, file: 'svc/x.go', bundledDir: null });
+      assert.ok(r.issues.some((i) => i.code === 'EXTENDS_UNRESOLVED' && i.id === 'nosuchtier'));
+    } finally {
+      fx.cleanup(root, home);
+    }
+  });
+
+  test('CX5: a component path without a trailing slash matches `svc/...` but never `svcx/...`', () => {
+    const root = fx.makeProject({
+      stackMd: fx.profileMd({
+        yaml: ['schema: 1', 'components:', '  - { path: "svc", profile: ".planning/stacks/svc.md" }'].join('\n'),
+      }),
+      stacks: { svc: fx.profileMd({ yaml: ['schema: 1', 'commands:', '  build: { run: "svc-build" }'].join('\n') }) },
+    });
+    try {
+      assert.strictEqual(sp.resolveProfile({ projectRoot: root, file: 'svc/a.go' }).component.path, 'svc');
+      sp._resetCache();
+      assert.strictEqual(sp.resolveProfile({ projectRoot: root, file: 'svcx/a.go' }).component, null);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+});
+
+// A `detect` marker is a bare root entry name (or `*.ext`), or an object `{file, contains}` that
+// also requires the file's text to include `contains` (TRD 42-05). The object form is generic: the
+// loader never learns what the text means, a profile's data does.
+describe('object-form detect markers (M group, TRD 42-05)', () => {
+  beforeEach(() => {
+    sp._resetCache();
+  });
+
+  const marker = { file: 'recipe.lock', contains: 'flavor: sour' };
+
+  test('M1: {file, contains} matches only when the file exists AND contains the text', () => {
+    const yes = fx.makeProject({ files: { 'recipe.lock': 'name: x\nflavor: sour\n' } });
+    const no = fx.makeProject({ files: { 'recipe.lock': 'name: x\nflavor: sweet\n' } });
+    const absent = fx.makeProject({ files: { 'other.lock': 'flavor: sour\n' } });
+    try {
+      assert.strictEqual(sp.matchMarkersAt(yes, [{ marker }]).length, 1);
+      assert.strictEqual(sp.matchMarkersAt(no, [{ marker }]).length, 0);
+      assert.strictEqual(sp.matchMarkersAt(absent, [{ marker }]).length, 0);
+    } finally {
+      fx.cleanup(yes, no, absent);
+    }
+  });
+
+  test('M2: an object marker without `contains` matches on the file alone; a path-shaped file never matches', () => {
+    const root = fx.makeProject({ files: { 'recipe.lock': 'x\n', 'sub/recipe.lock': 'flavor: sour\n' } });
+    try {
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'recipe.lock' } }]).length, 1);
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'sub/recipe.lock', contains: 'sour' } }]).length, 0);
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: { file: 42 } }]).length, 0);
+      assert.strictEqual(sp.matchMarkersAt(root, [{ marker: null }]).length, 0);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('M3 (regression): matchMarkersAt never throws on an object marker, even for a missing root', () => {
+    const root = fx.makeProject({});
+    try {
+      assert.deepStrictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'x', contains: 'y' } }]), []);
+      assert.deepStrictEqual(sp.matchMarkersAt(path.join(root, 'nope'), [{ marker: { file: 'x', contains: 'y' } }]), []);
+      // A directory named like the marker file: the read fails, so it is simply not a match.
+      fs.mkdirSync(path.join(root, 'x'));
+      assert.deepStrictEqual(sp.matchMarkersAt(root, [{ marker: { file: 'x', contains: 'y' } }]), []);
+    } finally {
+      fx.cleanup(root);
+    }
+  });
+
+  test('M4 (regression): repo-state tolerates object markers — detectManifest reads one, collectSignals does not throw', () => {
+    const rs = require('./repo-state.cjs');
+    const home = fx.makeHome({
+      stacks: {
+        sourish: fx.profileMd({
+          yaml: [
+            'schema: 1',
+            'id: sourish',
+            'languages: [sourlang]',
+            'detect: [{file: recipe.lock, contains: "flavor: sour"}]',
+          ].join('\n'),
+        }),
+      },
+    });
+    const sour = fx.makeProject({ files: { 'recipe.lock': 'flavor: sour\n' } });
+    const flutterish = fx.makeProject({
+      files: { 'pubspec.yaml': 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n', 'lib/main.dart': 'void main() {}\n' },
+    });
+    try {
+      assert.deepStrictEqual(rs.detectManifest(sour, { userHome: home }), { has_manifest: true, primary_lang: 'sourlang' });
+      assert.doesNotThrow(() => rs.collectSignals(flutterish, { userHome: home }));
+      assert.doesNotThrow(() => rs.detectManifest(flutterish, { userHome: home }));
+    } finally {
+      fx.cleanup(sour, flutterish, home);
     }
   });
 });

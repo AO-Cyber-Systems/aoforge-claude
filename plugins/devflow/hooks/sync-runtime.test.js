@@ -18,6 +18,10 @@
  *  10. Failure path — unreadable/missing plugin.json → exits 0, target untouched
  *
  * Quick 21: never downgrade the mirror — see 'Quick 21' describe blocks below.
+ *
+ * Objective 45 (TRD 45-03): the marker is version + content digest (.plugin-digest) — see the
+ * 'Objective 45: content digest marker' describe block. Cases that expect the equal-version
+ * no-op seed a matching digest with seedDigest(); a mirror without one is re-mirrored once.
  */
 
 'use strict';
@@ -28,6 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const runtimeDigest = require('../devflow/bin/lib/runtime-digest.cjs');
 
 const HOOK_PATH = path.join(__dirname, 'sync-runtime.js');
 const TEST_VERSION = '9.9.9-test';
@@ -168,6 +173,19 @@ function seedMirror(targetDir, versionFile, v, { sentinel = true } = {}) {
   }
 }
 
+/**
+ * Objective 45: write the `.plugin-digest` marker a current mirror carries — the digest of the
+ * bundled tree. A mirror seeded without it is a pre-45 mirror, which the hook re-mirrors once, so
+ * every "equal version, intact sentinel => no-op" case must seed a matching digest.
+ */
+function seedDigest(targetDir, devflowSrc) {
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(targetDir, runtimeDigest.DIGEST_FILE),
+    runtimeDigest.digestTree(devflowSrc)
+  );
+}
+
 /** {relPath: content} map of everything under dir, built with listFiles. */
 function snapshot(dir) {
   const map = {};
@@ -215,13 +233,14 @@ describe('Test 1: Fresh install', () => {
 
 describe('Test 2: Version match + intact sentinel — early exit', () => {
   test('does not modify target when version matches and sentinel present', (t) => {
-    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
     // Pre-build the target (simulate an already-synced state)
     fs.mkdirSync(path.join(targetDir, 'bin'), { recursive: true });
     fs.writeFileSync(path.join(targetDir, 'bin', 'df-tools.cjs'), '// already synced');
     fs.writeFileSync(versionFile, TEST_VERSION);
+    seedDigest(targetDir, devflowSrc); // Objective 45: a current mirror carries the digest marker
 
     // Write a canary file that should remain untouched
     const canary = path.join(targetDir, 'bin', 'canary.txt');
@@ -535,18 +554,101 @@ describe('Objective 34: every shipped runtime subdir reaches the mirror', () => 
       .map(e => e.name)
       .sort();
 
-    const hookSrc = fs.readFileSync(HOOK_PATH, 'utf8');
-    const m = hookSrc.match(/const SUBDIRS = \[([^\]]*)\]/);
-    assert.ok(m, 'could not locate SUBDIRS in sync-runtime.js');
-    const declared = m[1].split(',')
-      .map(x => x.trim().replace(/^['"]|['"]$/g, ''))
-      .filter(Boolean)
-      .sort();
+    // Objective 45: the hook takes SUBDIRS from the shared runtime-digest module (its literal
+    // fallback is pinned to the module in the 'Objective 45' describe below), so the drift guard
+    // reads the same allowlist the hook actually mirrors.
+    const declared = [...runtimeDigest.SUBDIRS].sort();
 
     const missing = onDisk.filter(d => !declared.includes(d));
     assert.deepStrictEqual(
       missing, [],
       `devflow/ subdir(s) on disk but not in SUBDIRS, so never mirrored: ${missing.join(', ')}`
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Objective 42 (TRD 42-10): bundled tier-2 profiles mirror, user/org profiles survive
+//
+// TRD 42-02 moved the go/dart/flutter profiles to devflow/stack-profiles/ and added
+// 'stack-profiles' to SUBDIRS. That dir is swapped wholesale on every mirror, exactly like
+// references/ — so it MUST NOT be where a user or org keeps its own profile. Those live in
+// ~/.claude/devflow/stacks/<id>.md, a sibling that is deliberately NOT in SUBDIRS. If it ever
+// joined the allowlist (or the drift guard's "fix" were to add every dir), a mirror run would
+// delete every user override. These cases pin both halves.
+// ---------------------------------------------------------------------------
+
+describe('Objective 42: stack-profiles mirrors; ~/.claude/devflow/stacks/ is never touched', () => {
+  // A byte pattern that would not survive a utf8 round trip, so "byte-identical" is real.
+  const CUSTOM_BYTES = Buffer.concat([
+    Buffer.from('---\nschema: 1\nid: custom\nextends: go\n---\n\n# Org profile\n'),
+    Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x0d, 0x0a]),
+  ]);
+
+  function seedBundledProfile(devflowSrc) {
+    fs.mkdirSync(path.join(devflowSrc, 'stack-profiles'), { recursive: true });
+    fs.writeFileSync(
+      path.join(devflowSrc, 'stack-profiles', 'go.md'),
+      '---\nschema: 1\nid: go\n---\n\n# Stack Profile: go\n'
+    );
+  }
+
+  function seedUserStacks(targetDir) {
+    fs.mkdirSync(path.join(targetDir, 'stacks', 'acme'), { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'stacks', 'custom.md'), CUSTOM_BYTES);
+    fs.writeFileSync(path.join(targetDir, 'stacks', 'acme', 'nested.md'), 'nested org profile');
+  }
+
+  test('fresh mirror creates stack-profiles/go.md and leaves stacks/custom.md byte-identical', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    seedBundledProfile(devflowSrc);
+    seedUserStacks(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+
+    assert.ok(
+      fs.existsSync(path.join(targetDir, 'stack-profiles', 'go.md')),
+      'stack-profiles/go.md not mirrored — SUBDIRS omits stack-profiles'
+    );
+    assert.ok(
+      CUSTOM_BYTES.equals(fs.readFileSync(path.join(targetDir, 'stacks', 'custom.md'))),
+      'stacks/custom.md changed — the mirror touched the user/org profile dir'
+    );
+    assert.equal(
+      fs.readFileSync(path.join(targetDir, 'stacks', 'acme', 'nested.md'), 'utf8'),
+      'nested org profile'
+    );
+  });
+
+  test('a version-bump re-mirror refreshes stack-profiles/ but still leaves stacks/ alone', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    seedBundledProfile(devflowSrc);
+
+    // An older mirror already on disk: a stale bundled profile, plus the user's own profile.
+    seedMirror(targetDir, versionFile, '1.0.0');
+    fs.mkdirSync(path.join(targetDir, 'stack-profiles'), { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'stack-profiles', 'stale.md'), 'removed upstream');
+    seedUserStacks(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+    assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), TEST_VERSION, 'mirror did not run');
+
+    assert.ok(fs.existsSync(path.join(targetDir, 'stack-profiles', 'go.md')));
+    assert.ok(
+      !fs.existsSync(path.join(targetDir, 'stack-profiles', 'stale.md')),
+      'stack-profiles/ is a mirror of the bundled dir: a profile removed upstream must not linger'
+    );
+    assert.ok(
+      CUSTOM_BYTES.equals(fs.readFileSync(path.join(targetDir, 'stacks', 'custom.md'))),
+      'stacks/custom.md changed across a re-mirror'
+    );
+    assert.equal(
+      fs.readFileSync(path.join(targetDir, 'stacks', 'acme', 'nested.md'), 'utf8'),
+      'nested org profile'
     );
   });
 });
@@ -637,11 +739,12 @@ describe('Quick 21: never downgrade the mirror', () => {
   });
 
   test('6 — equal versions + intact sentinel: no-op, canary kept', (t) => {
-    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
     setPluginVersion(pluginRoot, '2.10.1');
     seedMirror(targetDir, versionFile, '2.10.1');
+    seedDigest(targetDir, devflowSrc); // Objective 45: no-op needs a matching digest marker
 
     const result = runHook(pluginRoot, home);
     assert.equal(result.status, 0, result.stderr);
@@ -761,11 +864,12 @@ describe('Quick 21: never downgrade the mirror', () => {
   });
 
   test('16 — leading v and +build metadata are ignored: v2.10.1 vs 2.10.1+build.5 is equal, no-op, canary kept', (t) => {
-    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
     setPluginVersion(pluginRoot, 'v2.10.1');
     seedMirror(targetDir, versionFile, '2.10.1+build.5');
+    seedDigest(targetDir, devflowSrc); // Objective 45: no-op needs a matching digest marker
 
     const result = runHook(pluginRoot, home);
     assert.equal(result.status, 0, result.stderr);
@@ -861,10 +965,11 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
   });
 
   test('18 — the version-match fast path does not run the global upgrade', (t) => {
-    const { pluginRoot, home, targetDir, versionFile } = setup(t);
+    const { pluginRoot, devflowSrc, home, targetDir, versionFile } = setup(t);
     fs.mkdirSync(path.join(targetDir, 'bin'), { recursive: true });
     fs.writeFileSync(path.join(targetDir, 'bin', 'df-tools.cjs'), '// already synced');
     fs.writeFileSync(versionFile, TEST_VERSION);
+    seedDigest(targetDir, devflowSrc); // Objective 45: the fast path needs a matching digest marker
 
     const result = runHook(pluginRoot, home, RUN);
     assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
@@ -885,5 +990,205 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
     assert.equal(fs.readFileSync(versionFile, 'utf8').trim(), '2.10.1', 'downgrade refusal must not touch .plugin-version');
     assert.ok(legacyInPlace(home), 'global upgrade ran despite the downgrade refusal');
     assert.equal(fs.existsSync(path.join(home, '.claude', 'CLAUDE.md')), false, 'CLAUDE.md must not gain the managed block on a refused downgrade');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Objective 45 (TRD 45-03, DOC-03): content digest marker
+//
+// `.plugin-version` cannot tell a same-version content change from a no-op, so a rebuilt plugin
+// (routine on a dev branch, and after an in-place update of an unreleased build) never reached
+// the mirror. The hook now also writes `.plugin-digest` — digestTree() of the bundled runtime —
+// and the equal-version fast path exits only when that marker matches. Downgrade refusal
+// (Quick 21) is untouched: an older plugin never re-mirrors, whatever the digest says.
+// Fixtures use a tmp plugin root and a tmp HOME only.
+// ---------------------------------------------------------------------------
+
+describe('Objective 45: content digest marker', () => {
+  const DIGEST_FILE = runtimeDigest.DIGEST_FILE;
+  const digestPath = (targetDir) => path.join(targetDir, DIGEST_FILE);
+
+  test('8 — fresh install writes .plugin-digest = digestTree(bundle); .plugin-version stays the bare version', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+
+    assert.equal(fs.readFileSync(versionFile, 'utf8'), TEST_VERSION, '.plugin-version must hold the bare version string');
+    assert.ok(fs.existsSync(digestPath(targetDir)), '.plugin-digest not written');
+    const expected = runtimeDigest.digestTree(devflowSrc);
+    assert.match(expected, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(fs.readFileSync(digestPath(targetDir), 'utf8').trim(), expected);
+    assert.equal(runtimeDigest.readMarkerDigest(targetDir), expected);
+  });
+
+  test('8b — the marker digest equals a digest of what actually landed in the mirror', (t) => {
+    const { root, pluginRoot, home, targetDir } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+    // The exclusions were dropped during the copy; digesting the mirror must still agree.
+    assert.equal(runtimeDigest.digestTree(targetDir), runtimeDigest.readMarkerDigest(targetDir));
+  });
+
+  test('9 — equal version + intact sentinel + matching digest: no-op, canary kept, no stderr', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    seedMirror(targetDir, versionFile, TEST_VERSION);
+    seedDigest(targetDir, devflowSrc);
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+    assert.deepEqual(snapshot(targetDir), before, 'a matching digest must leave the mirror byte-identical');
+    assert.equal(result.stderr, '');
+  });
+
+  test('10 — equal version + intact sentinel + bundled file changed: re-mirrors; canary gone; digest updated', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    seedMirror(targetDir, versionFile, TEST_VERSION);
+    seedDigest(targetDir, devflowSrc);
+    const staleDigest = runtimeDigest.readMarkerDigest(targetDir);
+
+    // Same version, different content — the case the version compare alone could never see.
+    fs.writeFileSync(path.join(devflowSrc, 'workflows', 'wf.md'), '# workflow CHANGED');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+
+    assert.equal(
+      fs.readFileSync(path.join(targetDir, 'workflows', 'wf.md'), 'utf8'),
+      '# workflow CHANGED',
+      'changed bundled content did not reach the mirror'
+    );
+    assert.ok(!fs.existsSync(path.join(targetDir, 'bin', 'canary.txt')), 'canary should be gone after a real re-mirror');
+
+    const fresh = runtimeDigest.digestTree(devflowSrc);
+    assert.notEqual(fresh, staleDigest);
+    assert.equal(runtimeDigest.readMarkerDigest(targetDir), fresh, 'digest marker not updated');
+    assert.equal(fs.readFileSync(versionFile, 'utf8'), TEST_VERSION);
+    assert.match(result.stderr, /same version .*content changed; re-mirroring/);
+  });
+
+  test('11 — equal version + sentinel + no .plugin-digest (pre-45 mirror): re-mirrors once, then a second run is a no-op', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    seedMirror(targetDir, versionFile, TEST_VERSION);
+    assert.equal(fs.existsSync(digestPath(targetDir)), false, 'precondition: no digest marker');
+
+    const first = runHook(pluginRoot, home);
+    assert.equal(first.status, 0, `hook exited non-zero: ${first.stderr}`);
+    assert.ok(!fs.existsSync(path.join(targetDir, 'bin', 'canary.txt')), 'a pre-45 mirror must re-mirror once');
+    assert.equal(runtimeDigest.readMarkerDigest(targetDir), runtimeDigest.digestTree(devflowSrc));
+
+    // Second run: put the canary back; a no-op leaves it alone.
+    fs.writeFileSync(path.join(targetDir, 'bin', 'canary.txt'), 'canary-content');
+    const before = snapshot(targetDir);
+    const second = runHook(pluginRoot, home);
+    assert.equal(second.status, 0, `hook exited non-zero: ${second.stderr}`);
+    assert.deepEqual(snapshot(targetDir), before, 'second run must be a no-op');
+    assert.equal(second.stderr, '');
+  });
+
+  test('12 — older plugin + different digest: still refused (stderr names both versions), target untouched', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.7.1');
+    seedMirror(targetDir, versionFile, '2.10.1');
+    fs.writeFileSync(digestPath(targetDir), 'sha256:' + '0'.repeat(64)); // differs from the bundle's
+    const before = snapshot(targetDir);
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(snapshot(targetDir), before, 'downgrade refusal must not depend on the digest');
+    assert.match(result.stderr, /2\.7\.1/);
+    assert.match(result.stderr, /2\.10\.1/);
+    assert.match(result.stderr, /not downgrading/);
+  });
+
+  test('12b — a newer plugin still mirrors and writes the digest marker', (t) => {
+    const { root, pluginRoot, devflowSrc, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '2.7.1');
+
+    const result = runHook(pluginRoot, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(versionFile, 'utf8'), '2.10.1');
+    assert.equal(runtimeDigest.readMarkerDigest(targetDir), runtimeDigest.digestTree(devflowSrc));
+  });
+
+  test('12c — .plugin-digest is written only after a good mirror: a failed run leaves the old marker', (t) => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return; // root ignores chmod
+
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => {
+      try { fs.chmodSync(targetDir, 0o755); } catch {}
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    setPluginVersion(pluginRoot, '2.10.1');
+    seedMirror(targetDir, versionFile, '2.7.1');
+    const oldDigest = 'sha256:' + '1'.repeat(64);
+    fs.writeFileSync(digestPath(targetDir), oldDigest);
+
+    // A read-only target dir makes the first temp-dir copy fail, i.e. the mirror errors out
+    // before any swap. Neither marker may move.
+    fs.chmodSync(targetDir, 0o555);
+    const result = runHook(pluginRoot, home);
+    fs.chmodSync(targetDir, 0o755);
+
+    assert.equal(result.status, 0, 'a failed mirror still exits 0 (retry next session)');
+    assert.match(result.stderr, /sync-runtime failed/);
+    assert.equal(fs.readFileSync(versionFile, 'utf8'), '2.7.1', '.plugin-version moved despite a failed mirror');
+    assert.equal(runtimeDigest.readMarkerDigest(targetDir), oldDigest, '.plugin-digest moved despite a failed mirror');
+  });
+
+  test('14 — fail-safe: when runtime-digest.cjs cannot be loaded the hook keeps today\'s version-only behavior', (t) => {
+    const { root, pluginRoot, home, targetDir, versionFile } = makeTmpRoot();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    // A copy of the hook in a tree that has NO devflow/bin/lib/runtime-digest.cjs beside it.
+    const stubHooks = path.join(root, 'stub-plugin', 'hooks');
+    fs.mkdirSync(stubHooks, { recursive: true });
+    const stubHook = path.join(stubHooks, 'sync-runtime.js');
+    fs.copyFileSync(HOOK_PATH, stubHook);
+    const run = () => spawnSync(process.execPath, [stubHook], {
+      encoding: 'utf8',
+      env: { ...process.env, CLAUDE_PLUGIN_ROOT: pluginRoot, HOME: home },
+    });
+
+    // Fresh install still mirrors, and writes no digest marker (there is nothing to digest with).
+    const first = run();
+    assert.equal(first.status, 0, `hook exited non-zero: ${first.stderr}`);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'df-tools.cjs')), 'fresh install must still mirror');
+    assert.equal(fs.readFileSync(versionFile, 'utf8'), TEST_VERSION);
+    assert.equal(fs.existsSync(digestPath(targetDir)), false, 'no digest module => no digest marker');
+    assert.doesNotMatch(first.stderr, /sync-runtime failed/);
+
+    // Equal version + intact sentinel + no marker: version-only behavior means no-op.
+    fs.writeFileSync(path.join(targetDir, 'bin', 'canary.txt'), 'canary-content');
+    const second = run();
+    assert.equal(second.status, 0, `hook exited non-zero: ${second.stderr}`);
+    assert.ok(fs.existsSync(path.join(targetDir, 'bin', 'canary.txt')), 'version-only fallback must no-op at equal version');
+  });
+
+  test('15 — the hook takes SUBDIRS from runtime-digest.cjs; its fallback literal cannot drift from it', () => {
+    const hookSrc = fs.readFileSync(HOOK_PATH, 'utf8');
+    assert.match(hookSrc, /runtime-digest\.cjs/, 'hook does not load the shared digest module');
+    const m = hookSrc.match(/const FALLBACK_SUBDIRS = \[([^\]]*)\]/);
+    assert.ok(m, 'could not locate FALLBACK_SUBDIRS in sync-runtime.js');
+    const fallback = m[1].split(',')
+      .map(x => x.trim().replace(/^['"]|['"]$/g, ''))
+      .filter(Boolean);
+    assert.deepStrictEqual(fallback, runtimeDigest.SUBDIRS);
   });
 });

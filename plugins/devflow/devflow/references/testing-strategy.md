@@ -24,7 +24,7 @@ Soft-bundled with `defaults-table.md` per the v1.1 design — both are read by t
 
 ## Example stack profiles
 
-The former per-stack cells (Go, Flutter, Node) now live as example profiles in the devflow-claude repository under `docs/stack-profiles/` (`go.md`, `dart.md`, `flutter.md`); the `~/.claude/devflow` mirror carries no `docs/`. A project adopts one via `extends:` in `.planning/STACK.md` after installing it to `~/.claude/devflow/stacks/<id>.md`.
+The former per-stack cells (Go, Flutter, Node) now live as tier-2 profiles that ship bundled in `devflow/stack-profiles/` (`go.md`, `dart.md`, `flutter.md`), mirrored to `~/.claude/devflow/stack-profiles/`. A project adopts one via `extends: <id>` in `.planning/STACK.md` with nothing to install. A user or org override goes in `~/.claude/devflow/stacks/<id>.md` and wins over the bundled profile of the same id.
 
 | Layer | Go | Flutter (mobile + web) | Node (CLI / plugin) |
 |---|---|---|---|

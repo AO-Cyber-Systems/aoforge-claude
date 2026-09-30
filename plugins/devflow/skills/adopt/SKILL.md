@@ -17,6 +17,8 @@ allowed-tools:
   - Glob
   - Grep
   - Task
+  - mcp__gopls__*
+  - mcp__dart__*
 ---
 
 <objective>

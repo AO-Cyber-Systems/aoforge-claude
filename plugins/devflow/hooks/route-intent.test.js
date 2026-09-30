@@ -68,6 +68,7 @@ describe('INTENT_MAP — exported shape', () => {
       '/devflow:objective add',
       '/devflow:new-project',
       '/devflow:adopt',
+      '/devflow:doctor',
       '/devflow:research-objective',
       '/devflow:micro',
       '/devflow:execute-objective',
@@ -163,6 +164,49 @@ describe('matchIntent — ADOPT intent (TRD 37-10)', () => {
     const reminder = renderAdoptReminder();
     assert.ok(reminder.includes('/devflow:adopt'), 'reminder must name /devflow:adopt');
     assert.ok(reminder.split('\n').length <= 4, 'reminder should be 3-4 lines');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// objective 45: DOCTOR intent — explicit "devflow doctor"-flavored prompts route to
+// /devflow:doctor; ordinary uses of the word "doctor" must not.
+// ---------------------------------------------------------------------------
+
+describe('objective 45: DOCTOR intent', () => {
+  test('fires /devflow:doctor on explicit doctor prompts', () => {
+    const prompts = [
+      'run devflow doctor',
+      'diagnose devflow',
+      'devflow is broken',
+      'devflow seems slow',
+      'fix my devflow setup',
+    ];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(matches.length > 0, `expected a match for "${prompt}"`);
+      assert.equal(matches[0].skill, '/devflow:doctor',
+        `expected /devflow:doctor first for "${prompt}", got ${JSON.stringify(matches.map(m => m.skill))}`);
+      assert.equal(matches[0].label, 'doctor');
+    }
+  });
+
+  test('does NOT fire on ordinary "doctor" speech or a bare "devflow"', () => {
+    const prompts = [
+      'ask the doctor about it',
+      "doctor's appointment tomorrow",
+      'the doctor pattern in this codebase',
+      'devflow',
+    ];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(!matches.some(m => m.skill === '/devflow:doctor'),
+        `unexpected /devflow:doctor match for "${prompt}": ${JSON.stringify(matches.map(m => m.skill))}`);
+    }
+  });
+
+  test('does not change how the existing debug and adopt intents route', () => {
+    assert.equal(matchIntent('fix the login bug')[0].skill, '/devflow:debug');
+    assert.equal(matchIntent('adopt this repo')[0].skill, '/devflow:adopt');
   });
 });
 

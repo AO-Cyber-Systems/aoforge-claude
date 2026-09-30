@@ -16,9 +16,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { parseYamlLite } = require('./yaml-lite.cjs');
 const { validate: schemaValidate } = require('./json-schema-lite.cjs');
-const { output, error } = require('./helpers.cjs');
+const { output, error, localDate } = require('./helpers.cjs');
 // 35-02b built command rendering / per-agent context slicing as a separate module so it could
 // run in parallel with 35-02a; re-exported below so every later caller requires only this file.
 const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./stack-render.cjs');
@@ -28,6 +29,10 @@ const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./st
 const { collectEvidence } = require('./stack-evidence.cjs');
 
 const BUNDLED_PATH = path.join(__dirname, '../../references/stack-general.md');
+// Tier-2 profiles shipped with the plugin (TRD 42-02). Resolved AFTER the user/org tier at
+// `<home>/.claude/devflow/stacks/`, so a user profile with the same id always wins. The same
+// `__dirname` join works from the repo checkout and from the `~/.claude/devflow` mirror.
+const BUNDLED_STACKS_DIR = path.join(__dirname, '../../stack-profiles');
 const SCHEMA_PATH = path.join(__dirname, '../../schemas/stack-profile.schema.json');
 const FENCE = '---';
 const MAX_EXTENDS_DEPTH = 4;
@@ -160,12 +165,46 @@ function orgProfilePath(userHome, id) {
   return path.join(userHome, '.claude', 'devflow', 'stacks', `${id}.md`);
 }
 
+/**
+ * profileLookup(id, { userHome, bundledDir }) -> { path, tier: 'user'|'bundled' } | null
+ *
+ * The user/org tier (`<userHome>/.claude/devflow/stacks/<id>.md`) first, then the bundled tier
+ * (`<bundledDir>/<id>.md`). Either tier is skipped when its root is null, so `bundledDir: null`
+ * restores the single-tier lookup exactly.
+ */
+function profileLookup(id, { userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  if (userHome) {
+    const userPath = orgProfilePath(userHome, id);
+    if (fs.existsSync(userPath)) return { path: userPath, tier: 'user' };
+  }
+  if (bundledDir) {
+    const bundledPath = path.join(bundledDir, `${id}.md`);
+    if (fs.existsSync(bundledPath)) return { path: bundledPath, tier: 'bundled' };
+  }
+  return null;
+}
+
+// The EXTENDS_UNRESOLVED message. With the bundled tier off it is byte-identical to the
+// pre-42-02 single-tier text; with it on it names every place that was looked at.
+function unresolvedMessage(id, { userHome, bundledDir }) {
+  if (!bundledDir) {
+    return userHome
+      ? `extends '${id}' not found at ${orgProfilePath(userHome, id)}`
+      : `extends '${id}' cannot be resolved: no org home was provided`;
+  }
+  const bundledPath = path.join(bundledDir, `${id}.md`);
+  return userHome
+    ? `extends '${id}' not found at ${orgProfilePath(userHome, id)} or ${bundledPath}`
+    : `extends '${id}' not found at ${bundledPath} (no org home was provided)`;
+}
+
 // Walks an `extends` chain starting at `startId`, stopping at `general`. Returns hops in
-// LOW -> HIGH order (the farthest ancestor first), never including `general` itself. A cycle, a
-// chain deeper than MAX_EXTENDS_DEPTH, or an id that cannot be found are all recorded as issues
-// and stop the walk at that point — never thrown, so a caller always gets a usable, if partial,
+// LOW -> HIGH order (the farthest ancestor first), never including `general` itself. Each hop
+// carries `source` ('user' | 'bundled'): the tier `profileLookup` found it in. A cycle, a chain
+// deeper than MAX_EXTENDS_DEPTH, or an id that cannot be found are all recorded as issues and
+// stop the walk at that point — never thrown, so a caller always gets a usable, if partial,
 // chain back.
-function walkExtendsChain({ startId, userHome, issues }) {
+function walkExtendsChain({ startId, userHome, bundledDir = BUNDLED_STACKS_DIR, issues }) {
   const collected = [];
   const seen = new Set();
   let id = startId;
@@ -180,19 +219,15 @@ function walkExtendsChain({ startId, userHome, issues }) {
       issues.push({ code: 'EXTENDS_CYCLE', message: `extends cycle detected at '${id}'`, id });
       break;
     }
-    if (!userHome) {
-      issues.push({ code: 'EXTENDS_UNRESOLVED', message: `extends '${id}' cannot be resolved: no org home was provided`, id });
+    const found = profileLookup(id, { userHome, bundledDir });
+    if (!found) {
+      issues.push({ code: 'EXTENDS_UNRESOLVED', message: unresolvedMessage(id, { userHome, bundledDir }), id });
       break;
     }
-    const orgPath = orgProfilePath(userHome, id);
-    if (!fs.existsSync(orgPath)) {
-      issues.push({ code: 'EXTENDS_UNRESOLVED', message: `extends '${id}' not found at ${orgPath}`, id });
-      break;
-    }
-    const text = fs.readFileSync(orgPath, 'utf-8');
-    const parsed = parseProfile(text, { source: orgPath }); // a malformed org-tier file throws, per contract
+    const text = fs.readFileSync(found.path, 'utf-8');
+    const parsed = parseProfile(text, { source: found.path }); // a malformed org-tier file throws, per contract
     seen.add(id);
-    collected.push({ id, path: orgPath, frontmatter: parsed.frontmatter, sections: parsed.sections });
+    collected.push({ id, path: found.path, source: found.tier, frontmatter: parsed.frontmatter, sections: parsed.sections });
     depth += 1;
     id = parsed.frontmatter.extends === undefined || parsed.frontmatter.extends === null
       ? 'general'
@@ -264,15 +299,22 @@ function normalizeSlashes(p) {
 }
 
 // Picks the component whose `path` is the LONGEST prefix of `file` (both compared with forward
-// slashes so a caller on any platform gets the same match). Returns null when nothing matches.
+// slashes so a caller on any platform gets the same match). A non-empty path without a trailing
+// slash gets one appended before comparing (TRD 42-05), so `svc` matches `svc/x` but never
+// `svcx/y`. Returns null when nothing matches.
+function componentPrefix(p) {
+  const norm = normalizeSlashes(p);
+  return norm && !norm.endsWith('/') ? `${norm}/` : norm;
+}
+
 function matchComponent(components, file) {
   if (!Array.isArray(components) || !file) return null;
   const normFile = normalizeSlashes(file);
   let best = null;
   for (const candidate of components) {
     if (!candidate || typeof candidate.path !== 'string') continue;
-    const p = normalizeSlashes(candidate.path);
-    if (normFile.startsWith(p) && (!best || p.length > normalizeSlashes(best.path).length)) {
+    const p = componentPrefix(candidate.path);
+    if (normFile.startsWith(p) && (!best || p.length > componentPrefix(best.path).length)) {
       best = candidate;
     }
   }
@@ -301,7 +343,7 @@ function _resetCache() { _cache = new Map(); }
  *   entry's OWN (unmerged) frontmatter, for callers (validateProfile) that schema-check each
  *   file in the chain individually rather than the merged result.
  */
-function resolveFromParsed(parsedTarget, { userHome = null, file = null, projectRoot = null, targetPath = null } = {}) {
+function resolveFromParsed(parsedTarget, { userHome = null, file = null, projectRoot = null, targetPath = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   const issues = [];
   const generalParsed = parseProfile(fs.readFileSync(BUNDLED_PATH, 'utf-8'), { source: BUNDLED_PATH });
   const layers = [{ id: 'general', tier: 'bundled', path: BUNDLED_PATH, frontmatter: generalParsed.frontmatter, sections: generalParsed.sections }];
@@ -313,9 +355,9 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
     const extendsId = parsedTarget.frontmatter.extends === undefined || parsedTarget.frontmatter.extends === null
       ? 'general'
       : parsedTarget.frontmatter.extends;
-    const orgHops = walkExtendsChain({ startId: extendsId, userHome, issues });
+    const orgHops = walkExtendsChain({ startId: extendsId, userHome, bundledDir, issues });
     for (const hop of orgHops) {
-      layers.push({ id: hop.id, tier: 'org', path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
+      layers.push({ id: hop.id, tier: 'org', source: hop.source, path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
     }
     layers.push({ id: null, tier: 'project', path: targetPath, frontmatter: parsedTarget.frontmatter, sections: parsedTarget.sections });
   }
@@ -332,15 +374,26 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
         const compPath = path.isAbsolute(match.profile) ? match.profile : path.join(projectRoot, match.profile);
         if (fs.existsSync(compPath)) {
           const parsed = parseProfile(fs.readFileSync(compPath, 'utf-8'), { source: compPath });
+          // The file's own `extends` chain (TRD 42-05): each hop goes in BEFORE the file, so the
+          // file overrides its parent. A hop the root chain already holds is not added twice.
+          const compExtends = parsed.frontmatter.extends;
+          if (compExtends !== undefined && compExtends !== null && compExtends !== 'general') {
+            const fileHops = walkExtendsChain({ startId: compExtends, userHome, bundledDir, issues });
+            for (const hop of fileHops) {
+              if (chainIds.has(hop.id)) continue;
+              chainIds.add(hop.id);
+              layers.push({ id: hop.id, tier: 'component', source: hop.source, path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
+            }
+          }
           layers.push({ id: null, tier: 'component', path: compPath, frontmatter: parsed.frontmatter, sections: parsed.sections });
         } else {
           issues.push({ code: 'COMPONENT_MISSING', message: `component profile file not found: ${compPath}`, id: match.profile });
         }
       } else if (typeof match.profile === 'string') {
-        const compHops = walkExtendsChain({ startId: match.profile, userHome, issues });
+        const compHops = walkExtendsChain({ startId: match.profile, userHome, bundledDir, issues });
         for (const hop of compHops) {
           if (chainIds.has(hop.id)) continue;
-          layers.push({ id: hop.id, tier: 'component', path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
+          layers.push({ id: hop.id, tier: 'component', source: hop.source, path: hop.path, frontmatter: hop.frontmatter, sections: hop.sections });
         }
       }
     }
@@ -358,7 +411,10 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
     if (layer.tier === 'bundled' || layer.tier === 'org') id = layer.id;
   }
 
-  const chain = layers.map((l) => ({ id: l.id, tier: l.tier, path: l.path }));
+  // `source` ('user' | 'bundled') is present only on hops found through profileLookup.
+  const chain = layers.map((l) => (l.source
+    ? { id: l.id, tier: l.tier, path: l.path, source: l.source }
+    : { id: l.id, tier: l.tier, path: l.path }));
 
   return { id, frontmatter, sections, provenance, chain, component, issues, projectFile: targetPath, layers };
 }
@@ -374,8 +430,8 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
  * @returns {{id, frontmatter, sections, provenance, chain, component, issues, projectFile}}
  * @throws {StackProfileError} only when a file already in the chain fails to parse
  */
-function resolveProfile({ projectRoot = null, userHome = null, file = null } = {}) {
-  const cacheKey = `${projectRoot || ''}|${userHome || ''}|${file || ''}`;
+function resolveProfile({ projectRoot = null, userHome = null, file = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  const cacheKey = `${projectRoot || ''}|${userHome || ''}|${file || ''}|${bundledDir || ''}`;
   if (_cache.has(cacheKey)) return _cache.get(cacheKey);
 
   if (!fs.existsSync(BUNDLED_PATH)) {
@@ -396,7 +452,7 @@ function resolveProfile({ projectRoot = null, userHome = null, file = null } = {
     }
   }
 
-  const result = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath });
+  const result = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath, bundledDir });
   _cache.set(cacheKey, result);
   return result;
 }
@@ -427,6 +483,9 @@ function loadStackProfileSchemaNoId() {
   return _schemaNoId;
 }
 
+// STK010: a skill pin that is a whole-string template placeholder (`<sha>`, `<commit>`, ...).
+const PLACEHOLDER_PIN = /^<[^<>]+>$/;
+
 const ISSUE_TO_STK = {
   EXTENDS_UNRESOLVED: 'STK002',
   EXTENDS_CYCLE: 'STK003',
@@ -449,7 +508,7 @@ function parseFailureResult(err, targetLabel, targetPath) {
  * chain, plus STK006/STK007 over the TARGET's own (unmerged) parse. Shared by validateProfile
  * and validateProfileText — both just supply a resolved chain and the target's own parse.
  */
-function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel }) {
+function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel, bundledDir = BUNDLED_STACKS_DIR }) {
   const errors = [];
   const warnings = [];
   const schema = loadStackProfileSchema();
@@ -520,6 +579,33 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
     });
   }
 
+  // STK010 — a placeholder skill pin (any whole-string `<...>`, e.g. "<sha>") on ANY layer of the
+  // chain, plus the target's own parse (warning only; never flips `ok`). A placeholder is an
+  // unpinned upstream, which is the thing a pin exists to prevent. One warning per
+  // (source, pin, layer path), so a repeated entry in one file is reported once.
+  const pinLayers = [...resolved.layers];
+  if (parsedTarget && !pinLayers.some((l) => l.frontmatter === parsedTarget.frontmatter)) {
+    pinLayers.push({ id: null, tier: 'project', path: targetPath, frontmatter: parsedTarget.frontmatter });
+  }
+  const seenPins = new Set();
+  for (const layer of pinLayers) {
+    const tooling = layer.frontmatter && layer.frontmatter.agent_tooling;
+    const skills = tooling && Array.isArray(tooling.skills) ? tooling.skills : [];
+    skills.forEach((skill, i) => {
+      if (!skill || typeof skill.pin !== 'string' || !PLACEHOLDER_PIN.test(skill.pin)) return;
+      const key = JSON.stringify([skill.source, skill.pin, layer.path]);
+      if (seenPins.has(key)) return;
+      seenPins.add(key);
+      const label = `${layer.tier} layer${layer.id ? ` '${layer.id}'` : ''}`;
+      warnings.push({
+        code: 'STK010',
+        path: `agent_tooling.skills[${i}].pin`,
+        msg: `${label}: skill ${skill.source} has placeholder pin "${skill.pin}"; pin a real commit`,
+        file: layer.path,
+      });
+    });
+  }
+
   // STK009 — every declared component's profile eagerly, not only one selected by --file (the
   // chain walk above only checks a component matched via `file`, which validate never passes).
   const components = Array.isArray(resolved.frontmatter.components) ? resolved.frontmatter.components : [];
@@ -530,7 +616,7 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
       if (!fs.existsSync(compPath)) {
         errors.push({ code: 'STK009', path: 'components[].profile', msg: `component profile file not found: ${compPath}`, file: targetPath });
       }
-    } else if (!userHome || !fs.existsSync(orgProfilePath(userHome, comp.profile))) {
+    } else if (!profileLookup(comp.profile, { userHome, bundledDir })) {
       errors.push({ code: 'STK009', path: 'components[].profile', msg: `component profile '${comp.profile}' not found`, file: targetPath });
     }
   }
@@ -545,7 +631,7 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
  * — 35-04's `init` uses this to check a draft before it commits to a file. Resolves the chain
  * from the text's own `extends` (via `resolveFromParsed`), exactly as a saved file would.
  */
-function validateProfileText(text, { projectRoot = null, userHome = null, file = null } = {}) {
+function validateProfileText(text, { projectRoot = null, userHome = null, file = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   const targetLabel = file || 'draft';
   let parsedTarget;
   try {
@@ -553,8 +639,8 @@ function validateProfileText(text, { projectRoot = null, userHome = null, file =
   } catch (err) {
     return parseFailureResult(err, targetLabel, file || null);
   }
-  const resolved = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath: file || null });
-  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath: file || null, targetLabel });
+  const resolved = resolveFromParsed(parsedTarget, { userHome, file, projectRoot, targetPath: file || null, bundledDir });
+  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath: file || null, targetLabel, bundledDir });
 }
 
 /**
@@ -565,7 +651,7 @@ function validateProfileText(text, { projectRoot = null, userHome = null, file =
  * `'general (bundled; no .planning/STACK.md)'`, and this is always `ok: true` for a healthy
  * install (general ships schema-valid with every gate/loop key defined).
  */
-function validateProfile({ projectRoot = null, userHome = null, profilePath = null } = {}) {
+function validateProfile({ projectRoot = null, userHome = null, profilePath = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   let targetPath;
   let targetLabel;
   let isBundledGeneral = false;
@@ -609,9 +695,9 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
         issues: [],
         layers: [{ id: 'general', tier: 'bundled', path: BUNDLED_PATH, frontmatter: parsedTarget.frontmatter, sections: parsedTarget.sections }],
       }
-    : resolveFromParsed(parsedTarget, { userHome, file: null, projectRoot, targetPath });
+    : resolveFromParsed(parsedTarget, { userHome, file: null, projectRoot, targetPath, bundledDir });
 
-  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel });
+  return runValidationRules(resolved, parsedTarget, { projectRoot, userHome, targetPath, targetLabel, bundledDir });
 }
 
 // ─── stack init: draft / serialize / write (35-04) ────────────────────────
@@ -622,17 +708,27 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
 // `initProfile`, and only when its caller asks for `write: true`.
 
 /**
- * listOrgProfiles({ userHome }) -> [{ id, extends, detect, languages, path }, ...]
+ * listOrgProfiles({ userHome, bundledDir }) -> [{ id, extends, detect, languages, path, tier }, ...]
  *
- * Reads every `*.md` at `<userHome>/.claude/devflow/stacks/`, sorted by filename. A file that
- * fails to parse is skipped (a listing call reports what it CAN read, never throws over one bad
- * entry) — `resolveProfile`'s own `extends` walk is what enforces a hard failure for a chain a
- * project actually depends on. `[]` for a null `userHome` or a directory that doesn't exist —
- * 35-09's detectMarkers reuses this for the same "there may be nothing installed yet" case.
+ * Reads every `*.md` in the user tier (`<userHome>/.claude/devflow/stacks/`, `tier: 'user'`),
+ * then every `*.md` in the bundled tier (`bundledDir`, `tier: 'bundled'`), each sorted by
+ * filename. A bundled entry whose id a user entry already has is dropped: the user tier shadows
+ * it, exactly as `profileLookup` resolves an `extends`. A file that fails to parse is skipped (a
+ * listing call reports what it CAN read, never throws over one bad entry) — `resolveProfile`'s
+ * own `extends` walk is what enforces a hard failure for a chain a project actually depends on.
+ * A null root or a directory that doesn't exist contributes nothing, so `bundledDir: null` with
+ * a null `userHome` is `[]` — 35-09's detectMarkers reuses this for the same "there may be
+ * nothing installed yet" case.
  */
-function listOrgProfiles({ userHome = null } = {}) {
-  if (!userHome) return [];
-  const dir = path.join(userHome, '.claude', 'devflow', 'stacks');
+function listOrgProfiles({ userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  const user = userHome ? listProfileDir(path.join(userHome, '.claude', 'devflow', 'stacks'), 'user') : [];
+  const bundled = bundledDir ? listProfileDir(bundledDir, 'bundled') : [];
+  const userIds = new Set(user.map((p) => p.id));
+  return user.concat(bundled.filter((p) => !userIds.has(p.id)));
+}
+
+// One tier's directory listing for listOrgProfiles. `[]` when the directory can't be read.
+function listProfileDir(dir, tier) {
   let entries;
   try {
     entries = fs.readdirSync(dir);
@@ -657,6 +753,7 @@ function listOrgProfiles({ userHome = null } = {}) {
       detect: Array.isArray(fm.detect) ? fm.detect : [],
       languages: Array.isArray(fm.languages) ? fm.languages : [],
       path: full,
+      tier,
     });
   }
   return results;
@@ -669,17 +766,30 @@ function listOrgProfiles({ userHome = null } = {}) {
  * this function never names a language itself (35-02a's P11 neutrality property keeps holding).
  * The three detector files (project-state.cjs, init.cjs, brownfield-detector.cjs) are the ONE
  * place allowed to turn a matched marker's `languages` back into a language name (TRD 35-09's
- * neutrality exception). `[]` when `userHome` is null, via the same listOrgProfiles contract.
+ * neutrality exception). Covers both tiers via listOrgProfiles, user entries first; `[]` only
+ * when `userHome` is null AND `bundledDir` is null.
  */
-function detectMarkers({ userHome = null } = {}) {
-  return listOrgProfiles({ userHome }).flatMap((p) =>
+function detectMarkers({ userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
+  return listOrgProfiles({ userHome, bundledDir }).flatMap((p) =>
     (p.detect || []).map((marker) => ({ marker, profile: p.id, languages: p.languages || [] }))
   );
 }
 
 // A marker either names a file at the project root literally, or (`*.ext`) matches any root
-// entry sharing that suffix.
-function markerMatches(marker, rootEntries) {
+// entry sharing that suffix. The object form `{file, contains}` (TRD 42-05) names a root entry
+// literally AND, when `contains` is set, requires that file's text to include it — read from
+// `root`, so without a root (or on any read error) a content marker never matches. `file` must
+// be a root entry name, which also keeps the read inside `root` (a path-shaped name never is one).
+function markerMatches(marker, rootEntries, root = null) {
+  if (marker && typeof marker === 'object' && !Array.isArray(marker)) {
+    if (typeof marker.file !== 'string' || !marker.file || !rootEntries.includes(marker.file)) return false;
+    if (marker.contains === undefined || marker.contains === null) return true;
+    try {
+      return fs.readFileSync(path.join(root, marker.file), 'utf-8').includes(String(marker.contains));
+    } catch (_) {
+      return false;
+    }
+  }
   if (typeof marker !== 'string' || !marker) return false;
   if (marker.startsWith('*.')) {
     const suffix = marker.slice(1);
@@ -688,13 +798,24 @@ function markerMatches(marker, rootEntries) {
   return rootEntries.includes(marker);
 }
 
+// A marker as text for a human-facing reason: a string as-is, an object as `file(contains)`.
+function markerLabel(marker) {
+  if (marker && typeof marker === 'object') {
+    return marker.contains === undefined || marker.contains === null
+      ? String(marker.file)
+      : `${marker.file}(${marker.contains})`;
+  }
+  return String(marker);
+}
+
 /**
  * matchMarkersAt(root, markers) -> the subset of `markers` present at `root`
  *
  * `markers` is typically `detectMarkers()`'s own output (only its `marker` field is read, so
  * any `{marker, ...}` array works). A literal marker must equal a root entry; a `*.ext` marker
- * matches when any root entry shares that suffix (see `markerMatches`). An unreadable `root`
- * (doesn't exist yet, permissions) matches nothing rather than throwing.
+ * matches when any root entry shares that suffix; a `{file, contains}` marker also reads that
+ * file (see `markerMatches`). An unreadable `root` (doesn't exist yet, permissions) matches
+ * nothing rather than throwing.
  */
 function matchMarkersAt(root, markers) {
   let rootEntries = [];
@@ -703,7 +824,7 @@ function matchMarkersAt(root, markers) {
   } catch (_) {
     rootEntries = [];
   }
-  return markers.filter((m) => markerMatches(m.marker, rootEntries));
+  return markers.filter((m) => markerMatches(m.marker, rootEntries, root));
 }
 
 // True when `candidateId` sits somewhere in `ofId`'s own `extends` chain (an ANCESTOR of it),
@@ -729,12 +850,12 @@ function isAncestorOf(candidateId, ofId, byId) {
  * wins, and the dropped ones are reported as `alternatives` alongside any other surviving tie.
  * A remaining tie breaks alphabetically. No match at all -> `general`.
  */
-function pickExtends({ projectRoot, userHome = null, explicit = null } = {}) {
+function pickExtends({ projectRoot, userHome = null, explicit = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   if (explicit) {
     return { id: explicit, reason: `explicit --extends ${explicit}`, alternatives: [] };
   }
 
-  const profiles = listOrgProfiles({ userHome });
+  const profiles = listOrgProfiles({ userHome, bundledDir });
   if (!profiles.length) {
     return { id: 'general', reason: 'no org profiles installed', alternatives: [] };
   }
@@ -746,7 +867,7 @@ function pickExtends({ projectRoot, userHome = null, explicit = null } = {}) {
     rootEntries = [];
   }
 
-  const matched = profiles.filter((p) => p.detect.some((marker) => markerMatches(marker, rootEntries)));
+  const matched = profiles.filter((p) => p.detect.some((marker) => markerMatches(marker, rootEntries, projectRoot)));
   if (!matched.length) {
     return { id: 'general', reason: 'no installed org profile detect marker matched this project', alternatives: [] };
   }
@@ -759,7 +880,7 @@ function pickExtends({ projectRoot, userHome = null, explicit = null } = {}) {
   const winner = survivors[0];
   const alternatives = matched.filter((m) => m.id !== winner.id).map((m) => m.id);
 
-  return { id: winner.id, reason: `detected via ${winner.detect.join(', ')}`, alternatives };
+  return { id: winner.id, reason: `detected via ${winner.detect.map(markerLabel).join(', ')}`, alternatives };
 }
 
 // `basename(projectRoot)`, lowercased, every run of characters outside `[a-z0-9.-]` collapsed to
@@ -771,56 +892,113 @@ function slugifyId(name) {
   return lowered.replace(/^[^a-z0-9]+/, '');
 }
 
+// The body's notes comment is capped so a draft with many notes stays under MAX_BODY_LINES (STK007).
+const MAX_NOTE_LINES = 40;
+
+function noteLine(n) {
+  const where = n.area ? n.area : 'root';
+  const what = n.candidate ? `${n.key}: ${n.candidate}` : (n.key || 'stack');
+  const detail = n.detail ? ` (${n.detail})` : '';
+  // Never close the HTML comment early, never break it across lines.
+  return `- ${where} ${what} — ${n.status}${detail}`.replace(/\r?\n/g, ' ').replace(/-->/g, '-- >');
+}
+
 /**
- * draftProfile({ projectRoot, userHome, from, extendsId }) -> { frontmatter, body, evidence, extends }
- *
- * Evidence comes from `stack-evidence.collectEvidence`. A command is only added when the PARENT
- * chain (bundled general plus `extendsId`'s own `extends` chain — computed via a synthetic
- * target that carries `extendsId` but no commands of its own, so it can never shadow the very
- * chain it's asking about) leaves that key at `discover` or undefined — never overwriting a
- * parent's already-configured command, which is exactly how a `scoped` form an org profile
- * defines survives a draft that also happens to find CI evidence for the same key.
+ * renderDraftBody(id, extendsId, notes) -> the drafted body: a title, the "no empty sections"
+ * comment, and — when there are notes — a second comment listing them, capped at 40 lines with a
+ * `(+N more in STACK-REPORT.md)` trailer.
  */
-function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = 'general' } = {}) {
-  const evidence = collectEvidence(projectRoot, { from });
-
-  const parentResolved = resolveFromParsed(
-    { frontmatter: { schema: 1, extends: extendsId }, sections: [] },
-    { userHome, file: null, projectRoot, targetPath: null }
-  );
-  const parentCommands = (parentResolved.frontmatter && parentResolved.frontmatter.commands) || {};
-
-  const commands = {};
-  const seenKeys = new Set();
-  for (const item of evidence) {
-    if (seenKeys.has(item.key)) continue; // first (highest-priority) entry per key wins
-    seenKeys.add(item.key);
-    const parentEntry = parentCommands[item.key];
-    const parentRun = parentEntry && typeof parentEntry.run === 'string' ? parentEntry.run : undefined;
-    if (parentRun === undefined || parentRun === 'discover') {
-      commands[item.key] = { run: item.command };
-    }
-  }
-
-  const id = slugifyId(path.basename(projectRoot));
-  const today = new Date().toISOString().slice(0, 10);
-  const sources = [...new Set(evidence.map((e) => e.source))];
-
-  const frontmatter = {
-    schema: 1,
-    id,
-    extends: extendsId,
-    commands,
-    provenance: { reviewed: today, sources },
-  };
-
-  const body = `# Stack Profile: ${id}\n\n`
+function renderDraftBody(id, extendsId, notes = []) {
+  let body = `# Stack Profile: ${id}\n\n`
     + `<!-- Drafted by \`df-tools stack init\`. Add no `
     + '`## ` heading below unless this project genuinely diverges from `'
     + `${extendsId}\`: an empty section would replace the parent's. Recognized sections: `
     + `${SECTION_NAMES.join(', ')}. -->\n`;
+  const list = Array.isArray(notes) ? notes : [];
+  if (list.length) {
+    const lines = list.slice(0, MAX_NOTE_LINES).map(noteLine);
+    if (list.length > MAX_NOTE_LINES) lines.push(`(+${list.length - MAX_NOTE_LINES} more in STACK-REPORT.md)`);
+    body += `\n<!-- stack init notes (see .planning/STACK-REPORT.md):\n${lines.join('\n')}\n-->\n`;
+  }
+  return body;
+}
 
-  return { frontmatter, body, evidence, extends: extendsId };
+/** The default draft verifier: stack-verify's static resolver, run against the real env unless overridden. */
+function defaultVerifier(projectRoot, verifyOpts = {}) {
+  // Lazy: stack-verify.cjs requires this module (inside verifyStack); a top-level require would cycle.
+  const { verifyCommand } = require('./stack-verify.cjs');
+  return (command, cwd) => verifyCommand(command, { root: projectRoot, cwd: cwd || '', ...verifyOpts });
+}
+
+/**
+ * draftProfile({ projectRoot, userHome, from, extendsId, now, bundledDir, verifyOpts, verify }) ->
+ *   { frontmatter, body, evidence, extends, notes, resolvedKeys, inheritedKeys }
+ *
+ * Grounded drafting (TRD 42-07): detect the repo's areas, pick each language area's profile with
+ * `pickExtends` (an explicit `extendsId` wins for the root), collect structured evidence, resolve
+ * each involved profile's commands (a synthetic target carrying only `extends`, so it cannot
+ * shadow the chain it asks about), and hand all of it to stack-draft.assembleDraft with a
+ * verifier — `verify(command, cwd)` when given, else stack-verify with `verifyOpts` (env, home).
+ * Only STACK.md is ever drafted: components name a profile id, never a file under .planning/.
+ */
+function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, now = new Date(), bundledDir = BUNDLED_STACKS_DIR, verifyOpts = {}, verify = null } = {}) {
+  // Lazy: stack-draft/stack-detect are drafting-only, and keeping them out of the loader's load
+  // path means every `stack resolve` caller never pays for them.
+  const { detectAreas } = require('./stack-detect.cjs');
+  const { assembleDraft } = require('./stack-draft.cjs');
+
+  let areas = [];
+  try {
+    areas = detectAreas(projectRoot);
+  } catch (_) {
+    areas = [];
+  }
+  const withProfiles = areas.map((a) => {
+    if (!Array.isArray(a.kinds) || !a.kinds.length) return a;
+    const dirAbs = a.dir ? path.join(projectRoot, a.dir) : projectRoot;
+    return { ...a, profile: pickExtends({ projectRoot: dirAbs, userHome, bundledDir }).id };
+  });
+  const evidence = collectEvidence(projectRoot, { from, areas });
+
+  const ids = new Set(['general']);
+  if (extendsId) ids.add(extendsId);
+  for (const a of withProfiles) if (a.profile) ids.add(a.profile);
+  const tierCommands = {};
+  for (const tierId of ids) {
+    const resolved = resolveFromParsed(
+      { frontmatter: { schema: 1, extends: tierId }, sections: [] },
+      { userHome, file: null, projectRoot, targetPath: null, bundledDir }
+    );
+    tierCommands[tierId] = (resolved.frontmatter && resolved.frontmatter.commands) || {};
+  }
+
+  const draft = assembleDraft({
+    areas: withProfiles,
+    evidence,
+    tierCommands,
+    verify: typeof verify === 'function' ? verify : defaultVerifier(projectRoot, verifyOpts),
+    extendsId,
+  });
+
+  const id = slugifyId(path.basename(projectRoot));
+  // The LOCAL calendar day: `reviewed` is a date a human reads, not a UTC instant (SDR-07).
+  const today = localDate(now);
+
+  const frontmatter = { schema: 1, id, extends: draft.extendsId };
+  if (draft.components.length) frontmatter.components = draft.components;
+  frontmatter.commands = draft.commands;
+  if (draft.loop) frontmatter.loop = draft.loop;
+  frontmatter.provenance = { reviewed: today, sources: draft.sources };
+
+  return {
+    frontmatter,
+    body: renderDraftBody(id, draft.extendsId, draft.notes),
+    evidence,
+    extends: draft.extendsId,
+    notes: draft.notes,
+    resolvedKeys: draft.resolvedKeys,
+    inheritedKeys: draft.inheritedKeys,
+  };
 }
 
 function yamlScalar(value) {
@@ -869,8 +1047,36 @@ function serializeProfile(frontmatter, body) {
   return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }
 
+const STACK_REL = '.planning/STACK.md';
+const STACK_REPORT_REL = '.planning/STACK-REPORT.md';
+const STACK_FILES = Object.freeze([STACK_REL, STACK_REPORT_REL]);
+
 /**
- * initProfile({ projectRoot, userHome, from, extendsId, write, force }) ->
+ * ignoredTargets(projectRoot, rels) -> the repo-relative FILE paths among `rels` that the ignore
+ * RULES match (TRD 42-14, D5). ONE `git -C root check-ignore --no-index --stdin -z` call:
+ * `--no-index` because a tracked file (a force-added `.planning/STACK.md`, or any tracked file
+ * under an ignored `.planning/`) makes the index-aware check say "not ignored" and masks the rule.
+ * helpers.isGitIgnored stays index-aware for its other callers. No git, not a work tree, or any git
+ * failure: `[]`. Never throws.
+ */
+function ignoredTargets(projectRoot, rels) {
+  const list = (rels || []).map(String);
+  if (!list.length) return [];
+  let r;
+  try {
+    r = spawnSync('git', ['-C', String(projectRoot), 'check-ignore', '--no-index', '--stdin', '-z'], {
+      input: `${list.join('\0')}\0`, stdio: ['pipe', 'pipe', 'ignore'], timeout: 15000,
+    });
+  } catch (_) {
+    return [];
+  }
+  if (!r || r.error || r.status !== 0) return []; // 1 = nothing ignored; 128 = not a repo / no git
+  const hits = new Set(String(r.stdout).split('\0').filter(Boolean));
+  return list.filter((rel) => hits.has(rel));
+}
+
+/**
+ * initProfile({ projectRoot, userHome, from, extendsId, write, force, now }) ->
  *   { action: 'preview'|'written'|'refused', path, text, extends, evidence, validation }
  *
  * `extendsId` here is the CALLER's `--extends` override (may be null/undefined — `pickExtends`
@@ -878,14 +1084,33 @@ function serializeProfile(frontmatter, body) {
  * Preview (the default, and always the outcome when the draft fails validation): nothing is
  * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
+ *
+ * Every result carries `ignored` and `warnings` (TRD 42-12, 42-14). In PREVIEW and write alike,
+ * both stack FILES (`.planning/STACK.md`, `.planning/STACK-REPORT.md`) are checked with one
+ * `git check-ignore --no-index` call (ignoredTargets): a tracked file under `.planning/` makes a
+ * dir-level or index-aware check say "not ignored", so the rule itself is what must be tested.
+ * Each match is in `ignored` with a warning naming it in `warnings`; it is NOT fatal (adopt relies
+ * on the write; the rollout decides). No git, not a repo, or any git failure: `ignored: []`.
  */
-function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false } = {}) {
-  const picked = pickExtends({ projectRoot, userHome, explicit: extendsId });
-  const draft = draftProfile({ projectRoot, userHome, from, extendsId: picked.id });
+function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, write = false, force = false, now = new Date(), bundledDir = BUNDLED_STACKS_DIR, verifyOpts = {}, verify = null } = {}) {
+  // draftProfile picks each area's profile itself; `extendsId` is only the caller's override.
+  const draft = draftProfile({ projectRoot, userHome, from, extendsId, now, bundledDir, verifyOpts, verify });
   const text = serializeProfile(draft.frontmatter, draft.body);
-  const validation = validateProfileText(text, { projectRoot, userHome, file: null });
+  const validation = validateProfileText(text, { projectRoot, userHome, file: null, bundledDir });
   const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
-  const base = { path: targetPath, text, extends: picked.id, evidence: draft.evidence, validation };
+  const ignored = ignoredTargets(projectRoot, STACK_FILES);
+  const base = {
+    path: targetPath,
+    text,
+    extends: draft.extends,
+    evidence: draft.evidence,
+    notes: draft.notes,
+    resolvedKeys: draft.resolvedKeys,
+    inheritedKeys: draft.inheritedKeys,
+    validation,
+    ignored,
+    warnings: ignored.map((rel) => `${rel} is gitignored; df-tools commit will skip it`),
+  };
 
   if (!write || !validation.ok) {
     return { action: 'preview', ...base };
@@ -901,6 +1126,37 @@ function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsI
 }
 
 // ─── df-tools stack CLI ────────────────────────────────────────────────────
+
+/**
+ * Stack extensions — `stack <sub>` subcommands implemented in sibling modules, so a later TRD can
+ * ship one without editing this file (42-06 stack-verify.cjs, 42-08 stack-report.cjs, 42-09
+ * stack-mcp.cjs).
+ *
+ * Contract for an extension module: export `cli(cwd, args, raw, { userHome })`, where `args` is
+ * everything after the subcommand name. It reports through helpers `output` / `error` like every
+ * other df-tools command. The module is required LAZILY, inside the dispatch branch, never at
+ * load time: a missing or broken extension must not break `stack resolve`, and the extensions
+ * require this module, so a top-level require would be a cycle.
+ */
+const STACK_EXTENSIONS = Object.freeze({
+  verify: 'stack-verify.cjs',
+  report: 'stack-report.cjs',
+  mcp: 'stack-mcp.cjs',
+});
+
+/**
+ * loadStackExtension(sub, { libDir }) -> module | null
+ *
+ * null when `sub` is not an extension or its module file is absent. A module that exists but
+ * throws while loading (a syntax error, a bad require) is NOT caught: that is a broken build and
+ * must surface, not read as "not available".
+ */
+function loadStackExtension(sub, { libDir = __dirname } = {}) {
+  if (!Object.prototype.hasOwnProperty.call(STACK_EXTENSIONS, sub)) return null;
+  const modulePath = path.join(libDir, STACK_EXTENSIONS[sub]);
+  if (!fs.existsSync(modulePath)) return null;
+  return require(modulePath);
+}
 
 function parseFlagValue(args, flag) {
   const i = args.indexOf(flag);
@@ -920,7 +1176,7 @@ function parseCsvFlag(args, flag) {
  * 35-04. `os.homedir()` is called ONLY here (never in resolveProfile/validateProfile) so those
  * stay pure and every test can sandbox HOME by passing `userHome` explicitly.
  */
-function cmdStack(cwd, args, raw) {
+function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
   const userHome = require('os').homedir();
   const projectRoot = cwd;
   const subcommand = args[0];
@@ -959,6 +1215,12 @@ function cmdStack(cwd, args, raw) {
     }
 
     if (subcommand === 'validate') {
+      // A positional path used to be ignored, so `stack validate x.md` validated .planning/STACK.md
+      // and reported ITS result — a green run for a file it never read (SDR-07).
+      if (args[1] !== undefined && !String(args[1]).startsWith('-')) {
+        error('stack validate takes --profile <path>, not a positional path');
+        return;
+      }
       const profilePath = parseFlagValue(args, '--profile');
       const result = validateProfile({ projectRoot, userHome, profilePath });
       output(result, raw, result.ok ? 'ok' : 'invalid', result.ok ? 0 : 1);
@@ -988,12 +1250,22 @@ function cmdStack(cwd, args, raw) {
         error(`.planning/STACK.md already exists; pass --force to overwrite it (refusing to write ${result.path})`);
         return;
       }
+      for (const w of result.warnings || []) process.stderr.write(`warning: ${w}\n`);
       const exitCode = result.validation.ok ? 0 : 1;
       output(result, raw, result.text, exitCode);
       return;
     }
 
-    error('Unknown stack subcommand. Available: resolve, context, validate, command, init');
+    if (Object.prototype.hasOwnProperty.call(STACK_EXTENSIONS, subcommand)) {
+      const mod = loadStackExtension(subcommand, { libDir });
+      if (!mod || typeof mod.cli !== 'function') {
+        error(`stack ${subcommand} is not available in this build`);
+        return;
+      }
+      return mod.cli(cwd, args.slice(1), raw, { userHome });
+    }
+
+    error(`Unknown stack subcommand. Available: resolve, context, validate, command, init, ${Object.keys(STACK_EXTENSIONS).join(', ')}`);
   } catch (err) {
     error(err.message);
   }
@@ -1010,9 +1282,12 @@ module.exports = {
   matchMarkersAt,
   pickExtends,
   draftProfile,
+  renderDraftBody,
   serializeProfile,
   initProfile,
   cmdStack,
+  STACK_EXTENSIONS,
+  loadStackExtension,
   renderCommand,
   contextFor,
   AGENT_SLICES,
@@ -1021,4 +1296,5 @@ module.exports = {
   SECTION_NAMES,
   _resetCache,
   BUNDLED_PATH,
+  BUNDLED_STACKS_DIR,
 };

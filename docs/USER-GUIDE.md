@@ -189,6 +189,7 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
 | `/devflow:status check [--migrate]` | Validate `.planning/` integrity and fix issues; `--migrate` upgrades the project in place (runs `df-tools upgrade`) | Planning files feel stale or corrupt, after a DevFlow update, or when `validate health` reports W040 |
+| `/devflow:doctor [--fix] [--global] [path]` | Diagnose the DevFlow environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale markers and backups); read-only unless `--fix`, which applies only safe, reversible repairs | DevFlow behaves oddly, after a plugin update, or a repo shows `.planning` runtime files changing |
 
 ### Adopting an Existing Repo (`/devflow:adopt`)
 
@@ -578,6 +579,7 @@ A known workaround exists for a Claude Code classification bug. DevFlow's orches
 | Need to change scope | `/devflow:objective add` or `/devflow:objective remove` |
 | Milestone audit found gaps | `/devflow:milestone gaps` |
 | Something broke | `/devflow:debug "description"` |
+| DevFlow itself misbehaves, or runtime files keep dirtying a repo | `/devflow:doctor` (add `--fix` to apply the safe repairs) |
 | Quick targeted fix | `/devflow:quick` |
 | Plan doesn't match your vision | `/devflow:discuss-objective [N]` then re-plan |
 | Costs running high | `/devflow:set-profile budget` and `/devflow:settings` to toggle agents off |
@@ -621,13 +623,15 @@ DevFlow installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 | Hook | Event | What it does | Escape hatch |
 |---|---|---|---|
 | `route-intent.js` | UserPromptSubmit | Detects DevFlow projects (`.planning/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-DevFlow repos and explicit `/devflow:` invocations |
-| `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in DevFlow projects; demands `df-tools commit` so atomic per-task commits and STATE.md stay consistent. | `DEVFLOW_ALLOW_RAW_COMMIT=1` |
-| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.planning/.skill-active` marker exists (executor writes this), user prompt contains an override phrase (`skip devflow`, `just edit`, `bypass devflow`, `force edit`), or env var is set. Always permits `.planning/**` and `*.md` paths. (Prior `DEVFLOW_STRICT_EDITS=1` behavior is now the default.) | `DEVFLOW_SKIP_EDIT_GATE=1` disables the gate entirely |
+| `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in DevFlow projects; demands `df-tools commit` so atomic per-task commits and STATE.md stay consistent. Merge, rebase and cherry-pick completions are allowed automatically. | Inline `DEVFLOW_ALLOW_RAW_COMMIT=1 git commit …`, or `DEVFLOW_ALLOW_RAW_COMMIT=1` exported before launching Claude Code (see below) |
+| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.planning/.skill-active` marker exists (executor writes this), the editing agent is a DevFlow agent (`agent_type` `devflow:<name>`), user prompt contains an override phrase (`skip devflow`, `just edit`, `bypass devflow`, `force edit`), or env var is set. Always permits `.planning/**` and `*.md` paths. (Prior `DEVFLOW_STRICT_EDITS=1` behavior is now the default.) | `DEVFLOW_SKIP_EDIT_GATE=1` disables the gate entirely |
 | `changelog-on-tag.js` | PreToolUse (Bash) | Blocks `git tag -a vX.Y.Z` if `CHANGELOG.md` has no `## [X.Y.Z]` heading. Tells you to run `df-tools changelog update --version vX.Y.Z` first. | `DEVFLOW_SKIP_CHANGELOG_GATE=1` |
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
 | `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. | n/a (warning only) |
+| `gate-executor-stop.js` | SubagentStop | Blocks a `devflow:executor` once when it stops naturally and its TRD has no SUMMARY.md yet, telling it to finish or write the `## Progress` checkpoint. Never blocks twice in a row; fails open. | `DEVFLOW_SKIP_EXECUTOR_STOP_GATE=1` |
+| `auto-continue.js` | Stop | While a DevFlow skill is active and nothing runs in the background, blocks once when Claude ends its turn right after announcing its own next step ("Writing the predicate.") instead of taking it. Questions and `/devflow:` hand-offs never trigger it. | `DEVFLOW_SKIP_AUTOCONTINUE=1` |
 | `check-update.js` | SessionStart | Background npm registry check for newer DevFlow versions. | n/a |
-| `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits, or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade)) as the first step, DevFlow project or not. Notices are emitted once, on the next prompt, by `route-results.js`. | `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only) |
+| `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits (the runtime-state files migration 0008 untracks don't count), or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade)) as the first step, DevFlow project or not. Notices are emitted once, on the next prompt, by `route-results.js`. | `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only) |
 | `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator. | n/a |
 
 ### "DevFlow blocked my command — why?"
@@ -635,12 +639,16 @@ DevFlow installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 If a hook denies a tool call, the model receives the denial reason and will usually correct itself. If you want to bypass:
 
 ```bash
-# One-off: prefix the command with the env var
+# From Claude (the agent's Bash tool): prefix each `git commit` inline.
+# Every commit invocation in the command needs its own prefix.
 DEVFLOW_ALLOW_RAW_COMMIT=1 git commit -m "..."
 
-# Persistent for a session
+# For a whole session: export it in YOUR terminal, BEFORE starting Claude Code.
 export DEVFLOW_ALLOW_RAW_COMMIT=1
+claude
 ```
+
+An `export DEVFLOW_ALLOW_RAW_COMMIT=1` run by the agent inside a Bash command never works: the hook decides before the command runs and reads only its own environment, which it inherits from the terminal that launched Claude Code. The inline prefix is the only form the agent can use. Completing a merge, rebase or cherry-pick (a `git commit` while `MERGE_HEAD`, `REBASE_HEAD`, `rebase-merge/`, `rebase-apply/` or `CHERRY_PICK_HEAD` exists in the repo's git dir) is allowed automatically and needs no escape.
 
 To turn off a hook entirely, edit `~/.claude/settings.json` and remove its entry from `hooks.PreToolUse` / `hooks.UserPromptSubmit`. Reinstalling DevFlow will re-add it.
 

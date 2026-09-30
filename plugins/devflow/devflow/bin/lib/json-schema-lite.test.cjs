@@ -22,7 +22,7 @@
 //   16. additionalProperties: {$ref: "#/$defs/command"}: an extra key whose value violates the referenced schema yields errors at commands.test.run; a conforming one yields none
 //   17. minItems: 1 with [] -> NO error (documents the deliberate non-support; see gotchas)
 // Positive control (integration):
-//   18. Frontmatter of references/stack-general.md and docs/stack-profiles/{go,dart,flutter}.md validates against schemas/stack-profile.schema.json with []
+//   18. Frontmatter of references/stack-general.md and stack-profiles/{go,dart,flutter}.md validates against schemas/stack-profile.schema.json with []
 //   19. A copy of the go profile with commands.test.run = "" and provenance.reviewed = "soon" yields exactly two errors (minLength, format)
 
 const { test, describe } = require('node:test');
@@ -52,10 +52,8 @@ const STACK_PROFILE_SCHEMA_PATH = path.join(
   '..', '..', 'schemas', 'stack-profile.schema.json'
 );
 const STACK_GENERAL_PATH = path.join(__dirname, '..', '..', 'references', 'stack-general.md');
-// docs/ is not in the ~/.claude/devflow mirror — walk up to the checkout root from __dirname.
-const STACK_PROFILES_DOCS_DIR = path.join(
-  __dirname, '..', '..', '..', '..', '..', 'docs', 'stack-profiles'
-);
+// The tier-2 profiles ship bundled in the plugin beside references/ and schemas/ (TRD 42-02).
+const STACK_PROFILES_DIR = path.join(__dirname, '..', '..', 'stack-profiles');
 
 function loadStackProfileSchema() {
   return JSON.parse(fs.readFileSync(STACK_PROFILE_SCHEMA_PATH, 'utf8'));
@@ -271,14 +269,14 @@ describe('positive control — shipped stack profiles', () => {
   });
 
   for (const name of ['go', 'dart', 'flutter']) {
-    test(`18b. docs/stack-profiles/${name}.md frontmatter validates with []`, () => {
-      const fm = readFrontmatter(path.join(STACK_PROFILES_DOCS_DIR, `${name}.md`));
+    test(`18b. stack-profiles/${name}.md frontmatter validates with []`, () => {
+      const fm = readFrontmatter(path.join(STACK_PROFILES_DIR, `${name}.md`));
       assert.deepStrictEqual(validate(fm, schema), []);
     });
   }
 
   test('19. a broken copy of the go profile yields exactly two errors (minLength, format)', () => {
-    const fm = readFrontmatter(path.join(STACK_PROFILES_DOCS_DIR, 'go.md'));
+    const fm = readFrontmatter(path.join(STACK_PROFILES_DIR, 'go.md'));
     const broken = JSON.parse(JSON.stringify(fm));
     broken.commands.test.run = '';
     broken.provenance.reviewed = 'soon';
@@ -287,5 +285,24 @@ describe('positive control — shipped stack profiles', () => {
     const msgs = result.map((e) => e.msg).sort();
     assert.ok(msgs.some((m) => m.includes('minLength')), JSON.stringify(result));
     assert.ok(msgs.some((m) => m.includes('valid date')), JSON.stringify(result));
+  });
+
+  // TRD 42-05: a `detect` entry is a bare file name OR `{file, contains}` (flutter.md separates a
+  // Flutter pubspec from a pure Dart one by its content).
+  test('20. detect accepts a string or a {file, contains} object; a non-string file is rejected', () => {
+    const base = { schema: 1, id: 'x' };
+    const ok = Object.assign({}, base, {
+      detect: ['pubspec.yaml', { file: 'pubspec.yaml', contains: 'sdk: flutter' }, { file: 'go.mod' }],
+    });
+    assert.deepStrictEqual(validate(ok, schema), []);
+
+    const badFile = Object.assign({}, base, { detect: [{ file: 1 }] });
+    assert.ok(validate(badFile, schema).length > 0, 'a numeric file is rejected');
+
+    const noFile = Object.assign({}, base, { detect: [{ contains: 'sdk: flutter' }] });
+    assert.ok(validate(noFile, schema).length > 0, 'an object without file is rejected');
+
+    const extraKey = Object.assign({}, base, { detect: [{ file: 'a', glob: '*.x' }] });
+    assert.ok(validate(extraKey, schema).length > 0, 'an unknown key is rejected');
   });
 });

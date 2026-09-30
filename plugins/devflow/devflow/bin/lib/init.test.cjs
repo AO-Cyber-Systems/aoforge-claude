@@ -4,6 +4,7 @@
  *
  * TRD 18-03 — Group 18I: check-todos + awareness init previews
  * TRD 02-06 — Group I: awareness_refresh flag tests
+ * TRD 45-01 — awareness cache is read from the out-of-tree awareness-store (not .planning/)
  */
 
 const test = require('node:test');
@@ -18,6 +19,25 @@ const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 // ─── TRD 18-03 Imports (helpers exported for unit testing) ───────────────────
 
 const { _buildCheckTodosPreview, _buildAwarenessPreview } = require('./init.cjs');
+const awarenessStore = require('./awareness-store.cjs');
+
+// ─── TRD 45-01 isolation ─────────────────────────────────────────────────────
+// The awareness cache lives under DEVFLOW_AWARENESS_DIR (else ~/.claude/...). Every test
+// here runs against a throwaway dir, in-process and — because execSync inherits
+// process.env — in the df-tools child processes too. File-level hooks; the env is restored.
+const { beforeEach, afterEach } = test;
+let _awarenessDir;
+let _savedAwarenessEnv;
+beforeEach(() => {
+  _savedAwarenessEnv = process.env.DEVFLOW_AWARENESS_DIR;
+  _awarenessDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-init-awareness-'));
+  process.env.DEVFLOW_AWARENESS_DIR = _awarenessDir;
+});
+afterEach(() => {
+  if (_savedAwarenessEnv === undefined) delete process.env.DEVFLOW_AWARENESS_DIR;
+  else process.env.DEVFLOW_AWARENESS_DIR = _savedAwarenessEnv;
+  try { fs.rmSync(_awarenessDir, { recursive: true, force: true }); } catch {}
+});
 
 // ─── Fixtures / Helpers ───────────────────────────────────────────────────────
 
@@ -58,6 +78,7 @@ function runInit(subcommand, cwd) {
 
 /**
  * Build a minimal fixture directory with optional cache files.
+ * The awareness cache is seeded through awareness-store (TRD 45-01), never under .planning/.
  * Returns the path to the tmp root.
  * Per TDD Playbook habit 4: hand-built factory function, no LLM-generated test data.
  *
@@ -74,10 +95,16 @@ function makeFixture({ checkTodosCache, awarenessCache } = {}) {
     );
   }
   if (awarenessCache !== undefined) {
-    fs.writeFileSync(
-      path.join(root, '.planning', '.awareness-cache.json'),
-      typeof awarenessCache === 'string' ? awarenessCache : JSON.stringify(awarenessCache)
-    );
+    const file = awarenessStore.cacheFile(root);
+    if (typeof awarenessCache === 'string') {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, awarenessCache);
+    } else {
+      awarenessStore.writeEntry(
+        file,
+        Object.assign({ project: fs.realpathSync(root), updated: new Date().toISOString() }, awarenessCache)
+      );
+    }
   }
   return root;
 }
@@ -96,6 +123,10 @@ function makeFixture({ checkTodosCache, awarenessCache } = {}) {
 // 18I8 — Integration: cmdInitExecuteObjective JSON contains check_todos_preview + awareness_preview + advisories_warnings keys
 // 18I9 — Integration: cmdInitPlanObjective JSON contains the same three keys (DRY)
 // 18I10 — Integration: when cache files absent, all three keys present with null/[] values (back-compat)
+// 18I11 — _buildAwarenessPreview: a legacy in-tree .planning/.awareness-cache.json with no store file → {line:null, warning:null} (TRD 45-01, no fallback)
+// 18I12 — _buildAwarenessPreview: seeded store file (2 other branches) → the '2 other branches' line, and nothing was written under .planning/ (TRD 45-01)
+// 18I13 — _buildAwarenessPreview: garbage store file → {line:null, warning:null} (a parse error can no longer surface)
+// 18I14 — Integration: a legacy-only in-tree cache does not surface awareness_preview (TRD 45-01)
 
 test('18I1 — _buildCheckTodosPreview: 2 now entries returns formatted line', () => {
   const repo = makeFixture({ checkTodosCache: { now: [{ id: 1 }, { id: 2 }], blocked: [], soon: [], ideas: [] } });
@@ -182,6 +213,57 @@ test('18I7 — _buildAwarenessPreview: only current branch in list → {line:nul
       },
     },
   });
+  try {
+    const r = _buildAwarenessPreview(repo);
+    assert.strictEqual(r.line, null);
+    assert.strictEqual(r.warning, null);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('18I11 — _buildAwarenessPreview: legacy in-tree file with no store file → {line:null, warning:null}', () => {
+  const repo = makeFixture({});
+  try {
+    fs.writeFileSync(
+      path.join(repo, '.planning', '.awareness-cache.json'),
+      JSON.stringify({
+        peer: { current_branch: 'main', branches: [{ branch: 'feature-a' }, { branch: 'feature-b' }] },
+      })
+    );
+    const r = _buildAwarenessPreview(repo);
+    assert.strictEqual(r.line, null);
+    assert.strictEqual(r.warning, null);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('18I12 — _buildAwarenessPreview: reads the store file (2 other branches) and writes nothing under .planning/', () => {
+  const repo = makeFixture({
+    awarenessCache: {
+      peer: {
+        current_branch: 'main',
+        branches: [{ branch: 'feature-a' }, { branch: 'feature-b' }],
+      },
+    },
+  });
+  try {
+    assert.ok(fs.existsSync(awarenessStore.cacheFile(repo)), 'precondition: store file seeded');
+    const r = _buildAwarenessPreview(repo);
+    assert.strictEqual(r.line, '⚠ 2 other branches active (run df-tools awareness show)');
+    assert.strictEqual(r.warning, null);
+    assert.ok(
+      !fs.existsSync(path.join(repo, '.planning', '.awareness-cache.json')),
+      'no legacy in-tree file'
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('18I13 — _buildAwarenessPreview: garbage store file → {line:null, warning:null}', () => {
+  const repo = makeFixture({ awarenessCache: '{ invalid json !! }' });
   try {
     const r = _buildAwarenessPreview(repo);
     assert.strictEqual(r.line, null);
@@ -432,6 +514,30 @@ test('18I10 — Integration: cache files absent → all three keys present with 
     assert.strictEqual(json.check_todos_preview, null, `expected null check_todos_preview, got: ${JSON.stringify(json.check_todos_preview)}`);
     assert.strictEqual(json.awareness_preview, null, `expected null awareness_preview, got: ${JSON.stringify(json.awareness_preview)}`);
     assert.deepStrictEqual(json.advisories_warnings, [], `expected [] advisories_warnings, got: ${JSON.stringify(json.advisories_warnings)}`);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('18I14 — Integration: a legacy-only in-tree cache does not surface awareness_preview', () => {
+  const repo = makeFixture({});
+  try {
+    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-test'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '## Objective 1: Test\n');
+    fs.writeFileSync(
+      path.join(repo, '.planning', '.awareness-cache.json'),
+      JSON.stringify({
+        peer: { current_branch: 'main', branches: [{ branch: 'feature-a' }, { branch: 'feature-b' }] },
+      })
+    );
+    const stdout = execSync(`node "${DF_TOOLS}" init plan-objective 1`, {
+      cwd: repo,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const json = JSON.parse(stdout.trim());
+    assert.strictEqual(json.awareness_preview, null, `expected null, got: ${JSON.stringify(json.awareness_preview)}`);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }

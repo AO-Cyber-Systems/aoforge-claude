@@ -44,7 +44,24 @@
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.\\-]*$" },
     "extends": { "description": "Parent profile id, or null for the root (`general` only). Omitted means `general`.", "type": ["string", "null"] },
     "languages": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-    "detect": { "description": "Org/pack profiles only: marker files that suggest this profile when drafting a STACK.md (e.g. go.mod, pubspec.yaml).", "type": "array", "items": { "type": "string" } },
+    "detect": {
+      "description": "Org/pack profiles only: markers that suggest this profile when drafting a STACK.md. A string names a root entry (e.g. go.mod, or *.ext for any entry with that suffix). An object {file, contains} names a root file that must also include the text `contains` (e.g. {file: pubspec.yaml, contains: \"sdk: flutter\"}).",
+      "type": "array",
+      "items": {
+        "anyOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["file"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string", "minLength": 1 },
+              "contains": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
     "toolchain": { "type": "object", "additionalProperties": { "$ref": "#/$defs/toolReq" } },
     "commands": {
       "type": "object",

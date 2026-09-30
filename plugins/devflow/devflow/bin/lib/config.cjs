@@ -182,6 +182,119 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
   }
 }
 
+// ─── Documented defaults (TRD 44-07) ──────────────────────────────────────────
+//
+// `config-get` answers a KNOWN key that config.json does not set with its documented default, so
+// a project whose config.json predates a key (44-EVIDENCE DF-07) gets an answer rather than
+// `Key not found`. Unknown keys still error, so a typo stays loud.
+//
+// The defaults ARE templates/config.json, read at call time. The path resolves the same way in
+// the repo and in the ~/.claude/devflow mirror. Nothing below restates a default value: the
+// tables hold key-path pointers only, so they cannot drift from the template.
+
+const TEMPLATE_CONFIG_PATH = path.join(__dirname, '..', '..', 'templates', 'config.json');
+
+// Keys agents ask for that are not template leaves -> the template leaf that answers them.
+const ALIAS_DEFAULTS = {
+  'workflow.parallelization': 'parallelization.enabled',
+  'workflow.mode': 'mode',
+};
+
+// The other places loadConfig reads a documented key from. A value the user set in one of these
+// must beat the template default, or config-get would contradict loadConfig — most commonly
+// `"parallelization": true|false`, the shape new-project and config-ensure-section write.
+const LEGACY_FORMS = {
+  'mode': ['workflow.mode'],
+  'workflow.auto_advance': ['auto_advance'],
+  'workflow.research': ['research'],
+  'workflow.job_check': ['job_checker'],
+  'workflow.verifier': ['verifier'],
+  'workflow.verifier_checkpoints': ['verifier_checkpoints'],
+  'workflow.decision_queue': ['decision_queue'],
+  'planning.commit_docs': ['commit_docs'],
+  'planning.search_gitignored': ['search_gitignored'],
+  'parallelization.enabled': ['parallelization'],
+};
+
+// Unset, these follow the mode rather than a fixed template value (loadConfig: `?? autonomous`).
+const MODE_DERIVED = new Set(['workflow.verifier_checkpoints', 'workflow.decision_queue']);
+
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+/**
+ * Walk a dot path through OWN properties only, so `constructor` or `toString` is never "found".
+ * Returns undefined when a segment is missing or blocked by a non-object. With
+ * `intoArrays: false` an array ends the walk: an array is a leaf, not a section.
+ */
+function getPath(obj, keyPath, { intoArrays = true } = {}) {
+  let current = obj;
+  for (const key of keyPath.split('.')) {
+    if (current === null || typeof current !== 'object') return undefined;
+    if (!intoArrays && Array.isArray(current)) return undefined;
+    if (!hasOwn(current, key)) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+function isLeaf(value) {
+  return value === null || typeof value !== 'object' || Array.isArray(value);
+}
+
+/**
+ * documentedDefault(keyPath, templatePath?) -> {known: true, value} | {known: false}
+ *
+ * Known = a leaf of templates/config.json (primitive, null or array), or an ALIAS_DEFAULTS key,
+ * which answers with its target leaf. A section (`workflow`) is not a default. An unreadable or
+ * malformed template (a broken install) makes every key unknown: today's `Key not found`.
+ */
+function documentedDefault(keyPath, templatePath = TEMPLATE_CONFIG_PATH) {
+  let template;
+  try {
+    template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
+  } catch {
+    return { known: false };
+  }
+  const target = hasOwn(ALIAS_DEFAULTS, keyPath) ? ALIAS_DEFAULTS[keyPath] : keyPath;
+  const value = getPath(template, target, { intoArrays: false });
+  if (value === undefined || !isLeaf(value)) return { known: false };
+  return { known: true, value };
+}
+
+/**
+ * resolveConfigValue(config, keyPath) -> {found: true, value} | {found: false}
+ *
+ * What `config-get` answers for keyPath against a parsed config.json, in order:
+ *   1. the value at keyPath, when set (unchanged from before 44-07);
+ *   2. a value the user set at the alias target or a LEGACY_FORMS location;
+ *   3. for MODE_DERIVED keys, `mode === 'autonomous'` (the mode itself resolved the same way);
+ *   4. the documented default.
+ * An unknown key is not found.
+ */
+function resolveConfigValue(config, keyPath) {
+  const direct = getPath(config, keyPath);
+  if (direct !== undefined) return { found: true, value: direct };
+
+  const canonical = hasOwn(ALIAS_DEFAULTS, keyPath) ? ALIAS_DEFAULTS[keyPath] : keyPath;
+  const forms = [canonical, ...(hasOwn(LEGACY_FORMS, canonical) ? LEGACY_FORMS[canonical] : [])];
+  for (const form of forms) {
+    if (form === keyPath) continue;
+    const value = getPath(config, form);
+    // loadConfig reads these with `??`, so null means unset; a section is not a value.
+    if (value !== undefined && value !== null && typeof value !== 'object') {
+      return { found: true, value };
+    }
+  }
+
+  if (MODE_DERIVED.has(canonical)) {
+    const mode = resolveConfigValue(config, 'mode');
+    if (mode.found) return { found: true, value: mode.value === 'autonomous' };
+  }
+
+  const fallback = documentedDefault(keyPath);
+  return fallback.known ? { found: true, value: fallback.value } : { found: false };
+}
+
 function cmdConfigGet(cwd, keyPath, raw) {
   const configPath = path.join(cwd, '.planning', 'config.json');
 
@@ -201,21 +314,15 @@ function cmdConfigGet(cwd, keyPath, raw) {
     error('Failed to read config.json: ' + err.message);
   }
 
-  // Traverse dot-notation path (e.g., "workflow.auto_advance")
-  const keys = keyPath.split('.');
-  let current = config;
-  for (const key of keys) {
-    if (current === undefined || current === null || typeof current !== 'object') {
-      error(`Key not found: ${keyPath}`);
-    }
-    current = current[key];
-  }
-
-  if (current === undefined) {
+  // Dot-notation path (e.g. "workflow.auto_advance"): the configured value, else the documented
+  // default for a known key. The same output() call serves both, so a default prints exactly what
+  // the same value set in config.json would.
+  const result = resolveConfigValue(config, keyPath);
+  if (!result.found) {
     error(`Key not found: ${keyPath}`);
   }
 
-  output(current, raw, String(current));
+  output(result.value, raw, String(result.value));
 }
 
 module.exports = {
@@ -223,4 +330,6 @@ module.exports = {
   cmdConfigEnsureSection,
   cmdConfigSet,
   cmdConfigGet,
+  documentedDefault,
+  resolveConfigValue,
 };

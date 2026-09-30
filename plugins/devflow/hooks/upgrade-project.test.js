@@ -396,6 +396,96 @@ describe('upgrade-project: notices, lock, exclude', () => {
   });
 });
 
+// ─── TRD 44-06 (AUT-05) — migration 0008 lands unattended ─────────────────────
+//
+// guard-no-progress.js rewrites the progress-guard file on every tool call, so in a repo that
+// tracks it the file is essentially always dirty when a session starts. The dirty-before skip
+// rule would then never let the 0008 commit land. Runtime-state paths are exempt: they are
+// committed as deletions only (df-tools commit's staged-removal path), never as content.
+
+describe('upgrade-project: runtime-state untracking (TRD 44-06)', () => {
+  const GUARD = '.planning/.progress-guard.json';
+  const CACHE = '.planning/.awareness-cache.json';
+
+  test('44-06 test 1: a tracked guard file modified before the hook → 0008 applied, the detached commit lands', () => {
+    const home = F.makeFakeHome();
+    const { root } = F.makeTrackedRuntimeStateProject({ tracked: [GUARD], home });
+    cleanup.push(home, root);
+    const latest = '{\n  "last": "Read:00aa11",\n  "count": 3\n}\n';
+    fs.writeFileSync(path.join(root, GUARD), latest); // dirty before the hook runs
+
+    const before = runAndWaitForCommit(root, home);
+    const done = commitNotice(root);
+    assert.equal(done.level, 'info', `commit notice: ${done.message}`);
+    assert.equal(commitCount(root, home), before + 1, 'exactly one new commit');
+    assert.equal(git(root, home, 'log', '-1', '--format=%s'), SUBJECT);
+
+    const changed = applyNotice(root).detail.changed_files;
+    assert.ok(changed.includes(GUARD) && changed.includes('.gitignore'), JSON.stringify(changed));
+
+    const tree = git(root, home, 'ls-tree', '-r', '--name-only', 'HEAD').split('\n');
+    assert.ok(!tree.includes(GUARD), 'HEAD no longer tracks the guard file');
+    assert.ok(tree.includes('.gitignore'), '.gitignore committed');
+    assert.equal(fs.readFileSync(path.join(root, GUARD), 'utf-8'), latest, 'working copy kept, latest bytes');
+    const status = git(root, home, 'status', '--porcelain', '--untracked-files=all');
+    assert.ok(!status.includes('.progress-guard.json'), `status must not list the guard file: ${status}`);
+  });
+
+  test('44-06: skipReason exempts dirty runtime-state paths, but not a dirty .gitignore', () => {
+    const { skipReason } = require(HOOK);
+    const state = (dirty, prefix = '') => ({ isRepo: true, busy: null, detached: false, prefix, dirty: new Set(dirty) });
+    const changed = ['.gitignore', CACHE, GUARD, '.planning/config.json'];
+
+    assert.equal(skipReason(state([GUARD, CACHE]), changed), null, 'runtime-state paths never block the commit');
+    assert.equal(skipReason(state(['sub/' + GUARD], 'sub/'), changed), null, 'exempt under a repo prefix too');
+
+    const r = skipReason(state(['.gitignore', GUARD]), changed);
+    assert.match(String(r), /uncommitted edits existed before the upgrade in \.gitignore$/);
+    assert.match(String(skipReason(state(['.planning/config.json']), changed)), /\.planning\/config\.json/);
+  });
+
+  // ─── TRD 45-02 (DOC-02) — nested `.planning/` runtime state ────────────────────
+  const NESTED_GUARD = 'flutter/.planning/.progress-guard.json';
+
+  test('45-02 test 10: a tracked NESTED guard file modified before the hook → 0008 applied, the detached commit lands', () => {
+    const home = F.makeFakeHome();
+    const { root } = F.makeTrackedRuntimeStateProject({ tracked: [NESTED_GUARD], home });
+    cleanup.push(home, root);
+    const latest = '{\n  "last": "Read:00aa11",\n  "count": 3\n}\n';
+    fs.writeFileSync(path.join(root, NESTED_GUARD), latest); // dirty before the hook runs
+
+    const before = runAndWaitForCommit(root, home);
+    const done = commitNotice(root);
+    assert.equal(done.level, 'info', `commit notice: ${done.message}`);
+    assert.equal(commitCount(root, home), before + 1, 'exactly one new commit');
+    assert.equal(git(root, home, 'log', '-1', '--format=%s'), SUBJECT);
+
+    const changed = applyNotice(root).detail.changed_files;
+    assert.ok(changed.includes(NESTED_GUARD) && changed.includes('.gitignore'), JSON.stringify(changed));
+
+    const tree = git(root, home, 'ls-tree', '-r', '--name-only', 'HEAD').split('\n');
+    assert.ok(!tree.includes(NESTED_GUARD), 'HEAD no longer tracks the nested guard file');
+    assert.ok(tree.includes('.gitignore'), '.gitignore committed');
+    assert.equal(fs.readFileSync(path.join(root, NESTED_GUARD), 'utf-8'), latest, 'working copy kept, latest bytes');
+    const status = git(root, home, 'status', '--porcelain', '--untracked-files=all');
+    assert.ok(!status.includes('.progress-guard.json'), `status must not list the nested guard file: ${status}`);
+  });
+
+  test('45-02: skipReason exempts dirty runtime-state paths at any depth, but nothing that only looks similar', () => {
+    const { skipReason } = require(HOOK);
+    const state = (dirty, prefix = '') => ({ isRepo: true, busy: null, detached: false, prefix, dirty: new Set(dirty) });
+    const deep = 'packages/app/.planning/.awareness-cache.json';
+    const changed = ['.gitignore', GUARD, NESTED_GUARD, deep];
+
+    assert.equal(skipReason(state([NESTED_GUARD, deep]), changed), null, 'nested runtime-state paths never block the commit');
+    assert.equal(skipReason(state(['sub/' + NESTED_GUARD], 'sub/'), changed), null, 'exempt under a repo prefix too');
+
+    const lookalike = 'flutter/.planning/config.json';
+    assert.match(String(skipReason(state([lookalike]), [...changed, lookalike])), /flutter\/\.planning\/config\.json$/);
+    assert.match(String(skipReason(state(['.gitignore', NESTED_GUARD]), changed)), /in \.gitignore$/);
+  });
+});
+
 // ─── objective 37 (ADP-05) — SessionStart backup prune ─────────────────────────
 //
 // Local helper: seedBackups(home, repoDir, ages) creates

@@ -626,6 +626,7 @@ describe('Check 12: stack profile', () => {
     const w030 = json.warnings.find((w) => w.code === 'W030');
     assert.ok(w030, `expected W030: ${JSON.stringify(json.warnings)}`);
     assert.match(w030.message, /"missing"/);
+    assert.match(w030.message, /~\/\.claude\/devflow\/stacks\/ or the bundled stack-profiles\//);
     assert.strictEqual(json.errors.find((e) => e.code === 'E030'), undefined);
   });
 
@@ -719,6 +720,126 @@ describe('Check 12: stack profile', () => {
       undefined,
       'W030 should clear once ~/.claude/devflow/stacks/missing.md exists'
     );
+  });
+
+  // TRD 42-01 (SDR-07): W032 carries STK010 as well as STK007, each with its own fix hint.
+  test('H11: a placeholder skill pin adds W032 (STK010) with a pin-specific fix; no error, not broken', () => {
+    tmpHome = stackFx.makeHome({});
+    const yaml = [
+      'schema: 1',
+      'agent_tooling:',
+      '  skills:',
+      '    - { source: "x", pin: "<sha>" }',
+    ].join('\n');
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.profileMd({ yaml }) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w032s = json.warnings.filter((w) => w.code === 'W032');
+    assert.strictEqual(w032s.length, 1, `expected exactly one W032: ${JSON.stringify(json.warnings)}`);
+    assert.match(w032s[0].message, /placeholder pin "<sha>"/);
+    assert.match(w032s[0].fix, /Pin agent_tooling\.skills\[\]\.pin to a real commit SHA/);
+    assert.doesNotMatch(w032s[0].fix, /Trim the profile body/, 'STK010 must not borrow the STK007 fix hint');
+    assert.strictEqual(findAny(json, 'E030'), undefined, 'a placeholder pin is a warning, never E030');
+    // (The bare fixture is `broken` for unrelated reasons — no PROJECT.md/STATE.md — so assert on
+    // the error list rather than the overall status.)
+    assert.ok(!json.errors.some((e) => /placeholder|STK010/.test(e.message)), JSON.stringify(json.errors));
+  });
+
+  test('H12: STK007 keeps its own W032 fix hint beside STK010', () => {
+    tmpHome = stackFx.makeHome({});
+    tmpProject = stackFx.makeProject({ stackMd: stackFx.longBodyProfile(150) });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+    const w032 = json.warnings.find((w) => w.code === 'W032');
+    assert.ok(w032, `expected W032: ${JSON.stringify(json.warnings)}`);
+    assert.match(w032.fix, /Trim the profile body/);
+  });
+});
+
+// ─── Check 12b: managed .mcp.json server binaries (TRD 42-09, W033) ────────
+// Advisory only: a managed (`env.DEVFLOW_MANAGED === 'stack'`) server whose command does not
+// resolve. Foreign servers are never inspected. `env` and `homeDir` are injected, so the real
+// PATH and ~/go/bin are never consulted.
+describe('Check 12b: managed MCP server binaries (W033)', () => {
+  const stubDirs = [];
+  afterEach(() => {
+    while (stubDirs.length) fs.rmSync(stubDirs.pop(), { recursive: true, force: true });
+  });
+
+  function stubBin(names) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-bin-'));
+    stubDirs.push(dir);
+    for (const n of names) {
+      fs.writeFileSync(path.join(dir, n), '#!/bin/sh\nexit 0\n', 'utf-8');
+      fs.chmodSync(path.join(dir, n), 0o755);
+    }
+    return dir;
+  }
+
+  function withMcp(servers) {
+    tmpProject = makePlanningProject();
+    fs.writeFileSync(path.join(tmpProject, '.mcp.json'), `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`, 'utf-8');
+    tmpHome = makeHome();
+  }
+
+  const managed = (command) => ({ command, args: ['mcp'], env: { DEVFLOW_MANAGED: 'stack' } });
+
+  test('M1: a managed gopls entry with gopls absent adds W033 (advisory, not repairable)', () => {
+    withMcp({ gopls: managed('gopls') });
+    const env = { PATH: stubBin([]) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+
+    const w033 = json.warnings.filter((w) => w.code === 'W033');
+    assert.strictEqual(w033.length, 1, `expected one W033: ${JSON.stringify(json.warnings)}`);
+    assert.match(w033[0].message, /^stack-mcp-binary-missing: gopls \(gopls\)$/);
+    assert.match(w033[0].fix, /Install gopls or run df-tools stack mcp --write to prune/);
+    assert.strictEqual(w033[0].repairable, false);
+    assert.strictEqual(json.errors.find((e) => e.code === 'W033'), undefined, 'W033 never becomes an error');
+  });
+
+  test('M2: a foreign server with a missing binary adds no W033', () => {
+    withMcp({ playwright: { command: 'npx-not-here', args: ['x'] }, other: { command: 'nope', env: { DEVFLOW_MANAGED: 'other' } } });
+    const env = { PATH: stubBin([]) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+
+    assert.strictEqual(json.warnings.find((w) => w.code === 'W033'), undefined, JSON.stringify(json.warnings));
+  });
+
+  test('M3: a managed entry whose binary resolves adds no W033', () => {
+    withMcp({ gopls: managed('gopls'), dart: managed('dart') });
+    const env = { PATH: stubBin(['gopls', 'dart']) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+
+    assert.strictEqual(json.warnings.find((w) => w.code === 'W033'), undefined, JSON.stringify(json.warnings));
+  });
+
+  test('M4: no .mcp.json, or an unparseable one, adds no W033 and does not break health', () => {
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+    const env = { PATH: stubBin([]) };
+    const none = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+    assert.strictEqual(none.json.warnings.find((w) => w.code === 'W033'), undefined);
+
+    fs.writeFileSync(path.join(tmpProject, '.mcp.json'), '{ not json', 'utf-8');
+    const bad = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env }, false);
+    assert.ok(bad.json, 'health still reports');
+    assert.strictEqual(bad.json.warnings.find((w) => w.code === 'W033'), undefined);
+  });
+
+  test('M5: --repair leaves .mcp.json untouched', () => {
+    withMcp({ gopls: managed('gopls') });
+    const before = fs.readFileSync(path.join(tmpProject, '.mcp.json'), 'utf-8');
+    const env = { PATH: stubBin([]) };
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, env, repair: true }, false);
+
+    assert.ok(json.warnings.find((w) => w.code === 'W033'));
+    assert.strictEqual(fs.readFileSync(path.join(tmpProject, '.mcp.json'), 'utf-8'), before);
   });
 });
 
@@ -1015,6 +1136,132 @@ describe('objective 38 — W002 + live fix text', () => {
     const written = fs.readFileSync(path.join(tmpProject, '.planning', 'STATE.md'), 'utf-8');
     assert.match(written, /## Session Log[\s\S]*\/devflow:status check --repair/);
     assert.ok(!written.includes('/df:'), 'no stale /df: command in regenerated STATE.md');
+  });
+});
+
+// ─── Check 8: W007 reads archived milestone roadmaps (quick 26) ────────────
+//
+// An objective is "known" to W007 when any roadmap lists it — the current ROADMAP.md
+// or an archived .planning/milestones/*-ROADMAP.md — as a heading OR as a
+// checklist/bullet line. Prose mentions never count. W006 keeps reading ROADMAP.md
+// headings only.
+describe('Check 8: W007 reads archived milestone roadmaps', () => {
+  // dirs: objective dir names under .planning/objectives/; roadmap: ROADMAP.md text;
+  // archives: { fileName: text } written under .planning/milestones/.
+  function makeRoadmapFixture({ dirs = [], roadmap = '# Roadmap\n', archives = {} }) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-w007-test-'));
+    for (const dir of dirs) {
+      fs.mkdirSync(path.join(tmp, '.planning', 'objectives', dir), { recursive: true });
+    }
+    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    for (const [name, text] of Object.entries(archives)) {
+      fs.mkdirSync(path.join(tmp, '.planning', 'milestones'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, '.planning', 'milestones', name), text, 'utf-8');
+    }
+    return tmp;
+  }
+
+  const w007s = (json) => json.warnings.filter((w) => w.code === 'W007');
+  const w006s = (json) => json.warnings.filter((w) => w.code === 'W006');
+  const health = () => runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+  test('1. checklist line in an archived milestone roadmap clears W007', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['27-x'],
+      archives: { 'v1.3-ROADMAP.md': '# v1.3\n\n- [x] Objective 27: Foo (3/3 plans)\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('2. "### Objective 5:" heading in an archived roadmap clears W007 for dir 05-y (unpadded match)', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['05-y'],
+      archives: { 'v1.2-ROADMAP.md': '# v1.2\n\n### Objective 5: Bar\n\nGoal: bar\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('3. checklist line in ROADMAP.md itself (no heading) clears W007', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['40-z'],
+      roadmap: '# Roadmap\n\n- [x] Objective 40: Baz\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('4. bold bullet line in ROADMAP.md clears W007', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['26-w'],
+      roadmap: '# Roadmap\n\n- **Objective 26: Qux** — moved\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('5. an orphan dir listed in no roadmap still gets exactly one W007 naming it', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['99-orphan'],
+      roadmap: '# Roadmap\n\n### Objective 1: Something else\n',
+      archives: { 'v1.3-ROADMAP.md': '# v1.3\n\n- [x] Objective 27: Foo\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    const found = w007s(json);
+    assert.strictEqual(found.length, 1, `expected exactly one W007; got ${JSON.stringify(found)}`);
+    assert.match(found[0].message, /Objective 99\b/);
+  });
+
+  test('6. prose mentions ("Depends on: Objective 99", "candidates: Objective 99 (") do not count', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['99-orphan'],
+      roadmap:
+        '# Roadmap\n\n### Objective 1: Something else\n\n' +
+        '**Depends on:** Objective 99\n\n' +
+        'Follow-up candidates: Objective 99 (later)\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    const found = w007s(json);
+    assert.strictEqual(found.length, 1, `expected exactly one W007; got ${JSON.stringify(found)}`);
+    assert.match(found[0].message, /Objective 99\b/);
+  });
+
+  test('7. W006 unchanged: a checklist-only ROADMAP.md entry with no dir does not raise W006', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: [],
+      roadmap: '# Roadmap\n\n- [x] Objective 7: Old\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w006s(json).length, 0, `list lines must not feed W006; got ${JSON.stringify(w006s(json))}`);
+  });
+
+  test('8. non-roadmap files in milestones/ are ignored (v1.3-MILESTONE-AUDIT.md heading does not count)', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['99-orphan'],
+      archives: { 'v1.3-MILESTONE-AUDIT.md': '# Audit\n\n### Objective 99: Audited\n\n- [x] Objective 99: Audited\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    const found = w007s(json);
+    assert.strictEqual(found.length, 1, `expected exactly one W007; got ${JSON.stringify(found)}`);
+    assert.match(found[0].message, /Objective 99\b/);
   });
 });
 

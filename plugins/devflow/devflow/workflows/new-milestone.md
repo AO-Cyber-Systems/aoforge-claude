@@ -154,7 +154,8 @@ Use template: ~/.claude/devflow/templates/research-project/{FILE}
 | GATES | Versions current (verify with Context7), rationale explains WHY, integration considered | Categories clear, complexity noted, dependencies identified | Integration points identified, new vs modified explicit, build order considers deps | Pitfalls specific to adding these features, integration pitfalls covered, prevention actionable |
 | FILE | STACK.md | FEATURES.md | ARCHITECTURE.md | PITFALLS.md |
 
-After all 4 complete, spawn synthesizer:
+After all 4 complete, spawn synthesizer. It returns the SUMMARY.md content as text — the harness
+blocks subagent report files, so the orchestrator (you) writes and commits it:
 
 ```
 Task(prompt="
@@ -162,11 +163,26 @@ Synthesize research outputs into SUMMARY.md.
 
 Read: .planning/research/STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md
 
-Write to: .planning/research/SUMMARY.md
 Use template: ~/.claude/devflow/templates/research-project/SUMMARY.md
-Commit after writing.
+Return the SUMMARY.md content between the BEGIN/END markers. Do not write files.
 ", subagent_type="research-synthesizer", model="{synthesizer_model}", description="Synthesize research")
 ```
+
+**Write and commit SUMMARY.md (orchestrator):**
+
+a. **Extract** the text strictly between the `--- BEGIN SUMMARY.md ---` and
+   `--- END SUMMARY.md ---` lines of the synthesizer's final message (markers excluded).
+   *Fallback — markers missing:* take the whole final message minus a leading
+   `## SYNTHESIS COMPLETE` header block (the header line and the file list / `**Output:**` lines
+   that follow it, up to the first line of the summary body).
+   If the message is `## SYNTHESIS BLOCKED`, surface the blocker instead of writing anything.
+b. **Write** it verbatim to `.planning/research/SUMMARY.md` with the Write tool. Do not
+   summarise, reword or reformat it.
+c. **Commit** all research in one commit. The researchers wrote their four files without
+   committing, so this single commit covers all 5 files:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs commit "docs: complete project research" --files .planning/research/
+   ```
 
 Display key findings from SUMMARY.md:
 ```

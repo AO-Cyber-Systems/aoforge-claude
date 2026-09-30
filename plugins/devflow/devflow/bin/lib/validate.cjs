@@ -363,6 +363,32 @@ function cmdValidateHealth(cwd, options, raw) {
       roadmapObjectives.add(m[1]);
     }
 
+    // W007 only: an objective is "known" if any roadmap lists it — current or archived — as a
+    // heading or as a checklist/bullet line. W006 keeps reading ROADMAP.md headings only.
+    // The patterns are built per call: /g regexes are stateful across exec() loops.
+    const collectListedObjectives = (text, set) => {
+      const patterns = [
+        /#{2,4}\s*Objective\s+(\d+(?:\.\d+)?)\s*:/gi,
+        // Anchored to a list marker so prose ("**Depends on:** Objective 23") never counts.
+        /^\s*-\s*(?:\[[ xX]\]\s*)?\*{0,2}Objective\s+(\d+(?:\.\d+)?)\s*:/gim,
+      ];
+      for (const re of patterns) {
+        let mm;
+        while ((mm = re.exec(text)) !== null) set.add(mm[1]);
+      }
+    };
+    const w007KnownObjectives = new Set(roadmapObjectives);
+    collectListedObjectives(roadmapContent, w007KnownObjectives);
+    try {
+      const milestonesDir = path.join(planningDir, 'milestones');
+      for (const f of fs.readdirSync(milestonesDir)) {
+        if (!/-ROADMAP\.md$/.test(f)) continue;
+        try {
+          collectListedObjectives(fs.readFileSync(path.join(milestonesDir, f), 'utf-8'), w007KnownObjectives);
+        } catch {}
+      }
+    } catch {}
+
     const diskObjectives = new Set();
     try {
       const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
@@ -385,7 +411,7 @@ function cmdValidateHealth(cwd, options, raw) {
     // Objectives on disk but not in ROADMAP
     for (const p of diskObjectives) {
       const unpadded = String(parseInt(p, 10));
-      if (!roadmapObjectives.has(p) && !roadmapObjectives.has(unpadded)) {
+      if (!w007KnownObjectives.has(p) && !w007KnownObjectives.has(unpadded)) {
         addIssue('warning', 'W007', `Objective ${p} exists on disk but not in ROADMAP.md`, 'Add to roadmap or remove directory');
       }
     }
@@ -547,7 +573,7 @@ function cmdValidateHealth(cwd, options, raw) {
         addIssue(
           'warning',
           'W030',
-          `stack-extends-unresolved: extends "${id}" not found in ~/.claude/devflow/stacks/`,
+          `stack-extends-unresolved: extends "${id}" not found in ~/.claude/devflow/stacks/ or the bundled stack-profiles/`,
           `Install ~/.claude/devflow/stacks/${id}.md or change \`extends\``
         );
       }
@@ -565,15 +591,15 @@ function cmdValidateHealth(cwd, options, raw) {
         );
       }
 
-      // W032 — validator warnings (STK007: body over 150 lines). Never flips `ok`.
+      // W032 — validator warnings, each with its own fix hint. Never flips `ok`.
+      //   STK007: body over 150 lines.   STK010: placeholder skill pin (e.g. "<sha>").
+      const W032_FIX = {
+        STK007: 'Trim the profile body; link to skills/docs instead of pasting them',
+        STK010: 'Pin agent_tooling.skills[].pin to a real commit SHA',
+      };
       for (const w of v.warnings) {
-        if (w.code !== 'STK007') continue;
-        addIssue(
-          'warning',
-          'W032',
-          `stack-profile-warning: ${w.msg}`,
-          'Trim the profile body; link to skills/docs instead of pasting them'
-        );
+        if (!Object.prototype.hasOwnProperty.call(W032_FIX, w.code)) continue;
+        addIssue('warning', 'W032', `stack-profile-warning: ${w.msg}`, W032_FIX[w.code]);
       }
     } else {
       const m = detectManifest(cwd, { userHome: homeDir });
@@ -590,6 +616,41 @@ function cmdValidateHealth(cwd, options, raw) {
     // A check that could not run is never silent — surface it as an error
     // rather than swallowing it (e.g. the bundled general profile is missing).
     addIssue('error', 'E030', `stack-profile-check-failed: ${e.message}`, 'Run `df-tools stack validate`');
+  }
+
+  // ─── Check 12b: Managed .mcp.json server binaries (TRD 42-09) ───────────────
+  // W033 — a server `df-tools stack mcp --write` owns (env.DEVFLOW_MANAGED === 'stack') whose
+  // command does not resolve. Advisory and never repaired: `.mcp.json` is opt-in per repo, so
+  // health never writes it. Foreign servers are not ours to judge. An absent or unparseable
+  // `.mcp.json` is skipped — Claude Code itself reports a broken one. `options.env` is the test
+  // seam for PATH (defaults to process.env), like `homeDir` above.
+  try {
+    const mcpFile = path.join(cwd, '.mcp.json');
+    if (fs.existsSync(mcpFile)) {
+      let doc = null;
+      try { doc = JSON.parse(fs.readFileSync(mcpFile, 'utf-8')); } catch (_) { doc = null; }
+      const servers = doc && typeof doc === 'object' && doc.mcpServers && typeof doc.mcpServers === 'object' ? doc.mcpServers : {};
+      const managedNames = Object.keys(servers).filter((n) => {
+        const s = servers[n];
+        return s && typeof s === 'object' && s.env && s.env.DEVFLOW_MANAGED === 'stack';
+      });
+      if (managedNames.length > 0) {
+        const { resolveBinary } = require('./stack-verify.cjs');
+        const env = options.env || process.env;
+        for (const name of managedNames) {
+          const command = servers[name].command;
+          if (typeof command === 'string' && resolveBinary(command, { env, home: homeDir })) continue;
+          addIssue(
+            'warning',
+            'W033',
+            `stack-mcp-binary-missing: ${name} (${command})`,
+            `Install ${command} or run df-tools stack mcp --write to prune`
+          );
+        }
+      }
+    }
+  } catch (e) {
+    addIssue('warning', 'W033', `stack-mcp-check-failed: ${e.message}`, 'Run `df-tools stack mcp` to see the managed servers');
   }
 
   // ─── Check 13: Upgrade state (objective 36) ────────────────────────────────

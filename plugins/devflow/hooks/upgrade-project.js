@@ -215,11 +215,34 @@ function ensureExcluded(root) {
   } catch { /* best effort */ }
 }
 
+/**
+ * TRD 44-06: runtime-state paths untracked by migration 0008. Hooks rewrite them constantly, so
+ * they are dirty in almost every session; the upgrade commits them as DELETIONS only (df-tools
+ * commit's staged-removal path), never as content, so a pre-upgrade edit cannot be swept in.
+ * TRD 45-02: the same holds for a nested `.planning/` (aodex tracks `flutter/.planning/…`), so the
+ * exemption is a predicate — the migration's own `isRuntimeStatePath` — not a fixed list of root
+ * paths. Loaded lazily from the bundled migration so the fast path requires nothing. An older
+ * bundle without that export falls back to membership in RUNTIME_STATE_FILES (root paths only);
+ * a bundle that cannot be loaded exempts nothing, which is the fail-safe direction (it can only
+ * cause a skip, never sweep a dirty file into the commit).
+ */
+function runtimeStatePredicate() {
+  try {
+    const m = require(path.join(LIB, 'migrations', '0008-runtime-state-untrack.cjs'));
+    if (typeof m.isRuntimeStatePath === 'function') return (rel) => m.isRuntimeStatePath(rel) === true;
+    const list = Array.isArray(m.RUNTIME_STATE_FILES) ? m.RUNTIME_STATE_FILES : [];
+    return (rel) => list.includes(rel);
+  } catch {
+    return () => false;
+  }
+}
+
 function skipReason(state, changedFiles) {
   if (!state.isRepo) return 'not a git repository';
   if (state.busy) return `${state.busy} in progress`;
   if (state.detached) return 'detached HEAD';
-  const dirty = changedFiles.filter((f) => state.dirty.has(state.prefix + f));
+  const isExempt = runtimeStatePredicate();
+  const dirty = changedFiles.filter((f) => !isExempt(f) && state.dirty.has(state.prefix + f));
   if (dirty.length) return `uncommitted edits existed before the upgrade in ${dirty.join(', ')}`;
   return null;
 }

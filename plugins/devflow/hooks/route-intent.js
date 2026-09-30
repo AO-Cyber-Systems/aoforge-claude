@@ -132,6 +132,13 @@ const INTENT_MAP = [
     skill: '/devflow:adopt',
     label: 'adopt',
   },
+  // DOCTOR (objective 45): diagnose/repair the DevFlow environment. Explicit intent only:
+  // the bare word "doctor" is ordinary speech and must not fire.
+  {
+    rx: /\b(?:devflow\s+doctor|diagnose\s+(?:the\s+)?devflow|devflow\s+(?:is|seems|looks)\s+(?:broken|misbehaving|slow|stale|off)|fix\s+(?:my|the)\s+devflow\s+(?:setup|install|installation|environment))\b/i,
+    skill: '/devflow:doctor',
+    label: 'doctor',
+  },
   // NEW PROJECT: new project / start a project / initialize devflow
   {
     rx: /\b(?:new\s+project|start\s+a\s+(?:new\s+)?project|initialize\s+(?:devflow|planning))\b/i,

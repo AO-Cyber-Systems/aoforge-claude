@@ -22,6 +22,16 @@
  * Fails open in every direction: any read/parse/write problem returns silently.
  * A guard that breaks the session is worse than no guard.
  *
+ * State (quick task 25): one file per session, {guard, updated, project}, under
+ * ~/.claude/devflow/state/progress-guard/<session>.json (override the directory
+ * with DEVFLOW_PROGRESS_GUARD_DIR). It used to be a single shared
+ * <project>/.planning/.progress-guard.json, rewritten on every tool call — Claude
+ * Code's file watcher attached that whole file (~800 tokens) to every tool result,
+ * and concurrent sessions raced on it. The hook still needs a `.planning/` above
+ * cwd (the guard is DevFlow-scoped, and it is how `project` is derived) but never
+ * writes there. Files older than SESSION_TTL_MS are pruned on a session's first
+ * write only, so the sweep costs one readdir per session, not per call.
+ *
  * Escape: DEVFLOW_SKIP_PROGRESS_GUARD=1
  */
 
@@ -32,11 +42,12 @@ const path = require('path');
 
 // Single source of truth. progress-guard.cjs depends only on node:crypto, so it
 // is safe to load from a hook — unlike most of bin/lib, which pulls in
-// helpers.cjs and reads JSON at module load.
+// helpers.cjs and reads JSON at module load. progress-guard-store.cjs follows the
+// same rule (fs, os, path only).
 const { record, message } = require('../devflow/bin/lib/progress-guard.cjs');
+const store = require('../devflow/bin/lib/progress-guard-store.cjs');
 
-const STATE_FILE = '.progress-guard.json';
-/** Sessions older than this are pruned so the state file stays small. */
+/** Session files untouched for longer than this are pruned. */
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 /** Tools whose repetition is normal and not a loop signal. */
 const IGNORED_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate', 'AskUserQuestion']);
@@ -54,22 +65,9 @@ function findPlanningDir(start) {
   return null;
 }
 
-function loadState(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return {}; }
-}
-
-function saveState(file, state) {
-  try { fs.writeFileSync(file, JSON.stringify(state), 'utf8'); } catch { /* best effort */ }
-}
-
-function prune(all, nowMs) {
-  const out = {};
-  for (const [sid, entry] of Object.entries(all)) {
-    if (entry && typeof entry.updated === 'number' && nowMs - entry.updated < SESSION_TTL_MS) {
-      out[sid] = entry;
-    }
-  }
-  return out;
+function projectOf(planningDir) {
+  const root = path.dirname(planningDir);
+  try { return fs.realpathSync(root); } catch { return root; }
 }
 
 function main() {
@@ -84,17 +82,23 @@ function main() {
   const planningDir = findPlanningDir(process.cwd());
   if (!planningDir) return; // not a DevFlow project
 
-  const sessionId = String(input.session_id || 'unknown');
-  const file = path.join(planningDir, STATE_FILE);
+  const project = projectOf(planningDir);
+  const dir = store.stateDir();
+  const file = store.sessionFile(dir, input.session_id);
   const now = Date.now();
 
-  const all = prune(loadState(file), now);
-  const prior = (all[sessionId] && all[sessionId].guard) || null;
+  let existed = false;
+  try { existed = fs.existsSync(file); } catch { /* treat as a first call */ }
+  const prior = (store.readSession(file) || {}).guard || null;
 
   const result = record(prior, { tool, args: input.tool_input || {} });
 
-  all[sessionId] = { guard: result.state, updated: now };
-  saveState(file, all);
+  // Persistence is best-effort: writeSession never throws, and if the state dir is
+  // unusable the trip decision below still stands for this call (prior was null).
+  store.writeSession(file, { guard: result.state, updated: now, project });
+  if (!existed) {
+    try { store.pruneStale(dir, now, SESSION_TTL_MS, file); } catch { /* best effort */ }
+  }
 
   if (!result.tripped) return;
 
@@ -117,4 +121,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { findPlanningDir, prune, IGNORED_TOOLS, SESSION_TTL_MS };
+module.exports = { findPlanningDir, IGNORED_TOOLS, SESSION_TTL_MS };

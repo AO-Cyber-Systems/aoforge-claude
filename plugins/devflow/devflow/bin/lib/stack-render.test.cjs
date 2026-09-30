@@ -76,6 +76,30 @@ describe('renderCommand', () => {
     assert.strictEqual(result.cwd, 'app/');
   });
 
+  // TRD 42-05: renderCommand is the ONE place a component's path joins the command cwd.
+  test('C1c: a resolved component joins its path onto the command cwd', () => {
+    const svc = { path: 'svc/', profile: '.planning/stacks/svc.md' };
+    const bare = makeResolved({ component: svc, frontmatter: { commands: { test: { run: 'unit-run' } } } });
+    assert.strictEqual(stackRender.renderCommand(bare, 'test').cwd, 'svc');
+    const nested = makeResolved({ component: svc, frontmatter: { commands: { test: { run: 'unit-run', cwd: 'internal' } } } });
+    assert.strictEqual(stackRender.renderCommand(nested, 'test').cwd, 'svc/internal');
+    const noSlash = makeResolved({ component: { path: 'svc' }, frontmatter: { commands: { test: { run: 'unit-run' } } } });
+    assert.strictEqual(stackRender.renderCommand(noSlash, 'test').cwd, 'svc');
+    const sentinel = makeResolved({ component: svc, frontmatter: { commands: { build: { run: 'discover' } } } });
+    assert.strictEqual(stackRender.renderCommand(sentinel, 'build').cwd, 'svc');
+  });
+
+  test('C1d: no component, or a root-shaped component path, leaves cwd unchanged', () => {
+    const none = makeResolved({ frontmatter: { commands: { test: { run: 'unit-run' } } } });
+    assert.strictEqual('cwd' in stackRender.renderCommand(none, 'test'), false);
+    const own = makeResolved({ frontmatter: { commands: { test: { run: 'unit-run', cwd: 'app/' } } } });
+    assert.strictEqual(stackRender.renderCommand(own, 'test').cwd, 'app/');
+    for (const p of ['', './']) {
+      const rootish = makeResolved({ component: { path: p }, frontmatter: { commands: { test: { run: 'unit-run', cwd: 'x' } } } });
+      assert.strictEqual(stackRender.renderCommand(rootish, 'test').cwd, 'x', `component path '${p}'`);
+    }
+  });
+
   test('C2: scoped form fills {packages}, space-joined', () => {
     const p = makeResolved({
       frontmatter: { commands: { test: { run: 'run-tests ./...', scoped: 'run-tests {packages}' } } },

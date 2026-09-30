@@ -204,8 +204,8 @@ Write to: .planning/objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md
 
 ```
 Task(
-  prompt="First, read ~/.claude/agents/objective-researcher.md for your role and instructions.\n\n" + filled_prompt,
-  subagent_type="general-purpose",
+  prompt=filled_prompt,
+  subagent_type="objective-researcher",
   model="{researcher_model}",
   description="Research Objective {objective}"
 )
@@ -238,8 +238,8 @@ Research file: @.planning/objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.m
 
 ```
 Task(
-  prompt="First, read ~/.claude/agents/objective-researcher.md for your role and instructions.\n\n" + continuation_prompt,
-  subagent_type="general-purpose",
+  prompt=continuation_prompt,
+  subagent_type="objective-researcher",
   model="{researcher_model}",
   description="Continue research Objective {objective}"
 )

@@ -130,6 +130,33 @@ node ~/.claude/devflow/bin/df-tools.cjs --cwd "$TARGET" adopt scaffold
 Exit 1 usually means a PROJECT.md field is malformed — fix that one field and retry once. Still
 failing → stop and report; the fix is to re-run `/devflow:adopt` later (nothing is undone).
 
+Continue to `confirm_stack_profile`.
+</step>
+
+<step name="confirm_stack_profile">
+Best-effort: confirm the drafted `.planning/STACK.md` against the code with the gopls/dart MCP
+tools when this session has them. `.mcp.json` servers need approval and a session restart, so
+their absence is normal — never block on them, never install anything.
+
+1. Probe: use ToolSearch for `mcp__gopls__go_workspace` and `mcp__dart__analyze_files` (no
+   ToolSearch → look for `mcp__gopls__*` / `mcp__dart__*` in your tool list).
+2. Go (gopls present): `go_workspace` — the module layout must match the drafted `components`;
+   `go_vulncheck` — the `audit` key is meaningful; `go_diagnostics` on 1-2 files.
+3. Dart/Flutter (dart present): `roots` for `$TARGET`, then `analyze_files` (baseline vs the
+   drafted analyze flags); `run_tests` only when the server was started with `--enable cli`.
+4. Otherwise, or additionally (safe keys only; nothing is installed, released or deployed):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs --cwd "$TARGET" stack verify --run --raw
+```
+
+5. Record each discrepancy as one `{field, value, confidence, evidence}` entry appended to
+   `$TARGET/.planning/.adopt-inferences.json` — confidence `medium` (a failing key, a layout
+   mismatch) or `low` (advisory) — so it lands in the report's needs-review rows.
+   NEVER edit STACK.md silently: this step only records findings.
+6. `.mcp.json` is opt-in per repo: a finding may suggest `stack mcp --write`; never run it here.
+7. Start no server; the port rule in <rules> applies if one is ever needed.
+
 Continue to `health`.
 </step>
 

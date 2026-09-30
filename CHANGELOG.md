@@ -6,6 +6,171 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-09-30
+
+### Added
+- **`df-tools stack verify [--run]`.** Checks that every command in the resolved profile can run:
+  the binary is on PATH (or under GOPATH/bin, `~/.local/bin`, mise shims), the runner target
+  exists, the script exists. Reports `resolved | binary_missing | target_missing | script_missing |
+  unverifiable`. `--run` executes only safe keys (`format`, `lint`, `typecheck`, `build`; add
+  `test`, `e2e`, `audit`, `sast` and the helm/docker lints with `--include`) and refuses anything
+  that pushes, deploys, applies or uses port 8080, even inside a runner target's body.
+- **`df-tools stack report [--write] [--draft]`.** Compares the repo's CI and local tooling with
+  the profile (33 checks: missing lint/format/vuln gates, no race or coverage flags, CI-only gates
+  with no local mirror, Flutter without Maestro) and writes `.planning/STACK-REPORT.md`. Proposals
+  only; nothing is applied.
+- **`df-tools stack mcp [--write]`.** Generates the project `.mcp.json` from each `agent_tooling.mcp`
+  entry in the resolved profile (root plus components). Opt-in: it writes only managed entries
+  (`env.DEVFLOW_MANAGED: "stack"`), keeps foreign entries and key order, and skips a server a plugin
+  already declares or whose binary is missing. `stack init` and `upgrade` never write `.mcp.json`.
+- **Bundled tier-2 profiles** `go`, `dart` and `flutter` in `devflow/stack-profiles/`, mirrored by
+  `sync-runtime`. An `extends` id resolves from the user/org tier
+  (`~/.claude/devflow/stacks/<id>.md`) first, then the bundled tier; the mirror never touches the
+  user/org dir.
+- **Components drafting.** `stack init` finds language areas up to three directories deep and drafts
+  `components` for monorepos (path with a trailing slash, joined onto each command's cwd). A
+  `{file, contains}` detect marker tells pure Dart from Flutter.
+- `validate health` W033: a `.mcp.json` server whose binary is missing (advisory, never repaired).
+- `confirm_stack_profile` step in the `adopt` and `map-codebase` workflows, and `mcp__gopls__*` /
+  `mcp__dart__*` grants on the executor, verifier and debugger agents.
+- **SubagentStop executor completion gate** (`hooks/gate-executor-stop.js`; objective 44, AUT-02). A
+  `devflow:executor` that stops naturally while its TRD has no `<id>-SUMMARY.md` in any checkout is
+  blocked once and told to finish, or at least write the `## Progress` checkpoint. The TRD is read
+  from the first prompt of the agent transcript. An ambiguous or unidentifiable prompt, the re-stop
+  (`stop_hook_active`), a checkpoint/escalation/preflight stop, or any error lets it stop. Escape:
+  `DEVFLOW_SKIP_EXECUTOR_STOP_GATE=1`.
+- **Auto-continue Stop hook** (`hooks/auto-continue.js`; objective 44, AUT-06). When a skill marker
+  is live, no background task is running, and the last sentence announces the model's own next step
+  ("Writing the predicate.", "Ready for wave 4 on your word.") without asking, the turn is blocked
+  once and the model is told to take that step or ask one explicit question. Questions, ask phrases,
+  `/devflow:` hand-offs, waits and result reports never fire it. Escape: `DEVFLOW_SKIP_AUTOCONTINUE=1`.
+- **Migration 0008 (auto)** (objective 44, AUT-05, DF-10). Gitignores `.planning/.progress-guard.json`
+  and `.planning/.awareness-cache.json` and untracks them (`git rm --cached --force`), keeping the
+  working copies. It applies only when a file is tracked, or present and not ignored by the repo's
+  own rules; a personal global excludes file does not count.
+- **INCOMPLETE executor outcome in `execute-objective`** (objective 44, AUT-01, DF-01). A run whose
+  notification says `turn limit` / `partial result`, or whose SUMMARY is missing or checkpoint-only
+  with fewer commits than tasks, is INCOMPLETE, not failed. It is resumed with `SendMessage` to the
+  same task (at most 3 times, "do not re-research") before the fresh-respawn failure protocol. Its
+  worktree is kept until it completes, and its dependents wait instead of being skipped.
+- **doc-refs legacy agent-path guard** (objective 44, AUT-03, DF-04). `doc-refs.repo.test.cjs` fails
+  CI when shipped text tells an agent to read a `~/.claude/agents/<name>.md` file
+  (`scanLegacyAgentPaths`, `LEGACY_AGENT_EXEMPT`).
+- **`df-tools doctor [--fix] [--json] [--path dir] [--global]` and `/devflow:doctor`** (objective 45,
+  DOC-04..07). One command that diagnoses the DevFlow environment: the runtime mirror against the
+  installed plugin, the plugin cache and hook registry, model ids, runtime state that leaked into a
+  repo (including nested `.planning/` dirs), pending migrations, `validate health`, stale skill
+  markers, progress-guard state, the awareness cache, and backup retention. Read-only by default.
+  `--fix` applies only safe, reversible fixes and re-runs every check; it refuses an index-changing
+  fix while unrelated changes are staged, never commits, and reports plugin cache dirs without
+  deleting them. Each check is a module in `lib/doctor-checks/NN-<id>.cjs` (contract in that
+  directory's README). The skill is model-invocable, and `route-intent` routes explicit doctor
+  intent ("devflow doctor", "diagnose devflow", "devflow is broken") to it.
+- **Audit guard for runtime dotfiles** (objective 45, DOC-01). `hooks/planning-writes.audit.test.js`
+  spawns every registered hook and scans the hook sources, and fails CI when a hook writes a runtime
+  dotfile into `.planning/`. The allowlist is `.skill-active`, `.edit-override` and
+  `.devflow-notices.json`.
+
+### Changed
+- **The awareness cache moves out of the repo** (objective 45, DOC-01). It now lives at
+  `~/.claude/devflow/state/awareness/<repo-key>.json` (`lib/awareness-store.cjs`; override
+  `DEVFLOW_AWARENESS_DIR`) instead of `.planning/.awareness-cache.json`. There is no legacy
+  fallback; `df-tools doctor --fix` removes the old in-repo copies.
+- **The autonomous hook markers move out of `.planning/`** (objective 45, DOC-01). `verify-commits`'
+  retry marker and `verify-completion`'s resume counter now live in
+  `~/.claude/devflow/state/hook-markers/<repo-key>/` (`lib/hook-marker-store.cjs`; override
+  `DEVFLOW_HOOK_MARKER_DIR`). Retry and resume semantics are unchanged.
+- **`sync-runtime` re-mirrors on same-version content drift** (objective 45, DOC-03). It writes a
+  content digest (`.plugin-digest`, `lib/runtime-digest.cjs`) beside `.plugin-version`, so an edited
+  bundle re-mirrors without a version bump.
+- **Migration 0008 covers nested `.planning/` dirs** (objective 45, DOC-02). It now gitignores and
+  untracks runtime state under `**/.planning/`, not only the repo-root `.planning/`.
+- **`stack init` is grounded in the codebase.** It reads GitHub Actions structurally, classifies
+  shell by the tool it runs, and reads Makefile/Taskfile/justfile/npm-family/`bin/` targets. Every
+  candidate command is verified before it is written; a key whose candidates all fail becomes
+  `run: discover`, with a note in the draft and in `STACK-REPORT.md`, rather than a guessed command.
+- The example go/dart/flutter profiles moved from `docs/stack-profiles/` to
+  `plugins/devflow/devflow/stack-profiles/`. The go `format` gate now fails on unformatted files,
+  dart `audit` is `none` with a non-gating `outdated`, and the dart/flutter MCP servers use
+  `--enable`/`--disable` feature flags instead of a tool whitelist that dropped `dtd`.
+- **Executor and verifier have no turn cap** (objective 44, AUT-01, DF-01). `maxTurns: 50` / `30` is
+  gone from their frontmatter; `guard-no-progress.js` remains the runaway guard.
+- **The executor commits once per task through `df-tools commit`** and keeps a `## Progress`
+  checkpoint in its SUMMARY.md; a SUMMARY without `## Self-Check` is a checkpoint, not a completion.
+  It never `sleep`s and then polls: long waits use `run_in_background` or Monitor (objective 44,
+  AUT-01, AUT-07).
+- **`mode: "yolo"` counts as autonomous between waves** (objective 44, AUT-06, DF-14).
+  `execute-objective` announces and spawns the next wave in the same turn instead of asking
+  "Continue?". Failure handling still keys on `mode: "autonomous"`.
+- **research-synthesizer returns text** (objective 44, AUT-07, DF-08). It has `tools: Read, Bash` and
+  returns SUMMARY.md between `--- BEGIN SUMMARY.md ---` / `--- END SUMMARY.md ---` markers. The
+  `new-project` and `milestone new` orchestrators write it and commit `.planning/research/`.
+- **The planner has `Edit`** (objective 44, AUT-07, DF-09); revision mode uses it for targeted TRD
+  revisions and keeps `Write` for new or wholly rewritten TRDs.
+- **`research-objective` spawns the typed `objective-researcher` agent** instead of
+  `general-purpose` plus a read instruction (objective 44, AUT-03, DF-04).
+- **`config-get` returns documented defaults** (objective 44, AUT-07, DF-07). A known-but-unset key
+  prints its `templates/config.json` default with exit 0 (`workflow.parallelization` → `true`,
+  `gates.editGate` → `strict`). A value set in a legacy or alias form still wins, and unknown keys
+  still fail with `Key not found`. **Behaviour change:** `config-get workflow.auto_advance` now returns
+  the loader default, `true`, for configs that don't set it, which matches `loadConfig`. Workflows that
+  fell back to `|| echo "false"` on those projects now auto-advance, and an executor in auto mode
+  auto-approves their `human-verify` checkpoints (look-lock excepted) and takes the first option at
+  `decision` checkpoints. Set
+  `workflow.auto_advance: false` to keep the old behaviour.
+- **`objective-job-index` is checkpoint-aware** (objective 44, AUT-01). A SUMMARY with `## Progress`
+  and no `## Self-Check` counts as incomplete, so a re-run resumes that TRD. `task_count` counts real
+  `<task>` elements (line start, outside code fences) instead of reporting 0 for every XML-task TRD,
+  so executor model selection sees the true size.
+
+### Fixed
+- **`validate health` W007 no longer flags archived objectives.** It now also reads
+  `.planning/milestones/*-ROADMAP.md` and counts checklist/bullet lines (`- [x] Objective 27: …`), not only
+  `### Objective N:` headings. W006 is unchanged.
+- The no-progress guard (`hooks/guard-no-progress.js`) no longer writes into the repo. It kept its
+  state in `.planning/.progress-guard.json`, which it rewrote on every tool call; the file watcher
+  attached the whole file to every tool result (~800 tokens per call), and concurrent sessions raced
+  on the shared file. State now lives per session in
+  `~/.claude/devflow/state/progress-guard/<session>.json` (override: `DEVFLOW_PROGRESS_GUARD_DIR`),
+  files older than 24h are pruned on a session's first write, and `df-tools telemetry` reads from
+  there, filtered to the current project. Migration 0008 still untracks the legacy file.
+- CI drafting no longer emits `\` continuation fragments, comments, `echo` lines, bare flags or
+  `${{ }}`-only lines as commands.
+- `provenance.reviewed` in a drafted STACK.md is the local date, not the UTC date
+  (`helpers.localDate`).
+- `stack validate` warns on placeholder skill pins at every tier (STK010, also surfaced by
+  `validate health` W032) and rejects a positional path instead of silently validating
+  `.planning/STACK.md`.
+- **The edit gate no longer denies DevFlow's own agents** (objective 44, AUT-04, DF-03). `gate-edits.js`
+  allows Edit/Write/MultiEdit when the PreToolUse payload's `agent_type` is `devflow:<name>`, even with
+  no live skill marker (an ad-hoc orchestrator, or after the 8h TTL).
+- **The commit gate allows merge, rebase and cherry-pick completions and stops suggesting an
+  unworkable `export`** (objective 44, AUT-04, DF-02). `gate-commits.js` allows a commit when every
+  target repo's per-worktree git dir has `MERGE_HEAD`, `REBASE_HEAD`, `rebase-merge/`,
+  `rebase-apply/` or `CHERRY_PICK_HEAD` (resolved fs-only through `git -C`, `--git-dir=` and worktree
+  `.git` files), or when every commit invocation carries an inline
+  `DEVFLOW_ALLOW_RAW_COMMIT=1 git commit …` prefix. The deny text no longer suggests
+  `export DEVFLOW_ALLOW_RAW_COMMIT=1`, which a PreToolUse hook can never see, and `docs/USER-GUIDE.md`
+  is corrected to match. The hook now fails open on any internal error.
+- **Spawn prompts no longer read legacy `~/.claude/agents` files** (objective 44, AUT-03, DF-04).
+  `plan-objective`, `new-project`, `security-audit`, `quick`, `execute-objective` and
+  `research-objective` told agents to read an agent file that global-upgrade had moved to backup,
+  wasting a turn on every spawn.
+- **Runtime state files no longer dirty repos** (objective 44, AUT-05, DF-10). Migration 0008 untracks
+  them, and `upgrade-project.js` no longer skips its auto-commit because `.progress-guard.json`
+  changed.
+- **`df-tools commit` no longer re-tracks a file removed with `git rm --cached`** (objective 44,
+  AUT-05). A staged removal whose working copy still exists is committed from the whole index instead
+  of being re-staged by the `--files` pathspec. If anything outside `--files` is staged, the commit is
+  refused with `staged_removal_with_foreign_index`.
+- `config-get constructor` and other prototype names no longer resolve to Object built-ins; they
+  fail with `Key not found` (objective 44, AUT-07).
+- `objective-job-index` reads the `files_modified` frontmatter key TRDs actually write (legacy
+  `files-modified` still accepted), so the >8-files executor-model rule can fire.
+- `df-tools commit`: `commit_docs: false` and a gitignored `.planning` now skip only `.planning/`
+  paths. Code passed via `--files` still commits, and the dropped paths are reported as
+  `skipped_planning`.
+
 ## [2.11.0] - 2026-09-28
 
 ### Added

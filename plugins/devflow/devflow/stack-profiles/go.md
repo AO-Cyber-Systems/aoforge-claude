@@ -14,7 +14,7 @@ commands:
   build:   { run: "go build ./..." }
   test:    { run: "go test -race ./...", scoped: "go test -race {packages}" }
   lint:    { run: "go vet ./..." }
-  format:  { run: "gofmt -l .", apply: "gofmt -w {files}" }
+  format:  { run: 'test -z "$(gofmt -l .)"', apply: "gofmt -w {files}" }   # gofmt -l exits 0 either way; an empty listing is the pass
   fix:     { run: "go fix -diff ./...", apply: "go fix ./..." }       # Go 1.26+ modernizers
   audit:   { run: "govulncheck ./...", when: deps_changed }
   tidy:    { run: "go mod tidy -diff", apply: "go mod tidy", when: deps_changed }
@@ -36,18 +36,17 @@ agent_tooling:
       command: gopls
       args: [mcp]
       required: false               # agents fall back to the CLI commands above
-      disabled_tools: [go_context]  # token-heavy; off by default upstream too
   instructions:
     - { export: "gopls mcp -instructions" }
   skills:
-    - { source: "github.com/JetBrains/go-modern-guidelines", pin: "<sha>" }   # version-aware idioms (community)
+    - { source: "github.com/JetBrains/go-modern-guidelines", pin: "155dc7ca10da" }   # version-aware idioms (community)
   policy: { telemetry: "off" }
 
 verification:
   runtime: service                  # override per project: cli | service
 
 provenance:
-  reviewed: "2026-09-27"
+  reviewed: "2026-09-28"
   sources:
     - https://go.dev/gopls/features/mcp
     - https://github.com/golang/tools/blob/master/gopls/internal/mcp/instructions.md
@@ -59,8 +58,8 @@ provenance:
 
 # Stack Profile: go
 
-Example org/pack profile. It isn't shipped in core. A project gets it with `extends: go` once a Go
-pack or the org layer installs it at `~/.claude/devflow/stacks/go.md`.
+Tier-2 profile, now bundled with DevFlow (`devflow/stack-profiles/go.md`). A project gets it with
+`extends: go`. An org or user profile at `~/.claude/devflow/stacks/go.md` takes precedence over it.
 
 **Upstream stance.** The Go team publishes *tooling*, not prose guidance: the gopls MCP server, its
 exportable instructions, and `go fix` modernizers built because LLMs keep writing old Go. So this
