@@ -5,7 +5,11 @@
  *
  * Two-fold awareness layer: peer (git-branch state) + org (Product Roadmap project).
  * Storage: git is the source of truth for peer; obj 1's resolveChain primitives walk
- * org-side. No new shared store; pure read-side aggregation.
+ * org-side. The scan result is cached OUT OF TREE (TRD 45-01): readCache/writeCache go
+ * through awareness-store.cjs, which keeps one file per repo at
+ * ~/.claude/devflow/state/awareness/<repo-key>.json (override: $DEVFLOW_AWARENESS_DIR).
+ * Nothing here reads or writes <cwd>/.planning/ — an in-tree cache file was attached to
+ * tool results by Claude Code's file watcher and churned repos that committed it.
  *
  * Module growth across waves:
  *   TRD 02-01: parseStateMd, aggregateOrgByProductQuarter, constants  (THIS TRD)
@@ -19,12 +23,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const store = require('./awareness-store.cjs');
 
 // ─── TRD 02-01: constants ─────────────────────────────────────────────────────
 
 const DEFAULT_TTL_MINUTES = 10;
 const DEFAULT_STALE_DAYS = 30;
 const DEFAULT_BRANCH_PATTERNS = ['feature/*', 'df/*', 'fix/*', 'proposal/*'];
+// LEGACY (TRD 45-01): the pre-45 in-tree cache path. Nothing reads or writes it any more —
+// readCache/writeCache use awareness-store. The export name is kept for migration/doctor,
+// which need to recognise the dead file; it is not a live path.
 const AWARENESS_CACHE_REL = path.join('.planning', '.awareness-cache.json');
 
 // ─── TRD 02-01: parseStateMd ──────────────────────────────────────────────────
@@ -144,23 +152,24 @@ function aggregateOrgByProductQuarter(items) {
 // ─── TRD 02-04: cache layer ───────────────────────────────────────────────────
 
 /**
- * Read the awareness cache file.
+ * Read the awareness cache for a project from the out-of-tree store
+ * (~/.claude/devflow/state/awareness/<repo-key>.json).
  * Returns null on missing file, empty file, or malformed JSON.
+ * Returns only the { peer, org } sections — the store's own bookkeeping
+ * (project, updated) is stripped. A legacy in-tree
+ * .planning/.awareness-cache.json is deliberately ignored (no fallback).
  * Never throws.
  *
- * @param {string} cwd - working directory containing .planning/
+ * @param {string} cwd - the project working directory (keys the store file)
  * @returns {{ peer?: object, org?: object } | null}
  */
 function readCache(cwd) {
-  const p = path.join(cwd, AWARENESS_CACHE_REL);
-  if (!fs.existsSync(p)) return null;
-  try {
-    const content = fs.readFileSync(p, 'utf-8');
-    if (!content.trim()) return null;
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
+  const entry = store.readEntry(store.cacheFile(cwd));
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const out = {};
+  if (entry.peer !== undefined) out.peer = entry.peer;
+  if (entry.org !== undefined) out.org = entry.org;
+  return out;
 }
 
 /**
@@ -173,20 +182,27 @@ function readCache(cwd) {
  * Locked semantic: writeCache(cwd, { peer: NEW }) where existing has { peer: OLD, org: Y }
  *   → result is { peer: NEW, org: Y }.
  *
- * @param {string} cwd - working directory containing (or to contain) .planning/
+ * The entry is stored as { project: <realpath of cwd>, updated: <ISO>, peer?, org? } via an
+ * atomic write. It never creates .planning/ or anything else under cwd. Fails open like the
+ * store: an unwritable state dir loses the cache, it does not break the scan.
+ *
+ * @param {string} cwd - the project working directory (keys the store file)
  * @param {{ peer?: object, org?: object }} sections - sections to write/update
  */
 function writeCache(cwd, sections) {
-  const planningDir = path.join(cwd, '.planning');
-  if (!fs.existsSync(planningDir)) fs.mkdirSync(planningDir, { recursive: true });
-
   // Read existing for merge semantics
   const existing = readCache(cwd) || {};
   const merged = Object.assign({}, existing, sections || {});
 
-  fs.writeFileSync(
-    path.join(cwd, AWARENESS_CACHE_REL),
-    JSON.stringify(merged, null, 2) + '\n'
+  let project;
+  try {
+    project = fs.realpathSync(cwd);
+  } catch {
+    project = path.resolve(cwd);
+  }
+  store.writeEntry(
+    store.cacheFile(cwd),
+    Object.assign({ project, updated: new Date().toISOString() }, merged)
   );
 }
 
