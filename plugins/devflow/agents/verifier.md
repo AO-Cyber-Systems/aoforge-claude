@@ -850,7 +850,7 @@ If `.planning/config.json` has `github.enabled: true`, post the verification res
 ```bash
 # For gaps_found: post the gaps section as a comment
 if [ "$STATUS" = "gaps_found" ]; then
-  node ~/.claude/devflow/bin/df-tools.cjs gh comment "$OBJECTIVE_NUM" "@file:$VERIFICATION_PATH"
+  node ~/.claude/devflow/bin/df-tools.cjs gh comment "$OBJECTIVE_NUM" "@file:$VERIFICATION_PATH" --kind verification
 fi
 # For passed (final pass): close the issue with a link to the verification report
 if [ "$STATUS" = "passed" ] && [ "$IS_FINAL_PASS" = "true" ]; then

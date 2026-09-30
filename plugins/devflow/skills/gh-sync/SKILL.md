@@ -1,24 +1,24 @@
 ---
 name: gh-sync
 description: |
-  Sync DevFlow planning state to GitHub — create/update objective issues, generate release notes, or push a single objective's state (body + sticky comment + Project v2 fields).
+  Sync DevFlow planning state to GitHub — create/update objective issues, generate release notes, or push a single objective's state (body sections + sticky comment + Project v2 fields).
   Triggers on: "sync to github", "push objectives to github", "github release notes", "sync objective".
-argument-hint: "[objectives|release <tag>|status|<objective_id>]"
+argument-hint: "[<objective>|--all|objectives|release <tag>|status]"
 allowed-tools:
   - Read
   - Bash
   - Write
 ---
 <objective>
-One-way push from `.planning/` -> GitHub. Planning files remain authoritative. All operations are no-ops when GitHub integration is disabled or `gh` is not authenticated.
+One-way push from `.planning/` -> GitHub. Planning files remain authoritative. All operations report `skipped` (exit 0) when `github.enabled` is not true; when it is true and `gh` is not authenticated they exit 1 with the remediation.
 
-Four modes (parsed from $ARGUMENTS):
-- `objectives` (default for empty args) — create/update one issue per roadmap objective, ensure milestone exists
+Modes (parsed from $ARGUMENTS):
+- empty, `--all` or `objectives` — sync every objective (`gh sync --all`): find or create one issue per objective, ensure its milestone, update the managed body sections, the sticky state comment and the Project fields
+- `<objective>` (any spelling: `46`, `046`, `46-github-sync-foundations`, `2.1`) — sync ONE objective (`gh sync <objective>`). The first sync creates the issue and writes `github_issue` to the objective's OBJECTIVE.md. Idempotent — safe to run repeatedly.
 - `release <tag>` — generate release notes from SUMMARY.md files since the previous tag and create or edit the GitHub release
 - `status` — report whether GitHub integration is enabled and reachable
-- `sync <objective>` (`<objective_id>`, e.g. `01-github-coordination-layer`) — sync ONE objective: rewrite linked issue body to canonical form, upsert sticky state comment in-place, update Project v2 fields (Status, Quarter). Idempotent — safe to run repeatedly.
 
-If $ARGUMENTS does not match `objectives`, `release <tag>`, or `status`, treat it as an objective ID and run the single-objective sync mode.
+If $ARGUMENTS does not match `--all`, `objectives`, `release <tag>` or `status`, treat it as an objective and run the single-objective sync.
 </objective>
 
 <execution_context>
@@ -31,36 +31,45 @@ If $ARGUMENTS does not match `objectives`, `release <tag>`, or `status`, treat i
 2. Run the requested operation:
 
 ```bash
-# Default — sync all objectives (creates/updates issues + milestone)
-node ~/.claude/devflow/bin/df-tools.cjs gh sync-objectives
+# Default — sync all objectives (creates/updates issues + milestones)
+node ~/.claude/devflow/bin/df-tools.cjs gh sync --all
+
+# Sync one objective (any spelling) to its GitHub issue (idempotent)
+node ~/.claude/devflow/bin/df-tools.cjs gh sync "$OBJECTIVE"
 
 # Release notes for a tag
 node ~/.claude/devflow/bin/df-tools.cjs gh sync-release "$TAG"
 
 # Status check
 node ~/.claude/devflow/bin/df-tools.cjs gh status
-
-# Sync a single objective's state to its linked GH issue (idempotent)
-node ~/.claude/devflow/bin/df-tools.cjs gh sync "$OBJECTIVE_ID"
 ```
 
-The single-objective sync (`gh sync <objective_id>`) is idempotent — running it twice in a row produces no semantic difference on GitHub. The sticky comment uses marker `<!-- df:state -->` and is edited in-place (not a new comment). The comment ID is persisted in `.planning/.gh-mapping.json` so subsequent syncs find the same comment to patch.
+`gh sync --all` keeps going past a failing objective, prints JSON on stdout and exits 1 if any objective failed. `gh sync-objectives` still works but is a deprecated alias of `gh sync --all`.
 
-3. If sync-objectives or the single-objective sync created or updated `.planning/.gh-mapping.json`, commit it:
+How a sync treats GitHub:
+- Each issue body starts with `<!-- devflow:id=N -->`. DevFlow rewrites only the text between its `devflow:begin` / `devflow:end` section markers; text a human wrote above, between or below them is preserved byte for byte.
+- An issue created by an earlier DevFlow (no markers) keeps its old generated text; the managed sections are appended below it once. Edit the old text away by hand if you want it gone.
+- The sticky state comment carries `<!-- devflow:id=N kind=state -->` and is edited in place. A legacy `<!-- df:state -->` comment is adopted and rewritten with the new marker.
+- Writes are at least 1 s apart and a secondary rate limit is retried after GitHub's `retry-after`.
+- If `.planning/.gh-mapping.json` is lost, re-run `gh sync --all`: issues are found again by their `devflow:id` marker, not duplicated.
+
+3. If the sync created or updated `.planning/.gh-mapping.json` or wrote `github_issue` into an OBJECTIVE.md, commit those files:
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs commit "chore: sync GitHub mapping" --files .planning/.gh-mapping.json
+node ~/.claude/devflow/bin/df-tools.cjs commit "chore: sync GitHub mapping" --files .planning/.gh-mapping.json $(git ls-files -m -o --exclude-standard -- '.planning/objectives/*/OBJECTIVE.md')
 ```
 
-4. Report the result to the user — include issue numbers created/updated, milestone link, release URL, or single-objective sync result (comment action, project fields updated). If the operation was skipped, explain why (disabled, gh not installed, missing github_issue frontmatter, etc.) and how to fix it.
+The `git ls-files` list holds only OBJECTIVE.md files that changed; a glob that matches nothing makes `commit` fail.
+
+4. Report the result to the user — include issue numbers created/updated, milestone link, release URL, or single-objective sync result (comment action, project fields updated). If the operation was skipped or failed, say why (disabled, `gh` not installed or not authenticated, repo not set) and how to fix it.
 </process>
 
 <context>
-- The mapping file `.planning/.gh-mapping.json` is the source of truth for objective-to-issue numbers and sticky comment IDs. Commit it.
-- This skill never edits issues that DevFlow did not create — only those tracked in the mapping.
+- The mapping file `.planning/.gh-mapping.json` (v3, keyed by objective id) records objective-to-issue numbers and sticky comment IDs. Commit it. The `devflow:id` markers on GitHub make it recoverable.
+- An objective's issue is found through the mapping, the OBJECTIVE.md `github_issue`, the `devflow:id` marker, then an `[Objective N]` title, and only then created. Ambiguity (two issues with one marker or title, a conflicting mapping) stops that objective with an error; it never picks one and never creates a duplicate.
 - Failures (network, rate limit, auth expired) never block the user's workflow. They are reported and the planning state remains authoritative.
-- For automatic syncing, the new-project workflow already calls `gh sync-objectives` after roadmap creation, and the verifier agent calls `gh comment` on verification gaps. This skill is for manual fire / recovery.
-- The single-objective sync (`<objective_id>` mode) requires the objective to have a `github_issue` field in its OBJECTIVE.md frontmatter. If absent, run `objectives` mode first to create the issue, then backfill the `github_issue` field.
+- For automatic syncing, the new-project workflow calls `gh sync --all` after roadmap creation, the execute-objective workflow calls `gh sync <objective>` after completion, and the verifier agent calls `gh comment … --kind verification`. This skill is for manual fire / recovery.
+- If an OBJECTIVE.md already has a `github_issue` that differs from the issue the sync resolved, the value you set is kept and the difference is reported as a warning.
 
 ## Triggers
 

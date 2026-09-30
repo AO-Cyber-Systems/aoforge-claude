@@ -1106,20 +1106,22 @@ node ~/.claude/devflow/bin/df-tools.cjs commit "docs: create roadmap ([N] object
 If `.planning/config.json` has `github.enabled: true` and `github.repo` set, sync the roadmap to GitHub issues:
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs gh sync-objectives
+node ~/.claude/devflow/bin/df-tools.cjs gh sync --all
 ```
 
-This is a no-op when GitHub integration is disabled or `gh` is not installed/authenticated. The command:
-- Creates one milestone per roadmap version
-- Creates one issue per objective with goal + success criteria
+This reports `skipped` and exits 0 when GitHub integration is disabled. When it is enabled and `gh` is not authenticated it exits 1 with the fix. The command:
+- Uses each objective's `milestone:` (else the ROADMAP `## Milestones` current entry)
+- Creates one issue per objective with goal + success criteria, and writes `github_issue` into each OBJECTIVE.md
 - Persists issue numbers in `.planning/.gh-mapping.json` (commit this file)
-- Is idempotent — re-running updates existing issues
+- Is idempotent — re-running updates existing issues and never duplicates them
 
-If issues were created, commit the mapping file:
+If issues were created, commit the mapping file and the OBJECTIVE.md files that gained `github_issue`:
 
 ```bash
-[ -f .planning/.gh-mapping.json ] && node ~/.claude/devflow/bin/df-tools.cjs commit "chore: sync objectives to GitHub" --files .planning/.gh-mapping.json
+[ -f .planning/.gh-mapping.json ] && node ~/.claude/devflow/bin/df-tools.cjs commit "chore: sync objectives to GitHub" --files .planning/.gh-mapping.json $(git ls-files -m -o --exclude-standard -- '.planning/objectives/*/OBJECTIVE.md')
 ```
+
+The `git ls-files` list holds only OBJECTIVE.md files that changed, so a roadmap with no objective directories yet does not pass `commit` a glob that matches nothing (git rejects it).
 
 ## 9. Done
 
