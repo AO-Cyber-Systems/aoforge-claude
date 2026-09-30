@@ -133,6 +133,13 @@ const DEPRECATION_MAP = {
 // the plugin marketplace, so /devflow:update and /devflow:reapply-patches have no successor.
 const REMOVED_COMMANDS = ['update', 'reapply-patches'];
 
+// df-tools SUBCOMMAND renames (TRD 46-08). Kept beside DEPRECATION_MAP so this module stays the single
+// source of rename truth, but in its own map: DEPRECATION_MAP is keyed by slash-command names and
+// doc-refs reads every key there as `/devflow:<key>`. Keys and values are df-tools argv, not skills.
+const DF_TOOLS_DEPRECATIONS = {
+  'gh sync-objectives': 'gh sync --all',
+};
+
 // ─── Argument validation ──────────────────────────────────────────────────────
 
 /**
@@ -312,9 +319,9 @@ function cmdDeprecationLog(cwd, oldName, raw) {
   return result;
 }
 
-// ─── module.exports — LOCKED by TRD 12-01 (9-entry surface; SC-G1, SC-G2) ────
-//     REMOVED_COMMANDS added by TRD 38-01 (objective 38). DO NOT MODIFY without updating
-//     the EX export-lock tests atomically.
+// ─── module.exports — LOCKED by TRD 12-01 (10-entry surface; SC-G1, SC-G2) ───
+//     REMOVED_COMMANDS added by TRD 38-01 (objective 38); DF_TOOLS_DEPRECATIONS by TRD 46-08.
+//     DO NOT MODIFY without updating the EX export-lock tests atomically.
 module.exports = {
   routeSkill,
   cmdSkillRoute,
@@ -323,6 +330,7 @@ module.exports = {
   SKILL_ROUTES,
   DEPRECATION_MAP,
   REMOVED_COMMANDS,
+  DF_TOOLS_DEPRECATIONS,
   _setRunFs,
   _resetMocks,
 };

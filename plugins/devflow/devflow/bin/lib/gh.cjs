@@ -728,146 +728,14 @@ function cmdGhStatus(cwd, raw) {
   output(status, raw, status.enabled ? 'enabled' : status.reason);
 }
 
+/**
+ * `df-tools gh sync-objectives` — DEPRECATED alias of `gh sync --all` (TRD 46-08). One stderr line, then
+ * the one sync implementation. The rename lives in skill-route.cjs DF_TOOLS_DEPRECATIONS.
+ */
 function cmdGhSyncObjectives(cwd, raw) {
-  const status = ghStatus(cwd);
-  if (!status.enabled) {
-    output({ ok: false, skipped: true, reason: status.reason }, raw, '');
-    return;
-  }
-
-  const objectives = listObjectives(cwd);
-  if (objectives.length === 0) {
-    output({ ok: false, reason: 'No objectives found in ROADMAP.md' }, raw, '');
-    return;
-  }
-
-  const mapping = readMapping(cwd);
-  const projectName = getProjectName(cwd);
-  const milestoneVersion = getMilestoneVersion(cwd) || 'v1.0';
-  const milestoneTitle = `${status.milestone_prefix || 'v'}${milestoneVersion.replace(/^v/, '')}`;
-  const repo = status.repo;
-  const baseLabel = (status.labels && status.labels.objective) || 'devflow:objective';
-  const result = { ok: true, repo, milestone: null, objectives: [] };
-
-  // Ensure milestone exists (best-effort — gh has no `milestone create`, use API)
-  if (!mapping.milestone_id) {
-    const create = _runGh(['api', `repos/${repo}/milestones`, '-f', `title=${milestoneTitle}`, '-f', `description=DevFlow milestone for ${projectName}`]);
-    if (create.ok) {
-      try {
-        const json = JSON.parse(create.stdout);
-        mapping.milestone_id = json.number;
-        result.milestone = { number: json.number, title: milestoneTitle, created: true };
-      } catch {}
-    } else if (/already_exists/i.test(create.stderr)) {
-      // Look up existing milestone
-      const list = _runGh(['api', `repos/${repo}/milestones?state=all`]);
-      if (list.ok) {
-        try {
-          const arr = JSON.parse(list.stdout);
-          const found = arr.find(m => m.title === milestoneTitle);
-          if (found) {
-            mapping.milestone_id = found.number;
-            result.milestone = { number: found.number, title: milestoneTitle, created: false };
-          }
-        } catch {}
-      }
-    }
-  } else {
-    result.milestone = { number: mapping.milestone_id, title: milestoneTitle, created: false };
-  }
-
-  // Ensure label exists
-  _runGh(['label', 'create', baseLabel, '--repo', repo, '--color', '0e8a16', '--description', 'DevFlow objective tracking']);
-
-  for (const obj of objectives) {
-    const existingIssue = mapping.objectives[obj.number];
-    const title = `[Objective ${obj.number}] ${obj.name}`;
-    const body = formatIssueBody(obj, projectName);
-
-    if (existingIssue) {
-      const edit = _runGh([
-        'issue', 'edit', String(existingIssue),
-        '--repo', repo,
-        '--title', title,
-        '--body', body,
-      ]);
-      result.objectives.push({
-        number: obj.number,
-        issue: existingIssue,
-        action: edit.ok ? 'updated' : 'failed',
-        error: edit.ok ? null : edit.stderr,
-      });
-    } else {
-      const args = ['issue', 'create', '--repo', repo, '--title', title, '--body', body, '--label', baseLabel];
-      if (mapping.milestone_id) {
-        // gh issue create takes --milestone by title, not number
-        args.push('--milestone', milestoneTitle);
-      }
-      const create = _runGh(args);
-      if (create.ok) {
-        const m = create.stdout.match(/\/issues\/(\d+)/);
-        if (m) {
-          mapping.objectives[obj.number] = parseInt(m[1], 10);
-          result.objectives.push({ number: obj.number, issue: parseInt(m[1], 10), action: 'created' });
-        }
-      } else {
-        result.objectives.push({ number: obj.number, action: 'failed', error: create.stderr });
-      }
-    }
-  }
-
-  writeMapping(cwd, mapping);
-
-  // TRD 21-02: record sync state for each successfully synced objective so that
-  // subsequent `gh pull` calls have a baseline to detect drift against.
-  for (const item of result.objectives) {
-    if (item.action !== 'created' && item.action !== 'updated') continue;
-    const objDir = _findObjectiveDir(cwd, item.number);
-    if (!objDir) continue;
-    const objPath = path.join(cwd, '.planning', 'objectives', objDir, 'OBJECTIVE.md');
-    if (!fs.existsSync(objPath)) continue;
-    let diskFm;
-    try {
-      diskFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
-    } catch (_) {
-      continue;
-    }
-    const issueRef = `${repo}#${item.issue}`;
-    const nowIso = new Date().toISOString();
-    try {
-      recordSync(cwd, item.number, {
-        issue_ref: issueRef,
-        etag: null,
-        gh_updated_at: nowIso, // approximate; we just wrote
-        label_set: [baseLabel], // we just applied this label
-        assignees: [],          // push doesn't set assignees
-        milestone: milestoneTitle,
-        status: 'open',         // push creates as open
-        last_synced_at: nowIso,
-        last_synced_disk_hash: hashFrontmatter(diskFm),
-      });
-    } catch (_) {
-      // best-effort: do not fail the push if sync state can't be written
-    }
-  }
-
-  output(result, raw, '');
-}
-
-// Best-effort: list .planning/objectives/, find dir whose name starts with the
-// (zero-padded) objective number. Falls back to non-padded prefix or exact match.
-function _findObjectiveDir(cwd, objectiveNumber) {
-  const objDir = path.join(cwd, '.planning', 'objectives');
-  if (!fs.existsSync(objDir)) return null;
-  const padded = String(objectiveNumber).padStart(2, '0');
-  const numStr = String(objectiveNumber);
-  let entries;
-  try { entries = fs.readdirSync(objDir); } catch (_) { return null; }
-  for (const entry of entries) {
-    if (entry === padded || entry === numStr) return entry;
-    if (entry.startsWith(padded + '-') || entry.startsWith(numStr + '-')) return entry;
-  }
-  return null;
+  const { DF_TOOLS_DEPRECATIONS } = require('./skill-route.cjs');
+  process.stderr.write(`Note: \`gh sync-objectives\` is deprecated; use \`${DF_TOOLS_DEPRECATIONS['gh sync-objectives']}\`.\n`);
+  cmdGhSync(cwd, ['--all'], raw);
 }
 
 function cmdGhComment(cwd, issueOrObjective, body, raw) {
@@ -1379,13 +1247,16 @@ function projectFieldUpdates(state, chain) {
  *       | { ok:false, error, warnings, ... }
  * Throws GhAuthError when gh is missing, unauthenticated or lacks a required scope.
  */
-function syncObjective(objectiveArg, projectRoot) {
+function syncObjective(objectiveArg, projectRoot, opts = {}) {
   const issueLib = require('./gh-issue.cjs');
   const milestoneLib = require('./gh-milestone.cjs');
   const { setFrontmatterField } = require('./frontmatter.cjs');
 
-  // 1. Enabled gate + run context (zero gh calls).
-  const runCtx = issueLib.createRunContext(projectRoot);
+  // 1. Enabled gate + run context (zero gh calls). `opts.runCtx` is a context shared by `syncAll`: one
+  //    label bootstrap, one marker scan and one auth check per scope set for the whole run, and the
+  //    mapping is written once by the caller at the end instead of here.
+  const shared = opts.runCtx || null;
+  const runCtx = shared || issueLib.createRunContext(projectRoot);
   if (runCtx.skipped) return { ok: false, skipped: true, reason: runCtx.reason, warnings: [] };
   if (runCtx.ok === false) return { ok: false, error: runCtx.error, warnings: [] };
 
@@ -1409,7 +1280,12 @@ function syncObjective(objectiveArg, projectRoot) {
   const projectFm = readProjectFrontmatter(projectRoot);
   const projectCtx = { github_repo: projectFm.github_repo || null, org_project: projectFm.org_project || null };
   const orgProject = objFm.org_project || projectCtx.org_project || null;
-  requireGhAuth(orgProject ? ['project', 'read:project', 'repo'] : ['repo']);
+  const scopes = orgProject ? ['project', 'read:project', 'repo'] : ['repo'];
+  const authKey = scopes.join(',');
+  if (!Array.isArray(runCtx._authChecked) || !runCtx._authChecked.includes(authKey)) {
+    requireGhAuth(scopes);
+    runCtx._authChecked = [...(runCtx._authChecked || []), authKey];
+  }
   const chain = resolveChain(objFm, projectCtx);
 
   // 4. Disk state and the managed sections.
@@ -1486,8 +1362,8 @@ function syncObjective(objectiveArg, projectRoot) {
     state_comment_id: upsert.comment_id || entry.state_comment_id || null,
     verified_at: verified ? (entry.verified_at || nowIso) : null,
   });
-  const wm = mappingLib.writeMappingV3(projectRoot, runCtx.mapping);
-  if (!wm.ok) warnings.push(`mapping not written: ${wm.error}`);
+  const wm = shared ? { ok: false, deferred: true } : mappingLib.writeMappingV3(projectRoot, runCtx.mapping);
+  if (!wm.ok && !wm.deferred) warnings.push(`mapping not written: ${wm.error}`);
 
   // 11. Sync-state under the same id.
   try {
@@ -1547,17 +1423,113 @@ function cmdGhSyncObjective(cwd, objectiveId, raw) {
     }
     client.emitResult(result, raw, JSON.stringify(result, null, 2));
   } catch (e) {
-    if (e.name === 'GhAuthError') {
-      process.stderr.write(JSON.stringify({
-        error: e.message,
-        remediation: e.remediation,
-        scopes_missing: e.scopes_missing,
-      }, null, 2) + '\n');
-      process.exit(1);
-      return;
-    }
+    if (renderAuthError(e)) return;
     throw e;
   }
+}
+
+/** A GhAuthError as structured JSON on stderr + exit 1. Returns false (and does nothing) for any other error. */
+function renderAuthError(e) {
+  if (!e || e.name !== 'GhAuthError') return false;
+  process.stderr.write(JSON.stringify({
+    error: e.message,
+    remediation: e.remediation,
+    scopes_missing: e.scopes_missing,
+  }, null, 2) + '\n');
+  process.exit(1);
+  return true;
+}
+
+// One line per objective in a `sync --all` result; the full chain/state stay out of the JSON.
+function summarizeSync(entry, r) {
+  const out = { id: entry.id, dir: entry.dir, ok: r.ok === true };
+  if (r.ok) {
+    Object.assign(out, {
+      issue_number: r.issue_number,
+      created: r.created,
+      issue_updated: r.issue_updated,
+      comment_action: r.comment_action,
+    });
+  } else {
+    out.error = r.error || 'sync failed';
+    if (r.message) out.message = r.message;
+    if (r.issue_number) out.issue_number = r.issue_number;
+  }
+  out.warnings = r.warnings || [];
+  return out;
+}
+
+/**
+ * syncAll(root) — `gh sync --all`: every objective (listObjectiveIndex: dirs ∪ ROADMAP headers, numeric
+ * order) through ONE run context, so the label bootstrap, the marker scan and the auth check happen once.
+ * A failing objective does not stop the rest. The mapping is written once, at the end.
+ *
+ * Returns { ok: failed === 0, repo, results: [{id, dir, ok, ...}], failed, mapping_written, warnings }
+ *       | { ok:false, skipped:true, reason, results:[], failed:0 }  (github disabled; zero gh calls)
+ * Throws GhAuthError (after persisting what was synced) when gh is missing or unauthenticated.
+ */
+function syncAll(root) {
+  const issueLib = require('./gh-issue.cjs');
+  const runCtx = issueLib.createRunContext(root);
+  if (runCtx.skipped) return { ok: false, skipped: true, reason: runCtx.reason, results: [], failed: 0 };
+  if (runCtx.ok === false) return { ok: false, error: runCtx.error, results: [], failed: 0 };
+
+  const results = [];
+  const index = mappingLib.listObjectiveIndex(root);
+  for (const entry of index) {
+    let r;
+    try {
+      r = syncObjective(entry.id, root, { runCtx });
+    } catch (e) {
+      if (e && e.name === 'GhAuthError') {
+        if (results.some((x) => x.ok)) mappingLib.writeMappingV3(root, runCtx.mapping);
+        throw e;
+      }
+      r = { ok: false, error: (e && e.message) || String(e), warnings: [] };
+    }
+    results.push(summarizeSync(entry, r));
+  }
+
+  const warnings = [...runCtx.warnings];
+  if (index.length === 0) warnings.push('no objectives found (.planning/objectives/ and ROADMAP.md are empty)');
+  const wm = mappingLib.writeMappingV3(root, runCtx.mapping);
+  if (!wm.ok) warnings.push(`mapping not written: ${wm.error}`);
+  const failed = results.filter((x) => !x.ok).length;
+  return { ok: failed === 0, repo: runCtx.repo, results, failed, mapping_written: wm.ok === true, warnings: [...new Set(warnings)] };
+}
+
+const SYNC_USAGE = [
+  'Usage: df-tools gh sync [<objective>|--all] [--raw]',
+  '  gh sync <objective>  push one objective (any spelling: 2, 02, 02-name) to its GitHub issue',
+  '  gh sync --all        push every objective through one run context (bare `gh sync` does the same)',
+  '  Exit 1 when any objective failed; a project with github.enabled off is skipped with exit 0.',
+  '  `gh sync-objectives` is a deprecated alias of `gh sync --all`.',
+].join('\n') + '\n';
+
+/**
+ * cmdGhSync(cwd, args, raw) — `df-tools gh sync [<objective>|--all]`. `--help` anywhere prints usage and
+ * exits 0 (issue #100 finding 4). `--all` or no positional -> syncAll; else cmdGhSyncObjective.
+ */
+function cmdGhSync(cwd, args, raw) {
+  const list = (Array.isArray(args) ? args : [args]).filter((a) => a !== undefined && a !== null).map(String);
+  if (hasHelpFlag(list)) {
+    process.stdout.write(SYNC_USAGE);
+    process.exit(0);
+    return;
+  }
+  const positional = list.filter((a) => !a.startsWith('-'));
+  if (list.includes('--all') || positional.length === 0) {
+    let result;
+    try {
+      result = syncAll(cwd);
+    } catch (e) {
+      if (renderAuthError(e)) return;
+      throw e;
+    }
+    client.emitResult(result, raw, '');
+    return;
+  }
+  cmdGhSyncObjective(cwd, positional[0], raw);
 }
 
 // ─── TRD 02-03: walkProject (org Project walker) ────────────────────────────
@@ -1745,6 +1717,10 @@ module.exports = {
   readObjectiveState,
   syncObjective,
   cmdGhSyncObjective,
+
+  // TRD 46-08 — one push command:
+  syncAll,
+  cmdGhSync,
   readMappingV2,
   writeMappingV2,
   PRODUCT_ROADMAP_FIELDS,

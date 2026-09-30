@@ -257,7 +257,7 @@ const COMMANDS = {
     mutates: true,
   },
   'gh': {
-    usage: 'df-tools gh <status|sync [objective]|pull <objective> [--apply]|sync-objectives|resolve <objective>|comment <issue> <body>|close-issue <issue> [comment]|sync-release <tag>> [--raw]',
+    usage: 'df-tools gh <status|sync [<objective>|--all]|pull <objective> [--apply]|resolve <objective>|comment <objective|#issue> <body|@file:path> [--kind k]|close-issue <objective|#issue> [comment]|sync-release <tag>> [--raw]  (sync-objectives: deprecated alias of sync --all)',
     summary: 'Sync DevFlow planning state to and from GitHub.',
     mutates: true,
   },

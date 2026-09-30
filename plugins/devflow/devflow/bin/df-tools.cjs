@@ -223,7 +223,7 @@ const {
 } = require('./lib/workstreams.cjs');
 const {
   cmdGhStatus, cmdGhSyncObjectives, cmdGhComment, cmdGhCloseIssue, cmdGhSyncRelease,
-  cmdGhResolve, cmdGhSyncObjective,
+  cmdGhResolve, cmdGhSync,
 } = require('./lib/gh.cjs');
 const {
   cmdChangelogUpdate, cmdChangelogCheck,
@@ -1069,12 +1069,13 @@ async function main() {
       if (subcommand === 'status') {
         cmdGhStatus(cwd, raw);
       } else if (subcommand === 'sync-objectives') {
+        // Deprecated alias of `gh sync --all` (TRD 46-08; skill-route DF_TOOLS_DEPRECATIONS)
         cmdGhSyncObjectives(cwd, raw);
       } else if (subcommand === 'comment') {
         // df-tools gh comment <issue|objective> <body|@file:path>
         cmdGhComment(cwd, args[2], args[3], raw);
       } else if (subcommand === 'close-issue') {
-        // df-tools gh close-issue <issue|objective> [comment]
+        // df-tools gh close-issue <objective|#issue> [comment]
         cmdGhCloseIssue(cwd, args[2], args[3] || null, raw);
       } else if (subcommand === 'sync-release') {
         // df-tools gh sync-release <tag>
@@ -1083,19 +1084,14 @@ async function main() {
         // df-tools gh resolve <objectiveId> [--raw]
         cmdGhResolve(cwd, args[2], raw, args.slice(2));
       } else if (subcommand === 'sync') {
-        // df-tools gh sync <objectiveId> — singular: sync one objective's state to GH
-        // With no objectiveId, fall back to sync-objectives (plural, all objectives)
-        if (args[2]) {
-          cmdGhSyncObjective(cwd, args[2], raw);
-        } else {
-          cmdGhSyncObjectives(cwd, raw);
-        }
+        // df-tools gh sync [<objective>|--all] — bare `gh sync` is `--all`
+        cmdGhSync(cwd, args.slice(2), raw);
       } else if (subcommand === 'pull') {
         // df-tools gh pull <objectiveId> [--apply] [--raw]
         const { cmdGhPull } = require('./lib/gh-pull.cjs');
         cmdGhPull(cwd, args.slice(2), raw);
       } else {
-        error('Unknown gh subcommand. Available: status, sync, pull, sync-objectives, resolve, comment, close-issue, sync-release');
+        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release (sync-objectives: deprecated alias)');
       }
       break;
     }
