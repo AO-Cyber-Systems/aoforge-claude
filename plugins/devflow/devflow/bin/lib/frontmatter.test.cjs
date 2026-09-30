@@ -2,7 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { extractFrontmatter, reconstructFrontmatter, spliceFrontmatter, FRONTMATTER_SCHEMAS } = require('./frontmatter.cjs');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { extractFrontmatter, reconstructFrontmatter, spliceFrontmatter, setFrontmatterField, FRONTMATTER_SCHEMAS } = require('./frontmatter.cjs');
 
 test('extractFrontmatter — baseline parse (existing fields unchanged)', () => {
   const c = `---\nkind: api\ndefault_work: feature\n---\n\n# Test`;
@@ -248,4 +251,157 @@ test('Case 12 (REQ-10-01) — FRONTMATTER_SCHEMAS.trd.required is unchanged (8 b
     FRONTMATTER_SCHEMAS.trd.required.slice().sort(),
     ['autonomous', 'depends_on', 'files_modified', 'must_haves', 'objective', 'trd', 'type', 'wave'].sort()
   );
+});
+
+// ─── setFrontmatterField (TRD 46-06, F1-F7) ──────────────────────────────────
+
+test.describe('setFrontmatterField', () => {
+  let dir;
+  test.beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-setfm-')); });
+  test.afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  const write = (name, content) => {
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, content, 'utf-8');
+    return p;
+  };
+
+  const WITH_COMMENTS = [
+    '---',
+    'objective: 46-github-sync-foundations',
+    'work: feature',
+    '# OPTIONAL: set manually',
+    '# github_issue: owner/repo#NN',
+    'parent_issue:',
+    'depends_on: [45]',
+    '---',
+    '',
+    '# Body',
+    'github_issue: body-text-stays',
+    '',
+  ].join('\n');
+
+  test('F1: appends a missing key as the last frontmatter line; comments, order and body are byte-identical', () => {
+    const p = write('OBJECTIVE.md', WITH_COMMENTS);
+    const r = setFrontmatterField(p, 'github_issue', 'o/r#1');
+    assert.deepStrictEqual(r, { ok: true, changed: true });
+    const expected = WITH_COMMENTS.replace('depends_on: [45]\n---', 'depends_on: [45]\ngithub_issue: o/r#1\n---');
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), expected);
+  });
+
+  test('F2: replaces an existing key in place; nothing else changes', () => {
+    const src = WITH_COMMENTS.replace('work: feature', 'work: feature\ngithub_issue: o/r#1');
+    const p = write('OBJECTIVE.md', src);
+    const r = setFrontmatterField(p, 'github_issue', 'o/r#2');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, true);
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), src.replace('github_issue: o/r#1', 'github_issue: o/r#2'));
+  });
+
+  test('F3: an equal value changes neither bytes nor mtime', () => {
+    const src = WITH_COMMENTS.replace('work: feature', 'work: feature\ngithub_issue: o/r#1');
+    const p = write('OBJECTIVE.md', src);
+    const old = new Date('2020-01-01T00:00:00Z');
+    fs.utimesSync(p, old, old);
+    const before = fs.statSync(p).mtimeMs;
+    const r = setFrontmatterField(p, 'github_issue', 'o/r#1');
+    assert.deepStrictEqual(r, { ok: true, changed: false });
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), src);
+    assert.strictEqual(fs.statSync(p).mtimeMs, before);
+  });
+
+  test('F3b: a quoted existing value equal to the new value is unchanged', () => {
+    const src = '---\ngithub_issue: "o/r#1"\n---\nbody\n';
+    const p = write('OBJECTIVE.md', src);
+    const r = setFrontmatterField(p, 'github_issue', 'o/r#1');
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), src);
+  });
+
+  test('F4: ifAbsentOrEqual reports a conflict and keeps the file when a different value exists', () => {
+    const src = '---\ngithub_issue: o/r#1\n---\nbody\n';
+    const p = write('OBJECTIVE.md', src);
+    const r = setFrontmatterField(p, 'github_issue', 'o/r#2', { ifAbsentOrEqual: true });
+    assert.deepStrictEqual(r, { ok: true, changed: false, conflict: true, existing: 'o/r#1' });
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), src);
+  });
+
+  test('F4b: ifAbsentOrEqual treats a bare `key:` as absent and fills it; equal value is not a conflict', () => {
+    const p = write('a.md', '---\ngithub_issue:\nwork: feature\n---\nb\n');
+    const r = setFrontmatterField(p, 'github_issue', 'o/r#3', { ifAbsentOrEqual: true });
+    assert.strictEqual(r.changed, true);
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), '---\ngithub_issue: o/r#3\nwork: feature\n---\nb\n');
+    const again = setFrontmatterField(p, 'github_issue', 'o/r#3', { ifAbsentOrEqual: true });
+    assert.deepStrictEqual(again, { ok: true, changed: false });
+  });
+
+  test('F5: a file without a frontmatter block is left untouched with a warning; a missing file is ok:false', () => {
+    const src = '# Just a heading\n\ngithub_issue: nope\n';
+    const p = write('plain.md', src);
+    const r = setFrontmatterField(p, 'github_issue', 'o/r#1');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, false);
+    assert.match(r.warning, /frontmatter/i);
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), src);
+
+    const missing = setFrontmatterField(path.join(dir, 'nope.md'), 'github_issue', 'o/r#1');
+    assert.strictEqual(missing.ok, false);
+    assert.ok(missing.error);
+  });
+
+  test('F6: github_issue text in the BODY is never touched', () => {
+    const src = '---\nwork: feature\n---\n\ngithub_issue: body-old\n---\ngithub_issue: body-old-2\n';
+    const p = write('OBJECTIVE.md', src);
+    setFrontmatterField(p, 'github_issue', 'o/r#9');
+    assert.strictEqual(
+      fs.readFileSync(p, 'utf-8'),
+      '---\nwork: feature\ngithub_issue: o/r#9\n---\n\ngithub_issue: body-old\n---\ngithub_issue: body-old-2\n',
+    );
+  });
+
+  test('F7: owner/repo#12 is written unquoted and round-trips through extractFrontmatter', () => {
+    const p = write('OBJECTIVE.md', '---\nwork: feature\n---\nbody\n');
+    setFrontmatterField(p, 'github_issue', 'owner/repo#12');
+    const content = fs.readFileSync(p, 'utf-8');
+    assert.match(content, /^github_issue: owner\/repo#12$/m);
+    assert.strictEqual(extractFrontmatter(content).github_issue, 'owner/repo#12');
+  });
+
+  test('F8: CRLF files keep CRLF (appended and replaced lines)', () => {
+    const src = '---\r\nwork: feature\r\ngithub_issue: o/r#1\r\n---\r\nbody\r\n';
+    const p = write('crlf.md', src);
+    setFrontmatterField(p, 'github_issue', 'o/r#2');
+    setFrontmatterField(p, 'parent_issue', 'o/r#1');
+    assert.strictEqual(
+      fs.readFileSync(p, 'utf-8'),
+      '---\r\nwork: feature\r\ngithub_issue: o/r#2\r\nparent_issue: o/r#1\r\n---\r\nbody\r\n',
+    );
+  });
+
+  test('F9: a key that is a prefix/regex-special string matches only its own line', () => {
+    const src = '---\ngithub_issue_extra: keep\nwork: feature\n---\n';
+    const p = write('prefix.md', src);
+    setFrontmatterField(p, 'github_issue', 'o/r#1');
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), '---\ngithub_issue_extra: keep\nwork: feature\ngithub_issue: o/r#1\n---\n');
+    const p2 = write('dot.md', '---\nabc: 1\n---\n');
+    setFrontmatterField(p2, 'a.c', 'x');
+    assert.strictEqual(fs.readFileSync(p2, 'utf-8'), '---\nabc: 1\na.c: x\n---\n');
+  });
+
+  test('F10: replacing a key whose old value is a block list removes the orphaned list items', () => {
+    const src = '---\nlabels:\n  - a\n  - b\nwork: feature\n---\n';
+    const p = write('block.md', src);
+    setFrontmatterField(p, 'labels', '[c]');
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), '---\nlabels: [c]\nwork: feature\n---\n');
+  });
+
+  test('F11: an empty frontmatter block gets the key; a newline in key or value is refused', () => {
+    const p = write('empty.md', '---\n---\nbody\n---\nmore\n');
+    setFrontmatterField(p, 'github_issue', 'o/r#1');
+    assert.strictEqual(fs.readFileSync(p, 'utf-8'), '---\ngithub_issue: o/r#1\n---\nbody\n---\nmore\n');
+    const bad = setFrontmatterField(p, 'github_issue', 'a\nb');
+    assert.strictEqual(bad.ok, false);
+    const badKey = setFrontmatterField(p, 'a\nb', 'x');
+    assert.strictEqual(badKey.ok, false);
+  });
 });

@@ -461,3 +461,65 @@ describe('integration: cmdGhSyncObjectives (push) records sync state (W2)', () =
     }
   });
 });
+
+// ─── TRD 46-06: sync-state keys are objective ids ────────────────────────────
+
+describe('sync-state keys normalise to objective ids (46-06, tests 1-4)', () => {
+  const readRaw = (root) => JSON.parse(fs.readFileSync(path.join(root, '.planning', '.gh-sync-state.json'), 'utf-8'));
+
+  test('1: recordSync under a dir name is found by the bare id and by the padded id', () => {
+    const project = fx.buildTempProjectWithSyncState({ syncState: null });
+    try {
+      const r1 = fx.buildSyncStateRecord({ issue_ref: 'o/r#7' });
+      ss.recordSync(project.root, '02-a', r1);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '2'), r1);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '002'), r1);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '02-a'), r1);
+      assert.deepStrictEqual(Object.keys(readRaw(project.root).objectives), ['2']);
+    } finally { project.cleanup(); }
+  });
+
+  test('2: a file holding both 02-a (older) and 2 (newer) reads as one record under 2; recordSync rewrites it with only 2', () => {
+    const older = fx.buildSyncStateRecord({ issue_ref: 'o/r#1', last_synced_at: '2026-01-01T00:00:00Z' });
+    const newer = fx.buildSyncStateRecord({ issue_ref: 'o/r#2', last_synced_at: '2026-06-01T00:00:00Z' });
+    const other = fx.buildSyncStateRecord({ issue_ref: 'o/r#9' });
+    const project = fx.buildTempProjectWithSyncState({
+      syncState: { version: 1, objectives: { '02-a': older, '2': newer, '9': other } },
+    });
+    try {
+      const state = ss.readSyncState(project.root);
+      assert.deepStrictEqual(Object.keys(state.objectives).sort(), ['2', '9']);
+      assert.strictEqual(state.objectives['2'].issue_ref, 'o/r#2');
+
+      ss.recordSync(project.root, '9', fx.buildSyncStateRecord({ issue_ref: 'o/r#9b' }));
+      const raw = readRaw(project.root);
+      assert.deepStrictEqual(Object.keys(raw.objectives).sort(), ['2', '9']);
+      assert.strictEqual(raw.objectives['2'].issue_ref, 'o/r#2');
+      assert.strictEqual(raw.version, 1);
+    } finally { project.cleanup(); }
+  });
+
+  test('3: a decimal objective is stored under its own id, distinct from the integer', () => {
+    const project = fx.buildTempProjectWithSyncState({ syncState: null });
+    try {
+      const a = fx.buildSyncStateRecord({ issue_ref: 'o/r#2' });
+      const b = fx.buildSyncStateRecord({ issue_ref: 'o/r#21' });
+      ss.recordSync(project.root, '2', a);
+      ss.recordSync(project.root, '02.1-b', b);
+      assert.deepStrictEqual(Object.keys(readRaw(project.root).objectives).sort(), ['2', '2.1']);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '2.1'), b);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '2'), a);
+    } finally { project.cleanup(); }
+  });
+
+  test('4: keys that are not objective ids are kept verbatim (no data loss)', () => {
+    const rec = fx.buildSyncStateRecord({ issue_ref: 'o/r#5' });
+    const project = fx.buildTempProjectWithSyncState({ syncState: { version: 1, objectives: { 'weird-key': rec } } });
+    try {
+      assert.deepStrictEqual(ss.readSyncState(project.root).objectives['weird-key'], rec);
+      ss.recordSync(project.root, 'also-weird', rec);
+      assert.deepStrictEqual(Object.keys(readRaw(project.root).objectives).sort(), ['also-weird', 'weird-key']);
+      assert.deepStrictEqual(ss.getLastSync(project.root, 'also-weird'), rec);
+    } finally { project.cleanup(); }
+  });
+});
