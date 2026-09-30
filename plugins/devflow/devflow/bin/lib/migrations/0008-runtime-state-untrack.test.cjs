@@ -258,3 +258,143 @@ describe('migration 0008 runtime-state-untrack', () => {
     assert.deepEqual(trackedRuntime(p), []);
   });
 });
+
+// ─── TRD 45-02: nested `.planning/` runtime state (DOC-02) ─────────────────────
+//
+// aodex also tracks `flutter/.planning/.progress-guard.json`, which the root-only 0008 never saw.
+// Discovery goes through git pathspecs (`:(glob)**/.planning/<name>`), never a filesystem walk.
+
+const NESTED_GUARD = 'flutter/.planning/.progress-guard.json';
+const NESTED_CACHE = 'packages/app/.planning/.awareness-cache.json';
+const RUNTIME_GLOBS = [
+  ':(glob)**/.planning/.progress-guard.json',
+  ':(glob)**/.planning/.awareness-cache.json',
+];
+
+/** Every runtime-state path git tracks at any depth, sorted. */
+function trackedRuntimeAnyDepth(p) {
+  return git(p, 'ls-files', '--', ...RUNTIME_GLOBS).split('\n').filter(Boolean).sort();
+}
+
+function isIgnored(p, rel) {
+  const r = spawnSync('git', ['-C', p.root, '-c', 'core.excludesFile=/dev/null', 'check-ignore', '--no-index', '--', rel], {
+    env: fx.gitEnv(p.home), encoding: 'utf-8',
+  });
+  return r.status === 0;
+}
+
+describe('nested runtime state (TRD 45-02)', () => {
+  test('1. isRuntimeStatePath: `.planning/<basename>` at any depth, nothing else', () => {
+    const { isRuntimeStatePath, RUNTIME_STATE_BASENAMES } = m0008();
+    assert.deepEqual(RUNTIME_STATE_BASENAMES, ['.progress-guard.json', '.awareness-cache.json']);
+    assert.equal(isRuntimeStatePath('.planning/.progress-guard.json'), true);
+    assert.equal(isRuntimeStatePath('flutter/.planning/.awareness-cache.json'), true);
+    assert.equal(isRuntimeStatePath('a/b/c/.planning/.progress-guard.json'), true);
+    assert.equal(isRuntimeStatePath('.planning/progress-guard.json'), false);
+    assert.equal(isRuntimeStatePath('x/planning/.progress-guard.json'), false);
+    assert.equal(isRuntimeStatePath('.planning/sub/.progress-guard.json'), false);
+    assert.equal(isRuntimeStatePath('.progress-guard.json'), false);
+  });
+
+  test('2. tracked nested guard only (root clean) -> applies, reason names the nested path', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [NESTED_GUARD] });
+    const det = m0008().detect(ctxFor(p));
+    assert.equal(det.applies, true);
+    assert.match(det.reason, /tracked: /);
+    assert.ok(det.reason.includes(NESTED_GUARD), det.reason);
+  });
+
+  test('3. apply on a nested tracked guard: untracked, working copy byte-identical, now ignored', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [NESTED_GUARD] });
+    const bytes = readRel(p.root, NESTED_GUARD);
+
+    const res = m0008().apply(ctxFor(p));
+    assert.ok(res.changed.includes(NESTED_GUARD), JSON.stringify(res.changed));
+    assert.ok(res.changed.includes(GITIGNORE));
+    assert.deepEqual(trackedRuntimeAnyDepth(p), [], 'nested file no longer in the index');
+    assert.equal(readRel(p.root, NESTED_GUARD), bytes, 'working copy never deleted or rewritten');
+    assert.equal(git(p, 'check-ignore', '--no-index', '--', NESTED_GUARD).trim(), NESTED_GUARD);
+  });
+
+  test('4. aodex shape (root guard + nested guard + nested cache): all untracked, all ignored, changed sorted', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [GUARD, NESTED_GUARD, NESTED_CACHE] });
+    const sizes = [GUARD, NESTED_GUARD, NESTED_CACHE].map((rel) => readRel(p.root, rel));
+
+    const res = m0008().apply(ctxFor(p));
+    assert.deepEqual(res.changed, [GITIGNORE, ...[GUARD, NESTED_GUARD, NESTED_CACHE].sort()]);
+    assert.deepEqual(trackedRuntimeAnyDepth(p), []);
+    for (const rel of [GUARD, NESTED_GUARD, NESTED_CACHE]) {
+      assert.ok(isIgnored(p, rel), `${rel} is ignored`);
+      assert.ok(fs.existsSync(path.join(p.root, rel)), `${rel} still on disk`);
+    }
+    assert.deepEqual([GUARD, NESTED_GUARD, NESTED_CACHE].map((rel) => readRel(p.root, rel)), sizes);
+  });
+
+  test('5. re-run after apply: detect applies:false; a second apply leaves .gitignore byte-identical, changed []', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [GUARD, NESTED_GUARD, NESTED_CACHE] });
+    const m = m0008();
+
+    m.apply(ctxFor(p));
+    assert.deepEqual(trackedRuntimeAnyDepth(p), [], 'first apply untracked every depth');
+    const det = m.detect(ctxFor(p, { dryRun: true }));
+    assert.equal(det.applies, false, `detect after apply: ${det.reason}`);
+
+    const gitignoreAfterFirst = readRel(p.root, GITIGNORE);
+    const indexAfterFirst = indexSnapshot(p);
+    const second = m.apply(ctxFor(p));
+    assert.deepEqual(second.changed, []);
+    assert.equal(readRel(p.root, GITIGNORE), gitignoreAfterFirst);
+    assert.equal(indexSnapshot(p), indexAfterFirst);
+  });
+
+  test('6. nested file present, untracked and unignored -> applies; afterwards ignored and still on disk', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [], untrackedPresent: [NESTED_GUARD] });
+    const m = m0008();
+
+    const det = m.detect(ctxFor(p));
+    assert.equal(det.applies, true);
+    assert.match(det.reason, /present and not ignored: /);
+    assert.ok(det.reason.includes(NESTED_GUARD), det.reason);
+
+    m.apply(ctxFor(p));
+    assert.ok(isIgnored(p, NESTED_GUARD));
+    assert.ok(fs.existsSync(path.join(p.root, NESTED_GUARD)));
+    assert.equal(m.detect(ctxFor(p, { dryRun: true })).applies, false);
+  });
+
+  test('7. nested file already ignored by a `**/.planning/` rule and untracked -> applies:false', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [], untrackedPresent: [NESTED_GUARD], gitignore: '**/.planning/\n' });
+    const det = m0008().detect(ctxFor(p));
+    assert.equal(det.applies, false, det.reason);
+  });
+
+  test('9. discover(ctx) -> {tracked, present, unignored}: project-relative posix paths, sorted, deduped', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [GUARD, NESTED_GUARD], untrackedPresent: [NESTED_CACHE] });
+    const found = m0008().discover(ctxFor(p));
+
+    assert.deepEqual(Object.keys(found).sort(), ['present', 'tracked', 'unignored']);
+    assert.deepEqual(found.tracked, [GUARD, NESTED_GUARD].sort());
+    assert.deepEqual(found.present, [GUARD, NESTED_GUARD, NESTED_CACHE].sort());
+    assert.deepEqual(found.unignored, [NESTED_CACHE]);
+    for (const rel of [...found.tracked, ...found.present, ...found.unignored]) {
+      assert.ok(!rel.includes('\\') && !path.isAbsolute(rel), `${rel} is project-relative posix`);
+    }
+  });
+
+  test('discover on a non-git directory is empty rather than throwing', () => {
+    const root = fx.makeStampedProject('2.0.0');
+    const home = fx.makeFakeHome();
+    cleanup.push(root, home);
+    fs.mkdirSync(path.join(root, 'flutter/.planning'), { recursive: true });
+    fs.writeFileSync(path.join(root, NESTED_GUARD), '{}\n');
+    const found = m0008().discover({ projectRoot: root, userHome: home, pluginVersion: PLUGIN_VERSION, dryRun: true, options: {} });
+    assert.deepEqual(found, { tracked: [], present: [], unignored: [] });
+  });
+});
