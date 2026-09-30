@@ -17,7 +17,11 @@
  * Nothing in this module may spawn gh except through the runner below.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { spawnSync } = require('child_process');
+const { output } = require('./helpers.cjs');
+const { extractFrontmatter } = require('./frontmatter.cjs');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -26,6 +30,8 @@ const MAX_RETRIES = 4;
 const BASE_RETRY_MS = 60000;
 const MAX_RETRY_MS = 900000;
 const WRITE_BUDGET_PER_RUN = 450;
+const MAX_PAGES = 100;
+const PER_PAGE = 100;
 
 // ─── Runner seam ─────────────────────────────────────────────────────────────
 
@@ -243,6 +249,152 @@ function ghRun(args, opts) {
   return isWriteArgs(args) ? ghWrite(args, opts) : ghRead(args, opts);
 }
 
+// ─── Pagination ──────────────────────────────────────────────────────────────
+
+function paginateFailure(r) {
+  return {
+    ok: false,
+    error: r.error || r.stderr || r.stdout || 'gh api failed',
+    stderr: r.stderr || '',
+    status: r.status,
+  };
+}
+
+function unparseablePage(stdout) {
+  return { ok: false, error: 'unparseable page', stdout };
+}
+
+/** Older gh: no --slurp. Walk `?per_page=100&page=N` until a short (or empty) page. */
+function paginateByPage(apiPath, opts) {
+  const sep = apiPath.includes('?') ? '&' : '?';
+  const items = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const r = ghRead(['api', `${apiPath}${sep}per_page=${PER_PAGE}&page=${page}`], opts);
+    if (!r.ok) return paginateFailure(r);
+    let rows;
+    try {
+      rows = JSON.parse(r.stdout);
+    } catch {
+      return unparseablePage(r.stdout);
+    }
+    if (!Array.isArray(rows)) return unparseablePage(r.stdout);
+    for (const row of rows) items.push(row);
+    if (rows.length < PER_PAGE) break;
+  }
+  return { ok: true, items };
+}
+
+/**
+ * Every item of a REST list endpoint as one flat array.
+ * `gh api --paginate` alone prints concatenated arrays (`[..][..]`), which JSON.parse
+ * rejects; `--slurp` wraps every page in one outer array so the result parses.
+ * @returns {{ok:true, items:any[]} | {ok:false, error:string, stderr?:string, stdout?:string}}
+ */
+function ghPaginate(apiPath, opts) {
+  const r = ghRead(['api', '--paginate', '--slurp', apiPath], opts);
+  if (!r.ok) {
+    if (/unknown flag: --slurp/i.test(`${r.stderr}\n${r.stdout}`)) return paginateByPage(apiPath, opts);
+    return paginateFailure(r);
+  }
+  let pages;
+  try {
+    pages = JSON.parse(r.stdout);
+  } catch {
+    return unparseablePage(r.stdout);
+  }
+  if (!Array.isArray(pages)) return unparseablePage(r.stdout);
+  const items = [];
+  for (const page of pages) {
+    if (Array.isArray(page)) {
+      for (const row of page) items.push(row);
+    } else {
+      items.push(page);
+    }
+  }
+  return { ok: true, items };
+}
+
+// ─── Enabled gate and repo resolution ────────────────────────────────────────
+
+const REPO_SLUG = /^[^/\s]+\/[^/\s]+$/;
+
+/** `.planning/config.json` as an object, or null when missing, invalid or not an object. */
+function readConfig(cwd) {
+  const cfgPath = path.join(cwd, '.planning', 'config.json');
+  if (!fs.existsSync(cfgPath)) return null;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    return cfg && typeof cfg === 'object' ? cfg : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `config.github.repo` if it is an `owner/name` slug, else PROJECT.md `github_repo`, else null. */
+function resolveRepo(cwd) {
+  const cfg = readConfig(cwd);
+  const fromConfig = cfg && cfg.github && cfg.github.repo;
+  if (typeof fromConfig === 'string' && REPO_SLUG.test(fromConfig)) return fromConfig;
+
+  const projectPath = path.join(cwd, '.planning', 'PROJECT.md');
+  if (!fs.existsSync(projectPath)) return null;
+  let fm;
+  try {
+    fm = extractFrontmatter(fs.readFileSync(projectPath, 'utf-8')) || {};
+  } catch {
+    return null;
+  }
+  const fromProject = fm.github_repo;
+  return typeof fromProject === 'string' && REPO_SLUG.test(fromProject) ? fromProject : null;
+}
+
+/**
+ * The one enabled gate. Makes zero gh calls. Commands that write to GitHub call this first
+ * and return the `skipped` result unchanged when it is present.
+ * @returns {{enabled:true, repo:string, labels:object, milestone_prefix:string, config:object}
+ *          | {skipped:true, ok:false, enabled:false, reason:string}}
+ */
+function requireEnabled(cwd) {
+  const cfg = readConfig(cwd);
+  const gh = cfg && cfg.github && typeof cfg.github === 'object' ? cfg.github : null;
+  if (!gh || gh.enabled !== true) {
+    return {
+      skipped: true,
+      ok: false,
+      enabled: false,
+      reason: 'github.enabled is not true in .planning/config.json',
+    };
+  }
+  const repo = resolveRepo(cwd);
+  if (!repo) {
+    return {
+      skipped: true,
+      ok: false,
+      enabled: false,
+      reason: 'github.repo is not set (need an owner/name in .planning/config.json github.repo or PROJECT.md github_repo)',
+    };
+  }
+  return {
+    enabled: true,
+    repo,
+    labels: gh.labels || {},
+    milestone_prefix: gh.milestone_prefix || 'v',
+    config: gh,
+  };
+}
+
+// ─── Result emission ─────────────────────────────────────────────────────────
+
+/**
+ * Print a command result and exit. `skipped` is not a failure (exit 0); any other `ok:false`
+ * is (exit 1). The JSON is printed either way so callers can read the reason.
+ * Callers must return immediately after this: `output` calls process.exit, but tests stub it.
+ */
+function emitResult(result, raw, rawValue) {
+  const code = (result && result.ok === false && !result.skipped) ? 1 : 0;
+  output(result, raw, rawValue, code);
+}
+
 module.exports = {
   // constants
   MIN_WRITE_INTERVAL_MS,
@@ -250,6 +402,7 @@ module.exports = {
   BASE_RETRY_MS,
   MAX_RETRY_MS,
   WRITE_BUDGET_PER_RUN,
+  MAX_PAGES,
   // seam (forwarding wrapper: later injections are visible to earlier importers)
   _runGh: (...a) => runGhImpl(...a),
   _setRunGh,
@@ -265,4 +418,10 @@ module.exports = {
   ghRead,
   ghWrite,
   ghRun,
+  ghPaginate,
+  // enabled gate and result emission
+  readConfig,
+  resolveRepo,
+  requireEnabled,
+  emitResult,
 };

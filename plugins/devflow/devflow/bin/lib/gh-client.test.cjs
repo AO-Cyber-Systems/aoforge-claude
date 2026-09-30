@@ -53,8 +53,11 @@ const SECONDARY = (stdout = '') => ({
   stderr: 'HTTP 403: You have exceeded a secondary rate limit',
 });
 
+const tmpDirs = [];
+
 afterEach(() => {
   client._resetClient();
+  while (tmpDirs.length) fs.rmSync(tmpDirs.pop(), { recursive: true, force: true });
 });
 
 // ─── Seam (tests 1-2) ────────────────────────────────────────────────────────
@@ -418,6 +421,7 @@ describe('ghPaginate', () => {
 /** Build a throwaway project dir with hand-written .planning files. */
 function makeProject({ config, projectMd } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-client-'));
+  tmpDirs.push(dir);
   fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
   if (config !== undefined) {
     fs.writeFileSync(
