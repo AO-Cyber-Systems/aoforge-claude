@@ -238,6 +238,12 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 | 25 | Move no-progress guard state out of the repo: per-session files under ~/.claude/devflow/state/progress-guard/; telemetry reads them; stops per-call file-watcher dumps | 2026-09-30 | 2b673aa | — | [25-move-progress-guard-state-out-of-project](./quick/25-move-progress-guard-state-out-of-project/) |
 | 26 | validate health W007 reads archived milestone roadmaps and ROADMAP.md checklist lines (no false positives for archived objectives) | 2026-09-30 | 13be101 | — | [26-validate-health-w007-reads-archived-mile](./quick/26-validate-health-w007-reads-archived-mile/) |
 
+## Accumulated Context
+
+### Roadmap Evolution
+
+- 2026-09-30 Objectives 46–51 added: GitHub as system of record (sync foundations, authoritative store, planning write-path migration, objective branch and PR lifecycle, enforcement and setup, migration and docs). Design: `docs/PROPOSAL-github-system-of-record.md`. Open fact to confirm: which private repos are on a plan that includes wikis.
+
 ## Session Continuity
 
 Last session: 2026-09-30T11:56:09.893Z

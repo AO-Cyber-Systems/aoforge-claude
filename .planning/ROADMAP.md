@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening)
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record)
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -153,6 +153,75 @@ TRDs:
 - [x] 45-09-TRD.md — /devflow:doctor skill, route-intent, docs, full npm test (DOC-07) [W4]
 - [x] 45-10-TRD.md — autonomous hook markers out of .planning + SC1 planning-writes audit [W1]
 
+<!-- GitHub system of record: objectives 46–51, design in docs/PROPOSAL-github-system-of-record.md -->
+
+### Objective 46: GitHub sync foundations
+
+**Goal:** The existing GitHub sync is correct, idempotent and rate-safe, so the authoritative store can be built on it.
+**Requirements:** GSF-01..GSF-08 (see `.planning/objectives/46-github-sync-foundations/OBJECTIVE.md`)
+**Depends on:** none
+**Success Criteria**:
+1. Push and pull resolve the same issue through one v3 mapping keyed by DevFlow id
+2. Losing the mapping never creates duplicate issues
+3. Human text outside managed body sections survives syncs
+4. Secondary rate limits are retried after `retry-after`; post-execute sync failures are reported
+**Plans:** TBD (run /devflow:plan-objective 46)
+
+### Objective 47: GitHub authoritative store
+
+**Goal:** GitHub holds the full planning hierarchy and content (milestone → objective issue → TRD sub-issues, detail in the wiki), and DevFlow round-trips it through an outbox and a local cache.
+**Requirements:** GST-01..GST-08 (see `.planning/objectives/47-github-authoritative-store/OBJECTIVE.md`)
+**Depends on:** Objective 46
+**Success Criteria**:
+1. A fixture objective round-trips: push → issues, sub-issues, blocked-by, wiki page; `pull --all` regenerates the cache
+2. TRDs over 60K characters are refused before an issue exists; scope comments form the effective spec
+3. Offline writes flush in order; a remote edit halts the flush
+4. Degraded mode works on a user-owned repo
+**Plans:** TBD (run /devflow:plan-objective 47)
+
+### Objective 48: Planning write-path migration
+
+**Goal:** Skills and agents change planning state only through df-tools verbs that write to GitHub, and `.planning/` becomes a gitignored cache.
+**Requirements:** GWP-01..GWP-05 (see `.planning/objectives/48-planning-write-path-migration/OBJECTIVE.md`)
+**Depends on:** Objective 47
+**Success Criteria**:
+1. No skill/agent/workflow writes planning files directly (CI audit test)
+2. The edit gate denies direct cache edits and names the verb
+3. Plan → execute → verify leaves `git status` clean apart from code
+**Plans:** TBD (run /devflow:plan-objective 48)
+
+### Objective 49: Objective branch and PR lifecycle
+
+**Goal:** Every objective runs on one linked branch and ends in one pull request that closes the objective and all its TRDs on merge.
+**Requirements:** GPR-01..GPR-06 (see `.planning/objectives/49-objective-branch-and-pr-lifecycle/OBJECTIVE.md`)
+**Depends on:** Objective 48
+**Success Criteria**:
+1. One draft PR per objective with closing references for every TRD
+2. Wave worktrees merge into the objective branch with no extra PRs
+3. Non-assignee scope changes wait for assignee confirmation
+**Plans:** TBD (run /devflow:plan-objective 49)
+
+### Objective 50: GitHub enforcement and setup
+
+**Goal:** Branch and PR discipline is enforced locally and on GitHub, and `df-tools gh setup` configures a repository for it.
+**Requirements:** GEN-01..GEN-05 (see `.planning/objectives/50-github-enforcement-and-setup/OBJECTIVE.md`)
+**Depends on:** Objective 49
+**Success Criteria**:
+1. Commits on the default branch or unlinked branches are refused; the escape is logged
+2. `gh setup` dry-run lists rulesets, checks, types and fields; apply is idempotent
+3. The linked-issue required check fails a PR without a closing reference
+**Plans:** TBD (run /devflow:plan-objective 50)
+
+### Objective 51: GitHub migration and docs
+
+**Goal:** Existing DevFlow projects move to GitHub as the system of record in place, and the docs describe the new model.
+**Requirements:** GMD-01..GMD-04 (see `.planning/objectives/51-github-migration-and-docs/OBJECTIVE.md`)
+**Depends on:** Objective 50
+**Success Criteria**:
+1. Backfill stays under secondary limits, resumes after interruption, and re-runs as a no-op
+2. Docs pass doc-refs; objective 26 re-based or killed
+**Plans:** TBD (run /devflow:plan-objective 51)
+
 ### Other v1.4 candidates
 
 - **Objective 26: GitHub issue auto-build monitor** — moved out of v1.3 on 2026-09-28 by user decision; **candidate for killing**. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
@@ -196,3 +265,9 @@ Candidate scope carried forward from v1.2 deferrals:
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
+| 46. GitHub sync foundations | v1.4 | 0/— | Registered | — |
+| 47. GitHub authoritative store | v1.4 | 0/— | Registered | — |
+| 48. Planning write-path migration | v1.4 | 0/— | Registered | — |
+| 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
+| 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
+| 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
