@@ -296,4 +296,159 @@ describe('e2e push -> pull on one fake GitHub', () => {
     assert.equal(rebuilt.objectives['2'].issue_id, 1);
     assert.equal(rebuilt.objectives['2.1'].issue_id, 2);
   });
+
+  test('6 (SC3): human text above, between and below the managed sections survives two consecutive syncs byte for byte', () => {
+    // A SUMMARY lands for 02-a, so the managed trds/summary sections really have something to change.
+    fs.writeFileSync(PLANNING(root, 'objectives', '02-a', '02-01-SUMMARY.md'), '# first summary\n');
+
+    const ABOVE = 'Human note ABOVE the managed text.\n\nA second paragraph with **bold**, a trailing double space  ';
+    const BETWEEN = 'Human note BETWEEN criteria and trds: `code`, a [link](https://example.com/x?a=1&b=2) and <b>html</b>.';
+    const BELOW = 'Human note BELOW everything.\n- a list\n- of things\n\n> and a quote';
+    const unmanaged = (body) => body.replace(/<!-- devflow:begin (\w+) -->[\s\S]*?<!-- devflow:end \1 -->/g, '<!-- section $1 -->');
+    const section = (body, name) => new RegExp(`<!-- devflow:begin ${name} -->\\n([\\s\\S]*?)\\n<!-- devflow:end ${name} -->`).exec(body)[1];
+
+    let edited = `${ABOVE}\n\n${fake.issues[0].body}`;
+    edited = edited.replace('<!-- devflow:end criteria -->', `<!-- devflow:end criteria -->\n\n${BETWEEN}`);
+    edited = `${edited.replace(/\s+$/, '')}\n\n${BELOW}\n`;
+    fake.humanEditBody(1, edited);
+
+    const first = sync(root);
+    assert.equal(exitOf(first), 0, first.stdout + first.stderr);
+    const afterFirst = fake.issues[0].body;
+    assert.notEqual(afterFirst, edited, 'the managed sections were refreshed');
+    for (const human of [ABOVE, BETWEEN, BELOW]) assert.ok(afterFirst.includes(human), `lost human text: ${human}`);
+    assert.equal(unmanaged(afterFirst), unmanaged(edited), 'everything outside the managed sections is byte-identical');
+    assert.match(section(afterFirst, 'trds'), /\[x\]/, 'the trds section reflects the new SUMMARY');
+    assert.match(section(afterFirst, 'summary'), /1\/1 TRDs done/);
+
+    const writesFrom = fake.writes().length;
+    const second = sync(root);
+    assert.equal(exitOf(second), 0, second.stdout + second.stderr);
+    assert.equal(fake.issues[0].body, afterFirst, 'a second sync leaves the body byte-identical');
+    const edits = writesSince(fake, writesFrom).filter((a) => verbOf(a, 'issue', 'edit') && a[2] === '1');
+    assert.deepEqual(edits, [], 'and sends no issue edit for #1');
+  });
+
+  test('7 (SC4): a secondary-limit 403 mid-run is retried after retry-after; no two writes are closer than 1000 ms', () => {
+    // A second TRD changes objective 2's managed text, so `sync 2` has an `issue edit` to make.
+    fs.writeFileSync(PLANNING(root, 'objectives', '02-a', '02-02-second-TRD.md'), '---\nwave: 2\n---\n# second\n');
+    const writesFrom = fake.writes().length;
+    const sleepsFrom = sleeps.length;
+    fake.failNext((a) => verbOf(a, 'issue', 'edit'), {
+      ok: false, status: 1, stderr: 'HTTP 403: You have exceeded a secondary rate limit', stdout: 'retry-after: 3',
+    });
+
+    const r = sync(root, ['2']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.equal(json(r.stdout).ok, true, r.stdout);
+
+    assert.ok(sleeps.slice(sleepsFrom).includes(3000), `recorded sleeps: ${JSON.stringify(sleeps.slice(sleepsFrom))}`);
+    assert.match(fake.issues[0].body, /02-02-second/, 'the retried edit landed');
+
+    const writes = writesSince(fake, writesFrom);
+    const times = fake.writeTimes().slice(writesFrom);
+    const editAt = writes.map((a, i) => (verbOf(a, 'issue', 'edit') ? times[i] : null)).filter((t) => t !== null);
+    assert.equal(editAt.length, 2, 'the rejected edit and its retry');
+    assert.ok(editAt[1] - editAt[0] >= 3000, `retry came ${editAt[1] - editAt[0]} ms after the rejection`);
+
+    assert.ok(times.length >= 3, `the run made ${times.length} writes`);
+    for (let i = 1; i < times.length; i++) {
+      assert.ok(times[i] - times[i - 1] >= 1000, `write ${i} (${writes[i].slice(0, 2).join(' ')}) only ${times[i] - times[i - 1]} ms after the previous`);
+    }
+  });
+
+  test('9: github.enabled false - sync --all, sync 2, comment, close-issue and pull are skipped, exit 0, zero gh calls', () => {
+    fs.writeFileSync(PLANNING(root, 'config.json'), JSON.stringify({ github: { enabled: false, repo: 'o/r' } }, null, 2));
+    gh._resetCache();
+    const from = fake.calls().length;
+    const runs = {
+      'sync --all': () => sync(root, ['--all']),
+      'sync 2': () => sync(root, ['2']),
+      comment: () => comment(root, '2', 'hi'),
+      'close-issue': () => closeIssue(root, '2', 'Verified'),
+      pull: () => pull(root, ['2']),
+    };
+    for (const [name, run] of Object.entries(runs)) {
+      const r = run();
+      assert.equal(exitOf(r), 0, `${name}: exit ${r.code} ${r.stdout}${r.stderr}`);
+      assert.equal(json(r.stdout).skipped, true, `${name}: ${r.stdout}`);
+    }
+    assert.equal(fake.calls().length, from, 'no new fake calls');
+  });
+});
+
+// ─── Legacy mapping shapes x commands (test 8) ───────────────────────────────
+
+const LEGACY_MAPPINGS = {
+  v1: { objectives: { 2: 1, 2.1: 2 } },
+  v2: {
+    milestone_id: null,
+    objectives: {
+      2: { issue_id: 1, state_comment_id: null },
+      2.1: { issue_id: 2, state_comment_id: null },
+    },
+  },
+};
+const LEGACY_ISSUE = { 2: 1, 2.1: 2 };
+
+/** Issue numbers named by per-issue verbs (`issue view|edit|comment|close|reopen N`). */
+const issueNumbersTouched = (argvs) => [...new Set(argvs
+  .filter((a) => a[0] === 'issue' && ['view', 'edit', 'comment', 'close', 'reopen'].includes(a[1]))
+  .map((a) => a[2]))];
+
+describe('legacy mapping shapes x commands', () => {
+  beforeEach(() => {
+    setUpEnv();
+    root = makeProject();
+    installFake();
+    // The issues the old sync-objectives left behind: unmarked bodies, the legacy objective label.
+    fake.seedIssue({ title: '[Objective 2] a', body: 'Legacy body written by the old sync-objectives.', labels: ['devflow:objective'] });
+    fake.seedIssue({ title: '[Objective 2.1] b', body: 'Another legacy body.', labels: ['devflow:objective'] });
+  });
+  afterEach(tearDownEnv);
+
+  for (const [shape, legacy] of Object.entries(LEGACY_MAPPINGS)) {
+    for (const id of ['2', '2.1']) {
+      const n = String(LEGACY_ISSUE[id]);
+      const seed = () => fs.writeFileSync(MAPPING(root), JSON.stringify(legacy, null, 2));
+
+      test(`8 (${shape}): sync ${id} uses issue #${n}, creates nothing and leaves a v3 mapping`, () => {
+        seed();
+        const r = sync(root, [id]);
+        assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+        const res = json(r.stdout);
+        assert.equal(res.ok, true, r.stdout);
+        assert.equal(String(res.issue_number), n);
+        assert.deepEqual(creates(fake.calls()), []);
+        assert.deepEqual(issueNumbersTouched(fake.calls()), [n]);
+        assert.equal(fake.issues.length, 2);
+        const mapping = json(fs.readFileSync(MAPPING(root), 'utf-8'));
+        assert.equal(mapping.version, 3);
+        assert.equal(mapping.objectives[id].issue_id, Number(n));
+      });
+
+      test(`8 (${shape}): comment ${id} posts to issue #${n}`, () => {
+        seed();
+        const r = comment(root, id, 'x');
+        assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+        assert.deepEqual(callsSince(fake, 0).filter((a) => verbOf(a, 'issue', 'comment')).map((a) => a[2]), [n]);
+      });
+
+      test(`8 (${shape}): close-issue ${id} closes issue #${n}`, () => {
+        seed();
+        const r = closeIssue(root, id, null);
+        assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+        assert.deepEqual(callsSince(fake, 0).filter((a) => verbOf(a, 'issue', 'close')).map((a) => a[2]), [n]);
+        assert.equal(fake.issues[Number(n) - 1].state, 'CLOSED');
+      });
+
+      test(`8 (${shape}): pull ${id} reads issue #${n}`, () => {
+        seed();
+        const r = pull(root, [id]);
+        assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+        assert.equal(json(r.stdout).ok, true, r.stdout);
+        assert.deepEqual(issueNumbersTouched(fake.calls()), [n]);
+      });
+    }
+  }
 });
