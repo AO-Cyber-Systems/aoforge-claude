@@ -1428,466 +1428,168 @@ describe('buildStickyComment', () => {
 
 // ─── Group C: findStickyComment — locates existing marker comment ─────────────
 
+// ─── 46-07: sticky comment + project fields on the new contract ───────────────
+// findStickyComment / upsertStickyComment now take the objective id and read EVERY comment page
+// (gh-client ghPaginate); they run on the stateful gh-fake. updateProjectFields resolves fields from
+// gh-project live discovery (mocked GraphQL), never PRODUCT_ROADMAP_FIELDS. End-to-end sync coverage:
+// gh-sync.test.cjs tests 3, 5, 8 (sticky) and 10a-10e (project fields).
+
+function stickyFake() {
+  const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
+  const f = createFakeGitHub({ commentPageSize: 2 });
+  f.seedIssue({ title: 't', body: 'b' });
+  gh._setRunGh(f.runGh);
+  return f;
+}
+const ghClientForTests = require('./gh-client.cjs');
+function quietClient() { ghClientForTests._resetClient(); ghClientForTests._setSleep(() => {}); }
+function restoreClient() { gh._setRunGh(null); ghClientForTests._setSleep(null); ghClientForTests._resetClient(); }
+
 describe('findStickyComment', () => {
-  test('C1: returns comment ID when a comment body starts with the marker', () => {
-    const comments = [
-      { id: 99001, body: '<!-- df:state -->\nWave: 2\nTRDs: 1/3', created_at: '2026-01-01T00:00:00Z' },
-      { id: 99002, body: 'Some other comment', created_at: '2026-01-02T00:00:00Z' },
-    ];
-    const mock = fx.buildMockRunGh(new Map([
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments })],
-    ]));
-    gh._setRunGh(mock);
+  let f;
+  beforeEach(() => { quietClient(); f = stickyFake(); });
+  afterEach(restoreClient);
 
-    const id = gh.findStickyComment('AO-Cyber-Systems/devflow-claude#10');
-    assert.strictEqual(id, 99001, `expected comment ID 99001, got: ${id}`);
+  test('C1: returns the id of the state comment for the objective, found past the first page', () => {
+    f.seedComment(1, 'a');
+    f.seedComment(1, 'b');
+    const id = f.seedComment(1, '<!-- devflow:id=2 kind=state -->\nstate');
+    assert.equal(gh.findStickyComment('o/r#1', '2'), id);
   });
 
-  test('C2: multiple marker comments → returns first one (oldest by array order)', () => {
-    const comments = [
-      { id: 99001, body: '<!-- df:state -->\nfirst', created_at: '2026-01-01T00:00:00Z' },
-      { id: 99002, body: '<!-- df:state -->\nsecond', created_at: '2026-01-02T00:00:00Z' },
-    ];
-    const mock = fx.buildMockRunGh(new Map([
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments })],
-    ]));
-    gh._setRunGh(mock);
-
-    const id = gh.findStickyComment('AO-Cyber-Systems/devflow-claude#10');
-    assert.strictEqual(id, 99001, 'must return the FIRST marker comment (index 0)');
+  test('C2: the legacy <!-- df:state --> marker matches; the first state comment wins', () => {
+    const first = f.seedComment(1, '<!-- df:state -->\nold');
+    f.seedComment(1, '<!-- devflow:id=2 kind=state -->\nnew');
+    assert.equal(gh.findStickyComment('o/r#1', '2'), first);
   });
 
-  test('C3: no marker comment → returns null', () => {
-    const comments = [
-      { id: 99001, body: 'Just a regular comment', created_at: '2026-01-01T00:00:00Z' },
-    ];
-    const mock = fx.buildMockRunGh(new Map([
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments })],
-    ]));
-    gh._setRunGh(mock);
-
-    const id = gh.findStickyComment('AO-Cyber-Systems/devflow-claude#10');
-    assert.strictEqual(id, null, 'must return null when no marker comment found');
+  test("C3: no state comment (or only another objective's) → null", () => {
+    f.seedComment(1, 'hello');
+    f.seedComment(1, '<!-- devflow:id=3 kind=state -->\nother');
+    assert.equal(gh.findStickyComment('o/r#1', '2'), null);
   });
 
-  test('C4: gh API failure (ok: false) → returns null', () => {
-    const mock = fx.buildMockRunGh(new Map([
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        { ok: false, status: 1, stdout: '', stderr: '[mock] auth error' }],
-    ]));
-    gh._setRunGh(mock);
-
-    const id = gh.findStickyComment('AO-Cyber-Systems/devflow-claude#10');
-    assert.strictEqual(id, null, 'must return null on gh API failure');
+  test('C4: gh API failure → null', () => {
+    f.failNext('comments');
+    assert.equal(gh.findStickyComment('o/r#1', '2'), null);
   });
 });
-
-// ─── Group D: upsertStickyComment — create-or-edit idempotency ────────────────
 
 describe('upsertStickyComment', () => {
-  const ISSUE_REF = 'AO-Cyber-Systems/devflow-claude#10';
-  const BODY = '<!-- df:state -->\nWave: 2\nLast synced 2026-05-04T12:00:00Z';
+  const BODY = '<!-- devflow:id=2 kind=state -->\n**DevFlow state — last synced 2026-01-01T00:00:00Z**\n\n- Wave: 1';
+  let f;
+  beforeEach(() => { quietClient(); f = stickyFake(); });
+  afterEach(restoreClient);
 
-  test('D1: state_comment_id null + no marker found → creates new comment, returns { action: "created", comment_id }', () => {
-    const mock = fx.buildMockRunGh(new Map([
-      // findStickyComment call — empty list
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments: [] })],
-      // POST new comment
-      ['issue comment 10',
-        fx.buildGhResponse_commentCreated({ commentId: 12345678 })],
-    ]));
-    gh._setRunGh(mock);
-
-    const mappingState = { state_comment_id: null };
-    const result = gh.upsertStickyComment(ISSUE_REF, BODY, mappingState);
-
-    assert.strictEqual(result.action, 'created', `expected action "created", got: "${result.action}"`);
-    assert.ok(result.comment_id, 'must return comment_id on create');
-    assert.strictEqual(result.comment_id, 12345678, 'comment_id must match the issuecomment ID from URL');
+  test('D1: no known id and no marker → POSTs a new comment, returns { action: "created", comment_id }', () => {
+    const r = gh.upsertStickyComment('o/r#1', BODY, { state_comment_id: null }, '2');
+    assert.equal(r.action, 'created');
+    assert.equal(f.comments.find((c) => c.id === r.comment_id).body, BODY);
   });
 
-  test('D2: state_comment_id is set → calls PATCH on that comment ID, returns { action: "edited", comment_id }', () => {
-    const mock = fx.buildMockRunGh(new Map([
-      // PATCH call
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/comments/12345678',
-        fx.buildGhResponse_commentPatch({ commentId: 12345678 })],
-    ]));
-    gh._setRunGh(mock);
-
-    const mappingState = { state_comment_id: 12345678 };
-    const result = gh.upsertStickyComment(ISSUE_REF, BODY, mappingState);
-
-    assert.strictEqual(result.action, 'edited', `expected action "edited", got: "${result.action}"`);
-    assert.strictEqual(result.comment_id, 12345678, 'comment_id must match the patched ID');
-
-    // Verify that a CREATE call was NOT made
-    const calls = mock.calls();
-    const createCall = calls.find(c => c.key.startsWith('issue comment') && !c.key.includes('PATCH'));
-    assert.ok(!createCall, 'must NOT create a new comment when state_comment_id is set');
+  test('D2: known state_comment_id → PATCHes that comment, returns { action: "edited", comment_id }', () => {
+    const id = f.seedComment(1, '<!-- devflow:id=2 kind=state -->\nold');
+    const r = gh.upsertStickyComment('o/r#1', BODY, { state_comment_id: id }, '2');
+    assert.deepEqual([r.action, r.comment_id], ['edited', id]);
+    assert.equal(f.comments.find((c) => c.id === id).body, BODY);
   });
 
-  test('D3: state_comment_id null but marker found via findStickyComment → edits found comment, returns { action: "edited_via_marker" }', () => {
-    const comments = [
-      { id: 99001, body: '<!-- df:state -->\nold state', created_at: '2026-01-01T00:00:00Z' },
-    ];
-    const mock = fx.buildMockRunGh(new Map([
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments })],
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/comments/99001',
-        fx.buildGhResponse_commentPatch({ commentId: 99001 })],
-    ]));
-    gh._setRunGh(mock);
-
-    const mappingState = { state_comment_id: null };
-    const result = gh.upsertStickyComment(ISSUE_REF, BODY, mappingState);
-
-    assert.strictEqual(result.action, 'edited_via_marker', `expected action "edited_via_marker", got: "${result.action}"`);
-    assert.strictEqual(result.comment_id, 99001, 'comment_id must be the found marker comment ID');
+  test('D3: no known id but a marker comment → edits it, returns { action: "edited_via_marker" }', () => {
+    const id = f.seedComment(1, '<!-- df:state -->\nlegacy');
+    const r = gh.upsertStickyComment('o/r#1', BODY, {}, '2');
+    assert.deepEqual([r.action, r.comment_id], ['edited_via_marker', id]);
   });
 
-  test('D4: idempotency — second call with known state_comment_id → zero CREATE calls', () => {
-    // First call: creates a comment (state_comment_id starts null)
-    const mockCreate = fx.buildMockRunGh(new Map([
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments: [] })],
-      ['issue comment 10',
-        fx.buildGhResponse_commentCreated({ commentId: 55555 })],
-    ]));
-    gh._setRunGh(mockCreate);
-
-    const mappingState = { state_comment_id: null };
-    const r1 = gh.upsertStickyComment(ISSUE_REF, BODY, mappingState);
-    assert.strictEqual(r1.action, 'created');
-
-    // Simulate mapping persistence: caller sets state_comment_id from r1
-    mappingState.state_comment_id = r1.comment_id;
-
-    // Second call: should PATCH, never CREATE
-    const mockPatch = fx.buildMockRunGh(new Map([
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/comments/55555',
-        fx.buildGhResponse_commentPatch({ commentId: 55555 })],
-    ]));
-    gh._setRunGh(mockPatch);
-
-    const r2 = gh.upsertStickyComment(ISSUE_REF, BODY, mappingState);
-    assert.strictEqual(r2.action, 'edited', `second call must return "edited", got: "${r2.action}"`);
-
-    // Assert zero CREATE calls on second invocation
-    const calls2 = mockPatch.calls();
-    const createCall = calls2.find(c =>
-      c.key.startsWith('issue comment') && !c.key.includes('PATCH') && !c.key.includes('comments/')
-    );
-    assert.ok(!createCall, 'second invocation must NOT issue a comment create call');
+  test('D4: idempotency — the second call creates nothing and a timestamp-only change is not PATCHed', () => {
+    const r1 = gh.upsertStickyComment('o/r#1', BODY, {}, '2');
+    const later = BODY.replace('2026-01-01T00:00:00Z', '2026-02-02T00:00:00Z');
+    const r2 = gh.upsertStickyComment('o/r#1', later, { state_comment_id: r1.comment_id }, '2');
+    assert.deepEqual([r2.action, r2.comment_id], ['unchanged', r1.comment_id]);
+    assert.equal(f.comments.length, 1);
+    assert.equal(f.writes().length, 1, 'only the first POST');
   });
 });
-
-// ─── Group E: updateProjectFields — Project v2 field mutations ────────────────
-// Per verifier briefing #1: seed PRODUCT_ROADMAP_FIELDS._captured = true in setup.
 
 describe('updateProjectFields', () => {
-  let originalCaptured;
+  const cassette = JSON.parse(fs.readFileSync(path.join(__dirname, '__fixtures__', 'gh-cassettes', 'product-roadmap-fields.json'), 'utf-8'));
+  const field = (name) => cassette.fields.find((x) => x.name === name);
+  const optionIdOf = (name, opt) => field(name).options.find((o) => o.name === opt).id;
+  const okr = (stdout) => ({ ok: true, status: 0, stdout, stderr: '' });
+  const queryOf = (args) => (args.find((a) => String(a).startsWith('query=')) || '');
+  let calls;
+  let env;
 
-  beforeEach(() => {
-    // Seed the _captured flag so the stub guard passes
-    const PRMF = gh.PRODUCT_ROADMAP_FIELDS;
-    originalCaptured = PRMF._captured;
-    PRMF._captured = true;
-    // Seed minimal field defs so E1/E2/E4 can build mutations
-    PRMF.projectId = 'PVT_kwDODwqLrc4BRsOP';
-    PRMF.fields = {
-      Status: { id: 'PVTF_status_id', options: { 'In Progress': 'opt_inprogress', 'Todo': 'opt_todo', 'Done': 'opt_done' } },
-      Quarter: { id: 'PVTF_quarter_id', options: { 'Q2 2026': 'opt_q2_2026' } },
+  function board(overrides = {}) {
+    calls = [];
+    return (args) => {
+      calls.push(args);
+      const q = queryOf(args);
+      if (q.includes('addProjectV2ItemById')) {
+        return overrides.add || okr(JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'item_1' } } } }));
+      }
+      if (q.includes('updateProjectV2ItemFieldValue')) {
+        const o = overrides.update && overrides.update(args);
+        return o || okr(JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'item_1' } } } }));
+      }
+      if (q.includes('projectItems')) {
+        return okr(JSON.stringify({ data: { repository: { issue: { projectItems: { nodes: [
+          { id: 'item_other', project: { id: 'PVT_other' } },
+          { id: 'item_existing', project: { id: 'PVT_x' } },
+        ] } } } } }));
+      }
+      if (q.includes('repository(')) return okr(JSON.stringify({ data: { repository: { issue: { id: 'I_1' } } } }));
+      const nodes = cassette.fields.map((x) => ({ __typename: x.type, id: x.id, name: x.name, ...(x.options ? { options: x.options.slice() } : {}) }));
+      return okr(JSON.stringify({ data: { node: { fields: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } }));
     };
-    PRMF.itemIdQuery = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { projectItems(first: 5) { nodes { id project { id } } } } } }`;
-  });
-
-  afterEach(() => {
-    // Restore original state
-    const PRMF = gh.PRODUCT_ROADMAP_FIELDS;
-    PRMF._captured = originalCaptured;
-    delete PRMF.projectId;
-    delete PRMF.fields;
-    delete PRMF.itemIdQuery;
-  });
-
-  test('E1: happy path — Status + Quarter fields → calls graphql mutation per field, returns { ok: true, fields_updated }', () => {
-    // updateProjectFields now calls addToProject first (2 graphql calls: issue nodeId + addProjectV2ItemById),
-    // then one mutation per field. Total: 4 calls for Status + Quarter.
-    let callIdx = 0;
-    const responses = [
-      // addToProject step 1: issue node ID lookup
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { id: 'I_kwDOissue10' } } } }), stderr: '' },
-      // addToProject step 2: addProjectV2ItemById mutation
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'PVTI_item1' } } } }), stderr: '' },
-      // mutation for Status
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_item1' } } } }), stderr: '' },
-      // mutation for Quarter
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_item1' } } } }), stderr: '' },
-    ];
-    const mockFn = (args) => responses[callIdx++] || { ok: false, status: 1, stdout: '', stderr: '[mock] unexpected' };
-    mockFn.callCount = () => callIdx;
-    mockFn.calls = () => [];
-    gh._setRunGh(mockFn);
-
-    const result = gh.updateProjectFields(
-      'AO-Cyber-Systems/devflow-claude#10',
-      'PVT_kwDODwqLrc4BRsOP',
-      { Status: 'In Progress', Quarter: 'Q2 2026' }
-    );
-
-    assert.ok(result.ok === true || (result.ok === false && result.error && result.error.includes('field')),
-      `expected ok:true or field-not-found error, got: ${JSON.stringify(result)}`);
-    if (result.ok) {
-      assert.ok(Array.isArray(result.fields_updated), 'fields_updated must be array');
-    }
-  });
-
-  test('E2: one mutation fails → returns { ok: false, fields_updated with successes, errors }', () => {
-    let callIdx = 0;
-    const responses = [
-      // addToProject step 1: issue node ID
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { id: 'I_kwDOissue10' } } } }), stderr: '' },
-      // addToProject step 2: add to project
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'PVTI_item1' } } } }), stderr: '' },
-      // Status mutation succeeds
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_item1' } } } }), stderr: '' },
-      // Quarter mutation fails
-      { ok: false, status: 1, stdout: '', stderr: 'field not found' },
-    ];
-    const mockFn = (args) => responses[callIdx++] || { ok: false, status: 1, stdout: '', stderr: '[mock] unexpected' };
-    mockFn.callCount = () => callIdx;
-    mockFn.calls = () => [];
-    gh._setRunGh(mockFn);
-
-    const result = gh.updateProjectFields(
-      'AO-Cyber-Systems/devflow-claude#10',
-      'PVT_kwDODwqLrc4BRsOP',
-      { Status: 'In Progress', Quarter: 'Q2 2026' }
-    );
-
-    // The function should return either ok:false (partial) or ok:true (if it uses best-effort)
-    // Either way it must not throw
-    assert.ok(result !== null && result !== undefined, 'must return a result object');
-    assert.ok(Array.isArray(result.fields_updated), 'fields_updated must be array');
-  });
-
-  test('E3: projectId is null → returns { ok: false, error: "no projectId..." }, does not throw', () => {
-    const mock = fx.buildMockRunGh(new Map());
-    gh._setRunGh(mock);
-
-    let result;
-    assert.doesNotThrow(() => {
-      result = gh.updateProjectFields('AO-Cyber-Systems/devflow-claude#10', null, { Status: 'In Progress' });
-    });
-
-    assert.strictEqual(result.ok, false, 'ok must be false when projectId is null');
-    assert.ok(result.error, 'error field must be present');
-    assert.ok(result.error.includes('projectId') || result.error.includes('no projectId'),
-      `error must mention projectId, got: "${result.error}"`);
-  });
-
-  test('E4: item already in project (idempotent membership) → treats as success, does not error', () => {
-    let callIdx = 0;
-    // addToProject: issue nodeId lookup succeeds; addProjectV2ItemById says already_exists.
-    // updateProjectFields falls back to projectItems query to get item_id.
-    // Then mutation for Status succeeds.
-    const responses = [
-      // addToProject step 1: issue node ID
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { id: 'I_kwDOissue10' } } } }), stderr: '' },
-      // addToProject step 2: already_exists error
-      { ok: false, status: 1, stdout: '', stderr: 'item_already_exists' },
-      // fallback: project items query to find existing item_id
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { projectItems: { nodes: [{ id: 'PVTI_already', project: { id: 'PVT_kwDODwqLrc4BRsOP' } }] } } } } }), stderr: '' },
-      // mutation for Status
-      { ok: true, status: 0, stdout: JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_already' } } } }), stderr: '' },
-    ];
-    const mockFn = (args) => responses[callIdx++] || { ok: false, status: 1, stdout: '', stderr: '[mock] unexpected' };
-    mockFn.callCount = () => callIdx;
-    mockFn.calls = () => [];
-    gh._setRunGh(mockFn);
-
-    let result;
-    assert.doesNotThrow(() => {
-      result = gh.updateProjectFields(
-        'AO-Cyber-Systems/devflow-claude#10',
-        'PVT_kwDODwqLrc4BRsOP',
-        { Status: 'In Progress' }
-      );
-    });
-
-    assert.ok(result !== null && result !== undefined, 'must return result');
-    assert.ok(Array.isArray(result.fields_updated), 'fields_updated must be array');
-  });
-});
-
-// ─── Group F: syncObjective integration — full orchestrator path ───────────────
-
-describe('syncObjective', () => {
-  let proj;
+  }
+  const mutations = () => calls.filter((a) => queryOf(a).includes('updateProjectV2ItemFieldValue'));
 
   beforeEach(() => {
-    proj = fx.buildSyncTargetProject({
-      objectiveId: '01-foo',
-      github_issue: 'AO-Cyber-Systems/devflow-claude#10',
-      trd_count: 3,
-      summary_count: 1,
-    });
-    gh._resetCache();
+    quietClient();
+    env = { DEVFLOW_GH_CACHE_DIR: fs.mkdtempSync(path.join(require('os').tmpdir(), 'gh-upf-')) };
+  });
+  afterEach(restoreClient);
+
+  test('E1: Status + Quarter → options from live discovery, one mutation per field, { ok: true, fields_updated }', () => {
+    gh._setRunGh(board());
+    const r = gh.updateProjectFields('o/r#1', 'PVT_x', { Status: 'In Progress', Quarter: 'Q3 2026' }, { env });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.fields_updated, ['Status', 'Quarter']);
+    assert.equal(mutations().length, 2);
+    assert.ok(mutations()[0].includes(`optionId=${optionIdOf('Status', 'In Progress')}`));
+    assert.ok(mutations()[1].includes(`optionId=${optionIdOf('Quarter', 'Q3 2026')}`));
   });
 
-  afterEach(() => {
-    if (proj) proj.cleanup();
+  test('E2: one mutation fails → { ok: false } with the successes in fields_updated and the failure in errors', () => {
+    const quarterField = `fieldId=${field('Quarter').id}`;
+    gh._setRunGh(board({ update: (args) => (args.includes(quarterField) ? { ok: false, status: 1, stdout: '', stderr: 'boom' } : null) }));
+    const r = gh.updateProjectFields('o/r#1', 'PVT_x', { Status: 'Done', Quarter: 'Q3 2026' }, { env });
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.fields_updated, ['Status']);
+    assert.equal(r.errors.length, 1);
+    assert.equal(r.errors[0].field, 'Quarter');
   });
 
-  test('F1: happy path — returns structured result { ok, issue_updated, comment_action, project_fields_updated, warnings }', () => {
-    // Comments: none initially → triggers create
-    const mock = fx.buildMockRunGh(new Map([
-      ['auth status', { ok: true, status: 0, stdout: AUTH_STDOUT_SYNC, stderr: '' }],
-      // resolveChain: parent walk
-      ['api graphql', fx.buildGhResponse_issueWithProjectItem({ issueNumber: 9, title: '[Roadmap] devflow-claude' })],
-      // issue edit (body rewrite)
-      ['issue edit', fx.buildGhResponse_issueEdit({ issueNumber: 10 })],
-      // findStickyComment: no comments
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments: [] })],
-      // create new sticky comment
-      ['issue comment', fx.buildGhResponse_commentCreated({ commentId: 12345678 })],
-    ]));
-    gh._setRunGh(mock);
-
-    const result = gh.syncObjective('01-foo', proj.root);
-
-    assert.ok(result !== null && result !== undefined, 'result must not be null');
-    assert.ok('ok' in result, 'result must have ok field');
-    if (result.ok) {
-      assert.ok('comment_action' in result, 'result must have comment_action');
-      assert.ok(Array.isArray(result.warnings), 'result.warnings must be array');
-    } else {
-      // Acceptable: may fail due to ROADMAP.md missing objective or listing issues
-      assert.ok(result.error || result.warnings, 'failed result must have error or warnings');
-    }
+  test('E3: projectId is null → { ok: false, error: "no projectId..." } with zero gh calls, no throw', () => {
+    gh._setRunGh(board());
+    const r = gh.updateProjectFields('o/r#1', null, { Status: 'Done' }, { env });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /no projectId/);
+    assert.deepEqual(calls, []);
   });
 
-  test('F2: OBJECTIVE.md missing github_issue → returns { ok: false, error: "objective has no github_issue..." }', () => {
-    // Override: write OBJECTIVE.md without github_issue
-    const objDir = require('path').join(proj.root, '.planning', 'objectives', '01-foo');
-    require('fs').writeFileSync(
-      require('path').join(objDir, 'OBJECTIVE.md'),
-      '---\nwork: feature\n---\n\n# No GH link\n',
-      'utf-8'
-    );
-
-    const mock = fx.buildMockRunGh(new Map([
-      ['auth status', { ok: true, status: 0, stdout: AUTH_STDOUT_SYNC, stderr: '' }],
-    ]));
-    gh._setRunGh(mock);
-
-    let result;
-    assert.doesNotThrow(() => {
-      result = gh.syncObjective('01-foo', proj.root);
-    }, 'syncObjective must not throw on missing github_issue');
-
-    assert.strictEqual(result.ok, false, 'ok must be false');
-    assert.ok(
-      result.error.includes('github_issue') || result.error.includes('no github_issue'),
-      `error must mention github_issue, got: "${result.error}"`
-    );
-  });
-
-  test('F3: reads disk state — trd_total, trd_done, summary_count from filesystem', () => {
-    // The proj fixture has 3 TRDs and 1 SUMMARY — verify readObjectiveState reports correctly
-    const mock = fx.buildMockRunGh(new Map([
-      ['auth status', { ok: true, status: 0, stdout: AUTH_STDOUT_SYNC, stderr: '' }],
-      ['api graphql', fx.buildGhResponse_issueWithProjectItem()],
-      ['issue edit', fx.buildGhResponse_issueEdit()],
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments: [] })],
-      ['issue comment', fx.buildGhResponse_commentCreated({ commentId: 12345678 })],
-    ]));
-    gh._setRunGh(mock);
-
-    const result = gh.syncObjective('01-foo', proj.root);
-
-    // Either success (has state) or failure with helpful error
-    if (result.ok && result.state) {
-      assert.strictEqual(result.state.trd_total, 3, 'trd_total must be 3 (from 3 TRD files)');
-      assert.strictEqual(result.state.trd_done, 1, 'trd_done must be 1 (from 1 SUMMARY file)');
-      assert.strictEqual(result.state.summary_count, 1, 'summary_count must be 1');
-    }
-  });
-
-  test('F4: idempotency — second sync uses PATCH not CREATE for sticky comment', () => {
-    // Set up mapping with state_comment_id already populated
-    const mappingPath = require('path').join(proj.root, '.planning', '.gh-mapping.json');
-    require('fs').writeFileSync(mappingPath, JSON.stringify({
-      milestone_id: null,
-      objectives: { '1': { issue_id: 10, state_comment_id: 12345678 } },
-    }, null, 2), 'utf-8');
-
-    const mock = fx.buildMockRunGh(new Map([
-      ['auth status', { ok: true, status: 0, stdout: AUTH_STDOUT_SYNC, stderr: '' }],
-      ['api graphql', fx.buildGhResponse_issueWithProjectItem()],
-      ['issue edit', fx.buildGhResponse_issueEdit()],
-      // PATCH on the known comment ID — not a create
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/comments/12345678',
-        fx.buildGhResponse_commentPatch({ commentId: 12345678 })],
-    ]));
-    gh._setRunGh(mock);
-
-    const result = gh.syncObjective('01-foo', proj.root);
-
-    if (result.ok) {
-      const calls = mock.calls();
-      // Assert no 'issue comment' (create) call was made
-      const createCall = calls.find(c =>
-        c.key.startsWith('issue comment') && !c.key.includes('PATCH') && !c.key.includes('comments/')
-      );
-      assert.ok(!createCall, `second sync must NOT create a new comment; calls: ${JSON.stringify(calls.map(c => c.key))}`);
-      assert.ok(
-        result.comment_action === 'edited' || result.comment_action === 'edited_via_marker',
-        `comment_action must be "edited" on second sync, got: "${result.comment_action}"`
-      );
-    }
-  });
-
-  test('F5: mapping persistence — state_comment_id written to .gh-mapping.json after first sync', () => {
-    const mappingPath = require('path').join(proj.root, '.planning', '.gh-mapping.json');
-    // Ensure no pre-existing mapping
-    try { require('fs').unlinkSync(mappingPath); } catch {}
-
-    const mock = fx.buildMockRunGh(new Map([
-      ['auth status', { ok: true, status: 0, stdout: AUTH_STDOUT_SYNC, stderr: '' }],
-      ['api graphql', fx.buildGhResponse_issueWithProjectItem()],
-      ['issue edit', fx.buildGhResponse_issueEdit()],
-      ['api repos/AO-Cyber-Systems/devflow-claude/issues/10/comments',
-        fx.buildGhResponse_commentsList({ comments: [] })],
-      ['issue comment', fx.buildGhResponse_commentCreated({ commentId: 77777 })],
-    ]));
-    gh._setRunGh(mock);
-
-    const result = gh.syncObjective('01-foo', proj.root);
-
-    if (result.ok && result.comment_action === 'created' && result.comment_id) {
-      // Check mapping file was written
-      assert.ok(require('fs').existsSync(mappingPath), '.gh-mapping.json must exist after sync');
-      const mapping = JSON.parse(require('fs').readFileSync(mappingPath, 'utf-8'));
-      // Find the objective entry (keyed by number '1')
-      const entry = mapping.objectives && mapping.objectives['1'];
-      assert.ok(entry, 'objectives["1"] must exist in mapping');
-      assert.ok(
-        (typeof entry === 'object' && entry.state_comment_id === 77777) ||
-        (typeof entry === 'number'),  // v1 shape (fallback)
-        `state_comment_id must be persisted (77777), got: ${JSON.stringify(entry)}`
-      );
-    }
+  test("E4: add-item refused (already on the board) → falls back to this project's existing item", () => {
+    gh._setRunGh(board({ add: { ok: false, status: 1, stdout: '', stderr: 'already exists' } }));
+    const r = gh.updateProjectFields('o/r#1', 'PVT_x', { Status: 'Done' }, { env });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.item_id, 'item_existing');
+    assert.deepEqual(r.fields_updated, ['Status']);
   });
 });
 
-// ─── Group G: cmdGhSyncObjective — in-process CLI (per verifier briefing #2) ──
+// syncObjective (legacy F1-F5) moved to gh-sync.test.cjs on the 46-07 contract:
+//   F1 happy path -> tests 2, 3; F2 "missing github_issue is an error" -> obsolete (the issue is created, test 2);
+//   F3 disk-state counts -> test 13; F4 second sync edits, never creates -> tests 4, 5; F5 mapping persistence -> test 3.
 
 describe('cmdGhSyncObjective', () => {
   let proj;
@@ -1913,8 +1615,19 @@ describe('cmdGhSyncObjective', () => {
     process.exit = origExit;
   }
 
+  // 46-07: sync is gated by github.enabled (a disabled project is a skip, exit 0), so the failure
+  // cases below run against an enabled config.
+  function enableGithub(root, enabled = true) {
+    const file = path.join(root, '.planning', 'config.json');
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { cfg = {}; }
+    cfg.github = { ...(cfg.github || {}), enabled, repo: 'AO-Cyber-Systems/devflow-claude' };
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
+  }
+
   beforeEach(() => {
     proj = fx.buildSyncTargetProject({ objectiveId: '01-foo' });
+    enableGithub(proj.root);
     gh._resetCache();
     captureIO();
   });
@@ -1963,10 +1676,24 @@ describe('cmdGhSyncObjective', () => {
     }
 
     // Must have non-zero exit or error output
-    const hasError = exitCodeCalled !== 0 && exitCodeCalled !== null;
-    const hasErrorOutput = capturedStderr.length > 0;
-    assert.ok(hasError || hasErrorOutput,
-      `expected non-zero exit or stderr output on auth failure; exit=${exitCodeCalled}, stderr="${capturedStderr}"`);
+    assert.equal(exitCodeCalled, 1, `expected exit 1 on auth failure; stderr="${capturedStderr}"`);
+    const err = JSON.parse(capturedStderr);
+    assert.match(err.error, /not authenticated/i);
+    assert.equal(err.remediation, 'gh auth login');
+  });
+
+  test('G2b (46-07): github.enabled:false → skipped JSON on stdout, exit 0, zero gh calls', () => {
+    enableGithub(proj.root, false);
+    const seen = [];
+    gh._setRunGh((args) => { seen.push(args); return { ok: false, status: 1, stdout: '', stderr: '' }; });
+    try {
+      gh.cmdGhSyncObjective(proj.root, '01-foo', false);
+    } finally {
+      restoreIO();
+    }
+    assert.ok(exitCodeCalled === null || exitCodeCalled === 0, `exit=${exitCodeCalled}`);
+    assert.equal(JSON.parse(capturedStdout).skipped, true);
+    assert.deepEqual(seen, []);
   });
 
   test('G3: nonexistent objective ID → exits non-zero with error message', () => {
@@ -2189,157 +1916,9 @@ test('J4 (01-06): resolveChain replay — milestone.title is "Product Roadmap"',
 // ─── Group K (01-06): PRODUCT_ROADMAP_FIELDS populated ───────────────────────
 // RED: _captured is currently false.
 
-test('K1 (01-06): PRODUCT_ROADMAP_FIELDS._captured is true', () => {
-  const fields = gh.PRODUCT_ROADMAP_FIELDS;
-  assert.ok(fields, 'PRODUCT_ROADMAP_FIELDS must be exported');
-  assert.strictEqual(fields._captured, true, 'PRODUCT_ROADMAP_FIELDS._captured must be true after cassette capture');
-});
-
-test('K2 (01-06): PRODUCT_ROADMAP_FIELDS.Status.field_id starts with PVTSSF_', () => {
-  const fields = gh.PRODUCT_ROADMAP_FIELDS;
-  assert.ok(fields && fields._captured, 'PRODUCT_ROADMAP_FIELDS must be captured');
-  assert.ok(fields.Status, 'Status field must be present');
-  assert.match(fields.Status.field_id, /^PVTSSF_/, 'Status field_id must start with PVTSSF_');
-});
-
-test('K3 (01-06): PRODUCT_ROADMAP_FIELDS.Status.options["In Progress"] is a non-empty string', () => {
-  const fields = gh.PRODUCT_ROADMAP_FIELDS;
-  assert.ok(fields && fields._captured, 'PRODUCT_ROADMAP_FIELDS must be captured');
-  assert.ok(fields.Status && fields.Status.options, 'Status.options must be present');
-  const optId = fields.Status.options['In Progress'];
-  assert.ok(typeof optId === 'string' && optId.length > 0, '"In Progress" option ID must be a non-empty string');
-});
-
-test('K4 (01-06): updateProjectFields with known field+option sends GraphQL mutation with captured IDs', () => {
-  const fields = gh.PRODUCT_ROADMAP_FIELDS;
-  if (!fields || !fields._captured) {
-    assert.fail('PRODUCT_ROADMAP_FIELDS must be captured before K4 can run');
-    return;
-  }
-
-  const capturedCalls = [];
-  const mockFn = (args) => {
-    capturedCalls.push(args);
-    return { ok: true, status: 0, stdout: JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_test123' } } } }), stderr: '' };
-  };
-
-  // Mock all calls including addToProject (item lookup + project add)
-  const responses = new Map();
-  // addToProject first step: issue node ID
-  responses.set('api graphql -f query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { id } } }', {
-    ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { id: 'I_kwDOtest' } } } }), stderr: ''
-  });
-
-  // Use a custom mock that captures mutation calls
-  let callCount = 0;
-  const mock = (args) => {
-    callCount++;
-    capturedCalls.push([...args]);
-    const key = args.join(' ');
-    if (key.includes('mutation($projectId')) {
-      // This is either addToProject mutation or updateProjectV2ItemFieldValue mutation
-      if (key.includes('addProjectV2ItemById')) {
-        return { ok: true, status: 0, stdout: JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'PVTI_item123' } } } }), stderr: '' };
-      }
-      if (key.includes('updateProjectV2ItemFieldValue')) {
-        return { ok: true, status: 0, stdout: JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_item123' } } } }), stderr: '' };
-      }
-    }
-    if (key.includes('repository') && key.includes('issue(number')) {
-      return { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { id: 'I_kwDOtest' } } } }), stderr: '' };
-    }
-    return { ok: false, status: 1, stdout: '', stderr: `[mock K4] no match for: ${key}` };
-  };
-  gh._setRunGh(mock);
-
-  const result = gh.updateProjectFields(
-    'AO-Cyber-Systems/devflow-claude#20',
-    'PVT_kwDODwqLrc4BRsOP',
-    { Status: 'In Progress' }
-  );
-
-  // Verify a mutation call was made with the captured Status field_id
-  const statusFieldId = fields.Status.field_id;
-  const mutationCall = capturedCalls.find(c => c.some(a => a.includes('updateProjectV2ItemFieldValue')));
-  assert.ok(mutationCall, 'updateProjectV2ItemFieldValue mutation must be called');
-  // The mutation must include the captured field ID
-  const callStr = mutationCall.join(' ');
-  assert.ok(callStr.includes(statusFieldId), `mutation must include Status field_id ${statusFieldId}`);
-});
-
-test('K5 (01-06): updateProjectFields with unknown field name warns and skips (no throw)', () => {
-  const fields = gh.PRODUCT_ROADMAP_FIELDS;
-  if (!fields || !fields._captured) {
-    assert.fail('PRODUCT_ROADMAP_FIELDS must be captured for K5');
-    return;
-  }
-
-  // Mock: return success for any graphql calls (addToProject-related)
-  const mock = (args) => {
-    const key = args.join(' ');
-    if (key.includes('repository') && key.includes('issue(number')) {
-      return { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { id: 'I_kwDOtest' } } } }), stderr: '' };
-    }
-    if (key.includes('addProjectV2ItemById')) {
-      return { ok: true, status: 0, stdout: JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'PVTI_item' } } } }), stderr: '' };
-    }
-    return { ok: false, status: 1, stdout: '', stderr: `[mock K5] no match for: ${key}` };
-  };
-  gh._setRunGh(mock);
-
-  let result;
-  assert.doesNotThrow(() => {
-    result = gh.updateProjectFields(
-      'AO-Cyber-Systems/devflow-claude#20',
-      'PVT_kwDODwqLrc4BRsOP',
-      { NotAField: 'someValue' }
-    );
-  }, 'updateProjectFields must not throw on unknown field');
-  assert.ok(result, 'must return a result object');
-  assert.ok(
-    (result.warnings && result.warnings.some(w => /unknown field/i.test(w))) ||
-    (result.errors && result.errors.some(e => /not found/i.test(e.error))),
-    `must emit warning or error for unknown field; got: ${JSON.stringify(result)}`
-  );
-});
-
-test('K6 (01-06): updateProjectFields with unknown option name warns and skips (no throw)', () => {
-  const fields = gh.PRODUCT_ROADMAP_FIELDS;
-  if (!fields || !fields._captured) {
-    assert.fail('PRODUCT_ROADMAP_FIELDS must be captured for K6');
-    return;
-  }
-
-  const mock = (args) => {
-    const key = args.join(' ');
-    if (key.includes('repository') && key.includes('issue(number')) {
-      return { ok: true, status: 0, stdout: JSON.stringify({ data: { repository: { issue: { id: 'I_kwDOtest' } } } }), stderr: '' };
-    }
-    if (key.includes('addProjectV2ItemById')) {
-      return { ok: true, status: 0, stdout: JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'PVTI_item' } } } }), stderr: '' };
-    }
-    return { ok: false, status: 1, stdout: '', stderr: `[mock K6] no match for: ${key}` };
-  };
-  gh._setRunGh(mock);
-
-  let result;
-  assert.doesNotThrow(() => {
-    result = gh.updateProjectFields(
-      'AO-Cyber-Systems/devflow-claude#20',
-      'PVT_kwDODwqLrc4BRsOP',
-      { Status: 'NotAnOption' }
-    );
-  }, 'updateProjectFields must not throw on unknown option');
-  assert.ok(result, 'must return a result object');
-  assert.ok(
-    (result.warnings && result.warnings.some(w => /unknown option/i.test(w))) ||
-    (result.errors && result.errors.some(e => /not found/i.test(e.error))),
-    `must emit warning or error for unknown option; got: ${JSON.stringify(result)}`
-  );
-});
-
-// ─── Group L (01-06): live-mode integration (gated on GH_INTEGRATION=1) ──────
-// All L tests skip when GH_INTEGRATION !== '1'.
+// K1-K6 (01-06) deleted in 46-07: PRODUCT_ROADMAP_FIELDS no longer reads the cassette (it is a frozen
+// deprecated stub, gh-sync.test.cjs test 15); updateProjectFields resolves fields and options by name from
+// live discovery (describe('updateProjectFields') E1-E4 above, gh-sync 10a/10d, gh-project U* tests).
 
 const LIVE = process.env.GH_INTEGRATION === '1';
 
