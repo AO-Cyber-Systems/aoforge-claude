@@ -228,11 +228,16 @@ function makeDoctorProject({ home = null, git = true, version = '2.0.0' } = {}) 
  *
  * Writes a literal doctor check module to `<dir>/<file>` (dir is created). `runBody` / `fixBody`
  * are FUNCTION-BODY strings: `run(ctx) { <runBody> }`, `fix(ctx, result) { <fixBody> }`. `fs` and
- * `path` are in scope for both. Any field passed as `undefined` is omitted from the export, so a
- * contract-violation stub can drop one (e.g. no `run`); `fixBody` omitted means no `fix`.
- * `file` defaults to `10-<id>.cjs`.
+ * `path` are in scope for both. `title` defaults to 'Stub check' and `scope` to 'global' only when
+ * the key is ABSENT; a key passed EXPLICITLY as `undefined` is omitted from the export, so a
+ * contract-violation stub can drop any field (e.g. `{title: undefined}`, or no `runBody` → no
+ * `run`); `fixBody` omitted means no `fix`. `file` defaults to `10-<id>.cjs`.
  */
-function writeStubCheck(dir, { file, id, title = 'Stub check', scope = 'global', runBody, fixBody } = {}) {
+function writeStubCheck(dir, spec = {}) {
+  const has = (key) => Object.prototype.hasOwnProperty.call(spec, key);
+  const { file, id, runBody, fixBody } = spec;
+  const title = has('title') ? spec.title : 'Stub check';
+  const scope = has('scope') ? spec.scope : 'global';
   const name = file || `10-${id}.cjs`;
   const lines = [
     "'use strict';",
