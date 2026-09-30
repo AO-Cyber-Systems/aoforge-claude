@@ -1139,6 +1139,132 @@ describe('objective 38 — W002 + live fix text', () => {
   });
 });
 
+// ─── Check 8: W007 reads archived milestone roadmaps (quick 26) ────────────
+//
+// An objective is "known" to W007 when any roadmap lists it — the current ROADMAP.md
+// or an archived .planning/milestones/*-ROADMAP.md — as a heading OR as a
+// checklist/bullet line. Prose mentions never count. W006 keeps reading ROADMAP.md
+// headings only.
+describe('Check 8: W007 reads archived milestone roadmaps', () => {
+  // dirs: objective dir names under .planning/objectives/; roadmap: ROADMAP.md text;
+  // archives: { fileName: text } written under .planning/milestones/.
+  function makeRoadmapFixture({ dirs = [], roadmap = '# Roadmap\n', archives = {} }) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-w007-test-'));
+    for (const dir of dirs) {
+      fs.mkdirSync(path.join(tmp, '.planning', 'objectives', dir), { recursive: true });
+    }
+    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    for (const [name, text] of Object.entries(archives)) {
+      fs.mkdirSync(path.join(tmp, '.planning', 'milestones'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, '.planning', 'milestones', name), text, 'utf-8');
+    }
+    return tmp;
+  }
+
+  const w007s = (json) => json.warnings.filter((w) => w.code === 'W007');
+  const w006s = (json) => json.warnings.filter((w) => w.code === 'W006');
+  const health = () => runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+
+  test('1. checklist line in an archived milestone roadmap clears W007', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['27-x'],
+      archives: { 'v1.3-ROADMAP.md': '# v1.3\n\n- [x] Objective 27: Foo (3/3 plans)\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('2. "### Objective 5:" heading in an archived roadmap clears W007 for dir 05-y (unpadded match)', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['05-y'],
+      archives: { 'v1.2-ROADMAP.md': '# v1.2\n\n### Objective 5: Bar\n\nGoal: bar\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('3. checklist line in ROADMAP.md itself (no heading) clears W007', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['40-z'],
+      roadmap: '# Roadmap\n\n- [x] Objective 40: Baz\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('4. bold bullet line in ROADMAP.md clears W007', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['26-w'],
+      roadmap: '# Roadmap\n\n- **Objective 26: Qux** — moved\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w007s(json).length, 0, `expected no W007; got ${JSON.stringify(w007s(json))}`);
+  });
+
+  test('5. an orphan dir listed in no roadmap still gets exactly one W007 naming it', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['99-orphan'],
+      roadmap: '# Roadmap\n\n### Objective 1: Something else\n',
+      archives: { 'v1.3-ROADMAP.md': '# v1.3\n\n- [x] Objective 27: Foo\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    const found = w007s(json);
+    assert.strictEqual(found.length, 1, `expected exactly one W007; got ${JSON.stringify(found)}`);
+    assert.match(found[0].message, /Objective 99\b/);
+  });
+
+  test('6. prose mentions ("Depends on: Objective 99", "candidates: Objective 99 (") do not count', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['99-orphan'],
+      roadmap:
+        '# Roadmap\n\n### Objective 1: Something else\n\n' +
+        '**Depends on:** Objective 99\n\n' +
+        'Follow-up candidates: Objective 99 (later)\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    const found = w007s(json);
+    assert.strictEqual(found.length, 1, `expected exactly one W007; got ${JSON.stringify(found)}`);
+    assert.match(found[0].message, /Objective 99\b/);
+  });
+
+  test('7. W006 unchanged: a checklist-only ROADMAP.md entry with no dir does not raise W006', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: [],
+      roadmap: '# Roadmap\n\n- [x] Objective 7: Old\n',
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    assert.strictEqual(w006s(json).length, 0, `list lines must not feed W006; got ${JSON.stringify(w006s(json))}`);
+  });
+
+  test('8. non-roadmap files in milestones/ are ignored (v1.3-MILESTONE-AUDIT.md heading does not count)', () => {
+    tmpProject = makeRoadmapFixture({
+      dirs: ['99-orphan'],
+      archives: { 'v1.3-MILESTONE-AUDIT.md': '# Audit\n\n### Objective 99: Audited\n\n- [x] Objective 99: Audited\n' },
+    });
+    tmpHome = makeHome();
+
+    const { json } = health();
+    const found = w007s(json);
+    assert.strictEqual(found.length, 1, `expected exactly one W007; got ${JSON.stringify(found)}`);
+    assert.match(found[0].message, /Objective 99\b/);
+  });
+});
+
 // ─── Check 14: documentation staleness (TRD 38-10) ─────────────────────────
 //
 // Drives the SAME collect() from doc-staleness.cjs (fully unit-tested in
