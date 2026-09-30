@@ -253,8 +253,136 @@ function parseTitleNumber(title) {
   return m ? canonicalId(m[1]) : null;
 }
 
+// ─── Managed-section merge ───────────────────────────────────────────────────
+
+// GitHub caps an issue body at 65,536 characters. Refuse well short of that so
+// the failure is ours and explicit rather than an opaque API error.
+const MAX_BODY_CHARS = 60000;
+
+const beginMarker = (name) => `<!-- devflow:begin ${name} -->`;
+const endMarker = (name) => `<!-- devflow:end ${name} -->`;
+const renderBlock = (name, content) => `${beginMarker(name)}\n${content}\n${endMarker(name)}`;
+
+// Matches any begin/end section marker, so section content cannot forge one.
+const SECTION_MARKER_RE = /<!--\s*devflow:(?:begin|end)\b/;
+
+/**
+ * findPair(body, name) — the first WELL-FORMED begin/end pair for `name`:
+ * `{ innerStart, endIndex }`, or null when there is none.
+ *
+ * indexOf-based on purpose. A begin is dangling when another begin of the same
+ * name comes before the next end; such a begin is skipped, otherwise a stray
+ * begin left by an earlier malformed merge would pair with the end of the fresh
+ * section appended after it and a later merge would replace everything between.
+ */
+function findPair(body, name) {
+  const begin = beginMarker(name);
+  const end = endMarker(name);
+  let b = body.indexOf(begin);
+  while (b !== -1) {
+    const innerStart = b + begin.length;
+    const e = body.indexOf(end, innerStart);
+    if (e === -1) return null; // nothing closes this begin, nor any later one
+    const nextBegin = body.indexOf(begin, innerStart);
+    if (nextBegin === -1 || nextBegin > e) return { innerStart, endIndex: e };
+    b = nextBegin; // dangling begin: another opens before this one closes
+  }
+  return null;
+}
+
+// Append a fresh block after `body`, separated by exactly one blank line. The
+// existing text is never touched: only the newlines needed to reach a blank
+// line are added.
+function appendBlock(body, name, content) {
+  const block = renderBlock(name, content);
+  if (body === '') return block;
+  const trailing = /\n*$/.exec(body)[0].length;
+  return body + '\n'.repeat(Math.max(0, 2 - trailing)) + block;
+}
+
+/**
+ * mergeManaged(existingBody, sections, id) — write DevFlow's sections into an
+ * issue body without disturbing anything else.
+ *
+ * Returns `{ ok: true, body, changed, warnings }` or `{ ok: false, error }`.
+ *
+ *  - Only the inner text of an existing `devflow:begin NAME` / `devflow:end NAME`
+ *    pair changes; the first well-formed pair per name, never a global replace.
+ *  - A section with no well-formed pair is appended at the end. A begin or end
+ *    marker that is present but unpaired is left in place, with the warning
+ *    `malformed section NAME`; no text is ever deleted.
+ *  - A body without a marker keeps its text whole (the marker becomes line 1 and
+ *    the sections follow it); a body marked for a different id is refused.
+ *  - Idempotent: merging the same sections again gives `changed: false`, and a
+ *    changed:false result returns the caller's body exactly as passed.
+ *  - `\r\n` is folded to `\n` to compare and merge. If the caller's body used
+ *    CRLF, a changed result is written back with CRLF so human text keeps its
+ *    bytes.
+ *
+ * `sections` is `{ summary, criteria, trds, footer }` (see buildObjectiveSections);
+ * names left out are skipped.
+ */
+function mergeManaged(existingBody, sections, id) {
+  const cid = canonicalId(id);
+  if (cid === null) return { ok: false, error: `invalid devflow id: ${JSON.stringify(id)}` };
+
+  const provided = SECTION_ORDER.filter((n) => sections && sections[n] !== undefined);
+  for (const name of provided) {
+    const content = sections[name];
+    if (typeof content !== 'string') {
+      return { ok: false, error: `section ${name} content must be a string` };
+    }
+    if (SECTION_MARKER_RE.test(content)) {
+      return { ok: false, error: `section ${name} content contains a devflow section marker` };
+    }
+  }
+
+  const raw = existingBody === null || existingBody === undefined ? '' : String(existingBody);
+  const hadCrlf = raw.includes('\r\n');
+  const norm = raw.replace(/\r\n/g, '\n');
+  const warnings = [];
+
+  let merged;
+  if (norm.trim() === '') {
+    const blocks = provided.map((n) => renderBlock(n, sections[n]));
+    merged = `${markerLine(cid)}\n${blocks.length ? `${blocks.join('\n\n')}\n` : ''}`;
+  } else {
+    const found = findIssueMarker(norm);
+    if (found && found.id !== cid) {
+      return { ok: false, error: `body marker devflow:id=${found.id} does not match ${cid}` };
+    }
+    merged = found ? norm : `${markerLine(cid)}\n${norm}`;
+    for (const name of provided) {
+      const content = sections[name];
+      const pair = findPair(merged, name);
+      if (pair) {
+        merged = `${merged.slice(0, pair.innerStart)}\n${content}\n${merged.slice(pair.endIndex)}`;
+      } else {
+        if (merged.includes(beginMarker(name)) || merged.includes(endMarker(name))) {
+          warnings.push(`malformed section ${name}`);
+        }
+        merged = appendBlock(merged, name, content);
+      }
+    }
+  }
+
+  const changed = merged !== norm;
+  const out = hadCrlf ? merged.replace(/\n/g, '\r\n') : merged;
+  if (out.length >= MAX_BODY_CHARS) {
+    return {
+      ok: false,
+      error:
+        `issue body would be ${out.length} characters; the limit is ${MAX_BODY_CHARS} ` +
+        '(GitHub rejects bodies over 65536)',
+    };
+  }
+  return { ok: true, body: changed ? out : raw, changed, warnings };
+}
+
 module.exports = {
   SECTION_ORDER,
+  MAX_BODY_CHARS,
+  mergeManaged,
   markerLine,
   commentMarker,
   extractMarker,
