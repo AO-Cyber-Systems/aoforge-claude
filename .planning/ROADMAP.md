@@ -139,7 +139,7 @@ TRDs:
 
 **Goal:** `df-tools doctor` / `/devflow:doctor` diagnose and safely repair environment problems (stale runtime mirror, in-repo runtime state, pending migrations, stale markers/state/backups, hook drift); awareness cache leaves the repo; 0008 covers nested `.planning/`; sync-runtime re-mirrors same-version content changes.
 **Requirements:** DOC-01..DOC-07 (see `.planning/objectives/45-devflow-doctor/OBJECTIVE.md`)
-**Plans:** 9 TRDs in 4 waves
+**Plans:** 10 TRDs in 4 waves
 
 TRDs:
 - [ ] 45-01-TRD.md — awareness cache out of the repo via awareness-store (DOC-01) [W1]
@@ -151,6 +151,7 @@ TRDs:
 - [ ] 45-07-TRD.md — state-hygiene checks: guard state, awareness state, backups (DOC-05) [W2]
 - [ ] 45-08-TRD.md — end-to-end doctor on aodex-like fixture (SC4/SC5) [W3]
 - [ ] 45-09-TRD.md — /devflow:doctor skill, route-intent, docs, full npm test (DOC-07) [W4]
+- [ ] 45-10-TRD.md — autonomous hook markers out of .planning + SC1 planning-writes audit [W1]
 
 ### Other v1.4 candidates
 
