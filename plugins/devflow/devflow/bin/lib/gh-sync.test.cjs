@@ -354,3 +354,105 @@ describe('gh seam (test 14)', () => {
     assert.match(r.stdout, /gh version/);
   });
 });
+
+// ─── Task 2: Project fields from discovery, pacing, no fixture reads (tests 10, 11, 15, 16) ──────
+
+const CASSETTE = JSON.parse(fs.readFileSync(path.join(__dirname, '__fixtures__', 'gh-cassettes', 'product-roadmap-fields.json'), 'utf-8'));
+const optionId = (field, name) => CASSETTE.fields.find((f) => f.name === field).options.find((o) => o.name === name).id;
+const queryOf = (argv) => (argv.find((a) => String(a).startsWith('query=')) || '').slice('query='.length);
+
+// A whole mocked board, answered through the fake's graphql handler; the cassette is test data only.
+function boardGraphql() {
+  return (argv) => {
+    const q = queryOf(argv);
+    if (q.includes('addProjectV2ItemById')) return JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'item_1' } } } });
+    if (q.includes('updateProjectV2ItemFieldValue')) return JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'item_1' } } } });
+    if (q.includes('projectItems')) return JSON.stringify({ data: { repository: { issue: { projectItems: { nodes: [] } } } } });
+    if (q.includes('repository(')) return JSON.stringify({ data: { repository: { issue: { id: 'I_1' } } } });
+    const nodes = CASSETTE.fields.map((f) => ({ __typename: f.type, id: f.id, name: f.name, ...(f.options ? { options: f.options.slice() } : {}) }));
+    return JSON.stringify({ data: { node: { fields: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
+  };
+}
+const graphqlCalls = (f) => f.calls().filter((a) => a[0] === 'api' && a[1] === 'graphql');
+const isDiscovery = (argv) => {
+  const q = queryOf(argv);
+  return !/addProjectV2ItemById|updateProjectV2ItemFieldValue|projectItems|repository\(/.test(q);
+};
+
+describe('project fields (test 10)', () => {
+  test('10a: org_project → fields from live discovery (cached out of repo), Status In Progress applied', () => {
+    root = buildProject({ orgProject: 'PVT_x' });
+    install({ graphql: boardGraphql() });
+    const r = gh.syncObjective('2', root);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.project_fields_updated, ['Status']);
+    assert.ok(graphqlCalls(fake).some(isDiscovery), 'a discovery query ran');
+    const update = graphqlCalls(fake).find((a) => queryOf(a).includes('updateProjectV2ItemFieldValue'));
+    assert.ok(update.includes(`optionId=${optionId('Status', 'In Progress')}`), update.join(' '));
+    assert.ok(fs.existsSync(path.join(process.env.DEVFLOW_GH_CACHE_DIR, 'PVT_x.json')), 'discovery cached under DEVFLOW_GH_CACHE_DIR');
+  });
+
+  test('10b: org_project without project scopes → GhAuthError naming the missing scopes', () => {
+    root = buildProject({ orgProject: 'PVT_x' });
+    install({ scopes: ['repo'], graphql: boardGraphql() });
+    assert.throws(() => gh.syncObjective('2', root), (e) => e.name === 'GhAuthError' && e.scopes_missing.includes('project'));
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('10c: no org_project → only repo scope required, zero GraphQL calls', () => {
+    install({ scopes: ['repo'] });
+    const r = gh.syncObjective('2', root);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.project_fields_updated, []);
+    assert.deepEqual(graphqlCalls(fake), []);
+  });
+
+  test('10d: an unknown Quarter option is a warning, not a failure', () => {
+    install({ graphql: boardGraphql() });
+    const r = gh.updateProjectFields('o/r#1', 'PVT_x', { Status: 'Done', Quarter: 'Q9 2099' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.fields_updated, ['Status']);
+    assert.ok((r.warnings || []).some((w) => w.includes('Q9 2099')), JSON.stringify(r.warnings));
+    assert.ok(graphqlCalls(fake).some(isDiscovery), 'options come from discovery');
+  });
+
+  test('10e: a project-field failure leaves the sync ok:true with a warning', () => {
+    root = buildProject({ orgProject: 'PVT_x' });
+    install({ graphql: () => ({ ok: false, status: 1, stdout: '', stderr: 'HTTP 502' }) });
+    const r = gh.syncObjective('2', root);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.project_fields_updated, []);
+    assert.ok(r.warnings.some((w) => /project fields not updated/.test(w)), JSON.stringify(r.warnings));
+  });
+});
+
+describe('write pacing (test 11)', () => {
+  test('11: every write reaches gh ≥ 1000 ms after the previous one on the fake clock', () => {
+    const f = createFakeGitHub();
+    fake = f;
+    const stamps = [];
+    gh._setRunGh((argv) => {
+      if (client.isWriteArgs(argv)) stamps.push(clock);
+      return f.runGh(argv);
+    });
+    gh.syncObjective('2', root);
+    fs.writeFileSync(path.join(root, '.planning', 'objectives', '02-a', '02-02-SUMMARY.md'), '# second\n');
+    gh.syncObjective('2', root);
+    gh.syncObjective('2.1', root);
+    assert.ok(stamps.length >= 8, `expected label/milestone/create/comment + edit/PATCH + create writes, got ${stamps.length}`);
+    for (let i = 1; i < stamps.length; i++) {
+      assert.ok(stamps[i] - stamps[i - 1] >= client.MIN_WRITE_INTERVAL_MS, `write ${i} only ${stamps[i] - stamps[i - 1]} ms after the previous`);
+    }
+  });
+});
+
+describe('no fixture reads at runtime (test 15)', () => {
+  test('15: gh.cjs has no __fixtures__ path and no hardcoded board id; PRODUCT_ROADMAP_FIELDS is a frozen stub', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'gh.cjs'), 'utf-8');
+    assert.ok(!src.includes('__fixtures__'), 'gh.cjs must not reference __fixtures__');
+    assert.ok(!src.includes('PVT_kwDODwqLrc4BRsOP'), 'gh.cjs must not hardcode a project node id');
+    assert.equal(gh.PRODUCT_ROADMAP_FIELDS._captured, false);
+    assert.ok(Object.isFrozen(gh.PRODUCT_ROADMAP_FIELDS));
+    assert.equal(gh.PRODUCT_ROADMAP_FIELDS._project_id, undefined);
+  });
+});

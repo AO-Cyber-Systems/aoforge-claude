@@ -23,7 +23,7 @@
 //
 // repo guard:
 //   X1 (12): gh-project.cjs itself never mentions the fixtures directory; the repo-wide check is a
-//            todo until 46-07 removes the cassette read from gh.cjs
+//            enabled by 46-07 (gh.cjs no longer reads the cassette)
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -627,8 +627,14 @@ describe('repo guard (test 12)', () => {
     assert.ok(!src.includes('.planning'), 'cache must not live under .planning/');
   });
 
-  test('X2: no lib/ module outside tests reads __fixtures__', { todo: 'enabled by 46-07' }, () => {
+  // Enabled by 46-07. runtime-digest.cjs (skips the fixtures dir when hashing the bundle) and
+  // flutter-ui-eval-bootstrap.cjs (eval-harness bootstrap that reads its own fixtures) legitimately
+  // name the directory; gh.cjs no longer does.
+  const FIXTURE_READERS = new Set(['runtime-digest.cjs', 'flutter-ui-eval-bootstrap.cjs']);
+
+  test('X2: no lib/ module outside tests reads __fixtures__', () => {
     const offenders = nonTestSources(libDir)
+      .filter((file) => !FIXTURE_READERS.has(path.basename(file)))
       .filter((file) => fs.readFileSync(file, 'utf-8').includes('__fixtures__'))
       .map((file) => path.relative(libDir, file));
     assert.deepEqual(offenders, []);

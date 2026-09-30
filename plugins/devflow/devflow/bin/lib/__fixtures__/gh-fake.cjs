@@ -92,11 +92,12 @@ function matcherFor(match) {
 
 /**
  * @param {{repo?:string, scopes?:string[], commentPageSize?:number}} [opts]
+ * `graphql` (optional): handler for `gh api graphql` argv; returns stdout, a full result, or null.
  * @returns {{runGh:Function, issues:object[], comments:object[], milestones:object[], labels:string[],
  *   calls:()=>string[][], writes:()=>string[][], failNext:Function, humanEditBody:Function,
  *   seedIssue:Function, seedComment:Function, seedMilestone:Function}}
  */
-function createFakeGitHub({ repo = 'o/r', scopes = ['repo', 'project', 'read:project'], commentPageSize = 30 } = {}) {
+function createFakeGitHub({ repo = 'o/r', scopes = ['repo', 'project', 'read:project'], commentPageSize = 30, graphql = null } = {}) {
   const issues = [];
   const comments = [];
   const milestones = []; // { number, title, description, state }
@@ -347,6 +348,13 @@ function createFakeGitHub({ repo = 'o/r', scopes = ['repo', 'project', 'read:pro
   function runApi(args) {
     const p = parseArgs(args, 1, API_VALUE_FLAGS, API_BOOL_FLAGS);
     if (p.unknown.length || p.pos.length !== 1) return unsupported(args);
+    // `api graphql` is answered by the caller's handler (46-07): graphql(argv) -> stdout string | full
+    // result object | null (unsupported). Without a handler GraphQL stays unsupported.
+    if (p.pos[0] === 'graphql') {
+      const out = typeof graphql === 'function' ? graphql(args) : null;
+      if (out === null || out === undefined) return unsupported(args);
+      return typeof out === 'string' ? ok(out) : out;
+    }
     const fields = fieldMap(p);
     const explicit = flagOne(p, '-X') || flagOne(p, '--method');
     const method = (explicit || (Object.keys(fields).length ? 'POST' : 'GET')).toUpperCase();

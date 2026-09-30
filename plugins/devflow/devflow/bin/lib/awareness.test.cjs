@@ -1548,39 +1548,45 @@ test('O1 (02-03): scanOrg calls requireGhAuth FIRST (mock counter asserts orderi
   } finally { gh._setRunGh(null); }
 });
 
-test('O2 (02-03): scanOrg uses default project_id from PRODUCT_ROADMAP_FIELDS._project_id when opts.project_id undefined', () => {
+test('O2 (46-07, test 16): scanOrg defaults project_id from <cwd>/.planning/PROJECT.md org_project, never the cassette', () => {
   const authResp = { ok: true, status: 0, stdout: GH_AUTH_STATUS_OK, stderr: '' };
   const itemsResp = buildGhResponse_projectItemsList({ items: [], hasNextPage: false });
 
-  let usedProjectId = null;
+  let usedProjectIds = [];
   gh._setRunGh((args) => {
     const key = args.join(' ');
     if (key.startsWith('auth status')) return authResp;
     if (key.startsWith('api graphql')) {
-      // Extract projectId from args
-      const pidIdx = args.indexOf('-F');
-      while (pidIdx !== -1) {
-        for (let i = 0; i < args.length; i++) {
-          if (args[i] === '-F' && args[i+1] && args[i+1].startsWith('projectId=')) {
-            usedProjectId = args[i+1].replace('projectId=', '');
-          }
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '-F' && args[i + 1] && args[i + 1].startsWith('projectId=')) {
+          usedProjectIds.push(args[i + 1].replace('projectId=', ''));
         }
-        break;
       }
       return itemsResp;
     }
     return { ok: false, status: 1, stdout: '', stderr: `no mock for: ${key}` };
   });
 
+  const withProject = fs.mkdtempSync(path.join(os.tmpdir(), 'scanorg-o2-'));
+  fs.mkdirSync(path.join(withProject, '.planning'), { recursive: true });
+  fs.writeFileSync(path.join(withProject, '.planning', 'PROJECT.md'), '---\norg_project: PVT_from_project\n---\n\n# P\n');
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'scanorg-o2-bare-'));
+
   try {
-    scanOrg(); // No project_id — should use default
-    const expectedId = gh.PRODUCT_ROADMAP_FIELDS && gh.PRODUCT_ROADMAP_FIELDS._project_id;
-    if (expectedId) {
-      assert.strictEqual(usedProjectId, expectedId, 'O2: should use PRODUCT_ROADMAP_FIELDS._project_id as default');
-    } else {
-      // If cassette not loaded, result.warnings should note the missing default
-      assert.ok(true, 'O2: PRODUCT_ROADMAP_FIELDS._project_id not set (cassette missing) — acceptable');
-    }
+    const r1 = scanOrg({ cwd: withProject });
+    assert.strictEqual(r1.project_id, 'PVT_from_project');
+    assert.deepStrictEqual([...new Set(usedProjectIds)], ['PVT_from_project']);
+
+    usedProjectIds = [];
+    const r2 = scanOrg({ project_id: 'PVT_explicit', cwd: withProject });
+    assert.strictEqual(r2.project_id, 'PVT_explicit', 'opts.project_id wins over PROJECT.md');
+    assert.deepStrictEqual([...new Set(usedProjectIds)], ['PVT_explicit']);
+
+    usedProjectIds = [];
+    const r3 = scanOrg({ cwd: bare });
+    assert.strictEqual(r3.project_id, null, 'no PROJECT.md org_project -> no default (never the cassette)');
+    assert.deepStrictEqual(usedProjectIds, []);
+    assert.ok(r3.warnings.some((w) => /org_project/.test(w)), JSON.stringify(r3.warnings));
   } finally { gh._setRunGh(null); }
 });
 
