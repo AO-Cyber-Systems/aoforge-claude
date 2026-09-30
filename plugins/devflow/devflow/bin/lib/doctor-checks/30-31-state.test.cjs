@@ -237,7 +237,8 @@ test('5. awareness-state: the legacy-shaped 640KB entry for a live fresh project
   assert.equal(res.severity, 'ok');
   assert.equal(res.fixable, false);
   assert.equal(res.details.totalSize, size);
-  assert.equal(res.details.entries, 1);
+  assert.equal(res.details.count, 1);
+  assert.deepEqual(res.details.entries, [], 'nothing is flagged');
 });
 
 test('5b. awareness-state: a large dir of live, fresh, individually-small entries warns without a fix and never deletes them', () => {
