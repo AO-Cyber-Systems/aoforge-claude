@@ -29,7 +29,6 @@ Composes obj 1 (gh chain) + obj 2 (peer awareness) + obj 5 (initiatives) + obj 6
 
 <execution_context>
 @.planning/STATE.md
-@.planning/.awareness-cache.json
 </execution_context>
 
 <process>
