@@ -417,44 +417,46 @@ describe('integration: cmdGhSyncObjectives (push) records sync state (W2)', () =
         github: { enabled: true, repo: 'TestOrg/TestRepo', labels: { objective: 'devflow:objective' }, milestone_prefix: 'v' },
       }), 'utf-8');
 
-      // Mock runGh: auth ok with project scopes, milestone+label create succeed,
-      // and issue create returns a synthetic URL with #42.
-      gh._setRunGh((args) => {
-        if (args[0] === 'auth' && args[1] === 'status') {
-          return { ok: true, status: 0, stdout: "Token scopes: 'project', 'repo'", stderr: '' };
-        }
-        if (args[0] === 'api' && args[1] && args[1].includes('milestones')) {
-          // Successful milestone creation
-          return { ok: true, status: 0, stdout: JSON.stringify({ number: 1, title: 'v1.0' }), stderr: '' };
-        }
-        if (args[0] === 'label' && args[1] === 'create') {
-          return { ok: true, status: 0, stdout: '', stderr: '' };
-        }
-        if (args[0] === 'issue' && args[1] === 'create') {
-          return { ok: true, status: 0, stdout: 'https://github.com/TestOrg/TestRepo/issues/42', stderr: '' };
-        }
-        return { ok: false, status: 1, stdout: '', stderr: `unexpected: ${args.join(' ')}` };
-      });
+      // TRD 46-08: the alias runs the one sync (marker scan, find-or-create, sticky comment), so the
+      // hand-rolled argv mock is replaced by the stateful gh-fake on the gh-client seam; a no-op sleep
+      // keeps write pacing off the wall clock.
+      const client = require('./gh-client.cjs');
+      const fake = require('./__fixtures__/gh-fake.cjs').createFakeGitHub({ repo: 'TestOrg/TestRepo', scopes: ['project', 'repo'] });
+      client._resetClient();
+      client._setSleep(() => {});
+      gh._setRunGh(fake.runGh);
 
-      // Capture stdout AND process.exit (helpers.output calls process.exit which would
+      // Capture stdout/stderr AND process.exit (helpers.output calls process.exit which would
       // otherwise terminate the test runner before subsequent tests can register).
-      const origStdout = process.stdout.write.bind(process.stdout);
+      const origStdout = process.stdout.write;
+      const origStderr = process.stderr.write;
       const origExit = process.exit;
+      let exitCode = null;
       process.stdout.write = () => true;
+      process.stderr.write = () => true;
       process.exit = (code) => { throw new Error(`__exit_${code}__`); };
       try {
         try { gh.cmdGhSyncObjectives(root, true); }
-        catch (e) { if (!/^__exit_/.test(e.message)) throw e; }
+        catch (e) {
+          if (!/^__exit_/.test(e.message)) throw e;
+          exitCode = Number(e.message.replace(/\D/g, ''));
+        }
       } finally {
         process.stdout.write = origStdout;
+        process.stderr.write = origStderr;
         process.exit = origExit;
         gh._setRunGh(null);
+        client._resetClient();
+        client._setSleep(null);
       }
+      assert.strictEqual(exitCode, 0);
+      const created = fake.issues.find((iss) => iss.title.includes('Objective 1'));
+      assert.ok(created, 'the alias created the objective issue on the fake');
 
-      // Sync state should have an entry for objective '1' with issue 42
+      // Sync state should have an entry for objective '1' with the created issue
       const last = ss.getLastSync(root, '1');
       assert.ok(last, 'sync state recorded for objective 1');
-      assert.strictEqual(last.issue_ref, 'TestOrg/TestRepo#42');
+      assert.strictEqual(last.issue_ref, `TestOrg/TestRepo#${created.number}`);
       assert.deepStrictEqual(last.label_set, ['devflow:objective']);
       assert.match(last.last_synced_disk_hash, /^sha256:[a-f0-9]{64}$/);
     } finally {

@@ -174,7 +174,13 @@ describe('migration 0001 config-stamp', () => {
     m.apply(ctxFor(root));
     const after = readConfigJson(root);
     assert.equal(after.my_custom, 1);
-    assert.deepEqual(after.github, github);
+    // Every user github value survives; the only keys added are documented template defaults
+    // (TRD 46-08 added github.project_cache_ttl_minutes to the template).
+    const templateGithub = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'templates', 'config.json'), 'utf-8')).github;
+    for (const [k, v] of Object.entries(github)) assert.deepEqual(after.github[k], v, k);
+    for (const k of Object.keys(after.github).filter((key) => !(key in github))) {
+      assert.deepEqual(after.github[k], templateGithub[k], `${k} is a template default`);
+    }
     assert.deepEqual(after.devflow, { version: '2.0.0' });
   });
 
