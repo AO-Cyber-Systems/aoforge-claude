@@ -17,13 +17,32 @@ const { collect } = require('./telemetry.cjs');
 const { recordOverride } = require('./override.cjs');
 const stackFx = require('./__fixtures__/stack-profile-fixtures.cjs');
 
-let dir, pd;
+// Progress-guard state lives outside the repo (quick task 25), one file per session. Each test
+// gets its own `pg` dir, and DEVFLOW_PROGRESS_GUARD_DIR points at it so that even a collect()
+// call that omits `progressGuardDir` (or a spawned df-tools) never reads the real ~/.claude.
+let dir, pd, pg, savedGuardEnv;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-'));
   pd = path.join(dir, '.planning');
   fs.mkdirSync(pd);
+  pg = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-pg-'));
+  savedGuardEnv = process.env.DEVFLOW_PROGRESS_GUARD_DIR;
+  process.env.DEVFLOW_PROGRESS_GUARD_DIR = pg;
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  if (savedGuardEnv === undefined) delete process.env.DEVFLOW_PROGRESS_GUARD_DIR;
+  else process.env.DEVFLOW_PROGRESS_GUARD_DIR = savedGuardEnv;
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(pg, { recursive: true, force: true });
+});
+
+/** Write one per-session guard file the way the hook does. */
+function writeGuardSession(session, { streak, project = fs.realpathSync(dir), updated = Date.now() }) {
+  fs.writeFileSync(
+    path.join(pg, `${session}.json`),
+    JSON.stringify({ guard: { streak, last: 'abc' }, updated, project })
+  );
+}
 
 describe('collect() — quiet when nothing is wrong', () => {
   test('a clean project reports nothing needing attention', () => {
@@ -47,20 +66,51 @@ describe('collect() — surfaces real signals as advice', () => {
     assert.ok(r.advisories.some(a => /mis-scoped/.test(a)), 'expected a rescoping advisory');
   });
 
-  test('a stuck loop surfaces from progress-guard state', () => {
-    fs.writeFileSync(path.join(pd, '.progress-guard.json'), JSON.stringify({
-      s1: { guard: { streak: 6, last: 'abc' }, updated: Date.now() },
-    }));
-    const r = collect({ planningDir: pd });
+  test('13. a stuck loop surfaces from per-session progress-guard state for this project', () => {
+    writeGuardSession('s1', { streak: 6 });
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
     assert.equal(r.progress_guard.worst_streak, 6);
+    assert.equal(r.progress_guard.sessions_tracked, 1);
     assert.ok(r.advisories.some(a => /stuck loop/.test(a)));
+    assert.ok(r.advisories.some(a => /6x/.test(a)), 'the advisory names the streak');
+  });
+
+  test('worst_streak is the max across this project\'s sessions', () => {
+    writeGuardSession('s1', { streak: 2 });
+    writeGuardSession('s2', { streak: 5 });
+    writeGuardSession('s3', { streak: 4 });
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
+    assert.equal(r.progress_guard.sessions_tracked, 3);
+    assert.equal(r.progress_guard.worst_streak, 5);
+  });
+
+  test('14. a streak-6 session from a DIFFERENT project is ignored', () => {
+    writeGuardSession('other', { streak: 6, project: path.join(os.tmpdir(), 'some-other-project') });
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
+    assert.equal(r.progress_guard.worst_streak, 0);
+    assert.equal(r.progress_guard.sessions_tracked, 0);
+    assert.deepEqual(r.advisories, ['nothing needs attention']);
+  });
+
+  test('a session file with no project field is ignored', () => {
+    fs.writeFileSync(path.join(pg, 'legacyish.json'), JSON.stringify({ guard: { streak: 9 }, updated: Date.now() }));
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
+    assert.equal(r.progress_guard.worst_streak, 0);
+  });
+
+  test('the legacy .planning/.progress-guard.json is dead and never read', () => {
+    fs.writeFileSync(path.join(pd, '.progress-guard.json'), JSON.stringify({
+      s1: { guard: { streak: 8, last: 'abc' }, updated: Date.now() },
+    }));
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
+    assert.equal(r.progress_guard.worst_streak, 0, 'a stale legacy file must not report ghost streaks');
+    assert.deepEqual(r.advisories, ['nothing needs attention']);
   });
 
   test('a streak below the warn threshold stays quiet', () => {
-    fs.writeFileSync(path.join(pd, '.progress-guard.json'), JSON.stringify({
-      s1: { guard: { streak: 2 }, updated: Date.now() },
-    }));
-    const r = collect({ planningDir: pd });
+    writeGuardSession('s1', { streak: 2 });
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
+    assert.equal(r.progress_guard.worst_streak, 2);
     assert.deepEqual(r.advisories, ['nothing needs attention']);
   });
 
@@ -83,10 +133,26 @@ describe('collect() — surfaces real signals as advice', () => {
     assert.equal(collect({ planningDir: pd }).blocks, null);
   });
 
-  test('a corrupt progress-guard file degrades to zeros', () => {
-    fs.writeFileSync(path.join(pd, '.progress-guard.json'), '{{{ broken');
+  test('a corrupt progress-guard session file degrades to zeros', () => {
+    fs.writeFileSync(path.join(pg, 's1.json'), '{{{ broken');
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
+    assert.deepEqual(r.progress_guard, { sessions_tracked: 0, worst_streak: 0 });
+  });
+
+  test('15. a missing guard dir gives zeros, no throw', () => {
+    const r = collect({ planningDir: pd, progressGuardDir: path.join(pg, 'does-not-exist') });
+    assert.deepEqual(r.progress_guard, { sessions_tracked: 0, worst_streak: 0 });
+  });
+
+  test('15. an empty guard dir gives zeros, no throw', () => {
+    const r = collect({ planningDir: pd, progressGuardDir: pg });
+    assert.deepEqual(r.progress_guard, { sessions_tracked: 0, worst_streak: 0 });
+  });
+
+  test('progressGuardDir defaults to the DEVFLOW_PROGRESS_GUARD_DIR override', () => {
+    writeGuardSession('s1', { streak: 7 });
     const r = collect({ planningDir: pd });
-    assert.equal(r.progress_guard.worst_streak, 0);
+    assert.equal(r.progress_guard.worst_streak, 7);
   });
 });
 
