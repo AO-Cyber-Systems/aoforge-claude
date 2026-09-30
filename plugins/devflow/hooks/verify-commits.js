@@ -10,6 +10,14 @@
  * agent (per-agent marker file) to give the subagent a retry with actionable
  * feedback. The second SubagentStop for the same agent always allows stop.
  *
+ * The marker lives OUTSIDE the repo (objective 45, TRD 45-10, SC1): in the hook
+ * marker store, $DEVFLOW_HOOK_MARKER_DIR else
+ * ~/.claude/devflow/state/hook-markers/<repo-key>/autonomous-retry-<agent>.
+ * It used to be <project>/.planning/.autonomous-retry-<agent>, which the file
+ * watcher attached to every later tool result and left the repo dirty. Stale
+ * (>1h) markers are swept from the store directory; leftover in-tree markers from
+ * older versions are neither read nor written (the doctor cleans them).
+ *
  * In non-autonomous mode (yolo/interactive): warn-only via stderr (existing
  * behavior preserved verbatim).
  *
@@ -21,6 +29,9 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const store = require('../devflow/bin/lib/hook-marker-store.cjs');
+
+const RETRY_PREFIX = 'autonomous-retry-';
 
 // ─── DevFlow project detection ────────────────────────────────────────────────
 
@@ -101,13 +112,19 @@ function parsePayload() {
 // ─── Per-agent retry marker ───────────────────────────────────────────────────
 
 /**
- * Return the path for the per-agent retry marker file.
+ * Return the path for the per-agent retry marker file, in the hook marker store
+ * (never under .planning/). The project root is the directory that contains
+ * `planningDir`.
  * agentId is sanitized: only alphanumeric, underscore, hyphen kept.
  * This prevents path traversal attacks since agent_id is external input.
+ *
+ * @param {string} planningDir
+ * @param {string} agentId
+ * @param {NodeJS.ProcessEnv} [env] resolves DEVFLOW_HOOK_MARKER_DIR; defaults to process.env
  */
-function retryMarkerPath(planningDir, agentId) {
+function retryMarkerPath(planningDir, agentId, env = process.env) {
   const sanitized = String(agentId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
-  return path.join(planningDir, `.autonomous-retry-${sanitized}`);
+  return store.markerFile(path.dirname(planningDir), RETRY_PREFIX + sanitized, { env });
 }
 
 // ─── Stale marker cleanup ─────────────────────────────────────────────────────
@@ -115,25 +132,16 @@ function retryMarkerPath(planningDir, agentId) {
 const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 
 /**
- * Remove .autonomous-retry-* markers older than 1 hour.
- * Safety net so markers never accumulate indefinitely.
+ * Remove autonomous-retry-* markers older than 1 hour from this project's store
+ * directory. Safety net so markers never accumulate indefinitely.
+ *
+ * @param {string} planningDir
+ * @param {NodeJS.ProcessEnv} [env]
  */
-function cleanStaleMarkers(planningDir) {
+function cleanStaleMarkers(planningDir, env = process.env) {
   try {
-    const now = Date.now();
-    const entries = fs.readdirSync(planningDir);
-    for (const entry of entries) {
-      if (!entry.startsWith('.autonomous-retry-')) continue;
-      const fullPath = path.join(planningDir, entry);
-      try {
-        const stat = fs.statSync(fullPath);
-        if (now - stat.mtimeMs > STALE_THRESHOLD_MS) {
-          fs.unlinkSync(fullPath);
-        }
-      } catch {
-        // Skip unreadable/missing entries
-      }
-    }
+    const dir = store.markerDir(path.dirname(planningDir), { env });
+    store.cleanStale(dir, Date.now(), STALE_THRESHOLD_MS, RETRY_PREFIX);
   } catch {
     // Silently fail — never block the hook
   }
@@ -168,7 +176,10 @@ function main() {
         return;
       }
 
-      // First time: create marker and block with actionable feedback
+      // First time: create marker and block with actionable feedback. The write comes
+      // first and may throw (unwritable home): the outer catch then lets the stop through,
+      // so a marker that cannot be recorded never turns into an endless block.
+      fs.mkdirSync(path.dirname(marker), { recursive: true });
       fs.writeFileSync(marker, String(Date.now()), 'utf8');
 
       process.stdout.write(JSON.stringify({
