@@ -111,6 +111,8 @@ run by the org GitHub App; wiki-diff hook; degraded mode detection.
 
 ## Current defects fixed first (objective 46)
 
+All eight are fixed in objective 46 (`gh sync`, mapping v3 with migration 0009, `devflow:id` markers, `lib/gh-client.cjs`).
+
 1. Two mapping shapes in `.gh-mapping.json` (v1 numbers, v2 objects) → `issue edit "[object Object]"`.
 2. Three mapping keys (ROADMAP number, `parseInt` of dir, dir name) → pull never finds push's entries; decimals collide.
 3. Post-execute sync passes an objective number where `syncObjective` needs a dir (`workflows/execute-objective.md`), hidden by `2>/dev/null`.

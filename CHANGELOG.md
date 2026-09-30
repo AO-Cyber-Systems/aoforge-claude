@@ -6,6 +6,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Upgrade migration 0009** (auto). Converts `.planning/.gh-mapping.json` from its v1 and v2 shapes
+  to v3 (keyed by canonical objective id, `{issue_id, state_comment_id, verified_at}` entries) and
+  re-keys `.planning/.gh-sync-state.json` by the same ids. Idempotent; backs up first.
+- **`lib/gh-client.cjs`, the one seam for every `gh` call.** Writes are at least 1 s apart, a
+  secondary rate limit is retried after `retry-after`, list calls read every page, and
+  `github.enabled` gates every command. The modules `gh-mapping`, `gh-body`, `gh-issue`,
+  `gh-project` and `gh-milestone` sit on it. A repo test fails if anything else spawns `gh`.
+- **Project field discovery.** Project v2 fields, options and iterations are read from GitHub and
+  cached for `github.project_cache_ttl_minutes` (default 360) under
+  `~/.claude/devflow/state/gh-project/` (override `DEVFLOW_GH_CACHE_DIR`).
+- `df-tools-deprecations.repo.test.cjs`: CI fails when live prose names a deprecated df-tools
+  subcommand without saying it is deprecated.
+
+### Changed
+- **`gh sync [<objective>|--all]` is the one push command.** It finds or creates the objective's
+  issue, updates it, posts the sticky state comment, sets Project fields and writes `github_issue`
+  to OBJECTIVE.md. `--all` runs every objective through one run context, keeps going past a failure,
+  prints JSON on stdout and exits 1 if any objective failed.
+- **Managed body sections.** Issue bodies start with `<!-- devflow:id=N -->`; a sync rewrites only
+  the text between `devflow:begin` / `devflow:end` and keeps every human-written byte. An issue made
+  by an earlier DevFlow gets the sections appended below its old text once.
+- **`devflow:id` markers** on issue bodies and on the sticky, verification and close comments.
+  Issues are found again by marker when the mapping is lost. A legacy `<!-- df:state -->` comment is
+  adopted and rewritten.
+- `comment`, `close-issue`, `sync-release`, `resolve` and `status` use mapping v3, the markers and
+  the enabled gate. `gh comment` takes `--kind`; the verifier posts with `--kind verification`.
+- The post-execute step in `execute-objective` passes the objective directory and shows a failure
+  as a warning with the retry command instead of hiding it.
+- `initiatives` resolves its project from PROJECT.md `org_project`, then `awareness.org_project_id`.
+- Push records GitHub's own `updatedAt` as the sync-state baseline, so `gh pull` straight after a
+  push reports no drift.
+
+### Fixed
+- Mapping shapes and keys. v1 (bare numbers) and v2 (objects) were read by different commands, so an
+  issue edit could receive `[object Object]`, and one objective had three key spellings (`2.1`,
+  `02.1-foo` run through `parseInt` to `2`, the directory name). There is one id now.
+- The post-execute sync passed the objective number, discarded stderr and skipped any objective
+  without a `github_issue`, so a failed or missing push was invisible.
+- `github_issue` is written back to OBJECTIVE.md on the first sync. A differing value you set is
+  kept and reported.
+- Milestone resolution no longer guesses: the objective's `milestone:`, else the ROADMAP
+  `## Milestones` current entry, else none.
+- A sync no longer overwrites human edits to an issue body.
+- Project fields no longer read a fixture at runtime; they are discovered from GitHub.
+- Sync had no rate limiting and read only the first page of comments, so the sticky comment on a
+  long-lived issue was not found.
+- `github.enabled: false` was ignored by `sync`, `pull` and `resolve`, and the legacy commands exited
+  0 on failure. Every command now reports `skipped` with exit 0 and makes no `gh` call when
+  disabled; an enabled project that cannot reach GitHub exits 1.
+
+### Deprecated
+- `gh sync-objectives`. It still works and prints a one-line notice; use `gh sync --all`. The rename
+  is recorded in `DF_TOOLS_DEPRECATIONS` (`lib/skill-route.cjs`).
+
 ## [2.12.0] - 2026-09-30
 
 ### Added

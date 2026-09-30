@@ -406,6 +406,7 @@ Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub in
 | `github.labels.objective` | `"devflow:objective"` | Label applied to synced issues |
 | `github.labels.in_progress` | `"devflow:in-progress"` | Label during execution |
 | `github.labels.gaps` | `"devflow:gaps"` | Label when verifier finds gaps |
+| `github.project_cache_ttl_minutes` | `360` | How long discovered Project v2 fields and options are cached (under `~/.claude/devflow/state/gh-project/`, override `DEVFLOW_GH_CACHE_DIR`) |
 
 ### Git Branching
 
@@ -656,7 +657,7 @@ To turn off a hook entirely, edit `~/.claude/settings.json` and remove its entry
 
 ## GitHub integration
 
-Opt-in mirroring of `.planning/` to GitHub issues, milestones, and releases. Planning files remain the source of truth — GitHub is derivative. Every operation is a no-op when integration is disabled, `gh` is missing, or auth has expired; failures never block your workflow.
+Opt-in mirroring of `.planning/` to GitHub issues, milestones, and releases. Planning files remain the source of truth — GitHub is derivative. With `github.enabled` false every GitHub command reports `skipped` and exits 0 without calling `gh`. With it true, a command that cannot reach GitHub (no `gh`, expired auth, a failed call) exits 1 and says why. The workflow steps that run a sync after planning and after execution show that failure as a warning and carry on, so your workflow is never blocked.
 
 ### Enable
 
@@ -683,34 +684,54 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 
 | Trigger | Action | Manual command |
 |---|---|---|
-| End of `/devflow:new-project` (after roadmap creation) | Creates one milestone per roadmap version + one issue per objective, persists numbers to `.planning/.gh-mapping.json` | `df-tools gh sync-objectives` |
-| Verifier finds gaps (`status: gaps_found`) | Posts the VERIFICATION.md `gaps:` block as an issue comment | `df-tools gh comment <obj#> @file:path` |
-| Verifier final pass passes | Closes the issue with link to verification report | `df-tools gh close-issue <obj#>` |
+| End of `/devflow:new-project` (after roadmap creation) | Creates one milestone per roadmap version + one issue per objective, persists numbers to `.planning/.gh-mapping.json` | `df-tools gh sync --all` |
+| End of `/devflow:execute-objective` | Pushes that objective: creates its issue on the first sync, updates the managed body sections, the sticky state comment and the Project fields, and writes `github_issue` to its OBJECTIVE.md. A failure prints a warning and the retry command | `df-tools gh sync <objective>` |
+| Verifier finds gaps (`status: gaps_found`) | Posts the VERIFICATION.md `gaps:` block as an issue comment (`--kind verification`) | `df-tools gh comment <objective> @file:path --kind verification` |
+| Verifier final pass passes | Closes the issue with link to verification report | `df-tools gh close-issue <objective>` |
 | Tag push (`vX.Y.Z`) | Generates rich release notes from SUMMARY.md files since previous tag, creates or edits the GitHub release | `df-tools gh sync-release vX.Y.Z` |
-| Manual recovery | All of the above | `/devflow:gh-sync [objectives|release vX.Y.Z|status]` |
+| Read back | Compares the issue with the local state and reports drift; `--apply` writes the differences | `df-tools gh pull <objective> [--apply]` |
+| Manual recovery | All of the above | `/devflow:gh-sync [<objective>|--all|release vX.Y.Z|status]` |
+
+`<objective>` takes any spelling: `46`, `046`, `46-github-sync-foundations`, `2.1`. `gh comment` and `gh close-issue` also take `#N` for a raw issue. `gh sync-objectives` is a deprecated alias of `gh sync --all`. `gh sync --all` keeps going past a failing objective, prints JSON on stdout and exits 1 if any objective failed.
+
+### How a sync treats an issue
+
+- The first line of the body is `<!-- devflow:id=N -->`. DevFlow rewrites only the text between its `devflow:begin` and `devflow:end` section markers; anything a person wrote above, between or below them is kept byte for byte.
+- An issue made by an older DevFlow has no markers. Its old generated text is kept and the managed sections are appended below it once. Delete the old text by hand if you want it gone.
+- The sticky state comment carries `<!-- devflow:id=N kind=state -->` and is edited in place. An older `<!-- df:state -->` comment is adopted and rewritten with the new marker. Comments posted by `gh comment` and `gh close-issue` carry `devflow:id` markers with their kind.
+- An issue is found through the mapping, then OBJECTIVE.md `github_issue`, then the `devflow:id` marker, then an `[Objective N]` title, and only then created. Two candidates stop that objective with an error; nothing is guessed or duplicated.
+- Every `gh` call goes through one client: writes are at least 1 s apart, a secondary rate limit is retried after GitHub's `retry-after`, and list calls read every page.
+- The milestone is the objective's `milestone:` frontmatter, else the current entry in the ROADMAP `## Milestones` list.
+- Project v2 fields are discovered from GitHub and cached, not hardcoded. The project comes from PROJECT.md `org_project`, then `awareness.org_project_id` in config.json. With neither, project fields are skipped.
+- `gh pull` after a push reports no drift: the push records GitHub's own `updatedAt` as the baseline.
+- If an OBJECTIVE.md already has a different `github_issue`, your value is kept and the difference is reported.
 
 ### Mapping file
 
-`.planning/.gh-mapping.json` is the source of truth for "which objective maps to which GitHub issue":
+`.planning/.gh-mapping.json` records which objective maps to which GitHub issue. It is version 3, keyed by the canonical objective id (`46`, `2.1`; leading zeros stripped):
 
 ```json
 {
-  "milestone_id": 12,
+  "version": 3,
+  "repo": "owner/name",
+  "milestones": { "v1.4": 12 },
   "objectives": {
-    "1": 42,
-    "2": 43,
-    "2.1": 44
-  }
+    "1": { "issue_id": 42, "state_comment_id": 901, "verified_at": null },
+    "2.1": { "issue_id": 44, "state_comment_id": null, "verified_at": null }
+  },
+  "trds": {}
 }
 ```
 
-Commit it. Re-running `gh sync-objectives` is idempotent — existing issues are edited, not duplicated.
+Commit it. Re-running `gh sync --all` is idempotent — existing issues are edited, not duplicated. Older mapping shapes are converted by upgrade migration 0009, which also re-keys `.planning/.gh-sync-state.json` by objective id (`df-tools upgrade`, applied automatically on session start).
+
+If the mapping file is lost, re-run `gh sync --all`: the `devflow:id` markers on GitHub lead back to the same issues and no duplicates are created.
 
 ### What does NOT sync
 
 - Issues created in GitHub do not flow back to `.planning/` (would break "planning files are truth"). File issues normally; they become input to `/devflow:plan-objective`.
 - Per-task commits are not re-posted to issues (too noisy). Use `gh comment` manually if you want an update mid-execution.
-- GitHub Projects v2 boards are not synced (GraphQL-only, low marginal value over labels + milestones).
+- Project v2 boards are only updated for issues DevFlow syncs (status and similar fields, when a project is configured). DevFlow does not create boards, fields or options.
 
 ### Troubleshooting
 
@@ -719,11 +740,13 @@ Commit it. Re-running `gh sync-objectives` is idempotent — existing issues are
 node ~/.claude/devflow/bin/df-tools.cjs gh status
 ```
 
-Common reasons for "skipped":
-- `github.enabled is false` — set `enabled: true` in config
+`skipped` (exit 0, no `gh` calls) means the integration is off:
+- `github.enabled is not true` — set `enabled: true` in config
+- `github.repo is not set` — set `github.repo` to `"owner/name"`
+
+These exit 1 with the reason and the fix:
 - `gh CLI not installed` — install from https://cli.github.com
-- `gh not authenticated` — run `gh auth login`
-- `github.repo must be set as "owner/name"` — fix the format
+- `gh not authenticated` — run `gh auth login` (Project fields also need the `project` scope; `gh auth refresh` adds it)
 
 ---
 
