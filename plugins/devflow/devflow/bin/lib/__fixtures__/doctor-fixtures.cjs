@@ -14,8 +14,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
-const { makeFakeHome, makeStampedProject, initGitFixture } = require('./upgrade-fixtures.cjs');
+const {
+  makeFakeHome, makeStampedProject, initGitFixture, makeTrackedRuntimeStateProject, gitEnv,
+} = require('./upgrade-fixtures.cjs');
+const { repoKey } = require('../upgrade.cjs');
 
 // plugins/devflow/ in THIS repo: __fixtures__ → lib → bin → devflow → plugins/devflow.
 const PLUGIN_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
@@ -265,6 +269,148 @@ function makeChecksDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor-checks-'));
 }
 
+// ─── The 2026-09-29 aodex/runtime reproduction (TRD 45-08) ────────────────────
+
+// Literal shape of the evidence, reproduced from these literals only (never from ~/dev/aodex).
+const AODEX_INSTALLED_VERSION = '2.11.0';
+const AODEX_MIRROR_VERSION = '2.10.1';
+const AODEX_STALE_CACHE_VERSIONS = ['2.7.1', '2.10.1'];
+const AODEX_TRACKED_RUNTIME = [
+  '.planning/.progress-guard.json',
+  'flutter/.planning/.progress-guard.json',
+];
+const AODEX_UNTRACKED_RUNTIME = ['.planning/.awareness-cache.json'];
+const AODEX_PROJECT_STAMP = '2.0.0';
+
+// A pre-27-01-era marker that expired long ago: it holds the edit gate open until removed.
+const EXPIRED_SKILL_ACTIVE = {
+  skill: 'devflow:execute-objective',
+  started_at: '2025-12-31T16:00:00.000Z',
+  pid: 4242,
+  expires_at: '2026-01-01T00:00:00.000Z',
+};
+
+// Two guard session files, as guard-no-progress.js leaves them, aged past its 24h TTL.
+const AODEX_GUARD_SESSIONS = {
+  '6b1f0c2e-aodex-session-a.json': '{\n  "last": "Bash:9f2c1e",\n  "count": 3\n}\n',
+  '9d4e7a10-aodex-session-b.json': '{\n  "last": "Read:41ab07",\n  "count": 1\n}\n',
+};
+const GUARD_SESSION_AGE_MS = 2 * 24 * 60 * 60 * 1000;
+
+// An awareness entry for a project that no longer exists.
+const AODEX_ORPHAN_AWARENESS_FILE = 'aodex-0a1b2c3d.json';
+const AODEX_ORPHAN_PROJECT = '/nonexistent/aodex';
+const OVERSIZED_AWARENESS_BYTES = 2 * 1024 * 1024;
+
+// Upgrade backups in backup-prune's `<ts>` format, all far past the 14-day default retention.
+// Seven entries against the default keep_min of 5: the two oldest are past retention.
+const AODEX_BACKUP_STAMPS = [
+  '2026-01-01T09-00-00-000Z',
+  '2026-01-02T09-00-00-000Z',
+  '2026-01-03T09-00-00-000Z',
+  '2026-01-04T09-00-00-000Z',
+  '2026-01-05T09-00-00-000Z',
+  '2026-01-06T09-00-00-000Z',
+  '2026-01-07T09-00-00-000Z',
+];
+
+// validate health raises W001 on a PROJECT.md without this section (45-06 SUMMARY); the aodex
+// PROJECT.md has one, so the reproduction does too.
+const REQUIREMENTS_SECTION =
+  '\n## Requirements\n\n' +
+  '- [ ] Upgrading must never lose a line the user wrote.\n';
+
+function fixtureGit(root, home, ...args) {
+  return execFileSync('git', ['-C', root, ...args], {
+    env: gitEnv(home),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf-8',
+  });
+}
+
+/**
+ * makeAodexLikeState() -> { home, root, installPath, guardDir, awarenessDir, env, cleanup() }
+ *
+ * The full 2026-09-29 reproduction, composed from the builders above:
+ *
+ *   install      devflow@aocyber 2.11.0 registered, with the REAL hooks/sync-runtime.js and
+ *                devflow/bin/lib/runtime-digest.cjs, so the runtime-mirror fix can really run. Its
+ *                hooks.json names only sync-runtime.js, so hooks-registry stays ok.
+ *   mirror       ~/.claude/devflow at 2.10.1 (behind the install)
+ *   cache        stale 2.7.1 and 2.10.1 plugin cache dirs beside the installed 2.11.0
+ *   project      a git repo stamped 2.0.0 (always behind), TRACKING `.planning/.progress-guard.json`
+ *                and `flutter/.planning/.progress-guard.json`, with an untracked, unignored
+ *                `.planning/.awareness-cache.json`; PROJECT.md carries `## Requirements`
+ *   marker       an expired `.planning/.skill-active`, listed in `.git/info/exclude` so it never
+ *                dirties `.planning/` for the worktree guards
+ *   guard dir    two session files aged 2 days (DEVFLOW_PROGRESS_GUARD_DIR)
+ *   awareness    one orphan entry (`/nonexistent/aodex`) and one 2 MiB entry for the fixture root
+ *                (DEVFLOW_AWARENESS_DIR)
+ *   backups      seven `<repoKey(root)>/<ts>/` dirs from January 2026 (default keep_min 5)
+ *
+ * `root` is a realpath (what the doctor resolves). The guard and awareness dirs live inside the
+ * fake home, so `cleanup()` removing home + root removes everything the fixture made.
+ */
+function makeAodexLikeState() {
+  const home = makeDoctorHome();
+
+  const { installPath } = makeInstalledPlugin(home, { version: AODEX_INSTALLED_VERSION });
+  copyRealRuntimeFiles(installPath, ['hooks/sync-runtime.js', 'devflow/bin/lib/runtime-digest.cjs']);
+  makeMirror(home, { version: AODEX_MIRROR_VERSION });
+  makePluginCacheDirs(home, AODEX_STALE_CACHE_VERSIONS);
+
+  const made = makeTrackedRuntimeStateProject({
+    tracked: AODEX_TRACKED_RUNTIME,
+    untrackedPresent: AODEX_UNTRACKED_RUNTIME,
+    version: AODEX_PROJECT_STAMP,
+    home,
+  });
+  const root = fs.realpathSync(made.root);
+
+  fs.appendFileSync(path.join(root, '.planning', 'PROJECT.md'), REQUIREMENTS_SECTION, 'utf-8');
+  fixtureGit(root, home, 'add', '--', '.planning/PROJECT.md');
+  fixtureGit(root, home, 'commit', '-q', '-m', 'project requirements');
+
+  writeJson(root, '.planning/.skill-active', EXPIRED_SKILL_ACTIVE);
+  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.planning/.skill-active\n', 'utf-8');
+
+  const guardDir = path.join(home, 'df-state', 'progress-guard');
+  const agedSec = (Date.now() - GUARD_SESSION_AGE_MS) / 1000;
+  for (const [name, content] of Object.entries(AODEX_GUARD_SESSIONS)) {
+    const file = writeRel(guardDir, name, content);
+    fs.utimesSync(file, agedSec, agedSec);
+  }
+
+  const awarenessDir = path.join(home, 'df-state', 'awareness');
+  writeJson(awarenessDir, AODEX_ORPHAN_AWARENESS_FILE, {
+    project: AODEX_ORPHAN_PROJECT,
+    updated: '2026-09-29T08:00:00.000Z',
+  });
+  const oversized = JSON.stringify({
+    project: root,
+    updated: '2026-09-29T08:00:00.000Z',
+    peer: { branches: [], padding: 'x'.repeat(OVERSIZED_AWARENESS_BYTES) },
+  });
+  writeRel(awarenessDir, `${repoKey(root)}.json`, oversized + '\n');
+
+  const backupsRepoDir = path.join(claudeDir(home), 'devflow', 'backups', repoKey(root));
+  for (const stamp of AODEX_BACKUP_STAMPS) {
+    writeJson(path.join(backupsRepoDir, stamp), '.planning/config.json', { devflow: { version: '2.0.0' } });
+  }
+
+  const env = {
+    DEVFLOW_PROGRESS_GUARD_DIR: guardDir,
+    DEVFLOW_AWARENESS_DIR: awarenessDir,
+    DEVFLOW_SKIP_GLOBAL_UPGRADE: '1',
+  };
+
+  const cleanup = () => {
+    for (const dir of [home, root, made.root]) fs.rmSync(dir, { recursive: true, force: true });
+  };
+
+  return { home, root, installPath, guardDir, awarenessDir, env, cleanup };
+}
+
 module.exports = {
   makeDoctorHome,
   makeInstalledPlugin,
@@ -274,7 +420,15 @@ module.exports = {
   makeDoctorProject,
   writeStubCheck,
   makeChecksDir,
+  makeAodexLikeState,
   // Literal content and locations, exported so tests assert against the same bytes/paths.
+  AODEX_INSTALLED_VERSION,
+  AODEX_MIRROR_VERSION,
+  AODEX_STALE_CACHE_VERSIONS,
+  AODEX_TRACKED_RUNTIME,
+  AODEX_UNTRACKED_RUNTIME,
+  AODEX_PROJECT_STAMP,
+  AODEX_BACKUP_STAMPS,
   PLUGIN_ROOT,
   PLUGIN_KEY,
   HOOKS_JSON,
