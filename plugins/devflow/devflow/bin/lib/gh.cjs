@@ -7,9 +7,9 @@
  * remain authoritative; if GitHub is unavailable or this module fails the
  * caller must continue without error.
  *
- * Issue/milestone IDs are persisted to .planning/.gh-mapping.json:
- *
- *   { "milestone_id": 12, "objectives": { "1": 42, "2.1": 43 } }
+ * Issue ids are persisted to .planning/.gh-mapping.json in the v3 shape owned by gh-mapping.cjs
+ * (`objectives: { "<id>": { issue_id, state_comment_id, verified_at } }`). Every gh invocation goes through
+ * gh-client (ghRead / ghWrite); every command sits behind gh-client.requireEnabled (TRD 46-08).
  *
  * TRD 01-02 extensions:
  *   resolveChain(frontmatter, projectCtx) — walks objective → [Roadmap] issue →
@@ -22,7 +22,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
 const { output, execGit } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
@@ -31,61 +30,13 @@ const client = require('./gh-client.cjs');
 const bodyLib = require('./gh-body.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 
-const MAPPING_REL = path.join('.planning', '.gh-mapping.json');
-
-function readConfig(cwd) {
-  const cfgPath = path.join(cwd, '.planning', 'config.json');
-  if (!fs.existsSync(cfgPath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
-  } catch {
-    return null;
-  }
-}
-
-function readMapping(cwd) {
-  const p = path.join(cwd, MAPPING_REL);
-  if (!fs.existsSync(p)) return { milestone_id: null, objectives: {} };
-  try {
-    const m = JSON.parse(fs.readFileSync(p, 'utf-8'));
-    return { milestone_id: m.milestone_id || null, objectives: m.objectives || {} };
-  } catch {
-    return { milestone_id: null, objectives: {} };
-  }
-}
-
-function writeMapping(cwd, mapping) {
-  const planningDir = path.join(cwd, '.planning');
-  if (!fs.existsSync(planningDir)) fs.mkdirSync(planningDir, { recursive: true });
-  fs.writeFileSync(path.join(cwd, MAPPING_REL), JSON.stringify(mapping, null, 2) + '\n');
-}
-
-function runGh(args, opts = {}) {
-  const r = spawnSync('gh', args, {
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: 30000,
-    ...opts,
-  });
-  return {
-    ok: r.status === 0,
-    status: r.status,
-    stdout: (r.stdout || '').trim(),
-    stderr: (r.stderr || '').trim(),
-  };
-}
-
 // ─── Test injection + per-process cache (TRD 01-02) ──────────────────────────
 
-// Test injection hook — production code always calls _runGh; tests inject a mock.
-// Existing functions (cmdGhSyncObjectives etc.) keep using runGh directly (back-compat).
-// TRD 46-07: the seam is gh-client's. The local default forwards to gh-client, so an injection made
-// directly on gh-client (gh-pull._setRunGh, tests) is also what gh.cjs sees; `_setRunGh(fn)` installs
-// `fn` on BOTH (the remaining legacy call sites here still read the local `_runGh` until 46-08).
+// The seam is gh-client's (TRD 46-07/46-08): gh.cjs owns no spawn site, and every gh call here is
+// client.ghRead / client.ghWrite. `_setRunGh(fn)` installs `fn` on gh-client (null restores the real
+// spawn); the exported `_runGh` is a pure forwarder to whatever gh-client currently runs.
 const _clientRunGh = (...a) => client._runGh(...a);
-let _runGh = _clientRunGh;
 function _setRunGh(fn) {
-  _runGh = (fn != null) ? fn : _clientRunGh;
   client._setRunGh(fn);
 }
 
@@ -162,7 +113,7 @@ function requireGhAuth(requiredScopes = []) {
   if (!r.ok) {
     const stderr = r.stderr || '';
 
-    // No gh binary: spawnSync sets status:null on ENOENT, or stderr says "command not found"
+    // No gh binary: the spawn reports status:null on ENOENT, or stderr says "command not found"
     if (r.status === null || /command not found|ENOENT/i.test(stderr)) {
       throw new GhAuthError({
         message: 'GitHub CLI (gh) is not installed.',
@@ -259,7 +210,7 @@ function _resolveRef(fmValue, projectCtxRepo, fieldName) {
 /**
  * Walk a parent issue ref via GraphQL to find roadmap_issue + milestone.
  * Returns { roadmap_issue, milestone, provenance: { roadmap_issue, milestone }, warnings }.
- * Uses _runGh so tests can inject a mock.
+ * Reads through client.ghRead, so a fake installed with _setRunGh answers it.
  */
 function _walkParent(parentIssueRef) {
   if (!parentIssueRef || !/^[^/]+\/[^#]+#\d+$/.test(parentIssueRef)) {
@@ -692,39 +643,6 @@ function listObjectives(cwd) {
   return objectives;
 }
 
-function getProjectName(cwd) {
-  const projectPath = path.join(cwd, '.planning', 'project.md');
-  if (!fs.existsSync(projectPath)) return path.basename(cwd);
-  const content = fs.readFileSync(projectPath, 'utf-8');
-  const m = content.match(/^#\s+([^\n]+)/m);
-  return m ? m[1].trim() : path.basename(cwd);
-}
-
-function getMilestoneVersion(cwd) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-  if (!fs.existsSync(roadmapPath)) return null;
-  const content = fs.readFileSync(roadmapPath, 'utf-8');
-  const m = content.match(/v(\d+\.\d+)/);
-  return m ? m[0] : null;
-}
-
-// ─── Issue / milestone formatting ────────────────────────────────────────────
-
-function formatIssueBody(obj, projectName) {
-  const lines = [
-    `**Objective ${obj.number}: ${obj.name}**`,
-    '',
-    obj.goal ? `**Goal:** ${obj.goal}` : null,
-    '',
-    obj.success_criteria.length
-      ? '**Success criteria:**\n' + obj.success_criteria.map(c => `- ${c}`).join('\n')
-      : null,
-    '',
-    `_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). Source of truth: \`.planning/objectives/\` in this repo._`,
-  ].filter(l => l !== null);
-  return lines.join('\n');
-}
-
 // ─── Commands ────────────────────────────────────────────────────────────────
 
 function cmdGhStatus(cwd, raw) {
@@ -968,39 +886,19 @@ function cmdGhSyncRelease(cwd, tag, raw) {
 // ─── TRD 01-04: syncObjective helpers + orchestrator ─────────────────────────
 
 /**
- * readMappingV2: returns mapping in v2 shape — objectives as { issue_id, state_comment_id }.
- * Migrates v1 shape (objectives: { number: issueId }) on first read.
- * Does NOT write — callers that need to persist use writeMappingV2.
+ * readMappingV2(cwd) — kept for importers; v3 only (TRD 46-08). Returns the v3 mapping (legacy v1/v2 files
+ * are migrated in memory; nothing is written).
  */
 function readMappingV2(cwd) {
-  const v1 = readMapping(cwd);
-  const out = { milestone_id: v1.milestone_id, objectives: {} };
-  for (const [k, v] of Object.entries(v1.objectives)) {
-    if (typeof v === 'number') {
-      out.objectives[k] = { issue_id: v, state_comment_id: null };
-    } else if (typeof v === 'object' && v !== null) {
-      out.objectives[k] = { issue_id: v.issue_id, state_comment_id: v.state_comment_id || null };
-    }
-  }
-  return out;
+  return mappingLib.readMappingV3(cwd);
 }
 
 /**
- * writeMappingV2: writes v2-shape mapping to disk.
- * Preserves v2 object entries; v1 number entries kept for callers that haven't migrated.
+ * writeMappingV2(cwd, mapping) — kept for importers; v3 only (TRD 46-08). Any legacy-shaped mapping is
+ * migrated first, so the file on disk is always v3. Returns writeMappingV3's `{ok, path}` | `{ok:false, error}`.
  */
 function writeMappingV2(cwd, mapping) {
-  const planningDir = path.join(cwd, '.planning');
-  if (!fs.existsSync(planningDir)) fs.mkdirSync(planningDir, { recursive: true });
-  const out = { milestone_id: mapping.milestone_id, objectives: {} };
-  for (const [k, v] of Object.entries(mapping.objectives)) {
-    if (typeof v === 'object' && v !== null) {
-      out.objectives[k] = { issue_id: v.issue_id, state_comment_id: v.state_comment_id };
-    } else {
-      out.objectives[k] = v;
-    }
-  }
-  fs.writeFileSync(path.join(cwd, MAPPING_REL), JSON.stringify(out, null, 2) + '\n');
+  return mappingLib.writeMappingV3(cwd, mappingLib.migrateMapping(mapping).mapping);
 }
 
 /**
@@ -1217,23 +1115,16 @@ function readObjectiveState(objectiveId, projectRoot) {
   if (trdEntries.length > 0 && trdEntries.every(t => t.done)) currentWave = maxWave;
 
   // Last commit touching the objective dir
-  const cp = require('child_process');
-  const git = cp.spawnSync('git', ['log', '-1', '--pretty=%h|%s', '--', objDir], {
-    cwd: projectRoot,
-    encoding: 'utf-8',
-  });
+  const git = execGit(projectRoot, ['log', '-1', '--pretty=%h|%s', '--', objDir]);
   let last_commit = null;
-  if (git.status === 0 && git.stdout && git.stdout.trim()) {
-    const [sha, ...rest] = git.stdout.trim().split('|');
+  if (git.exitCode === 0 && git.stdout) {
+    const [sha, ...rest] = git.stdout.split('|');
     last_commit = { sha, subject: rest.join('|') };
   }
 
   // Branch
-  const branchR = cp.spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-    cwd: projectRoot,
-    encoding: 'utf-8',
-  });
-  const branch = branchR.status === 0 && branchR.stdout ? branchR.stdout.trim() : null;
+  const branchR = execGit(projectRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const branch = branchR.exitCode === 0 && branchR.stdout ? branchR.stdout : null;
 
   // Goal + name + number + success_criteria from ROADMAP.md
   // Canonical id (`02.1-b` -> `2.1`), so a decimal objective never reads the integer one's entry.
@@ -1758,7 +1649,7 @@ function walkProject(projectId) {
 
 /**
  * Read the state of a GitHub issue via gh CLI.
- * Routes through _runGh injection hook so tests can mock it transitively.
+ * Reads through client.ghRead, so a fake installed with _setRunGh answers it.
  *
  * @param {string} issueRef - full issue ref, e.g. "owner/repo#NN"
  * @returns {{ ok: bool, status: number, stdout: string, stderr: string }}
@@ -1815,8 +1706,7 @@ module.exports = {
   _resetCache,
   _setRunGh,
 
-  // TRD 06-01: expose _runGh as a callable so external modules can invoke
-  // the injected mock without capturing the value at require-time.
-  // CRITICAL: This is a getter wrapper — always delegates to current _runGh value.
-  _runGh: (...args) => _runGh(...args),
+  // TRD 06-01: expose _runGh as a callable so external modules can invoke the injected mock
+  // without capturing the value at require-time. A forwarder to gh-client's current runGh.
+  _runGh: _clientRunGh,
 };
