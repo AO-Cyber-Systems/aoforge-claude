@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-09-30
+
 ### Added
 - **`df-tools stack verify [--run]`.** Checks that every command in the resolved profile can run:
   the binary is on PATH (or under GOPATH/bin, `~/.local/bin`, mise shims), the runner target
