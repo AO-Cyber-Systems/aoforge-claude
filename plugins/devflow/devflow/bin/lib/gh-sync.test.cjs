@@ -173,6 +173,25 @@ describe('syncObjective (46-07)', () => {
     assert.ok(comment.body.startsWith('<!-- devflow:id=2 kind=state -->'), comment.body);
   });
 
+  test('3b (46-09): the sync-state baseline is the issue\'s real GitHub updatedAt read after the last write, not local now', () => {
+    install();
+    const r = gh.syncObjective('2', root);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    // The sticky comment is the last write and advances the issue's updatedAt in the fake; the baseline
+    // must be that value so pull's "GitHub unchanged since last sync" shortcut can ever apply.
+    assert.equal(getLastSync(root, '2').gh_updated_at, issue(1).updatedAt);
+    assert.match(issue(1).updatedAt, /^2026-01-01T/, 'the fake, not the wall clock, supplied it');
+  });
+
+  test('3c (46-09): a failed updatedAt read degrades to local now - the sync still succeeds with a warning', () => {
+    install();
+    fake.failNext((a) => a[0] === 'issue' && a[1] === 'view', { stderr: 'HTTP 502: bad gateway' });
+    const r = gh.syncObjective('2', root);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.match(getLastSync(root, '2').gh_updated_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.ok(r.warnings.some((w) => /updatedAt/.test(w)), JSON.stringify(r.warnings));
+  });
+
   test('4: every spelling of objective 2 updates #1; 2.1 creates #2 and never touches #1', () => {
     install();
     assert.equal(gh.syncObjective('2', root).issue_number, 1);
