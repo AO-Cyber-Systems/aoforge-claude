@@ -194,6 +194,18 @@ Usage: `/devflow:status check`
 Usage: `/devflow:status pause`
 Usage: `/devflow:status resume`
 
+**`/devflow:doctor [--fix] [--global] [path]`**
+Diagnose and safely repair DevFlow environment problems.
+
+- *(no arg)* — Read-only report: runtime mirror, plugin cache, hook registry, model ids, runtime state inside the repo, pending migrations, stale markers and state, backups
+- `--fix` — Apply only safe, reversible repairs, then re-check. Refuses index-changing fixes while unrelated changes are staged; plugin cache dirs are report-only
+- `--global` — Check only the global install under `~/.claude`
+
+Usage: `/devflow:doctor`
+Usage: `/devflow:doctor --fix`
+Usage: `/devflow:doctor --global`
+Usage: `/devflow:doctor ./path/to/repo`
+
 ### Debugging
 
 **`/devflow:debug [issue description]`**
