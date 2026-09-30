@@ -996,16 +996,18 @@ node ~/.claude/devflow/bin/df-tools.cjs sync-roadmap 2>/dev/null || {
 }
 ```
 
-**Auto-push to GitHub (TRD 18-02):**
+**Auto-push to GitHub (objective 46, GSF-03):**
 
-Push state to the linked GitHub issue when the objective has one. Skipped silently when OBJECTIVE.md is absent or has no `github_issue` field. Auth failures emit a warning with remediation but don't abort.
+Push the objective's state to its GitHub issue (created on first sync). When `github.enabled` is not true the command reports `skipped` and exits 0. A failure never blocks completion, but it is shown, never swallowed. `OBJECTIVE_DIR` may be the bare directory name or the `.planning/objectives/…` path that `init` reports; `basename` accepts both.
 
 ```bash
-OBJECTIVE_MD=".planning/objectives/${OBJECTIVE_DIR}/OBJECTIVE.md"
-if [[ -f "$OBJECTIVE_MD" ]] && grep -qE '^github_issue:' "$OBJECTIVE_MD" 2>/dev/null; then
-  node ~/.claude/devflow/bin/df-tools.cjs gh sync "${OBJECTIVE_NUMBER}" 2>/dev/null || {
-    echo "Note: gh sync skipped for objective ${OBJECTIVE_NUMBER} (CLI failed; check 'gh auth status' if persistent); continuing."
-  }
+OBJECTIVE_DIR="$(basename "${OBJECTIVE_DIR}")"
+if SYNC_OUT=$(node ~/.claude/devflow/bin/df-tools.cjs gh sync "${OBJECTIVE_DIR}" 2>&1); then
+  :
+else
+  echo "WARNING: GitHub sync failed for objective ${OBJECTIVE_DIR} (completion continues):"
+  printf '%s\n' "$SYNC_OUT" | head -40
+  echo "Retry: node ~/.claude/devflow/bin/df-tools.cjs gh sync ${OBJECTIVE_DIR}"
 fi
 ```
 

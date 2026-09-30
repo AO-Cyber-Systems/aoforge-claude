@@ -165,7 +165,9 @@ describe('execute-objective.md "Auto-push to GitHub" step (run against the gh sh
     const r = runStep();
     assert.equal(r.status, 0, 'a sync failure must not abort completion');
     assert.match(r.stdout, /WARNING: GitHub sync failed for objective 02-a/);
-    assert.match(r.stdout, /You are not logged into any GitHub hosts/);
+    // The command's own rendering of the auth failure (error + remediation), not gh's raw stderr.
+    assert.match(r.stdout, /GitHub CLI is not authenticated/);
+    assert.match(r.stdout, /gh auth login/);
     assert.match(r.stdout, /Retry: node ~\/\.claude\/devflow\/bin\/df-tools\.cjs gh sync 02-a/);
   });
 
