@@ -174,6 +174,12 @@ const COMMANDS = {
     summary: 'Check .planning/ integrity, objective numbering, and documentation staleness.',
     mutates: true,
   },
+  'doctor': {
+    usage: 'df-tools doctor [--fix] [--json] [--path <dir>] [--global]',
+    summary: 'Diagnose (and with --fix safely repair) DevFlow environment problems: stale runtime mirror, in-repo runtime state, pending migrations, stale markers/state/backups, hook drift.',
+    mutates: true,
+    details: 'Read-only by default. --fix applies only safe, reversible fixes (backups per upgrade conventions) and refuses index-changing fixes when unrelated changes are staged. --global runs only machine-level checks.',
+  },
   'telemetry': {
     usage: 'df-tools telemetry [--raw]',
     summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories.',
@@ -491,7 +497,9 @@ function commandUsage(name) {
   if (!c) return null;
   const lines = [`Usage: ${c.usage}`, '', c.summary];
   if (c.mutates) lines.push('', 'This command WRITES (disk and/or git).');
-  if (c.details) lines.push('', ...c.details);
+  // `details` is an array of lines OR one string. Spreading a string would push one
+  // character per line (it did, for upgrade and adopt), so normalize first.
+  if (c.details) lines.push('', ...[].concat(c.details));
   return lines.join('\n') + '\n';
 }
 
