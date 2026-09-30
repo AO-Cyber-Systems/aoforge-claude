@@ -67,7 +67,7 @@ function indexSnapshot(p) {
 describe('migration 0008 runtime-state-untrack', () => {
   // ─── 8. contract + registry ─────────────────────────────────────────────────
 
-  test('8. contract: id 0008, safety auto, semver since, RUNTIME_STATE_FILES; registry has it last, in id order', () => {
+  test('8. contract: id 0008, safety auto, semver since, RUNTIME_STATE_FILES; registry has it, in id order', () => {
     const m = m0008();
     assert.equal(m.id, '0008');
     assert.equal(m.safety, 'auto');
@@ -81,7 +81,10 @@ describe('migration 0008 runtime-state-untrack', () => {
     const registry = upgrade.loadRegistry();
     const ids = registry.map((r) => r.id);
     assert.deepEqual(ids, [...ids].sort(), 'registry is in id order');
-    assert.equal(ids[ids.length - 1], '0008');
+    // 0008 used to be the newest migration; later ones (0009+) sort after it, so assert it is present
+    // and is the newest id AT OR BELOW itself rather than the last entry in the registry.
+    assert.ok(ids.includes('0008'), '0008 is registered');
+    assert.equal(ids.filter((id) => id <= '0008').pop(), '0008');
     const entry = registry.find((r) => r.id === '0008');
     assert.equal(entry.safety, 'auto');
   });
