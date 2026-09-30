@@ -10,6 +10,9 @@
 
 const { describe, it, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const client = require('./gh-client.cjs');
 
@@ -311,5 +314,236 @@ describe('secondary-rate-limit retry', () => {
     client.ghRun(['issue', 'close', '1']);
     client.ghRun(['issue', 'close', '2']);
     assert.deepEqual(h.sleeps, [1000]);
+  });
+});
+
+// ─── Pagination (tests 14-16) ────────────────────────────────────────────────
+
+/** A page of `n` hand-built issue-shaped items, numbered from `from`. */
+function pageOf(n, from = 1) {
+  const items = [];
+  for (let i = 0; i < n; i++) items.push({ id: from + i });
+  return items;
+}
+
+describe('ghPaginate', () => {
+  it('14. calls gh api --paginate --slurp and flattens [[a,b],[c]] to [a,b,c]', () => {
+    const h = harness();
+    script(h, [{ ok: true, status: 0, stdout: JSON.stringify([[{ id: 'a' }, { id: 'b' }], [{ id: 'c' }]]), stderr: '' }]);
+    const r = client.ghPaginate('repos/o/r/issues/1/comments');
+    assert.deepEqual(h.calls.map((c) => c.args), [['api', '--paginate', '--slurp', 'repos/o/r/issues/1/comments']]);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.items, [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+  });
+
+  it('14b. an endpoint with no results (an empty slurped page) yields an empty array', () => {
+    const h = harness();
+    script(h, [{ ok: true, status: 0, stdout: '[[]]', stderr: '' }]);
+    const r = client.ghPaginate('repos/o/r/milestones');
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.items, []);
+  });
+
+  it('15. falls back to a per_page=100&page=N loop when gh rejects --slurp', () => {
+    const h = harness();
+    const full = pageOf(100);
+    const tail = pageOf(3, 101);
+    script(h, [
+      { ok: false, status: 1, stdout: '', stderr: 'unknown flag: --slurp' },
+      { ok: true, status: 0, stdout: JSON.stringify(full), stderr: '' },
+      { ok: true, status: 0, stdout: JSON.stringify(tail), stderr: '' },
+    ]);
+    const r = client.ghPaginate('repos/o/r/labels');
+    assert.deepEqual(h.calls.map((c) => c.args), [
+      ['api', '--paginate', '--slurp', 'repos/o/r/labels'],
+      ['api', 'repos/o/r/labels?per_page=100&page=1'],
+      ['api', 'repos/o/r/labels?per_page=100&page=2'],
+    ]);
+    assert.equal(r.ok, true);
+    assert.equal(r.items.length, 103);
+    assert.deepEqual(r.items[102], { id: 103 });
+  });
+
+  it('15b. the fallback uses & when the path already carries a query string', () => {
+    const h = harness();
+    script(h, [
+      { ok: false, status: 1, stdout: '', stderr: 'unknown flag: --slurp' },
+      { ok: true, status: 0, stdout: JSON.stringify(pageOf(2)), stderr: '' },
+    ]);
+    const r = client.ghPaginate('repos/o/r/issues?state=all');
+    assert.deepEqual(h.calls[1].args, ['api', 'repos/o/r/issues?state=all&per_page=100&page=1']);
+    assert.equal(r.ok, true);
+    assert.equal(r.items.length, 2);
+  });
+
+  it('15c. a real failure (not a --slurp rejection) is returned, not retried as a page loop', () => {
+    const h = harness();
+    script(h, [{ ok: false, status: 1, stdout: '', stderr: 'HTTP 404: Not Found' }]);
+    const r = client.ghPaginate('repos/o/missing/issues');
+    assert.equal(r.ok, false);
+    assert.match(r.stderr, /404/);
+    assert.ok(r.error);
+    assert.equal(h.calls.length, 1);
+  });
+
+  it('15d. the fallback loop is bounded by MAX_PAGES', () => {
+    const h = harness();
+    // After the --slurp rejection, every page is full: without a guard this would never end.
+    let n = 0;
+    client._setRunGh((args) => {
+      h.calls.push({ args, at: h.t });
+      n++;
+      if (n === 1) return { ok: false, status: 1, stdout: '', stderr: 'unknown flag: --slurp' };
+      return { ok: true, status: 0, stdout: JSON.stringify(pageOf(100)), stderr: '' };
+    });
+    const r = client.ghPaginate('repos/o/r/issues');
+    assert.equal(client.MAX_PAGES, 100);
+    assert.equal(h.calls.length, 1 + client.MAX_PAGES);
+    assert.equal(r.items.length, 100 * client.MAX_PAGES);
+  });
+
+  it('16. unparseable output returns an {ok:false} shape and does not throw', () => {
+    const h = harness();
+    script(h, [{ ok: true, status: 0, stdout: '[{"id":1}][{"id":2}]', stderr: '' }]);
+    let r;
+    assert.doesNotThrow(() => { r = client.ghPaginate('repos/o/r/issues'); });
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'unparseable page');
+    assert.equal(r.stdout, '[{"id":1}][{"id":2}]');
+  });
+});
+
+// ─── Enabled gate (tests 17-19) ──────────────────────────────────────────────
+
+/** Build a throwaway project dir with hand-written .planning files. */
+function makeProject({ config, projectMd } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-client-'));
+  fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+  if (config !== undefined) {
+    fs.writeFileSync(
+      path.join(dir, '.planning', 'config.json'),
+      typeof config === 'string' ? config : JSON.stringify(config),
+    );
+  }
+  if (projectMd !== undefined) fs.writeFileSync(path.join(dir, '.planning', 'PROJECT.md'), projectMd);
+  return dir;
+}
+
+describe('requireEnabled', () => {
+  it('17. no config, no github block, enabled:false or invalid JSON all skip with a github.enabled reason and zero gh calls', () => {
+    const h = harness();
+    script(h, [OK]);
+    const projects = [
+      makeProject(),
+      makeProject({ config: { mode: 'yolo' } }),
+      makeProject({ config: { github: { repo: 'acme/widgets' } } }),
+      makeProject({ config: { github: { enabled: false, repo: 'acme/widgets' } } }),
+      makeProject({ config: '{ not json' }),
+    ];
+    for (const dir of projects) {
+      const r = client.requireEnabled(dir);
+      assert.equal(r.skipped, true, dir);
+      assert.equal(r.ok, false);
+      assert.equal(r.enabled, false);
+      assert.match(r.reason, /github\.enabled/);
+    }
+    assert.equal(h.calls.length, 0);
+  });
+
+  it('18. enabled:true without a valid repo anywhere skips with a github.repo reason', () => {
+    const h = harness();
+    script(h, [OK]);
+    const noRepo = makeProject({ config: { github: { enabled: true } } });
+    const badRepo = makeProject({ config: { github: { enabled: true, repo: 'not-a-slug' } } });
+    const badProjectRepo = makeProject({
+      config: { github: { enabled: true } },
+      projectMd: '---\nname: x\ngithub_repo: justaname\n---\n# x\n',
+    });
+    for (const dir of [noRepo, badRepo, badProjectRepo]) {
+      const r = client.requireEnabled(dir);
+      assert.equal(r.skipped, true, dir);
+      assert.equal(r.ok, false);
+      assert.match(r.reason, /github\.repo/);
+    }
+    assert.equal(h.calls.length, 0);
+  });
+
+  it('19. enabled:true with a repo returns the gate payload; PROJECT.md github_repo is the fallback', () => {
+    const h = harness();
+    script(h, [OK]);
+
+    const fromConfig = makeProject({ config: { github: { enabled: true, repo: 'acme/widgets' } } });
+    const a = client.requireEnabled(fromConfig);
+    assert.equal(a.enabled, true);
+    assert.equal(a.repo, 'acme/widgets');
+    assert.deepEqual(a.labels, {});
+    assert.equal(a.milestone_prefix, 'v');
+    assert.equal(a.skipped, undefined);
+
+    const custom = makeProject({
+      config: { github: { enabled: true, repo: 'acme/widgets', labels: { bug: 'red' }, milestone_prefix: 'M' } },
+    });
+    const c = client.requireEnabled(custom);
+    assert.deepEqual(c.labels, { bug: 'red' });
+    assert.equal(c.milestone_prefix, 'M');
+
+    const fromProjectMd = makeProject({
+      config: { github: { enabled: true } },
+      projectMd: '---\nname: x\ngithub_repo: acme/from-project\n---\n# x\n',
+    });
+    assert.equal(client.resolveRepo(fromProjectMd), 'acme/from-project');
+    assert.equal(client.requireEnabled(fromProjectMd).repo, 'acme/from-project');
+
+    // config.github.repo wins over PROJECT.md when both are present.
+    const both = makeProject({
+      config: { github: { enabled: true, repo: 'acme/from-config' } },
+      projectMd: '---\ngithub_repo: acme/from-project\n---\n',
+    });
+    assert.equal(client.resolveRepo(both), 'acme/from-config');
+
+    assert.equal(h.calls.length, 0, 'the enabled gate must make zero gh calls');
+  });
+});
+
+// ─── Exit codes (test 20) ────────────────────────────────────────────────────
+
+/** Run fn with process.exit and process.stdout.write captured; always restore. */
+function captureEmit(fn) {
+  const realExit = process.exit;
+  const realWrite = process.stdout.write;
+  const cap = { code: undefined, out: '' };
+  process.exit = (code) => { if (cap.code === undefined) cap.code = code; };
+  process.stdout.write = (chunk) => { cap.out += String(chunk); return true; };
+  try {
+    fn();
+  } finally {
+    process.exit = realExit;
+    process.stdout.write = realWrite;
+  }
+  return cap;
+}
+
+describe('emitResult', () => {
+  it('20. ok exits 0; skipped exits 0; a real failure exits 1 and still prints the JSON', () => {
+    const ok = captureEmit(() => client.emitResult({ ok: true, n: 1 }, false));
+    assert.equal(ok.code, 0);
+    assert.deepEqual(JSON.parse(ok.out), { ok: true, n: 1 });
+
+    const skipped = captureEmit(() => client.emitResult({ skipped: true, ok: false, reason: 'github.enabled is not true' }, false));
+    assert.equal(skipped.code, 0);
+    assert.equal(JSON.parse(skipped.out).skipped, true);
+
+    const failed = captureEmit(() => client.emitResult({ ok: false, error: 'boom' }, false));
+    assert.equal(failed.code, 1);
+    assert.deepEqual(JSON.parse(failed.out), { ok: false, error: 'boom' });
+  });
+
+  it('20b. a result with no ok field exits 0, and raw mode prints the raw value', () => {
+    const noOk = captureEmit(() => client.emitResult({ items: [] }, false));
+    assert.equal(noOk.code, 0);
+
+    const raw = captureEmit(() => client.emitResult({ ok: false, error: 'boom' }, true, 'boom-raw'));
+    assert.equal(raw.code, 1);
+    assert.equal(raw.out, 'boom-raw');
   });
 });
