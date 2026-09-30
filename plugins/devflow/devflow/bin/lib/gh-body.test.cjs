@@ -324,7 +324,298 @@ describe('parseTitleNumber', () => {
   });
 });
 
-// ─── Module purity ───────────────────────────────────────────────────────────
+// ─── Task 2: mergeManaged ────────────────────────────────────────────────────
+
+const { mergeManaged, MAX_BODY_CHARS } = ghBody;
+
+// Short section texts keep the expected bodies below readable byte for byte.
+const SECTIONS = { summary: 'S1', criteria: 'C1', trds: 'T1', footer: 'F1' };
+
+const FRESH =
+  '<!-- devflow:id=46 -->\n' +
+  '<!-- devflow:begin summary -->\nS1\n<!-- devflow:end summary -->\n\n' +
+  '<!-- devflow:begin criteria -->\nC1\n<!-- devflow:end criteria -->\n\n' +
+  '<!-- devflow:begin trds -->\nT1\n<!-- devflow:end trds -->\n\n' +
+  '<!-- devflow:begin footer -->\nF1\n<!-- devflow:end footer -->\n';
+
+// A managed body with a human paragraph above, between and below the sections.
+// The paragraphs carry trailing spaces, a tab and a missing final newline on
+// purpose: nothing about them may be normalised.
+const HUMAN_TOP = 'Reviewer note:  keep the trailing spaces  \n\tand this tab-indented line\n';
+const HUMAN_MID = 'Design question: should the footer move?\n';
+const HUMAN_BOTTOM = 'Human TODO after the footer (no trailing newline)';
+
+function humanBody(status) {
+  return (
+    '<!-- devflow:id=46 -->\n' +
+    HUMAN_TOP +
+    `<!-- devflow:begin summary -->\n${status}\n<!-- devflow:end summary -->\n\n` +
+    '<!-- devflow:begin criteria -->\nC1\n<!-- devflow:end criteria -->\n' +
+    HUMAN_MID +
+    '<!-- devflow:begin trds -->\nT1\n<!-- devflow:end trds -->\n\n' +
+    '<!-- devflow:begin footer -->\nF1\n<!-- devflow:end footer -->\n' +
+    HUMAN_BOTTOM
+  );
+}
+
+function withSummary(status) {
+  return Object.assign({}, SECTIONS, { summary: status });
+}
+
+describe('mergeManaged', () => {
+  test('5: an empty or missing body yields the marker and all four sections in order', () => {
+    assert.deepStrictEqual(mergeManaged('', SECTIONS, '46'), { ok: true, body: FRESH, changed: true, warnings: [] });
+    for (const empty of [null, undefined, '  \n\t\n']) {
+      const r = mergeManaged(empty, SECTIONS, '46');
+      assert.strictEqual(r.ok, true);
+      assert.strictEqual(r.body, FRESH);
+      assert.strictEqual(r.changed, true);
+    }
+  });
+
+  test('5b: real objective sections land in SECTION_ORDER under the marker', () => {
+    const r = mergeManaged(null, ghBody.buildObjectiveSections(makeState()), '46');
+    assert.ok(r.body.startsWith('<!-- devflow:id=46 -->\n<!-- devflow:begin summary -->\n'));
+    const at = ghBody.SECTION_ORDER.map((n) => r.body.indexOf(`<!-- devflow:begin ${n} -->`));
+    assert.ok(at.every((i) => i >= 0), 'every section present');
+    assert.deepStrictEqual(at.slice().sort((a, b) => a - b), at, 'sections in order');
+  });
+
+  test('5c: sections the caller did not supply are skipped', () => {
+    const r = mergeManaged('', { summary: 'S1' }, '46');
+    assert.strictEqual(r.body, '<!-- devflow:id=46 -->\n<!-- devflow:begin summary -->\nS1\n<!-- devflow:end summary -->\n');
+  });
+
+  test('6: new status text changes only the summary inner text', () => {
+    const before = mergeManaged('', ghBody.buildObjectiveSections(makeState({ trd_done: 2 })), '46').body;
+    const r = mergeManaged(before, ghBody.buildObjectiveSections(makeState({ trd_done: 3 })), '46');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, true);
+    assert.strictEqual(r.body, before.replace('2/5 TRDs done', '3/5 TRDs done'));
+    assert.notStrictEqual(r.body, before);
+  });
+
+  test('7: human text above, between and below the sections survives two consecutive merges byte for byte', () => {
+    const original = humanBody('status 0');
+    const m1 = mergeManaged(original, withSummary('status 1'), '46');
+    const m2 = mergeManaged(m1.body, withSummary('status 2'), '46');
+
+    assert.strictEqual(m1.ok, true);
+    assert.strictEqual(m2.ok, true);
+    assert.strictEqual(m1.body, humanBody('status 1'));
+    assert.strictEqual(m2.body, humanBody('status 2'));
+
+    for (const merged of [m1.body, m2.body]) {
+      for (const human of [HUMAN_TOP, HUMAN_MID, HUMAN_BOTTOM]) {
+        assert.ok(merged.includes(human), `human text kept: ${JSON.stringify(human)}`);
+        assert.strictEqual(merged.split(human).length, 2, 'and not duplicated');
+      }
+      const top = merged.indexOf(HUMAN_TOP);
+      const summaryBegin = merged.indexOf('<!-- devflow:begin summary -->');
+      const criteriaEnd = merged.indexOf('<!-- devflow:end criteria -->');
+      const mid = merged.indexOf(HUMAN_MID);
+      const trdsBegin = merged.indexOf('<!-- devflow:begin trds -->');
+      const footerEnd = merged.indexOf('<!-- devflow:end footer -->');
+      const bottom = merged.indexOf(HUMAN_BOTTOM);
+      assert.ok(top < summaryBegin && summaryBegin < criteriaEnd && criteriaEnd < mid);
+      assert.ok(mid < trdsBegin && trdsBegin < footerEnd && footerEnd < bottom);
+    }
+
+    const again = mergeManaged(m2.body, withSummary('status 2'), '46');
+    assert.strictEqual(again.changed, false);
+  });
+
+  test('8: merging the same sections twice reports changed:false and an identical body', () => {
+    const first = mergeManaged('', SECTIONS, '46');
+    const second = mergeManaged(first.body, SECTIONS, '46');
+    assert.strictEqual(first.changed, true);
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(second.changed, false);
+    assert.strictEqual(second.body, first.body);
+    assert.deepStrictEqual(second.warnings, []);
+  });
+
+  test('8b: a managed body written by real sections is stable under a second merge', () => {
+    const sections = ghBody.buildObjectiveSections(makeState());
+    const first = mergeManaged('', sections, '46');
+    const second = mergeManaged(first.body, sections, '46');
+    assert.strictEqual(second.changed, false);
+    assert.strictEqual(second.body, first.body);
+  });
+
+  test('9: a missing trds section is appended at the end and earlier content is untouched', () => {
+    const existing =
+      '<!-- devflow:id=46 -->\n' +
+      '<!-- devflow:begin summary -->\nS0\n<!-- devflow:end summary -->\n\n' +
+      '<!-- devflow:begin criteria -->\nC1\n<!-- devflow:end criteria -->\n\n' +
+      '<!-- devflow:begin footer -->\nF1\n<!-- devflow:end footer -->\n';
+    const r = mergeManaged(existing, SECTIONS, '46');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, true);
+    assert.deepStrictEqual(r.warnings, []);
+    assert.strictEqual(
+      r.body,
+      existing.replace('S0', 'S1') + '\n<!-- devflow:begin trds -->\nT1\n<!-- devflow:end trds -->'
+    );
+  });
+
+  test('10: a malformed section (begin without end) gets a fresh pair, a warning, and keeps its text', () => {
+    const existing =
+      '<!-- devflow:id=46 -->\n' +
+      '<!-- devflow:begin summary -->\nS1\n<!-- devflow:end summary -->\n\n' +
+      '<!-- devflow:begin criteria -->\nhand-written criteria, no end marker\n\n' +
+      '<!-- devflow:begin trds -->\nT1\n<!-- devflow:end trds -->\n\n' +
+      '<!-- devflow:begin footer -->\nF1\n<!-- devflow:end footer -->\n';
+    const r = mergeManaged(existing, SECTIONS, '46');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, true);
+    assert.deepStrictEqual(r.warnings, ['malformed section criteria']);
+    assert.ok(r.body.startsWith(existing), 'original text retained in place');
+    assert.strictEqual(
+      r.body,
+      existing + '\n<!-- devflow:begin criteria -->\nC1\n<!-- devflow:end criteria -->'
+    );
+  });
+
+  test('10b: a dangling begin marker never widens the next merge into a pair that eats text', () => {
+    const existing =
+      '<!-- devflow:id=46 -->\n' +
+      '<!-- devflow:begin criteria -->\nhand-written criteria, no end marker\n\n' +
+      '<!-- devflow:begin trds -->\nT1\n<!-- devflow:end trds -->\n';
+    const first = mergeManaged(existing, SECTIONS, '46');
+    const second = mergeManaged(first.body, SECTIONS, '46');
+    assert.ok(second.body.includes('hand-written criteria, no end marker'));
+    assert.ok(second.body.includes('<!-- devflow:begin trds -->\nT1\n<!-- devflow:end trds -->'));
+    assert.strictEqual(second.changed, false);
+    assert.strictEqual(second.body, first.body);
+  });
+
+  test('10c: an end marker that precedes its begin is malformed too', () => {
+    const existing =
+      '<!-- devflow:id=46 -->\n<!-- devflow:end criteria -->\nstray\n<!-- devflow:begin criteria -->\nopen-ended\n';
+    const r = mergeManaged(existing, { criteria: 'C1' }, '46');
+    assert.deepStrictEqual(r.warnings, ['malformed section criteria']);
+    assert.ok(r.body.startsWith(existing));
+    assert.ok(r.body.endsWith('<!-- devflow:begin criteria -->\nC1\n<!-- devflow:end criteria -->'));
+  });
+
+  test('11: a body whose marker names a different id is refused, not overwritten', () => {
+    const existing = '<!-- devflow:id=45 -->\nsomeone else\'s issue';
+    const r = mergeManaged(existing, SECTIONS, '46');
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.error, 'body marker devflow:id=45 does not match 46');
+    assert.strictEqual('body' in r, false);
+  });
+
+  test('11b: an invalid id is refused', () => {
+    const r = mergeManaged('', SECTIONS, 'not-an-id');
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /invalid/i);
+  });
+
+  test('12: a legacy body with no markers is kept whole and the managed sections are appended below it', () => {
+    const LEGACY =
+      '**Objective 46: GitHub sync foundations**\n\n' +
+      '**Goal:** old goal\n\n' +
+      '**Status:** 1/5 TRDs done, current wave 1, last commit none\n\n' +
+      '_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude)._';
+    const r = mergeManaged(LEGACY, SECTIONS, '46');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, true);
+    assert.strictEqual(
+      r.body,
+      '<!-- devflow:id=46 -->\n' +
+        LEGACY +
+        '\n\n<!-- devflow:begin summary -->\nS1\n<!-- devflow:end summary -->' +
+        '\n\n<!-- devflow:begin criteria -->\nC1\n<!-- devflow:end criteria -->' +
+        '\n\n<!-- devflow:begin trds -->\nT1\n<!-- devflow:end trds -->' +
+        '\n\n<!-- devflow:begin footer -->\nF1\n<!-- devflow:end footer -->'
+    );
+    assert.strictEqual(r.body.split('\n')[0], '<!-- devflow:id=46 -->');
+  });
+
+  test('12b: the legacy-migrated body is stable under a second merge', () => {
+    const first = mergeManaged('**Objective 46: x**\n\nold text\n', SECTIONS, '46');
+    const second = mergeManaged(first.body, SECTIONS, '46');
+    assert.strictEqual(second.changed, false);
+    assert.strictEqual(second.body, first.body);
+  });
+
+  test('13: a CRLF body equal to the LF merge output reports changed:false', () => {
+    const crlf = FRESH.replace(/\n/g, '\r\n');
+    const r = mergeManaged(crlf, SECTIONS, '46');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.body, crlf, 'an unchanged body comes back as the caller passed it');
+  });
+
+  test('13b: a changing merge on a CRLF body keeps the human CRLF bytes intact', () => {
+    const crlf = humanBody('status 0').replace(/\n/g, '\r\n');
+    const r = mergeManaged(crlf, withSummary('status 1'), '46');
+    assert.strictEqual(r.changed, true);
+    assert.strictEqual(r.body, humanBody('status 1').replace(/\n/g, '\r\n'));
+    assert.ok(r.body.includes(HUMAN_TOP.replace(/\n/g, '\r\n')));
+    assert.strictEqual(/(?<!\r)\n/.test(r.body), false, 'no bare LF introduced');
+  });
+
+  test('14: a merged body of 60,000 or more characters is refused', () => {
+    assert.strictEqual(MAX_BODY_CHARS, 60000);
+    const r = mergeManaged('x'.repeat(60000), SECTIONS, '46');
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /60000/);
+  });
+
+  test('14b: the limit is on the merged body, human text included, and is exact', () => {
+    const baseLength = mergeManaged('', SECTIONS, '46').body.length;
+    const justUnder = mergeManaged('', withSummary('x'.repeat(MAX_BODY_CHARS - baseLength + 2 - 1)), '46');
+    assert.strictEqual(justUnder.ok, true);
+    assert.strictEqual(justUnder.body.length, MAX_BODY_CHARS - 1);
+    const atLimit = mergeManaged('', withSummary('x'.repeat(MAX_BODY_CHARS - baseLength + 2)), '46');
+    assert.strictEqual(atLimit.ok, false);
+    assert.match(atLimit.error, /60000/);
+  });
+
+  test('15: only the first well-formed pair per name changes; a pasted second copy is left alone', () => {
+    const pasted = '<!-- devflow:begin summary -->\nhuman pasted this copy\n<!-- devflow:end summary -->\n';
+    const existing =
+      '<!-- devflow:id=46 -->\n' +
+      '<!-- devflow:begin summary -->\nS0\n<!-- devflow:end summary -->\n' +
+      pasted;
+    const r = mergeManaged(existing, { summary: 'S1' }, '46');
+    assert.strictEqual(r.body, '<!-- devflow:id=46 -->\n<!-- devflow:begin summary -->\nS1\n<!-- devflow:end summary -->\n' + pasted);
+    assert.deepStrictEqual(r.warnings, []);
+  });
+
+  test('15b: a marker a human moved off line 1 is honoured, not duplicated', () => {
+    const existing = 'Intro from a human\n<!-- devflow:id=46 -->\n';
+    const r = mergeManaged(existing, { summary: 'S1' }, '46');
+    assert.strictEqual(r.body.split('devflow:id=46').length, 2);
+    assert.ok(r.body.startsWith('Intro from a human\n'));
+  });
+
+  test('15c: a comment-kind marker in an issue body does not count as the issue marker', () => {
+    const existing = '<!-- devflow:id=45 kind=state -->\npasted from a comment\n';
+    const r = mergeManaged(existing, { summary: 'S1' }, '46');
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.body.startsWith('<!-- devflow:id=46 -->\n<!-- devflow:id=45 kind=state -->\n'));
+  });
+
+  test('15d: section content that contains a managed-section marker is refused', () => {
+    for (const evil of ['a <!-- devflow:end summary --> b', 'a <!-- devflow:begin footer --> b']) {
+      const r = mergeManaged('', { summary: evil }, '46');
+      assert.strictEqual(r.ok, false);
+      assert.match(r.error, /summary/);
+    }
+  });
+
+  test('15e: non-string section content is refused', () => {
+    const r = mergeManaged('', { summary: 42 }, '46');
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /summary/);
+  });
+});
+
+// ─── Module purity───────────────────────────────────────────────────────────
 
 describe('module purity', () => {
   test('gh-body.cjs imports neither fs nor child_process nor gh-mapping', () => {
