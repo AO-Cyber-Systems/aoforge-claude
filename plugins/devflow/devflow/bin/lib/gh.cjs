@@ -1336,7 +1336,19 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
   const wm = shared ? { ok: false, deferred: true } : mappingLib.writeMappingV3(projectRoot, runCtx.mapping);
   if (!wm.ok && !wm.deferred) warnings.push(`mapping not written: ${wm.error}`);
 
-  // 11. Sync-state under the same id.
+  // 11. Sync-state under the same id. The baseline's gh_updated_at must be GitHub's own updatedAt, read
+  //     after the last write above: pull's "GitHub unchanged since last sync" check compares it verbatim,
+  //     so local now would make every pull after a push look like drift (46-09). A failed read degrades to
+  //     local now with a warning; the sync itself already succeeded.
+  let ghUpdatedAt = nowIso;
+  const live = client.ghRead(['issue', 'view', String(n), '--repo', repo, '--json', 'updatedAt']);
+  try {
+    const parsed = live.ok ? JSON.parse(live.stdout) : null;
+    if (parsed && typeof parsed.updatedAt === 'string' && parsed.updatedAt) ghUpdatedAt = parsed.updatedAt;
+    else warnings.push(`sync-state baseline uses local time: could not read updatedAt for #${n}`);
+  } catch {
+    warnings.push(`sync-state baseline uses local time: could not read updatedAt for #${n}`);
+  }
   try {
     let diskFm = {};
     if (objPath && fs.existsSync(objPath)) diskFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
@@ -1344,7 +1356,7 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
     recordSync(projectRoot, resolved.id, {
       issue_ref: issueRef,
       etag: null,
-      gh_updated_at: nowIso,
+      gh_updated_at: ghUpdatedAt,
       label_set: [runCtx.label],
       assignees: [],
       milestone: ms.title || null,
