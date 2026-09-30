@@ -174,7 +174,7 @@ TRDs:
 - [x] 46-04-gh-project-discovery-TRD.md — (W1, tdd) `gh-project.cjs`: Project v2 fields via GraphQL, out-of-repo TTL cache, live options (GSF-07)
 - [x] 46-05-gh-issue-resolution-TRD.md — (W2, tdd) `gh-issue.cjs` find-or-create (mapping → frontmatter → marker → title → create) + `gh-milestone.cjs` current milestone; stateful fake GitHub (GSF-02, GSF-01, GSF-05)
 - [x] 46-06-pull-syncstate-rewire-TRD.md — (W2, tdd) `setFrontmatterField`; sync-state keyed by id; `gh pull`/conflict on v3 mapping, `resolveRepo`, enabled gate, client seam (GSF-01, GSF-04, GSF-08)
-- [ ] 46-07-sync-core-rewire-TRD.md — (W3, tdd) `gh sync <objective>` rebuilt: create-if-absent, managed body, paginated sticky comment, live Project fields, `github_issue` write-back; fixture read removed (GSF-01, 02, 04, 06, 07, 08)
+- [x] 46-07-sync-core-rewire-TRD.md — (W3, tdd) `gh sync <objective>` rebuilt: create-if-absent, managed body, paginated sticky comment, live Project fields, `github_issue` write-back; fixture read removed (GSF-01, 02, 04, 06, 07, 08)
 - [ ] 46-08-command-surface-TRD.md — (W4, tdd) `gh sync --all`, deprecated `sync-objectives` alias, comment/close-issue/sync-release/resolve/status on the seam + v3 + markers + gate + exit codes; gen-1 code deleted; repo guard (GSF-01, GSF-02, GSF-08)
 - [ ] 46-09-e2e-push-pull-TRD.md — (W5) end-to-end push → pull on one fake GitHub: SC1-SC4 + legacy mapping matrix
 - [ ] 46-10-sync-step-and-docs-TRD.md — (W6, tdd) execute-objective sync step passes the dir and reports failures (GSF-03, SC5); deprecation guard; skill/agent/workflow/template/CLAUDE.md/USER-GUIDE/CHANGELOG; full `npm test` (SC6)
@@ -277,7 +277,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
-| 46. GitHub sync foundations | v1.4 | 6/10 | In Progress | — |
+| 46. GitHub sync foundations | v1.4 | 7/10 | In Progress | — |
 | 47. GitHub authoritative store | v1.4 | 0/— | Registered | — |
 | 48. Planning write-path migration | v1.4 | 0/— | Registered | — |
 | 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
