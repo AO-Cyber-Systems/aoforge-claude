@@ -82,6 +82,7 @@ const NOT_UNDER_PLANNING = {
   '.devflow': "the watcher's ~/.devflow pid directory",
   '.devflow-handoff': 'the handoff queue at the PROJECT ROOT, not inside .planning/',
   '.plugin-version': 'runtime-mirror marker under ~/.claude/devflow',
+  '.plugin-digest': 'runtime-mirror content digest marker under ~/.claude/devflow (45-03)',
 };
 
 /** Bare file-name suffixes, not dotfiles. */
