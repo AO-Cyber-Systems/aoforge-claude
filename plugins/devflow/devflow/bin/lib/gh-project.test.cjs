@@ -307,6 +307,302 @@ describe('getProjectFields', () => {
   });
 });
 
+// ─── Task 2: value resolution, refresh-once, item updates ─────────────────────
+
+const SPRINT_NODE = {
+  __typename: 'ProjectV2IterationField',
+  id: 'PVTIF_sprint',
+  name: 'Sprint',
+  configuration: { iterations: [{ id: 'it_5', title: 'Sprint 5', startDate: '2026-09-01' }] },
+};
+const STATUS_FIELD_ID = 'PVTSSF_lADODwqLrc4BRsOPzg_cgIo';
+
+function queryOf(args) {
+  const q = args.find((a) => typeof a === 'string' && a.startsWith('query='));
+  return q ? q.slice('query='.length) : '';
+}
+
+function kindOf(args) {
+  const q = queryOf(args);
+  if (q.includes('addProjectV2ItemById')) return 'add';
+  if (q.includes('updateProjectV2ItemFieldValue')) return 'update';
+  if (q.includes('projectItems')) return 'items';
+  if (q.includes('repository(')) return 'issue';
+  return 'discover';
+}
+
+const kindsOf = (run) => run.calls.map(kindOf);
+
+// A whole fake board: discovery, issue node lookup, add-item and field mutations.
+function boardRun({ extra, nodes, overrides = {} } = {}) {
+  return fakeRun((args) => {
+    const kind = kindOf(args);
+    if (overrides[kind]) return overrides[kind](args);
+    if (kind === 'add') return JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'item_5' } } } });
+    if (kind === 'update') return JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'item_5' } } } });
+    if (kind === 'items') {
+      return JSON.stringify({ data: { repository: { issue: { projectItems: { nodes: [
+        { id: 'item_other', project: { id: 'PVT_other' } },
+        { id: 'item_fallback', project: { id: 'PVT_x' } },
+      ] } } } } });
+    }
+    if (kind === 'issue') return JSON.stringify({ data: { repository: { issue: { id: 'I_issue5' } } } });
+    return gqlPage(nodes || cassetteNodes(extra));
+  });
+}
+
+describe('resolveFieldValue', () => {
+  test('R1: single select resolves a wanted option the board offers (never hardcoded)', () => {
+    const model = gp.discoverProjectFields('PVT_x', {
+      run: singlePageRun({ Quarter: [{ id: 'q3_2028_id', name: 'Q3 2028' }] }),
+      now: () => T0,
+    }).model;
+
+    assert.deepEqual(gp.resolveFieldValue(model, 'Quarter', 'Q3 2028'), {
+      fieldId: 'PVTSSF_lADODwqLrc4BRsOPzg_cgMo',
+      value: { singleSelectOptionId: 'q3_2028_id' },
+    });
+    assert.deepEqual(gp.resolveFieldValue(model, 'Status', 'In Progress'), {
+      fieldId: STATUS_FIELD_ID,
+      value: { singleSelectOptionId: '47fc9ee4' },
+    });
+  });
+
+  test('R1b: an option the board does not offer, an unknown field and a plain field all resolve to null', () => {
+    const model = gp.discoverProjectFields('PVT_x', { run: singlePageRun(), now: () => T0 }).model;
+    assert.equal(gp.resolveFieldValue(model, 'Quarter', 'Q3 2028'), null);
+    assert.equal(gp.resolveFieldValue(model, 'Nope', 'x'), null);
+    assert.equal(gp.resolveFieldValue(model, 'Title', 'x'), null);
+    assert.equal(gp.resolveFieldValue(null, 'Status', 'Todo'), null);
+  });
+
+  test('R1c: an iteration field resolves to iterationId', () => {
+    const model = gp.discoverProjectFields('PVT_x', {
+      run: fakeRun(() => gqlPage([SPRINT_NODE])),
+      now: () => T0,
+    }).model;
+    assert.deepEqual(gp.resolveFieldValue(model, 'Sprint', 'Sprint 5'), {
+      fieldId: 'PVTIF_sprint',
+      value: { iterationId: 'it_5' },
+    });
+    assert.equal(gp.resolveFieldValue(model, 'Sprint', 'Sprint 6'), null);
+  });
+});
+
+describe('getProjectFields with want (refresh once)', () => {
+  const want = { Quarter: 'Q1 2028' };
+
+  function seedCache(projectId = 'PVT_x') {
+    const seed = singlePageRun();
+    gp.getProjectFields(projectId, { run: seed, env, now: () => T0 });
+    return seed;
+  }
+
+  test('R2: an option missing from a fresh cache triggers exactly one refresh and then resolves', () => {
+    seedCache();
+    const run = singlePageRun({ Quarter: [{ id: 'q1_2028_id', name: 'Q1 2028' }] });
+    const r = gp.getProjectFields('PVT_x', { run, env, now: () => T0 + MIN, want });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.source, 'github');
+    assert.equal(run.calls.length, 1, 'exactly one refresh');
+    assert.deepEqual(r.warnings, []);
+    assert.equal(gp.resolveFieldValue(r.model, 'Quarter', 'Q1 2028').value.singleSelectOptionId, 'q1_2028_id');
+
+    // the refreshed model replaced the cache
+    const again = gp.getProjectFields('PVT_x', { run, env, now: () => T0 + 2 * MIN, want });
+    assert.equal(again.source, 'cache');
+    assert.equal(run.calls.length, 1);
+  });
+
+  test('R2b: still missing after the refresh is a warning, never a failure', () => {
+    seedCache();
+    const run = singlePageRun();
+    const r = gp.getProjectFields('PVT_x', { run, env, now: () => T0 + MIN, want });
+
+    assert.equal(r.ok, true);
+    assert.equal(run.calls.length, 1, 'one refresh, not a retry loop');
+    assert.deepEqual(r.warnings, ['unknown option for Quarter: Q1 2028']);
+  });
+
+  test('R2c: when everything wanted is in a fresh cache there is no gh call', () => {
+    seedCache();
+    const run = singlePageRun();
+    const r = gp.getProjectFields('PVT_x', { run, env, now: () => T0 + MIN, want: { Status: 'Done', Quarter: 'Q1 2026' } });
+
+    assert.equal(r.source, 'cache');
+    assert.equal(run.calls.length, 0);
+    assert.deepEqual(r.warnings, []);
+  });
+
+  test('R2d: a cache miss is itself the discovery, so a missing option does not trigger a second one', () => {
+    const run = singlePageRun();
+    const r = gp.getProjectFields('PVT_x', { run, env, now: () => T0, want });
+
+    assert.equal(run.calls.length, 1);
+    assert.deepEqual(r.warnings, ['unknown option for Quarter: Q1 2028']);
+  });
+
+  test('R2e: an unknown field name is also refreshed once, then reported', () => {
+    seedCache();
+    const run = singlePageRun();
+    const r = gp.getProjectFields('PVT_x', { run, env, now: () => T0 + MIN, want: { Nope: 'x' } });
+
+    assert.equal(run.calls.length, 1);
+    assert.deepEqual(r.warnings, ['unknown field: Nope']);
+  });
+
+  test('R2f: a failed refresh keeps the cached model and warns', () => {
+    seedCache();
+    const run = fakeRun(() => ({ ok: false, status: 1, stdout: '', stderr: 'HTTP 502' }));
+    const r = gp.getProjectFields('PVT_x', { run, env, now: () => T0 + MIN, want });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.source, 'cache');
+    assert.equal(run.calls.length, 1);
+    assert.ok(r.warnings.some((w) => /refresh failed.*HTTP 502/.test(w)), JSON.stringify(r.warnings));
+    assert.ok(r.warnings.includes('unknown option for Quarter: Q1 2028'));
+    assert.ok(r.model.fields.Status, 'the cached model is still returned');
+  });
+});
+
+describe('updateItemFields', () => {
+  const base = { issueRef: 'o/r#5', projectId: 'PVT_x' };
+
+  test('U1: adds the item first, then one mutation per resolvable field; unknown option is a warning', () => {
+    const run = boardRun();
+    const r = gp.updateItemFields({
+      ...base, fields: { Status: 'In Progress', Quarter: 'Q9 2099' }, run, env, now: () => T0,
+    });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.fields_updated, ['Status']);
+    assert.deepEqual(r.warnings, ['unknown option for Quarter: Q9 2099']);
+    assert.equal(r.errors, undefined);
+
+    assert.deepEqual(kindsOf(run), ['discover', 'issue', 'add', 'update']);
+    const issueCall = run.calls[1];
+    assert.ok(issueCall.includes('owner=o') && issueCall.includes('name=r') && issueCall.includes('number=5'));
+    const addCall = run.calls[2];
+    assert.ok(addCall.includes('projectId=PVT_x') && addCall.includes('contentId=I_issue5'));
+
+    const update = run.calls[3];
+    assert.ok(update.includes('projectId=PVT_x'));
+    assert.ok(update.includes('itemId=item_5'));
+    assert.ok(update.includes(`fieldId=${STATUS_FIELD_ID}`));
+    assert.ok(update.includes('optionId=47fc9ee4'));
+    assert.ok(queryOf(update).includes('singleSelectOptionId: $optionId'));
+  });
+
+  test('U1b: a cache hit needs no discovery call at all', () => {
+    const seed = singlePageRun();
+    gp.getProjectFields('PVT_x', { run: seed, env, now: () => T0 });
+    const run = boardRun();
+    const r = gp.updateItemFields({ ...base, fields: { Status: 'Done' }, run, env, now: () => T0 + MIN });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(kindsOf(run), ['issue', 'add', 'update']);
+  });
+
+  test('U2: an iteration field is set with iterationId', () => {
+    const run = boardRun({ nodes: cassetteNodes().concat([SPRINT_NODE]) });
+    const r = gp.updateItemFields({ ...base, fields: { Sprint: 'Sprint 5' }, run, env, now: () => T0 });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.fields_updated, ['Sprint']);
+    const update = run.calls.find((c) => kindOf(c) === 'update');
+    assert.match(queryOf(update), /value: \{ iterationId: \$iterationId \}/);
+    assert.ok(!queryOf(update).includes('singleSelectOptionId'));
+    assert.ok(update.includes('iterationId=it_5'));
+    assert.ok(update.includes('fieldId=PVTIF_sprint'));
+  });
+
+  test('U3: an unknown field name warns and sends no mutation', () => {
+    const run = boardRun();
+    const r = gp.updateItemFields({ ...base, fields: { Nope: 'x' }, run, env, now: () => T0 });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.fields_updated, []);
+    assert.deepEqual(r.warnings, ['unknown field: Nope']);
+    assert.ok(!kindsOf(run).includes('update'));
+  });
+
+  test('U4: a failing field mutation is collected per field and the rest still apply', () => {
+    let updates = 0;
+    const run = boardRun({ overrides: {
+      update: () => {
+        updates += 1;
+        return updates === 1
+          ? { ok: false, status: 1, stdout: '', stderr: 'Resource not accessible' }
+          : JSON.stringify({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'item_5' } } } });
+      },
+    } });
+    const r = gp.updateItemFields({
+      ...base, fields: { Status: 'Done', Quarter: 'Q1 2026' }, run, env, now: () => T0,
+    });
+
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.fields_updated, ['Quarter']);
+    assert.equal(r.errors.length, 1);
+    assert.equal(r.errors[0].field, 'Status');
+    assert.match(r.errors[0].error, /Resource not accessible/);
+  });
+
+  test('U5: when add-item fails the existing project item is looked up for this project only', () => {
+    const run = boardRun({ overrides: {
+      add: () => JSON.stringify({ errors: [{ message: 'Could not add item' }] }),
+    } });
+    const r = gp.updateItemFields({ ...base, fields: { Status: 'Done' }, run, env, now: () => T0 });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(kindsOf(run), ['discover', 'issue', 'add', 'items', 'update']);
+    assert.ok(run.calls[4].includes('itemId=item_fallback'), 'picks the item of PVT_x, not PVT_other');
+  });
+
+  test('U5b: when neither add nor lookup yields an item the update fails without mutating', () => {
+    const run = boardRun({ overrides: {
+      add: () => JSON.stringify({ errors: [{ message: 'Could not add item' }] }),
+      items: () => JSON.stringify({ data: { repository: { issue: { projectItems: { nodes: [
+        { id: 'item_other', project: { id: 'PVT_other' } },
+      ] } } } } }),
+    } });
+    const r = gp.updateItemFields({ ...base, fields: { Status: 'Done' }, run, env, now: () => T0 });
+
+    assert.equal(r.ok, false);
+    assert.match(r.error, /could not be added/);
+    assert.deepEqual(r.fields_updated, []);
+    assert.ok(!kindsOf(run).includes('update'));
+  });
+
+  test('U6: bad input and GitHub-side failures are { ok:false } results, never throws', () => {
+    const noCalls = boardRun();
+    const malformed = gp.updateItemFields({ issueRef: 'not-a-ref', projectId: 'PVT_x', fields: { Status: 'Done' }, run: noCalls, env });
+    assert.equal(malformed.ok, false);
+    assert.match(malformed.error, /malformed issueRef/);
+    assert.equal(noCalls.calls.length, 0);
+
+    const noProject = gp.updateItemFields({ issueRef: 'o/r#5', projectId: '', fields: {}, run: noCalls, env });
+    assert.equal(noProject.ok, false);
+    assert.equal(noCalls.calls.length, 0);
+
+    const discoveryDown = boardRun({ overrides: {
+      discover: () => ({ ok: false, status: 1, stdout: '', stderr: 'missing required scopes [read:project]' }),
+    } });
+    const d = gp.updateItemFields({ ...base, fields: { Status: 'Done' }, run: discoveryDown, env, now: () => T0 });
+    assert.equal(d.ok, false);
+    assert.match(d.error, /read:project/);
+    assert.deepEqual(d.fields_updated, []);
+    assert.deepEqual(kindsOf(discoveryDown), ['discover']);
+
+    const noIssue = boardRun({ overrides: {
+      issue: () => JSON.stringify({ data: { repository: { issue: null } } }),
+    } });
+    const i = gp.updateItemFields({ ...base, fields: { Status: 'Done' }, run: noIssue, env, now: () => T0 });
+    assert.equal(i.ok, false);
+    assert.match(i.error, /o\/r#5/);
+  });
+});
+
 describe('repo guard (test 12)', () => {
   const libDir = __dirname;
 
