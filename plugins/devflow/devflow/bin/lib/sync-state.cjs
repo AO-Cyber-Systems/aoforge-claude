@@ -10,6 +10,13 @@
 //
 // Schema v1 — locked. Future migrations branch on parsed.version.
 //
+// KEYS ARE OBJECTIVE IDS (TRD 46-06): "2", "2.1" — never the directory name or the ROADMAP spelling.
+// `recordSync(cwd, '02-a', r)`, `recordSync(cwd, '2', r)` and `getLastSync(cwd, '002')` all address the
+// key "2". A file written by an older version that holds both "02-a" and "2" reads as ONE record (newest
+// `last_synced_at` wins) and is rewritten with only the id key on the next `recordSync`. A key that is not an
+// objective id at all is kept verbatim. The normalisation itself lives in gh-mapping (`toObjectiveId`,
+// `normalizeSyncStateKeys`) so push, pull and conflict resolution can never drift apart.
+//
 // {
 //   "version": 1,
 //   "objectives": {
@@ -30,6 +37,16 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+
+// gh-mapping requires this module at its top (for atomicWrite), so it is loaded lazily here: a top-level
+// require would be a cycle. Both modules are fully initialised by the time any function below runs.
+const ghMapping = () => require('./gh-mapping.cjs');
+
+/** The sync-state key for any spelling of an objective; a non-objective key is used as given. */
+function keyFor(objectiveId) {
+  const id = ghMapping().toObjectiveId(objectiveId);
+  return id === null ? String(objectiveId) : id;
+}
 
 // ─── readSyncState ────────────────────────────────────────────────────────────
 
@@ -53,8 +70,9 @@ function readSyncState(cwd) {
     return { version: 1, objectives: {} };
   }
 
-  if (!parsed.version || parsed.version === 1) {
-    return { version: 1, objectives: parsed.objectives || {} };
+  if (parsed && (!parsed.version || parsed.version === 1)) {
+    // Keys move to objective ids; non-objective keys stay exactly as they are.
+    return ghMapping().normalizeSyncStateKeys({ version: 1, objectives: parsed.objectives || {} }).state;
   }
 
   // Unknown version — defensive
@@ -161,7 +179,7 @@ function recordSync(cwd, objectiveId, record) {
   const clonedRecord = JSON.parse(JSON.stringify(record));
   const next = {
     version: 1,
-    objectives: { ...current.objectives, [objectiveId]: clonedRecord },
+    objectives: { ...current.objectives, [keyFor(objectiveId)]: clonedRecord },
   };
   writeSyncState(cwd, next);
   return next;
@@ -175,7 +193,7 @@ function recordSync(cwd, objectiveId, record) {
  */
 function getLastSync(cwd, objectiveId) {
   const state = readSyncState(cwd);
-  return state.objectives[objectiveId] || null;
+  return state.objectives[keyFor(objectiveId)] || null;
 }
 
 module.exports = {

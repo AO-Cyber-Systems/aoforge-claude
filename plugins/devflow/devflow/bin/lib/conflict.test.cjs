@@ -664,3 +664,77 @@ describe('cmdGhPull conflict integration (W1-W5)', () => {
     }
   });
 });
+
+// ─── TRD 46-06: resolvers take the objective DIR; sync-state keys are objective ids ─────────────────
+
+describe('resolvers on dir paths + id-keyed sync-state (46-06, test 13)', () => {
+  const readRaw = (root) => JSON.parse(fs.readFileSync(path.join(root, '.planning', '.gh-sync-state.json'), 'utf-8'));
+  const pendingRecord = () => ssFx.buildSyncStateRecord({
+    issue_ref: 'o/r#11',
+    gh_updated_at: '2026-05-01T00:00:00Z',
+    last_synced_disk_hash: 'sha256:initial',
+    pending_resolution: { disk_hash_at_conflict: 'sha256:abc', surfaced_at: '2026-05-01T01:00:00Z' },
+  });
+
+  test('13: resolveGh({objectiveId:"02-a"}) writes OBJECTIVE.md in 02-a and records sync-state under the id 2', () => {
+    const project = ghPullFx.buildTempProject({
+      objectiveId: '02-a',
+      frontmatter: { status: 'in_progress', labels: ['devflow:objective'], assignees: [] },
+      mapping: { objectives: { '2': { issue_id: 11, state_comment_id: null } } },
+    });
+    try {
+      // A baseline a push recorded under the id key.
+      ss.recordSync(project.root, '2', pendingRecord());
+
+      const ghIssue = JSON.parse(ghPullFx.loadCassette('objective-closed-on-gh').response.stdout);
+      const r = conflict.resolveGh({
+        cwd: project.root,
+        objectiveId: '02-a',
+        issueRef: 'o/r#11',
+        ghIssue,
+        currentDiskFm: { status: 'in_progress', labels: ['devflow:objective'], assignees: [], milestone: null },
+      });
+
+      assert.strictEqual(r.ok, true, r.error);
+      assert.match(
+        fs.readFileSync(path.join(project.root, '.planning', 'objectives', '02-a', 'OBJECTIVE.md'), 'utf-8'),
+        /^status: done$/m,
+      );
+      const raw = readRaw(project.root);
+      assert.deepStrictEqual(Object.keys(raw.objectives), ['2'], 'one record, under the id key');
+      assert.strictEqual(raw.objectives['2'].pending_resolution, undefined, 'pending_resolution cleared');
+      assert.strictEqual(raw.objectives['2'].gh_updated_at, ghIssue.updatedAt);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  test('13b: resolveDisk still calls gh.cmdGhSyncObjective (live require) with the DIR and clears the id-keyed record', () => {
+    const gh = require('./gh.cjs');
+    const origFn = gh.cmdGhSyncObjective;
+    const calls = [];
+    gh.cmdGhSyncObjective = (cwd, objectiveId, raw) => { calls.push({ objectiveId, raw }); };
+    const project = ssFx.buildTempProjectWithSyncState({ syncState: null });
+    try {
+      ss.recordSync(project.root, '2', pendingRecord());
+      const fm = { status: 'open', labels: ['devflow:objective'], assignees: [], milestone: null };
+      const r = conflict.resolveDisk({
+        cwd: project.root,
+        objectiveId: '02-a',
+        issueRef: 'o/r#11',
+        ghIssue: { state: 'OPEN', labels: [], assignees: [], milestone: null, updatedAt: '2026-05-01T00:00:00Z' },
+        currentDiskFm: fm,
+      });
+      assert.strictEqual(r.ok, true, r.error);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(calls[0].objectiveId, '02-a');
+      const raw = readRaw(project.root);
+      assert.deepStrictEqual(Object.keys(raw.objectives), ['2']);
+      assert.strictEqual(raw.objectives['2'].pending_resolution, undefined);
+      assert.strictEqual(raw.objectives['2'].last_synced_disk_hash, ss.hashFrontmatter(fm));
+    } finally {
+      gh.cmdGhSyncObjective = origFn;
+      project.cleanup();
+    }
+  });
+});
