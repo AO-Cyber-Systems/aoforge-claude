@@ -263,8 +263,8 @@ TRDs:
 - [x] 49-06-scope-gate-confirm-and-trd-start-TRD.md — (W2) only accepted scopes change a TRD; `gh trd confirm-scope` (assignee only), `gh trd start` (in_progress label)
 - [x] 49-07-commit-refs-trailer-TRD.md — (W2) `df-tools commit` adds `Refs #issue` from the commit scope in store mode (main-root mapping)
 - [x] 49-08-init-pr-lifecycle-fields-TRD.md — (W2) init `pr_lifecycle`, `objective_branch`, `pr_number`, `branching_strategy_ignored`; local deprecation notice
-- [ ] 49-09-gh-pr-start-sync-status-TRD.md — (W3) `gh pr start|sync|status`: linked branch, start commit, one draft PR, freeze every TRD; dispatch, help, seam guard
-- [ ] 49-10-outbox-status-comment-merge-ops-TRD.md — (W3) outbox `post-status` (devflow/verification), `upsert-pr-comment`, `pr-merge` (squash default, queue-aware), `delete-branch`
+- [x] 49-09-gh-pr-start-sync-status-TRD.md — (W3) `gh pr start|sync|status`: linked branch, start commit, one draft PR, freeze every TRD; dispatch, help, seam guard
+- [x] 49-10-outbox-status-comment-merge-ops-TRD.md — (W3) outbox `post-status` (devflow/verification), `upsert-pr-comment`, `pr-merge` (squash default, queue-aware), `delete-branch`
 - [ ] 49-11-summary-verify-pr-hooks-TRD.md — (W4) summary post drops in_progress + refreshes PR; verify pass → status, ready, wiki diff; objective issue closes on merge, not at verify
 - [ ] 49-12-pr-merge-and-reconcile-TRD.md — (W4) `gh pr merge` (verified + ready only) and `gh pr reconcile` (stragglers closed, Project Done, branches deleted, cache pulled)
 - [ ] 49-13-workflow-prose-pr-lifecycle-TRD.md — (W5) execute-objective + complete-milestone drive the PR in store mode; `branching_strategy` deprecated (GPR-06)
@@ -338,6 +338,6 @@ Candidate scope carried forward from v1.2 deferrals:
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
-| 49. Objective branch and PR lifecycle | v1.4 | 8/15 | In Progress | — |
+| 49. Objective branch and PR lifecycle | v1.4 | 10/15 | In Progress | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
