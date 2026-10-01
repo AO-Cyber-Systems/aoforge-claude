@@ -1178,6 +1178,8 @@ describe('49-01 branches, statuses and merge', () => {
     const mirrored = [];
     const { fake, issueId, repositoryId } = fakeWithObjectiveIssue({ onCreateBranch: (name, oid) => mirrored.push([name, oid]) });
     assert.equal(issueId, 'I_1000001', 'the node id, never the number');
+    const setupCalls = fake.calls().length; // the helper read the issue and repo node ids
+    const setupWrites = fake.writes().length;
 
     const none = fake.runGh(gql(Q_LINKED_BRANCHES, { owner: 'o', name: 'r', n: 1 }));
     assert.equal(none.ok, true, none.stderr);
@@ -1197,9 +1199,10 @@ describe('49-01 branches, statuses and merge', () => {
     assert.equal(mirrored.length, 1, 'a read never creates a branch');
 
     // A mutation is a recorded write, a query is not (gh-client isWriteArgs classification).
-    assert.equal(fake.calls().length, 3);
-    assert.equal(fake.writes().length, 1);
+    assert.equal(fake.calls().length - setupCalls, 3);
+    assert.equal(fake.writes().length - setupWrites, 1);
     assert.ok(isWriteArgs(fake.writes()[0]));
+    assert.match(fake.writes()[0].join(' '), /createLinkedBranch/);
   });
 
   it('5b. createLinkedBranch refuses a number for the issue id, an unknown repository id and a missing oid', () => {
