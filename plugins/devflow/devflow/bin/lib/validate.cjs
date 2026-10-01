@@ -703,6 +703,23 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W054', `doc-staleness-check-failed: ${e.message}`, 'Run `df-tools validate docs` to see why');
   }
 
+  // ─── Check 15: Planning cache drift (objective 48) ─────────────────────────
+  // Store mode only (planning-mode.cjs); local mode returns before reading any outbox state, so
+  // nothing here changes for a local project. W055: a cache or generated `.planning/` file whose
+  // bytes match neither its cache-index baseline nor a pending verb write — changed outside the
+  // df-tools verbs (D-15). Advisory and never repairable: publishing and restoring are both valid
+  // fixes, and only the user knows which was meant. A check that cannot run, or ran partially
+  // (the 5,000-file cap), is never silent (W056), matching Check 14's W054.
+  const driftFix = 'Run `df-tools validate health --raw` after `gh pull --all`';
+  try {
+    const { findCacheDrift } = require('./planning-drift.cjs');
+    const r = findCacheDrift(cwd, { home: homeDir });
+    for (const d of r.drift) addIssue('warning', 'W055', d.message, d.fix, false);
+    for (const note of r.notes) addIssue('warning', 'W056', `planning-drift-check-failed: ${note}`, driftFix, false);
+  } catch (e) {
+    addIssue('warning', 'W056', `planning-drift-check-failed: ${e.message}`, driftFix, false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
