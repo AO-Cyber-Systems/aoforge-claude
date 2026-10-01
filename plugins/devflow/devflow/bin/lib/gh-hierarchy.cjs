@@ -31,6 +31,7 @@ const ghMapping = require('./gh-mapping.cjs');
 const ghTrd = require('./gh-trd.cjs');
 const ghWiki = require('./gh-wiki.cjs');
 const ghMilestone = require('./gh-milestone.cjs');
+const ghBody = require('./gh-body.cjs');
 const ghComments = require('./gh-comments.cjs');
 const ghCapability = require('./gh-capability.cjs');
 const outbox = require('./gh-outbox.cjs');
@@ -537,6 +538,160 @@ function pushHierarchy(root, objectiveArg, opts = {}) {
   return result;
 }
 
+// ─── Decisions ───────────────────────────────────────────────────────────────
+
+const DECISION_ID_RE = /-d\d+$/;
+const DECISION_TITLE_MAX = 80;
+
+function decisionSummary(question) {
+  const line = question.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).find((l) => l !== '') || '';
+  return line.length > DECISION_TITLE_MAX ? `${line.slice(0, DECISION_TITLE_MAX - 1).trimEnd()}…` : line;
+}
+
+/**
+ * openDecision(root, trdId, {question, now}) — queue a Decision issue that BLOCKS its TRD (D-19).
+ *
+ * The id is `<trd>-d<k>` with k the next free number across the mapping and the queued ops, so two decisions
+ * opened before a flush get d1 and d2. The body is the id marker plus the question; the flusher gives the
+ * issue the native `Decision` type, or the `devflow:decision` / `devflow:type/decision` labels when the
+ * organisation has none. Two ops are queued: `upsert-issue {role:'decision'}` then `block`.
+ * A library function in objective 47; the `decision open|answer` verbs are objective 48.
+ *
+ * -> {ok:true, id, trd, enqueued:[seq,seq], coalesced, ...} | {ok:true, skipped:true, reason} | {ok:false, error}
+ */
+function openDecision(root, trdArg, opts = {}) {
+  const o = isObject(opts) ? opts : {};
+  const trdId = ghMapping.toTrdId(trdArg);
+  if (trdId === null || DECISION_ID_RE.test(trdId)) {
+    return {
+      ok: false,
+      error: `invalid TRD id ${JSON.stringify(trdArg === undefined ? null : trdArg)} (expected <objective>-<NN>, e.g. 07-03)`,
+    };
+  }
+  const question = typeof o.question === 'string' ? o.question.replace(/\r\n/g, '\n') : '';
+  if (question.trim() === '') return { ok: false, error: 'a decision needs a question (a non-empty string)' };
+  if (!outbox.isEnabled(root)) return { ok: true, skipped: true, reason: DISABLED_REASON, enqueued: [], coalesced: [] };
+
+  const objectiveId = trdId.replace(/-\d+$/, '');
+  const mapping = ghMapping.readMappingV3(root);
+  const { journal } = outbox.readJournal(root);
+
+  const queuedIds = journal.ops
+    .filter((op) => op.kind === 'upsert-issue' && isObject(op.target))
+    .map((op) => op.target.id);
+  if (ghMapping.getTrd(mapping, trdId) === null && !queuedIds.includes(trdId)) {
+    return { ok: false, error: `TRD ${padId(trdId)} has no issue yet; run df-tools gh sync ${objectiveId} first` };
+  }
+
+  const prefix = `${trdId}-d`;
+  let highest = 0;
+  for (const id of [...Object.keys(isObject(mapping.trds) ? mapping.trds : {}), ...queuedIds]) {
+    if (typeof id !== 'string' || !id.startsWith(prefix)) continue;
+    const k = parseInt(id.slice(prefix.length), 10);
+    if (Number.isInteger(k) && k > highest) highest = k;
+  }
+  const id = `${prefix}${highest + 1}`;
+
+  const labels = configuredLabels(root);
+  const payload = {
+    title: `[Decision ${padId(id)}] ${decisionSummary(question)}`,
+    body: `${ghBody.markerLine(id)}\n\n${question.trimEnd()}\n`,
+    labels: [labels.decision],
+  };
+  const resolved = ghMapping.resolveObjective(root, objectiveId);
+  if (resolved && resolved.dir) {
+    const milestone = ghMilestone.resolveObjectiveMilestone(root, resolved.dir, configuredMilestonePrefix(root));
+    if (milestone.title) payload.milestone_title = milestone.title;
+  }
+  payload.type = 'Decision';
+
+  const queued = outbox.enqueue(root, [
+    { kind: 'upsert-issue', target: { id, role: 'decision' }, payload },
+    { kind: 'block', target: { blocked: trdId, blocker: id }, payload: {} },
+  ], { now: o.now });
+  if (!queued.ok) return { ok: false, error: queued.error, invalid: queued.invalid };
+  if (queued.skipped) return { ok: true, skipped: true, reason: queued.reason, enqueued: [], coalesced: [] };
+  return { ...queued, id, trd: trdId };
+}
+
+// ─── Orphans ─────────────────────────────────────────────────────────────────
+
+const TRD_MARKER_ID_RE = /^(\d+(?:\.\d+)?)-\d+$/;
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The issue numbers linked under an objective: its sub-issues, or - when the repository has no sub-issues
+ * API (404) - the `#N` references of the objective's `trds` task list.
+ */
+function linkedNumbers(repo, objectiveNumber) {
+  const subs = client.ghPaginate(`repos/${repo}/issues/${objectiveNumber}/sub_issues`);
+  if (subs.ok) {
+    return { ok: true, numbers: new Set(subs.items.filter((i) => i && Number.isInteger(i.number)).map((i) => i.number)) };
+  }
+  const text = `${subs.error || ''}\n${subs.stderr || ''}\n${subs.stdout || ''}`;
+  if (!/\b404\b|not found/i.test(text)) return { ok: false, error: `could not list the sub-issues of #${objectiveNumber}: ${subs.error || 'unknown error'}` };
+  const got = client.ghRead(['api', `repos/${repo}/issues/${objectiveNumber}`]);
+  const issue = got.ok ? parseJson(got.stdout) : null;
+  if (!issue) return { ok: false, error: `could not read objective issue #${objectiveNumber}` };
+  const section = ghBody.extractSection(typeof issue.body === 'string' ? issue.body : '', 'trds') || '';
+  const numbers = new Set([...section.matchAll(/#(\d+)\b/g)].map((m) => parseInt(m[1], 10)));
+  return { ok: true, numbers };
+}
+
+/**
+ * reportOrphans(root, objectiveArg) — what GitHub and the local files disagree about. Reads only; nothing is
+ * deleted, unlinked or rewritten.
+ *
+ *   unlinked       TRD issues of this objective that are not linked under it (no sub-issue link / no task-list line)
+ *   missing_local  TRD issues that ARE linked but have no TRD file locally
+ *
+ * -> {ok:true, objective, unlinked:[{id, number}], missing_local:[{id, number}]}
+ *  | {ok:true, skipped:true, reason, unlinked:[], missing_local:[]} | {ok:false, error}
+ * TRD issues are found by their label and their `devflow:id` marker, never by title.
+ */
+function reportOrphans(root, objectiveArg) {
+  const gate = client.requireEnabled(root);
+  if (gate.skipped) return { ok: true, skipped: true, reason: gate.reason, unlinked: [], missing_local: [] };
+
+  let target;
+  let local;
+  try {
+    target = resolveObjectiveDir(root, objectiveArg);
+    local = new Set(readObjectiveTrds(root, target.id).map((t) => t.id));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const entry = ghMapping.getEntry(ghMapping.readMappingV3(root), target.id);
+  if (!entry) return { ok: false, error: `objective ${target.id} has no issue yet; run df-tools gh sync ${target.id}` };
+
+  const label = configuredLabels(root).trd;
+  const listed = client.ghPaginate(`repos/${gate.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+  if (!listed.ok) return { ok: false, error: `could not list ${label} issues: ${listed.error || 'unknown error'}` };
+  const linked = linkedNumbers(gate.repo, entry.issue_id);
+  if (!linked.ok) return { ok: false, error: linked.error };
+
+  const unlinked = [];
+  const missingLocal = [];
+  for (const issue of listed.items) {
+    if (!issue || issue.pull_request || !Number.isInteger(issue.number)) continue;
+    const marker = ghBody.extractMarker(typeof issue.body === 'string' ? issue.body : '');
+    if (!marker || marker.kind !== null) continue;
+    const m = TRD_MARKER_ID_RE.exec(marker.id);
+    if (!m || ghMapping.toObjectiveId(m[1]) !== target.id) continue;
+    if (!linked.numbers.has(issue.number)) unlinked.push({ id: marker.id, number: issue.number });
+    else if (!local.has(marker.id)) missingLocal.push({ id: marker.id, number: issue.number });
+  }
+  const byId = (a, b) => natural(a.id, b.id) || a.number - b.number;
+  return { ok: true, objective: target.id, unlinked: unlinked.sort(byId), missing_local: missingLocal.sort(byId) };
+}
+
 module.exports = {
   padId,
   readObjectiveTrds,
@@ -544,5 +699,7 @@ module.exports = {
   planPush,
   buildOps,
   pushHierarchy,
+  openDecision,
+  reportOrphans,
   REFERENCE_PAGES,
 };
