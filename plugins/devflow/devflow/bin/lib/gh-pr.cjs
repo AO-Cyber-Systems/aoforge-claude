@@ -874,6 +874,126 @@ function reconcileObjectivePr(root, objArg, opts = {}) {
   };
 }
 
+// ─── merge ───────────────────────────────────────────────────────────────────
+
+// Duplicated from gh-outbox.cjs MERGE_METHODS (not exported); `github.pr.merge_method` is validated against it.
+const MERGE_METHODS = ['squash', 'merge', 'rebase'];
+const DEFAULT_MERGE_METHOD = 'squash';
+
+/** `github.pr.merge_method` when it is a known method, else squash. A merge queue ignores it. */
+function mergeMethodFromConfig(root) {
+  const github = (client.readConfig(root) || {}).github || {};
+  const pr = github.pr && typeof github.pr === 'object' ? github.pr : {};
+  return MERGE_METHODS.includes(pr.merge_method) ? pr.merge_method : DEFAULT_MERGE_METHOD;
+}
+
+/** The latest `devflow/verification` status on `sha`: `{ok:true, verification:{state, description}|null}` or `{ok:false, error}`. */
+function verificationAt(repo, sha) {
+  if (!sha) return fail('the pull request has no head sha to read the verification status of');
+  const s = client.ghRead(['api', `repos/${repo}/commits/${sha}/status?per_page=100`]);
+  if (!s.ok) return fail(`could not read the commit status of ${sha.slice(0, 7)}: ${failureText(s)}`);
+  const rows = (parseJson(s.stdout) || {}).statuses;
+  const row = Array.isArray(rows) ? rows.find((x) => x && x.context === VERIFICATION_CONTEXT) : null;
+  return { ok: true, verification: row ? { state: row.state, description: row.description || null } : null };
+}
+
+/**
+ * mergeObjectivePr(root, obj, {flush, wait, deps}) — `gh pr merge`: merge a verified objective's PR, through the merge
+ * queue where the repository has one, and reconcile when it merged.
+ *
+ * Online-required: the PR and its `devflow/verification` status are read before anything is queued. A draft PR, a PR
+ * closed unmerged, and a PR whose head has no `success` verification status are refused (objective 50 owns enforcement
+ * and the escapes; there is no bypass here). Then `pr-merge {method}` is queued (`github.pr.merge_method`, default
+ * squash) and flushed, and the PR is READ again: a returned `pr-merge` only means the PR was merged or, with a queue,
+ * enqueued. Merged: `reconcileObjectivePr` runs in this call. Enqueued: `pending`, to be reconciled after the queue
+ * merges it. An already merged PR goes straight to the reconcile.
+ *
+ * -> {ok:true, merged:true, method, ...<reconcileObjectivePr result>}
+ *  | {ok:true, merged:false, pending, objective, pr, method, reason, queued, flush, warnings}
+ *  | {ok:true, skipped:true, reason} | {ok:false, error}
+ */
+function mergeObjectivePr(root, objArg, opts = {}) {
+  const gate = storeGate(root);
+  if (gate.result) return gate.result;
+  const { repo } = gate;
+
+  const id = mappingLib.toObjectiveId(objArg);
+  if (id === null) return fail(`${JSON.stringify(objArg)} is not an objective id`);
+  const recorded = mappingLib.getPr(mappingLib.readMappingV3(root), id);
+  if (!recorded || !Number.isInteger(recorded.number)) {
+    return fail(`objective ${id} has no pull request yet: run df-tools gh pr start ${id} first`);
+  }
+
+  const got = readPull(repo, recorded.number);
+  if (!got.ok) return fail(`${got.error}; gh pr merge needs to be online, nothing was queued`);
+  const pr = got.pr;
+  const what = `pull request #${pr.number} for objective ${id}`;
+
+  const reconciled = (method, mergeFlush) => {
+    const rec = reconcileObjectivePr(root, id, opts);
+    if (rec.skipped) return rec;
+    if (!rec.ok) {
+      return { ...rec, merged: true, error: `${what} merged, but the reconcile failed: ${rec.error}; run df-tools gh pr reconcile ${id}` };
+    }
+    return { ...rec, merged: true, method, merge_flush: mergeFlush };
+  };
+
+  if (pr.state === 'merged') return reconciled(null, null);
+  if (pr.state === 'closed') {
+    return fail(`${what} was closed without merging; reopen it or start the objective again`);
+  }
+  if (pr.state === 'draft') return fail(`PR is still a draft; run verification first (${what})`);
+
+  const v = verificationAt(repo, pr.head_sha);
+  if (!v.ok) return fail(`${v.error}; nothing was queued`);
+  if (!v.verification || v.verification.state !== 'success') {
+    const seen = v.verification ? `its latest status is ${v.verification.state}` : 'none has been posted';
+    return fail(`${what} has no success ${VERIFICATION_CONTEXT} status on its head ${pr.head_sha.slice(0, 7)} (${seen}); run verification first`);
+  }
+
+  const method = mergeMethodFromConfig(root);
+  const q = outbox.enqueue(root, [{ kind: 'pr-merge', target: { id }, payload: { method } }]);
+  if (!q.ok) return fail(`could not queue the merge: ${q.error || q.reason || 'the enqueue failed'}`);
+
+  const flush = flushNow(root, opts);
+  const base = {
+    objective: id,
+    pr: { number: pr.number, url: pr.url, state: pr.state },
+    method,
+    merged: false,
+    queued: q.enqueued,
+    flush,
+    warnings: [],
+  };
+  const afterReconcile = `run df-tools gh pr reconcile ${id}`;
+  if (flush === null) {
+    return { ok: true, ...base, pending: true, reason: `the merge is queued, not sent (--no-flush); flush the outbox, then ${afterReconcile}` };
+  }
+  if (flush.status !== 'flushed') {
+    return {
+      ok: flush.status !== 'error',
+      ...(flush.status === 'error' ? { error: flush.error || 'the flush failed' } : {}),
+      ...base,
+      pending: flush.status === 'pending',
+      reason: `the merge was not sent (${flush.status}); once the outbox flushes, ${afterReconcile}`,
+    };
+  }
+
+  const after = readPull(repo, pr.number);
+  if (!after.ok) {
+    return { ok: true, ...base, pending: true, reason: `the merge was sent but ${after.error}; ${afterReconcile} to finish`, warnings: [after.error] };
+  }
+  if (after.pr.merged) return reconciled(method, flush);
+  const queued = inMergeQueue(repo, after.pr);
+  return {
+    ok: true,
+    ...base,
+    pr: { number: pr.number, url: pr.url, state: queued ? 'queued' : after.pr.state },
+    pending: true,
+    reason: `${what} was ${queued ? 'added to the merge queue' : 'sent for merging'} and is not merged yet; ${afterReconcile} after the queue merges it`,
+  };
+}
+
 module.exports = {
   storeGate,
   branchProblem,
@@ -885,4 +1005,5 @@ module.exports = {
   syncObjectivePr,
   prStatus,
   reconcileObjectivePr,
+  mergeObjectivePr,
 };

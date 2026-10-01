@@ -58,6 +58,9 @@
     },
     "wiki": {
       "remote": ""
+    },
+    "pr": {
+      "merge_method": "squash"
     }
   },
   "awareness": {

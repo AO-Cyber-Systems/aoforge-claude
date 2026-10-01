@@ -5,6 +5,8 @@
 //   gh pr start  <objective> [--name <branch>] [--no-flush] [--no-wait]
 //   gh pr sync   <objective> [--no-flush] [--no-wait]
 //   gh pr status <objective>
+//   gh pr merge  <objective> [--no-flush] [--no-wait]
+//   gh pr reconcile <objective> [--no-flush] [--no-wait]
 //
 // Thin wrappers: parse the arguments, call ONE library function (gh-pr), format the answer, exit. No business logic
 // lives here, and this module reaches neither GitHub nor git itself (guarded and NO_DIRECT_WRITE, seam test 23b).
@@ -72,12 +74,16 @@ const PR_USAGE = [
   '  df-tools gh pr start <objective> [--name <branch>] [--no-flush] [--no-wait]   (store mode, online) put the checkout on the objective\'s linked branch and open its draft PR',
   '  df-tools gh pr sync <objective> [--no-flush] [--no-wait]                      push the objective branch and refresh the PR',
   '  df-tools gh pr status <objective>                                             branch, PR, verification status, closes, pending scopes (reads only)',
+  '  df-tools gh pr merge <objective> [--no-flush] [--no-wait]                     (store mode, online) merge a verified PR (merge queue where the repo has one), then reconcile',
+  '  df-tools gh pr reconcile <objective> [--no-flush] [--no-wait]                 after the merge: close every leftover issue, Project Done, delete the branches, pull the cache',
   'start creates (or reuses) the objective\'s linked branch, makes one empty start commit, pushes, opens the one draft PR that closes the objective and',
-  'every TRD, and freezes every TRD. Re-running it changes nothing. With the store off every verb is skipped (exit 0, no gh call, no git change).',
+  'every TRD, and freezes every TRD. Re-running it changes nothing. merge refuses a draft PR or one without a success devflow/verification status, uses',
+  'github.pr.merge_method (default squash), and exits 3 when the PR was only added to a merge queue: run reconcile after the queue merges it. reconcile exits',
+  '3 while the PR is open, 1 if it was closed unmerged, and is idempotent. With the store off every verb is skipped (exit 0, no gh call, no git change).',
   'Flags: --raw prints JSON. Exit codes: 0 ok, 1 error, 2 halted for a human, 3 pending (offline, a failed push, or a PR that cannot be created yet).',
 ].join('\n');
 
-const PR_AVAILABLE = 'start <objective> [--name <branch>], sync <objective>, status <objective>';
+const PR_AVAILABLE = 'start <objective> [--name <branch>], sync <objective>, status <objective>, merge <objective>, reconcile <objective>';
 
 // ─── Prose ───────────────────────────────────────────────────────────────────
 
@@ -130,6 +136,41 @@ function syncHeadline(r) {
   if (r.summary) lines.push(`Summary: ${r.summary}.`);
   if (r.pr) lines.push(`Pull request #${r.pr.number}${r.pr.url ? `: ${r.pr.url}` : ''}.`);
   return lines;
+}
+
+/** What a reconcile (alone or at the end of a merge) did, one line per fact. */
+function reconcileLines(r) {
+  const lines = [];
+  if (r.already_reconciled) {
+    lines.push(`Pull request #${r.pr.number} is merged and objective ${r.objective} was already reconciled: nothing to do.`);
+    return lines;
+  }
+  lines.push(`Pull request #${r.pr.number} is merged${r.pr.merged_at ? ` (${r.pr.merged_at})` : ''}.`);
+  lines.push(r.closed.length > 0
+    ? `Closed ${r.closed.length} issue(s) the merge left open: ${r.closed.map((n) => `#${n}`).join(', ')}.`
+    : 'Every issue the PR closes was already closed.');
+  if (r.branch) lines.push(`Remote branch ${r.branch}: ${r.remote_branch}.`);
+  lines.push(`Project: ${r.project}.`);
+  if (r.local === 'done') {
+    lines.push(`Checkout: on ${r.default_branch}.`);
+    if (r.deleted_local.length > 0) lines.push(`Deleted local branch(es): ${r.deleted_local.join(', ')}.`);
+    if (r.kept.length > 0) lines.push(`Kept local branch(es): ${r.kept.map((k) => `${k.branch} (${k.reason})`).join(', ')}.`);
+    lines.push(r.pulled ? 'Cache refreshed (gh pull --all).' : 'Cache not refreshed.');
+  } else {
+    lines.push(`Checkout: ${r.local}.`);
+  }
+  lines.push(r.reconciled
+    ? `Objective ${r.objective} is reconciled.`
+    : `Not fully reconciled yet: run \`df-tools gh pr reconcile ${r.objective}\` again.`);
+  return lines;
+}
+
+function mergeHeadline(r) {
+  if (r.merged) {
+    const how = r.method ? `Pull request #${r.pr.number} merged (${r.method}); reconciling.` : null;
+    return how ? [how, ...reconcileLines(r)] : reconcileLines(r);
+  }
+  return [`Merge requested for pull request #${r.pr.number} (${r.method}).`, r.reason];
 }
 
 function statusProse(r) {
@@ -194,13 +235,26 @@ function prStatusVerb(cwd, objective) {
   return result(EXIT.OK, r, statusProse(r));
 }
 
-/** `gh pr start|sync|status <objective>`. */
+function prMerge(cwd, args, objective) {
+  const r = prLib.mergeObjectivePr(cwd, objective, { flush: !args.includes('--no-flush'), wait: !args.includes('--no-wait') });
+  if (r.skipped || !r.ok) return fromLibrary(cwd, r, []);
+  return fromLibrary(cwd, r, mergeHeadline(r), { extraPending: r.pending === true });
+}
+
+function prReconcile(cwd, args, objective) {
+  const r = prLib.reconcileObjectivePr(cwd, objective, { flush: !args.includes('--no-flush'), wait: !args.includes('--no-wait') });
+  if (r.skipped || !r.ok) return fromLibrary(cwd, r, []);
+  if (r.pending) return result(EXIT.PENDING, r, r.reason);
+  return fromLibrary(cwd, r, reconcileLines(r));
+}
+
+/** `gh pr start|sync|status|merge|reconcile <objective>`. */
 function cmdGhPr(cwd, args, raw) {
   const verb = args[0];
   let res;
   if (wantsHelp(args)) {
     res = result(EXIT.OK, { ok: true, usage: PR_USAGE }, PR_USAGE);
-  } else if (!['start', 'sync', 'status'].includes(verb)) {
+  } else if (!['start', 'sync', 'status', 'merge', 'reconcile'].includes(verb)) {
     const what = verb === undefined ? 'Missing gh pr subcommand.' : `Unknown gh pr subcommand: ${verb}.`;
     res = usageError(`${what} Available: ${PR_AVAILABLE}\n${PR_USAGE}`);
   } else {
@@ -211,6 +265,10 @@ function cmdGhPr(cwd, args, raw) {
       res = prStart(cwd, args.slice(1), objective);
     } else if (verb === 'sync') {
       res = prSync(cwd, args.slice(1), objective);
+    } else if (verb === 'merge') {
+      res = prMerge(cwd, args.slice(1), objective);
+    } else if (verb === 'reconcile') {
+      res = prReconcile(cwd, args.slice(1), objective);
     } else {
       res = prStatusVerb(cwd, objective);
     }
