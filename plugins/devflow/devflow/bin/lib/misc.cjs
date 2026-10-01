@@ -626,13 +626,30 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // pathspec — git's `--only` pathspec mode re-stages listed paths from the working tree, which
   // would re-track the removed file. That is only safe when the index holds nothing outside
   // --files, so the foreign-index check below refuses otherwise (never sweep in other work).
+  //
+  // TRD 49-07 (GPR-02): in store mode a scoped commit names the issue it serves — `feat(49-02): x` gets a final
+  // `Refs #<TRD issue>` paragraph, `docs(49): x` the objective's. The issue comes from the mapping in the MAIN checkout
+  // (a worktree executor's own `.planning/` holds none). It never blocks: no scope, an unknown id or no mapping leaves
+  // the message untouched and the result carries `refs: null` with a reason. `--amend` keeps its message, so it is
+  // never touched. Local mode takes neither branch — the message bytes and result keys are exactly as before, and the
+  // trailer module (and so the mapping) is never even loaded.
+  let commitMessage = message;
+  let refsField = {};
+  const planningMode = require('./planning-mode.cjs');
+  if (!amend && planningMode.isStoreMode(cwd)) {
+    const { refsFor, applyRefs } = require('./commit-trailer.cjs');
+    const refs = refsFor(planningMode.resolveMainRoot(cwd) || cwd, message);
+    commitMessage = applyRefs(message, refs.issue);
+    refsField = refs.issue === null ? { refs: null, refs_reason: refs.reason } : { refs: refs.issue };
+  }
+
   let commitArgs;
   if (amend) {
     commitArgs = ['commit', '--amend', '--no-edit'];
   } else if (removal) {
-    commitArgs = ['commit', '-m', message];
+    commitArgs = ['commit', '-m', commitMessage];
   } else {
-    commitArgs = ['commit', '-m', message, '--', ...filesToStage];
+    commitArgs = ['commit', '-m', commitMessage, '--', ...filesToStage];
   }
   // Issue #100 finding 5: a merge in progress makes the pathspec form above a
   // PARTIAL COMMIT, which git refuses outright. That refusal used to surface as
@@ -707,7 +724,7 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // Get short hash
   const hashResult = execGit(cwd, ['rev-parse', '--short', 'HEAD']);
   const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
-  const result = { committed: true, hash, reason: 'committed', ...skippedField };
+  const result = { committed: true, hash, reason: 'committed', ...skippedField, ...refsField };
   output(result, raw, hash || 'committed');
 }
 
