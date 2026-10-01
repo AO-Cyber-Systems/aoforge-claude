@@ -129,6 +129,21 @@ function withRetryPolicy(policy, fn) {
 const NOUN_COMMANDS = new Set(['issue', 'label', 'release', 'pr']);
 const READ_SUBCOMMANDS = new Set(['view', 'list', 'status', 'download', 'diff', 'checks']);
 
+// `gh issue develop` creates a linked branch UNLESS it is given `--list`/`-l`, which only lists them (objective
+// 49 lists an issue's linked branches before it creates one). These are its flags that consume the following
+// token, so a value that merely looks like `--list` is not mistaken for the flag.
+const DEVELOP_VALUE_FLAGS = new Set(['-b', '--base', '-n', '--name', '-R', '--repo', '--branch-repo', '--worktree']);
+
+// True when the args after `issue develop` carry `--list`/`-l` as a flag.
+function isDevelopList(rest) {
+  for (let i = 0; i < rest.length; i++) {
+    const tok = String(rest[i]);
+    if (tok === '--list' || tok === '-l') return true;
+    if (DEVELOP_VALUE_FLAGS.has(tok)) i++;
+  }
+  return false;
+}
+
 // `gh api` flags that consume the following token as their value.
 const API_VALUE_FLAGS = new Set([
   '-X', '--method', '-f', '-F', '--field', '--raw-field', '-H', '--header', '-q', '--jq',
@@ -148,6 +163,7 @@ function isWriteArgs(args) {
   if (NOUN_COMMANDS.has(a0)) {
     const a1 = args[1];
     if (a1 === undefined || String(a1).startsWith('-')) return false;
+    if (a0 === 'issue' && a1 === 'develop') return !isDevelopList(args.slice(2));
     return !READ_SUBCOMMANDS.has(a1);
   }
 

@@ -37,6 +37,12 @@
 // (`toEntityId`, `getEntity`, `setEntity`, `listEntities`). `entities` is rendered after `trds` ONLY when it
 // has an entry, so a mapping without entities serialises exactly as it did in objective 47.
 //
+// Pull requests (objective 49): an objective's branch and PR live in a top-level `prs` map keyed by OBJECTIVE
+// id (`getPr`, `setPr`, `listPrs`). It is deliberately not a field of `objectives[id]`: `readLegacyEntry` and
+// `setEntry` normalise an objective entry to exactly three fields, so PR state put there would be dropped, and
+// a separate map keeps PR state independent of the objective issue. `prs` is rendered after `entities` ONLY when
+// it has an entry, so a mapping that never had a PR serialises exactly as it did in objective 48.
+//
 // Never `parseInt` a directory prefix anywhere else: `parseInt("02.1")` is 2. The one legitimate use is
 // the integer part inside `toObjectiveId`, plus numeric sorting.
 
@@ -166,7 +172,7 @@ const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 // Top-level fields this module owns. Anything else is carried through untouched (additive fields from a
 // later objective survive a read-modify-write); `milestone_id` is the legacy field and is dropped.
-const KNOWN_TOP_LEVEL = new Set(['version', 'repo', 'milestones', 'objectives', 'trds', 'entities', 'conflicts', 'milestone_id']);
+const KNOWN_TOP_LEVEL = new Set(['version', 'repo', 'milestones', 'objectives', 'trds', 'entities', 'prs', 'conflicts', 'milestone_id']);
 
 /** An empty v3 mapping. */
 function emptyMapping() {
@@ -272,6 +278,12 @@ function migrateMapping(raw, index = []) {
     out.entities = clone(raw.entities);
   } else if (raw.entities !== undefined && raw.entities !== null) {
     notes.push(`dropped entities ${JSON.stringify(raw.entities)}: not an object of entity entries`);
+  }
+  // `prs` (49) likewise: present only when the input has it, so a pre-49 mapping converts to itself unchanged.
+  if (isPlainObject(raw.prs)) {
+    out.prs = clone(raw.prs);
+  } else if (raw.prs !== undefined && raw.prs !== null) {
+    notes.push(`dropped prs ${JSON.stringify(raw.prs)}: not an object of PR entries`);
   }
   for (const k of Object.keys(raw)) if (!KNOWN_TOP_LEVEL.has(k)) out[k] = clone(raw[k]);
 
@@ -387,9 +399,9 @@ const renderJson = (value, level) => JSON.stringify(value, null, 2).replace(/\n/
 
 /**
  * Byte-stable text for a v3 mapping: canonical top-level order (version, repo, milestones, objectives,
- * trds, entities, conflicts, extras), objectives and conflicts sorted numerically by id, trds and entities
- * natural-sorted, trailing newline. `entities` and `conflicts` appear only when non-empty. The file is
- * tracked in git, so stable output means stable diffs.
+ * trds, entities, prs, conflicts, extras), objectives, prs and conflicts sorted numerically by id, trds and
+ * entities natural-sorted, trailing newline. `entities`, `prs` and `conflicts` appear only when non-empty.
+ * The file is tracked in git, so stable output means stable diffs.
  */
 function serializeMapping(mapping) {
   const sorted = (obj, cmp, level) => Object.keys(obj || {}).sort(cmp).map((k) => [k, renderJson(obj[k], level + 1)]);
@@ -400,6 +412,9 @@ function serializeMapping(mapping) {
   top.push(['trds', renderObject(sorted(mapping.trds, naturalCompare, 1), 1)]);
   if (isPlainObject(mapping.entities) && Object.keys(mapping.entities).length) {
     top.push(['entities', renderObject(sorted(mapping.entities, naturalCompare, 1), 1)]);
+  }
+  if (isPlainObject(mapping.prs) && Object.keys(mapping.prs).length) {
+    top.push(['prs', renderObject(sorted(mapping.prs, compareIds, 1), 1)]);
   }
   if (isPlainObject(mapping.conflicts) && Object.keys(mapping.conflicts).length) {
     top.push(['conflicts', renderObject(sorted(mapping.conflicts, compareIds, 1), 1)]);
@@ -667,6 +682,77 @@ function listEntities(mapping, role) {
     .sort(naturalCompare);
 }
 
+// ─── PR entries (objective 49: the objective branch and its pull request) ────
+
+// The fields of a `prs[<objective>]` entry, in the order they are stored and rendered. Only `branch` is
+// required; the rest appear as the lifecycle reaches them (start: base, wiki_base_sha; upsert-pr: number,
+// node_id, url; merge and reconcile: merged_at, reconciled_at). There is no `title`: it is create-only and the
+// remote title is authoritative afterwards.
+const PR_FIELDS = ['branch', 'base', 'number', 'node_id', 'url', 'wiki_base_sha', 'merged_at', 'reconciled_at'];
+
+/** The `prs` entry for any spelling of an objective ("049", "7.1-foo", 49), or null. */
+function getPr(mapping, arg) {
+  const id = toObjectiveId(arg);
+  if (id === null || !isPlainObject(mapping) || !isPlainObject(mapping.prs)) return null;
+  return hasOwn(mapping.prs, id) ? mapping.prs[id] : null;
+}
+
+/**
+ * Set fields on an objective's PR entry, in place, and return the mapping. The patch MERGES onto the existing
+ * entry: a field the patch names wins, `undefined` is not a patch, and an explicit `null` removes the field
+ * (every field but `branch` is optional, so absence is the empty value; an entry never stores a null).
+ * Stored fields are in PR_FIELDS order whatever order they arrive in; a field this module does not know that
+ * is already on disk (a later objective's) is kept after them. Throws TypeError, leaving the mapping
+ * untouched, for an unrecognised objective, a patch key that is not a PR field, an invalid value (`number`
+ * is a positive integer, every other field a non-empty string), or a result with no `branch`.
+ */
+function setPr(mapping, arg, patch) {
+  const id = toObjectiveId(arg);
+  if (id === null) throw new TypeError(`setPr: unrecognised objective ${JSON.stringify(arg)}`);
+  const p = isPlainObject(patch) ? patch : {};
+  const unknown = Object.keys(p).filter((k) => !PR_FIELDS.includes(k));
+  if (unknown.length) {
+    throw new TypeError(`setPr: objective ${id} has no field ${unknown.map((k) => JSON.stringify(k)).join(', ')} (fields: ${PR_FIELDS.join(', ')})`);
+  }
+
+  const existing = isPlainObject(mapping.prs) && hasOwn(mapping.prs, id) && isPlainObject(mapping.prs[id]) ? mapping.prs[id] : {};
+  const next = {};
+  for (const field of PR_FIELDS) {
+    const named = hasOwn(p, field) && p[field] !== undefined;
+    const value = named ? p[field] : existing[field];
+    if (value === undefined || value === null) continue;
+    if (!named) { next[field] = value; continue; } // already on disk: carried, not re-judged
+    if (field === 'number') {
+      const n = coerceId(value);
+      if (n === null) throw new TypeError(`setPr: objective ${id} number must be a positive integer, got ${JSON.stringify(value)}`);
+      next[field] = n;
+    } else {
+      if (typeof value !== 'string' || value === '') {
+        throw new TypeError(`setPr: objective ${id} ${field} must be a non-empty string, got ${JSON.stringify(value)}`);
+      }
+      next[field] = value;
+    }
+  }
+  if (next.branch === undefined) throw new TypeError(`setPr: objective ${id} needs a branch`);
+  for (const k of Object.keys(existing)) if (!PR_FIELDS.includes(k)) next[k] = existing[k];
+
+  if (!isPlainObject(mapping.prs)) mapping.prs = {};
+  mapping.prs[id] = next;
+  return mapping;
+}
+
+/**
+ * Every PR entry as `[objectiveId, entry]` pairs, sorted numerically by objective id (2, 2.1, 10). Keys whose
+ * value is not an object are skipped. `[]` when the mapping has no `prs`.
+ */
+function listPrs(mapping) {
+  if (!isPlainObject(mapping) || !isPlainObject(mapping.prs)) return [];
+  return Object.keys(mapping.prs)
+    .filter((key) => isPlainObject(mapping.prs[key]))
+    .sort(compareIds)
+    .map((key) => [key, mapping.prs[key]]);
+}
+
 module.exports = {
   MAPPING_VERSION,
   MAPPING_REL,
@@ -679,6 +765,9 @@ module.exports = {
   getEntity,
   setEntity,
   listEntities,
+  getPr,
+  setPr,
+  listPrs,
   compareIds,
   listObjectiveIndex,
   resolveObjective,

@@ -656,3 +656,69 @@ describe('withRetryPolicy', () => {
     assert.equal(client.now(), 5250);
   });
 });
+
+// ─── 49-02: read classification for the objective branch and PR lifecycle ────
+//
+// Objective 49 lists an issue's linked branches (`gh issue develop --list`) and reads PRs. A read must not be
+// paced (1 s apart) or counted against WRITE_BUDGET_PER_RUN, so the classifier has to know which of these only
+// look.
+
+describe('49-02 isWriteArgs: issue develop, pr, graphql', () => {
+  it('8. `issue develop --list` and `-l` only list linked branches, so they are reads', () => {
+    const reads = [
+      ['issue', 'develop', '120', '--list'],
+      ['issue', 'develop', '120', '-l'],
+      ['issue', 'develop', '--list', '120'],
+      ['issue', 'develop', '-l', '120'],
+      ['issue', 'develop', '120', '--list', '--repo', 'o/r'],
+      ['issue', 'develop', '--repo', 'o/r', '--list', '120'],
+    ];
+    for (const args of reads) {
+      assert.equal(client.isWriteArgs(args), false, `expected read: ${args.join(' ')}`);
+    }
+  });
+
+  it('8b. `issue develop` without --list still creates a linked branch, so it stays a write', () => {
+    const writes = [
+      ['issue', 'develop', '120'],
+      ['issue', 'develop', '120', '--name', 'b'],
+      ['issue', 'develop', '120', '--name', 'b', '--base', 'main'],
+      ['issue', 'develop', '120', '-n', 'b', '-b', 'main', '--checkout'],
+      // a value that merely looks like the flag is a value, not the flag
+      ['issue', 'develop', '120', '--name', '--list'],
+      ['issue', 'develop', '120', '--base', '-l'],
+      ['issue', 'develop', '120', '--checkout', '--worktree', '--list'],
+    ];
+    for (const args of writes) {
+      assert.equal(client.isWriteArgs(args), true, `expected write: ${args.join(' ')}`);
+    }
+  });
+
+  it('8c. pr view|list|status|diff|checks are reads; pr ready and pr create are writes', () => {
+    for (const sub of ['view', 'list', 'status', 'diff', 'checks']) {
+      assert.equal(client.isWriteArgs(['pr', sub, '5']), false, `expected read: pr ${sub}`);
+    }
+    for (const args of [['pr', 'ready', '5'], ['pr', 'create', '--draft'], ['pr', 'merge', '5'], ['pr', 'edit', '5', '--body', 'b']]) {
+      assert.equal(client.isWriteArgs(args), true, `expected write: ${args.join(' ')}`);
+    }
+  });
+
+  it('8d. api graphql: a query is a read, a mutation is a write', () => {
+    assert.equal(client.isWriteArgs(['api', 'graphql', '-f', 'query=query{x}']), false);
+    assert.equal(client.isWriteArgs(['api', 'graphql', '-f', 'query=mutation{x}']), true);
+  });
+
+  it('8e. ghRun does not pace or budget `issue develop --list`, and still paces `issue develop`', () => {
+    const h = harness();
+    script(h, [OK]);
+    client.ghRun(['issue', 'develop', '120', '--list']);
+    client.ghRun(['issue', 'develop', '121', '--list']);
+    client.ghRun(['issue', 'develop', '122', '-l']);
+    assert.deepEqual(h.sleeps, []);
+    assert.equal(client.writeCount(), 0, 'a list is not counted against the write budget');
+    client.ghRun(['issue', 'develop', '120', '--name', 'b']);
+    client.ghRun(['issue', 'develop', '121', '--name', 'c']);
+    assert.deepEqual(h.sleeps, [1000]);
+    assert.equal(client.writeCount(), 2);
+  });
+});
