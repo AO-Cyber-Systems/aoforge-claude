@@ -10,6 +10,8 @@
 //   4  every written file is tracked and the tree is clean
 //   5  {legacyTrd} adds one LEGACY_TRD_RE name, {oversizeTrd} one TRD over 60,000 chars; the default has neither
 //   6  two builds with the same options are byte-identical
+//   7  useBackfillEnv: zero gh calls right after setup, fake clock + fake seam + hermetic env inside the test; after it,
+//      the real runner, the real clock and the caller's env are back and every temp dir is gone
 //
 // Hermetic: temp dirs only, a fake home for git, no gh call of any kind.
 
@@ -19,7 +21,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const { makeBackfillProject, BACKFILL_SHAPE } = require('./__fixtures__/gh-backfill-fixtures.cjs');
+const { makeBackfillProject, BACKFILL_SHAPE, useBackfillEnv, BACKFILL_T0 } = require('./__fixtures__/gh-backfill-fixtures.cjs');
+const client = require('./gh-client.cjs');
 const { snapshot, gitEnv } = require('./__fixtures__/upgrade-fixtures.cjs');
 const { gitAvailable } = require('./__fixtures__/wiki-remote.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
@@ -274,5 +277,61 @@ describe('51-02 makeBackfillProject (default build)', () => {
     } finally {
       for (const p of [a, b, c, d]) p.cleanup();
     }
+  });
+});
+
+describe('51-02 useBackfillEnv harness', () => {
+  const ENV_KEYS = ['HOME', 'DEVFLOW_OUTBOX_DIR', 'DEVFLOW_GH_CACHE_DIR', 'DEVFLOW_WIKI_REMOTE', 'GIT_CONFIG_GLOBAL'];
+  const before7 = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  let first = null;
+
+  test('7a: setup makes zero gh calls; the clock, the seam and the env are the harness\'s', (t) => {
+    const env = useBackfillEnv(t, { objectives: 2 });
+    if (!env) return; // skipped: no git
+    first = env;
+
+    assert.equal(env.fake.calls().length, 0, 'smoke: no gh call during setup');
+    assert.equal(env.shape.objectives, 2, 'builder options pass through');
+    assert.ok(fs.existsSync(path.join(env.root, '.planning', 'objectives', '01-objective-01', 'OBJECTIVE.md')));
+
+    // Hermetic env: HOME, outbox, cache and git config all point at temp dirs; the wiki remote is the local bare repo.
+    assert.equal(process.env.HOME, env.home);
+    assert.notEqual(env.home, before7.HOME);
+    assert.equal(process.env.DEVFLOW_OUTBOX_DIR, env.env.DEVFLOW_OUTBOX_DIR);
+    assert.equal(process.env.DEVFLOW_GH_CACHE_DIR, env.env.DEVFLOW_GH_CACHE_DIR);
+    assert.equal(process.env.GIT_CONFIG_GLOBAL, '/dev/null');
+    assert.equal(process.env.DEVFLOW_WIKI_REMOTE, env.wiki.remoteUrl);
+    assert.equal(env.env.DEVFLOW_WIKI_REMOTE, env.wiki.remoteUrl, 'env carries the overlay a child process needs');
+    assert.equal(env.wiki.readRemotePage('Home'), '# Home\n', 'the wiki has its first page');
+
+    // Fake clock: a sleep advances it, no real time passes.
+    assert.equal(client.now(), BACKFILL_T0);
+    const wall = Date.now();
+    client.sleep(60 * 60 * 1000);
+    assert.equal(env.clock.t, BACKFILL_T0 + 60 * 60 * 1000);
+    assert.equal(client.now(), env.clock.t);
+    assert.ok(Date.now() - wall < 5000, 'an hour of fake sleep costs no real hour');
+
+    // The seam is the fake.
+    client._runGh(['api', 'repos/o/r']);
+    assert.equal(env.fake.calls().length, 1, 'gh goes to the fake');
+  });
+
+  test('7b: after the harness, no fake, the real clock, the caller env, and no temp dirs remain', (t) => {
+    if (!first) {
+      t.skip('7a was skipped (no git)');
+      return;
+    }
+    const calls = first.fake.calls().length;
+    // The real runner, made unable to find gh: proof it is not the fake, without ever running gh.
+    const r = client._runGh(['--version'], { env: { PATH: path.join(first.root, 'no-gh-here') } });
+    assert.equal(r.stderr, 'gh: command not found', 'the real runner is back (_setRunGh(null))');
+    assert.equal(first.fake.calls().length, calls, 'the fake saw nothing');
+
+    assert.ok(Math.abs(client.now() - Date.now()) < 60 * 1000, 'the real clock is back');
+    for (const k of ENV_KEYS) assert.equal(process.env[k], before7[k], `${k} restored`);
+    assert.equal(fs.existsSync(first.root), false, 'project removed');
+    assert.equal(fs.existsSync(first.home), false, 'hermetic home removed');
+    assert.equal(fs.existsSync(first.wiki.bareDir), false, 'wiki remote removed');
   });
 });
