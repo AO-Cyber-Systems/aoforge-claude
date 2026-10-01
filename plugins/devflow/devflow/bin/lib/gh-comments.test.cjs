@@ -283,6 +283,621 @@ describe('enqueueVerification', () => {
   });
 });
 
+// ─── TRD issues in the fake ──────────────────────────────────────────────────
+
+const { oversizedTrdText } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+const TRD_ID = '7-01';
+const TRD_FILE = '07-01-alpha-TRD.md';
+const TRD_TEXT = '# TRD 07-01: alpha\n\nThe alpha spec.\n';
+
+/** Seed a TRD issue carrying the 47-01 body header; map it (`trds`) unless `mapped` is false. */
+function seedTrd({ text = TRD_TEXT, state = 'OPEN', mapped = true, id = TRD_ID, file = TRD_FILE } = {}) {
+  const encoded = trd.encodeTrdBody({ id, file, text });
+  const number = fake.seedIssue({ title: 'TRD 07-01: alpha', body: encoded, state });
+  if (mapped) {
+    const map = mapping.readMappingV3(project.root);
+    mapping.setTrd(map, id, { issue_number: number, rest_id: 1000000 + number });
+    assert.equal(mapping.writeMappingV3(project.root, map).ok, true);
+  }
+  return { number, encoded, text, id, file };
+}
+
+/** A scope comment written the way 47-01 writes it. */
+const seedScope = (number, n, text) => fake.seedComment(number, trd.buildScopeComment(n, text));
+
+/** A spec-rev sticky comment holding `entries` (event/hash/chars rows), marker line first. */
+function seedSpecRev(number, entries, id = TRD_ID) {
+  let t = body.commentMarker(id, 'spec-rev') + '\n';
+  for (const e of entries) t = trd.appendSpecRev(t, e);
+  return fake.seedComment(number, t);
+}
+
+/** The encoded effective spec the codec yields for `seed` plus `scopeComments` (each a full comment body). */
+function encodedEffective(seed, scopeComments, foldedThrough = 0) {
+  const eff = trd.effectiveSpec(
+    seed.text,
+    scopeComments.map((b, i) => ({ id: i + 1, body: b })),
+    { foldedThrough, id: seed.id, file: seed.file }
+  );
+  return trd.encodeTrdBody({ id: seed.id, file: seed.file, text: eff.text });
+}
+
+const specRevOps = () => ops().filter((o) => o.kind === 'upsert-comment' && o.target.kind === 'spec-rev');
+
+// ─── readTrdState / readEffectiveSpec ────────────────────────────────────────
+
+describe('readTrdState', () => {
+  test('R1. reads body, comments, scopes and the spec-rev log with ONE issue GET and ONE comments read', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 2, 'Second change.');
+    seedScope(seed.number, 1, 'First change.');
+    fake.seedComment(seed.number, 'a human remark');
+    const freezeEntry = { at: AT0, event: 'freeze', hash: trd.contentHash(seed.encoded), chars: seed.encoded.length };
+    seedSpecRev(seed.number, [freezeEntry]);
+
+    const st = comments.readTrdState(project.root, '07-01');
+    assert.equal(st.ok, true);
+    assert.equal(st.id, '7-01');
+    assert.equal(st.number, seed.number);
+    assert.equal(st.state, 'open');
+    assert.equal(st.body, seed.encoded);
+    assert.equal(st.comments.length, 4);
+    assert.deepEqual(st.scopes.map((s) => s.n), [1, 2], 'scopes are ordered by n, not by comment id');
+    assert.equal(st.frozen, true);
+    assert.equal(st.foldedThrough, 0);
+    assert.match(st.specRevText, /\| 1 \| 2026-10-01T10:00:00Z \| freeze \|/);
+    assert.equal(fake.calls().length, 2, 'one GET of the issue, one paginated read of its comments');
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('R2. a closed issue reads as state "closed"; a missing spec-rev comment is an empty log', () => {
+    const seed = seedTrd({ state: 'CLOSED' });
+    const st = comments.readTrdState(project.root, TRD_ID);
+    assert.equal(st.ok, true);
+    assert.equal(st.state, 'closed');
+    assert.equal(st.frozen, false);
+    assert.equal(st.foldedThrough, 0);
+    assert.equal(trd.parseSpecRev(st.specRevText).entries.length, 0);
+    assert.equal(st.body, seed.encoded);
+  });
+
+  test('R3. folded_through comes from the spec-rev fold row', () => {
+    const seed = seedTrd();
+    seedSpecRev(seed.number, [
+      { at: AT0, event: 'fold folded_through=3 from=' + trd.contentHash('x'), hash: trd.contentHash(seed.encoded), chars: 10 },
+    ]);
+    assert.equal(comments.readTrdState(project.root, TRD_ID).foldedThrough, 3);
+  });
+
+  test('R4. a TRD missing from the mapping is found by its body marker (no mapping write)', () => {
+    const seed = seedTrd({ mapped: false });
+    const st = comments.readTrdState(project.root, TRD_ID);
+    assert.equal(st.ok, true);
+    assert.equal(st.number, seed.number);
+    assert.equal(mapping.getTrd(mapping.readMappingV3(project.root), TRD_ID), null, 'reads never write the mapping');
+  });
+
+  test('R5. a TRD with no issue anywhere is a clear error naming gh sync', () => {
+    seedTrd({ mapped: false, id: '7-02', file: '07-02-beta-TRD.md' });
+    const st = comments.readTrdState(project.root, '07-01');
+    assert.equal(st.ok, false);
+    assert.equal(st.error, 'TRD 07-01 has no issue yet; run gh sync first');
+  });
+
+  test('R6. an issue that is not a DevFlow TRD body is reported, not decoded', () => {
+    const n = fake.seedIssue({ title: 'human issue', body: 'just words' });
+    const map = mapping.readMappingV3(project.root);
+    mapping.setTrd(map, TRD_ID, { issue_number: n, rest_id: 1000000 + n });
+    mapping.writeMappingV3(project.root, map);
+    const st = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(st.ok, false);
+    assert.match(st.error, /not a devflow TRD body/);
+  });
+
+  test('R7. github disabled is {ok:false, skipped:true} with no gh call', () => {
+    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+    const st = comments.readTrdState(project.root, TRD_ID);
+    assert.equal(st.ok, false);
+    assert.equal(st.skipped, true);
+    assert.deepEqual(fake.calls(), []);
+  });
+
+  test('R8. an invalid TRD id or a failing read is {ok:false, error}, never a throw', () => {
+    assert.equal(comments.readTrdState(project.root, 'nope').ok, false);
+    assert.equal(comments.readTrdState(project.root, '47-01-d1').ok, false, 'a Decision id is not a TRD id');
+    const seed = seedTrd();
+    fake.failNext(/issues\/\d+$/, { ok: false, status: 1, stdout: '', stderr: 'gh: Server Error (HTTP 500)' });
+    const st = comments.readTrdState(project.root, TRD_ID);
+    assert.equal(st.ok, false);
+    assert.match(st.error, /500/);
+    assert.equal(seed.number, 1);
+  });
+});
+
+describe('readEffectiveSpec', () => {
+  test('14a. returns body + scope comments in n order, honouring folded_through', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 3, 'Third.');
+    seedScope(seed.number, 1, 'First.');
+    seedScope(seed.number, 2, 'Second.');
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.applied, [1, 2, 3]);
+    assert.equal(
+      r.text,
+      TRD_TEXT + '\n\n' + trd.buildScopeComment(1, 'First.') + '\n\n' + trd.buildScopeComment(2, 'Second.') +
+        '\n\n' + trd.buildScopeComment(3, 'Third.')
+    );
+    assert.equal(r.overflow, false);
+    assert.equal(r.file, TRD_FILE);
+    assert.equal(r.encoded, trd.encodeTrdBody({ id: TRD_ID, file: TRD_FILE, text: r.text }));
+    assert.equal(r.chars, r.encoded.length);
+  });
+
+  test('14b. after a fold (folded_through=3) and a new scope n=4: the folded body plus n=4 only', () => {
+    const scopes = [1, 2, 3].map((n) => trd.buildScopeComment(n, `Change ${n}.`));
+    const foldedText = TRD_TEXT + scopes.map((s) => '\n\n' + s).join('');
+    const seed = seedTrd({ text: foldedText, state: 'CLOSED' });
+    for (let n = 1; n <= 3; n++) seedScope(seed.number, n, `Change ${n}.`);
+    seedScope(seed.number, 4, 'Change 4.');
+    seedSpecRev(seed.number, [
+      { at: AT0, event: 'fold folded_through=3 from=' + trd.contentHash('before'), hash: trd.contentHash(seed.encoded), chars: seed.encoded.length },
+    ]);
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.applied, [4]);
+    assert.equal(r.text, foldedText + '\n\n' + trd.buildScopeComment(4, 'Change 4.'));
+    assert.equal(r.foldedThrough, 3);
+  });
+
+  test('14c. a scope gap is reported in errors while the spec is still returned', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 1, 'One.');
+    seedScope(seed.number, 3, 'Three.');
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(r.ok, true);
+    assert.ok(r.errors.some((e) => /gap before n=3/.test(e)));
+  });
+});
+
+// ─── enqueueScope ────────────────────────────────────────────────────────────
+
+describe('enqueueScope', () => {
+  test('5a. default n is the highest existing n + 1; post-scope then spec-rev append, in one enqueue', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 1, 'First change.');
+    seedScope(seed.number, 2, 'Second change.');
+    const r = comments.enqueueScope(project.root, { trdId: '07-01', text: 'Third change.', now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.n, 3);
+    assert.equal(r.id, TRD_ID);
+
+    const list = ops();
+    assert.equal(list.length, 2);
+    assert.equal(list[0].kind, 'post-scope');
+    assert.deepEqual(list[0].target, { id: TRD_ID, n: 3 });
+    assert.deepEqual(list[0].payload, { text: 'Third change.' });
+    assert.equal(list[1].kind, 'upsert-comment');
+    assert.deepEqual(list[1].target, { id: TRD_ID, kind: 'spec-rev' });
+    assert.equal(list[1].payload.mode, 'append-spec-rev');
+    assert.ok(list[0].seq < list[1].seq, 'post-scope is queued before its spec-rev row');
+
+    const effective = encodedEffective(seed, [
+      trd.buildScopeComment(1, 'First change.'),
+      trd.buildScopeComment(2, 'Second change.'),
+      trd.buildScopeComment(3, 'Third change.'),
+    ]);
+    assert.deepEqual(list[1].payload.entry, {
+      at: AT0,
+      event: 'scope n=3',
+      hash: trd.contentHash(effective),
+      chars: effective.length,
+    });
+    assert.deepEqual(fake.writes(), [], 'no GitHub write: the flusher posts it');
+  });
+
+  test('5b. the first scope of a TRD is n=1; an explicit n is honoured (out of order is legal)', () => {
+    seedTrd();
+    assert.equal(comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'a', now: T0 }).n, 1);
+    const r = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 5, text: 'e', now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.n, 5);
+    assert.deepEqual(ops().filter((o) => o.kind === 'post-scope').map((o) => o.target.n), [1, 5]);
+  });
+
+  test('5c. two scopes queued before a flush get n and n+1, and BOTH scope ops and spec-rev rows survive', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 1, 'First change.');
+    const a = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'Second change.', now: T0 });
+    const b = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'Third change.', now: T0 + 1000 });
+    assert.equal(a.n, 2);
+    assert.equal(b.n, 3, 'the pending n=2 is counted even though GitHub has not seen it yet');
+
+    const scopeOps = ops().filter((o) => o.kind === 'post-scope');
+    assert.deepEqual(scopeOps.map((o) => [o.target.n, o.payload.text]), [[2, 'Second change.'], [3, 'Third change.']]);
+    const rows = specRevOps();
+    assert.deepEqual(rows.map((o) => o.payload.entry.event), ['scope n=2', 'scope n=3'], 'a later append must not replace an earlier one');
+
+    const both = encodedEffective(seed, [
+      trd.buildScopeComment(1, 'First change.'),
+      trd.buildScopeComment(2, 'Second change.'),
+      trd.buildScopeComment(3, 'Third change.'),
+    ]);
+    assert.equal(rows[1].payload.entry.hash, trd.contentHash(both), 'the effective spec includes the pending scope');
+  });
+
+  test('6. a scope comment over 60,000 chars is refused with overflow:true and the new-TRD message', () => {
+    seedTrd();
+    const r = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'q'.repeat(60001), now: T0 });
+    assert.equal(r.ok, false);
+    assert.equal(r.overflow, true);
+    assert.match(r.message, /new TRD/);
+    assert.deepEqual(ops(), [], 'nothing is enqueued');
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('7a. body 50,000 + scope 9,000 + new 2,000 pushes the effective spec over 60,000: refused', () => {
+    const text = oversizedTrdText(50000, { id: TRD_ID, file: TRD_FILE });
+    const seed = seedTrd({ text });
+    assert.equal(seed.encoded.length, 50000);
+    fake.seedComment(seed.number, trd.scopeMarker(1) + '\n' + 'x'.repeat(9000 - (trd.scopeMarker(1).length + 1)));
+    const r = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'n'.repeat(2000), now: T0 });
+    assert.equal(r.ok, false);
+    assert.equal(r.overflow, true);
+    assert.match(r.message, /new TRD/);
+    assert.ok(r.chars > 60000);
+    assert.equal(r.max, 60000);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('7b. the boundary: an effective spec of exactly 60,000 chars is accepted, 60,001 refused', () => {
+    const seed = seedTrd({ text: oversizedTrdText(50000, { id: TRD_ID, file: TRD_FILE }) });
+    const overhead = 2 + trd.scopeMarker(1).length + 1; // "\n\n" + marker line + newline
+    const exact = 60000 - 50000 - overhead;
+    const ok = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'k'.repeat(exact), now: T0 });
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+    assert.equal(ok.chars, 60000);
+    assert.equal(seed.number, 1);
+
+    const over = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 2, text: 'k'.repeat(exact + 1), now: T0 });
+    assert.equal(over.ok, false);
+    assert.equal(over.overflow, true);
+  });
+
+  test('8a. an existing n with identical text is a no-op', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 1, 'One.');
+    seedScope(seed.number, 2, 'Two.');
+    const r = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 2, text: 'Two.', now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.noop, true);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('8b. an existing n with different text is refused: n=2 already used', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 1, 'One.');
+    seedScope(seed.number, 2, 'Two.');
+    const r = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 2, text: 'Something else.', now: T0 });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /n=2 already used/);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('8c. the same rule applies to an n that is only queued, not yet posted', () => {
+    seedTrd();
+    comments.enqueueScope(project.root, { trdId: TRD_ID, n: 1, text: 'One.', now: T0 });
+    const same = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 1, text: 'One.', now: T0 + 1 });
+    assert.equal(same.noop, true);
+    const diff = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 1, text: 'Other.', now: T0 + 2 });
+    assert.equal(diff.ok, false);
+    assert.match(diff.error, /n=1 already used/);
+    assert.equal(ops().filter((o) => o.kind === 'post-scope').length, 1);
+  });
+
+  test('8d. trailing whitespace GitHub may have stripped does not turn a replay into a conflict', () => {
+    const seed = seedTrd();
+    seedScope(seed.number, 1, 'One.');
+    const r = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 1, text: 'One.\n', now: T0 });
+    assert.equal(r.noop, true);
+  });
+
+  test('9b. validation: invalid TRD id, a Decision id, empty text, a bad n', () => {
+    seedTrd();
+    for (const bad of [
+      { trdId: 'x', text: 't' },
+      { trdId: '47-01-d1', text: 't' },
+      { trdId: TRD_ID, text: '' },
+      { trdId: TRD_ID, text: '   \n' },
+      { trdId: TRD_ID, text: null },
+      { trdId: TRD_ID, n: 0, text: 't' },
+      { trdId: TRD_ID, n: 1.5, text: 't' },
+      { trdId: TRD_ID, n: '2', text: 't' },
+    ]) {
+      const r = comments.enqueueScope(project.root, { ...bad, now: T0 });
+      assert.equal(r.ok, false, JSON.stringify(bad));
+      assert.equal(typeof r.error, 'string');
+    }
+    assert.deepEqual(ops(), []);
+  });
+
+  test('9c. a TRD with no issue yet is refused with the gh sync message', () => {
+    const r = comments.enqueueScope(project.root, { trdId: '07-01', text: 't', now: T0 });
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'TRD 07-01 has no issue yet; run gh sync first');
+  });
+
+  test('9d. github disabled is {ok:true, skipped:true}: nothing read, nothing queued', () => {
+    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
+    const r = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 't', now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.skipped, true);
+    assert.deepEqual(fake.calls(), []);
+    assert.deepEqual(ops(), []);
+  });
+});
+
+// ─── freezeTrd ───────────────────────────────────────────────────────────────
+
+describe('freezeTrd', () => {
+  test('9a. enqueues one append-spec-rev "freeze" entry carrying the current body hash', () => {
+    const seed = seedTrd();
+    const r = comments.freezeTrd(project.root, '07-01', { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.id, TRD_ID);
+    const list = ops();
+    assert.equal(list.length, 1);
+    assert.equal(list[0].kind, 'upsert-comment');
+    assert.deepEqual(list[0].target, { id: TRD_ID, kind: 'spec-rev' });
+    assert.deepEqual(list[0].payload, {
+      mode: 'append-spec-rev',
+      entry: { at: AT0, event: 'freeze', hash: trd.contentHash(seed.encoded), chars: seed.encoded.length },
+    });
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('9b. calling it twice enqueues once (even with a later clock)', () => {
+    seedTrd();
+    comments.freezeTrd(project.root, TRD_ID, { now: T0 });
+    const again = comments.freezeTrd(project.root, TRD_ID, { now: T0 + 60000 });
+    assert.equal(again.ok, true);
+    assert.equal(specRevOps().length, 1);
+    assert.equal(specRevOps()[0].payload.entry.at, AT0, 'the first freeze time is the one that is kept');
+  });
+
+  test('9c. an already-frozen TRD is a no-op that reports the drift state', () => {
+    const seed = seedTrd();
+    seedSpecRev(seed.number, [{ at: AT0, event: 'freeze', hash: trd.contentHash(seed.encoded), chars: seed.encoded.length }]);
+    const r = comments.freezeTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.noop, true);
+    assert.equal(r.frozen, true);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('9d. a body that is not a devflow TRD body cannot be frozen', () => {
+    const n = fake.seedIssue({ title: 'human', body: 'words' });
+    const map = mapping.readMappingV3(project.root);
+    mapping.setTrd(map, TRD_ID, { issue_number: n, rest_id: 1000000 + n });
+    mapping.writeMappingV3(project.root, map);
+    const r = comments.freezeTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /not a devflow TRD body/);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('9e. a freeze and a scope queued before a flush both keep their spec-rev rows', () => {
+    seedTrd();
+    comments.freezeTrd(project.root, TRD_ID, { now: T0 });
+    comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'Late change.', now: T0 + 1000 });
+    assert.deepEqual(specRevOps().map((o) => o.payload.entry.event), ['freeze', 'scope n=1']);
+  });
+
+  test('9f. disabled and invalid ids', () => {
+    assert.equal(comments.freezeTrd(project.root, 'nope', { now: T0 }).ok, false);
+    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+    assert.equal(comments.freezeTrd(project.root, TRD_ID, { now: T0 }).skipped, true);
+  });
+});
+
+// ─── foldTrd ─────────────────────────────────────────────────────────────────
+
+describe('foldTrd', () => {
+  test('10. a closed TRD with scopes 1..3 that fit: patch-body replace with the effective spec, then a fold row', () => {
+    const seed = seedTrd({ state: 'CLOSED' });
+    seedScope(seed.number, 2, 'Second.');
+    seedScope(seed.number, 1, 'First.');
+    seedScope(seed.number, 3, 'Third.');
+    const r = comments.foldTrd(project.root, '07-01', { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.fits, true);
+    assert.equal(r.folded_through, 3);
+
+    const list = ops();
+    assert.equal(list.length, 2);
+    assert.equal(list[0].kind, 'patch-body');
+    assert.deepEqual(list[0].target, { id: TRD_ID });
+    assert.equal(list[0].payload.mode, 'replace');
+    const decoded = trd.decodeTrdBody(list[0].payload.body);
+    assert.equal(decoded.ok, true);
+    assert.equal(
+      decoded.text,
+      TRD_TEXT + '\n\n' + trd.buildScopeComment(1, 'First.') + '\n\n' + trd.buildScopeComment(2, 'Second.') +
+        '\n\n' + trd.buildScopeComment(3, 'Third.'),
+      'body text then the scope comments in n order'
+    );
+
+    assert.equal(list[1].kind, 'upsert-comment');
+    assert.deepEqual(list[1].target, { id: TRD_ID, kind: 'spec-rev' });
+    assert.deepEqual(list[1].payload.entry, {
+      at: AT0,
+      event: `fold folded_through=3 from=${trd.contentHash(seed.encoded)}`,
+      hash: trd.contentHash(list[0].payload.body),
+      chars: list[0].payload.body.length,
+    });
+    assert.ok(list[0].seq < list[1].seq);
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('10b. scope comments are never deleted: the fold queues no comment removal', () => {
+    const seed = seedTrd({ state: 'CLOSED' });
+    seedScope(seed.number, 1, 'First.');
+    comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.deepEqual(ops().map((o) => o.kind), ['patch-body', 'upsert-comment']);
+  });
+
+  test('10c. a second fold folds only the scopes added since the first', () => {
+    const first = [1, 2].map((n) => trd.buildScopeComment(n, `Change ${n}.`));
+    const foldedText = TRD_TEXT + first.map((s) => '\n\n' + s).join('');
+    const seed = seedTrd({ text: foldedText, state: 'CLOSED' });
+    seedScope(seed.number, 1, 'Change 1.');
+    seedScope(seed.number, 2, 'Change 2.');
+    seedScope(seed.number, 3, 'Change 3.');
+    seedSpecRev(seed.number, [
+      { at: AT0, event: 'fold folded_through=2 from=' + trd.contentHash('older'), hash: trd.contentHash(seed.encoded), chars: seed.encoded.length },
+    ]);
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.folded_through, 3);
+    const decoded = trd.decodeTrdBody(ops()[0].payload.body);
+    assert.equal(decoded.text, foldedText + '\n\n' + trd.buildScopeComment(3, 'Change 3.'));
+  });
+
+  test('10d. nothing to fold is {ok:true, noop:true} and queues nothing', () => {
+    seedTrd({ state: 'CLOSED' });
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.noop, true);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('11a. an open TRD is refused: fold runs on close', () => {
+    const seed = seedTrd({ state: 'OPEN' });
+    seedScope(seed.number, 1, 'First.');
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'open');
+    assert.match(r.error, /closed/);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('11b. {force:true} folds an open TRD', () => {
+    const seed = seedTrd({ state: 'OPEN' });
+    seedScope(seed.number, 1, 'First.');
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0, force: true });
+    assert.equal(r.ok, true);
+    assert.equal(r.fits, true);
+    assert.deepEqual(ops().map((o) => o.kind), ['patch-body', 'upsert-comment']);
+  });
+
+  test('12. when the effective spec exceeds 60,000: {ok:true, fits:false} and nothing is queued', () => {
+    const seed = seedTrd({ state: 'CLOSED', text: oversizedTrdText(55000, { id: TRD_ID, file: TRD_FILE }) });
+    seedScope(seed.number, 1, 'm'.repeat(7000));
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.fits, false);
+    assert.match(r.message, /60,000/);
+    assert.deepEqual(ops(), []);
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('13. a scope gap refuses the fold', () => {
+    const seed = seedTrd({ state: 'CLOSED' });
+    seedScope(seed.number, 1, 'One.');
+    seedScope(seed.number, 3, 'Three.');
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /gap/);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('13b. a duplicate scope n refuses the fold', () => {
+    const seed = seedTrd({ state: 'CLOSED' });
+    seedScope(seed.number, 1, 'One.');
+    seedScope(seed.number, 1, 'One again.');
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /duplicate n=1/);
+  });
+
+  test('13c. folding twice before a flush queues one body replace and one fold row', () => {
+    const seed = seedTrd({ state: 'CLOSED' });
+    seedScope(seed.number, 1, 'One.');
+    comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    comments.foldTrd(project.root, TRD_ID, { now: T0 + 5000 });
+    assert.deepEqual(ops().map((o) => o.kind), ['patch-body', 'upsert-comment']);
+  });
+
+  test('13d. disabled, invalid ids and a missing issue', () => {
+    assert.equal(comments.foldTrd(project.root, 'nope', { now: T0 }).ok, false);
+    assert.equal(comments.foldTrd(project.root, TRD_ID, { now: T0 }).error, 'TRD 7-01 has no issue yet; run gh sync first');
+    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+    assert.equal(comments.foldTrd(project.root, TRD_ID, { now: T0 }).skipped, true);
+  });
+});
+
+// ─── detectTrdDrift ──────────────────────────────────────────────────────────
+
+describe('detectTrdDrift', () => {
+  test('15a. the live body hash equals the last logged hash: no drift; a human edit: drift with both hashes', () => {
+    const seed = seedTrd();
+    seedSpecRev(seed.number, [{ at: AT0, event: 'freeze', hash: trd.contentHash(seed.encoded), chars: seed.encoded.length }]);
+    const clean = comments.detectTrdDrift(project.root, TRD_ID);
+    assert.equal(clean.ok, true);
+    assert.equal(clean.drift, false);
+
+    const edited = seed.encoded + '\nsneaked in by a human\n';
+    fake.humanEditBody(seed.number, edited);
+    const drifted = comments.detectTrdDrift(project.root, TRD_ID);
+    assert.equal(drifted.ok, true);
+    assert.equal(drifted.drift, true);
+    assert.equal(drifted.expected, trd.contentHash(seed.encoded));
+    assert.equal(drifted.actual, trd.contentHash(edited));
+  });
+
+  test('15b. a scope row (which hashes the effective spec, not the body) never causes false drift', () => {
+    const seed = seedTrd();
+    seedSpecRev(seed.number, [
+      { at: AT0, event: 'freeze', hash: trd.contentHash(seed.encoded), chars: seed.encoded.length },
+      { at: AT0, event: 'scope n=1', hash: trd.contentHash('some other text'), chars: 5 },
+    ]);
+    assert.equal(comments.detectTrdDrift(project.root, TRD_ID).drift, false);
+  });
+
+  test('15c. no spec-rev log at all is unlogged, not drift', () => {
+    seedTrd();
+    const r = comments.detectTrdDrift(project.root, TRD_ID);
+    assert.equal(r.ok, true);
+    assert.equal(r.drift, false);
+    assert.equal(r.unlogged, true);
+  });
+
+  test('15d. errors from the read pass through', () => {
+    const r = comments.detectTrdDrift(project.root, TRD_ID);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /no issue yet/);
+  });
+});
+
+// ─── Suite-wide: this module performs no GitHub writes ───────────────────────
+
+describe('no writes', () => {
+  test('S1. a full lifecycle of reads and enqueues leaves the fake with zero writes', () => {
+    const seed = seedTrd({ state: 'CLOSED' });
+    seedScope(seed.number, 1, 'One.');
+    comments.readTrdState(project.root, TRD_ID);
+    comments.readEffectiveSpec(project.root, TRD_ID);
+    comments.freezeTrd(project.root, TRD_ID, { now: T0 });
+    comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'Two.', now: T0 });
+    comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    comments.detectTrdDrift(project.root, TRD_ID);
+    comments.enqueueSummary(project.root, { trdId: TRD_ID, file: FILE, text: 'sum\n', now: T0 });
+    comments.enqueueVerification(project.root, { objectiveId: '7', file: '07-VERIFICATION.md', text: 'v\n', now: T0 });
+    assert.deepEqual(fake.writes(), []);
+  });
+});
+
 // ─── Test 16: the module never writes to GitHub itself ───────────────────────
 
 describe('static guard', () => {
