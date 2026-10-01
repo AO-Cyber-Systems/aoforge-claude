@@ -29,6 +29,7 @@ const GATES = {
   commits: null,   // env-var driven (DEVFLOW_ALLOW_RAW_COMMIT); logged only
   changelog: null, // env-var driven (DEVFLOW_SKIP_CHANGELOG_GATE); logged only
   'scope-confirm': null, // `gh trd confirm-scope --force --reason` on an objective with no assignee (49-06); logged only
+  gh: null, // env-var driven (DEVFLOW_SKIP_GH_GATE, the store-mode commit gate, 50-02); logged only
 };
 /** Keep the log bounded — it is a signal, not an archive. */
 const MAX_ENTRIES = 500;

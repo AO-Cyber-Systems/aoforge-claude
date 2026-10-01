@@ -45,6 +45,9 @@ const GUARDED = [
   // objective 49 (TRD 49-09): the PR lifecycle. gh-pr.cjs calls ghWrite once (createLinkedBranch, synchronous and online-required),
   // so it is guarded but not in NO_DIRECT_WRITE; its CLI and the commit trailer never write or spawn anything.
   'gh-pr.cjs', 'gh-pr-cli.cjs', 'commit-trailer.cjs',
+  // objective 50 (TRD 50-02): the store-mode commit gate decision. Offline by design: it calls neither gh nor git itself
+  // (git is read through objective-branch.cjs) and never writes.
+  'gh-gate.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
@@ -52,6 +55,7 @@ const NO_DIRECT_WRITE = [
   'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs', 'gh-store-cli.cjs',
   'objective-branch.cjs',
   'gh-pr-cli.cjs', 'commit-trailer.cjs',
+  'gh-gate.cjs',
   ...PLANNING_MODULES,
 ];
 
