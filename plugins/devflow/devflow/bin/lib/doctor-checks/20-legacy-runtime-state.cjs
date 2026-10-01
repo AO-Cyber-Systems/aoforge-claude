@@ -22,7 +22,8 @@
 // The fix: back up (upgrade.backup + nested copies) → m0008.apply when anything is tracked or
 // unignored → `git rm --cached` tracked markers → delete every working copy. The index-changing
 // part runs only behind doctor-git.indexChangeGuard (DOC-06). The doctor never commits: the fix
-// returns the exact `df-tools commit` command for the user.
+// returns the exact `df-tools commit` command for the user (in GitHub store mode, the branch +
+// logged-escape + pull-request sequence the commit gate accepts; TRD 51-04).
 
 const fs = require('fs');
 const path = require('path');
@@ -30,11 +31,32 @@ const path = require('path');
 const m0008 = require('../migrations/0008-runtime-state-untrack.cjs');
 const upgrade = require('../upgrade.cjs');
 const dg = require('../doctor-git.cjs');
+const planningMode = require('../planning-mode.cjs');
 
 const MARKER_PREFIXES = ['.autonomous-retry-', '.autonomous-resume-'];
 const MARKER_PATHSPECS = MARKER_PREFIXES.map((p) => `:(glob)**/.planning/${p}*`);
 const COMMIT_COMMAND = 'node ~/.claude/devflow/bin/df-tools.cjs commit "chore: untrack DevFlow runtime state" --files';
 const DOCTOR_FIX_COMMAND = 'node ~/.claude/devflow/bin/df-tools.cjs doctor --fix';
+const STORE_BRANCH = 'devflow-untrack-runtime-state';
+
+/**
+ * The follow-up commit note for `files`. Local mode: `commit with: <COMMIT_COMMAND> <files>`, byte-identical to before
+ * 51-04. Store mode (TRD 51-04, G6): objective 50's gate refuses that line on the default branch and on any branch no
+ * objective PR names, so print a new branch, the logged escape (gate `gh`), push and a pull request instead.
+ * `planningMode.isStoreMode` is the only reader of `github.store`.
+ */
+function commitNote(root, files) {
+  const list = files.join(' ');
+  if (!planningMode.isStoreMode(root)) return `commit with: ${COMMIT_COMMAND} ${list}`;
+  return [
+    'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
+      'branches), then merge it through a pull request:',
+    `  git switch -c ${STORE_BRANCH}`,
+    `  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="untrack DevFlow runtime state" ${COMMIT_COMMAND} ${list}`,
+    `  git push -u origin ${STORE_BRANCH}`,
+    '  then open a pull request for that branch',
+  ].join('\n');
+}
 
 /** True for `<anything>/.planning/.autonomous-{retry,resume}-*` at any depth. Lexical. */
 function isAutonomousMarkerPath(rel) {
@@ -208,7 +230,7 @@ function fix(ctx) {
   if (removed.length) notes.push(`untracked: ${removed.join(', ')}`);
   if (deleted.length) notes.push(`deleted: ${deleted.join(', ')}`);
   const commitFiles = [...(gitignoreChanged ? ['.gitignore'] : []), ...removed];
-  if (commitFiles.length) notes.push(`commit with: ${COMMIT_COMMAND} ${commitFiles.join(' ')}`);
+  if (commitFiles.length) notes.push(commitNote(root, commitFiles));
   else notes.push('nothing to commit (working files only)');
 
   return { applied: true, changed, backup: bk, notes: notes.join('; ') };

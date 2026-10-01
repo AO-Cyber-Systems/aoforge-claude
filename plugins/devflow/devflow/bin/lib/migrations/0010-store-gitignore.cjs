@@ -36,7 +36,8 @@
 // Lessons reused from 0008: "is it ignored" is decided by `git check-ignore --no-index` with the user's global excludes
 // switched off, never by string-matching `.gitignore`; git runs with redirect variables scrubbed; removal is
 // `rm --cached` with literal pathspecs; and the follow-up `df-tools commit` records staged removals with a whole-index
-// commit (lib/misc.cjs cmdCommit, which 48-10 also taught to skip ignored, unknown planning paths per path).
+// commit (lib/misc.cjs cmdCommit, which 48-10 also taught to skip ignored, unknown planning paths per path). That
+// commit is printed as STORE_COMMIT_STEPS (TRD 51-04): branch, logged gate escape, push, pull request.
 //
 // managed-block.cjs is not used for the markers: its START/END markers are fixed HTML comments, and in a .gitignore a
 // `<!-- ... -->` line is a pattern, not a comment. The block helper here keeps the same guarantees (bytes outside the
@@ -65,7 +66,20 @@ const BLOCK_END = '# <<< devflow store (0010) <<<';
 const LEGACY_TRD_RE = /^objectives\/[^/]+\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
 const RM_BATCH = 200;
 const LOCAL_ONLY_NOTE = 'kept on this machine only after untrack (no GitHub home)';
-const COMMIT_COMMAND = 'node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/';
+// TRD 51-04 (G6): the follow-up commit. 0010 only ever applies in store mode, where `df-tools commit` refuses the default
+// branch and any branch no objective PR names (objective 50's gate), so a bare commit line would always exit 1. Print
+// the sequence that works instead: a new branch, the logged escape (gate `gh` in .planning/.override-log.jsonl), push,
+// and a pull request. Self-contained so 51-07 can print it after 0011 as well.
+const STORE_BRANCH = 'devflow-store-cache';
+const STORE_COMMIT_STEPS = [
+  'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
+    'branches), then merge it through a pull request:',
+  `  git switch -c ${STORE_BRANCH}`,
+  '  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration" node ~/.claude/devflow/bin/df-tools.cjs ' +
+    'commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/',
+  `  git push -u origin ${STORE_BRANCH}`,
+  '  then open a pull request for that branch',
+].join('\n');
 const REMEDY = 'Get everything onto GitHub first: run `df-tools planning import`, `df-tools gh outbox flush` and ' +
   '`df-tools gh pull --all`, then re-run `df-tools upgrade --apply --only 0010 --confirm`.';
 // A path the block must ignore; used to verify the written rules (it need not exist).
@@ -361,7 +375,7 @@ function notesFor(found, gitignoreChanged) {
       `runtime ${s.untracked.runtime})`,
   ];
   if (s.local_only.length) parts.push(`${LOCAL_ONLY_NOTE}: ${s.local_only.join(', ')}`);
-  parts.push(`commit with: ${COMMIT_COMMAND}`);
+  parts.push(STORE_COMMIT_STEPS);
   return parts.join('; ');
 }
 
@@ -444,4 +458,5 @@ module.exports = {
   BLOCK_START,
   BLOCK_END,
   LOCAL_ONLY_NOTE,
+  STORE_COMMIT_STEPS,
 };
