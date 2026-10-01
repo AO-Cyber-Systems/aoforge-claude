@@ -11,7 +11,8 @@
 //   20. `git` is spawned only at two named sites: gh-wiki.cjs (the store) and awareness.cjs (older, local).
 //   21. the store modules (gh-hierarchy, gh-comments, gh-cache, gh-capability, gh-trd, gh-outbox, gh-wiki)
 //       never call `ghWrite(`: every GitHub write goes through the outbox flusher.
-// `gh-store-cli.cjs` (47-11) is added to GUARDED by 47-13.
+// TRD 47-13 adds `gh-store-cli.cjs` (47-11) to GUARDED and to that list: the command layer spawns neither gh nor
+// git and never writes to GitHub itself; it calls the library (flush, comments, hierarchy) that does.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -25,10 +26,12 @@ const GUARDED = [
   // objective 47 store modules (TRD 47-12)
   'gh-trd.cjs', 'gh-capability.cjs', 'gh-outbox.cjs', 'gh-outbox-flush.cjs', 'gh-hierarchy.cjs',
   'gh-comments.cjs', 'gh-wiki.cjs', 'gh-cache.cjs',
+  // the command surface over the store (TRD 47-11), guarded since TRD 47-13
+  'gh-store-cli.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
-const NO_DIRECT_WRITE = ['gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs'];
+const NO_DIRECT_WRITE = ['gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs', 'gh-store-cli.cjs'];
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf-8');
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line);
@@ -112,7 +115,7 @@ describe('one gh seam (TRD 46-08)', () => {
   });
 
   test('21: store modules never call ghWrite( (the flusher is the only writer), and the guard lists every store module', () => {
-    for (const f of ['gh-trd.cjs', 'gh-capability.cjs', 'gh-outbox.cjs', 'gh-outbox-flush.cjs', 'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-wiki.cjs', 'gh-cache.cjs']) {
+    for (const f of ['gh-trd.cjs', 'gh-capability.cjs', 'gh-outbox.cjs', 'gh-outbox-flush.cjs', 'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-wiki.cjs', 'gh-cache.cjs', 'gh-store-cli.cjs']) {
       assert.ok(GUARDED.includes(f), `${f} is guarded`);
     }
     const hits = [];
