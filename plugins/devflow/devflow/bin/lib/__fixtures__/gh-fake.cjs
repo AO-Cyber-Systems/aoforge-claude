@@ -24,6 +24,7 @@
 //   `id` is GitHub's database id: ALWAYS `1_000_000 + number`, never the number (47 Pitfall 1). Sub-issue
 //   and dependency endpoints take only that id, so a caller that sends a number gets a 404.
 //   comment { id, issue_number, body, user:{login}, created_at, updated_at, html_url }
+//   milestone { number, title, description, state:'open'|'closed', due_on:string|null, closed_at:string|null }
 // `--json` output converts to gh's shape (labels -> [{name}], milestone -> {number,title}).
 // `updatedAt` comes from an internal counter clock that advances 1 s per mutation, so it is an ISO
 // string that strictly increases and never depends on wall time. It is ONE field: gh `--json updatedAt`
@@ -35,6 +36,8 @@
 // .../sub_issue (DELETE), .../parent (GET), .../dependencies/blocked_by (GET, POST) and
 // .../blocked_by/{id} (DELETE), .../dependencies/blocking (GET), .../issue-field-values (GET, POST, PUT),
 // plus repos/o/r (GET), orgs/{o}/issue-types and orgs/{o}/issue-fields. GraphQL stays caller-handled.
+// Milestones (48-05): repos/o/r/milestones (POST, GET) and repos/o/r/milestones/{n} (GET, PATCH by NUMBER:
+// title, description, state, due_on; closing stamps closed_at, reopening clears it).
 // What the repo can do is configured per fake (`ownerType`, `hasWiki`, `push`, `types`, `fields`,
 // `subIssuesApi`), and `setOffline(true)` turns every call into a network outage.
 
@@ -140,7 +143,7 @@ function createFakeGitHub({
   const fieldDefs = fields; // runApi has a local `fields` (the request body), so name the definitions apart
   const issues = [];
   const comments = [];
-  const milestones = []; // { number, title, description, state }
+  const milestones = []; // { number, title, description, state, due_on, closed_at }
   const labels = [];     // names
   const log = [];        // every argv runGh saw, in order
   const stamps = [];     // the `now()` reading for each entry of `log` (null without a clock)
@@ -161,9 +164,34 @@ function createFakeGitHub({
   }
 
   function addMilestone(title, description = '') {
-    const m = { number: nextMilestone++, title, description, state: 'open' };
+    const m = { number: nextMilestone++, title, description, state: 'open', due_on: null, closed_at: null };
     milestones.push(m);
     return m;
+  }
+
+  /**
+   * Apply a milestone create/edit body (48-05): title, description, state (open|closed), due_on (null or ''
+   * clears it). Closing stamps `closed_at`, reopening clears it. Validates first, so a 422 changes nothing.
+   * @returns {object|null} a failure response, or null when applied
+   */
+  function applyMilestoneFields(m, f) {
+    if (f.state !== undefined && f.state !== 'open' && f.state !== 'closed') {
+      return fail('gh: Validation Failed (HTTP 422)', JSON.stringify({ message: 'Validation Failed', errors: [{ resource: 'Milestone', code: 'invalid', field: 'state' }], status: '422' }));
+    }
+    if (f.title !== undefined) {
+      if (!f.title) return fail('gh: Validation Failed (HTTP 422)', JSON.stringify({ message: 'Validation Failed', errors: [{ resource: 'Milestone', code: 'missing_field', field: 'title' }], status: '422' }));
+      if (milestones.some((x) => x !== m && x.title === f.title)) {
+        return fail('gh: Validation Failed (HTTP 422)', JSON.stringify({ message: 'Validation Failed', errors: [{ resource: 'Milestone', code: 'already_exists', field: 'title' }], status: '422' }));
+      }
+      m.title = String(f.title);
+    }
+    if (f.description !== undefined) m.description = f.description === null ? '' : String(f.description);
+    if (f.due_on !== undefined) m.due_on = (f.due_on === null || f.due_on === '') ? null : String(f.due_on);
+    if (f.state !== undefined && f.state !== m.state) {
+      m.state = f.state;
+      m.closed_at = f.state === 'closed' ? tick() : null;
+    }
+    return null;
   }
 
   /** `owner` defaults to the repo owner; a test seeds another to exercise the same-owner sub-issue rule. */
@@ -682,13 +710,31 @@ function createFakeGitHub({
         if (milestones.some((x) => x.title === title)) {
           return fail('gh: Validation Failed (HTTP 422)', JSON.stringify({ message: 'Validation Failed', errors: [{ resource: 'Milestone', code: 'already_exists', field: 'title' }], status: '422' }));
         }
+        if (fields.state !== undefined && fields.state !== 'open' && fields.state !== 'closed') {
+          return fail('gh: Validation Failed (HTTP 422)', JSON.stringify({ message: 'Validation Failed', errors: [{ resource: 'Milestone', code: 'invalid', field: 'state' }], status: '422' }));
+        }
         const made = addMilestone(title, fields.description || '');
+        applyMilestoneFields(made, { state: fields.state, due_on: fields.due_on });
         return ok(JSON.stringify(made));
       }
       if (method === 'GET') {
         const state = qs.get('state') || 'open';
         const rows = milestones.filter((x) => state === 'all' || x.state === state).map((x) => ({ ...x }));
         return respondList(rows, p, qs);
+      }
+      return unsupported(args);
+    }
+
+    // 48-05: one milestone, by NUMBER (REST never addresses a milestone by title).
+    m = /^repos\/([^/]+\/[^/]+)\/milestones\/(\d+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      const ms = milestones.find((x) => x.number === Number(m[2]));
+      if (!ms) return notFound();
+      if (method === 'GET') return ok(JSON.stringify({ ...ms }));
+      if (method === 'PATCH') {
+        const refused = applyMilestoneFields(ms, fields);
+        return refused || ok(JSON.stringify({ ...ms }));
       }
       return unsupported(args);
     }

@@ -3,7 +3,8 @@
 // gh-wiki.cjs (TRD 47-04, GST-06 / GST-08 wiki half / GST-02 revision pin) — the wiki store.
 //
 // GitHub is the system of record for long-form planning documents (PROJECT, REQUIREMENTS, the
-// objective OBJECTIVE/CONTEXT/RESEARCH bodies, codebase docs, ADRs, retros). They live in the repo's
+// objective OBJECTIVE/CONTEXT/RESEARCH bodies and other objective docs such as UAT/EVIDENCE/ROLLOUT,
+// codebase docs, research notes, milestone entries and archives, ADRs, retros). They live in the repo's
 // wiki, a git repository at `<repo>.wiki.git`. This module is the whole interface to it:
 //
 //   - ONE page table (`PAGE_TABLE`) maps a `.planning/` cache path to a wiki page name and back.
@@ -88,6 +89,22 @@ const CODEBASE_RE = /^codebase\/([A-Z0-9]+(?:[_-][A-Z0-9]+)*)\.md$/;
 const ADR_RE = /^adr\/(\d{4,})-([A-Za-z0-9_-]+)\.md$/;
 const RETRO_RE = /^retros\/v(\d+(?:\.\d+)*)\.md$/;
 
+// 48-05 (D-04, D-05). An UPPER-CASE kind (`MILESTONE-AUDIT`, `UAT`) is title-cased per hyphen part in the page
+// name (`Milestone-Audit`, `Uat`) and upper-cased back, so each page inverts to exactly one cache path.
+const RESEARCH_RE = /^research\/([A-Za-z0-9][A-Za-z0-9_-]*)\.md$/;
+const MILESTONE_RE = /^milestones\/v(\d+(?:\.\d+)*)\.md$/;
+const MILESTONE_ARCHIVE_RE = /^milestones\/v(\d+(?:\.\d+)*)-([A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*)\.md$/;
+const OBJECTIVE_DOC_RE = /^objectives\/([^/]+)\/(\d+(?:\.\d+)?)-([A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*)\.md$/;
+const TITLE_KIND_RE = /^[A-Z][a-z0-9]*(?:-[A-Z][a-z0-9]*)*$/;
+// Issue-backed (TRD, SUMMARY, VERIFICATION) or already owned by a 47 rule (CONTEXT, RESEARCH).
+const OBJECTIVE_DOC_EXCLUDED = new Set(['TRD', 'SUMMARY', 'VERIFICATION', 'CONTEXT', 'RESEARCH']);
+
+/** `MILESTONE-AUDIT` -> `Milestone-Audit`. */
+const titleKind = (kind) => kind.split('-').map((p) => p[0] + p.slice(1).toLowerCase()).join('-');
+/** `1.3` -> `1_3` (like Retro-v1_3) and back. */
+const versionToPage = (v) => v.replace(/\./g, '_');
+const versionFromPage = (v) => v.replace(/_/g, '.');
+
 /** Rule for `objectives/<dir>/[<NN>-]<KIND>.md` -> `<ObjectivePage>-<Suffix>`. */
 function objectiveDocRule(kind, suffix) {
   const fileRe = new RegExp(`^objectives/([^/]+)/(?:\\d+(?:\\.\\d+)?-)?${kind}\\.md$`);
@@ -115,7 +132,20 @@ function objectiveDocRule(kind, suffix) {
  * THE page-mapping table (single source for both directions). An ordered rule list; each rule is
  *   { name, match(relCachePath) -> page | null, invert(page, {objectiveDirs}) -> relCachePath | null }.
  * `relCachePath` is relative to `.planning/` with `/` separators. Anything no rule matches is not a wiki
- * document (STATE.md, config.json, TRDs, SUMMARYs...), and maps to null.
+ * document (STATE.md, config.json, TRDs, SUMMARYs, VERIFICATIONs...), and maps to null.
+ *
+ * The classes, in order (order is significant: an earlier rule wins):
+ *   PROJECT / REQUIREMENTS / ROADMAP         -> Project / Requirements / Roadmap
+ *   codebase/STACK.md                        -> Codebase-Stack
+ *   research/<stem>.md                       -> Research-<stem>                     (48-05, D-04)
+ *   milestones/vX.Y.md                       -> Milestone-vX_Y                      (48-05, D-05)
+ *   milestones/vX.Y-<KIND>.md                -> Milestone-vX_Y-<Kind>               (48-05, D-05)
+ *   objectives/<dir>/[<N>-]CONTEXT|RESEARCH  -> <ObjectivePage>-Context|Research
+ *   objectives/<dir>/OBJECTIVE.md            -> <ObjectivePage>
+ *   objectives/<dir>/<N>-<SUFFIX>.md         -> <ObjectivePage>-<Suffix>            (48-05, D-04: UAT, EVIDENCE,
+ *                                               ROLLOUT, DISCOVERY...; never TRD/SUMMARY/VERIFICATION)
+ *   adr/NNNN-<slug>.md                       -> ADR-NNNN-<slug>
+ *   retros/vX.Y.md                           -> Retro-vX_Y
  */
 const PAGE_TABLE = [
   fixedRule('project', 'PROJECT.md', 'Project'),
@@ -133,6 +163,39 @@ const PAGE_TABLE = [
       return m ? `codebase/${m[1].toUpperCase()}.md` : null;
     },
   },
+  {
+    name: 'research',
+    match(rel) {
+      const m = rel.match(RESEARCH_RE);
+      return m ? `Research-${m[1]}` : null;
+    },
+    invert(page) {
+      const m = page.match(/^Research-([A-Za-z0-9][A-Za-z0-9_-]*)$/);
+      return m ? `research/${m[1]}.md` : null;
+    },
+  },
+  {
+    name: 'milestone',
+    match(rel) {
+      const m = rel.match(MILESTONE_RE);
+      return m ? `Milestone-v${versionToPage(m[1])}` : null;
+    },
+    invert(page) {
+      const m = page.match(/^Milestone-v(\d+(?:_\d+)*)$/);
+      return m ? `milestones/v${versionFromPage(m[1])}.md` : null;
+    },
+  },
+  {
+    name: 'milestone-archive',
+    match(rel) {
+      const m = rel.match(MILESTONE_ARCHIVE_RE);
+      return m ? `Milestone-v${versionToPage(m[1])}-${titleKind(m[2])}` : null;
+    },
+    invert(page) {
+      const m = page.match(/^Milestone-v(\d+(?:_\d+)*)-([A-Z][a-z0-9]*(?:-[A-Z][a-z0-9]*)*)$/);
+      return m ? `milestones/v${versionFromPage(m[1])}-${m[2].toUpperCase()}.md` : null;
+    },
+  },
   objectiveDocRule('CONTEXT', 'Context'),
   objectiveDocRule('RESEARCH', 'Research'),
   {
@@ -144,6 +207,31 @@ const PAGE_TABLE = [
     invert(page, ctx) {
       for (const dir of ctx.objectiveDirs) {
         if (objectivePage(dir) === page) return `objectives/${dir}/OBJECTIVE.md`;
+      }
+      return null;
+    },
+  },
+  {
+    // Any other `<N>-<SUFFIX>.md` beside an objective: N must be the directory's own objective prefix, so a
+    // TRD (`NN-MM-...-TRD.md`) can never match, and the issue-backed suffixes are refused outright.
+    name: 'objective-doc',
+    match(rel) {
+      const m = rel.match(OBJECTIVE_DOC_RE);
+      if (!m || OBJECTIVE_DOC_EXCLUDED.has(m[3])) return null;
+      const dir = parseObjectiveDir(m[1]);
+      if (!dir || dir.prefix !== m[2]) return null;
+      const base = objectivePage(m[1]);
+      return base ? `${base}-${titleKind(m[3])}` : null;
+    },
+    invert(page, ctx) {
+      for (const dir of ctx.objectiveDirs) {
+        const base = objectivePage(dir);
+        if (!base || !page.startsWith(`${base}-`)) continue;
+        const kind = page.slice(base.length + 1);
+        if (!TITLE_KIND_RE.test(kind)) continue;
+        const suffix = kind.toUpperCase();
+        if (OBJECTIVE_DOC_EXCLUDED.has(suffix)) continue;
+        return `objectives/${dir}/${parseObjectiveDir(dir).prefix}-${suffix}.md`;
       }
       return null;
     },
@@ -660,6 +748,7 @@ module.exports = {
   WIKI_BRANCH,
   PAGE_TABLE,
   objectivePage,
+  validPage,
   pageForCachePath,
   cachePathForPage,
   pageRevisionUrl,
