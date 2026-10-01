@@ -3,7 +3,7 @@ objective: 51-github-migration-and-docs
 trd: "10"
 type: standard
 wave: 6
-depends_on: ["51-01", "51-08", "51-09"]
+depends_on: ["51-01", "51-05", "51-08", "51-09"]
 files_modified:
   - CLAUDE.md
   - docs/USER-GUIDE.md
@@ -102,7 +102,9 @@ TRD. MA-7 (`handoff-e2e.test.cjs`, real `doctl` on the machine) is the known env
 Record pass/fail/skip counts in the SUMMARY.
   </action>
   <verify>npm test</verify>
-  <done>`npm test` green apart from MA-7 (SC3).</done>
+  <done>SC3 passes only if `npm test` has no failure, or its sole failure is the known MA-7 handoff-e2e test, reported verbatim
+  (test name + error lines) in the SUMMARY with a citation of where it is already documented (.planning/PROJECT.md "1 known failure
+  (MA-7 handoff-e2e)" and 50-13-SUMMARY.md). Any other failure fails SC3.</done>
 </task>
 
 </tasks>

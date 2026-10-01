@@ -16,7 +16,7 @@ must_haves:
   truths:
     - "Objective 26's OBJECTIVE.md frontmatter reads `status: cancelled`, written by `objective set-status 26 cancelled` (never `objective remove`; no directory is renamed or renumbered)"
     - "Objective 26's OBJECTIVE.md has a `## Disposition` section stating it was killed on 2026-10-01 by user decision (GMD-04), with the rationale, and its locked-design text is kept below it"
-    - "ROADMAP.md says objective 26 is killed in the milestone list line, the Other v1.4 candidates bullet and the Progress row; objective 51 success criterion 2 reads `objective 26 killed; decision recorded`"
+    - "ROADMAP.md says objective 26 is killed in the milestone list line, the Other v1.4 candidates bullet and the Progress row; objective 51's ROADMAP success criteria keep the re-run no-op criterion (OBJECTIVE.md SC2) and gain an additional criterion `objective 26 killed; decision recorded` (OBJECTIVE.md governs)"
     - "STATE.md Recent Decisions and PROJECT.md's v1.4 open-decision list record the kill as resolved"
     - "A decision-queue entry attached to TRD 51-01 records the question and its answer (decision open + decision answer), so the decision survives the GitHub backfill as a closed Decision issue"
     - "`validate consistency` and the doc-refs repo test stay green"
@@ -49,6 +49,7 @@ No code changes.
 - **Never** `objective remove` (it cascade-renumbers every objective above 26; memory note `feedback_dftools_objective_ops`).
 - ROADMAP.md edits are confined to the lines named below. Do not touch any other objective's section (objective 51's TRD list was
   written by the planner; leave it).
+- Drafts, question and answer files go in the session scratchpad `/private/tmp/claude-501/-Users-justin-dev-devflow-claude/9df8cf99-8c66-4dda-b632-f12fb5649d2d/scratchpad/`.
 - Commit with `node plugins/devflow/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`.
 - No TDD: this TRD changes planning records only. <!-- TDD-EXCEPTION: decision record, no code -->
 
@@ -72,7 +73,8 @@ No code changes.
 1. `objective set-status 26 cancelled` → OBJECTIVE.md frontmatter has `status: cancelled`; `git diff` shows only that change.
 2. After `objective put 26`: the Disposition section is present above `## Locked decisions`; every original line is still present.
 3. ROADMAP: `rg -n "26" .planning/ROADMAP.md` shows the four edited places say killed/cancelled and nothing else changed.
-4. `node plugins/devflow/devflow/bin/df-tools.cjs validate consistency` reports no new error.
+4. `node plugins/devflow/devflow/bin/df-tools.cjs validate consistency` reports no new error; ROADMAP objective 51 still lists
+   the no-op criterion.
 5. `node --test plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/roadmap.test.cjs` green.
 
 <tasks>
@@ -85,8 +87,9 @@ No code changes.
 2. `node plugins/devflow/devflow/bin/df-tools.cjs planning draft objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md` → edit the
    printed temp copy: insert `## Disposition` (the rationale from Decisions) directly after `## Goal`'s paragraph and before
    `## Locked decisions`. Then `objective put 26 --from <draft>`.
-3. Write the question to `/private/tmp/claude-501/obj26-question.md`, run `decision open 51-01 --question @<that file>`, then
-   `decision answer <DECISION-id> --from <answer file>`.
+3. Write the question to `/private/tmp/claude-501/-Users-justin-dev-devflow-claude/9df8cf99-8c66-4dda-b632-f12fb5649d2d/scratchpad/obj26-question.md` and the answer to `/private/tmp/claude-501/-Users-justin-dev-devflow-claude/9df8cf99-8c66-4dda-b632-f12fb5649d2d/scratchpad/obj26-answer.md`, run
+   `decision open 51-01 --question @/private/tmp/claude-501/-Users-justin-dev-devflow-claude/9df8cf99-8c66-4dda-b632-f12fb5649d2d/scratchpad/obj26-question.md`, then
+   `decision answer <DECISION-id> --from /private/tmp/claude-501/-Users-justin-dev-devflow-claude/9df8cf99-8c66-4dda-b632-f12fb5649d2d/scratchpad/obj26-answer.md`.
 4. Commit `docs(51-01): kill objective 26 (GMD-04)` with the OBJECTIVE.md and the decision file(s) the verbs wrote
    (`git status --short .planning/decisions` lists them).
   </action>
@@ -104,7 +107,9 @@ or a targeted Edit if `doc put` does not own ROADMAP.md: check `planning-paths.c
 - "Other v1.4 candidates" bullet: lead with "**KILLED 2026-10-01** (user decision, GMD-04; see its OBJECTIVE.md Disposition)" and drop
   "candidate for killing".
 - Progress row 26: status `Cancelled (killed by user decision 2026-10-01; GMD-04)`, Completed `2026-10-01`.
-- Objective 51 success criterion 2: `Docs pass doc-refs; objective 26 killed; decision recorded`.
+- Objective 51 success criteria: keep criterion 1 exactly (it carries OBJECTIVE.md SC2, "re-running the migration is a no-op"); set
+  criterion 2 to `Docs pass doc-refs; `npm test` green`; ADD criterion 3 `objective 26 killed; decision recorded`. Never drop an
+  OBJECTIVE.md success criterion: OBJECTIVE.md governs, ROADMAP mirrors it.
 STATE.md `## Recent Decisions`: prepend one dated bullet: "**Objective 26 killed (2026-10-01, GMD-04)** — user decision; status
 cancelled, Disposition in its OBJECTIVE.md, decision <DECISION-id>."
 PROJECT.md: replace "Objective 26 ... moved to v1.4 as a kill candidate." with "Objective 26 (GitHub issue auto-build monitor) was killed
@@ -112,7 +117,7 @@ on 2026-10-01 (resolved; GMD-04)." Use the verb `planning-paths` names for STATE
 Commit `docs(51-01): record objective 26 kill in roadmap, state and project`.
 # GOTCHA: ROADMAP has several `26` substrings (dates, `2026`); edit only the four places above.
   </action>
-  <verify>node plugins/devflow/devflow/bin/df-tools.cjs validate consistency; node --test plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/roadmap.test.cjs</verify>
+  <verify>node plugins/devflow/devflow/bin/df-tools.cjs validate consistency; node --test plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/roadmap.test.cjs && grep -q "KILLED 2026-10-01" .planning/ROADMAP.md && grep -q "objective 26 killed" .planning/ROADMAP.md</verify>
   <done>Test list 3-5 pass; `git diff HEAD~1 -- .planning/ROADMAP.md` touches only the four named places.</done>
 </task>
 
