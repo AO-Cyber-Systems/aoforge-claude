@@ -1325,3 +1325,214 @@ describe('48-08 store-mode cache deny', () => {
     assert.equal(gateEdits.shouldGate(store).decision, 'deny');
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 48-08 — main() reads store mode from the MAIN checkout (spawn level)
+// ---------------------------------------------------------------------------
+
+const STORE_ON = { github: { enabled: true, store: true, repo: 'o/r' } };
+
+/** A temp DevFlow project whose `.planning/config.json` is `config` (omitted when undefined). */
+function makeStoreProject(config) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-store-')));
+  fs.mkdirSync(path.join(root, '.planning', 'objectives', '07-x'), { recursive: true });
+  if (config !== undefined) {
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+  }
+  return root;
+}
+
+/** Spawn the hook in `root` with a clean env: no DEVFLOW_SKIP_EDIT_GATE, HOME inside the temp dir. */
+function runStoreHook(root, { tool = 'Write', filePath, agentType, extraEnv = {} }) {
+  const payload = realPreToolUsePayload({ tool_name: tool, file_path: filePath, cwd: root });
+  if (agentType) payload.agent_type = agentType;
+  return runHook(payload, { cwd: root, extraEnv: { HOME: root, ...extraEnv } }).result;
+}
+
+const trdOf = (root) => path.join(root, '.planning', 'objectives', '07-x', '07-01-a-TRD.md');
+
+describe('48-08 gate main() in store mode (subprocess)', () => {
+  test('test 11 (SC2): store on → Write of a TRD emits deny naming `plan put-trd`', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      const result = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(result), 'deny', result.stdout);
+      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+      assert.match(reason, /plan put-trd/);
+      assert.match(reason, /^objectives\/07-x\/07-01-a-TRD\.md is a read-only cache of GitHub in store mode/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 11b (SC2): a live skill marker and a devflow:executor agent are still denied', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      fs.writeFileSync(
+        path.join(root, '.planning', '.skill-active'),
+        JSON.stringify({ skill: 'build', started_at: new Date().toISOString(), pid: process.pid })
+      );
+      for (const tool of ['Write', 'Edit', 'MultiEdit']) {
+        const result = runStoreHook(root, { tool, filePath: trdOf(root), agentType: 'devflow:executor' });
+        assert.equal(hookDecision(result), 'deny', `${tool}: ${result.stdout}`);
+        assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /plan put-trd/);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 11c: store on → config.json and runtime paths allowed; devflow:executor code write allowed (D-10)', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      for (const rel of ['config.json', 'STACK.md', 'state.json', '.trd-progress/07-01.md']) {
+        const result = runStoreHook(root, { filePath: path.join(root, '.planning', rel) });
+        assert.equal(hookDecision(result), 'none', `${rel}: ${result.stdout}`);
+      }
+      const code = runStoreHook(root, { filePath: path.join(root, 'src', 'a.cjs'), agentType: 'devflow:executor' });
+      assert.equal(hookDecision(code), 'none', code.stdout);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12: gates.editGate warn turns the cache deny into ask', () => {
+    const root = makeStoreProject({ ...STORE_ON, gates: { editGate: 'warn' } });
+    try {
+      const result = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(result), 'ask', result.stdout);
+      assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /plan put-trd/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12b: DEVFLOW_SKIP_EDIT_GATE=1 and gates.editGate off still disable the gate', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      const skipped = runStoreHook(root, { filePath: trdOf(root), extraEnv: { DEVFLOW_SKIP_EDIT_GATE: '1' } });
+      assert.equal(hookDecision(skipped), 'none', skipped.stdout);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    const off = makeStoreProject({ ...STORE_ON, gates: { editGate: 'off' } });
+    try {
+      const result = runStoreHook(off, { filePath: trdOf(off) });
+      assert.equal(hookDecision(result), 'none', result.stdout);
+    } finally {
+      fs.rmSync(off, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12c: a fresh .edit-override marker allows one cache edit', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      const marker = path.join(root, '.planning', '.edit-override');
+      fs.writeFileSync(marker, JSON.stringify({ created_at: new Date().toISOString() }));
+      const first = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(first), 'none', first.stdout);
+      assert.equal(fs.existsSync(marker), false, 'override marker is single-use');
+      const second = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(second), 'deny', second.stdout);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12d (store-off invariant): no output for every cache path when store is off', () => {
+    const offConfigs = [
+      undefined, // no config.json at all
+      {}, // no github block
+      { github: { enabled: true, store: false, repo: 'o/r' } }, // TRD test 12: store:false
+      { github: { enabled: false, store: true, repo: 'o/r' } }, // enabled false wins
+      { github: { enabled: false } }, // this repo's own shape
+      { github: { enabled: 'true', store: 'true' } }, // strict booleans only
+    ];
+    const rels = ['objectives/07-x/07-01-a-TRD.md', 'objectives/07-x/OBJECTIVE.md', 'ROADMAP.md', 'STATE.md', 'todos/pending/a.md'];
+    for (const config of offConfigs) {
+      const root = makeStoreProject(config);
+      try {
+        for (const rel of rels) {
+          const result = runStoreHook(root, { filePath: path.join(root, '.planning', rel) });
+          assert.equal(hookDecision(result), 'none', `${JSON.stringify(config)} ${rel}: ${result.stdout}`);
+        }
+        // Code files keep today's ambient deny with store off.
+        const code = runStoreHook(root, { filePath: path.join(root, 'src', 'a.cjs') });
+        assert.equal(hookDecision(code), 'deny', `${JSON.stringify(config)} code`);
+        assert.match(JSON.parse(code.stdout).hookSpecificOutput.permissionDecisionReason, /ambient mode/);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('mode is read from the MAIN checkout config, not the worktree\'s', (t) => {
+    const fx = makeRepoWithWorktree({ markerInMain: false });
+    if (!fx) {
+      t.skip('git unavailable');
+      return;
+    }
+    try {
+      // Main on, worktree's own config off → the worktree's TRD edit is denied.
+      fs.writeFileSync(path.join(fx.main, '.planning', 'config.json'), JSON.stringify(STORE_ON));
+      fs.writeFileSync(path.join(fx.wt, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+      const wtTrd = path.join(fx.wt, '.planning', 'objectives', '07-x', '07-01-a-TRD.md');
+      const denied = runStoreHook(fx.wt, { filePath: wtTrd, agentType: 'devflow:executor' });
+      assert.equal(hookDecision(denied), 'deny', denied.stdout);
+      assert.match(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecisionReason, /plan put-trd 07 07-01-a-TRD\.md/);
+
+      // The main checkout's generated file, edited from the worktree, is denied too.
+      const mainState = runStoreHook(fx.wt, { filePath: path.join(fx.main, '.planning', 'STATE.md') });
+      assert.equal(hookDecision(mainState), 'deny', mainState.stdout);
+      assert.match(JSON.parse(mainState.stdout).hookSpecificOutput.permissionDecisionReason, /gh pull --all/);
+
+      // Main off, worktree's own config on → store off: allowed as today.
+      fs.writeFileSync(path.join(fx.main, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+      fs.writeFileSync(path.join(fx.wt, '.planning', 'config.json'), JSON.stringify(STORE_ON));
+      const allowed = runStoreHook(fx.wt, { filePath: wtTrd });
+      assert.equal(hookDecision(allowed), 'none', allowed.stdout);
+    } finally {
+      fs.rmSync(fx.root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('48-08 readStoreMode', () => {
+  const gateEdits = require('./gate-edits.js');
+
+  test('true only when the main checkout has github.enabled and github.store true', () => {
+    const on = makeStoreProject(STORE_ON);
+    const off = makeStoreProject({ github: { enabled: false, store: true } });
+    try {
+      assert.equal(gateEdits.readStoreMode(on), true);
+      assert.equal(gateEdits.readStoreMode(path.join(on, 'src')), true);
+      assert.equal(gateEdits.readStoreMode(off), false);
+    } finally {
+      fs.rmSync(on, { recursive: true, force: true });
+      fs.rmSync(off, { recursive: true, force: true });
+    }
+  });
+
+  test('test 13 (fail open): a throwing isStoreMode or unavailable libs read as store off', () => {
+    const on = makeStoreProject(STORE_ON);
+    try {
+      gateEdits._setPlanningLibs({
+        isStoreMode: () => { throw new Error('mode exploded'); },
+        classify: () => { throw new Error('classifier exploded'); },
+        relToPlanning: () => null,
+      });
+      assert.equal(gateEdits.readStoreMode(on), false);
+      gateEdits._setPlanningLibs(null);
+      assert.equal(gateEdits.readStoreMode(on), false);
+      gateEdits._setPlanningLibs({ isStoreMode: () => 'store', classify: () => null, relToPlanning: () => null });
+      assert.equal(gateEdits.readStoreMode(on), false, 'only a literal true counts');
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+      fs.rmSync(on, { recursive: true, force: true });
+    }
+  });
+
+  test('a missing directory reads as store off without throwing', () => {
+    assert.equal(gateEdits.readStoreMode(path.join(os.tmpdir(), 'gate-edits-no-such-dir-48-08')), false);
+  });
+});
