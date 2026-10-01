@@ -882,6 +882,159 @@ describe('47 store sections', () => {
   });
 });
 
+// ─── 47: Decision-form ids and multi-part comment lookup ─────────────────────
+
+describe('47 decision ids and comment lookup', () => {
+  const comment = (id, markerId, kind, part, text) => ({
+    id,
+    body: `${ghBody.commentMarker(markerId, kind)}\n${part ? `<!-- devflow:part=${part} -->\n` : ''}${text || 'text'}`,
+  });
+
+  test('10: the Decision id form 47-01-d1 is a valid marker id', () => {
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=47-01-d1 -->'), { id: '47-01-d1', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=47-01-d12 kind=spec -->'), {
+      id: '47-01-d12',
+      kind: 'spec',
+    });
+    assert.strictEqual(ghBody.markerLine('47-01-d1'), '<!-- devflow:id=47-01-d1 -->');
+    assert.strictEqual(ghBody.commentMarker('47-01-d1', 'decision'), '<!-- devflow:id=47-01-d1 kind=decision -->');
+  });
+
+  test('10b: leading zeros on the objective part are dropped from a Decision id; the TRD part is kept', () => {
+    assert.strictEqual(ghBody.markerLine('047-01-d1'), '<!-- devflow:id=47-01-d1 -->');
+    assert.strictEqual(ghBody.markerLine('07-01-d2'), '<!-- devflow:id=7-01-d2 -->');
+    assert.strictEqual(ghBody.markerLine('2.1-03-d4'), '<!-- devflow:id=2.1-03-d4 -->');
+  });
+
+  test('10c: ids that are not a Decision form are still invalid', () => {
+    for (const bad of ['47-d1', '47-01-d', '47-01-d1-2', '47-01-dx', '47-01d1', '47-01-D1', '47.-01-d1']) {
+      assert.throws(() => ghBody.markerLine(bad), TypeError, bad);
+      assert.strictEqual(ghBody.extractMarker(`<!-- devflow:id=${bad} -->`), null, bad);
+    }
+  });
+
+  test('10d: a Decision-id body merges, and a marker for a different Decision is refused', () => {
+    const r = ghBody.mergeManaged('', { summary: 'S1' }, '47-01-d1');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.body.split('\n')[0], '<!-- devflow:id=47-01-d1 -->');
+    const again = ghBody.mergeManaged(r.body, { summary: 'S1' }, '047-01-d1');
+    assert.strictEqual(again.changed, false);
+    const other = ghBody.mergeManaged(r.body, { summary: 'S1' }, '47-01-d2');
+    assert.strictEqual(other.ok, false);
+    assert.match(other.error, /does not match/);
+  });
+
+  test('10e: all the 46 marker forms still parse', () => {
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=46 -->'), { id: '46', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=2.1 -->'), { id: '2.1', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=46-02 -->'), { id: '46-02', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=46 kind=state -->'), { id: '46', kind: 'state' });
+  });
+
+  test('11: extractMarker ignores the dir and file markers (they have no id=)', () => {
+    assert.strictEqual(ghBody.extractMarker('<!-- devflow:dir=x -->'), null);
+    assert.strictEqual(ghBody.extractMarker('<!-- devflow:file=y -->'), null);
+    assert.strictEqual(ghBody.extractMarker('<!-- devflow:dir=07-store-demo -->\n<!-- devflow:file=07-01-TRD.md -->'), null);
+    assert.deepStrictEqual(
+      ghBody.extractMarker('<!-- devflow:dir=x -->\n<!-- devflow:id=7 -->\n<!-- devflow:file=y -->'),
+      { id: '7', kind: null }
+    );
+  });
+
+  test('12: findCommentsByMarker returns every part comment in part order, even if given 2/2 before 1/2', () => {
+    const c2 = comment(902, '07-01', 'summary', '2/2', 'second half');
+    const c1 = comment(901, '07-01', 'summary', '1/2', 'first half');
+    const otherId = comment(5, '07-02', 'summary', '1/1');
+    const otherKind = comment(6, '07-01', 'verification', '1/1');
+    const human = { id: 7, body: 'LGTM' };
+    const issueMarker = { id: 8, body: '<!-- devflow:id=7-01 -->\nnot a comment kind' };
+    const found = ghBody.findCommentsByMarker([c2, otherId, human, c1, otherKind, issueMarker], '07-01', 'summary');
+    assert.deepStrictEqual(found, [
+      { comment: c1, part: 1, of: 2 },
+      { comment: c2, part: 2, of: 2 },
+    ]);
+  });
+
+  test('12b: the id is compared canonically and part order is numeric (10 after 9, not after 1)', () => {
+    const parts = [];
+    for (let i = 12; i >= 1; i--) parts.push(comment(1000 + i, '7-01', 'spec', `${i}/12`));
+    const found = ghBody.findCommentsByMarker(parts, '007-01', 'spec');
+    assert.deepStrictEqual(
+      found.map((f) => f.part),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    );
+    assert.ok(found.every((f) => f.of === 12));
+  });
+
+  test('12c: a comment without a part marker is part 1 of 1; ties break by comment id', () => {
+    const a = comment(30, '7-01', 'summary');
+    const b = comment(20, '7-01', 'summary');
+    const found = ghBody.findCommentsByMarker([a, b], '7-01', 'summary');
+    assert.deepStrictEqual(found, [
+      { comment: b, part: 1, of: 1 },
+      { comment: a, part: 1, of: 1 },
+    ]);
+  });
+
+  test('12d: the part marker is only read from the line after the marker; a malformed one counts as part 1', () => {
+    const late = { id: 1, body: `${ghBody.commentMarker('7-01', 'summary')}\ntext\n<!-- devflow:part=2/2 -->` };
+    const zero = comment(2, '7-01', 'summary', '0/2');
+    const over = comment(3, '7-01', 'summary', '3/2');
+    const found = ghBody.findCommentsByMarker([late, zero, over], '7-01', 'summary');
+    assert.deepStrictEqual(
+      found.map((f) => [f.comment.id, f.part, f.of]),
+      [
+        [1, 1, 1],
+        [2, 1, 1],
+        [3, 1, 1],
+      ]
+    );
+  });
+
+  test('12e: CRLF comment bodies are read', () => {
+    const c2 = { id: 2, body: comment(2, '7-01', 'summary', '2/2').body.replace(/\n/g, '\r\n') };
+    const c1 = { id: 1, body: comment(1, '7-01', 'summary', '1/2').body.replace(/\n/g, '\r\n') };
+    const found = ghBody.findCommentsByMarker([c2, c1], '7-01', 'summary');
+    assert.deepStrictEqual(
+      found.map((f) => [f.comment.id, f.part, f.of]),
+      [
+        [1, 1, 2],
+        [2, 2, 2],
+      ]
+    );
+  });
+
+  test('12f: a Decision-form id finds its own comments and not the TRD\'s', () => {
+    const trd = comment(1, '47-01', 'summary');
+    const dec = comment(2, '47-01-d1', 'summary');
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([trd, dec], '47-01-d1', 'summary'), [
+      { comment: dec, part: 1, of: 1 },
+    ]);
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([trd, dec], '47-01', 'summary'), [
+      { comment: trd, part: 1, of: 1 },
+    ]);
+  });
+
+  test('12g: no match, a non-array and missing bodies give []; an invalid id or kind is a TypeError', () => {
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([], '7-01', 'summary'), []);
+    assert.deepStrictEqual(ghBody.findCommentsByMarker(null, '7-01', 'summary'), []);
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([null, { id: 1 }, { id: 2, body: 5 }], '7-01', 'summary'), []);
+    assert.throws(() => ghBody.findCommentsByMarker([], 'nope', 'summary'), TypeError);
+    assert.throws(() => ghBody.findCommentsByMarker([], '7-01', 'Not Valid'), TypeError);
+  });
+
+  test('12h: with no kind, every comment-kind marker for the id matches (issue-body markers still do not)', () => {
+    const s = comment(1, '7-01', 'summary');
+    const v = comment(2, '7-01', 'verification');
+    const issue = { id: 3, body: '<!-- devflow:id=7-01 -->\nbody' };
+    const found = ghBody.findCommentsByMarker([v, issue, s], '7-01');
+    assert.deepStrictEqual(
+      found.map((f) => f.comment.id),
+      [1, 2]
+    );
+  });
+});
+
 // ─── Module purity───────────────────────────────────────────────────────────
 
 describe('module purity', () => {
