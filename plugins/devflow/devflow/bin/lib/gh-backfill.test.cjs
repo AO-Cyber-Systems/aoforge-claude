@@ -216,7 +216,7 @@ describe('historyOf (test 2)', () => {
     assert.deepEqual(trdStates(byId(h, '5')), { '5-01': 'done', '5-02': 'cancelled' });
     assert.deepEqual(trdStates(byId(h, '6')), { '6-01': 'done', '6-02': 'open' });
     assert.deepEqual(trdStates(byId(h, '7')), { '7-01': 'cancelled' });
-    assert.equal(byId(h, '1').trds[0].summary, '1-01-SUMMARY.md', 'the SUMMARY file is named');
+    assert.equal(byId(h, '1').trds[0].summary, '01-01-SUMMARY.md', 'the SUMMARY file is named as written');
     assert.equal(byId(h, '1').trds[1].summary, null);
   });
 
