@@ -82,6 +82,28 @@ function emptyPayload(p) {
   return isPlainObject(p) && Object.keys(p).length === 0 ? null : 'payload must be {}';
 }
 
+/** A pull request belongs to an objective (`49`, `2.1`), never to a TRD, Decision or entity. */
+const OBJECTIVE_ID_RE = /^\d+(?:\.\d+)?$/;
+
+function objectiveIdErr(v, name) {
+  const e = idErr(v, name);
+  if (e) return e;
+  return OBJECTIVE_ID_RE.test(v) ? null : `${name} must be an objective id such as "49" (a pull request belongs to an objective), got ${JSON.stringify(v)}`;
+}
+
+/**
+ * A git branch name that is safe to put in a query string and a JSON body: no whitespace or control character,
+ * none of `~ ^ : ? * [ \`, no `..`, and not starting with `-` or `/` or ending with `/` or `.`.
+ */
+function branchErr(v, name) {
+  const ok = typeof v === 'string' && v !== '' && !/[\s\x00-\x1f\x7f~^:?*[\\]/.test(v) && !v.includes('..')
+    && !v.startsWith('-') && !v.startsWith('/') && !v.endsWith('/') && !v.endsWith('.');
+  return ok ? null : `${name} must be a git branch name, got ${JSON.stringify(v)}`;
+}
+
+/** `upsert-pr` payload.wiki: the buildWikiSection arguments, `{dir, page, url, sha}`, all non-empty strings. */
+const PR_WIKI_KEYS = ['dir', 'page', 'url', 'sha'];
+
 // ─── OP_KINDS: the one contract between enqueuers (47-08/09/12) and the executor (47-07) ──────────
 
 /** upsert-issue roles: 47's trd/decision, then 48's entity roles (todo, debug, quick). */
@@ -197,10 +219,10 @@ const OP_KINDS = Object.freeze({
       const e = idErr(t.id, 'target.id');
       if (e) return e;
       if (!isPlainObject(p)) return 'payload must be an object';
-      const bad = unknownKey(p, ['type', 'state', 'state_reason', 'labels_add'], 'payload');
+      const bad = unknownKey(p, ['type', 'state', 'state_reason', 'labels_add', 'labels_remove'], 'payload');
       if (bad) return bad;
       if (Object.keys(p).length === 0) {
-        return 'patch-issue payload needs at least one of type, state, state_reason, labels_add';
+        return 'patch-issue payload needs at least one of type, state, state_reason, labels_add, labels_remove';
       }
       if (p.type !== undefined && !isStr(p.type)) return 'payload.type must be a non-empty string';
       if (p.state !== undefined && !ISSUE_STATES.includes(p.state)) {
@@ -211,6 +233,11 @@ const OP_KINDS = Object.freeze({
         const l = strArray(p.labels_add, 'payload.labels_add');
         if (l) return l;
         if (p.labels_add.length === 0) return 'payload.labels_add must not be empty';
+      }
+      if (p.labels_remove !== undefined) {
+        const l = strArray(p.labels_remove, 'payload.labels_remove');
+        if (l) return l;
+        if (p.labels_remove.length === 0) return 'payload.labels_remove must not be empty';
       }
       return null;
     },
@@ -291,6 +318,36 @@ const OP_KINDS = Object.freeze({
         return 'payload.pages must be a non-empty array of paths relative to .planning/ (no absolute paths, no "..")';
       }
       return isStr(p.message) ? null : 'payload.message must be a non-empty string';
+    },
+  },
+  // 49-05: the one pull request per objective. `closes` is never in the payload: the flusher derives it from the
+  // mapping at flush time, so a TRD planned after `gh pr start` still closes on merge. `title` is needed only to
+  // create the PR; an existing PR keeps its remote title.
+  'upsert-pr': {
+    target: ['id'],
+    check(t, p) {
+      const e = objectiveIdErr(t.id, 'target.id');
+      if (e) return e;
+      if (!isPlainObject(p)) return 'payload must be an object';
+      const bad = unknownKey(p, ['branch', 'base', 'title', 'wiki', 'summary'], 'payload');
+      if (bad) return bad;
+      const fail = branchErr(p.branch, 'payload.branch') || branchErr(p.base, 'payload.base');
+      if (fail) return fail;
+      if (p.title !== undefined && !isStr(p.title)) return 'payload.title must be a non-empty string';
+      if (p.summary !== undefined && typeof p.summary !== 'string') return 'payload.summary must be a string';
+      if (p.wiki !== undefined) {
+        const w = p.wiki;
+        if (!isPlainObject(w) || unknownKey(w, PR_WIKI_KEYS, 'wiki') || !PR_WIKI_KEYS.every((k) => isStr(w[k]))) {
+          return 'payload.wiki must be {dir, page, url, sha} of non-empty strings';
+        }
+      }
+      return null;
+    },
+  },
+  'pr-ready': {
+    target: ['id'],
+    check(t, p) {
+      return objectiveIdErr(t.id, 'target.id') || emptyPayload(p);
     },
   },
 });
@@ -962,7 +1019,8 @@ function getBase(projectRoot, id, opts = {}) {
 }
 
 /** A base key is a DevFlow id, or `<id>#<kind>` for a comment (kind as in a comment marker: `summary`, `spec-rev`). */
-const BASE_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:#[a-z][a-z-]*)?$/;
+// The one other form (49-05) is `pr:<objective id>`: the last known body of an objective's pull request.
+const BASE_KEY_RE = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*(?:#[a-z][a-z-]*)?|pr:\d+(?:\.\d+)?)$/;
 
 /**
  * Record the last known remote state of one issue (or, under an `<id>#<kind>` key, one comment): its
