@@ -9,10 +9,15 @@
  * no_llm_test_data: plain inputs for the pure half; temp git repos only for the reader. No gh, no network.
  */
 
-const { describe, test } = require('node:test');
+const { describe, test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 
-const { evaluateGate } = require('./gh-gate.cjs');
+const { evaluateGate, readGateInputs } = require('./gh-gate.cjs');
+const gm = require('./gh-mapping.cjs');
+const ob = require('./objective-branch.cjs');
+const { makeGitRemote, gitAvailable } = require('./__fixtures__/git-remote.cjs');
 
 const LINKED = '50-github-enforcement';
 // `listPrs` output: [objectiveId, entry] pairs.
@@ -178,5 +183,115 @@ describe('50-02 evaluateGate (tests 1-9)', () => {
       assert.equal(typeof r.message, 'string');
       assert.ok(r.message.length > 0);
     }
+  });
+});
+
+describe('50-02 readGateInputs (test 10)', { skip: !gitAvailable() && 'git not installed' }, () => {
+  const remotes = [];
+
+  afterEach(() => {
+    ob._resetRunGit();
+    while (remotes.length) remotes.pop().cleanup();
+  });
+
+  /**
+   * A temp main checkout on the linked branch, with a store-mode config and a mapping holding `prs` in `.planning/`
+   * (untracked, as in store mode, so a linked worktree of it holds no mapping of its own).
+   */
+  function project({ mapping = 'valid' } = {}) {
+    const g = makeGitRemote();
+    remotes.push(g);
+    const planning = path.join(g.work, '.planning');
+    fs.mkdirSync(planning, { recursive: true });
+    fs.writeFileSync(path.join(planning, 'config.json'), `${JSON.stringify({ github: { enabled: true, store: true } })}\n`, 'utf-8');
+    if (mapping === 'valid') {
+      const m = gm.emptyMapping();
+      gm.setPr(m, '50', { branch: LINKED });
+      const w = gm.writeMappingV3(g.work, m);
+      assert.equal(w.ok, true, w.error);
+    } else if (mapping === 'unparseable') {
+      fs.writeFileSync(path.join(planning, '.gh-mapping.json'), '{ not json', 'utf-8');
+    } else if (mapping === 'too-new') {
+      fs.writeFileSync(path.join(planning, '.gh-mapping.json'), `${JSON.stringify({ version: 99 })}\n`, 'utf-8');
+    }
+    g.git(g.work, ['switch', '-q', '-c', LINKED]);
+    return g;
+  }
+
+  test('10. from a git worktree: the mapping comes from the main checkout and both branches are reported', () => {
+    const g = project();
+    const wt = path.join(g.root, 'wt-50-03');
+    g.git(g.work, ['worktree', 'add', '-q', '-b', 'df/exec-50-03', wt]);
+    assert.equal(fs.existsSync(path.join(wt, '.planning')), false, 'control: the worktree holds no .planning/ of its own');
+
+    const inputs = readGateInputs(wt);
+    assert.equal(inputs.branch, 'df/exec-50-03');
+    assert.equal(inputs.mainBranch, LINKED);
+    assert.equal(inputs.defaultBranch, 'main');
+    assert.deepEqual(inputs.prs, [['50', { branch: LINKED }]]);
+
+    assert.deepEqual(evaluateGate({ ...inputs, env: {} }), { allow: true, objective: '50' }, 'the pieces compose into the gate');
+  });
+
+  test('10b. from the main checkout itself: branch and mainBranch are the same', () => {
+    const g = project();
+    const inputs = readGateInputs(g.work);
+    assert.equal(inputs.branch, LINKED);
+    assert.equal(inputs.mainBranch, LINKED);
+    assert.equal(inputs.defaultBranch, 'main');
+    assert.equal(inputs.prs.length, 1);
+  });
+
+  test('10c. a detached HEAD in the worktree reads as branch null; the main checkout branch is still reported', () => {
+    const g = project();
+    const wt = path.join(g.root, 'wt-detached');
+    g.git(g.work, ['worktree', 'add', '-q', '--detach', wt]);
+    const inputs = readGateInputs(wt);
+    assert.equal(inputs.branch, null);
+    assert.equal(inputs.mainBranch, LINKED);
+    assert.equal(evaluateGate({ ...inputs, env: {} }).reason, 'detached_head');
+  });
+
+  test('10d. no mapping file reads as no PRs, so the gate refuses rather than crashes', () => {
+    const g = project({ mapping: 'none' });
+    const inputs = readGateInputs(g.work);
+    assert.deepEqual(inputs.prs, []);
+    assert.equal(evaluateGate({ ...inputs, env: {} }).reason, 'unlinked_branch');
+  });
+
+  test('10e. an unparseable or too-new mapping reads as no PRs', () => {
+    for (const mapping of ['unparseable', 'too-new']) {
+      const g = project({ mapping });
+      assert.deepEqual(readGateInputs(g.work).prs, [], mapping);
+    }
+  });
+
+  test('10f. a default branch the checkout cannot name is null, not an error', () => {
+    const g = project();
+    g.git(g.work, ['remote', 'remove', 'origin']);
+    g.git(g.work, ['branch', '-m', 'main', 'trunk']);
+    assert.equal(readGateInputs(g.work).defaultBranch, null);
+  });
+
+  test('10g. a directory that is not a repository reads as branch null and never throws', () => {
+    const g = project();
+    const outside = path.join(g.root, 'not-a-repo');
+    fs.mkdirSync(outside);
+    const inputs = readGateInputs(outside);
+    assert.equal(inputs.branch, null);
+    assert.deepEqual(inputs.prs, []);
+  });
+
+  test('10h. it makes no gh call and writes nothing: git is only ever asked to read', () => {
+    const g = project();
+    const argvs = [];
+    ob._setRunGit((args, opts) => {
+      argvs.push(args);
+      return { ok: true, status: 0, stdout: args[0] === 'branch' ? `${LINKED}\n` : '', stderr: '' };
+    });
+    readGateInputs(g.work);
+    const writes = argvs.filter((a) => !['branch', 'symbolic-ref', 'rev-parse'].includes(a[0]));
+    assert.deepEqual(writes, [], 'only read-only git subcommands');
+    assert.equal(argvs.some((a) => a[0] === 'fetch'), false);
   });
 });
