@@ -233,7 +233,7 @@ TRDs:
 - [x] 48-12-entity-verbs-and-import-TRD.md — (W3, tdd) decision open/answer, todo add/complete, debug put/resolve, quick put/summary, milestone put/complete; `planning import`
 - [x] 48-13-generated-view-writers-store-mode-TRD.md — (W2, tdd) state mutators write state.json only, roadmap writers no-op in store mode
 - [x] 48-14-cache-writers-store-mode-TRD.md — (W3, tdd) objective add/insert/remove/complete, frontmatter set/merge, template fill, requirements mark-complete in store mode
-- [ ] 48-15-verb-cli-wiring-TRD.md — (W4, tdd) df-tools dispatch + help for every verb; seam guard; verbs-exist audit
+- [x] 48-15-verb-cli-wiring-TRD.md — (W4, tdd) df-tools dispatch + help for every verb; seam guard; verbs-exist audit
 - [ ] 48-16-prose-plan-research-discuss-TRD.md — (W5, tdd) prose group `plan`: planner (put-trd, scope budget), researcher, discuss, discovery
 - [ ] 48-17-prose-execute-TRD.md — (W5, tdd) prose group `execute`: executor summary checkpoint/post, execute flows, transition, build
 - [ ] 48-18-prose-verify-TRD.md — (W5, tdd) prose group `verify`: verifier verification post, UAT, UI eval, design review, security audit
@@ -320,7 +320,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
-| 48. Planning write-path migration | v1.4 | 14/23 | In Progress | — |
+| 48. Planning write-path migration | v1.4 | 15/23 | In Progress | — |
 | 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
