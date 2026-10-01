@@ -502,8 +502,27 @@ function objectiveSetStatus(root, opts = {}) {
     const r = writeThrough(main, { rel, text: next.text, verb: 'objective set-status' });
     return o.status === 'complete' && r.ok ? { ...r, delegate: 'objective complete' } : r;
   }
-  const patch = STATUS_PATCH[o.status] ? { ...STATUS_PATCH[o.status] } : null;
-  return writeObjective(main, target, next.text, o, { verb: 'objective set-status', patch });
+  // GPR-04 (49 Pitfall 3): while the objective's PR is unmerged the issue stays open. The PR body carries `Closes #obj`,
+  // so GitHub closes it on merge; closing at verify time would close it before the work reached the default branch.
+  const deferred = o.status === 'complete' ? unmergedPr(main, target.id) : null;
+  const patch = STATUS_PATCH[o.status] && !deferred ? { ...STATUS_PATCH[o.status] } : null;
+  const r = writeObjective(main, target, next.text, o, { verb: 'objective set-status', patch });
+  if (!deferred) return r;
+  // objective.cjs prints `warnings` but not `close_deferred`, so the reason is stated in both places.
+  const note = `the objective issue stays open until ${deferred} merges (close deferred)`;
+  return { ...r, close_deferred: deferred, warnings: [...(r.warnings || []), note] };
+}
+
+/** `pr #N` (or `pr (branch B)` before the PR exists) when the objective has a PR on record that has not merged; else null. */
+function unmergedPr(main, id) {
+  let entry = null;
+  try {
+    entry = ghMapping.getPr(ghMapping.readMappingV3(main), id);
+  } catch {
+    return null;
+  }
+  if (!entry || entry.merged_at) return null;
+  return entry.number ? `pr #${entry.number}` : `pr (branch ${entry.branch})`;
 }
 
 // ─── summary post / checkpoint, verification post ────────────────────────────

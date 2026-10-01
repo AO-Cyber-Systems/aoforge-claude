@@ -149,6 +149,7 @@ describe('49-11 objective set-status complete while the PR is unmerged', () => {
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(r.exit, 0, JSON.stringify(r));
     assert.equal(r.close_deferred, `pr #${entry.number}`);
+    assert.ok(r.warnings.some((w) => w.includes(`stays open until pr #${entry.number} merges`)), `objective complete prints warnings: ${r.warnings}`);
     assert.match(readRel(`${OBJ_REL}/OBJECTIVE.md`), /^status: complete$/m);
     assert.deepEqual(closeOps(), [], 'no op ever carried state closed');
     assert.equal(objectiveIssue().state, 'OPEN', 'the objective issue stays open until its PR merges');
