@@ -32,6 +32,9 @@ const ghTrd = require('./gh-trd.cjs');
 const ghWiki = require('./gh-wiki.cjs');
 const ghMilestone = require('./gh-milestone.cjs');
 const ghComments = require('./gh-comments.cjs');
+const ghCapability = require('./gh-capability.cjs');
+const outbox = require('./gh-outbox.cjs');
+const flushLib = require('./gh-outbox-flush.cjs');
 
 // ─── Small helpers ───────────────────────────────────────────────────────────
 
@@ -453,11 +456,93 @@ function buildOps(plan, opts = {}) {
   return ops;
 }
 
+// ─── pushHierarchy ───────────────────────────────────────────────────────────
+
+const DISABLED_REASON = 'github.enabled is not true in .planning/config.json';
+
+/**
+ * pushHierarchy(root, objectiveArg, {objectiveSections, flush, flushOptions, now}) — queue (and optionally
+ * flush) the whole hierarchy of one objective.
+ *
+ * Order of checks, each BEFORE anything is queued: github enabled, the objective has an issue in the mapping
+ * (46's find-or-create owns that), the budget / cycle gate (`planPush`), then capability detection (a
+ * read-only token is refused). Then one `outbox.enqueue` of `buildOps(plan)`. `flush:true` drains the queue
+ * with the detected modes; a provisional (offline) detection is not used for writing, so the flusher
+ * re-detects when it can and the queue stays pending until then.
+ *
+ * `objectiveSections` is 46's `{summary, criteria, footer}` (gh.cjs `buildObjectiveSections`): this is the
+ * single writer of the objective body, and the `wiki`, `trds` and `meta` sections are derived.
+ *
+ * -> {ok:true, objective, enqueued:[seq], coalesced:[seq], ops, degraded:[...], modes, warnings:[...], flush?}
+ *  | {ok:true, skipped:true, reason}                       github is not enabled
+ *  | {ok:false, refused:'budget'|'cycle'|'readonly', ...}  nothing was queued
+ *  | {ok:false, error}
+ * `ok` is false when a requested flush ends in status `error`; `halted` and `pending` are not failures.
+ */
+function pushHierarchy(root, objectiveArg, opts = {}) {
+  const o = isObject(opts) ? opts : {};
+  if (!outbox.isEnabled(root)) return { ok: true, skipped: true, reason: DISABLED_REASON, enqueued: [], coalesced: [] };
+
+  let target;
+  try {
+    target = resolveObjectiveDir(root, objectiveArg);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const entry = ghMapping.getEntry(ghMapping.readMappingV3(root), target.id);
+  if (!entry) return { ok: false, error: `objective ${target.id} has no issue yet; run df-tools gh sync ${target.id}` };
+
+  const plan = planPush(root, target.id);
+  if (!plan.ok) return plan;
+
+  const caps = ghCapability.detectCapabilities(root, { probeIssue: entry.issue_id });
+  if (!caps || caps.ok === false) {
+    return { ok: false, error: `could not detect repository capabilities: ${caps && caps.error ? caps.error : 'no answer'}` };
+  }
+  const modes = ghCapability.resolveModes(caps);
+  if (modes.writable === false) {
+    return {
+      ok: false,
+      refused: 'readonly',
+      error: 'this token has no push access to the repository (read-only), so nothing was queued',
+    };
+  }
+
+  const warnings = [...plan.warnings];
+  if (caps.provisional === true) {
+    warnings.push('capabilities are provisional (GitHub could not be reached); the ops were queued and will be applied by the next flush');
+  }
+
+  const ops = buildOps(plan, { objectiveSections: o.objectiveSections });
+  const queued = outbox.enqueue(root, ops, { now: o.now });
+  if (!queued.ok) return { ok: false, error: queued.error, invalid: queued.invalid };
+  if (queued.skipped) return { ok: true, skipped: true, reason: queued.reason, enqueued: [], coalesced: [] };
+
+  const result = {
+    ok: true,
+    objective: target.id,
+    enqueued: queued.enqueued,
+    coalesced: queued.coalesced,
+    ops: ops.length,
+    degraded: caps.degraded || [],
+    modes,
+    warnings,
+  };
+
+  if (o.flush === true) {
+    const base = isObject(o.flushOptions) ? { ...o.flushOptions } : {};
+    result.flush = flushLib.flush(root, caps.provisional === true ? base : { ...base, modes, caps });
+    if (result.flush.status === 'error') result.ok = false;
+  }
+  return result;
+}
+
 module.exports = {
   padId,
   readObjectiveTrds,
   waveEdges,
   planPush,
   buildOps,
+  pushHierarchy,
   REFERENCE_PAGES,
 };
