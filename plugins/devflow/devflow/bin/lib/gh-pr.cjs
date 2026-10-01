@@ -347,6 +347,170 @@ function startObjectivePr(root, objArg, opts = {}) {
   };
 }
 
+// ─── sync ────────────────────────────────────────────────────────────────────
+
+/** `TRDs complete k/N` from the cached plan files and SUMMARYs of the objective, or null when it has no directory. */
+function summaryLine(root, id) {
+  const info = findObjectiveInternal(root, id);
+  if (!info) return null;
+  const total = info.jobs.length;
+  return `TRDs complete ${total - info.incomplete_jobs.length}/${total}`;
+}
+
+/**
+ * syncObjectivePr(root, obj, {flush, wait}) — `gh pr sync`: push the objective branch and queue `upsert-pr` with
+ * `{branch, base, summary}` from `prs[obj]` (no title: the title is create-only, the remote one is kept; `closes` is
+ * derived at flush time). A failed push is reported and the op is still queued; the result is then `pending`.
+ *
+ * -> {ok:true, objective, branch, base, push:{ok, error?}, summary, queued, flush, pending, pr}
+ *  | {ok:true, skipped:true, reason} | {ok:false, error}
+ */
+function syncObjectivePr(root, objArg, opts = {}) {
+  const gate = storeGate(root);
+  if (gate.result) return gate.result;
+
+  const id = mappingLib.toObjectiveId(objArg);
+  if (id === null) return fail(`${JSON.stringify(objArg)} is not an objective id`);
+  const recorded = mappingLib.getPr(mappingLib.readMappingV3(root), id);
+  if (!recorded || !recorded.branch || !recorded.base) {
+    return fail(`objective ${id} has no objective branch yet: run df-tools gh pr start ${id} first`);
+  }
+
+  const pushed = branchLib.push(root, recorded.branch);
+  const push = pushed.ok ? { ok: true } : { ok: false, error: pushed.error || pushed.stderr || 'git push failed' };
+
+  const summary = summaryLine(root, id);
+  const payload = { branch: recorded.branch, base: recorded.base, ...(summary !== null ? { summary } : {}) };
+  const q = outbox.enqueue(root, [{ kind: 'upsert-pr', target: { id }, payload }]);
+  if (!q.ok) return fail(`could not queue the pull request refresh: ${q.error || q.reason || 'the enqueue failed'}`);
+
+  const flush = flushNow(root, opts);
+  const stored = mappingLib.getPr(mappingLib.readMappingV3(root), id);
+  const flushFailed = flush !== null && flush.status === 'error';
+  return {
+    ok: !flushFailed,
+    ...(flushFailed ? { error: flush.error || 'the flush failed' } : {}),
+    objective: id,
+    branch: recorded.branch,
+    base: recorded.base,
+    push,
+    summary,
+    queued: q.enqueued,
+    flush,
+    pending: !push.ok || (flush !== null && flush.status === 'pending'),
+    pr: stored && Number.isInteger(stored.number) ? { number: stored.number, url: stored.url || null } : null,
+  };
+}
+
+// ─── status ──────────────────────────────────────────────────────────────────
+
+const VERIFICATION_CONTEXT = 'devflow/verification';
+const MERGE_QUEUE_QUERY = 'query($owner:String!,$name:String!,$n:Int!){ repository(owner:$owner,name:$name){'
+  + ' pullRequest(number:$n){ mergeQueueEntry { state } } } }';
+
+/**
+ * prStatus(root, obj) — `gh pr status`: reads only. The branch, the PR (state: none | queued | draft | ready | merged |
+ * closed, `in_merge_queue`), the latest `devflow/verification` commit status of the PR head, the issues the PR should
+ * close (from the mapping) against the ones its body does, and the pending scope changes per TRD. A failed read of the
+ * PR itself is a failure; a failed read of a side fact (status, merge queue, one TRD) is listed in `errors`.
+ *
+ * -> {ok:true, objective, started, branch, base, issue, pr, verification, closes, closes_missing, pending_scopes,
+ *      queued_ops, errors} | {ok:true, skipped:true, reason} | {ok:false, error}
+ */
+function prStatus(root, objArg) {
+  const gate = storeGate(root);
+  if (gate.result) return gate.result;
+  const { repo } = gate;
+
+  const id = mappingLib.toObjectiveId(objArg);
+  if (id === null) return fail(`${JSON.stringify(objArg)} is not an objective id`);
+  const mapping = mappingLib.readMappingV3(root);
+  const entry = mappingLib.getEntry(mapping, id);
+  const recorded = mappingLib.getPr(mapping, id);
+  const closes = closesFor(root, id);
+  const errors = [];
+
+  const ops = outbox.readJournal(root).journal.ops.filter((o) => o.status !== 'done' && o.target
+    && (o.target.id === id || String(o.target.id).startsWith(`${id}-`)));
+  const upsertQueued = ops.some((o) => o.kind === 'upsert-pr' && o.target.id === id);
+
+  const out = {
+    ok: true,
+    objective: id,
+    started: Boolean(recorded && recorded.branch),
+    branch: recorded ? recorded.branch : null,
+    base: recorded ? recorded.base || null : null,
+    issue: entry ? entry.issue_id : null,
+    pr: { number: null, url: null, state: upsertQueued ? 'queued' : 'none', draft: null, merged: false, in_merge_queue: false, head_sha: null },
+    verification: null,
+    closes,
+    closes_missing: [],
+    pending_scopes: {},
+    queued_ops: ops.length,
+    errors,
+  };
+
+  if (recorded && Number.isInteger(recorded.number)) {
+    const r = client.ghRead(['api', `repos/${repo}/pulls/${recorded.number}`]);
+    if (!r.ok) return fail(`could not read pull request #${recorded.number}: ${failureText(r)}`);
+    const pr = parseJson(r.stdout);
+    if (!pr || !Number.isInteger(pr.number)) return fail(`pull request #${recorded.number} came back unreadable from GitHub`);
+    const merged = pr.merged === true || (typeof pr.merged_at === 'string' && pr.merged_at !== '');
+    let state = 'ready';
+    if (merged) state = 'merged';
+    else if (pr.state === 'closed') state = 'closed';
+    else if (pr.draft === true) state = 'draft';
+    out.pr = {
+      number: pr.number,
+      url: pr.html_url || recorded.url || null,
+      state,
+      draft: pr.draft === true,
+      merged,
+      in_merge_queue: pr.queued === true,
+      head_sha: pr.head && typeof pr.head.sha === 'string' ? pr.head.sha : null,
+    };
+
+    const inBody = new Set([...String(pr.body || '').matchAll(/Closes #(\d+)/g)].map((m) => Number(m[1])));
+    out.closes_missing = closes.filter((n) => !inBody.has(n));
+
+    if (out.pr.head_sha) {
+      const s = client.ghRead(['api', `repos/${repo}/commits/${out.pr.head_sha}/status`]);
+      if (!s.ok) {
+        errors.push(`could not read the commit status of ${out.pr.head_sha}: ${failureText(s)}`);
+      } else {
+        const rows = (parseJson(s.stdout) || {}).statuses;
+        const row = Array.isArray(rows) ? rows.find((x) => x && x.context === VERIFICATION_CONTEXT) : null;
+        out.verification = row
+          ? { state: row.state, description: row.description || null, updated_at: row.updated_at || row.created_at || null }
+          : null;
+      }
+    }
+
+    if (state === 'draft' || state === 'ready') {
+      const [owner, name] = repo.split('/');
+      const q = client.ghRead(['api', 'graphql', '-f', `query=${MERGE_QUEUE_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `n=${pr.number}`]);
+      if (q.ok) {
+        const entryNode = ((((parseJson(q.stdout) || {}).data || {}).repository || {}).pullRequest || {}).mergeQueueEntry;
+        if (entryNode) out.pr.in_merge_queue = true;
+      }
+      // a failed or unsupported queue read leaves in_merge_queue as REST reported it
+    }
+  }
+
+  for (const tid of mappingLib.listTrds(mapping, id)) {
+    const spec = comments.readEffectiveSpec(root, tid);
+    if (spec.skipped) continue;
+    if (!spec.ok) {
+      errors.push(`could not read TRD ${tid}: ${spec.error}`);
+      continue;
+    }
+    if (Array.isArray(spec.pending) && spec.pending.length > 0) {
+      out.pending_scopes[tid] = spec.pending.map((p) => ({ n: p.n, author: p.author }));
+    }
+  }
+  return out;
+}
+
 module.exports = {
   storeGate,
   branchProblem,
@@ -355,4 +519,6 @@ module.exports = {
   linkedBranchFor,
   createLinked,
   startObjectivePr,
+  syncObjectivePr,
+  prStatus,
 };
