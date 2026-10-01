@@ -526,6 +526,106 @@ function enqueueScope(root, { trdId, n, text, now } = {}) {
   return { ...r, id, n: chosen, chars: eff.chars, hash: entry.hash };
 }
 
+// ─── Scope confirmation and TRD start (store mode, 49-06) ────────────────────
+
+/**
+ * readViewerLogin() — the login the `gh` token belongs to (`gh api user`), the identity a confirm is posted
+ * with. One read.
+ * -> {ok:true, login} | {ok:false, error}
+ */
+function readViewerLogin() {
+  const r = client.ghRead(['api', 'user']);
+  if (!r.ok) return { ok: false, error: `could not read who is signed in to GitHub: ${failureText(r)}` };
+  const user = parseJson(r.stdout);
+  if (!user || typeof user.login !== 'string' || user.login === '') {
+    return { ok: false, error: 'GitHub did not say who is signed in (gh api user returned no login)' };
+  }
+  return { ok: true, login: user.login };
+}
+
+/**
+ * readScopeForConfirm(root, trdId, n) — what `confirm-scope` needs to know about scope `n`, in STORE mode.
+ * Reads the TRD's issue and comments and the objective issue (assignees).
+ *
+ * -> {ok:true, id, n, number, assignees:[login]|null, accepted, text, hash, author}
+ *      `accepted` is true when the scope already applies (or a fold put it in the body); `hash` is what a confirm binds
+ *  | {ok:false, notFound:true, error}        the TRD has no scope n
+ *  | {ok:false, error}                       a read failed, a bad id, or the store is off
+ */
+function readScopeForConfirm(root, trdArg, n) {
+  if (!Number.isSafeInteger(n) || n < 1) return { ok: false, error: `scope n must be a positive integer, got ${JSON.stringify(n)}` };
+  const st = readTrdState(root, trdArg, { acceptance: true });
+  if (!st.ok) return st;
+  const bad = requireTrdBody(st);
+  if (bad) return bad;
+  if (typeof st.accept !== 'function') {
+    return { ok: false, error: 'scope confirmation is a store-mode feature (github.store is not true in .planning/config.json)' };
+  }
+  const scope = st.scopes.find((s) => s.n === n);
+  if (!scope) return { ok: false, notFound: true, error: `TRD ${st.id} has no scope n=${n}` };
+  return {
+    ok: true,
+    id: st.id,
+    n,
+    number: st.number,
+    assignees: st.assignees,
+    accepted: n <= st.foldedThrough || st.accept(scope) === 'accepted',
+    text: scope.text,
+    hash: ghTrd.scopeHash(boundText(scope.text)),
+    author: scope.author,
+  };
+}
+
+/**
+ * enqueueScopeConfirm(root, {trdId, n, text, note, now}) — queue the confirmation of scope `n` whose CURRENT text is
+ * `text`: the sticky `upsert-comment` of kind scopeConfirmKind(n) on the TRD issue, holding
+ * `<!-- devflow:scope-confirm n=K hash=H -->` (H = the hash of `text`). It is posted with the caller's own token,
+ * so the comment's author is the confirmer, and every read re-checks that author against the assignees. A second
+ * confirm of the same n before a flush, or after the scope was edited, replaces the first. Reads nothing.
+ *
+ * -> {ok:true, id, n, hash, enqueued, coalesced} | {ok:false, error} | {ok:true, skipped:true, reason}
+ */
+function enqueueScopeConfirm(root, { trdId, n, text, note, now } = {}) {
+  const id = trdIdOf(trdId);
+  if (id === null) return invalidTrdId(trdId);
+  if (!Number.isSafeInteger(n) || n < 1) return { ok: false, error: `scope n must be a positive integer, got ${JSON.stringify(n)}` };
+  if (typeof text !== 'string') return { ok: false, error: 'the scope text to confirm must be a string' };
+  if (!outbox.isEnabled(root)) return skippedResult();
+
+  const hash = ghTrd.scopeHash(boundText(text));
+  const comment = ghTrd.buildScopeConfirm({ n, hash, note });
+  if (typeof comment !== 'string') return { ok: false, overflow: true, error: comment.error };
+  const r = outbox.enqueue(
+    root,
+    [{ kind: 'upsert-comment', target: { id, kind: scopeConfirmKind(n) }, payload: { mode: 'replace', text: comment } }],
+    { now }
+  );
+  if (!r.ok) return r;
+  return { ...r, id, n, hash };
+}
+
+const IN_PROGRESS_LABEL = 'devflow:in-progress';
+
+/**
+ * enqueueTrdStart(root, {trdId, now}) — queue the in-progress label (`github.labels.in_progress`, default
+ * `devflow:in-progress`) on a TRD issue: `patch-issue {id} {labels_add:[label]}`. Reads nothing from GitHub, so it
+ * queues offline; the flusher resolves the issue. `summary post` takes the label off again.
+ *
+ * -> {ok:true, id, label, enqueued, coalesced} | {ok:false, error} | {ok:true, skipped:true, reason}
+ */
+function enqueueTrdStart(root, { trdId, now } = {}) {
+  const id = trdIdOf(trdId);
+  if (id === null) return invalidTrdId(trdId);
+  if (!outbox.isEnabled(root)) return skippedResult();
+  const gate = client.requireEnabled(root);
+  if (gate.skipped) return { ok: false, error: gate.reason };
+  const configured = gate.labels && gate.labels.in_progress;
+  const label = typeof configured === 'string' && configured.trim() !== '' ? configured.trim() : IN_PROGRESS_LABEL;
+  const r = outbox.enqueue(root, [{ kind: 'patch-issue', target: { id }, payload: { labels_add: [label] } }], { now });
+  if (!r.ok) return r;
+  return { ...r, id, label };
+}
+
 // ─── Freeze, fold, drift ─────────────────────────────────────────────────────
 
 /**
@@ -664,6 +764,10 @@ module.exports = {
   readTrdState,
   readEffectiveSpec,
   scopeConfirmKind,
+  readViewerLogin,
+  readScopeForConfirm,
+  enqueueScopeConfirm,
+  enqueueTrdStart,
   enqueueScope,
   freezeTrd,
   foldTrd,
