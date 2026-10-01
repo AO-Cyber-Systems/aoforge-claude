@@ -161,9 +161,373 @@ function enqueueVerification(root, { objectiveId, file, text, now } = {}) {
   return enqueueFileComment(root, { id, kind: 'verification', file, text, now });
 }
 
+// ─── TRD state (reads) ───────────────────────────────────────────────────────
+
+/** `2026-10-01T10:00:00Z`: ISO time to the second, a single-line cell for the spec-rev table. */
+function isoAt(now) {
+  return new Date(now === undefined || now === null ? Date.now() : now).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** What `gh` said went wrong, on one line. */
+function failureText(r) {
+  const text = String((r && (r.stderr || r.error || r.stdout)) || 'gh failed').trim();
+  return text.split('\n')[0];
+}
+
+/** Every issue of the repo whose body is the TRD body for `id`: the fallback when the mapping has no entry. */
+function scanForTrdIssue(repo, id) {
+  const list = client.ghPaginate(`repos/${repo}/issues?state=all`);
+  if (!list.ok) return { ok: false, error: `could not list issues to find TRD ${id}: ${failureText(list)}` };
+  for (const issue of list.items) {
+    if (!issue || issue.pull_request || typeof issue.body !== 'string') continue;
+    const d = ghTrd.decodeTrdBody(issue.body);
+    if (d.ok && d.id === id) return { ok: true, issue };
+  }
+  return { ok: true, issue: null };
+}
+
+/**
+ * readTrdState(root, trdId) — one TRD's issue as GitHub holds it, with ONE issue GET and ONE paginated
+ * comments read (the mapping names the issue; a TRD the mapping lacks is found by scanning issue bodies for
+ * its `devflow:id` header instead, which costs a list read and writes nothing to the mapping).
+ *
+ * -> { ok:true, id, repo, number, rest_id, state:'open'|'closed', body, decoded, comments,
+ *      scopes:[{n, text, body, comment_id}], scopeErrors:[string],
+ *      specRevText, specRevCommentId, frozen, foldedThrough }
+ *  | { ok:false, error }                       the TRD has no issue yet, a read failed, a bad id
+ *  | { ok:false, skipped:true, reason, error } github is not enabled (no gh call was made)
+ *
+ * `decoded` is gh-trd.decodeTrdBody(body): `ok:false` for an issue a human wrote. `specRevText` is the whole
+ * spec-rev comment, or '' when there is none (a missing log is an empty log, not an error).
+ */
+function readTrdState(root, trdArg) {
+  const id = trdIdOf(trdArg);
+  if (id === null) return invalidTrdId(trdArg);
+  const gate = client.requireEnabled(root);
+  if (gate.skipped) return { ok: false, skipped: true, reason: gate.reason, error: gate.reason };
+  const repo = gate.repo;
+  const label = String(trdArg).trim();
+
+  let issue;
+  const entry = ghMapping.getTrd(ghMapping.readMappingV3(root), id);
+  if (entry) {
+    const r = client.ghRead(['api', `repos/${repo}/issues/${entry.issue_number}`]);
+    if (!r.ok) {
+      return { ok: false, error: `could not read issue #${entry.issue_number} for TRD ${label}: ${failureText(r)}` };
+    }
+    issue = parseJson(r.stdout);
+    if (!issue || !Number.isInteger(issue.number)) {
+      return { ok: false, error: `issue #${entry.issue_number} for TRD ${label} came back unreadable` };
+    }
+  } else {
+    const found = scanForTrdIssue(repo, id);
+    if (!found.ok) return found;
+    if (found.issue === null) return { ok: false, error: `TRD ${label} has no issue yet; run gh sync first` };
+    issue = found.issue;
+  }
+
+  const listed = client.ghPaginate(`repos/${repo}/issues/${issue.number}/comments`);
+  if (!listed.ok) {
+    return { ok: false, error: `could not read the comments of issue #${issue.number} (TRD ${label}): ${failureText(listed)}` };
+  }
+  const all = listed.items.filter((c) => c && typeof c.body === 'string');
+
+  const issueBody = typeof issue.body === 'string' ? issue.body : '';
+  const scoped = ghTrd.parseScopeComments(all);
+  const specRevs = ghBody.findCommentsByMarker(all, id, 'spec-rev');
+  const specRevText = specRevs.length > 0 ? ghTrd.normalise(specRevs[0].comment.body) : '';
+  const rev = ghTrd.parseSpecRev(specRevText);
+
+  return {
+    ok: true,
+    id,
+    repo,
+    number: issue.number,
+    rest_id: Number.isInteger(issue.id) ? issue.id : null,
+    state: String(issue.state).toLowerCase() === 'closed' ? 'closed' : 'open',
+    body: issueBody,
+    decoded: ghTrd.decodeTrdBody(issueBody),
+    comments: all,
+    scopes: scoped.scopes,
+    scopeErrors: scoped.errors,
+    specRevText,
+    specRevCommentId: specRevs.length > 0 ? specRevs[0].comment.id : null,
+    frozen: rev.frozen,
+    foldedThrough: rev.folded_through,
+  };
+}
+
+/** null when the issue's body is this TRD's DevFlow body; otherwise the refusal to return. */
+function requireTrdBody(st) {
+  if (!st.decoded.ok) {
+    return { ok: false, error: `issue #${st.number} (TRD ${st.id}) is ${st.decoded.error}` };
+  }
+  if (st.decoded.id !== st.id) {
+    return { ok: false, error: `issue #${st.number} carries the devflow id ${st.decoded.id}, not ${st.id}; the mapping is stale` };
+  }
+  return null;
+}
+
+/**
+ * The effective spec of an already-read state: the body text plus every scope comment in `n` order, skipping
+ * what a fold already put in the body. `extra` is `[{id, body}]` scope comments not on GitHub yet (queued, or
+ * the one being checked), so a budget decision sees them.
+ */
+function effectiveFromState(st, extra = []) {
+  const bad = requireTrdBody(st);
+  if (bad) return bad;
+  const eff = ghTrd.effectiveSpec(st.decoded.text, [...st.comments, ...extra], {
+    foldedThrough: st.foldedThrough,
+    id: st.decoded.id,
+    file: st.decoded.file,
+  });
+  const encoded = ghTrd.encodeTrdBody({ id: st.decoded.id, file: st.decoded.file, text: eff.text });
+  return {
+    ok: true,
+    id: st.id,
+    number: st.number,
+    state: st.state,
+    file: st.decoded.file,
+    text: eff.text,
+    encoded,
+    chars: eff.chars,
+    applied: eff.applied,
+    overflow: eff.overflow,
+    errors: eff.errors,
+    foldedThrough: st.foldedThrough,
+  };
+}
+
+/**
+ * readEffectiveSpec(root, trdId) — the TRD as an executor must read it: body plus scope comments in `n`
+ * order, honouring `folded_through`.
+ *
+ * -> { ok:true, id, number, state, file, text, encoded, chars, applied:[n], overflow, errors, foldedThrough }
+ *  | the readTrdState failure, or {ok:false, error} when the issue is not a devflow TRD body
+ *
+ * `text` is the effective TRD text; `encoded` is the issue body it would have (header lines included), the
+ * figure the 60,000-char limit applies to (`chars`). `errors` reports scope gaps and duplicates; the spec is
+ * still returned.
+ */
+function readEffectiveSpec(root, trdArg) {
+  const st = readTrdState(root, trdArg);
+  return st.ok ? effectiveFromState(st) : st;
+}
+
+// ─── Queued scope changes ────────────────────────────────────────────────────
+
+const specRevAppendOp = (id, entry) => ({
+  kind: 'upsert-comment',
+  target: { id, kind: 'spec-rev' },
+  payload: { mode: 'append-spec-rev', entry },
+});
+
+/**
+ * Scope changes for `id` that are queued but not on GitHub yet (pending, or blocked and still owed), as
+ * `[{n, text}]`. A reader that only looks at GitHub would hand the same `n` out twice and the second
+ * `post-scope` would coalesce over the first.
+ */
+function queuedScopes(root, id) {
+  const { journal } = outbox.readJournal(root);
+  return journal.ops
+    .filter((o) => o.kind === 'post-scope' && o.target.id === id && (o.status === 'pending' || o.status === 'blocked'))
+    .map((o) => ({ n: o.target.n, text: o.payload.text }));
+}
+
+const sameText = (a, b) => ghTrd.normalise(a).trimEnd() === ghTrd.normalise(b).trimEnd();
+
+/**
+ * enqueueScope(root, {trdId, n?, text, now}) — queue a scope change to a TRD's spec.
+ *
+ * `n` defaults to one more than the highest scope number already on GitHub or queued. An `n` that is already
+ * used with the same text is a no-op (a replay); with different text it is refused. The comment is refused
+ * with `overflow:true` when it alone is over 60,000 chars, or when the effective spec including it would be:
+ * the overflow becomes a new TRD (the TRD-creating verb is objective 48).
+ *
+ * Queues, in one enqueue: `post-scope {id, n} {text}` and a spec-rev `scope n=K` row whose hash is the
+ * encoded effective spec after this comment.
+ *
+ * -> {ok:true, id, n, chars, hash, enqueued, coalesced}   | {ok:true, noop:true, id, n}
+ *  | {ok:false, overflow:true, chars, max, error, message} | {ok:false, error}
+ *  | {ok:true, skipped:true, reason}                       github is not enabled
+ */
+function enqueueScope(root, { trdId, n, text, now } = {}) {
+  const id = trdIdOf(trdId);
+  if (id === null) return invalidTrdId(trdId);
+  if (typeof text !== 'string' || text.trim() === '') {
+    return { ok: false, error: 'scope text must be a non-empty string' };
+  }
+  if (n !== undefined && n !== null && (!Number.isSafeInteger(n) || n < 1)) {
+    return { ok: false, error: `scope n must be a positive integer, got ${JSON.stringify(n)}` };
+  }
+  if (!outbox.isEnabled(root)) return skippedResult();
+
+  const st = readTrdState(root, trdId);
+  if (!st.ok) return st;
+  const bad = requireTrdBody(st);
+  if (bad) return bad;
+
+  const clean = ghTrd.normalise(text);
+  const queued = queuedScopes(root, id);
+  const known = new Map(queued.map((q) => [q.n, q.text]));
+  for (const s of st.scopes) known.set(s.n, s.text); // what GitHub holds wins over what is queued
+
+  const chosen = n === undefined || n === null
+    ? Math.max(0, ...known.keys()) + 1
+    : n;
+  if (known.has(chosen)) {
+    if (sameText(known.get(chosen), clean)) return { ok: true, noop: true, id, n: chosen };
+    return { ok: false, error: `scope n=${chosen} already used with different text` };
+  }
+
+  const comment = ghTrd.buildScopeComment(chosen, clean);
+  if (typeof comment !== 'string') {
+    return { ok: false, overflow: true, chars: comment.chars, max: comment.max, error: comment.error, message: comment.error };
+  }
+
+  const pendingComments = queued
+    .map((q) => ghTrd.buildScopeComment(q.n, q.text))
+    .filter((body) => typeof body === 'string')
+    .map((body) => ({ id: Infinity, body }));
+  const eff = effectiveFromState(st, [...pendingComments, { id: Infinity, body: comment }]);
+  if (eff.overflow) {
+    const message =
+      `scope n=${chosen} would make the effective spec ${eff.chars} chars (limit ${ghTrd.TRD_MAX_CHARS}); ` +
+      'the overflow becomes a new TRD';
+    return { ok: false, overflow: true, chars: eff.chars, max: ghTrd.TRD_MAX_CHARS, error: message, message };
+  }
+
+  const entry = { at: isoAt(now), event: `scope n=${chosen}`, hash: ghTrd.contentHash(eff.encoded), chars: eff.encoded.length };
+  const r = outbox.enqueue(
+    root,
+    [{ kind: 'post-scope', target: { id, n: chosen }, payload: { text: clean } }, specRevAppendOp(id, entry)],
+    { now }
+  );
+  if (!r.ok) return r;
+  return { ...r, id, n: chosen, chars: eff.chars, hash: entry.hash };
+}
+
+// ─── Freeze, fold, drift ─────────────────────────────────────────────────────
+
+/**
+ * freezeTrd(root, trdId, {now}) — queue a `freeze` spec-rev row carrying the current body hash. From then on
+ * the body must not be edited (record a scope comment instead); a later change to it reads as drift.
+ * Idempotent: a TRD that already logged a freeze is a no-op, and a freeze queued twice is one row.
+ *
+ * -> {ok:true, id, hash, chars, enqueued, coalesced} | {ok:true, noop:true, frozen:true, id, drift}
+ *  | {ok:false, error} | {ok:true, skipped:true, reason}
+ */
+function freezeTrd(root, trdArg, { now } = {}) {
+  const id = trdIdOf(trdArg);
+  if (id === null) return invalidTrdId(trdArg);
+  if (!outbox.isEnabled(root)) return skippedResult();
+
+  const st = readTrdState(root, trdArg);
+  if (!st.ok) return st;
+  const bad = requireTrdBody(st);
+  if (bad) return bad;
+  if (st.frozen) return { ok: true, noop: true, frozen: true, id, drift: ghTrd.detectDrift(st.body, st.specRevText) };
+
+  const entry = { at: isoAt(now), event: 'freeze', hash: ghTrd.contentHash(st.body), chars: ghTrd.normalise(st.body).length };
+  const r = outbox.enqueue(root, [specRevAppendOp(id, entry)], { now });
+  if (!r.ok) return r;
+  return { ...r, id, hash: entry.hash, chars: entry.chars };
+}
+
+/**
+ * foldTrd(root, trdId, {now, force}) — on a CLOSED TRD, queue a body replace with the effective spec (scope
+ * comments stay, they are never deleted) and a `fold folded_through=K from=<hash>` row. Only when the encoded
+ * result fits in 60,000 chars; otherwise `{ok:true, fits:false}` and nothing is queued. A scope gap or
+ * duplicate refuses the fold. `force` folds an open TRD.
+ *
+ * -> {ok:true, fits:true, id, folded_through, entry, chars, enqueued, coalesced}
+ *  | {ok:true, fits:true, noop:true, id}            no scope comment is waiting to be folded
+ *  | {ok:true, fits:false, id, message}
+ *  | {ok:false, reason:'open', error} | {ok:false, error} | {ok:true, skipped:true, reason}
+ */
+function foldTrd(root, trdArg, { now, force = false } = {}) {
+  const id = trdIdOf(trdArg);
+  if (id === null) return invalidTrdId(trdArg);
+  if (!outbox.isEnabled(root)) return skippedResult();
+
+  const st = readTrdState(root, trdArg);
+  if (!st.ok) return st;
+  const bad = requireTrdBody(st);
+  if (bad) return bad;
+  if (st.state !== 'closed' && force !== true) {
+    return {
+      ok: false,
+      reason: 'open',
+      error: `TRD ${id} is open: a fold runs on a closed TRD (pass force to fold it anyway)`,
+    };
+  }
+
+  const plan = ghTrd.planFold(st.body, st.comments, st.specRevText, isoAt(now));
+  if (!plan.ok) return { ok: false, error: plan.error };
+  if (plan.noop) return { ok: true, fits: true, noop: true, id };
+  if (!plan.fits) {
+    return {
+      ok: true,
+      fits: false,
+      id,
+      message:
+        `the effective spec is over ${ghTrd.TRD_MAX_CHARS.toLocaleString('en-US')} chars, so the body is left as it is; ` +
+        'the scope comments stay authoritative (the overflow becomes a new TRD)',
+    };
+  }
+
+  const r = outbox.enqueue(
+    root,
+    [
+      { kind: 'patch-body', target: { id }, payload: { mode: 'replace', body: plan.newBody } },
+      specRevAppendOp(id, plan.entry),
+    ],
+    { now }
+  );
+  if (!r.ok) return r;
+  const through = /folded_through=(\d+)/.exec(plan.entry.event);
+  return {
+    ...r,
+    id,
+    fits: true,
+    folded_through: through ? Number(through[1]) : null,
+    entry: plan.entry,
+    chars: plan.newBody.length,
+  };
+}
+
+/**
+ * detectTrdDrift(root, trdId) — has the live issue body changed since freeze or fold last logged it? Reported,
+ * never repaired. Scope rows hash the effective spec, not the body, so they are never the reference.
+ *
+ * -> {ok:true, id, number, drift:false} | {ok:true, drift:false, unlogged:true}
+ *  | {ok:true, drift:true, expected, actual} | the readTrdState failure
+ */
+function detectTrdDrift(root, trdArg) {
+  const st = readTrdState(root, trdArg);
+  if (!st.ok) return st;
+  const bad = requireTrdBody(st);
+  if (bad) return bad;
+  return { ok: true, id: st.id, number: st.number, ...ghTrd.detectDrift(st.body, st.specRevText) };
+}
+
 module.exports = {
   fileCommentText,
   decodeFileComment,
   enqueueSummary,
   enqueueVerification,
+  readTrdState,
+  readEffectiveSpec,
+  enqueueScope,
+  freezeTrd,
+  foldTrd,
+  detectTrdDrift,
 };

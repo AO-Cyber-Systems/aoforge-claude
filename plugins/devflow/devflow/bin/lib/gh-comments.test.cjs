@@ -551,18 +551,26 @@ describe('enqueueScope', () => {
     assert.deepEqual(ops(), []);
   });
 
-  test('7b. the boundary: an effective spec of exactly 60,000 chars is accepted, 60,001 refused', () => {
-    const seed = seedTrd({ text: oversizedTrdText(50000, { id: TRD_ID, file: TRD_FILE }) });
-    const overhead = 2 + trd.scopeMarker(1).length + 1; // "\n\n" + marker line + newline
-    const exact = 60000 - 50000 - overhead;
+  // "\n\n" + marker line + newline: what a first scope comment adds around its text
+  const SCOPE_OVERHEAD = 2 + trd.scopeMarker(1).length + 1;
+
+  test('7b. the boundary: an effective spec of exactly 60,000 chars is accepted', () => {
+    seedTrd({ text: oversizedTrdText(50000, { id: TRD_ID, file: TRD_FILE }) });
+    const exact = 60000 - 50000 - SCOPE_OVERHEAD;
     const ok = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'k'.repeat(exact), now: T0 });
     assert.equal(ok.ok, true, JSON.stringify(ok));
     assert.equal(ok.chars, 60000);
-    assert.equal(seed.number, 1);
+    assert.equal(ops().filter((o) => o.kind === 'post-scope').length, 1);
+  });
 
-    const over = comments.enqueueScope(project.root, { trdId: TRD_ID, n: 2, text: 'k'.repeat(exact + 1), now: T0 });
+  test('7c. one char more (60,001) is refused with overflow:true and nothing is queued', () => {
+    seedTrd({ text: oversizedTrdText(50000, { id: TRD_ID, file: TRD_FILE }) });
+    const exact = 60000 - 50000 - SCOPE_OVERHEAD;
+    const over = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'k'.repeat(exact + 1), now: T0 });
     assert.equal(over.ok, false);
     assert.equal(over.overflow, true);
+    assert.equal(over.chars, 60001);
+    assert.deepEqual(ops(), []);
   });
 
   test('8a. an existing n with identical text is a no-op', () => {
