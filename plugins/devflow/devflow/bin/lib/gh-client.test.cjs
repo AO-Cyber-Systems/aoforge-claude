@@ -687,6 +687,7 @@ describe('49-02 isWriteArgs: issue develop, pr, graphql', () => {
       // a value that merely looks like the flag is a value, not the flag
       ['issue', 'develop', '120', '--name', '--list'],
       ['issue', 'develop', '120', '--base', '-l'],
+      ['issue', 'develop', '120', '--checkout', '--worktree', '--list'],
     ];
     for (const args of writes) {
       assert.equal(client.isWriteArgs(args), true, `expected write: ${args.join(' ')}`);
