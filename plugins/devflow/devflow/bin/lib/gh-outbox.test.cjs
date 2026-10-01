@@ -1028,3 +1028,29 @@ describe('base store: managed_hash, frozen and comment keys (47-07)', () => {
     }
   });
 });
+
+// ─── 48-02: upsert-issue roles ────────────────────────────────────────────────
+
+describe('48-02 upsert-issue roles (characterization)', () => {
+  const payload = VALID['upsert-issue'].payload;
+
+  test('10. upsert-issue with role trd or decision is valid for TRD and Decision ids', () => {
+    for (const target of [{ id: '07-01', role: 'trd' }, { id: '47-01', role: 'trd' }, { id: '07-01-d1', role: 'decision' }]) {
+      assert.deepEqual(outbox.validateOp(op('upsert-issue', target, payload)), { ok: true }, JSON.stringify(target));
+    }
+  });
+
+  test('10b. an unknown role is refused with a message listing every role', () => {
+    assert.deepEqual(outbox.validateOp(op('upsert-issue', { id: '07-01', role: 'bogus' }, payload)), {
+      ok: false,
+      error: 'upsert-issue: target.role must be one of trd|decision',
+    });
+  });
+
+  test('10c. role todo is refused before 48-02', () => {
+    assert.deepEqual(outbox.validateOp(op('upsert-issue', { id: 'todo-a', role: 'todo' }, payload)), {
+      ok: false,
+      error: 'upsert-issue: target.role must be one of trd|decision',
+    });
+  });
+});
