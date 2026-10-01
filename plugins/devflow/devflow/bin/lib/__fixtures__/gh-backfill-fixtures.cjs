@@ -8,6 +8,8 @@
 //   const p = makeBackfillProject();          // 20 objectives x 5 TRDs, github {enabled, repo:'o/r'}, store OFF
 //   p.root, p.home, p.shape, p.files, p.paths, p.cleanup()
 //   BACKFILL_SHAPE                            // the default build's expected counts (frozen)
+//   const env = useBackfillEnv(t, opts);      // the project + fake GitHub + fake clock + wiki remote, hermetic,
+//   if (!env) return;                         // torn down by t.after; null (skipped) without git
 //
 // Content is hand-built (constraint `no_llm_test_data`): fixed strings and simple loops, no randomness, no clock, so
 // two builds with the same options are byte-identical. Each TRD body is ~1 KB: the backfill is measured by how many
@@ -30,7 +32,11 @@ const os = require('os');
 const path = require('path');
 
 const { makeFakeHome, initGitFixture, FIXTURE_STAMP_TIME } = require('./upgrade-fixtures.cjs');
-const { oversizedTrdText } = require('./gh-store-fixtures.cjs');
+const { oversizedTrdText, hermeticEnv } = require('./gh-store-fixtures.cjs');
+const { createWikiRemote, gitAvailable, gitTestEnv, applyGitTestEnv } = require('./wiki-remote.cjs');
+const { createFakeGitHub } = require('./gh-fake.cjs');
+const client = require('../gh-client.cjs');
+const gh = require('../gh.cjs');
 
 const doc = (lines) => `${lines.join('\n')}\n`;
 const pad = (n) => String(n).padStart(2, '0');
@@ -579,8 +585,93 @@ function makeBackfillProject({
   };
 }
 
+// ─── Test harness ─────────────────────────────────────────────────────────────
+
+/** The fake clock's start (2026-10-01T12:00:00Z, the same instant planning-import.test.cjs uses). */
+const BACKFILL_T0 = Date.UTC(2026, 9, 1, 12, 0, 0);
+
+/**
+ * useBackfillEnv(t, opts) -> {root, home, shape, files, paths, fake, clock, wiki, env} | null
+ *
+ * Everything a backfill test needs, set up inside ONE test and torn down by `t.after` (the `useProject` pattern of
+ * planning-import.test.cjs, per test rather than per describe):
+ *   - hermeticEnv(): HOME, DEVFLOW_OUTBOX_DIR, DEVFLOW_GH_CACHE_DIR and git isolation on process.env;
+ *   - applyGitTestEnv(home), so git spawned by the code under test is isolated too;
+ *   - makeBackfillProject({...opts, home, git: true}), with the hermetic home as its git home;
+ *   - createFakeGitHub({hasWiki: true, ...opts.fake}) installed through gh._setRunGh;
+ *   - createWikiRemote({seed: opts.wikiSeed}) (default first page `Home.md`) as DEVFLOW_WIKI_REMOTE;
+ *   - a fake clock: client._setNow(() => clock.t), client._setSleep((ms) => { clock.t += ms; }).
+ *
+ * `opts` takes the builder's options (objectives, trdsPerObjective, legacyTrd, oversizeTrd) plus `fake` and `wikiSeed`.
+ * `env` is the overlay a child process needs (hermetic env + git isolation + DEVFLOW_WIKI_REMOTE).
+ *
+ * Returns null after `t.skip(...)` when git is unavailable (the project is a git repo and the wiki is a bare repo), so
+ * callers write `const env = useBackfillEnv(t); if (!env) return;`. Teardown restores the real runner and clock,
+ * every env var it touched, and removes every temp dir it made.
+ */
+function useBackfillEnv(t, opts = {}) {
+  if (!gitAvailable()) {
+    t.skip('git is not available: the backfill fixture is a git repository and the wiki remote is a bare repo');
+    return null;
+  }
+  const { fake: fakeOptions = {}, wikiSeed, home: _ignoredHome, git: _ignoredGit, ...builderOptions } = opts || {};
+
+  const teardown = [];
+  t.after(() => {
+    for (const undo of teardown.reverse()) undo();
+  });
+
+  const envh = hermeticEnv();
+  teardown.push(() => envh.restore());
+  const home = envh.env.HOME;
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+
+  const restoreGit = applyGitTestEnv(home);
+  teardown.push(restoreGit);
+
+  const project = makeBackfillProject({ ...builderOptions, home, git: true });
+  teardown.push(() => project.cleanup());
+
+  const wiki = createWikiRemote(wikiSeed ? { seed: wikiSeed } : {});
+  teardown.push(() => wiki.cleanup());
+  const hadRemote = Object.prototype.hasOwnProperty.call(process.env, 'DEVFLOW_WIKI_REMOTE');
+  const savedRemote = process.env.DEVFLOW_WIKI_REMOTE;
+  process.env.DEVFLOW_WIKI_REMOTE = wiki.remoteUrl;
+  teardown.push(() => {
+    if (hadRemote) process.env.DEVFLOW_WIKI_REMOTE = savedRemote;
+    else delete process.env.DEVFLOW_WIKI_REMOTE;
+  });
+
+  const fake = createFakeGitHub({ hasWiki: true, ...fakeOptions });
+  const clock = { t: BACKFILL_T0 };
+  client._resetClient();
+  client._setNow(() => clock.t);
+  client._setSleep((ms) => { clock.t += ms; });
+  gh._setRunGh(fake.runGh);
+  gh._resetCache();
+  teardown.push(() => {
+    client._resetClient();
+    gh._setRunGh(null);
+    gh._resetCache();
+  });
+
+  return {
+    root: project.root,
+    home,
+    shape: project.shape,
+    files: project.files,
+    paths: project.paths,
+    fake,
+    clock,
+    wiki,
+    env: { ...envh.env, ...gitTestEnv(home), DEVFLOW_WIKI_REMOTE: wiki.remoteUrl },
+  };
+}
+
 module.exports = {
   makeBackfillProject,
   BACKFILL_SHAPE,
   MILESTONE_PLAN,
+  useBackfillEnv,
+  BACKFILL_T0,
 };
