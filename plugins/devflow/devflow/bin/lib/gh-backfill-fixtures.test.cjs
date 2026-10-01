@@ -207,7 +207,8 @@ describe('51-02 makeBackfillProject (default build)', () => {
     });
     const check = JSON.parse(out);
     assert.deepEqual(check.pending.map((p) => p.id), [], `pending: ${JSON.stringify(check.pending)}`);
-    assert.deepEqual(check.pending_confirm.map((p) => p.id), [], `pending_confirm: ${JSON.stringify(check.pending_confirm)}`);
+    // 51-06: 0011 (the backfill itself, confirm-only) is the one migration this fixture is built to need.
+    assert.deepEqual(check.pending_confirm.map((p) => p.id), ['0011'], `pending_confirm: ${JSON.stringify(check.pending_confirm)}`);
   });
 
   test('4: every written file is tracked under .planning and the tree is clean', (t) => {
