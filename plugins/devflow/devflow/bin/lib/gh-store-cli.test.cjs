@@ -671,3 +671,91 @@ describe('gh trd / gh orphans: shared behaviour', () => {
     assert.equal(S.fake.calls().length, 0);
   });
 });
+
+// ─── Task 3: df-tools dispatch and help text (tests 13-14) ───────────────────
+
+const { spawnSync } = require('node:child_process');
+
+const DF_TOOLS = path.resolve(__dirname, '..', 'df-tools.cjs');
+const { COMMANDS: HELP_COMMANDS } = require('./help.cjs');
+
+/** Spawn the worktree's own df-tools in the temp project, with HOME and every DEVFLOW_* dir pointed at temp dirs. */
+function dfTools(...args) {
+  const r = spawnSync(process.execPath, [DF_TOOLS, ...args], {
+    cwd: S.root,
+    env: { ...process.env, ...S.envh.env },
+    encoding: 'utf8',
+    timeout: 60000,
+  });
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+describe('df-tools dispatch for gh outbox | gh trd | gh orphans', () => {
+  useStore();
+
+  test('13a. gh outbox status --raw works through the real dispatcher on an enabled project (no gh needed)', () => {
+    const r = dfTools('gh', 'outbox', 'status', '--raw');
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    const j = JSON.parse(r.stdout);
+    assert.equal(j.ok, true);
+    assert.equal(j.pending, 0);
+    assert.equal(j.halted, null);
+    assert.ok(j.journal.startsWith(S.envh.env.DEVFLOW_OUTBOX_DIR), j.journal);
+  });
+
+  test('13b. with github.enabled:false every new subcommand is skipped through the dispatcher, exit 0', () => {
+    setConfig({ enabled: false, repo: 'o/r' });
+    for (const args of [
+      ['gh', 'outbox', 'status', '--raw'],
+      ['gh', 'outbox', 'flush', '--no-wait', '--raw'],
+      ['gh', 'outbox', 'resolve', '1', '--overwrite', '--raw'],
+      ['gh', 'trd', 'spec', '07-01', '--raw'],
+      ['gh', 'trd', 'scope', '07-01', 'some text', '--raw'],
+      ['gh', 'orphans', '7', '--raw'],
+    ]) {
+      const r = dfTools(...args);
+      assert.equal(r.code, 0, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+      assert.equal(JSON.parse(r.stdout).skipped, true, args.join(' '));
+    }
+  });
+
+  test('13c. an empty outbox flushes with exit 0 through the dispatcher', () => {
+    const r = dfTools('gh', 'outbox', 'flush', '--raw');
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.equal(JSON.parse(r.stdout).status, 'flushed');
+  });
+
+  test('13d. an unknown gh subcommand lists outbox, trd and orphans (and the older ones)', () => {
+    const r = dfTools('gh', 'nope');
+    assert.equal(r.code, 1);
+    for (const sub of ['status', 'sync', 'pull', 'resolve', 'comment', 'close-issue', 'sync-release', 'outbox', 'trd', 'orphans']) {
+      assert.match(r.stderr, new RegExp(sub), sub);
+    }
+  });
+
+  test('13e. unknown outbox and trd subcommands list their verbs and exit 1', () => {
+    const outboxR = dfTools('gh', 'outbox', 'nope');
+    assert.equal(outboxR.code, 1);
+    for (const v of ['status', 'flush', 'resolve']) assert.match(outboxR.stderr, new RegExp(v));
+    const trdR = dfTools('gh', 'trd', 'nope', '07-01');
+    assert.equal(trdR.code, 1);
+    for (const v of ['spec', 'freeze', 'fold', 'scope']) assert.match(trdR.stderr, new RegExp(v));
+  });
+});
+
+describe('help text', () => {
+  test('14. the gh usage line names outbox, trd, orphans and pull --all', () => {
+    const usage = HELP_COMMANDS.gh.usage;
+    for (const needle of ['outbox', 'status', 'flush', 'resolve', '--accept-remote', '--overwrite', 'trd', 'spec', 'freeze', 'fold', 'scope', 'orphans', 'pull', '--all']) {
+      assert.ok(usage.includes(needle), `usage names ${needle}`);
+    }
+    assert.ok(usage.includes('pull --all'), 'usage names pull --all');
+  });
+
+  test('14b. df-tools gh outbox --help answers with the gh usage and exits 0', () => {
+    const r = spawnSync(process.execPath, [DF_TOOLS, 'gh', 'outbox', '--help'], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /outbox/);
+    assert.match(r.stdout, /orphans/);
+  });
+});
