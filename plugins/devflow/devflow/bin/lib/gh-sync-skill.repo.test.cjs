@@ -18,6 +18,8 @@
 //     (`upgrade --apply --only 0011 --confirm`) and says GitHub is the system of record in store mode.
 //  3. Every `/devflow:gh-sync <mode>` mention in skills/flow/SKILL.md uses a mode from the argument-hint (a `{N}` or
 //     `<objective>` placeholder is the objective form).
+//  3b. The build-and-sync and verify-and-sync chains say that in store mode the step flushes the outbox and with
+//     the store off it mirrors.
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
@@ -128,5 +130,39 @@ describe('51-09: /devflow:gh-sync is the GitHub store operator skill', () => {
     }
     assert.ok(/system of record/i.test(body), 'the skill does not say GitHub is the system of record in store mode');
     assert.ok(/mirror/i.test(body) && /store (?:is )?off/i.test(body), '<objective>|--all is not documented as the store-off mirror');
+  });
+
+  it('3: every /devflow:gh-sync <mode> in the flow chains is a mode the skill offers', () => {
+    const modes = hintModes(scalar(skillParts().front, 'argument-hint'));
+    const flow = read(FLOW_MD);
+    const mentions = [];
+    const re = /\/devflow:gh-sync(?:[ \t]+([^\s`]+))?/g;
+    let m;
+    while ((m = re.exec(flow)) !== null) {
+      const line = flow.slice(0, m.index).split('\n').length;
+      mentions.push({ line, token: m[1] || null });
+    }
+    assert.ok(mentions.length >= 3, `expected the flow chains to name /devflow:gh-sync (found ${mentions.length})`);
+
+    const bad = mentions.filter(({ token }) => {
+      if (token === null) return false; // the bare skill name: its no-argument default
+      if (/^[{<]/.test(token)) return !modes.includes('<objective>'); // `{N}` / `<objective>` placeholder
+      return !modes.includes(token);
+    });
+    assert.deepEqual(
+      bad,
+      [],
+      `flow/SKILL.md names a gh-sync mode the skill does not have (modes: ${modes.join(', ')}):\n` +
+        bad.map((b) => `  line ${b.line}: /devflow:gh-sync ${b.token}`).join('\n'),
+    );
+  });
+
+  it('3b: the flow chains say what syncing means in store mode', () => {
+    const flow = read(FLOW_MD);
+    const chains = flow.split('\n').filter((l) => /\*\*(?:build-and-sync|verify-and-sync)\*\*/.test(l));
+    assert.equal(chains.length, 2, 'build-and-sync and verify-and-sync chains not found');
+    for (const l of chains) {
+      assert.ok(/flushes the outbox/.test(l) && /mirrors/.test(l), `chain does not say store mode flushes, store off mirrors: ${l}`);
+    }
   });
 });
