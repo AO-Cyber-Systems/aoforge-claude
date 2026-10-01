@@ -17,6 +17,7 @@
  *   comment,    line 1:   <!-- devflow:id=46 kind=state -->
  *   TRD form:             <!-- devflow:id=46-02 -->
  *   Decision form:        <!-- devflow:id=46-02-d1 -->
+ *   entity form (48-06):  <!-- devflow:id=todo-2026-07-31-a -->, debug-<stem>, quick-<N> (exact, never normalised)
  *   multi-part comment:   marker line, then <!-- devflow:part=1/2 --> (see findCommentsByMarker)
  *   dir marker (wiki section only): <!-- devflow:dir=07-store-demo -->; it has no `id=`, so it is
  *                         never read as an id marker
@@ -40,9 +41,14 @@ const OPTIONAL_SECTIONS = ['wiki', 'meta'];
 // The sticky-comment marker written before the devflow:id form existed.
 const LEGACY_STATE_MARKER = '<!-- df:state -->';
 
-// Accepts `2.1`, `0`, `46`, the TRD form `46-02` and the Decision form `46-02-d1`.
+// Entity ids (todo / debug / quick issues, 48-02's grammar). Duplicated from gh-trd.cjs ENTITY_ID_SOURCE so this
+// module stays dependency-free; a test pins the two to one source. An entity id has exactly one spelling.
+const ENTITY_ID_SOURCE = '(?:(?:todo|debug)-[a-z0-9][a-z0-9._-]{0,99}|quick-\\d+)';
+const ENTITY_ID_RE = new RegExp(`^${ENTITY_ID_SOURCE}$`);
+
+// Accepts `2.1`, `0`, `46`, the TRD form `46-02`, the Decision form `46-02-d1` and an entity id.
 const MARKER_SOURCE =
-  '<!--\\s*devflow:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:-d[0-9]+)?)?)(?:\\s+kind=([a-z-]+))?\\s*-->';
+  '<!--\\s*devflow:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:-d[0-9]+)?)?|' + ENTITY_ID_SOURCE + ')(?:\\s+kind=([a-z-]+))?\\s*-->';
 const ID_RE = /^(\d+)((?:\.\d+)?)((?:-\d+(?:-d\d+)?)?)$/;
 const KIND_RE = /^[a-z-]+$/;
 
@@ -51,13 +57,16 @@ const KIND_RE = /^[a-z-]+$/;
 /**
  * canonicalId(id) — drop leading zeros from the objective part of an id.
  * `046` -> `46`, `02.1` -> `2.1`, `46-02` -> `46-02` (the TRD suffix is kept as
- * written). Returns null for anything that is not a valid marker id.
+ * written). An entity id (`todo-<stem>`, `debug-<stem>`, `quick-<N>`) is returned
+ * exactly as given: it has one spelling, so nothing is trimmed or normalised.
+ * Returns null for anything that is not a valid marker id.
  *
- * Mirrors gh-mapping's toObjectiveId on purpose; duplicated, not imported, so
- * this module stays dependency-free.
+ * Mirrors gh-mapping's toObjectiveId / toEntityId on purpose; duplicated, not
+ * imported, so this module stays dependency-free.
  */
 function canonicalId(id) {
   if (id === null || id === undefined) return null;
+  if (typeof id === 'string' && ENTITY_ID_RE.test(id)) return id;
   const m = ID_RE.exec(String(id).trim());
   if (!m) return null;
   return String(parseInt(m[1], 10)) + m[2] + m[3];
@@ -610,6 +619,7 @@ function buildTrdsSection(args) {
 }
 
 module.exports = {
+  ENTITY_ID_SOURCE,
   SECTION_ORDER,
   OPTIONAL_SECTIONS,
   MAX_BODY_CHARS,
