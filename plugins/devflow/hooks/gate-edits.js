@@ -307,6 +307,25 @@ function _setPlanningLibs(libs) {
   planningLibs = libs;
 }
 
+/**
+ * True only when the MAIN checkout's `.planning/config.json` has
+ * `github.enabled: true` and `github.store: true` (48-01 `isStoreMode`, which
+ * resolves a linked worktree to its main checkout without spawning git).
+ * One JSON read; never throws — any failure reads as store off (fail open).
+ *
+ * @param {string} cwd
+ * @returns {boolean}
+ */
+function readStoreMode(cwd) {
+  try {
+    const libs = loadPlanningLibs();
+    if (!libs) return false;
+    return libs.isStoreMode(cwd) === true;
+  } catch {
+    return false;
+  }
+}
+
 const CACHE_DENY_CLASSES = new Set(['cache', 'generated']);
 
 /**
@@ -449,7 +468,15 @@ function main() {
 
   const agentType = input.agent_type;
 
-  const result = shouldGate({ tool, filePath, planningDir, skillActive, overrideActive, agentType });
+  // TRD 48-08 — the store-mode rule only ever applies to a `.planning/` path,
+  // so every other edit skips loading the planning libs and reading the mode.
+  const storeMode = typeof filePath === 'string' && filePath.includes('.planning')
+    ? readStoreMode(process.cwd())
+    : false;
+
+  const result = shouldGate({
+    tool, filePath, planningDir, skillActive, overrideActive, agentType, storeMode, sharedDir,
+  });
 
   if (result.decision === 'noop' || result.decision === 'allow') return;
 
@@ -484,5 +511,6 @@ module.exports = {
   findPlanningDir,
   readEditGateMode,
   VALID_EDIT_GATE_MODES,
+  readStoreMode,
   _setPlanningLibs,
 };
