@@ -673,3 +673,206 @@ describe('cmdGhPull on objective ids (46-06, tests 5-12)', () => {
     }
   });
 });
+
+// ─── TRD 47-10: `gh pull --all` (tests 14-15) ────────────────────────────────
+
+describe('cmdGhPull --all (47-10, tests 14-15)', () => {
+  const ghClient = require('./gh-client.cjs');
+  const ghTrd = require('./gh-trd.cjs');
+  const ghBody = require('./gh-body.cjs');
+  const ghWiki = require('./gh-wiki.cjs');
+  const os = require('os');
+  const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
+  const { STORE_FIXTURE: F, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+  const DIR = F.objectiveDir;
+  const VERIFICATION_TEXT = '# Objective 7 verification\n\nAll success criteria met.\n';
+
+  /** Same harness as gh-e2e.test.cjs: a stubbed exit, captured stdout/stderr. */
+  function capture(fn) {
+    const out = { stdout: '', stderr: '', code: null };
+    const saved = { exit: process.exit, out: process.stdout.write, err: process.stderr.write };
+    process.exit = (c) => { if (out.code === null) out.code = c === undefined ? 0 : c; };
+    process.stdout.write = (chunk) => { out.stdout += chunk; return true; };
+    process.stderr.write = (chunk) => { out.stderr += chunk; return true; };
+    try {
+      fn();
+    } finally {
+      process.exit = saved.exit;
+      process.stdout.write = saved.out;
+      process.stderr.write = saved.err;
+    }
+    return out;
+  }
+  const exitOf = (r) => (r.code === null ? 0 : r.code);
+  const pullAll = (root, args = ['--all']) => capture(() => ghPull.cmdGhPull(root, args, true));
+
+  let h;
+  let root;
+  let fake;
+
+  function writeConfig(enabled) {
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled, repo: 'o/r' } }, null, 2)}\n`);
+  }
+
+  /** A repo whose wiki is disabled (docs mode: no git needed) with one directed objective and its TRDs on GitHub. */
+  function seedGithub() {
+    fake = createFakeGitHub({ repo: 'o/r', hasWiki: false, ownerType: 'User' });
+    ghClient._setRunGh(fake.runGh);
+    fake.seedMilestone('v9.9 Store Demo');
+    const page = ghWiki.objectivePage(DIR);
+    const wiki = ghBody.buildWikiSection({ dir: DIR, page, url: `https://github.com/o/r/wiki/${page}/abc1234`, sha: 'abc1234' });
+    fake.seedIssue({
+      title: '[Objective 7] Store demo',
+      body: `<!-- devflow:id=7 -->\n<!-- devflow:begin wiki -->\n${wiki}\n<!-- devflow:end wiki -->\n`,
+      labels: ['devflow:objective'],
+      milestone: 'v9.9 Store Demo',
+    });
+    F.trdFiles.forEach((file, i) => {
+      fake.seedIssue({
+        title: `[TRD ${file.slice(0, 5)}] ${file}`,
+        body: ghTrd.encodeTrdBody({ id: `7-0${i + 1}`, file, text: F.trds[file] }),
+        labels: ['devflow:trd'],
+        state: i === 0 ? 'CLOSED' : 'OPEN',
+      });
+    });
+    const marker = ghBody.commentMarker('7', 'verification');
+    fake.seedComment(1, `${marker}\n${ghTrd.fileLine('07-VERIFICATION.md')}\n${VERIFICATION_TEXT}`);
+    const docs = path.join(root, 'docs', 'devflow');
+    fs.mkdirSync(docs, { recursive: true });
+    fs.writeFileSync(path.join(docs, 'Project.md'), F.project);
+  }
+
+  beforeEach(() => {
+    h = hermeticEnv();
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-pull-all-'));
+    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    writeConfig(true);
+    fake = null;
+  });
+
+  afterEach(() => {
+    ghClient._setRunGh(null);
+    ghClient._resetClient();
+    fs.rmSync(root, { recursive: true, force: true });
+    h.restore();
+  });
+
+  const rd = (rel) => fs.readFileSync(path.join(root, '.planning', rel), 'utf-8');
+
+  test('14: --all prints {ok, written, skipped, local_modified, orphans} as JSON and exits 0', () => {
+    seedGithub();
+    const r = pullAll(root);
+    assert.strictEqual(exitOf(r), 0, r.stdout + r.stderr);
+    const body = JSON.parse(r.stdout);
+    assert.strictEqual(body.ok, true);
+    assert.deepStrictEqual(body.local_modified, []);
+    assert.deepStrictEqual(body.orphans, []);
+    assert.deepStrictEqual(body.skipped, []);
+    assert.ok(body.written.includes('PROJECT.md'));
+    assert.ok(body.written.includes(`objectives/${DIR}/07-01-alpha-TRD.md`));
+    assert.ok(body.written.includes('ROADMAP.md') && body.written.includes('STATE.md'));
+    assert.strictEqual(rd('PROJECT.md'), F.project);
+    assert.strictEqual(rd(`objectives/${DIR}/07-03-gamma-TRD.md`), F.trds['07-03-gamma-TRD.md']);
+    assert.strictEqual(rd(`objectives/${DIR}/07-VERIFICATION.md`), VERIFICATION_TEXT);
+  });
+
+  test('14: a second --all writes nothing', () => {
+    seedGithub();
+    pullAll(root);
+    const second = JSON.parse(pullAll(root).stdout);
+    assert.deepStrictEqual(second.written, []);
+    assert.ok(second.skipped.length >= 7);
+  });
+
+  test('14: a locally modified cache file makes --all exit 2, and --force takes GitHub with exit 0', () => {
+    seedGithub();
+    pullAll(root);
+    fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'), 'my own edits\n');
+    const r = pullAll(root);
+    assert.strictEqual(exitOf(r), 2, r.stdout + r.stderr);
+    const body = JSON.parse(r.stdout);
+    assert.strictEqual(body.ok, true);
+    assert.deepStrictEqual(body.local_modified, ['PROJECT.md']);
+    assert.strictEqual(rd('PROJECT.md'), 'my own edits\n');
+
+    const forced = pullAll(root, ['--all', '--force']);
+    assert.strictEqual(exitOf(forced), 0, forced.stdout + forced.stderr);
+    assert.deepStrictEqual(JSON.parse(forced.stdout).written, ['PROJECT.md']);
+    assert.strictEqual(rd('PROJECT.md'), F.project);
+  });
+
+  test('14: a hand-kept ROADMAP.md or an orphan also asks for a look (exit 2)', () => {
+    seedGithub();
+    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap: by hand\n');
+    const r = pullAll(root);
+    assert.strictEqual(exitOf(r), 2);
+    assert.deepStrictEqual(JSON.parse(r.stdout).hand_maintained, ['ROADMAP.md']);
+    assert.strictEqual(rd('ROADMAP.md'), '# Roadmap: by hand\n');
+  });
+
+  test('14: prose output (no --raw) summarises the pull and names what needs a look', () => {
+    seedGithub();
+    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap: by hand\n');
+    const r = capture(() => ghPull.cmdGhPull(root, ['--all'], false));
+    assert.strictEqual(exitOf(r), 2);
+    assert.match(r.stdout, /written/i);
+    assert.match(r.stdout, /ROADMAP\.md/);
+    assert.match(r.stdout, /hand/i);
+  });
+
+  test('14: github.enabled false is skipped with zero gh calls and exit 0', () => {
+    seedGithub();
+    writeConfig(false);
+    const r = pullAll(root);
+    assert.strictEqual(exitOf(r), 0);
+    const body = JSON.parse(r.stdout);
+    assert.strictEqual(body.skipped, true);
+    assert.strictEqual(body.ok, false);
+    assert.deepStrictEqual(fake.calls(), []);
+    assert.ok(!fs.existsSync(path.join(root, '.planning', 'PROJECT.md')));
+  });
+
+  test('14: an unreachable GitHub is exit 1 with the error in the payload and nothing written', () => {
+    seedGithub();
+    fake.setOffline(true);
+    const r = pullAll(root);
+    assert.strictEqual(exitOf(r), 1);
+    const body = JSON.parse(r.stdout);
+    assert.strictEqual(body.ok, false);
+    assert.match(body.error, /./);
+    assert.ok(!fs.existsSync(path.join(root, '.planning', 'ROADMAP.md')));
+  });
+
+  test('14: the usage message names --all [--force]', () => {
+    const r = capture(() => ghPull.cmdGhPull(root, [], true));
+    assert.strictEqual(exitOf(r), 1);
+    assert.match(r.stderr, /Usage:/);
+    assert.match(r.stderr, /--all \[--force\]/);
+  });
+
+  test('15: the per-objective path is unchanged: pull 2 reads one issue and never lists the repo', () => {
+    const project = fx.buildTempProject({
+      objectiveId: '02-a',
+      frontmatter: { status: 'open', labels: ['devflow:objective'] },
+      mapping: { objectives: { 2: { issue_id: 7, state_comment_id: null } } },
+    });
+    try {
+      const cassette = fx.loadCassette('objective-open-no-drift');
+      const log = [];
+      ghPull._setRunGh((args) => {
+        log.push(args.slice());
+        if (args[0] === 'auth' && args[1] === 'status') return { ok: true, status: 0, stdout: "  - Token scopes: 'repo'", stderr: '' };
+        if (args[0] === 'issue' && args[1] === 'view') return cassette.response;
+        return { ok: false, status: 1, stdout: '', stderr: `[mock] unexpected ${args.join(' ')}` };
+      });
+      const r = capture(() => ghPull.cmdGhPull(project.root, ['2'], true));
+      assert.strictEqual(exitOf(r), 0, r.stdout + r.stderr);
+      const views = log.filter((a) => a[0] === 'issue' && a[1] === 'view');
+      assert.strictEqual(views.length, 1);
+      assert.strictEqual(views[0][2], '7');
+      assert.ok(!log.some((a) => a.join(' ').includes('labels=')), 'no list-and-scan read on the per-objective path');
+      assert.ok(!fs.existsSync(path.join(project.root, '.planning', 'ROADMAP.md')), 'no generated view');
+    } finally { project.cleanup(); }
+  });
+});

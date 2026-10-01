@@ -241,11 +241,48 @@ function serializeYamlValue(v) {
   return String(v);
 }
 
+// ─── cmdGhPullAll (TRD 47-10) ────────────────────────────────────────────────
+
+function pullAllProse(r) {
+  const lines = [`Pulled from GitHub: ${r.written.length} written, ${r.skipped.length} unchanged.`];
+  if (r.written.length > 0) lines.push(`Written: ${r.written.join(', ')}`);
+  if (r.attention.length > 0) {
+    lines.push('Needs a look:');
+    for (const a of r.attention) lines.push(`  - ${a}`);
+  }
+  for (const n of r.notes) lines.push(`Note: ${n}`);
+  for (const e of r.errors) lines.push(`Error: ${e}`);
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * `gh pull --all [--force]` — exit 0 when the cache matches GitHub, 1 on error, 2 when it was rebuilt but a
+ * human should look (locally modified or hand-kept files left alone, orphans, pages skipped, rejected items).
+ * github.enabled gates it: zero gh calls when it is off.
+ */
+function cmdGhPullAll(cwd, args, raw) {
+  const gate = ghClient.requireEnabled(cwd);
+  if (gate.skipped) {
+    _emit({ ok: false, skipped: true, reason: gate.reason }, gate.reason + '\n', raw, 0);
+    return;
+  }
+  const result = require('./gh-cache.cjs').pullAll(cwd, { force: args.includes('--force') });
+  if (!result.ok) {
+    const msg = result.error || 'gh pull --all failed';
+    _emit(result, msg + '\n', raw, result.skipped ? 0 : 1);
+    return;
+  }
+  _emit(result, pullAllProse(result), raw, result.attention.length > 0 || result.errors.length > 0 ? 2 : 0);
+}
+
 // ─── cmdGhPull (CLI orchestrator) ────────────────────────────────────────────
 
 /**
  * cmdGhPull(cwd, args, raw) — CLI entry point.
- * Usage: df-tools gh pull <objective> [--apply] [--raw]
+ * Usage: df-tools gh pull <objective> [--apply] [--resolve=disk|gh|merge] [--resolved] | --all [--force]
+ *
+ * `--all` (TRD 47-10) rebuilds the whole `.planning/` cache from GitHub (gh-cache.pullAll); the
+ * per-objective drift pull below is unchanged.
  */
 function cmdGhPull(cwd, args, raw) {
   const objectiveArg = args.find((a) => !a.startsWith('--'));
@@ -268,8 +305,13 @@ function cmdGhPull(cwd, args, raw) {
     return;
   }
 
+  if (args.includes('--all')) {
+    cmdGhPullAll(cwd, args, raw);
+    return;
+  }
+
   if (!objectiveArg) {
-    process.stderr.write('Usage: df-tools gh pull <objective> [--apply] [--resolve=disk|gh|merge] [--resolved]\n');
+    process.stderr.write('Usage: df-tools gh pull <objective> [--apply] [--resolve=disk|gh|merge] [--resolved] | --all [--force]\n');
     process.exit(1);
     return;
   }
