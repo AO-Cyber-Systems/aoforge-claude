@@ -40,6 +40,21 @@
 // title, description, state, due_on; closing stamps closed_at, reopening clears it).
 // What the repo can do is configured per fake (`ownerType`, `hasWiki`, `push`, `types`, `fields`,
 // `subIssuesApi`), and `setOffline(true)` turns every call into a network outage.
+//
+// Pull requests (objective 49, TRD 49-01). A PR is an ISSUE RECORD in `issues` carrying a `pr` object, drawn
+// from the same `nextIssue` counter, so an issue and a PR never share a number and PR comments are issue
+// comments (49 Pitfall 9). Its issue `state` is the PR state ('OPEN' | 'CLOSED'); `pr` holds the rest:
+//   pr { head:{ref, sha}, base:{ref}, draft, merged, mergedAt, mergeSha, mergeMethod, queued, author }
+// DevFlow drives PRs through `gh api` only (REST + GraphQL), so the fake has routes, not `pr` argv nouns:
+//   user (GET), repos/o/r (GET: default_branch, node_id 'R_1'), repos/o/r/pulls (GET head=<owner>:<branch>,
+//   state, base; POST), pulls/{n} (GET, PATCH title/body/state/base), pulls/{n}/merge (PUT merge_method).
+// `gh issue list` never shows a PR (as gh does); REST `issues` lists them (as GitHub does) with `pull_request`.
+// `GET pulls/{n}` also reports `queued` (a fake-only field: whether the PR sits in the merge queue).
+// Branches: `refs` = `{name: sha}`, seeded with `{[defaultBranch]: BASE_SHA}` (option `defaultBranch`, default
+// 'main'; option `refs` adds more). `pushRef(name, sha)` stands in for a `git push` the test made.
+// Comments carry an author: API-posted ones use the fake viewer (option `viewer`, default 'devflow-bot');
+// `seedComment(n, body, {login})` seeds another. Seeded issue `assignees` already appear on the issue.
+// `humanMergePr(n, {method})` is the human clicking merge (no call recorded).
 
 const { isWriteArgs } = require('../gh-client.cjs');
 
@@ -66,6 +81,8 @@ const API_BOOL_FLAGS = ['--paginate', '--slurp'];
 
 const ISSUE_ID_OFFSET = 1_000_000; // id = ISSUE_ID_OFFSET + number: an id is never a number
 const MAX_SUB_ISSUES = 100;        // GitHub: 100 sub-issues per parent, closed ones count
+const BASE_SHA = `base${'0'.repeat(36)}`; // the default branch's tip when nothing else is seeded (40 chars)
+const MERGE_METHODS = ['merge', 'squash', 'rebase'];
 
 // What gh prints, and how it exits, when the network is down: no HTTP status, no exit code of its own.
 const OFFLINE_RESPONSE = {
@@ -128,9 +145,15 @@ function matcherFor(match) {
  *   `ownerType` 'Organization' | 'User'; `hasWiki`; `push` (permissions.push); `isPrivate`;
  *   `types` the org's issue types `[{id,name,is_enabled}]`; `fields` the org's issue-field
  *   definitions `[{id,name,data_type}]`; `subIssuesApi` false answers 404 on every sub-issue route.
+ * 49-01 options: `viewer` (the authenticated login: author of API-posted comments, PRs and statuses),
+ *   `defaultBranch` (default 'main'), `refs` (extra `{name: sha}` branches beside the default branch),
+ *   `onCreateBranch(name, oid)` (called once per successful createLinkedBranch, so a test can mirror the ref
+ *   into a temp bare git repo), `mergeQueue` (default false: the default branch has a merge queue),
+ *   `closeKeywordCap` (default null: how many closing-keyword links one merge honours; reconcile's straggler path).
  * @returns {{runGh:Function, issues:object[], comments:object[], milestones:object[], labels:string[],
- *   calls:()=>string[][], writes:()=>string[][], writeTimes:()=>(number|null)[], failNext:Function,
- *   humanEditBody:Function, seedIssue:Function, seedComment:Function, seedMilestone:Function}}
+ *   refs:object, statuses:object, calls:()=>string[][], writes:()=>string[][], writeTimes:()=>(number|null)[],
+ *   failNext:Function, humanEditBody:Function, seedIssue:Function, seedComment:Function, seedMilestone:Function,
+ *   pushRef:Function, humanMergePr:Function}}
  */
 function createFakeGitHub({
   repo = 'o/r', scopes = ['repo', 'project', 'read:project'], commentPageSize = 30, graphql = null, now = null,
@@ -138,13 +161,18 @@ function createFakeGitHub({
   types = [{ id: 1, name: 'Objective', is_enabled: true }, { id: 2, name: 'TRD', is_enabled: true }, { id: 3, name: 'Decision', is_enabled: true }],
   fields = [{ id: 11, name: 'work', data_type: 'single_select' }, { id: 12, name: 'kind', data_type: 'single_select' }],
   subIssuesApi = true,
+  viewer = 'devflow-bot', defaultBranch = 'main', refs: seedRefs = {},
+  onCreateBranch = null, mergeQueue = false, closeKeywordCap = null,
 } = {}) {
-  const repoOwner = repo.split('/')[0];
+  const [repoOwner, repoName] = repo.split('/');
   const fieldDefs = fields; // runApi has a local `fields` (the request body), so name the definitions apart
   const issues = [];
   const comments = [];
   const milestones = []; // { number, title, description, state, due_on, closed_at }
   const labels = [];     // names
+  const refs = { [defaultBranch]: BASE_SHA, ...seedRefs }; // branch name -> tip sha (49-01)
+  const statuses = {};   // sha -> commit statuses, newest first (49-01)
+  const linked = [];     // { id, issue:number, name } createLinkedBranch records (49-01)
   const log = [];        // every argv runGh saw, in order
   const stamps = [];     // the `now()` reading for each entry of `log` (null without a clock)
   const failures = [];   // { test, response }
@@ -152,6 +180,7 @@ function createFakeGitHub({
   let nextIssue = 1;
   let nextMilestone = 1;
   let nextComment = 1000;
+  let nextStatus = 5000;
   let offline = false;
 
   const tick = () => new Date(BASE_TIME + (++clock) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -209,11 +238,12 @@ function createFakeGitHub({
     return issue;
   }
 
-  function addComment(issueNumber, body) {
+  /** Every API-posted comment is the viewer's; a seeded one may name another author (49-01). */
+  function addComment(issueNumber, body, login = viewer) {
     const at = tick();
     const id = nextComment++;
     const c = {
-      id, issue_number: issueNumber, body, user: { login: 'devflow-bot' }, created_at: at, updated_at: at,
+      id, issue_number: issueNumber, body, user: { login }, created_at: at, updated_at: at,
       html_url: `${issueUrl(issueNumber)}#issuecomment-${id}`,
     };
     comments.push(c);
@@ -225,8 +255,9 @@ function createFakeGitHub({
   function seedIssue(spec) {
     return addIssue(spec).number;
   }
-  function seedComment(issueNumber, body) {
-    return addComment(issueNumber, body).id;
+  /** `{login}` names the author (default: the viewer), so a test can seed a comment by someone else. */
+  function seedComment(issueNumber, body, { login } = {}) {
+    return addComment(issueNumber, body, login === undefined ? viewer : String(login)).id;
   }
   function seedMilestone(title, description) {
     return addMilestone(title, description).number;
@@ -271,9 +302,9 @@ function createFakeGitHub({
     const children = issue.subIssues.map((n) => findIssue(n)).filter(Boolean);
     const blocking = issues.filter((i) => i.blockedBy.includes(issue.number));
     const completed = children.filter((c) => c.state === 'CLOSED').length;
-    return {
+    const rest = {
       id: issue.id,
-      node_id: `I_${issue.id}`,
+      node_id: issue.pr ? `PR_${issue.number}` : `I_${issue.id}`,
       number: issue.number,
       title: issue.title,
       body: issue.body,
@@ -281,7 +312,7 @@ function createFakeGitHub({
       state_reason: issue.stateReason,
       url: apiIssueUrl(issue.number),
       html_url: issueUrl(issue.number),
-      user: { login: 'devflow-bot' },
+      user: { login: viewer },
       labels: issue.labels.map((name) => ({ name })),
       assignees: issue.assignees.map((login) => ({ login })),
       milestone: issue.milestone ? { number: ms ? ms.number : 0, title: issue.milestone, state: ms ? ms.state : 'open' } : null,
@@ -302,6 +333,365 @@ function createFakeGitHub({
       updated_at: issue.updatedAt,
       closed_at: issue.state === 'CLOSED' ? issue.updatedAt : null,
     };
+    // GitHub's issues API lists pull requests too, marking them with `pull_request` (and `draft`).
+    if (issue.pr) {
+      rest.pull_request = { url: apiPullUrl(issue.number), html_url: pullUrl(issue.number) };
+      rest.draft = issue.pr.draft;
+    }
+    return rest;
+  }
+
+  // ─── Pull requests (49-01) ─────────────────────────────────────────────────
+
+  const pullUrl = (n) => `https://github.com/${repo}/pull/${n}`;
+  const apiPullUrl = (n) => `https://api.github.com/repos/${repo}/pulls/${n}`;
+  const findPr = (n) => {
+    const issue = findIssue(n);
+    return issue && issue.pr ? issue : undefined;
+  };
+
+  /**
+   * An open PR's head sha follows the branch (a push advances it, as on GitHub); a closed or merged one keeps
+   * the sha it ended with.
+   */
+  function headSha(issue) {
+    if (issue.state === 'OPEN' && !issue.pr.merged && refs[issue.pr.head.ref] !== undefined) {
+      issue.pr.head.sha = refs[issue.pr.head.ref];
+    }
+    return issue.pr.head.sha;
+  }
+
+  /** The REST `pulls` shape of a PR record. `queued` is fake-only: whether the PR sits in the merge queue. */
+  function toRestPull(issue) {
+    const pr = issue.pr;
+    return {
+      id: issue.id,
+      node_id: `PR_${issue.number}`,
+      number: issue.number,
+      title: issue.title,
+      body: issue.body,
+      state: issue.state.toLowerCase(),
+      draft: pr.draft,
+      merged: pr.merged,
+      merged_at: pr.mergedAt,
+      merge_commit_sha: pr.mergeSha,
+      queued: pr.queued,
+      url: apiPullUrl(issue.number),
+      html_url: pullUrl(issue.number),
+      user: { login: pr.author },
+      labels: issue.labels.map((name) => ({ name })),
+      assignees: issue.assignees.map((login) => ({ login })),
+      head: { ref: pr.head.ref, sha: headSha(issue), label: `${repoOwner}:${pr.head.ref}` },
+      base: { ref: pr.base.ref, label: `${repoOwner}:${pr.base.ref}` },
+      created_at: issue.createdAt,
+      updated_at: issue.updatedAt,
+      closed_at: issue.state === 'CLOSED' ? issue.updatedAt : null,
+    };
+  }
+
+  const prOk = (issue) => ok(JSON.stringify(toRestPull(issue)));
+
+  /** `owner:branch` or `branch` -> `{owner, ref}`. */
+  function splitHead(head) {
+    const s = String(head);
+    const at = s.indexOf(':');
+    return at > 0 ? { owner: s.slice(0, at), ref: s.slice(at + 1) } : { owner: repoOwner, ref: s };
+  }
+
+  /** Validation failure that carries an error message line, as gh prints it for a 422 with `errors[].message`. */
+  const refused = (status, message, detail) => fail(`gh: ${message} (HTTP ${status})${detail ? `\n${detail}` : ''}`,
+    JSON.stringify({ message, ...(detail ? { errors: [{ resource: 'PullRequest', code: 'custom', message: detail }] } : {}), status: String(status) }));
+
+  /** POST repos/o/r/pulls. */
+  function restOpenPull(f) {
+    if (typeof f.title !== 'string' || !f.title) return invalid('PullRequest', 'missing_field', 'title');
+    if (typeof f.head !== 'string' || !f.head) return invalid('PullRequest', 'missing_field', 'head');
+    if (typeof f.base !== 'string' || !f.base) return invalid('PullRequest', 'missing_field', 'base');
+    const head = splitHead(f.head);
+    if (head.owner !== repoOwner || refs[head.ref] === undefined) return invalid('PullRequest', 'invalid', 'head');
+    if (refs[f.base] === undefined) return invalid('PullRequest', 'invalid', 'base');
+    if (refs[head.ref] === refs[f.base]) return refused(422, 'Validation Failed', `No commits between ${f.base} and ${head.ref}`);
+    if (issues.some((i) => i.pr && i.state === 'OPEN' && i.pr.head.ref === head.ref && i.pr.base.ref === f.base)) {
+      return refused(422, 'Validation Failed', `A pull request already exists for ${repoOwner}:${head.ref}.`);
+    }
+    const issue = addIssue({ title: f.title, body: f.body === undefined || f.body === null ? '' : String(f.body) });
+    issue.pr = {
+      head: { ref: head.ref, sha: refs[head.ref] },
+      base: { ref: f.base },
+      draft: toBool(f.draft),
+      merged: false,
+      mergedAt: null,
+      mergeSha: null,
+      mergeMethod: null,
+      queued: false,
+      author: viewer,
+    };
+    return prOk(issue);
+  }
+
+  /** GET repos/o/r/pulls: `head` (`owner:branch`), `base`, `state` (default open; closed includes merged). */
+  function restListPulls(p, qs) {
+    const state = (qs.get('state') || 'open').toLowerCase();
+    const head = qs.get('head') ? splitHead(qs.get('head')) : null;
+    const base = qs.get('base');
+    const rows = issues
+      .filter((i) => i.pr)
+      .filter((i) => state === 'all' || i.state.toLowerCase() === state)
+      .filter((i) => !head || (head.owner === repoOwner && i.pr.head.ref === head.ref))
+      .filter((i) => !base || i.pr.base.ref === base)
+      .sort((a, b) => b.number - a.number)
+      .map(toRestPull);
+    return respondList(rows, p, qs);
+  }
+
+  /** PATCH repos/o/r/pulls/{n}: title, body, state, base. A merged PR cannot be reopened. */
+  function restPatchPull(issue, f) {
+    let changed = false;
+    if (f.title !== undefined) {
+      if (typeof f.title !== 'string' || !f.title) return invalid('PullRequest', 'invalid', 'title');
+      if (issue.title !== f.title) { issue.title = f.title; changed = true; }
+    }
+    if (f.body !== undefined) {
+      const body = f.body === null ? '' : String(f.body);
+      if (issue.body !== body) { issue.body = body; changed = true; }
+    }
+    if (f.base !== undefined) {
+      if (refs[f.base] === undefined) return invalid('PullRequest', 'invalid', 'base');
+      if (issue.pr.base.ref !== f.base) { issue.pr.base.ref = f.base; changed = true; }
+    }
+    if (f.state !== undefined) {
+      const want = String(f.state).toLowerCase();
+      if (want !== 'open' && want !== 'closed') return invalid('PullRequest', 'invalid', 'state');
+      const next = want.toUpperCase();
+      if (issue.state !== next) {
+        if (issue.pr.merged) return refused(422, 'Validation Failed', 'Cannot reopen a merged pull request');
+        issue.pr.head.sha = headSha(issue);
+        issue.state = next;
+        issue.stateReason = next === 'CLOSED' ? 'completed' : 'reopened';
+        changed = true;
+      }
+    }
+    if (changed) issue.updatedAt = tick();
+    return prOk(issue);
+  }
+
+  /**
+   * Complete a merge (the REST merge, a queue landing it, or a human clicking the button): the PR is closed
+   * and merged. Merging into the DEFAULT branch also closes every open issue the PR body names with a
+   * closing keyword (`Closes #N`, `Fixes: #N`, `resolved #N`); `closeKeywordCap` (when set) caps how many of
+   * those links GitHub honours, in order of appearance. A merge into any other branch closes nothing.
+   */
+  function completeMerge(issue, method) {
+    const at = tick();
+    issue.pr.head.sha = headSha(issue);
+    issue.pr.merged = true;
+    issue.pr.mergedAt = at;
+    issue.pr.mergeSha = `merge${String(issue.number).padStart(35, '0')}`;
+    issue.pr.mergeMethod = method;
+    issue.pr.queued = false;
+    issue.state = 'CLOSED';
+    issue.stateReason = 'completed';
+    issue.updatedAt = at;
+    if (issue.pr.base.ref !== defaultBranch) return;
+
+    const linkedNumbers = [];
+    for (const m of String(issue.body || '').matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+#(\d+)/gi)) {
+      const n = Number(m[1]);
+      if (!linkedNumbers.includes(n)) linkedNumbers.push(n);
+    }
+    const honoured = closeKeywordCap === null ? linkedNumbers : linkedNumbers.slice(0, closeKeywordCap);
+    for (const n of honoured) {
+      const target = findIssue(n);
+      if (!target || target.pr || target.state === 'CLOSED') continue;
+      target.state = 'CLOSED';
+      target.stateReason = 'completed';
+      target.updatedAt = tick();
+    }
+  }
+
+  // ─── Commit statuses and branch refs (49-01) ───────────────────────────────
+
+  const STATUS_STATES = ['error', 'failure', 'pending', 'success'];
+
+  /** POST repos/o/r/statuses/{sha}: GitHub keeps every status, and the latest per context counts. */
+  function restPostStatus(sha, f) {
+    if (!STATUS_STATES.includes(f.state)) return invalid('Status', 'invalid', 'state');
+    const at = tick();
+    const entry = {
+      id: nextStatus++,
+      state: f.state,
+      context: f.context === undefined || f.context === null ? 'default' : String(f.context),
+      description: f.description === undefined || f.description === null ? null : String(f.description),
+      target_url: f.target_url === undefined || f.target_url === null ? null : String(f.target_url),
+      created_at: at,
+      updated_at: at,
+      creator: { login: viewer },
+      url: `https://api.github.com/repos/${repo}/statuses/${sha}`,
+    };
+    (statuses[sha] = statuses[sha] || []).unshift(entry);
+    return ok(JSON.stringify(entry));
+  }
+
+  /**
+   * GET repos/o/r/commits/{sha-or-ref}/status: the latest status per context, newest first, and the combined
+   * state: failure if any is failure/error, else pending if there are none or any is pending, else success.
+   */
+  function restCombinedStatus(shaOrRef) {
+    const sha = refs[shaOrRef] !== undefined ? refs[shaOrRef] : shaOrRef;
+    const seen = new Set();
+    const latest = [];
+    for (const s of statuses[sha] || []) {
+      if (seen.has(s.context)) continue;
+      seen.add(s.context);
+      latest.push({ ...s });
+    }
+    let state = 'success';
+    if (latest.some((s) => s.state === 'failure' || s.state === 'error')) state = 'failure';
+    else if (latest.length === 0 || latest.some((s) => s.state === 'pending')) state = 'pending';
+    return ok(JSON.stringify({
+      state,
+      sha,
+      total_count: latest.length,
+      statuses: latest,
+      repository: { full_name: repo },
+      url: `https://api.github.com/repos/${repo}/commits/${sha}/status`,
+    }));
+  }
+
+  /** DELETE git/refs/heads/{b}: the branch goes, and so does any issue link to it. */
+  function deleteBranch(name) {
+    if (refs[name] === undefined) return unprocessable('Reference does not exist');
+    delete refs[name];
+    for (let i = linked.length - 1; i >= 0; i--) if (linked[i].name === name) linked.splice(i, 1);
+    return ok('');
+  }
+
+  // ─── Built-in GraphQL (49-01) ──────────────────────────────────────────────
+
+  const REPO_NODE_ID = 'R_1';
+  const gqlOk = (data) => ok(JSON.stringify({ data }));
+  /** `gh api graphql` exits 1 on `errors`, printing the message to stderr and the body to stdout. */
+  const gqlError = (message) => fail(`gh: ${message}`, JSON.stringify({ data: null, errors: [{ message }] }));
+  const noNode = (id) => gqlError(`Could not resolve to a node with the global id of '${id}'`);
+
+  /**
+   * The value of an input/argument `field` in a GraphQL document: `field:$var` is read from the variables,
+   * `field:"literal"` and `field:12` inline; with no mention in the document, a variable named `field`.
+   */
+  function gqlArg(query, vars, field) {
+    const m = new RegExp(`\\b${field}\\s*:\\s*(?:\\$(\\w+)|"([^"]*)"|(\\d+))`).exec(query);
+    if (m) return m[1] !== undefined ? vars[m[1]] : (m[2] !== undefined ? m[2] : m[3]);
+    return vars[field];
+  }
+
+  /** An error when `owner`/`name` name a repository other than this one; null otherwise (or when not given). */
+  function gqlWrongRepo(query, vars) {
+    const owner = gqlArg(query, vars, 'owner');
+    const name = gqlArg(query, vars, 'name');
+    if ((owner !== undefined && owner !== repoOwner) || (name !== undefined && name !== repoName)) {
+      return gqlError(`Could not resolve to a Repository with the name '${owner}/${name}'.`);
+    }
+    return null;
+  }
+
+  /** A pull request by its GraphQL node id (`PR_<n>`), or undefined. */
+  function prByNodeId(id) {
+    const m = /^PR_(\d+)$/.exec(String(id));
+    return m ? findPr(m[1]) : undefined;
+  }
+
+  /**
+   * createLinkedBranch: the branch is created at `oid` and linked to the issue. A name that already exists is
+   * NOT linked and NOT an error: GitHub answers `linkedBranch: null` (49 Pitfall 2).
+   */
+  function gqlCreateLinkedBranch(query, vars) {
+    const issueId = gqlArg(query, vars, 'issueId');
+    const issue = issues.find((i) => !i.pr && `I_${i.id}` === issueId);
+    if (!issue) return noNode(issueId);
+    const oid = gqlArg(query, vars, 'oid');
+    if (!oid) return gqlError('Variable $oid of type GitObjectID! was provided invalid value');
+    const repositoryId = gqlArg(query, vars, 'repositoryId');
+    if (repositoryId !== undefined && repositoryId !== REPO_NODE_ID) return noNode(repositoryId);
+    const given = gqlArg(query, vars, 'name');
+    const name = given || `${issue.number}-${issue.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
+    if (refs[name] !== undefined) return gqlOk({ createLinkedBranch: { linkedBranch: null } });
+    refs[name] = oid;
+    const link = { id: `LB_${linked.length + 1}`, issue: issue.number, name };
+    linked.push(link);
+    if (typeof onCreateBranch === 'function') onCreateBranch(name, oid);
+    return gqlOk({ createLinkedBranch: { linkedBranch: { id: link.id, ref: { name, target: { oid } } } } });
+  }
+
+  function gqlLinkedBranches(query, vars) {
+    const wrong = gqlWrongRepo(query, vars);
+    if (wrong) return wrong;
+    const n = gqlArg(query, vars, 'number');
+    const issue = findIssue(n);
+    if (!issue || issue.pr) return gqlError(`Could not resolve to an Issue with the number of ${n}.`);
+    const nodes = linked.filter((l) => l.issue === issue.number)
+      .map((l) => ({ id: l.id, ref: { name: l.name, target: { oid: refs[l.name] } } }));
+    return gqlOk({ repository: { issue: { id: `I_${issue.id}`, linkedBranches: { nodes } } } });
+  }
+
+  /** markPullRequestReadyForReview: idempotent, an already-ready PR stays ready. */
+  function gqlReady(query, vars) {
+    const id = gqlArg(query, vars, 'pullRequestId');
+    const issue = prByNodeId(id);
+    if (!issue) return noNode(id);
+    if (issue.pr.draft) {
+      issue.pr.draft = false;
+      issue.updatedAt = tick();
+    }
+    return gqlOk({ markPullRequestReadyForReview: { pullRequest: { id: `PR_${issue.number}`, number: issue.number, isDraft: false } } });
+  }
+
+  /** repository.mergeQueue(branch): non-null only for the default branch, and only when the fake has a queue. */
+  function gqlMergeQueue(query, vars) {
+    const wrong = gqlWrongRepo(query, vars);
+    if (wrong) return wrong;
+    const branch = gqlArg(query, vars, 'branch');
+    return gqlOk({ repository: { mergeQueue: mergeQueue && branch === defaultBranch ? { id: 'MQ_1' } : null } });
+  }
+
+  /** enqueuePullRequest: marks the PR queued; it stays open until `humanMergePr` lands it. Re-enqueueing is a no-op. */
+  function gqlEnqueue(query, vars) {
+    const id = gqlArg(query, vars, 'pullRequestId');
+    const issue = prByNodeId(id);
+    if (!issue) return noNode(id);
+    if (!mergeQueue || issue.pr.base.ref !== defaultBranch) return gqlError('Pull request does not target a branch with a merge queue');
+    if (issue.pr.merged || issue.state !== 'OPEN') return gqlError('Pull request is not open');
+    if (issue.pr.draft) return gqlError('Pull request is a draft and cannot be added to the merge queue');
+    if (!issue.pr.queued) {
+      issue.pr.queued = true;
+      issue.updatedAt = tick();
+    }
+    return gqlOk({ enqueuePullRequest: { mergeQueueEntry: { id: `MQE_${issue.number}`, position: 1 } } });
+  }
+
+  /**
+   * The GraphQL operations objective 49 uses, matched on the document text. Returns null for anything else,
+   * which then goes to the caller's `graphql(argv)` handler. Mutations are classified as writes by gh-client
+   * from the `mutation` keyword, so `writes()` and `calls()` need no help from here.
+   */
+  function runGraphql(vars) {
+    const query = vars.query;
+    if (typeof query !== 'string') return null;
+    if (/\bcreateLinkedBranch\s*\(/.test(query)) return gqlCreateLinkedBranch(query, vars);
+    if (/\bmarkPullRequestReadyForReview\s*\(/.test(query)) return gqlReady(query, vars);
+    if (/\benqueuePullRequest\s*\(/.test(query)) return gqlEnqueue(query, vars);
+    if (/\bmergeQueue\s*\(/.test(query)) return gqlMergeQueue(query, vars);
+    if (/\blinkedBranches\b/.test(query)) return gqlLinkedBranches(query, vars);
+    return null;
+  }
+
+  /** PUT repos/o/r/pulls/{n}/merge. */
+  function restMergePull(issue, f) {
+    const method = f.merge_method === undefined ? 'merge' : String(f.merge_method);
+    if (!MERGE_METHODS.includes(method)) return invalid('PullRequest', 'invalid', 'merge_method');
+    if (issue.pr.draft) return refused(405, 'Pull Request is still a draft');
+    if (issue.pr.merged || issue.state !== 'OPEN') return refused(405, 'Pull Request is not mergeable');
+    completeMerge(issue, method);
+    return ok(JSON.stringify({ sha: issue.pr.mergeSha, merged: true, message: 'Pull Request successfully merged' }));
   }
 
   /** `--json a,b` -> key list, or an error result. */
@@ -350,6 +740,7 @@ function createFakeGitHub({
       const wanted = flagList(p, '--label');
       const limit = Number(flagOne(p, '--limit') || 30);
       const rows = issues
+        .filter((i) => !i.pr) // gh issue list never shows pull requests
         .filter((i) => state === 'all' || i.state.toLowerCase() === state)
         .filter((i) => wanted.every((l) => i.labels.includes(l)))
         .sort((a, b) => b.number - a.number)
@@ -667,9 +1058,12 @@ function createFakeGitHub({
   function runApi(args, opts = {}) {
     const p = parseArgs(args, 1, API_VALUE_FLAGS, API_BOOL_FLAGS);
     if (p.unknown.length || p.pos.length !== 1) return unsupported(args);
-    // `api graphql` is answered by the caller's handler (46-07): graphql(argv) -> stdout string | full
-    // result object | null (unsupported). Without a handler GraphQL stays unsupported.
+    // `api graphql`: the operations objective 49 uses are built in (49-01); everything else is answered by
+    // the caller's handler (46-07): graphql(argv) -> stdout string | full result object | null (unsupported).
+    // Without a handler GraphQL stays unsupported.
     if (p.pos[0] === 'graphql') {
+      const builtin = runGraphql(fieldMap(p));
+      if (builtin) return builtin;
       const out = typeof graphql === 'function' ? graphql(args) : null;
       if (out === null || out === undefined) return unsupported(args);
       return typeof out === 'string' ? ok(out) : out;
@@ -833,6 +1227,60 @@ function createFakeGitHub({
       }
     }
 
+    // ── 49-01: pull requests and the authenticated user ──
+
+    if (rawPath === 'user') {
+      if (method !== 'GET') return unsupported(args);
+      return ok(JSON.stringify({ login: viewer, id: 7, type: 'User' }));
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/pulls$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      if (method === 'POST') return restOpenPull(fields);
+      if (method === 'GET') return restListPulls(p, qs);
+      return unsupported(args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/pulls\/(\d+)(\/merge)?$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      const issue = findPr(m[2]);
+      if (!issue) return notFound();
+      if (m[3]) return method === 'PUT' ? restMergePull(issue, fields) : unsupported(args);
+      if (method === 'GET') return prOk(issue);
+      if (method === 'PATCH') return restPatchPull(issue, fields);
+      return unsupported(args);
+    }
+
+    // ── 49-01: commit statuses and branch refs ──
+
+    m = /^repos\/([^/]+\/[^/]+)\/statuses\/([^/]+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'POST' ? restPostStatus(m[2], fields) : unsupported(args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/commits\/(.+)\/status$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'GET' ? restCombinedStatus(m[2]) : unsupported(args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/git\/ref\/heads\/(.+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      if (method !== 'GET') return unsupported(args);
+      if (refs[m[2]] === undefined) return notFound();
+      return ok(JSON.stringify({ ref: `refs/heads/${m[2]}`, node_id: `REF_${m[2]}`, object: { sha: refs[m[2]], type: 'commit' } }));
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/git\/refs\/heads\/(.+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'DELETE' ? deleteBranch(m[2]) : unsupported(args);
+    }
+
     // ── 47-02: repo meta and org-level capabilities ──
 
     m = /^repos\/([^/]+\/[^/]+)$/.exec(rawPath);
@@ -841,6 +1289,7 @@ function createFakeGitHub({
       if (method !== 'GET') return unsupported(args);
       return ok(JSON.stringify({
         id: 424242,
+        node_id: 'R_1',
         name: repo.split('/')[1],
         full_name: repo,
         owner: { login: repoOwner, type: ownerType },
@@ -848,7 +1297,7 @@ function createFakeGitHub({
         has_wiki: hasWiki,
         has_issues: true,
         html_url: `https://github.com/${repo}`,
-        default_branch: 'main',
+        default_branch: defaultBranch,
         permissions: { admin: push, maintain: push, push, triage: true, pull: true },
       }));
     }
@@ -875,7 +1324,7 @@ function createFakeGitHub({
       const list = scopes.map((s) => `'${s}'`).join(', ');
       return ok([
         'github.com',
-        '  ✓ Logged in to github.com account devflow-bot (keyring)',
+        `  ✓ Logged in to github.com account ${viewer} (keyring)`,
         '  - Active account: true',
         '  - Git operations protocol: https',
         '  - Token: gho_************************************',
@@ -937,12 +1386,40 @@ function createFakeGitHub({
     c.updated_at = tick();
   }
 
+  /**
+   * A `git push` the test made to its temp remote: set (or advance) branch `name` to `sha`. No gh call is
+   * recorded. A PR can only be opened from a ref that exists here, and only when it differs from the base tip.
+   */
+  function pushRef(name, sha) {
+    if (typeof name !== 'string' || !name) throw new Error('gh-fake: pushRef needs a branch name');
+    if (typeof sha !== 'string' || !sha) throw new Error('gh-fake: pushRef needs a sha');
+    refs[name] = sha;
+  }
+
+  /**
+   * A human clicks "merge" on github.com (or the merge queue lands the PR): the PR is merged and closed, a
+   * queue entry is consumed, and, for a PR into the default branch, each `Closes #N` issue closes (subject to
+   * `closeKeywordCap`). No DevFlow call is recorded. `method` is merge | squash | rebase, kept in `pr.mergeMethod`.
+   */
+  function humanMergePr(number, { method = 'merge' } = {}) {
+    if (!MERGE_METHODS.includes(method)) throw new Error(`gh-fake: unknown merge method '${method}'`);
+    const issue = findPr(number);
+    if (!issue) throw new Error(`gh-fake: no pull request #${number}`);
+    if (issue.pr.merged) throw new Error(`gh-fake: pull request #${number} is already merged`);
+    if (issue.state !== 'OPEN') throw new Error(`gh-fake: pull request #${number} is closed; a human cannot merge it`);
+    completeMerge(issue, method);
+  }
+
   return {
     runGh,
     issues,
     comments,
     milestones,
     labels,
+    refs,
+    statuses,
+    pushRef,
+    humanMergePr,
     calls: () => log.map((a) => a.slice()),
     writes: () => log.filter((a) => isWriteArgs(a)).map((a) => a.slice()),
     writeTimes: () => log.flatMap((a, i) => (isWriteArgs(a) ? [stamps[i]] : [])),
