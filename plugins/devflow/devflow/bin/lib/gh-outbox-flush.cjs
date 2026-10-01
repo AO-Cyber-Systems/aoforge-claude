@@ -14,6 +14,7 @@
  *
  * Failure classes (`classifyFailure`) decide what a failed call means for the queue:
  *   offline | rate_limited  -> the op stays pending, the flush stops with status `pending`
+ *   pending                 -> the same, for a world that is not ready yet (a PR whose branch has no commit; 49-05)
  *   already_exists          -> success (a 422 that says the thing is already there)
  *   validation | permission | not_found | error | blocked | conflict -> the op is blocked and the flush
  *                              halts for a human
@@ -38,6 +39,10 @@
  *                        issue types (devflow:type/<name> when the org lacks one), a todo never carries a type.
  *                        An entity body is fully DevFlow-managed (the TRD rule: any remote edit halts) and is
  *                        never frozen. Comments and state changes reach entities through issueRef.
+ *
+ * Pull requests (49-05): `upsert-pr` creates (draft) and refreshes the ONE PR of an objective, `pr-ready` marks it
+ * ready. A PR is not an issue to the scans: it carries `devflow:pr=<objective id>`, its base is stored under the
+ * key `pr:<objective id>`, and records with `pull_request` are skipped by every issue scan.
  */
 
 const fs = require('fs');
@@ -58,6 +63,8 @@ const str = (v) => (typeof v === 'string' ? v : '');
 const OFFLINE_RE = /could not resolve host|connection refused|timed out|network is unreachable|dial tcp|\bEOF\b/i;
 const ALREADY_RE = /already[ _]exists|already been taken|duplicate|already blocked/i;
 const BUDGET_RE = /write budget exhausted/i;
+// A draft PR cannot be opened until the branch has a commit of its own (49 Pitfall 1): wait, do not halt.
+const NO_COMMITS_RE = /No commits between/i;
 
 /** The HTTP status gh prints (`gh: Not Found (HTTP 404)`); the process exit code is not an HTTP status. */
 function httpStatus(text) {
@@ -72,6 +79,7 @@ function httpStatus(text) {
  * |----------------|-----------------------------------------------------------------------------------|
  * | rate_limited   | the client's write-budget refusal, or `client.isSecondaryLimit(r)`                |
  * | offline        | `status === null`, or the stderr names a network failure                          |
+ * | pending        | 422 "No commits between <base> and <head>" (a PR opened before its first commit)  |
  * | already_exists | 422 that says "already exists / already been taken / duplicate / already blocked" |
  * | validation     | any other 422                                                                     |
  * | permission     | 401, or a 403 that is not a secondary limit                                       |
@@ -81,7 +89,7 @@ function httpStatus(text) {
  * A rate-limit message wins over the network words it may contain, and the client's budget refusal (which
  * has `status: null` because gh was never run) is a rate limit, not an outage.
  * @param {{ok?:boolean, status?:number|null, stdout?:string, stderr?:string, error?:string}|null|undefined} r
- * @returns {'offline'|'rate_limited'|'already_exists'|'validation'|'permission'|'not_found'|'error'}
+ * @returns {'offline'|'rate_limited'|'pending'|'already_exists'|'validation'|'permission'|'not_found'|'error'}
  */
 function classifyFailure(r) {
   if (!r || typeof r !== 'object') return 'error';
@@ -90,7 +98,10 @@ function classifyFailure(r) {
   if (r.status === null) return 'offline';
   if (OFFLINE_RE.test(text)) return 'offline';
   const http = httpStatus(text);
-  if (http === 422) return ALREADY_RE.test(text) ? 'already_exists' : 'validation';
+  if (http === 422) {
+    if (NO_COMMITS_RE.test(text)) return 'pending';
+    return ALREADY_RE.test(text) ? 'already_exists' : 'validation';
+  }
   if (http === 401 || http === 403) return 'permission';
   if (http === 404) return 'not_found';
   return 'error';
@@ -188,6 +199,9 @@ function createContext(root, opts = {}) {
     capability: opts.capability || null,
     wikiRemote: typeof opts.wikiRemote === 'string' ? opts.wikiRemote : undefined,
     cache: { subIssues: new Map(), blockedBy: new Map(), scans: new Map(), labels: new Set() },
+    // The repository's default branch and GraphQL node id: read once, lazily, by repoInfo (49-05).
+    defaultBranch: null,
+    repoNodeId: null,
     store: null,
     current: null,
   };
@@ -316,6 +330,8 @@ function ensureRestId(ctx, ref) {
 
 // ─── Base store and remote-edit detection (D-24) ──────────────────────────────
 
+// The managed sections of an objective issue body; a pull-request body passes bodyLib.PR_SECTION_ORDER instead.
+const MANAGED_ORDER = Object.freeze([...bodyLib.SECTION_ORDER, ...bodyLib.OPTIONAL_SECTIONS]);
 const TICK_RE = /^(\s*[-*+]\s+)\[[xX]\]/gm;
 const normaliseTicks = (text) => text.replace(TICK_RE, '$1[ ]');
 
@@ -325,9 +341,9 @@ const normaliseTicks = (text) => text.replace(TICK_RE, '$1[ ]');
  * criterion is therefore NOT an edit of the managed text (the tick is carried forward by preserve_ticks),
  * while any other change inside a managed region is.
  */
-function managedHash(body) {
+function managedHash(body, order = MANAGED_ORDER) {
   const parts = [];
-  for (const name of [...bodyLib.SECTION_ORDER, ...bodyLib.OPTIONAL_SECTIONS]) {
+  for (const name of order) {
     const inner = bodyLib.extractSection(str(body), name);
     if (inner === null) continue;
     parts.push(`${name}\n${name === 'criteria' || name === 'trds' ? normaliseTicks(inner) : inner}`);
@@ -336,23 +352,23 @@ function managedHash(body) {
 }
 
 /** The base entry for an issue, from the issue GitHub returned. `frozen` is carried over from `prev`. */
-function baseFromIssue(issue, prev) {
+function baseFromIssue(issue, prev, order = MANAGED_ORDER) {
   const body = str(issue.body);
   const entry = {
     issue_number: issue.number,
     issue_id: issue.id,
     body_hash: trd.contentHash(body),
     updated_at: typeof issue.updated_at === 'string' ? issue.updated_at : null,
-    managed_hash: managedHash(body),
+    managed_hash: managedHash(body, order),
   };
   if (prev && prev.frozen) entry.frozen = true;
   return entry;
 }
 
-/** Store the base for `key` from a returned issue; a refusal becomes a warning, never a failed op. */
-function saveBase(ctx, key, issue, warnings) {
+/** Store the base for `key` from a returned issue (or PR); a refusal becomes a warning, never a failed op. */
+function saveBase(ctx, key, issue, warnings, order = MANAGED_ORDER) {
   const prev = outbox.getBase(ctx.root, key);
-  const r = outbox.setBase(ctx.root, key, baseFromIssue(issue, prev));
+  const r = outbox.setBase(ctx.root, key, baseFromIssue(issue, prev, order));
   if (!r.ok) warnings.push(`could not record the base for ${key}: ${r.error}`);
 }
 
@@ -362,7 +378,7 @@ function saveBase(ctx, key, issue, warnings) {
  * DevFlow's). `updated_at` equal to the base's is only a pre-filter that skips the hashing.
  * @returns {{halt:boolean, adopt?:boolean, note?:string}}
  */
-function remoteEditCheck(base, current, managed) {
+function remoteEditCheck(base, current, managed, order = MANAGED_ORDER) {
   if (!base) return { halt: false, adopt: true };
   if (current.updated_at === base.updated_at) return { halt: false };
   const body = str(current.body);
@@ -371,7 +387,7 @@ function remoteEditCheck(base, current, managed) {
   if (base.managed_hash === undefined || base.managed_hash === null) {
     return { halt: false, adopt: true, note: 'the recorded base has no managed-section hash; adopting the current body as the base' };
   }
-  return { halt: managedHash(body) !== base.managed_hash };
+  return { halt: managedHash(body, order) !== base.managed_hash };
 }
 
 // ─── Labels, milestones, scans ────────────────────────────────────────────────
@@ -713,7 +729,7 @@ function deriveSections(ctx, payload, id, currentBody) {
   return out;
 }
 
-/** patch-issue: type (native, or the degraded label), state and reason, extra labels. One PATCH, or none. */
+/** patch-issue: type (native, or the degraded label), state and reason, labels added and removed. One PATCH, or none. */
 function handlePatchIssue(ctx, op) {
   const w = [];
   const p = op.payload;
@@ -746,12 +762,16 @@ function handlePatchIssue(ctx, op) {
     changes.state_reason = p.state_reason;
   }
   const missing = wantLabels.filter((l, i) => !have.includes(l) && wantLabels.indexOf(l) === i);
+  // labels_remove: only a label the issue carries, and never one this same op adds. One PATCH carries both.
+  const dropped = (p.labels_remove || []).filter((l, i, all) => have.includes(l) && !wantLabels.includes(l) && all.indexOf(l) === i);
   if (missing.length > 0) {
     for (const l of missing) {
       const failed = ensureLabel(ctx, l);
       if (failed) return failFrom(failed, `create label ${l}`);
     }
-    changes.labels = [...have, ...missing];
+  }
+  if (missing.length > 0 || dropped.length > 0) {
+    changes.labels = [...have.filter((l) => !dropped.includes(l)), ...missing];
   }
   if (Object.keys(changes).length === 0) return ok(w);
 
@@ -1082,6 +1102,194 @@ function handleWikiPush(ctx, op) {
   return ok(w, { sha: pushed.sha === undefined ? null : pushed.sha });
 }
 
+// ─── Objective pull request (objective 49) ───────────────────────────────────
+
+const PR_ORDER = bodyLib.PR_SECTION_ORDER;
+const prBaseKey = (objectiveId) => `pr:${objectiveId}`;
+
+const READY_MUTATION = 'mutation($pullRequestId: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) { pullRequest { id number isDraft } } }';
+
+/**
+ * The repository's default branch and GraphQL node id, read once per context (`repos/{r}`) and cached on it.
+ * @returns {{ok:true}|{ok:false, r:object}}
+ */
+function repoInfo(ctx) {
+  if (ctx.defaultBranch !== null) return { ok: true };
+  const got = getJson(`repos/${ctx.repo}`);
+  if (!got.ok) return got;
+  const branch = str(got.json && got.json.default_branch);
+  if (branch === '') return { ok: false, r: unparseable(`gh api repos/${ctx.repo}`, { stdout: '' }) };
+  ctx.defaultBranch = branch;
+  ctx.repoNodeId = str(got.json.node_id) || null;
+  return { ok: true };
+}
+
+/**
+ * The objective's pull request as GitHub holds it: by `prs[id].number` when the mapping has one (a 404 means the
+ * number is stale, so fall through), else by head (`pulls?head=<owner>:<branch>&state=all`, an open PR first, then the
+ * newest). `pr` is null when there is none. Reads only.
+ * @returns {{ok:true, pr:object|null}|{ok:false, r:object}}
+ */
+function findObjectivePr(ctx, id, branch) {
+  const mapped = mappingLib.getPr(ctx.mapping, id);
+  if (mapped && Number.isInteger(mapped.number)) {
+    const got = getJson(`repos/${ctx.repo}/pulls/${mapped.number}`);
+    if (got.ok) return { ok: true, pr: got.json };
+    if (classifyFailure(got.r) !== 'not_found') return { ok: false, r: got.r };
+  }
+  if (!branch) return { ok: true, pr: null };
+  const head = `${ctx.repo.split('/')[0]}:${branch}`;
+  const list = getList(`repos/${ctx.repo}/pulls?head=${encodeURIComponent(head)}&state=all`);
+  if (!list.ok) return list;
+  const hits = list.items.filter((x) => x && x.head && x.head.ref === branch).sort((a, b) => b.number - a.number);
+  const open = hits.filter((x) => x.state === 'open');
+  return { ok: true, pr: (open.length > 0 ? open : hits)[0] || null };
+}
+
+/** Record the PR in the mapping. The first entry for an objective also names the branch and base (setPr needs a branch). */
+function recordPr(ctx, id, p, patch, w) {
+  const fields = { ...patch };
+  if (!mappingLib.getPr(ctx.mapping, id)) {
+    fields.branch = p.branch;
+    fields.base = p.base;
+  }
+  try {
+    mappingLib.setPr(ctx.mapping, id, fields);
+  } catch (e) {
+    w.push(`could not record the pull request for objective ${id} in the mapping: ${e.message}`);
+  }
+}
+
+const prStateWord = (pr) => (pr.merged || pr.merged_at ? 'merged' : 'closed');
+
+/**
+ * The managed sections of an objective's PR body, derived NOW: `closes` is the objective issue then every TRD issue
+ * of the objective in id order (a Decision is closed when answered, not by the PR), so a TRD planned after the PR
+ * exists is closed by the next refresh. `wiki` and `summary` only when the payload names them.
+ * @returns {{sections:object}|{error:object}}
+ */
+function prSections(ctx, id, ref, p) {
+  const numbers = [ref.number];
+  for (const tid of mappingLib.listTrds(ctx.mapping, id)) {
+    const entry = mappingLib.getTrd(ctx.mapping, tid);
+    if (entry && entry.role === 'trd' && Number.isInteger(entry.issue_number)) numbers.push(entry.issue_number);
+  }
+  const sections = { closes: bodyLib.closesSection(numbers) };
+  if (p.wiki !== undefined) {
+    try {
+      sections.wiki = bodyLib.buildWikiSection(p.wiki);
+    } catch (e) {
+      return { error: failWith('validation', `upsert-pr: wiki section: ${e.message}`) };
+    }
+  }
+  if (p.summary !== undefined) sections.summary = p.summary;
+  return { sections };
+}
+
+/**
+ * upsert-pr: the one pull request of an objective. Find it (mapping number, else head lookup), else create it as a
+ * DRAFT; keep its managed body sections (`closes`, `wiki`, `summary`) current. The body is merged onto the fresh
+ * remote body, so human text outside the sections survives, and a human edit INSIDE a section halts (D-24, the
+ * objective-body rule). The title is create-only: an existing PR is only ever PATCHed with a body, so a human
+ * rename sticks. A base other than the default branch halts, since closing keywords fire only for PRs into it.
+ */
+function handleUpsertPr(ctx, op) {
+  const w = [];
+  const p = op.payload;
+  const id = mappingLib.toObjectiveId(op.target.id);
+  if (id === null) return failWith('error', `upsert-pr: ${JSON.stringify(op.target.id)} is not an objective id`);
+  const ref = issueRef(ctx, id);
+  if (ref.error) return failWith('error', ref.error);
+
+  const info = repoInfo(ctx);
+  if (!info.ok) return failFrom(info.r, `read repository ${ctx.repo}`);
+  if (p.base !== ctx.defaultBranch) {
+    return failWith('validation',
+      `the pull request for objective ${id} targets "${p.base}" but the repository default branch is "${ctx.defaultBranch}"; `
+      + 'closing keywords (Closes #N) only fire on a PR into the default branch, so nothing was written');
+  }
+
+  const derived = prSections(ctx, id, ref, p);
+  if (derived.error) return derived.error;
+  const { sections } = derived;
+
+  let found = findObjectivePr(ctx, id, p.branch);
+  if (!found.ok) return failFrom(found.r, `find the pull request for objective ${id}`);
+  if (found.pr === null) {
+    if (typeof p.title !== 'string' || p.title === '') {
+      return failWith('validation', `title needed to create the PR for objective ${id}`);
+    }
+    let body;
+    try {
+      body = bodyLib.buildPrBody({ id, sections });
+    } catch (e) {
+      return failWith('validation', e.message);
+    }
+    const sent = sendJson('POST', `repos/${ctx.repo}/pulls`, { title: p.title, head: p.branch, base: p.base, body, draft: true });
+    if (sent.ok) {
+      const made = sent.json;
+      recordPr(ctx, id, p, { number: made.number, node_id: made.node_id, url: made.html_url }, w);
+      saveBase(ctx, prBaseKey(id), made, w, PR_ORDER);
+      return ok(w, { created: true, pr_number: made.number });
+    }
+    if (classifyFailure(sent.r) !== 'already_exists') return failFrom(sent.r, `create the pull request for objective ${id}`);
+    // Raced a PR that the lookup did not show yet: look again and update that one.
+    found = findObjectivePr(ctx, id, p.branch);
+    if (!found.ok) return failFrom(found.r, `find the pull request for objective ${id}`);
+    if (found.pr === null) return failFrom(sent.r, `create the pull request for objective ${id}`);
+  }
+
+  const cur = found.pr;
+  recordPr(ctx, id, p, { number: cur.number, node_id: cur.node_id, url: cur.html_url }, w);
+  if (cur.state !== 'open') {
+    w.push(`pull request #${cur.number} for objective ${id} is ${prStateWord(cur)}; its body was not updated and no new one was opened`);
+    return ok(w, { pr_number: cur.number });
+  }
+
+  const key = prBaseKey(id);
+  const base = outbox.getBase(ctx.root, key);
+  const merged = bodyLib.mergeManaged(str(cur.body), sections, id, { order: PR_ORDER, marker: 'pr' });
+  if (!merged.ok) return failWith('validation', merged.error);
+  w.push(...merged.warnings);
+  if (!merged.changed) {
+    saveBase(ctx, key, cur, w, PR_ORDER);
+    return ok(w, { pr_number: cur.number });
+  }
+  const chk = remoteEditCheck(base, cur, true, PR_ORDER);
+  if (chk.halt) return haltResult({ number: cur.number, id }, op, 'pull request');
+  if (chk.note) w.push(chk.note);
+
+  // Body only, never the title: the remote title (possibly renamed by a human) is authoritative once the PR exists.
+  const sent = sendJson('PATCH', `repos/${ctx.repo}/pulls/${cur.number}`, { body: merged.body });
+  if (!sent.ok) return failFrom(sent.r, `update pull request #${cur.number}`);
+  saveBase(ctx, key, sent.json, w, PR_ORDER);
+  return ok(w, { pr_number: cur.number });
+}
+
+/** pr-ready: `markPullRequestReadyForReview` on the objective's PR; already ready (or no longer open) writes nothing. */
+function handlePrReady(ctx, op) {
+  const w = [];
+  const id = mappingLib.toObjectiveId(op.target.id);
+  if (id === null) return failWith('error', `pr-ready: ${JSON.stringify(op.target.id)} is not an objective id`);
+  const mapped = mappingLib.getPr(ctx.mapping, id);
+  if (!mapped) return failWith('error', `objective ${id} has no pull request yet; queue upsert-pr first`);
+  const found = findObjectivePr(ctx, id, mapped.branch);
+  if (!found.ok) return failFrom(found.r, `find the pull request for objective ${id}`);
+  const cur = found.pr;
+  if (cur === null) return failWith('error', `objective ${id} has no pull request yet; queue upsert-pr first`);
+  if (cur.state !== 'open') {
+    w.push(`pull request #${cur.number} for objective ${id} is ${prStateWord(cur)}; it was not marked ready`);
+    return ok(w, { pr_number: cur.number });
+  }
+  if (cur.draft === false) return ok(w, { pr_number: cur.number });
+
+  const nodeId = str(cur.node_id) || str(mapped.node_id);
+  if (nodeId === '') return failWith('error', `pull request #${cur.number} has no GraphQL node id; run upsert-pr again`);
+  const r = client.ghWrite(['api', 'graphql', '-f', `query=${READY_MUTATION}`, '-f', `pullRequestId=${nodeId}`]);
+  if (!r.ok) return failFrom(r, `mark pull request #${cur.number} ready for review`);
+  return ok(w, { pr_number: cur.number });
+}
+
 /** One handler per `OP_KINDS` kind. `(ctx, op) -> {ok, warnings, ...} | {ok:false, class|halt, ...}`. */
 const HANDLERS = Object.freeze({
   'upsert-issue': handleUpsertIssue,
@@ -1093,6 +1301,8 @@ const HANDLERS = Object.freeze({
   'upsert-comment': handleUpsertComment,
   'post-scope': handlePostScope,
   'wiki-push': handleWikiPush,
+  'upsert-pr': handleUpsertPr,
+  'pr-ready': handlePrReady,
 });
 
 // ─── Executing one op ─────────────────────────────────────────────────────────
@@ -1232,6 +1442,11 @@ function flush(root, opts = {}) {
         outbox.markPending(root, op.seq, { error: res.error, retry_after: retryAfter });
         return finish('pending', { reason: res.class, retry_after: retryAfter });
       }
+      if (res.class === 'pending') {
+        // Not a failure: the world is not ready yet (a PR whose branch has no commit). Retry on the next flush.
+        outbox.markPending(root, op.seq, { error: res.error, retry_after: null });
+        return finish('pending', { reason: 'pending', detail: res.error });
+      }
       outbox.markBlocked(root, op.seq, res.error);
       outbox.setHalted(root, { reason: 'blocked', seq: op.seq, target: op.target, detail: res.error });
       return finish('halted', { class: res.class, error: res.error });
@@ -1263,6 +1478,15 @@ function refreshBase(ctx, op) {
       updated_at: found[found.length - 1].comment.updated_at || null,
     });
     return r.ok ? ok(w) : failWith('error', r.error);
+  }
+  if (op.kind === 'upsert-pr') {
+    const id = mappingLib.toObjectiveId(t.id);
+    if (id === null) return ok(w);
+    const mapped = mappingLib.getPr(ctx.mapping, id);
+    const found = findObjectivePr(ctx, id, (op.payload && op.payload.branch) || (mapped && mapped.branch));
+    if (!found.ok) return failFrom(found.r, `read the pull request for objective ${id}`);
+    if (found.pr) saveBase(ctx, prBaseKey(id), found.pr, w, PR_ORDER);
+    return ok(w);
   }
   if (!['upsert-issue', 'patch-body', 'patch-issue', 'set-fields'].includes(op.kind)) return ok(w);
   const ref = issueRef(ctx, t.id);
