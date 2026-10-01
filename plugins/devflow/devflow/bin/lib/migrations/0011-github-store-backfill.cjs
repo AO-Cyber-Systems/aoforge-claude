@@ -41,6 +41,7 @@ const backfill = require('../gh-backfill.cjs');
 const client = require('../gh-client.cjs');
 const ghCapability = require('../gh-capability.cjs');
 const { TRD_MAX_CHARS } = require('../gh-trd.cjs');
+const upgrade = require('../upgrade.cjs');
 
 const LEGACY_TRD_RE = /^objectives\/[^/]+\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
 const GIT_REDIRECT_VARS = [
@@ -62,6 +63,12 @@ const APPLY_COMMAND = '`df-tools upgrade --apply --only 0011 --confirm`';
 const DRY_RUN_COMMAND = '`df-tools planning import --dry-run`';
 const NOT_ENABLED = 'GitHub integration not enabled';
 const COMPLETE = 'already on GitHub (backfill complete)';
+const CONFIG_REL = '.planning/config.json';
+// P5: the partial window between the store switch and the end of the migration.
+const PARTIAL_WINDOW = 'until the migration finishes, the project is in store mode: the edit gate denies cache edits and ' +
+  '`df-tools commit` refuses the default branch';
+const NOT_YET = 'drain lands in TRD 51-07: until then `df-tools gh outbox flush` drains the queue and ' +
+  '`df-tools gh outbox status` shows it';
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const cell = (s) => String(s === undefined || s === null ? '' : s).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
@@ -327,12 +334,88 @@ function preflightRemote(ctx) {
   return out;
 }
 
-function ensureStoreSwitch() {
-  throw new Error('0011 ensureStoreSwitch lands in TRD 51-06 task 3');
+/** The indent config.json is written with (its first indented key), so a rewrite keeps the file's own style. */
+function indentOf(text) {
+  const m = /\n([ \t]+)"/.exec(text);
+  return m ? m[1] : 2;
 }
 
-function queue() {
-  throw new Error('0011 queue lands in TRD 51-06 task 3');
+/**
+ * Phase 2: `github.store = true` in the main checkout's .planning/config.json, every other key and the trailing newline
+ * kept. Already on -> `{changed:false}` and nothing written. Otherwise the project is backed up first (upgrade.backup,
+ * plus `0011-config.json.before`), so the rollback note can name the exact backup.
+ * @returns {{changed:boolean, rel:string, backup:string|null}}
+ */
+function ensureStoreSwitch(ctx) {
+  const main = mainOf(ctx);
+  if (planningMode.isStoreMode(main)) return { changed: false, rel: CONFIG_REL, backup: null };
+  const file = path.join(main, '.planning', 'config.json');
+  const text = fs.readFileSync(file, 'utf-8');
+  const cfg = JSON.parse(text);
+  if (!cfg || typeof cfg !== 'object' || !cfg.github || typeof cfg.github !== 'object' || Array.isArray(cfg.github)) {
+    throw new Error(`${CONFIG_REL} has no github block to switch`);
+  }
+  const backup = upgrade.backup({ projectRoot: main, userHome: ctx.userHome });
+  fs.writeFileSync(path.join(backup, '0011-config.json.before'), text);
+  cfg.github.store = true;
+  fs.writeFileSync(file, `${JSON.stringify(cfg, null, indentOf(text))}${text.endsWith('\n') ? '\n' : ''}`);
+  return { changed: true, rel: CONFIG_REL, backup };
+}
+
+/** The clock live writes are booked at: ctx.options.now (a test hook: ms or a function), else the gh client's. */
+function nowOf(ctx) {
+  const n = ctx && ctx.options ? ctx.options.now : undefined;
+  if (typeof n === 'function') return n();
+  if (typeof n === 'number' && Number.isFinite(n)) return n;
+  return client.now();
+}
+
+/**
+ * Phase 3: queue the backfill exactly once. While the journal holds any op (pitfall P3) the import is NOT re-run: its
+ * ops are the ones still pending. Otherwise `planImport({noFlush})` queues every create and then the history closes, and
+ * the live writes it made outside the outbox (objective creates, milestones) are booked into the journal's budget
+ * window so the drain paces around them (G5).
+ * @returns {{ok:true, skipped:boolean, pending:number, live_writes:number, report:object|null}
+ *   | {ok:false, error:string, live_writes:number, report:object}}
+ */
+function queue(ctx) {
+  const main = mainOf(ctx);
+  const opts = outboxOpts(ctx);
+  const p = backfill.hasPendingOps(main, opts);
+  if (p.any) return { ok: true, skipped: true, pending: p.pending, live_writes: 0, report: null };
+  const before = client.writeCount();
+  let report;
+  try {
+    report = planningImport.planImport(main, { noFlush: true });
+  } catch (e) {
+    report = { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+  const live = client.writeCount() - before;
+  backfill.recordLiveWrites(main, live, nowOf(ctx), opts);
+  if (!report.ok) return { ok: false, error: report.error || 'planning import failed', live_writes: live, report };
+  return { ok: true, skipped: false, pending: backfill.hasPendingOps(main, opts).pending, live_writes: live, report };
+}
+
+function queueNote(q) {
+  if (q.skipped) return `queue: already queued: ${q.pending} outbox op(s) pending; not re-imported (resume)`;
+  const r = q.report;
+  const counts = Object.entries(r.queued || {}).filter(([, n]) => Number(n) > 0).map(([k, n]) => `${n} ${k}`);
+  const closes = r.estimate ? r.estimate.history_closes || 0 : 0;
+  if (counts.length === 0 && closes === 0) return 'queue: nothing to backfill';
+  return `queue: queued ${counts.join(', ') || 'the history closes'} and ${plural(closes, 'history close')} ` +
+    `(${q.pending} outbox op(s) pending); ${plural(q.live_writes, 'live write')} booked into the budget window; ` +
+    `estimate: ${backfill.renderEstimate(r.estimate)}`;
+}
+
+function rollbackNote(sw, ctx, main) {
+  if (sw.backup) return `rollback: set github.store to false (the backup is at ${sw.backup})`;
+  let where;
+  try {
+    where = path.join(ctx.userHome, '.claude', 'devflow', 'backups', upgrade.repoKey(main));
+  } catch {
+    where = path.join(String(ctx.userHome), '.claude', 'devflow', 'backups');
+  }
+  return `rollback: set github.store to false (the backups are under ${where})`;
 }
 
 // ─── migrate / apply ────────────────────────────────────────────────────────────
@@ -365,7 +448,25 @@ function migrate(ctx) {
   const remote = preflightRemote(ctx);
   if (remote.length) return stop('preflight', remote);
 
-  return stop('not_implemented', ['the store switch and queue land in TRD 51-06 task 3']);
+  // Phase 2: the store switch. From here until the migration finishes the project is in store mode (P5).
+  const sw = ensureStoreSwitch(ctx);
+  const changed = sw.changed ? [CONFIG_REL] : [];
+  const switched = [
+    sw.changed ? 'store switch: github.store set to true in .planning/config.json' : 'store switch: github.store already true',
+    PARTIAL_WINDOW,
+    rollbackNote(sw, ctx, main),
+  ];
+
+  // Phase 3: queue (once; resume-aware).
+  const q = queue(ctx);
+  if (!q.ok) return stop('preflight', [`planning import failed: ${q.error}`, ...switched], { changed });
+  const stayLocal = q.report ? stayLocalRows(q.report) : [];
+  const notes = stayLocal.length
+    ? ['will stay local:', '  | file | why |', '  |---|---|', ...stayLocal.map(([rel, why]) => `  | ${cell(rel)} | ${cell(why)} |`)]
+    : [];
+
+  // Phases 4-6 (drain, verify, the 0010 hand-off) land in TRD 51-07.
+  return stop('not_implemented', [queueNote(q), ...switched, NOT_YET], { changed, notes });
 }
 
 /** Upgrade-runner adapter: a stop THROWS, so the runner reports it as failed and never stamps 0011. */

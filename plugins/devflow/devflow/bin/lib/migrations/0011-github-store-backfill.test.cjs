@@ -346,7 +346,9 @@ function stopped(ctx) {
   return err;
 }
 
-const TRD_CLOSE = (o) => o.kind === 'patch-issue' && o.payload && o.payload.state === 'closed' && !Object.hasOwn(o.payload, 'type');
+// A history close of a TRD (`NN-MM` id). Entity closes (the completed todo, the quick task) are import ops, not history.
+const TRD_CLOSE = (o) => o.kind === 'patch-issue' && /^\d+(?:\.\d+)?-\d+$/.test(String(o.target && o.target.id)) &&
+  o.payload && o.payload.state === 'closed' && !Object.hasOwn(o.payload, 'type');
 
 describe('0011 store switch and queue (tests 6-8)', () => {
   test('6: apply switches the store, queues the import then the history closes, books live creates; stops not_implemented', (t) => {
