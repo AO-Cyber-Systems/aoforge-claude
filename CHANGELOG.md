@@ -7,6 +7,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **GitHub authoritative store (objective 47).** Opt-in with `github.store: true` in
+  `.planning/config.json`; the default is `false`, and with it off `gh sync` behaves exactly as in
+  objective 46. Skills and agents still read the planning files until objectives 48-51 move them
+  onto the store, so for now it is a push target plus a cache rebuildable from GitHub.
+  - Hierarchy: `gh sync` pushes milestone, Objective issue and TRD sub-issues (native sub-issues,
+    blocked-by edges from waves, issue types and project fields where the organisation has them).
+    The Roadmap wiki page is rendered from the issues.
+  - TRD codec and budget: a TRD body is the file verbatim behind `devflow:id` / `devflow:file`
+    markers and round-trips byte for byte. A TRD over 60,000 characters is refused before any
+    GitHub call; 40,000 and above warns. Scope changes are comments (`gh trd scope`) that are
+    replayed in order by `gh trd spec`, frozen by `gh trd freeze` and folded into the body by
+    `gh trd fold`.
+  - Comments: SUMMARY and VERIFICATION files travel as marked, multi-part comments.
+  - Outbox: writes are queued in a per-repo journal under `~/.claude/devflow/state/outbox/`
+    (`DEVFLOW_OUTBOX_DIR`) and flushed in order. `gh outbox status|flush|resolve` inspects and
+    drains it; `flush` exits 0 flushed/skipped/running, 1 error, 2 halted for a human, 3 pending.
+    A remote edit to a managed section or TRD body halts the queue until
+    `gh outbox resolve <seq> --accept-remote|--overwrite`.
+  - Wiki store: reference pages live in the repository wiki (clone at `.planning/wiki/`, excluded
+    through `info/exclude`; `github.wiki.remote` or `DEVFLOW_WIKI_REMOTE` overrides the remote).
+  - `gh pull --all [--force]` rebuilds `.planning/` from GitHub, writes only what changed, never
+    deletes, never overwrites a locally edited file without `--force` and never overwrites a
+    hand-maintained ROADMAP.md or STATE.md (exit 2 reports it). `gh orphans <objective>` lists TRD
+    issues with no local file and local TRDs with no issue.
+  - Degraded mode is detected per repository and cached (`<DEVFLOW_GH_CACHE_DIR>/capabilities/`):
+    without issue types or project fields, labels (`github.labels.trd|decision`) and a body
+    `meta` section carry them; without a wiki, pages go to `docs/devflow/`. A wiki with no first
+    page halts the queue and names the fix; it never falls back to `docs/`.
+  - Modules `gh-trd`, `gh-capability`, `gh-outbox`, `gh-outbox-flush`, `gh-hierarchy`,
+    `gh-comments`, `gh-wiki`, `gh-cache` and `gh-store-cli`, plus store extensions to `gh-body`
+    and `gh-mapping`. A repo test keeps the store modules behind the `gh-client` seam.
+  - Known limitation (open decision): `gh trd freeze|scope|fold` read GitHub first and need
+    connectivity; offline they exit 1 and queue nothing. Only `gh sync` and the outbox queue
+    offline.
 - **Upgrade migration 0009** (auto). Converts `.planning/.gh-mapping.json` from its v1 and v2 shapes
   to v3 (keyed by canonical objective id, `{issue_id, state_comment_id, verified_at}` entries) and
   re-keys `.planning/.gh-sync-state.json` by the same ids. Idempotent; backs up first.

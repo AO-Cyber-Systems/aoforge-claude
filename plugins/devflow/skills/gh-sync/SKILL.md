@@ -46,6 +46,21 @@ node ~/.claude/devflow/bin/df-tools.cjs gh status
 
 `gh sync --all` keeps going past a failing objective, prints JSON on stdout and exits 1 if any objective failed. `gh sync-objectives` still works but is a deprecated alias of `gh sync --all`.
 
+Store mode (`github.store: true`, default false; off is the behaviour above unchanged): `gh sync` also pushes the TRD sub-issues, SUMMARY/VERIFICATION comments and wiki pages through an outbox, and flushes it. If the sync reports `outbox: pending` or `halted`, run:
+
+```bash
+# What is queued, and why a flush stopped (no GitHub calls)
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox status
+
+# Drain the queue. Exit 0 flushed/skipped/running, 1 error, 2 halted for a human, 3 pending (offline)
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox flush
+
+# Rebuild .planning/ from GitHub (exit 2 = rebuilt, but something needs attention)
+node ~/.claude/devflow/bin/df-tools.cjs gh pull --all
+```
+
+Exit 2 from `gh outbox flush` means someone edited the issue on GitHub; do not decide for the user. Show them `gh outbox status` (it names the issue and both resolve commands) and let them pick `gh outbox resolve <seq> --accept-remote` or `--overwrite`. `gh pull --all` never overwrites a hand-maintained ROADMAP.md and, without `--force`, a file the user edited locally. A TRD over 60,000 characters makes the sync refuse before any GitHub call: tell the user to split it. The `gh trd` verbs (`spec|freeze|fold|scope`) need connectivity (offline they exit 1 and queue nothing).
+
 How a sync treats GitHub:
 - Each issue body starts with `<!-- devflow:id=N -->`. DevFlow rewrites only the text between its `devflow:begin` / `devflow:end` section markers; text a human wrote above, between or below them is preserved byte for byte.
 - An issue created by an earlier DevFlow (no markers) keeps its old generated text; the managed sections are appended below it once. Edit the old text away by hand if you want it gone.

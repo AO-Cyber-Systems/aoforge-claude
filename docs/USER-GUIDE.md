@@ -407,6 +407,9 @@ Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub in
 | `github.labels.in_progress` | `"devflow:in-progress"` | Label during execution |
 | `github.labels.gaps` | `"devflow:gaps"` | Label when verifier finds gaps |
 | `github.project_cache_ttl_minutes` | `360` | How long discovered Project v2 fields and options are cached (under `~/.claude/devflow/state/gh-project/`, override `DEVFLOW_GH_CACHE_DIR`) |
+| `github.store` | `false` | Store mode (strict boolean: only `true` turns it on). See **Store mode** below |
+| `github.labels.trd` / `github.labels.decision` | `"devflow:trd"` / `"devflow:decision"` | Labels for TRD and Decision issues; also how a repository without issue types tells them apart |
+| `github.wiki.remote` | `""` | Wiki remote override; empty means `https://github.com/<repo>.wiki.git` (env override `DEVFLOW_WIKI_REMOTE`) |
 
 ### Git Branching
 
@@ -657,7 +660,7 @@ To turn off a hook entirely, edit `~/.claude/settings.json` and remove its entry
 
 ## GitHub integration
 
-Opt-in mirroring of `.planning/` to GitHub issues, milestones, and releases. Planning files remain the source of truth — GitHub is derivative. With `github.enabled` false every GitHub command reports `skipped` and exits 0 without calling `gh`. With it true, a command that cannot reach GitHub (no `gh`, expired auth, a failed call) exits 1 and says why. The workflow steps that run a sync after planning and after execution show that failure as a warning and carry on, so your workflow is never blocked.
+Opt-in mirroring of `.planning/` to GitHub issues, milestones, and releases. Planning files remain the source of truth — GitHub is derivative. **Store mode** (below) pushes the whole hierarchy and can rebuild `.planning/` from GitHub, but skills and agents still work from the planning files until objectives 48-51. With `github.enabled` false every GitHub command reports `skipped` and exits 0 without calling `gh`. With it true, a command that cannot reach GitHub (no `gh`, expired auth, a failed call) exits 1 and says why. The workflow steps that run a sync after planning and after execution show that failure as a warning and carry on, so your workflow is never blocked.
 
 ### Enable
 
@@ -690,6 +693,10 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 | Verifier final pass passes | Closes the issue with link to verification report | `df-tools gh close-issue <objective>` |
 | Tag push (`vX.Y.Z`) | Generates rich release notes from SUMMARY.md files since previous tag, creates or edits the GitHub release | `df-tools gh sync-release vX.Y.Z` |
 | Read back | Compares the issue with the local state and reports drift; `--apply` writes the differences | `df-tools gh pull <objective> [--apply]` |
+| Rebuild the cache (store mode) | Rebuilds `.planning/` from GitHub: TRDs, SUMMARY and VERIFICATION, pages, a generated ROADMAP.md and STATE.md | `df-tools gh pull --all [--force]` |
+| Queued writes (store mode) | Shows or drains the outbox of pending GitHub writes | `df-tools gh outbox status`, `df-tools gh outbox flush [--no-wait]` |
+| TRD spec and scope (store mode) | Prints a TRD's effective spec, freezes it, adds a scope change or folds scope comments into the body | `df-tools gh trd spec\|freeze\|fold\|scope <trd>` |
+| Orphans (store mode) | Lists TRD issues with no local file and local TRDs with no issue; deletes nothing | `df-tools gh orphans <objective>` |
 | Manual recovery | All of the above | `/devflow:gh-sync [<objective>|--all|release vX.Y.Z|status]` |
 
 `<objective>` takes any spelling: `46`, `046`, `46-github-sync-foundations`, `2.1`. `gh comment` and `gh close-issue` also take `#N` for a raw issue. `gh sync-objectives` is a deprecated alias of `gh sync --all`. `gh sync --all` keeps going past a failing objective, prints JSON on stdout and exits 1 if any objective failed.
@@ -727,9 +734,73 @@ Commit it. Re-running `gh sync --all` is idempotent — existing issues are edit
 
 If the mapping file is lost, re-run `gh sync --all`: the `devflow:id` markers on GitHub lead back to the same issues and no duplicates are created.
 
+### Store mode
+
+Store mode (objective 47) makes GitHub hold the whole planning hierarchy, not just a mirror of objectives. It is off unless `github.store` is exactly `true`; with it off, everything above behaves as before. Objectives 48-51 move skills and agents onto the store. Until then planning files remain the working copy and the store is a push target plus a cache you can rebuild from GitHub.
+
+With `github.store: true`, `df-tools gh sync <objective>` also pushes:
+
+- the hierarchy: milestone, Objective issue, one TRD sub-issue per TRD (native sub-issues, blocked-by edges derived from waves);
+- SUMMARY.md and VERIFICATION.md as marked comments (long files are split into numbered parts and rejoined on pull);
+- reference pages (OBJECTIVE, CONTEXT, RESEARCH, PROJECT, REQUIREMENTS, codebase docs) to the repository wiki, plus a `Roadmap` page rendered from the issues.
+
+A TRD body is the TRD file verbatim behind `devflow:id` and `devflow:file` markers. A TRD of 40,000 characters or more warns; over 60,000 the sync is refused before any GitHub call (zero `gh` calls) and names the TRD. Split it.
+
+#### The outbox
+
+Every store write is queued in a per-repo journal at `~/.claude/devflow/state/outbox/` (override `DEVFLOW_OUTBOX_DIR`) and flushed in order, so a dropped connection loses nothing. Offline, `gh sync` of an objective that already has an issue queues its changes and reports `pending`; an objective with no issue yet cannot be created offline (that sync fails and queues nothing).
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox status
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox flush [--no-wait]
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox resolve <seq> --accept-remote|--overwrite
+```
+
+`flush` exit codes (the `gh trd` verbs that flush use the same ones):
+
+| Exit | Meaning | What to do |
+|---|---|---|
+| 0 | flushed, skipped (GitHub integration off) or running (another flush holds the lock) | nothing |
+| 1 | error (bad config, no repo, a failed flush) | read the message |
+| 2 | halted: a human must look | see below |
+| 3 | pending: offline or rate limited, nothing lost | run `flush` again later |
+
+`--no-wait` is hook mode: a rate-limited write is left queued instead of waited out. `gh outbox status` makes no GitHub calls; it reports the counts, the journal path, any halt and one sentence per degraded capability.
+
+**Resolving a halt.** Before overwriting an issue the flusher compares it with what it last saw. If a person edited a managed section or a TRD body on GitHub, the queue halts at that op and everything behind it waits; edits to human-written text outside the managed sections are merged without a halt. `gh outbox status` names the issue (`#N`) and prints both commands for the halted `<seq>`:
+
+- `gh outbox resolve <seq> --accept-remote` drops the local write and keeps what is on GitHub (then run `gh pull --all` to bring it down);
+- `gh outbox resolve <seq> --overwrite` keeps the local write and replaces GitHub's version.
+
+After either, the queue behind the halt drains on the next `flush` (or sync). A wiki with no first page also halts (`reason: blocked`): create the first wiki page once in the GitHub web UI, then `flush`. DevFlow never falls back to `docs/` for that.
+
+#### TRD verbs
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh trd spec <trd>
+node ~/.claude/devflow/bin/df-tools.cjs gh trd freeze <trd>
+node ~/.claude/devflow/bin/df-tools.cjs gh trd scope <trd> <body|@file:path> [--n K]
+node ~/.claude/devflow/bin/df-tools.cjs gh trd fold <trd> [--force]
+```
+
+`spec` prints the effective spec: the issue body plus its scope comments applied in `n` order. `scope` adds a scope comment; one that would push the effective spec past 60,000 characters (or that is itself too large) exits 1 with "becomes a new TRD", because that change belongs in a new TRD. `freeze` records the body as final: after it the body is not edited and changes go in as scope comments; an already frozen TRD is a no-op. `fold` rewrites the body to the effective spec and records it; on an open TRD it needs `--force`. All three flush by default (`--no-flush` leaves the ops queued; `--no-wait` is hook mode).
+
+**Known limitation (open decision).** `freeze`, `scope` and `fold` read the issue and its comments from GitHub first, so they need connectivity: offline they exit 1 and queue nothing. Only `gh sync` and the outbox queue offline. `gh orphans <objective>` is read-only and lists TRD issues with no local file and local TRDs with no issue.
+
+#### Rebuilding the cache: `gh pull --all`
+
+`df-tools gh pull --all [--force]` reads the issues, comments and pages and lays them out as `.planning/` files, byte for byte. It writes only what changed (a second run writes nothing) and never deletes anything. It will not overwrite a file you edited locally since the last sync; that file is reported as `local_modified` and `--force` takes GitHub's version. A ROADMAP.md or STATE.md without the generated header is hand-maintained: it is reported and never overwritten, even with `--force`. Exit 0 means the cache matches GitHub, 1 an error, and 2 that the cache was rebuilt but something needs your attention (a locally modified file, a hand-maintained ROADMAP.md, a local file GitHub does not have, an item that could not be read or placed).
+
+#### Degraded mode
+
+Capabilities are detected per repository and cached under `<DEVFLOW_GH_CACHE_DIR>/capabilities/` (`~/.claude/devflow/state/gh-project/capabilities/` by default), then reported by `gh outbox status`. Nothing to configure:
+
+- no issue types or project fields (a user-owned repository): the labels `devflow:trd` / `devflow:decision` (`github.labels.trd|decision`) and a `meta` section in the objective body carry what types and fields would;
+- no wiki: reference pages are written to `docs/devflow/` and committed with your normal workflow; the sub-issue tree and blocked-by edges stay native.
+
 ### What does NOT sync
 
-- Issues created in GitHub do not flow back to `.planning/` (would break "planning files are truth"). File issues normally; they become input to `/devflow:plan-objective`.
+- Without store mode, issues created in GitHub do not flow back to `.planning/` (would break "planning files are truth"). File issues normally; they become input to `/devflow:plan-objective`. With store mode, `gh pull --all` is the way back, under the overwrite rules above.
 - Per-task commits are not re-posted to issues (too noisy). Use `gh comment` manually if you want an update mid-execution.
 - Project v2 boards are only updated for issues DevFlow syncs (status and similar fields, when a project is configured). DevFlow does not create boards, fields or options.
 

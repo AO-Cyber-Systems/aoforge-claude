@@ -1,6 +1,22 @@
 # Proposal: GitHub as the system of record
 
 Status: accepted for planning, 2026-09-30. Objectives 46–51 implement it.
+Objective 46 (foundations) and objective 47 (the authoritative store: hierarchy, TRD codec and budget,
+comments, outbox, wiki store, `gh pull --all`, degraded mode) are implemented. The store ships opt-in
+(`github.store`, default false); objectives 48–51 move skills, agents, enforcement and the PR lifecycle
+onto it. Known gap: `gh trd freeze|scope|fold` need connectivity (offline they exit 1 and queue nothing).
+
+### Planning refinements (objective 47)
+
+Decisions taken while planning objective 47 that refine, and do not change, the table below:
+
+- D-01: a TRD issue body is `<!-- devflow:id=… -->`, then `<!-- devflow:file=… -->`, then the TRD file
+  verbatim; the `file` line is how `gh pull --all` rebuilds exact filenames.
+- D-15: rollout is behind `github.store`, default false. Off is objective 46 byte for byte; on, the TRD,
+  comment and wiki writes and the objective-body edit go through the outbox.
+- D-17: the wiki clone lives at `.planning/wiki/`, excluded through `info/exclude`.
+- D-24: remote-edit detection compares a body hash (`updated_at` is only a pre-filter). A change to a
+  managed section or a TRD body halts the queue for a human; a change to human text only is merged.
 Team-review page: https://claude.ai/artifact/5WUeto6m5YYsxRAz8XJd2w (private; share before linking).
 
 ## Summary
