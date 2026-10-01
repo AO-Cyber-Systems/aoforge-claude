@@ -19,7 +19,7 @@ Micro is the FLOOR of the DevFlow ladder:
 - No JOB.md, no TRD.md, no SUMMARY.md
 - No CLAUDE.md / playbook absorption (mirrors /devflow:quick's no-ceremony posture)
 - Commit format: `chore(micro): {description}`
-- STATE.md "Quick Tasks Completed" table receives an entry on commit
+- STATE.md "Quick Tasks Completed" table receives an entry on commit, recorded by `df-tools micro commit` (never a hand edit)
 
 Cost target: ~2k tokens (skill body + df-tools output). For changes that exceed sub-30-LOC or touch multiple files, prefer /devflow:quick (<5 files, <200 LOC) or /devflow:build (multi-file features).
 </objective>

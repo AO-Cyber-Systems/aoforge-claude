@@ -51,7 +51,7 @@ const OBJ_DOC_EXCLUDED_SUFFIXES = new Set(['JOB']);
 const OBJECTIVE_ID_RE = /^(\d+(?:\.\d+)?)(?:-|$)/;
 const TRD_ID_RE = /^(\d+(?:\.\d+)?-\d+)(?:-|$)/;
 
-const QUICK_DIR_RE = /^(\d+)-.+$/;
+const QUICK_DIR_RE = /^(\d+)-(.+)$/;
 const QUICK_FILE_RE = /^(\d+)-(JOB|SUMMARY)\.md$/;
 
 // The stem half of 48-02's ENTITY_ID_RE (`^(todo|debug)-([a-z0-9][a-z0-9._-]{0,99})$`). A stem it refuses keeps its
@@ -203,9 +203,9 @@ const RULES = [
       const dir = QUICK_DIR_RE.exec(seg[1]);
       const file = QUICK_FILE_RE.exec(seg[2]);
       if (!dir || !file || dir[1] !== file[1]) return null;
-      return { n: file[1], part: file[2] === 'JOB' ? 'job' : 'summary' };
+      return { n: file[1], slug: dir[2], part: file[2] === 'JOB' ? 'job' : 'summary' };
     },
-    hint: (m) => `\`df-tools quick put ${m.n} --from <draft>\` / \`quick summary ${m.n} --from <draft>\``,
+    hint: (m) => `\`df-tools quick put ${m.n} ${m.slug} --from <draft>\` / \`quick summary ${m.n} --from <draft>\``,
     entity: (m) => ({ role: 'quick', id: `quick-${m.n}`, part: m.part }),
   },
   {

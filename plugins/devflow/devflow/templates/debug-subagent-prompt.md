@@ -27,7 +27,7 @@ goal: {find_root_cause_only | find_and_fix}
 </mode>
 
 <debug_file>
-Create: .planning/debug/{slug}.md
+Session: .planning/debug/{slug}.md. Start and save it only with `node ~/.claude/devflow/bin/df-tools.cjs debug put {slug} --from "$DRAFT"` (draft path from `planning draft debug/{slug}.md`); archive with `debug resolve {slug}`.
 </debug_file>
 ```
 

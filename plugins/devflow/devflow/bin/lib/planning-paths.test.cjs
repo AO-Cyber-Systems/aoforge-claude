@@ -130,7 +130,9 @@ describe('classify: the D-02 class table', () => {
     assert.match(paths.classify('objectives/48-x/48-UAT.md').hint, /doc put objectives\/48-x\/48-UAT\.md --from/);
     assert.match(paths.classify('todos/pending/2026-07-31-a.md').hint, /todo complete 2026-07-31-a/);
     assert.match(paths.classify('debug/x.md').hint, /debug put x --from/);
-    assert.match(paths.classify('quick/12-fix-x/12-JOB.md').hint, /quick put 12 --from/);
+    // `quick put` takes `<N> <slug>` (48-15's CLI); a hint without the slug suggests a call that exits 1.
+    assert.match(paths.classify('quick/12-fix-x/12-JOB.md').hint, /quick put 12 fix-x --from/);
+    assert.match(paths.classify('quick/12-fix-x/12-SUMMARY.md').hint, /quick summary 12 --from/);
     assert.match(paths.classify('ROADMAP.md').hint, /generated view/);
   });
 
