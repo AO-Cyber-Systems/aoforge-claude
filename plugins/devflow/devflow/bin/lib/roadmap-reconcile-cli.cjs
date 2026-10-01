@@ -11,6 +11,9 @@
  *   --interactive        — prompts y/N per drift via TTY readline; non-TTY falls back
  *                          to write mode with warning
  *
+ * Store mode (TRD 48-13): write and --interactive are no-ops that exit 0 and point
+ * at `df-tools gh pull --all`; --dry-run runs unchanged.
+ *
  * Anti-pattern: NEVER put interactive prompting logic in reconcile(). That's a CLI-layer
  * concern. The engine stays pure: reconcile() does dry-run → caller prompts → caller
  * applies accepted changes.
@@ -202,6 +205,15 @@ function cmdSyncRoadmapRoute(cwd, args, raw) {
   let mode = 'write';
   if (flags['dry-run']) mode = 'dry-run';
   else if (flags['interactive']) mode = 'interactive';
+
+  // TRD 48-13 (D-19): write and interactive modes write ROADMAP.md, which is a
+  // generated view in store mode — no-op and point at `gh pull --all`.
+  // --dry-run is read-only and runs unchanged.
+  if (mode !== 'dry-run' && require('./planning-mode.cjs').isStoreMode(cwd)) {
+    const { ROADMAP_STORE_SKIP } = require('./roadmap.cjs');
+    output(Object.assign({}, ROADMAP_STORE_SKIP), raw, 'skipped');
+    return;
+  }
 
   // Interactive mode: handle TTY check at CLI layer
   if (mode === 'interactive') {
