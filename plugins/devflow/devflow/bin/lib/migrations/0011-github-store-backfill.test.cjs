@@ -6,7 +6,8 @@
 //   3     dry run: the full plan in notes, nothing written, zero gh calls
 //   4     local preflight refusals (each alone, then all together)
 //   5     remote preflight refusals (wiki disabled, wiki with no first page, read-only token)
-//   6-8   store switch + queue, resume without re-import, empty plan
+//   6-8   store switch + queue, resume without re-import, empty plan (51-07: the drain is held at `maxOps: 0`, so the
+//         apply stops `pending` right after the queue; test 8 runs every phase)
 //
 // no_llm_test_data: every project is the hand-built 51-02 backfill fixture (useBackfillEnv: hermetic HOME, outbox and
 // gh-cache dirs, the fake GitHub on the gh seam, a local bare wiki remote, a fake clock) or a hand-built minimal git repo
@@ -335,6 +336,13 @@ describe('0011 remote preflight (test 5)', () => {
 
 // ─── 6-8. store switch and queue ──────────────────────────────────────────────
 
+/** A ctx whose drain flushes nothing (`maxOps: 0`): the apply stops `pending` right after the queue. */
+function heldCtx(env) {
+  const ctx = ctxFor(env);
+  ctx.options.maxOps = 0;
+  return ctx;
+}
+
 /** apply(ctx) throws a typed stop; returns the error. */
 function stopped(ctx) {
   let err = null;
@@ -351,14 +359,15 @@ const TRD_CLOSE = (o) => o.kind === 'patch-issue' && /^\d+(?:\.\d+)?-\d+$/.test(
   o.payload && o.payload.state === 'closed' && !Object.hasOwn(o.payload, 'type');
 
 describe('0011 store switch and queue (tests 6-8)', () => {
-  test('6: apply switches the store, queues the import then the history closes, books live creates; stops not_implemented', (t) => {
+  test('6: apply switches the store, queues the import then the history closes, books live creates; held drain stops pending', (t) => {
     const env = useBackfillEnv(t, { objectives: 4, trdsPerObjective: 3 });
     if (!env) return;
     const keysBefore = Object.keys(JSON.parse(configText(env.root)).github);
 
-    const err = stopped(ctxFor(env));
-    assert.equal(err.refusal.code, 'not_implemented', err.message);
-    assert.match(err.message, /drain lands in TRD 51-07/);
+    const err = stopped(heldCtx(env));
+    assert.equal(err.refusal.code, 'pending', err.message);
+    assert.equal(err.refusal.reason, 'max_ops');
+    assert.match(err.message, /not an error: \d+ of \d+ ops remain/);
     assert.match(err.refusal.notes, /edit gate denies cache edits/);
     assert.match(err.refusal.notes, /`df-tools commit` refuses the default branch/);
     assert.match(err.refusal.notes, /rollback: set github\.store to false \(the backup is at \/.+\)/);
@@ -388,14 +397,14 @@ describe('0011 store switch and queue (tests 6-8)', () => {
   test('7: a second apply with ops pending re-imports nothing (same ops, same next_seq, no new writes)', (t) => {
     const env = useBackfillEnv(t, SMALL);
     if (!env) return;
-    stopped(ctxFor(env));
+    stopped(heldCtx(env));
     const first = outbox.readJournal(env.root).journal;
     const configAfterFirst = configText(env.root);
     const liveAfterFirst = env.fake.writes().length;
     assert.ok(first.ops.some((o) => o.status === 'pending'), 'precondition: ops pending');
 
-    const err = stopped(ctxFor(env));
-    assert.equal(err.refusal.code, 'not_implemented');
+    const err = stopped(heldCtx(env));
+    assert.equal(err.refusal.code, 'pending');
     assert.match(err.refusal.notes, /already queued: \d+ outbox op\(s\) pending; not re-imported/);
     const second = outbox.readJournal(env.root).journal;
     assert.equal(second.ops.length, first.ops.length);
@@ -405,7 +414,7 @@ describe('0011 store switch and queue (tests 6-8)', () => {
     assert.equal(configText(env.root), configAfterFirst, 'the switch is a no-op the second time');
   });
 
-  test('8: an empty plan still flips the switch and reports nothing to backfill', (t) => {
+  test('8: an empty plan still flips the switch, reports nothing to backfill and runs every phase', (t) => {
     const env = useBackfillEnv(t, SMALL);
     if (!env) return;
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0011-empty-')));
@@ -415,10 +424,10 @@ describe('0011 store switch and queue (tests 6-8)', () => {
     fx.initGitFixture(root, env.home);
 
     const res = m0011().migrate(ctxFor(env, { root }));
-    assert.equal(res.code, 'not_implemented', res.notes);
+    assert.equal(res.applied, true, res.refused || res.notes);
     assert.match(res.notes, /nothing to backfill/);
     const switched = `${JSON.stringify({ github: { enabled: true, repo: 'o/r', store: true } }, null, 2)}\n`;
-    assert.equal(configText(root), switched);
+    assert.equal(configText(root), switched, 'migrate itself never stamps (apply records the 0010 hand-off)');
     assert.equal(env.fake.writes().length, 0);
 
     // ensureStoreSwitch is idempotent: already on -> unchanged bytes, no backup.

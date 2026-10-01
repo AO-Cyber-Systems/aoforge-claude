@@ -321,7 +321,9 @@ function journalBlockers(root) {
 function cacheBlockers(root) {
   const index = outbox.readCacheIndex(root);
   const out = [];
-  for (const rel of planningPaths.listByClass(path.join(root, '.planning')).cache) {
+  // The wiki clone (`wiki/**`) is read through the page store and is never a cache file (gh-cache.listOwnedLocal):
+  // nothing baselines it, so it must not block the switch (objective 51, TRD 51-07).
+  for (const rel of planningPaths.listByClass(path.join(root, '.planning')).cache.filter((r) => !r.startsWith('wiki/'))) {
     let text;
     try {
       text = fs.readFileSync(path.join(root, '.planning', ...rel.split('/')), 'utf-8');
