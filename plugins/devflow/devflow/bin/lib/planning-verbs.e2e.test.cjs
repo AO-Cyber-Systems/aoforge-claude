@@ -44,7 +44,7 @@ const planningPaths = require('./planning-paths.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
-const { makeE2eRepo, OBJECTIVE_DIR, REPO, TODO_STEM } = require('./__fixtures__/planning-e2e-fixtures.cjs');
+const { makeE2eRepo, OBJECTIVE_DIR, REPO, TODO_STEM, ROADMAP_MD, STATE_MD } = require('./__fixtures__/planning-e2e-fixtures.cjs');
 
 const cli = require('./planning-verbs-cli.cjs');
 
@@ -206,6 +206,27 @@ function w055(R) {
   return { payload, drift: all.filter((i) => i && i.code === 'W055') };
 }
 
+const GATE_HOOK = path.join(__dirname, '..', '..', '..', 'hooks', 'gate-edits.js');
+
+/**
+ * The edit gate's answer to a devflow executor's Edit of `.planning/<rel>` (the real hook, spawned in the repo):
+ * `{denied, out}`. A devflow agent passes the ambient gate, so only the store-mode cache deny can refuse it.
+ */
+function gateEdit(R, rel) {
+  const env = R.childEnv();
+  delete env.DEVFLOW_SKIP_EDIT_GATE;
+  const payload = {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Edit',
+    tool_input: { file_path: R.planning(rel), old_string: 'Alpha', new_string: 'Alpha!' },
+    cwd: R.root,
+    agent_type: 'devflow:executor',
+  };
+  const r = spawnSync(process.execPath, [GATE_HOOK], { cwd: R.root, input: JSON.stringify(payload), encoding: 'utf8', env });
+  const out = `${r.stdout}\n${r.stderr}`;
+  return { denied: /"permissionDecision"\s*:\s*"deny"/.test(r.stdout) || r.status === 2, out, status: r.status };
+}
+
 /** The wiki pages at the remote's master: `{name: text}`. */
 function wikiPages(remote) {
   const ls = spawnSync('git', ['ls-tree', '--name-only', 'master'], { cwd: remote.bareDir, encoding: 'utf-8' });
@@ -354,6 +375,10 @@ describe('store mode: plan -> execute -> verify through the verbs', { skip: gitA
       fs.writeFileSync(R.planning(rel), original);
     }
     assert.deepEqual(w055(R).drift, [], 'restoring the bytes clears it');
+    // The Edit tool never gets that far: the edit gate's store-mode cache deny names the verb (48-08).
+    const gate = gateEdit(R, rel);
+    assert.equal(gate.denied, true, gate.out);
+    assert.match(gate.out, /plan put-trd/);
   });
 
   test('7. negative: offline plan put-trd queues (exit 3); the next online gh outbox flush exits 0 and settles the ledger', () => {
@@ -377,5 +402,115 @@ describe('store mode: plan -> execute -> verify through the verbs', { skip: gitA
     assert.ok(W.fake.issues.some((i) => i.body.includes('devflow:id=7-04')), 'the TRD issue exists after the flush');
     assert.deepEqual(R.gitStatus(), []);
     assert.deepEqual(w055(R).drift, []);
+  });
+});
+
+// ─── Store off: parity (D-01) ────────────────────────────────────────────────
+
+/** Where today's DevFlow keeps each file the scenario writes: `.planning/` rel -> draft name. */
+const LOCAL_WRITES = {
+  [`${D}/OBJECTIVE.md`]: 'OBJECTIVE.md',
+  [`${D}/07-01-alpha-TRD.md`]: '07-01-alpha-TRD.md',
+  [`${D}/07-02-beta-TRD.md`]: '07-02-beta-TRD.md',
+  [`${D}/07-03-gamma-TRD.md`]: '07-03-gamma-TRD.md',
+  [`${D}/07-CONTEXT.md`]: '07-CONTEXT.md',
+  [`${D}/07-RESEARCH.md`]: '07-RESEARCH.md',
+  [`${D}/07-01-SUMMARY.md`]: '07-01-SUMMARY.md',
+  [`${D}/07-02-SUMMARY.md`]: '07-02-SUMMARY.md',
+  [`${D}/07-03-SUMMARY.md`]: '07-03-SUMMARY.md',
+  [`${D}/07-VERIFICATION.md`]: '07-VERIFICATION.md',
+  [`todos/pending/${TODO_STEM}.md`]: 'todo.md',
+  'quick/1-x/1-JOB.md': 'quick-job.md',
+  'quick/1-x/1-SUMMARY.md': 'quick-summary.md',
+};
+
+/** Every file under `dir` (recursive), [] when it does not exist. */
+function filesUnder(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.join(e.parentPath || e.path, e.name));
+}
+
+describe('store off: the same script is today\'s DevFlow (D-01 parity)', { skip: gitAvailable() ? false : 'git is not available' }, () => {
+  let W;
+  let A; // driven through the verbs
+  let B; // the twin, driven the pre-48 way: drafts written in place, today's `objective complete`
+  let results;
+  let twin;
+
+  before(() => {
+    W = installStoreWorld();
+    A = makeE2eRepo({ store: false });
+    B = makeE2eRepo({ store: false });
+    results = runScenario(A);
+
+    for (const [rel, name] of Object.entries(LOCAL_WRITES)) B.write(rel, B.draftText(name));
+    for (const n of [1, 2, 3]) {
+      const rel = B.writeCode(n);
+      df(B, ['commit', `feat(07-0${n}): t${n}`, '--files', rel]);
+    }
+    twin = df(B, ['objective', 'complete', '7', '--raw']);
+  });
+
+  after(() => {
+    if (A) A.cleanup();
+    if (B) B.cleanup();
+    if (W) W.restore();
+  });
+
+  test('8. every verb writes its draft bytes; objective complete effects equal the pre-48 command; zero gh calls; no outbox', () => {
+    for (const r of results) assert.equal(r.code, 0, `${r.argv.join(' ')}\n${r.stdout}\n${r.stderr}`);
+    for (const r of results) {
+      if (r.out && typeof r.out === 'object' && r.out.mode) assert.equal(r.out.mode, 'local', r.argv.join(' '));
+    }
+    assert.equal(results.find((r) => r.argv[0] === 'plan' && r.argv[1] === 'push').out.skipped, 'local mode');
+
+    const objectiveRel = `${D}/OBJECTIVE.md`;
+    for (const [rel, name] of Object.entries(LOCAL_WRITES)) {
+      if (rel !== objectiveRel) assert.equal(A.read(rel), A.draftText(name), `${rel} holds exactly the draft bytes`);
+    }
+    assert.equal(
+      A.read(objectiveRel),
+      A.draftText('OBJECTIVE.md').replace(/^status: planned$/m, 'status: complete'),
+      'OBJECTIVE.md is the draft with status: complete',
+    );
+
+    // Every other .planning/ file — ROADMAP.md and STATE.md included — is byte-identical to the twin's, and no
+    // file exists on one side only (no journal, ledger, mapping or draft in .planning/).
+    const notObjective = (rel) => rel !== objectiveRel;
+    const a = snapshotPlanning(A, notObjective);
+    const b = snapshotPlanning(B, notObjective);
+    assert.deepEqual(Object.keys(a).sort(), Object.keys(b).sort());
+    for (const rel of Object.keys(b)) assert.ok(a[rel].equals(b[rel]), `${rel} matches the pre-48 twin`);
+    assert.notEqual(A.read('STATE.md'), STATE_MD, 'objective complete advanced STATE.md');
+    assert.notEqual(A.read('ROADMAP.md'), ROADMAP_MD, 'objective complete updated ROADMAP.md');
+    assert.match(A.read('ROADMAP.md'), /\[x\] \*\*Objective 7/, 'objective complete ticked the roadmap');
+
+    // `objective set-status 7 complete` prints exactly what `objective complete 7` prints.
+    const setStatus = results[results.length - 1];
+    assert.deepEqual(setStatus.argv, ['objective', 'set-status', '7', 'complete']);
+    assert.equal(setStatus.stdout, twin.stdout);
+
+    assert.equal(W.fake.calls().length, 0, 'zero gh calls in-process');
+    assert.deepEqual(A.shim.readCalls(), [], 'zero gh calls from the spawned commits');
+    assert.deepEqual(filesUnder(process.env.DEVFLOW_OUTBOX_DIR), [], 'no outbox, journal or ledger files');
+    assert.equal(fs.existsSync(ledgerLib.ledgerPath(A.root)), false);
+  });
+
+  test('9. .planning/ is dirty after the verbs and clean after df-tools commit; it stays tracked; no cache deny', () => {
+    const expected = [
+      ...Object.keys(LOCAL_WRITES).map((rel) => `?? .planning/${rel}`),
+      ' M .planning/ROADMAP.md',
+      ' M .planning/STATE.md',
+    ].sort();
+    assert.deepEqual([...A.gitStatus()].sort(), expected);
+
+    df(A, ['commit', 'docs(07): objective 7 planning files', '--files', '.planning/']);
+    assert.deepEqual(A.gitStatus(), [], 'clean after the commit');
+    const tracked = A.lsFiles('.planning');
+    for (const rel of Object.keys(LOCAL_WRITES)) assert.ok(tracked.includes(`.planning/${rel}`), `${rel} is tracked`);
+    assert.ok(!fs.existsSync(path.join(A.root, '.gitignore')), 'no store .gitignore block');
+
+    const gate = gateEdit(A, `${D}/07-01-alpha-TRD.md`);
+    assert.equal(gate.denied, false, `the store-mode cache deny is inactive with the store off\n${gate.out}`);
   });
 });
