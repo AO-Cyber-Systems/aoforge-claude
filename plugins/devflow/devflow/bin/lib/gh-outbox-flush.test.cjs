@@ -313,10 +313,11 @@ describe('upsert-issue', () => {
   test('7e. a mapped issue that no longer exists is not_found (blocked), not silently re-created', () => {
     makeTrd('7-01');
     S.fake.issues.length = 0;
+    const createsBefore = writesMatching(/POST repos\/o\/r\/issues /).length;
     const { res } = exec(trdOp('7-01'));
     assert.equal(res.ok, false);
     assert.equal(res.class, 'not_found');
-    assert.equal(writesMatching(/POST repos\/o\/r\/issues /).length, 0);
+    assert.equal(writesMatching(/POST repos\/o\/r\/issues /).length, createsBefore, 'no second create');
   });
 });
 

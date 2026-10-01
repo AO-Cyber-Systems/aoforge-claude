@@ -897,7 +897,10 @@ function writeMap(projectRoot, suffix, map, opts) {
   atomicWrite(repoFile(projectRoot, suffix, opts), `${JSON.stringify(map, null, 2)}\n`);
 }
 
-/** @returns {Object<string, {issue_number:number, issue_id:number, body_hash:string, updated_at:string|null}>} `{}` when missing */
+/**
+ * @returns {Object<string, {issue_number:number, issue_id:number, body_hash:string, updated_at:string|null,
+ *   managed_hash?:string|null, frozen?:true}>} `{}` when missing
+ */
 function readBase(projectRoot, opts = {}) {
   return readMap(projectRoot, '.base.json', (v) => isPlainObject(v) && Object.values(v).every(isPlainObject), opts);
 }
@@ -908,24 +911,39 @@ function getBase(projectRoot, id, opts = {}) {
   return Object.hasOwn(all, id) ? all[id] : null;
 }
 
+/** A base key is a DevFlow id, or `<id>#<kind>` for a comment (kind as in a comment marker: `summary`, `spec-rev`). */
+const BASE_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:#[a-z][a-z-]*)?$/;
+
 /**
- * Record the last known remote state of one issue: its number AND database id (the sub-issue and
- * dependency endpoints take the id; storing both avoids ever sending one as the other), the hash of
- * its body and its `updated_at`. Only those four fields are kept.
+ * Record the last known remote state of one issue (or, under an `<id>#<kind>` key, one comment): its
+ * number AND database id (the sub-issue and dependency endpoints take the id; storing both avoids ever
+ * sending one as the other), the hash of its body and its `updated_at`.
+ *
+ * Two optional fields serve the flusher's remote-edit check (47-07, D-24) and are stored only when given:
+ * `managed_hash` (hash of the DevFlow-managed section text, so a human edit outside the managed regions can
+ * be told apart from one inside) and `frozen: true` (the TRD body must not be patched by a push). Nothing
+ * else is kept.
  * @returns {{ok:true, base:object}|{ok:false, error:string}}
  */
 function setBase(projectRoot, id, entry, opts = {}) {
-  const idError = idErr(id, 'id');
-  if (idError) return { ok: false, error: idError };
+  if (typeof id !== 'string' || !BASE_KEY_RE.test(id)) {
+    return { ok: false, error: `id must be a DevFlow id such as "47-01", or "<id>#<kind>" for a comment, got ${JSON.stringify(id)}` };
+  }
   if (!isPlainObject(entry)) return { ok: false, error: 'base entry must be an object' };
   if (!positiveInt(entry.issue_number)) return { ok: false, error: 'issue_number must be a positive integer' };
   if (!positiveInt(entry.issue_id)) return { ok: false, error: 'issue_id must be a positive integer' };
   if (!isStr(entry.body_hash)) return { ok: false, error: 'body_hash must be a non-empty string' };
   const updatedAt = entry.updated_at === undefined ? null : entry.updated_at;
   if (updatedAt !== null && !isStr(updatedAt)) return { ok: false, error: 'updated_at must be a string or null' };
+  if (entry.managed_hash !== undefined && entry.managed_hash !== null && !isStr(entry.managed_hash)) {
+    return { ok: false, error: 'managed_hash must be a non-empty string or null' };
+  }
+  if (entry.frozen !== undefined && typeof entry.frozen !== 'boolean') return { ok: false, error: 'frozen must be a boolean' };
   const base = {
     issue_number: entry.issue_number, issue_id: entry.issue_id, body_hash: entry.body_hash, updated_at: updatedAt,
   };
+  if (entry.managed_hash !== undefined) base.managed_hash = entry.managed_hash;
+  if (entry.frozen === true) base.frozen = true;
   const all = readBase(projectRoot, opts);
   all[id] = base;
   writeMap(projectRoot, '.base.json', all, opts);
