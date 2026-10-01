@@ -17,7 +17,10 @@ const path = require('path');
 const health = require('./gh-health.cjs');
 const client = require('./gh-client.cjs');
 const ghMapping = require('./gh-mapping.cjs');
+const ghHierarchy = require('./gh-hierarchy.cjs');
+const ghTrd = require('./gh-trd.cjs');
 const outbox = require('./gh-outbox.cjs');
+const flush = require('./gh-outbox-flush.cjs');
 const { makeStoreProject, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
 
 let env = null;
@@ -286,6 +289,184 @@ describe('W058 missing links', () => {
     ghMapping.setTrd(m, '7-01-d1', { issue_number: 770, rest_id: 7770 });
     const root = storeProject(m);
     assert.deepEqual(health.collectStoreHealth(root), { applicable: true, findings: [] });
+  });
+});
+
+// ─── 5. orphans (W059) ───────────────────────────────────────────────────────
+
+describe('W059 orphans (the offline half)', () => {
+  test('5a. a mapped TRD whose file is gone is a W059 naming the TRD, fixed by gh orphans', () => {
+    const m = consistentMapping();
+    ghMapping.setTrd(m, '7-09', { issue_number: 709, rest_id: 7009 });
+    const root = storeProject(m);
+
+    const result = health.collectStoreHealth(root);
+
+    assert.equal(result.findings.length, 1, JSON.stringify(result.findings));
+    const [f] = result.findings;
+    assert.equal(f.code, 'W059');
+    assert.equal(f.id, '7-09');
+    assert.equal(f.objective, '7');
+    assert.match(f.message, /7-09/);
+    assert.match(f.message, /#709/);
+    assert.match(f.fix, /df-tools gh orphans 7/);
+    assert.equal(ghCalls.length, 0);
+  });
+
+  test('5b. a prs entry for an objective with no directory is a W059', () => {
+    const m = consistentMapping();
+    ghMapping.setPr(m, 77, { branch: 'objective/77-gone', number: 90 });
+    const root = storeProject(m);
+
+    const result = health.collectStoreHealth(root);
+
+    assert.equal(result.findings.length, 1, JSON.stringify(result.findings));
+    const [f] = result.findings;
+    assert.equal(f.code, 'W059');
+    assert.equal(f.objective, '77');
+    assert.equal(f.id, undefined);
+    assert.match(f.message, /objective 77/);
+    assert.match(f.message, /#90/);
+    assert.match(f.fix, /df-tools gh orphans 77/);
+  });
+
+  test('5c. a mapped TRD whose whole objective directory is gone is a W059', () => {
+    const m = consistentMapping();
+    ghMapping.setEntry(m, 9, { issue_id: 9000 });
+    ghMapping.setTrd(m, '9-01', { issue_number: 901, rest_id: 9001 });
+    const root = storeProject(m);
+
+    const result = health.collectStoreHealth(root);
+
+    assert.equal(result.findings.length, 1, JSON.stringify(result.findings));
+    assert.equal(result.findings[0].code, 'W059');
+    assert.equal(result.findings[0].id, '9-01');
+    assert.equal(result.findings[0].objective, '9');
+    assert.match(result.findings[0].fix, /df-tools gh orphans 9/);
+  });
+
+  test('5d. a Decision entry has no file by design and is never an orphan', () => {
+    const m = consistentMapping();
+    ghMapping.setTrd(m, '7-01-d1', { issue_number: 771, rest_id: 7771 });
+    const root = storeProject(m);
+    assert.deepEqual(health.collectStoreHealth(root), { applicable: true, findings: [] });
+  });
+
+  test('5e. an objective whose TRD files cannot be read is a W061, and its TRDs are not called orphans', (t) => {
+    const root = storeProject();
+    t.mock.method(ghHierarchy, 'readObjectiveTrds', () => { throw new Error('EACCES: permission denied'); });
+
+    const result = health.collectStoreHealth(root);
+
+    assert.equal(byCode(result, 'W061').length, 1, JSON.stringify(result.findings));
+    assert.match(result.findings.find((f) => f.code === 'W061').message, /objective 7/);
+    assert.equal(byCode(result, 'W059').length, 0, 'an unreadable objective must not turn its mapped TRDs into orphans');
+  });
+});
+
+// ─── 6. frozen-body drift (W060) ─────────────────────────────────────────────
+
+describe('W060 frozen-body drift', () => {
+  const FILE = '07-02-beta-TRD.md';
+  const trdPath = () => path.join(proj.root, '.planning', 'objectives', proj.objectiveDir, FILE);
+
+  /** The base the flusher records for a frozen TRD: it hashes the issue body, which is encodeTrdBody of the file. */
+  function freezeBase(root, text, extra = {}) {
+    const body = ghTrd.encodeTrdBody({ id: '7-02', file: FILE, text });
+    const base = { ...flush.baseFromIssue({ number: 702, id: 7002, body, updated_at: '2026-10-01T00:00:00Z' }, null), ...extra };
+    const r = outbox.setBase(root, '7-02', { ...base, frozen: true });
+    assert.equal(r.ok, true, r.error);
+    return base;
+  }
+
+  test('6a. a frozen TRD whose file still encodes to the recorded hash is clean', () => {
+    const root = storeProject();
+    freezeBase(root, fs.readFileSync(trdPath(), 'utf8'));
+    assert.deepEqual(health.collectStoreHealth(root), { applicable: true, findings: [] });
+    assert.equal(ghCalls.length, 0);
+  });
+
+  test('6b. editing a frozen TRD is a W060 naming the scope verb and the restore', () => {
+    const root = storeProject();
+    const original = fs.readFileSync(trdPath(), 'utf8');
+    freezeBase(root, original);
+    fs.writeFileSync(trdPath(), `${original}\nA line added after the freeze.\n`);
+
+    const result = health.collectStoreHealth(root);
+
+    assert.equal(result.findings.length, 1, JSON.stringify(result.findings));
+    const [f] = result.findings;
+    assert.equal(f.code, 'W060');
+    assert.equal(f.id, '7-02');
+    assert.equal(f.objective, '7');
+    assert.match(f.message, /7-02/);
+    assert.match(f.message, /frozen/);
+    assert.match(f.fix, /df-tools gh trd scope 7-02/);
+    assert.match(f.fix, /df-tools gh pull --all --force/);
+  });
+
+  test('6c. a base that is not frozen never drifts, however the file changed', () => {
+    const root = storeProject();
+    const original = fs.readFileSync(trdPath(), 'utf8');
+    const body = ghTrd.encodeTrdBody({ id: '7-02', file: FILE, text: original });
+    const r = outbox.setBase(root, '7-02', flush.baseFromIssue({ number: 702, id: 7002, body }, null));
+    assert.equal(r.ok, true);
+    fs.writeFileSync(trdPath(), `${original}\nedited\n`);
+
+    assert.deepEqual(health.collectStoreHealth(root), { applicable: true, findings: [] });
+  });
+
+  test('6d. a CRLF copy of an unchanged frozen TRD is not drift (the hash normalises line endings)', () => {
+    const root = storeProject();
+    const original = fs.readFileSync(trdPath(), 'utf8');
+    freezeBase(root, original);
+    fs.writeFileSync(trdPath(), original.replace(/\n/g, '\r\n'));
+
+    assert.deepEqual(health.collectStoreHealth(root), { applicable: true, findings: [] });
+  });
+
+  test('6e. comment and PR bases are keyed differently and are never read as TRDs', () => {
+    const root = storeProject();
+    for (const key of ['7-02#summary', 'pr:7']) {
+      const r = outbox.setBase(root, key, { issue_number: 702, issue_id: 7002, body_hash: 'sha256:stale', frozen: true });
+      assert.equal(r.ok, true, r.error);
+    }
+    assert.deepEqual(health.collectStoreHealth(root), { applicable: true, findings: [] });
+  });
+
+  test('6f. a frozen base with no local file is not W060 (a mapped file that is gone is W059)', () => {
+    const root = storeProject();
+    const r = outbox.setBase(root, '7-09', { issue_number: 709, issue_id: 7009, body_hash: 'sha256:x', frozen: true });
+    assert.equal(r.ok, true, r.error);
+    assert.deepEqual(health.collectStoreHealth(root), { applicable: true, findings: [] });
+  });
+
+  test('6g. frozen drift needs only bases and files, so it still runs when the mapping is unreadable', () => {
+    const root = storeProject(null);
+    const original = fs.readFileSync(trdPath(), 'utf8');
+    freezeBase(root, original);
+    fs.writeFileSync(trdPath(), `${original}\nedited\n`);
+    fs.writeFileSync(path.join(root, '.planning', '.gh-mapping.json'), '{ not json');
+
+    const result = health.collectStoreHealth(root);
+
+    assert.equal(byCode(result, 'W061').length, 1, JSON.stringify(result.findings));
+    assert.equal(byCode(result, 'W060').length, 1, JSON.stringify(result.findings));
+    assert.equal(result.findings.length, 2);
+  });
+
+  test('6h. a throwing base read is one W061 and the other sections still run', (t) => {
+    const m = consistentMapping();
+    delete m.trds['7-03'];
+    const root = storeProject(m);
+    t.mock.method(outbox, 'readBase', () => { throw new Error('bases exploded'); });
+
+    let result;
+    assert.doesNotThrow(() => { result = health.collectStoreHealth(root); });
+
+    assert.equal(byCode(result, 'W061').length, 1, JSON.stringify(result.findings));
+    assert.match(byCode(result, 'W061')[0].message, /bases exploded/);
+    assert.equal(byCode(result, 'W058').length, 1);
   });
 });
 
