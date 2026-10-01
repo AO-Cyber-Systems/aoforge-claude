@@ -716,3 +716,148 @@ describe('48-14 characterization: objective ops in local mode', () => {
     });
   });
 });
+
+describe('48-14 store mode: objective ops route through the planning verbs', () => {
+  const NEW_OBJECTIVE = [
+    '---',
+    'objective: 08-foo-bar',
+    'status: planned',
+    '---',
+    '',
+    '# Objective 8: Foo bar',
+    '',
+    '**Goal:** [To be planned]',
+    '**Depends on:** Objective 7',
+    '**Jobs:** 0 jobs',
+    '',
+    'Jobs:',
+    '- [ ] TBD (run /devflow:plan-objective 8 to break down)',
+    '',
+  ].join('\n');
+
+  test('2: objective add "Foo bar" -> dir + OBJECTIVE.md through objective put; ROADMAP untouched; offline create is reported', () => {
+    withProject({ store: true }, (p) => {
+      const r = p.run(['objective', 'add', 'Foo bar']);
+      // Objective 8 has no issue yet and GitHub is unreachable: the verb writes and ledgers the file but cannot
+      // create the issue offline, so it says so with exit 1 (48-11 objectivePut semantics).
+      assert.equal(r.status, 1, r.stderr);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.objective_number, 8);
+      assert.equal(out.padded, '08');
+      assert.equal(out.slug, 'foo-bar');
+      assert.equal(out.directory, '.planning/objectives/08-foo-bar');
+      assert.equal(out.roadmap, 'generated (gh pull --all)');
+      assert.equal(out.published, false);
+      assert.equal(out.verb.mode, 'store');
+      assert.equal(out.verb.rel, 'objectives/08-foo-bar/OBJECTIVE.md');
+      assert.match(out.verb.error, /cannot be created offline/);
+      assert.match(out.hint, /gh sync 8/);
+
+      assert.equal(p.read('objectives/08-foo-bar/OBJECTIVE.md'), NEW_OBJECTIVE);
+      assert.equal(p.read('ROADMAP.md'), STORE_FIXTURE.roadmap, 'ROADMAP.md is a generated view in store mode');
+      assert.equal(fs.existsSync(p.planning('STATE.md')), false);
+      const entry = p.ledgerEntries()['objectives/08-foo-bar/OBJECTIVE.md'];
+      assert.ok(entry, 'the OBJECTIVE.md write is in the verb ledger');
+      assert.equal(entry.verb, 'objective put (not queued)');
+      assert.ok(p.ghCalls().length > 0, 'store mode went through the objective sync');
+      assert.equal(p.journalOps().filter((op) => op.target && op.target.id === '8').length, 0, 'nothing queued for an issue that does not exist');
+    });
+  });
+
+  test('2b: objective add numbers from the objective dirs when the generated ROADMAP.md is absent', () => {
+    withProject({ store: true }, (p) => {
+      fs.rmSync(p.planning('ROADMAP.md'));
+      const r = p.run(['objective', 'add', 'Foo bar']);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.objective_number, 8);
+      assert.equal(p.read('objectives/08-foo-bar/OBJECTIVE.md'), NEW_OBJECTIVE);
+      assert.equal(fs.existsSync(p.planning('ROADMAP.md')), false);
+    });
+  });
+
+  test('2c: objective add of a mapped objective number queues the objective ops (exit 3 pending)', () => {
+    // Remove objective 7's directory and ROADMAP entry so add re-uses number 7, which the fixture maps to an issue.
+    withProject({ store: true }, (p) => {
+      fs.rmSync(p.planning(OBJ7), { recursive: true });
+      const roadmap = '# Roadmap: Store Demo\n\n### Objective 6: Prior\n';
+      fs.writeFileSync(p.planning('ROADMAP.md'), roadmap);
+      const r = p.run(['objective', 'add', 'Store demo']);
+      assert.equal(r.status, 3, r.stderr);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.published, true);
+      assert.equal(out.verb.flush, 'pending');
+      assert.equal(p.read('ROADMAP.md'), roadmap);
+      const kinds = p.journalOps().map((op) => op.kind);
+      assert.ok(kinds.includes('patch-body'), `objective body queued: ${kinds}`);
+      assert.ok(kinds.includes('wiki-push'), `objective page queued: ${kinds}`);
+      const wiki = p.journalOps().find((op) => op.kind === 'wiki-push');
+      assert.ok(wiki.payload.pages.includes('objectives/07-store-demo/OBJECTIVE.md'));
+      assert.equal(p.ledgerEntries()['objectives/07-store-demo/OBJECTIVE.md'].verb, 'objective put');
+    });
+  });
+
+  test('3: objective remove 7 --confirm is refused; nothing deleted, no gh call', () => {
+    withProject({ store: true }, (p) => {
+      const before = p.snapshot();
+      const r = p.run(['objective', 'remove', '7', '--confirm']);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /objective remove is refused in store mode: deletes are never automatic/);
+      assert.match(r.stderr, /df-tools objective set-status 7 cancelled/);
+      assert.deepEqual(p.snapshot(), before);
+      assert.deepEqual(p.ghCalls(), []);
+      assert.deepEqual(p.journalOps(), []);
+    });
+  });
+
+  test('3b: objective remove --force --confirm is refused too', () => {
+    withProject({ store: true }, (p) => {
+      const before = p.snapshot();
+      const r = p.run(['objective', 'remove', '7', '--confirm', '--force']);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /deletes are never automatic/);
+      assert.deepEqual(p.snapshot(), before);
+    });
+  });
+
+  test('4: objective complete 7 -> objective set-status complete: patch-issue closed/completed queued; ROADMAP/STATE/REQUIREMENTS untouched', () => {
+    withProject({ store: true }, (p) => {
+      const r = p.run(['objective', 'complete', '7']);
+      assert.equal(r.status, 3, r.stderr);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.completed, true);
+      assert.equal(out.completed_objective, '7');
+      assert.equal(out.objective_name, 'store-demo');
+      assert.equal(out.jobs_executed, '1/3');
+      assert.equal(out.date, todayIso());
+      assert.equal(out.roadmap_updated, false);
+      assert.equal(out.state_updated, false);
+      assert.equal(out.roadmap, 'generated (gh pull --all)');
+      assert.equal(out.verb.rel, `${OBJ7}/OBJECTIVE.md`);
+      assert.equal(out.verb.flush, 'pending');
+      assert.equal(out.verb.exit, 3);
+
+      const patch = p.journalOps().find((op) => op.kind === 'patch-issue');
+      assert.ok(patch, 'a patch-issue op is queued');
+      assert.deepEqual(patch.target, { id: '7' });
+      assert.equal(patch.payload.state, 'closed');
+      assert.equal(patch.payload.state_reason, 'completed');
+
+      assert.match(p.read(`${OBJ7}/OBJECTIVE.md`), /^status: complete$/m);
+      assert.equal(p.read('ROADMAP.md'), STORE_FIXTURE.roadmap);
+      assert.equal(p.read('REQUIREMENTS.md'), STORE_FIXTURE.requirements);
+      assert.equal(fs.existsSync(p.planning('STATE.md')), false);
+      assert.equal(p.ledgerEntries()[`${OBJ7}/OBJECTIVE.md`].verb, 'objective set-status');
+    });
+  });
+
+  test('4b: objective insert is deprecated in store mode too (exit 1, nothing written, no gh call)', () => {
+    withProject({ store: true }, (p) => {
+      const before = p.snapshot();
+      const r = p.run(['objective', 'insert', '7', 'Foo bar']);
+      assert.equal(r.status, 1);
+      assert.match(r.stdout, /deprecated in v1\.2/);
+      assert.deepEqual(p.snapshot(), before);
+      assert.deepEqual(p.ghCalls(), []);
+    });
+  });
+});
