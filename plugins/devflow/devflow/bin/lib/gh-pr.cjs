@@ -604,6 +604,18 @@ function projectIdFor(root, id) {
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
+/** Merge `patch` into `prs[id]`, re-reading the mapping first (a cache pull may have rewritten it). A warning text on failure, else null. */
+function recordPr(root, id, patch) {
+  try {
+    const mapping = mappingLib.readMappingV3(root);
+    mappingLib.setPr(mapping, id, patch);
+    const w = mappingLib.writeMappingV3(root, mapping);
+    return w.ok ? null : `could not record the reconcile in the mapping: ${w.error}`;
+  } catch (e) {
+    return `could not record the reconcile in the mapping: ${e.message}`;
+  }
+}
+
 /** The two collaborators a reconcile calls that are not this module's: tests substitute them through `opts.deps`. */
 function defaultDeps(deps) {
   const d = deps || {};
@@ -738,6 +750,14 @@ function reconcileObjectivePr(root, objArg, opts = {}) {
     };
   }
 
+  // The merge is a fact now: record `merged_at` before anything that can stop the run, so a planning verb that keys on it
+  // sees the merge even when GitHub could not be reconciled yet. `reconciled_at` is recorded only when every step is done.
+  const warnings = [];
+  if (!recorded.merged_at) {
+    const noted = recordPr(root, id, { merged_at: pr.merged_at || new Date().toISOString() });
+    if (noted) warnings.push(noted);
+  }
+
   const targets = closeTargets(root, id);
   const stragglers = [];
   const alreadyClosed = [];
@@ -763,7 +783,6 @@ function reconcileObjectivePr(root, objArg, opts = {}) {
   }
   const flush = flushNow(root, opts);
 
-  const warnings = [];
   const result = {
     objective: id,
     repo,
@@ -845,18 +864,9 @@ function reconcileObjectivePr(root, objArg, opts = {}) {
 
   // ── Record. `reconciled_at` means every step finished. ──
   const complete = local.local === 'done' && !project.startsWith('error') && !pullFailed;
-  const patch = {};
-  if (!recorded.merged_at) patch.merged_at = pr.merged_at || new Date().toISOString();
-  if (complete && !wasReconciled) patch.reconciled_at = new Date().toISOString();
-  if (Object.keys(patch).length > 0) {
-    try {
-      const mapping = mappingLib.readMappingV3(root);
-      mappingLib.setPr(mapping, id, patch);
-      const w = mappingLib.writeMappingV3(root, mapping);
-      if (!w.ok) warnings.push(`could not record the reconcile in the mapping: ${w.error}`);
-    } catch (e) {
-      warnings.push(`could not record the reconcile in the mapping: ${e.message}`);
-    }
+  if (complete && !wasReconciled) {
+    const noted = recordPr(root, id, { reconciled_at: new Date().toISOString() });
+    if (noted) warnings.push(noted);
   }
 
   return {
