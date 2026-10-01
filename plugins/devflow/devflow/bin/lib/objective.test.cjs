@@ -596,3 +596,123 @@ describe('objective remove --confirm — truthful state_updated (TOOL-02 sibling
     assert.equal(result.json.state_updated, true);
   });
 });
+
+// ─── TRD 48-14: objective ops in local mode (characterization) and store mode ─
+//
+// Local mode (github.store off; here github.enabled is on, which must not matter) is pinned byte for byte BEFORE
+// the store branches exist. The `gh` shim answers like an unreachable GitHub; local mode must never call it.
+
+const { storeCliProject } = require('./__fixtures__/store-cli-fixtures.cjs');
+const { STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+const OBJ7 = `objectives/${STORE_FIXTURE.objectiveDir}`;
+const todayIso = () => new Date().toISOString().split('T')[0];
+
+function withProject(opts, fn) {
+  const p = storeCliProject(opts);
+  try {
+    return fn(p);
+  } finally {
+    p.cleanup();
+  }
+}
+
+/** Local mode makes zero gh calls and leaves no outbox journal and no ledger. */
+function assertLocalQuiet(p) {
+  assert.deepEqual(p.ghCalls(), [], 'local mode never calls gh');
+  assert.deepEqual(p.journalOps(), [], 'local mode writes no outbox journal');
+  assert.deepEqual(p.ledgerEntries(), {}, 'local mode writes no verb-write ledger');
+}
+
+describe('48-14 characterization: objective ops in local mode', () => {
+  test('1a: objective add "Foo bar" -> dir + .gitkeep + ROADMAP entry, exact bytes', () => {
+    withProject({ store: false }, (p) => {
+      const r = p.run(['objective', 'add', 'Foo bar']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stdout, JSON.stringify({
+        objective_number: 8,
+        padded: '08',
+        name: 'Foo bar',
+        slug: 'foo-bar',
+        directory: '.planning/objectives/08-foo-bar',
+      }, null, 2));
+      assert.equal(p.read('objectives/08-foo-bar/.gitkeep'), '');
+      assert.equal(fs.existsSync(p.planning('objectives/08-foo-bar/OBJECTIVE.md')), false);
+      assert.equal(p.read('ROADMAP.md'), STORE_FIXTURE.roadmap + [
+        '',
+        '### Objective 8: Foo bar',
+        '',
+        '**Goal:** [To be planned]',
+        '**Depends on:** Objective 7',
+        '**Jobs:** 0 jobs',
+        '',
+        'Jobs:',
+        '- [ ] TBD (run /devflow:plan-objective 8 to break down)',
+        '',
+      ].join('\n'));
+      assertLocalQuiet(p);
+    });
+  });
+
+  test('1b: objective insert stays deprecated (exit 1, nothing written)', () => {
+    withProject({ store: false }, (p) => {
+      const before = p.snapshot();
+      const r = p.run(['objective', 'insert', '7', 'Foo bar']);
+      assert.equal(r.status, 1);
+      assert.equal(r.stdout, `${JSON.stringify({
+        error: 'decimal-objective insertion was deprecated in v1.2; use df-tools objective add to append instead',
+        removed_in: '12-06',
+        recommendation: 'Use `df-tools objective add <description>` to append a new integer objective.',
+      }, null, 2)}\n`);
+      assert.deepEqual(p.snapshot(), before);
+      assertLocalQuiet(p);
+    });
+  });
+
+  test('1c: objective remove 7 --confirm --force -> dir deleted, ROADMAP section removed, exact bytes', () => {
+    withProject({ store: false }, (p) => {
+      const r = p.run(['objective', 'remove', '7', '--confirm', '--force']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stdout, JSON.stringify({
+        removed: '7',
+        dry_run: false,
+        confirmed: true,
+        mutated: true,
+        partial: false,
+        directory_deleted: '07-store-demo',
+        target_directory: '07-store-demo',
+        renamed_directories: [],
+        renamed_files: [],
+        roadmap_updated: true,
+        state_updated: false,
+      }, null, 2));
+      assert.equal(fs.existsSync(p.planning(OBJ7)), false);
+      assert.equal(p.read('ROADMAP.md'), '# Roadmap: Store Demo\n\n## Milestones\n\n- 🚧 **v9.9 Store Demo** - Objective 7 (in progress)\n\n## Objectives\n');
+      assertLocalQuiet(p);
+    });
+  });
+
+  test('1d: objective complete 7 -> REQUIREMENTS ticked from the ROADMAP line, ROADMAP/OBJECTIVE unchanged, exact output', () => {
+    withProject({ store: false }, (p) => {
+      const r = p.run(['objective', 'complete', '7']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stdout, JSON.stringify({
+        completed_objective: '7',
+        objective_name: 'store-demo',
+        jobs_executed: '1/3',
+        next_objective: null,
+        next_objective_name: null,
+        is_last_objective: true,
+        date: todayIso(),
+        roadmap_updated: true,
+        state_updated: false,
+        state_update_reason: 'state_missing',
+      }, null, 2));
+      assert.equal(p.read('ROADMAP.md'), STORE_FIXTURE.roadmap);
+      assert.equal(p.read(`${OBJ7}/OBJECTIVE.md`), STORE_FIXTURE.objective);
+      assert.equal(p.read('REQUIREMENTS.md'), STORE_FIXTURE.requirements.replace(/- \[ \] \*\*STO-0/g, '- [x] **STO-0'));
+      assert.equal(fs.existsSync(p.planning('STATE.md')), false);
+      assertLocalQuiet(p);
+    });
+  });
+});
