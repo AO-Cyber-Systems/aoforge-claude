@@ -1040,3 +1040,288 @@ describe('TRD 44-03 — shouldGate agentType + isDevflowAgent (unit)', () => {
     assert.equal(gateEdits.sharedPlanningDir.length, 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 48-08 — store mode (github.store: true): cached and generated planning
+// files are read-only through Edit/Write/MultiEdit; the reason names the verb.
+// Store off, the gate is exactly what it was.
+// ---------------------------------------------------------------------------
+
+describe('48-08 store-mode cache deny', () => {
+  const gateEdits = require('./gate-edits.js');
+  const P = '/p/.planning';
+  const TRD = `${P}/objectives/07-x/07-01-a-TRD.md`;
+  const store = {
+    tool: 'Write',
+    filePath: TRD,
+    planningDir: P,
+    skillActive: false,
+    overrideActive: false,
+    storeMode: true,
+  };
+
+  /** Every path this suite touches, for the store-off parity check. */
+  const ALL_PLANNING_PATHS = [
+    TRD,
+    `${P}/objectives/07-x/OBJECTIVE.md`,
+    `${P}/objectives/07-x/07-01-SUMMARY.md`,
+    `${P}/objectives/07-x/07-VERIFICATION.md`,
+    `${P}/objectives/07-x/07-RESEARCH.md`,
+    `${P}/research/a.md`,
+    `${P}/todos/pending/a.md`,
+    `${P}/debug/x.md`,
+    `${P}/quick/1-x/1-JOB.md`,
+    `${P}/decisions/pending/DECISION-001.md`,
+    `${P}/ROADMAP.md`,
+    `${P}/STATE.md`,
+    `${P}/MILESTONES.md`,
+    `${P}/config.json`,
+    `${P}/STACK.md`,
+    `${P}/.skill-active`,
+    `${P}/state.json`,
+    `${P}/.trd-progress/07-01.md`,
+    `${P}/quick/1-x/DECISION-001.md`,
+  ];
+
+  test('test 1 (SC2): Write of a TRD in store mode is denied naming `plan put-trd`', () => {
+    const r = gateEdits.shouldGate(store);
+    assert.equal(r.decision, 'deny');
+    assert.match(r.reason, /plan put-trd/);
+    assert.match(r.reason, /objectives\/07-x\/07-01-a-TRD\.md is a read-only cache of GitHub in store mode/);
+    assert.match(r.reason, /github\.store: true/);
+    assert.match(r.reason, /W055/);
+  });
+
+  test('test 2: neither a skill marker nor a devflow agent bypasses the cache deny; the override phrase does', () => {
+    const marker = gateEdits.shouldGate({ ...store, skillActive: true });
+    assert.equal(marker.decision, 'deny');
+    assert.match(marker.reason, /plan put-trd/);
+
+    const agent = gateEdits.shouldGate({ ...store, agentType: 'devflow:executor' });
+    assert.equal(agent.decision, 'deny');
+    assert.match(agent.reason, /plan put-trd/);
+
+    const both = gateEdits.shouldGate({ ...store, skillActive: true, agentType: 'devflow:planner' });
+    assert.equal(both.decision, 'deny');
+
+    assert.deepEqual(gateEdits.shouldGate({ ...store, overrideActive: true }), {
+      decision: 'allow',
+      reason: 'planning artifact',
+    });
+  });
+
+  test('test 3: the same TRD path with storeMode false is today\'s planning-artifact allow', () => {
+    assert.deepEqual(gateEdits.shouldGate({ ...store, storeMode: false }), {
+      decision: 'allow',
+      reason: 'planning artifact',
+    });
+  });
+
+  test('test 4: every cache class names its verb', () => {
+    const cases = [
+      ['objectives/07-x/OBJECTIVE.md', /objective put/],
+      ['objectives/07-x/07-01-SUMMARY.md', /summary post/],
+      ['objectives/07-x/07-VERIFICATION.md', /verification post/],
+      ['objectives/07-x/07-RESEARCH.md', /doc put/],
+      ['research/a.md', /doc put/],
+      ['todos/pending/a.md', /todo add/],
+      ['debug/x.md', /debug put/],
+      ['quick/1-x/1-JOB.md', /quick put/],
+      ['decisions/pending/DECISION-001.md', /decision open/],
+    ];
+    for (const [rel, verb] of cases) {
+      const r = gateEdits.shouldGate({ ...store, filePath: `${P}/${rel}` });
+      assert.equal(r.decision, 'deny', rel);
+      assert.match(r.reason, verb, rel);
+      assert.ok(r.reason.startsWith(`${rel} is a read-only cache`), `${rel}: ${r.reason}`);
+    }
+  });
+
+  test('test 5: generated views (ROADMAP/STATE/MILESTONES) are denied naming `gh pull --all`', () => {
+    for (const rel of ['ROADMAP.md', 'STATE.md', 'MILESTONES.md']) {
+      const r = gateEdits.shouldGate({ ...store, filePath: `${P}/${rel}` });
+      assert.equal(r.decision, 'deny', rel);
+      assert.match(r.reason, /gh pull --all/, rel);
+      assert.ok(r.reason.startsWith(`${rel} is`), `${rel}: ${r.reason}`);
+    }
+  });
+
+  test('test 6: tracked config and runtime paths stay allowed in store mode', () => {
+    for (const rel of [
+      'config.json',
+      'STACK.md',
+      '.skill-active',
+      'state.json',
+      '.trd-progress/07-01.md',
+      'quick/1-x/DECISION-001.md',
+    ]) {
+      assert.deepEqual(
+        gateEdits.shouldGate({ ...store, filePath: `${P}/${rel}` }),
+        { decision: 'allow', reason: 'planning artifact' },
+        rel
+      );
+    }
+  });
+
+  test('test 7: Edit and MultiEdit are denied like Write; Read is a noop', () => {
+    for (const tool of ['Edit', 'MultiEdit']) {
+      const r = gateEdits.shouldGate({ ...store, tool });
+      assert.equal(r.decision, 'deny', tool);
+      assert.match(r.reason, /plan put-trd/, tool);
+    }
+    assert.deepEqual(gateEdits.shouldGate({ ...store, tool: 'Read' }), { decision: 'noop' });
+  });
+
+  test('test 8: a worktree path classifies against the nearest .planning', () => {
+    const r = gateEdits.shouldGate({
+      ...store,
+      filePath: '/wt/.planning/objectives/07-x/07-01-a-TRD.md',
+      planningDir: '/wt/.planning',
+      sharedDir: '/main/.planning',
+    });
+    assert.equal(r.decision, 'deny');
+    assert.match(r.reason, /^objectives\/07-x\/07-01-a-TRD\.md is a read-only cache/);
+    assert.match(r.reason, /plan put-trd 07 07-01-a-TRD\.md/);
+  });
+
+  test('test 8b: from a worktree, an edit of the MAIN checkout\'s cache file is denied too (sharedDir)', () => {
+    const r = gateEdits.shouldGate({
+      ...store,
+      filePath: '/main/.planning/STATE.md',
+      planningDir: '/wt/.planning',
+      sharedDir: '/main/.planning',
+    });
+    assert.equal(r.decision, 'deny');
+    assert.match(r.reason, /^STATE\.md is/);
+    assert.match(r.reason, /gh pull --all/);
+  });
+
+  test('test 8c: a .planning/ path of some other project falls through to today\'s allow', () => {
+    assert.deepEqual(
+      gateEdits.shouldGate({ ...store, filePath: '/other/.planning/objectives/07-x/07-01-a-TRD.md' }),
+      { decision: 'allow', reason: 'planning artifact' }
+    );
+  });
+
+  test('test 9: a non-planning file in store mode keeps today\'s decision', () => {
+    const code = { ...store, filePath: '/p/src/a.cjs' };
+    const ambient = gateEdits.shouldGate(code);
+    assert.equal(ambient.decision, 'deny');
+    assert.match(ambient.reason, /ambient mode/);
+    assert.deepEqual(gateEdits.shouldGate({ ...code, skillActive: true }), {
+      decision: 'allow',
+      reason: 'skill-active marker present',
+    });
+    assert.deepEqual(gateEdits.shouldGate({ ...code, agentType: 'devflow:executor' }), {
+      decision: 'allow',
+      reason: 'devflow agent',
+    });
+    assert.deepEqual(gateEdits.shouldGate({ ...store, filePath: '/p/docs/a.md' }), {
+      decision: 'allow',
+      reason: 'markdown doc',
+    });
+  });
+
+  test('test 10 (D-10 regression): devflow:executor writing a code file is allowed, store off and on', () => {
+    for (const storeMode of [false, true]) {
+      assert.deepEqual(
+        gateEdits.shouldGate({
+          tool: 'Write',
+          filePath: '/p/src/a.cjs',
+          planningDir: P,
+          skillActive: false,
+          overrideActive: false,
+          agentType: 'devflow:executor',
+          storeMode,
+        }),
+        { decision: 'allow', reason: 'devflow agent' },
+        `storeMode=${storeMode}`
+      );
+    }
+  });
+
+  test('store-off invariant: storeMode false and storeMode absent give identical decisions for every path', () => {
+    const variants = [
+      {},
+      { skillActive: true },
+      { agentType: 'devflow:executor' },
+      { overrideActive: true },
+      { tool: 'Edit' },
+      { tool: 'MultiEdit' },
+      { tool: 'Read' },
+    ];
+    const paths = [...ALL_PLANNING_PATHS, '/p/src/a.cjs', '/p/docs/a.md', '/elsewhere/x.cjs', ''];
+    for (const filePath of paths) {
+      for (const v of variants) {
+        const legacy = { tool: 'Write', filePath, planningDir: P, skillActive: false, overrideActive: false, ...v };
+        const expected = gateEdits.shouldGate(legacy);
+        assert.deepEqual(gateEdits.shouldGate({ ...legacy, storeMode: false }), expected, `${filePath} ${JSON.stringify(v)}`);
+        assert.deepEqual(gateEdits.shouldGate({ ...legacy, storeMode: undefined }), expected, `${filePath} ${JSON.stringify(v)}`);
+      }
+    }
+    // And every planning path is still the plain planning-artifact allow, exactly as before 48-08.
+    for (const filePath of ALL_PLANNING_PATHS) {
+      assert.deepEqual(
+        gateEdits.shouldGate({ tool: 'Write', filePath, planningDir: P, skillActive: false, overrideActive: false, storeMode: false }),
+        { decision: 'allow', reason: 'planning artifact' },
+        filePath
+      );
+    }
+  });
+
+  test('store-off invariant: the planning libs are never consulted when storeMode is false', () => {
+    const explode = () => { throw new Error('planning libs must not be touched with store off'); };
+    gateEdits._setPlanningLibs({ isStoreMode: explode, classify: explode, relToPlanning: explode });
+    try {
+      for (const filePath of ALL_PLANNING_PATHS) {
+        assert.deepEqual(
+          gateEdits.shouldGate({ ...store, filePath, storeMode: false }),
+          { decision: 'allow', reason: 'planning artifact' },
+          filePath
+        );
+      }
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+  });
+
+  test('test 13: a throwing classifier fails open to today\'s behaviour', () => {
+    const paths = require('../devflow/bin/lib/planning-paths.cjs');
+    gateEdits._setPlanningLibs({
+      isStoreMode: () => true,
+      relToPlanning: paths.relToPlanning,
+      classify: () => { throw new Error('classifier exploded'); },
+    });
+    try {
+      assert.deepEqual(gateEdits.shouldGate(store), { decision: 'allow', reason: 'planning artifact' });
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+  });
+
+  test('test 13b: a throwing relToPlanning or unavailable libs fail open too', () => {
+    gateEdits._setPlanningLibs({
+      isStoreMode: () => true,
+      relToPlanning: () => { throw new Error('rel exploded'); },
+      classify: () => ({ class: 'cache', hint: 'x' }),
+    });
+    try {
+      assert.deepEqual(gateEdits.shouldGate(store), { decision: 'allow', reason: 'planning artifact' });
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+
+    gateEdits._setPlanningLibs(null);
+    try {
+      assert.deepEqual(gateEdits.shouldGate(store), { decision: 'allow', reason: 'planning artifact' });
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+  });
+
+  test('_setPlanningLibs(undefined) restores the real libs', () => {
+    gateEdits._setPlanningLibs(null);
+    gateEdits._setPlanningLibs(undefined);
+    assert.equal(gateEdits.shouldGate(store).decision, 'deny');
+  });
+});
