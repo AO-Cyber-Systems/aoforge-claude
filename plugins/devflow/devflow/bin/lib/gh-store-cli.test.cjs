@@ -778,3 +778,46 @@ describe('48-11: queuedResult / EXIT / flushResult are exported for the planning
     assert.equal(failed.payload.ok, false);
   });
 });
+
+describe('48-11: a drained flush settles the verb-write ledger', () => {
+  useStore();
+
+  test('14b. matching entries are baselined and forgotten; drifted and (not queued) entries stay', () => {
+    const ledgerLib = require('./planning-ledger.cjs');
+    const write = (rel, text) => {
+      const file = path.join(S.root, '.planning', ...rel.split('/'));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    };
+    write('research/match.md', 'm\n');
+    ledgerLib.record(S.root, 'research/match.md', 'm\n', { verb: 'doc put' });
+    write('research/drift.md', 'edited later\n');
+    ledgerLib.record(S.root, 'research/drift.md', 'as written\n', { verb: 'doc put' });
+    write('research/held.md', 'h\n');
+    ledgerLib.record(S.root, 'research/held.md', 'h\n', { verb: `doc put${cli.UNQUEUED_MARK}` });
+
+    const r = outboxCmd(['flush']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    const payload = json(r);
+    assert.equal(payload.status, 'flushed');
+    assert.deepEqual(payload.settled, ['research/match.md']);
+    assert.deepEqual(Object.keys(ledgerLib.readLedger(S.root).entries).sort(), ['research/drift.md', 'research/held.md']);
+    const idx = outbox.readCacheIndex(S.root);
+    assert.equal(idx['research/match.md'], trd.contentHash('m\n'));
+    assert.equal(idx['research/drift.md'], undefined);
+    assert.equal(idx['research/held.md'], undefined);
+    assert.equal(S.fake.calls().length, 0, 'an empty journal flushes with zero gh calls');
+  });
+
+  test('14c. a flush that does not drain the journal settles nothing', () => {
+    const ledgerLib = require('./planning-ledger.cjs');
+    const file = path.join(S.root, '.planning', 'research', 'match.md');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'm\n');
+    ledgerLib.record(S.root, 'research/match.md', 'm\n', { verb: 'doc put' });
+    const res = cli.flushResult(S.root, { status: 'pending', done: [], pending: 1, reason: 'offline', warnings: [] });
+    assert.equal(res.code, cli.EXIT.PENDING);
+    assert.equal(res.payload.settled, undefined);
+    assert.ok(Object.hasOwn(ledgerLib.readLedger(S.root).entries, 'research/match.md'));
+  });
+});

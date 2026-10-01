@@ -516,3 +516,41 @@ describe('store mode: doc put -> wiki pages', () => {
     assert.equal(outbox.readCacheIndex(S.root)['research/a.md'], ghTrd.contentHash(research));
   });
 });
+
+// ─── Task 3: a later `gh outbox flush` settles verb writes ───────────────────
+
+describe('store mode: --no-flush, then `gh outbox flush` settles the ledger (D-15)', () => {
+  useProject({ store: true, sync: true });
+
+  test('14. queued only; the CLI flush baselines it and empties its ledger entry; an unqueued write stays', () => {
+    if (S.skipped) return;
+    const rel = `${OBJ_REL}/07-04-x-TRD.md`;
+    const text = smallTrd('04');
+    const r = verbs.putTrd(S.root, { objective: '7', file: '07-04-x-TRD.md', text, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0);
+    assert.ok(r.queued.enqueued.length + r.queued.coalesced.length > 0, 'something queued');
+    assert.ok(pendingOps().some((o) => o.kind === 'upsert-issue' && o.target.id === '7-04'), 'the journal holds the op');
+    assert.equal(ledgerEntries()[rel].verb, 'plan put-trd');
+    assert.equal(outbox.readCacheIndex(S.root)[rel], undefined, 'no baseline before the flush');
+
+    // Written after the push was queued, with --no-push: GitHub will not have it, so no flush may baseline it.
+    const later = `${OBJ_REL}/07-05-y-TRD.md`;
+    const np = verbs.putTrd(S.root, { objective: '7', file: '07-05-y-TRD.md', text: smallTrd('05', 'y'), noPush: true });
+    assert.equal(np.ok, true, JSON.stringify(np));
+    assert.equal(ledgerEntries()[later].verb, 'plan put-trd (not queued)');
+
+    const out = capture(() => cli.cmdGhOutbox(S.root, ['flush'], true));
+    assert.equal(exitOf(out), 0, out.stdout + out.stderr);
+    const payload = JSON.parse(out.stdout);
+    assert.equal(payload.status, 'flushed');
+    assert.ok(payload.settled.includes(rel), JSON.stringify(payload.settled));
+    assert.ok(!payload.settled.includes(later));
+    assert.equal(Object.hasOwn(ledgerEntries(), rel), false, 'settled entry forgotten');
+    assert.equal(Object.hasOwn(ledgerEntries(), later), true, 'the unqueued write stays');
+    const idx = outbox.readCacheIndex(S.root);
+    assert.equal(idx[rel], ghTrd.contentHash(text), 'baselined after the flush');
+    assert.equal(idx[later], undefined, 'never baselined');
+    assert.ok(trdIssues().some((i) => i.title.includes('07-04') || i.body.includes('devflow:id=7-04')), 'the TRD issue exists');
+  });
+});
