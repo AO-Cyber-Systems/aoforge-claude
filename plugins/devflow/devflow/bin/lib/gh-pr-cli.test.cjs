@@ -18,6 +18,8 @@ const path = require('path');
 const cli = require('./gh-pr-cli.cjs');
 const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
+const flushLib = require('./gh-outbox-flush.cjs');
+const cache = require('./gh-cache.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const trdLib = require('./gh-trd.cjs');
 const bodyLib = require('./gh-body.cjs');
@@ -65,7 +67,7 @@ function syncRefs() {
 }
 
 /** A git clone holding the store cache, a fake GitHub on its `main`, the objective and TRDs 7-01, 7-02 issued and mapped. */
-function setup({ store = true } = {}) {
+function setup({ store = true, fake: fakeOptions = {} } = {}) {
   const envh = hermeticEnv();
   const g = makeGitRemote();
   const project = makeStoreProject({ store, hasWiki: false });
@@ -75,14 +77,22 @@ function setup({ store = true } = {}) {
   fs.rmSync(path.join(root, '.planning', 'objectives', '07-store-demo', '07-03-gamma-TRD.md'));
 
   const c0 = g.git(root, ['rev-parse', 'HEAD']);
-  const fake = createFakeGitHub({ repo: 'o/r', hasWiki: false, refs: { main: c0 }, onCreateBranch: (name) => g.createRemoteBranch(name) });
+  const fake = createFakeGitHub({ repo: 'o/r', hasWiki: false, refs: { main: c0 }, onCreateBranch: (name) => g.createRemoteBranch(name), ...fakeOptions });
   const clock = { t: T0 };
   client._setNow(() => clock.t);
   client._setSleep((ms) => { clock.t += ms; });
-  S = { envh, g, root, fake, c0, objN: null, trdN: {} };
+  S = { envh, g, root, fake, c0, objN: null, trdN: {}, pulls: 0, savedPullAll: cache.pullAll };
+  // `gh pull --all` reads the whole remote model; the fake does not serve it, so the cache pull is counted, not run
+  cache.pullAll = () => { S.pulls += 1; return { ok: true, attention: [] }; };
   client._setRunGh((args, opts) => {
     syncRefs();
-    return fake.runGh(args, opts);
+    const r = fake.runGh(args, opts);
+    // GitHub's branch deletes and a squash merge's new commit on main show up in origin, as they would on GitHub
+    const text = args.join(' ');
+    const del = /--method DELETE repos\/[^/]+\/[^/]+\/git\/refs\/heads\/(\S+)/.exec(text);
+    if (del && r.ok) g.git(g.origin, ['update-ref', '-d', `refs/heads/${decodeURIComponent(del[1])}`]);
+    if (/PUT .*pulls\/\d+\/merge/.test(text) && r.ok) g.advanceOrigin({ message: 'squash merge' });
+    return r;
   });
 
   const body = bodyLib.mergeManaged('', { summary: 'Mine', criteria: '- [ ] one', trds: '_None yet._', footer: 'Footer' }, '7').body;
@@ -100,6 +110,7 @@ function setup({ store = true } = {}) {
 
 afterEach(() => {
   if (!S) return;
+  if (S.savedPullAll) cache.pullAll = S.savedPullAll;
   client._resetClient();
   S.g.cleanup();
   S.envh.restore();
@@ -310,7 +321,186 @@ describe('49-09 df-tools dispatch for gh pr', () => {
     });
   });
 
-  test('13d. the gh usage string names pr <start|sync|status> <objective>', () => {
-    assert.ok(HELP_COMMANDS.gh.usage.includes('pr <start|sync|status> <objective>'), HELP_COMMANDS.gh.usage);
+  test('13d. the gh usage string names pr <start|sync|status|merge|reconcile> <objective>', () => {
+    assert.ok(HELP_COMMANDS.gh.usage.includes('pr <start|sync|status|merge|reconcile> <objective>'), HELP_COMMANDS.gh.usage);
+  });
+});
+
+describe('49-12 gh pr merge and reconcile', { skip: GIT ? false : 'git is not available' }, () => {
+  const branchOf = () => S.g.git(S.root, ['branch', '--show-current']);
+  const localBranches = () => S.g.git(S.root, ['branch', '--list', '--format=%(refname:short)']).split('\n').filter(Boolean);
+  const prNumber = () => mappingLib.getPr(mappingLib.readMappingV3(S.root), '7').number;
+  const issue = (n) => S.fake.issues.find((i) => i.number === n);
+  const allIssues = () => [S.objN, ...Object.values(S.trdN)];
+
+  function started() {
+    assert.equal(exitOf(pr(['start', '7'])), 0);
+  }
+
+  function ready() {
+    assert.equal(outbox.enqueue(S.root, [{ kind: 'pr-ready', target: { id: '7' }, payload: {} }]).ok, true);
+    assert.equal(flushLib.flush(S.root, { wait: false }).status, 'flushed');
+  }
+
+  function verified(state = 'success') {
+    const op = { kind: 'post-status', target: { id: '7', context: 'devflow/verification' }, payload: { state, description: `Verification ${state}` } };
+    assert.equal(outbox.enqueue(S.root, [op]).ok, true);
+    assert.equal(flushLib.flush(S.root, { wait: false }).status, 'flushed');
+  }
+
+  test('13e. merge on a draft PR is exit 1 and says to verify first; nothing is queued', () => {
+    setup();
+    started();
+    const writes = S.fake.writes().length;
+    const r = pr(['merge', '7'], false);
+    assert.equal(exitOf(r), 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /PR is still a draft; run verification first/);
+    assert.equal(S.fake.writes().length, writes);
+    assert.equal(outbox.readJournal(S.root).journal.ops.filter((o) => o.status !== 'done').length, 0);
+  });
+
+  test('13f. merge of a verified PR with no queue is exit 0: the prose says it merged and reconciled, and the checkout is on main at origin', () => {
+    setup();
+    started();
+    ready();
+    verified();
+    const r = pr(['merge', '7'], false);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /merged/i);
+    assert.match(r.stdout, /reconcil/i);
+    assert.equal(branchOf(), 'main');
+    assert.equal(S.g.git(S.root, ['rev-parse', 'HEAD']), S.g.git(S.g.origin, ['rev-parse', 'refs/heads/main']));
+    assert.ok(!localBranches().includes(BRANCH));
+    for (const n of allIssues()) assert.equal(issue(n).state, 'CLOSED', `#${n}`);
+    assert.equal(S.pulls, 1);
+  });
+
+  test('13g. merge --raw prints the JSON of the merge: merged, method and the reconcile fields', () => {
+    setup();
+    started();
+    ready();
+    verified();
+    const r = pr(['merge', '7']);
+    assert.equal(exitOf(r), 0);
+    const j = json(r);
+    assert.equal(j.ok, true);
+    assert.equal(j.merged, true);
+    assert.equal(j.method, 'squash');
+    assert.equal(j.local, 'done');
+    assert.deepEqual(j.kept, []);
+  });
+
+  test('13h. merge with a merge queue is exit 3 and tells the user to run gh pr reconcile 7; nothing is closed or deleted', () => {
+    setup({ fake: { mergeQueue: true } });
+    started();
+    ready();
+    verified();
+    const r = pr(['merge', '7'], false);
+    assert.equal(exitOf(r), 3, r.stdout + r.stderr);
+    assert.match(r.stdout, /gh pr reconcile 7/);
+    assert.equal(branchOf(), BRANCH);
+    for (const n of allIssues()) assert.equal(issue(n).state, 'OPEN', `#${n}`);
+    assert.equal(S.pulls, 0);
+  });
+
+  test('13i. reconcile while the PR is open is exit 3 with the reason; after the merge it is exit 0 and lists what it did', () => {
+    setup();
+    started();
+    const open = pr(['reconcile', '7'], false);
+    assert.equal(exitOf(open), 3, open.stdout + open.stderr);
+    assert.match(open.stdout, /still open/);
+
+    S.fake.humanMergePr(prNumber(), { method: 'squash' });
+    S.g.advanceOrigin({ message: 'squash merge' });
+    const done = pr(['reconcile', '7'], false);
+    assert.equal(exitOf(done), 0, done.stdout + done.stderr);
+    assert.match(done.stdout, /reconcil/i);
+    assert.equal(branchOf(), 'main');
+    assert.equal(S.pulls, 1);
+
+    const again = pr(['reconcile', '7']);
+    assert.equal(exitOf(again), 0);
+    assert.equal(json(again).already_reconciled, true);
+  });
+
+  test('13j. reconcile of a PR closed without merging is exit 1', () => {
+    setup();
+    started();
+    assert.equal(S.fake.runGh(['api', '--method', 'PATCH', `repos/o/r/pulls/${prNumber()}`, '-f', 'state=closed']).ok, true);
+    const r = pr(['reconcile', '7'], false);
+    assert.equal(exitOf(r), 1);
+    assert.match(r.stderr, /closed without merging/);
+  });
+
+  test('13k. reconcile that keeps an unmerged branch exits 0 and warns on stderr, naming the branch', () => {
+    setup();
+    started();
+    S.g.commitFile(S.root, 'late.txt', 'late\n', 'feat(7-01): an unpushed commit');
+    S.fake.humanMergePr(prNumber(), { method: 'squash' });
+    S.g.advanceOrigin({ message: 'squash merge' });
+    const r = pr(['reconcile', '7'], false);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.match(r.stderr, new RegExp(BRANCH));
+    assert.ok(localBranches().includes(BRANCH));
+  });
+
+  test('13l. merge and reconcile need an objective: usage is exit 1 and makes no gh call', () => {
+    setup();
+    for (const verb of ['merge', 'reconcile']) {
+      const r = pr([verb], false);
+      assert.equal(exitOf(r), 1, verb);
+      assert.match(r.stderr, new RegExp(`Usage: df-tools gh pr ${verb} <objective>`));
+    }
+    assert.deepEqual(S.fake.calls(), []);
+  });
+
+  test('13m. local mode: merge and reconcile are exit 0 skipped, with zero gh calls and the branch unchanged', () => {
+    setup({ store: false });
+    for (const verb of ['merge', 'reconcile']) {
+      const r = pr([verb, '7']);
+      assert.equal(exitOf(r), 0, `${verb}: ${r.stdout}${r.stderr}`);
+      assert.equal(json(r).skipped, true, verb);
+    }
+    assert.deepEqual(S.fake.calls(), []);
+    assert.equal(branchOf(), 'main');
+  });
+
+  test('13n. the usage text lists merge and reconcile, and --help prints it', () => {
+    setup();
+    const r = pr(['--help'], false);
+    assert.equal(exitOf(r), 0);
+    assert.match(r.stdout, /gh pr merge <objective>/);
+    assert.match(r.stdout, /gh pr reconcile <objective>/);
+    assert.ok(cli.PR_USAGE.includes('merge'));
+  });
+});
+
+describe('49-12 df-tools dispatch for gh pr merge and reconcile', () => {
+  const run = (...args) => {
+    const envh = hermeticEnv();
+    const project = makeStoreProject({ store: false });
+    try {
+      const r = spawnSync(process.execPath, [DF_TOOLS, ...args], {
+        cwd: project.root, env: { ...process.env, ...envh.env }, encoding: 'utf8', timeout: 60000,
+      });
+      return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+    } finally {
+      project.cleanup();
+      envh.restore();
+    }
+  };
+
+  test('13o. gh pr merge | reconcile reach cmdGhPr (skipped, exit 0, with the store off)', () => {
+    for (const verb of ['merge', 'reconcile']) {
+      const r = run('gh', 'pr', verb, '7', '--raw');
+      assert.equal(r.code, 0, `${verb}: ${r.stdout}${r.stderr}`);
+      assert.equal(JSON.parse(r.stdout).skipped, true, verb);
+    }
+  });
+
+  test('13p. an unknown gh pr verb lists merge and reconcile', () => {
+    const r = run('gh', 'pr', 'nope', '7');
+    assert.equal(r.code, 1);
+    for (const v of ['merge', 'reconcile']) assert.match(r.stderr, new RegExp(v));
   });
 });

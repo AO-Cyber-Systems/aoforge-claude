@@ -28,6 +28,9 @@ const { loadConfig } = require('./config.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { getRoadmapObjectiveInternal } = require('./roadmap.cjs');
 
+const { extractFrontmatter } = require('./frontmatter.cjs');
+
+const fs = require('fs');
 const path = require('path');
 
 // ─── Results ─────────────────────────────────────────────────────────────────
@@ -511,6 +514,496 @@ function prStatus(root, objArg) {
   return out;
 }
 
+// ─── reconcile ───────────────────────────────────────────────────────────────
+
+/**
+ * The pull request as GitHub holds it, normalised: `state` is merged | closed | draft | ready, `queued` is the REST flag
+ * (a real merge queue answers through GraphQL, see `inMergeQueue`). `merged` is read from `merged`/`merged_at` itself:
+ * a `pr-merge` that returned ok only enqueued the PR when the base branch has a merge queue.
+ * -> {ok:true, pr:{number, url, state, draft, merged, merged_at, head_sha, base, queued}} | {ok:false, error}
+ */
+function readPull(repo, number) {
+  const r = client.ghRead(['api', `repos/${repo}/pulls/${number}`]);
+  if (!r.ok) return fail(`could not read pull request #${number}: ${failureText(r)}`);
+  const pr = parseJson(r.stdout);
+  if (!pr || !Number.isInteger(pr.number)) return fail(`pull request #${number} came back unreadable from GitHub`);
+  const mergedAt = typeof pr.merged_at === 'string' && pr.merged_at !== '' ? pr.merged_at : null;
+  const merged = pr.merged === true || mergedAt !== null;
+  let state = 'ready';
+  if (merged) state = 'merged';
+  else if (pr.state === 'closed') state = 'closed';
+  else if (pr.draft === true) state = 'draft';
+  return {
+    ok: true,
+    pr: {
+      number: pr.number,
+      url: pr.html_url || null,
+      state,
+      draft: pr.draft === true,
+      merged,
+      merged_at: mergedAt,
+      head_sha: pr.head && typeof pr.head.sha === 'string' && pr.head.sha !== '' ? pr.head.sha : null,
+      base: pr.base && typeof pr.base.ref === 'string' && pr.base.ref !== '' ? pr.base.ref : null,
+      queued: pr.queued === true,
+    },
+  };
+}
+
+/** Is the open PR waiting in the base branch's merge queue? A failed or unsupported read is `false`. */
+function inMergeQueue(repo, pr) {
+  if (pr.queued) return true;
+  const [owner, name] = repo.split('/');
+  const q = client.ghRead(['api', 'graphql', '-f', `query=${MERGE_QUEUE_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `n=${pr.number}`]);
+  if (!q.ok) return false;
+  return Boolean(((((parseJson(q.stdout) || {}).data || {}).repository || {}).pullRequest || {}).mergeQueueEntry);
+}
+
+/**
+ * The issues the objective's PR closes, as `{id, number}` for the outbox's `patch-issue` target: the objective, then each
+ * mapped TRD in id order. The same set `closesFor` derives, with the mapping ids the flusher resolves.
+ */
+function closeTargets(root, objArg) {
+  const id = mappingLib.toObjectiveId(objArg);
+  if (id === null) return [];
+  const mapping = mappingLib.readMappingV3(root);
+  const entry = mappingLib.getEntry(mapping, id);
+  if (!entry || !Number.isInteger(entry.issue_id)) return [];
+  const out = [{ id, number: entry.issue_id }];
+  for (const tid of mappingLib.listTrds(mapping, id)) {
+    const t = mappingLib.getTrd(mapping, tid);
+    if (t && t.role === 'trd' && Number.isInteger(t.issue_number)) out.push({ id: tid, number: t.issue_number });
+  }
+  return out;
+}
+
+/** `{ok:true, state:'open'|'closed'}` for one issue, or `{ok:false, error}`. */
+function issueStateOf(repo, number) {
+  const r = client.ghRead(['api', `repos/${repo}/issues/${number}`]);
+  if (!r.ok) return fail(`could not read issue #${number}: ${failureText(r)}`);
+  const issue = parseJson(r.stdout);
+  if (!issue || typeof issue.state !== 'string') return fail(`issue #${number} came back unreadable from GitHub`);
+  return { ok: true, state: issue.state.toLowerCase() };
+}
+
+/**
+ * The Project the objective moves on: its OBJECTIVE.md `org_project`, else PROJECT.md's (the order `gh sync` resolves
+ * the chain in). Null when none is configured.
+ */
+function projectIdFor(root, id) {
+  const read = (file) => {
+    try {
+      return extractFrontmatter(fs.readFileSync(file, 'utf8')) || {};
+    } catch (_) {
+      return {};
+    }
+  };
+  const info = findObjectiveInternal(root, id);
+  const objective = info && info.directory ? read(path.join(root, info.directory, 'OBJECTIVE.md')) : {};
+  const project = read(path.join(root, '.planning', 'PROJECT.md'));
+  const value = objective.org_project || project.org_project;
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** Merge `patch` into `prs[id]`, re-reading the mapping first (a cache pull may have rewritten it). A warning text on failure, else null. */
+function recordPr(root, id, patch) {
+  try {
+    const mapping = mappingLib.readMappingV3(root);
+    mappingLib.setPr(mapping, id, patch);
+    const w = mappingLib.writeMappingV3(root, mapping);
+    return w.ok ? null : `could not record the reconcile in the mapping: ${w.error}`;
+  } catch (e) {
+    return `could not record the reconcile in the mapping: ${e.message}`;
+  }
+}
+
+/** The two collaborators a reconcile calls that are not this module's: tests substitute them through `opts.deps`. */
+function defaultDeps(deps) {
+  const d = deps || {};
+  return {
+    updateProjectFields: d.updateProjectFields || ((...a) => require('./gh.cjs').updateProjectFields(...a)),
+    pullAll: d.pullAll || ((...a) => require('./gh-cache.cjs').pullAll(...a)),
+  };
+}
+
+/**
+ * The local half of a reconcile, run only after GitHub is reconciled: leave the checkout on the default branch at
+ * origin's tip, then delete the objective branch and this objective's `df/exec-<obj>-*` branches. A squash merge
+ * leaves every one of them "unmerged" to git, so `-d` always refuses; the delete is forced, and it is gated on the
+ * branch tip being an ancestor of the merged PR's head sha. A branch whose tip is not (unpushed or unmerged work), or
+ * whose ancestry cannot be decided, is kept and reported. A dirty tracked tree skips everything.
+ * -> {local, deleted, kept, warnings, changed}
+ */
+function reconcileLocal(root, { id, branch, base, headSha }) {
+  const out = { local: 'done', deleted: [], kept: [], warnings: [], changed: false };
+  const clean = branchLib.isTrackedClean(root);
+  if (!clean.ok) {
+    out.local = `error: could not read the git status: ${clean.error}`;
+    out.warnings.push(`the local steps were skipped: ${out.local}`);
+    return out;
+  }
+  if (!clean.clean) {
+    out.local = 'skipped (dirty tree)';
+    out.warnings.push(`tracked files have uncommitted changes (${clean.files.join(', ')}): the local steps (switch to the default branch, `
+      + 'branch cleanup, cache pull) were skipped; commit or stash them and run the reconcile again');
+    return out;
+  }
+
+  const synced = branchLib.syncDefault(root, base || undefined);
+  if (!synced.ok) {
+    out.local = `error: could not move the checkout to the default branch: ${synced.error}`;
+    out.warnings.push(`the local steps were skipped: ${out.local}`);
+    return out;
+  }
+  out.changed = Boolean(synced.switched || synced.updated);
+
+  const listed = branchLib.listLocal(root, `df/exec-${id}-*`);
+  if (!listed.ok) out.warnings.push(`could not list the local df/exec-${id}-* branches: ${listed.error}`);
+  const names = [...new Set([...(branch ? [branch] : []), ...(listed.ok ? listed.branches : [])])];
+  const keep = (name, reason, warning) => {
+    out.kept.push({ branch: name, reason });
+    out.warnings.push(warning);
+  };
+  for (const name of names) {
+    if (name === synced.branch) continue;
+    const tip = branchLib.branchTip(root, name);
+    if (!tip.ok) {
+      keep(name, `could not read the branch: ${tip.error}`, `${name} was kept: could not read its tip (${tip.error})`);
+      continue;
+    }
+    if (!tip.sha) continue; // never existed locally (a clone that did not make the branch)
+    if (!headSha) {
+      keep(name, 'the merged PR has no head sha to compare with', `${name} was kept: the merged pull request has no head sha to compare it with`);
+      continue;
+    }
+    const anc = branchLib.isAncestor(root, tip.sha, headSha);
+    if (!anc.ok) {
+      keep(name, `could not compare with the merged head (${anc.error})`,
+        `${name} was kept: its tip could not be compared with the merged head ${headSha.slice(0, 8)} (${anc.error}); the merged head may not be fetched here`);
+    } else if (!anc.ancestor) {
+      keep(name, 'not in the merged PR',
+        `${name} was kept: its tip is not in the merged pull request (unpushed or unmerged work); delete it with git branch -D ${name} once you are sure`);
+    } else {
+      const del = branchLib.deleteLocal(root, name, { force: true });
+      if (del.ok) {
+        out.deleted.push(name);
+        out.changed = true;
+      } else {
+        keep(name, `could not delete: ${del.error}`, `${name} was kept: ${del.error}`);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * reconcileObjectivePr(root, obj, {flush, wait, deps}) — `gh pr reconcile`: bring GitHub and the checkout to the merged state.
+ *
+ * Reads the PR first (merged or closed is read from `merged`/`merged_at`, never inferred from an earlier `pr-merge`): open
+ * (queued or not) is `pending` with nothing written, closed unmerged is an error. On a merged PR: every issue in the
+ * PR's closes set is read and each one still open is closed with `patch-issue` (the closing-keyword cap is documented
+ * and unconfirmed beyond it, so closure is verified, never assumed); the remote branch is deleted with `delete-branch`
+ * (only now that the merge is confirmed, and only when it still exists, so a repeat writes nothing); the queue is
+ * flushed. Only when GitHub is reconciled do the Project (Status Done), the checkout and the cache follow: switch
+ * to the default branch at origin's tip, ancestry-gated force delete of the objective and `df/exec-<obj>-*` branches,
+ * `pullAll`. `prs[obj].merged_at` is recorded; `reconciled_at` once every step finished, so a run that skipped or
+ * failed one is finished by running it again. Re-running changes nothing.
+ *
+ * -> {ok:true, objective, repo, pr, base, branch, closed, already_closed, remote_branch, project, local, default_branch,
+ *      deleted_local, kept, pulled, reconciled, already_reconciled, queued, flush, warnings}
+ *  | {ok:true, pending:true, objective, pr, reason}
+ *  | {ok:true, skipped:true, reason} | {ok:false, error}
+ */
+function reconcileObjectivePr(root, objArg, opts = {}) {
+  const gate = storeGate(root);
+  if (gate.result) return gate.result;
+  const { repo } = gate;
+  const deps = defaultDeps(opts.deps);
+
+  const id = mappingLib.toObjectiveId(objArg);
+  if (id === null) return fail(`${JSON.stringify(objArg)} is not an objective id`);
+  const report = mappingLib.readMappingV3WithReport(root);
+  if (report.error) return fail(`the GitHub mapping is unreadable: ${report.error}`);
+  const recorded = mappingLib.getPr(report.mapping, id);
+  if (!recorded || !Number.isInteger(recorded.number)) {
+    return fail(`objective ${id} has no pull request yet: run df-tools gh pr start ${id} first`);
+  }
+  const entry = mappingLib.getEntry(report.mapping, id);
+  const wasReconciled = typeof recorded.reconciled_at === 'string';
+
+  // ── Reads, before anything is queued or changed. ──
+  const got = readPull(repo, recorded.number);
+  if (!got.ok) return fail(`${got.error}; nothing was changed`);
+  const pr = got.pr;
+  if (pr.state === 'closed') {
+    return fail(`pull request #${pr.number} for objective ${id} was closed without merging; nothing was closed or deleted. `
+      + 'Reopen it or start the objective again');
+  }
+  if (!pr.merged) {
+    const queued = inMergeQueue(repo, pr);
+    const where = queued ? 'is waiting in the merge queue' : `is still open (${pr.state})`;
+    return {
+      ok: true,
+      pending: true,
+      objective: id,
+      pr: { number: pr.number, url: pr.url, state: pr.state, in_merge_queue: queued },
+      reason: `pull request #${pr.number} ${where}; run df-tools gh pr reconcile ${id} again after it merges`,
+    };
+  }
+
+  // The merge is a fact now: record `merged_at` before anything that can stop the run, so a planning verb that keys on it
+  // sees the merge even when GitHub could not be reconciled yet. `reconciled_at` is recorded only when every step is done.
+  const warnings = [];
+  if (!recorded.merged_at) {
+    const noted = recordPr(root, id, { merged_at: pr.merged_at || new Date().toISOString() });
+    if (noted) warnings.push(noted);
+  }
+
+  const targets = closeTargets(root, id);
+  const stragglers = [];
+  const alreadyClosed = [];
+  for (const t of targets) {
+    const s = issueStateOf(repo, t.number);
+    if (!s.ok) return fail(`${s.error}; nothing was changed`);
+    (s.state === 'closed' ? alreadyClosed : stragglers).push(t);
+  }
+  const branch = recorded.branch || null;
+  let branchGone = true;
+  if (branch && !branchProblem(branch) && branch !== pr.base) {
+    const remote = remoteRefSha(repo, branch);
+    if (!remote.ok) return fail(`${remote.error}; nothing was changed`);
+    branchGone = remote.sha === null;
+  }
+
+  // ── GitHub first: a failed flush must leave the local branches to retry from. ──
+  const ops = stragglers.map((t) => ({ kind: 'patch-issue', target: { id: t.id }, payload: { state: 'closed', state_reason: 'completed' } }));
+  if (!branchGone) ops.push({ kind: 'delete-branch', target: { id }, payload: { branch } });
+  if (ops.length > 0) {
+    const q = outbox.enqueue(root, ops);
+    if (!q.ok) return fail(`could not queue the reconcile writes: ${q.error || q.reason || 'the enqueue failed'}`);
+  }
+  const flush = flushNow(root, opts);
+
+  const result = {
+    objective: id,
+    repo,
+    pr: { number: pr.number, url: pr.url, state: 'merged', merged_at: pr.merged_at },
+    base: pr.base,
+    branch,
+    closed: stragglers.map((t) => t.number),
+    already_closed: alreadyClosed.map((t) => t.number),
+    remote_branch: branchGone ? 'already gone' : 'deleted',
+    queued: ops.length,
+    flush,
+  };
+  const github = flush === null ? ops.length === 0 : flush.status === 'flushed';
+  if (!github) {
+    return {
+      ok: flush === null || flush.status !== 'error',
+      ...(flush !== null && flush.status === 'error' ? { error: flush.error || 'the flush failed' } : {}),
+      ...result,
+      project: 'not run',
+      local: 'not run',
+      default_branch: pr.base,
+      deleted_local: [],
+      kept: [],
+      pulled: false,
+      reconciled: false,
+      already_reconciled: false,
+      warnings: [...warnings, 'GitHub is not reconciled yet: the Project, the checkout and the cache were left alone; run the reconcile again'],
+    };
+  }
+
+  // ── The Project. Best effort: closure and branch cleanup are the load-bearing parts. ──
+  let project = 'none';
+  const projectId = projectIdFor(root, id);
+  let work = ops.length > 0;
+  if (projectId !== null && entry && Number.isInteger(entry.issue_id)) {
+    if (wasReconciled) {
+      project = 'already done';
+    } else {
+      const ttl = ((client.readConfig(root) || {}).github || {}).project_cache_ttl_minutes;
+      try {
+        const u = deps.updateProjectFields(`${repo}#${entry.issue_id}`, projectId, { Status: 'Done' }, { ttlMinutes: ttl });
+        if (u && u.ok) {
+          project = 'done';
+          work = true;
+          for (const w of u.warnings || []) warnings.push(w);
+          for (const e of u.errors || []) warnings.push(`project field ${e.field} not updated: ${e.error}`);
+        } else {
+          project = `error: ${(u && u.error) || 'the Project update failed'}`;
+          warnings.push(`the Project was not moved to Done (${project.slice('error: '.length)}); run the reconcile again once it is fixed`);
+        }
+      } catch (e) {
+        project = `error: ${e.message}`;
+        warnings.push(`the Project was not moved to Done (${e.message}); run the reconcile again once it is fixed`);
+      }
+    }
+  }
+
+  // ── The checkout and the cache. ──
+  const local = reconcileLocal(root, { id, branch, base: pr.base, headSha: pr.head_sha });
+  warnings.push(...local.warnings);
+  if (local.changed) work = true;
+  let pulled = false;
+  let pullFailed = false;
+  if (local.local === 'done' && (!wasReconciled || work)) {
+    try {
+      const p = deps.pullAll(root, {});
+      if (p && p.ok) {
+        pulled = true;
+        for (const a of p.attention || []) warnings.push(`gh pull --all: ${a}`);
+      } else {
+        pullFailed = true;
+        warnings.push(`the cache was not refreshed (${(p && p.error) || 'gh pull --all failed'}); run df-tools gh pull --all`);
+      }
+    } catch (e) {
+      pullFailed = true;
+      warnings.push(`the cache was not refreshed (${e.message}); run df-tools gh pull --all`);
+    }
+  }
+
+  // ── Record. `reconciled_at` means every step finished. ──
+  const complete = local.local === 'done' && !project.startsWith('error') && !pullFailed;
+  if (complete && !wasReconciled) {
+    const noted = recordPr(root, id, { reconciled_at: new Date().toISOString() });
+    if (noted) warnings.push(noted);
+  }
+
+  return {
+    ok: true,
+    ...result,
+    project,
+    local: local.local,
+    default_branch: pr.base,
+    deleted_local: local.deleted,
+    kept: local.kept,
+    pulled,
+    reconciled: complete,
+    already_reconciled: wasReconciled && !work,
+    warnings,
+  };
+}
+
+// ─── merge ───────────────────────────────────────────────────────────────────
+
+// Duplicated from gh-outbox.cjs MERGE_METHODS (not exported); `github.pr.merge_method` is validated against it.
+const MERGE_METHODS = ['squash', 'merge', 'rebase'];
+const DEFAULT_MERGE_METHOD = 'squash';
+
+/** `github.pr.merge_method` when it is a known method, else squash. A merge queue ignores it. */
+function mergeMethodFromConfig(root) {
+  const github = (client.readConfig(root) || {}).github || {};
+  const pr = github.pr && typeof github.pr === 'object' ? github.pr : {};
+  return MERGE_METHODS.includes(pr.merge_method) ? pr.merge_method : DEFAULT_MERGE_METHOD;
+}
+
+/** The latest `devflow/verification` status on `sha`: `{ok:true, verification:{state, description}|null}` or `{ok:false, error}`. */
+function verificationAt(repo, sha) {
+  if (!sha) return fail('the pull request has no head sha to read the verification status of');
+  const s = client.ghRead(['api', `repos/${repo}/commits/${sha}/status?per_page=100`]);
+  if (!s.ok) return fail(`could not read the commit status of ${sha.slice(0, 7)}: ${failureText(s)}`);
+  const rows = (parseJson(s.stdout) || {}).statuses;
+  const row = Array.isArray(rows) ? rows.find((x) => x && x.context === VERIFICATION_CONTEXT) : null;
+  return { ok: true, verification: row ? { state: row.state, description: row.description || null } : null };
+}
+
+/**
+ * mergeObjectivePr(root, obj, {flush, wait, deps}) — `gh pr merge`: merge a verified objective's PR, through the merge
+ * queue where the repository has one, and reconcile when it merged.
+ *
+ * Online-required: the PR and its `devflow/verification` status are read before anything is queued. A draft PR, a PR
+ * closed unmerged, and a PR whose head has no `success` verification status are refused (objective 50 owns enforcement
+ * and the escapes; there is no bypass here). Then `pr-merge {method}` is queued (`github.pr.merge_method`, default
+ * squash) and flushed, and the PR is READ again: a returned `pr-merge` only means the PR was merged or, with a queue,
+ * enqueued. Merged: `reconcileObjectivePr` runs in this call. Enqueued: `pending`, to be reconciled after the queue
+ * merges it. An already merged PR goes straight to the reconcile.
+ *
+ * -> {ok:true, merged:true, method, ...<reconcileObjectivePr result>}
+ *  | {ok:true, merged:false, pending, objective, pr, method, reason, queued, flush, warnings}
+ *  | {ok:true, skipped:true, reason} | {ok:false, error}
+ */
+function mergeObjectivePr(root, objArg, opts = {}) {
+  const gate = storeGate(root);
+  if (gate.result) return gate.result;
+  const { repo } = gate;
+
+  const id = mappingLib.toObjectiveId(objArg);
+  if (id === null) return fail(`${JSON.stringify(objArg)} is not an objective id`);
+  const recorded = mappingLib.getPr(mappingLib.readMappingV3(root), id);
+  if (!recorded || !Number.isInteger(recorded.number)) {
+    return fail(`objective ${id} has no pull request yet: run df-tools gh pr start ${id} first`);
+  }
+
+  const got = readPull(repo, recorded.number);
+  if (!got.ok) return fail(`${got.error}; gh pr merge needs to be online, nothing was queued`);
+  const pr = got.pr;
+  const what = `pull request #${pr.number} for objective ${id}`;
+
+  const reconciled = (method, mergeFlush) => {
+    const rec = reconcileObjectivePr(root, id, opts);
+    if (rec.skipped) return rec;
+    if (!rec.ok) {
+      return { ...rec, merged: true, error: `${what} merged, but the reconcile failed: ${rec.error}; run df-tools gh pr reconcile ${id}` };
+    }
+    return { ...rec, merged: true, method, merge_flush: mergeFlush };
+  };
+
+  if (pr.state === 'merged') return reconciled(null, null);
+  if (pr.state === 'closed') {
+    return fail(`${what} was closed without merging; reopen it or start the objective again`);
+  }
+  if (pr.state === 'draft') return fail(`PR is still a draft; run verification first (${what})`);
+
+  const v = verificationAt(repo, pr.head_sha);
+  if (!v.ok) return fail(`${v.error}; nothing was queued`);
+  if (!v.verification || v.verification.state !== 'success') {
+    const seen = v.verification ? `its latest status is ${v.verification.state}` : 'none has been posted';
+    return fail(`${what} has no success ${VERIFICATION_CONTEXT} status on its head ${pr.head_sha.slice(0, 7)} (${seen}); run verification first`);
+  }
+
+  const method = mergeMethodFromConfig(root);
+  const q = outbox.enqueue(root, [{ kind: 'pr-merge', target: { id }, payload: { method } }]);
+  if (!q.ok) return fail(`could not queue the merge: ${q.error || q.reason || 'the enqueue failed'}`);
+
+  const flush = flushNow(root, opts);
+  const base = {
+    objective: id,
+    pr: { number: pr.number, url: pr.url, state: pr.state },
+    method,
+    merged: false,
+    queued: q.enqueued,
+    flush,
+    warnings: [],
+  };
+  const afterReconcile = `run df-tools gh pr reconcile ${id}`;
+  if (flush === null) {
+    return { ok: true, ...base, pending: true, reason: `the merge is queued, not sent (--no-flush); flush the outbox, then ${afterReconcile}` };
+  }
+  if (flush.status !== 'flushed') {
+    return {
+      ok: flush.status !== 'error',
+      ...(flush.status === 'error' ? { error: flush.error || 'the flush failed' } : {}),
+      ...base,
+      pending: flush.status === 'pending',
+      reason: `the merge was not sent (${flush.status}); once the outbox flushes, ${afterReconcile}`,
+    };
+  }
+
+  const after = readPull(repo, pr.number);
+  if (!after.ok) {
+    return { ok: true, ...base, pending: true, reason: `the merge was sent but ${after.error}; ${afterReconcile} to finish`, warnings: [after.error] };
+  }
+  if (after.pr.merged) return reconciled(method, flush);
+  const queued = inMergeQueue(repo, after.pr);
+  return {
+    ok: true,
+    ...base,
+    pr: { number: pr.number, url: pr.url, state: queued ? 'queued' : after.pr.state },
+    pending: true,
+    reason: `${what} was ${queued ? 'added to the merge queue' : 'sent for merging'} and is not merged yet; ${afterReconcile} after the queue merges it`,
+  };
+}
+
 module.exports = {
   storeGate,
   branchProblem,
@@ -521,4 +1014,6 @@ module.exports = {
   startObjectivePr,
   syncObjectivePr,
   prStatus,
+  reconcileObjectivePr,
+  mergeObjectivePr,
 };
