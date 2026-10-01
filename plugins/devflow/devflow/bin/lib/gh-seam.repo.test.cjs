@@ -42,12 +42,16 @@ const GUARDED = [
   'gh-milestone-store.cjs',
   // objective 49 (TRD 49-04): the objective-branch git seam. It spawns git (a named site, test 20) and never gh.
   'objective-branch.cjs',
+  // objective 49 (TRD 49-09): the PR lifecycle. gh-pr.cjs calls ghWrite once (createLinkedBranch, synchronous and online-required),
+  // so it is guarded but not in NO_DIRECT_WRITE; its CLI and the commit trailer never write or spawn anything.
+  'gh-pr.cjs', 'gh-pr-cli.cjs', 'commit-trailer.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
 const NO_DIRECT_WRITE = [
   'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs', 'gh-store-cli.cjs',
   'objective-branch.cjs',
+  'gh-pr-cli.cjs', 'commit-trailer.cjs',
   ...PLANNING_MODULES,
 ];
 
@@ -179,5 +183,29 @@ describe('one gh seam (TRD 46-08)', () => {
     // Every planning-*.cjs library in this directory is listed: a new one cannot slip past the guard.
     const onDisk = fs.readdirSync(__dirname).filter((f) => /^planning-[a-z-]+\.cjs$/.test(f) && !/\.test\.cjs$/.test(f));
     assert.deepStrictEqual(onDisk.filter((f) => !PLANNING_MODULES.includes(f)), [], 'unguarded planning-*.cjs module');
+  });
+
+  test('23 (49-09): every gh-*.cjs module in lib is guarded (gh-client is the seam itself, held by test 17), so a new one cannot slip past', () => {
+    const onDisk = fs.readdirSync(__dirname).filter((f) => /^gh-[a-z-]+\.cjs$/.test(f) && !/\.test\.cjs$/.test(f));
+    assert.ok(onDisk.includes('gh-pr.cjs'), 'the scan sees the PR lifecycle module');
+    const unguarded = onDisk.filter((f) => f !== 'gh-client.cjs' && !GUARDED.includes(f));
+    assert.deepStrictEqual(unguarded, [], `unguarded gh-*.cjs module(s): add them to GUARDED (and NO_DIRECT_WRITE unless they write): ${unguarded.join(', ')}`);
+  });
+
+  test('23b (49-09): gh-pr.cjs is guarded and may write, but only createLinkedBranch; gh-pr-cli.cjs and commit-trailer.cjs are guarded and never write', () => {
+    for (const f of ['gh-pr.cjs', 'gh-pr-cli.cjs', 'commit-trailer.cjs']) {
+      assert.ok(fs.existsSync(path.join(__dirname, f)), `${f} exists (a stale guard entry otherwise)`);
+      assert.ok(GUARDED.includes(f), `${f} is guarded`);
+    }
+    for (const f of ['gh-pr-cli.cjs', 'commit-trailer.cjs']) assert.ok(NO_DIRECT_WRITE.includes(f), `${f} must never call ghWrite(`);
+    assert.ok(!NO_DIRECT_WRITE.includes('gh-pr.cjs'), 'gh-pr.cjs writes createLinkedBranch directly (decision 2)');
+
+    const code = (f) => read(f).split('\n').filter((l) => !isComment(l));
+    const writes = code('gh-pr.cjs').filter((l) => /\bghWrite\(/.test(l));
+    assert.equal(writes.length, 1, `exactly one direct ghWrite( in gh-pr.cjs, got ${writes.length}`);
+    assert.ok(read('gh-pr.cjs').includes('CREATE_MUTATION'), 'the one write is the createLinkedBranch mutation');
+    for (const f of ['gh-pr.cjs', 'gh-pr-cli.cjs', 'commit-trailer.cjs']) {
+      assert.equal(code(f).filter((l) => GIT_SPAWN.test(l) || /spawnSync\(\s*['"]gh['"]/.test(l)).length, 0, `${f} spawns neither git nor gh`);
+    }
   });
 });
