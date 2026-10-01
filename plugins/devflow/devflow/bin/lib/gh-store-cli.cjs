@@ -27,6 +27,8 @@ const mappingLib = require('./gh-mapping.cjs');
 const capability = require('./gh-capability.cjs');
 const comments = require('./gh-comments.cjs');
 const hierarchy = require('./gh-hierarchy.cjs');
+const ghCache = require('./gh-cache.cjs');
+const ledgerLib = require('./planning-ledger.cjs');
 
 const EXIT = Object.freeze({ OK: 0, ERROR: 1, HALTED: 2, PENDING: 3 });
 
@@ -196,9 +198,36 @@ function flushExit(res) {
   return EXIT.OK; // flushed, skipped, running
 }
 
+/**
+ * After a flush that DRAINED the journal (status `flushed`), settle the verb-write ledger (48-11, D-15): every entry
+ * whose file still has the recorded bytes is now what GitHub holds, so it is baselined in the cache index and
+ * forgotten. Drifted entries stay (W055 reports them), and so do `(not queued)` writes: GitHub never received those.
+ * `cwd` is the root the flush drained, as given. Never throws: a settle failure is a warning, not a failed flush.
+ * @returns {{settled: string[], warning?: string}}
+ */
+function settleLedger(cwd) {
+  try {
+    const { entries } = ledgerLib.readLedger(cwd);
+    const { matching } = ledgerLib.settleCandidates(cwd);
+    const due = matching.filter((rel) => !(typeof entries[rel].verb === 'string' && entries[rel].verb.endsWith(UNQUEUED_MARK)));
+    if (due.length === 0) return { settled: [] };
+    const rec = ghCache.recordCacheBaseline(cwd, due);
+    ledgerLib.forget(cwd, rec.recorded);
+    return { settled: rec.recorded };
+  } catch (e) {
+    return { settled: [], warning: `the verb-write ledger was not settled: ${e.message}` };
+  }
+}
+
 /** The flush result as a CLI result: payload is the flush result, prose says what to do next. */
 function flushResult(cwd, res) {
   const lines = [];
+  const extra = {};
+  if (res.status === 'flushed') {
+    const s = settleLedger(cwd);
+    if (s.settled.length > 0) extra.settled = s.settled;
+    if (s.warning) extra.settle_warning = s.warning;
+  }
   switch (res.status) {
     case 'flushed':
       lines.push(`Outbox flushed: ${res.done.length} op(s) written to GitHub, nothing pending.`);
@@ -223,7 +252,9 @@ function flushResult(cwd, res) {
       lines.push(`Flush ended with status ${res.status}.`);
   }
   for (const w of res.warnings || []) lines.push(`Warning (op ${w.seq}, ${w.kind}): ${w.message}`);
-  return result(flushExit(res), { ok: res.status !== 'error', ...res }, lines.join('\n'));
+  if (extra.settled) lines.push(`Settled ${extra.settled.length} verb write(s): baselined in the cache index.`);
+  if (extra.settle_warning) lines.push(`Warning: ${extra.settle_warning}`);
+  return result(flushExit(res), { ok: res.status !== 'error', ...res, ...extra }, lines.join('\n'));
 }
 
 function outboxFlush(cwd, args) {
@@ -455,6 +486,7 @@ module.exports = {
   // flush with the same exit codes and prose.
   queuedResult,
   flushResult,
+  settleLedger,
   cmdGhOutbox,
   cmdGhTrd,
   cmdGhOrphans,
