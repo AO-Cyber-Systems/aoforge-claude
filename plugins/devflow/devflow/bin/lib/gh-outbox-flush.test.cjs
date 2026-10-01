@@ -2059,3 +2059,341 @@ describe('49-05 objective PR', () => {
     assert.equal(S.fake.issues.find((i) => i.number === entry.issue_number).pr, undefined);
   });
 });
+
+// ─── 49-10: verification status, PR comments, merge and branch delete ────────
+
+const B10 = 'df/objective-49-pr-lifecycle';
+const TIP10 = `feed${'0'.repeat(36)}`;
+const TITLE10 = '[Objective 49] PR lifecycle';
+
+/** The objective issue, mapped, and its PR created through the flusher (a draft unless `ready`). */
+function seedPr10({ ready = false } = {}) {
+  const objective = S.fake.seedIssue({
+    title: TITLE10, body: bodyLib.mergeManaged('', { summary: 'S' }, '49').body, labels: ['devflow:objective'],
+  });
+  const mapping = mappingNow();
+  mappingLib.setEntry(mapping, '49', { issue_id: objective });
+  assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+  const made = exec({ kind: 'upsert-pr', target: { id: '49' }, payload: { branch: B10, base: 'main', title: TITLE10 } }).res;
+  assert.equal(made.ok, true, JSON.stringify(made));
+  const number = mappingLib.getPr(mappingNow(), '49').number;
+  if (ready) {
+    const r = exec({ kind: 'pr-ready', target: { id: '49' }, payload: {} }).res;
+    assert.equal(r.ok, true, JSON.stringify(r));
+  }
+  return { objective, number };
+}
+
+const statusOp10 = (payload = {}, context = 'devflow/verification') => ({
+  kind: 'post-status', target: { id: '49', context }, payload: { state: 'success', description: 'Verified', ...payload },
+});
+const commentOp10 = (text, kind = 'wiki-diff') => ({
+  kind: 'upsert-pr-comment', target: { id: '49', kind }, payload: { mode: 'replace', text },
+});
+const mergeOp10 = (payload = {}) => ({ kind: 'pr-merge', target: { id: '49' }, payload });
+const deleteOp10 = (branch = B10) => ({ kind: 'delete-branch', target: { id: '49' }, payload: { branch } });
+const failure10 = (stderr) => ({ ok: false, status: 1, stdout: '', stderr });
+
+/** Answer calls matching `re` with `result`; everything else goes to the fake. Replaces the useStore seam. */
+function interceptGh10(re, result) {
+  client._setRunGh((args, opts) => {
+    S.log.push({ args, opts });
+    return re.test(args.join(' ')) ? result : S.fake.runGh(args, opts);
+  });
+}
+
+describe('49-10 PR status, comments, branch delete', () => {
+  useStore({ fake: { refs: { [B10]: TIP10 } } });
+  const writes = () => S.fake.writes().length;
+  const statusesOf = (sha) => S.fake.statuses[sha] || [];
+
+  test('2. post-status without a sha posts devflow/verification on the PR head sha; the body travels on stdin', () => {
+    seedPr10();
+    const before = writes();
+    const { res } = exec(statusOp10());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(writes() - before, 1);
+    const all = statusesOf(TIP10);
+    assert.equal(all.length, 1);
+    assert.equal(all[0].context, 'devflow/verification');
+    assert.equal(all[0].state, 'success');
+    assert.equal(all[0].description, 'Verified');
+    const post = S.log.filter((c) => c.args.join(' ') === `api --method POST repos/o/r/statuses/${TIP10} --input -`);
+    assert.equal(post.length, 1);
+    assert.deepEqual(JSON.parse(post[0].opts.input), { state: 'success', context: 'devflow/verification', description: 'Verified' });
+    const combined = JSON.parse(S.fake.runGh(['api', `repos/o/r/commits/${B10}/status`]).stdout);
+    assert.equal(combined.state, 'success');
+  });
+
+  test('2b. an explicit sha is used as given (no PR is read); no sha and no PR is an error that names upsert-pr', () => {
+    const none = exec(statusOp10());
+    assert.equal(none.res.ok, false);
+    assert.match(none.res.error, /no pull request/);
+    assert.equal(writes(), 0);
+
+    const start = S.log.length;
+    const given = exec(statusOp10({ sha: 'abc1234' }));
+    assert.equal(given.res.ok, true, JSON.stringify(given.res));
+    assert.equal(statusesOf('abc1234').length, 1);
+    assert.ok(!S.log.slice(start).some((c) => /pulls/.test(c.args.join(' '))), 'no PR lookup when the sha is given');
+  });
+
+  test('3. a repeat with the same state and description writes nothing; a changed state or description writes once', () => {
+    seedPr10();
+    assert.equal(exec(statusOp10()).res.ok, true);
+    const w = writes();
+    assert.equal(exec(statusOp10()).res.ok, true);
+    assert.equal(writes(), w, 'identical status: zero writes');
+
+    assert.equal(exec(statusOp10({ state: 'failure' })).res.ok, true);
+    assert.equal(writes(), w + 1);
+    assert.equal(exec(statusOp10({ state: 'failure' })).res.ok, true);
+    assert.equal(writes(), w + 1);
+    assert.equal(exec(statusOp10({ state: 'failure', description: '2 gaps' })).res.ok, true);
+    assert.equal(writes(), w + 2);
+
+    assert.equal(exec(statusOp10({ state: 'pending' }, 'devflow/other')).res.ok, true);
+    assert.equal(writes(), w + 3, 'another context is its own status');
+    const combined = JSON.parse(S.fake.runGh(['api', `repos/o/r/commits/${TIP10}/status`]).stdout);
+    const mine = combined.statuses.find((s) => s.context === 'devflow/verification');
+    assert.equal(mine.state, 'failure');
+    assert.equal(mine.description, '2 gaps');
+  });
+
+  test('4. upsert-pr-comment keeps one marker-keyed comment on the PR number; identical re-flush writes nothing; new text patches in place', () => {
+    const { objective, number } = seedPr10();
+    const { res } = exec(commentOp10('wiki diff v1\n'));
+    assert.equal(res.ok, true, JSON.stringify(res));
+    const cs = commentsOf(number);
+    assert.equal(cs.length, 1);
+    assert.equal(cs[0].body, `${bodyLib.commentMarker('49', 'wiki-diff')}\nwiki diff v1\n`);
+    assert.match(cs[0].body, /devflow:id=49 kind=wiki-diff/);
+    assert.equal(commentsOf(objective).length, 0, 'nothing lands on the objective issue');
+
+    const w = writes();
+    assert.equal(exec(commentOp10('wiki diff v1\n')).res.ok, true);
+    assert.equal(writes(), w, 'identical text: zero writes');
+
+    assert.equal(exec(commentOp10('wiki diff v2\n')).res.ok, true);
+    assert.equal(writes(), w + 1);
+    const after = commentsOf(number);
+    assert.equal(after.length, 1, 'patched in place, not a second comment');
+    assert.equal(after[0].id, cs[0].id);
+    assert.equal(after[0].body, `${bodyLib.commentMarker('49', 'wiki-diff')}\nwiki diff v2\n`);
+    assert.equal(S.log.filter((c) => c.args.join(' ') === `api --method PATCH repos/o/r/issues/comments/${cs[0].id} --input -`).length, 1);
+  });
+
+  test('4b. two kinds are two comments; a human comment on the PR is left alone', () => {
+    const { number } = seedPr10();
+    S.fake.seedComment(number, 'A reviewer: looks good.');
+    assert.equal(exec(commentOp10('diff\n')).res.ok, true);
+    assert.equal(exec(commentOp10('other\n', 'review-notes')).res.ok, true);
+    const cs = commentsOf(number);
+    assert.equal(cs.length, 3);
+    assert.equal(cs[0].body, 'A reviewer: looks good.');
+  });
+
+  test('5. a text over the comment limit becomes numbered parts; a shorter text re-marks the surplus parts superseded', () => {
+    const { number } = seedPr10();
+    const big = `${('x'.repeat(99) + '\n').repeat(1300)}`;
+    const { res } = exec(commentOp10(big));
+    assert.equal(res.ok, true, JSON.stringify(res));
+    const cs = commentsOf(number);
+    assert.equal(cs.length, 3);
+    for (const c of cs) assert.ok(c.body.length <= trd.COMMENT_MAX_CHARS, `part of ${c.body.length} chars`);
+    const found = bodyLib.findCommentsByMarker(cs, '49', 'wiki-diff');
+    assert.deepEqual(found.map((f) => [f.part, f.of]), [[1, 3], [2, 3], [3, 3]]);
+
+    assert.equal(exec(commentOp10('now short\n')).res.ok, true);
+    const after = commentsOf(number);
+    assert.equal(after.length, 3, 'nothing was deleted');
+    assert.equal(after[1].body.split('\n')[0], '<!-- devflow:id=49 kind=wiki-diff-superseded -->');
+    assert.equal(after[2].body.split('\n')[0], '<!-- devflow:id=49 kind=wiki-diff-superseded -->');
+    assert.equal(bodyLib.findCommentsByMarker(after, '49', 'wiki-diff').length, 1);
+  });
+
+  test('5b. a human edit of the sticky comment halts and writes nothing; --accept-remote adopts it', () => {
+    const { number } = seedPr10();
+    assert.equal(exec(commentOp10('first\n')).res.ok, true);
+    const c = commentsOf(number)[0];
+    S.fake.humanEditComment(c.id, `${c.body}human note\n`);
+    const w = writes();
+    const halted = exec(commentOp10('second\n'));
+    assert.equal(halted.res.halt, true, JSON.stringify(halted.res));
+    assert.equal(halted.res.issue_number, number);
+    assert.match(halted.res.detail, /pull request/);
+    assert.equal(writes(), w);
+  });
+
+  test('9. delete-branch removes the ref on GitHub; a repeat is success; the default branch is refused', () => {
+    const { res } = exec(deleteOp10());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(S.fake.refs[B10], undefined);
+    assert.equal(S.log.filter((c) => c.args.join(' ') === `api --method DELETE repos/o/r/git/refs/heads/${B10}`).length, 1);
+
+    const again = exec(deleteOp10());
+    assert.equal(again.res.ok, true, JSON.stringify(again.res));
+
+    const w = writes();
+    const main = exec(deleteOp10('main'));
+    assert.equal(main.res.ok, false);
+    assert.match(main.res.error, /default branch/);
+    assert.notEqual(S.fake.refs.main, undefined, 'the default branch is untouched');
+    assert.equal(writes(), w, 'no DELETE was attempted');
+  });
+
+  test('9b. a 404 on delete is success; any other failure is not', () => {
+    interceptGh10(/DELETE/, failure10('gh: Not Found (HTTP 404)'));
+    assert.equal(exec(deleteOp10()).res.ok, true);
+    interceptGh10(/DELETE/, failure10('gh: Protected branch cannot be deleted (HTTP 422)'));
+    const blocked = exec(deleteOp10());
+    assert.equal(blocked.res.ok, false);
+    assert.equal(blocked.res.class, 'validation');
+  });
+});
+
+describe('49-10 PR merge (no merge queue)', () => {
+  useStore({ fake: { refs: { [B10]: TIP10 } } });
+  const writes = () => S.fake.writes().length;
+  const putMerges = () => S.log.filter((c) => /^api --method PUT repos\/o\/r\/pulls\/\d+\/merge/.test(c.args.join(' ')));
+
+  test('6. a ready PR is merged with squash by default; the merge pins the head sha; a re-flush writes nothing', () => {
+    const { number } = seedPr10({ ready: true });
+    const { res } = exec(mergeOp10());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    const pr = issueByNumber(number);
+    assert.equal(pr.pr.merged, true);
+    assert.equal(pr.pr.mergeMethod, 'squash');
+    assert.equal(putMerges().length, 1);
+    assert.deepEqual(JSON.parse(putMerges()[0].opts.input), { merge_method: 'squash', sha: TIP10 });
+
+    const w = writes();
+    assert.equal(exec(mergeOp10()).res.ok, true);
+    assert.equal(writes(), w, 'already merged: zero writes');
+  });
+
+  test('6b. payload.method wins over the default', () => {
+    const { number } = seedPr10({ ready: true });
+    assert.equal(exec(mergeOp10({ method: 'rebase' })).res.ok, true);
+    assert.equal(issueByNumber(number).pr.mergeMethod, 'rebase');
+  });
+
+  test('6c. the configured merge method is the default', () => {
+    const file = path.join(S.root, '.planning', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+    cfg.github.pr = { merge_method: 'merge' };
+    fs.writeFileSync(file, JSON.stringify(cfg));
+    const { number } = seedPr10({ ready: true });
+    assert.equal(exec(mergeOp10()).res.ok, true);
+    assert.equal(issueByNumber(number).pr.mergeMethod, 'merge');
+  });
+
+  test('6d. a PR a human already merged is a no-op', () => {
+    const { number } = seedPr10({ ready: true });
+    S.fake.humanMergePr(number, { method: 'squash' });
+    const w = writes();
+    assert.equal(exec(mergeOp10()).res.ok, true);
+    assert.equal(writes(), w);
+    assert.equal(putMerges().length, 0);
+  });
+
+  test('6e. a PR closed without merging is an error naming the PR', () => {
+    const { number } = seedPr10({ ready: true });
+    assert.equal(S.fake.runGh(['api', '--method', 'PATCH', `repos/o/r/pulls/${number}`, '-f', 'state=closed']).ok, true);
+    const { res } = exec(mergeOp10());
+    assert.equal(res.ok, false);
+    assert.match(res.error, new RegExp(`#${number}`));
+    assert.match(res.error, /closed/);
+    assert.equal(putMerges().length, 0);
+  });
+
+  test('8. a draft PR halts: nothing is merged and the report names the PR and "draft"', () => {
+    const { number } = seedPr10();
+    const w = writes();
+    const { res } = exec(mergeOp10());
+    assert.equal(res.ok, false);
+    assert.match(res.error, new RegExp(`#${number}`));
+    assert.match(res.error, /draft/);
+    assert.equal(writes(), w);
+    assert.equal(issueByNumber(number).pr.merged, false);
+
+    enqueueOps([mergeOp10()]);
+    const flushed = runFlush();
+    assert.equal(flushed.status, 'halted');
+    assert.match(flushed.error, /draft/);
+    assert.equal(queueNow()[0].status, 'blocked');
+  });
+
+  test('8b. no PR yet is an error that names upsert-pr', () => {
+    const { res } = exec(mergeOp10());
+    assert.equal(res.ok, false);
+    assert.match(res.error, /no pull request/);
+  });
+
+  test('8c. a 405 from the merge halts for a human; a 409 (head changed) stays pending', () => {
+    const { number } = seedPr10({ ready: true });
+    interceptGh10(/PUT repos\/o\/r\/pulls\/\d+\/merge/, failure10('gh: Pull Request is not mergeable (HTTP 405)'));
+    const blocked = exec(mergeOp10());
+    assert.equal(blocked.res.ok, false);
+    assert.equal(blocked.res.class, 'not_mergeable');
+    assert.match(blocked.res.error, new RegExp(`#${number}`));
+    assert.match(blocked.res.error, /not mergeable/);
+
+    interceptGh10(/PUT repos\/o\/r\/pulls\/\d+\/merge/, failure10('gh: Head branch was modified. Review and try the merge again. (HTTP 409)'));
+    const changed = exec(mergeOp10());
+    assert.equal(changed.res.ok, false);
+    assert.equal(changed.res.class, 'pending');
+  });
+
+  test('8d. classifyFailure: 405 and 409 mean something only for pr-merge', () => {
+    const f405 = failure10('gh: Method Not Allowed (HTTP 405)');
+    const f409 = failure10('gh: Conflict (HTTP 409)');
+    assert.equal(flushLib.classifyFailure(f405, 'pr-merge'), 'not_mergeable');
+    assert.equal(flushLib.classifyFailure(f409, 'pr-merge'), 'pending');
+    assert.equal(flushLib.classifyFailure(f405), 'error');
+    assert.equal(flushLib.classifyFailure(f409), 'error');
+    assert.equal(flushLib.classifyFailure(f409, 'upsert-pr'), 'error');
+  });
+});
+
+describe('49-10 PR merge (merge queue)', () => {
+  useStore({ fake: { refs: { [B10]: TIP10 }, mergeQueue: true } });
+  const writes = () => S.fake.writes().length;
+  const enqueues = () => S.fake.writes().filter((a) => /enqueuePullRequest/.test(a.join(' ')));
+
+  test('7. with a merge queue the PR is enqueued once and stays open; a re-flush writes nothing', () => {
+    const { number } = seedPr10({ ready: true });
+    const before = writes();
+    const { res } = exec(mergeOp10());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(enqueues().length, 1);
+    assert.equal(writes() - before, 1);
+    const pr = issueByNumber(number);
+    assert.equal(pr.pr.merged, false, 'the queue merges later, not now');
+    assert.equal(pr.pr.queued, true);
+    assert.equal(pr.state, 'OPEN');
+    assert.equal(S.log.filter((c) => /\/merge/.test(c.args.join(' '))).length, 0, 'the REST merge is never used on a queue');
+
+    const w = writes();
+    assert.equal(exec(mergeOp10()).res.ok, true);
+    assert.equal(writes(), w, 'already queued: zero writes');
+  });
+
+  test('7b. payload.method is ignored by a queue; once the queue lands the PR the op is a no-op', () => {
+    const { number } = seedPr10({ ready: true });
+    assert.equal(exec(mergeOp10({ method: 'rebase' })).res.ok, true);
+    assert.equal(enqueues().length, 1);
+    S.fake.humanMergePr(number, { method: 'squash' });
+    const w = writes();
+    assert.equal(exec(mergeOp10()).res.ok, true);
+    assert.equal(writes(), w);
+  });
+
+  test('7c. a draft PR is never enqueued', () => {
+    const { number } = seedPr10();
+    const { res } = exec(mergeOp10());
+    assert.equal(res.ok, false);
+    assert.match(res.error, new RegExp(`#${number}.*draft`));
+    assert.equal(enqueues().length, 0);
+  });
+});

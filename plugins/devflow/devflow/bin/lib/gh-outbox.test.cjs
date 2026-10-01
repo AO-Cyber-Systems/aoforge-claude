@@ -71,7 +71,7 @@ function op(kind, target, payload) {
   return { kind, target, payload };
 }
 
-/** One valid op of each of the 11 kinds. */
+/** One valid op of each of the 15 kinds. */
 const VALID = {
   'upsert-issue': op('upsert-issue', { id: '07-01', role: 'trd' }, {
     title: 'TRD 07-01', body: 'body', labels: ['devflow'], milestone_title: null, type: null,
@@ -88,6 +88,10 @@ const VALID = {
   }),
   'upsert-pr': op('upsert-pr', { id: '07' }, { branch: 'df/objective-07-store-demo', base: 'main' }),
   'pr-ready': op('pr-ready', { id: '07' }, {}),
+  'post-status': op('post-status', { id: '07', context: 'devflow/verification' }, { state: 'success', description: 'Verified' }),
+  'upsert-pr-comment': op('upsert-pr-comment', { id: '07', kind: 'wiki-diff' }, { mode: 'replace', text: 'diff' }),
+  'pr-merge': op('pr-merge', { id: '07' }, { method: 'squash' }),
+  'delete-branch': op('delete-branch', { id: '07' }, { branch: 'df/objective-07-store-demo' }),
 };
 
 function patchBody(id, sections) {
@@ -104,9 +108,9 @@ function readRaw() {
 // ─── Schema and keys ──────────────────────────────────────────────────────────
 
 describe('validateOp()', () => {
-  test('1a. accepts one valid op of each of the 11 kinds', () => {
+  test('1a. accepts one valid op of each of the 15 kinds', () => {
     assert.deepEqual(Object.keys(outbox.OP_KINDS).sort(), Object.keys(VALID).sort());
-    assert.equal(Object.keys(VALID).length, 11);
+    assert.equal(Object.keys(VALID).length, 15);
     for (const [kind, o] of Object.entries(VALID)) {
       const r = outbox.validateOp(o);
       assert.equal(r.ok, true, `${kind}: ${r.error}`);
@@ -1219,5 +1223,99 @@ describe('49-05 PR op schemas', () => {
     for (const bad of ['pr:', 'pr:x', 'pr:49-01', 'pr:49#summary', 'PR:49', 'pr: 49', 'pr:49:50', ':49']) {
       assert.equal(outbox.setBase(root, bad, BASE).ok, false, bad);
     }
+  });
+});
+
+// ─── 49-10: status, PR comment, merge and branch-delete ops ───────────────────
+
+describe('49-10 status, PR comment, merge and branch-delete op schemas', () => {
+  const accepts = (o) => { const r = outbox.validateOp(o); assert.equal(r.ok, true, `${o.kind}: ${r.error}`); };
+  const refuses = (o, re) => {
+    const r = outbox.validateOp(o);
+    assert.equal(r.ok, false, `should refuse ${o.kind} ${JSON.stringify(o.target)} ${JSON.stringify(o.payload)}`);
+    if (re) assert.match(r.error, re);
+  };
+  const status = (payload, target = { id: '49', context: 'devflow/verification' }) => op('post-status', target, payload);
+
+  test('1. post-status accepts each of the four states, with and without sha and target_url', () => {
+    for (const state of ['success', 'failure', 'pending', 'error']) accepts(status({ state, description: 'Verified' }));
+    accepts(status({ state: 'success', description: 'Verified', sha: 'abc1234' }));
+    accepts(status({ state: 'success', description: 'Verified', sha: 'a'.repeat(40), target_url: 'https://example.test/v/49' }));
+    accepts(status({ state: 'pending', description: 'x'.repeat(140) }, { id: '2.1', context: 'devflow/verification' }));
+  });
+
+  test('1. post-status refuses a bad state, a description over 140 chars, a bad sha and an unknown key', () => {
+    refuses(status({ state: 'passed', description: 'ok' }), /state/);
+    refuses(status({ description: 'ok' }), /state/);
+    refuses(status({ state: 'success' }), /description/);
+    refuses(status({ state: 'success', description: '' }), /description/);
+    refuses(status({ state: 'success', description: 'x'.repeat(141) }), /description/);
+    refuses(status({ state: 'success', description: 5 }), /description/);
+    refuses(status({ state: 'success', description: 'ok', sha: 'not a sha' }), /sha/);
+    refuses(status({ state: 'success', description: 'ok', sha: 'abc' }), /sha/);
+    refuses(status({ state: 'success', description: 'ok', target_url: 'javascript:alert(1)' }), /target_url/);
+    refuses(status({ state: 'success', description: 'ok', target_url: '' }), /target_url/);
+    refuses(status({ state: 'success', description: 'ok', context: 'x' }), /context/);
+    refuses(status('success'), /payload/);
+  });
+
+  test('1. post-status target names an objective and a usable context; extra target keys are refused', () => {
+    const ok = { state: 'success', description: 'ok' };
+    refuses(status(ok, { id: '49-01', context: 'devflow/verification' }), /objective/);
+    refuses(status(ok, { id: 49, context: 'devflow/verification' }), /id/);
+    refuses(status(ok, { id: '49' }), /context/);
+    refuses(status(ok, { id: '49', context: '' }), /context/);
+    refuses(status(ok, { id: '49', context: 'has space' }), /context/);
+    refuses(status(ok, { id: '49', context: 'devflow/verification', n: 1 }), /target/);
+  });
+
+  test('1. upsert-pr-comment is replace-only with a kind and non-empty text', () => {
+    const c = (payload, target = { id: '49', kind: 'wiki-diff' }) => op('upsert-pr-comment', target, payload);
+    accepts(c({ mode: 'replace', text: 'a diff' }));
+    refuses(c({ mode: 'append-spec-rev', entry: {} }), /mode/);
+    refuses(c({ text: 'x' }), /mode/);
+    refuses(c({ mode: 'replace', text: '' }), /text/);
+    refuses(c({ mode: 'replace', text: 'x', extra: 1 }), /extra/);
+    refuses(c({ mode: 'replace', text: 'x' }, { id: '49-01', kind: 'wiki-diff' }), /objective/);
+    refuses(c({ mode: 'replace', text: 'x' }, { id: '49', kind: 'has space' }), /kind/);
+    refuses(c({ mode: 'replace', text: 'x' }, { id: '49' }), /kind/);
+    refuses(c('x'), /payload/);
+  });
+
+  test('1. pr-merge accepts the three methods or none (the default comes from config) and nothing else', () => {
+    for (const method of ['squash', 'merge', 'rebase']) accepts(op('pr-merge', { id: '49' }, { method }));
+    accepts(op('pr-merge', { id: '49' }, {}));
+    refuses(op('pr-merge', { id: '49' }, { method: 'fast-forward' }), /method/);
+    refuses(op('pr-merge', { id: '49' }, { method: '' }), /method/);
+    refuses(op('pr-merge', { id: '49' }, { method: 'squash', admin: true }), /admin/);
+    refuses(op('pr-merge', { id: '49-01' }, { method: 'squash' }), /objective/);
+    refuses(op('pr-merge', { id: '49', n: 1 }, { method: 'squash' }), /target/);
+    refuses(op('pr-merge', { id: '49' }, undefined), /payload/);
+  });
+
+  test('1. delete-branch needs a usable branch name and an objective id', () => {
+    accepts(op('delete-branch', { id: '49' }, { branch: 'df/objective-49-pr-lifecycle' }));
+    refuses(op('delete-branch', { id: '49' }, {}), /branch/);
+    refuses(op('delete-branch', { id: '49' }, { branch: '' }), /branch/);
+    refuses(op('delete-branch', { id: '49' }, { branch: 'a..b' }), /branch/);
+    refuses(op('delete-branch', { id: '49' }, { branch: 'df/b', force: true }), /force/);
+    refuses(op('delete-branch', { id: '49-01' }, { branch: 'df/b' }), /objective/);
+    refuses(op('delete-branch', { id: '49', n: 1 }, { branch: 'df/b' }), /target/);
+  });
+
+  test('1. the new ops enqueue; a repeat of the same target coalesces to one pending op', () => {
+    const a = outbox.enqueue(root, [op('pr-merge', { id: '49' }, { method: 'squash' })]);
+    const b = outbox.enqueue(root, [op('pr-merge', { id: '49' }, { method: 'rebase' })]);
+    assert.equal(a.ok, true, a.error);
+    assert.deepEqual(b.coalesced, a.enqueued);
+    const s = outbox.enqueue(root, [
+      op('post-status', { id: '49', context: 'devflow/verification' }, { state: 'pending', description: 'Verifying' }),
+      op('post-status', { id: '49', context: 'devflow/other' }, { state: 'pending', description: 'Verifying' }),
+      op('upsert-pr-comment', { id: '49', kind: 'wiki-diff' }, { mode: 'replace', text: 'd' }),
+      op('delete-branch', { id: '49' }, { branch: 'df/b' }),
+    ]);
+    assert.equal(s.ok, true, s.error);
+    assert.equal(s.enqueued.length, 4, 'a different context is a different status');
+    assert.equal(readRaw().ops.length, 5);
   });
 });
