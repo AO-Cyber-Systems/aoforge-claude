@@ -1243,6 +1243,15 @@ describe('49-02 prs map', () => {
     assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'b', node_id: 'PR_120' }, 'undefined is not a patch');
   });
 
+  test('3d. a field this module does not know that is already on disk survives a patch, after the known ones', () => {
+    // Additive fields from a later objective must survive a read-modify-write (the module's own top-level policy).
+    const m = { version: 3, milestones: {}, objectives: {}, trds: {}, prs: { 49: { head_sha_verified: 'deadbeef', branch: 'b' } } };
+    ghMapping.setPr(m, '49', { number: 120 });
+    assert.deepEqual(Object.keys(ghMapping.getPr(m, '49')), ['branch', 'number', 'head_sha_verified']);
+    assert.equal(ghMapping.getPr(m, '49').head_sha_verified, 'deadbeef');
+    assert.throws(() => ghMapping.setPr(m, '49', { head_sha_verified: 'x' }), /head_sha_verified/, 'but a patch may not name it');
+  });
+
   test('4. a decimal objective id keys as 7.1 and any spelling resolves the same entry', () => {
     const m = ghMapping.emptyMapping();
     ghMapping.setPr(m, '7.1', { branch: 'df/objective-7.1-x' });
