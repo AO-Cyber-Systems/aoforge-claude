@@ -13,6 +13,7 @@
 const { describe, test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const cli = require('./gh-store-cli.cjs');
@@ -757,5 +758,23 @@ describe('help text', () => {
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.match(r.stdout, /outbox/);
     assert.match(r.stdout, /orphans/);
+  });
+});
+
+// ─── 48-11: the enqueue-then-flush helpers are a library API ─────────────────
+
+describe('48-11: queuedResult / EXIT / flushResult are exported for the planning verbs', () => {
+  test('17. the three helpers are exported unchanged', () => {
+    assert.equal(typeof cli.queuedResult, 'function');
+    assert.equal(typeof cli.flushResult, 'function');
+    assert.deepEqual({ ...cli.EXIT }, { OK: 0, ERROR: 1, HALTED: 2, PENDING: 3 });
+    assert.ok(Object.isFrozen(cli.EXIT));
+    const pending = cli.flushResult(os.tmpdir(), { status: 'pending', done: [], pending: 2, reason: 'offline', warnings: [] });
+    assert.equal(pending.code, cli.EXIT.PENDING);
+    assert.equal(pending.payload.ok, true);
+    assert.match(pending.prose, /2 op\(s\) still queued/);
+    const failed = cli.flushResult(os.tmpdir(), { status: 'error', done: [], pending: 0, error: 'boom', warnings: [] });
+    assert.equal(failed.code, cli.EXIT.ERROR);
+    assert.equal(failed.payload.ok, false);
   });
 });
