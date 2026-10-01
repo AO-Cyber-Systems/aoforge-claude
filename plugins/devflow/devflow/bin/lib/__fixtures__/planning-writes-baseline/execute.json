@@ -1,0 +1,9 @@
+{
+  "_comment": "Planning-write ratchet baseline for the 'execute' group (TRD 48-04, D-21). Per-file counts of direct planning-file write instructions not yet routed through a df-tools verb. Counts may only go down: lower a count in the commit that migrates the prose. TRD 48-17 drives this group to zero; 48-23 deletes these files. Regenerate by measuring with planning-audit.cjs, never by hand.",
+  "plugins/devflow/agents/executor.md": 14,
+  "plugins/devflow/devflow/templates/job-prompt.md": 3,
+  "plugins/devflow/devflow/workflows/build.md": 2,
+  "plugins/devflow/devflow/workflows/execute-objective.md": 8,
+  "plugins/devflow/devflow/workflows/execute-trd.md": 1,
+  "plugins/devflow/devflow/workflows/transition.md": 6
+}

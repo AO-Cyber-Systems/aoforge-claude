@@ -1,0 +1,13 @@
+{
+  "_comment": "Planning-write ratchet baseline for the 'misc' group (TRD 48-04, D-21). Per-file counts of direct planning-file write instructions not yet routed through a df-tools verb. Counts may only go down: lower a count in the commit that migrates the prose. TRD 48-21 drives this group to zero; 48-23 deletes these files. Regenerate by measuring with planning-audit.cjs, never by hand.",
+  "plugins/devflow/agents/codebase-mapper.md": 2,
+  "plugins/devflow/devflow/workflows/health.md": 1,
+  "plugins/devflow/devflow/workflows/help.md": 8,
+  "plugins/devflow/devflow/workflows/map-codebase.md": 5,
+  "plugins/devflow/devflow/workflows/resume-project.md": 2,
+  "plugins/devflow/devflow/workflows/workstreams-merge.md": 1,
+  "plugins/devflow/devflow/workflows/workstreams-setup.md": 1,
+  "plugins/devflow/skills/gh-sync/SKILL.md": 1,
+  "plugins/devflow/skills/map-codebase/SKILL.md": 2,
+  "plugins/devflow/skills/sync-roadmap/SKILL.md": 4
+}
