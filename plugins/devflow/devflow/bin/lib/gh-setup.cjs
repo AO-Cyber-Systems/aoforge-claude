@@ -21,6 +21,8 @@
 // This module never writes to GitHub (apply does); the seam guard lists it as guarded.
 
 const { CONTEXTS } = require('./gh-check.cjs');
+const capability = require('./gh-capability.cjs');
+const outbox = require('./gh-outbox.cjs');
 
 // ─── The desired default-branch ruleset ───────────────────────────────────────
 
@@ -190,9 +192,330 @@ function unionRuleset(existing, desired) {
   };
 }
 
+// ─── planSetup ────────────────────────────────────────────────────────────────
+
+const WORKFLOW_PATH = '.github/workflows/devflow.yml';
+const PR_TEMPLATE_PATH = '.github/pull_request_template.md';
+const MANAGED_HEADER = /^#\s*devflow:managed\b/;
+const PR_START = '<!-- devflow:pr-template:start -->';
+const PR_END = '<!-- devflow:pr-template:end -->';
+
+// Issue fields need this dated header on create (50-RESEARCH, State of the Art).
+const ISSUE_FIELDS_API_VERSION = '2026-03-10';
+
+// Same colour and description as gh-outbox-flush's ensureLabel, so a label made here and one made on first use look alike.
+const LABEL_COLOR = '1d76db';
+const LABEL_DESCRIPTION = 'DevFlow tracking';
+
+const TYPE_COLORS = Object.freeze({ Objective: 'purple', TRD: 'blue', Decision: 'yellow', Debug: 'red', Quick: 'gray' });
+
+// Open Question 3 (LOW confidence, unverified against the live API): the option shape. Applying retries as `text`
+// on a 422 (TRD 50-11), so a wrong guess here degrades to body metadata rather than failing setup.
+const FIELD_OPTIONS = Object.freeze({
+  work: ['feature', 'port', 'refactor', 'foundation', 'bugfix', 'prototype', 'spike'],
+  kind: ['api', 'app', 'library', 'ui-lib', 'cli', 'plugin'],
+});
+const FIELD_DESCRIPTIONS = Object.freeze({ work: 'DevFlow work type', kind: 'DevFlow project kind' });
+
+const REPO_SETTINGS = Object.freeze({ has_wiki: true, delete_branch_on_merge: true });
+
+const action = (kind, target, status, desc, extra = {}) => ({ kind, target, status, desc, ...extra });
+
+/** `gh api -X <method> <endpoint> [-H h]... --input -` plus the compact JSON that goes to stdin. */
+function apiRequest(method, endpoint, payload, headers = []) {
+  return {
+    args: ['api', '-X', method, endpoint, ...headers.flatMap((h) => ['-H', h]), '--input', '-'],
+    input: JSON.stringify(payload),
+  };
+}
+
+/** The label names setup ensures: the role labels (objective, trd, decision, todo, debug, quick), then any other configured one. */
+function labelNames(github) {
+  const configured = isObject(github) && isObject(github.labels) ? github.labels : {};
+  const defaults = {
+    objective: 'devflow:objective',
+    trd: 'devflow:trd',
+    decision: 'devflow:decision',
+    ...Object.fromEntries(Object.entries(outbox.ENTITY_ROLES).map(([role, def]) => [role, def.label])),
+  };
+  const names = Object.entries(defaults).map(([role, def]) => (typeof configured[role] === 'string' && configured[role] !== '' ? configured[role] : def));
+  for (const [role, value] of Object.entries(configured)) {
+    if (!Object.hasOwn(defaults, role) && typeof value === 'string' && value !== '') names.push(value);
+  }
+  return [...new Set(names)];
+}
+
+/**
+ * The degraded sentence of gh-capability for `key` ('types' | 'fields') on a repo whose org endpoints cannot be used
+ * (a User owner, or an organization whose endpoint did not answer): one source for the text `outbox status` prints.
+ */
+function degradedSentence(state, key) {
+  const caps = {
+    repo: state.repo,
+    owner_type: state.ownerType || 'unknown',
+    push: true,
+    org_types: { available: false, enabled: [] },
+    issue_fields: { available: false, ids: {} },
+    sub_issues: 'ok',
+    dependencies: 'ok',
+    wiki: 'ok',
+  };
+  const keys = capability.resolveModes(caps).degraded;
+  return capability.describeDegraded(caps)[keys.indexOf(key)];
+}
+
+function planRepoSettings(state) {
+  const meta = isObject(state.meta) ? state.meta : {};
+  const payload = {};
+  for (const [key, want] of Object.entries(REPO_SETTINGS)) if (meta[key] !== want) payload[key] = want;
+  const target = `repos/${state.repo}`;
+  if (Object.keys(payload).length === 0) return [action('repo-settings', target, 'exists', 'wiki enabled and head branches deleted after merge')];
+  // Nothing set up yet reads as create; a repository that already has one of the two settings reads as update.
+  const status = Object.keys(payload).length === Object.keys(REPO_SETTINGS).length ? 'create' : 'update';
+  return [action('repo-settings', target, status, `set ${Object.keys(payload).join(' and ')} to true`, {
+    payload,
+    request: apiRequest('PATCH', target, payload),
+  })];
+}
+
+function planLabels(state) {
+  const have = new Set((Array.isArray(state.labels) ? state.labels : []).map((n) => String(n).toLowerCase()));
+  return labelNames(state.github).map((name) => (have.has(name.toLowerCase())
+    ? action('label', name, 'exists', `label ${name} exists`)
+    : action('label', name, 'create', `create label ${name}`, {
+      request: { args: ['label', 'create', name, '--repo', state.repo, '--color', LABEL_COLOR, '--description', LABEL_DESCRIPTION] },
+    })));
+}
+
+function planIssueTypes(state) {
+  if (state.ownerType !== 'Organization' || !Array.isArray(state.types)) {
+    return [action('issue-type', 'all', 'skip', degradedSentence(state, 'types'))];
+  }
+  const endpoint = `orgs/${state.owner}/issue-types`;
+  return [...capability.REQUIRED_TYPES, ...capability.OPTIONAL_TYPES].map((name) => {
+    const found = state.types.find((t) => t && t.name === name);
+    if (!found) {
+      const payload = { name, is_enabled: true, description: `DevFlow ${name.toLowerCase()} issue`, color: TYPE_COLORS[name] };
+      return action('issue-type', name, 'create', `create the ${name} issue type`, { payload, request: apiRequest('POST', endpoint, payload) });
+    }
+    if (found.is_enabled !== false) return action('issue-type', name, 'exists', `issue type ${name} is enabled`);
+    if (found.id === undefined || found.id === null) {
+      return action('issue-type', name, 'skip', `issue type ${name} is disabled but its id is unknown, so it cannot be enabled`);
+    }
+    const payload = { name, is_enabled: true };
+    return action('issue-type', name, 'update', `enable the ${name} issue type`, {
+      payload,
+      request: apiRequest('PUT', `${endpoint}/${encodeURIComponent(String(found.id))}`, payload),
+    });
+  });
+}
+
+function planIssueFields(state) {
+  if (state.ownerType !== 'Organization' || !Array.isArray(state.fields)) {
+    return [action('issue-field', 'all', 'skip', degradedSentence(state, 'fields'))];
+  }
+  const endpoint = capability.ISSUE_FIELDS_PATH.replace('{owner}', state.owner);
+  return capability.REQUIRED_FIELDS.map((name) => {
+    const found = state.fields.find((f) => f && typeof f.name === 'string' && f.name.toLowerCase() === name);
+    if (found) return action('issue-field', name, 'exists', `issue field ${name} exists${found.data_type ? ` (${found.data_type})` : ''}`);
+    const payload = {
+      name,
+      data_type: 'single_select',
+      description: FIELD_DESCRIPTIONS[name],
+      options: FIELD_OPTIONS[name].map((option, i) => ({ name: option, color: 'gray', priority: i + 1 })),
+    };
+    return action('issue-field', name, 'create', `create the ${name} issue field (single select: ${FIELD_OPTIONS[name].join(', ')})`, {
+      payload,
+      request: apiRequest('POST', endpoint, payload, [`X-GitHub-Api-Version: ${ISSUE_FIELDS_API_VERSION}`]),
+    });
+  });
+}
+
+const localText = (state, key) => (isObject(state.local) && typeof state.local[key] === 'string' ? state.local[key] : null);
+
+function planWorkflow(state) {
+  const want = state.templates.workflow;
+  const have = localText(state, 'workflow');
+  if (have === null) {
+    return action('workflow', WORKFLOW_PATH, 'create', 'add the DevFlow checks workflow', { file: { path: WORKFLOW_PATH, content: want } });
+  }
+  if (have === want) return action('workflow', WORKFLOW_PATH, 'exists', 'the DevFlow checks workflow is current');
+  if (have.split(/\r?\n/).slice(0, 5).some((line) => MANAGED_HEADER.test(line))) {
+    return action('workflow', WORKFLOW_PATH, 'update', 'refresh the managed DevFlow checks workflow', { file: { path: WORKFLOW_PATH, content: want } });
+  }
+  return action('workflow', WORKFLOW_PATH, 'conflict',
+    `${WORKFLOW_PATH} exists without the "# devflow:managed" header, so it is left alone; merge the DevFlow checks workflow into it by hand or remove it and re-run`);
+}
+
+/** The managed PR-template block: the template text from its start marker to its end marker (markers added when absent). */
+function managedBlock(text) {
+  const start = text.indexOf(PR_START);
+  const end = text.indexOf(PR_END);
+  if (start >= 0 && end > start) return text.slice(start, end + PR_END.length);
+  return `${PR_START}\n${text.replace(/^\n+/, '').replace(/\s+$/, '')}\n${PR_END}`;
+}
+
+function planPrTemplate(state) {
+  const block = managedBlock(state.templates.prTemplate);
+  const have = localText(state, 'prTemplate');
+  const write = (content) => ({ file: { path: PR_TEMPLATE_PATH, content } });
+  if (have === null) return action('pr-template', PR_TEMPLATE_PATH, 'create', 'add the pull request template', write(`${block}\n`));
+  const start = have.indexOf(PR_START);
+  const end = start >= 0 ? have.indexOf(PR_END, start) : -1;
+  if (start >= 0 && end > start) {
+    if (have.slice(start, end + PR_END.length) === block) return action('pr-template', PR_TEMPLATE_PATH, 'exists', 'the DevFlow block of the pull request template is current');
+    return action('pr-template', PR_TEMPLATE_PATH, 'update', 'refresh the DevFlow block of the pull request template, leaving the rest of the file alone',
+      write(`${have.slice(0, start)}${block}${have.slice(end + PR_END.length)}`));
+  }
+  const kept = have.replace(/\s+$/, '');
+  return action('pr-template', PR_TEMPLATE_PATH, 'update', 'append the DevFlow block to the existing pull request template',
+    write(kept === '' ? `${block}\n` : `${kept}\n\n${block}\n`));
+}
+
+function planRuleset(state) {
+  const gh = isObject(state.github) ? state.github : {};
+  const pr = isObject(gh.pr) ? gh.pr : {};
+  const queueRejected = isObject(state.record) && state.record.merge_queue === false;
+  const desired = desiredRuleset({ mergeMethod: pr.merge_method, appId: gh.app_id, mergeQueue: !queueRejected });
+  const base = `repos/${state.repo}/rulesets`;
+  const target = SETUP_RULESET_NAME;
+
+  let main;
+  if (!Array.isArray(state.rulesets)) {
+    const why = isObject(state.readErrors) && state.readErrors.rulesets ? ` (${state.readErrors.rulesets})` : '';
+    main = action('ruleset', target, 'skip', `the repository's rulesets could not be read${why}, so the default-branch ruleset was not planned`);
+  } else {
+    const existing = state.rulesets.find((r) => r && r.name === SETUP_RULESET_NAME);
+    if (!existing) {
+      main = action('ruleset', target, 'create', 'create the default-branch ruleset', { payload: desired, request: apiRequest('POST', base, desired) });
+    } else if (!Array.isArray(existing.rules)) {
+      main = action('ruleset', target, 'skip', `ruleset ${existing.id} exists but its rules could not be read, so it is left alone`);
+    } else if (rulesetSatisfies(existing, desired)) {
+      main = action('ruleset', target, 'exists', `ruleset ${existing.id} already enforces what DevFlow needs`);
+    } else {
+      const payload = unionRuleset(existing, desired);
+      main = action('ruleset', target, 'update',
+        `update ruleset ${existing.id} to add what DevFlow needs (its other rules, contexts, approvals and bypass actors are kept)`,
+        { payload, request: apiRequest('PUT', `${base}/${encodeURIComponent(String(existing.id))}`, payload) });
+    }
+  }
+
+  const out = [main];
+  if (positiveInt(gh.app_id) === null) {
+    out.push(action('advisory', 'ruleset', 'advisory',
+      'required checks are not pinned to an App; anyone with write access can post these contexts (set github.app_id to pin them)'));
+  }
+  if (queueRejected) {
+    out.push(action('advisory', 'ruleset', 'advisory',
+      'merge queue unavailable on this repository (the ruleset was rejected with a merge_queue rule), so it is left out; run setup with --refresh to try again'));
+  }
+  return out;
+}
+
+function planWiki(state) {
+  const url = `https://github.com/${state.repo}/wiki`;
+  switch (state.wiki) {
+    case 'ok':
+      return action('wiki', 'wiki', 'exists', 'the wiki has its first page');
+    case 'uninitialised':
+      return action('wiki', 'wiki', 'manual', `create the first wiki page in the web UI (${url}); wiki pushes are blocked until then`);
+    case 'disabled':
+      return action('wiki', 'wiki', 'skip', 'the wiki is disabled; the repository-settings action enables it (has_wiki), then create the first wiki page in the web UI');
+    case 'unavailable':
+      return action('wiki', 'wiki', 'skip', 'the wiki could not be reached; DevFlow writes wiki pages to docs/devflow/ in the working tree');
+    default:
+      return action('wiki', 'wiki', 'skip', 'the wiki state could not be determined');
+  }
+}
+
+/** Another workflow that names a required check but never runs on merge_group would leave the merge queue waiting forever. */
+function planMergeGroup(state) {
+  const others = isObject(state.local) && Array.isArray(state.local.otherWorkflows) ? state.local.otherWorkflows : [];
+  const out = [];
+  for (const wf of others) {
+    if (!wf || typeof wf.text !== 'string') continue;
+    const named = [CONTEXTS.linkedIssue, CONTEXTS.planningConsistency].filter((c) => wf.text.includes(c));
+    if (named.length > 0 && !wf.text.includes('merge_group')) {
+      out.push(action('advisory', wf.file, 'advisory',
+        `${wf.file} names ${named.join(' and ')} but has no merge_group trigger, so the merge queue never receives the check; add \`merge_group:\` to its \`on:\` (setup never rewrites it)`));
+    }
+  }
+  return out;
+}
+
+/**
+ * The ordered action list for a repository, from a state snapshot (`readSetupState`'s `state`, plus the rendered
+ * `templates` the apply layer supplies). Pure: it reads nothing, writes nothing and mutates nothing.
+ *
+ * Order: repo settings, labels, issue types, issue fields, workflow file, PR template, ruleset (and its advisories),
+ * the wiki check, then one advisory per other workflow that names a required check without a merge_group trigger.
+ *
+ * @param {{repo:string, owner?:string, ownerType:string, meta?:object, github?:object, rulesets:object[]|null,
+ *   labels:string[]|null, types:object[]|null, fields:object[]|null, wiki:string, local?:object,
+ *   templates:{workflow:string, prTemplate:string}, record?:object, readErrors?:object}} state
+ */
+function planSetup(state) {
+  if (!isObject(state)) throw new TypeError('planSetup needs a state snapshot');
+  if (!isObject(state.templates) || typeof state.templates.workflow !== 'string' || typeof state.templates.prTemplate !== 'string') {
+    throw new TypeError('planSetup needs state.templates {workflow, prTemplate}: the rendered text of the two local files');
+  }
+  const s = state.owner ? state : { ...state, owner: String(state.repo).split('/')[0] };
+  return [
+    ...planRepoSettings(s),
+    ...planLabels(s),
+    ...planIssueTypes(s),
+    ...planIssueFields(s),
+    planWorkflow(s),
+    planPrTemplate(s),
+    ...planRuleset(s),
+    planWiki(s),
+    ...planMergeGroup(s),
+  ];
+}
+
+// ─── renderPlan ───────────────────────────────────────────────────────────────
+
+const STATUS_ORDER = ['create', 'update', 'exists', 'skip', 'manual', 'conflict', 'advisory'];
+
+/** An argv word as a shell would need it written, so the printed `gh ...` line can be pasted. */
+function shellWord(arg) {
+  const text = String(arg);
+  return /^[A-Za-z0-9_./:=@%+,~-]+$/.test(text) ? text : `'${text.replace(/'/g, '\'\\\'\'')}'`;
+}
+
+const lineCount = (text) => text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+
+/**
+ * The dry-run text: one line per action (`[status] kind target - desc`) and, under every create or update, the gh
+ * command that apply will run, its exact JSON body (pretty-printed) and the local file it will write. Pure.
+ */
+function renderPlan(actions) {
+  if (!Array.isArray(actions) || actions.length === 0) return 'No setup actions.\n';
+  const lines = ['DevFlow repository setup plan', ''];
+  for (const a of actions) {
+    lines.push(`[${a.status}] ${a.kind} ${a.target} - ${a.desc}`);
+    if (a.status !== 'create' && a.status !== 'update') continue;
+    if (a.request) lines.push(`    gh ${a.request.args.map(shellWord).join(' ')}`);
+    if (a.payload !== undefined) {
+      for (const l of JSON.stringify(a.payload, null, 2).split('\n')) lines.push(`    ${l}`);
+    }
+    if (a.file) lines.push(`    write ${a.file.path} (${lineCount(a.file.content)} lines)`);
+  }
+  const counts = STATUS_ORDER
+    .map((status) => [status, actions.filter((a) => a.status === status).length])
+    .filter(([, n]) => n > 0)
+    .map(([status, n]) => `${n} ${status}`);
+  lines.push('', `Plan: ${actions.length} action${actions.length === 1 ? '' : 's'} (${counts.join(', ')})`);
+  return `${lines.join('\n')}\n`;
+}
+
 module.exports = {
   SETUP_RULESET_NAME,
+  WORKFLOW_PATH,
+  PR_TEMPLATE_PATH,
   desiredRuleset,
   rulesetSatisfies,
   unionRuleset,
+  planSetup,
+  renderPlan,
 };
