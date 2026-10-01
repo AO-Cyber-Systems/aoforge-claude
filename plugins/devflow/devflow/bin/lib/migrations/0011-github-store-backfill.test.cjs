@@ -332,3 +332,96 @@ describe('0011 remote preflight (test 5)', () => {
     assert.equal(env.fake.writes().length, 0);
   });
 });
+
+// ─── 6-8. store switch and queue ──────────────────────────────────────────────
+
+/** apply(ctx) throws a typed stop; returns the error. */
+function stopped(ctx) {
+  let err = null;
+  assert.throws(() => m0011().apply(ctx), (e) => {
+    err = e;
+    return true;
+  });
+  assert.ok(err.refusal, `a typed stop, got: ${err.stack}`);
+  return err;
+}
+
+const TRD_CLOSE = (o) => o.kind === 'patch-issue' && o.payload && o.payload.state === 'closed' && !Object.hasOwn(o.payload, 'type');
+
+describe('0011 store switch and queue (tests 6-8)', () => {
+  test('6: apply switches the store, queues the import then the history closes, books live creates; stops not_implemented', (t) => {
+    const env = useBackfillEnv(t, { objectives: 4, trdsPerObjective: 3 });
+    if (!env) return;
+    const keysBefore = Object.keys(JSON.parse(configText(env.root)).github);
+
+    const err = stopped(ctxFor(env));
+    assert.equal(err.refusal.code, 'not_implemented', err.message);
+    assert.match(err.message, /drain lands in TRD 51-07/);
+    assert.match(err.refusal.notes, /edit gate denies cache edits/);
+    assert.match(err.refusal.notes, /`df-tools commit` refuses the default branch/);
+    assert.match(err.refusal.notes, /rollback: set github\.store to false \(the backup is at \/.+\)/);
+
+    // The switch: github.store true, every other key in place, the trailing newline kept.
+    const text = configText(env.root);
+    const cfg = JSON.parse(text);
+    assert.equal(cfg.github.store, true);
+    assert.deepEqual(Object.keys(cfg.github), [...keysBefore, 'store']);
+    assert.ok(text.endsWith('}\n'));
+
+    // The queue: import ops first, then the TRD history closes (objective closes ride on the type patch).
+    const { journal } = outbox.readJournal(env.root);
+    const pending = journal.ops.filter((o) => o.status === 'pending');
+    const creates = pending.filter((o) => o.kind === 'upsert-issue');
+    const closes = pending.filter(TRD_CLOSE);
+    assert.ok(creates.length > 0, 'import ops queued');
+    assert.equal(closes.length, 12, 'one close per shipped TRD (4 x 3)');
+    assert.ok(Math.min(...closes.map((o) => o.seq)) > Math.max(...creates.map((o) => o.seq)), 'history closes queue after every create');
+
+    // G5: the live writes the import made (objective creates, milestones) are booked into the journal's window.
+    const live = env.fake.writes().length;
+    assert.ok(live > 0, 'the import made live writes');
+    assert.equal(outbox.budgetCheck(journal, env.clock.t).hour, live);
+  });
+
+  test('7: a second apply with ops pending re-imports nothing (same ops, same next_seq, no new writes)', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    stopped(ctxFor(env));
+    const first = outbox.readJournal(env.root).journal;
+    const configAfterFirst = configText(env.root);
+    const liveAfterFirst = env.fake.writes().length;
+    assert.ok(first.ops.some((o) => o.status === 'pending'), 'precondition: ops pending');
+
+    const err = stopped(ctxFor(env));
+    assert.equal(err.refusal.code, 'not_implemented');
+    assert.match(err.refusal.notes, /already queued: \d+ outbox op\(s\) pending; not re-imported/);
+    const second = outbox.readJournal(env.root).journal;
+    assert.equal(second.ops.length, first.ops.length);
+    assert.equal(second.next_seq, first.next_seq, 'no new seq');
+    assert.equal(second.writes.length, first.writes.length, 'nothing new booked');
+    assert.equal(env.fake.writes().length, liveAfterFirst, 'no new live writes');
+    assert.equal(configText(env.root), configAfterFirst, 'the switch is a no-op the second time');
+  });
+
+  test('8: an empty plan still flips the switch and reports nothing to backfill', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0011-empty-')));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(root, '.planning'));
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } }, null, 2)}\n`);
+    fx.initGitFixture(root, env.home);
+
+    const res = m0011().migrate(ctxFor(env, { root }));
+    assert.equal(res.code, 'not_implemented', res.notes);
+    assert.match(res.notes, /nothing to backfill/);
+    const switched = `${JSON.stringify({ github: { enabled: true, repo: 'o/r', store: true } }, null, 2)}\n`;
+    assert.equal(configText(root), switched);
+    assert.equal(env.fake.writes().length, 0);
+
+    // ensureStoreSwitch is idempotent: already on -> unchanged bytes, no backup.
+    const again = m0011().ensureStoreSwitch(ctxFor(env, { root }));
+    assert.equal(again.changed, false);
+    assert.equal(configText(root), switched);
+  });
+});
