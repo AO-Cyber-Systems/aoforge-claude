@@ -1090,8 +1090,21 @@ async function main() {
         // df-tools gh pull <objectiveId> [--apply] [--raw]
         const { cmdGhPull } = require('./lib/gh-pull.cjs');
         cmdGhPull(cwd, args.slice(2), raw);
+      } else if (subcommand === 'outbox') {
+        // df-tools gh outbox <status|flush [--no-wait]|resolve <seq> --accept-remote|--overwrite> [--raw]
+        // Exit codes (flush): 0 flushed, 1 error, 2 halted for a human, 3 ops still pending.
+        const { cmdGhOutbox } = require('./lib/gh-store-cli.cjs');
+        cmdGhOutbox(cwd, args.slice(2), raw);
+      } else if (subcommand === 'trd') {
+        // df-tools gh trd <spec|freeze|fold [--force]|scope <body|@file:path> [--n K]> <trd> [--no-flush] [--raw]
+        const { cmdGhTrd } = require('./lib/gh-store-cli.cjs');
+        cmdGhTrd(cwd, args.slice(2), raw);
+      } else if (subcommand === 'orphans') {
+        // df-tools gh orphans <objective> [--raw]
+        const { cmdGhOrphans } = require('./lib/gh-store-cli.cjs');
+        cmdGhOrphans(cwd, args.slice(2), raw);
       } else {
-        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release (sync-objectives: deprecated alias)');
+        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans (sync-objectives: deprecated alias)');
       }
       break;
     }
