@@ -318,7 +318,7 @@ TRDs:
 - [x] 51-07-migration-0011-drain-and-handoff-TRD.md — (W4, tdd) 0011 drain loop (hour budget stops resumably), `gh pull --all` + orphan verify, handoff to 0010; SC1 happy path across a resume with pacing asserts; SC2 re-run no-op + store-off parity
 - [x] 51-08-backfill-resilience-and-cli-e2e-TRD.md — (W5, tdd) interruption, lost mapping, secondary limit, remote-edit halt, bare `--apply --confirm` resume (G4); CLI e2e through `df-tools upgrade`; seam guard covers 0011
 - [x] 51-09-gh-sync-store-operator-TRD.md — (W5, tdd) `/devflow:gh-sync` repurposed in place as the store operator (`migrate [--dry-run]`, status, flush, pull, setup, release; mirror mode store-off only); flow/help/README/global template (GMD-03)
-- [ ] 51-10-docs-and-full-suite-TRD.md — (W6) USER-GUIDE system-of-record chapter + migration guide, CLAUDE.md slimmed (detail moved to USER-GUIDE), CHANGELOG, proposal refinements; full `npm test` (SC3)
+- [x] 51-10-docs-and-full-suite-TRD.md — (W6) USER-GUIDE system-of-record chapter + migration guide, CLAUDE.md slimmed (detail moved to USER-GUIDE), CHANGELOG, proposal refinements; full `npm test` (SC3)
 
 ### Other v1.4 candidates
 
@@ -368,4 +368,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
 | 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
 | 50. GitHub enforcement and setup | v1.4 | 13/13 | Complete | 2026-10-01 |
-| 51. GitHub migration and docs | v1.4 | 9/10 | In Progress | — |
+| 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
