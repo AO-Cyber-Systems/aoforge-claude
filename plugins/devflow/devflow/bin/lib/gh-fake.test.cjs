@@ -704,3 +704,186 @@ describe('47 store REST shapes', () => {
     assert.equal(fake.issues[0].body, 'body', 'the body never changed through any of those writes');
   });
 });
+
+// ─── 47 capability variants, offline, human comment edit (TRD 47-02, Task 2) ─
+
+describe('47 capability variants and controls', () => {
+  it('9. GET repos/o/r answers repo meta from the options', () => {
+    const def = json(restGet(createFakeGitHub(), 'repos/o/r'));
+    assert.equal(def.full_name, 'o/r');
+    assert.equal(def.name, 'r');
+    assert.equal(def.owner.login, 'o');
+    assert.equal(def.owner.type, 'Organization');
+    assert.equal(def.has_wiki, true);
+    assert.equal(def.permissions.push, true);
+    assert.equal(def.private, false);
+
+    const user = json(restGet(createFakeGitHub({ ownerType: 'User', hasWiki: false, push: false, isPrivate: true }), 'repos/o/r'));
+    assert.equal(user.owner.type, 'User');
+    assert.equal(user.has_wiki, false);
+    assert.equal(user.permissions.push, false);
+    assert.equal(user.private, true);
+
+    const other = restGet(createFakeGitHub(), 'repos/o/elsewhere');
+    assert.equal(other.ok, false);
+    assert.match(other.stderr, /404/);
+  });
+
+  it('10. GET orgs/o/issue-types lists the configured types for an Organization and is 404 for a User', () => {
+    const org = createFakeGitHub();
+    const list = json(restGet(org, 'orgs/o/issue-types'));
+    assert.deepEqual(list.map((t) => t.name), ['Objective', 'TRD', 'Decision']);
+    assert.ok(list.every((t) => t.is_enabled === true && Number.isInteger(t.id)));
+    assert.equal(json(org.runGh(['api', '--paginate', '--slurp', 'orgs/o/issue-types'])).flat().length, 3);
+
+    const custom = createFakeGitHub({ types: [{ id: 9, name: 'TRD', is_enabled: false }] });
+    assert.deepEqual(json(restGet(custom, 'orgs/o/issue-types')), [{ id: 9, name: 'TRD', is_enabled: false }]);
+
+    const user = restGet(createFakeGitHub({ ownerType: 'User' }), 'orgs/o/issue-types');
+    assert.equal(user.ok, false);
+    assert.match(user.stderr, /404/);
+    assert.match(restGet(createFakeGitHub(), 'orgs/not-the-owner/issue-types').stderr, /404/);
+  });
+
+  it('10b. an issue type is silently dropped (type null) for a User owner, without push, or when not enabled (D-08)', () => {
+    const create = (opts) => json(restCall(createFakeGitHub(opts), 'POST', 'repos/o/r/issues', { title: 't', type: 'TRD' }));
+    assert.equal(create({}).type.name, 'TRD');
+    assert.equal(create({ ownerType: 'User' }).type, null);
+    assert.equal(create({ push: false }).type, null);
+    assert.equal(create({ types: [{ id: 2, name: 'TRD', is_enabled: false }] }).type, null);
+
+    // PATCH drops it the same way, leaving the issue untouched; the issue is still created.
+    const user = createFakeGitHub({ ownerType: 'User' });
+    restCall(user, 'POST', 'repos/o/r/issues', { title: 't' });
+    const patched = json(restCall(user, 'PATCH', 'repos/o/r/issues/1', { type: 'Decision' }));
+    assert.equal(patched.type, null);
+    assert.equal(user.issues.length, 1);
+  });
+
+  it('11. GET orgs/o/issue-fields lists the definitions; issue-field-values GET / POST merge / PUT replace', () => {
+    const fake = createFakeGitHub();
+    fake.seedIssue({ title: 'a' });
+    const defs = json(restGet(fake, 'orgs/o/issue-fields'));
+    assert.deepEqual(defs, [
+      { id: 11, name: 'work', data_type: 'single_select' },
+      { id: 12, name: 'kind', data_type: 'single_select' },
+    ]);
+
+    const path = 'repos/o/r/issues/1/issue-field-values';
+    assert.deepEqual(json(restGet(fake, path)), []);
+
+    const before = fake.issues[0].updatedAt;
+    const first = restCall(fake, 'POST', path, { issue_field_values: [{ field_id: 11, value: 'feature' }] });
+    assert.equal(first.ok, true, first.stderr);
+    assert.deepEqual(json(first), [{ field_id: 11, value: 'feature' }]);
+    assert.ok(fake.issues[0].updatedAt > before, 'a field write bumps updated_at');
+
+    const merged = json(restCall(fake, 'POST', path, { issue_field_values: [{ field_id: 12, value: 'plugin' }, { field_id: 11, value: 'port' }] }));
+    assert.deepEqual(merged, [{ field_id: 11, value: 'port' }, { field_id: 12, value: 'plugin' }], 'POST merges by field_id');
+    assert.deepEqual(json(restGet(fake, path)), merged);
+
+    const replaced = json(restCall(fake, 'PUT', path, { issue_field_values: [{ field_id: 12, value: 'api' }] }));
+    assert.deepEqual(replaced, [{ field_id: 12, value: 'api' }], 'PUT replaces the whole set');
+    assert.deepEqual(json(restGet(fake, path)), replaced);
+
+    const unknown = restCall(fake, 'POST', path, { issue_field_values: [{ field_id: 999, value: 'x' }] });
+    assert.equal(unknown.ok, false);
+    assert.match(unknown.stderr, /422/);
+    assert.match(restCall(fake, 'POST', path, {}).stderr, /422/, 'issue_field_values is required');
+    assert.match(restGet(fake, 'repos/o/r/issues/9/issue-field-values').stderr, /404/);
+  });
+
+  it('11b. issue fields and their values are 404 for a User owner; a custom field list is served as given', () => {
+    const user = createFakeGitHub({ ownerType: 'User' });
+    user.seedIssue({ title: 'a' });
+    assert.match(restGet(user, 'orgs/o/issue-fields').stderr, /404/);
+    assert.match(restGet(user, 'repos/o/r/issues/1/issue-field-values').stderr, /404/);
+    assert.match(restCall(user, 'POST', 'repos/o/r/issues/1/issue-field-values', { issue_field_values: [{ field_id: 11, value: 'x' }] }).stderr, /404/);
+    assert.match(restCall(user, 'PUT', 'repos/o/r/issues/1/issue-field-values', { issue_field_values: [] }).stderr, /404/);
+
+    const custom = createFakeGitHub({ fields: [{ id: 5, name: 'size', data_type: 'text' }] });
+    assert.deepEqual(json(restGet(custom, 'orgs/o/issue-fields')), [{ id: 5, name: 'size', data_type: 'text' }]);
+    const none = createFakeGitHub({ fields: [] });
+    assert.deepEqual(json(restGet(none, 'orgs/o/issue-fields')), []);
+  });
+
+  it('12. subIssuesApi:false answers 404 on every sub-issue and parent route; dependencies and issues still work', () => {
+    const fake = createFakeGitHub({ subIssuesApi: false });
+    fake.seedIssue({ title: 'parent' });
+    fake.seedIssue({ title: 'child' });
+    const child = fake.issues[1];
+
+    for (const argv of [
+      ['api', 'repos/o/r/issues/1/sub_issues'],
+      ['api', '--method', 'POST', 'repos/o/r/issues/1/sub_issues', '-F', `sub_issue_id=${child.id}`],
+      ['api', '--method', 'DELETE', 'repos/o/r/issues/1/sub_issue', '-F', `sub_issue_id=${child.id}`],
+      ['api', 'repos/o/r/issues/2/parent'],
+    ]) {
+      const r = fake.runGh(argv);
+      assert.equal(r.ok, false, argv.join(' '));
+      assert.match(r.stderr, /404/, argv.join(' '));
+    }
+    assert.equal(child.parent, null, 'nothing was linked');
+
+    assert.equal(restGet(fake, 'repos/o/r/issues/1').ok, true);
+    assert.equal(fake.runGh(['api', '--method', 'POST', 'repos/o/r/issues/2/dependencies/blocked_by', '-F', `issue_id=${fake.issues[0].id}`]).ok, true);
+    assert.equal(fake.subIssuesApi, false);
+    assert.equal(createFakeGitHub().subIssuesApi, true);
+  });
+
+  it('13. setOffline(true) fails every call like an outage (reads, writes, auth) yet still logs them; setOffline(false) restores', () => {
+    const fake = createFakeGitHub();
+    fake.seedIssue({ title: 'a' });
+    const calls = [
+      ['api', 'repos/o/r'],
+      ['issue', 'create', ...R, '--title', 't', '--body', 'b'],
+      ['api', '--method', 'POST', 'repos/o/r/issues', '--input', '-'],
+      ['auth', 'status'],
+    ];
+
+    fake.setOffline(true);
+    for (const argv of calls) {
+      const r = fake.runGh(argv, { input: JSON.stringify({ title: 'x' }) });
+      assert.equal(r.ok, false, argv.join(' '));
+      assert.equal(r.status, null, 'an outage has no exit status');
+      assert.equal(r.stdout, '');
+      assert.match(r.stderr, /could not resolve host/i);
+    }
+    assert.equal(fake.calls().length, calls.length, 'offline calls are still logged');
+    assert.equal(fake.writes().length, 2, 'and still classified as writes');
+    assert.equal(fake.issues.length, 1, 'nothing was created while offline');
+
+    // An offline call does not consume a queued failure; that fires once the network is back.
+    fake.failNext('api repos/o/r', { stderr: 'queued' });
+    fake.runGh(['api', 'repos/o/r']);
+    fake.setOffline(false);
+    assert.equal(fake.runGh(['api', 'repos/o/r']).stderr, 'queued');
+    assert.equal(fake.runGh(['api', 'repos/o/r']).ok, true);
+    assert.equal(restCall(fake, 'POST', 'repos/o/r/issues', { title: 'back online' }).ok, true);
+    assert.equal(fake.issues.length, 2);
+  });
+
+  it('14. humanEditComment changes the body and updated_at without recording a call', () => {
+    const fake = createFakeGitHub();
+    fake.seedIssue({ title: 'a' });
+    const id = fake.seedComment(1, 'original');
+    const before = fake.comments[0].updated_at;
+    const callsBefore = fake.calls().length;
+
+    fake.humanEditComment(id, 'edited by a human');
+    assert.equal(fake.comments[0].body, 'edited by a human');
+    assert.ok(fake.comments[0].updated_at > before);
+    assert.equal(fake.calls().length, callsBefore, 'no DevFlow call is recorded');
+    assert.equal(json(restGet(fake, `repos/o/r/issues/comments/${id}`)).body, 'edited by a human');
+
+    assert.throws(() => fake.humanEditComment(4242, 'x'), /no comment #4242/);
+  });
+
+  it('14b. ownerType and subIssuesApi are exposed read-only', () => {
+    const fake = createFakeGitHub({ ownerType: 'User' });
+    assert.equal(fake.ownerType, 'User');
+    assert.throws(() => { fake.ownerType = 'Organization'; }, TypeError);
+    assert.throws(() => { fake.subIssuesApi = false; }, TypeError);
+    assert.equal(createFakeGitHub().ownerType, 'Organization');
+  });
+});
