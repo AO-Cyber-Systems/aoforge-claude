@@ -294,7 +294,7 @@ DRIFT_COUNT=$(echo "$DRIFT" | jq '.drift | length')
 
 Status:
 - `ok: true` (`drift: []`) → no drift; no VERIFICATION.md note required.
-- `ok: false` (`drift: [...]`) → ADVISORY. For each entry in drift, append to VERIFICATION.md's `drift:` section:
+- `ok: false` (`drift: [...]`) → ADVISORY. Record each entry in drift under the report's `drift:` section (the report is one draft for the whole run, published once by `verification post` — see Output):
   ```yaml
   drift:
     - path: <path>
@@ -550,7 +550,7 @@ ACTUAL=$(find .maestro -name '*.yaml' 2>/dev/null | sort -u)
 ORPHANS=$(comm -23 <(echo "$ACTUAL") <(echo "$DECLARED"))
 ```
 
-For each orphan flow, append to VERIFICATION.md's `notes:` section:
+For each orphan flow, record an entry under the report's `notes:` section:
 ```yaml
 notes:
   - kind: maestro_orphan_flow
@@ -562,7 +562,7 @@ Orphans are advisory, never blocking.
 
 ### Shared evidence contract
 
-Regardless of backend, append to VERIFICATION.md:
+Regardless of backend, record the evidence in the report:
 
 ```yaml
 evidence:
@@ -654,15 +654,18 @@ Rollup shape (when it runs): `{ advisory:true, total, counts:{high,medium,low}, 
 
 **Routing high-priority debt → candidate todos (reuse the existing todo mechanism):**
 
-Use the SAME capture path as `/devflow:todo add`. For each `high` (and optionally `medium`) debt item, write a todo file under `.planning/todos/pending/` and commit it via df-tools — exactly the mechanism the add-todo workflow uses:
+Use the SAME capture verb as `/devflow:todo add`. For each `high` (and optionally `medium`) debt item, draft the todo and hand it to `df-tools todo add`. Local mode writes `.planning/todos/pending/<date>-<slug>.md` exactly as before; store mode also files it as a todo issue:
 
 ```bash
-mkdir -p .planning/todos/pending
 slug=$(node ~/.claude/devflow/bin/df-tools.cjs generate-slug "design debt <state_id> <dimension>" --raw)
-# Write .planning/todos/pending/<date>-<slug>.md with area: ui, the debt anchor/observation/suggestion,
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft todos/pending/<date>-<slug>.md)
+# Fill the printed draft path (Write tool) with area: ui, the debt anchor/observation/suggestion,
 # and a note that it is a candidate for a FUTURE UI-polish objective (NOT a blocker for THIS one).
+node ~/.claude/devflow/bin/df-tools.cjs todo add --from "$DRAFT" --stem <date>-<slug>
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs: capture design-debt todo - <state_id> <dimension>" --files .planning/todos/pending/<date>-<slug>.md
 ```
+
+Shell variables do not survive between Bash calls: note the path `planning draft` prints and pass it literally to `--from`. The commit records the file in local mode; in store mode `commit` skips the gitignored cache path.
 
 These candidate todos are scope for a future UI-polish objective; they do not block the current objective and never appear in its gap output.
 
@@ -699,6 +702,12 @@ node ~/.claude/devflow/bin/df-tools.cjs generate uat "$OBJECTIVE" --raw
 ```
 
 Output JSON: `{ generated: true, uat_path: '...', test_count: N }` or `{ error: '...' }`.
+
+On `generated: true`, publish the generated file through the UAT verb (local mode rewrites the same bytes; store mode also queues its wiki page):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/{objective_dir}/{phase_num}-UAT.md --from "<uat_path from the JSON>"
+```
 
 The generator produces:
 - State-coverage rows expanded per platform (e.g., `platform: [mobile, web]` doubles state rows — one row per (state, platform) combination)
@@ -749,11 +758,19 @@ gaps:
 
 <output>
 
-## Create VERIFICATION.md
+## Publish VERIFICATION
 
-**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+The report is one draft for the whole run, published once with `df-tools verification post`. Local mode writes `.planning/objectives/{objective_dir}/{phase_num}-VERIFICATION.md`, the same file as before; store mode also queues it as the sticky `devflow:verification` comment on the objective issue. Never edit the `.planning/` file directly.
 
-Create `.planning/objectives/{objective_dir}/{phase_num}-VERIFICATION.md`:
+**1. Open the draft** (seeded from the previous report when one exists):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/{objective_dir}/{phase_num}-VERIFICATION.md
+```
+
+Note the printed path — shell variables do not survive between Bash calls.
+
+**2. Fill the draft with the complete report.** **ALWAYS use the Write tool** — never `Bash(cat << 'EOF')` or heredocs. Replace any seeded content; the `drift:`, `notes:` and `evidence:` entries recorded in earlier steps go into this one report:
 
 ```markdown
 ---
@@ -843,9 +860,22 @@ _Verified: {timestamp}_
 _Verifier: Claude (verifier)_
 ```
 
+**3. Publish it once:**
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs verification post "$OBJECTIVE_NUM" --from "<draft path from step 1>"
+```
+
+Exit 0 means the report is written (store mode: also queued). A non-zero exit is reported in your return; do not fall back to writing the file yourself.
+
+**Objective status is not yours to set.** The verifier never ticks ROADMAP/OBJECTIVE success-criteria checkboxes or changes objective status. The orchestrator routes your returned status and marks the objective with `node ~/.claude/devflow/bin/df-tools.cjs objective set-status <id> verifying|complete` (store mode: the issue body and state; local mode: OBJECTIVE.md and today's `objective complete`).
+
 ## Sync Gaps to GitHub (Optional)
 
-If `.planning/config.json` has `github.enabled: true`, post the verification result to the objective's GitHub issue:
+Check the mode first: `node ~/.claude/devflow/bin/df-tools.cjs planning mode` prints `local` or `store`.
+
+- **`store`** — skip this section. `verification post` already queued the sticky `devflow:verification` comment, and the issue closes when the orchestrator runs `objective set-status <id> complete`.
+- **`local` with `.planning/config.json` `github.enabled: true`** (legacy sync) — post the verification result to the objective's GitHub issue:
 
 ```bash
 # For gaps_found: post the gaps section as a comment
@@ -938,6 +968,6 @@ because this guard is harness-level, not a DevFlow hook.
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found)
 - [ ] Re-verification metadata included (if previous existed)
-- [ ] VERIFICATION.md created with complete report
+- [ ] Complete report drafted and published with `verification post` (one call, at the end)
 - [ ] Results returned to orchestrator (NOT committed)
 </success_criteria>

@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Validate built features through conversational testing with persistent state. Creates UAT.md that tracks test progress, survives /clear, and feeds gaps into /devflow:plan-objective --gaps.
+Validate built features through conversational testing with persistent state. Keeps a UAT.md (every write goes through `df-tools doc put`) that tracks test progress, survives /clear, and feeds gaps into /devflow:plan-objective --gaps.
 
 User tests, Claude records. One test at a time. Plain text responses.
 </purpose>
@@ -114,11 +114,15 @@ Skip internal/non-observable items (refactors, type changes, etc.).
 </step>
 
 <step name="create_uat_file">
-**Create UAT file with all tests:**
+**Draft the UAT with all tests:**
+
+Open the UAT draft. It is the working copy for the whole session (and survives /clear); see `<update_rules>`:
 
 ```bash
-mkdir -p "$OBJECTIVE_DIR"
+node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{phase_num}-UAT.md
 ```
+
+Note the printed path (`$UAT_DRAFT` below) — shell variables do not survive between Bash calls.
 
 Build test list from extracted deliverables.
 
@@ -134,7 +138,7 @@ For each test (1..N):
   )
 ```
 
-Create file:
+Fill `$UAT_DRAFT` (Write tool; replace any seeded content) with:
 
 ```markdown
 ---
@@ -179,7 +183,11 @@ skipped: 0
 [none yet]
 ```
 
-Write to `.planning/objectives/XX-name/{phase_num}-UAT.md`
+Publish it. Local mode writes `.planning/objectives/XX-name/{phase_num}-UAT.md`, the same file as before; store mode also queues its wiki page:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
+```
 
 Proceed to `present_test`.
 </step>
@@ -326,7 +334,11 @@ If no more tests → Go to `complete_session`
 <step name="resume_from_file">
 **Resume testing from UAT file:**
 
-Read the full UAT file.
+Read the full UAT file, then re-open its draft (the same path as before; seeded from the file if no draft exists):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{phase_num}-UAT.md
+```
 
 Find first test with `result: [pending]`.
 
@@ -357,8 +369,9 @@ Clear Current Test section:
 [testing complete]
 ```
 
-Commit the UAT file:
+Publish the final draft, then commit the UAT file (local mode; in store mode `commit` skips the gitignored cache path):
 ```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs commit "test({phase_num}): complete UAT - {passed} passed, {issues} issues" --files ".planning/objectives/XX-name/{phase_num}-UAT.md"
 ```
 
@@ -413,7 +426,7 @@ Spawning parallel debug agents to investigate each issue.
 - Follow @~/.claude/devflow/workflows/diagnose-issues.md
 - Spawn parallel debug agents for each issue
 - Collect root causes
-- Update UAT.md with root causes
+- Record root causes in the UAT gaps (draft + `df-tools doc put`, as diagnose-issues does)
 - Proceed to `plan_gap_closure`
 
 Diagnosis runs automatically - no user prompt. Parallel agents investigate simultaneously, so overhead is minimal and fixes are more accurate.
@@ -599,9 +612,15 @@ Plans verified and ready for execution.
 <update_rules>
 **Batched writes for efficiency:**
 
-Keep results in memory. Write to file only when:
+Keep results in memory. A UAT write is always the same two steps — edit `$UAT_DRAFT` (the `planning draft` path), then publish it:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
+```
+
+Never edit the `.planning/` file directly. Publish only when:
 1. **Issue found** — Preserve the problem immediately
-2. **Session complete** — Final write before commit
+2. **Session complete** — Final publish before commit
 3. **Checkpoint** — Every 5 passed tests (safety net)
 
 | Section | Rule | When Written |
@@ -632,7 +651,7 @@ Default to **major** if unclear. User can correct if needed.
 </severity_inference>
 
 <success_criteria>
-- [ ] UAT file created with all tests from SUMMARY.md
+- [ ] UAT drafted with all tests from SUMMARY.md and published with `doc put`
 - [ ] Tests presented one at a time with expected behavior
 - [ ] User responses processed as pass/issue/skip
 - [ ] Severity inferred from description (never asked)
