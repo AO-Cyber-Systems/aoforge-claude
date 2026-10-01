@@ -26,7 +26,9 @@ const mappingLib = require('./gh-mapping.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, oversizedTrdText, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
-const { storeCliProject, DF_TOOLS } = require('./__fixtures__/store-cli-fixtures.cjs');
+const { storeCliProject, offlineTable, DF_TOOLS } = require('./__fixtures__/store-cli-fixtures.cjs');
+const { installGhShim } = require('./__fixtures__/gh-shim.cjs');
+const { makeBackfillProject } = require('./__fixtures__/gh-backfill-fixtures.cjs');
 
 // Required lazily: test 7 is a characterization of TODAY's dispatch and must run before this module exists.
 const cli = () => require('./planning-verbs-cli.cjs');
@@ -282,9 +284,13 @@ describe('df-tools planning verbs, local project', () => {
       assert.equal(mode.status, 0);
       assert.equal(mode.stdout, 'local\n');
 
-      const imp = c.run(['planning', 'import', '--dry-run']);
-      assert.equal(imp.status, 1, 'import needs store mode');
+      const imp = c.run(['planning', 'import']);
+      assert.equal(imp.status, 1, 'a real import needs store mode');
       assert.match(imp.stderr, /github\.store/);
+      // 51-05: with github enabled a dry run is the backfill preview, not a refusal.
+      const preview = c.run(['planning', 'import', '--dry-run']);
+      assert.equal(preview.status, 0, preview.stderr);
+      assert.match(preview.stdout, /^preview \(store is off\)/m);
 
       const bogus = c.run(['plan', 'bogus']);
       assert.equal(bogus.status, 1);
@@ -308,6 +314,46 @@ describe('df-tools planning verbs, store project (offline gh)', { skip: gitAvail
       assert.equal(mode.root, c.p.root);
     } finally {
       c.cleanup();
+    }
+  });
+});
+
+describe('51-05 planning import --dry-run prints the backfill plan', () => {
+  test('6. preview prose: estimate, history and the will-stay-local table; --raw carries estimate; zero gh calls', () => {
+    const project = makeBackfillProject({ objectives: 2, git: false });
+    const envRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pvcli-backfill-')));
+    const shim = installGhShim({ dir: path.join(envRoot, 'shim'), table: offlineTable(), defaultCode: 1 });
+    const env = shim.env({
+      DEVFLOW_OUTBOX_DIR: path.join(envRoot, 'outbox'),
+      NOTIFIER_DISABLE: '1',
+      TMPDIR: envRoot,
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_TERMINAL_PROMPT: '0',
+    });
+    const run = (args) => spawnSync(process.execPath, [DF_TOOLS, '--cwd', project.root, ...args], { cwd: envRoot, env, encoding: 'utf-8', timeout: 60000 });
+    try {
+      const r = run(['planning', 'import', '--dry-run']);
+      assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+      const lines = r.stdout.split('\n');
+      assert.equal(lines[0], 'preview (store is off): this is what the GitHub backfill would queue.');
+      assert.match(r.stdout, /^planning import \(dry run\): queued 2 objective, 1 decision, /m);
+      assert.match(r.stdout, /^estimate: ~\d+ writes \(upper bound\) in \d+ ops; /m);
+      assert.match(r.stdout, /^history: 12 closed \(completed\), 0 closed \(not planned\)$/m);
+      assert.match(r.stdout, /^will stay local:$/m);
+      assert.match(r.stdout, /^ {2}\| decisions\/resolved\/DECISION-001\.md \| no trd: field; /m, 'the decision without trd: is a table row');
+
+      const raw = run(['planning', 'import', '--dry-run', '--raw']);
+      assert.equal(raw.status, 0, raw.stderr);
+      const json = JSON.parse(raw.stdout);
+      assert.equal(json.preview, true);
+      assert.equal(json.estimate.objectives, 2);
+      assert.equal(typeof json.estimate.writes_max, 'number');
+      assert.deepEqual(json.history, { closed_completed: 12, closed_not_planned: 0 });
+      assert.deepEqual(shim.readCalls(), [], 'zero gh calls');
+    } finally {
+      project.cleanup();
+      fs.rmSync(envRoot, { recursive: true, force: true });
     }
   });
 });
