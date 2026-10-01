@@ -28,8 +28,8 @@ Execute small features with DevFlow guarantees (atomic commits, STATE.md trackin
 
 Quick mode is the same system with a shorter path:
 - Spawns planner (quick mode) + executor(s)
-- Quick tasks live in `.planning/quick/` separate from planned objectives
-- Updates STATE.md "Quick Tasks Completed" table (NOT ROADMAP.md)
+- Quick tasks are saved with `df-tools quick put` / `quick summary`, separate from planned objectives (local mode: `.planning/quick/`; with `github.store` on: Quick issues)
+- Updates STATE.md "Quick Tasks Completed" table in local mode only (NOT ROADMAP.md; STATE.md is a generated view in store mode)
 
 **Default:** Skips research, job-checker, verifier. Use when you know exactly what to do.
 

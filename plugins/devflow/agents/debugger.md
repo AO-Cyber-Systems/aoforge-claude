@@ -110,12 +110,32 @@ Consider starting over when:
 
 <debug_file_protocol>
 
-## File Location
+## File Location and Writes
 
+The session file is `.planning/debug/{slug}.md`; a resolved one is `.planning/debug/resolved/{slug}.md`. Both are
+written ONLY through df-tools, never with Write/Edit/`mv` on those paths. With `github.store` on, the session is a
+debug GitHub issue and these paths are its read cache; in local mode the verbs write exactly these files.
+
+```bash
+# Your working copy: prints a path under the OS temp dir, seeded from the session file. Note it as $DRAFT
+# (a literal path; shell variables do not survive between Bash calls). It survives /clear.
+node ~/.claude/devflow/bin/df-tools.cjs planning draft debug/{slug}.md
+# Save the session from the draft (see Save Points).
+node ~/.claude/devflow/bin/df-tools.cjs debug put {slug} --from "$DRAFT"
+# Archive it to resolved/ (store mode: close the issue).
+node ~/.claude/devflow/bin/df-tools.cjs debug resolve {slug}
 ```
-DEBUG_DIR=.planning/debug
-DEBUG_RESOLVED_DIR=.planning/debug/resolved
-```
+
+Edit the draft freely with Write/Edit. Everywhere below, "the file" and "update the file" mean the draft.
+
+## Save Points
+
+Save with `debug put {slug} --from "$DRAFT"` at these points, not after every hypothesis (in store mode each save is a
+GitHub write):
+- right after creating the session (create_debug_file)
+- before returning any checkpoint or structured return, since the continuation agent reads the saved session
+- when you suggest /clear or pause
+- before `debug resolve`
 
 ## File Structure
 
@@ -228,16 +248,17 @@ ls .planning/debug/*.md 2>/dev/null | grep -v resolved
 </step>
 
 <step name="create_debug_file">
-**Create debug file IMMEDIATELY.**
+**Start the debug session IMMEDIATELY.**
 
 1. Generate slug from user input (lowercase, hyphens, max 30 chars)
-2. `mkdir -p .planning/debug`
-3. Create file with initial state:
+2. Get the draft path: `node ~/.claude/devflow/bin/df-tools.cjs planning draft debug/{slug}.md` (note it as `$DRAFT`)
+3. Write the initial state into the draft:
    - status: gathering
    - trigger: verbatim $ARGUMENTS
    - Current Focus: next_action = "gather symptoms"
    - Symptoms: empty
-4. Proceed to symptom_gathering
+4. Save it: `node ~/.claude/devflow/bin/df-tools.cjs debug put {slug} --from "$DRAFT"`
+5. Proceed to symptom_gathering
 </step>
 
 <step name="symptom_gathering">
@@ -279,13 +300,13 @@ Gather symptoms through questioning. Update file after EACH answer.
   - Otherwise -> proceed to fix_and_verify
 - **ELIMINATED:** Append to Eliminated section, form new hypothesis, return to Objective 2
 
-**Context management:** After 5+ evidence entries, ensure Current Focus is updated. Suggest "/clear - run /devflow:debug to resume" if context filling up.
+**Context management:** After 5+ evidence entries, ensure Current Focus is updated. If context is filling up, save (`debug put {slug} --from "$DRAFT"`) and suggest "/clear - run /devflow:debug to resume".
 </step>
 
 <step name="resume_from_file">
 **Resume from existing debug file.**
 
-Read full debug file. Announce status, hypothesis, evidence count, eliminated count.
+Get the draft path (`planning draft debug/{slug}.md`; an existing draft is kept, otherwise it is seeded from the saved session) and read it in full. Announce status, hypothesis, evidence count, eliminated count.
 
 Based on status:
 - "gathering" -> Continue symptom_gathering
@@ -297,7 +318,7 @@ Based on status:
 <step name="return_diagnosis">
 **Diagnose-only mode (goal: find_root_cause_only).**
 
-Update status to "diagnosed".
+Update status to "diagnosed" in the draft and save it (`debug put {slug} --from "$DRAFT"`).
 
 Return structured diagnosis:
 
@@ -357,12 +378,15 @@ Update status to "fixing".
 <step name="archive_session">
 **Archive resolved debug session.**
 
-Update status to "resolved".
+Update status to "resolved" in the draft, save it, then archive the session (never `mv` it by hand):
 
 ```bash
-mkdir -p .planning/debug/resolved
-mv .planning/debug/{slug}.md .planning/debug/resolved/
+node ~/.claude/devflow/bin/df-tools.cjs debug put {slug} --from "$DRAFT"
+node ~/.claude/devflow/bin/df-tools.cjs debug resolve {slug}
 ```
+
+`debug resolve` moves the session to `.planning/debug/resolved/{slug}.md`; with `github.store` on it also closes the
+debug issue.
 
 **Check planning config using state load (commit_docs is available from the output):**
 
@@ -382,9 +406,10 @@ git commit -m "fix: {brief description}
 Root cause: {root_cause}"
 ```
 
-Then commit planning docs via CLI (respects `commit_docs` config automatically):
+Then commit planning docs via CLI (respects `commit_docs` config and gitignore automatically; the active path records
+the move's removal, and in store mode the ignored cache paths are skipped):
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs commit "docs: resolve debug {slug}" --files .planning/debug/resolved/{slug}.md
+node ~/.claude/devflow/bin/df-tools.cjs commit "docs: resolve debug {slug}" --files .planning/debug/{slug}.md .planning/debug/resolved/{slug}.md
 ```
 
 Report completion and offer next steps.
@@ -467,7 +492,9 @@ Return a checkpoint when:
 
 ## After Checkpoint
 
-Orchestrator presents checkpoint to user, gets response, spawns fresh continuation agent with your debug file + user response. **You will NOT be resumed.**
+Save the session before returning the checkpoint: `node ~/.claude/devflow/bin/df-tools.cjs debug put {slug} --from "$DRAFT"`.
+
+Orchestrator presents checkpoint to user, gets response, spawns fresh continuation agent with your saved debug session + user response. **You will NOT be resumed.**
 
 </checkpoint_behavior>
 
@@ -550,7 +577,7 @@ Check for mode flags in prompt context:
 - Symptoms section already filled (from UAT or orchestrator)
 - Skip symptom_gathering step entirely
 - Start directly at investigation_loop
-- Create debug file with status: "investigating" (not "gathering")
+- Start the session (draft, then `debug put`) with status: "investigating" (not "gathering")
 
 **goal: find_root_cause_only**
 - Diagnose but don't fix
@@ -571,8 +598,9 @@ Check for mode flags in prompt context:
 </modes>
 
 <success_criteria>
-- [ ] Debug file created IMMEDIATELY on command
-- [ ] File updated after EACH piece of information
+- [ ] Debug session saved with `debug put` IMMEDIATELY on command
+- [ ] Draft updated after EACH piece of information; saved with `debug put` at every save point
+- [ ] Session archived only with `debug resolve`, never moved by hand
 - [ ] Current Focus always reflects NOW
 - [ ] Evidence appended for every finding
 - [ ] Eliminated prevents re-investigation
