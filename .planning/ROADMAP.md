@@ -200,8 +200,8 @@ TRDs:
 - [x] 47-06-gh-capability-TRD.md — (W2, tdd) `gh-capability.cjs`: probe + TTL cache for types, fields, sub-issues, dependencies, wiki; degraded mode selection (GST-08)
 - [x] 47-07-gh-outbox-flush-TRD.md — (W2, tdd) `gh-outbox-flush.cjs`: idempotent op handlers, ordered flush, offline/rate-limit pending, remote-edit halt, resolve; `gh-client` scoped retry policy (GST-05)
 - [x] 47-08-gh-comments-TRD.md — (W2, tdd) `gh-comments.cjs`: SUMMARY/VERIFICATION comments, scope changes with budget, freeze, fold, effective spec, drift (GST-03, GST-04)
-- [ ] 47-09-gh-hierarchy-TRD.md — (W3, tdd) `gh-hierarchy.cjs`: budget gate before any write, objective → TRD sub-issues → blocked-by, Decision issues, pages, one objective-body writer, orphans (GST-01, GST-02)
-- [ ] 47-10-gh-cache-pull-all-TRD.md — (W3, tdd) `gh-cache.cjs` + `gh pull --all`: rebuild cache from issues + wiki, generated ROADMAP/STATE, safe overwrite rules (GST-07)
+- [x] 47-09-gh-hierarchy-TRD.md — (W3, tdd) `gh-hierarchy.cjs`: budget gate before any write, objective → TRD sub-issues → blocked-by, Decision issues, pages, one objective-body writer, orphans (GST-01, GST-02)
+- [x] 47-10-gh-cache-pull-all-TRD.md — (W3, tdd) `gh-cache.cjs` + `gh pull --all`: rebuild cache from issues + wiki, generated ROADMAP/STATE, safe overwrite rules (GST-07)
 - [ ] 47-11-store-cli-TRD.md — (W4, tdd) `gh outbox status|flush|resolve` (exit 0/1/2/3), `gh trd spec|freeze|fold|scope`, `gh orphans`; dispatch + help
 - [ ] 47-12-sync-store-wiring-TRD.md — (W4, tdd) `gh sync` store mode behind `github.store`: hierarchy via outbox, Roadmap wiki page, cache baseline; config defaults; seam guard
 - [ ] 47-13-store-e2e-TRD.md — (W5) end-to-end SC1-SC5 on one fake GitHub + local wiki remote; seam guard covers gh-store-cli
@@ -294,7 +294,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
-| 47. GitHub authoritative store | v1.4 | 8/14 | In Progress | — |
+| 47. GitHub authoritative store | v1.4 | 10/14 | In Progress | — |
 | 48. Planning write-path migration | v1.4 | 0/— | Registered | — |
 | 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
