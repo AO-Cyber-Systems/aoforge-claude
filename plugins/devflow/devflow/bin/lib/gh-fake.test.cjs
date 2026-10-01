@@ -945,3 +945,206 @@ describe('47 capability variants and controls', () => {
     assert.equal(createFakeGitHub().ownerType, 'Organization');
   });
 });
+
+// ─── 49-01 pull requests, viewer, comment authors (TRD 49-01, Task 1) ────────
+
+const BRANCH = 'df/objective-49-x';
+const BASE_SHA = `base${'0'.repeat(36)}`;
+
+/** `POST repos/o/r/pulls` the way the flusher sends it: a JSON body on stdin. */
+const openPr = (fake, head, extra = {}) => restCall(fake, 'POST', 'repos/o/r/pulls',
+  { title: 'T', head, base: 'main', body: 'B', ...extra });
+
+describe('49-01 pull requests', () => {
+  it('1. a PR is an issue record on the SAME counter: numbers 1 and 2, REST issues lists both, gh issue list only the issue', () => {
+    const fake = createFakeGitHub();
+    const made = fake.runGh(['issue', 'create', ...R, '--title', 'an issue', '--body', 'b']);
+    assert.equal(made.stdout, 'https://github.com/o/r/issues/1');
+
+    fake.pushRef(BRANCH, 'c1');
+    const pr = openPr(fake, BRANCH, { draft: true });
+    assert.equal(pr.ok, true, pr.stderr);
+    assert.equal(json(pr).number, 2, 'an issue and a PR never share a number');
+    assert.equal(fake.issues.length, 2);
+    assert.equal(fake.issues[1].number, 2);
+
+    const rows = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/issues?state=all'])).flat();
+    assert.deepEqual(rows.map((r) => r.number).sort(), [1, 2]);
+    assert.equal(rows.find((r) => r.number === 1).pull_request, undefined);
+    assert.ok(rows.find((r) => r.number === 2).pull_request, 'the PR carries pull_request');
+    assert.equal(rows.find((r) => r.number === 2).node_id, 'PR_2');
+
+    // gh issue list never shows pull requests; a label-filtered REST list shows one only when labelled.
+    const cli = json(fake.runGh(['issue', 'list', ...R, '--state', 'all', '--json', 'number']));
+    assert.deepEqual(cli.map((r) => r.number), [1]);
+    restCall(fake, 'PATCH', 'repos/o/r/issues/2', { labels: ['devflow:trd'] });
+    const labelled = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/issues?labels=devflow:trd'])).flat();
+    assert.deepEqual(labelled.map((r) => r.number), [2]);
+  });
+
+  it('2. GET repos/o/r answers default_branch and node_id; GET user answers the viewer login', () => {
+    const repo = json(restGet(createFakeGitHub(), 'repos/o/r'));
+    assert.equal(repo.default_branch, 'main');
+    assert.equal(repo.node_id, 'R_1');
+    assert.equal(json(restGet(createFakeGitHub({ defaultBranch: 'trunk' }), 'repos/o/r')).default_branch, 'trunk');
+
+    assert.equal(json(restGet(createFakeGitHub(), 'user')).login, 'devflow-bot');
+    assert.equal(json(restGet(createFakeGitHub({ viewer: 'alice' }), 'user')).login, 'alice');
+  });
+
+  it('3. POST pulls opens a draft PR from a pushed branch; GET pulls filters by head and state; PATCH pulls/{n} edits it', () => {
+    const fake = createFakeGitHub();
+    fake.pushRef(BRANCH, 'c1');
+
+    const r = openPr(fake, BRANCH, { draft: true, body: 'Closes #1' });
+    assert.equal(r.ok, true, r.stderr);
+    const pr = json(r);
+    assert.equal(pr.number, 1);
+    assert.equal(pr.node_id, 'PR_1');
+    assert.equal(pr.draft, true);
+    assert.equal(pr.state, 'open');
+    assert.equal(pr.merged, false);
+    assert.equal(pr.merged_at, null);
+    assert.equal(pr.head.ref, BRANCH);
+    assert.equal(pr.head.sha, 'c1');
+    assert.equal(pr.base.ref, 'main');
+    assert.equal(pr.user.login, 'devflow-bot');
+    assert.equal(pr.body, 'Closes #1');
+    assert.equal(pr.html_url, 'https://github.com/o/r/pull/1');
+
+    const found = json(restGet(fake, `repos/o/r/pulls?head=o:${BRANCH}&state=all`));
+    assert.deepEqual(found.map((p) => p.number), [1]);
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/pulls?head=o:df/other&state=all')), []);
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/pulls?head=elsewhere:df/objective-49-x&state=all')), [], 'the head owner must match');
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls')).length, 1, 'state defaults to open');
+
+    const patched = restCall(fake, 'PATCH', 'repos/o/r/pulls/1', { body: 'Closes #1\nCloses #2', title: 'T2' });
+    assert.equal(patched.ok, true, patched.stderr);
+    assert.equal(json(patched).body, 'Closes #1\nCloses #2');
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls/1')).title, 'T2');
+    assert.equal(json(restGet(fake, 'repos/o/r/issues/1')).body, 'Closes #1\nCloses #2', 'the issues view of a PR is the same record');
+
+    const closed = json(restCall(fake, 'PATCH', 'repos/o/r/pulls/1', { state: 'closed' }));
+    assert.equal(closed.state, 'closed');
+    assert.equal(closed.merged, false);
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/pulls')), [], 'a closed PR leaves the default (open) list');
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls?state=closed')).length, 1);
+
+    assert.match(restGet(fake, 'repos/o/r/pulls/9').stderr, /404/);
+    assert.match(restCall(fake, 'PATCH', 'repos/o/r/pulls/9', { title: 'x' }).stderr, /404/);
+    assert.equal(fake.runGh(['api', 'repos/o/r/pulls', '--paginate', '--slurp']).ok, true);
+  });
+
+  it('3b. POST pulls refuses a missing title, an unknown head or base, and a second open PR for the same head', () => {
+    const fake = createFakeGitHub();
+    fake.pushRef(BRANCH, 'c1');
+    assert.match(openPr(fake, BRANCH, { title: '' }).stderr, /422/);
+    const noHead = openPr(fake, 'df/never-pushed');
+    assert.equal(noHead.ok, false);
+    assert.match(noHead.stderr, /422/);
+    assert.match(openPr(fake, BRANCH, { base: 'release' }).stderr, /422/);
+    assert.equal(fake.issues.length, 0, 'a refused create stores nothing');
+
+    assert.equal(openPr(fake, BRANCH).ok, true);
+    const dup = openPr(fake, BRANCH);
+    assert.equal(dup.ok, false);
+    assert.match(dup.stderr, /422/);
+    assert.match(dup.stderr, /already exists/);
+    assert.equal(fake.issues.length, 1);
+
+    // a head given as owner:branch is the same head
+    fake.pushRef('df/two', 'c2');
+    assert.equal(openPr(fake, 'o:df/two').ok, true);
+  });
+
+  it('4. POST pulls whose head tip equals the base tip is 422 "No commits between <base> and <head>"', () => {
+    const fake = createFakeGitHub();
+    assert.equal(fake.refs.main, BASE_SHA);
+    fake.pushRef(BRANCH, fake.refs.main); // linked branch created at the base tip, no commit yet
+
+    const r = openPr(fake, BRANCH, { draft: true });
+    assert.equal(r.ok, false);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, new RegExp(`No commits between main and ${BRANCH}`));
+    assert.match(r.stderr, /422/);
+    assert.equal(fake.issues.length, 0);
+
+    fake.pushRef(BRANCH, 'c1'); // a commit lands
+    assert.equal(openPr(fake, BRANCH, { draft: true }).ok, true);
+  });
+
+  it('9. PUT pulls/{n}/merge merges and closes a ready PR; a draft PR is 405 "Pull Request is still a draft"', () => {
+    const fake = createFakeGitHub();
+    fake.pushRef('df/draft', 'c1');
+    fake.pushRef('df/ready', 'c2');
+    openPr(fake, 'df/draft', { draft: true });
+    openPr(fake, 'df/ready', { draft: false });
+
+    const blocked = restCall(fake, 'PUT', 'repos/o/r/pulls/1/merge', { merge_method: 'squash' });
+    assert.equal(blocked.ok, false);
+    assert.match(blocked.stderr, /405/);
+    assert.match(blocked.stderr, /Pull Request is still a draft/);
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls/1')).state, 'open');
+
+    const merged = restCall(fake, 'PUT', 'repos/o/r/pulls/2/merge', { merge_method: 'squash' });
+    assert.equal(merged.ok, true, merged.stderr);
+    assert.equal(json(merged).merged, true);
+    assert.equal(typeof json(merged).sha, 'string');
+    const after = json(restGet(fake, 'repos/o/r/pulls/2'));
+    assert.equal(after.state, 'closed');
+    assert.equal(after.merged, true);
+    assert.match(after.merged_at, /^\d{4}-\d{2}-\d{2}T/);
+
+    const again = restCall(fake, 'PUT', 'repos/o/r/pulls/2/merge', { merge_method: 'squash' });
+    assert.equal(again.ok, false);
+    assert.match(again.stderr, /405/);
+    assert.match(restCall(fake, 'PUT', 'repos/o/r/pulls/9/merge', {}).stderr, /404/);
+  });
+
+  it('9b. an unknown merge_method is 422; the method DevFlow asked for is recorded on the PR record', () => {
+    const fake = createFakeGitHub();
+    fake.pushRef('df/ready', 'c2');
+    openPr(fake, 'df/ready', { draft: false });
+    const bad = restCall(fake, 'PUT', 'repos/o/r/pulls/1/merge', { merge_method: 'fast-forward' });
+    assert.equal(bad.ok, false);
+    assert.match(bad.stderr, /422/);
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls/1')).merged, false);
+
+    assert.equal(restCall(fake, 'PUT', 'repos/o/r/pulls/1/merge', { merge_method: 'rebase' }).ok, true);
+    assert.equal(fake.issues[0].pr.mergeMethod, 'rebase');
+  });
+
+  it('12. comments carry an author: the viewer for API posts, a seeded login otherwise; seeded assignees show on the issue', () => {
+    const fake = createFakeGitHub();
+    fake.seedIssue({ title: 'a', assignees: ['alice'] });
+    restCall(fake, 'POST', 'repos/o/r/issues/1/comments', { body: 'from devflow' });
+    fake.runGh(['issue', 'comment', '1', ...R, '--body', 'via the cli']);
+    const seeded = fake.seedComment(1, 'from a stranger', { login: 'mallory' });
+    const plain = fake.seedComment(1, 'no login given');
+
+    const list = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/issues/1/comments'])).flat();
+    assert.deepEqual(list.map((c) => c.user.login), ['devflow-bot', 'devflow-bot', 'mallory', 'devflow-bot']);
+    assert.equal(fake.comments.find((c) => c.id === seeded).user.login, 'mallory');
+    assert.equal(fake.comments.find((c) => c.id === plain).user.login, 'devflow-bot');
+
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/issues/1')).assignees, [{ login: 'alice' }]);
+
+    const alice = createFakeGitHub({ viewer: 'alice' });
+    alice.seedIssue({ title: 'a' });
+    restCall(alice, 'POST', 'repos/o/r/issues/1/comments', { body: 'mine' });
+    alice.seedComment(1, 'seeded as the viewer');
+    assert.deepEqual(alice.comments.map((c) => c.user.login), ['alice', 'alice']);
+    assert.match(alice.runGh(['auth', 'status']).stdout, /account alice/);
+    assert.match(createFakeGitHub().runGh(['auth', 'status']).stdout, /account devflow-bot/);
+  });
+
+  it('12b. the viewer and a seeded ref set leave every default unchanged; refs are live and seedable', () => {
+    const plain = createFakeGitHub();
+    assert.deepEqual(plain.refs, { main: BASE_SHA });
+    const custom = createFakeGitHub({ defaultBranch: 'trunk', refs: { 'df/seeded': 's1' } });
+    assert.deepEqual(custom.refs, { trunk: BASE_SHA, 'df/seeded': 's1' });
+    custom.pushRef('df/seeded', 's2');
+    assert.equal(custom.refs['df/seeded'], 's2', 'pushRef advances a ref and records no gh call');
+    assert.equal(custom.calls().length, 0);
+  });
+});
