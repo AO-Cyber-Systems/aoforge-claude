@@ -461,11 +461,17 @@ describe('reconcile', () => {
     p.pull_request.base.ref = base;
   });
   const patches = () => fake.writes().filter((a) => a.includes('PATCH'));
+  // seeding a PR is itself a gh write in the fake, so the runner's own calls are what comes after this mark
+  let mark = { calls: 0, writes: 0 };
+  const setupDone = () => { mark = { calls: fake.calls().length, writes: fake.writes().length }; };
+  const callsSince = () => fake.calls().slice(mark.calls);
+  const writesSince = () => fake.writes().slice(mark.writes);
   const prComments = (n) => fake.comments.filter((c) => c.issue_number === n);
 
   test('7. merged PR: still-open closing targets and linked TRDs are closed as completed, one marker comment', () => {
     seedObjectiveGraph({ states: { 1: 'CLOSED' } }); // GitHub closed the objective; #2 and #3 are stragglers
     assert.equal(seedPr({ body: objectivePrBody(1, 2) }), 4);
+    setupDone();
     const r = run('reconcile', mergedEvent(4, objectivePrBody(1, 2)), { GITHUB_EVENT_NAME: 'pull_request' });
     assert.equal(r.code, 0);
     assert.equal(r.state, 'success');
@@ -482,7 +488,7 @@ describe('reconcile', () => {
     assert.match(comments[0].body, /#2/);
     assert.match(comments[0].body, /#3/);
     assert.ok(!/#1\b/.test(comments[0].body), 'the issue that was already closed is not listed');
-    assert.equal(fake.writes().length, 3, 'two closes and one comment, nothing else');
+    assert.equal(writesSince().length, 3, 'two closes and one comment, nothing else');
     assert.deepEqual(fake.statuses, {}, 'reconcile posts no commit status');
   });
 
@@ -500,13 +506,13 @@ describe('reconcile', () => {
   test('7b. an unmerged closed PR: no writes (and no gh call)', () => {
     seedObjectiveGraph();
     seedPr({ body: objectivePrBody(1, 2) });
+    setupDone();
     const payload = mergedEvent(4, objectivePrBody(1, 2));
     payload.pull_request.merged = false;
     const r = run('reconcile', payload);
     assert.equal(r.code, 0);
     assert.equal(r.state, 'skipped');
-    assert.deepEqual(fake.writes(), []);
-    assert.deepEqual(fake.calls(), []);
+    assert.deepEqual(callsSince(), [], 'not even a read');
   });
 
   test('7c. a PR still open (any non-closed action) is not reconciled', () => {
@@ -520,10 +526,11 @@ describe('reconcile', () => {
   test('7d. merged into a branch other than the default: closing keywords never acted, nothing is closed', () => {
     seedObjectiveGraph();
     seedPr({ body: objectivePrBody(1, 2) });
+    setupDone();
     const r = run('reconcile', mergedEvent(4, objectivePrBody(1, 2), 'develop'));
     assert.equal(r.code, 0);
     assert.equal(r.state, 'skipped');
-    assert.deepEqual(fake.writes(), []);
+    assert.deepEqual(writesSince(), []);
   });
 
   test('7e. a plain `Closes #N` PR (no objective) has its open target closed too', () => {
