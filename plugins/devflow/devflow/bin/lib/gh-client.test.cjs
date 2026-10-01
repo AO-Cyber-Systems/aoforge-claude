@@ -551,3 +551,108 @@ describe('emitResult', () => {
     assert.equal(raw.out, 'boom-raw');
   });
 });
+
+// ─── Scoped retry policy (TRD 47-07, D-23 / Pitfall 8) ───────────────────────
+
+describe('withRetryPolicy', () => {
+  it('21. default policy is unchanged: a secondary limit is retried MAX_RETRIES (4) times', () => {
+    const h = harness();
+    script(h, [SECONDARY()]);
+    const r = client.ghWrite(['api', '--method', 'POST', 'repos/o/r/issues', '--input', '-'], { input: '{}' });
+    assert.equal(r.ok, false);
+    assert.equal(r.attempts, client.MAX_RETRIES + 1);
+    assert.equal(h.sleeps.filter((ms) => ms >= 60000).length, client.MAX_RETRIES);
+  });
+
+  it('22. {maxRetries:0} makes one attempt and never sleeps; the policy is restored afterwards, also when fn throws', () => {
+    const h = harness();
+    script(h, [SECONDARY()]);
+    const r = client.withRetryPolicy({ maxRetries: 0 }, () => client.ghWrite(['issue', 'create', '--title', 't']));
+    assert.equal(r.ok, false);
+    assert.equal(r.attempts, 1);
+    assert.equal(h.calls.length, 1);
+    assert.deepEqual(h.sleeps, [], 'a zero-retry policy must not sleep');
+
+    // restored: the next call retries again
+    const again = client.ghRead(['issue', 'view', '1']);
+    assert.equal(again.attempts, client.MAX_RETRIES + 1);
+
+    // restored after a throw as well
+    assert.throws(
+      () => client.withRetryPolicy({ maxRetries: 0 }, () => { throw new Error('boom'); }),
+      /boom/,
+    );
+    h.calls.length = 0;
+    h.sleeps.length = 0;
+    const third = client.ghRead(['issue', 'view', '2']);
+    assert.equal(third.attempts, client.MAX_RETRIES + 1);
+  });
+
+  it('22b. withRetryPolicy returns what fn returns, nests (inner wins, outer restored) and validates maxRetries', () => {
+    const h = harness();
+    script(h, [SECONDARY()]);
+    assert.equal(client.withRetryPolicy({ maxRetries: 1 }, () => 'value'), 'value');
+
+    const outer = client.withRetryPolicy({ maxRetries: 1 }, () => {
+      const inner = client.withRetryPolicy({ maxRetries: 0 }, () => client.ghRead(['issue', 'view', '1']).attempts);
+      const after = client.ghRead(['issue', 'view', '1']).attempts;
+      return { inner, after };
+    });
+    assert.deepEqual(outer, { inner: 1, after: 2 });
+
+    for (const bad of [-1, 1.5, '2', null, undefined, NaN]) {
+      assert.throws(() => client.withRetryPolicy({ maxRetries: bad }, () => 1), TypeError, String(bad));
+    }
+    assert.throws(() => client.withRetryPolicy(null, () => 1), TypeError);
+    assert.throws(() => client.withRetryPolicy({ maxRetries: 0 }, 'not a function'), TypeError);
+  });
+
+  it('22c. _resetClient restores the default policy even from inside an active scope', () => {
+    client.withRetryPolicy({ maxRetries: 0 }, () => {
+      client._resetClient();
+      const h2 = harness();
+      script(h2, [SECONDARY()]);
+      assert.equal(client.ghRead(['issue', 'view', '1']).attempts, client.MAX_RETRIES + 1);
+    });
+  });
+
+  it('23. opts reach the runner exactly as passed: {input} is byte-identical and carries no policy keys (Open Q7)', () => {
+    const h = harness();
+    script(h, [OK]);
+    const input = '{"a":1}';
+    client.withRetryPolicy({ maxRetries: 0 }, () => {
+      client.ghWrite(['api', '--method', 'POST', 'repos/o/r/issues', '--input', '-'], { input });
+    });
+    assert.equal(h.calls.length, 1);
+    assert.deepEqual(h.calls[0].opts, { input });
+    assert.equal(h.calls[0].opts.input, input);
+    assert.deepEqual(Object.keys(h.calls[0].opts), ['input']);
+  });
+
+  it('24. writeCount() increases by one per paced attempt (retries included) and reads do not count', () => {
+    const h = harness();
+    script(h, [OK]);
+    assert.equal(client.writeCount(), 0);
+    client.ghWrite(['issue', 'create', '--title', 'a']);
+    assert.equal(client.writeCount(), 1);
+    client.ghRead(['issue', 'view', '1']);
+    assert.equal(client.writeCount(), 1);
+    client.ghWrite(['issue', 'create', '--title', 'b']);
+    assert.equal(client.writeCount(), 2);
+
+    script(h, [SECONDARY(), OK]);
+    client.ghWrite(['issue', 'create', '--title', 'c']);
+    assert.equal(client.writeCount(), 4, 'a retried write is two attempts');
+
+    client._resetClient();
+    assert.equal(client.writeCount(), 0);
+  });
+
+  it('24b. now() and sleep() forward to the injected clock, so a caller shares the same seam as the client', () => {
+    const h = harness(5000);
+    assert.equal(client.now(), 5000);
+    client.sleep(250);
+    assert.deepEqual(h.sleeps, [250]);
+    assert.equal(client.now(), 5250);
+  });
+});

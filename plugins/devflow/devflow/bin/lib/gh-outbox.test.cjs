@@ -990,3 +990,41 @@ describe('hygiene', () => {
     assert.ok(loaded.includes('sync-state.cjs'));
   });
 });
+
+// ─── Base store extensions for the flusher (TRD 47-07, D-24) ──────────────────
+
+describe('base store: managed_hash, frozen and comment keys (47-07)', () => {
+  test('14f. managed_hash and frozen are stored when given, in a fixed order, and omitted when not', () => {
+    outbox.setBase(root, '7', { ...BASE, managed_hash: 'sha256:managed' });
+    assert.deepEqual(outbox.getBase(root, '7'), { ...BASE, managed_hash: 'sha256:managed' });
+    outbox.setBase(root, '7-01', { ...BASE, managed_hash: null, frozen: true });
+    assert.deepEqual(outbox.getBase(root, '7-01'), { ...BASE, managed_hash: null, frozen: true });
+    // a plain entry still stores exactly the original four fields
+    outbox.setBase(root, '7-02', BASE);
+    assert.deepEqual(Object.keys(outbox.getBase(root, '7-02')), ['issue_number', 'issue_id', 'body_hash', 'updated_at']);
+    // frozen: false is the same as absent
+    outbox.setBase(root, '7-03', { ...BASE, frozen: false });
+    assert.equal(Object.hasOwn(outbox.getBase(root, '7-03'), 'frozen'), false);
+  });
+
+  test('14g. a malformed managed_hash or frozen is refused without writing', () => {
+    for (const entry of [
+      { ...BASE, managed_hash: 5 },
+      { ...BASE, managed_hash: '' },
+      { ...BASE, frozen: 'yes' },
+      { ...BASE, frozen: 1 },
+    ]) {
+      assert.equal(outbox.setBase(root, '7', entry).ok, false, JSON.stringify(entry));
+    }
+    assert.equal(fs.existsSync(stateDir), false);
+  });
+
+  test('14h. a comment base is keyed "<id>#<kind>"; a malformed key is refused', () => {
+    assert.equal(outbox.setBase(root, '7-01#summary', BASE).ok, true);
+    assert.equal(outbox.setBase(root, '7#verification', BASE).ok, true);
+    assert.deepEqual(outbox.getBase(root, '7-01#summary'), BASE);
+    for (const bad of ['7-01#', '#summary', '7-01#Summary', '7-01#sum mary', '7-01#a#b', '7 #summary']) {
+      assert.equal(outbox.setBase(root, bad, BASE).ok, false, bad);
+    }
+  });
+});
