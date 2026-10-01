@@ -21,7 +21,11 @@
 // This module never writes to GitHub (apply does); the seam guard lists it as guarded.
 
 const { CONTEXTS } = require('./gh-check.cjs');
+const fs = require('fs');
+const path = require('path');
+const client = require('./gh-client.cjs');
 const capability = require('./gh-capability.cjs');
+const ghProject = require('./gh-project.cjs');
 const outbox = require('./gh-outbox.cjs');
 
 // ─── The desired default-branch ruleset ───────────────────────────────────────
@@ -509,6 +513,169 @@ function renderPlan(actions) {
   return `${lines.join('\n')}\n`;
 }
 
+// ─── readSetupState ───────────────────────────────────────────────────────────
+
+/**
+ * Where setup remembers what it learned about a repository (written by TRD 50-11, read here): `{merge_queue:false}`
+ * after a repository refused a merge_queue rule. `<gh cache dir>/setup/<owner>__<repo>.json`, never inside the repo.
+ */
+function setupRecordPath(repo, env = process.env) {
+  const name = String(repo).split('/').map((seg) => seg.replace(/[^A-Za-z0-9_.-]/g, '_')).join('__');
+  return path.join(ghProject.cacheDir(env), 'setup', `${name}.json`);
+}
+
+function readSetupRecord(repo, env) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(setupRecordPath(repo, env), 'utf-8'));
+    return isObject(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The text of a failed gh call on one line, for a `readErrors` entry (it carries the HTTP status). */
+const failureOf = (r) => String((r && (r.error || r.stderr || r.stdout)) || 'gh api failed').trim().replace(/\s+/g, ' ');
+
+/** A local file's text, or null when it is absent or unreadable. */
+function readLocal(root, rel) {
+  try {
+    return fs.readFileSync(path.join(root, rel), 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+/** Every `.github/workflows/*.yml|yaml` except DevFlow's own, sorted by name, as `{file, text}`. */
+function readOtherWorkflows(root) {
+  let names;
+  try {
+    names = fs.readdirSync(path.join(root, '.github', 'workflows'));
+  } catch {
+    return [];
+  }
+  return names
+    .filter((n) => /\.ya?ml$/i.test(n) && `.github/workflows/${n}` !== WORKFLOW_PATH)
+    .sort()
+    .map((n) => ({ file: `.github/workflows/${n}`, text: readLocal(root, `.github/workflows/${n}`) }))
+    .filter((w) => w.text !== null);
+}
+
+/** Our ruleset read by id, so its rules are in hand: the list endpoint returns summaries only. */
+function readRulesets(repo, readErrors) {
+  const listed = client.ghPaginate(`repos/${repo}/rulesets`);
+  if (!listed.ok) {
+    readErrors.rulesets = failureOf(listed);
+    return null;
+  }
+  return listed.items.map((summary) => {
+    if (!summary || summary.name !== SETUP_RULESET_NAME || summary.id === undefined) return summary;
+    const full = client.ghRead(['api', `repos/${repo}/rulesets/${summary.id}`]);
+    let body = null;
+    if (full.ok) {
+      try {
+        body = JSON.parse(full.stdout);
+      } catch {
+        body = null;
+      }
+    }
+    if (isObject(body) && Array.isArray(body.rules)) return { ...summary, ...body };
+    readErrors.ruleset = failureOf(full.ok ? { error: 'unparseable ruleset body' } : full);
+    return summary;
+  });
+}
+
+/** One org list (issue types or fields) reduced to the keys setup needs; null with a `readErrors` reason on failure. */
+function readOrgList(apiPath, keys, readErrors, label) {
+  const listed = client.ghPaginate(apiPath);
+  if (!listed.ok) {
+    readErrors[label] = failureOf(listed);
+    return null;
+  }
+  return listed.items
+    .filter(isObject)
+    .map((row) => Object.fromEntries(keys.filter((k) => k in row).map((k) => [k, row[k]])));
+}
+
+/**
+ * Snapshot what the repository has, with gh READS only (zero writes, zero git): the repository settings, the
+ * rulesets (our own with its full body), the labels, the org's issue types and fields (Organization owners only),
+ * the capability probe (always live, `refresh:true`: setup changes the answer), the local workflow files, the setup
+ * record and the github config. A read that fails (a 403 on rulesets, types or fields) becomes a `null` with the
+ * reason in `readErrors`, which `planSetup` turns into a `skip`; only an unreadable repository fails the whole read.
+ * `refresh` ignores the setup record. The rendered `templates` are not read here: the apply layer passes them to
+ * `planSetup` beside this state.
+ *
+ * @returns {{ok:true, state:object} | {ok:false, error:string} | {ok:false, skipped:true, reason:string, error:string}}
+ */
+function readSetupState(root, { refresh = false, env = process.env } = {}) {
+  const gate = client.requireEnabled(root);
+  if (gate.skipped) return { ok: false, skipped: true, reason: gate.reason, error: gate.reason };
+  const repo = gate.repo;
+  const [owner, name] = repo.split('/');
+
+  const metaRead = client.ghRead(['api', `repos/${repo}`]);
+  if (!metaRead.ok) {
+    const text = failureOf(metaRead);
+    return { ok: false, error: /HTTP 404/.test(text) ? `repository ${repo} not found or not accessible` : `repository ${repo}: ${text}` };
+  }
+  let data;
+  try {
+    data = JSON.parse(metaRead.stdout);
+  } catch {
+    data = null;
+  }
+  if (!isObject(data)) return { ok: false, error: `repository ${repo}: unparseable answer from gh` };
+
+  const caps = capability.detectCapabilities(root, { refresh: true, env });
+  if (!caps.ok) return { ok: false, error: caps.error };
+
+  const ownerType = isObject(data.owner) && typeof data.owner.type === 'string' ? data.owner.type : caps.owner_type;
+  const readErrors = {};
+  const rulesets = readRulesets(repo, readErrors);
+
+  const labelList = client.ghPaginate(`repos/${repo}/labels`);
+  if (!labelList.ok) readErrors.labels = failureOf(labelList);
+  const labels = labelList.ok ? labelList.items.filter((l) => isObject(l) && typeof l.name === 'string').map((l) => l.name) : null;
+
+  let types = null;
+  let fields = null;
+  if (ownerType === 'Organization') {
+    types = readOrgList(`orgs/${owner}/issue-types`, ['id', 'name', 'is_enabled'], readErrors, 'types');
+    fields = readOrgList(capability.ISSUE_FIELDS_PATH.replace('{owner}', owner), ['id', 'name', 'data_type'], readErrors, 'fields');
+  }
+
+  return {
+    ok: true,
+    state: {
+      repo,
+      owner,
+      name,
+      ownerType,
+      meta: {
+        has_wiki: data.has_wiki === true,
+        delete_branch_on_merge: data.delete_branch_on_merge === true,
+        default_branch: typeof data.default_branch === 'string' && data.default_branch ? data.default_branch : 'main',
+        private: data.private === true,
+      },
+      github: gate.config,
+      capabilities: caps,
+      rulesets,
+      labels,
+      types,
+      fields,
+      wiki: caps.wiki,
+      wikiDetail: caps.wiki_detail || null,
+      local: {
+        workflow: readLocal(root, WORKFLOW_PATH),
+        prTemplate: readLocal(root, PR_TEMPLATE_PATH),
+        otherWorkflows: readOtherWorkflows(root),
+      },
+      record: refresh ? {} : readSetupRecord(repo, env),
+      readErrors,
+    },
+  };
+}
+
 module.exports = {
   SETUP_RULESET_NAME,
   WORKFLOW_PATH,
@@ -518,4 +685,6 @@ module.exports = {
   unionRuleset,
   planSetup,
   renderPlan,
+  setupRecordPath,
+  readSetupState,
 };

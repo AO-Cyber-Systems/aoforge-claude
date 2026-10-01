@@ -979,7 +979,8 @@ describe('readSetupState (test 11)', () => {
 
   test('types or fields that cannot be read are null with the reason', () => {
     install();
-    fake.failNext((argv) => argv.join(' ').includes('orgs/o/issue-types'), FORBIDDEN);
+    // A standing failure, not failNext: the capability probe reads the same endpoint first and would consume a one-shot.
+    client._setRunGh((argv, opts) => (argv.join(' ').includes('orgs/o/issue-types') ? { ok: false, stdout: FORBIDDEN.stdout, stderr: FORBIDDEN.stderr, status: 1 } : fake.runGh(argv, opts)));
     const r = setup.readSetupState(project());
     assert.equal(r.ok, true);
     assert.equal(r.state.types, null);
