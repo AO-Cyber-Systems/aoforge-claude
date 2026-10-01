@@ -309,11 +309,11 @@ TRDs:
 **Plans:** 10 TRDs in 6 waves
 
 TRDs:
-- [ ] 51-01-record-objective-26-kill-TRD.md — (W1) GMD-04: objective 26 KILLED via `objective set-status 26 cancelled`, Disposition section, decision record, ROADMAP/STATE/PROJECT lines; never `objective remove`
-- [ ] 51-02-backfill-fixtures-TRD.md — (W1, tdd) `makeBackfillProject` 20-objective x 5-TRD fixture (shipped/in progress/cancelled/planned, entities, docs, milestones, legacy/oversize variants) + `useBackfillEnv` fake-clock harness
-- [ ] 51-03-gh-backfill-core-TRD.md — (W1, tdd) `gh-backfill.cjs`: history classification + close ops for finished work (G1), upper-bound request estimate (G3), `hasPendingOps`, live-create budget bookkeeping (G5); seam guard
-- [ ] 51-04-0010-resume-and-commit-guidance-TRD.md — (W1, tdd) 0010 `detect` defers while the outbox has pending ops (G4); store-mode branch + logged-escape commit text in 0010 and doctor check 20 (G6)
-- [ ] 51-05-import-estimate-and-preview-TRD.md — (W2, tdd) `planning import --dry-run` estimate + history + will-stay-local table, store-off preview, `noFlush`, history closes queued after creates; calibration test (GMD-02)
+- [x] 51-01-record-objective-26-kill-TRD.md — (W1) GMD-04: objective 26 KILLED via `objective set-status 26 cancelled`, Disposition section, decision record, ROADMAP/STATE/PROJECT lines; never `objective remove`
+- [x] 51-02-backfill-fixtures-TRD.md — (W1, tdd) `makeBackfillProject` 20-objective x 5-TRD fixture (shipped/in progress/cancelled/planned, entities, docs, milestones, legacy/oversize variants) + `useBackfillEnv` fake-clock harness
+- [x] 51-03-gh-backfill-core-TRD.md — (W1, tdd) `gh-backfill.cjs`: history classification + close ops for finished work (G1), upper-bound request estimate (G3), `hasPendingOps`, live-create budget bookkeeping (G5); seam guard
+- [x] 51-04-0010-resume-and-commit-guidance-TRD.md — (W1, tdd) 0010 `detect` defers while the outbox has pending ops (G4); store-mode branch + logged-escape commit text in 0010 and doctor check 20 (G6)
+- [x] 51-05-import-estimate-and-preview-TRD.md — (W2, tdd) `planning import --dry-run` estimate + history + will-stay-local table, store-off preview, `noFlush`, history closes queued after creates; calibration test (GMD-02)
 - [ ] 51-06-migration-0011-queue-TRD.md — (W3, tdd) confirm migration 0011: offline `detect` with the plan summary, zero-write dry run, local + remote preflight refusals, store switch, resume-aware queue (GMD-01, GMD-02)
 - [ ] 51-07-migration-0011-drain-and-handoff-TRD.md — (W4, tdd) 0011 drain loop (hour budget stops resumably), `gh pull --all` + orphan verify, handoff to 0010; SC1 happy path across a resume with pacing asserts; SC2 re-run no-op + store-off parity
 - [ ] 51-08-backfill-resilience-and-cli-e2e-TRD.md — (W5, tdd) interruption, lost mapping, secondary limit, remote-edit halt, bare `--apply --confirm` resume (G4); CLI e2e through `df-tools upgrade`; seam guard covers 0011
@@ -368,4 +368,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
 | 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
 | 50. GitHub enforcement and setup | v1.4 | 13/13 | Complete | 2026-10-01 |
-| 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
+| 51. GitHub migration and docs | v1.4 | 5/10 | In Progress | — |
