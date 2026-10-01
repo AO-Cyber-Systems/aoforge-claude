@@ -326,10 +326,39 @@ function cmdFrontmatterGet(cwd, filePath, field, raw) {
   }
 }
 
+/**
+ * Store mode (objective 48, TRD 48-14, D-19): the refusal for a frontmatter edit of a GitHub-backed cache file, or
+ * null when the edit may go ahead (local mode, a runtime / tracked-config / generated planning path, or a file
+ * outside .planning/). The target is resolved against the MAIN checkout's .planning/ (D-14), then the cwd's.
+ * Everything is required lazily: this module is imported widely and its load cost stays flat.
+ */
+function storeCacheRefusal(cwd, fullPath) {
+  const planningMode = require('./planning-mode.cjs');
+  if (!planningMode.isStoreMode(cwd)) return null;
+  const planningPaths = require('./planning-paths.cjs');
+  const main = planningMode.resolveMainRoot(cwd);
+  for (const dir of [main && path.join(main, '.planning'), path.join(cwd, '.planning')]) {
+    const rel = dir ? planningPaths.relToPlanning(fullPath, dir) : null;
+    if (rel === null) continue;
+    let c;
+    try {
+      c = planningPaths.classify(rel);
+    } catch {
+      return null; // a name the classifier refuses is runtime (planning-paths listByClass)
+    }
+    if (c.class !== 'cache') return null;
+    return `${rel} is a GitHub-backed cache file in store mode; frontmatter edits go through df-tools ${c.verb} ` +
+      `(edit a draft: df-tools planning draft ${rel})`;
+  }
+  return null;
+}
+
 function cmdFrontmatterSet(cwd, filePath, field, value, raw) {
   if (!filePath || !field || value === undefined) { error('file, field, and value required'); }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
   if (!fs.existsSync(fullPath)) { output({ error: 'File not found', path: filePath }, raw); return; }
+  const refusal = storeCacheRefusal(cwd, fullPath);
+  if (refusal) { error(refusal); }
   const content = fs.readFileSync(fullPath, 'utf-8');
   const fm = extractFrontmatter(content);
   let parsedValue;
@@ -344,6 +373,8 @@ function cmdFrontmatterMerge(cwd, filePath, data, raw) {
   if (!filePath || !data) { error('file and data required'); }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
   if (!fs.existsSync(fullPath)) { output({ error: 'File not found', path: filePath }, raw); return; }
+  const refusal = storeCacheRefusal(cwd, fullPath);
+  if (refusal) { error(refusal); }
   const content = fs.readFileSync(fullPath, 'utf-8');
   const fm = extractFrontmatter(content);
   let mergeData;
