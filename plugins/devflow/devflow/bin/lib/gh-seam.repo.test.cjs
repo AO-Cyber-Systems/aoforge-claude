@@ -20,6 +20,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Objective 48's planning modules (TRD 48-15): they reach GitHub only through the outbox, never ghWrite( or a spawn.
+const PLANNING_MODULES = [
+  'planning-mode.cjs', 'planning-paths.cjs', 'planning-ledger.cjs', 'planning-verbs.cjs', 'planning-entity-verbs.cjs',
+  'planning-import.cjs', 'planning-verbs-cli.cjs', 'planning-drift.cjs', 'planning-audit.cjs',
+];
+
 const GUARDED = [
   'gh.cjs', 'gh-pull.cjs', 'gh-issue.cjs', 'gh-project.cjs', 'gh-mapping.cjs', 'gh-body.cjs',
   'gh-milestone.cjs', 'sync-state.cjs', 'conflict.cjs', 'awareness.cjs',
@@ -28,10 +34,18 @@ const GUARDED = [
   'gh-comments.cjs', 'gh-wiki.cjs', 'gh-cache.cjs',
   // the command surface over the store (TRD 47-11), guarded since TRD 47-13
   'gh-store-cli.cjs',
+  // objective 48 planning modules and their CLI (guarded since TRD 48-15): none spawns gh or git
+  ...PLANNING_MODULES,
+  'trd-bulk.cjs',
+  // native milestones (48-05): it calls ghWrite directly (D-05), so it is guarded but not in NO_DIRECT_WRITE
+  'gh-milestone-store.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
-const NO_DIRECT_WRITE = ['gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs', 'gh-store-cli.cjs'];
+const NO_DIRECT_WRITE = [
+  'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs', 'gh-store-cli.cjs',
+  ...PLANNING_MODULES,
+];
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf-8');
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line);
@@ -125,5 +139,18 @@ describe('one gh seam (TRD 46-08)', () => {
       });
     }
     assert.deepStrictEqual(hits, [], `ghWrite( outside the flusher:\n${hits.join('\n')}`);
+  });
+
+  test('22 (48-15): the planning modules are guarded and never write directly; gh-milestone-store is guarded and may', () => {
+    for (const f of [...PLANNING_MODULES, 'trd-bulk.cjs', 'gh-milestone-store.cjs']) {
+      assert.ok(fs.existsSync(path.join(__dirname, f)), `${f} exists (a stale guard entry otherwise)`);
+      assert.ok(GUARDED.includes(f), `${f} is guarded`);
+    }
+    for (const f of PLANNING_MODULES) assert.ok(NO_DIRECT_WRITE.includes(f), `${f} must never call ghWrite(`);
+    assert.ok(!NO_DIRECT_WRITE.includes('gh-milestone-store.cjs'), 'gh-milestone-store writes milestones directly (D-05)');
+    assert.match(read('gh-milestone-store.cjs'), /client\.ghWrite\(/, 'gh-milestone-store is a direct writer (stale exception otherwise)');
+    // Every planning-*.cjs library in this directory is listed: a new one cannot slip past the guard.
+    const onDisk = fs.readdirSync(__dirname).filter((f) => /^planning-[a-z-]+\.cjs$/.test(f) && !/\.test\.cjs$/.test(f));
+    assert.deepStrictEqual(onDisk.filter((f) => !PLANNING_MODULES.includes(f)), [], 'unguarded planning-*.cjs module');
   });
 });
