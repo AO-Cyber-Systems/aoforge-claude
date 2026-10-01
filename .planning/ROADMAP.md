@@ -189,7 +189,23 @@ TRDs:
 2. TRDs over 60K characters are refused before an issue exists; scope comments form the effective spec
 3. Offline writes flush in order; a remote edit halts the flush
 4. Degraded mode works on a user-owned repo
-**Plans:** TBD (run /devflow:plan-objective 47)
+**Plans:** 14 TRDs in 6 waves
+
+TRDs:
+- [ ] 47-01-gh-trd-codec-TRD.md — (W1, tdd) `gh-trd.cjs`: TRD body codec (id + file header), 40K/60K budget, scope comments by `n`, effective spec, fold, spec-rev log, lossless comment parts (GST-03)
+- [ ] 47-02-fake-github-store-TRD.md — (W1, tdd) fake GitHub extended: REST create with ids ≠ numbers, sub-issues, dependencies, types, fields, repo meta, offline; store fixture builder (GST-01, GST-05, GST-08)
+- [ ] 47-03-gh-outbox-store-TRD.md — (W1, tdd) `gh-outbox.cjs`: durable per-repo journal, logical op schema, coalesce/FIFO, lock, 80/min + 450/h budget, base hashes (GST-05)
+- [ ] 47-04-gh-wiki-store-TRD.md — (W1, tdd) `gh-wiki.cjs`: `.wiki.git` clone at `.planning/wiki/`, page table, commit + rebase + push on master, revision pin, `docs/devflow/` backend; local bare-repo fixture (GST-06, GST-08)
+- [ ] 47-05-body-mapping-extensions-TRD.md — (W1, tdd) `gh-body` wiki/meta sections, dir marker, tick-preserving criteria, trds section, Decision ids, part finder; `gh-mapping` trds accessors (GST-02, GST-04)
+- [ ] 47-06-gh-capability-TRD.md — (W2, tdd) `gh-capability.cjs`: probe + TTL cache for types, fields, sub-issues, dependencies, wiki; degraded mode selection (GST-08)
+- [ ] 47-07-gh-outbox-flush-TRD.md — (W2, tdd) `gh-outbox-flush.cjs`: idempotent op handlers, ordered flush, offline/rate-limit pending, remote-edit halt, resolve; `gh-client` scoped retry policy (GST-05)
+- [ ] 47-08-gh-comments-TRD.md — (W2, tdd) `gh-comments.cjs`: SUMMARY/VERIFICATION comments, scope changes with budget, freeze, fold, effective spec, drift (GST-03, GST-04)
+- [ ] 47-09-gh-hierarchy-TRD.md — (W3, tdd) `gh-hierarchy.cjs`: budget gate before any write, objective → TRD sub-issues → blocked-by, Decision issues, pages, one objective-body writer, orphans (GST-01, GST-02)
+- [ ] 47-10-gh-cache-pull-all-TRD.md — (W3, tdd) `gh-cache.cjs` + `gh pull --all`: rebuild cache from issues + wiki, generated ROADMAP/STATE, safe overwrite rules (GST-07)
+- [ ] 47-11-store-cli-TRD.md — (W4, tdd) `gh outbox status|flush|resolve` (exit 0/1/2/3), `gh trd spec|freeze|fold|scope`, `gh orphans`; dispatch + help
+- [ ] 47-12-sync-store-wiring-TRD.md — (W4, tdd) `gh sync` store mode behind `github.store`: hierarchy via outbox, Roadmap wiki page, cache baseline; config defaults; seam guard
+- [ ] 47-13-store-e2e-TRD.md — (W5) end-to-end SC1-SC5 on one fake GitHub + local wiki remote; seam guard covers gh-store-cli
+- [ ] 47-14-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG [Unreleased], USER-GUIDE, gh-sync skill, proposal status; full `npm test` (SC6)
 
 ### Objective 48: Planning write-path migration
 
