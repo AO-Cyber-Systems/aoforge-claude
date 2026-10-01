@@ -615,6 +615,426 @@ describe('mergeManaged', () => {
   });
 });
 
+// ─── 47: store sections ──────────────────────────────────────────────────────
+
+describe('47 store sections', () => {
+  const PAGE_URL = 'https://github.com/o/r/wiki/Objective-7-store-demo/1a2b3c4';
+  const wikiArgs = (over) =>
+    Object.assign(
+      { dir: '07-store-demo', page: 'Objective-7-store-demo', url: PAGE_URL, sha: '1a2b3c4' },
+      over || {}
+    );
+  const body46 = () =>
+    ghBody.mergeManaged('', ghBody.buildObjectiveSections(makeState({ number: '7', name: 'Store demo' })), '7').body;
+  const wikiBlock = (inner) => `<!-- devflow:begin wiki -->\n${inner}\n<!-- devflow:end wiki -->`;
+
+  test('1: OPTIONAL_SECTIONS is wiki+meta and SECTION_ORDER is unchanged', () => {
+    assert.deepStrictEqual(ghBody.OPTIONAL_SECTIONS, ['wiki', 'meta']);
+    assert.deepStrictEqual(ghBody.SECTION_ORDER, ['summary', 'criteria', 'trds', 'footer']);
+  });
+
+  test('1b: the section builder output of 46 is unchanged (no wiki/meta unless a caller provides them)', () => {
+    const sections = ghBody.buildObjectiveSections(makeState());
+    assert.deepStrictEqual(Object.keys(sections), ['summary', 'criteria', 'trds', 'footer']);
+    const merged = ghBody.mergeManaged('', sections, '46').body;
+    assert.ok(!merged.includes('devflow:begin wiki'));
+    assert.ok(!merged.includes('devflow:begin meta'));
+  });
+
+  test('2: a wiki section is appended at the end; human text and the four 46 sections stay byte-identical', () => {
+    const original = body46() + '\nHuman notes live down here.\n';
+    const wiki = ghBody.buildWikiSection(wikiArgs());
+    const r = ghBody.mergeManaged(original, { wiki }, '7');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.changed, true);
+    assert.deepStrictEqual(r.warnings, []);
+    assert.ok(r.body.startsWith(original), 'everything that was there is untouched, in place');
+    assert.strictEqual(r.body, `${original}\n${wikiBlock(wiki)}`);
+  });
+
+  test('2b: wiki and meta both ride on a fresh body, after the four 46 sections', () => {
+    const sections = Object.assign(ghBody.buildObjectiveSections(makeState({ number: '7' })), {
+      wiki: ghBody.buildWikiSection(wikiArgs()),
+      meta: ghBody.buildMetaSection({ type: 'Objective' }),
+    });
+    const r = ghBody.mergeManaged('', sections, '7');
+    assert.strictEqual(r.ok, true);
+    const at = ['summary', 'criteria', 'trds', 'footer', 'wiki', 'meta'].map((n) => r.body.indexOf(`<!-- devflow:begin ${n} -->`));
+    assert.ok(at.every((i) => i >= 0));
+    assert.deepStrictEqual(at.slice().sort((a, b) => a - b), at, 'sections in order');
+  });
+
+  test('3: a new sha changes only the wiki inner text; an identical merge is changed:false', () => {
+    const first = ghBody.mergeManaged(body46(), { wiki: ghBody.buildWikiSection(wikiArgs()) }, '7');
+    const next = ghBody.buildWikiSection(
+      wikiArgs({ sha: 'def5678', url: PAGE_URL.replace('1a2b3c4', 'def5678') })
+    );
+    const second = ghBody.mergeManaged(first.body, { wiki: next }, '7');
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(second.changed, true);
+    assert.strictEqual(second.body, first.body.split('1a2b3c4').join('def5678'));
+    assert.ok(second.body.startsWith(body46()), 'the 46 part of the body did not move');
+
+    const third = ghBody.mergeManaged(second.body, { wiki: next }, '7');
+    assert.strictEqual(third.changed, false);
+    assert.strictEqual(third.body, second.body);
+  });
+
+  test('3b: the wiki section is exactly the dir marker line plus a pinned-revision link', () => {
+    assert.strictEqual(
+      ghBody.buildWikiSection(wikiArgs()),
+      '<!-- devflow:dir=07-store-demo -->\n' +
+        'Detail: [Objective-7-store-demo](https://github.com/o/r/wiki/Objective-7-store-demo/1a2b3c4) (revision `1a2b3c4`)'
+    );
+  });
+
+  test('3c: buildWikiSection refuses a dir, page, url or sha that would not round-trip safely', () => {
+    for (const bad of [
+      { dir: '' },
+      { dir: '../x' },
+      { dir: 'a/b' },
+      { dir: 'a b' },
+      { dir: '07-x -->' },
+      { dir: 'a..b' },
+      { page: '' },
+      { page: 'two words' },
+      { page: 'bad]name' },
+      { url: 'javascript:alert(1)' },
+      { url: 'https://x/y z' },
+      { url: 'https://x/y)' },
+      { sha: 'xyz' },
+      { sha: '' },
+    ]) {
+      assert.throws(() => ghBody.buildWikiSection(wikiArgs(bad)), TypeError, JSON.stringify(bad));
+    }
+    assert.throws(() => ghBody.buildWikiSection(), TypeError);
+  });
+
+  test('4: parseDirMarker reads the dir back from a merged body, and is null without a wiki section', () => {
+    const merged = ghBody.mergeManaged(body46(), { wiki: ghBody.buildWikiSection(wikiArgs()) }, '7').body;
+    assert.strictEqual(ghBody.parseDirMarker(merged), '07-store-demo');
+    assert.strictEqual(ghBody.parseDirMarker(body46()), null);
+    assert.strictEqual(ghBody.parseDirMarker(''), null);
+    assert.strictEqual(ghBody.parseDirMarker(null), null);
+    assert.strictEqual(ghBody.parseDirMarker(undefined), null);
+  });
+
+  test('4b: a dir marker a human pasted outside the wiki section does not count', () => {
+    const body = '<!-- devflow:id=7 -->\n<!-- devflow:dir=07-pasted -->\nhuman\n';
+    assert.strictEqual(ghBody.parseDirMarker(body), null);
+  });
+
+  test('4c: an unsafe dir on GitHub is refused on read (it would become a cache path)', () => {
+    for (const evil of ['../etc', 'a/b', '/abs', '..', '.hidden-ok-no', 'a b']) {
+      const body = `<!-- devflow:id=7 -->\n${wikiBlock(`<!-- devflow:dir=${evil} -->\nDetail: x`)}\n`;
+      assert.strictEqual(ghBody.parseDirMarker(body), null, evil);
+    }
+  });
+
+  test('4d: parseDirMarker works on a CRLF body', () => {
+    const merged = ghBody.mergeManaged(body46(), { wiki: ghBody.buildWikiSection(wikiArgs()) }, '7').body;
+    assert.strictEqual(ghBody.parseDirMarker(merged.replace(/\n/g, '\r\n')), '07-store-demo');
+  });
+
+  test('5: buildMetaSection and parseMeta round-trip; missing keys are omitted', () => {
+    const text = ghBody.buildMetaSection({ type: 'Objective', work: 'feature', kind: 'plugin' });
+    assert.strictEqual(text, 'type: Objective\nwork: feature\nkind: plugin');
+    const merged = ghBody.mergeManaged(body46(), { meta: text }, '7').body;
+    assert.deepStrictEqual(ghBody.parseMeta(ghBody.extractSection(merged, 'meta')), {
+      type: 'Objective',
+      work: 'feature',
+      kind: 'plugin',
+    });
+
+    assert.strictEqual(ghBody.buildMetaSection({ type: 'TRD' }), 'type: TRD');
+    assert.strictEqual(ghBody.buildMetaSection({ work: 'bugfix', kind: '' }), 'work: bugfix');
+    assert.strictEqual(ghBody.buildMetaSection({}), '');
+    assert.deepStrictEqual(ghBody.parseMeta('type: TRD'), { type: 'TRD' });
+  });
+
+  test('5b: parseMeta ignores unknown keys and tolerates null', () => {
+    assert.deepStrictEqual(ghBody.parseMeta('type: Objective\nowner: nobody\nnot a pair\nkind:   cli  '), {
+      type: 'Objective',
+      kind: 'cli',
+    });
+    assert.deepStrictEqual(ghBody.parseMeta(null), {});
+    assert.deepStrictEqual(ghBody.parseMeta(''), {});
+  });
+
+  test('5c: buildMetaSection refuses a multi-line value', () => {
+    assert.throws(() => ghBody.buildMetaSection({ type: 'a\nb' }), TypeError);
+    assert.throws(() => ghBody.buildMetaSection({ kind: 7 }), TypeError);
+  });
+
+  test('6: extractSection returns the inner text, null when missing or malformed', () => {
+    const body = ghBody.mergeManaged('', { summary: 'S1', criteria: 'C1\nC2' }, '7').body;
+    assert.strictEqual(ghBody.extractSection(body, 'summary'), 'S1');
+    assert.strictEqual(ghBody.extractSection(body, 'criteria'), 'C1\nC2');
+    assert.strictEqual(ghBody.extractSection(body, 'footer'), null);
+    assert.strictEqual(ghBody.extractSection('<!-- devflow:begin footer -->\nno end', 'footer'), null);
+    assert.strictEqual(ghBody.extractSection('', 'summary'), null);
+    assert.strictEqual(ghBody.extractSection(null, 'summary'), null);
+    assert.strictEqual(ghBody.extractSection(body.replace(/\n/g, '\r\n'), 'criteria'), 'C1\nC2');
+  });
+
+  test('6b: extractSection returns an empty string for an empty section', () => {
+    const body = ghBody.mergeManaged('', { meta: '' }, '7').body;
+    assert.strictEqual(ghBody.extractSection(body, 'meta'), '');
+  });
+
+  test('7: preserveTicks keeps a tick the verifier set; without it the 46 behaviour (untick) stays', () => {
+    const existing = ghBody.mergeManaged('', { criteria: '- [x] a works\n- [ ] b works' }, '7').body;
+    const fresh = { criteria: '- [ ] a works\n- [ ] b works\n- [ ] c new' };
+
+    const kept = ghBody.mergeManaged(existing, fresh, '7', { preserveTicks: true });
+    assert.strictEqual(kept.ok, true);
+    assert.strictEqual(ghBody.extractSection(kept.body, 'criteria'), '- [x] a works\n- [ ] b works\n- [ ] c new');
+
+    const dropped = ghBody.mergeManaged(existing, fresh, '7');
+    assert.strictEqual(ghBody.extractSection(dropped.body, 'criteria'), fresh.criteria);
+    const dropped2 = ghBody.mergeManaged(existing, fresh, '7', { preserveTicks: false });
+    assert.strictEqual(dropped2.body, dropped.body);
+  });
+
+  test('7b: preserveTicks is idempotent: the same push again is changed:false', () => {
+    const existing = ghBody.mergeManaged('', { criteria: '- [x] a works\n- [ ] b works' }, '7').body;
+    const fresh = { criteria: '- [ ] a works\n- [ ] b works' };
+    const r = ghBody.mergeManaged(existing, fresh, '7', { preserveTicks: true });
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.body, existing);
+  });
+
+  test('7c: preserveTicks never touches other sections and does nothing on a fresh body', () => {
+    const fresh = { summary: 'S1', criteria: '- [ ] a works', trds: '- [ ] 7-01' };
+    const first = ghBody.mergeManaged('', fresh, '7', { preserveTicks: true });
+    assert.strictEqual(ghBody.extractSection(first.body, 'criteria'), '- [ ] a works');
+    const ticked = first.body.replace('- [ ] a works', '- [x] a works').replace('- [ ] 7-01', '- [x] 7-01');
+    const again = ghBody.mergeManaged(ticked, fresh, '7', { preserveTicks: true });
+    assert.strictEqual(ghBody.extractSection(again.body, 'criteria'), '- [x] a works');
+    assert.strictEqual(ghBody.extractSection(again.body, 'trds'), '- [ ] 7-01', 'only criteria preserves ticks');
+  });
+
+  test('7d: a criterion the new content already ticked stays ticked', () => {
+    const existing = ghBody.mergeManaged('', { criteria: '- [ ] a works' }, '7').body;
+    const r = ghBody.mergeManaged(existing, { criteria: '- [x] a works' }, '7', { preserveTicks: true });
+    assert.strictEqual(ghBody.extractSection(r.body, 'criteria'), '- [x] a works');
+  });
+
+  test('8: preserveTicks matches by text with whitespace collapsed, not by position', () => {
+    const existing = ghBody.mergeManaged('', { criteria: '- [x]  a   works\n- [ ] z last' }, '7').body;
+    const fresh = { criteria: '- [ ] z last\n- [ ] a works' };
+    const r = ghBody.mergeManaged(existing, fresh, '7', { preserveTicks: true });
+    assert.strictEqual(ghBody.extractSection(r.body, 'criteria'), '- [ ] z last\n- [x] a works');
+  });
+
+  test('8b: preserveTicks accepts an upper-case [X] and a prefixed 46-style line', () => {
+    const existing = ghBody.mergeManaged('', { criteria: '- [X] SC-1: Re-running sync creates no duplicates' }, '7').body;
+    const fresh = { criteria: '- [ ] SC-1: Re-running sync creates no duplicates' };
+    const r = ghBody.mergeManaged(existing, fresh, '7', { preserveTicks: true });
+    assert.strictEqual(ghBody.extractSection(r.body, 'criteria'), '- [x] SC-1: Re-running sync creates no duplicates');
+  });
+
+  test('8c: preserveTicks on a CRLF body keeps CRLF and the tick', () => {
+    const existing = ghBody.mergeManaged('', { criteria: '- [x] a works' }, '7').body.replace(/\n/g, '\r\n');
+    const r = ghBody.mergeManaged(existing, { criteria: '- [ ] a works' }, '7', { preserveTicks: true });
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.body, existing);
+  });
+
+  test('9: buildTrdsSection native mode is a one-line count', () => {
+    const trds = [
+      { id: '7-01', number: 12, title: 'alpha', done: false },
+      { id: '7-02', number: 13, title: 'beta', done: true },
+      { id: '7-03', number: 14, title: 'gamma', done: false },
+    ];
+    assert.strictEqual(ghBody.buildTrdsSection({ mode: 'native', trds }), '3 TRDs, tracked as sub-issues.');
+    assert.strictEqual(ghBody.buildTrdsSection({ mode: 'native', trds: trds.slice(0, 1) }), '1 TRD, tracked as sub-issues.');
+    assert.strictEqual(ghBody.buildTrdsSection({ mode: 'native', trds: [] }), '_None yet._');
+  });
+
+  test('9b: buildTrdsSection tasklist mode renders a sorted task list, ticked when closed', () => {
+    const trds = [
+      { id: '7-10', number: 21, title: 'ten', done: false },
+      { id: '7-02', number: 13, title: 'beta', done: true },
+      { id: '7-01', number: 12, title: 'alpha', done: false },
+    ];
+    assert.strictEqual(
+      ghBody.buildTrdsSection({ mode: 'tasklist', trds }),
+      '- [ ] #12 7-01 alpha\n- [x] #13 7-02 beta\n- [ ] #21 7-10 ten'
+    );
+    assert.strictEqual(ghBody.buildTrdsSection({ mode: 'tasklist', trds: [{ id: '7-01', number: 5 }] }), '- [ ] #5 7-01');
+    assert.strictEqual(ghBody.buildTrdsSection({ mode: 'tasklist', trds: [] }), '_None yet._');
+  });
+
+  test('9c: buildTrdsSection refuses an unknown mode and a tasklist item without an issue number', () => {
+    assert.throws(() => ghBody.buildTrdsSection({ mode: 'weird', trds: [] }), TypeError);
+    assert.throws(() => ghBody.buildTrdsSection({ trds: [] }), TypeError);
+    assert.throws(() => ghBody.buildTrdsSection({ mode: 'tasklist', trds: [{ id: '7-01', title: 'x' }] }), TypeError);
+    assert.throws(() => ghBody.buildTrdsSection({ mode: 'tasklist', trds: [{ id: '7-01', number: 0 }] }), TypeError);
+  });
+
+  test('9d: a trds section merges like any other and is stable', () => {
+    const trds = [{ id: '7-01', number: 12, title: 'alpha', done: false }];
+    const sections = { trds: ghBody.buildTrdsSection({ mode: 'tasklist', trds }) };
+    const first = ghBody.mergeManaged('', sections, '7');
+    const second = ghBody.mergeManaged(first.body, sections, '7');
+    assert.strictEqual(second.changed, false);
+  });
+});
+
+// ─── 47: Decision-form ids and multi-part comment lookup ─────────────────────
+
+describe('47 decision ids and comment lookup', () => {
+  const comment = (id, markerId, kind, part, text) => ({
+    id,
+    body: `${ghBody.commentMarker(markerId, kind)}\n${part ? `<!-- devflow:part=${part} -->\n` : ''}${text || 'text'}`,
+  });
+
+  test('10: the Decision id form 47-01-d1 is a valid marker id', () => {
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=47-01-d1 -->'), { id: '47-01-d1', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=47-01-d12 kind=spec -->'), {
+      id: '47-01-d12',
+      kind: 'spec',
+    });
+    assert.strictEqual(ghBody.markerLine('47-01-d1'), '<!-- devflow:id=47-01-d1 -->');
+    assert.strictEqual(ghBody.commentMarker('47-01-d1', 'decision'), '<!-- devflow:id=47-01-d1 kind=decision -->');
+  });
+
+  test('10b: leading zeros on the objective part are dropped from a Decision id; the TRD part is kept', () => {
+    assert.strictEqual(ghBody.markerLine('047-01-d1'), '<!-- devflow:id=47-01-d1 -->');
+    assert.strictEqual(ghBody.markerLine('07-01-d2'), '<!-- devflow:id=7-01-d2 -->');
+    assert.strictEqual(ghBody.markerLine('2.1-03-d4'), '<!-- devflow:id=2.1-03-d4 -->');
+  });
+
+  test('10c: ids that are not a Decision form are still invalid', () => {
+    for (const bad of ['47-d1', '47-01-d', '47-01-d1-2', '47-01-dx', '47-01d1', '47-01-D1', '47.-01-d1']) {
+      assert.throws(() => ghBody.markerLine(bad), TypeError, bad);
+      assert.strictEqual(ghBody.extractMarker(`<!-- devflow:id=${bad} -->`), null, bad);
+    }
+  });
+
+  test('10d: a Decision-id body merges, and a marker for a different Decision is refused', () => {
+    const r = ghBody.mergeManaged('', { summary: 'S1' }, '47-01-d1');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.body.split('\n')[0], '<!-- devflow:id=47-01-d1 -->');
+    const again = ghBody.mergeManaged(r.body, { summary: 'S1' }, '047-01-d1');
+    assert.strictEqual(again.changed, false);
+    const other = ghBody.mergeManaged(r.body, { summary: 'S1' }, '47-01-d2');
+    assert.strictEqual(other.ok, false);
+    assert.match(other.error, /does not match/);
+  });
+
+  test('10e: all the 46 marker forms still parse', () => {
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=46 -->'), { id: '46', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=2.1 -->'), { id: '2.1', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=46-02 -->'), { id: '46-02', kind: null });
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=46 kind=state -->'), { id: '46', kind: 'state' });
+  });
+
+  test('11: extractMarker ignores the dir and file markers (they have no id=)', () => {
+    assert.strictEqual(ghBody.extractMarker('<!-- devflow:dir=x -->'), null);
+    assert.strictEqual(ghBody.extractMarker('<!-- devflow:file=y -->'), null);
+    assert.strictEqual(ghBody.extractMarker('<!-- devflow:dir=07-store-demo -->\n<!-- devflow:file=07-01-TRD.md -->'), null);
+    assert.deepStrictEqual(
+      ghBody.extractMarker('<!-- devflow:dir=x -->\n<!-- devflow:id=7 -->\n<!-- devflow:file=y -->'),
+      { id: '7', kind: null }
+    );
+  });
+
+  test('12: findCommentsByMarker returns every part comment in part order, even if given 2/2 before 1/2', () => {
+    const c2 = comment(902, '07-01', 'summary', '2/2', 'second half');
+    const c1 = comment(901, '07-01', 'summary', '1/2', 'first half');
+    const otherId = comment(5, '07-02', 'summary', '1/1');
+    const otherKind = comment(6, '07-01', 'verification', '1/1');
+    const human = { id: 7, body: 'LGTM' };
+    const issueMarker = { id: 8, body: '<!-- devflow:id=7-01 -->\nnot a comment kind' };
+    const found = ghBody.findCommentsByMarker([c2, otherId, human, c1, otherKind, issueMarker], '07-01', 'summary');
+    assert.deepStrictEqual(found, [
+      { comment: c1, part: 1, of: 2 },
+      { comment: c2, part: 2, of: 2 },
+    ]);
+  });
+
+  test('12b: the id is compared canonically and part order is numeric (10 after 9, not after 1)', () => {
+    const parts = [];
+    for (let i = 12; i >= 1; i--) parts.push(comment(1000 + i, '7-01', 'spec', `${i}/12`));
+    const found = ghBody.findCommentsByMarker(parts, '007-01', 'spec');
+    assert.deepStrictEqual(
+      found.map((f) => f.part),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    );
+    assert.ok(found.every((f) => f.of === 12));
+  });
+
+  test('12c: a comment without a part marker is part 1 of 1; ties break by comment id', () => {
+    const a = comment(30, '7-01', 'summary');
+    const b = comment(20, '7-01', 'summary');
+    const found = ghBody.findCommentsByMarker([a, b], '7-01', 'summary');
+    assert.deepStrictEqual(found, [
+      { comment: b, part: 1, of: 1 },
+      { comment: a, part: 1, of: 1 },
+    ]);
+  });
+
+  test('12d: the part marker is only read from the line after the marker; a malformed one counts as part 1', () => {
+    const late = { id: 1, body: `${ghBody.commentMarker('7-01', 'summary')}\ntext\n<!-- devflow:part=2/2 -->` };
+    const zero = comment(2, '7-01', 'summary', '0/2');
+    const over = comment(3, '7-01', 'summary', '3/2');
+    const found = ghBody.findCommentsByMarker([late, zero, over], '7-01', 'summary');
+    assert.deepStrictEqual(
+      found.map((f) => [f.comment.id, f.part, f.of]),
+      [
+        [1, 1, 1],
+        [2, 1, 1],
+        [3, 1, 1],
+      ]
+    );
+  });
+
+  test('12e: CRLF comment bodies are read', () => {
+    const c2 = { id: 2, body: comment(2, '7-01', 'summary', '2/2').body.replace(/\n/g, '\r\n') };
+    const c1 = { id: 1, body: comment(1, '7-01', 'summary', '1/2').body.replace(/\n/g, '\r\n') };
+    const found = ghBody.findCommentsByMarker([c2, c1], '7-01', 'summary');
+    assert.deepStrictEqual(
+      found.map((f) => [f.comment.id, f.part, f.of]),
+      [
+        [1, 1, 2],
+        [2, 2, 2],
+      ]
+    );
+  });
+
+  test('12f: a Decision-form id finds its own comments and not the TRD\'s', () => {
+    const trd = comment(1, '47-01', 'summary');
+    const dec = comment(2, '47-01-d1', 'summary');
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([trd, dec], '47-01-d1', 'summary'), [
+      { comment: dec, part: 1, of: 1 },
+    ]);
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([trd, dec], '47-01', 'summary'), [
+      { comment: trd, part: 1, of: 1 },
+    ]);
+  });
+
+  test('12g: no match, a non-array and missing bodies give []; an invalid id or kind is a TypeError', () => {
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([], '7-01', 'summary'), []);
+    assert.deepStrictEqual(ghBody.findCommentsByMarker(null, '7-01', 'summary'), []);
+    assert.deepStrictEqual(ghBody.findCommentsByMarker([null, { id: 1 }, { id: 2, body: 5 }], '7-01', 'summary'), []);
+    assert.throws(() => ghBody.findCommentsByMarker([], 'nope', 'summary'), TypeError);
+    assert.throws(() => ghBody.findCommentsByMarker([], '7-01', 'Not Valid'), TypeError);
+  });
+
+  test('12h: with no kind, every comment-kind marker for the id matches (issue-body markers still do not)', () => {
+    const s = comment(1, '7-01', 'summary');
+    const v = comment(2, '7-01', 'verification');
+    const issue = { id: 3, body: '<!-- devflow:id=7-01 -->\nbody' };
+    const found = ghBody.findCommentsByMarker([v, issue, s], '7-01');
+    assert.deepStrictEqual(
+      found.map((f) => f.comment.id),
+      [1, 2]
+    );
+  });
+});
+
 // ─── Module purity───────────────────────────────────────────────────────────
 
 describe('module purity', () => {
