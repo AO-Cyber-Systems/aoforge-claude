@@ -27,6 +27,9 @@ const PLANNING_MODULES = [
   'planning-import.cjs', 'planning-verbs-cli.cjs', 'planning-drift.cjs', 'planning-audit.cjs',
 ];
 
+// objective 51 (TRD 51-08): the backfill migration lives under migrations/; guarded by its lib-relative path.
+const MIGRATION_0011 = path.join('migrations', '0011-github-store-backfill.cjs');
+
 const GUARDED = [
   'gh.cjs', 'gh-pull.cjs', 'gh-issue.cjs', 'gh-project.cjs', 'gh-mapping.cjs', 'gh-body.cjs',
   'gh-milestone.cjs', 'sync-state.cjs', 'conflict.cjs', 'awareness.cjs',
@@ -64,6 +67,10 @@ const GUARDED = [
   // objective 51 (TRD 51-03): the backfill core. Pure: it reads local files and the journal, returns ops, and never
   // spawns gh or git, enqueues, flushes or writes to GitHub.
   'gh-backfill.cjs',
+  // objective 51 (TRD 51-08): migration 0011, the backfill driver. It reaches GitHub only through the import, the outbox
+  // flusher and the readers (ghRead / ghPaginate), and git only through objective-branch's runGit seam: it spawns
+  // neither gh nor git and never calls ghWrite( (test 24). A path under migrations/, read relative to lib/.
+  MIGRATION_0011,
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
@@ -76,6 +83,7 @@ const NO_DIRECT_WRITE = [
   'gh-check.cjs',
   'gh-setup-cli.cjs',
   'gh-backfill.cjs', // objective 51 (TRD 51-03)
+  MIGRATION_0011, // objective 51 (TRD 51-08)
   ...PLANNING_MODULES,
 ];
 
@@ -243,5 +251,15 @@ describe('one gh seam (TRD 46-08)', () => {
     assert.deepStrictEqual(bad(/\bghWrite\(|\bghRead\(|\brunGh\(/), [], 'no GitHub calls');
     assert.deepStrictEqual(bad(/child_process|\bspawn(Sync)?\(|\bexecFile(Sync)?\(|\bexecSync\(/), [], 'spawns nothing (neither gh nor git)');
     assert.deepStrictEqual(bad(/\benqueue\(|\bflush\(|gh-outbox-flush/), [], 'never queues or flushes: callers own that');
+  });
+});
+
+describe('migration 0011 stays behind the seams (TRD 51-08)', () => {
+  test('24b (51-08): 0011 is guarded, spawns neither gh nor git (no child_process at all) and never calls ghWrite(', () => {
+    assert.ok(GUARDED.includes(MIGRATION_0011) && NO_DIRECT_WRITE.includes(MIGRATION_0011), 'guarded, no direct write');
+    const code = read(MIGRATION_0011).split('\n').map((line, i) => [i + 1, line]).filter(([, l]) => !isComment(l));
+    const hits = (re) => code.filter(([, l]) => re.test(l)).map(([n, l]) => `${MIGRATION_0011}:${n}: ${l.trim()}`);
+    assert.deepStrictEqual(hits(/child_process|spawnSync\(|execFileSync\(|execSync\(|\bspawn\(/), [], 'no process is spawned');
+    assert.deepStrictEqual(hits(/\bghWrite\(|\brunGh\(|\b_runGh\(/), [], 'no direct GitHub write and no raw gh call');
   });
 });
