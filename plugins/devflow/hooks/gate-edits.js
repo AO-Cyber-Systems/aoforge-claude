@@ -5,6 +5,22 @@
  *
  * Strict DENY by default in ambient mode (DevFlow project detected, no skill running).
  *
+ * Decision order (first match wins):
+ *   0. Store-mode cache deny (TRD 48-08, D-18) — ONLY when the MAIN checkout's
+ *      `.planning/config.json` has `github.enabled: true` AND `github.store: true`.
+ *      An edit of a `cache` or `generated` file under this project's `.planning/`
+ *      (nearest or main checkout) is denied, and the reason names the df-tools
+ *      verb that changes it (`plan put-trd`, `summary post`, `doc put`,
+ *      `gh pull --all`, ...). Neither a `.skill-active` marker nor a `devflow:*`
+ *      agent bypasses it — those are exactly the actors the verbs constrain.
+ *      Escapes: the override phrase (.edit-override), DEVFLOW_SKIP_EDIT_GATE=1,
+ *      gates.editGate "off"; "warn" turns it into 'ask'. No other escape.
+ *      Store off (the default), this rule never runs and the planning libs are
+ *      not loaded. Fails open: any error loading or running them skips the rule.
+ *   1. `.planning/**` allowed, then `*.md` allowed (see "Permits edits to").
+ *   2. Not a DevFlow project → noop; target outside the project → allow.
+ *   3. The escape hatches below, then DENY.
+ *
  * Escape hatches:
  *   1. .planning/.skill-active marker file — written by `df-tools skill-active --start`,
  *      removed by `--end`. Indicates an executor/skill is actively running.
@@ -29,7 +45,8 @@
  *      (never 'ask').
  *
  * Permits edits to:
- *   - .planning/**        (planning artifacts are edited directly)
+ *   - .planning/**        (planning artifacts are edited directly; in store mode
+ *                          only tracked config and runtime paths — rule 0)
  *   - *.md docs           (documentation always allowed)
  *
  * Non-modifying tools (Read, Grep, Glob, etc.) never fire this hook — the
@@ -250,6 +267,83 @@ function isDevflowAgent(agentType) {
     agentType.length > DEVFLOW_AGENT_PREFIX.length;
 }
 
+// ---------------------------------------------------------------------------
+// TRD 48-08 — store-mode cache deny (planning libs from 48-01)
+// ---------------------------------------------------------------------------
+
+const PLANNING_LIB_DIR = path.join(__dirname, '..', 'devflow', 'bin', 'lib');
+
+/** undefined = not loaded yet; null = unavailable (fail open); else `{isStoreMode, classify, relToPlanning}`. */
+let planningLibs;
+
+/**
+ * The 48-01 planning libs, required lazily (only when a store-mode decision
+ * needs them) and fail-open: a missing or broken module yields null, and the
+ * caller behaves as store off.
+ *
+ * @returns {{isStoreMode: Function, classify: Function, relToPlanning: Function}|null}
+ */
+function loadPlanningLibs() {
+  if (planningLibs !== undefined) return planningLibs;
+  try {
+    const mode = require(path.join(PLANNING_LIB_DIR, 'planning-mode.cjs'));
+    const paths = require(path.join(PLANNING_LIB_DIR, 'planning-paths.cjs'));
+    planningLibs = {
+      isStoreMode: mode.isStoreMode,
+      classify: paths.classify,
+      relToPlanning: paths.relToPlanning,
+    };
+  } catch {
+    planningLibs = null;
+  }
+  return planningLibs;
+}
+
+/**
+ * Test seam: replace the planning libs. `undefined` restores lazy loading of
+ * the real modules; `null` simulates them being unavailable.
+ */
+function _setPlanningLibs(libs) {
+  planningLibs = libs;
+}
+
+const CACHE_DENY_CLASSES = new Set(['cache', 'generated']);
+
+/**
+ * The store-mode deny for `filePath`, or null to fall through to the rest of
+ * the gate. `filePath` must sit under one of `planningDirs` (the nearest
+ * `.planning/`, then the main checkout's); a `.planning/` of some other project
+ * is not this project's cache. Never throws: any error → null (fail open).
+ *
+ * @param {string} filePath
+ * @param {Array<string|null|undefined>} planningDirs
+ * @returns {{decision: 'deny', reason: string}|null}
+ */
+function cacheDeny(filePath, planningDirs) {
+  try {
+    const libs = loadPlanningLibs();
+    if (!libs) return null;
+    for (const dir of planningDirs) {
+      if (!dir) continue;
+      const rel = libs.relToPlanning(filePath, dir);
+      if (!rel) continue;
+      const c = libs.classify(rel);
+      if (!c || !CACHE_DENY_CLASSES.has(c.class)) return null;
+      const hint = c.hint || `\`df-tools ${c.verb}\``;
+      return {
+        decision: 'deny',
+        reason:
+          `${rel} is a read-only cache of GitHub in store mode (github.store: true). ` +
+          `Change it with: ${hint}. ` +
+          'Direct edits are overwritten by gh pull --all and flagged by validate (W055).',
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Core gate decision — pure function, no I/O.
  *
@@ -260,13 +354,26 @@ function isDevflowAgent(agentType) {
  * @param {boolean} opts.skillActive - True if .skill-active marker exists
  * @param {boolean} opts.overrideActive  - True if .edit-override marker was fresh (consumed)
  * @param {unknown} [opts.agentType] - PreToolUse payload `agent_type` (subagents only)
+ * @param {boolean} [opts.storeMode] - TRD 48-08: github.store is on (default false → rule skipped)
+ * @param {string|null} [opts.sharedDir] - TRD 48-08: the MAIN checkout's .planning (worktree callers)
  * @returns {{ decision: 'deny'|'allow'|'noop', reason?: string }}
+ *
+ * Pure apart from the store-mode rule, which (only when `storeMode` is true)
+ * resolves the target's realpath to classify it.
  */
-function shouldGate({ tool, filePath, planningDir, skillActive, overrideActive, agentType }) {
+function shouldGate({ tool, filePath, planningDir, skillActive, overrideActive, agentType, storeMode, sharedDir }) {
   // Only gate Edit/Write/MultiEdit — defensive check for future matcher changes
   if (!/^(Edit|Write|MultiEdit)$/.test(tool)) return { decision: 'noop' };
 
   if (!filePath) return { decision: 'noop' };
+
+  // TRD 48-08 (D-18) — store mode: cached/generated planning files change only
+  // through their df-tools verb. Deliberately BEFORE the planning-artifact,
+  // devflow-agent and skill-active allows; only the override phrase skips it.
+  if (storeMode === true && !overrideActive) {
+    const denied = cacheDeny(filePath, [planningDir, sharedDir]);
+    if (denied) return denied;
+  }
 
   // Always allow planning artifacts (planning docs are edited directly)
   if (/\/\.planning\//.test(filePath)) return { decision: 'allow', reason: 'planning artifact' };
@@ -377,4 +484,5 @@ module.exports = {
   findPlanningDir,
   readEditGateMode,
   VALID_EDIT_GATE_MODES,
+  _setPlanningLibs,
 };
