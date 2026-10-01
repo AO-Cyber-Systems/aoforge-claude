@@ -2,9 +2,14 @@
 
 Status: accepted for planning, 2026-09-30. Objectives 46–51 implement it.
 Objective 46 (foundations) and objective 47 (the authoritative store: hierarchy, TRD codec and budget,
-comments, outbox, wiki store, `gh pull --all`, degraded mode) are implemented. The store ships opt-in
-(`github.store`, default false); objectives 48–51 move skills, agents, enforcement and the PR lifecycle
-onto it. Known gap: `gh trd freeze|scope|fold` need connectivity (offline they exit 1 and queue nothing).
+comments, outbox, wiki store, `gh pull --all`, degraded mode) are implemented. Objective 48 (write-path
+migration) is implemented: every planning write is a df-tools verb (`plan put-trd`, `summary post`,
+`doc put`, ...) that writes today's file with the store off and the cache plus the outbox with it on; the
+edit gate denies direct edits of cache files in store mode; `validate health` reports drift (W055);
+migration 0010 untracks the cache; and skills, workflows, agents and templates hold zero direct
+planning-write instructions (CI-enforced). The store ships opt-in (`github.store`, default false);
+objectives 49–51 move enforcement and the PR lifecycle onto it. Known gap: `gh trd freeze|scope|fold`
+need connectivity (offline they exit 1 and queue nothing).
 
 ### Planning refinements (objective 47)
 
@@ -17,6 +22,24 @@ Decisions taken while planning objective 47 that refine, and do not change, the 
 - D-17: the wiki clone lives at `.planning/wiki/`, excluded through `info/exclude`.
 - D-24: remote-edit detection compares a body hash (`updated_at` is only a pre-filter). A change to a
   managed section or a TRD body halts the queue for a human; a change to human text only is merged.
+
+### Planning refinements (objective 48)
+
+Decisions taken while planning objective 48 that refine, and do not change, the table below:
+
+- U-1 tracked set: in store mode only `.planning/config.json` and `.planning/STACK.md` stay tracked
+  (`.planning/*` plus two negations, written by confirm migration 0010); the rest is cache or runtime.
+- U-1/U-3 entity issues: todos, debug sessions and quick tasks are GitHub issues with outbox roles,
+  mapping entries and cache materialisation. Debug and Quick use native issue types, or
+  `devflow:type/Debug` / `devflow:type/Quick` labels where the org has none.
+- D-05 milestones: native GitHub milestones titled `<milestone_prefix><version>`, a description of at
+  most 1,000 characters linking wiki page `Milestone-vX_Y`, which holds the full entry; archives map to
+  `Milestone-vX_Y-<Kind>`. MILESTONES.md is a generated view.
+- Research pages: `research/` and objective RESEARCH.md are wiki pages.
+- U-2 linked bulk: a fenced block over 8,000 characters, or fenced content over 40% of a TRD of 40,000+
+  characters, warns (never blocks) in `verify trd-pre` and job-checker Dimension 8.
+- D-12 summary checkpoints: `summary checkpoint` writes runtime `.planning/.trd-progress/<trd>.md` in
+  store mode and is never enqueued; `summary post` is the single GitHub write per TRD.
 Team-review page: https://claude.ai/artifact/5WUeto6m5YYsxRAz8XJd2w (private; share before linking).
 
 ## Summary

@@ -736,7 +736,7 @@ If the mapping file is lost, re-run `gh sync --all`: the `devflow:id` markers on
 
 ### Store mode
 
-Store mode (objective 47) makes GitHub hold the whole planning hierarchy, not just a mirror of objectives. It is off unless `github.store` is exactly `true`; with it off, everything above behaves as before. Objectives 48-51 move skills and agents onto the store. Until then planning files remain the working copy and the store is a push target plus a cache you can rebuild from GitHub.
+Store mode (objectives 47 and 48) makes GitHub hold the whole planning hierarchy, not just a mirror of objectives. It is off unless `github.store` is exactly `true`; with it off, everything above behaves as before and every planning verb writes the same `.planning/` file it always did. With it on, skills and agents publish planning files through df-tools verbs and `.planning/` becomes a cache you can rebuild from GitHub (see **The planning write path** below). Objectives 49-51 move enforcement and the PR lifecycle onto the store.
 
 With `github.store: true`, `df-tools gh sync <objective>` also pushes:
 
@@ -797,6 +797,59 @@ Capabilities are detected per repository and cached under `<DEVFLOW_GH_CACHE_DIR
 
 - no issue types or project fields (a user-owned repository): the labels `devflow:trd` / `devflow:decision` (`github.labels.trd|decision`) and a `meta` section in the objective body carry what types and fields would;
 - no wiki: reference pages are written to `docs/devflow/` and committed with your normal workflow; the sub-issue tree and blocked-by edges stay native.
+
+#### The planning write path (objective 48)
+
+Every planning file has one df-tools verb that writes it. Skills and agents call the verb; nobody edits the file by hand. Content comes from `--from <path>` (or `-` for stdin), usually a copy made with `planning draft <rel>`, which prints a temp path seeded with the current file.
+
+**Store off (the default).** Each verb writes the same `.planning/` file, byte for byte, that the old flow wrote, makes no `gh` calls, and `.planning/` stays tracked in git. Nothing changes for a project that never sets `github.store`.
+
+**Turning it on.** Set both keys in `.planning/config.json`, then run the first-run steps once from the main checkout:
+
+```json
+{ "github": { "enabled": true, "store": true } }
+```
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning mode                 # prints: store
+node ~/.claude/devflow/bin/df-tools.cjs gh pull --all                 # bring down what GitHub already has
+node ~/.claude/devflow/bin/df-tools.cjs planning import --dry-run     # count what is only local
+node ~/.claude/devflow/bin/df-tools.cjs planning import               # queue it to GitHub
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox flush               # drain the queue
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0010 --confirm
+```
+
+`planning import` reports, rather than skips, TRDs over the 60,000-character budget, decisions with no TRD and legacy-named TRDs (`NN-MM-TRD-<slug>.md`); rename or split those first. Running it twice queues nothing new. Migration 0010 refuses until the outbox is drained and every cache file is on GitHub, and lists each blocker. `--confirm` also runs any other pending confirm migration (for example 0006 on a project without `kind`); `--only 0010` without `--confirm` runs 0010 alone.
+
+**What git tracks afterwards.** Migration 0010 writes a `.gitignore` block (`.planning/*`, `!.planning/config.json`, `!.planning/STACK.md`) and untracks everything else from the index; the files stay on disk as the cache. Commit the result with the `df-tools commit ... --files .gitignore .planning/` line the migration prints. `df-tools doctor` warns (check 24) while a store-mode project still tracks its cache.
+
+**The verbs.**
+
+| Verb | Writes |
+|---|---|
+| `plan put-trd <obj> <file> --from <f> [--no-push]` / `plan push <obj>` | a TRD; refused over 60,000 encoded characters or once frozen. Batch with `--no-push`, then one `push` |
+| `summary checkpoint <trd> --from <f>` | progress after each task. Store mode writes runtime `.planning/.trd-progress/<trd>.md` and never reaches GitHub |
+| `summary post <trd> --from <f>` | the final SUMMARY, the one GitHub write per TRD |
+| `verification post <obj> --from <f>` | VERIFICATION.md |
+| `doc put <rel> --from <f>` | OBJECTIVE/CONTEXT/RESEARCH/UAT pages, PROJECT.md, REQUIREMENTS.md, `research/`, `codebase/` |
+| `objective put <id> --from <f>` / `objective set-status <id> <status>` | an objective's OBJECTIVE.md and its status |
+| `todo add --from <f>` / `todo complete <stem>` | a todo (an issue in store mode); completion moves it to `todos/completed/` |
+| `debug put <slug> --from <f>` / `debug resolve <slug>` | a debug session (a `Debug` issue in store mode) |
+| `quick put <N> <slug> --from <f>` / `quick summary <N> --from <f>` | a quick task and its summary (a `Quick` issue) |
+| `decision open <trd> --question <q>` / `decision answer <trd>-d<k> --from <f>` | a decision on a TRD |
+| `milestone put <v> --from <f>` / `milestone complete <v>` | a milestone (a native GitHub milestone plus a `Milestone-vX_Y` wiki page) |
+
+`summary checkpoint` and `summary post` write the main checkout even when run from a worktree, so `/devflow:execute-objective` commits a wave's SUMMARYs from the main checkout after merging it. In store mode STATE.md, ROADMAP.md and MILESTONES.md are generated: STATE.md mutators record into the per-clone `state.json`, and `gh pull --all` regenerates the views.
+
+**Reading the gate message.** In store mode the edit gate denies an Edit or Write of a cached or generated `.planning/` file for everyone, including skills and DevFlow agents:
+
+```
+.planning/objectives/48-x/48-01-foo-TRD.md is a read-only cache of GitHub in store mode (github.store: true). Change it with: `df-tools plan put-trd 48 48-01-foo-TRD.md --from <draft>`. Direct edits are overwritten by gh pull --all and flagged by validate (W055).
+```
+
+Run the named verb with a draft instead. `config.json`, `STACK.md` and runtime files (`.trd-progress/`, `.skill-active` and the like) are always editable. The deny takes effect only once the installed DevFlow plugin is at or above the release that carries objective 48; `df-tools doctor` reports a stale plugin cache (check 11).
+
+**W055.** `validate health` (Check 15) reports W055 for a cache or generated file whose bytes match neither its last GitHub baseline nor a pending verb write: someone changed it outside a verb. The message names the verb that publishes it, or `gh pull --all --force` to take GitHub's version back. W056 means the check could not run, or stopped at its 5,000-file cap (for example an unreadable ledger). Neither appears in local mode.
 
 ### What does NOT sync
 
