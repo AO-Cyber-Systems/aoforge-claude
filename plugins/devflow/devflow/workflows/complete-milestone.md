@@ -493,6 +493,10 @@ See: .planning/PROJECT.md (updated [today])
 
 <step name="handle_branches">
 
+**If `pr_lifecycle` is true (store mode, from `init milestone-op`; the init call below returns it too), skip this step entirely and continue to git_tag:** each objective was already merged through its PR, so there is no local squash merge, no merge prompt and no branch deletion to offer, and `branching_strategy` is ignored. If an objective's PR is still open, do not merge it here; say which one, and have the user run `df-tools gh pr merge <objective>` (or `df-tools gh pr reconcile <objective>` after a human merge or a merge queue) first.
+
+**If `pr_lifecycle` is false (local mode):** unchanged, continue below.
+
 Check branching strategy and offer merge options.
 
 Use `init milestone-op` for context, or load config directly:

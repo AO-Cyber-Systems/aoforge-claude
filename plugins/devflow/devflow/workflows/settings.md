@@ -32,7 +32,7 @@ Parse current values (default to `true` if not present):
 - `workflow.job_check` — spawn job checker during plan-objective
 - `workflow.verifier` — spawn verifier during execute-objective
 - `model_profile` — which model each agent uses (default: `balanced`)
-- `git.branching_strategy` — branching approach (default: `"none"`)
+- `git.branching_strategy` — branching approach (default: `"none"`). `git.branching_strategy` is deprecated in store mode: the objective PR lifecycle replaces it (one linked branch and one pull request per objective, named by `git.objective_branch_template`). In local mode it is still honoured.
 </step>
 
 <step name="present_settings">
@@ -98,6 +98,8 @@ AskUserQuestion([
   }
 ])
 ```
+
+The Branching question only matters in local mode. In store mode the objective PR lifecycle replaces `git.branching_strategy`, and the answer has no effect; tell the user so if they pick anything but None.
 </step>
 
 <step name="update_config">
