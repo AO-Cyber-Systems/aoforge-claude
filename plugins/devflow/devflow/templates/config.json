@@ -49,6 +49,8 @@
     "milestone_prefix": "v",
     "project_cache_ttl_minutes": 360,
     "app_login": "",
+    "app_id": "",
+    "checks_workflow": "",
     "labels": {
       "objective": "devflow:objective",
       "in_progress": "devflow:in-progress",

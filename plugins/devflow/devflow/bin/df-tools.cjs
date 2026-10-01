@@ -1129,8 +1129,14 @@ async function main() {
         // Store mode only (skipped otherwise). Exit codes: 0 ok, 1 error, 2 halted for a human, 3 pending.
         const { cmdGhPr } = require('./lib/gh-pr-cli.cjs');
         cmdGhPr(cwd, args.slice(2), raw);
+      } else if (subcommand === 'setup') {
+        // df-tools gh setup [--apply] [--refresh] [--require-wiki] [--raw]
+        // Dry-run unless --apply. Needs github.enabled + github.repo (not store mode; skipped otherwise).
+        // Exit codes: 0 dry-run or applied, 1 an error, a failed action, a conflicting local file or an unready wiki.
+        const { cmdGhSetup } = require('./lib/gh-setup-cli.cjs');
+        cmdGhSetup(cwd, args.slice(2), raw);
       } else {
-        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans, pr (sync-objectives: deprecated alias)');
+        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans, pr, setup (sync-objectives: deprecated alias)');
       }
       break;
     }

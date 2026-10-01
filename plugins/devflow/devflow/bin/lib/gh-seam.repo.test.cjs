@@ -59,6 +59,8 @@ const GUARDED = [
   // nothing; it is guarded but not in NO_DIRECT_WRITE because TRD 50-11 adds applySetup to this module, which writes
   // through gh-client.ghWrite (the setup apply is the one direct writer of this objective, like gh-milestone-store).
   'gh-setup.cjs',
+  // objective 50 (TRD 50-11): the `gh setup` command. It calls applySetup and nothing else: it neither spawns nor writes.
+  'gh-setup-cli.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
@@ -69,6 +71,7 @@ const NO_DIRECT_WRITE = [
   'gh-pr-cli.cjs', 'commit-trailer.cjs',
   'gh-gate.cjs',
   'gh-check.cjs',
+  'gh-setup-cli.cjs',
   ...PLANNING_MODULES,
 ];
 
