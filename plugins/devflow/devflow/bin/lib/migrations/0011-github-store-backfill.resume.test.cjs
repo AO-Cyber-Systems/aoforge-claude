@@ -367,3 +367,86 @@ describe('0011 resume after interruption (tests 1-4)', () => {
     assertSameAsControl(env, rec, base);
   });
 });
+
+// ─── 5-6. halt and the runner ─────────────────────────────────────────────────
+
+describe('0011 remote-edit halt and the bare runner resume (tests 5-6)', () => {
+  test('5: a human edit of a managed body halts; after resolve --accept-remote the next apply completes', (t) => {
+    const env = useBackfillEnv(t, SHAPE);
+    if (!env) return;
+    const rec = record(env);
+    const flushLib = require('../gh-outbox-flush.cjs');
+
+    assertStopped(run(env, { maxOps: 40 }), 'pending');
+    assert.ok(journalOf(env).ops.some((o) => o.status === 'pending' && o.kind === 'patch-body' && o.target.id === '2'),
+      "objective 2's body patch is still queued");
+    const objective2 = env.fake.issues.find((i) => i.type === 'Objective' && (ghBody.extractMarker(i.body) || {}).id === '2');
+    assert.ok(objective2, 'objective 2 is on GitHub');
+    // The human rewrites the managed summary section and keeps the devflow:id marker. (A body with the marker gone is
+    // no longer DevFlow's issue at all: after accept-remote, verify refuses its TRDs as having no objective, by design.)
+    const edited = objective2.body.replace(/(<!-- devflow:begin summary -->)[\s\S]*?(<!-- devflow:end summary -->)/,
+      '$1\nedited by a human\n$2');
+    assert.notEqual(edited, objective2.body, 'the summary section was found');
+    env.fake.humanEditBody(objective2.number, edited);
+    const gitignoreBefore = fs.existsSync(path.join(env.root, '.gitignore'))
+      ? fs.readFileSync(path.join(env.root, '.gitignore'), 'utf-8') : null;
+
+    nextRun(env, rec);
+    const err = assertStopped(run(env), 'halted');
+    assert.match(err, /`df-tools gh outbox status`/, 'the guidance names gh outbox status');
+    const seq = Number(/the outbox halted at op (\d+)/.exec(err)[1]);
+    assert.match(err, new RegExp(`gh outbox resolve ${seq} --accept-remote`));
+    assert.equal(fs.existsSync(path.join(env.root, '.gitignore'))
+      ? fs.readFileSync(path.join(env.root, '.gitignore'), 'utf-8') : null, gitignoreBefore, '.gitignore unchanged');
+    assert.equal(stamped(env).includes('0010'), false, '0010 never ran');
+    assert.equal(objective2.body, edited, 'the human edit is not overwritten');
+
+    // Before a human resolves it, another apply refuses on the halted journal and writes nothing. (A halted journal
+    // does not defer 0010 (51-04: a human has to act), and `--confirm` selects it, so 0010's refusal names the halt
+    // first and the runner stops there; 0011 would refuse its preflight on the same halt.)
+    nextRun(env, rec);
+    const writes = rec.sent.length;
+    const again = run(env);
+    assert.deepEqual(again.applied, [], JSON.stringify(again.applied));
+    assert.equal(again.failed.length, 1, JSON.stringify(again.failed));
+    assert.match(again.failed[0].error, /outbox: halted \(remote-edit\)/);
+    assert.equal(rec.sent.length, writes, 'no write while halted');
+    assert.equal(stamped(env).includes('0010'), false, '0010 did not apply');
+
+    // `df-tools gh outbox resolve <seq> --accept-remote` (its library function), then the next apply completes.
+    nextRun(env, rec);
+    const resolved = flushLib.resolveHalt(env.root, seq, 'accept-remote');
+    assert.equal(resolved.ok, true, JSON.stringify(resolved));
+    nextRun(env, rec);
+    const a = assertCompleted(env, run(env));
+    assert.match(objective2.body, /edited by a human/, 'GitHub kept the human edit (accept-remote)');
+    // The dropped body patch also carried the derived sections (the devflow:dir marker gh pull places TRDs by): they
+    // are restored without touching the accepted summary.
+    assert.match(a.notes, /repair: re-queued the derived sections .* of 1 objective .*: 2;/);
+    assert.match(objective2.body, /<!-- devflow:dir=02-objective-02 -->/);
+    assert.deepEqual(dupes(creates(rec)), [], 'no create was sent twice');
+  });
+
+  test('6: G4: a bare --apply --confirm on an interrupted store-on project skips 0010 and reaches 0011', async (t) => {
+    const base = await control(t);
+    const env = useBackfillEnv(t, SHAPE);
+    if (!env || !base) return;
+    const rec = record(env);
+
+    assertStopped(run(env, { maxOps: 40 }), 'pending');
+    assert.equal(backfill.hasPendingOps(env.root).any, true, 'interrupted: ops still queued');
+
+    nextRun(env, rec);
+    const r = upgrade.apply({ projectRoot: env.root, userHome: env.home, pluginVersion: PLUGIN_VERSION, confirm: true });
+    const skipped10 = r.skipped.find((x) => x.id === '0010');
+    assert.ok(skipped10, `0010 is skipped: ${JSON.stringify({ skipped: r.skipped, failed: r.failed })}`);
+    assert.match(skipped10.reason, /0011/, 'the deferral names 0011');
+    assert.equal(r.failed.some((x) => x.id === '0010'), false, 'the runner did not halt on 0010');
+    assert.deepEqual(r.failed, [], JSON.stringify(r.failed));
+    assert.ok(r.applied.some((x) => x.id === '0011'), `0011 ran: ${JSON.stringify(r.applied.map((x) => x.id))}`);
+    assert.ok(stamped(env).includes('0011') && stamped(env).includes('0010'), JSON.stringify(upgrade.readStamp(env.root)));
+    assert.equal(backfill.hasPendingOps(env.root).any, false, 'the journal is drained');
+    assert.ok(fs.readFileSync(path.join(env.root, '.gitignore'), 'utf-8').includes(m0010().BLOCK_START), 'the hand-off ran');
+    assertSameAsControl(env, rec, base);
+  });
+});
