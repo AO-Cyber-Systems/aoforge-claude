@@ -535,3 +535,395 @@ describe('describeDegraded (test 13)', () => {
     assert.equal(cap.describeDegraded(caps).length, 4);
   });
 });
+
+// ─── 10: the TTL cache ────────────────────────────────────────────────────────
+
+const MIN = 60 * 1000;
+const T0 = Date.UTC(2026, 9, 1, 0, 0, 0);
+
+function cacheFileFor(repo = 'o/r') {
+  return cap.cachePath(repo, process.env);
+}
+
+function writeConfigTtl(minutes) {
+  const file = path.join(project.root, '.planning', 'config.json');
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  cfg.github.project_cache_ttl_minutes = minutes;
+  fs.writeFileSync(file, JSON.stringify(cfg));
+}
+
+describe('cache location and reading (test 10)', () => {
+  test('the cache lives under <gh cache dir>/capabilities/<owner>__<repo>.json, outside the repo', () => {
+    const env = { DEVFLOW_GH_CACHE_DIR: '/x/gh-cache' };
+    assert.equal(cap.cachePath('o/r', env), path.join('/x/gh-cache', 'capabilities', 'o__r.json'));
+    assert.equal(cap.cachePath('My-Org/some.repo_x', env), path.join('/x/gh-cache', 'capabilities', 'My-Org__some.repo_x.json'));
+  });
+
+  test('with no override it is the dir gh-project already uses, under HOME read lazily', () => {
+    delete process.env.DEVFLOW_GH_CACHE_DIR;
+    assert.equal(
+      cap.cachePath('o/r'),
+      path.join(os.homedir(), '.claude', 'devflow', 'state', 'gh-project', 'capabilities', 'o__r.json'),
+    );
+    assert.ok(cap.cachePath('o/r').startsWith(hermetic.root), 'HOME is the hermetic temp root');
+  });
+
+  test('a hostile slug cannot leave the capabilities directory', () => {
+    const env = { DEVFLOW_GH_CACHE_DIR: '/x/gh-cache' };
+    const file = cap.cachePath('../../etc/passwd', env);
+    assert.equal(path.dirname(file), path.join('/x/gh-cache', 'capabilities'));
+  });
+
+  test('a missing, corrupt or foreign cache file reads as a miss; age is not applied', () => {
+    const env = process.env;
+    assert.equal(cap.readCachedCapabilities('o/r', env), null);
+
+    const file = cacheFileFor();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{ not json');
+    assert.equal(cap.readCachedCapabilities('o/r', env), null);
+
+    fs.writeFileSync(file, JSON.stringify({ repo: 'someone/else', checked_at: '2026-10-01T00:00:00.000Z' }));
+    assert.equal(cap.readCachedCapabilities('o/r', env), null);
+
+    fs.writeFileSync(file, JSON.stringify({ repo: 'o/r', checked_at: 'yesterday' }));
+    assert.equal(cap.readCachedCapabilities('o/r', env), null);
+
+    const old = { repo: 'o/r', owner_type: 'Organization', checked_at: '2001-01-01T00:00:00.000Z' };
+    fs.writeFileSync(file, JSON.stringify(old));
+    assert.equal(cap.readCachedCapabilities('o/r', env).owner_type, 'Organization');
+  });
+});
+
+describe('TTL cache behaviour (test 10)', () => {
+  test('a second call inside the TTL makes zero gh and zero git calls and returns the same answer', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    const first = detect({ probeIssue: probe, now: T0 });
+    assert.equal(first.cached, false);
+    const calls = fake.calls().length;
+    const git = gitCalls.length;
+    assert.ok(calls > 0 && git > 0);
+    assert.ok(fs.existsSync(cacheFileFor()), 'the final answer was written');
+
+    const second = detect({ probeIssue: probe, now: T0 + 359 * MIN });
+    assert.equal(fake.calls().length, calls);
+    assert.equal(gitCalls.length, git);
+    assert.equal(second.cached, true);
+    assert.equal(second.stale, false);
+    assert.equal(second.checked_at, first.checked_at);
+    const { cached: c1, ...a } = first;
+    const { cached: c2, ...b } = second;
+    assert.deepEqual(b, a);
+    assert.deepEqual(cap.resolveModes(second), cap.resolveModes(first));
+  });
+
+  test('after the TTL it probes again and rewrites the file', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    const calls = fake.calls().length;
+    const later = detect({ probeIssue: probe, now: T0 + 361 * MIN });
+    assert.ok(fake.calls().length > calls);
+    assert.equal(later.cached, false);
+    assert.equal(later.checked_at, new Date(T0 + 361 * MIN).toISOString());
+    assert.equal(cap.readCachedCapabilities('o/r', process.env).checked_at, later.checked_at);
+  });
+
+  test('the TTL comes from github.project_cache_ttl_minutes', () => {
+    const fake = setup();
+    writeConfigTtl(10);
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    const calls = fake.calls().length;
+    detect({ probeIssue: probe, now: T0 + 9 * MIN });
+    assert.equal(fake.calls().length, calls, 'inside 10 minutes');
+    detect({ probeIssue: probe, now: T0 + 11 * MIN });
+    assert.ok(fake.calls().length > calls, 'past 10 minutes');
+  });
+
+  test('a nonsense TTL falls back to 360 minutes', () => {
+    const fake = setup();
+    writeConfigTtl('soon');
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    const calls = fake.calls().length;
+    detect({ probeIssue: probe, now: T0 + 359 * MIN });
+    assert.equal(fake.calls().length, calls);
+    detect({ probeIssue: probe, now: T0 + 361 * MIN });
+    assert.ok(fake.calls().length > calls);
+  });
+
+  test('refresh:true probes again even inside the TTL', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    const calls = fake.calls().length;
+    const r = detect({ probeIssue: probe, now: T0 + MIN, refresh: true });
+    assert.ok(fake.calls().length > calls);
+    assert.equal(r.cached, false);
+  });
+
+  test('invalidate deletes the file and the next call probes again', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    assert.ok(fs.existsSync(cacheFileFor()));
+    assert.deepEqual(cap.invalidate('o/r', process.env), { ok: true, removed: true });
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+    assert.deepEqual(cap.invalidate('o/r', process.env), { ok: true, removed: false });
+    const calls = fake.calls().length;
+    detect({ probeIssue: probe, now: T0 + MIN });
+    assert.ok(fake.calls().length > calls);
+  });
+
+  test('the capability cache is per repo', () => {
+    const fake = setup();
+    detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(cap.readCachedCapabilities('o/other', process.env), null);
+    assert.notEqual(cap.cachePath('o/other', process.env), cap.cachePath('o/r', process.env));
+  });
+
+  test('a corrupt cache file is a miss, not a crash', () => {
+    const fake = setup();
+    const file = cacheFileFor();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '\u0000\u0000 garbage');
+    const r = detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.cached, false);
+    assert.equal(cap.readCachedCapabilities('o/r', process.env).repo, 'o/r');
+  });
+
+  test('a cache directory that cannot be written never fails detection', () => {
+    const fake = setup();
+    const blocker = path.join(hermetic.root, 'a-file');
+    fs.writeFileSync(blocker, 'x');
+    process.env.DEVFLOW_GH_CACHE_DIR = path.join(blocker, 'under-a-file');
+    const r = detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.final, true);
+  });
+});
+
+describe('what is never remembered (test 6 and the anti-patterns)', () => {
+  test('an answer without a probe issue is not written, and a later call with one re-probes despite the TTL', () => {
+    const fake = setup();
+    const first = detect({ now: T0 });
+    assert.equal(first.sub_issues, 'unknown');
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    const second = detect({ probeIssue: probe, now: T0 + MIN });
+    assert.equal(second.cached, false);
+    assert.equal(second.sub_issues, 'ok');
+    assert.ok(fs.existsSync(cacheFileFor()));
+  });
+
+  test('a final answer serves a later call that has no probe issue', () => {
+    const fake = setup();
+    detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    const calls = fake.calls().length;
+    const r = detect({ now: T0 + MIN });
+    assert.equal(fake.calls().length, calls);
+    assert.equal(r.sub_issues, 'ok');
+    assert.equal(r.cached, true);
+  });
+
+  test('a transient failure (500) on a probe is not written', () => {
+    const fake = setup();
+    fake.failNext(matchPath('orgs/o/issue-fields'), SERVER_ERROR);
+    const r = detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(r.final, false);
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+  });
+
+  test('a repo without push access is not written', () => {
+    const fake = setup({ push: false });
+    detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+  });
+
+  test('a blocked wiki is not written', () => {
+    wiki._setRunGit(() => ({ ok: false, status: 128, stdout: '', stderr: 'fatal: repository \'https://github.com/o/r.wiki.git/\' not found\n' }));
+    const fake = setup({ hasWiki: true });
+    const r = detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(r.wiki, 'uninitialised');
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+  });
+
+  test('a definitive degraded answer IS written (labels on a user-owned repo are not a failure)', () => {
+    const fake = setup({ ownerType: 'User', hasWiki: false });
+    const r = detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(r.final, true);
+    const cached = cap.readCachedCapabilities('o/r', process.env);
+    assert.equal(cached.owner_type, 'User');
+    assert.deepEqual(cap.resolveModes(cached), cap.resolveModes(r));
+    assert.deepEqual(cap.describeDegraded(cached), cap.describeDegraded(r));
+  });
+});
+
+// ─── 11: offline ──────────────────────────────────────────────────────────────
+
+describe('offline detection (test 11)', () => {
+  test('with a cache: the stale cache, flagged, and the file is left exactly as it was', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    const online = detect({ probeIssue: probe, now: T0 });
+    const before = fs.readFileSync(cacheFileFor(), 'utf-8');
+
+    fake.setOffline(true);
+    const r = detect({ probeIssue: probe, now: T0 + 400 * MIN });
+    assert.equal(r.ok, true);
+    assert.equal(r.stale, true);
+    assert.equal(r.offline, true);
+    assert.equal(r.provisional, false);
+    assert.equal(r.final, false);
+    assert.equal(r.checked_at, online.checked_at, 'it reports when the answer was really obtained');
+    assert.equal(r.owner_type, online.owner_type);
+    assert.deepEqual(cap.resolveModes(r), cap.resolveModes(online));
+    assert.equal(fs.readFileSync(cacheFileFor(), 'utf-8'), before);
+  });
+
+  test('with a cache and refresh:true the stale cache is also what offline returns', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    fake.setOffline(true);
+    const r = detect({ probeIssue: probe, now: T0 + MIN, refresh: true });
+    assert.equal(r.stale, true);
+  });
+
+  test('a stale answer is whatever it was, even a degraded one', () => {
+    const fake = setup({ ownerType: 'User', hasWiki: false });
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    fake.setOffline(true);
+    const r = detect({ probeIssue: probe, now: T0 + 500 * MIN });
+    assert.equal(r.stale, true);
+    assert.deepEqual(cap.resolveModes(r).degraded, ['types', 'fields', 'wiki']);
+  });
+
+  test('without a cache: provisional defaults, never written', () => {
+    const fake = setup();
+    fake.setOffline(true);
+    const r = detect({ probeIssue: 1, now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.provisional, true);
+    assert.equal(r.stale, false);
+    assert.equal(r.offline, true);
+    assert.equal(r.final, false);
+    assert.equal(r.repo, 'o/r');
+    assert.equal(r.owner_type, 'unknown');
+    assert.equal(r.checked_at, new Date(T0).toISOString());
+    assert.equal(r.wiki, 'unknown');
+    assert.equal(r.sub_issues, 'unknown');
+    assert.deepEqual(r.degraded, []);
+    const modes = cap.resolveModes(r);
+    assert.equal(modes.types, 'native');
+    assert.equal(modes.fields, 'native');
+    assert.equal(modes.hierarchy, 'native');
+    assert.equal(modes.pages, 'wiki');
+    assert.equal(modes.writable, true);
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+    assert.equal(fs.existsSync(path.dirname(cacheFileFor())), false, 'not even the directory');
+    assert.equal(gitCalls.length, 0, 'no wiki probe while offline');
+  });
+
+  test('a network error that still carries an exit status is offline too', () => {
+    const fake = setup();
+    fake.failNext(matchPath('repos/o/r'), { status: 1, stderr: 'error connecting to api.github.com: dial tcp 140.82.112.5:443: connection refused' });
+    const r = detect({ now: T0 });
+    assert.equal(r.provisional, true);
+    assert.equal(r.offline, true);
+  });
+
+  test('going offline halfway (after the repo read) is still an offline detection, and nothing is written', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    fake.failNext(matchPath('orgs/o/issue-types'), { status: null, stderr: 'could not resolve host: api.github.com' });
+    const r = detect({ probeIssue: probe, now: T0 });
+    assert.equal(r.provisional, true);
+    assert.equal(r.offline, true);
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+  });
+
+  test('an offline wiki probe makes the whole detection offline rather than a blocked wiki', () => {
+    wiki._setRunGit(() => ({ ok: false, status: 128, stdout: '', stderr: 'fatal: unable to access \'https://github.com/o/r.wiki.git/\': Could not resolve host: github.com\n' }));
+    const fake = setup({ hasWiki: true });
+    const r = detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.equal(r.provisional, true);
+    assert.equal(r.offline, true);
+    assert.equal(r.wiki, 'unknown');
+    assert.equal(fs.existsSync(cacheFileFor()), false);
+  });
+
+  test('offline never turns a missing repository into a provisional answer', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    fake.failNext(matchPath('repos/o/r'), NOT_FOUND);
+    const r = detect({ probeIssue: probe, now: T0 + 400 * MIN });
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'repository o/r not found or not accessible');
+  });
+
+  test('coming back online replaces the stale answer', () => {
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    fake.setOffline(true);
+    assert.equal(detect({ probeIssue: probe, now: T0 + 400 * MIN }).stale, true);
+    fake.setOffline(false);
+    const r = detect({ probeIssue: probe, now: T0 + 401 * MIN });
+    assert.equal(r.stale, false);
+    assert.equal(r.cached, false);
+    assert.equal(cap.readCachedCapabilities('o/r', process.env).checked_at, new Date(T0 + 401 * MIN).toISOString());
+  });
+});
+
+// ─── 14: hygiene ──────────────────────────────────────────────────────────────
+
+describe('hygiene (test 14)', () => {
+  function listing(dir) {
+    try {
+      return fs.readdirSync(dir).sort().map((n) => `${n}:${fs.statSync(path.join(dir, n)).mtimeMs}`);
+    } catch {
+      return null;
+    }
+  }
+
+  test('no write argv after any detection, and the real ~/.claude/devflow/state is untouched', () => {
+    const realCaps = path.join(os.userInfo().homedir, '.claude', 'devflow', 'state', 'gh-project', 'capabilities');
+    const before = listing(realCaps);
+
+    const fake = setup();
+    const probe = fake.seedIssue({ title: 'Objective 7' });
+    detect({ probeIssue: probe, now: T0 });
+    detect({ probeIssue: probe, now: T0 + 400 * MIN });
+    detect({ probeIssue: probe, now: T0 + 401 * MIN, refresh: true });
+    fake.setOffline(true);
+    detect({ probeIssue: probe, now: T0 + 900 * MIN });
+    cap.invalidate('o/r', process.env);
+
+    assert.deepEqual(fake.writes(), []);
+    assert.deepEqual(listing(realCaps), before);
+  });
+
+  test('with no cache-dir override the file still lands under the hermetic HOME', () => {
+    delete process.env.DEVFLOW_GH_CACHE_DIR;
+    const fake = setup();
+    detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    const file = cap.cachePath('o/r');
+    assert.ok(file.startsWith(hermetic.root), file);
+    assert.ok(fs.existsSync(file));
+  });
+
+  test('the module never writes into the project', () => {
+    const fake = setup();
+    const files = () => fs.readdirSync(path.join(project.root, '.planning'), { recursive: true }).sort();
+    const before = files();
+    detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
+    assert.deepEqual(files(), before);
+  });
+});
