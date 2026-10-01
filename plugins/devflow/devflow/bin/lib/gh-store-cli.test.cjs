@@ -392,6 +392,20 @@ function seedTrd({ text = TRD_TEXT, state = 'OPEN', id = TRD_ID, file = TRD_FILE
 }
 
 const seedScope = (number, n, text) => S.fake.seedComment(number, trd.buildScopeComment(n, text));
+
+/**
+ * A scope DevFlow posted (49-06): the comment plus the hash-bound `scope n=K scope_hash=H` spec-rev row that
+ * `gh trd scope` queues in store mode. The store-mode gate accepts it whoever authored the comment.
+ */
+function seedDevflowScope(number, n, text) {
+  const id = S.fake.seedComment(number, trd.buildScopeComment(n, text));
+  const marker = bodyLib.commentMarker(TRD_ID, 'spec-rev');
+  const existing = S.fake.comments.find((c) => c.issue_number === number && c.body.startsWith(marker));
+  const entry = { at: '2026-10-01T12:00:00Z', event: trd.scopeEvent(n, trd.scopeHash(text)), hash: trd.contentHash(`effective after ${n}`), chars: 1 };
+  if (existing) S.fake.humanEditComment(existing.id, trd.appendSpecRev(existing.body, entry));
+  else S.fake.seedComment(number, trd.appendSpecRev(`${marker}\n`, entry));
+  return id;
+}
 const commentsOf = (number) => S.fake.comments.filter((c) => c.issue_number === number);
 const specRevOf = (number) => commentsOf(number).find((c) => c.body.startsWith(bodyLib.commentMarker(TRD_ID, 'spec-rev')));
 const ghWrites = () => S.fake.writes().length;
@@ -401,8 +415,8 @@ describe('gh trd spec', () => {
 
   test('7. prints the effective spec; --raw gives {text, applied, chars} for the seeded scope comments', () => {
     const number = seedTrd();
-    seedScope(number, 1, 'First change.');
-    seedScope(number, 2, 'Second change.');
+    seedDevflowScope(number, 1, 'First change.');
+    seedDevflowScope(number, 2, 'Second change.');
     const writes = ghWrites();
 
     const raw = trdCmd(['spec', '07-01']);
@@ -478,7 +492,7 @@ describe('gh trd fold', () => {
 
   test('9. a closed TRD: the body is replaced with the effective spec and spec-rev gets a fold row', () => {
     const number = seedTrd({ state: 'CLOSED' });
-    seedScope(number, 1, 'Folded change.');
+    seedDevflowScope(number, 1, 'Folded change.');
     const r = trdCmd(['fold', '07-01'], false);
     assert.equal(exitOf(r), 0, r.stdout + r.stderr);
     assert.ok(S.fake.issues.find((i) => i.number === number).body.includes('Folded change.'), 'the scope text is now in the body');
@@ -488,7 +502,7 @@ describe('gh trd fold', () => {
 
   test('9b. an open TRD: exit 1 with the message and nothing queued; --force proceeds', () => {
     const number = seedTrd();
-    seedScope(number, 1, 'Folded change.');
+    seedDevflowScope(number, 1, 'Folded change.');
     const refused = trdCmd(['fold', '07-01'], false);
     assert.equal(exitOf(refused), 1);
     assert.match(refused.stderr, /open/);

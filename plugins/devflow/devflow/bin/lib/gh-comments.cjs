@@ -26,12 +26,22 @@
 //                                                              flusher builds the comment with
 //                                                              gh-trd.buildScopeComment(n, text)
 //   patch-body      {id}              {mode:'replace', body}   a fold: body = the encoded effective spec
+//   upsert-comment  {id, kind:'scope-confirm-<n spelled in letters>'}  {mode:'replace', text}
+//                                                              text = `<!-- devflow:scope-confirm n=K hash=H -->` (49-06)
+//   patch-issue     {id}              {labels_add:[...]}       a TRD starts: the in-progress label (49-06)
+//
+// STORE MODE ONLY (49-06, GPR-05). With `github.store` on, a scope comment changes a TRD's effective spec only when
+// it is accepted (gh-trd.scopeAcceptance): its author is an assignee of the objective issue, or the DevFlow App,
+// or a hash-bound `scope n=K scope_hash=H` spec-rev row names its CURRENT text, or an assignee confirmed it. The
+// rest are pending: listed, never applied. With the store off none of that runs and every function below behaves
+// exactly as before objective 49 (D-01).
 
 const client = require('./gh-client.cjs');
 const ghBody = require('./gh-body.cjs');
 const ghMapping = require('./gh-mapping.cjs');
 const ghTrd = require('./gh-trd.cjs');
 const outbox = require('./gh-outbox.cjs');
+const planningMode = require('./planning-mode.cjs');
 
 // ─── Ids ─────────────────────────────────────────────────────────────────────
 
@@ -194,21 +204,102 @@ function scanForTrdIssue(repo, id) {
   return { ok: true, issue: null };
 }
 
+// ─── Scope acceptance (store mode, 49-06) ────────────────────────────────────
+
+const DIGIT_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+
+/**
+ * scopeConfirmKind(n) — the sticky comment kind of scope `n`'s confirmation: `scope-confirm-two`, `scope-confirm-one-zero`.
+ * A comment kind is `[a-z-]+` (gh-body), so a digit cannot appear in it and `n` is spelled with letters.
+ */
+function scopeConfirmKind(n) {
+  if (!Number.isSafeInteger(n) || n < 1) {
+    throw new TypeError(`scope n must be a positive integer, got ${JSON.stringify(n)}`);
+  }
+  return `scope-confirm-${String(n).split('').map((d) => DIGIT_WORDS[Number(d)]).join('-')}`;
+}
+
+/**
+ * The text a scope is bound by (its spec-rev row hash and its confirm hash): CRLF-normalised and with trailing
+ * whitespace dropped, because GitHub may strip it and a scope must not fall back to pending for that.
+ */
+const boundText = (text) => ghTrd.normalise(text).trimEnd();
+
+/** The login of the DevFlow GitHub App (`github.app_login`), or null when none is configured. */
+function appLoginOf(gate) {
+  const v = gate && gate.config && gate.config.app_login;
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+}
+
+/**
+ * The assignees of the objective issue a TRD belongs to: ONE read of that issue.
+ * -> {ok:true, assignees:[login]|null}   null: the mapping has no issue for the objective (nothing was read)
+ *  | {ok:false, error}                   the read failed: never mistaken for "no assignee"
+ */
+function readObjectiveAssignees(root, repo, id) {
+  const entry = ghMapping.getEntry(ghMapping.readMappingV3(root), id);
+  if (!entry || !Number.isInteger(entry.issue_id)) return { ok: true, assignees: null };
+  const r = client.ghRead(['api', `repos/${repo}/issues/${entry.issue_id}`]);
+  if (!r.ok) {
+    return { ok: false, error: `could not read the objective issue #${entry.issue_id} (its assignees decide who may change TRD ${id}): ${failureText(r)}` };
+  }
+  const issue = parseJson(r.stdout);
+  if (!issue || !Number.isInteger(issue.number)) {
+    return { ok: false, error: `the objective issue #${entry.issue_id} (for TRD ${id}) came back unreadable` };
+  }
+  const list = Array.isArray(issue.assignees) ? issue.assignees : [];
+  return { ok: true, assignees: list.map((a) => (typeof a === 'string' ? a : a && a.login)).filter((l) => typeof l === 'string' && l !== '') };
+}
+
+/**
+ * Every scope confirmation on a TRD's issue: a marker opening a person's own comment, and the sticky comments
+ * DevFlow posts (`devflow:id=... kind=scope-confirm-<n>`, the confirm marker on the line after its own marker).
+ * Authors and timestamps are carried through; the caller's predicate decides whether each counts.
+ */
+function gatherConfirms(all, id, scopes) {
+  const confirms = ghTrd.parseScopeConfirms(all);
+  for (const s of scopes) {
+    for (const f of ghBody.findCommentsByMarker(all, id, scopeConfirmKind(s.n))) {
+      confirms.push(...ghTrd.parseScopeConfirms([{ ...f.comment, body: afterMarkerLine(f.comment.body) }]));
+    }
+  }
+  return confirms;
+}
+
+/** The acceptance facts of one TRD (one objective-issue read) and the predicate built from them. */
+function readAcceptance(root, { repo, id, gate, comments: all, scopes, rev }) {
+  const read = readObjectiveAssignees(root, repo, id);
+  if (!read.ok) return read;
+  const appLogin = appLoginOf(gate);
+  const confirms = gatherConfirms(all, id, scopes);
+  const base = ghTrd.scopeAcceptance({
+    assignees: read.assignees || [],
+    appLogin,
+    devflowScopes: ghTrd.devflowScopesFrom(rev),
+    confirms,
+  });
+  // The hashes bind `boundText`, so the predicate sees the scope the same way.
+  const accept = (scope) => base({ ...scope, text: boundText(scope.text) });
+  return { ok: true, fields: { assignees: read.assignees, appLogin, confirms, accept } };
+}
+
 /**
  * readTrdState(root, trdId) — one TRD's issue as GitHub holds it, with ONE issue GET and ONE paginated
  * comments read (the mapping names the issue; a TRD the mapping lacks is found by scanning issue bodies for
  * its `devflow:id` header instead, which costs a list read and writes nothing to the mapping).
  *
  * -> { ok:true, id, repo, number, rest_id, state:'open'|'closed', body, decoded, comments,
- *      scopes:[{n, text, body, comment_id}], scopeErrors:[string],
+ *      scopes:[{n, text, body, comment_id, author, created_at}], scopeErrors:[string],
  *      specRevText, specRevCommentId, frozen, foldedThrough }
+ *    plus, with `{acceptance:true}` in STORE mode only (one more read: the objective issue):
+ *      assignees:[login]|null, appLogin, confirms, accept:(scope)=>'accepted'|'pending'
  *  | { ok:false, error }                       the TRD has no issue yet, a read failed, a bad id
  *  | { ok:false, skipped:true, reason, error } github is not enabled (no gh call was made)
  *
  * `decoded` is gh-trd.decodeTrdBody(body): `ok:false` for an issue a human wrote. `specRevText` is the whole
  * spec-rev comment, or '' when there is none (a missing log is an empty log, not an error).
  */
-function readTrdState(root, trdArg) {
+function readTrdState(root, trdArg, { acceptance = false } = {}) {
   const id = trdIdOf(trdArg);
   if (id === null) return invalidTrdId(trdArg);
   const gate = client.requireEnabled(root);
@@ -246,6 +337,13 @@ function readTrdState(root, trdArg) {
   const specRevText = specRevs.length > 0 ? ghTrd.normalise(specRevs[0].comment.body) : '';
   const rev = ghTrd.parseSpecRev(specRevText);
 
+  let acceptanceFields = null;
+  if (acceptance === true && planningMode.isStoreMode(root)) {
+    const gated = readAcceptance(root, { repo, id, gate, comments: all, scopes: scoped.scopes, rev });
+    if (!gated.ok) return gated;
+    acceptanceFields = gated.fields;
+  }
+
   return {
     ok: true,
     id,
@@ -262,6 +360,7 @@ function readTrdState(root, trdArg) {
     specRevCommentId: specRevs.length > 0 ? specRevs[0].comment.id : null,
     frozen: rev.frozen,
     foldedThrough: rev.folded_through,
+    ...acceptanceFields,
   };
 }
 
@@ -281,13 +380,16 @@ function requireTrdBody(st) {
  * what a fold already put in the body. `extra` is `[{id, body}]` scope comments not on GitHub yet (queued, or
  * the one being checked), so a budget decision sees them.
  */
-function effectiveFromState(st, extra = []) {
+function effectiveFromState(st, extra = [], { gated = false } = {}) {
   const bad = requireTrdBody(st);
   if (bad) return bad;
+  // Store mode with the acceptance facts read: only accepted scopes apply. Otherwise every scope does, as before.
+  const accept = gated && typeof st.accept === 'function' ? st.accept : undefined;
   const eff = ghTrd.effectiveSpec(st.decoded.text, [...st.comments, ...extra], {
     foldedThrough: st.foldedThrough,
     id: st.decoded.id,
     file: st.decoded.file,
+    accept,
   });
   const encoded = ghTrd.encodeTrdBody({ id: st.decoded.id, file: st.decoded.file, text: eff.text });
   return {
@@ -303,6 +405,7 @@ function effectiveFromState(st, extra = []) {
     overflow: eff.overflow,
     errors: eff.errors,
     foldedThrough: st.foldedThrough,
+    ...(accept ? { pending: eff.pending, assignees: st.assignees } : {}),
   };
 }
 
@@ -316,10 +419,14 @@ function effectiveFromState(st, extra = []) {
  * `text` is the effective TRD text; `encoded` is the issue body it would have (header lines included), the
  * figure the 60,000-char limit applies to (`chars`). `errors` reports scope gaps and duplicates; the spec is
  * still returned.
+ *
+ * STORE MODE (49-06) adds `pending:[{n, author, comment_id}]` and `assignees` and applies only accepted scopes;
+ * a pending scope's text is in neither `text`, `encoded` nor `chars`. With the store off the shape is the one
+ * above, with no `pending` key and no objective-issue read.
  */
 function readEffectiveSpec(root, trdArg) {
-  const st = readTrdState(root, trdArg);
-  return st.ok ? effectiveFromState(st) : st;
+  const st = readTrdState(root, trdArg, { acceptance: true });
+  return st.ok ? effectiveFromState(st, [], { gated: true }) : st;
 }
 
 // ─── Queued scope changes ────────────────────────────────────────────────────
@@ -352,8 +459,11 @@ const sameText = (a, b) => ghTrd.normalise(a).trimEnd() === ghTrd.normalise(b).t
  * with `overflow:true` when it alone is over 60,000 chars, or when the effective spec including it would be:
  * the overflow becomes a new TRD (the TRD-creating verb is objective 48).
  *
- * Queues, in one enqueue: `post-scope {id, n} {text}` and a spec-rev `scope n=K` row whose hash is the
- * encoded effective spec after this comment.
+ * Queues, in one enqueue: `post-scope {id, n} {text}` and a spec-rev row whose hash is the encoded effective
+ * spec after this comment (every scope counts, accepted or not: a size check must hold if a pending scope is
+ * later confirmed). The row's event is `scope n=K`; in STORE mode it is `scope n=K scope_hash=H` (49-03
+ * scopeEvent, H = the hash of the scope text), which is what lets DevFlow's own scope be accepted whoever posts
+ * it, and only while the comment still matches.
  *
  * -> {ok:true, id, n, chars, hash, enqueued, coalesced}   | {ok:true, noop:true, id, n}
  *  | {ok:false, overflow:true, chars, max, error, message} | {ok:false, error}
@@ -405,7 +515,8 @@ function enqueueScope(root, { trdId, n, text, now } = {}) {
     return { ok: false, overflow: true, chars: eff.chars, max: ghTrd.TRD_MAX_CHARS, error: message, message };
   }
 
-  const entry = { at: isoAt(now), event: `scope n=${chosen}`, hash: ghTrd.contentHash(eff.encoded), chars: eff.encoded.length };
+  const event = planningMode.isStoreMode(root) ? ghTrd.scopeEvent(chosen, ghTrd.scopeHash(boundText(clean))) : `scope n=${chosen}`;
+  const entry = { at: isoAt(now), event, hash: ghTrd.contentHash(eff.encoded), chars: eff.encoded.length };
   const r = outbox.enqueue(
     root,
     [{ kind: 'post-scope', target: { id, n: chosen }, payload: { text: clean } }, specRevAppendOp(id, entry)],
@@ -443,6 +554,25 @@ function freezeTrd(root, trdArg, { now } = {}) {
 }
 
 /**
+ * What a fold may see of `st`'s comments (49-06). Without the acceptance facts (store off) that is every comment and
+ * `pending` is null. With them, the scope comments from the first pending unfolded scope on are left out, so the
+ * fold stops short of it; `pending` lists the pending unfolded scopes.
+ */
+function foldGate(st) {
+  if (typeof st.accept !== 'function') return { comments: st.comments, pending: null };
+  const pending = st.scopes
+    .filter((s) => s.n > st.foldedThrough && st.accept(s) !== 'accepted')
+    .map((s) => ({ n: s.n, author: s.author, comment_id: s.comment_id }));
+  if (pending.length === 0) return { comments: st.comments, pending };
+  const cutoff = pending[0].n;
+  const beyond = (c) => {
+    const [scope] = ghTrd.parseScopeComments([c]).scopes;
+    return scope !== undefined && scope.n >= cutoff;
+  };
+  return { comments: st.comments.filter((c) => !beyond(c)), pending };
+}
+
+/**
  * foldTrd(root, trdId, {now, force}) — on a CLOSED TRD, queue a body replace with the effective spec (scope
  * comments stay, they are never deleted) and a `fold folded_through=K from=<hash>` row. Only when the encoded
  * result fits in 60,000 chars; otherwise `{ok:true, fits:false}` and nothing is queued. A scope gap or
@@ -452,16 +582,23 @@ function freezeTrd(root, trdArg, { now } = {}) {
  *  | {ok:true, fits:true, noop:true, id}            no scope comment is waiting to be folded
  *  | {ok:true, fits:false, id, message}
  *  | {ok:false, reason:'open', error} | {ok:false, error} | {ok:true, skipped:true, reason}
+ *
+ * STORE MODE (49-06): a fold never goes past a pending scope. It folds through the highest n for which every
+ * scope up to n is accepted; the pending scopes (and anything after them) stay comments, so a later confirm
+ * still applies in order. Every result then carries `pending:[{n, author, comment_id}]` (empty when none).
+ * With the store off the fold is as it was: every scope folds and there is no `pending` key.
  */
 function foldTrd(root, trdArg, { now, force = false } = {}) {
   const id = trdIdOf(trdArg);
   if (id === null) return invalidTrdId(trdArg);
   if (!outbox.isEnabled(root)) return skippedResult();
 
-  const st = readTrdState(root, trdArg);
+  const st = readTrdState(root, trdArg, { acceptance: true });
   if (!st.ok) return st;
   const bad = requireTrdBody(st);
   if (bad) return bad;
+  const gate = foldGate(st);
+  const withPending = (r) => (gate.pending === null ? r : { ...r, pending: gate.pending });
   if (st.state !== 'closed' && force !== true) {
     return {
       ok: false,
@@ -470,18 +607,18 @@ function foldTrd(root, trdArg, { now, force = false } = {}) {
     };
   }
 
-  const plan = ghTrd.planFold(st.body, st.comments, st.specRevText, isoAt(now));
+  const plan = ghTrd.planFold(st.body, gate.comments, st.specRevText, isoAt(now));
   if (!plan.ok) return { ok: false, error: plan.error };
-  if (plan.noop) return { ok: true, fits: true, noop: true, id };
+  if (plan.noop) return withPending({ ok: true, fits: true, noop: true, id });
   if (!plan.fits) {
-    return {
+    return withPending({
       ok: true,
       fits: false,
       id,
       message:
         `the effective spec is over ${ghTrd.TRD_MAX_CHARS.toLocaleString('en-US')} chars, so the body is left as it is; ` +
         'the scope comments stay authoritative (the overflow becomes a new TRD)',
-    };
+    });
   }
 
   const r = outbox.enqueue(
@@ -494,14 +631,14 @@ function foldTrd(root, trdArg, { now, force = false } = {}) {
   );
   if (!r.ok) return r;
   const through = /folded_through=(\d+)/.exec(plan.entry.event);
-  return {
+  return withPending({
     ...r,
     id,
     fits: true,
     folded_through: through ? Number(through[1]) : null,
     entry: plan.entry,
     chars: plan.newBody.length,
-  };
+  });
 }
 
 /**
@@ -526,6 +663,7 @@ module.exports = {
   enqueueVerification,
   readTrdState,
   readEffectiveSpec,
+  scopeConfirmKind,
   enqueueScope,
   freezeTrd,
   foldTrd,
