@@ -323,3 +323,243 @@ describe('usage and the script entry', () => {
     assert.match(`${r.stdout}${r.stderr}`, /usage/i);
   });
 });
+
+// ─── devflow/planning-consistency and reconcile (Task 2) ─────────────────────
+
+const OBJECTIVE_BODY = '<!-- devflow:id=50 -->\n\nObjective 50';
+const TRD_BODY = (n) => `<!-- devflow:id=50-0${n} -->\n\nTRD ${n}`;
+const OBJECTIVE_LABEL = 'devflow:objective';
+
+/** Seed `.planning/config.json` at a ref the way the contents API serves it (`text` is used verbatim). */
+function seedConfig(ref, config) {
+  fake.files[ref] = { ...(fake.files[ref] || {}), '.planning/config.json': typeof config === 'string' ? config : JSON.stringify(config) };
+}
+
+/** #1 = the objective, #2 and #3 = TRDs linked under it as sub-issues. */
+function seedObjectiveGraph({ states = {} } = {}) {
+  fake.seedIssue({ title: 'objective 50', body: OBJECTIVE_BODY, labels: [OBJECTIVE_LABEL], state: states[1] || 'OPEN' });
+  fake.seedIssue({ title: 'TRD 50-01', body: TRD_BODY(1), state: states[2] || 'OPEN' });
+  fake.seedIssue({ title: 'TRD 50-02', body: TRD_BODY(2), state: states[3] || 'OPEN' });
+  fake.issues[0].subIssues.push(2, 3);
+  fake.issues[1].parent = 1;
+  fake.issues[2].parent = 1;
+}
+
+const objectivePrBody = (...closes) => `<!-- devflow:pr=50 -->\n<!-- devflow:begin closes -->\n${closes.map((n) => `Closes #${n}`).join('\n')}\n<!-- devflow:end closes -->\n`;
+
+describe('planning-consistency', () => {
+  test('5. config absent at the PR head: success "store mode off" under devflow/planning-consistency', () => {
+    const r = run('planning-consistency', prEvent('Closes #1'), { GITHUB_EVENT_NAME: 'pull_request' });
+    assert.equal(r.code, 0);
+    assert.equal(r.state, 'success');
+    const posted = fake.statuses[HEAD_CLOSES];
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].context, 'devflow/planning-consistency');
+    assert.equal(posted[0].context, CONTEXTS.planningConsistency);
+    assert.equal(posted[0].state, 'success');
+    assert.match(posted[0].description, /store mode off/);
+    assert.ok(fake.calls().some((a) => a.join(' ').includes(`contents/.planning/config.json?ref=${HEAD_CLOSES}`)), 'the config is read at the PR head through the contents API');
+  });
+
+  test('5b. a config that is not store mode, or that does not parse, is also "store mode off"', () => {
+    seedConfig(HEAD_CLOSES, { github: { enabled: true, store: false } });
+    assert.match(run('planning-consistency', prEvent('Closes #1')).description, /store mode off/);
+    seedConfig(HEAD_CLOSES, '{ not json');
+    const r = run('planning-consistency', prEvent('Closes #1'));
+    assert.equal(r.code, 0);
+    assert.match(r.description, /store mode off/);
+  });
+
+  test('5c. store mode on but no devflow:pr marker: success "not a DevFlow objective PR"', () => {
+    seedConfig(HEAD_CLOSES, { github: { enabled: true, store: true } });
+    const r = run('planning-consistency', prEvent('Closes #1'));
+    assert.equal(r.code, 0);
+    assert.match(r.description, /not a DevFlow objective PR/);
+  });
+
+  test('6. objective PR closing the objective and one TRD while another is a sub-issue too: failure naming it', () => {
+    seedConfig(HEAD_CLOSES, { github: { enabled: true, store: true } });
+    seedObjectiveGraph();
+    const r = run('planning-consistency', prEvent(objectivePrBody(1, 2)), { GITHUB_EVENT_NAME: 'pull_request' });
+    assert.equal(r.code, 1);
+    assert.equal(r.state, 'failure');
+    const posted = fake.statuses[HEAD_CLOSES][0];
+    assert.equal(posted.state, 'failure');
+    assert.equal(posted.context, CONTEXTS.planningConsistency);
+    assert.match(posted.description, /#3/);
+  });
+
+  test('6b. closing the objective and every linked TRD passes', () => {
+    seedConfig(HEAD_CLOSES, { github: { enabled: true, store: true } });
+    seedObjectiveGraph();
+    const r = run('planning-consistency', prEvent(objectivePrBody(1, 2, 3)));
+    assert.equal(r.code, 0);
+    assert.equal(r.state, 'success');
+    assert.equal(fake.statuses[HEAD_CLOSES][0].state, 'success');
+  });
+
+  test('6c. a PR that forgets to close the objective issue names it (found by its label and marker)', () => {
+    seedConfig(HEAD_CLOSES, { github: { enabled: true, store: true } });
+    seedObjectiveGraph();
+    const r = run('planning-consistency', prEvent(objectivePrBody(2, 3)));
+    assert.equal(r.code, 1);
+    assert.match(fake.statuses[HEAD_CLOSES][0].description, /#1/);
+    assert.match(fake.statuses[HEAD_CLOSES][0].description, /not closed/);
+  });
+
+  test('6d. without the sub-issues API the linked TRDs come from the objective\'s `trds` task list', () => {
+    install({ subIssuesApi: false });
+    seedConfig(HEAD_CLOSES, { github: { enabled: true, store: true } });
+    fake.seedIssue({ title: 'objective 50', body: `${OBJECTIVE_BODY}\n<!-- devflow:begin trds -->\n- [ ] #2\n- [ ] #3\n<!-- devflow:end trds -->\n`, labels: [OBJECTIVE_LABEL] });
+    fake.seedIssue({ title: 'TRD 50-01', body: TRD_BODY(1) });
+    fake.seedIssue({ title: 'TRD 50-02', body: TRD_BODY(2) });
+    const r = run('planning-consistency', prEvent(objectivePrBody(1, 2)));
+    assert.equal(r.code, 1);
+    assert.match(fake.statuses[HEAD_CLOSES][0].description, /#3/);
+  });
+
+  test('6e. a merge_group event reads the PR named by the queue ref and posts on the group head sha', () => {
+    seedObjectiveGraph();
+    const n = seedPr({ body: objectivePrBody(1, 2, 3) });
+    assert.equal(n, 4);
+    const prHead = JSON.parse(fake.runGh(['api', 'repos/o/r/pulls/4']).stdout).head.sha;
+    seedConfig(prHead, { github: { enabled: true, store: true } });
+    const payload = fixture('merge_group', (p) => { p.merge_group.head_ref = queueRef(4); });
+    const r = run('planning-consistency', payload, { GITHUB_EVENT_NAME: 'merge_group' });
+    assert.equal(r.code, 0);
+    assert.deepEqual(Object.keys(fake.statuses), [GROUP_HEAD]);
+    assert.equal(fake.statuses[GROUP_HEAD][0].context, CONTEXTS.planningConsistency);
+    assert.equal(fake.statuses[GROUP_HEAD][0].state, 'success');
+  });
+
+  test('6f. a failed sub-issue read is an `error` status, not a verdict', () => {
+    seedConfig(HEAD_CLOSES, { github: { enabled: true, store: true } });
+    seedObjectiveGraph();
+    fake.failNext('issues/1/sub_issues', { stderr: 'gh: Server Error (HTTP 500)', status: 1 });
+    const r = run('planning-consistency', prEvent(objectivePrBody(1, 2, 3)));
+    assert.equal(r.code, 1);
+    assert.equal(r.state, 'error');
+    assert.equal(fake.statuses[HEAD_CLOSES][0].state, 'error');
+    assert.match(fake.statuses[HEAD_CLOSES][0].description, /sub-issues/);
+  });
+
+  test('6g. a closed pull_request posts nothing', () => {
+    const payload = prEvent(objectivePrBody(1));
+    payload.action = 'closed';
+    const r = run('planning-consistency', payload);
+    assert.equal(r.code, 0);
+    assert.equal(r.state, 'skipped');
+    assert.deepEqual(fake.calls(), []);
+  });
+});
+
+describe('reconcile', () => {
+  /** A merged objective PR into main: the fixture with its number, body and (optionally) base edited. */
+  const mergedEvent = (number, body, base = 'main') => fixture('pull_request-merged', (p) => {
+    p.pull_request.number = number;
+    p.pull_request.body = body;
+    p.pull_request.base.ref = base;
+  });
+  const patches = () => fake.writes().filter((a) => a.includes('PATCH'));
+  const prComments = (n) => fake.comments.filter((c) => c.issue_number === n);
+
+  test('7. merged PR: still-open closing targets and linked TRDs are closed as completed, one marker comment', () => {
+    seedObjectiveGraph({ states: { 1: 'CLOSED' } }); // GitHub closed the objective; #2 and #3 are stragglers
+    assert.equal(seedPr({ body: objectivePrBody(1, 2) }), 4);
+    const r = run('reconcile', mergedEvent(4, objectivePrBody(1, 2)), { GITHUB_EVENT_NAME: 'pull_request' });
+    assert.equal(r.code, 0);
+    assert.equal(r.state, 'success');
+
+    assert.equal(fake.issues[1].state, 'CLOSED');
+    assert.equal(fake.issues[1].stateReason, 'completed');
+    assert.equal(fake.issues[2].state, 'CLOSED', 'the linked TRD the PR did not name is closed too');
+    assert.equal(fake.issues[2].stateReason, 'completed');
+    assert.equal(patches().length, 2, 'the already-closed objective is not touched');
+
+    const comments = prComments(4);
+    assert.equal(comments.length, 1, 'one comment on the PR');
+    assert.ok(comments[0].body.includes('<!-- devflow:reconcile -->'));
+    assert.match(comments[0].body, /#2/);
+    assert.match(comments[0].body, /#3/);
+    assert.ok(!/#1\b/.test(comments[0].body), 'the issue that was already closed is not listed');
+    assert.equal(fake.writes().length, 3, 'two closes and one comment, nothing else');
+    assert.deepEqual(fake.statuses, {}, 'reconcile posts no commit status');
+  });
+
+  test('7a. running it again finds nothing open: no writes, no second comment', () => {
+    seedObjectiveGraph({ states: { 1: 'CLOSED' } });
+    seedPr({ body: objectivePrBody(1, 2) });
+    run('reconcile', mergedEvent(4, objectivePrBody(1, 2)));
+    const before = fake.writes().length;
+    const again = run('reconcile', mergedEvent(4, objectivePrBody(1, 2)));
+    assert.equal(again.code, 0);
+    assert.equal(fake.writes().length, before);
+    assert.equal(prComments(4).length, 1);
+  });
+
+  test('7b. an unmerged closed PR: no writes (and no gh call)', () => {
+    seedObjectiveGraph();
+    seedPr({ body: objectivePrBody(1, 2) });
+    const payload = mergedEvent(4, objectivePrBody(1, 2));
+    payload.pull_request.merged = false;
+    const r = run('reconcile', payload);
+    assert.equal(r.code, 0);
+    assert.equal(r.state, 'skipped');
+    assert.deepEqual(fake.writes(), []);
+    assert.deepEqual(fake.calls(), []);
+  });
+
+  test('7c. a PR still open (any non-closed action) is not reconciled', () => {
+    const payload = prEvent('Closes #1');
+    const r = run('reconcile', payload);
+    assert.equal(r.code, 0);
+    assert.equal(r.state, 'skipped');
+    assert.deepEqual(fake.calls(), []);
+  });
+
+  test('7d. merged into a branch other than the default: closing keywords never acted, nothing is closed', () => {
+    seedObjectiveGraph();
+    seedPr({ body: objectivePrBody(1, 2) });
+    const r = run('reconcile', mergedEvent(4, objectivePrBody(1, 2), 'develop'));
+    assert.equal(r.code, 0);
+    assert.equal(r.state, 'skipped');
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('7e. a plain `Closes #N` PR (no objective) has its open target closed too', () => {
+    seedUntil(2);
+    seedPr({ body: 'Closes #1' }); // PR #3
+    const r = run('reconcile', mergedEvent(3, 'Closes #1'));
+    assert.equal(r.code, 0);
+    assert.equal(fake.issues[0].state, 'CLOSED');
+    assert.equal(fake.issues[0].stateReason, 'completed');
+    assert.equal(fake.issues[1].state, 'OPEN', 'only what the PR named');
+  });
+
+  test('7f. a close that fails is listed, the rest still close, and the exit is 1', () => {
+    seedObjectiveGraph({ states: { 1: 'CLOSED' } });
+    seedPr({ body: objectivePrBody(1, 2) });
+    fake.failNext((a) => a.includes('PATCH') && a.join(' ').includes('issues/3'), { stderr: 'gh: Forbidden (HTTP 403)', status: 1 });
+    const r = run('reconcile', mergedEvent(4, objectivePrBody(1, 2)));
+    assert.equal(r.code, 1);
+    assert.equal(r.state, 'failure');
+    assert.match(r.description, /#3/);
+    assert.equal(fake.issues[1].state, 'CLOSED');
+    assert.equal(fake.issues[2].state, 'OPEN');
+    const comments = prComments(4);
+    assert.equal(comments.length, 1);
+    assert.match(comments[0].body, /#2/);
+    assert.match(comments[0].body, /#3/);
+    assert.match(comments[0].body, /403|could not/i);
+  });
+
+  test('7g. a read failure is an error result (no status exists to post), exit 1, no throw', () => {
+    seedObjectiveGraph({ states: { 1: 'CLOSED' } });
+    fake.setOffline(true);
+    let r;
+    assert.doesNotThrow(() => { r = run('reconcile', mergedEvent(4, objectivePrBody(1, 2))); });
+    assert.equal(r.code, 1);
+    assert.equal(r.state, 'error');
+    assert.deepEqual(fake.statuses, {});
+  });
+});
