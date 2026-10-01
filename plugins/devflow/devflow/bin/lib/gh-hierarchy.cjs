@@ -701,5 +701,6 @@ module.exports = {
   pushHierarchy,
   openDecision,
   reportOrphans,
+  linkedNumbers, // objective 50 (TRD 50-08): the Actions check runner reads the TRDs linked under an objective
   REFERENCE_PAGES,
 };
