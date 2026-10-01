@@ -1500,3 +1500,62 @@ describe('df-tools validate docs (CLI)', () => {
     assert.match(r.stderr, /docs/);
   });
 });
+
+// ─── Check 15: planning cache drift, W055 / W056 (TRD 48-09) ────────────────
+//
+// Store mode only. Test 9 pins today's issue codes for local-mode projects that hold
+// cache-shaped files with no baselines (every one would be W055 in store mode), so
+// Check 15's "not applicable in local mode" is proven additive. All outbox state lives
+// under hermeticEnv()'s temp DEVFLOW_OUTBOX_DIR; nothing reads the real ~/.claude.
+describe('Check 15: planning cache drift (W055/W056)', () => {
+  const upgradeFx = require('./__fixtures__/upgrade-fixtures.cjs');
+  const { pluginVersion } = require('./helpers.cjs');
+  const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+  let env = null;
+  beforeEach(() => {
+    env = hermeticEnv();
+  });
+  afterEach(() => {
+    if (env) env.restore();
+    env = null;
+  });
+
+  /** A current, stamped project (no W040) whose config.json gets `github` merged in. */
+  function makeProjectWithGithub(github) {
+    const root = upgradeFx.makeStampedProject(pluginVersion());
+    const configPath = path.join(root, '.planning', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    if (github !== undefined) config.github = github;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    return root;
+  }
+
+  const codes = (json) => ({
+    errors: json.errors.map((i) => i.code),
+    warnings: json.warnings.map((i) => i.code),
+    info: json.info.map((i) => i.code),
+  });
+
+  // Pinned from `validate health` at WAVE_BASE fdfb4b4f for upgrade-fixtures makeStampedProject:
+  // W001 (PROJECT.md missing a section) and I001 (02-01-TRD.md has no SUMMARY.md). The fixture's
+  // PROJECT.md, OBJECTIVE.md, TRDs and SUMMARY are all cache-shaped with no baseline, so each would
+  // be a W055 in store mode. Any change here is a behaviour change for local projects.
+  const PINNED_LOCAL_CODES = { errors: [], warnings: ['W001'], info: ['I001'] };
+
+  const LOCAL_SHAPES = [
+    ['no github block', undefined],
+    ['github disabled (this repo’s shape)', { enabled: false, repo: '' }],
+    ['github enabled, store absent', { enabled: true, repo: 'acme/demo' }],
+  ];
+
+  for (const [name, github] of LOCAL_SHAPES) {
+    test(`9. characterization, local mode (${name}): issue codes are the pinned list, no W055/W056`, () => {
+      tmpProject = makeProjectWithGithub(github);
+      tmpHome = makeHome();
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+      assert.deepStrictEqual(codes(json), PINNED_LOCAL_CODES, JSON.stringify(json, null, 2));
+      assert.strictEqual(fs.existsSync(env.env.DEVFLOW_OUTBOX_DIR), false, 'local mode reads and writes no outbox state');
+    });
+  }
+});
