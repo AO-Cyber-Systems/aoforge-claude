@@ -19,6 +19,11 @@ Manage todos. Routes by first argument:
 - `list [--all|--lane|--refresh|--raw]` — Morning standup view across 5 sources
 
 Replaces 2 sibling skills: add-todo, check-todos.
+
+Todo files go through the verbs. Never write, edit or move a file under `.planning/todos/` directly. Add with
+`node ~/.claude/devflow/bin/df-tools.cjs todo add --from <draft>` (draft path from `planning draft todos/pending/<stem>.md`)
+and complete with `node ~/.claude/devflow/bin/df-tools.cjs todo complete <filename>`. In local mode they write the same
+`.planning/todos/` files; with `github.store` on each todo is also a GitHub issue.
 </objective>
 
 <execution_context>

@@ -13,7 +13,10 @@ allowed-tools:
 <objective>
 Resolve a parked decision (or list pending decisions if no arguments given) and tell the user how to resume gated execution.
 
-Decisions live in `.planning/decisions/pending/` — they are created by `decision-queue add` when autonomous execution hits a `checkpoint:decision` it cannot auto-select. Resolving a decision moves it to `.planning/decisions/resolved/` and unblocks the TRDs listed in its `blocks` field.
+Decisions are opened with `df-tools decision open <trd-id> --question <text|@path>` when autonomous execution hits a `checkpoint:decision` it cannot auto-select, and answered with `df-tools decision answer <id> --text <choice>`. Never write or move a decision file by hand.
+
+- **Local mode** (`github.store` off): a decision is `.planning/decisions/pending/DECISION-NNN.md`; answering it moves it to `.planning/decisions/resolved/` and unblocks the TRDs listed in its `blocks` field.
+- **Store mode**: a decision is a Decision issue that blocks its TRD, with id `<trd-id>-d<k>` and the read cache `.planning/decisions/<id>.md`; answering it posts the answer and closes the issue.
 </objective>
 
 <process>
@@ -48,12 +51,14 @@ Parse `$ARGUMENTS` as `<decision-id> <choice>` (first word is id, remainder is c
 Run:
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs decision-queue resolve <decision-id> <choice>
+node ~/.claude/devflow/bin/df-tools.cjs decision answer <decision-id> --text "<choice>"
 ```
 
-If exit 0:
-- Read the resolved decision file from `.planning/decisions/resolved/<decision-id>.md`
-- Extract the `blocks` list from its frontmatter
+For a long answer, put it in a draft file and pass `--from <path>` instead of `--text`.
+
+If exit 0, the verb prints `decision answer: wrote .planning/<rel> (<mode> mode).`:
+- Read the decision file it names (local: `.planning/decisions/resolved/<decision-id>.md`; store: `.planning/decisions/<decision-id>.md`)
+- Local: extract the `blocks` list from its frontmatter. Store: the id `<trd-id>-d<k>` names the TRD the decision blocked
 - Report the resolution and list the newly-unblocked TRDs
 - Suggest the next step:
 
@@ -74,7 +79,7 @@ If exit non-zero, show the error from stderr and suggest running `/devflow:decid
 
 **Step 3 — Context note**
 
-Decisions in `.planning/decisions/resolved/` are the permanent archive. They are NOT gitignored — parked decisions are durable planning state, not runtime markers.
+In local mode, decisions in `.planning/decisions/resolved/` are the permanent archive. They are NOT gitignored — parked decisions are durable planning state, not runtime markers. In store mode the closed Decision issue is the archive.
 </process>
 
 <context>
@@ -111,9 +116,13 @@ Reply: `/devflow:decide DECISION-001 option-a`
 
 The `blocks` array lists TRD ids gated on this decision (direct + transitive). `independent` lists TRDs that can proceed regardless. `recommendation` is the planner's suggested pick.
 
-Subcommands available via `df-tools decision-queue`:
-- `add` — park a new decision
+The local file above is what `decision open` writes in local mode (store mode keeps only the question in the cache file).
+
+Writes go through the decision verbs:
+- `df-tools decision open <trd-id> --question <text|@path>` — park a new decision
+- `df-tools decision answer <id> --text <choice>` (or `--from <path|->`) — answer it; local ids are `DECISION-NNN`, store ids `<trd-id>-d<k>`
+
+Reading and notification stay on `df-tools decision-queue`:
 - `list [--raw] [--status resolved]` — list decisions
-- `resolve <id> <choice>` — resolve and move to resolved/
 - `notify <id>` — re-fire OS notification for a pending decision
 </context>
