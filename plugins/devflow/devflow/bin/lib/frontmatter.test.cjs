@@ -473,3 +473,60 @@ test('48-14 char 5b: local frontmatter merge on OBJECTIVE.md rewrites the block 
     strict.deepEqual(p.ghCalls(), []);
   });
 });
+
+test('48-14 store 6: frontmatter set on a cached TRD is refused naming plan put-trd and planning draft; file unchanged', () => {
+  withFmProject({ store: true }, (p) => {
+    const before = p.read(FM_TRD_REL);
+    const r = p.run(['frontmatter', 'set', `.planning/${FM_TRD_REL}`, '--field', 'status', '--value', 'done']);
+    strict.equal(r.status, 1);
+    strict.match(r.stderr, new RegExp(`${FM_TRD_REL.replace(/[.]/g, '\\.')} is a GitHub-backed cache file in store mode`));
+    strict.match(r.stderr, /df-tools plan put-trd/);
+    strict.match(r.stderr, new RegExp(`df-tools planning draft ${FM_TRD_REL.replace(/[.]/g, '\\.')}`));
+    strict.equal(p.read(FM_TRD_REL), before);
+    strict.deepEqual(p.ghCalls(), []);
+  });
+});
+
+test('48-14 store 6b: an absolute path to the cache file is refused the same way', () => {
+  withFmProject({ store: true }, (p) => {
+    const before = p.read(FM_TRD_REL);
+    const r = p.run(['frontmatter', 'set', p.planning(FM_TRD_REL), '--field', 'status', '--value', 'done']);
+    strict.equal(r.status, 1);
+    strict.match(r.stderr, /plan put-trd/);
+    strict.equal(p.read(FM_TRD_REL), before);
+  });
+});
+
+test('48-14 store 6c: frontmatter set on a runtime planning file and on a non-planning file works as today', () => {
+  withFmProject({ store: true }, (p) => {
+    fs.mkdirSync(p.planning('.trd-progress'), { recursive: true });
+    fs.writeFileSync(p.planning('.trd-progress/7-01.md'), '---\nstatus: running\n---\n\nprogress\n');
+    const a = p.run(['frontmatter', 'set', '.planning/.trd-progress/7-01.md', '--field', 'status', '--value', 'done']);
+    strict.equal(a.status, 0, a.stderr);
+    strict.equal(p.read('.trd-progress/7-01.md'), '---\nstatus: done\n---\n\nprogress\n');
+
+    fs.writeFileSync(path.join(p.root, 'notes.md'), '---\ntitle: x\n---\n\nbody\n');
+    const b = p.run(['frontmatter', 'set', 'notes.md', '--field', 'title', '--value', 'y']);
+    strict.equal(b.status, 0, b.stderr);
+    strict.equal(fs.readFileSync(path.join(p.root, 'notes.md'), 'utf8'), '---\ntitle: y\n---\n\nbody\n');
+    strict.deepEqual(p.ghCalls(), []);
+  });
+});
+
+test('48-14 store 7: frontmatter merge on OBJECTIVE.md is refused naming objective put; file unchanged', () => {
+  withFmProject({ store: true }, (p) => {
+    const r = p.run(['frontmatter', 'merge', `.planning/${FM_OBJ_REL}`, '--data', '{"status":"in_progress"}']);
+    strict.equal(r.status, 1);
+    strict.match(r.stderr, /GitHub-backed cache file in store mode/);
+    strict.match(r.stderr, /df-tools objective put/);
+    strict.equal(p.read(FM_OBJ_REL), STORE_FIXTURE.objective);
+  });
+});
+
+test('48-14 store 7b: frontmatter get and validate still read cache files in store mode', () => {
+  withFmProject({ store: true }, (p) => {
+    const r = p.run(['frontmatter', 'get', `.planning/${FM_OBJ_REL}`, '--field', 'status']);
+    strict.equal(r.status, 0, r.stderr);
+    strict.deepEqual(JSON.parse(r.stdout), { status: 'planned' });
+  });
+});

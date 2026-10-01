@@ -188,3 +188,33 @@ test('48-14 char 8: local template fill summary writes today\'s draft, exact byt
     strict.deepEqual(p.ledgerEntries(), {});
   });
 });
+
+test('48-14 store 9: template fill writes the draft into the cache, records it in the ledger, names summary post', () => {
+  withTfProject({ store: true }, (p) => {
+    const r = p.run(['template', 'fill', 'summary', '--objective', '7', '--job', '02']);
+    strict.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    strict.equal(out.created, true);
+    strict.equal(out.path, `.planning/${TF_SUMMARY_REL}`);
+    strict.equal(out.publish_with, 'summary post');
+    const text = p.read(TF_SUMMARY_REL);
+    strict.equal(text, expectedSummary(new Date().toISOString().split('T')[0]));
+    const entry = p.ledgerEntries()[TF_SUMMARY_REL];
+    strict.ok(entry, 'the draft is in the verb-write ledger');
+    strict.equal(entry.hash, require('./gh-trd.cjs').contentHash(text));
+    // GitHub does not hold the draft yet: it is marked not queued, so no flush ever baselines it.
+    strict.equal(entry.verb, 'template fill (not queued)');
+    strict.deepEqual(p.ghCalls(), []);
+    strict.deepEqual(p.journalOps(), []);
+  });
+});
+
+test('48-14 store 9b: template fill verification names verification post', () => {
+  withTfProject({ store: true }, (p) => {
+    const r = p.run(['template', 'fill', 'verification', '--objective', '7']);
+    strict.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    strict.equal(out.publish_with, 'verification post');
+    strict.ok(p.ledgerEntries()['objectives/07-store-demo/07-VERIFICATION.md']);
+  });
+});
