@@ -573,6 +573,159 @@ function planFold(body, comments, specRevText, at) {
   };
 }
 
+// ─── Numbered parts ──────────────────────────────────────────────────────────
+//
+// A SUMMARY or VERIFICATION comment over 60,000 chars is split into numbered parts,
+// never trimmed. Each part of a multi-part split opens with `<!-- devflow:part=i/n -->`
+// (the third header line, after the caller's marker and file lines). The split is
+// lossless: stripping the part line from every part and concatenating them in order
+// returns the original text exactly.
+
+const PART_LINE_RE = /^<!--\s*devflow:part=(\d+)\/(\d+)\s*-->(?:\n|$)/;
+
+/** partLine(i, n) — `<!-- devflow:part=i/n -->` with 1 <= i <= n. */
+function partLine(i, n) {
+  if (!Number.isSafeInteger(i) || !Number.isSafeInteger(n) || i < 1 || n < 1 || i > n) {
+    throw new TypeError(`invalid part ${JSON.stringify(i)}/${JSON.stringify(n)}`);
+  }
+  return `<!-- devflow:part=${i}/${n} -->`;
+}
+
+// Where to cut `rest` (longer than `cap`) so the head fits in `cap` chars: just
+// after the last newline that fits, else at `cap` — backing off one unit so a
+// UTF-16 surrogate pair is never split between two comments.
+function cutPoint(rest, cap) {
+  const nl = rest.lastIndexOf('\n', cap - 1);
+  if (nl >= 0) return nl + 1;
+  const last = rest.charCodeAt(cap - 1);
+  if (cap > 1 && last >= 0xd800 && last <= 0xdbff) return cap - 1;
+  return cap;
+}
+
+// Greedy pack of paragraph units into chunks of at most `cap` chars. A unit that
+// does not fit on its own is split with cutPoint.
+function packUnits(units, cap) {
+  const chunks = [];
+  let cur = '';
+  for (const unit of units) {
+    if (cur.length + unit.length <= cap) {
+      cur += unit;
+      continue;
+    }
+    if (cur !== '') {
+      chunks.push(cur);
+      cur = '';
+    }
+    let rest = unit;
+    while (rest.length > cap) {
+      const cut = cutPoint(rest, cap);
+      chunks.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    cur = rest;
+  }
+  if (cur !== '' || chunks.length === 0) chunks.push(cur);
+  return chunks;
+}
+
+/**
+ * splitParts(text, max = COMMENT_MAX_CHARS, {reserve = 0}) — split `text` into parts
+ * that each fit `max` chars once the caller adds `reserve` chars of its own (marker
+ * and file header lines) around them.
+ *
+ * - A text that already fits (`text.length + reserve <= max`) is returned as ONE part
+ *   with no part line.
+ * - Otherwise paragraphs (blank-line separated, separators kept inside the parts) are
+ *   packed greedily; each part is prefixed with `partLine(i, n) + '\n'` and that
+ *   prefix is counted against `max`, including its worst-case width for n's digit count.
+ * - A paragraph longer than a part is split just after the last newline that fits,
+ *   and only if there is none, at the limit.
+ * - A text that itself opens with a part line is always given a header, so
+ *   joinParts cannot mistake its first line for one.
+ *
+ * Throws RangeError when `max - reserve` cannot even hold the part line.
+ */
+function splitParts(text, max = COMMENT_MAX_CHARS, { reserve = 0 } = {}) {
+  if (typeof text !== 'string') {
+    throw new TypeError(`splitParts() text must be a string, got ${text === null ? 'null' : typeof text}`);
+  }
+  if (!Number.isSafeInteger(max) || max < 1) {
+    throw new TypeError(`splitParts() max must be a positive integer, got ${JSON.stringify(max)}`);
+  }
+  if (!Number.isSafeInteger(reserve) || reserve < 0) {
+    throw new TypeError(`splitParts() reserve must be a non-negative integer, got ${JSON.stringify(reserve)}`);
+  }
+
+  if (text.length + reserve <= max && !PART_LINE_RE.test(text)) return [text];
+
+  // Split after each run of blank lines; the whole run stays with the paragraph before it.
+  const units = text.split(/(?<=\n\n)(?!\n)/);
+
+  // The part line's width depends on the number of parts, which depends on the
+  // width. Try 1-digit counts first and widen until the result agrees with itself.
+  for (let digits = 1; ; digits++) {
+    const widest = 10 ** digits - 1;
+    const headerLen = partLine(widest, widest).length + 1;
+    const cap = max - reserve - headerLen;
+    if (cap < 1) {
+      throw new RangeError(
+        `limit ${max} (reserve ${reserve}) is too small for a ${headerLen}-char part line`
+      );
+    }
+    const chunks = packUnits(units, cap);
+    if (String(chunks.length).length <= digits) {
+      return chunks.map((chunk, i) => partLine(i + 1, chunks.length) + '\n' + chunk);
+    }
+  }
+}
+
+/**
+ * joinParts(parts) — reverse of splitParts. `parts` are the strings handed to
+ * splitParts' caller, in any order, each beginning with its part line (the caller has
+ * already stripped its own marker/file lines). A single string with no part line is
+ * the whole text.
+ *
+ * -> { ok:true, text, missing:[] }
+ *  | { ok:false, text:null, missing:[i...], error }   — never a partial text
+ */
+function joinParts(parts) {
+  if (!Array.isArray(parts) || parts.some((p) => typeof p !== 'string')) {
+    throw new TypeError('joinParts() needs an array of strings');
+  }
+  const fail = (error, missing = []) => ({ ok: false, text: null, missing, error });
+  if (parts.length === 0) return fail('no parts');
+
+  const parsed = parts.map((p) => {
+    const m = PART_LINE_RE.exec(p);
+    return m ? { i: Number(m[1]), n: Number(m[2]), chunk: p.slice(m[0].length) } : null;
+  });
+
+  if (parts.length === 1 && parsed[0] === null) return { ok: true, text: parts[0], missing: [] };
+  if (parsed.some((p) => p === null)) return fail('a part has no part line');
+
+  const n = parsed[0].n;
+  if (parsed.some((p) => p.n !== n)) {
+    return fail(`parts disagree on the part count (${[...new Set(parsed.map((p) => p.n))].join(' vs ')})`);
+  }
+
+  const byIndex = new Map();
+  for (const p of parsed) {
+    if (p.i < 1 || p.i > n) return fail(`part ${p.i} is outside 1..${n}`);
+    if (byIndex.has(p.i)) return fail(`duplicate part ${p.i}`);
+    byIndex.set(p.i, p.chunk);
+  }
+
+  const missing = [];
+  for (let i = 1; i <= n; i++) if (!byIndex.has(i)) missing.push(i);
+  if (missing.length > 0) {
+    return fail(`missing part ${missing.join(', ')} of ${n}`, missing);
+  }
+
+  let text = '';
+  for (let i = 1; i <= n; i++) text += byIndex.get(i);
+  return { ok: true, text, missing: [] };
+}
+
 module.exports = {
   TRD_TARGET_CHARS,
   TRD_MAX_CHARS,
@@ -597,4 +750,7 @@ module.exports = {
   assertEditable,
   detectDrift,
   planFold,
+  partLine,
+  splitParts,
+  joinParts,
 };
