@@ -17,8 +17,10 @@
  *     queues and the flush stops `pending` (exit 3); nothing ever reaches GitHub.
  *   - HOME, DEVFLOW_GH_CACHE_DIR (shim.env) and DEVFLOW_OUTBOX_DIR point under one temp root, so the real
  *     ~/.claude is never read or written; the ledger lives beside the journal there.
- *   - DEVFLOW_WIKI_REMOTE is a file:// path that does not exist, and git runs with no global/system config and no
- *     terminal prompts, so a wiki-push can never clone github.com.
+ *   - DEVFLOW_WIKI_REMOTE is the loopback discard port (127.0.0.1:9; never 8080), so a wiki clone fails at once with
+ *     "couldn't connect", which gh-wiki classifies as offline (a missing file:// remote would read as an uninitialised
+ *     wiki and halt the flush instead). git runs with no global/system config and no terminal prompts, so a wiki-push
+ *     can never reach github.com.
  *   - `mapped: true` (default) seeds a v3 mapping for objective 7, so an offline objective sync can queue its
  *     hierarchy (an unmapped objective cannot be created offline).
  */
@@ -27,7 +29,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { pathToFileURL } = require('url');
 
 const { makeStoreProject, STORE_FIXTURE } = require('./gh-store-fixtures.cjs');
 const { installGhShim } = require('./gh-shim.cjs');
@@ -36,6 +37,7 @@ const ledger = require('../planning-ledger.cjs');
 
 const DF_TOOLS = path.join(__dirname, '..', '..', 'df-tools.cjs');
 
+const OFFLINE_WIKI_REMOTE = 'http://127.0.0.1:9/o/r.wiki.git';
 const OFFLINE_STDERR = 'error connecting to api.github.com\ndial tcp: lookup api.github.com: no such host\n';
 
 /** Every gh call fails like a network outage: one entry per possible first letter of argv. */
@@ -70,7 +72,7 @@ function storeCliProject({ store = true, enabled = true, mapped = true } = {}) {
 
   const env = shim.env({
     DEVFLOW_OUTBOX_DIR: outboxDir,
-    DEVFLOW_WIKI_REMOTE: pathToFileURL(path.join(envRoot, 'no-such-wiki.git')).href,
+    DEVFLOW_WIKI_REMOTE: OFFLINE_WIKI_REMOTE,
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_SYSTEM: '/dev/null',
     GIT_TERMINAL_PROMPT: '0',

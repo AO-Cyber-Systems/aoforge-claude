@@ -796,6 +796,29 @@ function cmdScaffold(cwd, type, options, raw) {
   output({ created: true, path: relPath }, raw, relPath);
 }
 
+/**
+ * Store mode `requirements mark-complete`: publish the edited REQUIREMENTS.md through `doc put` (cache write, ledger,
+ * wiki-push of its page, flush). Output is today's plus the verb result under `verb`; the exit code is the verb's
+ * (3 when the wiki-push is still pending, e.g. offline).
+ */
+function publishRequirements(root, text, { updated, notFound, reqIds }, raw) {
+  const r = require('./planning-verbs.cjs').docPut(root, {
+    rel: 'REQUIREMENTS.md',
+    text,
+    message: `requirements: mark ${updated.join(', ')} complete`,
+  });
+  const verb = { ok: r.ok === true, mode: r.mode, rel: r.rel, exit: r.exit, flush: r.flush ? r.flush.status : null, warnings: r.warnings || [] };
+  if (r.error) verb.error = r.error;
+  if (r.prose) verb.prose = r.prose;
+  output({
+    updated: true,
+    marked_complete: updated,
+    not_found: notFound,
+    total: reqIds.length,
+    verb,
+  }, raw, `${updated.length}/${reqIds.length} requirements marked complete`, r.exit);
+}
+
 function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
   if (!reqIdsRaw || reqIdsRaw.length === 0) {
     error('requirement IDs required. Usage: requirements mark-complete REQ-01,REQ-02 or REQ-01 REQ-02');
@@ -812,6 +835,11 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
   if (reqIds.length === 0) {
     error('no valid requirement IDs found');
   }
+
+  // Store mode (TRD 48-14, D-19): REQUIREMENTS.md is a GitHub-backed cache file (a wiki page). Read the MAIN
+  // checkout's copy (D-14), make today's edit in memory, and publish it with `doc put` instead of writing it directly.
+  const storeMode = require('./planning-mode.cjs').isStoreMode(cwd);
+  if (storeMode) cwd = require('./planning-mode.cjs').resolveMainRoot(cwd);
 
   const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
   if (!fs.existsSync(reqPath)) {
@@ -850,6 +878,8 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
       notFound.push(reqId);
     }
   }
+
+  if (updated.length > 0 && storeMode) return publishRequirements(cwd, reqContent, { updated, notFound, reqIds }, raw);
 
   if (updated.length > 0) {
     fs.writeFileSync(reqPath, reqContent, 'utf-8');
