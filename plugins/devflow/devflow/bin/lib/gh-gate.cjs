@@ -11,6 +11,9 @@
  *      | { allow: false, reason, message }              reason: default_branch | unlinked_branch | detached_head
  *      | { allow: true, escaped: true, reason, message }   DEVFLOW_SKIP_GH_GATE=1 overrode the refusal
  *
+ *   readGateInputs(cwd)                                           -> { branch, mainBranch, defaultBranch, prs }
+ *     the offline reader: read-only git through objective-branch.cjs, and the mapping from the MAIN checkout
+ *
  * A branch is LINKED when the mapping's `prs` map has an entry whose `branch` equals it and that has no `merged_at`.
  * `gh pr start` writes that entry only after it has created the GitHub linked branch, so a local hit is enough and the
  * gate works with no network. Recording the override (`df-tools override --gate gh`) is the caller's job (50-06): this
@@ -18,6 +21,8 @@
  */
 
 const ghMapping = require('./gh-mapping.cjs');
+const objectiveBranch = require('./objective-branch.cjs');
+const planningMode = require('./planning-mode.cjs');
 
 /** The one variable that overrides a refusal. Only the string "1" counts. */
 const ESCAPE_ENV = 'DEVFLOW_SKIP_GH_GATE';
@@ -125,4 +130,59 @@ function decide({ branch, mainBranch, defaultBranch, entries }) {
   return unlinked(branch, own);
 }
 
-module.exports = { evaluateGate, ESCAPE_ENV };
+// ─── inputs ───────────────────────────────────────────────────────────────────
+
+/** The branch checked out at `root`, or null for a detached HEAD, a git failure or anything unexpected. Never throws. */
+function branchAt(root) {
+  try {
+    const r = objectiveBranch.currentBranch(root);
+    return r && r.ok && typeof r.branch === 'string' && r.branch !== '' ? r.branch : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** The repository's default branch as seen from `root`, or null when it cannot be named. Never throws. */
+function defaultBranchAt(root) {
+  try {
+    const r = objectiveBranch.defaultBranch(root);
+    return r && r.ok && typeof r.branch === 'string' && r.branch !== '' ? r.branch : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * The mapping's PR entries as `listPrs` pairs, read from the MAIN checkout (`mainRoot`): a worktree holds no mapping of
+ * its own in store mode. A missing, unparseable or too-new mapping is no PRs, so the gate refuses instead of crashing.
+ */
+function prsAt(mainRoot) {
+  try {
+    const report = ghMapping.readMappingV3WithReport(mainRoot);
+    return report.error ? [] : ghMapping.listPrs(report.mapping);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Collect `evaluateGate`'s inputs for a commit made in `cwd`, offline: read-only git (`branch --show-current`,
+ * `symbolic-ref`, `rev-parse`) and a file read. No gh, no fetch, no writes, never throws.
+ *
+ *   -> { branch, mainBranch, defaultBranch, prs }
+ *
+ * `branch` is `cwd`'s branch (null when detached, or when git cannot say, which reads as a detached HEAD); `mainBranch` is
+ * the main checkout's. They are the same checkout unless `cwd` is a linked worktree. `defaultBranch` is null when unknown.
+ */
+function readGateInputs(cwd) {
+  const here = typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd();
+  const main = planningMode.resolveMainRoot(here) || here;
+  return {
+    branch: branchAt(here),
+    mainBranch: branchAt(main),
+    defaultBranch: defaultBranchAt(main),
+    prs: prsAt(main),
+  };
+}
+
+module.exports = { evaluateGate, readGateInputs, ESCAPE_ENV };
