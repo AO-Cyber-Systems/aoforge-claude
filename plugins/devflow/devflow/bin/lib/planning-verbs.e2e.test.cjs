@@ -26,7 +26,7 @@
 // `objective complete` are spawned (git/local only; a spawned child gets an offline gh shim that records calls).
 //
 // Hermetic: hermeticEnv() (temp HOME/outbox/gh-cache), applyGitTestEnv(), createWikiRemote() (file://), a fake clock.
-// No network, never the real ~/.claude, never port 8080.
+// No network, no listening port, never the real ~/.claude.
 
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');

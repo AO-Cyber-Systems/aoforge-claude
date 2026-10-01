@@ -16,7 +16,7 @@
  *
  * Hermetic: git runs with gitTestEnv() (no global/system config, explicit identity, HOME under the temp root). Spawned
  * df-tools children get a `gh` PATH shim that answers every call like an unreachable GitHub (and records the calls),
- * the loopback discard port as the wiki remote (127.0.0.1:9; never 8080), and the caller's DEVFLOW_OUTBOX_DIR /
+ * the loopback discard port as the wiki remote (127.0.0.1:9, nothing listens), and the caller's DEVFLOW_OUTBOX_DIR /
  * DEVFLOW_GH_CACHE_DIR / HOME as they are when `run` is called (set them with hermeticEnv() first).
  *
  * Every draft is a hand-written literal below. No generated data.
