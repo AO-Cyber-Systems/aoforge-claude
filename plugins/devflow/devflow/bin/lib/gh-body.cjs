@@ -15,7 +15,11 @@
  * Marker forms:
  *   issue body, line 1:   <!-- devflow:id=46 -->
  *   comment,    line 1:   <!-- devflow:id=46 kind=state -->
- *   TRD form (reserved):  <!-- devflow:id=46-02 -->
+ *   TRD form:             <!-- devflow:id=46-02 -->
+ *   Decision form:        <!-- devflow:id=46-02-d1 -->
+ *   multi-part comment:   marker line, then <!-- devflow:part=1/2 --> (see findCommentsByMarker)
+ *   dir marker (wiki section only): <!-- devflow:dir=07-store-demo -->; it has no `id=`, so it is
+ *                         never read as an id marker
  *
  * Managed sections inside an issue body:
  *   <!-- devflow:begin NAME -->
@@ -36,10 +40,10 @@ const OPTIONAL_SECTIONS = ['wiki', 'meta'];
 // The sticky-comment marker written before the devflow:id form existed.
 const LEGACY_STATE_MARKER = '<!-- df:state -->';
 
-// Accepts `2.1`, `0`, `46` and the TRD form `46-02`.
+// Accepts `2.1`, `0`, `46`, the TRD form `46-02` and the Decision form `46-02-d1`.
 const MARKER_SOURCE =
-  '<!--\\s*devflow:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+)?)(?:\\s+kind=([a-z-]+))?\\s*-->';
-const ID_RE = /^(\d+)((?:\.\d+)?)((?:-\d+)?)$/;
+  '<!--\\s*devflow:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:-d[0-9]+)?)?)(?:\\s+kind=([a-z-]+))?\\s*-->';
+const ID_RE = /^(\d+)((?:\.\d+)?)((?:-\d+(?:-d\d+)?)?)$/;
 const KIND_RE = /^[a-z-]+$/;
 
 // ─── Id normalisation ────────────────────────────────────────────────────────
@@ -129,6 +133,55 @@ function withCommentMarker(id, kind, text) {
   const existing = firstLineMarker(t);
   if (existing && existing.id === cid) return t;
   return t === '' ? marker : `${marker}\n${t}`;
+}
+
+const PART_LINE_RE = /^\s*<!--\s*devflow:part=(\d+)\/(\d+)\s*-->\s*$/;
+
+// `{ part, of }` from the line right after the marker line; 1 of 1 when it is absent or not a sane i/n.
+function readPart(body) {
+  const lines = body.split('\n', 2);
+  const m = lines.length > 1 ? PART_LINE_RE.exec(lines[1].replace(/\r$/, '')) : null;
+  if (m) {
+    const part = Number(m[1]);
+    const of = Number(m[2]);
+    if (Number.isSafeInteger(part) && Number.isSafeInteger(of) && part >= 1 && part <= of) return { part, of };
+  }
+  return { part: 1, of: 1 };
+}
+
+function compareCommentIds(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  const x = String(a);
+  const y = String(b);
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/**
+ * findCommentsByMarker(comments, id, kind) — every comment whose FIRST line is the marker for `id`
+ * (canonical compare) with comment kind `kind`, as `[{ comment, part, of }]` ordered by part and then
+ * by comment id. A long comment is split over several; each carries `<!-- devflow:part=i/n -->` on the
+ * line after its marker. A comment without one (or with an impossible i/n) is part 1 of 1.
+ *
+ * `comments` is `[{ id, body }]`; entries without a string body are skipped, and a non-array gives [].
+ * An omitted `kind` matches any comment kind for the id. An issue-body marker (no kind) never matches,
+ * and neither does a marker quoted further down a human comment. Throws TypeError for an invalid id
+ * or kind, like commentMarker.
+ */
+function findCommentsByMarker(comments, id, kind) {
+  const cid = requireId(id);
+  const wantKind = kind === undefined || kind === null ? null : kind;
+  if (wantKind !== null && (typeof wantKind !== 'string' || !KIND_RE.test(wantKind))) {
+    throw new TypeError(`invalid devflow comment kind: ${JSON.stringify(kind)}`);
+  }
+  const found = [];
+  for (const comment of Array.isArray(comments) ? comments : []) {
+    if (!comment || typeof comment.body !== 'string') continue;
+    const m = firstLineMarker(comment.body);
+    if (!m || m.id !== cid || m.kind === null) continue;
+    if (wantKind !== null && m.kind !== wantKind) continue;
+    found.push({ comment, ...readPart(comment.body) });
+  }
+  return found.sort((a, b) => a.part - b.part || compareCommentIds(a.comment.id, b.comment.id));
 }
 
 // ─── Objective sections ──────────────────────────────────────────────────────
@@ -567,6 +620,7 @@ module.exports = {
   buildMetaSection,
   parseMeta,
   buildTrdsSection,
+  findCommentsByMarker,
   markerLine,
   commentMarker,
   extractMarker,
