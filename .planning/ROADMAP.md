@@ -192,11 +192,11 @@ TRDs:
 **Plans:** 14 TRDs in 6 waves
 
 TRDs:
-- [ ] 47-01-gh-trd-codec-TRD.md — (W1, tdd) `gh-trd.cjs`: TRD body codec (id + file header), 40K/60K budget, scope comments by `n`, effective spec, fold, spec-rev log, lossless comment parts (GST-03)
-- [ ] 47-02-fake-github-store-TRD.md — (W1, tdd) fake GitHub extended: REST create with ids ≠ numbers, sub-issues, dependencies, types, fields, repo meta, offline; store fixture builder (GST-01, GST-05, GST-08)
-- [ ] 47-03-gh-outbox-store-TRD.md — (W1, tdd) `gh-outbox.cjs`: durable per-repo journal, logical op schema, coalesce/FIFO, lock, 80/min + 450/h budget, base hashes (GST-05)
-- [ ] 47-04-gh-wiki-store-TRD.md — (W1, tdd) `gh-wiki.cjs`: `.wiki.git` clone at `.planning/wiki/`, page table, commit + rebase + push on master, revision pin, `docs/devflow/` backend; local bare-repo fixture (GST-06, GST-08)
-- [ ] 47-05-body-mapping-extensions-TRD.md — (W1, tdd) `gh-body` wiki/meta sections, dir marker, tick-preserving criteria, trds section, Decision ids, part finder; `gh-mapping` trds accessors (GST-02, GST-04)
+- [x] 47-01-gh-trd-codec-TRD.md — (W1, tdd) `gh-trd.cjs`: TRD body codec (id + file header), 40K/60K budget, scope comments by `n`, effective spec, fold, spec-rev log, lossless comment parts (GST-03)
+- [x] 47-02-fake-github-store-TRD.md — (W1, tdd) fake GitHub extended: REST create with ids ≠ numbers, sub-issues, dependencies, types, fields, repo meta, offline; store fixture builder (GST-01, GST-05, GST-08)
+- [x] 47-03-gh-outbox-store-TRD.md — (W1, tdd) `gh-outbox.cjs`: durable per-repo journal, logical op schema, coalesce/FIFO, lock, 80/min + 450/h budget, base hashes (GST-05)
+- [x] 47-04-gh-wiki-store-TRD.md — (W1, tdd) `gh-wiki.cjs`: `.wiki.git` clone at `.planning/wiki/`, page table, commit + rebase + push on master, revision pin, `docs/devflow/` backend; local bare-repo fixture (GST-06, GST-08)
+- [x] 47-05-body-mapping-extensions-TRD.md — (W1, tdd) `gh-body` wiki/meta sections, dir marker, tick-preserving criteria, trds section, Decision ids, part finder; `gh-mapping` trds accessors (GST-02, GST-04)
 - [ ] 47-06-gh-capability-TRD.md — (W2, tdd) `gh-capability.cjs`: probe + TTL cache for types, fields, sub-issues, dependencies, wiki; degraded mode selection (GST-08)
 - [ ] 47-07-gh-outbox-flush-TRD.md — (W2, tdd) `gh-outbox-flush.cjs`: idempotent op handlers, ordered flush, offline/rate-limit pending, remote-edit halt, resolve; `gh-client` scoped retry policy (GST-05)
 - [ ] 47-08-gh-comments-TRD.md — (W2, tdd) `gh-comments.cjs`: SUMMARY/VERIFICATION comments, scope changes with budget, freeze, fold, effective spec, drift (GST-03, GST-04)
@@ -294,7 +294,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
-| 47. GitHub authoritative store | v1.4 | 0/— | Registered | — |
+| 47. GitHub authoritative store | v1.4 | 5/14 | In Progress | — |
 | 48. Planning write-path migration | v1.4 | 0/— | Registered | — |
 | 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
