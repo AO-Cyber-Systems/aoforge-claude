@@ -405,3 +405,71 @@ test.describe('setFrontmatterField', () => {
     assert.strictEqual(badKey.ok, false);
   });
 });
+
+// ─── TRD 48-14: frontmatter set|merge in local mode (characterization) and store mode ─
+
+const strict = require('node:assert/strict');
+const { storeCliProject } = require('./__fixtures__/store-cli-fixtures.cjs');
+const { STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+const FM_TRD_REL = `objectives/${STORE_FIXTURE.objectiveDir}/07-01-alpha-TRD.md`;
+const FM_OBJ_REL = `objectives/${STORE_FIXTURE.objectiveDir}/OBJECTIVE.md`;
+
+function withFmProject(opts, fn) {
+  const p = storeCliProject(opts);
+  try {
+    return fn(p);
+  } finally {
+    p.cleanup();
+  }
+}
+
+/** The text after a file's frontmatter block (starting at the newline that follows the closing `---`). */
+const bodyOf = (text) => text.slice(text.indexOf('\n---\n', 3) + 5);
+
+test('48-14 char 5: local frontmatter set on a TRD rewrites the block exactly as today', () => {
+  withFmProject({ store: false }, (p) => {
+    const before = STORE_FIXTURE.trds['07-01-alpha-TRD.md'];
+    const r = p.run(['frontmatter', 'set', `.planning/${FM_TRD_REL}`, '--field', 'status', '--value', 'done']);
+    strict.equal(r.status, 0, r.stderr);
+    strict.equal(r.stdout, JSON.stringify({ updated: true, field: 'status', value: 'done' }, null, 2));
+    strict.equal(p.read(FM_TRD_REL), [
+      '---',
+      'objective: 07-store-demo',
+      'trd: 01',
+      'type: tdd',
+      'wave: 1',
+      'depends_on: []',
+      'files_modified: [src/key.cjs, src/key.test.cjs]',
+      'autonomous: true',
+      'requirements: [STO-01]',
+      'must_haves:',
+      "  truths: [parseKey('07-01') returns {objective: 7, trd: 1}]",
+      'status: done',
+      '---',
+      '',
+    ].join('\n') + bodyOf(before));
+    strict.deepEqual(p.ghCalls(), []);
+    strict.deepEqual(p.ledgerEntries(), {});
+  });
+});
+
+test('48-14 char 5b: local frontmatter merge on OBJECTIVE.md rewrites the block exactly as today', () => {
+  withFmProject({ store: false }, (p) => {
+    const r = p.run(['frontmatter', 'merge', `.planning/${FM_OBJ_REL}`, '--data', '{"status":"in_progress","wave":2}']);
+    strict.equal(r.status, 0, r.stderr);
+    strict.equal(r.stdout, JSON.stringify({ merged: true, fields: ['status', 'wave'] }, null, 2));
+    strict.equal(p.read(FM_OBJ_REL), [
+      '---',
+      'objective: 07-store-demo',
+      'work: feature',
+      'status: in_progress',
+      'milestone: v9.9',
+      'depends_on: Objective 6',
+      'wave: 2',
+      '---',
+      '',
+    ].join('\n') + bodyOf(STORE_FIXTURE.objective));
+    strict.deepEqual(p.ghCalls(), []);
+  });
+});

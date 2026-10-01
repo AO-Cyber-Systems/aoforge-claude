@@ -113,3 +113,78 @@ test('EX1: templates.cjs exports cmdTemplateSelect and cmdTemplateFill', () => {
   assert.ok(keys.includes('cmdTemplateFill'), 'cmdTemplateFill exported');
   assert.strictEqual(keys.length, 2, 'exactly 2 exports');
 });
+
+// ─── TRD 48-14: template fill in local mode (characterization) and store mode ─
+
+const strict = require('node:assert/strict');
+const { storeCliProject } = require('./__fixtures__/store-cli-fixtures.cjs');
+
+const TF_SUMMARY_REL = 'objectives/07-store-demo/07-02-SUMMARY.md';
+
+function withTfProject(opts, fn) {
+  const p = storeCliProject(opts);
+  try {
+    return fn(p);
+  } finally {
+    p.cleanup();
+  }
+}
+
+/** Today's `template fill summary --objective 7 --job 02` output for the store fixture, byte for byte. */
+const expectedSummary = (today) => [
+  '---',
+  'objective: 07-store-demo',
+  'job: 02',
+  'subsystem: "[primary category]"',
+  'tags: []',
+  'provides: []',
+  'affects: []',
+  'tech-stack:',
+  '  added: []',
+  '  patterns: []',
+  'key-files:',
+  '  created: []',
+  '  modified: []',
+  'key-decisions: []',
+  'patterns-established: []',
+  'duration: "[X]min"',
+  `completed: ${today}`,
+  '---',
+  '',
+  '# Objective 7: store-demo Summary',
+  '',
+  '**[Substantive one-liner describing outcome]**',
+  '',
+  '## Performance',
+  '- **Duration:** [time]',
+  '- **Tasks:** [count completed]',
+  '- **Files modified:** [count]',
+  '',
+  '## Accomplishments',
+  '- [Key outcome 1]',
+  '- [Key outcome 2]',
+  '',
+  '## Task Commits',
+  '1. **Task 1: [task name]** - `hash`',
+  '',
+  '## Files Created/Modified',
+  '- `path/to/file.ts` - What it does',
+  '',
+  '## Decisions & Deviations',
+  '[Key decisions or "None - followed plan as specified"]',
+  '',
+  '## Next Objective Readiness',
+  "[What's ready for next objective]",
+  '',
+].join('\n');
+
+test('48-14 char 8: local template fill summary writes today\'s draft, exact bytes and output', () => {
+  withTfProject({ store: false }, (p) => {
+    const r = p.run(['template', 'fill', 'summary', '--objective', '7', '--job', '02']);
+    strict.equal(r.status, 0, r.stderr);
+    strict.equal(r.stdout, JSON.stringify({ created: true, path: `.planning/${TF_SUMMARY_REL}`, template: 'summary' }, null, 2));
+    strict.equal(p.read(TF_SUMMARY_REL), expectedSummary(new Date().toISOString().split('T')[0]));
+    strict.deepEqual(p.ghCalls(), []);
+    strict.deepEqual(p.ledgerEntries(), {});
+  });
+});
