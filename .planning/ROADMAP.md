@@ -222,16 +222,16 @@ TRDs:
 - [x] 48-01-planning-mode-paths-ledger-TRD.md — (W1, tdd) `planning-mode` (store iff github.enabled && github.store; main-checkout root), `planning-paths` total classifier + verb table + U-1 gitignore lines, `planning-ledger` verb-write ledger
 - [x] 48-02-entity-issue-contract-TRD.md — (W1, tdd) entity body codec, mapping `entities`, outbox roles todo/debug/quick + ENTITY_ROLES
 - [x] 48-03-trd-budget-and-bulk-TRD.md — (W1, tdd) `trd-bulk` 40K/60K budget + linked-bulk (8,000-char block, 40% share) warnings; `verify trd-pre` trd_budget; job-checker Dimension 8 (GWP-05)
-- [ ] 48-04-planning-writes-audit-ratchet-TRD.md — (W2, tdd) SC1 audit: planning-write scanner + repo ratchet test with six per-group baselines
+- [x] 48-04-planning-writes-audit-ratchet-TRD.md — (W2, tdd) SC1 audit: planning-write scanner + repo ratchet test with six per-group baselines
 - [x] 48-05-wiki-pages-and-native-milestones-TRD.md — (W1, tdd) PAGE_TABLE rules for research/, milestones/, objective docs; `gh-milestone-store` native milestones; fake milestone PATCH
-- [ ] 48-06-flusher-entity-roles-TRD.md — (W2, tdd) flusher creates/updates/closes todo, debug (Debug type), quick (Quick type) issues; optional types; decision answer pinned
-- [ ] 48-07-cache-materialize-entities-TRD.md — (W2, tdd) `gh pull --all` rebuilds todos, debug, quick, decisions, generated MILESTONES.md; owned list via classifier
-- [ ] 48-08-edit-gate-cache-deny-TRD.md — (W2, tdd) store-mode gate denies cache/generated edits naming the verb (`plan put-trd`), store off unchanged (SC2)
-- [ ] 48-09-validate-w055-cache-drift-TRD.md — (W2, tdd) `validate health` W055: cache file changed outside a verb (baseline + ledger hashes)
-- [ ] 48-10-store-gitignore-migration-TRD.md — (W2, tdd) confirm migration 0010 (gitignore `.planning/*` except config.json + STACK.md), per-path `commit` filter, doctor check 24
-- [ ] 48-11-core-planning-verbs-TRD.md — (W2, tdd) `writeThrough` + put-trd/push, objective put/set-status, summary post/checkpoint, verification post, doc put, drafts; flush settles ledger
+- [x] 48-06-flusher-entity-roles-TRD.md — (W2, tdd) flusher creates/updates/closes todo, debug (Debug type), quick (Quick type) issues; optional types; decision answer pinned
+- [x] 48-07-cache-materialize-entities-TRD.md — (W2, tdd) `gh pull --all` rebuilds todos, debug, quick, decisions, generated MILESTONES.md; owned list via classifier
+- [x] 48-08-edit-gate-cache-deny-TRD.md — (W2, tdd) store-mode gate denies cache/generated edits naming the verb (`plan put-trd`), store off unchanged (SC2)
+- [x] 48-09-validate-w055-cache-drift-TRD.md — (W2, tdd) `validate health` W055: cache file changed outside a verb (baseline + ledger hashes)
+- [x] 48-10-store-gitignore-migration-TRD.md — (W2, tdd) confirm migration 0010 (gitignore `.planning/*` except config.json + STACK.md), per-path `commit` filter, doctor check 24
+- [x] 48-11-core-planning-verbs-TRD.md — (W2, tdd) `writeThrough` + put-trd/push, objective put/set-status, summary post/checkpoint, verification post, doc put, drafts; flush settles ledger
 - [ ] 48-12-entity-verbs-and-import-TRD.md — (W3, tdd) decision open/answer, todo add/complete, debug put/resolve, quick put/summary, milestone put/complete; `planning import`
-- [ ] 48-13-generated-view-writers-store-mode-TRD.md — (W2, tdd) state mutators write state.json only, roadmap writers no-op in store mode
+- [x] 48-13-generated-view-writers-store-mode-TRD.md — (W2, tdd) state mutators write state.json only, roadmap writers no-op in store mode
 - [ ] 48-14-cache-writers-store-mode-TRD.md — (W3, tdd) objective add/insert/remove/complete, frontmatter set/merge, template fill, requirements mark-complete in store mode
 - [ ] 48-15-verb-cli-wiring-TRD.md — (W4, tdd) df-tools dispatch + help for every verb; seam guard; verbs-exist audit
 - [ ] 48-16-prose-plan-research-discuss-TRD.md — (W5, tdd) prose group `plan`: planner (put-trd, scope budget), researcher, discuss, discovery
@@ -320,7 +320,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
-| 48. Planning write-path migration | v1.4 | 4/23 | In Progress | — |
+| 48. Planning write-path migration | v1.4 | 12/23 | In Progress | — |
 | 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
