@@ -36,6 +36,14 @@
 //    - elapsed_ms field present and >= 0
 //    - non-existent objective → error key present, exit non-zero
 //    - malformed TRD frontmatter → does not crash; that TRD reported with error
+//
+// 6. characterization (48-03 test 9): the four original checks' JSON deep-equals a captured literal
+//
+// 7. trd_budget (48-03 tests 10-12):
+//    - present: {passed, trds:[{trd, chars, status, bulk}], over, warn, severity:{store:'blocker', local:'warning'}}
+//    - a 60,001-char TRD → passed:false, over names it, summary counts five dimensions
+//    - a 9,000-char fenced block → passed:true, bulk lists the block
+//    - empty objective → {passed:true, trds:[], over:[], warn:[], severity}
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
@@ -577,5 +585,203 @@ describe('e2e — cmdVerifyTrdPre', () => {
       didThrow = true;
     }
     assert.strictEqual(didThrow, false, 'should not throw on malformed TRD');
+  });
+});
+
+// ─── 6. Characterization (TRD 48-03, test 9) ─────────────────────────────────
+//
+// Pins today's JSON for the four original checks so the trd_budget addition is provably additive.
+// The literals were captured from cmdVerifyTrdPre before 48-03 changed it.
+
+describe('characterization — the four original checks are unchanged (48-03 test 9)', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTmp(); });
+  afterEach(() => { removeTmp(tmpDir); });
+
+  test('a mixed fixture objective -> the four checks, passed and needs_agent deep-equal the captured literal', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      roadmap_requirements: ['F1', 'F2', 'F3'],
+      trds: [
+        { trd: '99-01', requirements: ['F1'], depends_on: [], tasks: [{ type: 'auto' }] },
+        {
+          trd: '99-02',
+          requirements: ['F2'],
+          depends_on: ['99-01', '99-07'],
+          tasks: [{ type: 'auto' }, { type: 'auto', hasVerify: false }, { type: 'auto' }, { type: 'auto' }],
+        },
+      ],
+    });
+    const { result } = runCheck(tmpDir, '99');
+
+    assert.strictEqual(result.objective, '99');
+    assert.strictEqual(result.passed, false);
+    assert.strictEqual(result.needs_agent, false);
+    assert.ok(typeof result.summary === 'string');
+    assert.ok(typeof result.elapsed_ms === 'number');
+
+    const { requirement_coverage, task_completeness, dependency_correctness, scope_sanity } = result.checks;
+    assert.deepStrictEqual(
+      { requirement_coverage, task_completeness, dependency_correctness, scope_sanity },
+      {
+        requirement_coverage: { passed: false, missing: ['F3'] },
+        task_completeness: {
+          passed: false,
+          incomplete: [{ trd: '99-02', task: 'Task 2: some task', missing: ['verify'] }],
+        },
+        dependency_correctness: {
+          passed: false,
+          cycles: [],
+          orphan_refs: [{ trd: '99-02', missing: '99-07' }],
+        },
+        scope_sanity: {
+          passed: true,
+          oversized_trds: [],
+          warning_trds: [{ trd: '99-02', task_count: 4 }],
+          total_trds: 2,
+        },
+      },
+    );
+  });
+
+  test('an objective with no TRDs -> the four early-return checks deep-equal the captured literal', () => {
+    setupObjectiveDir(tmpDir, { objective: '99-test', roadmap_requirements: ['F1'], trds: [] });
+    const { result } = runCheck(tmpDir, '99');
+
+    assert.strictEqual(result.passed, false);
+    assert.strictEqual(result.needs_agent, false);
+    const { requirement_coverage, task_completeness, dependency_correctness, scope_sanity } = result.checks;
+    assert.deepStrictEqual(
+      { requirement_coverage, task_completeness, dependency_correctness, scope_sanity },
+      {
+        requirement_coverage: { passed: false, missing: [], note: 'no TRD files found' },
+        task_completeness: { passed: false, incomplete: [] },
+        dependency_correctness: { passed: false, cycles: [], orphan_refs: [] },
+        scope_sanity: { passed: false, oversized_trds: [], total_trds: 0 },
+      },
+    );
+  });
+});
+
+// ─── 7. trd_budget (TRD 48-03, tests 10-12) ──────────────────────────────────
+//
+// The fifth check: encoded-body size per TRD (D-06) and linked-bulk warnings (U-2), measured by
+// trd-bulk.checkTrd. Fixtures are hand-built: makeTrdContent plus `'x'.repeat(n)` padding.
+
+describe('trd_budget (48-03 tests 10-12)', () => {
+  const ghTrd = require('./gh-trd.cjs');
+  const SEVERITY = { store: 'blocker', local: 'warning' };
+
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTmp(); });
+  afterEach(() => { removeTmp(tmpDir); });
+
+  function encoded(trd, text) {
+    return ghTrd.encodeTrdBody({ id: trd, file: `${trd}-TRD.md`, text }).length;
+  }
+
+  /** makeTrdContent padded with prose so its ENCODED body is exactly `total` chars. */
+  function sizedTrd(trd, total, opts = {}) {
+    const base = makeTrdContent({ objective: '99-test', trd, requirements: ['F1'], ...opts }) + '\n';
+    const pad = total - encoded(trd, base);
+    assert.ok(pad >= 0, `cannot size ${trd} to ${total}`);
+    const text = base + 'p'.repeat(pad);
+    assert.strictEqual(encoded(trd, text), total);
+    return text;
+  }
+
+  test('10. checks.trd_budget is present with per-TRD chars/status/bulk and both severities', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      roadmap_requirements: ['F1'],
+      trds: [{ trd: '99-01', requirements: ['F1'], depends_on: [], tasks: [{ type: 'auto' }] }],
+    });
+    const content = fs.readFileSync(path.join(tmpDir, '.planning', 'objectives', '99-test', '99-01-TRD.md'), 'utf8');
+    const { result } = runCheck(tmpDir, '99');
+
+    assert.deepStrictEqual(result.checks.trd_budget, {
+      passed: true,
+      trds: [{ trd: '99-01', chars: encoded('99-01', content), status: 'ok', bulk: [] }],
+      over: [],
+      warn: [],
+      severity: SEVERITY,
+    });
+    assert.deepStrictEqual(Object.keys(result.checks),
+      ['requirement_coverage', 'task_completeness', 'dependency_correctness', 'scope_sanity', 'trd_budget']);
+    assert.strictEqual(result.passed, true);
+    assert.strictEqual(result.summary, '5/5 dimensions passed');
+  });
+
+  test('11. a 60,001-char TRD -> trd_budget.passed:false, over names it, top-level counts include it', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      roadmap_requirements: ['F1'],
+      trds: [
+        { trd: '99-01', requirements: ['F1'], depends_on: [], tasks: [{ type: 'auto' }] },
+        { trd: '99-02', content: sizedTrd('99-02', 60001) },
+      ],
+    });
+    const { result } = runCheck(tmpDir, '99');
+    const tb = result.checks.trd_budget;
+
+    assert.strictEqual(tb.passed, false);
+    assert.deepStrictEqual(tb.over, [{ trd: '99-02', chars: 60001 }]);
+    assert.deepStrictEqual(tb.warn, []);
+    assert.deepStrictEqual(tb.severity, SEVERITY);
+    assert.deepStrictEqual(tb.trds.map(({ trd, status }) => ({ trd, status })),
+      [{ trd: '99-01', status: 'ok' }, { trd: '99-02', status: 'over' }]);
+
+    assert.strictEqual(result.passed, false);
+    assert.strictEqual(result.summary, '4/5 dimensions passed');
+  });
+
+  test('11b. a TRD between 40,000 and 60,000 -> listed in warn, still passed', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      roadmap_requirements: ['F1'],
+      trds: [{ trd: '99-01', content: sizedTrd('99-01', 45000) }],
+    });
+    const { result } = runCheck(tmpDir, '99');
+    const tb = result.checks.trd_budget;
+
+    assert.strictEqual(tb.passed, true);
+    assert.deepStrictEqual(tb.warn, [{ trd: '99-01', chars: 45000 }]);
+    assert.deepStrictEqual(tb.over, []);
+    assert.strictEqual(tb.trds[0].status, 'warn');
+    assert.strictEqual(result.passed, true);
+  });
+
+  test('12. a 9,000-char fenced block -> passed:true, bulk lists the block', () => {
+    const prefix = makeTrdContent({ objective: '99-test', trd: '99-01', requirements: ['F1'] }) + '\n';
+    const openingLine = prefix.split('\n').length; // the fence opens on the line after the prefix
+    const content = prefix + '```text\n' + 'x'.repeat(9000) + '\n```\n';
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      roadmap_requirements: ['F1'],
+      trds: [{ trd: '99-01', content }],
+    });
+    const { result } = runCheck(tmpDir, '99');
+    const tb = result.checks.trd_budget;
+
+    assert.strictEqual(tb.passed, true);
+    assert.strictEqual(tb.trds[0].status, 'ok');
+    assert.strictEqual(tb.trds[0].bulk.length, 1);
+    const f = tb.trds[0].bulk[0];
+    assert.strictEqual(f.kind, 'block');
+    assert.strictEqual(f.line, openingLine);
+    assert.strictEqual(f.chars, 9000);
+    assert.strictEqual(f.severity, 'warning');
+    assert.match(f.message, /never trim prose to fit/);
+    assert.strictEqual(result.passed, true, 'bulk never fails the preflight');
+  });
+
+  test('empty objective -> trd_budget passes with empty lists; summary counts five dimensions', () => {
+    setupObjectiveDir(tmpDir, { objective: '99-test', roadmap_requirements: ['F1'], trds: [] });
+    const { result } = runCheck(tmpDir, '99');
+
+    assert.deepStrictEqual(result.checks.trd_budget,
+      { passed: true, trds: [], over: [], warn: [], severity: SEVERITY });
+    assert.strictEqual(result.passed, false);
+    assert.strictEqual(result.summary, '1/5 dimensions passed');
   });
 });
