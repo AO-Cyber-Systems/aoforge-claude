@@ -1466,3 +1466,200 @@ describe('49-01 branches, statuses and merge', () => {
     assert.equal(json(restGet(fake, 'repos/o/r/pulls/2')).head.sha, 'c2', 'an open PR follows its branch');
   });
 });
+
+// ─── 50-01 setup and check routes (TRD 50-01) ────────────────────────────────
+
+const MERGE_QUEUE_RULE = {
+  type: 'merge_queue',
+  parameters: {
+    check_response_timeout_minutes: 60, grouping_strategy: 'ALLGREEN', max_entries_to_build: 5,
+    max_entries_to_merge: 5, merge_method: 'SQUASH', min_entries_to_merge: 1, min_entries_to_merge_wait_minutes: 5,
+  },
+};
+
+/** The body setup POSTs for the default-branch ruleset (50-RESEARCH), without the merge queue rule. */
+const RULESET_BODY = {
+  name: 'devflow: default branch',
+  target: 'branch',
+  enforcement: 'active',
+  conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+  bypass_actors: [],
+  rules: [
+    { type: 'non_fast_forward' },
+    { type: 'deletion' },
+    { type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'devflow/linked-issue' }], strict_required_status_checks_policy: false } },
+  ],
+};
+
+describe('50-01 setup routes', () => {
+  it('1. rulesets: POST then list shows the summary, GET by id the stored body, PUT replaces rules, every write is recorded', () => {
+    const fake = createFakeGitHub();
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets')), []);
+
+    const made = restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    assert.equal(made.ok, true, made.stderr);
+    assert.equal(json(made).id, 9001, 'ruleset ids start at 9001');
+
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets')),
+      [{ id: 9001, name: 'devflow: default branch', target: 'branch', enforcement: 'active' }],
+      'the list carries summaries only, like GitHub');
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets/9001')), { id: 9001, ...RULESET_BODY });
+
+    const put = restCall(fake, 'PUT', 'repos/o/r/rulesets/9001', { rules: [{ type: 'deletion' }] });
+    assert.equal(put.ok, true, put.stderr);
+    assert.deepEqual(json(put).rules, [{ type: 'deletion' }]);
+    const after = json(restGet(fake, 'repos/o/r/rulesets/9001'));
+    assert.deepEqual(after.rules, [{ type: 'deletion' }], 'PUT replaces rules');
+    assert.equal(after.name, RULESET_BODY.name, 'a field the PUT leaves out is kept');
+    assert.deepEqual(after.conditions, RULESET_BODY.conditions);
+
+    const second = json(restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'other', enforcement: 'disabled' }));
+    assert.equal(second.id, 9002);
+    assert.equal(second.target, 'branch', 'target defaults to branch');
+    assert.deepEqual(second.rules, []);
+    assert.deepEqual(second.bypass_actors, []);
+    assert.deepEqual(fake.rulesets.map((r) => r.id), [9001, 9002], 'the live store is readable');
+
+    const slurped = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/rulesets'])).flat();
+    assert.deepEqual(slurped.map((r) => r.id), [9001, 9002]);
+
+    assert.equal(fake.writes().length, 3);
+    assert.ok(fake.writes().every((a) => isWriteArgs(a)));
+    assert.deepEqual(fake.writes().map((a) => a[2]), ['POST', 'PUT', 'POST']);
+  });
+
+  it('1b. rulesets: seeded through the option, refused when invalid, 404 for an unknown id or another repo', () => {
+    const fake = createFakeGitHub({ rulesets: [{ name: 'seeded', target: 'branch', enforcement: 'active', rules: [{ type: 'deletion' }] }] });
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets')).map((r) => [r.id, r.name]), [[9001, 'seeded']]);
+    assert.equal(json(restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'next', enforcement: 'active' })).id, 9002);
+
+    const dup = restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'seeded', enforcement: 'active' });
+    assert.equal(dup.ok, false);
+    assert.match(dup.stderr, /HTTP 422/);
+    const noName = restCall(fake, 'POST', 'repos/o/r/rulesets', { enforcement: 'active' });
+    assert.match(noName.stderr, /HTTP 422/);
+    const noEnforcement = restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'x' });
+    assert.match(noEnforcement.stderr, /HTTP 422/);
+    const badEnforcement = restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'x', enforcement: 'loud' });
+    assert.match(badEnforcement.stderr, /HTTP 422/);
+    assert.equal(fake.rulesets.length, 2, 'a refused body stores nothing');
+
+    assert.match(restGet(fake, 'repos/o/r/rulesets/12345').stderr, /HTTP 404/);
+    assert.match(restCall(fake, 'PUT', 'repos/o/r/rulesets/12345', { rules: [] }).stderr, /HTTP 404/);
+    assert.match(restGet(fake, 'repos/o/elsewhere/rulesets').stderr, /HTTP 404/);
+    assert.match(restCall(fake, 'POST', 'repos/o/elsewhere/rulesets', RULESET_BODY).stderr, /HTTP 404/);
+
+    const rename = restCall(fake, 'PUT', 'repos/o/r/rulesets/9002', { name: 'seeded' });
+    assert.match(rename.stderr, /HTTP 422/, 'a rename onto an existing name is refused');
+  });
+
+  it('2. merge queue: mergeQueueAllowed:false refuses a merge_queue rule with 422 and stores nothing; the same body without it is stored', () => {
+    const fake = createFakeGitHub({ mergeQueueAllowed: false });
+    const refused = restCall(fake, 'POST', 'repos/o/r/rulesets', { ...RULESET_BODY, rules: [...RULESET_BODY.rules, MERGE_QUEUE_RULE] });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.status, 1);
+    assert.equal(refused.stderr, 'gh: Validation Failed (HTTP 422)');
+    assert.equal(fake.rulesets.length, 0, 'nothing stored on a refusal');
+
+    const stored = restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    assert.equal(stored.ok, true, stored.stderr);
+    assert.equal(fake.rulesets.length, 1);
+
+    const upgrade = restCall(fake, 'PUT', 'repos/o/r/rulesets/9001', { rules: [...RULESET_BODY.rules, MERGE_QUEUE_RULE] });
+    assert.equal(upgrade.ok, false);
+    assert.equal(upgrade.stderr, 'gh: Validation Failed (HTTP 422)');
+    assert.deepEqual(fake.rulesets[0].rules, RULESET_BODY.rules, 'a refused PUT leaves the ruleset as it was');
+
+    const allowed = createFakeGitHub();
+    const withQueue = restCall(allowed, 'POST', 'repos/o/r/rulesets', { ...RULESET_BODY, rules: [...RULESET_BODY.rules, MERGE_QUEUE_RULE] });
+    assert.equal(withQueue.ok, true, 'mergeQueueAllowed defaults to true');
+    assert.ok(allowed.rulesets[0].rules.some((r) => r.type === 'merge_queue'));
+  });
+
+  it('3. isAdmin:false: ruleset writes and PATCH repos/o/r are 403, reads still work', () => {
+    const fake = createFakeGitHub({ isAdmin: false, rulesets: [{ name: 'seeded', enforcement: 'active' }] });
+
+    const post = restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    assert.equal(post.ok, false);
+    assert.match(post.stderr, /HTTP 403/);
+    assert.doesNotMatch(post.stderr, /rate limit/i, 'a bare 403 is a permission error, never a rate limit');
+    assert.match(restCall(fake, 'PUT', 'repos/o/r/rulesets/9001', { rules: [] }).stderr, /HTTP 403/);
+    assert.match(restCall(fake, 'PATCH', 'repos/o/r', { has_wiki: true }).stderr, /HTTP 403/);
+    assert.equal(fake.rulesets.length, 1);
+
+    assert.equal(restGet(fake, 'repos/o/r/rulesets').ok, true);
+    assert.equal(restGet(fake, 'repos/o/r/rulesets/9001').ok, true);
+    const repo = json(restGet(fake, 'repos/o/r'));
+    assert.equal(repo.has_wiki, true, 'the refused PATCH changed nothing');
+    assert.equal(repo.permissions.admin, false, 'a non-admin token does not see admin permission');
+    assert.equal(json(restGet(createFakeGitHub(), 'repos/o/r')).permissions.admin, true);
+  });
+
+  it('4. PATCH repos/o/r sets has_wiki and delete_branch_on_merge, and GET repos/o/r reflects both', () => {
+    const fake = createFakeGitHub({ hasWiki: false });
+    const before = json(restGet(fake, 'repos/o/r'));
+    assert.equal(before.has_wiki, false);
+    assert.equal(before.delete_branch_on_merge, false);
+
+    const patched = restCall(fake, 'PATCH', 'repos/o/r', { has_wiki: true, delete_branch_on_merge: true });
+    assert.equal(patched.ok, true, patched.stderr);
+    assert.equal(json(patched).has_wiki, true);
+    assert.equal(json(patched).delete_branch_on_merge, true);
+
+    const after = json(restGet(fake, 'repos/o/r'));
+    assert.equal(after.has_wiki, true);
+    assert.equal(after.delete_branch_on_merge, true);
+    assert.equal(after.full_name, 'o/r', 'the rest of the repo meta is unchanged');
+
+    restCall(fake, 'PATCH', 'repos/o/r', { delete_branch_on_merge: false });
+    const partial = json(restGet(fake, 'repos/o/r'));
+    assert.equal(partial.has_wiki, true, 'a PATCH touches only the fields it names');
+    assert.equal(partial.delete_branch_on_merge, false);
+
+    assert.equal(json(restGet(createFakeGitHub({ deleteBranchOnMerge: true }), 'repos/o/r')).delete_branch_on_merge, true,
+      'the option seeds it');
+
+    assert.deepEqual(fake.writes().map((a) => a[2]), ['PATCH', 'PATCH']);
+    assert.match(restCall(fake, 'PATCH', 'repos/o/elsewhere', { has_wiki: true }).stderr, /HTTP 404/);
+  });
+
+  it('5. GET repos/o/r/labels lists the labels gh label create made, with their colour and description', () => {
+    const fake = createFakeGitHub();
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/labels')), []);
+    assert.equal(fake.runGh(['label', 'create', 'devflow:objective', ...R, '--color', '0e8a16', '--description', 'An objective']).ok, true);
+    assert.equal(fake.runGh(['label', 'create', 'devflow:trd', ...R]).ok, true);
+
+    const rows = json(restGet(fake, 'repos/o/r/labels'));
+    assert.deepEqual(rows.map((l) => l.name), ['devflow:objective', 'devflow:trd']);
+    assert.equal(rows[0].color, '0e8a16');
+    assert.equal(rows[0].description, 'An objective');
+    assert.equal(rows[1].description, null, 'no description is null, like GitHub');
+    assert.match(rows[1].color, /^[0-9a-f]{6}$/);
+    assert.ok(rows.every((l) => Number.isInteger(l.id)));
+
+    const paged = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/labels'])).flat();
+    assert.equal(paged.length, 2);
+    assert.match(restGet(fake, 'repos/o/elsewhere/labels').stderr, /HTTP 404/);
+  });
+
+  it('9. an argv the fake does not know still yields [gh-fake] unsupported', () => {
+    const fake = createFakeGitHub();
+    restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    const gaps = [
+      ['api', 'repos/o/r/rulesets/9001/history'],
+      ['api', '--method', 'DELETE', 'repos/o/r/rulesets/9001'],
+      ['api', 'repos/o/r/hooks'],
+      ['api', '--method', 'DELETE', 'repos/o/r'],
+      ['api', '--method', 'PUT', 'repos/o/r/labels'],
+    ];
+    for (const argv of gaps) {
+      const r = fake.runGh(argv);
+      assert.equal(r.ok, false, argv.join(' '));
+      assert.match(r.stderr, /\[gh-fake\] unsupported/, argv.join(' '));
+    }
+    const field = restCall(fake, 'PATCH', 'repos/o/r', { allow_squash_merge: true });
+    assert.equal(field.ok, false, 'a repo field the fake does not model is a loud gap, never a quiet success');
+    assert.match(field.stderr, /\[gh-fake\] unsupported/);
+    assert.equal(fake.rulesets.length, 1, 'the unknown routes changed nothing');
+  });
+});
