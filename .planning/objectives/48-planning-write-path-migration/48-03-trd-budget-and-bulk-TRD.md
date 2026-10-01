@@ -123,7 +123,7 @@ preflight) and read `checks.trd_budget`; choose `severity.store` when `.planning
 `github.store: true`, else `severity.local`. Thresholds table: target 40,000 / ceiling 60,000 encoded chars; fenced block > 8,000; fenced share
 > 40% at >= 40,000. Fix hints: "split the TRD or move work to a follow-up TRD; move fixtures/sample data/long listings to the repo or wiki and
 link them; never trim prose to fit." Bulk findings are always `warning`. Mention U-2/D-06 by name in one line. Add `trd_budget` to any list of
-dimensions near the top of the file. This TRD adds no write directive to the file (keep the 48-04 audit count for job-checker.md unchanged or lower).
+dimensions near the top of the file. Do not add planning-write directives (48-04, wave 2, depends on this TRD and baselines job-checker.md after this edit).
 Commit `docs(48-03): job-checker dimension 8`.
   </action>
   <verify>rg -n "Dimension 8: TRD Size and Linked Bulk|trd_budget|8,000|40%" plugins/devflow/agents/job-checker.md</verify>

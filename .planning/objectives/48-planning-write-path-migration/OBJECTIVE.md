@@ -81,7 +81,7 @@ questions using the research recommendations. TRDs cite them by id.
 - **D-05 Milestones.** Native milestone titled `<milestone_prefix><version>`; description is at most 1,000 characters: the entry's
   first paragraph plus a link to wiki page `Milestone-v<X_Y>` (dots to underscores, like 47's `Retro-v1_3`), which holds the full
   MILESTONES.md entry (cache `milestones/vX.Y.md`). Archives `milestones/vX.Y-<KIND>.md` ↔ `Milestone-v<X_Y>-<Kind>`. MILESTONES.md is a generated view in store mode. Milestone writes
-  are direct, idempotent gh-client calls in `gh-milestone.cjs` (find-or-create by title, PATCH by number), the same documented
+  are direct, idempotent gh-client calls in the new `gh-milestone-store.cjs` (46's `gh-milestone.cjs` stays pure local I/O) (find-or-create by title, PATCH by number), the same documented
   exception as 47's milestone bootstrap; offline the verb exits 1 before any remote write.
 - **D-06 Budget.** `plan put-trd`: store mode refuses an encoded body over 60,000 and warns at 40,000+; local mode warns only (this
   repo has a 69K TRD). `verify trd-pre` `trd_budget`: over 60K is a blocker in store mode, a warning locally; linked-bulk (U-2) is

@@ -67,8 +67,9 @@ remaining violation); GREEN = rewrite prose until it passes. -->
   list saved into the SUMMARY. Then GREEN commits per task. Commit with `node plugins/devflow/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`.
 - Edit with targeted `Edit` calls; do not rewrite whole files. Keep each file's structure, step names and XML tags.
 - Command lines must be exactly the 48-15 forms (the 48-15 repo test resolves them); path in prose `node ~/.claude/devflow/bin/df-tools.cjs`.
-- Do not exempt real writes to pass the audit; an EXEMPT entry is only for read-only/explanatory lines (add to the repo test's EXEMPT only if
-  truly read-only — that file is not in this TRD's list, so report any such need in the SUMMARY instead).
+- Every violation in this group is resolved in this TRD — no leftover: rewrite it to the verb, rephrase an explanatory line so it no
+  longer reads as a write, or mark a genuinely read-only / runtime / tracked-config line with `<!-- planning-audit: allow <reason> -->` (48-04's
+  inline mechanism; never for a real write). The group baseline ends as `{"_comment": ...}` only.
 - Never port 8080; no real GitHub.
 
 ## Rewrite recipe (apply uniformly)
@@ -105,7 +106,7 @@ reports it). Over budget: split the TRD or move work to a follow-up TRD; never t
 or fenced content over 40% of a TRD of 40,000+ characters, are linked bulk: put fixtures, sample data and long listings in the repo or wiki and
 link them." Commit `docs(48-16): planner writes TRDs through plan put-trd`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -c "agents/planner.md" ; rg -n "plan put-trd|plan push|40,000|60,000" plugins/devflow/agents/planner.md</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "agents/planner.md" && rg -q "plan put-trd" plugins/devflow/agents/planner.md && rg -q "plan push" plugins/devflow/agents/planner.md && rg -q "60,000" plugins/devflow/agents/planner.md</verify>
   <done>No planner.md violations listed; budget text present; remaining failures only in other plan-group files.</done>
 </task>
 
@@ -117,7 +118,7 @@ Apply the recipe: RESEARCH.md / CONTEXT.md / DISCOVERY.md writes become draft + 
 draft and runs `doc put` itself (it has Bash). Templates: change any "write this file to .planning/..." instruction to name the verb; leave the
 template body (the document skeleton) alone. Commit `docs(48-16): research and discuss publish with doc put`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg "objective-researcher|research-objective|discuss-objective|discovery" || echo clean</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "objective-researcher|research-objective|discuss-objective|discovery"</verify>
   <done>None of these files appear in the failure list.</done>
 </task>
 

@@ -54,8 +54,8 @@ Purpose: SC1 (final form), SC4, and the docs for GWP-01..05. Output: test change
 - TDD: RED = change the repo test to "zero violations, no baseline files allowed" while the baseline files still exist (the test fails on their
   presence); GREEN = delete them. Commit with `node plugins/devflow/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>` (deleted files are
   staged removals; pass their paths).
-- If any group still has violations (e.g. 48-21's documented leftover), fix the prose here with a one-line verb substitution and list it in the
-  SUMMARY; do not re-introduce a baseline.
+- Precondition: every group baseline already holds only `_comment` (48-16..48-21 each end at zero; there is no leftover path). If one does
+  not, stop and report it as a defect of the owning prose TRD; do not edit prose here and do not re-introduce a baseline.
 - Docs follow CLAUDE.md conventions: plain declaratives, no hype, existing bullet format. Keep CLAUDE.md lean (it is resident on every turn):
   one bullet for the verbs/store mode under "Core Tool", one line under the edit-gate hook, not a new section.
 - Version files are NOT bumped (release needs separate approval, D-10). Never port 8080.
@@ -87,7 +87,7 @@ Rewrite the ratchet part of the repo test: drop baseline loading; assert `findin
 `planning-writes-baseline/` dir does not exist; keep EXEMPT checks, sensitivity checks and 48-15's verb-existence check. Commit RED. `git rm` the six
 JSON files (and the dir); commit `test(48-23): SC1 audit asserts zero planning writes`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs plugins/devflow/devflow/bin/lib/planning-audit.test.cjs</verify>
+  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs plugins/devflow/devflow/bin/lib/planning-audit.test.cjs && test ! -e plugins/devflow/devflow/bin/lib/__fixtures__/planning-writes-baseline</verify>
   <done>Tests 1-2 pass; no baseline files remain.</done>
 </task>
 
@@ -102,7 +102,7 @@ paragraph ("Objective 48 (write-path migration) is implemented: ...") and add a 
 debug/quick/todo issues, native milestones + `Milestone-vX_Y` pages, research pages, linked-bulk thresholds, summary checkpoints). Do not edit the
 Decisions table. Commit `docs(48-23): document planning verbs and store mode`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs && node plugins/devflow/devflow/bin/df-tools.cjs changelog check Unreleased 2>&1 | tail -3</verify>
+  <verify>node --test plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs && rg -q '^## \[Unreleased\]' CHANGELOG.md && rg -q 'planning verbs|plan put-trd' CHANGELOG.md</verify>
   <done>doc-refs green; CHANGELOG has the Unreleased entry.</done>
 </task>
 
@@ -130,7 +130,7 @@ total/pass counts and duration in the SUMMARY, plus `node plugins/devflow/devflo
 - Adding a long CLAUDE.md section: it costs context on every turn; link the USER-GUIDE instead.
 </anti_patterns>
 <error_recovery>
-- If `changelog check Unreleased` is not a supported form, verify with `rg -n "## \[Unreleased\]" CHANGELOG.md` instead.
+- If `## [Unreleased]` already exists from objective 47, add 48's lines under it rather than a second heading.
 </error_recovery>
 </embedded_context>
 

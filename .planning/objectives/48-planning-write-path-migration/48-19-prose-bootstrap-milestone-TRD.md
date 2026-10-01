@@ -69,6 +69,9 @@ Purpose: GWP-02 for new-project, adopt, milestone and objective-management flows
 ## Binding rules
 
 - RED first: empty `bootstrap.json`, run, commit `test(48-19): bootstrap group must have zero planning writes`.
+- Every violation in this group is resolved in this TRD â€” no leftover: rewrite it to the verb, rephrase an explanatory line so it no
+  longer reads as a write, or mark a genuinely read-only / runtime / tracked-config line with `<!-- planning-audit: allow <reason> -->` (48-04's
+  inline mechanism; never for a real write). The group baseline ends as `{"_comment": ...}` only.
 - Targeted `Edit`s; exact 48-15 command lines. Commit with `node plugins/devflow/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`.
 - `adopt` and `new-project` normally run before a project opts into the store (48-RESEARCH 1b): local mode is the main path and must produce the
   same files; the store-mode branch is the `planning mode` guard. Never port 8080; no real GitHub.
@@ -103,7 +106,7 @@ Purpose: GWP-02 for new-project, adopt, milestone and objective-management flows
 Empty `bootstrap.json`; run; commit RED. Rewrite per the recipe (new-project has ~33 findings; roadmapper L476-480). Commit
 `docs(48-19): project bootstrap publishes through verbs`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg "new-project|roadmapper|project-researcher|research-synthesizer" || echo clean</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "new-project|roadmapper|project-researcher|research-synthesizer"</verify>
   <done>None of these files appear in the failure list.</done>
 </task>
 
@@ -114,7 +117,7 @@ Empty `bootstrap.json`; run; commit RED. Rewrite per the recipe (new-project has
 Rewrite per the recipe. In complete-milestone add the D-05 note: "In store mode the milestone is a native GitHub milestone; its description holds a
 short summary and links the wiki page `Milestone-vX_Y` with the full entry." Commit `docs(48-19): milestone flows use milestone verbs`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg "milestone" || echo clean</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "milestone"</verify>
   <done>No milestone file in the failure list.</done>
 </task>
 
@@ -140,7 +143,7 @@ Rewrite per the recipe; adopt's scaffold is df-tools-driven (`adopt scaffold`) â
 - Making new-project store-only: most projects bootstrap locally and opt into the store later.
 </anti_patterns>
 <error_recovery>
-- If a template under `research-project/` is flagged only because its skeleton text says "update", rephrase that word; do not exempt it.
+- If a template under `research-project/` is flagged only because its skeleton text says "update", rephrase that word (an allow marker is acceptable only if the line is purely descriptive).
 </error_recovery>
 </embedded_context>
 

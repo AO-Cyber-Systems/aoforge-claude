@@ -1,7 +1,7 @@
 ---
 objective: 48-planning-write-path-migration
 trd: "22"
-type: standard
+type: tdd
 wave: 5
 depends_on: ["48-07", "48-08", "48-09", "48-10", "48-12", "48-13", "48-14", "48-15"]
 files_modified:
@@ -41,8 +41,9 @@ Purpose: SC3, D-01 parity, GWP-03/04 end to end. Output: e2e test + hand-built f
 @~/.claude/devflow/templates/summary.md
 </execution_context>
 
-<!-- TDD-EXCEPTION: end-to-end verification TRD; every behaviour under test was built test-first in 48-01..48-15. A failing scenario is fixed in
-the owning module test-first (separate commit, noted in the SUMMARY), never by weakening this test. -->
+<!-- TDD shape: each scenario test is committed first (test commit). Behaviour was built test-first in 48-01..48-15, so a test may pass on
+first run; any failure it exposes is fixed in the owning module RED → GREEN (failing test already committed, then the fix commit), never by
+weakening this test. -->
 
 ## Binding rules
 
@@ -77,7 +78,7 @@ the owning module test-first (separate commit, noted in the SUMMARY), never by w
 
 <tasks>
 
-<task type="auto">
+<task type="auto" tdd="true">
   <name>Task 1: Fixture builder + store setup (test 1)</name>
   <files>plugins/devflow/devflow/bin/lib/__fixtures__/planning-e2e-fixtures.cjs, plugins/devflow/devflow/bin/lib/planning-verbs.e2e.test.cjs</files>
   <action>
@@ -90,7 +91,7 @@ D-01 and implement test 1. Commit `test(48-22): e2e fixture and store setup`.
   <done>Test 1 passes.</done>
 </task>
 
-<task type="auto">
+<task type="auto" tdd="true">
   <name>Task 2: SC3 scenario, round trip, drift and offline (tests 2-7)</name>
   <files>plugins/devflow/devflow/bin/lib/planning-verbs.e2e.test.cjs, plugins/devflow/devflow/bin/lib/__fixtures__/gh-fake.cjs</files>
   <action>
@@ -101,7 +102,7 @@ owning module test-first (separate commit), re-run. Commit `test(48-22): SC3 pla
   <done>Tests 1-7 pass.</done>
 </task>
 
-<task type="auto">
+<task type="auto" tdd="true">
   <name>Task 3: Store-off parity (tests 8-9)</name>
   <files>plugins/devflow/devflow/bin/lib/planning-verbs.e2e.test.cjs</files>
   <action>

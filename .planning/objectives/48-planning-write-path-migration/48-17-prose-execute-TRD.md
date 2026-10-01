@@ -53,6 +53,9 @@ Purpose: GWP-02 for execution; D-12. Output: prose edits + empty `execute.json`.
 ## Binding rules
 
 - RED first: empty `execute.json` (keep `_comment`), run the repo test, commit `test(48-17): execute group must have zero planning writes`.
+- Every violation in this group is resolved in this TRD — no leftover: rewrite it to the verb, rephrase an explanatory line so it no
+  longer reads as a write, or mark a genuinely read-only / runtime / tracked-config line with `<!-- planning-audit: allow <reason> -->` (48-04's
+  inline mechanism; never for a real write). The group baseline ends as `{"_comment": ...}` only.
 - Targeted `Edit`s; keep step names/XML. Exact 48-15 command lines with `node ~/.claude/devflow/bin/df-tools.cjs`.
 - This TRD is executed BY an executor reading the current executor.md; edit carefully and re-read the changed sections once (the SUMMARY of this
   TRD is itself written with today's flow — that is fine).
@@ -90,7 +93,7 @@ L1023-1072) per the recipe. Add a short `<store_mode>` note near the existing ST
 and publish with the verb. A denial is a prompt defect to report in the SUMMARY, not something to bypass." Commit
 `docs(48-17): executor publishes SUMMARY through summary verbs`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -c "agents/executor.md"; rg -n "summary checkpoint|summary post|planning draft" plugins/devflow/agents/executor.md</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "agents/executor.md" && rg -q "summary checkpoint" plugins/devflow/agents/executor.md && rg -q "summary post" plugins/devflow/agents/executor.md</verify>
   <done>executor.md absent from the failure list; checkpoint, post and draft present.</done>
 </task>
 

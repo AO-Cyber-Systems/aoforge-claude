@@ -58,6 +58,9 @@ Purpose: GWP-02 for verification. Output: prose edits + empty `verify.json`.
 ## Binding rules
 
 - RED first: empty `verify.json`, run the repo test, commit `test(48-18): verify group must have zero planning writes`.
+- Every violation in this group is resolved in this TRD — no leftover: rewrite it to the verb, rephrase an explanatory line so it no
+  longer reads as a write, or mark a genuinely read-only / runtime / tracked-config line with `<!-- planning-audit: allow <reason> -->` (48-04's
+  inline mechanism; never for a real write). The group baseline ends as `{"_comment": ...}` only.
 - Targeted `Edit`s; exact 48-15 command lines (`node ~/.claude/devflow/bin/df-tools.cjs ...`). Commit with
   `node plugins/devflow/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`. Never port 8080; no real GitHub.
 
@@ -88,7 +91,7 @@ Purpose: GWP-02 for verification. Output: prose edits + empty `verify.json`.
 Empty `verify.json`; run; commit RED. Rewrite verifier.md hot spots (48-RESEARCH 1d: L297, 553, 565, 657-662, 752-756) and any write lines in the
 three other agents per the recipe. Commit `docs(48-18): verifier publishes through verification post`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg "agents/(verifier|integration-checker|ui-evaluator|security-auditor)" || echo clean</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "agents/(verifier|integration-checker|ui-evaluator|security-auditor)"</verify>
   <done>No agent in this TRD appears in the failure list.</done>
 </task>
 

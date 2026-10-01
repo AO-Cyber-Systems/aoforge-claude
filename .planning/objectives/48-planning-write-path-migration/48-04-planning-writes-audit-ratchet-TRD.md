@@ -2,8 +2,8 @@
 objective: 48-planning-write-path-migration
 trd: "04"
 type: tdd
-wave: 1
-depends_on: []
+wave: 2
+depends_on: ["48-03"]
 files_modified:
   - plugins/devflow/devflow/bin/lib/planning-audit.cjs
   - plugins/devflow/devflow/bin/lib/planning-audit.test.cjs
@@ -22,7 +22,8 @@ must_haves:
     - "Ratchet (D-21): per-file violation counts may only go down — `actual[file] <= baseline[file]`, a file absent from every baseline must have zero violations, and a baseline entry above the actual count fails as stale (forcing each prose TRD to lower it)"
     - "Every scanned file belongs to exactly one group (`plan`, `execute`, `verify`, `bootstrap`, `work`, `misc`) by a pinned table, and each group's baseline is its own JSON file so the six prose TRDs (48-16..48-21) edit disjoint files"
     - "Sensitivity controls pass: a synthetic `Write .planning/objectives/01-x/01-01-a-TRD.md` line is 1 finding; the same with `df-tools plan put-trd` within 3 lines is 0; the scanner finds at least one violation in today's `agents/planner.md`"
-    - "The suite is green on landing (baselines equal today's counts)"
+    - "The suite is green on landing (baselines equal today's counts, measured AFTER 48-03's job-checker.md Dimension 8 edit)"
+    - "Inline exemption mechanism for prose TRDs: a line carrying, or directly preceded by, `<!-- planning-audit: allow <reason> -->` (reason >= 20 chars) is not a finding; a marker that suppresses nothing or has a short reason fails the repo test"
   artifacts:
     - path: plugins/devflow/devflow/bin/lib/planning-audit.cjs
       provides: "WRITE_VERB_RE, ARTIFACT_RE, VERB_CALL_RE, scanWrites, scanSet, groupOf, GROUPS"
@@ -84,13 +85,19 @@ D-21 (ratchet with per-group baselines). Settled here:
   - `bootstrap`: agents/{roadmapper,project-researcher,research-synthesizer}.md; workflows/{new-project,new-milestone,complete-milestone,audit-milestone,
     adopt,add-objective,remove-objective}.md; skills/{new-project,milestone,adopt,objective}; templates/{project,milestone,milestone-archive,requirements,roadmap,state,state_archive}.md, templates/research-project/**
   - `work`: agents/debugger.md; workflows/{add-todo,check-todos,quick,micro}.md; skills/{todo,decide,debug,quick,micro}; templates/{DEBUG,debug-subagent-prompt}.md
-  - `misc`: everything else (map-codebase, codebase-mapper, templates/codebase/**, gh-sync, sync-roadmap, status, resume, pause, progress, health,
-    help, cleanup, workstreams, settings, ...).
+  - `misc`: every other scan-set file (map-codebase, codebase-mapper, templates/codebase/**, gh-sync, sync-roadmap, status, resume, pause,
+    progress, health, help, cleanup, workstreams, settings, ...). 48-21's `files_modified` enumerates each of them, so every group has an owning
+    prose TRD that can reach zero.
 - **Baseline files**: `__fixtures__/planning-writes-baseline/<group>.json` = `{ "<repo-relative path>": <count> }`, keys sorted, only files with
   count > 0, plus `"_comment"` explaining the ratchet. An empty group file is `{"_comment": "..."}`.
 - **EXEMPT**: `[{file, line_contains, reason}]` in the repo test, reason >= 20 chars, each must match a real line (stale exemptions fail).
   Start with the ones the scan forces you to judge as read-only/explanatory (e.g. "never write STACK.md yourself" in executor/codebase-mapper);
   do not exempt real write instructions — those belong in the baseline.
+- **Inline allow marker** (the exemption mechanism prose TRDs 48-16..48-21 use, since they do not own the repo test): `<!-- planning-audit: allow
+  <reason> -->` on the flagged line or the line directly above it suppresses that one finding. Valid only for lines that are read-only,
+  explanatory, or about runtime/tracked-config paths (STACK.md, config.json, `.trd-progress/`); reason >= 20 characters. `scanWrites` returns
+  `{findings, allowed:[{line, reason}], badMarkers:[{line, problem}]}`; a marker that suppresses no finding (stale) or has a short reason is a bad
+  marker, and the repo test fails on any bad marker.
 
 ## Test list
 
@@ -101,6 +108,8 @@ planning-audit (unit, hand-written strings)
 4. `Never write STACK.md yourself` → 0 (negation); `Do not edit the SUMMARY` → 0.
 5. `Read @~/.claude/devflow/templates/summary.md` → 0; `update ROADMAP.md progress` → 1; `node df-tools.cjs frontmatter set .planning/x/OBJECTIVE.md status done` → 1.
 6. A finding inside a fenced bash block counts the same as prose.
+6a. `Write the SUMMARY.md` preceded by `<!-- planning-audit: allow explanatory example of the old flow -->` → 0 findings, 1 allowed; the same marker
+    above a line with no finding → 1 bad marker (stale); a marker with reason `ok` → bad marker (short).
 7. `groupOf('plugins/devflow/agents/planner.md') === 'plan'`, executor → execute, verifier → verify, `workflows/new-project.md` → bootstrap, `skills/todo/SKILL.md` → work, `skills/status/SKILL.md` → misc.
 8. `scanSet(root)` excludes a workflow with `status: legacy` and includes templates.
 
@@ -111,7 +120,7 @@ planning-writes.repo (repo test)
 12. A baseline key whose `groupOf` differs from the JSON it sits in fails.
 13. Sensitivity: the scanner finds >= 1 violation in today's `agents/planner.md` text (read from disk; this assertion flips to `== 0` in 48-16,
     so write it as `if (baseline has planner.md) assert >= 1 else assert === 0`).
-14. Every EXEMPT entry matches a real line and has a reason of 20+ characters.
+14. Every EXEMPT entry matches a real line and has a reason of 20+ characters; the repo scan reports zero bad inline markers.
 
 <tasks>
 
@@ -119,10 +128,10 @@ planning-writes.repo (repo test)
   <name>Task 1: planning-audit.cjs scanner (tests 1-8)</name>
   <files>plugins/devflow/devflow/bin/lib/planning-audit.cjs, plugins/devflow/devflow/bin/lib/planning-audit.test.cjs</files>
   <action>
-RED: tests 1-8 (hand-written strings; test 8 uses a temp tree with one legacy workflow, one active workflow, one template).
+RED: tests 1-8 and 6a (hand-written strings; test 8 uses a temp tree with one legacy workflow, one active workflow, one template).
 Commit `test(48-04): planning-write scanner`.
 GREEN: implement the regexes, `scanWrites(text) → [{line, text, artifact}]` (window check over ±3 lines of the same text), `scanSet(repoRoot)`
-(fs walk of the four globs, legacy skip via frontmatter `status: legacy`), `GROUPS` + `groupOf`. Commit `feat(48-04): planning-write scanner`.
+(fs walk of the four globs, legacy skip via frontmatter `status: legacy`), the inline allow-marker parsing, `GROUPS` + `groupOf`. Commit `feat(48-04): planning-write scanner`.
   </action>
   <verify>node --test plugins/devflow/devflow/bin/lib/planning-audit.test.cjs</verify>
   <done>Tests 1-8 pass.</done>

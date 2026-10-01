@@ -222,7 +222,7 @@ TRDs:
 - [ ] 48-01-planning-mode-paths-ledger-TRD.md — (W1, tdd) `planning-mode` (store iff github.enabled && github.store; main-checkout root), `planning-paths` total classifier + verb table + U-1 gitignore lines, `planning-ledger` verb-write ledger
 - [ ] 48-02-entity-issue-contract-TRD.md — (W1, tdd) entity body codec, mapping `entities`, outbox roles todo/debug/quick + ENTITY_ROLES
 - [ ] 48-03-trd-budget-and-bulk-TRD.md — (W1, tdd) `trd-bulk` 40K/60K budget + linked-bulk (8,000-char block, 40% share) warnings; `verify trd-pre` trd_budget; job-checker Dimension 8 (GWP-05)
-- [ ] 48-04-planning-writes-audit-ratchet-TRD.md — (W1, tdd) SC1 audit: planning-write scanner + repo ratchet test with six per-group baselines
+- [ ] 48-04-planning-writes-audit-ratchet-TRD.md — (W2, tdd) SC1 audit: planning-write scanner + repo ratchet test with six per-group baselines
 - [ ] 48-05-wiki-pages-and-native-milestones-TRD.md — (W1, tdd) PAGE_TABLE rules for research/, milestones/, objective docs; `gh-milestone-store` native milestones; fake milestone PATCH
 - [ ] 48-06-flusher-entity-roles-TRD.md — (W2, tdd) flusher creates/updates/closes todo, debug (Debug type), quick (Quick type) issues; optional types; decision answer pinned
 - [ ] 48-07-cache-materialize-entities-TRD.md — (W2, tdd) `gh pull --all` rebuilds todos, debug, quick, decisions, generated MILESTONES.md; owned list via classifier

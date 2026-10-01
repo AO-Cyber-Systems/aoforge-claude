@@ -5,16 +5,48 @@ type: tdd
 wave: 5
 depends_on: ["48-04", "48-15"]
 files_modified:
-  - plugins/devflow/devflow/workflows/map-codebase.md
-  - plugins/devflow/skills/map-codebase/SKILL.md
   - plugins/devflow/agents/codebase-mapper.md
-  - plugins/devflow/skills/gh-sync/SKILL.md
-  - plugins/devflow/skills/sync-roadmap/SKILL.md
-  - plugins/devflow/skills/status/SKILL.md
-  - plugins/devflow/devflow/workflows/resume-project.md
+  - plugins/devflow/devflow/templates/claude-md.md
+  - plugins/devflow/devflow/templates/codebase/architecture.md
+  - plugins/devflow/devflow/templates/codebase/concerns.md
+  - plugins/devflow/devflow/templates/codebase/conventions.md
+  - plugins/devflow/devflow/templates/codebase/integrations.md
+  - plugins/devflow/devflow/templates/codebase/patterns.md
+  - plugins/devflow/devflow/templates/codebase/stack.md
+  - plugins/devflow/devflow/templates/codebase/structure.md
+  - plugins/devflow/devflow/templates/codebase/testing.md
+  - plugins/devflow/devflow/templates/continue-here.md
+  - plugins/devflow/devflow/templates/global-claude-md.md
+  - plugins/devflow/devflow/templates/stack.md
+  - plugins/devflow/devflow/templates/user-setup.md
+  - plugins/devflow/devflow/workflows/cleanup.md
   - plugins/devflow/devflow/workflows/health.md
   - plugins/devflow/devflow/workflows/help.md
+  - plugins/devflow/devflow/workflows/map-codebase.md
+  - plugins/devflow/devflow/workflows/pause-work.md
+  - plugins/devflow/devflow/workflows/progress.md
+  - plugins/devflow/devflow/workflows/resume-project.md
+  - plugins/devflow/devflow/workflows/set-profile.md
+  - plugins/devflow/devflow/workflows/settings.md
   - plugins/devflow/devflow/workflows/workstreams-merge.md
+  - plugins/devflow/devflow/workflows/workstreams-run.md
+  - plugins/devflow/devflow/workflows/workstreams-setup.md
+  - plugins/devflow/devflow/workflows/workstreams-status.md
+  - plugins/devflow/skills/awareness/SKILL.md
+  - plugins/devflow/skills/cleanup/SKILL.md
+  - plugins/devflow/skills/doctor/SKILL.md
+  - plugins/devflow/skills/flow/SKILL.md
+  - plugins/devflow/skills/gh-sync/SKILL.md
+  - plugins/devflow/skills/handoff/SKILL.md
+  - plugins/devflow/skills/help/SKILL.md
+  - plugins/devflow/skills/initiatives/SKILL.md
+  - plugins/devflow/skills/map-codebase/SKILL.md
+  - plugins/devflow/skills/set-profile/SKILL.md
+  - plugins/devflow/skills/settings/SKILL.md
+  - plugins/devflow/skills/status/SKILL.md
+  - plugins/devflow/skills/sync-roadmap/SKILL.md
+  - plugins/devflow/skills/tui/SKILL.md
+  - plugins/devflow/skills/workstreams/SKILL.md
   - plugins/devflow/devflow/bin/lib/__fixtures__/planning-writes-baseline/misc.json
 autonomous: true
 requirements: [GWP-02]
@@ -52,9 +84,11 @@ Purpose: GWP-02 completion. Output: prose edits + empty `misc.json`.
 
 ## Binding rules
 
-- RED first: empty `misc.json`, run, commit `test(48-21): misc group must have zero planning writes`. If the failure list names a `misc`-group
-  file not in this TRD's `files_modified`, fix it only if the change is a one-line verb substitution and list it in the SUMMARY as an
-  out-of-list edit; otherwise report it and leave `misc.json` with that file's count (48-23 then owns it).
+- RED first: empty `misc.json`, run, commit `test(48-21): misc group must have zero planning writes`. `files_modified` enumerates EVERY
+  `misc`-group file in the scan set (computed at planning time), so every listed violation is in scope; edit only the files the failure list names.
+- Every violation in this group is resolved in this TRD — no leftover: rewrite it to the verb, rephrase an explanatory line so it no
+  longer reads as a write, or mark a genuinely read-only / runtime / tracked-config line with `<!-- planning-audit: allow <reason> -->` (48-04's
+  inline mechanism; never for a real write). The group baseline ends as `{"_comment": ...}` only.
 - Targeted `Edit`s; exact 48-15 command lines. Commit with `node plugins/devflow/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`.
 - Never port 8080; no real GitHub.
 
@@ -74,7 +108,7 @@ Purpose: GWP-02 completion. Output: prose edits + empty `misc.json`.
 
 1. (RED) repo test fails listing `misc`-group violations once `misc.json` is emptied.
 2. After Task 1: codebase-mapper/map-codebase absent from failures; `rg -n "doc put codebase/" plugins/devflow/devflow/workflows/map-codebase.md` matches.
-3. After Task 2: group clean (or the documented leftover); repo + doc-refs tests green.
+3. After Task 2: group clean; repo + doc-refs tests green.
 
 <tasks>
 
@@ -85,19 +119,19 @@ Purpose: GWP-02 completion. Output: prose edits + empty `misc.json`.
 Empty `misc.json`; run; commit RED. Rewrite the mapping flow per the recipe; keep codebase-mapper's "never write STACK.md yourself" rule.
 Commit `docs(48-21): codebase maps publish with doc put`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg "map-codebase|codebase-mapper" || echo clean</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "map-codebase|codebase-mapper"</verify>
   <done>Mapping files absent from the failure list.</done>
 </task>
 
 <task type="auto" tdd="true">
-  <name>Task 2: gh-sync, sync-roadmap, status, resume, health, help, workstreams-merge — group green</name>
-  <files>plugins/devflow/skills/gh-sync/SKILL.md, plugins/devflow/skills/sync-roadmap/SKILL.md, plugins/devflow/skills/status/SKILL.md, plugins/devflow/devflow/workflows/resume-project.md, plugins/devflow/devflow/workflows/health.md, plugins/devflow/devflow/workflows/help.md, plugins/devflow/devflow/workflows/workstreams-merge.md</files>
+  <name>Task 2: Every remaining misc-group file (sync, status, help, workstreams, settings, templates, ...) — group green</name>
+  <files>plugins/devflow/devflow/templates/claude-md.md, plugins/devflow/devflow/templates/codebase/architecture.md, plugins/devflow/devflow/templates/codebase/concerns.md, plugins/devflow/devflow/templates/codebase/conventions.md, plugins/devflow/devflow/templates/codebase/integrations.md, plugins/devflow/devflow/templates/codebase/patterns.md, plugins/devflow/devflow/templates/codebase/stack.md, plugins/devflow/devflow/templates/codebase/structure.md, plugins/devflow/devflow/templates/codebase/testing.md, plugins/devflow/devflow/templates/continue-here.md, plugins/devflow/devflow/templates/global-claude-md.md, plugins/devflow/devflow/templates/stack.md, plugins/devflow/devflow/templates/user-setup.md, plugins/devflow/devflow/workflows/cleanup.md, plugins/devflow/devflow/workflows/health.md, plugins/devflow/devflow/workflows/help.md, plugins/devflow/devflow/workflows/pause-work.md, plugins/devflow/devflow/workflows/progress.md, plugins/devflow/devflow/workflows/resume-project.md, plugins/devflow/devflow/workflows/set-profile.md, plugins/devflow/devflow/workflows/settings.md, plugins/devflow/devflow/workflows/workstreams-merge.md, plugins/devflow/devflow/workflows/workstreams-run.md, plugins/devflow/devflow/workflows/workstreams-setup.md, plugins/devflow/devflow/workflows/workstreams-status.md, plugins/devflow/skills/awareness/SKILL.md, plugins/devflow/skills/cleanup/SKILL.md, plugins/devflow/skills/doctor/SKILL.md, plugins/devflow/skills/flow/SKILL.md, plugins/devflow/skills/gh-sync/SKILL.md, plugins/devflow/skills/handoff/SKILL.md, plugins/devflow/skills/help/SKILL.md, plugins/devflow/skills/initiatives/SKILL.md, plugins/devflow/skills/set-profile/SKILL.md, plugins/devflow/skills/settings/SKILL.md, plugins/devflow/skills/status/SKILL.md, plugins/devflow/skills/sync-roadmap/SKILL.md, plugins/devflow/skills/tui/SKILL.md, plugins/devflow/skills/workstreams/SKILL.md</files>
   <action>
-Rewrite per the recipe. In `help.md` add a short "Planning verbs" section listing each 48-15 command with one line and the store-mode rule.
+Rewrite every remaining violation the failure list names (any file above) per the recipe. In `help.md` add a short "Planning verbs" section listing each 48-15 command with one line and the store-mode rule.
 Commit `docs(48-21): sync, status and help use planning verbs`. Run repo + doc-refs tests; record counts in the SUMMARY.
   </action>
   <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs</verify>
-  <done>Repo test green with an empty (or documented-leftover) `misc.json`; doc-refs green.</done>
+  <done>Repo test green with an empty `misc.json`; doc-refs green.</done>
 </task>
 
 </tasks>
@@ -120,7 +154,7 @@ Commit `docs(48-21): sync, status and help use planning verbs`. Run repo + doc-r
 </validation_gates>
 
 <verification>
-- `cat plugins/devflow/devflow/bin/lib/__fixtures__/planning-writes-baseline/misc.json` → only `_comment` (or the documented leftover).
+- `cat plugins/devflow/devflow/bin/lib/__fixtures__/planning-writes-baseline/misc.json` → only `_comment`.
 </verification>
 
 <success_criteria>

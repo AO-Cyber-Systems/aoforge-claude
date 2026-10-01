@@ -56,6 +56,9 @@ Purpose: GWP-02 for todo/decide/debug/quick/micro. Output: prose edits + empty `
 ## Binding rules
 
 - RED first: empty `work.json`, run, commit `test(48-20): work group must have zero planning writes`.
+- Every violation in this group is resolved in this TRD — no leftover: rewrite it to the verb, rephrase an explanatory line so it no
+  longer reads as a write, or mark a genuinely read-only / runtime / tracked-config line with `<!-- planning-audit: allow <reason> -->` (48-04's
+  inline mechanism; never for a real write). The group baseline ends as `{"_comment": ...}` only.
 - Targeted `Edit`s; exact 48-15 command lines. Commit with `node plugins/devflow/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`.
 - Never port 8080; no real GitHub.
 
@@ -93,7 +96,7 @@ Purpose: GWP-02 for todo/decide/debug/quick/micro. Output: prose edits + empty `
 Empty `work.json`; run; commit RED. Rewrite add-todo.md (L25, L92-124), check-todos.md (L131, L160 commit line → drop the `done/` path; keep a
 commit of code only if any), todo and decide skills per the recipe. Commit `docs(48-20): todos and decisions use entity verbs`.
   </action>
-  <verify>node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg "add-todo|check-todos|skills/todo|skills/decide" || echo clean</verify>
+  <verify>! node --test plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs 2>&1 | rg -q "add-todo|check-todos|skills/todo|skills/decide"</verify>
   <done>None of these files appear in the failure list.</done>
 </task>
 
