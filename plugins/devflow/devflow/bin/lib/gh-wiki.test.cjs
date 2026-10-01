@@ -1077,4 +1077,67 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     fs.mkdirSync(path.join(clone, 'subdir'));
     assert.deepEqual(wiki.listPages(root), ['Alpha', 'Zeta']);
   });
+
+  // ─── 49-04: the wiki diff the PR lifecycle posts when verification passes ───
+
+  test('49-04 10. diff is the unified diff of the wiki between two revisions; \'\' when nothing changed', () => {
+    const { root } = setupWithClone();
+    const base = wiki.headSha(root);
+    assert.equal(wiki.writePage(root, 'Objective-49-demo', '# Objective 49\n\nfirst line\n').ok, true);
+    const p = wiki.push(root, { message: 'objective 49' });
+    assert.equal(p.ok, true, JSON.stringify(p));
+
+    const d = wiki.diff(root, base);
+    assert.equal(typeof d, 'string', 'success is the diff text itself');
+    assert.match(d, /^diff --git a\/Objective-49-demo\.md b\/Objective-49-demo\.md/m);
+    assert.match(d, /^\+first line$/m);
+    assert.ok(!/\x1b\[/.test(d), 'no colour codes');
+
+    assert.equal(wiki.diff(root, base, p.sha), d, 'toSha defaults to HEAD');
+    assert.equal(wiki.diff(root, p.sha, p.sha), '', 'same revision twice: no changes');
+    assert.equal(wiki.diff(root, base, base), '');
+    assert.match(wiki.diff(root, p.sha, base), /^-first line$/m, 'the order of the two revisions matters');
+  });
+
+  test('49-04 10b. no wiki clone is {ok:false, reason:"no-wiki-clone"} and runs no git', () => {
+    const calls = [];
+    wiki._setRunGit((args) => { calls.push(args); return { ok: true, status: 0, stdout: '', stderr: '' }; });
+
+    const noPlanning = tmpProject();
+    assert.deepEqual(wiki.diff(noPlanning, 'abc1234'), { ok: false, reason: 'no-wiki-clone', error: `no wiki clone at ${wiki.WIKI_DIR_REL}` });
+
+    const dirNoGit = tmpProject();
+    fs.mkdirSync(path.join(dirNoGit, '.planning', 'wiki'), { recursive: true });
+    assert.equal(wiki.diff(dirNoGit, 'abc1234').reason, 'no-wiki-clone', 'a wiki dir that is not a clone');
+    assert.equal(calls.length, 0);
+  });
+
+  test('49-04 10c. a bad revision is a result, and an option-looking revision is refused before git runs', () => {
+    const { root } = setupWithClone();
+    const bad = wiki.diff(root, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
+    assert.equal(bad.ok, false);
+    assert.equal(bad.reason, 'git-failed');
+    assert.ok(bad.error.length > 0);
+
+    const calls = [];
+    wiki._setRunGit((args) => { calls.push(args); return { ok: true, status: 0, stdout: '', stderr: '' }; });
+    for (const evil of ['--output=/tmp/pwned', '-p', '', 'a b', undefined, 7]) {
+      const r = wiki.diff(root, evil);
+      assert.equal(r.ok, false, `from=${String(evil)}`);
+      assert.equal(r.reason, 'bad-revision');
+      assert.equal(wiki.diff(root, 'HEAD', evil).reason, 'bad-revision', `to=${String(evil)}`);
+    }
+    assert.equal(calls.length, 0, 'git never ran for a refused revision');
+  });
+
+  test('49-04 10d. diff runs git diff --no-color <from>..<to> -- inside the wiki clone', () => {
+    const { root, clone } = setupWithClone();
+    const calls = [];
+    wiki._setRunGit((args, opts) => { calls.push({ args, cwd: opts && opts.cwd }); return { ok: true, status: 0, stdout: 'D\n', stderr: '' }; });
+    assert.equal(wiki.diff(root, 'abc1234', 'def5678'), 'D\n', 'the output is returned untrimmed');
+    assert.deepEqual(calls, [{ args: ['diff', '--no-color', 'abc1234..def5678', '--'], cwd: clone }]);
+    calls.length = 0;
+    wiki.diff(root, 'abc1234');
+    assert.deepEqual(calls.map((c) => c.args), [['diff', '--no-color', 'abc1234..HEAD', '--']]);
+  });
 });

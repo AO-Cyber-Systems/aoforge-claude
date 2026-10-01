@@ -8,7 +8,8 @@
 //   18. no `parseInt(` of a directory prefix / objective id (`parseInt("02.1")` is 2 — defect 3).
 //   19. gen-1 helpers are gone; readMappingV2/writeMappingV2 survive for importers and speak v3.
 // TRD 47-12 extends the guard to the store modules:
-//   20. `git` is spawned only at two named sites: gh-wiki.cjs (the store) and awareness.cjs (older, local).
+//   20. `git` is spawned only at three named sites: gh-wiki.cjs (the store), awareness.cjs (older, local) and
+//       objective-branch.cjs (the objective branch / PR lifecycle, TRD 49-04; 20b pins it to one spawn and no gh).
 //   21. the store modules (gh-hierarchy, gh-comments, gh-cache, gh-capability, gh-trd, gh-outbox, gh-wiki)
 //       never call `ghWrite(`: every GitHub write goes through the outbox flusher.
 // TRD 47-13 adds `gh-store-cli.cjs` (47-11) to GUARDED and to that list: the command layer spawns neither gh nor
@@ -39,13 +40,24 @@ const GUARDED = [
   'trd-bulk.cjs',
   // native milestones (48-05): it calls ghWrite directly (D-05), so it is guarded but not in NO_DIRECT_WRITE
   'gh-milestone-store.cjs',
+  // objective 49 (TRD 49-04): the objective-branch git seam. It spawns git (a named site, test 20) and never gh.
+  'objective-branch.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
 const NO_DIRECT_WRITE = [
   'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs', 'gh-store-cli.cjs',
+  'objective-branch.cjs',
   ...PLANNING_MODULES,
 ];
+
+// The modules allowed to spawn `git`, by name, each with the reason it is allowed (test 20, 20b).
+const GIT_SITES = new Map([
+  ['gh-wiki.cjs', 'the wiki / docs store: the one git seam of objective 47'],
+  ['awareness.cjs', 'pre-existing (objective 6) local branch scan; not a GitHub store module'],
+  ['objective-branch.cjs', 'the objective branch / PR lifecycle (objective 49): fetch, switch, empty start commit, push, local cleanup'],
+]);
+const GIT_SPAWN = /spawnSync\(\s*['"]git['"]|execFileSync\(\s*['"]git['"]|spawn\(\s*['"]git['"]|execSync\(\s*['"`]git\b/;
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf-8');
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line);
@@ -116,16 +128,31 @@ describe('one gh seam (TRD 46-08)', () => {
     }
   });
 
-  test('20: git is spawned only at the two named sites: gh-wiki.cjs (the store) and awareness.cjs (a pre-existing local scan)', () => {
+  test('20: git is spawned only at the three named sites: gh-wiki.cjs (the store), awareness.cjs (a pre-existing local scan) and objective-branch.cjs (the PR lifecycle)', () => {
     // The exceptions are named, not pattern-matched: a new module that spawns git fails this test.
-    const GIT_SITES = new Map([
-      ['gh-wiki.cjs', 'the wiki / docs store: the one git seam of objective 47'],
-      ['awareness.cjs', 'pre-existing (objective 6) local branch scan; not a GitHub store module'],
-    ]);
-    const gitSpawn = /spawnSync\(\s*['"]git['"]|execFileSync\(\s*['"]git['"]|spawn\(\s*['"]git['"]|execSync\(\s*['"`]git\b/;
-    const hits = offending(gitSpawn).filter((h) => !GIT_SITES.has(h.slice(0, h.indexOf(':'))));
+    const hits = offending(GIT_SPAWN).filter((h) => !GIT_SITES.has(h.slice(0, h.indexOf(':'))));
     assert.deepStrictEqual(hits, [], `git spawned outside the named sites:\n${hits.join('\n')}`);
     for (const f of GIT_SITES.keys()) assert.match(read(f), /spawnSync\('git'/, `${f} is a git spawn site (stale exception otherwise)`);
+  });
+
+  test('20b (49-04): objective-branch.cjs is a named, guarded git site with one spawn, and never reaches gh', () => {
+    assert.equal(GIT_SITES.size, 3);
+    assert.ok(GIT_SITES.get('objective-branch.cjs').length > 0, 'named with a reason');
+    assert.ok(GUARDED.includes('objective-branch.cjs'), 'guarded');
+    assert.ok(NO_DIRECT_WRITE.includes('objective-branch.cjs'), 'never writes to GitHub');
+
+    const code = read('objective-branch.cjs').split('\n').filter((l) => !isComment(l));
+    assert.equal(code.filter((l) => GIT_SPAWN.test(l)).length, 1, 'exactly one git spawn site (runGit)');
+    assert.equal(code.filter((l) => /spawnSync\(\s*['"]gh['"]|require\(['"]\.\/gh/.test(l)).length, 0, 'it never spawns or requires gh');
+    assert.equal(code.filter((l) => /ghWrite\(|ghRead\(|runGh\(/.test(l)).length, 0, 'no GitHub calls');
+
+    // The guard is by name: the same source under any other name is a violation.
+    const source = read('objective-branch.cjs');
+    const flagged = (name) => [[name, source]]
+      .filter(([n, text]) => !GIT_SITES.has(n) && text.split('\n').some((l) => !isComment(l) && GIT_SPAWN.test(l)))
+      .map(([n]) => n);
+    assert.deepStrictEqual(flagged('objective-branch.cjs'), []);
+    assert.deepStrictEqual(flagged('objective-branch-copy.cjs'), ['objective-branch-copy.cjs']);
   });
 
   test('21: store modules never call ghWrite( (the flusher is the only writer), and the guard lists every store module', () => {
