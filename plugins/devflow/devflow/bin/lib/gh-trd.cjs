@@ -442,37 +442,55 @@ function parseScopeComments(comments) {
 }
 
 /**
- * effectiveSpec(text, comments, {foldedThrough, id, file}) — the TRD text plus every
- * applied scope comment, in `n` order, each as `"\n\n" + <full comment body>`.
+ * effectiveSpec(text, comments, {foldedThrough, id, file, accept}) — the TRD text plus
+ * every applied scope comment, in `n` order, each as `"\n\n" + <full comment body>`.
  * Scopes with `n <= foldedThrough` are skipped: a fold already put them in the body.
  *
- * -> { text, chars, applied:[n], overflow, errors }
+ * -> { text, chars, applied:[n], overflow, errors }            (no `accept`)
+ * -> { text, chars, applied:[n], overflow, errors, pending }   (with `accept`)
+ *
+ * `accept` (49-03) is a predicate `(scope) => 'accepted' | 'pending'` over a
+ * parseScopeComments scope — build it with scopeAcceptance(). Only a scope for which it
+ * returns exactly 'accepted' is applied; every other unfolded scope is listed in
+ * `pending: [{n, author, comment_id}]` and left out of `text` and `chars`. With no
+ * `accept` (undefined or null) every scope applies and there is no `pending` key —
+ * today's behaviour, unchanged.
  *
  * `chars` is the length of the ENCODED body when `id` and `file` are given (the
  * figure the 60,000 limit applies to); without them it is the effective text length
  * only and does not include the two header lines. `overflow` is `chars > 60,000`;
  * the spec is returned either way so the caller can report it.
  */
-function effectiveSpec(text, comments, { foldedThrough = 0, id, file } = {}) {
+function effectiveSpec(text, comments, { foldedThrough = 0, id, file, accept } = {}) {
   if (typeof text !== 'string') {
     throw new TypeError(`effectiveSpec() text must be a string, got ${text === null ? 'null' : typeof text}`);
   }
   if (!Number.isSafeInteger(foldedThrough) || foldedThrough < 0) {
     throw new TypeError(`foldedThrough must be a non-negative integer, got ${JSON.stringify(foldedThrough)}`);
   }
+  if (accept !== undefined && accept !== null && typeof accept !== 'function') {
+    throw new TypeError(`effectiveSpec() accept must be a function, got ${typeof accept}`);
+  }
   const { scopes, errors } = parseScopeComments(comments);
 
   let out = normalise(text);
   const applied = [];
+  const pending = [];
   for (const s of scopes) {
     if (s.n <= foldedThrough) continue;
+    if (accept && accept(s) !== 'accepted') {
+      pending.push({ n: s.n, author: s.author, comment_id: s.comment_id });
+      continue;
+    }
     out += '\n\n' + s.body;
     applied.push(s.n);
   }
 
   const chars =
     id !== undefined && file !== undefined ? encodeTrdBody({ id, file, text: out }).length : out.length;
-  return { text: out, chars, applied, overflow: chars > TRD_MAX_CHARS, errors };
+  const result = { text: out, chars, applied, overflow: chars > TRD_MAX_CHARS, errors };
+  if (accept) result.pending = pending;
+  return result;
 }
 
 // ─── Scope acceptance (49-03, GPR-05) ────────────────────────────────────────
