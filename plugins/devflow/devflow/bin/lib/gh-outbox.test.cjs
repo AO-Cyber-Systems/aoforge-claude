@@ -1198,14 +1198,17 @@ describe('49-05 PR op schemas', () => {
   });
 
   test('3. a PR op enqueues, and a second identical upsert-pr is one op', () => {
-    const o = upsert({ branch: 'df/objective-49-x', base: 'main' });
-    const a = outbox.enqueue(root, o);
-    const b = outbox.enqueue(root, upsert({ base: 'main', branch: 'df/objective-49-x' }));
+    const a = outbox.enqueue(root, [upsert({ branch: 'df/objective-49-x', base: 'main' })]);
+    const b = outbox.enqueue(root, [upsert({ base: 'main', branch: 'df/objective-49-x' })]);
     assert.equal(a.ok, true, a.error);
+    assert.deepEqual(a.enqueued, [1]);
     assert.equal(b.ok, true, b.error);
+    assert.deepEqual(b.coalesced, [1], 'the same objective PR is one pending op, latest payload wins');
     assert.equal(readRaw().ops.length, 1);
-    assert.equal(outbox.enqueue(root, op('pr-ready', { id: '49' }, {})).ok, true);
+    const c = outbox.enqueue(root, [op('pr-ready', { id: '49' }, {})]);
+    assert.equal(c.ok, true, c.error);
     assert.equal(readRaw().ops.length, 2);
+    assert.equal(outbox.enqueue(root, [upsert({ branch: 'df/b', base: 'main', closes: [1] })]).ok, false);
   });
 
   test('3. the base store accepts a PR key (pr:<objective>) and refuses malformed ones', () => {

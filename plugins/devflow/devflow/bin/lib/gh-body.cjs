@@ -38,6 +38,13 @@ const SECTION_ORDER = ['summary', 'criteria', 'trds', 'footer'];
 //   meta: `type:` / `work:` / `kind:` lines (degraded mode, when native fields/types are unavailable)
 const OPTIONAL_SECTIONS = ['wiki', 'meta'];
 
+// Objective 49: the managed sections of the one pull request per objective, in the order they are emitted.
+// All optional. `closes` is one `Closes #N` line per issue the merge closes (the objective issue and every
+// TRD issue), `wiki` the same pinned-revision block an objective issue carries, `summary` a short markdown
+// text. A PR body opens with its OWN marker (`<!-- devflow:pr=<objective id> -->`), never `devflow:id=`, so no
+// issue scan can mistake a pull request for the objective or a TRD.
+const PR_SECTION_ORDER = Object.freeze(['closes', 'wiki', 'summary']);
+
 // The sticky-comment marker written before the devflow:id form existed.
 const LEGACY_STATE_MARKER = '<!-- df:state -->';
 
@@ -49,6 +56,9 @@ const ENTITY_ID_RE = new RegExp(`^${ENTITY_ID_SOURCE}$`);
 // Accepts `2.1`, `0`, `46`, the TRD form `46-02`, the Decision form `46-02-d1` and an entity id.
 const MARKER_SOURCE =
   '<!--\\s*devflow:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:-d[0-9]+)?)?|' + ENTITY_ID_SOURCE + ')(?:\\s+kind=([a-z-]+))?\\s*-->';
+// The PR marker carries an OBJECTIVE id only (`49`, `2.1`): there is one PR per objective, never one per TRD.
+const PR_MARKER_SOURCE = '<!--\\s*devflow:pr=([0-9]+(?:\\.[0-9]+)?)\\s*-->';
+const OBJECTIVE_ID_RE = /^\d+(?:\.\d+)?$/;
 const ID_RE = /^(\d+)((?:\.\d+)?)((?:-\d+(?:-d\d+)?)?)$/;
 const KIND_RE = /^[a-z-]+$/;
 
@@ -83,6 +93,35 @@ function requireId(id) {
 /** markerLine(id) — the line that opens every DevFlow-built issue body. */
 function markerLine(id) {
   return `<!-- devflow:id=${requireId(id)} -->`;
+}
+
+/**
+ * prMarker(id) — the line that opens a DevFlow-built pull-request body: `<!-- devflow:pr=49 -->`. A distinct
+ * marker kind, so `devflow:id=` scans (indexByMarker, extractMarker, comment lookups) never see a PR. Only an
+ * objective id is accepted (`49`, `049`, `2.1`); a TRD, Decision or entity id throws.
+ */
+function prMarker(id) {
+  const cid = canonicalId(id);
+  if (cid === null || !OBJECTIVE_ID_RE.test(cid)) {
+    throw new TypeError(`invalid devflow objective id for a PR marker: ${JSON.stringify(id)}`);
+  }
+  return `<!-- devflow:pr=${cid} -->`;
+}
+
+// Every PR marker in `text`, in order: [{ id, index }]. The id is canonical (`049` -> `49`).
+function scanPrMarkers(text) {
+  const re = new RegExp(PR_MARKER_SOURCE, 'g');
+  const src = typeof text === 'string' ? text : '';
+  const found = [];
+  let m;
+  while ((m = re.exec(src)) !== null) found.push({ id: canonicalId(m[1]), index: m.index });
+  return found;
+}
+
+/** extractPrMarker(body) — `{ id }` from the first `devflow:pr=` marker anywhere in `body`, or null. */
+function extractPrMarker(body) {
+  const first = scanPrMarkers(body)[0];
+  return first ? { id: first.id } : null;
 }
 
 /** commentMarker(id, kind) — the line that opens every DevFlow comment. */
@@ -392,6 +431,11 @@ function appendBlock(body, name, content) {
  * plus the optional `wiki` and `meta` (OPTIONAL_SECTIONS); names left out are skipped.
  * A missing wiki/meta pair is appended at the end; an existing body is never re-ordered.
  *
+ * `opts.order` (default SECTION_ORDER then OPTIONAL_SECTIONS) replaces the list of section names that are
+ * written, and `opts.marker` (`'id'`, the default, or `'pr'`) selects the marker line written and matched:
+ * `devflow:id=<id>` or `devflow:pr=<objective id>`. `{ order: PR_SECTION_ORDER, marker: 'pr' }` is a pull-request
+ * body; with neither option nothing differs from an objective body (49-05).
+ *
  * `opts.preserveTicks` (default false, so 46's sync behaves exactly as before): when the
  * `criteria` pair already exists, a `- [ ]` line in the new content whose text matches a
  * `- [x]` line already on GitHub is written as `- [x]`. The verifier ticks criteria on
@@ -402,7 +446,22 @@ function mergeManaged(existingBody, sections, id, opts = {}) {
   if (cid === null) return { ok: false, error: `invalid devflow id: ${JSON.stringify(id)}` };
 
   const preserveTicks = Boolean(opts && opts.preserveTicks);
-  const provided = [...SECTION_ORDER, ...OPTIONAL_SECTIONS].filter((n) => sections && sections[n] !== undefined);
+  const markerKind = opts && opts.marker !== undefined ? opts.marker : 'id';
+  if (markerKind !== 'id' && markerKind !== 'pr') {
+    return { ok: false, error: `opts.marker must be "id" or "pr", got ${JSON.stringify(markerKind)}` };
+  }
+  const isPr = markerKind === 'pr';
+  if (isPr && !OBJECTIVE_ID_RE.test(cid)) {
+    return { ok: false, error: `a PR body is marked with an objective id, got ${JSON.stringify(id)}` };
+  }
+  let order = [...SECTION_ORDER, ...OPTIONAL_SECTIONS];
+  if (opts && opts.order !== undefined) {
+    if (!Array.isArray(opts.order) || !opts.order.every((n) => typeof n === 'string' && /^[a-z][a-z-]*$/.test(n))) {
+      return { ok: false, error: 'opts.order must be an array of section names' };
+    }
+    order = opts.order;
+  }
+  const provided = order.filter((n) => sections && sections[n] !== undefined);
   for (const name of provided) {
     const content = sections[name];
     if (typeof content !== 'string') {
@@ -421,13 +480,26 @@ function mergeManaged(existingBody, sections, id, opts = {}) {
   let merged;
   if (norm.trim() === '') {
     const blocks = provided.map((n) => renderBlock(n, sections[n]));
-    merged = `${markerLine(cid)}\n${blocks.length ? `${blocks.join('\n\n')}\n` : ''}`;
+    merged = `${isPr ? prMarker(cid) : markerLine(cid)}\n${blocks.length ? `${blocks.join('\n\n')}\n` : ''}`;
   } else {
-    const found = findIssueMarker(norm);
+    // The marker kind decides which line identifies the body. A body carrying only the OTHER kind is refused:
+    // an issue body must never gain a PR marker, nor a PR body an issue marker (that would make it look like one).
+    const idFound = findIssueMarker(norm);
+    const prFound = scanPrMarkers(norm)[0] || null;
+    const found = isPr ? prFound : idFound;
+    const other = isPr ? idFound : prFound;
     if (found && found.id !== cid) {
-      return { ok: false, error: `body marker devflow:id=${found.id} does not match ${cid}` };
+      return { ok: false, error: `body marker devflow:${markerKind}=${found.id} does not match ${cid}` };
     }
-    merged = found ? norm : `${markerLine(cid)}\n${norm}`;
+    if (!found && other) {
+      return {
+        ok: false,
+        error: isPr
+          ? `body marker devflow:id=${other.id} does not match PR marker devflow:pr=${cid}`
+          : `body marker devflow:pr=${other.id} does not match issue marker devflow:id=${cid}`,
+      };
+    }
+    merged = found ? norm : `${isPr ? prMarker(cid) : markerLine(cid)}\n${norm}`;
     for (const name of provided) {
       let content = sections[name];
       const pair = findPair(merged, name);
@@ -618,10 +690,46 @@ function buildTrdsSection(args) {
   return rows.map((r) => r.line).join('\n');
 }
 
+// ─── Pull-request body (objective 49) ────────────────────────────────────────
+
+/**
+ * closesSection(numbers) — inner text of the `closes` section: one `Closes #N` line per issue, in the order
+ * given, each number once. One keyword per line on purpose: `Closes #1, #2` closes only #1 (49 Pitfall 4).
+ * Throws TypeError for a non-array, an empty list, or anything that is not a positive integer.
+ */
+function closesSection(numbers) {
+  if (!Array.isArray(numbers) || numbers.length === 0) {
+    throw new TypeError('closesSection needs a non-empty array of issue numbers');
+  }
+  const seen = [];
+  for (const n of numbers) {
+    if (!Number.isInteger(n) || n < 1) throw new TypeError(`closesSection: ${JSON.stringify(n)} is not an issue number`);
+    if (!seen.includes(n)) seen.push(n);
+  }
+  return seen.map((n) => `Closes #${n}`).join('\n');
+}
+
+/**
+ * buildPrBody({ id, sections }) — a whole PR body: the `devflow:pr=<id>` marker, then the PR sections named in
+ * `sections` in PR_SECTION_ORDER. Built by mergeManaged so the result is exactly what a later merge of the same
+ * sections leaves unchanged. Throws TypeError for an id that is not an objective id or a section that is refused.
+ */
+function buildPrBody(args) {
+  const a = args || {};
+  const r = mergeManaged('', a.sections, a.id, { order: PR_SECTION_ORDER, marker: 'pr' });
+  if (!r.ok) throw new TypeError(`buildPrBody: ${r.error}`);
+  return r.body;
+}
+
 module.exports = {
   ENTITY_ID_SOURCE,
   SECTION_ORDER,
   OPTIONAL_SECTIONS,
+  PR_SECTION_ORDER,
+  prMarker,
+  extractPrMarker,
+  closesSection,
+  buildPrBody,
   MAX_BODY_CHARS,
   mergeManaged,
   extractSection,
