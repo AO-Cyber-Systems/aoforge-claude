@@ -26,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { toObjectiveId } = require('./gh-mapping.cjs');
+const { atomicWrite } = require('./sync-state.cjs');
 const { readConfig, resolveRepo } = require('./gh-client.cjs');
 
 const WIKI_DIR_REL = '.planning/wiki';
@@ -515,6 +516,13 @@ function fetch(root, opts = {}) {
   const ahead = aheadCount(dir);
   if (ahead === null) return { ok: false, error: `cannot compare the wiki clone with origin/${WIKI_BRANCH}` };
 
+  // A page written but not yet committed is invisible to `ahead`; reset --hard or a rebase would
+  // destroy or refuse it. Leave the clone alone and say so: the pending push op will commit it.
+  const dirty = local(dir, ['status', '--porcelain']);
+  if (dirty.ok && String(dirty.stdout).trim() !== '') {
+    return { ok: true, ahead, dirty: true, updated: false, sha: headSha(root) };
+  }
+
   const before = headSha(root);
   if (ahead === 0) {
     const reset = local(dir, ['reset', '--hard', `origin/${WIKI_BRANCH}`]);
@@ -525,6 +533,125 @@ function fetch(root, opts = {}) {
   }
   const after = headSha(root);
   return { ok: true, ahead, updated: before !== after, sha: after };
+}
+
+// ─── Page files (wiki clone or docs/devflow) ──────────────────────────────────
+
+const PAGE_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}$/;
+
+function validPage(page) {
+  return typeof page === 'string' && PAGE_NAME_RE.test(page);
+}
+
+function checkMode(mode) {
+  if (mode !== 'wiki' && mode !== 'docs') {
+    throw new TypeError(`unknown wiki store mode ${JSON.stringify(mode)} (expected 'wiki' or 'docs')`);
+  }
+  return mode;
+}
+
+function storeDir(root, mode) {
+  return mode === 'docs' ? path.join(root, DOCS_DIR_REL) : cloneDir(root);
+}
+
+/** The text of a page, or null when it does not exist (or the name is not a legal page name). */
+function readPage(root, page, opts = {}) {
+  const mode = checkMode(opts.mode || 'wiki');
+  if (!validPage(page)) return null;
+  try {
+    return fs.readFileSync(path.join(storeDir(root, mode), `${page}.md`), 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write a page. Bytes are compared first: identical text is `{changed:false}` and the file is not
+ * touched (no mtime churn, nothing new for git or the file watcher). The wiki backend needs the clone to
+ * exist; the docs backend creates `docs/devflow/` on first write. `{ok, changed, path}` or `{ok:false, error}`.
+ */
+function writePage(root, page, text, opts = {}) {
+  const mode = checkMode(opts.mode || 'wiki');
+  if (!validPage(page)) return { ok: false, error: `invalid page name ${JSON.stringify(page)}` };
+  if (typeof text !== 'string') return { ok: false, error: 'page text must be a string' };
+  const dir = storeDir(root, mode);
+  if (mode === 'wiki' && !fs.existsSync(dir)) {
+    return { ok: false, error: `no wiki clone at ${WIKI_DIR_REL}; run ensureClone first` };
+  }
+  const file = path.join(dir, `${page}.md`);
+  let previous = null;
+  try {
+    previous = fs.readFileSync(file);
+  } catch {
+    previous = null;
+  }
+  if (previous !== null && Buffer.compare(previous, Buffer.from(text, 'utf-8')) === 0) {
+    return { ok: true, changed: false, path: file };
+  }
+  atomicWrite(file, text);
+  return { ok: true, changed: true, path: file };
+}
+
+/** Page names (no `.md`) in the store, sorted. Dotfiles, subdirectories and non-markdown files are skipped. */
+function listPages(root, opts = {}) {
+  const mode = checkMode(opts.mode || 'wiki');
+  let entries;
+  try {
+    entries = fs.readdirSync(storeDir(root, mode), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isFile() && !e.name.startsWith('.') && e.name.endsWith('.md'))
+    .map((e) => e.name.slice(0, -3))
+    .filter(validPage)
+    .sort();
+}
+
+/**
+ * One interface over both backends:
+ *   mode 'wiki' -> `.planning/wiki/` (a clone; push publishes it; the revision is the clone HEAD sha)
+ *   mode 'docs' -> `docs/devflow/` (repo content; push is a no-op; the revision is the file path)
+ * `{mode, readPage, writePage, listPages, push, fetch, headSha, revisionRef}`. Callers never branch on mode.
+ */
+function openStore(root, opts = {}) {
+  const mode = checkMode(opts.mode || 'wiki');
+  const remote = opts.remote;
+  const remoteOpts = remote !== undefined ? { remote } : {};
+
+  if (mode === 'docs') {
+    return {
+      mode,
+      readPage: (page) => readPage(root, page, { mode }),
+      writePage: (page, text) => writePage(root, page, text, { mode }),
+      listPages: () => listPages(root, { mode }),
+      push: () => ({
+        ok: true,
+        committed: false,
+        pushed: false,
+        note: `docs backend: ${DOCS_DIR_REL}/ is repo content, committed by your normal git flow`,
+      }),
+      fetch: () => ({
+        ok: true,
+        ahead: 0,
+        updated: false,
+        note: `docs backend: ${DOCS_DIR_REL}/ is read from the working tree`,
+      }),
+      headSha: () => null,
+      revisionRef: (page) => `${DOCS_DIR_REL}/${page}.md`,
+    };
+  }
+
+  return {
+    mode,
+    readPage: (page) => readPage(root, page, { mode }),
+    writePage: (page, text) => writePage(root, page, text, { mode }),
+    listPages: () => listPages(root, { mode }),
+    push: (pushOpts = {}) => push(root, { ...remoteOpts, ...pushOpts }),
+    fetch: (fetchOpts = {}) => fetch(root, { ...remoteOpts, ...fetchOpts }),
+    headSha: () => headSha(root),
+    revisionRef: () => headSha(root),
+  };
 }
 
 module.exports = {
@@ -548,4 +675,8 @@ module.exports = {
   push,
   fetch,
   headSha,
+  readPage,
+  writePage,
+  listPages,
+  openStore,
 };
