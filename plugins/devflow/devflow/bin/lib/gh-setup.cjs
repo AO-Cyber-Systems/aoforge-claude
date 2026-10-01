@@ -9,8 +9,12 @@
 //   planSetup(state)       state -> an ordered list of actions                (pure)
 //   renderPlan(actions)    actions -> the dry-run text, exact payloads        (pure)
 //
-// The apply half (`applySetup`, the command) is TRD 50-11 and consumes the actions this module produces. An
-// action is `{kind, target, status, desc, payload?, request?, file?}`:
+// The apply half (TRD 50-11) consumes the actions this module produces:
+//
+//   renderTemplates(cfg, ver)     the two local files with {{checks_workflow}} / {{devflow_ref}} filled in  (impure: reads templates)
+//   applySetup(root, actions, d)  actions -> outcomes; GitHub writes via gh-client.ghWrite, local files via fs
+//
+// An action is `{kind, target, status, desc, payload?, request?, file?}`:
 //
 //   status   create | update | exists | skip | manual | conflict | advisory
 //   payload  the data a create/update sends (an object, for the dry-run to print)
@@ -18,7 +22,9 @@
 //            sends through gh-client, so the dry-run prints exactly what apply sends
 //   file     `{path, content}` for a local file the apply step writes into the working tree (never committed)
 //
-// This module never writes to GitHub (apply does); the seam guard lists it as guarded.
+// The read and plan functions never write anything. `applySetup` is the one writer: every GitHub write goes through
+// `client.ghWrite` with the action's own `request` (what the dry-run printed is what is sent), and the seam guard lists
+// this module as guarded but not in NO_DIRECT_WRITE for that reason.
 
 const { CONTEXTS } = require('./gh-check.cjs');
 const fs = require('fs');
@@ -676,6 +682,151 @@ function readSetupState(root, { refresh = false, env = process.env } = {}) {
   };
 }
 
+// ─── renderTemplates ──────────────────────────────────────────────────────────
+
+const TEMPLATE_DIR = path.join(__dirname, '..', '..', 'templates', 'github');
+const DEFAULT_CHECKS_WORKFLOW = 'AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml';
+
+/**
+ * The two local files setup writes, rendered from `templates/github/` (read relative to this module, so the plugin
+ * checkout and the home mirror both work). `{{checks_workflow}}` is `github.checks_workflow`, or the DevFlow reusable
+ * workflow pinned to `v<version>` when that is unset or empty; `{{devflow_ref}}` is `v<version>`. GitHub's own `${{ ... }}`
+ * expressions are left alone, and a value containing `$&` is inserted literally.
+ *
+ * @param {object} [cfg] the `github` block of .planning/config.json
+ * @param {string} version the plugin version (`2.12.0` or `v2.12.0`)
+ * @returns {{workflow:string, prTemplate:string}}
+ */
+function renderTemplates(cfg, version) {
+  if (typeof version !== 'string' || version.trim() === '') throw new TypeError('renderTemplates needs the plugin version');
+  const github = isObject(cfg) ? cfg : {};
+  const ref = `v${version.trim().replace(/^v/, '')}`;
+  const configured = typeof github.checks_workflow === 'string' ? github.checks_workflow.trim() : '';
+  const values = { checks_workflow: configured !== '' ? configured : `${DEFAULT_CHECKS_WORKFLOW}@${ref}`, devflow_ref: ref };
+  const fill = (body) => body.replace(/\{\{\s*(checks_workflow|devflow_ref)\s*\}\}/g, (_match, key) => values[key]);
+  return {
+    workflow: fill(fs.readFileSync(path.join(TEMPLATE_DIR, 'devflow.yml'), 'utf-8')),
+    prTemplate: fill(fs.readFileSync(path.join(TEMPLATE_DIR, 'pull_request_template.md'), 'utf-8')),
+  };
+}
+
+// ─── applySetup ───────────────────────────────────────────────────────────────
+
+const ORG_ONLY_NOTE = 'needs an organization owner; DevFlow uses labels and body metadata';
+const MERGE_QUEUE_NOTE = 'merge queue unavailable on this plan; the ruleset was applied without it (setup --refresh tries again)';
+
+/** The HTTP status `gh api` prints on failure (`gh: Not Found (HTTP 404)`), or null. */
+function httpStatus(r) {
+  const m = /HTTP (\d{3})/.exec(`${(r && r.stderr) || ''}\n${(r && r.stdout) || ''}`);
+  return m ? Number(m[1]) : null;
+}
+
+const send = (request) => client.ghWrite(request.args, { input: request.input });
+
+/** What the apply step remembers about a repository: written after a merge_queue rejection, deleted by `--refresh`. */
+function writeSetupRecord(repo, record, env) {
+  const file = setupRecordPath(repo, env);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(record)}\n`);
+}
+
+/** Write a planned local file into the working tree (never committed). Refuses a path that leaves the project. */
+function writeLocalFile(root, file) {
+  const base = path.resolve(root);
+  const abs = path.resolve(base, file.path);
+  if (abs !== base && !abs.startsWith(`${base}${path.sep}`)) throw new Error(`${file.path} is outside the project`);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, file.content);
+}
+
+/**
+ * Send one create/update request. A 422 on a merge_queue rule retries the same request without it; a 422 on a single
+ * select field retries it as `text`; a 403/404 on an org endpoint is a skip; anything else is a failure. Returns the
+ * outcome fields (status, degraded?, note?, error?) and, when a merge_queue rule was dropped, `mergeQueueDropped`.
+ */
+function applyRequest(a) {
+  const done = a.status === 'create' ? 'created' : 'updated';
+  const r = send(a.request);
+  if (r.ok) return { status: done };
+  const code = httpStatus(r);
+  const retry = (payload) => send({ args: a.request.args, input: JSON.stringify(payload) });
+  const failed = (res) => ({ status: 'failed', error: failureOf(res) });
+
+  if (a.kind === 'ruleset' && code === 422 && isObject(a.payload) && Array.isArray(a.payload.rules)
+    && a.payload.rules.some((rule) => rule && rule.type === 'merge_queue')) {
+    const second = retry({ ...a.payload, rules: a.payload.rules.filter((rule) => !(rule && rule.type === 'merge_queue')) });
+    return second.ok ? { status: done, degraded: true, note: MERGE_QUEUE_NOTE, mergeQueueDropped: true } : failed(second);
+  }
+  if (a.kind === 'issue-field' && code === 422 && isObject(a.payload) && Array.isArray(a.payload.options)) {
+    const { options: _options, ...rest } = a.payload;
+    const second = retry({ ...rest, data_type: 'text' });
+    return second.ok
+      ? { status: done, degraded: true, note: `field ${a.target} created as text: single-select options were not accepted` }
+      : failed(second);
+  }
+  if ((a.kind === 'issue-type' || a.kind === 'issue-field') && (code === 403 || code === 404)) {
+    return { status: 'skipped', note: ORG_ONLY_NOTE };
+  }
+  // Someone else made the label between the read and this write: the goal is met.
+  if (a.kind === 'label' && /already exists/i.test(`${r.stderr || ''}\n${r.stdout || ''}`)) return { status: 'exists' };
+  return failed(r);
+}
+
+const PASS_THROUGH = Object.freeze({ exists: 'exists', skip: 'skipped', manual: 'manual', conflict: 'conflict', advisory: 'advisory' });
+
+/**
+ * Execute a setup plan. Every action is attempted in the plan's order, even after a failure, and each gets one outcome
+ * `{kind, target, status, degraded?, note?, error?}` with status `created | updated | exists | skipped | manual |
+ * conflict | advisory | failed`. `ok` is false when any outcome is `failed` or `conflict`; degradations (a dropped merge
+ * queue, a text field, a skipped org write) and advisories do not fail the run. A conflicting local file is never touched.
+ * A merge_queue rejection is recorded at `setupRecordPath(repo)` so the next plan leaves the rule out; `refresh` deletes
+ * that record first.
+ *
+ * @param {string} root the project directory (local files are written under it)
+ * @param {object[]} actions the output of planSetup
+ * @param {{repo?:string, refresh?:boolean, now?:()=>(string|number), env?:object}} [deps]
+ * @returns {{ok:boolean, outcomes:object[]}}
+ */
+function applySetup(root, actions, deps = {}) {
+  if (!Array.isArray(actions)) throw new TypeError('applySetup needs the action list from planSetup');
+  const env = deps.env || process.env;
+  const gate = deps.repo ? null : client.requireEnabled(root);
+  const repo = deps.repo || (gate && gate.repo) || null;
+  const stamp = () => {
+    const v = typeof deps.now === 'function' ? deps.now() : client.now();
+    return typeof v === 'string' ? v : new Date(v).toISOString();
+  };
+  if (deps.refresh && repo) fs.rmSync(setupRecordPath(repo, env), { force: true });
+
+  const outcomes = [];
+  for (const a of actions) {
+    const outcome = { kind: a.kind, target: a.target };
+    if (a.status === 'create' || a.status === 'update') {
+      let r;
+      if (a.file) {
+        try {
+          writeLocalFile(root, a.file);
+          r = { status: a.status === 'create' ? 'created' : 'updated' };
+        } catch (e) {
+          r = { status: 'failed', error: e.message };
+        }
+      } else if (a.request) {
+        r = applyRequest(a);
+      } else {
+        r = { status: 'failed', error: 'the plan carried neither a request nor a file' };
+      }
+      if (r.mergeQueueDropped && repo) writeSetupRecord(repo, { merge_queue: false, at: stamp() }, env);
+      const { mergeQueueDropped: _dropped, ...fields } = r;
+      Object.assign(outcome, fields);
+    } else {
+      outcome.status = PASS_THROUGH[a.status] || 'skipped';
+      if (outcome.status !== 'exists') outcome.note = a.desc;
+    }
+    outcomes.push(outcome);
+  }
+  return { ok: outcomes.every((o) => o.status !== 'failed' && o.status !== 'conflict'), outcomes };
+}
+
 module.exports = {
   SETUP_RULESET_NAME,
   WORKFLOW_PATH,
@@ -687,4 +838,6 @@ module.exports = {
   renderPlan,
   setupRecordPath,
   readSetupState,
+  renderTemplates,
+  applySetup,
 };
