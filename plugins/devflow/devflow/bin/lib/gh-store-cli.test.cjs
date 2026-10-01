@@ -253,13 +253,26 @@ describe('gh outbox flush', () => {
     assert.equal(S.fake.calls().length, 0);
   });
 
-  test('5. --no-wait with a secondary limit: exit 3 and nothing slept', () => {
+  const SECONDARY_LIMIT = { ok: false, status: 1, stderr: 'gh: HTTP 403: You have exceeded a secondary rate limit' };
+
+  test('5. --no-wait with a secondary limit: exit 3, no retry and no back-off sleep (only the 1 s write pacing)', () => {
     enqueueOps([trdOp('7-01')]);
-    S.fake.failNext(/POST repos\/o\/r\/issues --input/, { ok: false, status: 1, stderr: 'gh: HTTP 403: You have exceeded a secondary rate limit' });
+    S.fake.failNext(/POST repos\/o\/r\/issues --input/, SECONDARY_LIMIT);
     const r = outboxCmd(['flush', '--no-wait'], false);
     assert.equal(exitOf(r), 3, r.stdout + r.stderr);
     assert.match(r.stdout, /pending/i);
-    assert.deepEqual(S.clock.sleeps, [], 'hook mode never sleeps');
+    assert.ok(S.clock.sleeps.every((ms) => ms <= client.MIN_WRITE_INTERVAL_MS), `hook mode never backs off: ${S.clock.sleeps}`);
+    assert.equal(S.fake.issues.length, 0, 'the limited write was not retried');
+    assert.equal(json(outboxCmd(['status'])).pending, 1);
+  });
+
+  test('5a. the same limit WITHOUT --no-wait is waited out and retried: exit 0 (the contrast that gives 5 its meaning)', () => {
+    enqueueOps([trdOp('7-01')]);
+    S.fake.failNext(/POST repos\/o\/r\/issues --input/, SECONDARY_LIMIT);
+    const r = outboxCmd(['flush'], false);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.ok(Math.max(...S.clock.sleeps) > client.MIN_WRITE_INTERVAL_MS, `a back-off sleep happened: ${S.clock.sleeps}`);
+    assert.equal(S.fake.issues.length, 1);
   });
 
   test('5b. --raw carries the flush result', () => {
