@@ -55,7 +55,27 @@
 // Comments carry an author: API-posted ones use the fake viewer (option `viewer`, default 'devflow-bot');
 // `seedComment(n, body, {login})` seeds another. Seeded issue `assignees` already appear on the issue.
 // `humanMergePr(n, {method})` is the human clicking merge (no call recorded).
+//
+// Setup and check routes (objective 50, TRD 50-01). Every one is a REST shape `gh api` uses; write bodies come
+// from `--input -` (`opts.input`) or `-f`/`-F`. Repo level (a non-admin token, option `isAdmin:false`, is refused
+// with 403 on every write below; reads still work):
+//   repos/o/r/rulesets (GET list = summaries {id,name,target,enforcement}; POST), rulesets/{id} (GET the full
+//   object; PUT patches only the fields it names). Stored as {id,name,target,enforcement,conditions,bypass_actors,
+//   rules}, ids from 9001; name and enforcement are required and a name is unique. A `merge_queue` rule is refused
+//   with 422 when `mergeQueueAllowed:false` (a plan without merge queues), on POST and on PUT, storing nothing.
+//   repos/o/r (PATCH has_wiki, delete_branch_on_merge; any other field is a loud gap), repos/o/r/labels (GET: the
+//   labels `gh label create` made, with colour and description).
+// Org level (404 for a User owner or another org, 403 when `orgAdmin:false`):
+//   orgs/{o}/issue-types (POST {name,is_enabled,description,color}) and issue-types/{id} (PUT patches). A created
+//   type gets id 'IT_<n>' and joins the same list GET and `issue.type` read. orgs/{o}/issue-fields (POST
+//   {name,data_type,description,visibility,options?}) REQUIRES the header `X-GitHub-Api-Version: 2026-03-10` passed
+//   as `-H` (400 without it) and refuses `options` with 422 when `fieldOptionsAccepted:false`; the row joins the
+//   list `detectCapabilities` and issue-field-values read.
+// Check inputs, seeded by option and readable live on the fake: `prCommits` = {<prNumber>: [message, ...]} answers
+// repos/o/r/pulls/{n}/commits as [{sha, commit:{message}}] (paginated like any list); `files` = {<ref>: {<path>:
+// <text>}} answers repos/o/r/contents/<path>?ref=<ref> as a base64 file, 404 when the ref or path is not seeded.
 
+const crypto = require('node:crypto');
 const { isWriteArgs } = require('../gh-client.cjs');
 
 const BASE_TIME = Date.parse('2026-01-01T00:00:00Z');
@@ -150,6 +170,13 @@ function matcherFor(match) {
  *   `onCreateBranch(name, oid)` (called once per successful createLinkedBranch, so a test can mirror the ref
  *   into a temp bare git repo), `mergeQueue` (default false: the default branch has a merge queue),
  *   `closeKeywordCap` (default null: how many closing-keyword links one merge honours; reconcile's straggler path).
+ * 50-01 options (setup and check inputs): `rulesets` (seeded `[{name, enforcement, target?, conditions?, bypass_actors?,
+ *   rules?}]`, ids from 9001), `mergeQueueAllowed` (default true; false = a merge_queue rule is 422), `isAdmin` (default
+ *   true; false = repo-level writes are 403 and permissions.admin is false), `orgAdmin` (default true; false = org
+ *   writes are 403), `fieldOptionsAccepted` (default true; false = issue-field `options` are 422),
+ *   `deleteBranchOnMerge` (default false, the repo setting), `files` (`{ref: {path: text}}`), `prCommits`
+ *   (`{prNumber: [message]}`). NB `mergeQueue` is the GraphQL probe answer (does the branch HAVE a queue);
+ *   `mergeQueueAllowed` is whether the plan lets a ruleset ask for one.
  * @returns {{runGh:Function, issues:object[], comments:object[], milestones:object[], labels:string[],
  *   refs:object, statuses:object, calls:()=>string[][], writes:()=>string[][], writeTimes:()=>(number|null)[],
  *   failNext:Function, humanEditBody:Function, seedIssue:Function, seedComment:Function, seedMilestone:Function,
@@ -163,9 +190,19 @@ function createFakeGitHub({
   subIssuesApi = true,
   viewer = 'devflow-bot', defaultBranch = 'main', refs: seedRefs = {},
   onCreateBranch = null, mergeQueue = false, closeKeywordCap = null,
+  rulesets: seedRulesets = [], mergeQueueAllowed = true, isAdmin = true, orgAdmin = true, fieldOptionsAccepted = true,
+  deleteBranchOnMerge = false, files = {}, prCommits = {},
 } = {}) {
   const [repoOwner, repoName] = repo.split('/');
-  const fieldDefs = fields; // runApi has a local `fields` (the request body), so name the definitions apart
+  // Copies, so a write route never mutates an options array a test shares between fakes.
+  const fieldDefs = fields.map((f) => ({ ...f })); // runApi has a local `fields` (the request body), so name the definitions apart
+  const typeDefs = types.map((t) => ({ ...t }));
+  let wikiEnabled = hasWiki;             // PATCH repos/o/r changes these two (50-01)
+  let deleteOnMerge = deleteBranchOnMerge;
+  let nextRuleset = 9001;
+  let nextTypeSeq = 1;
+  const rulesets = [];   // { id, name, target, enforcement, conditions, bypass_actors, rules } (50-01)
+  const labelMeta = {};  // label name -> { color, description }, written by `gh label create` (50-01)
   const issues = [];
   const comments = [];
   const milestones = []; // { number, title, description, state, due_on, closed_at }
@@ -292,7 +329,7 @@ function createFakeGitHub({
   /** An internal type name -> the `{id, name}` GitHub returns, or null. */
   function typeObject(name) {
     if (!name) return null;
-    const t = types.find((x) => x.name === name);
+    const t = typeDefs.find((x) => x.name === name);
     return t ? { id: t.id, name: t.name } : null;
   }
 
@@ -825,6 +862,7 @@ function createFakeGitHub({
       return fail(`label with name "${name}" already exists; use \`--force\` to update its color and description`);
     }
     labels.push(name);
+    labelMeta[name] = { color: (flagOne(p, '--color') || 'ededed').replace(/^#/, ''), description: flagOne(p, '--description') || null };
     return ok(`✓ Label "${name}" created in ${repo}`);
   }
 
@@ -884,7 +922,7 @@ function createFakeGitHub({
   function resolveType(name) {
     if (typeof name !== 'string' || !name) return null;
     if (ownerType !== 'Organization' || !push) return null; // issue types are org-only and need push access
-    const t = types.find((x) => x.name === name && x.is_enabled);
+    const t = typeDefs.find((x) => x.name === name && x.is_enabled);
     return t ? t.name : null;
   }
 
@@ -1053,6 +1091,227 @@ function createFakeGitHub({
       issue.updatedAt = tick();
     }
     return ok(JSON.stringify(issue.fieldValues.map((v) => ({ ...v }))));
+  }
+
+  // ─── Setup routes (50-01): rulesets, repo settings, labels ─────────────────
+
+  const badRequest = (message) => fail(`gh: ${message} (HTTP 400)`, JSON.stringify({ message, status: '400' }));
+  const forbidden = (message) => fail(`gh: ${message} (HTTP 403)`, JSON.stringify({ message, status: '403' }));
+  /** Repo-level writes need admin; a bare 403 is a permission error (never classified as a rate limit). */
+  const repoAdminDenied = () => (isAdmin ? null : forbidden('Must have admin rights to Repository.'));
+  const copy = (v) => JSON.parse(JSON.stringify(v));
+
+  const ENFORCEMENTS = ['disabled', 'active', 'evaluate'];
+  const RULESET_FIELDS = ['name', 'target', 'enforcement', 'conditions', 'bypass_actors', 'rules'];
+  const rulesetSummary = (r) => ({ id: r.id, name: r.name, target: r.target, enforcement: r.enforcement });
+
+  function addRuleset(body) {
+    const r = {
+      id: nextRuleset++,
+      name: body.name,
+      target: body.target || 'branch',
+      enforcement: body.enforcement,
+      conditions: copy(body.conditions === undefined ? {} : body.conditions),
+      bypass_actors: copy(body.bypass_actors === undefined ? [] : body.bypass_actors),
+      rules: copy(body.rules === undefined ? [] : body.rules),
+    };
+    rulesets.push(r);
+    return r;
+  }
+  for (const seed of seedRulesets) addRuleset(seed);
+
+  /** 422 for a ruleset body, or null. `forId` is the ruleset being patched: its own name is not a clash. */
+  function rulesetInvalid(body, { create, forId = null }) {
+    if (create && !body.name) return invalid('Ruleset', 'missing_field', 'name');
+    if (create && body.enforcement === undefined) return invalid('Ruleset', 'missing_field', 'enforcement');
+    if (body.name !== undefined && (typeof body.name !== 'string' || !body.name)) return invalid('Ruleset', 'invalid', 'name');
+    if (body.enforcement !== undefined && !ENFORCEMENTS.includes(body.enforcement)) return invalid('Ruleset', 'invalid', 'enforcement');
+    if (body.rules !== undefined && (!Array.isArray(body.rules) || body.rules.some((r) => !r || typeof r.type !== 'string'))) {
+      return invalid('Ruleset', 'invalid', 'rules');
+    }
+    // A plan without merge queues refuses the rule outright (50-RESEARCH Pitfall 4): setup retries without it.
+    if (!mergeQueueAllowed && Array.isArray(body.rules) && body.rules.some((r) => r.type === 'merge_queue')) {
+      return invalid('Ruleset', 'invalid', 'rules');
+    }
+    if (body.name !== undefined && rulesets.some((r) => r.name === body.name && r.id !== forId)) {
+      return invalid('Ruleset', 'already_exists', 'name');
+    }
+    return null;
+  }
+
+  /** repos/o/r/rulesets (GET list, POST) and repos/o/r/rulesets/{id} (GET, PUT). */
+  function restRulesets(method, id, fields, p, qs, args) {
+    if (id === undefined) {
+      if (method === 'GET') return respondList(rulesets.map(rulesetSummary), p, qs);
+      if (method !== 'POST') return unsupported(args);
+      const denied = repoAdminDenied();
+      if (denied) return denied;
+      const bad = rulesetInvalid(fields, { create: true });
+      if (bad) return bad;
+      return ok(JSON.stringify(addRuleset(fields)));
+    }
+    if (method !== 'GET' && method !== 'PUT') return unsupported(args);
+    if (method === 'PUT') {
+      const denied = repoAdminDenied();
+      if (denied) return denied;
+    }
+    const found = rulesets.find((r) => String(r.id) === id);
+    if (!found) return notFound();
+    if (method === 'PUT') {
+      const bad = rulesetInvalid(fields, { create: false, forId: found.id });
+      if (bad) return bad;
+      for (const key of RULESET_FIELDS) if (fields[key] !== undefined) found[key] = copy(fields[key]);
+    }
+    return ok(JSON.stringify(found));
+  }
+
+  /** The repo meta GET and PATCH both answer with. */
+  const repoOk = () => ok(JSON.stringify({
+    id: 424242,
+    node_id: 'R_1',
+    name: repoName,
+    full_name: repo,
+    owner: { login: repoOwner, type: ownerType },
+    private: isPrivate,
+    has_wiki: wikiEnabled,
+    has_issues: true,
+    delete_branch_on_merge: deleteOnMerge,
+    html_url: `https://github.com/${repo}`,
+    default_branch: defaultBranch,
+    permissions: { admin: push && isAdmin, maintain: push, push, triage: true, pull: true },
+  }));
+
+  /** PATCH repos/o/r: only the two settings setup writes. Any other field is a loud gap, never a quiet success. */
+  function restPatchRepo(fields, args) {
+    const gap = Object.keys(fields).find((k) => k !== 'has_wiki' && k !== 'delete_branch_on_merge');
+    if (gap !== undefined) return fail(`[gh-fake] unsupported: ${args.join(' ')} (repo field ${gap})`);
+    const denied = repoAdminDenied();
+    if (denied) return denied;
+    if (fields.has_wiki !== undefined) wikiEnabled = toBool(fields.has_wiki);
+    if (fields.delete_branch_on_merge !== undefined) deleteOnMerge = toBool(fields.delete_branch_on_merge);
+    return repoOk();
+  }
+
+  /** GET repos/o/r/labels: what `gh label create` made, in creation order. */
+  function restListLabels(p, qs) {
+    return respondList(labels.map((name, i) => {
+      const meta = labelMeta[name] || { color: 'ededed', description: null };
+      return { id: 200_000 + i, node_id: `LA_${200_000 + i}`, name, color: meta.color, default: false, description: meta.description };
+    }), p, qs);
+  }
+
+  // ─── Org writes, PR commits, contents (50-01) ──────────────────────────────
+
+  const FIELD_DATA_TYPES = ['text', 'date', 'single_select', 'multi_select', 'number'];
+  const ISSUE_FIELDS_API_VERSION = '2026-03-10';
+
+  /** The value of request header `name` (lower case) among the `-H` / `--header` flags, or undefined. */
+  function headerValue(p, name) {
+    for (const h of [...(p.flags['-H'] || []), ...(p.flags['--header'] || [])]) {
+      const at = String(h).indexOf(':');
+      if (at > 0 && String(h).slice(0, at).trim().toLowerCase() === name) return String(h).slice(at + 1).trim();
+    }
+    return undefined;
+  }
+
+  function restCreateIssueType(f) {
+    if (typeof f.name !== 'string' || !f.name) return invalid('IssueType', 'missing_field', 'name');
+    if (f.is_enabled === undefined) return invalid('IssueType', 'missing_field', 'is_enabled');
+    if (typeDefs.some((t) => t.name === f.name)) return invalid('IssueType', 'already_exists', 'name');
+    const row = {
+      id: `IT_${nextTypeSeq++}`,
+      name: f.name,
+      is_enabled: toBool(f.is_enabled),
+      description: f.description === undefined ? null : f.description,
+      color: f.color === undefined ? null : f.color,
+    };
+    typeDefs.push(row);
+    return ok(JSON.stringify(row));
+  }
+
+  /** PUT orgs/o/issue-types/{id}: patches only the fields the body names. The id is a string in the path. */
+  function restPatchIssueType(id, f) {
+    const row = typeDefs.find((t) => String(t.id) === id);
+    if (!row) return notFound();
+    if (f.name !== undefined && (typeof f.name !== 'string' || !f.name || typeDefs.some((t) => t !== row && t.name === f.name))) {
+      return invalid('IssueType', 'invalid', 'name');
+    }
+    for (const key of ['name', 'description', 'color']) if (f[key] !== undefined) row[key] = f[key];
+    if (f.is_enabled !== undefined) row.is_enabled = toBool(f.is_enabled);
+    return ok(JSON.stringify(row));
+  }
+
+  /** POST orgs/o/issue-fields: needs the dated api-version header, joins `fieldDefs`. 400 / 422 as GitHub answers. */
+  function restCreateIssueField(f, p) {
+    if (headerValue(p, 'x-github-api-version') !== ISSUE_FIELDS_API_VERSION) {
+      return badRequest(`Issue fields need the X-GitHub-Api-Version: ${ISSUE_FIELDS_API_VERSION} header`);
+    }
+    if (typeof f.name !== 'string' || !f.name) return invalid('IssueField', 'missing_field', 'name');
+    if (!FIELD_DATA_TYPES.includes(f.data_type)) {
+      return invalid('IssueField', f.data_type === undefined ? 'missing_field' : 'invalid', 'data_type');
+    }
+    if (fieldDefs.some((d) => d.name === f.name)) return invalid('IssueField', 'already_exists', 'name');
+    if (f.options !== undefined && !fieldOptionsAccepted) return unprocessable('Options cannot be set when an issue field is created');
+    const row = {
+      id: Math.max(0, ...fieldDefs.map((d) => d.id)) + 1,
+      name: f.name,
+      data_type: f.data_type,
+      description: f.description === undefined ? null : f.description,
+      visibility: f.visibility === undefined ? null : f.visibility,
+    };
+    if (f.options !== undefined) row.options = copy(f.options);
+    fieldDefs.push(row);
+    return ok(JSON.stringify(row));
+  }
+
+  /** orgs/{o}/issue-types (GET, POST), issue-types/{id} (PUT) and issue-fields (GET, POST). */
+  function restOrgRoute(m, method, fields, p, qs, args) {
+    const [, org, kind, id] = m;
+    const isTypes = kind === 'issue-types';
+    const known = id === undefined ? (method === 'GET' || method === 'POST') : (method === 'PUT' && isTypes);
+    if (!known) return unsupported(args);
+    // An org endpoint exists only for an Organization owner, and only for THIS repo's org.
+    if (ownerType !== 'Organization' || org !== repoOwner) return notFound();
+    if (method === 'GET') return respondList((isTypes ? typeDefs : fieldDefs).map((r) => ({ ...r })), p, qs);
+    if (!orgAdmin) return forbidden('Must have admin rights to Organization.');
+    if (!isTypes) return restCreateIssueField(fields, p);
+    return id === undefined ? restCreateIssueType(fields) : restPatchIssueType(id, fields);
+  }
+
+  /** GET repos/o/r/pulls/{n}/commits: the seeded messages, with stable fake shas. 404 for a PR that does not exist. */
+  function restPullCommits(n, p, qs) {
+    const pr = findPr(n);
+    if (!pr) return notFound();
+    const rows = (prCommits[pr.number] || []).map((message, i) => ({
+      sha: crypto.createHash('sha1').update(`pr-${pr.number}-commit-${i}\n${message}`).digest('hex'),
+      commit: { message },
+    }));
+    return respondList(rows, p, qs);
+  }
+
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+  /** GET repos/o/r/contents/<path>?ref=: a seeded file as GitHub serves it (base64 wrapped at 60 columns). */
+  function restContents(rawFilePath, qs) {
+    let filePath;
+    try {
+      filePath = decodeURIComponent(rawFilePath);
+    } catch (e) {
+      return notFound();
+    }
+    const ref = qs.get('ref') || defaultBranch;
+    if (!hasOwn(files, ref) || !hasOwn(files[ref], filePath) || typeof files[ref][filePath] !== 'string') return notFound();
+    const text = files[ref][filePath];
+    const b64 = Buffer.from(text, 'utf8').toString('base64');
+    return ok(JSON.stringify({
+      type: 'file',
+      encoding: 'base64',
+      name: filePath.split('/').pop(),
+      path: filePath,
+      sha: crypto.createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest('hex'),
+      size: Buffer.byteLength(text),
+      content: b64 ? `${b64.match(/.{1,60}/g).join('\n')}\n` : '',
+    }));
   }
 
   function runApi(args, opts = {}) {
@@ -1253,6 +1512,20 @@ function createFakeGitHub({
       return unsupported(args);
     }
 
+    // ── 50-01: the inputs the required checks read (PR commits, file contents) ──
+
+    m = /^repos\/([^/]+\/[^/]+)\/pulls\/(\d+)\/commits$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'GET' ? restPullCommits(m[2], p, qs) : unsupported(args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/contents\/(.+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'GET' ? restContents(m[2], qs) : unsupported(args);
+    }
+
     // ── 49-01: commit statuses and branch refs ──
 
     m = /^repos\/([^/]+\/[^/]+)\/statuses\/([^/]+)$/.exec(rawPath);
@@ -1281,35 +1554,32 @@ function createFakeGitHub({
       return method === 'DELETE' ? deleteBranch(m[2]) : unsupported(args);
     }
 
+    // ── 50-01: setup routes (rulesets, labels) ──
+
+    m = /^repos\/([^/]+\/[^/]+)\/rulesets(?:\/(\d+))?$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return restRulesets(method, m[2], fields, p, qs, args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/labels$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'GET' ? restListLabels(p, qs) : unsupported(args);
+    }
+
     // ── 47-02: repo meta and org-level capabilities ──
 
     m = /^repos\/([^/]+\/[^/]+)$/.exec(rawPath);
     if (m) {
       if (m[1] !== repo) return notFound();
+      if (method === 'PATCH') return restPatchRepo(fields, args);
       if (method !== 'GET') return unsupported(args);
-      return ok(JSON.stringify({
-        id: 424242,
-        node_id: 'R_1',
-        name: repo.split('/')[1],
-        full_name: repo,
-        owner: { login: repoOwner, type: ownerType },
-        private: isPrivate,
-        has_wiki: hasWiki,
-        has_issues: true,
-        html_url: `https://github.com/${repo}`,
-        default_branch: defaultBranch,
-        permissions: { admin: push, maintain: push, push, triage: true, pull: true },
-      }));
+      return repoOk();
     }
 
-    m = /^orgs\/([^/]+)\/(issue-types|issue-fields)$/.exec(rawPath);
-    if (m) {
-      if (method !== 'GET') return unsupported(args);
-      // An org endpoint exists only for an Organization owner, and only for THIS repo's org.
-      if (ownerType !== 'Organization' || m[1] !== repoOwner) return notFound();
-      const rows = m[2] === 'issue-types' ? types : fieldDefs;
-      return respondList(rows.map((r) => ({ ...r })), p, qs);
-    }
+    m = /^orgs\/([^/]+)\/(issue-types|issue-fields)(?:\/([^/]+))?$/.exec(rawPath);
+    if (m) return restOrgRoute(m, method, fields, p, qs, args);
 
     return unsupported(args);
   }
@@ -1418,6 +1688,9 @@ function createFakeGitHub({
     labels,
     refs,
     statuses,
+    rulesets,
+    files,
+    prCommits,
     pushRef,
     humanMergePr,
     calls: () => log.map((a) => a.slice()),

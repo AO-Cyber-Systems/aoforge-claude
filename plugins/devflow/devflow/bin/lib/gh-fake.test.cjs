@@ -1466,3 +1466,383 @@ describe('49-01 branches, statuses and merge', () => {
     assert.equal(json(restGet(fake, 'repos/o/r/pulls/2')).head.sha, 'c2', 'an open PR follows its branch');
   });
 });
+
+// ─── 50-01 setup and check routes (TRD 50-01) ────────────────────────────────
+
+const MERGE_QUEUE_RULE = {
+  type: 'merge_queue',
+  parameters: {
+    check_response_timeout_minutes: 60, grouping_strategy: 'ALLGREEN', max_entries_to_build: 5,
+    max_entries_to_merge: 5, merge_method: 'SQUASH', min_entries_to_merge: 1, min_entries_to_merge_wait_minutes: 5,
+  },
+};
+
+/** The body setup POSTs for the default-branch ruleset (50-RESEARCH), without the merge queue rule. */
+const RULESET_BODY = {
+  name: 'devflow: default branch',
+  target: 'branch',
+  enforcement: 'active',
+  conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+  bypass_actors: [],
+  rules: [
+    { type: 'non_fast_forward' },
+    { type: 'deletion' },
+    { type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'devflow/linked-issue' }], strict_required_status_checks_policy: false } },
+  ],
+};
+
+describe('50-01 setup routes', () => {
+  it('1. rulesets: POST then list shows the summary, GET by id the stored body, PUT replaces rules, every write is recorded', () => {
+    const fake = createFakeGitHub();
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets')), []);
+
+    const made = restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    assert.equal(made.ok, true, made.stderr);
+    assert.equal(json(made).id, 9001, 'ruleset ids start at 9001');
+
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets')),
+      [{ id: 9001, name: 'devflow: default branch', target: 'branch', enforcement: 'active' }],
+      'the list carries summaries only, like GitHub');
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets/9001')), { id: 9001, ...RULESET_BODY });
+
+    const put = restCall(fake, 'PUT', 'repos/o/r/rulesets/9001', { rules: [{ type: 'deletion' }] });
+    assert.equal(put.ok, true, put.stderr);
+    assert.deepEqual(json(put).rules, [{ type: 'deletion' }]);
+    const after = json(restGet(fake, 'repos/o/r/rulesets/9001'));
+    assert.deepEqual(after.rules, [{ type: 'deletion' }], 'PUT replaces rules');
+    assert.equal(after.name, RULESET_BODY.name, 'a field the PUT leaves out is kept');
+    assert.deepEqual(after.conditions, RULESET_BODY.conditions);
+
+    const second = json(restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'other', enforcement: 'disabled' }));
+    assert.equal(second.id, 9002);
+    assert.equal(second.target, 'branch', 'target defaults to branch');
+    assert.deepEqual(second.rules, []);
+    assert.deepEqual(second.bypass_actors, []);
+    assert.deepEqual(fake.rulesets.map((r) => r.id), [9001, 9002], 'the live store is readable');
+
+    const slurped = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/rulesets'])).flat();
+    assert.deepEqual(slurped.map((r) => r.id), [9001, 9002]);
+
+    assert.equal(fake.writes().length, 3);
+    assert.ok(fake.writes().every((a) => isWriteArgs(a)));
+    assert.deepEqual(fake.writes().map((a) => a[2]), ['POST', 'PUT', 'POST']);
+  });
+
+  it('1b. rulesets: seeded through the option, refused when invalid, 404 for an unknown id or another repo', () => {
+    const fake = createFakeGitHub({ rulesets: [{ name: 'seeded', target: 'branch', enforcement: 'active', rules: [{ type: 'deletion' }] }] });
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets')).map((r) => [r.id, r.name]), [[9001, 'seeded']]);
+    assert.equal(json(restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'next', enforcement: 'active' })).id, 9002);
+
+    const dup = restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'seeded', enforcement: 'active' });
+    assert.equal(dup.ok, false);
+    assert.match(dup.stderr, /HTTP 422/);
+    const noName = restCall(fake, 'POST', 'repos/o/r/rulesets', { enforcement: 'active' });
+    assert.match(noName.stderr, /HTTP 422/);
+    const noEnforcement = restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'x' });
+    assert.match(noEnforcement.stderr, /HTTP 422/);
+    const badEnforcement = restCall(fake, 'POST', 'repos/o/r/rulesets', { name: 'x', enforcement: 'loud' });
+    assert.match(badEnforcement.stderr, /HTTP 422/);
+    assert.equal(fake.rulesets.length, 2, 'a refused body stores nothing');
+
+    assert.match(restGet(fake, 'repos/o/r/rulesets/12345').stderr, /HTTP 404/);
+    assert.match(restCall(fake, 'PUT', 'repos/o/r/rulesets/12345', { rules: [] }).stderr, /HTTP 404/);
+    assert.match(restGet(fake, 'repos/o/elsewhere/rulesets').stderr, /HTTP 404/);
+    assert.match(restCall(fake, 'POST', 'repos/o/elsewhere/rulesets', RULESET_BODY).stderr, /HTTP 404/);
+
+    const rename = restCall(fake, 'PUT', 'repos/o/r/rulesets/9002', { name: 'seeded' });
+    assert.match(rename.stderr, /HTTP 422/, 'a rename onto an existing name is refused');
+  });
+
+  it('2. merge queue: mergeQueueAllowed:false refuses a merge_queue rule with 422 and stores nothing; the same body without it is stored', () => {
+    const fake = createFakeGitHub({ mergeQueueAllowed: false });
+    const refused = restCall(fake, 'POST', 'repos/o/r/rulesets', { ...RULESET_BODY, rules: [...RULESET_BODY.rules, MERGE_QUEUE_RULE] });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.status, 1);
+    assert.equal(refused.stderr, 'gh: Validation Failed (HTTP 422)');
+    assert.equal(fake.rulesets.length, 0, 'nothing stored on a refusal');
+
+    const stored = restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    assert.equal(stored.ok, true, stored.stderr);
+    assert.equal(fake.rulesets.length, 1);
+
+    const upgrade = restCall(fake, 'PUT', 'repos/o/r/rulesets/9001', { rules: [...RULESET_BODY.rules, MERGE_QUEUE_RULE] });
+    assert.equal(upgrade.ok, false);
+    assert.equal(upgrade.stderr, 'gh: Validation Failed (HTTP 422)');
+    assert.deepEqual(fake.rulesets[0].rules, RULESET_BODY.rules, 'a refused PUT leaves the ruleset as it was');
+
+    const allowed = createFakeGitHub();
+    const withQueue = restCall(allowed, 'POST', 'repos/o/r/rulesets', { ...RULESET_BODY, rules: [...RULESET_BODY.rules, MERGE_QUEUE_RULE] });
+    assert.equal(withQueue.ok, true, 'mergeQueueAllowed defaults to true');
+    assert.ok(allowed.rulesets[0].rules.some((r) => r.type === 'merge_queue'));
+  });
+
+  it('3. isAdmin:false: ruleset writes and PATCH repos/o/r are 403, reads still work', () => {
+    const fake = createFakeGitHub({ isAdmin: false, rulesets: [{ name: 'seeded', enforcement: 'active' }] });
+
+    const post = restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    assert.equal(post.ok, false);
+    assert.match(post.stderr, /HTTP 403/);
+    assert.doesNotMatch(post.stderr, /rate limit/i, 'a bare 403 is a permission error, never a rate limit');
+    assert.match(restCall(fake, 'PUT', 'repos/o/r/rulesets/9001', { rules: [] }).stderr, /HTTP 403/);
+    assert.match(restCall(fake, 'PATCH', 'repos/o/r', { has_wiki: true }).stderr, /HTTP 403/);
+    assert.equal(fake.rulesets.length, 1);
+
+    assert.equal(restGet(fake, 'repos/o/r/rulesets').ok, true);
+    assert.equal(restGet(fake, 'repos/o/r/rulesets/9001').ok, true);
+    const repo = json(restGet(fake, 'repos/o/r'));
+    assert.equal(repo.has_wiki, true, 'the refused PATCH changed nothing');
+    assert.equal(repo.permissions.admin, false, 'a non-admin token does not see admin permission');
+    assert.equal(json(restGet(createFakeGitHub(), 'repos/o/r')).permissions.admin, true);
+  });
+
+  it('4. PATCH repos/o/r sets has_wiki and delete_branch_on_merge, and GET repos/o/r reflects both', () => {
+    const fake = createFakeGitHub({ hasWiki: false });
+    const before = json(restGet(fake, 'repos/o/r'));
+    assert.equal(before.has_wiki, false);
+    assert.equal(before.delete_branch_on_merge, false);
+
+    const patched = restCall(fake, 'PATCH', 'repos/o/r', { has_wiki: true, delete_branch_on_merge: true });
+    assert.equal(patched.ok, true, patched.stderr);
+    assert.equal(json(patched).has_wiki, true);
+    assert.equal(json(patched).delete_branch_on_merge, true);
+
+    const after = json(restGet(fake, 'repos/o/r'));
+    assert.equal(after.has_wiki, true);
+    assert.equal(after.delete_branch_on_merge, true);
+    assert.equal(after.full_name, 'o/r', 'the rest of the repo meta is unchanged');
+
+    restCall(fake, 'PATCH', 'repos/o/r', { delete_branch_on_merge: false });
+    const partial = json(restGet(fake, 'repos/o/r'));
+    assert.equal(partial.has_wiki, true, 'a PATCH touches only the fields it names');
+    assert.equal(partial.delete_branch_on_merge, false);
+
+    assert.equal(json(restGet(createFakeGitHub({ deleteBranchOnMerge: true }), 'repos/o/r')).delete_branch_on_merge, true,
+      'the option seeds it');
+
+    assert.deepEqual(fake.writes().map((a) => a[2]), ['PATCH', 'PATCH']);
+    assert.match(restCall(fake, 'PATCH', 'repos/o/elsewhere', { has_wiki: true }).stderr, /HTTP 404/);
+  });
+
+  it('5. GET repos/o/r/labels lists the labels gh label create made, with their colour and description', () => {
+    const fake = createFakeGitHub();
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/labels')), []);
+    assert.equal(fake.runGh(['label', 'create', 'devflow:objective', ...R, '--color', '0e8a16', '--description', 'An objective']).ok, true);
+    assert.equal(fake.runGh(['label', 'create', 'devflow:trd', ...R]).ok, true);
+
+    const rows = json(restGet(fake, 'repos/o/r/labels'));
+    assert.deepEqual(rows.map((l) => l.name), ['devflow:objective', 'devflow:trd']);
+    assert.equal(rows[0].color, '0e8a16');
+    assert.equal(rows[0].description, 'An objective');
+    assert.equal(rows[1].description, null, 'no description is null, like GitHub');
+    assert.match(rows[1].color, /^[0-9a-f]{6}$/);
+    assert.ok(rows.every((l) => Number.isInteger(l.id)));
+
+    const paged = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/labels'])).flat();
+    assert.equal(paged.length, 2);
+    assert.match(restGet(fake, 'repos/o/elsewhere/labels').stderr, /HTTP 404/);
+  });
+
+  it('6. issue types: POST adds an enabled type, PUT enables a disabled seeded one; a User owner is 404 and orgAdmin:false is 403', () => {
+    const fake = createFakeGitHub();
+    const made = restCall(fake, 'POST', 'orgs/o/issue-types', { name: 'Bug', description: 'A defect', color: 'red', is_enabled: true });
+    assert.equal(made.ok, true, made.stderr);
+    const bug = json(made);
+    assert.equal(bug.id, 'IT_1');
+    assert.equal(bug.name, 'Bug');
+    assert.equal(bug.is_enabled, true);
+    assert.equal(bug.description, 'A defect');
+    assert.equal(bug.color, 'red');
+    assert.deepEqual(json(restGet(fake, 'orgs/o/issue-types')).map((t) => t.name), ['Objective', 'TRD', 'Decision', 'Bug']);
+    const issue = json(restCall(fake, 'POST', 'repos/o/r/issues', { title: 't', type: 'Bug' }));
+    assert.equal(issue.type.name, 'Bug', 'a created type is the one issue.type resolves against');
+    assert.equal(json(restCall(fake, 'POST', 'orgs/o/issue-types', { name: 'Spike', is_enabled: true })).id, 'IT_2');
+
+    const patched = restCall(fake, 'PUT', 'orgs/o/issue-types/IT_1', { description: 'Broken', color: 'orange' });
+    assert.equal(patched.ok, true, patched.stderr);
+    assert.equal(json(patched).description, 'Broken');
+    assert.equal(json(patched).name, 'Bug', 'a PUT touches only the fields it names');
+    assert.equal(json(patched).is_enabled, true);
+
+    const seed = [{ id: 9, name: 'TRD', is_enabled: false }];
+    const disabled = createFakeGitHub({ types: seed });
+    assert.equal(json(restCall(disabled, 'POST', 'repos/o/r/issues', { title: 't', type: 'TRD' })).type, null);
+    const enabled = restCall(disabled, 'PUT', 'orgs/o/issue-types/9', { is_enabled: true });
+    assert.equal(enabled.ok, true, enabled.stderr);
+    assert.deepEqual(json(enabled), { id: 9, name: 'TRD', is_enabled: true });
+    assert.deepEqual(json(restGet(disabled, 'orgs/o/issue-types')), [{ id: 9, name: 'TRD', is_enabled: true }]);
+    assert.equal(json(restCall(disabled, 'POST', 'repos/o/r/issues', { title: 'u', type: 'TRD' })).type.name, 'TRD');
+    assert.equal(seed[0].is_enabled, false, 'a write never mutates an options array the test owns');
+
+    assert.match(restCall(fake, 'PUT', 'orgs/o/issue-types/IT_99', { is_enabled: true }).stderr, /HTTP 404/);
+    assert.match(restCall(fake, 'POST', 'orgs/o/issue-types', { name: 'Bug', is_enabled: true }).stderr, /HTTP 422/, 'a duplicate name');
+    assert.match(restCall(fake, 'POST', 'orgs/o/issue-types', { is_enabled: true }).stderr, /HTTP 422/, 'name is required');
+    assert.match(restCall(fake, 'POST', 'orgs/o/issue-types', { name: 'Chore' }).stderr, /HTTP 422/, 'is_enabled is required');
+    assert.equal(json(restGet(fake, 'orgs/o/issue-types')).length, 5, 'refused bodies store nothing');
+
+    const user = createFakeGitHub({ ownerType: 'User' });
+    assert.match(restCall(user, 'POST', 'orgs/o/issue-types', { name: 'Bug', is_enabled: true }).stderr, /HTTP 404/);
+    assert.match(restCall(user, 'PUT', 'orgs/o/issue-types/1', { is_enabled: false }).stderr, /HTTP 404/);
+    assert.match(restCall(fake, 'POST', 'orgs/elsewhere/issue-types', { name: 'Bug2', is_enabled: true }).stderr, /HTTP 404/);
+
+    const nonAdmin = createFakeGitHub({ orgAdmin: false });
+    const denied = restCall(nonAdmin, 'POST', 'orgs/o/issue-types', { name: 'Bug', is_enabled: true });
+    assert.match(denied.stderr, /HTTP 403/);
+    assert.doesNotMatch(denied.stderr, /rate limit/i);
+    assert.match(restCall(nonAdmin, 'PUT', 'orgs/o/issue-types/1', { is_enabled: false }).stderr, /HTTP 403/);
+    assert.equal(json(restGet(nonAdmin, 'orgs/o/issue-types')).length, 3, 'reads still work and nothing was written');
+    assert.equal(json(restGet(nonAdmin, 'repos/o/r')).permissions.admin, true, 'orgAdmin gates the org routes only');
+    assert.equal(restCall(nonAdmin, 'POST', 'repos/o/r/rulesets', RULESET_BODY).ok, true, 'a repo admin without org admin can still write rulesets');
+
+    const orgWrites = fake.writes().filter((a) => a[3].startsWith('orgs/'));
+    assert.deepEqual(orgWrites.slice(0, 3).map((a) => `${a[2]} ${a[3]}`),
+      ['POST orgs/o/issue-types', 'POST orgs/o/issue-types', 'PUT orgs/o/issue-types/IT_1'], 'org writes are recorded');
+  });
+
+  it('7. issue fields: POST needs the 2026-03-10 api-version header (400 without), stores and lists the field, 422 for options when refused', () => {
+    const fake = createFakeGitHub();
+    const body = { name: 'priority', data_type: 'text', description: 'How urgent', visibility: 'organization_members_only' };
+    const post = (b, ...headers) => fake.runGh(
+      ['api', '--method', 'POST', 'orgs/o/issue-fields', ...headers.flatMap((h) => ['-H', h]), '--input', '-'], { input: JSON.stringify(b) });
+
+    const bare = post(body);
+    assert.equal(bare.ok, false);
+    assert.match(bare.stderr, /HTTP 400/);
+    assert.match(post(body, 'X-GitHub-Api-Version: 2022-11-28').stderr, /HTTP 400/, 'only 2026-03-10 counts');
+    assert.match(post(body, 'Accept: application/vnd.github+json').stderr, /HTTP 400/, 'another header is not the version header');
+    assert.equal(json(restGet(fake, 'orgs/o/issue-fields')).length, 2, 'a refused create stores nothing');
+
+    const made = post(body, 'X-GitHub-Api-Version: 2026-03-10');
+    assert.equal(made.ok, true, made.stderr);
+    const field = json(made);
+    assert.ok(Number.isInteger(field.id) && ![11, 12].includes(field.id), 'an integer id, distinct from the seeded fields');
+    assert.deepEqual([field.name, field.data_type, field.description, field.visibility],
+      ['priority', 'text', 'How urgent', 'organization_members_only']);
+    const listed = json(restGet(fake, 'orgs/o/issue-fields'));
+    assert.deepEqual(listed.map((f) => f.name), ['work', 'kind', 'priority']);
+    assert.deepEqual(listed[2], field);
+
+    // The new definition is a real field: issue-field-values accepts its id (the list detectCapabilities reads).
+    fake.seedIssue({ title: 'a' });
+    const values = restCall(fake, 'POST', 'repos/o/r/issues/1/issue-field-values', { issue_field_values: [{ field_id: field.id, value: 'high' }] });
+    assert.equal(values.ok, true, values.stderr);
+
+    const lower = fake.runGh(['api', '-X', 'POST', 'orgs/o/issue-fields', '--header', 'x-github-api-version: 2026-03-10', '--input', '-'],
+      { input: JSON.stringify({ name: 'size', data_type: 'number' }) });
+    assert.equal(lower.ok, true, 'the header name is case-insensitive and --header is accepted');
+
+    const withOptions = post({ name: 'work2', data_type: 'single_select', options: [{ name: 'feature' }, { name: 'bug' }] }, 'X-GitHub-Api-Version: 2026-03-10');
+    assert.equal(withOptions.ok, true, withOptions.stderr);
+    assert.deepEqual(json(withOptions).options, [{ name: 'feature' }, { name: 'bug' }], 'options are stored as sent when accepted');
+
+    assert.match(post({ data_type: 'text' }, 'X-GitHub-Api-Version: 2026-03-10').stderr, /HTTP 422/, 'name is required');
+    assert.match(post({ name: 'x', data_type: 'blob' }, 'X-GitHub-Api-Version: 2026-03-10').stderr, /HTTP 422/, 'data_type must be a known type');
+    assert.match(post({ name: 'work', data_type: 'text' }, 'X-GitHub-Api-Version: 2026-03-10').stderr, /HTTP 422/, 'a duplicate name');
+
+    const noOptions = createFakeGitHub({ fieldOptionsAccepted: false });
+    const refused = noOptions.runGh(['api', '--method', 'POST', 'orgs/o/issue-fields', '-H', 'X-GitHub-Api-Version: 2026-03-10', '--input', '-'],
+      { input: JSON.stringify({ name: 'work2', data_type: 'single_select', options: [{ name: 'feature' }] }) });
+    assert.equal(refused.ok, false);
+    assert.match(refused.stderr, /HTTP 422/);
+    assert.equal(json(restGet(noOptions, 'orgs/o/issue-fields')).length, 2, 'a refused create stores nothing');
+    const plain = noOptions.runGh(['api', '--method', 'POST', 'orgs/o/issue-fields', '-H', 'X-GitHub-Api-Version: 2026-03-10', '--input', '-'],
+      { input: JSON.stringify({ name: 'work2', data_type: 'single_select' }) });
+    assert.equal(plain.ok, true, 'a field without options is fine when options are refused');
+
+    const hdr = ['-H', 'X-GitHub-Api-Version: 2026-03-10', '--input', '-'];
+    const user = createFakeGitHub({ ownerType: 'User' });
+    assert.match(user.runGh(['api', '--method', 'POST', 'orgs/o/issue-fields', ...hdr], { input: JSON.stringify(body) }).stderr, /HTTP 404/);
+    const nonAdmin = createFakeGitHub({ orgAdmin: false });
+    assert.match(nonAdmin.runGh(['api', '--method', 'POST', 'orgs/o/issue-fields', ...hdr], { input: JSON.stringify(body) }).stderr, /HTTP 403/);
+    assert.equal(json(restGet(nonAdmin, 'orgs/o/issue-fields')).length, 2);
+  });
+
+  it('8. PR commits and file contents return the seeded data; an unseeded path or ref is 404', () => {
+    const files = {
+      abc123: {
+        '.github/workflows/devflow-checks.yml': 'name: devflow\non: pull_request\n',
+        'docs/my file.md': 'hello\n',
+        'long.txt': 'x'.repeat(200),
+      },
+      main: { 'README.md': 'on main\n' },
+    };
+    const fake = createFakeGitHub({ files, prCommits: { 1: ['feat(50-01): a', 'fix: b\n\nCloses #3'] } });
+    fake.pushRef('df/feature', 'c1');
+    assert.equal(openPr(fake, 'df/feature').ok, true);
+
+    const commits = json(restGet(fake, 'repos/o/r/pulls/1/commits'));
+    assert.deepEqual(commits.map((c) => c.commit.message), ['feat(50-01): a', 'fix: b\n\nCloses #3']);
+    assert.ok(commits.every((c) => /^[0-9a-f]{40}$/.test(c.sha)));
+    assert.notEqual(commits[0].sha, commits[1].sha);
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/pulls/1/commits')), commits, 'the shas are stable');
+
+    const paged = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/pulls/1/commits?per_page=1']));
+    assert.equal(paged.length, 2, 'two pages of one');
+    assert.deepEqual(paged.flat(), commits);
+
+    const none = createFakeGitHub();
+    none.pushRef('df/feature', 'c1');
+    openPr(none, 'df/feature');
+    assert.deepEqual(json(restGet(none, 'repos/o/r/pulls/1/commits')), [], 'a PR with no seeded commits has none');
+    none.prCommits[1] = ['seeded later'];
+    assert.deepEqual(json(restGet(none, 'repos/o/r/pulls/1/commits')).map((c) => c.commit.message), ['seeded later'], 'prCommits is live');
+    assert.match(restGet(fake, 'repos/o/r/pulls/99/commits').stderr, /HTTP 404/);
+    assert.match(restGet(fake, 'repos/o/elsewhere/pulls/1/commits').stderr, /HTTP 404/);
+    assert.match(restCall(fake, 'POST', 'repos/o/r/pulls/1/commits', {}).stderr, /\[gh-fake\] unsupported/);
+
+    const file = restGet(fake, 'repos/o/r/contents/.github/workflows/devflow-checks.yml?ref=abc123');
+    assert.equal(file.ok, true, file.stderr);
+    const got = json(file);
+    assert.equal(got.type, 'file');
+    assert.equal(got.encoding, 'base64');
+    assert.equal(got.path, '.github/workflows/devflow-checks.yml');
+    assert.equal(got.name, 'devflow-checks.yml');
+    assert.equal(Buffer.from(got.content, 'base64').toString('utf8'), 'name: devflow\non: pull_request\n');
+    assert.equal(got.size, 31);
+
+    const hello = json(restGet(fake, 'repos/o/r/contents/docs/my%20file.md?ref=abc123'));
+    assert.equal(hello.sha, 'ce013625030ba8dba906f756967f9e9ca394464a', 'sha is the git blob id of the text');
+    assert.equal(Buffer.from(hello.content, 'base64').toString('utf8'), 'hello\n');
+
+    const long = json(restGet(fake, 'repos/o/r/contents/long.txt?ref=abc123'));
+    assert.ok(long.content.endsWith('\n'));
+    assert.ok(long.content.split('\n').every((line) => line.length <= 60), 'base64 is wrapped at 60 columns, as GitHub does');
+    assert.equal(Buffer.from(long.content, 'base64').toString('utf8'), 'x'.repeat(200));
+
+    assert.equal(Buffer.from(json(restGet(fake, 'repos/o/r/contents/README.md')).content, 'base64').toString(), 'on main\n',
+      'no ref reads the default branch');
+    assert.match(restGet(fake, 'repos/o/r/contents/README.md?ref=abc123').stderr, /HTTP 404/, 'unseeded path');
+    assert.match(restGet(fake, 'repos/o/r/contents/.github/workflows/devflow-checks.yml?ref=nope').stderr, /HTTP 404/, 'unseeded ref');
+    assert.match(restGet(fake, 'repos/o/r/contents/docs?ref=abc123').stderr, /HTTP 404/, 'a directory is not a file');
+    assert.match(restGet(fake, 'repos/o/elsewhere/contents/README.md?ref=main').stderr, /HTTP 404/);
+    fake.files.abc123['new.txt'] = 'live';
+    assert.equal(restGet(fake, 'repos/o/r/contents/new.txt?ref=abc123').ok, true, 'files is live');
+    assert.match(restCall(fake, 'PUT', 'repos/o/r/contents/new.txt', { message: 'm', content: 'eA==' }).stderr, /\[gh-fake\] unsupported/,
+      'writing a file is not modelled');
+  });
+
+  it('9. an argv the fake does not know still yields [gh-fake] unsupported', () => {
+    const fake = createFakeGitHub();
+    restCall(fake, 'POST', 'repos/o/r/rulesets', RULESET_BODY);
+    const gaps = [
+      ['api', 'repos/o/r/rulesets/9001/history'],
+      ['api', '--method', 'DELETE', 'repos/o/r/rulesets/9001'],
+      ['api', 'repos/o/r/hooks'],
+      ['api', '--method', 'DELETE', 'repos/o/r'],
+      ['api', '--method', 'PUT', 'repos/o/r/labels'],
+      ['api', '--method', 'DELETE', 'orgs/o/issue-types/1'],
+      ['api', '--method', 'PUT', 'orgs/o/issue-types'],
+      ['api', '--method', 'POST', 'orgs/o/issue-types/1'],
+      ['api', '--method', 'PUT', 'orgs/o/issue-fields/11'],
+      ['api', 'orgs/o/issue-types/1'],
+    ];
+    for (const argv of gaps) {
+      const r = fake.runGh(argv);
+      assert.equal(r.ok, false, argv.join(' '));
+      assert.match(r.stderr, /\[gh-fake\] unsupported/, argv.join(' '));
+    }
+    const field = restCall(fake, 'PATCH', 'repos/o/r', { allow_squash_merge: true });
+    assert.equal(field.ok, false, 'a repo field the fake does not model is a loud gap, never a quiet success');
+    assert.match(field.stderr, /\[gh-fake\] unsupported/);
+    assert.equal(fake.rulesets.length, 1, 'the unknown routes changed nothing');
+  });
+});
