@@ -19,7 +19,8 @@
 // Storage shape (the `issues` array is live; tests may read it):
 //   issue   { number, id, title, body, labels:[name], milestone:title|null, assignees:[login],
 //             state:'OPEN'|'CLOSED', stateReason, type:name|null, owner, parent:number|null,
-//             subIssues:[number] (link order), blockedBy:[number], createdAt, updatedAt }
+//             subIssues:[number] (link order), blockedBy:[number], fieldValues:[{field_id,value}],
+//             createdAt, updatedAt }
 //   `id` is GitHub's database id: ALWAYS `1_000_000 + number`, never the number (47 Pitfall 1). Sub-issue
 //   and dependency endpoints take only that id, so a caller that sends a number gets a 404.
 //   comment { id, issue_number, body, user:{login}, created_at, updated_at, html_url }
@@ -32,7 +33,10 @@
 // REST (objective 47): `runGh(args, opts)` reads `opts.input` as the JSON body of `gh api --input -`.
 // Routes: repos/o/r/issues (POST, GET), .../issues/{n} (GET, PATCH), .../sub_issues (GET, POST),
 // .../sub_issue (DELETE), .../parent (GET), .../dependencies/blocked_by (GET, POST) and
-// .../blocked_by/{id} (DELETE), .../dependencies/blocking (GET). GraphQL stays caller-handled.
+// .../blocked_by/{id} (DELETE), .../dependencies/blocking (GET), .../issue-field-values (GET, POST, PUT),
+// plus repos/o/r (GET), orgs/{o}/issue-types and orgs/{o}/issue-fields. GraphQL stays caller-handled.
+// What the repo can do is configured per fake (`ownerType`, `hasWiki`, `push`, `types`, `fields`,
+// `subIssuesApi`), and `setOffline(true)` turns every call into a network outage.
 
 const { isWriteArgs } = require('../gh-client.cjs');
 
@@ -59,6 +63,14 @@ const API_BOOL_FLAGS = ['--paginate', '--slurp'];
 
 const ISSUE_ID_OFFSET = 1_000_000; // id = ISSUE_ID_OFFSET + number: an id is never a number
 const MAX_SUB_ISSUES = 100;        // GitHub: 100 sub-issues per parent, closed ones count
+
+// What gh prints, and how it exits, when the network is down: no HTTP status, no exit code of its own.
+const OFFLINE_RESPONSE = {
+  ok: false,
+  status: null,
+  stdout: '',
+  stderr: 'error connecting to api.github.com: dial tcp: lookup api.github.com: could not resolve host',
+};
 
 const ok = (stdout = '') => ({ ok: true, status: 0, stdout, stderr: '' });
 const fail = (stderr, stdout = '') => ({ ok: false, status: 1, stdout, stderr });
@@ -125,6 +137,7 @@ function createFakeGitHub({
   subIssuesApi = true,
 } = {}) {
   const repoOwner = repo.split('/')[0];
+  const fieldDefs = fields; // runApi has a local `fields` (the request body), so name the definitions apart
   const issues = [];
   const comments = [];
   const milestones = []; // { number, title, description, state }
@@ -136,6 +149,7 @@ function createFakeGitHub({
   let nextIssue = 1;
   let nextMilestone = 1;
   let nextComment = 1000;
+  let offline = false;
 
   const tick = () => new Date(BASE_TIME + (++clock) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const issueUrl = (n) => `https://github.com/${repo}/issues/${n}`;
@@ -160,7 +174,7 @@ function createFakeGitHub({
     const issue = {
       number, id: ISSUE_ID_OFFSET + number, title, body, labels: [...labelNames], milestone, assignees: [...assignees],
       state, stateReason: state === 'CLOSED' ? 'completed' : null, type, owner,
-      parent: null, subIssues: [], blockedBy: [],
+      parent: null, subIssues: [], blockedBy: [], fieldValues: [],
       createdAt: at, updatedAt: at,
     };
     issues.push(issue);
@@ -450,6 +464,7 @@ function createFakeGitHub({
    */
   function resolveType(name) {
     if (typeof name !== 'string' || !name) return null;
+    if (ownerType !== 'Organization' || !push) return null; // issue types are org-only and need push access
     const t = types.find((x) => x.name === name && x.is_enabled);
     return t ? t.name : null;
   }
@@ -600,6 +615,27 @@ function createFakeGitHub({
     return restOk(issue);
   }
 
+  /** POST merges `issue_field_values` by field_id; PUT replaces the whole set. Unknown field ids are 422. */
+  function writeFieldValues(issue, f, replace) {
+    const incoming = f.issue_field_values;
+    if (!Array.isArray(incoming)) return invalid('Issue', 'missing_field', 'issue_field_values');
+    for (const v of incoming) {
+      if (!v || !fieldDefs.some((d) => d.id === toInt(v.field_id))) return invalid('IssueFieldValue', 'invalid', 'field_id');
+    }
+    const next = replace ? [] : issue.fieldValues.map((v) => ({ ...v }));
+    for (const v of incoming) {
+      const id = toInt(v.field_id);
+      const at = next.findIndex((x) => x.field_id === id);
+      if (at >= 0) next[at] = { field_id: id, value: v.value };
+      else next.push({ field_id: id, value: v.value });
+    }
+    if (JSON.stringify(next) !== JSON.stringify(issue.fieldValues)) {
+      issue.fieldValues = next;
+      issue.updatedAt = tick();
+    }
+    return ok(JSON.stringify(issue.fieldValues.map((v) => ({ ...v }))));
+  }
+
   function runApi(args, opts = {}) {
     const p = parseArgs(args, 1, API_VALUE_FLAGS, API_BOOL_FLAGS);
     if (p.unknown.length || p.pos.length !== 1) return unsupported(args);
@@ -714,6 +750,8 @@ function createFakeGitHub({
         return unsupported(args);
       }
 
+      if (!subIssuesApi && (tail === 'sub_issues' || tail === 'sub_issue' || tail === 'parent')) return notFound();
+
       if (tail === 'sub_issues') {
         if (method === 'GET') return respondList(issue.subIssues.map((n) => toRestIssue(findIssue(n))), p, qs);
         if (method === 'POST') return addSubIssue(issue, fields);
@@ -741,6 +779,41 @@ function createFakeGitHub({
         if (method !== 'GET') return unsupported(args);
         return respondList(issues.filter((i) => i.blockedBy.includes(issue.number)).map(toRestIssue), p, qs);
       }
+      if (tail === 'issue-field-values') {
+        if (ownerType !== 'Organization') return notFound(); // issue fields are org-level
+        if (method === 'GET') return ok(JSON.stringify(issue.fieldValues.map((v) => ({ ...v }))));
+        if (method === 'POST' || method === 'PUT') return writeFieldValues(issue, fields, method === 'PUT');
+        return unsupported(args);
+      }
+    }
+
+    // ── 47-02: repo meta and org-level capabilities ──
+
+    m = /^repos\/([^/]+\/[^/]+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      if (method !== 'GET') return unsupported(args);
+      return ok(JSON.stringify({
+        id: 424242,
+        name: repo.split('/')[1],
+        full_name: repo,
+        owner: { login: repoOwner, type: ownerType },
+        private: isPrivate,
+        has_wiki: hasWiki,
+        has_issues: true,
+        html_url: `https://github.com/${repo}`,
+        default_branch: 'main',
+        permissions: { admin: push, maintain: push, push, triage: true, pull: true },
+      }));
+    }
+
+    m = /^orgs\/([^/]+)\/(issue-types|issue-fields)$/.exec(rawPath);
+    if (m) {
+      if (method !== 'GET') return unsupported(args);
+      // An org endpoint exists only for an Organization owner, and only for THIS repo's org.
+      if (ownerType !== 'Organization' || m[1] !== repoOwner) return notFound();
+      const rows = m[2] === 'issue-types' ? types : fieldDefs;
+      return respondList(rows.map((r) => ({ ...r })), p, qs);
     }
 
     return unsupported(args);
@@ -774,6 +847,8 @@ function createFakeGitHub({
     const argv = Array.isArray(args) ? args.map(String) : [];
     log.push(argv);
     stamps.push(typeof now === 'function' ? now() : null);
+    // An outage beats everything else: nothing is served, nothing is mutated and a queued failNext waits.
+    if (offline) return { ...OFFLINE_RESPONSE };
     const at = failures.findIndex((f) => f.test(argv));
     if (at >= 0) {
       const [{ response }] = failures.splice(at, 1);
@@ -803,6 +878,19 @@ function createFakeGitHub({
     issue.updatedAt = tick();
   }
 
+  /** While offline every call fails like a network outage (status null) until `setOffline(false)`. Calls are still logged. */
+  function setOffline(value) {
+    offline = Boolean(value);
+  }
+
+  /** A human edits a comment on github.com: no DevFlow call is recorded, the comment's updated_at advances. */
+  function humanEditComment(id, body) {
+    const c = comments.find((x) => x.id === Number(id));
+    if (!c) throw new Error(`gh-fake: no comment #${id}`);
+    c.body = body;
+    c.updated_at = tick();
+  }
+
   return {
     runGh,
     issues,
@@ -814,6 +902,10 @@ function createFakeGitHub({
     writeTimes: () => log.flatMap((a, i) => (isWriteArgs(a) ? [stamps[i]] : [])),
     failNext,
     humanEditBody,
+    humanEditComment,
+    setOffline,
+    get ownerType() { return ownerType; },
+    get subIssuesApi() { return subIssuesApi; },
     seedIssue,
     seedComment,
     seedMilestone,
