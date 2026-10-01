@@ -31,7 +31,30 @@
  *
  * `issues` is a `Map<number, issue|null>` the runner fills: an issue object (`{number, state, state_reason?,
  * body?, pull_request?}`), `null` for a 404, and absent when the runner never fetched it (also a failure).
+ *
+ * ── devflow/planning-consistency (research Open Question 1) ──────────────────────────────────────────────
+ * In store mode `.planning/` is NOT in git (migration 0010 ignores it), so a checkout of the PR has no
+ * planning files to read and `df-tools validate consistency` needs the local cache. This check therefore
+ * validates the GitHub graph, never files, and nothing in this module reads a path:
+ *   (a) Store mode is read from the PR head's tracked `.planning/config.json` (`github.store === true`, handed
+ *       in as `config`). Otherwise success "store mode off: planning files are reviewed in the diff". The
+ *       check still reports a status, so a required check never hangs waiting for a context that never comes.
+ *   (b) No `<!-- devflow:pr=<id> -->` marker: success "not a DevFlow objective PR".
+ *   (c) An objective PR must: target the default branch; close the objective issue (the issue whose body
+ *       marker is `devflow:id=<id>`); close every TRD issue linked under the objective (sub-issues, or the
+ *       `trds` task list in degraded mode, supplied by the runner as `linked`); and close nothing that was
+ *       closed as `not_planned`. Each violation is one named line.
+ * The objective issue is looked for among every issue the runner resolved, not only the closing targets, so
+ * "the PR forgot to close #100" is named rather than reported as "no objective issue".
+ *
+ * ── Merge-time reconcile ─────────────────────────────────────────────────────────────────────────────────
+ * `reconcilePlan` only lists what a merged PR left open (its closing targets plus the objective's linked
+ * TRDs): the runner closes them. Project -> Done is deliberately NOT done here: the GitHub Projects built-in
+ * "Item closed" workflow moves closed items, and the GITHUB_TOKEN cannot reach Projects v2. The local
+ * `gh pr reconcile` still does the full reconcile including the cache.
  */
+
+const ghBody = require('./gh-body.cjs');
 
 // The one source for the ruleset (50-09), the runner (50-08) and the workflow test (50-10).
 const CONTEXTS = Object.freeze({
@@ -65,6 +88,23 @@ function issueAt(issues, n) {
   if (issues instanceof Map) return issues.get(n);
   if (issues && typeof issues === 'object') return issues[n];
   return undefined;
+}
+
+// Every resolved (non-null) issue as [number, issue], in the order supplied.
+function resolvedIssues(issues) {
+  const entries = issues instanceof Map ? Array.from(issues.entries()) : Object.entries(issues || {});
+  return entries.filter(([, issue]) => issue && typeof issue === 'object').map(([n, issue]) => [Number(n), issue]);
+}
+
+// The base-branch finding shared by both checks, or null when the PR targets the default branch.
+function baseFailure(pr, defaultBranch) {
+  if (!defaultBranch) return 'default branch unknown: cannot tell whether the pull request targets it';
+  const base = pr && pr.base && typeof pr.base.ref === 'string' ? pr.base.ref : null;
+  if (base === defaultBranch) return null;
+  return (
+    `base branch \`${base === null ? '(none)' : base}\` is not the default branch \`${defaultBranch}\`: ` +
+    'closing keywords only act on pull requests to the default branch'
+  );
 }
 
 // ─── Closing references ──────────────────────────────────────────────────────
@@ -206,18 +246,11 @@ function refsFromCommits(commits) {
 function linkedIssue({ pr, repo, defaultBranch, issues, commits } = {}) {
   const failures = [];
   const notes = [];
-  const base = pr && pr.base && typeof pr.base.ref === 'string' ? pr.base.ref : null;
   const { counted, foreign } = parseClosingRefs(pr && pr.body, repo);
   const refs_seen = refsFromCommits(commits);
 
-  if (!defaultBranch) {
-    failures.push('default branch unknown: cannot tell whether the pull request targets it');
-  } else if (base !== defaultBranch) {
-    failures.push(
-      `base branch \`${base === null ? '(none)' : base}\` is not the default branch \`${defaultBranch}\`: ` +
-        'closing keywords only act on pull requests to the default branch'
-    );
-  }
+  const baseProblem = baseFailure(pr, defaultBranch);
+  if (baseProblem) failures.push(baseProblem);
 
   const closing = [];
   if (counted.length === 0) {
@@ -251,9 +284,116 @@ function linkedIssue({ pr, repo, defaultBranch, issues, commits } = {}) {
   };
 }
 
+// ─── devflow/planning-consistency ────────────────────────────────────────────
+
+// Store mode is literally `github.store === true`; a string, a number or a missing block is off.
+function storeModeOn(config) {
+  return Boolean(config && config.github && config.github.store === true);
+}
+
+// Issue numbers from a Set / array / Map of numbers or issue objects, ascending and de-duplicated.
+function numbersOf(collection) {
+  const items = collection instanceof Map ? Array.from(collection.values()) : Array.from(collection || []);
+  const out = new Set();
+  for (const item of items) {
+    const n = item && typeof item === 'object' ? item.number : item;
+    if (Number.isInteger(n)) out.add(n);
+  }
+  return ascending(out);
+}
+
+// The objective issue: the resolved issue whose BODY marker (not a comment-kind marker) is `devflow:id=<id>`.
+// One that the PR closes wins over one it does not, so a stray duplicate cannot hide the real target.
+function findObjectiveIssue(issues, id, closes) {
+  const candidates = resolvedIssues(issues).filter(([, issue]) => {
+    const marker = ghBody.extractMarker(issue.body);
+    return marker !== null && marker.kind === null && marker.id === id;
+  });
+  return candidates.find(([n]) => closes.has(n)) || candidates[0] || null;
+}
+
+/**
+ * planningConsistency({ pr, repo, defaultBranch, config, issues, linked }) — the `devflow/planning-consistency`
+ * verdict (see the header for the rules and for why no `.planning/` file is consulted). `config` is the parsed
+ * `.planning/config.json` of the PR head (or null), `issues` the Map described above and `linked` the TRD issues
+ * under the objective as numbers or issue objects (a Set, array or Map). Returns `{ state, description, details }`.
+ */
+function planningConsistency({ pr, repo, defaultBranch, config, issues, linked } = {}) {
+  if (!storeModeOn(config)) {
+    return { state: 'success', description: 'store mode off: planning files are reviewed in the diff', details: [] };
+  }
+  const marker = ghBody.extractPrMarker(pr && pr.body);
+  if (!marker) {
+    return { state: 'success', description: 'not a DevFlow objective PR', details: [] };
+  }
+
+  const failures = [];
+  const baseProblem = baseFailure(pr, defaultBranch);
+  if (baseProblem) failures.push(baseProblem);
+
+  const { counted } = parseClosingRefs(pr.body, repo);
+  const closes = new Set(counted);
+
+  const found = findObjectiveIssue(issues, marker.id, closes);
+  const objective = found ? found[0] : null;
+  if (found === null) {
+    failures.push(`objective issue (devflow:id=${marker.id}) not found: no resolved issue carries that marker`);
+  } else if (!closes.has(objective)) {
+    failures.push(`objective issue #${objective} (devflow:id=${marker.id}) is not closed by this pull request`);
+  }
+
+  const trds = numbersOf(linked).filter((n) => n !== objective);
+  for (const n of trds) {
+    if (!closes.has(n)) failures.push(`TRD issue #${n} is linked under objective ${marker.id} but not closed by this pull request`);
+  }
+
+  for (const n of counted) {
+    const issue = issueAt(issues, n);
+    if (issue && issue.state_reason === 'not_planned') {
+      failures.push(`#${n} was closed as not planned: merging would not complete it`);
+    }
+  }
+
+  if (failures.length > 0) {
+    return { state: 'failure', description: summarize(failures), details: failures };
+  }
+  const trdText = trds.length === 0 ? 'no linked TRDs' : `${trds.length} TRD issue${trds.length === 1 ? '' : 's'}`;
+  return {
+    state: 'success',
+    description: clip(`objective ${marker.id}: closes #${objective} and ${trdText}`, DESCRIPTION_MAX),
+    details: [`objective issue #${objective} and ${trdText} are closed by this pull request`],
+  };
+}
+
+// ─── Merge-time reconcile ────────────────────────────────────────────────────
+
+// Issue objects from an array / Set / Map; bare numbers and nulls (a 404) carry no state, so they drop out.
+function issueObjects(collection) {
+  const items = collection instanceof Map ? Array.from(collection.values()) : Array.from(collection || []);
+  return items.filter((item) => item && typeof item === 'object');
+}
+
+/**
+ * reconcilePlan({ pr, targets, linked }) — the issues a MERGED pull request left open: its closing targets
+ * plus the objective's linked TRD issues, as issue numbers, de-duplicated, ascending. `targets` and `linked`
+ * are collections of issue objects (`{number, state}`; an array, Set or Map). An unmerged PR yields [].
+ * Project -> Done is not part of this plan (see the header).
+ */
+function reconcilePlan({ pr, targets, linked } = {}) {
+  if (!pr || pr.merged !== true) return [];
+  const open = new Set();
+  for (const issue of issueObjects(targets).concat(issueObjects(linked))) {
+    if (issue.pull_request) continue; // a pull request is not closed by closing an issue
+    if (String(issue.state).toLowerCase() === 'open' && Number.isInteger(issue.number)) open.add(issue.number);
+  }
+  return ascending(open);
+}
+
 module.exports = {
   CONTEXTS,
   parseClosingRefs,
   prNumberFromQueueRef,
   linkedIssue,
+  planningConsistency,
+  reconcilePlan,
 };
