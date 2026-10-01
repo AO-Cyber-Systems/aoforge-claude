@@ -50,14 +50,30 @@ function _setRunGh(fn) {
  *   - message:       human-readable failure description
  *   - remediation:   runnable shell command string (no placeholders)
  *   - scopes_missing: array of missing scope strings (empty for non-scope failures)
+ *   - offline:        true when the failed `gh auth status` was a network outage, not a credential problem
+ *                     (TRD 47-12: store mode queues work offline instead of failing)
  */
 class GhAuthError extends Error {
-  constructor({ message, remediation, scopes_missing = [] }) {
+  constructor({ message, remediation, scopes_missing = [], offline = false }) {
     super(message);
     this.name = 'GhAuthError';
     this.remediation = remediation;
     this.scopes_missing = scopes_missing;
+    this.offline = offline === true;
   }
+}
+
+/**
+ * True when a failed gh result is a network outage rather than a missing binary or a bad credential.
+ * `gh-outbox-flush.classifyFailure` owns the classification (status null / network wording); a missing
+ * binary also reports status null, so it is excluded, and gh's own "error connecting to" wording is added.
+ */
+function isOfflineResult(r) {
+  if (!r || typeof r !== 'object') return false;
+  const text = `${r.stderr || ''}\n${r.stdout || ''}\n${r.error || ''}`;
+  if (/command not found|ENOENT/i.test(text)) return false;
+  if (/error connecting to/i.test(text)) return true;
+  return require('./gh-outbox-flush.cjs').classifyFailure(r) === 'offline';
 }
 
 /**
@@ -112,12 +128,14 @@ function requireGhAuth(requiredScopes = []) {
 
   if (!r.ok) {
     const stderr = r.stderr || '';
+    const offline = isOfflineResult(r);
 
     // No gh binary: the spawn reports status:null on ENOENT, or stderr says "command not found"
     if (r.status === null || /command not found|ENOENT/i.test(stderr)) {
       throw new GhAuthError({
         message: 'GitHub CLI (gh) is not installed.',
         remediation: 'Install gh from https://cli.github.com',
+        offline,
       });
     }
 
@@ -126,6 +144,7 @@ function requireGhAuth(requiredScopes = []) {
       throw new GhAuthError({
         message: 'GitHub CLI token has expired.',
         remediation: 'gh auth refresh',
+        offline,
       });
     }
 
@@ -133,6 +152,7 @@ function requireGhAuth(requiredScopes = []) {
     throw new GhAuthError({
       message: 'GitHub CLI is not authenticated.',
       remediation: 'gh auth login',
+      offline,
     });
   }
 
@@ -1203,6 +1223,190 @@ function projectFieldUpdates(state, chain) {
   return fields;
 }
 
+// ─── Authoritative store (TRD 47-12) ─────────────────────────────────────────
+//
+// `github.store: true` opts a project into the store push path: objective 46's find-or-create still owns the
+// objective issue, but its body edit, the TRD sub-issues, edges, comments and wiki pages go through the
+// outbox (gh-hierarchy.pushHierarchy -> gh-outbox-flush.flush). Every new step below is reached only through
+// `storeEnabled(cfg)` (via `plan`, which stays null otherwise), so a project without the flag behaves exactly
+// as it did in objective 46. Still direct writes in store mode, deferred to objective 48: the objective-issue
+// create, the label/milestone bootstraps, the sticky state comment and Project v2 fields (idempotent).
+
+/** Strict boolean: the string "true" is not store mode. */
+function storeEnabled(cfg) {
+  return Boolean(cfg && cfg.github && cfg.github.store === true);
+}
+
+const OFFLINE_WARNING = 'offline: state comment and Project fields not updated (GitHub is unreachable); '
+  + 'the hierarchy was queued, run `df-tools gh outbox flush` once online';
+
+/** `.planning/`-relative paths of every file a push of `plan` carried to GitHub (the pull-side baseline). */
+function pushedCachePaths(plan) {
+  const base = `objectives/${plan.objective.dir}`;
+  const rels = plan.trds.map((t) => `${base}/${t.file}`);
+  for (const s of plan.summaries) rels.push(`${base}/${s.file}`);
+  if (plan.verification) rels.push(`${base}/${plan.verification.file}`);
+  for (const rel of plan.pages) rels.push(rel);
+  return [...new Set(rels)];
+}
+
+/**
+ * The `Roadmap` page (D-28): rendered from the issues as GitHub holds them, never from the local ROADMAP.md,
+ * and written only after a flush that completed. Conflicts and read failures are warnings: the page is a view,
+ * the next complete sync refreshes it. -> {status:'pushed'|'unchanged'|'skipped', warnings:[string]}
+ */
+function pushRoadmapPage(projectRoot, modes) {
+  const skipped = (why) => ({ status: 'skipped', warnings: [`Roadmap page not refreshed: ${why}`] });
+  const pages = modes && modes.pages;
+  if (pages !== 'wiki' && pages !== 'docs') {
+    return skipped(pages === 'blocked' ? (modes.pages_message || 'the wiki is not available') : 'no page backend was detected');
+  }
+  const cacheLib = require('./gh-cache.cjs');
+  const wikiLib = require('./gh-wiki.cjs');
+  const model = cacheLib.readRemoteModel(projectRoot, { pagesMode: pages });
+  if (!model || model.ok !== true) return skipped(`could not read the issues (${model && model.error ? model.error : 'no answer'})`);
+  let text;
+  try {
+    text = cacheLib.renderRoadmap(model);
+  } catch (e) {
+    return skipped(e.message);
+  }
+  if (pages === 'wiki') {
+    const cloned = wikiLib.ensureClone(projectRoot, {});
+    if (!cloned.ok) return skipped(`could not open the wiki clone (${cloned.error})`);
+  }
+  const store = wikiLib.openStore(projectRoot, { mode: pages });
+  const written = store.writePage('Roadmap', text);
+  if (!written.ok) return skipped(`could not write the page (${written.error})`);
+  if (!written.changed) return { status: 'unchanged', warnings: [] };
+  const pushed = store.push({ message: 'devflow: refresh the Roadmap page' });
+  if (!pushed.ok) {
+    const why = pushed.conflict ? 'the wiki has a rebase conflict' : (pushed.error || 'the push failed');
+    return { status: 'skipped', warnings: [`Roadmap page written locally but not pushed: ${why}`] };
+  }
+  return { status: 'pushed', warnings: [] };
+}
+
+/** 46's sections without `trds`: the store derives that one (native line / task list). */
+function storeObjectiveSections(sections) {
+  const { trds: _derived, ...rest } = sections;
+  return rest;
+}
+
+/**
+ * The Roadmap page is a wiki commit made AFTER the flush, so the objective body's `wiki` section (the revision
+ * of the clone at patch time) is one commit behind it, and the next unchanged sync would patch it for no
+ * reason. Re-queue just the objective `patch-body` op(s) and flush once more so a sync ends converged:
+ * the following unchanged `gh sync` performs zero writes. Only needed for the wiki backend.
+ * -> [warning]
+ */
+function refreshWikiRevisions(projectRoot, entries) {
+  const hierarchyLib = require('./gh-hierarchy.cjs');
+  const ops = entries.flatMap(({ plan, sections }) => hierarchyLib
+    .buildOps(plan, { objectiveSections: storeObjectiveSections(sections) })
+    .filter((op) => op.kind === 'patch-body' && op.target && op.target.id === plan.objective.id));
+  if (ops.length === 0) return [];
+  const queued = require('./gh-outbox.cjs').enqueue(projectRoot, ops);
+  if (!queued.ok) return [`objective wiki revision not refreshed: ${queued.error}`];
+  const flush = require('./gh-outbox-flush.cjs').flush(projectRoot, { wait: true });
+  if (flush.status === 'flushed') return [];
+  return [`objective wiki revision not refreshed: the outbox is ${flush.status}${flush.reason ? ` (${flush.reason})` : ''}`];
+}
+
+/**
+ * After a flush that completed: refresh the Roadmap page, then record the cache baseline of every pushed file
+ * so a later `pull --all` can tell "untouched locally" from "edited locally".
+ * `entries` are `{plan, sections}` per pushed objective. -> {roadmap_page, warnings}
+ */
+function completeStorePush(projectRoot, modes, entries) {
+  const warnings = [];
+  const roadmap = pushRoadmapPage(projectRoot, modes);
+  warnings.push(...roadmap.warnings);
+  if (roadmap.status === 'pushed' && modes && modes.pages === 'wiki') warnings.push(...refreshWikiRevisions(projectRoot, entries));
+  try {
+    const cacheLib = require('./gh-cache.cjs');
+    const rels = [...new Set(entries.flatMap((e) => pushedCachePaths(e.plan)))];
+    const rec = cacheLib.recordCacheBaseline(projectRoot, rels);
+    if (rec.invalid.length > 0) warnings.push(`cache baseline skipped unsafe paths: ${rec.invalid.join(', ')}`);
+  } catch (e) {
+    warnings.push(`cache baseline not recorded: ${e.message}`);
+  }
+  return { roadmap_page: roadmap.status, warnings };
+}
+
+/** What a flush that did not complete means for the sync result: a marker plus a warning, never a failure. */
+function flushNotice(flush) {
+  if (flush.status === 'halted') {
+    const h = flush.halted || {};
+    return `outbox halted (${h.reason || 'unknown'}${h.detail ? `: ${h.detail}` : ''}); see \`df-tools gh outbox status\``;
+  }
+  if (flush.status === 'pending') {
+    return `outbox pending${flush.reason ? ` (${flush.reason})` : ''}; \`df-tools gh outbox flush\` finishes the job`;
+  }
+  if (flush.status === 'running') return 'another outbox flush is running; the queued ops will be applied by it';
+  return null;
+}
+
+/**
+ * Queue the objective's hierarchy (and flush it unless `deferFlush`). One body writer: 46's summary/criteria/
+ * footer go in as `objectiveSections` (`trds` is derived by the store as the native line / task list).
+ * -> {ok:true, hierarchy:{enqueued, coalesced, ops, outbox, degraded}, outbox?, roadmap_page?, modes, warnings, flush?}
+ *  | {ok:false, error, message?, warnings}
+ */
+function pushStoreHierarchy(projectRoot, resolved, sections, plan, opts = {}) {
+  const hierarchyLib = require('./gh-hierarchy.cjs');
+  const res = hierarchyLib.pushHierarchy(projectRoot, resolved.id, {
+    objectiveSections: storeObjectiveSections(sections),
+    flush: opts.deferFlush !== true,
+    flushOptions: { wait: true },
+  });
+  if (res.skipped) {
+    return { ok: true, hierarchy: { enqueued: 0, coalesced: 0, ops: 0, outbox: 'skipped', degraded: [] }, modes: null, warnings: [`store push skipped: ${res.reason}`] };
+  }
+  const warnings = [...(res.warnings || [])];
+  if (res.flush) for (const w of res.flush.warnings || []) warnings.push(w.message || String(w));
+  if (!res.ok) {
+    const flushError = res.flush && res.flush.status === 'error' ? res.flush.error : null;
+    return {
+      ok: false,
+      error: res.refused || (flushError ? 'outbox_flush_failed' : 'store_push_failed'),
+      message: res.message || res.error || flushError || 'the hierarchy push failed',
+      refused: res.refused,
+      warnings,
+    };
+  }
+
+  const out = {
+    ok: true,
+    modes: res.modes,
+    hierarchy: {
+      enqueued: res.enqueued.length,
+      coalesced: res.coalesced.length,
+      ops: res.ops,
+      outbox: res.flush ? res.flush.status : 'queued',
+      degraded: res.degraded,
+    },
+    warnings,
+    flush: res.flush || null,
+  };
+  if (!res.flush) return out;
+
+  const notice = flushNotice(res.flush);
+  if (res.flush.status === 'flushed') {
+    const done = completeStorePush(projectRoot, res.modes, [{ plan, sections }]);
+    out.roadmap_page = done.roadmap_page;
+    warnings.push(...done.warnings);
+  } else {
+    out.roadmap_page = 'skipped';
+    if (notice) {
+      out.outbox = res.flush.status;
+      warnings.push(notice);
+      warnings.push('Roadmap page not refreshed: the outbox has not finished; the next complete sync refreshes it');
+    }
+  }
+  return out;
+}
+
 /**
  * syncObjective(objectiveArg, projectRoot) — push one objective's disk state to GitHub (TRD 46-07).
  *
@@ -1247,17 +1451,48 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
   }
   objFm._objectiveId = resolved.id;
 
+  // 2b. Store mode (opt-in): the budget / cycle gate runs on local files only, BEFORE any gh call, so an
+  //     over-budget TRD means no issue at all is created, not even the objective issue (SC2). `plan` stays
+  //     null outside store mode and for an objective with no directory yet (nothing to push).
+  const storeMode = storeEnabled(client.readConfig(projectRoot));
+  let plan = null;
+  if (storeMode) {
+    if (!resolved.dir) {
+      warnings.push(`store: objective ${resolved.id} has no directory under .planning/objectives yet; its hierarchy was not pushed`);
+    } else {
+      plan = require('./gh-hierarchy.cjs').planPush(projectRoot, resolved.id);
+      if (!plan.ok) {
+        return {
+          ok: false,
+          error: plan.error || plan.message,
+          ...(plan.refused ? { refused: plan.refused } : {}),
+          ...(plan.message ? { message: plan.message } : {}),
+          ...(plan.over ? { over: plan.over } : {}),
+          warnings: allWarnings(),
+        };
+      }
+    }
+  }
+
   // 3. Auth before any other gh call; project scopes only when a project resolves (Pitfall 13).
   const projectFm = readProjectFrontmatter(projectRoot);
   const projectCtx = { github_repo: projectFm.github_repo || null, org_project: projectFm.org_project || null };
   const orgProject = objFm.org_project || projectCtx.org_project || null;
   const scopes = orgProject ? ['project', 'read:project', 'repo'] : ['repo'];
   const authKey = scopes.join(',');
-  if (!Array.isArray(runCtx._authChecked) || !runCtx._authChecked.includes(authKey)) {
-    requireGhAuth(scopes);
-    runCtx._authChecked = [...(runCtx._authChecked || []), authKey];
+  let offline = Boolean(storeMode && runCtx._offline);
+  if (!offline && (!Array.isArray(runCtx._authChecked) || !runCtx._authChecked.includes(authKey))) {
+    try {
+      requireGhAuth(scopes);
+      runCtx._authChecked = [...(runCtx._authChecked || []), authKey];
+    } catch (e) {
+      // Store mode queues work while GitHub is unreachable; every other auth failure is still a hard error.
+      if (!(storeMode && e && e.name === 'GhAuthError' && e.offline === true)) throw e;
+      offline = true;
+      runCtx._offline = true;
+    }
   }
-  const chain = resolveChain(objFm, projectCtx);
+  const chain = offline ? { org_project: null, warnings: [] } : resolveChain(objFm, projectCtx);
 
   // 4. Disk state and the managed sections.
   const state = resolved.dir ? readObjectiveState(resolved.dir, projectRoot) : roadmapOnlyState(projectRoot, resolved);
@@ -1265,9 +1500,52 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
   const initial = bodyLib.mergeManaged('', sections, resolved.id);
   if (!initial.ok) return { ok: false, error: initial.error, warnings: allWarnings(chain) };
 
+  // 4b. Offline (store mode): an objective that already has an issue still gets its hierarchy queued; the
+  //     live 46 steps (marker scan, state comment, Project fields) are skipped. An unmapped objective cannot
+  //     be created offline, so that is an error.
+  const offlineResult = () => {
+    const mapped = mappingLib.getEntry(runCtx.mapping, resolved.id);
+    if (!mapped || !plan) {
+      const why = !mapped
+        ? `objective ${resolved.id} has no issue yet; it cannot be created offline`
+        : `objective ${resolved.id} has no directory, so there is nothing to queue`;
+      return { ok: false, error: 'offline', message: `GitHub is unreachable and ${why}`, warnings: allWarnings(chain) };
+    }
+    warnings.push(OFFLINE_WARNING);
+    const queued = pushStoreHierarchy(projectRoot, resolved, sections, plan, { deferFlush: true });
+    for (const w of queued.warnings) warnings.push(w);
+    if (!queued.ok) return { ok: false, error: queued.error, message: queued.message, issue_number: mapped.issue_id, warnings: allWarnings(chain) };
+    return {
+      ok: true,
+      issue_number: mapped.issue_id,
+      issue_source: 'mapping',
+      created: false,
+      issue_updated: false,
+      comment_action: 'skipped',
+      comment_id: null,
+      project_fields_updated: [],
+      frontmatter_written: false,
+      mapping_written: false,
+      hierarchy: { ...queued.hierarchy, outbox: 'pending' },
+      roadmap_page: 'skipped',
+      outbox: 'pending',
+      chain,
+      state,
+      warnings: allWarnings(chain),
+      _store: { plan, sections, modes: queued.modes },
+    };
+  };
+  if (offline) return offlineResult();
+
   // 5. Find or create (the only create path; duplicates and conflicts are errors, never a create).
   const found = issueLib.findOrCreateObjectiveIssue(runCtx, resolved, { name: state.name, createBody: initial.body });
-  if (!found.ok) return { ...found, warnings: allWarnings(chain) };
+  if (!found.ok) {
+    if (plan && mappingLib.getEntry(runCtx.mapping, resolved.id) && isOfflineResult({ error: found.message, stderr: found.stderr })) {
+      runCtx._offline = true;
+      return offlineResult();
+    }
+    return { ...found, warnings: allWarnings(chain) };
+  }
 
   const repo = runCtx.repo;
   const n = found.issue_number;
@@ -1276,7 +1554,9 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
   // 6. Merge managed sections; edit only when one changed. Human text outside sections is kept.
   let issueUpdated = false;
   let finalBody = found.body || '';
-  if (!found.created) {
+  // Store mode: the flusher's `patch-body` is the ONE writer of the objective body (see 10b), so this
+  // direct edit is skipped; a second writer would fight it over the same managed sections.
+  if (!found.created && !plan) {
     const merged = bodyLib.mergeManaged(found.body || '', sections, resolved.id);
     if (!merged.ok) {
       return { ok: false, error: merged.error, issue_number: n, warnings: allWarnings(chain) };
@@ -1333,42 +1613,69 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
     state_comment_id: upsert.comment_id || entry.state_comment_id || null,
     verified_at: verified ? (entry.verified_at || nowIso) : null,
   });
-  const wm = shared ? { ok: false, deferred: true } : mappingLib.writeMappingV3(projectRoot, runCtx.mapping);
+  // Store mode persists even under a shared run context: pushHierarchy and the flusher read the mapping from
+  // disk, and a TRD entry the flusher writes must never be overwritten by a stale in-memory copy afterwards
+  // (the flush therefore always runs AFTER this write).
+  const wm = shared && !plan ? { ok: false, deferred: true } : mappingLib.writeMappingV3(projectRoot, runCtx.mapping);
   if (!wm.ok && !wm.deferred) warnings.push(`mapping not written: ${wm.error}`);
+
+  // 10b. Store mode: queue the hierarchy and (unless the caller defers to flush once) flush it. A completed
+  //      flush refreshes the Roadmap page and the cache baseline. `halted` / `pending` are the outbox's
+  //      report, not a sync failure.
+  let stored = null;
+  if (plan) {
+    stored = pushStoreHierarchy(projectRoot, resolved, sections, plan, { deferFlush: opts.deferFlush === true });
+    for (const w of stored.warnings) warnings.push(w);
+    if (!stored.ok) {
+      return {
+        ok: false,
+        error: stored.error,
+        message: stored.message,
+        ...(stored.refused ? { refused: stored.refused } : {}),
+        issue_number: n,
+        warnings: allWarnings(chain),
+      };
+    }
+  }
 
   // 11. Sync-state under the same id. The baseline's gh_updated_at must be GitHub's own updatedAt, read
   //     after the last write above: pull's "GitHub unchanged since last sync" check compares it verbatim,
   //     so local now would make every pull after a push look like drift (46-09). A failed read degrades to
-  //     local now with a warning; the sync itself already succeeded.
-  let ghUpdatedAt = nowIso;
-  const live = client.ghRead(['issue', 'view', String(n), '--repo', repo, '--json', 'updatedAt']);
-  try {
-    const parsed = live.ok ? JSON.parse(live.stdout) : null;
-    if (parsed && typeof parsed.updatedAt === 'string' && parsed.updatedAt) ghUpdatedAt = parsed.updatedAt;
-    else warnings.push(`sync-state baseline uses local time: could not read updatedAt for #${n}`);
-  } catch {
-    warnings.push(`sync-state baseline uses local time: could not read updatedAt for #${n}`);
-  }
-  try {
-    let diskFm = {};
-    if (objPath && fs.existsSync(objPath)) diskFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
-    const ms = milestoneLib.resolveObjectiveMilestone(projectRoot, resolved.dir, runCtx.prefix);
-    recordSync(projectRoot, resolved.id, {
-      issue_ref: issueRef,
-      etag: null,
-      gh_updated_at: ghUpdatedAt,
-      label_set: [runCtx.label],
-      assignees: [],
-      milestone: ms.title || null,
-      status: 'open',
-      last_synced_at: nowIso,
-      last_synced_disk_hash: hashFrontmatter(diskFm),
-    });
-  } catch (e) {
-    warnings.push(`sync-state not recorded: ${e.message}`);
-  }
+  //     local now with a warning; the sync itself already succeeded. In store mode the flusher edits the
+  //     objective body, so this runs after the flush (a deferred flush runs it from `syncAll` via finalize).
+  const recordBaseline = (sink) => {
+    let ghUpdatedAt = nowIso;
+    const live = client.ghRead(['issue', 'view', String(n), '--repo', repo, '--json', 'updatedAt']);
+    try {
+      const parsed = live.ok ? JSON.parse(live.stdout) : null;
+      if (parsed && typeof parsed.updatedAt === 'string' && parsed.updatedAt) ghUpdatedAt = parsed.updatedAt;
+      else sink.push(`sync-state baseline uses local time: could not read updatedAt for #${n}`);
+    } catch {
+      sink.push(`sync-state baseline uses local time: could not read updatedAt for #${n}`);
+    }
+    try {
+      let diskFm = {};
+      if (objPath && fs.existsSync(objPath)) diskFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
+      const ms = milestoneLib.resolveObjectiveMilestone(projectRoot, resolved.dir, runCtx.prefix);
+      recordSync(projectRoot, resolved.id, {
+        issue_ref: issueRef,
+        etag: null,
+        gh_updated_at: ghUpdatedAt,
+        label_set: [runCtx.label],
+        assignees: [],
+        milestone: ms.title || null,
+        status: 'open',
+        last_synced_at: nowIso,
+        last_synced_disk_hash: hashFrontmatter(diskFm),
+      });
+    } catch (e) {
+      sink.push(`sync-state not recorded: ${e.message}`);
+    }
+  };
+  const deferred = Boolean(stored && opts.deferFlush === true);
+  if (!deferred) recordBaseline(warnings);
 
-  return {
+  const result = {
     ok: true,
     issue_number: n,
     issue_source: found.source,
@@ -1383,6 +1690,24 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
     state,
     warnings: allWarnings(chain),
   };
+  if (stored) {
+    result.hierarchy = stored.hierarchy;
+    if (stored.roadmap_page) result.roadmap_page = stored.roadmap_page;
+    if (stored.outbox) result.outbox = stored.outbox;
+    if (deferred) {
+      result._store = {
+        plan,
+        sections,
+        modes: stored.modes,
+        finalize: () => {
+          const sink = [];
+          recordBaseline(sink);
+          return sink;
+        },
+      };
+    }
+  }
+  return result;
 }
 
 /**
@@ -1433,9 +1758,13 @@ function summarizeSync(entry, r) {
       issue_updated: r.issue_updated,
       comment_action: r.comment_action,
     });
+    if (r.hierarchy) out.hierarchy = r.hierarchy;
+    if (r.outbox) out.outbox = r.outbox;
   } else {
     out.error = r.error || 'sync failed';
     if (r.message) out.message = r.message;
+    if (r.refused) out.refused = r.refused;
+    if (r.over) out.over = r.over;
     if (r.issue_number) out.issue_number = r.issue_number;
   }
   out.warnings = r.warnings || [];
@@ -1446,6 +1775,10 @@ function summarizeSync(entry, r) {
  * syncAll(root) — `gh sync --all`: every objective (listObjectiveIndex: dirs ∪ ROADMAP headers, numeric
  * order) through ONE run context, so the label bootstrap, the marker scan and the auth check happen once.
  * A failing objective does not stop the rest. The mapping is written once, at the end.
+ *
+ * Store mode (`github.store: true`, TRD 47-12): every objective only ENQUEUES its hierarchy; after the loop and
+ * the final mapping write the outbox is flushed ONCE, and a completed flush refreshes the Roadmap page and the
+ * cache baseline. The result then also carries `hierarchy: {outbox, objectives}` and `roadmap_page`.
  *
  * Returns { ok: failed === 0, repo, results: [{id, dir, ok, ...}], failed, mapping_written, warnings }
  *       | { ok:false, skipped:true, reason, results:[], failed:0 }  (github disabled; zero gh calls)
@@ -1458,11 +1791,13 @@ function syncAll(root) {
   if (runCtx.ok === false) return { ok: false, error: runCtx.error, results: [], failed: 0 };
 
   const results = [];
+  const stores = [];
+  const storeMode = storeEnabled(client.readConfig(root));
   const index = mappingLib.listObjectiveIndex(root);
   for (const entry of index) {
     let r;
     try {
-      r = syncObjective(entry.id, root, { runCtx });
+      r = syncObjective(entry.id, root, { runCtx, deferFlush: storeMode });
     } catch (e) {
       if (e && e.name === 'GhAuthError') {
         if (results.some((x) => x.ok)) mappingLib.writeMappingV3(root, runCtx.mapping);
@@ -1470,7 +1805,9 @@ function syncAll(root) {
       }
       r = { ok: false, error: (e && e.message) || String(e), warnings: [] };
     }
-    results.push(summarizeSync(entry, r));
+    const row = summarizeSync(entry, r);
+    results.push(row);
+    if (r._store) stores.push({ row, store: r._store });
   }
 
   const warnings = [...runCtx.warnings];
@@ -1478,7 +1815,54 @@ function syncAll(root) {
   const wm = mappingLib.writeMappingV3(root, runCtx.mapping);
   if (!wm.ok) warnings.push(`mapping not written: ${wm.error}`);
   const failed = results.filter((x) => !x.ok).length;
-  return { ok: failed === 0, repo: runCtx.repo, results, failed, mapping_written: wm.ok === true, warnings: [...new Set(warnings)] };
+  const out = { ok: failed === 0, repo: runCtx.repo, results, failed, mapping_written: wm.ok === true, warnings: [...new Set(warnings)] };
+
+  // Store mode: one flush for the whole run, after the final mapping write (the flusher writes TRD entries
+  // into the mapping on disk and a stale in-memory copy must never overwrite them).
+  if (storeMode && stores.length > 0) finishStoreRun(root, out, stores);
+  return out;
+}
+
+/**
+ * The single flush of a store-mode `sync --all`: flush, then (only when it completed) the Roadmap page and the
+ * cache baseline, then each objective's sync-state baseline. Mutates `out` and the per-objective rows.
+ */
+function finishStoreRun(root, out, stores) {
+  const flush = require('./gh-outbox-flush.cjs').flush(root, { wait: true });
+  out.hierarchy = { outbox: flush.status, objectives: stores.length };
+  const note = (message) => { out.warnings = [...new Set([...out.warnings, message])]; };
+  for (const w of flush.warnings || []) note(w.message || String(w));
+
+  const label = (row) => { if (row.hierarchy) row.hierarchy = { ...row.hierarchy, outbox: flush.status }; };
+  for (const { row } of stores) label(row);
+
+  if (flush.status === 'error') {
+    out.ok = false;
+    out.error = 'outbox_flush_failed';
+    note(`outbox flush failed: ${flush.error || 'unknown error'}`);
+    out.roadmap_page = 'skipped';
+    return;
+  }
+  if (flush.status !== 'flushed') {
+    const notice = flushNotice(flush);
+    if (notice) {
+      out.outbox = flush.status;
+      for (const { row } of stores) if (row.ok && !row.outbox) row.outbox = flush.status;
+      note(notice);
+    }
+    out.roadmap_page = 'skipped';
+    note('Roadmap page not refreshed: the outbox has not finished; the next complete sync refreshes it');
+    return;
+  }
+
+  const modes = (stores.find((x) => x.store.modes) || { store: {} }).store.modes || null;
+  const done = completeStorePush(root, modes, stores.map((x) => ({ plan: x.store.plan, sections: x.store.sections })));
+  out.roadmap_page = done.roadmap_page;
+  for (const w of done.warnings) note(w);
+  for (const { row, store } of stores) {
+    if (typeof store.finalize !== 'function') continue;
+    row.warnings = [...new Set([...(row.warnings || []), ...store.finalize()])];
+  }
 }
 
 const SYNC_USAGE = [
@@ -1703,6 +2087,7 @@ module.exports = {
 
   // TRD 46-08 — one push command:
   syncAll,
+  storeEnabled,
   cmdGhSync,
   readMappingV2,
   writeMappingV2,

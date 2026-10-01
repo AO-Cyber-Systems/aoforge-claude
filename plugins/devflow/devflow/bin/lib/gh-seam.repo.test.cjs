@@ -7,6 +7,11 @@
 //       left outside gh-client are the two forwarding wrappers in gh.cjs), and gh.cjs spawns nothing.
 //   18. no `parseInt(` of a directory prefix / objective id (`parseInt("02.1")` is 2 — defect 3).
 //   19. gen-1 helpers are gone; readMappingV2/writeMappingV2 survive for importers and speak v3.
+// TRD 47-12 extends the guard to the store modules:
+//   20. `git` is spawned only at two named sites: gh-wiki.cjs (the store) and awareness.cjs (older, local).
+//   21. the store modules (gh-hierarchy, gh-comments, gh-cache, gh-capability, gh-trd, gh-outbox, gh-wiki)
+//       never call `ghWrite(`: every GitHub write goes through the outbox flusher.
+// `gh-store-cli.cjs` (47-11) is added to GUARDED by 47-13.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,7 +22,13 @@ const path = require('path');
 const GUARDED = [
   'gh.cjs', 'gh-pull.cjs', 'gh-issue.cjs', 'gh-project.cjs', 'gh-mapping.cjs', 'gh-body.cjs',
   'gh-milestone.cjs', 'sync-state.cjs', 'conflict.cjs', 'awareness.cjs',
+  // objective 47 store modules (TRD 47-12)
+  'gh-trd.cjs', 'gh-capability.cjs', 'gh-outbox.cjs', 'gh-outbox-flush.cjs', 'gh-hierarchy.cjs',
+  'gh-comments.cjs', 'gh-wiki.cjs', 'gh-cache.cjs',
 ];
+
+// The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
+const NO_DIRECT_WRITE = ['gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs'];
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf-8');
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line);
@@ -86,5 +97,30 @@ describe('one gh seam (TRD 46-08)', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test('20: git is spawned only at the two named sites: gh-wiki.cjs (the store) and awareness.cjs (a pre-existing local scan)', () => {
+    // The exceptions are named, not pattern-matched: a new module that spawns git fails this test.
+    const GIT_SITES = new Map([
+      ['gh-wiki.cjs', 'the wiki / docs store: the one git seam of objective 47'],
+      ['awareness.cjs', 'pre-existing (objective 6) local branch scan; not a GitHub store module'],
+    ]);
+    const gitSpawn = /spawnSync\(\s*['"]git['"]|execFileSync\(\s*['"]git['"]|spawn\(\s*['"]git['"]|execSync\(\s*['"`]git\b/;
+    const hits = offending(gitSpawn).filter((h) => !GIT_SITES.has(h.slice(0, h.indexOf(':'))));
+    assert.deepStrictEqual(hits, [], `git spawned outside the named sites:\n${hits.join('\n')}`);
+    for (const f of GIT_SITES.keys()) assert.match(read(f), /spawnSync\('git'/, `${f} is a git spawn site (stale exception otherwise)`);
+  });
+
+  test('21: store modules never call ghWrite( (the flusher is the only writer), and the guard lists every store module', () => {
+    for (const f of ['gh-trd.cjs', 'gh-capability.cjs', 'gh-outbox.cjs', 'gh-outbox-flush.cjs', 'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-wiki.cjs', 'gh-cache.cjs']) {
+      assert.ok(GUARDED.includes(f), `${f} is guarded`);
+    }
+    const hits = [];
+    for (const f of NO_DIRECT_WRITE) {
+      read(f).split('\n').forEach((line, i) => {
+        if (!isComment(line) && /\bghWrite\(/.test(line)) hits.push(`${f}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    assert.deepStrictEqual(hits, [], `ghWrite( outside the flusher:\n${hits.join('\n')}`);
   });
 });
