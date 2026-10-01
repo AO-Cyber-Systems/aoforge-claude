@@ -22,7 +22,8 @@
 // re-checks the mode itself, so even a direct call cannot untrack a local project.
 //
 // Preconditions (apply only, all local — the migration never runs `gh` and never pulls):
-//   1. the outbox journal for this root has no `pending` or `blocked` op and is not halted;
+//   1. the outbox journal for this root has no `pending` or `blocked` op and is not halted (TRD 51-04: a pending-only
+//      journal makes `detect` defer instead, so the runner skips 0010 and reaches a resumable 0011 backfill);
 //   2. every cache-class file on disk hashes (gh-trd contentHash) to its cache-index baseline, i.e. GitHub holds it;
 //   3. no tracked TRD carries the legacy name `NN-MM-TRD-<slug>.md`. 47's TRD parser cannot read that shape (48-01
 //      classifies it runtime), so it has no GitHub home; untracking it would quietly take a real TRD out of the
@@ -35,7 +36,8 @@
 // Lessons reused from 0008: "is it ignored" is decided by `git check-ignore --no-index` with the user's global excludes
 // switched off, never by string-matching `.gitignore`; git runs with redirect variables scrubbed; removal is
 // `rm --cached` with literal pathspecs; and the follow-up `df-tools commit` records staged removals with a whole-index
-// commit (lib/misc.cjs cmdCommit, which 48-10 also taught to skip ignored, unknown planning paths per path).
+// commit (lib/misc.cjs cmdCommit, which 48-10 also taught to skip ignored, unknown planning paths per path). That
+// commit is printed as STORE_COMMIT_STEPS (TRD 51-04): branch, logged gate escape, push, pull request.
 //
 // managed-block.cjs is not used for the markers: its START/END markers are fixed HTML comments, and in a .gitignore a
 // `<!-- ... -->` line is a pattern, not a comment. The block helper here keeps the same guarantees (bytes outside the
@@ -64,7 +66,20 @@ const BLOCK_END = '# <<< devflow store (0010) <<<';
 const LEGACY_TRD_RE = /^objectives\/[^/]+\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
 const RM_BATCH = 200;
 const LOCAL_ONLY_NOTE = 'kept on this machine only after untrack (no GitHub home)';
-const COMMIT_COMMAND = 'node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/';
+// TRD 51-04 (G6): the follow-up commit. 0010 only ever applies in store mode, where `df-tools commit` refuses the default
+// branch and any branch no objective PR names (objective 50's gate), so a bare commit line would always exit 1. Print
+// the sequence that works instead: a new branch, the logged escape (gate `gh` in .planning/.override-log.jsonl), push,
+// and a pull request. Self-contained so 51-07 can print it after 0011 as well.
+const STORE_BRANCH = 'devflow-store-cache';
+const STORE_COMMIT_STEPS = [
+  'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
+    'branches), then merge it through a pull request:',
+  `  git switch -c ${STORE_BRANCH}`,
+  '  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration" node ~/.claude/devflow/bin/df-tools.cjs ' +
+    'commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/',
+  `  git push -u origin ${STORE_BRANCH}`,
+  '  then open a pull request for that branch',
+].join('\n');
 const REMEDY = 'Get everything onto GitHub first: run `df-tools planning import`, `df-tools gh outbox flush` and ' +
   '`df-tools gh pull --all`, then re-run `df-tools upgrade --apply --only 0010 --confirm`.';
 // A path the block must ignore; used to verify the written rules (it need not exist).
@@ -214,7 +229,11 @@ function discover(ctx) {
 
 // ─── detect ─────────────────────────────────────────────────────────────────────
 
-function detect(ctx) {
+/**
+ * What 0010 would do, ignoring the outbox: the pre-51-04 `detect`. `migrate` uses this directly so a direct call still
+ * reaches the precondition check and refuses on a pending, blocked or halted journal with the full blocker list.
+ */
+function assess(ctx) {
   if (!isWorkTree(ctx)) return { applies: false, reason: 'not a git work tree' };
   const mode = planningMode.planningMode(ctx.projectRoot);
   if (mode.mode !== planningMode.STORE) {
@@ -236,30 +255,66 @@ function detect(ctx) {
   return { applies: true, reason: parts.join('; '), tracked: found.untrack.length };
 }
 
+/** The deferral reason while the outbox only has pending ops to drain (none blocked, not halted, readable); else null. */
+function backfillDeferral(root) {
+  const j = journalState(root);
+  if (j.unreadable !== null || j.blocked > 0 || j.halted || j.pending === 0) return null;
+  return `GitHub backfill in progress: ${j.pending} outbox op(s) pending. Resume it with ` +
+    '`df-tools upgrade --apply --only 0011 --confirm`, or let the gh-flush hook drain it; 0010 runs after the drain.';
+}
+
+function detect(ctx) {
+  const det = assess(ctx);
+  if (!det.applies) return det;
+  // TRD 51-04 (G4): a pending-only journal makes 0010 SKIP rather than apply-and-refuse. A refusal is a runner failure,
+  // and the runner halts every later migration on a failure, so a resumed 0011 backfill (whose queued ops are exactly
+  // these pending ones) could never be reached by a bare `upgrade --apply --confirm`. Any pending op defers, backfill or
+  // an ordinary unflushed write: 0010 cannot succeed until the drain either way, and "skipped with a reason" beats
+  // "failed". Blocked or halted keep applying (and `migrate` refuses): a human has to act there. Reads the local
+  // journal only; no gh call, and nothing here calls into 0011.
+  const deferral = backfillDeferral(ctx.projectRoot);
+  if (deferral) return { applies: false, reason: deferral, deferred: true, tracked: det.tracked };
+  return det;
+}
+
 // ─── preconditions ──────────────────────────────────────────────────────────────
 
-function journalBlockers(root) {
+/**
+ * `{pending, blocked, halted, unreadable}` for this root's outbox journal. A missing journal is empty; `unreadable` is
+ * the detail text (null when the journal read and parsed). Local file only; no gh call.
+ */
+function journalState(root) {
   const file = outbox.journalPath(root);
+  const empty = { pending: 0, blocked: 0, halted: null, unreadable: null };
   let raw;
   try {
     raw = fs.readFileSync(file, 'utf-8');
   } catch (e) {
-    if (e && e.code === 'ENOENT') return [];
-    return [`outbox: journal unreadable (${file}: ${e.message})`];
+    if (e && e.code === 'ENOENT') return empty;
+    return { ...empty, unreadable: `${file}: ${e.message}` };
   }
   let j;
   try {
     j = JSON.parse(raw);
   } catch {
-    return [`outbox: journal unreadable (${file})`];
+    return { ...empty, unreadable: file };
   }
   const ops = j && Array.isArray(j.ops) ? j.ops : [];
+  return {
+    pending: ops.filter((o) => o && o.status === 'pending').length,
+    blocked: ops.filter((o) => o && o.status === 'blocked').length,
+    halted: (j && j.halted) || null,
+    unreadable: null,
+  };
+}
+
+function journalBlockers(root) {
+  const j = journalState(root);
+  if (j.unreadable !== null) return [`outbox: journal unreadable (${j.unreadable})`];
   const out = [];
-  const pending = ops.filter((o) => o && o.status === 'pending').length;
-  const blocked = ops.filter((o) => o && o.status === 'blocked').length;
-  if (pending) out.push(`outbox: ${pending} pending op(s)`);
-  if (blocked) out.push(`outbox: ${blocked} blocked op(s)`);
-  if (j && j.halted) out.push(`outbox: halted (${j.halted.reason || 'unknown reason'})`);
+  if (j.pending) out.push(`outbox: ${j.pending} pending op(s)`);
+  if (j.blocked) out.push(`outbox: ${j.blocked} blocked op(s)`);
+  if (j.halted) out.push(`outbox: halted (${j.halted.reason || 'unknown reason'})`);
   return out;
 }
 
@@ -320,7 +375,7 @@ function notesFor(found, gitignoreChanged) {
       `runtime ${s.untracked.runtime})`,
   ];
   if (s.local_only.length) parts.push(`${LOCAL_ONLY_NOTE}: ${s.local_only.join(', ')}`);
-  parts.push(`commit with: ${COMMIT_COMMAND}`);
+  parts.push(STORE_COMMIT_STEPS);
   return parts.join('; ');
 }
 
@@ -336,7 +391,8 @@ function rollback(ctx, removed, before, why) {
  * not applicable. Never throws on a refusal.
  */
 function migrate(ctx) {
-  const det = detect(ctx);
+  // assess, not detect: the 51-04 backfill deferral is for the runner; a direct call still refuses on the journal below.
+  const det = assess(ctx);
   if (!det.applies) return { applied: false, changed: [], notes: `not applicable: ${det.reason}` };
   const root = ctx.projectRoot;
   const found = discover(ctx);
@@ -402,4 +458,5 @@ module.exports = {
   BLOCK_START,
   BLOCK_END,
   LOCAL_ONLY_NOTE,
+  STORE_COMMIT_STEPS,
 };

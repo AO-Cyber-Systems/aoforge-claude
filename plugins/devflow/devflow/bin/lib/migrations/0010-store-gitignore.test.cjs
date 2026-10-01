@@ -1,6 +1,7 @@
 'use strict';
 
 // TRD 48-10 — migration 0010 store-gitignore (test list items 8-14, GWP-04, U-1, D-17).
+// TRD 51-04 — detect defers to an in-progress backfill (tests 1-4, G4); store-mode commit follow-up (test 5, G6).
 //
 // no_llm_test_data: every project is a hand-built temp git repo (initGitFixture: local identity, signing off). The
 // outbox journal and cache index live under hermeticEnv()'s temp DEVFLOW_OUTBOX_DIR, seeded only through the real
@@ -191,7 +192,11 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     assert.throws(() => m0010().apply(ctxFor(p)), /1 pending op/, 'the runner adapter throws the refusal');
   });
 
-  test('9b. through upgrade.apply --only 0010 --confirm the refusal is a failure: no stamp, nothing untracked', (t) => {
+  // TRD 51-04 (G4): this test used to expect a FAILURE here. A failed 0010 halts every later migration in the runner, so
+  // a resumed 0011 backfill (whose queued ops are exactly these pending ones) could never be reached by a bare
+  // `upgrade --apply --confirm`. A pending-only journal now makes 0010's detect defer: the runner SKIPS it with the
+  // resume command, nothing fails, nothing is untracked and nothing is stamped. `migrate` still refuses (test 9).
+  test('9b. through upgrade.apply --only 0010 --confirm a pending op SKIPS 0010 (G4): no failure, no stamp, nothing untracked', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project();
     baselineAll(p);
@@ -199,13 +204,15 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     const before = lsPlanning(p);
 
     const report = upgrade.apply({ projectRoot: p.root, userHome: p.home, pluginVersion: PLUGIN_VERSION, only: '0010', confirm: true });
-    const failed = report.failed.find((f) => f.id === '0010');
-    assert.ok(failed, JSON.stringify(report));
-    assert.match(failed.error, /1 pending op/);
+    assert.ok(!report.failed.some((f) => f.id === '0010'), `0010 must not fail (it would halt later migrations): ${JSON.stringify(report.failed)}`);
+    const skipped = report.skipped.find((s) => s.id === '0010');
+    assert.ok(skipped, JSON.stringify(report));
+    assert.match(skipped.reason, /--only 0011/);
     assert.ok(!report.applied.some((a) => a.id === '0010'));
     assert.deepEqual(lsPlanning(p), before);
+    assert.equal(gitignoreText(p), null);
     const stamp = JSON.parse(fs.readFileSync(path.join(p.root, '.planning/config.json'), 'utf-8')).devflow;
-    assert.ok(!stamp.migrations_applied.includes('0010'), 'a refusal is never stamped as applied');
+    assert.ok(!stamp.migrations_applied.includes('0010'), 'a deferral is never stamped as applied');
   });
 
   test('10. a cache file with no baseline / changed since sync → each listed', (t) => {
@@ -236,6 +243,102 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     );
     assert.deepEqual(lsPlanning(p), before);
     assert.match(m0010().detect(ctxFor(p)).reason, /1 legacy TRD name/);
+  });
+});
+
+describe('migration 0010: defers to an in-progress backfill (TRD 51-04 tests 1-4, G4)', () => {
+  const TWO_OPS = [
+    { kind: 'link-sub-issue', target: { parent: '07', child: '07-01' } },
+    { kind: 'link-sub-issue', target: { parent: '07', child: '07-02' } },
+  ];
+
+  function enqueueTwo(p) {
+    const q = outbox.enqueue(p.root, TWO_OPS);
+    assert.equal(q.ok, true, JSON.stringify(q));
+    assert.equal(q.enqueued.length, 2, JSON.stringify(q));
+    return q;
+  }
+
+  test('1. store on, 2 pending ops (none blocked, not halted) → detect not applicable, naming the 0011 resume command', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    enqueueTwo(p);
+
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, false, JSON.stringify(det));
+    assert.match(det.reason, /GitHub backfill in progress/);
+    assert.match(det.reason, /2 outbox op\(s\) pending/);
+    assert.ok(det.reason.includes('df-tools upgrade --apply --only 0011 --confirm'), det.reason);
+    assert.match(det.reason, /gh-flush hook/);
+  });
+
+  test('2. migrate on the same state still refuses with the unchanged text; apply throws; nothing written', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    enqueueTwo(p);
+    const before = lsPlanning(p);
+
+    const res = m0010().migrate(ctxFor(p));
+    assert.equal(res.applied, false);
+    assert.deepEqual(res.details, ['outbox: 2 pending op(s)']);
+    assert.match(res.refused, /^0010 refused \(1 blocker\(s\)\): outbox: 2 pending op\(s\)\. Get everything onto GitHub first/);
+    assert.throws(() => m0010().apply(ctxFor(p)), /2 pending op/);
+    assert.equal(gitignoreText(p), null);
+    assert.deepEqual(lsPlanning(p), before);
+    assert.equal(fs.existsSync(backupsDir(p.home)), false, 'a refusal makes no backup');
+  });
+
+  test('3. a blocked op → detect still applies; migrate refuses naming it', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    const q = enqueueTwo(p);
+    assert.equal(outbox.markBlocked(p.root, q.enqueued[0], 'remote edit').ok, true);
+
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.doesNotMatch(det.reason, /backfill in progress/);
+    const res = m0010().migrate(ctxFor(p));
+    assert.equal(res.applied, false);
+    assert.ok(res.details.includes('outbox: 1 blocked op(s)'), JSON.stringify(res.details));
+    assert.ok(res.details.includes('outbox: 1 pending op(s)'), JSON.stringify(res.details));
+  });
+
+  test('3b. a halted journal (with pending ops) → detect still applies; migrate refuses naming the halt', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    const q = enqueueTwo(p);
+    assert.equal(outbox.setHalted(p.root, { reason: 'remote-edit', seq: q.enqueued[0], detail: 'edited on GitHub' }).ok, true);
+
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.doesNotMatch(det.reason, /backfill in progress/);
+    const res = m0010().migrate(ctxFor(p));
+    assert.equal(res.applied, false);
+    assert.ok(res.details.includes('outbox: halted (remote-edit)'), JSON.stringify(res.details));
+  });
+
+  test('4. store on, empty journal, cache tracked → detect applies (unchanged)', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.match(det.reason, /7 \.planning\/ path\(s\) still tracked/);
+    assert.equal(det.tracked, 7);
+  });
+
+  test('4b. a deferral never hides an already-finished migration: block current + nothing tracked stays "nothing to do"', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    assert.equal(m0010().migrate(ctxFor(p)).applied, true);
+    enqueueTwo(p);
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, false);
+    assert.match(det.reason, /only config\.json and STACK\.md are tracked/);
   });
 });
 
@@ -346,6 +449,95 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
     const list = fs.readFileSync(path.join(res.backup, '0010-untracked.txt'), 'utf-8').split('\n').filter(Boolean);
     assert.equal(list.length, 7);
     assert.ok(list.includes('.planning/workstreams/a.md'));
+  });
+});
+
+describe('migration 0010: store-mode commit follow-up (TRD 51-04 test 5, G6)', () => {
+  // The printed escaped commit line, parsed back into its parts so 5b runs exactly what the notes print.
+  const ESCAPED_COMMIT_RE =
+    /^\s*DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="([^"]+)" node ~\/\.claude\/devflow\/bin\/df-tools\.cjs commit "([^"]+)" --files (.+)$/m;
+
+  /** A PATH dir holding a `gh` that logs and fails, so nothing here can reach the real GitHub CLI. */
+  function ghShim() {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0010-gh-')));
+    cleanup.push(dir);
+    const log = path.join(dir, 'gh.log');
+    fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\necho "$@" >> "${log}"\nexit 1\n`, { mode: 0o755 });
+    return { dir, log };
+  }
+
+  function dfCommit(p, shim, message, files, env = {}) {
+    const base = { ...fx.gitEnv(p.home), PATH: `${shim.dir}${path.delimiter}${process.env.PATH}` };
+    for (const key of ['DEVFLOW_ALLOW_RAW_COMMIT', 'DEVFLOW_SKIP_GH_GATE', 'DEVFLOW_SKIP_GH_GATE_REASON']) delete base[key];
+    const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', p.root, 'commit', message, '--files', ...files], {
+      cwd: p.root, env: { ...base, ...env }, encoding: 'utf-8',
+    });
+    let json = null;
+    try { json = JSON.parse((r.stdout || '').trim()); } catch { /* raw */ }
+    return { status: r.status, out: `${r.stdout || ''} ${r.stderr || ''}`, json };
+  }
+
+  test('5. the notes print the branch → logged-escape commit → push → PR sequence, never the bare refused command', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const m = m0010();
+    assert.equal(typeof m.STORE_COMMIT_STEPS, 'string', 'STORE_COMMIT_STEPS is exported (51-07 prints it after 0011)');
+    const p = project();
+    baselineAll(p);
+
+    const res = m.migrate(ctxFor(p));
+    assert.equal(res.applied, true, JSON.stringify(res));
+    assert.ok(res.notes.includes(m.STORE_COMMIT_STEPS), res.notes);
+    const s = res.notes;
+    const sw = s.indexOf('git switch -c devflow-store-cache');
+    const esc = s.indexOf('DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration"');
+    const push = s.indexOf('git push -u origin devflow-store-cache');
+    assert.ok(sw >= 0 && esc > sw && push > esc, `branch, then escaped commit, then push: ${s}`);
+    assert.match(s, /--files \.gitignore \.planning\//);
+    assert.match(s, /pull request/);
+    assert.match(s, /gate gh/, 'says the escape is logged');
+    assert.doesNotMatch(s, /commit with: node /, 'the bare command store mode refuses is gone');
+
+    const p2 = project();
+    baselineAll(p2);
+    const dry = m.migrate(ctxFor(p2, { dryRun: true }));
+    assert.equal(dry.dryRun, true, JSON.stringify(dry));
+    assert.ok(dry.notes.includes(m.STORE_COMMIT_STEPS), `a dry run prints the same steps: ${dry.notes}`);
+    assert.doesNotMatch(dry.notes, /commit with: node /);
+  });
+
+  test('5b. the printed steps work in store mode: bare commit refused on the new branch, the escaped one lands and logs gate gh', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const m = m0010();
+    const p = project();
+    baselineAll(p);
+    assert.equal(m.migrate(ctxFor(p)).applied, true);
+    const shim = ghShim();
+
+    const parsed = ESCAPED_COMMIT_RE.exec(m.STORE_COMMIT_STEPS);
+    assert.ok(parsed, `an escaped df-tools commit line is printed: ${m.STORE_COMMIT_STEPS}`);
+    const [, reason, message, filesText] = parsed;
+    const files = filesText.trim().split(/\s+/);
+    assert.deepEqual(files, ['.gitignore', '.planning/']);
+
+    git(p, 'switch', '-q', '-c', 'devflow-store-cache');
+    const bare = dfCommit(p, shim, message, files);
+    assert.equal(bare.status, 1, `without the escape the gate refuses: ${bare.out}`);
+    assert.equal(bare.json && bare.json.reason, 'unlinked_branch', bare.out);
+
+    const r = dfCommit(p, shim, message, files, { DEVFLOW_SKIP_GH_GATE: '1', DEVFLOW_SKIP_GH_GATE_REASON: reason });
+    assert.equal(r.status, 0, r.out);
+    assert.equal(r.json.committed, true, r.out);
+    assert.equal(r.json.gate_escaped, true, r.out);
+    const tree = git(p, 'ls-tree', '-r', '--name-only', 'HEAD', '--', '.planning').split('\n').filter(Boolean).sort();
+    assert.deepEqual(tree, ['.planning/STACK.md', '.planning/config.json']);
+    assert.equal(git(p, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'devflow-store-cache');
+
+    const logFile = path.join(p.root, '.planning', '.override-log.jsonl');
+    const log = fs.readFileSync(logFile, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(log.length, 1);
+    assert.equal(log[0].gate, 'gh');
+    assert.equal(log[0].reason, 'store migration');
+    assert.equal(fs.existsSync(shim.log), false, 'the printed commit step needs no gh call');
   });
 });
 
