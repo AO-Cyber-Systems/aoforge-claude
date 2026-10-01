@@ -241,7 +241,7 @@ TRDs:
 - [x] 48-20-prose-todo-decide-debug-quick-TRD.md — (W5, tdd) prose group `work`: todos, decide, debugger, quick, micro
 - [x] 48-21-prose-codebase-status-misc-TRD.md — (W5, tdd) prose group `misc`: map-codebase, gh-sync, sync-roadmap, status, help, workstreams
 - [x] 48-22-store-e2e-and-parity-TRD.md — (W5) SC3 plan→execute→verify on the fake GitHub leaves git clean apart from code; store-off parity; W055/offline negatives
-- [ ] 48-23-docs-ratchet-zero-full-suite-TRD.md — (W6, tdd) SC1 audit to zero (baselines deleted), CLAUDE.md, CHANGELOG, USER-GUIDE, proposal status; `npm test` (SC4)
+- [x] 48-23-docs-ratchet-zero-full-suite-TRD.md — (W6, tdd) SC1 audit to zero (baselines deleted), CLAUDE.md, CHANGELOG, USER-GUIDE, proposal status; `npm test` (SC4)
 
 ### Objective 49: Objective branch and PR lifecycle
 
@@ -320,7 +320,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
-| 48. Planning write-path migration | v1.4 | 22/23 | In Progress | — |
+| 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
 | 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
