@@ -19,8 +19,11 @@
  *   entities     todos, debug sessions, quick JOB/SUMMARY files: the same ops the entity verbs queue, closed when the
  *                file's location says so (planning-entity-verbs.importEntity)
  *   documents    PROJECT, REQUIREMENTS, research/, milestones/ archives, codebase/, objective docs: ONE wiki-push
- *   milestones   each `## vX.Y` section of a hand-maintained MILESTONES.md: milestone put (native milestone + page)
- * then ONE flush (GitHub's write budget is 80/min; a flush per item would spend it).
+ *   milestones   each `## vX.Y` section of a hand-maintained MILESTONES.md: milestone put (native milestone + page),
+ *                then the milestone is closed (MILESTONES.md records shipped milestones only)
+ *   history      after every create above: patch-issue closes for the imported objectives' shipped / cancelled work
+ *                (gh-backfill.historyOps), so the backfill does not leave finished work open
+ * then ONE flush (GitHub's write budget is 80/min; a flush per item would spend it), unless `noFlush`.
  *
  * What stays local (reported, never silently skipped):
  *   refused      TRDs over the 60,000-char budget: their whole objective is refused by 47's budget gate
@@ -58,6 +61,7 @@ const ghHierarchy = require('./gh-hierarchy.cjs');
 const ghWiki = require('./gh-wiki.cjs');
 const ghCache = require('./gh-cache.cjs');
 const ghMilestone = require('./gh-milestone.cjs');
+const ghMilestoneStore = require('./gh-milestone-store.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const verbs = require('./planning-verbs.cjs');
 const ev = require('./planning-entity-verbs.cjs');
@@ -169,6 +173,27 @@ function historyCounts(ops) {
   return counts;
 }
 
+/**
+ * `ops` with each close folded over a PENDING patch-issue on the same id (planning-entity-verbs.closeOp's rule).
+ * outbox.enqueue coalesces a pending op of the same kind + target by replacing its payload, so without the fold an
+ * objective's close would wipe the `type: Objective` its hierarchy push queued. Folded, the objective is typed and
+ * closed by one PATCH at that earlier seq; every TRD close (no pending patch-issue) is appended after the creates.
+ */
+function foldOverPending(main, ops) {
+  let pending = [];
+  try {
+    pending = outbox.readJournal(main).journal.ops.filter((op) => (
+      op.status === 'pending' && op.kind === 'patch-issue' && isObject(op.target) && Object.keys(op.target).length === 1
+    ));
+  } catch {
+    pending = [];
+  }
+  return ops.map((op) => {
+    const prior = pending.find((p) => p.target.id === op.target.id);
+    return prior && isObject(prior.payload) ? { ...op, payload: { ...prior.payload, ...op.payload } } : op;
+  });
+}
+
 /** `github.enabled === true` in the main checkout's config (planning-mode's reader, never an ad hoc parse). */
 function githubEnabled(main) {
   const cfg = planningMode.readPlanningConfig(main);
@@ -200,7 +225,7 @@ function milestoneSections(text) {
 }
 
 /**
- * planImport(root, {dryRun}) -> {ok, mode, dry_run, preview?, queued:{objective, decision, todo, debug, quick, doc,
+ * planImport(root, {dryRun, noFlush}) -> {ok, mode, dry_run, preview?, queued:{objective, decision, todo, debug, quick, doc,
  *   milestone}, skipped:[{rel, reason}], kept_local:[{rel, reason}], refused:[{objective, rel, id, chars, hint}],
  *   warnings, estimate?, history?, flush?, prose?, error?, exit}
  *
@@ -209,10 +234,14 @@ function milestoneSections(text) {
  *               by_kind, writes_by_kind, live_creates, wiki_pushes, milestones, unknown_kinds} (gh-backfill.estimate
  *               plus the three counts); in a real run it prices what was actually queued
  *   history    {closed_completed, closed_not_planned}: the close ops of the imported objectives' finished work
+ *
+ * `noFlush` (migration 0011): queue everything, including the history closes, but skip the flush; `flush` is absent and
+ * the ledger stays unsettled until the caller's drained flush settles it.
  */
 function planImport(root, opts = {}) {
   const o = isObject(opts) ? opts : {};
   const dryRun = o.dryRun === true;
+  const noFlush = o.noFlush === true;
   const report = { ok: true, mode: null, dry_run: dryRun, queued: zero(), skipped: [], kept_local: [], refused: [], warnings: [] };
   const main = planningMode.resolveMainRoot(root);
   if (!main) return { ...report, ok: false, error: `no .planning/ directory at or above ${root}`, exit: EXIT.ERROR };
@@ -382,6 +411,11 @@ function planImport(root, opts = {}) {
         if (r.ok) {
           queuedAny = true;
           plan.milestones += 1;
+          // MILESTONES.md records shipped milestones only, and milestone put never sets a state: close it here.
+          const closed = ghMilestoneStore.closeMilestone(main, s.version);
+          if (!closed || closed.ok !== true) {
+            report.warnings.push(`milestone ${s.version} was not closed: ${(closed && (closed.error || closed.reason)) || 'unknown error'}`);
+          }
         } else {
           report.queued.milestone -= 1;
           errors.push(r.error);
@@ -406,10 +440,17 @@ function planImport(root, opts = {}) {
     milestones: plan.milestones,
   });
   report.estimate = { objectives: plan.imported.length, trds: plan.trds, history_closes: history.length, ...priced };
+  // Queued after every create above (journal seq order is flush order), state only: no ledger bytes.
+  if (!dryRun && history.length > 0) {
+    const h = outbox.enqueue(main, foldOverPending(main, history));
+    if (!h.ok) errors.push(`history closes not queued: ${h.error}`);
+    else if (!h.skipped) queuedAny = true;
+  }
 
-  // 7. One flush; a drained flush baselines every ledgered file (gh-store-cli settleLedger).
+  // 7. One flush; a drained flush baselines every ledgered file (gh-store-cli settleLedger). `noFlush` (migration
+  //    0011): the caller drains the queue and settles the ledger itself.
   let exit = EXIT.OK;
-  if (!dryRun && queuedAny) {
+  if (!dryRun && !noFlush && queuedAny) {
     const flushed = storeCli.flushResult(main, flushLib.flush(main, { wait: true }));
     report.flush = flushed.payload;
     report.prose = flushed.prose.trimEnd();
