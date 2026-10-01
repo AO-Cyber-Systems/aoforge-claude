@@ -1,13 +1,3 @@
 {
-  "_comment": "Planning-write ratchet baseline for the 'bootstrap' group (TRD 48-04, D-21). Per-file counts of direct planning-file write instructions not yet routed through a df-tools verb. Counts may only go down: lower a count in the commit that migrates the prose. TRD 48-19 drives this group to zero; 48-23 deletes these files. Regenerate by measuring with planning-audit.cjs, never by hand.",
-  "plugins/devflow/agents/project-researcher.md": 1,
-  "plugins/devflow/agents/research-synthesizer.md": 3,
-  "plugins/devflow/agents/roadmapper.md": 5,
-  "plugins/devflow/devflow/templates/milestone-archive.md": 4,
-  "plugins/devflow/devflow/templates/milestone.md": 1,
-  "plugins/devflow/devflow/workflows/add-objective.md": 1,
-  "plugins/devflow/devflow/workflows/complete-milestone.md": 5,
-  "plugins/devflow/devflow/workflows/new-milestone.md": 7,
-  "plugins/devflow/devflow/workflows/new-project.md": 14,
-  "plugins/devflow/devflow/workflows/remove-objective.md": 1
+  "_comment": "Planning-write ratchet baseline for the 'bootstrap' group (TRD 48-04, D-21). Per-file counts of direct planning-file write instructions not yet routed through a df-tools verb. Counts may only go down: lower a count in the commit that migrates the prose. TRD 48-19 drives this group to zero; 48-23 deletes these files. Regenerate by measuring with planning-audit.cjs, never by hand."
 }
