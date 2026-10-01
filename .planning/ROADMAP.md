@@ -280,7 +280,22 @@ TRDs:
 1. Commits on the default branch or unlinked branches are refused; the escape is logged
 2. `gh setup` dry-run lists rulesets, checks, types and fields; apply is idempotent
 3. The linked-issue required check fails a PR without a closing reference
-**Plans:** TBD (run /devflow:plan-objective 50)
+**Plans:** 13 TRDs in 5 waves
+
+TRDs:
+- [ ] 50-01-fake-github-setup-and-check-routes-TRD.md — (W1) fake GitHub: rulesets (422 merge queue, 403 non-admin), repo PATCH, labels list, org type/field writes (api-version header, options 422), PR commits, contents
+- [ ] 50-02-commit-gate-decision-TRD.md — (W1) pure gate: default/unlinked/detached refused, linked `prs` branch and `df/exec-*` (main on linked branch) allowed, `DEVFLOW_SKIP_GH_GATE=1`; `gh` override gate
+- [ ] 50-03-required-check-logic-TRD.md — (W1) pure `devflow/linked-issue` (closing ref to an existing issue, base = default) and `devflow/planning-consistency` (GitHub graph in store mode, pass when store off), reconcile plan
+- [ ] 50-04-store-health-collector-TRD.md — (W1) offline store health: W057 unsynced, W058 missing links, W059 orphans, W060 frozen-body drift, W061 check failed
+- [ ] 50-05-outbox-flush-hook-TRD.md — (W1) `gh-flush.js` PostToolUse(Bash, after `df-tools commit`) + Stop: flush outbox, report pending/halted/drift, never blocks
+- [ ] 50-06-commit-gate-wiring-TRD.md — (W2) `df-tools commit` refuses before staging in store mode, logs the escape via override, `Refs #` falls back to the linked objective
+- [ ] 50-07-health-and-doctor-reports-TRD.md — (W2) validate Check 16 (W057-W061), doctor check 25 `gh-store-sync`, check 22 defers the codes
+- [ ] 50-08-check-runner-cli-TRD.md — (W2) Actions runner: posts the two contexts as commit statuses (PR + merge_group), merge-time reconcile closes stragglers
+- [ ] 50-09-setup-plan-TRD.md — (W2) `gh setup` state reader, pure plan (ruleset superset-idempotent, types, fields, labels, settings, files, wiki, merge_group advisories), dry-run renderer
+- [ ] 50-10-actions-workflows-and-templates-TRD.md — (W2) reusable `devflow-checks.yml` (workflow_call, App token via client-id), managed caller template, PR-template block
+- [ ] 50-11-gh-setup-apply-and-cli-TRD.md — (W3) `df-tools gh setup [--apply]`: idempotent apply, merge-queue/field/403 degradation, dispatch, help, `github.app_id` / `github.checks_workflow`
+- [ ] 50-12-enforcement-e2e-and-parity-TRD.md — (W4) SC1-SC3 through real entry points; store-off parity (zero gh calls) for everything but `gh setup`
+- [ ] 50-13-docs-and-full-suite-TRD.md — (W5) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync/help skills; `npm test` (SC4)
 
 ### Objective 51: GitHub migration and docs
 
