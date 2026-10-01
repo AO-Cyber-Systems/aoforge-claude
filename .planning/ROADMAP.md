@@ -255,10 +255,10 @@ TRDs:
 **Plans:** 15 TRDs in 6 waves
 
 TRDs:
-- [ ] 49-01-fake-github-prs-branches-statuses-TRD.md — (W1) fake GitHub: PRs on the shared issue counter, pulls/statuses/refs REST, linked-branch/ready/merge-queue GraphQL, comment authors + assignees, humanMergePr
-- [ ] 49-02-mapping-prs-and-read-classification-TRD.md — (W1) mapping top-level `prs` map (byte-stable when empty), `issue develop --list` is a read
-- [ ] 49-03-scope-acceptance-predicate-TRD.md — (W1) GPR-05 pure half: scope authors, confirm marker bound to the scope hash, acceptance predicate, pending scopes in effectiveSpec
-- [ ] 49-04-objective-branch-git-seam-and-wiki-diff-TRD.md — (W1) `objective-branch` git seam (fetch/switch/start commit/push/cleanup), `makeGitRemote` fixture, `gh-wiki.diff`
+- [x] 49-01-fake-github-prs-branches-statuses-TRD.md — (W1) fake GitHub: PRs on the shared issue counter, pulls/statuses/refs REST, linked-branch/ready/merge-queue GraphQL, comment authors + assignees, humanMergePr
+- [x] 49-02-mapping-prs-and-read-classification-TRD.md — (W1) mapping top-level `prs` map (byte-stable when empty), `issue develop --list` is a read
+- [x] 49-03-scope-acceptance-predicate-TRD.md — (W1) GPR-05 pure half: scope authors, confirm marker bound to the scope hash, acceptance predicate, pending scopes in effectiveSpec
+- [x] 49-04-objective-branch-git-seam-and-wiki-diff-TRD.md — (W1) `objective-branch` git seam (fetch/switch/start commit/push/cleanup), `makeGitRemote` fixture, `gh-wiki.diff`
 - [ ] 49-05-outbox-upsert-pr-and-ready-TRD.md — (W2) outbox `upsert-pr` (draft, closes derived at flush, wiki pin, `devflow:pr=` marker), `pr-ready`, `patch-issue labels_remove`
 - [ ] 49-06-scope-gate-confirm-and-trd-start-TRD.md — (W2) only accepted scopes change a TRD; `gh trd confirm-scope` (assignee only), `gh trd start` (in_progress label)
 - [ ] 49-07-commit-refs-trailer-TRD.md — (W2) `df-tools commit` adds `Refs #issue` from the commit scope in store mode (main-root mapping)
@@ -338,6 +338,6 @@ Candidate scope carried forward from v1.2 deferrals:
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
-| 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
+| 49. Objective branch and PR lifecycle | v1.4 | 4/15 | In Progress | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
