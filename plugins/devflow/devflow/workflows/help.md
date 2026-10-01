@@ -54,9 +54,9 @@ Usage: `/devflow:new-project`
 **`/devflow:map-codebase`**
 Map an existing codebase for brownfield projects.
 
-- Analyzes codebase with parallel Explore agents
-- Creates `.planning/codebase/` with 7 focused documents
-- Covers stack, architecture, structure, conventions, testing, integrations, concerns
+- Analyzes codebase with parallel codebase-mapper agents, each writing drafts
+- Publishes 8 focused documents to `.planning/codebase/`, one `df-tools doc put codebase/<NAME>.md` each
+- Covers stack, architecture, structure, conventions, testing, patterns, integrations, concerns
 - Use before `/devflow:new-project` on existing codebases — or use `/devflow:adopt` to turn an existing codebase into a DevFlow project directly
 
 Usage: `/devflow:map-codebase`
@@ -77,7 +77,7 @@ Usage: `/devflow:adopt` or `/devflow:adopt ./path/to/repo`
 Help articulate your vision for an objective before planning.
 
 - Captures how you imagine this objective working
-- Creates CONTEXT.md with your vision, essentials, and boundaries
+- Records your vision, essentials, and boundaries in CONTEXT.md (`df-tools doc put objectives/<dir>/<NN>-CONTEXT.md`)
 - Use when you have ideas about how something should look/feel
 
 Usage: `/devflow:discuss-objective 2`
@@ -86,7 +86,7 @@ Usage: `/devflow:discuss-objective 2`
 Comprehensive ecosystem research for niche/complex domains.
 
 - Discovers standard stack, architecture patterns, pitfalls
-- Creates RESEARCH.md with "how experts build this" knowledge
+- Records "how experts build this" knowledge in RESEARCH.md (`df-tools doc put objectives/<dir>/<NN>-RESEARCH.md`)
 - Use for 3D, games, audio, shaders, ML, and other specialized domains
 - Goes beyond "which library" to ecosystem knowledge
 
@@ -104,13 +104,13 @@ Usage: `/devflow:list-objective-assumptions 3`
 **`/devflow:plan-objective <number>`**
 Create detailed execution plan for a specific objective.
 
-- Generates `.planning/objectives/XX-phase-name/XX-YY-JOB.md`
+- Publishes each TRD with `df-tools plan put-trd <objective> <XX-YY-slug-TRD.md> --from <draft>`
 - Breaks objective into concrete, actionable tasks
 - Includes verification criteria and success measures
 - Multiple plans per objective supported (XX-01, XX-02, etc.)
 
 Usage: `/devflow:plan-objective 1`
-Result: Creates `.planning/objectives/01-foundation/01-01-JOB.md`
+Result: `.planning/objectives/01-foundation/01-01-<slug>-TRD.md`
 
 ### Execution
 
@@ -120,7 +120,7 @@ Execute all jobs in an objective.
 - Groups plans by wave (from frontmatter), executes waves sequentially
 - Plans within each wave run in parallel via Task tool
 - Verifies objective goal after all jobs complete
-- Updates REQUIREMENTS.md, ROADMAP.md, STATE.md
+- Records progress with `df-tools summary post`, `requirements mark-complete`, `roadmap update-job-progress` and `state` commands (REQUIREMENTS.md, ROADMAP.md, STATE.md)
 
 Usage: `/devflow:execute-objective 5`
 
@@ -132,12 +132,12 @@ Execute small, ad-hoc tasks with DevFlow guarantees but skip optional agents.
 Quick mode uses the same system with a shorter path:
 - Spawns planner + executor (skips researcher, checker, verifier)
 - Quick tasks live in `.planning/quick/` separate from planned objectives
-- Updates STATE.md tracking (not ROADMAP.md)
+- Tracks each task in STATE.md's Quick Tasks table (not ROADMAP.md)
 
 Use when you know exactly what to do and the task is small enough to not need research or verification.
 
 Usage: `/devflow:quick`
-Result: Creates `.planning/quick/NNN-slug/JOB.md`, `.planning/quick/NNN-slug/SUMMARY.md`
+Result: `.planning/quick/NNN-slug/` — the plan via `df-tools quick put <N> <slug> --from <draft>`, the summary via `df-tools quick summary <N> --from <draft>`
 
 ### Roadmap Management
 
@@ -212,10 +212,10 @@ Usage: `/devflow:doctor ./path/to/repo`
 Systematic debugging with persistent state across context resets.
 
 - Gathers symptoms through adaptive questioning
-- Creates `.planning/debug/[slug].md` to track investigation
+- Tracks the investigation in `.planning/debug/[slug].md` (`df-tools debug put <slug> --from <draft>`)
 - Investigates using scientific method (evidence → hypothesis → test)
 - Survives `/clear` — run `/devflow:debug` with no args to resume
-- Archives resolved issues to `.planning/debug/resolved/`
+- Archives resolved issues to `.planning/debug/resolved/` (`df-tools debug resolve <slug>`)
 
 Usage: `/devflow:debug "login button doesn't work"`
 Usage: `/devflow:debug` (resume active session)
@@ -225,7 +225,7 @@ Usage: `/devflow:debug` (resume active session)
 **`/devflow:todo <add|list>`**
 Capture todos and view morning standup.
 
-- `add [description]` — Capture idea or task from conversation context (or use provided description); creates structured file in `.planning/todos/pending/`; checks for duplicates
+- `add [description]` — Capture idea or task from conversation context (or use provided description); files it under `.planning/todos/pending/` with `df-tools todo add --from <draft>`; checks for duplicates
 - `list [area]` — List pending todos, select one to work on; optional area filter; routes to work now / add to objective / brainstorm
 
 Usage: `/devflow:todo add` (infers from conversation)
@@ -319,6 +319,34 @@ Show this command reference.
         ├── 02-01-JOB.md
         └── 02-01-SUMMARY.md
 ```
+
+## Planning Verbs
+
+Every planning file is written through a df-tools verb — never by hand, and never with `Write`/`Edit`.
+**In store mode (`github.store: true`) `.planning/` is a read-only cache: use the verbs.** In local mode
+the same verbs write the same `.planning/` files, so the instructions never change between modes.
+Content comes from `--from <path|->`; `df-tools planning draft <rel>` prints a draft path to write first.
+
+- `df-tools plan put-trd <objective> <file-name> --from <path|->` — publish one TRD
+- `df-tools plan push <objective>` — push the objective's TRDs
+- `df-tools objective put <id> --from <path|->` — replace OBJECTIVE.md
+- `df-tools objective set-status <id> <status>` — planned, in_progress, verifying, complete, cancelled, reopened
+- `df-tools summary post <trd-id> --from <path|->` — publish a TRD's SUMMARY
+- `df-tools summary checkpoint <trd-id> --from <path|->` — save a mid-TRD progress checkpoint
+- `df-tools verification post <objective> --from <path|->` — publish the objective's VERIFICATION
+- `df-tools doc put <rel> --from <path|->` — any other planning doc (CONTEXT, RESEARCH, `codebase/`, `research/`, ...)
+- `df-tools decision open <trd-id> --question <text|@path>` / `decision answer <id> --from <path|->` — record a decision
+- `df-tools todo add --from <path|->` / `todo complete <stem>` — capture and close todos
+- `df-tools debug put <slug> --from <path|->` / `debug resolve <slug>` — debug sessions
+- `df-tools quick put <N> <slug> --from <path|->` / `quick summary <N> --from <path|->` — quick tasks
+- `df-tools milestone put <version> --from <path|->` / `milestone complete <version>` — milestones
+- `df-tools planning mode` — prints `local` or `store`
+- `df-tools planning import` — store mode only: import an existing `.planning/` into the store
+- `df-tools gh pull --all` — regenerate the cache views (ROADMAP.md, STATE.md) from the store
+
+`STATE.md`, `ROADMAP.md` and `REQUIREMENTS.md` progress changes go through `df-tools state ...`,
+`roadmap update-job-progress` and `requirements mark-complete`. `config.json` and `STACK.md` stay
+tracked config in both modes. `df-tools <command> --help` gives each verb's full usage.
 
 ## Workflow Modes
 

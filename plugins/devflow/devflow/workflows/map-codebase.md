@@ -4,7 +4,7 @@ status: active
 <purpose>
 Orchestrate parallel codebase mapper agents to analyze codebase and produce structured documents in .planning/codebase/, then synthesize a CLAUDE.md with coding rules.
 
-Each agent has fresh context, explores a specific focus area, and **writes documents directly**. The orchestrator only receives confirmation + line counts, then synthesizes CLAUDE.md and writes a summary.
+Each agent has fresh context, explores a specific focus area, and **writes its documents to drafts itself**. The orchestrator only receives confirmation + line counts, publishes every draft in one pass with `df-tools doc put codebase/<NAME>.md`, then synthesizes CLAUDE.md and writes a summary.
 
 Output: .planning/codebase/ folder with 8 structured documents + CLAUDE.md at project root with prescriptive coding rules.
 </purpose>
@@ -12,7 +12,8 @@ Output: .planning/codebase/ folder with 8 structured documents + CLAUDE.md at pr
 <philosophy>
 **Why dedicated mapper agents:**
 - Fresh context per domain (no token contamination)
-- Agents write documents directly (no context transfer back to orchestrator)
+- Agents write their documents to drafts themselves (no context transfer back to orchestrator)
+- Only the orchestrator publishes (`doc put`), one document at a time — parallel publishes would race
 - Orchestrator only summarizes what was created (minimal context usage)
 - Faster execution (agents run simultaneously)
 
@@ -30,9 +31,10 @@ every path in this mode is under the target directory via `--cwd`.
 
 - **check_existing** — if `.planning/codebase/` already has complete documents, use them as-is;
   map only the docs that are missing or empty — never delete existing documents.
-- **spawn_agents / collect_confirmations / verify_output** — unchanged; still spawn the 4 mapper
-  agents (or, if the Task tool is unavailable, perform each focus directly in sequence) and verify
-  their output.
+- **spawn_agents / collect_confirmations / verify_output / publish_maps** — unchanged; still spawn
+  the 4 mapper agents (or, if the Task tool is unavailable, perform each focus directly in sequence),
+  verify their drafts and publish them. A secret hit in publish_maps does not pause here — as in
+  scan_for_secrets, it is left for `adopt report`.
 - **draft_stack_profile** — skipped entirely. `adopt scaffold` writes `.planning/STACK.md` itself.
 - **confirm_stack_profile** — skipped. `/devflow:adopt` runs its own after `adopt scaffold`.
 - **generate_claude_md** — unchanged; still writes the versioned CLAUDE.md block that `adopt`
@@ -88,13 +90,17 @@ Continue to create_structure.
 </step>
 
 <step name="create_structure">
-Create .planning/codebase/ directory:
+Nothing to create by hand: each mapper writes its documents to drafts, and `doc put` (publish_maps)
+creates `.planning/codebase/` in local mode and the store page in store mode. Each draft path comes from:
 
 ```bash
-mkdir -p .planning/codebase
+node ~/.claude/devflow/bin/df-tools.cjs planning draft codebase/<NAME>.md
 ```
 
-**Expected output files:**
+It prints an absolute path outside the repo, seeded from the current map when one exists, and prints
+the same path on every call — so the mappers and the orchestrator agree on it without passing it around.
+
+**Expected documents (`codebase/<NAME>.md`):**
 - STACK.md (from tech mapper)
 - INTEGRATIONS.md (from tech mapper)
 - ARCHITECTURE.md (from arch mapper)
@@ -112,7 +118,7 @@ Spawn 4 parallel codebase-mapper agents.
 
 Use Task tool with `subagent_type="codebase-mapper"`, `model="{mapper_model}"`, and `run_in_background=true` for parallel execution.
 
-**CRITICAL:** Use the dedicated `codebase-mapper` agent, NOT `Explore`. The mapper agent writes documents directly.
+**CRITICAL:** Use the dedicated `codebase-mapper` agent, NOT `Explore`. The mapper agent writes its documents to drafts itself; it never publishes them.
 
 **Agent 1: Tech Focus**
 
@@ -130,11 +136,11 @@ Focus: tech
 
 Analyze this codebase for technology stack and external integrations.
 
-Write these documents to .planning/codebase/:
+Write these documents to their drafts — `node ~/.claude/devflow/bin/df-tools.cjs planning draft codebase/<NAME>.md` prints each path:
 - STACK.md - Languages, runtime, frameworks, dependencies, configuration
 - INTEGRATIONS.md - External APIs, databases, auth providers, webhooks
 
-Explore thoroughly. Write documents directly using templates. Return confirmation only.
+Explore thoroughly. Write the drafts using templates; do not publish them. Return confirmation only.
 ```
 
 **Agent 2: Architecture Focus**
@@ -153,11 +159,11 @@ Focus: arch
 
 Analyze this codebase architecture and directory structure.
 
-Write these documents to .planning/codebase/:
+Write these documents to their drafts — `node ~/.claude/devflow/bin/df-tools.cjs planning draft codebase/<NAME>.md` prints each path:
 - ARCHITECTURE.md - Pattern, layers, data flow, abstractions, entry points
 - STRUCTURE.md - Directory layout, key locations, naming conventions
 
-Explore thoroughly. Write documents directly using templates. Return confirmation only.
+Explore thoroughly. Write the drafts using templates; do not publish them. Return confirmation only.
 ```
 
 **Agent 3: Quality Focus**
@@ -176,12 +182,12 @@ Focus: quality
 
 Analyze this codebase for coding conventions, testing patterns, and representative code examples.
 
-Write these documents to .planning/codebase/:
+Write these documents to their drafts — `node ~/.claude/devflow/bin/df-tools.cjs planning draft codebase/<NAME>.md` prints each path:
 - CONVENTIONS.md - Code style, naming, patterns, error handling
 - TESTING.md - Framework, structure, mocking, coverage
 - PATTERNS.md - 3-5 real code snippets (30-60 lines each) showing how code is written here
 
-Explore thoroughly. Write documents directly using templates. Return confirmation only.
+Explore thoroughly. Write the drafts using templates; do not publish them. Return confirmation only.
 ```
 
 **Agent 4: Concerns Focus**
@@ -200,10 +206,10 @@ Focus: concerns
 
 Analyze this codebase for technical debt, known issues, and areas of concern.
 
-Write this document to .planning/codebase/:
+Write this document to its draft — `node ~/.claude/devflow/bin/df-tools.cjs planning draft codebase/CONCERNS.md` prints the path:
 - CONCERNS.md - Tech debt, bugs, security, performance, fragile areas
 
-Explore thoroughly. Write document directly using template. Return confirmation only.
+Explore thoroughly. Write the draft using the template; do not publish it. Return confirmation only.
 ```
 
 Continue to collect_confirmations.
@@ -219,14 +225,14 @@ Read each agent's output file to collect confirmations.
 ## Mapping Complete
 
 **Focus:** {focus}
-**Documents written:**
-- `.planning/codebase/{DOC1}.md` ({N} lines)
-- `.planning/codebase/{DOC2}.md` ({N} lines)
+**Drafts written:**
+- `codebase/{DOC1}.md` → `{draft path}` ({N} lines)
+- `codebase/{DOC2}.md` → `{draft path}` ({N} lines)
 
-Ready for orchestrator summary.
+Ready for orchestrator to publish.
 ```
 
-**What you receive:** Just file paths and line counts. NOT document contents.
+**What you receive:** Just draft paths and line counts. NOT document contents.
 
 If any agent failed, note the failure and continue with successful documents.
 
@@ -234,18 +240,45 @@ Continue to verify_output.
 </step>
 
 <step name="verify_output">
-Verify all documents created successfully:
+Verify every draft the confirmations name (the drafts all sit in one directory):
 
 ```bash
-ls -la .planning/codebase/
-wc -l .planning/codebase/*.md
+wc -l <draft paths from the confirmations>
 ```
 
 **Verification checklist:**
-- All 8 documents exist
-- No empty documents (each should have >20 lines)
+- All 8 drafts exist (only the requested ones on an "Update" run)
+- No empty drafts (each should have >20 lines)
 
-If any documents missing or empty, note which agents may have failed.
+If any drafts are missing or empty, note which agents may have failed and leave those documents out
+of publish_maps.
+
+Continue to publish_maps.
+</step>
+
+<step name="publish_maps">
+**Non-interactive:** see <non_interactive_mode>.
+
+**Secrets first.** In store mode a published map leaves the machine, so check the drafts before
+anything is published — the same patterns as scan_for_secrets:
+
+```bash
+grep -E '(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]+|sk_test_[a-zA-Z0-9]+|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9_-]+|AKIA[A-Z0-9]{16}|xox[baprs]-[a-zA-Z0-9-]+|-----BEGIN.*PRIVATE KEY|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.)' <draft paths from the confirmations>
+```
+
+On any hit, show it and pause exactly as scan_for_secrets does ("safe to proceed", or edit the draft first).
+
+**Publish each map, one at a time** — never in parallel, and never from a mapper agent:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put codebase/STACK.md --from "<draft path for codebase/STACK.md>"
+```
+
+Repeat for every verified draft (INTEGRATIONS, ARCHITECTURE, STRUCTURE, CONVENTIONS, TESTING, PATTERNS,
+CONCERNS). `planning draft codebase/<NAME>.md` prints the same path again if a confirmation lost it.
+Each `df-tools doc put` writes `.planning/codebase/<NAME>.md` in both modes (in store mode it also pushes the page),
+so the steps below read the published maps from there. A non-zero exit names the document: report it
+and continue with the rest.
 
 Continue to draft_stack_profile.
 </step>
@@ -445,9 +478,9 @@ End workflow.
 </process>
 
 <success_criteria>
-- .planning/codebase/ directory created
+- Every verified draft published with `doc put codebase/<NAME>.md`, one at a time, after the draft secret check
 - 4 parallel codebase-mapper agents spawned with run_in_background=true
-- Agents write documents directly (orchestrator doesn't receive document contents)
+- Agents write their documents to drafts (orchestrator doesn't receive document contents)
 - Read agent output files to collect confirmations
 - All 8 codebase documents exist
 - CLAUDE.md generated at project root with prescriptive coding rules

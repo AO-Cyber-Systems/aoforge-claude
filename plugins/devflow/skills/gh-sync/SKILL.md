@@ -14,7 +14,7 @@ One-way push from `.planning/` -> GitHub. Planning files remain authoritative. A
 
 Modes (parsed from $ARGUMENTS):
 - empty, `--all` or `objectives` — sync every objective (`gh sync --all`): find or create one issue per objective, ensure its milestone, update the managed body sections, the sticky state comment and the Project fields
-- `<objective>` (any spelling: `46`, `046`, `46-github-sync-foundations`, `2.1`) — sync ONE objective (`gh sync <objective>`). The first sync creates the issue and writes `github_issue` to the objective's OBJECTIVE.md. Idempotent — safe to run repeatedly.
+- `<objective>` (any spelling: `46`, `046`, `46-github-sync-foundations`, `2.1`) — sync ONE objective (`gh sync <objective>`). The first sync opens the issue, and `gh sync` itself records `github_issue` in the objective's OBJECTIVE.md — never hand-edit it; any other OBJECTIVE.md change goes through `df-tools objective put <id> --from <draft>`. Idempotent — safe to run repeatedly.
 - `release <tag>` — generate release notes from SUMMARY.md files since the previous tag and create or edit the GitHub release
 - `status` — report whether GitHub integration is enabled and reachable
 
