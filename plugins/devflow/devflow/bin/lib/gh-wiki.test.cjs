@@ -1125,7 +1125,8 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
       const r = wiki.diff(root, evil);
       assert.equal(r.ok, false, `from=${String(evil)}`);
       assert.equal(r.reason, 'bad-revision');
-      assert.equal(wiki.diff(root, 'HEAD', evil).reason, 'bad-revision', `to=${String(evil)}`);
+      // an undefined toSha is not bad: it defaults to HEAD
+      if (evil !== undefined) assert.equal(wiki.diff(root, 'HEAD', evil).reason, 'bad-revision', `to=${String(evil)}`);
     }
     assert.equal(calls.length, 0, 'git never ran for a refused revision');
   });
