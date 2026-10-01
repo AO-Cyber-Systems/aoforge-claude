@@ -47,7 +47,7 @@ Reserved so parallel TRDs never collide:
 | Range | Owner | Checks |
 |-------|-------|--------|
 | `10-19` | TRD 45-05 | global install checks |
-| `20-29` | TRD 45-06 | project checks |
+| `20-29` | TRD 45-06 | project checks: `20-legacy-runtime-state`, `21-pending-migrations`, `22-validate-health`, `23-skill-markers`, `24-store-cache-tracked`, `25-gh-store-sync` (TRD 50-07; owns W057-W061, which `22` defers) |
 | `30-39` | TRD 45-07 | state-hygiene checks |
 
 ## Rules the engine enforces

@@ -1650,11 +1650,18 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
     assert.match(found[0].fix, /gh pull --all/);
     assert.strictEqual(found[0].repairable, false);
     assert.deepStrictEqual(w055s(json), []);
-    // Checks 1-14 ran as they do in local mode: the pinned codes plus the one W056.
-    assert.deepStrictEqual(codes(json), {
-      errors: PINNED_LOCAL_CODES.errors,
-      warnings: [...PINNED_LOCAL_CODES.warnings, 'W056'],
-      info: PINNED_LOCAL_CODES.info,
-    });
+    // Checks 1-14 ran as they do in local mode: the pinned codes plus the one W056. Check 16
+    // (store sync health, W057-W061, TRD 50-07) also runs in store mode and this project has TRDs
+    // with no mapping (W058); its codes belong to validate-gh-health.test.cjs, so they are set aside.
+    const notCheck16 = (list) => list.filter((c) => !/^W0(5[7-9]|6[01])$/.test(c));
+    const seen = codes(json);
+    assert.deepStrictEqual(
+      { errors: notCheck16(seen.errors), warnings: notCheck16(seen.warnings), info: notCheck16(seen.info) },
+      {
+        errors: PINNED_LOCAL_CODES.errors,
+        warnings: [...PINNED_LOCAL_CODES.warnings, 'W056'],
+        info: PINNED_LOCAL_CODES.info,
+      },
+    );
   });
 });

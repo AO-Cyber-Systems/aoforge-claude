@@ -720,6 +720,28 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W056', `planning-drift-check-failed: ${e.message}`, driftFix, false);
   }
 
+  // ─── Check 16: Store sync health (objective 50, GEN-03) ────────────────────
+  // Store mode only; gh-health.collectStoreHealth returns {applicable:false} in local mode before it
+  // reads any outbox, mapping or objective state, so a local project's report is unchanged. Offline
+  // (no gh call). W057 unsynced writes (pending/blocked ops, a halted outbox, a recovered journal),
+  // W058 missing links, W059 orphans (the offline half; `df-tools gh orphans <objective>` is the
+  // online scan), W060 frozen-body drift. Warnings only and never repairable: --repair must not
+  // flush the outbox or rewrite the cache. A check that cannot run is never silent (W061).
+  try {
+    const r = require('./gh-health.cjs').collectStoreHealth(cwd, { home: homeDir });
+    if (r && r.applicable) {
+      for (const f of r.findings) addIssue('warning', f.code, f.message, f.fix, false);
+    }
+  } catch (e) {
+    addIssue(
+      'warning',
+      'W061',
+      `gh-health-check-failed: ${e.message}`,
+      'Run `df-tools gh outbox status` and `df-tools validate health --raw` to see why',
+      false,
+    );
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
