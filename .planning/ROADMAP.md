@@ -293,7 +293,7 @@ TRDs:
 - [x] 50-08-check-runner-cli-TRD.md — (W2) Actions runner: posts the two contexts as commit statuses (PR + merge_group), merge-time reconcile closes stragglers
 - [x] 50-09-setup-plan-TRD.md — (W2) `gh setup` state reader, pure plan (ruleset superset-idempotent, types, fields, labels, settings, files, wiki, merge_group advisories), dry-run renderer
 - [x] 50-10-actions-workflows-and-templates-TRD.md — (W2) reusable `devflow-checks.yml` (workflow_call, App token via client-id), managed caller template, PR-template block
-- [ ] 50-11-gh-setup-apply-and-cli-TRD.md — (W3) `df-tools gh setup [--apply]`: idempotent apply, merge-queue/field/403 degradation, dispatch, help, `github.app_id` / `github.checks_workflow`
+- [x] 50-11-gh-setup-apply-and-cli-TRD.md — (W3) `df-tools gh setup [--apply]`: idempotent apply, merge-queue/field/403 degradation, dispatch, help, `github.app_id` / `github.checks_workflow`
 - [ ] 50-12-enforcement-e2e-and-parity-TRD.md — (W4) SC1-SC3 through real entry points; store-off parity (zero gh calls) for everything but `gh setup`
 - [ ] 50-13-docs-and-full-suite-TRD.md — (W5) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync/help skills; `npm test` (SC4)
 
@@ -354,5 +354,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
 | 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
-| 50. GitHub enforcement and setup | v1.4 | 10/13 | In Progress | — |
+| 50. GitHub enforcement and setup | v1.4 | 11/13 | In Progress | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
