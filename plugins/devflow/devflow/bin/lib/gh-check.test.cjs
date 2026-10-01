@@ -9,10 +9,18 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
 
 const ghCheck = require('./gh-check.cjs');
 
-const { CONTEXTS, parseClosingRefs, prNumberFromQueueRef, linkedIssue } = ghCheck;
+const { CONTEXTS, parseClosingRefs, prNumberFromQueueRef, linkedIssue, planningConsistency, reconcilePlan } = ghCheck;
+
+const EVENTS_DIR = path.join(__dirname, '__fixtures__', 'gh-events');
+
+function loadEvent(name) {
+  return JSON.parse(fs.readFileSync(path.join(EVENTS_DIR, name), 'utf8'));
+}
 
 // ─── Shared builders ─────────────────────────────────────────────────────────
 
@@ -301,5 +309,324 @@ describe('prNumberFromQueueRef', () => {
     assert.strictEqual(prNumberFromQueueRef(null), null);
     assert.strictEqual(prNumberFromQueueRef(undefined), null);
     assert.strictEqual(prNumberFromQueueRef(123), null);
+  });
+});
+
+// ─── planningConsistency (tests 4, 5) ────────────────────────────────────────
+
+const STORE_ON = { github: { enabled: true, store: true } };
+
+// The objective issue (#100) and two TRD issues (#101, #102) of objective 50, as the runner resolves them.
+function objectiveIssues(over) {
+  const map = new Map([
+    [100, { number: 100, state: 'open', body: '<!-- devflow:id=50 -->\nObjective 50' }],
+    [101, { number: 101, state: 'open', body: '<!-- devflow:id=50-01 -->\nTRD 50-01' }],
+    [102, { number: 102, state: 'open', body: '<!-- devflow:id=50-02 -->\nTRD 50-02' }],
+  ]);
+  for (const [n, patch] of Object.entries(over || {})) {
+    map.set(Number(n), patch === null ? null : Object.assign({}, map.get(Number(n)), patch));
+  }
+  return map;
+}
+
+const OBJECTIVE_BODY = '<!-- devflow:pr=50 -->\nCloses #100\nCloses #101\nCloses #102\n';
+
+function runPlanning(over) {
+  return planningConsistency(
+    Object.assign(
+      {
+        pr: pr({ number: 130, body: OBJECTIVE_BODY }),
+        repo: REPO,
+        defaultBranch: 'main',
+        config: STORE_ON,
+        issues: objectiveIssues(),
+        linked: [101, 102],
+      },
+      over
+    )
+  );
+}
+
+describe('planningConsistency: when there is nothing to check', () => {
+  test('store mode off (no config): success, and says why', () => {
+    const r = runPlanning({ config: null });
+    assert.strictEqual(r.state, 'success');
+    assert.ok(/store mode off/i.test(r.description));
+    assert.ok(r.description.length <= 140);
+  });
+
+  test('github.store false, github absent, or not literally true: store mode is off', () => {
+    for (const config of [{ github: { store: false } }, {}, { github: {} }, { github: { store: 'true' } }, undefined]) {
+      const r = runPlanning({ config });
+      assert.strictEqual(r.state, 'success', JSON.stringify(config));
+      assert.ok(/store mode off/i.test(r.description), JSON.stringify(config));
+    }
+  });
+
+  test('store mode off passes even for a PR that would fail the objective rules', () => {
+    const r = runPlanning({ config: { github: { store: false } }, pr: pr({ body: '<!-- devflow:pr=50 -->\n' }) });
+    assert.strictEqual(r.state, 'success');
+  });
+
+  test('store mode on but no devflow:pr marker: not a DevFlow objective PR, success', () => {
+    const r = runPlanning({ pr: pr({ body: 'Closes #12' }) });
+    assert.strictEqual(r.state, 'success');
+    assert.ok(/not a DevFlow objective PR/i.test(r.description));
+  });
+
+  test('a missing body is not an objective PR either', () => {
+    const r = runPlanning({ pr: pr({ body: null }) });
+    assert.strictEqual(r.state, 'success');
+    assert.ok(/not a DevFlow objective PR/i.test(r.description));
+  });
+
+  test('result shape: state, description (<= 140), details[]', () => {
+    for (const r of [runPlanning(), runPlanning({ config: null }), runPlanning({ linked: [101, 102, 103] })]) {
+      assert.ok(['success', 'failure'].includes(r.state));
+      assert.ok(r.description.length > 0 && r.description.length <= 140);
+      assert.ok(Array.isArray(r.details));
+    }
+  });
+});
+
+describe('planningConsistency: an objective PR in store mode', () => {
+  test('passes when the PR closes the objective issue and every linked TRD issue', () => {
+    const r = runPlanning();
+    assert.strictEqual(r.state, 'success');
+    assert.ok(r.description.includes('#100'));
+    assert.ok(r.description.length <= 140);
+  });
+
+  test('fails naming a linked TRD issue the PR does not close', () => {
+    const r = runPlanning({ pr: pr({ body: '<!-- devflow:pr=50 -->\nCloses #100\nCloses #101\n' }) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => d.includes('#102')));
+    assert.ok(r.description.includes('#102'));
+  });
+
+  test('fails when the objective issue is known but not closed by the PR, naming it', () => {
+    const r = runPlanning({ pr: pr({ body: '<!-- devflow:pr=50 -->\nCloses #101\nCloses #102\n' }) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => d.includes('#100') && /objective/i.test(d)));
+  });
+
+  test('fails when no closing target carries the objective marker at all', () => {
+    const r = runPlanning({
+      pr: pr({ body: '<!-- devflow:pr=50 -->\nCloses #101\nCloses #102\n' }),
+      issues: new Map([
+        [101, { number: 101, state: 'open', body: '<!-- devflow:id=50-01 -->' }],
+        [102, { number: 102, state: 'open', body: '<!-- devflow:id=50-02 -->' }],
+      ]),
+    });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => /objective issue/i.test(d) && d.includes('50')));
+  });
+
+  test('a TRD marker (50-01) is never mistaken for the objective marker (50)', () => {
+    const r = runPlanning({
+      pr: pr({ body: '<!-- devflow:pr=50 -->\nCloses #101\n' }),
+      issues: new Map([[101, { number: 101, state: 'open', body: '<!-- devflow:id=50-01 -->' }]]),
+      linked: [],
+    });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => /objective issue/i.test(d)));
+  });
+
+  test('a comment-kind marker in a body does not stand in for the objective issue marker', () => {
+    const r = runPlanning({ issues: objectiveIssues({ 100: { body: '<!-- devflow:id=50 kind=state -->\nsticky' } }) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => /objective issue/i.test(d)));
+  });
+
+  test('fails when a closing target was closed as not planned, naming it', () => {
+    const r = runPlanning({ issues: objectiveIssues({ 101: { state: 'closed', state_reason: 'not_planned' } }) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => d.includes('#101') && /not.planned/i.test(d)));
+  });
+
+  test('fails when the objective issue itself was closed as not planned', () => {
+    const r = runPlanning({ issues: objectiveIssues({ 100: { state: 'closed', state_reason: 'not_planned' } }) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => d.includes('#100') && /not.planned/i.test(d)));
+  });
+
+  test('a target closed as completed is not a violation', () => {
+    const r = runPlanning({ issues: objectiveIssues({ 101: { state: 'closed', state_reason: 'completed' } }) });
+    assert.strictEqual(r.state, 'success');
+  });
+
+  test('fails when the base is not the default branch, naming both', () => {
+    const r = runPlanning({ pr: pr({ number: 130, body: OBJECTIVE_BODY, base: { ref: 'dev' } }) });
+    assert.strictEqual(r.state, 'failure');
+    const text = r.details.join('\n');
+    assert.ok(text.includes('dev') && text.includes('main'));
+  });
+
+  test('a Closes line inside a code fence does not count as closing the TRD', () => {
+    const r = runPlanning({ pr: pr({ body: '<!-- devflow:pr=50 -->\nCloses #100\nCloses #101\n```\nCloses #102\n```\n' }) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => d.includes('#102')));
+  });
+
+  test('every violation gets its own line', () => {
+    const r = runPlanning({
+      pr: pr({ number: 130, body: '<!-- devflow:pr=50 -->\nCloses #101\n', base: { ref: 'dev' } }),
+      issues: objectiveIssues({ 101: { state: 'closed', state_reason: 'not_planned' } }),
+    });
+    assert.strictEqual(r.state, 'failure');
+    const failures = r.details.filter((d) => /#100|#102|#101|dev/.test(d));
+    assert.ok(failures.length >= 4, `expected one line per violation, got:\n${r.details.join('\n')}`);
+  });
+
+  test('linked may be a Set, a list of numbers or a list of issue objects', () => {
+    assert.strictEqual(runPlanning({ linked: new Set([101, 102]) }).state, 'success');
+    assert.strictEqual(runPlanning({ linked: [{ number: 101 }, { number: 102 }] }).state, 'success');
+    const r = runPlanning({ linked: new Set([101, 102, 103]) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.details.some((d) => d.includes('#103')));
+  });
+
+  test('an objective with no linked TRDs only needs the objective issue closed', () => {
+    const r = runPlanning({ pr: pr({ body: '<!-- devflow:pr=50 -->\nCloses #100\n' }), linked: undefined });
+    assert.strictEqual(r.state, 'success');
+  });
+
+  test('the description stays within 140 characters with many violations', () => {
+    const linked = Array.from({ length: 60 }, (_, i) => 1000 + i);
+    const r = runPlanning({ linked, pr: pr({ body: '<!-- devflow:pr=50 -->\nCloses #100\n', base: { ref: 'x'.repeat(80) } }) });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(r.description.length <= 140);
+  });
+
+  test('the module is pure: its only require is gh-body, so it cannot read .planning/ or spawn gh/git', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'gh-check.cjs'), 'utf8');
+    const required = Array.from(source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)).map((m) => m[1]);
+    assert.deepStrictEqual(required, ['./gh-body.cjs']);
+    assert.ok(!/process\.env|process\.cwd|child_process|execSync|spawn/.test(source.replace(/\/\*[\s\S]*?\*\//g, '')));
+  });
+});
+
+// ─── reconcilePlan (test 6) ──────────────────────────────────────────────────
+
+describe('reconcilePlan', () => {
+  const merged = { number: 130, merged: true };
+
+  test('a merged PR returns the still-open targets plus the objective\'s open linked TRDs', () => {
+    const targets = [
+      { number: 100, state: 'closed' },
+      { number: 101, state: 'open' },
+    ];
+    const linked = [
+      { number: 101, state: 'open' },
+      { number: 102, state: 'open' },
+    ];
+    assert.deepStrictEqual(reconcilePlan({ pr: merged, targets, linked }), [101, 102]);
+  });
+
+  test('an unmerged PR returns nothing, whatever is open', () => {
+    const open = [{ number: 100, state: 'open' }];
+    assert.deepStrictEqual(reconcilePlan({ pr: { number: 130, merged: false }, targets: open, linked: open }), []);
+    assert.deepStrictEqual(reconcilePlan({ pr: { number: 130 }, targets: open, linked: open }), []);
+    assert.deepStrictEqual(reconcilePlan({ pr: null, targets: open, linked: open }), []);
+  });
+
+  test('merged must be literally true', () => {
+    const open = [{ number: 100, state: 'open' }];
+    assert.deepStrictEqual(reconcilePlan({ pr: { merged: 'true' }, targets: open, linked: open }), []);
+  });
+
+  test('nothing open means nothing to do', () => {
+    const closed = [{ number: 100, state: 'closed' }];
+    assert.deepStrictEqual(reconcilePlan({ pr: merged, targets: closed, linked: closed }), []);
+  });
+
+  test('numbers are de-duplicated and ascending', () => {
+    const targets = [
+      { number: 105, state: 'open' },
+      { number: 101, state: 'open' },
+    ];
+    const linked = [
+      { number: 103, state: 'open' },
+      { number: 101, state: 'open' },
+    ];
+    assert.deepStrictEqual(reconcilePlan({ pr: merged, targets, linked }), [101, 103, 105]);
+  });
+
+  test('Maps and null entries (a 404) are accepted; the state is case-insensitive', () => {
+    const targets = new Map([
+      [100, { number: 100, state: 'OPEN' }],
+      [101, null],
+    ]);
+    assert.deepStrictEqual(reconcilePlan({ pr: merged, targets, linked: [null, { number: 102, state: 'Open' }] }), [100, 102]);
+  });
+
+  test('missing targets or linked are treated as empty', () => {
+    assert.deepStrictEqual(reconcilePlan({ pr: merged }), []);
+    assert.deepStrictEqual(reconcilePlan({ pr: merged, targets: [{ number: 7, state: 'open' }] }), [7]);
+  });
+});
+
+// ─── fixture event files (test 8) ────────────────────────────────────────────
+
+describe('gh-events fixtures', () => {
+  test('exactly the four hand-written event files exist and each parses', () => {
+    const names = fs.readdirSync(EVENTS_DIR).sort();
+    assert.deepStrictEqual(names, [
+      'merge_group.json',
+      'pull_request-closes.json',
+      'pull_request-merged.json',
+      'pull_request-no-closes.json',
+    ]);
+    for (const name of names) assert.doesNotThrow(() => loadEvent(name), name);
+  });
+
+  test('pull_request-closes: linked-issue accepts the event shape and passes', () => {
+    const ev = loadEvent('pull_request-closes.json');
+    const r = linkedIssue({
+      pr: ev.pull_request,
+      repo: ev.repository.full_name,
+      defaultBranch: ev.repository.default_branch,
+      issues: new Map([[12, { number: 12, state: 'open' }]]),
+      commits: [],
+    });
+    assert.strictEqual(r.state, 'success');
+    assert.deepStrictEqual(r.closing, [12]);
+  });
+
+  test('pull_request-no-closes: linked-issue fails, and a Refs mention is not a closing reference', () => {
+    const ev = loadEvent('pull_request-no-closes.json');
+    const r = linkedIssue({
+      pr: ev.pull_request,
+      repo: ev.repository.full_name,
+      defaultBranch: ev.repository.default_branch,
+      issues: new Map(),
+      commits: [],
+    });
+    assert.strictEqual(r.state, 'failure');
+    assert.ok(/no closing reference/i.test(r.description));
+  });
+
+  test('pull_request-merged: an objective PR; planning-consistency passes, reconcile lists what is still open', () => {
+    const ev = loadEvent('pull_request-merged.json');
+    assert.strictEqual(ev.pull_request.merged, true);
+    const issues = objectiveIssues();
+    const consistency = planningConsistency({
+      pr: ev.pull_request,
+      repo: ev.repository.full_name,
+      defaultBranch: ev.repository.default_branch,
+      config: STORE_ON,
+      issues,
+      linked: [101, 102],
+    });
+    assert.strictEqual(consistency.state, 'success');
+    const open = Array.from(issues.values());
+    assert.deepStrictEqual(reconcilePlan({ pr: ev.pull_request, targets: open, linked: open.slice(1) }), [100, 101, 102]);
+  });
+
+  test('merge_group: the queue ref names the PR the closes fixture describes', () => {
+    const ev = loadEvent('merge_group.json');
+    assert.strictEqual(ev.repository.default_branch, 'main');
+    assert.strictEqual(ev.merge_group.base_ref, 'refs/heads/main');
+    assert.strictEqual(prNumberFromQueueRef(ev.merge_group.head_ref), loadEvent('pull_request-closes.json').pull_request.number);
   });
 });
