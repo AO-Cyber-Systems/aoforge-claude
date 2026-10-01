@@ -1408,3 +1408,43 @@ describe('static contract', () => {
     assert.doesNotMatch(src, /issue_id=\$\{[^}]*number/);
   });
 });
+
+// ─── 48-06: decision answers (D-09) ──────────────────────────────────────────
+
+describe('48-06 decision answer (D-09)', () => {
+  useStore();
+
+  test('1. an answer comment then a close: the answer is posted on the Decision issue and it is closed; a re-flush writes nothing', () => {
+    const body = '<!-- devflow:id=7-01-d1 -->\nWhich parser should 7-01 use?\n';
+    const n = S.fake.seedIssue({ title: '[Decision 7-01-d1] pick a parser', body, labels: ['devflow:decision'], type: 'Decision' });
+    const mapping = mappingNow();
+    mappingLib.setTrd(mapping, '7-01-d1', { issue_number: n, rest_id: restId(n), role: 'decision' });
+    assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+
+    enqueueOps([
+      { kind: 'upsert-comment', target: { id: '7-01-d1', kind: 'answer' }, payload: { mode: 'replace', text: 'Use option B' } },
+      { kind: 'patch-issue', target: { id: '7-01-d1' }, payload: { state: 'closed', state_reason: 'completed' } },
+    ]);
+    const res = runFlush();
+    assert.equal(res.status, 'flushed', JSON.stringify(res));
+    assert.deepEqual(res.done, [1, 2]);
+
+    const answers = commentsOf(n).filter((c) => c.body.startsWith(bodyLib.commentMarker('7-01-d1', 'answer')));
+    assert.equal(answers.length, 1, 'one answer comment, on the Decision issue');
+    assert.equal(stripMarker(answers[0].body), 'Use option B');
+    assert.match(answers[0].body, /^<!-- devflow:id=7-01-d1 kind=answer -->/);
+    assert.equal(issueByNumber(n).state, 'CLOSED');
+    assert.equal(issueByNumber(n).stateReason, 'completed');
+    assert.deepEqual(mappingLib.getTrd(mappingNow(), '7-01-d1').comment_ids.answer, [answers[0].id]);
+
+    const writesBefore = S.fake.writes().length;
+    enqueueOps([
+      { kind: 'upsert-comment', target: { id: '7-01-d1', kind: 'answer' }, payload: { mode: 'replace', text: 'Use option B' } },
+      { kind: 'patch-issue', target: { id: '7-01-d1' }, payload: { state: 'closed', state_reason: 'completed' } },
+    ]);
+    const again = runFlush();
+    assert.equal(again.status, 'flushed', JSON.stringify(again));
+    assert.equal(S.fake.writes().length, writesBefore, 're-flush writes nothing');
+    assert.equal(commentsOf(n).length, 1);
+  });
+});
