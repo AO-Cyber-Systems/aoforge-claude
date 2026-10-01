@@ -28,6 +28,7 @@ const flushLib = require('./gh-outbox-flush.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const comments = require('./gh-comments.cjs');
 const wikiLib = require('./gh-wiki.cjs');
+const bodyLib = require('./gh-body.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
@@ -192,5 +193,325 @@ describe('49-11 objective set-status complete while the PR is unmerged', () => {
     assert.equal(r.close_deferred, undefined);
     assert.equal(objectiveIssue().state, 'CLOSED');
     assert.equal(objectiveIssue().stateReason, 'completed');
+  });
+});
+
+// ─── Task 2: summary post and verification post drive the PR ─────────────────
+
+describe('49-11 summary post: label removal and PR refresh in one enqueue', () => {
+  useProject({ store: true, sync: true });
+
+  test('1. PR on record: the summary comment, the in-progress label removal and the PR summary refresh are queued together; one flush applies them; the PR title is kept', () => {
+    if (S.skipped) return;
+    const entry = startPr();
+    assert.equal(comments.enqueueTrdStart(S.root, { trdId: '7-01' }).ok, true);
+    flushNow();
+    assert.ok(trdIssue('7-01').labels.includes(IN_PROGRESS), 'trd start put the label on');
+    prRecord().title = 'A human renamed this PR';
+
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.queued.enqueued.length, 3, 'one enqueue carries the comment, the label removal and the PR refresh');
+    assert.equal(r.pr_refresh, undefined, 'a refresh that was queued needs no note');
+    const pending = pendingOps();
+    const summary = opsOf('upsert-comment', pending);
+    assert.equal(summary.length, 1);
+    assert.deepEqual(summary[0].target, { id: '7-01', kind: 'summary' });
+    assert.equal(summary[0].payload.mode, 'replace');
+    const patch = opsOf('patch-issue', pending);
+    assert.equal(patch.length, 1);
+    assert.deepEqual(patch[0].target, { id: '7-01' });
+    assert.deepEqual(patch[0].payload, { labels_remove: [IN_PROGRESS] });
+    const pr = opsOf('upsert-pr', pending);
+    assert.equal(pr.length, 1);
+    assert.deepEqual(pr[0].target, { id: '7' });
+    assert.deepEqual(pr[0].payload, { branch: BRANCH, base: 'main', summary: 'TRDs complete 1/3' });
+    assert.equal('title' in pr[0].payload, false, 'the title is create-only (49-05); the refresh carries none');
+    assert.equal(pending.length, 3);
+
+    const writes = S.fake.writes().length;
+    flushNow();
+    assert.ok(S.fake.writes().length > writes);
+    assert.equal(trdIssue('7-01').labels.includes(IN_PROGRESS), false, 'the label is gone');
+    assert.equal(bodyLib.extractSection(prRecord().body, 'summary'), 'TRDs complete 1/3');
+    assert.equal(prRecord().title, 'A human renamed this PR', 'the remote title is kept');
+    assert.equal(prRecord().number, entry.number);
+    assert.equal(S.fake.comments.filter((c) => c.issue_number === trdIssue('7-01').number && c.body.includes('Updated by summary post.')).length, 1);
+
+    // The second TRD completing moves the count.
+    const two = verbs.summaryPost(S.root, { trd: '07-02', text: 'two\n' });
+    assert.equal(two.ok, true, JSON.stringify(two));
+    assert.equal(bodyLib.extractSection(prRecord().body, 'summary'), 'TRDs complete 2/3');
+  });
+
+  test('1b. a `trd start` label add still pending is not re-added: the removal replaces it in the one patch-issue', () => {
+    if (S.skipped) return;
+    startPr();
+    assert.equal(comments.enqueueTrdStart(S.root, { trdId: '7-01' }).ok, true);
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const patch = opsOf('patch-issue').filter((o) => o.target.id === '7-01');
+    assert.equal(patch.length, 1, 'both land on one op (same kind and target)');
+    assert.deepEqual(patch[0].payload, { labels_remove: [IN_PROGRESS] });
+    flushNow();
+    assert.equal(trdIssue('7-01').labels.includes(IN_PROGRESS), false);
+  });
+
+  test('1c. a merged PR is not refreshed (the label still comes off)', () => {
+    if (S.skipped) return;
+    startPr();
+    recordPr({ merged_at: '2026-10-01T12:00:00Z' });
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.pr_refresh, 'skipped (pr merged)');
+    assert.deepEqual(opsOf('upsert-pr'), []);
+    assert.equal(opsOf('patch-issue').length, 1);
+  });
+
+  test('1d. a PR creation still pending keeps its title and wiki: the refresh merges into the queued upsert-pr', () => {
+    if (S.skipped) return;
+    recordPr();
+    const wiki = { dir: DIR, page: 'Objective-7-store-demo', url: 'https://github.com/o/r/wiki/Objective-7-store-demo/abc1234', sha: 'abc1234' };
+    const q = outbox.enqueue(S.root, [{ kind: 'upsert-pr', target: { id: '7' }, payload: { branch: BRANCH, base: 'main', title: PR_TITLE, wiki } }]);
+    assert.equal(q.ok, true, JSON.stringify(q));
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const pr = opsOf('upsert-pr');
+    assert.equal(pr.length, 1, 'coalesced, not duplicated');
+    assert.deepEqual(pr[0].payload, { branch: BRANCH, base: 'main', title: PR_TITLE, wiki, summary: 'TRDs complete 1/3' });
+  });
+
+  test('1e. a PR entry with no base on record: no refresh op, and the note says why', () => {
+    if (S.skipped) return;
+    recordPr({ base: null });
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.pr_refresh, 'skipped (no branch on record)');
+    assert.deepEqual(opsOf('upsert-pr'), []);
+    assert.equal(opsOf('upsert-comment').length, 1);
+  });
+
+  test('2. no PR on record: the summary comment and the label removal only, no PR op', () => {
+    if (S.skipped) return;
+    const labels = [...trdIssue('7-01').labels];
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0, JSON.stringify(r));
+    assert.equal(r.pr_refresh, undefined);
+    assert.deepEqual(pendingOps().map((o) => o.kind).sort(), ['patch-issue', 'upsert-comment']);
+    assert.deepEqual(opsOf('patch-issue')[0].payload, { labels_remove: [IN_PROGRESS] });
+    flushNow();
+    assert.deepEqual(trdIssue('7-01').labels, labels, 'a TRD that never had the label is left alone');
+    assert.equal(S.fake.issues.some((i) => i.pr), false, 'no PR was created');
+  });
+
+  test('2b. the configured in-progress label is the one removed', () => {
+    if (S.skipped) return;
+    const cfgFile = planning('config.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+    cfg.github.labels = { ...(cfg.github.labels || {}), in_progress: 'wip' };
+    fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(opsOf('patch-issue')[0].payload, { labels_remove: ['wip'] });
+  });
+});
+
+// A wiki clone with one page committed (the base) and, optionally, a second page changed after it.
+function wikiFixture({ change = true } = {}) {
+  assert.equal(verbs.docPut(S.root, { rel: 'research/a.md', text: '# A\n\nFirst.\n' }).ok, true);
+  const base = wikiLib.headSha(S.root);
+  assert.ok(base, 'the wiki clone exists');
+  if (change) assert.equal(verbs.docPut(S.root, { rel: 'research/b.md', text: '# B\n\nChanged during the objective.\n' }).ok, true);
+  return base;
+}
+const statusesOn = (sha) => (S.fake.statuses[sha] || []).filter((s) => s.context === 'devflow/verification');
+const prComments = () => S.fake.comments.filter((c) => prRecord() && c.issue_number === prRecord().number);
+
+describe('49-11 verification post: status, ready and the wiki diff', () => {
+  useProject({ store: true, sync: true });
+
+  test('3. passed: post-status success, pr-ready and the wiki-diff comment are queued with the verification comment; a flush marks the PR ready', () => {
+    if (S.skipped) return;
+    const base = wikiFixture();
+    startPr({ wikiBase: base });
+    assert.equal(prRecord().pr.draft, true);
+
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.queued.enqueued.length, 4, 'one enqueue: the comment, the status, ready and the wiki diff');
+    const pending = pendingOps();
+    assert.deepEqual(opsOf('upsert-comment', pending)[0].target, { id: '7', kind: 'verification' });
+    const status = opsOf('post-status', pending);
+    assert.equal(status.length, 1);
+    assert.deepEqual(status[0].target, { id: '7', context: 'devflow/verification' });
+    assert.deepEqual(status[0].payload, { state: 'success', description: 'Objective 7 verified (12/12 must-haves)' });
+    assert.equal('sha' in status[0].payload, false, 'the flusher resolves the PR head at flush (49-10)');
+    assert.deepEqual(opsOf('pr-ready', pending)[0].target, { id: '7' });
+    const diff = opsOf('upsert-pr-comment', pending);
+    assert.equal(diff.length, 1);
+    assert.deepEqual(diff[0].target, { id: '7', kind: 'wiki-diff' });
+    assert.equal(diff[0].payload.mode, 'replace');
+    assert.ok(diff[0].payload.text.startsWith('## Wiki changes during objective 7\n'), diff[0].payload.text);
+    assert.match(diff[0].payload.text, /```diff\n/);
+    assert.match(diff[0].payload.text, /Research-b\.md/);
+    assert.match(diff[0].payload.text, /\+Changed during the objective\./);
+    assert.doesNotMatch(diff[0].payload.text, /Research-a\.md/, 'only what changed since wiki_base_sha');
+
+    flushNow();
+    assert.equal(prRecord().pr.draft, false, 'the PR is ready for review');
+    const posted = statusesOn(TIP);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].state, 'success');
+    assert.equal(posted[0].description, 'Objective 7 verified (12/12 must-haves)');
+    const sticky = prComments().filter((c) => c.body.includes('Research-b.md'));
+    assert.equal(sticky.length, 1, 'the wiki diff is a comment on the PR');
+    assert.equal(objectiveIssue().state, 'OPEN', 'verify pass does not close the objective issue');
+  });
+
+  test('3b. a re-run on every verify pass is a no-op on GitHub (status, ready and comment are idempotent)', () => {
+    if (S.skipped) return;
+    startPr({ wikiBase: wikiFixture() });
+    assert.equal(verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED }).ok, true);
+    const writes = S.fake.writes().length;
+    const again = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED });
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal(again.exit, 0, JSON.stringify(again));
+    assert.equal(S.fake.writes().length, writes, 'zero writes on the second pass');
+    assert.equal(statusesOn(TIP).length, 1);
+  });
+
+  test('3c. no PR on record: only the verification comment, as objective 48 left it', () => {
+    if (S.skipped) return;
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(pendingOps().map((o) => o.kind), ['upsert-comment']);
+  });
+
+  test('3d. a merged PR gets no status, ready or diff', () => {
+    if (S.skipped) return;
+    startPr();
+    recordPr({ merged_at: '2026-10-01T12:00:00Z' });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(pendingOps().map((o) => o.kind), ['upsert-comment']);
+  });
+
+  test('3e. a verdict that cannot be read (no frontmatter status) posts no PR status and says so', () => {
+    if (S.skipped) return;
+    startPr();
+    const r = verbs.verificationPost(S.root, { objective: '7', text: '# Objective 7 Verification\n\nstatus: passed\n', noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(pendingOps().map((o) => o.kind), ['upsert-comment']);
+    assert.ok(r.warnings.some((w) => /no recognised `status:`/.test(w)), r.warnings.join('\n'));
+    const odd = verbs.verificationPost(S.root, { objective: '7', text: verificationText('in_progress'), noFlush: true });
+    assert.deepEqual(pendingOps().map((o) => o.kind), ['upsert-comment']);
+    assert.ok(odd.warnings.some((w) => /in_progress/.test(w)), odd.warnings.join('\n'));
+  });
+
+  test('3f. the description is the score when there is one, never longer than 140 characters', () => {
+    if (S.skipped) return;
+    startPr();
+    const bare = verbs.verificationPost(S.root, { objective: '7', text: verificationText('passed'), noFlush: true });
+    assert.equal(bare.ok, true, JSON.stringify(bare));
+    assert.equal(opsOf('post-status')[0].payload.description, 'Objective 7 verified');
+    const long = verbs.verificationPost(S.root, { objective: '7', text: verificationText('passed', `${'9/9 '.repeat(60)}must-haves`), noFlush: true });
+    assert.equal(long.ok, true, JSON.stringify(long));
+    const d = opsOf('post-status')[0].payload.description;
+    assert.ok(d.length <= 140 && d.startsWith('Objective 7 verified ('), d);
+  });
+
+  test('4. the wiki is unchanged since wiki_base_sha: the comment says so', () => {
+    if (S.skipped) return;
+    startPr({ wikiBase: wikiFixture({ change: false }) });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const diff = opsOf('upsert-pr-comment');
+    assert.equal(diff.length, 1);
+    assert.equal(diff[0].payload.text, 'No wiki pages changed during this objective.');
+  });
+
+  test('5. gaps_found: post-status failure, no ready, no wiki diff; the PR stays a draft', () => {
+    if (S.skipped) return;
+    startPr({ wikiBase: wikiFixture() });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: verificationText('gaps_found', '10/12 must-haves') });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0, JSON.stringify(r));
+    const sent = statusesOn(TIP);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].state, 'failure');
+    assert.equal(sent[0].description, 'Objective 7 verification found gaps (10/12 must-haves)');
+    assert.equal(prRecord().pr.draft, true);
+    assert.equal(opsOf('pr-ready', allOps()).length + opsOf('upsert-pr-comment', allOps()).length, 0);
+  });
+
+  test('6. human_needed: post-status pending, no ready', () => {
+    if (S.skipped) return;
+    startPr();
+    const r = verbs.verificationPost(S.root, { objective: '7', text: verificationText('human_needed'), noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const status = opsOf('post-status');
+    assert.equal(status.length, 1);
+    assert.deepEqual(status[0].payload, { state: 'pending', description: 'Objective 7 needs human verification' });
+    assert.equal(opsOf('pr-ready').length, 0);
+    assert.equal(opsOf('upsert-pr-comment').length, 0);
+    flushNow();
+    assert.equal(prRecord().pr.draft, true);
+    assert.equal(statusesOn(TIP)[0].state, 'pending');
+  });
+
+  test('7b. a wiki base the clone does not know: no diff op, a warning, status and ready still queued', () => {
+    if (S.skipped) return;
+    wikiFixture();
+    startPr({ wikiBase: 'deadbeefdeadbeefdeadbeef' });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(pendingOps().map((o) => o.kind).sort(), ['post-status', 'pr-ready', 'upsert-comment']);
+    assert.ok(r.warnings.some((w) => /wiki diff not posted/.test(w)), r.warnings.join('\n'));
+  });
+});
+
+describe('49-11 verification post in pages (docs) mode', () => {
+  useProject({ store: true, sync: true, hasWiki: false });
+
+  test('7. no wiki diff op (the pages are in the PR files); status and ready are still queued', () => {
+    if (S.skipped) return;
+    startPr();
+    assert.equal(wikiLib.headSha(S.root), null, 'docs mode has no wiki clone');
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(pendingOps().map((o) => o.kind).sort(), ['post-status', 'pr-ready', 'upsert-comment']);
+    assert.deepEqual(r.warnings, [], 'no clone is not worth a warning');
+    flushNow();
+    assert.equal(prRecord().pr.draft, false);
+    assert.equal(statusesOn(TIP).length, 1);
+  });
+});
+
+describe('49-11 local mode is today\'s write (D-01)', () => {
+  useProject({ store: false, sync: false });
+
+  test('11. summary post, verification post and set-status complete write today\'s bytes with zero gh calls, even with a `prs` entry', () => {
+    recordPr({ number: 12 });
+    const cases = [
+      [verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY }), `${OBJ_REL}/07-01-alpha-SUMMARY.md`, NEW_SUMMARY],
+      [verbs.summaryPost(S.root, { trd: '07-02', text: 'two\n' }), `${OBJ_REL}/07-02-SUMMARY.md`, 'two\n'],
+      [verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED }), `${OBJ_REL}/07-VERIFICATION.md`, VERIFICATION_PASSED],
+    ];
+    for (const [r, rel, text] of cases) {
+      assert.equal(r.ok, true, JSON.stringify(r));
+      assert.equal(r.mode, 'local');
+      assert.equal(r.exit, 0);
+      assert.equal(r.rel, rel);
+      assert.equal(r.pr_refresh, undefined);
+      assert.ok(Buffer.from(text).equals(fs.readFileSync(planning(rel))), `${rel}: same bytes`);
+    }
+    const done = verbs.objectiveSetStatus(S.root, { id: '7', status: 'complete' });
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.equal(done.delegate, 'objective complete', 'local mode still delegates to cmdObjectiveComplete');
+    assert.equal(done.close_deferred, undefined);
+    assert.equal(readRel(`${OBJ_REL}/OBJECTIVE.md`), STORE_FIXTURE.objective.replace('status: planned', 'status: complete'));
+    assert.equal(S.fake.calls().length, 0, 'zero gh calls');
+    assert.equal(fs.existsSync(outbox.journalPath(S.root)), false, 'no journal');
   });
 });
