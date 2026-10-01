@@ -269,7 +269,7 @@ TRDs:
 - [x] 49-12-pr-merge-and-reconcile-TRD.md — (W4) `gh pr merge` (verified + ready only) and `gh pr reconcile` (stragglers closed, Project Done, branches deleted, cache pulled)
 - [x] 49-13-workflow-prose-pr-lifecycle-TRD.md — (W5) execute-objective + complete-milestone drive the PR in store mode; `branching_strategy` deprecated (GPR-06)
 - [x] 49-14-pr-lifecycle-e2e-and-parity-TRD.md — (W5) SC1 one PR closing every TRD, SC2 worktrees with no extra PRs, SC3 scope pending until confirmed; store-off parity
-- [ ] 49-15-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync skill; `npm test` (SC4)
+- [x] 49-15-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync skill; `npm test` (SC4)
 
 ### Objective 50: GitHub enforcement and setup
 
@@ -338,6 +338,6 @@ Candidate scope carried forward from v1.2 deferrals:
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
-| 49. Objective branch and PR lifecycle | v1.4 | 14/15 | In Progress | — |
+| 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
