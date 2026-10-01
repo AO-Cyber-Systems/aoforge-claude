@@ -431,6 +431,18 @@ describe('49-11 verification post: status, ready and the wiki diff', () => {
     assert.equal(diff[0].payload.text, 'No wiki pages changed during this objective.');
   });
 
+  test('4b. a wiki page that itself contains a code fence cannot close the diff block early', () => {
+    if (S.skipped) return;
+    const base = wikiFixture({ change: false });
+    assert.equal(verbs.docPut(S.root, { rel: 'research/c.md', text: '# C\n\n```js\nconst x = 1;\n```\n' }).ok, true);
+    startPr({ wikiBase: base });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const text = opsOf('upsert-pr-comment')[0].payload.text;
+    assert.match(text, /\n````diff\n/, 'a four-backtick fence around a diff holding a three-backtick fence');
+    assert.ok(text.endsWith('\n````'), text);
+  });
+
   test('5. gaps_found: post-status failure, no ready, no wiki diff; the PR stays a draft', () => {
     if (S.skipped) return;
     startPr({ wikiBase: wikiFixture() });

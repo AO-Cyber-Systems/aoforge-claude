@@ -27,10 +27,16 @@
  *                                                               + wiki-push of the objective page
  *   objective set-status  OBJECTIVE.md `status:`                as objective put, + patch-issue for complete
  *                                                               (closed/completed), cancelled (closed/not_planned),
- *                                                               reopened (open)
- *   summary post          objectives/<dir>/<prefix>-SUMMARY.md   upsert-comment kind=summary on the TRD issue
+ *                                                               reopened (open). `complete` queues NO close while the
+ *                                                               objective's PR is unmerged (49-11: it closes on merge)
+ *   summary post          objectives/<dir>/<prefix>-SUMMARY.md   upsert-comment kind=summary on the TRD issue,
+ *                                                               patch-issue labels_remove [in_progress], and with a PR
+ *                                                               upsert-pr (summary `TRDs complete k/N`, no title)
  *   summary checkpoint    local: the SUMMARY file; store: .trd-progress/<trd>.md (runtime, never queued, D-12)
- *   verification post     objectives/<dir>/<NN>-VERIFICATION.md  upsert-comment kind=verification on the objective
+ *   verification post     objectives/<dir>/<NN>-VERIFICATION.md  upsert-comment kind=verification on the objective;
+ *                                                               with a PR: post-status devflow/verification (passed ->
+ *                                                               success + pr-ready + upsert-pr-comment wiki-diff,
+ *                                                               gaps_found -> failure, human_needed -> pending)
  *   doc put               any rel with a wiki page              wiki-push of that page
  * A wiki-push coalesces on its one target (`{store:'pages'}`, latest payload wins), so every verb that queues one
  * unions its pages with the pending op's; a pending objective patch-issue is merged the same way.
@@ -58,13 +64,14 @@ const ledger = require('./planning-ledger.cjs');
 const trdBulk = require('./trd-bulk.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
+const client = require('./gh-client.cjs');
 const ghCache = require('./gh-cache.cjs');
 const ghComments = require('./gh-comments.cjs');
 const ghHierarchy = require('./gh-hierarchy.cjs');
 const ghMapping = require('./gh-mapping.cjs');
 const ghTrd = require('./gh-trd.cjs');
 const ghWiki = require('./gh-wiki.cjs');
-const { setFrontmatterField } = require('./frontmatter.cjs');
+const { extractFrontmatter, setFrontmatterField } = require('./frontmatter.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
 
@@ -513,14 +520,18 @@ function objectiveSetStatus(root, opts = {}) {
   return { ...r, close_deferred: deferred, warnings: [...(r.warnings || []), note] };
 }
 
-/** `pr #N` (or `pr (branch B)` before the PR exists) when the objective has a PR on record that has not merged; else null. */
-function unmergedPr(main, id) {
-  let entry = null;
+/** The objective's `prs` entry (49-02: branch, base, number, wiki_base_sha, merged_at, ...), or null: no PR on record. */
+function prOnRecord(main, id) {
   try {
-    entry = ghMapping.getPr(ghMapping.readMappingV3(main), id);
+    return ghMapping.getPr(ghMapping.readMappingV3(main), id);
   } catch {
     return null;
   }
+}
+
+/** `pr #N` (or `pr (branch B)` before the PR exists) when the objective has a PR on record that has not merged; else null. */
+function unmergedPr(main, id) {
+  const entry = prOnRecord(main, id);
   if (!entry || entry.merged_at) return null;
   return entry.number ? `pr #${entry.number}` : `pr (branch ${entry.branch})`;
 }
@@ -572,9 +583,200 @@ function summaryFileOf(t, file) {
   return t.files.find((f) => re.test(f)) || `${t.prefix}-SUMMARY.md`;
 }
 
+// ─── PR hooks of summary post / verification post (objective 49, GPR-03) ─────
+//
+// Every op below is built inside the `enqueue` callback of writeThrough, which local mode never calls: that is what
+// keeps D-01 (a local verb makes zero gh calls and reads no mapping).
+
+// gh-comments' default for `github.labels.in_progress` (its enqueueTrdStart); the same label `gh trd start` adds.
+const IN_PROGRESS_LABEL = 'devflow:in-progress';
+const VERIFY_CONTEXT = 'devflow/verification';
+const STATUS_DESCRIPTION_MAX = 140; // gh-outbox's post-status limit
+const NO_WIKI_CHANGES = 'No wiki pages changed during this objective.';
+// A TRD's SUMMARY file: `<obj>-<NN>[-slug]-SUMMARY.md`.
+const SUMMARY_FILE_RE = /^(\d+(?:\.\d+)?-\d+)(?:-.*)?-SUMMARY\.md$/;
+// VERIFICATION frontmatter `status:` -> the commit status state.
+const VERDICT_STATE = Object.freeze({ passed: 'success', gaps_found: 'failure', human_needed: 'pending' });
+
+/** The label `gh trd start` put on a TRD issue: `github.labels.in_progress`, else the default. */
+function inProgressLabel(main) {
+  let configured = null;
+  try {
+    const gate = client.requireEnabled(main);
+    configured = gate.labels && gate.labels.in_progress;
+  } catch {
+    configured = null;
+  }
+  return typeof configured === 'string' && configured.trim() !== '' ? configured.trim() : IN_PROGRESS_LABEL;
+}
+
+/**
+ * A patch-issue taking `label` off the TRD issue, merged over a pending patch-issue on the same target (they
+ * coalesce, latest payload wins). A pending `labels_add` of the same label is dropped: the flusher never removes a
+ * label the same op adds, so a `trd start` that was never flushed would otherwise win over the completion.
+ */
+function removeLabelOp(main, id, label) {
+  const target = { id };
+  const prior = pendingOp(main, 'patch-issue', target);
+  const before = prior && prior.payload && typeof prior.payload === 'object' ? prior.payload : {};
+  const payload = { ...before, labels_remove: unique([...(before.labels_remove || []), label]) };
+  const added = (before.labels_add || []).filter((l) => l !== label);
+  if (added.length > 0) payload.labels_add = added;
+  else delete payload.labels_add;
+  return { kind: 'patch-issue', target, payload };
+}
+
+/** An upsert-pr merged over a pending one (latest payload wins on coalesce): a queued creation keeps its title and wiki. */
+function upsertPrOp(main, id, payload) {
+  const target = { id };
+  const prior = pendingOp(main, 'upsert-pr', target);
+  const before = prior && prior.payload && typeof prior.payload === 'object' ? prior.payload : {};
+  return { kind: 'upsert-pr', target, payload: { ...before, ...payload } };
+}
+
+/** `{done, total}`: the TRDs of the objective (TRD files and mapped TRDs, plus `trdId`) and how many have a SUMMARY. */
+function trdProgress(main, objective, trdId) {
+  const total = new Set([trdId]);
+  const done = new Set([trdId]); // the SUMMARY being posted is already in the cache
+  for (const f of listDir(path.join(main, '.planning', 'objectives', objective.dir))) {
+    const trd = TRD_FILE_RE.exec(f);
+    const trdFileId = trd ? ghMapping.toTrdId(trd[1]) : null;
+    if (trdFileId !== null) total.add(trdFileId);
+    const sum = SUMMARY_FILE_RE.exec(f);
+    const sumId = sum ? ghMapping.toTrdId(sum[1]) : null;
+    if (sumId !== null && sumId.replace(/-\d+$/, '') === objective.id) {
+      done.add(sumId);
+      total.add(sumId);
+    }
+  }
+  try {
+    for (const id of ghMapping.listTrds(ghMapping.readMappingV3(main), objective.id)) total.add(id);
+  } catch {
+    // an unreadable mapping only means the file listing decides
+  }
+  return { done: done.size, total: total.size };
+}
+
+/**
+ * The store-mode enqueue of `summary post`: the TRD's `summary` comment, the in-progress label coming off the TRD
+ * issue and, when the objective has a PR that has not merged, a refresh of the PR's summary section
+ * (`TRDs complete k/N`). One outbox.enqueue, so one flush applies all three. The refresh carries the branch and base
+ * from `prs[obj]` and NO title (49-05: the title is create-only; the remote title is kept). `note.pr_refresh` says why
+ * no refresh was queued.
+ */
+function summaryEnqueue(main, t, file, text, note) {
+  let payloadText;
+  try {
+    payloadText = ghComments.fileCommentText(file, text);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const ops = [
+    { kind: 'upsert-comment', target: { id: t.id, kind: 'summary' }, payload: { mode: 'replace', text: payloadText } },
+    removeLabelOp(main, t.id, inProgressLabel(main)),
+  ];
+  const entry = prOnRecord(main, t.objective.id);
+  if (entry && entry.merged_at) {
+    note.pr_refresh = 'skipped (pr merged)';
+  } else if (entry && (!entry.branch || !entry.base)) {
+    note.pr_refresh = 'skipped (no branch on record)';
+  } else if (entry) {
+    const { done, total } = trdProgress(main, t.objective, t.id);
+    ops.push(upsertPrOp(main, t.objective.id, { branch: entry.branch, base: entry.base, summary: `TRDs complete ${done}/${total}` }));
+  }
+  return outbox.enqueue(main, ops);
+}
+
+/** `text` at most STATUS_DESCRIPTION_MAX characters, ending in `...` when it was cut. */
+function fitDescription(text) {
+  return text.length <= STATUS_DESCRIPTION_MAX ? text : `${text.slice(0, STATUS_DESCRIPTION_MAX - 3)}...`;
+}
+
+/** The commit-status description for a verdict: `Objective 7 verified (12/12 must-haves)`. */
+function verdictDescription(id, state, score) {
+  const head = { success: 'verified', failure: 'verification found gaps', pending: 'needs human verification' }[state];
+  const lead = `Objective ${id} ${head}`;
+  return fitDescription(score === null ? lead : `${lead} (${score})`);
+}
+
+/** A fence of backticks longer than any run inside `text`, so a diff that quotes a fence cannot end its own block. */
+function fenceFor(text) {
+  const longest = (text.match(/`+/g) || []).reduce((n, run) => Math.max(n, run.length), 0);
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * The wiki-diff comment op: the diff of the local wiki clone since `prs[obj].wiki_base_sha`. No base on record (pages
+ * mode, or no wiki at `gh pr start`) or no clone: no op, since the pages are already among the PR's files. A diff that
+ * cannot be read is a warning, never a failed verify.
+ */
+function wikiDiffOp(main, id, entry, warnings) {
+  if (!entry.wiki_base_sha) return null;
+  const d = ghWiki.diff(main, entry.wiki_base_sha);
+  if (typeof d !== 'string') {
+    if (d && d.reason !== 'no-wiki-clone') warnings.push(`wiki diff not posted: ${d.error || d.reason}`);
+    return null;
+  }
+  let text = NO_WIKI_CHANGES;
+  if (d.trim() !== '') {
+    const fence = fenceFor(d);
+    text = `## Wiki changes during objective ${id}\n\n${fence}diff\n${d.trimEnd()}\n${fence}`;
+  }
+  return { kind: 'upsert-pr-comment', target: { id, kind: 'wiki-diff' }, payload: { mode: 'replace', text } };
+}
+
+/**
+ * The store-mode enqueue of `verification post`: the sticky `verification` comment and, when the objective has a PR
+ * that has not merged, the verdict on the PR. The verdict is the VERIFICATION frontmatter `status:`:
+ *   passed        post-status success (`Objective <id> verified (<score>)`), pr-ready, and the wiki-diff comment
+ *   gaps_found    post-status failure; the PR stays a draft
+ *   human_needed  post-status pending
+ * The status carries no sha: the flusher resolves the PR head at flush (49-10), so `gh pr sync` first (the prose does)
+ * and the status lands on the pushed tip. Every op is idempotent, so a status on every verify pass is safe.
+ */
+function verificationEnqueue(main, target, file, text) {
+  let payloadText;
+  try {
+    payloadText = ghComments.fileCommentText(file, text);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const id = target.id;
+  const ops = [{ kind: 'upsert-comment', target: { id, kind: 'verification' }, payload: { mode: 'replace', text: payloadText } }];
+  const warnings = [];
+  const entry = prOnRecord(main, id);
+  if (entry && !entry.merged_at) {
+    const fm = extractFrontmatter(text);
+    const status = typeof fm.status === 'string' ? fm.status.trim() : '';
+    const state = VERDICT_STATE[status];
+    if (!state) {
+      warnings.push(
+        `VERIFICATION has no recognised \`status:\` in its frontmatter (got ${status === '' ? 'none' : JSON.stringify(status)}; `
+        + `expected ${Object.keys(VERDICT_STATE).join(', ')}), so no status was posted on the PR`
+      );
+    } else {
+      const score = fm.score !== undefined && String(fm.score).trim() !== '' ? String(fm.score).trim() : null;
+      ops.push({
+        kind: 'post-status',
+        target: { id, context: VERIFY_CONTEXT },
+        payload: { state, description: verdictDescription(id, state, score) },
+      });
+      if (state === 'success') {
+        ops.push({ kind: 'pr-ready', target: { id }, payload: {} });
+        const diff = wikiDiffOp(main, id, entry, warnings);
+        if (diff) ops.push(diff);
+      }
+    }
+  }
+  const q = outbox.enqueue(main, ops);
+  return warnings.length > 0 ? { ...q, warnings: [...(q.warnings || []), ...warnings] } : q;
+}
+
 /**
  * summaryPost(root, {trd, text, file?, noFlush, noWait}) — `summary post`: write the TRD's SUMMARY; store mode queues
- * it as the TRD issue's `summary` comment and removes the `.trd-progress/<trd>.md` checkpoint.
+ * it as the TRD issue's `summary` comment, takes the in-progress label off the TRD issue, refreshes the objective
+ * PR's summary section when it has one (`pr_refresh` says why it did not), and removes the `.trd-progress/<trd>.md`
+ * checkpoint.
  */
 function summaryPost(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
@@ -588,18 +790,19 @@ function summaryPost(root, opts = {}) {
   if (bad) return fail(bad);
   const rel = `objectives/${t.objective.dir}/${name}`;
 
+  const note = {};
   const r = writeThrough(main, {
     rel,
     text: o.text,
     verb: 'summary post',
-    enqueue: (m) => ghComments.enqueueSummary(m, { trdId: t.id, file: name, text: o.text }),
+    enqueue: (m) => summaryEnqueue(m, t, name, o.text, note),
     noFlush: o.noFlush === true,
     noWait: o.noWait === true,
   });
   if (r.mode === STORE && readOrNull(r.path) === o.text) {
     fs.rmSync(planningFile(main, `.trd-progress/${t.id}.md`), { force: true });
   }
-  return r;
+  return note.pr_refresh ? { ...r, pr_refresh: note.pr_refresh } : r;
 }
 
 /**
@@ -650,7 +853,7 @@ function verificationPost(root, opts = {}) {
     rel: `objectives/${target.dir}/${name}`,
     text: o.text,
     verb: 'verification post',
-    enqueue: (m) => ghComments.enqueueVerification(m, { objectiveId: target.id, file: name, text: o.text }),
+    enqueue: (m) => verificationEnqueue(m, target, name, o.text),
     noFlush: o.noFlush === true,
     noWait: o.noWait === true,
   });
