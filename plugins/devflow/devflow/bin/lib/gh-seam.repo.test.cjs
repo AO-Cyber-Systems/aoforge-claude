@@ -52,6 +52,10 @@ const GUARDED = [
   'gh-gate.cjs',
   // objective 50 (TRD 50-03): the pure logic of the two required checks; takes plain data, spawns and writes nothing.
   'gh-check.cjs',
+  // objective 50 (TRD 50-09): the `gh setup` read + plan half. It reads through ghRead/ghPaginate only and spawns
+  // nothing; it is guarded but not in NO_DIRECT_WRITE because TRD 50-11 adds applySetup to this module, which writes
+  // through gh-client.ghWrite (the setup apply is the one direct writer of this objective, like gh-milestone-store).
+  'gh-setup.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
