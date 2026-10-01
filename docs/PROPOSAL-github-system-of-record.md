@@ -90,8 +90,8 @@ Decisions taken while executing objective 50 that refine, and do not change, the
   workflow files carry no path or branch filters and never use `pull_request_target`.
 - `planning-consistency` (50-03) validates the GitHub issue graph, never `.planning/` files, which are an
   untracked cache in store mode: store off or no objective PR passes with a stated reason, and an objective PR
-  needs the default-branch base, the objective issue and every linked TRD closed, and nothing closed as
-  `not_planned`.
+  needs the default-branch base, a closing reference for the objective issue and for every TRD issue linked
+  under it (so merging closes them all), and no closing target already closed as `not_planned`.
 - `linked-issue` (50-03) fails on a closing reference that is dead or is a pull request even beside a good one,
   and when the default branch is unknown. `Refs #N` is reported, never required.
 - Reconcile (50-08) acts only on a merged PR whose base is the default branch (closing keywords never act
