@@ -4,14 +4,16 @@
  * gh-backfill.test.cjs — TRD 51-03 (GMD-01, GMD-02)
  *
  * The pure core of the GitHub backfill: classify local history (shipped / cancelled / open objectives, done /
- * deferred / open TRDs) and turn finished work into `patch-issue` close ops (G1).
+ * deferred / open TRDs) and turn finished work into `patch-issue` close ops (G1), price a backfill with an
+ * upper-bound request estimate (G3), detect a queue to resume, and book live writes into the budget window (G5).
+ * Test 8 (the seam guard) lives in gh-seam.repo.test.cjs.
  *
  * Fixtures are hand-built under os.tmpdir() (`makeStoreProject` for one objective with TRDs, small inline
  * writers for multi-objective histories). Nothing here calls GitHub: gh-client's runner is replaced with one
  * that throws, so any gh call fails the test that made it. Nothing touches the real ~/.claude.
  */
 
-const { describe, test, before, after } = require('node:test');
+const { describe, test, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -21,7 +23,7 @@ const backfill = require('./gh-backfill.cjs');
 const outbox = require('./gh-outbox.cjs');
 const ghHierarchy = require('./gh-hierarchy.cjs');
 const client = require('./gh-client.cjs');
-const { makeStoreProject } = require('./__fixtures__/gh-store-fixtures.cjs');
+const { makeStoreProject, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
 
 // Any gh call from the code under test is a failure: the backfill core is local-only.
 before(() => {
@@ -363,5 +365,233 @@ describe('historyOps (test 3)', () => {
     } finally {
       project.cleanup();
     }
+  });
+});
+
+// ─── test 4: estimate, the cost table ────────────────────────────────────────
+
+/** A minimal op of `kind`; only `kind` (and set-fields' `values`) matter to the estimate. */
+const opOf = (kind, payload = {}) => ({ kind, target: { id: '7' }, payload });
+const repeat = (n, kind, payload) => Array.from({ length: n }, () => opOf(kind, payload));
+
+describe('estimate (test 4)', () => {
+  test('the cost table holds the documented upper bounds', () => {
+    assert.deepEqual({ ...backfill.COST }, {
+      'upsert-issue': 2,
+      'link-sub-issue': 1,
+      block: 1,
+      'upsert-comment': 1,
+      'patch-issue': 1,
+      'patch-body': 1,
+      'set-fields': 4,
+      'wiki-push': 0,
+      milestone: 2,
+      'live-create': 3,
+      unknown: 2,
+      read: 2,
+    });
+    assert.ok(Object.isFrozen(backfill.COST), 'the table is frozen');
+  });
+
+  test('a hand-built op list plus one live create prices exactly from COST', () => {
+    const ops = [
+      ...repeat(3, 'upsert-issue'),
+      ...repeat(2, 'link-sub-issue'),
+      ...repeat(1, 'block'),
+      ...repeat(2, 'patch-issue'),
+      ...repeat(1, 'wiki-push'),
+    ];
+    const e = backfill.estimate({ ops, live_creates: 1 });
+    const C = backfill.COST;
+    assert.equal(e.writes_max, 3 * C['upsert-issue'] + 2 * C['link-sub-issue'] + C.block + 2 * C['patch-issue'] + C['wiki-push'] + C['live-create']);
+    assert.equal(e.writes_max, 14);
+    assert.equal(e.ops, 10, 'nine listed ops and one live create');
+    assert.equal(e.reads_approx, 10 * C.read, 'two reads per op (informational)');
+    assert.deepEqual(e.by_kind, {
+      'upsert-issue': 3, 'link-sub-issue': 2, block: 1, 'patch-issue': 2, 'wiki-push': 1, 'live-create': 1,
+    });
+    assert.deepEqual(e.writes_by_kind, {
+      'upsert-issue': 6, 'link-sub-issue': 2, block: 1, 'patch-issue': 2, 'wiki-push': 0, 'live-create': 3,
+    });
+    assert.equal(e.live_creates, 1);
+    assert.equal(e.wiki_pushes, 0, 'wiki pushes passed as a count, none here');
+    assert.equal(e.milestones, 0);
+    assert.deepEqual(e.unknown_kinds, []);
+  });
+
+  test('an unknown kind is priced at 2 and listed; set-fields costs one write per field (4 when it cannot tell)', () => {
+    const e = backfill.estimate({
+      ops: [
+        opOf('mystery'),
+        opOf('mystery'),
+        opOf('upsert-pr'),
+        opOf('set-fields', { values: { work: 'feature', kind: 'plugin' } }),
+        opOf('set-fields', {}),
+        null,
+      ],
+    });
+    assert.deepEqual(e.unknown_kinds, ['(invalid)', 'mystery', 'upsert-pr'], 'sorted, deduped');
+    assert.equal(e.by_kind.mystery, 2);
+    assert.equal(e.writes_by_kind.mystery, 4);
+    assert.equal(e.writes_by_kind['upsert-pr'], 2, 'an outbox kind the table does not price is never under-estimated');
+    assert.equal(e.writes_by_kind['set-fields'], 2 + 4);
+    assert.equal(e.writes_max, 4 + 2 + 6 + 2, 'a null op is junk priced like an unknown kind');
+  });
+
+  test('wiki pushes, milestones and live creates passed as counts', () => {
+    const e = backfill.estimate({ ops: [], live_creates: 2, wiki_pushes: 1, milestones: 3 });
+    assert.equal(e.writes_max, 2 * 3 + 0 + 3 * 2);
+    assert.equal(e.ops, 6);
+    assert.deepEqual(e.by_kind, { 'live-create': 2, 'wiki-push': 1, milestone: 3 });
+  });
+
+  test('estimate is pure and total: junk input is zero, never a throw, and the input is not mutated', () => {
+    for (const junk of [undefined, null, 7, 'x', { ops: 'nope' }, { live_creates: -2, milestones: Number.NaN }]) {
+      const e = backfill.estimate(junk);
+      assert.equal(e.writes_max, 0, JSON.stringify(junk));
+      assert.equal(e.ops, 0);
+    }
+    const input = { ops: [opOf('block')], live_creates: 1 };
+    const frozen = JSON.stringify(input);
+    backfill.estimate(input);
+    assert.equal(JSON.stringify(input), frozen);
+    assert.deepEqual(backfill.estimate([opOf('block')]).by_kind, { block: 1 }, 'a bare op array is the op list');
+    assert.equal(backfill.estimate({ live_creates: 1.5 }).live_creates, 2, 'a fractional count rounds up (an upper bound)');
+  });
+});
+
+// ─── test 5: estimate time fields and rendering ──────────────────────────────
+
+describe('estimate time fields (test 5)', () => {
+  test('900 writes: 12 minutes at least, 2 hour windows, 1 full hourly wait', () => {
+    const e = backfill.estimate({ ops: repeat(450, 'upsert-issue') });
+    assert.equal(e.writes_max, 900);
+    assert.equal(e.minutes_min, 12);
+    assert.equal(e.hour_windows, 2);
+    assert.equal(e.hours_min, 1);
+    assert.equal(e.minutes_min, Math.ceil(900 / outbox.BUDGET.minute), 'paced by outbox.BUDGET');
+    assert.equal(e.hour_windows, Math.ceil(900 / outbox.BUDGET.hour));
+  });
+
+  test('0 writes: every time field is zero', () => {
+    const e = backfill.estimate({ ops: repeat(3, 'wiki-push') });
+    assert.equal(e.writes_max, 0);
+    assert.equal(e.minutes_min, 0);
+    assert.equal(e.hour_windows, 0);
+    assert.equal(e.hours_min, 0);
+  });
+
+  test('the hour boundary: 450 writes fit one window, 451 need a second', () => {
+    const at = (n) => backfill.estimate({ ops: repeat(n, 'patch-issue') });
+    assert.deepEqual([at(450).hour_windows, at(450).hours_min], [1, 0]);
+    assert.deepEqual([at(451).hour_windows, at(451).hours_min], [2, 1]);
+  });
+
+  test('renderEstimate is one line naming the upper bound, the op count and the pacing', () => {
+    const big = backfill.estimate({ ops: [...repeat(540, 'link-sub-issue'), ...repeat(72, 'wiki-push')] });
+    assert.equal(backfill.renderEstimate(big),
+      '~540 writes (upper bound) in 612 ops; at 80/min and 450/h at least 1 h of hourly-budget waits');
+
+    const small = backfill.estimate({ ops: repeat(9, 'link-sub-issue'), live_creates: 1 });
+    assert.equal(backfill.renderEstimate(small),
+      '~12 writes (upper bound) in 10 ops; at 80/min and 450/h at least 1 min, within one hourly budget');
+
+    assert.equal(backfill.renderEstimate(backfill.estimate({})), '~0 writes (upper bound) in 0 ops; nothing to pace');
+
+    const odd = backfill.renderEstimate(backfill.estimate({ ops: [opOf('mystery')] }));
+    assert.match(odd, /1 op of unknown kind \(mystery\) priced at 2 writes/);
+    assert.ok(!odd.includes('\n'), 'one line');
+    assert.equal(backfill.renderEstimate(null), backfill.renderEstimate(backfill.estimate({})), 'total');
+  });
+});
+
+// ─── tests 6 and 7: the journal helpers ──────────────────────────────────────
+
+describe('journal helpers (tests 6, 7)', () => {
+  let env;
+  let root;
+  const T = Date.UTC(2026, 9, 1, 12, 0, 0);
+  const patch = (id) => ({ kind: 'patch-issue', target: { id }, payload: { state: 'closed', state_reason: 'completed' } });
+
+  before(() => {
+    env = hermeticEnv();
+  });
+  after(() => env.restore());
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-backfill-journal-'));
+    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: true, repo: 'o/r' } }));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  test('6: no journal reports all zeros and creates nothing', () => {
+    assert.deepEqual(backfill.hasPendingOps(root), { pending: 0, blocked: 0, halted: 0, any: false });
+    assert.equal(fs.existsSync(outbox.journalPath(root)), false, 'reading never creates the journal');
+  });
+
+  test('6: pending, blocked and halted ops are counted', () => {
+    assert.ok(outbox.enqueue(root, [patch('7-01'), patch('7-02'), patch('7-03')], { now: T }).ok);
+    assert.deepEqual(backfill.hasPendingOps(root), { pending: 3, blocked: 0, halted: 0, any: true });
+
+    assert.ok(outbox.markBlocked(root, 2, 'needs a human').ok);
+    assert.deepEqual(backfill.hasPendingOps(root), { pending: 2, blocked: 1, halted: 0, any: true });
+
+    assert.ok(outbox.setHalted(root, { reason: 'remote-edit', seq: 1, detail: 'edited on GitHub' }).ok);
+    assert.deepEqual(backfill.hasPendingOps(root), { pending: 2, blocked: 1, halted: 1, any: true });
+  });
+
+  test('6: a blocked op at the head of the queue halts it', () => {
+    assert.ok(outbox.enqueue(root, [patch('7-01'), patch('7-02')], { now: T }).ok);
+    assert.ok(outbox.markBlocked(root, 1, 'needs a human').ok);
+    assert.deepEqual(backfill.hasPendingOps(root), { pending: 1, blocked: 1, halted: 1, any: true });
+  });
+
+  test('6: done ops alone are nothing to resume', () => {
+    assert.ok(outbox.enqueue(root, [patch('7-01')], { now: T }).ok);
+    assert.ok(outbox.markDone(root, 1).ok);
+    assert.deepEqual(backfill.hasPendingOps(root), { pending: 0, blocked: 0, halted: 0, any: false });
+  });
+
+  test('7: recordLiveWrites adds n writes to the budget window at now', () => {
+    assert.ok(outbox.enqueue(root, [patch('7-01')], { now: T }).ok);
+    const before = outbox.budgetCheck(outbox.readJournal(root).journal, T);
+    assert.equal(before.minute, 0);
+
+    const r = backfill.recordLiveWrites(root, 3, T);
+    assert.equal(r.ok, true);
+    assert.equal(r.recorded, 3);
+
+    const { journal } = outbox.readJournal(root);
+    const after = outbox.budgetCheck(journal, T);
+    assert.equal(after.minute, before.minute + 3);
+    assert.equal(after.hour, before.hour + 3);
+    assert.equal(journal.ops.length, 1, 'queued ops are kept');
+    assert.equal(journal.ops[0].status, 'pending');
+
+    backfill.recordLiveWrites(root, 2, T + 1000);
+    assert.equal(outbox.budgetCheck(outbox.readJournal(root).journal, T + 1000).minute, 5, 'writes accumulate');
+    assert.equal(outbox.budgetCheck(outbox.readJournal(root).journal, T + 61 * 1000).minute, 0, 'and age out of the minute');
+  });
+
+  test('7: recordLiveWrites creates the journal when there is none yet', () => {
+    backfill.recordLiveWrites(root, 2, T);
+    assert.equal(outbox.budgetCheck(outbox.readJournal(root).journal, T).minute, 2);
+  });
+
+  test('7: n <= 0 (or not a number) is a no-op that leaves the journal file untouched', () => {
+    for (const n of [0, -1, Number.NaN, undefined, 'three']) {
+      const r = backfill.recordLiveWrites(root, n, T);
+      assert.deepEqual(r, { ok: true, recorded: 0 }, String(n));
+    }
+    assert.equal(fs.existsSync(outbox.journalPath(root)), false, 'no journal is created');
+
+    assert.ok(outbox.enqueue(root, [patch('7-01')], { now: T }).ok);
+    const file = outbox.journalPath(root);
+    const text = fs.readFileSync(file, 'utf8');
+    const mtime = fs.statSync(file).mtimeMs;
+    backfill.recordLiveWrites(root, 0, T + 5000);
+    assert.equal(fs.readFileSync(file, 'utf8'), text);
+    assert.equal(fs.statSync(file).mtimeMs, mtime);
   });
 });
