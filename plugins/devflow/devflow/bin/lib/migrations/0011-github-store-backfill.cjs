@@ -31,6 +31,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const planningMode = require('../planning-mode.cjs');
 const planningPaths = require('../planning-paths.cjs');
@@ -38,6 +39,24 @@ const planningImport = require('../planning-import.cjs');
 const outbox = require('../gh-outbox.cjs');
 const backfill = require('../gh-backfill.cjs');
 const client = require('../gh-client.cjs');
+const ghCapability = require('../gh-capability.cjs');
+const { TRD_MAX_CHARS } = require('../gh-trd.cjs');
+
+const LEGACY_TRD_RE = /^objectives\/[^/]+\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
+const GIT_REDIRECT_VARS = [
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX', 'GIT_NAMESPACE',
+];
+const REBASE = 'a rebase in progress: finish it (`git rebase --continue`) or abort it (`git rebase --abort`), then re-run';
+// [file in the per-worktree git dir, blocker]
+const IN_PROGRESS = [
+  ['MERGE_HEAD', 'a merge in progress (MERGE_HEAD): finish it (`git merge --continue`) or abort it (`git merge --abort`), then re-run'],
+  ['rebase-merge', REBASE],
+  ['rebase-apply', REBASE],
+  ['CHERRY_PICK_HEAD', 'a cherry-pick in progress (CHERRY_PICK_HEAD): finish it (`git cherry-pick --continue`) or abort it ' +
+    '(`git cherry-pick --abort`), then re-run'],
+  ['REVERT_HEAD', 'a revert in progress (REVERT_HEAD): finish it (`git revert --continue`) or abort it (`git revert --abort`), then re-run'],
+];
 
 const APPLY_COMMAND = '`df-tools upgrade --apply --only 0011 --confirm`';
 const DRY_RUN_COMMAND = '`df-tools planning import --dry-run`';
@@ -193,12 +212,119 @@ function detect(ctx) {
 
 // ─── phases ─────────────────────────────────────────────────────────────────────
 
-function preflightLocal() {
-  throw new Error('0011 preflightLocal lands in TRD 51-06 task 2');
+function gitEnv() {
+  const env = { ...process.env };
+  for (const key of GIT_REDIRECT_VARS) delete env[key];
+  return env;
 }
 
-function preflightRemote() {
-  throw new Error('0011 preflightRemote lands in TRD 51-06 task 2');
+function git(cwd, args) {
+  const r = spawnSync('git', args, { cwd, env: gitEnv(), input: '', encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  return { status: r.status, out: (r.stdout || '').trim() };
+}
+
+/** The in-progress git operations (per-worktree git dir), one blocker each; rebase-merge/-apply share one. */
+function gitOperationBlockers(main) {
+  const r = git(main, ['rev-parse', '--git-dir']);
+  if (r.status !== 0 || !r.out) return [];
+  const gitDir = path.resolve(main, r.out);
+  const out = [];
+  for (const [name, text] of IN_PROGRESS) {
+    if (fs.existsSync(path.join(gitDir, name)) && !out.includes(text)) out.push(text);
+  }
+  return out;
+}
+
+function journalBlockers(main, ctx) {
+  const j = journalState(main, ctx);
+  if (j.unreadable !== null) {
+    return [`outbox: the journal is unreadable (${j.unreadable}): move it aside (\`df-tools gh outbox status\` names it), then re-run`];
+  }
+  const resolve = '`df-tools gh outbox resolve <seq> --accept-remote|--overwrite`';
+  const out = [];
+  if (j.halted) {
+    out.push(`outbox: halted (${j.halted.reason || 'unknown reason'}): look at it with \`df-tools gh outbox status\`, ` +
+      `resolve it with ${resolve}, then re-run`);
+  }
+  if (j.blocked) {
+    out.push(`outbox: ${j.blocked} blocked op(s): resolve each with ${resolve} (\`df-tools gh outbox status\` lists them), then re-run`);
+  }
+  return out;
+}
+
+function legacyBlockers(main) {
+  const out = [];
+  for (const rel of planningPaths.listByClass(path.join(main, '.planning')).runtime) {
+    const m = LEGACY_TRD_RE.exec(rel);
+    if (m) out.push(`${rel}: legacy TRD name has no GitHub home; rename it to ${m[1]}-${m[2]}-TRD.md`);
+  }
+  return out;
+}
+
+function oversizeBlockers(plan) {
+  return (Array.isArray(plan.refused) ? plan.refused : []).map((x) => {
+    const chars = Number.isFinite(x.chars) ? `${x.chars.toLocaleString('en-US')} chars is ` : '';
+    return `${x.rel}: ${chars}over the ${TRD_MAX_CHARS.toLocaleString('en-US')}-char TRD budget; ${x.hint || planningImport.BUDGET_HINT}`;
+  });
+}
+
+/**
+ * Phase 0 (no gh, no writes): every local blocker with its fix, or []. `opts.plan` reuses a planImport dry run.
+ * Not a git work tree, a merge/rebase/cherry-pick in progress, a halted, blocked or unreadable journal, legacy-named
+ * TRDs (no GitHub home; 0010 would refuse them later anyway), TRDs over the 60,000-char budget (planImport refuses
+ * their objective, so they would never get a baseline and 0010 would refuse).
+ */
+function preflightLocal(ctx, opts = {}) {
+  const main = mainOf(ctx);
+  const out = [];
+  const inside = git(main, ['rev-parse', '--is-inside-work-tree']);
+  if (inside.status !== 0 || inside.out !== 'true') {
+    out.push(`not a git work tree (${main}): run the migration in the project's git checkout`);
+  } else {
+    out.push(...gitOperationBlockers(main));
+  }
+  out.push(...journalBlockers(main, ctx));
+  out.push(...legacyBlockers(main));
+  const plan = opts.plan || planningImport.planImport(main, { dryRun: true });
+  if (!plan.ok) out.push(`the backfill plan could not be computed: ${plan.error}`);
+  else out.push(...oversizeBlockers(plan));
+  return out;
+}
+
+/**
+ * Phase 1 (apply only; GitHub reads, zero writes): gh auth, capability detection (as pushHierarchy does) and the wiki.
+ * A wiki with no first page would halt the drain twenty minutes in (gh-outbox-flush DEFAULT_WIKI_BLOCK); refusing here
+ * costs nothing. A disabled wiki refuses too: the backfill's reference text belongs in the wiki (51-06 test 5).
+ */
+function preflightRemote(ctx) {
+  const main = mainOf(ctx);
+  try {
+    require('../gh.cjs').requireGhAuth(['repo']);
+  } catch (e) {
+    if (!e || e.name !== 'GhAuthError') throw e;
+    if (e.offline) return ['GitHub could not be reached (`gh auth status` failed on the network): the backfill starts online; re-run when connected'];
+    return [`gh: ${e.message} Fix: \`${e.remediation}\`, then re-run`];
+  }
+  const caps = ghCapability.detectCapabilities(main, { refresh: true });
+  if (!caps.ok) return [`GitHub: ${caps.error}`];
+  if (caps.offline) return ['GitHub could not be reached while detecting what the repository supports: re-run when connected'];
+  const modes = ghCapability.resolveModes(caps);
+  const out = [];
+  if (!modes.writable) {
+    out.push(`no push permission on ${caps.repo} (a read-only token): authenticate as an account with write access ` +
+      '(`gh auth login`, or `gh auth refresh -h github.com -s repo`), then re-run');
+  }
+  if (caps.wiki === 'disabled') {
+    out.push(`the wiki is disabled on ${caps.repo}: enable it (Settings > General > Features > Wikis), create its first ` +
+      'page in the GitHub web UI, then re-run');
+  } else if (caps.wiki === 'uninitialised') {
+    out.push(`the wiki has no first page: create the first wiki page in the GitHub web UI (https://github.com/${caps.repo}/wiki), then re-run`);
+  } else if (caps.wiki === 'unavailable') {
+    const detail = caps.wiki_detail ? ` (${String(caps.wiki_detail).trim()})` : '';
+    out.push(`the wiki repository could not be reached${detail}: check \`github.wiki.remote\` (or DEVFLOW_WIKI_REMOTE) and your ` +
+      'git credentials, then re-run');
+  }
+  return out;
 }
 
 function ensureStoreSwitch() {
@@ -230,9 +356,16 @@ function migrate(ctx) {
   if (!gate.enabled) return { applied: false, changed: [], notes: `not applicable: ${NOT_ENABLED} (${gate.reason})` };
 
   const plan = planningImport.planImport(main, { dryRun: true });
-  if (ctx.dryRun) return { applied: false, dryRun: true, changed: [], notes: planText(plan, []) };
+  // Phase 0: local preflight. The dry run lists what apply would refuse on today, but never refuses itself.
+  const local = preflightLocal(ctx, { plan });
+  if (ctx.dryRun) return { applied: false, dryRun: true, changed: [], notes: planText(plan, local) };
+  if (local.length) return stop('preflight', local);
 
-  return stop('not_implemented', ['phases 0-3 land in TRD 51-06 tasks 2-3']);
+  // Phase 1: remote preflight (reads only).
+  const remote = preflightRemote(ctx);
+  if (remote.length) return stop('preflight', remote);
+
+  return stop('not_implemented', ['the store switch and queue land in TRD 51-06 task 3']);
 }
 
 /** Upgrade-runner adapter: a stop THROWS, so the runner reports it as failed and never stamps 0011. */
