@@ -10,9 +10,14 @@ migration 0010 untracks the cache; and skills, workflows, agents and templates h
 planning-write instructions (CI-enforced). Objective 49 (branch and PR lifecycle) is implemented:
 `gh pr start|sync|status|merge|reconcile`, the scope gate (`gh trd confirm-scope|start`), the `Refs #N`
 commit paragraph, the `prs` mapping map, and the fix that closes the objective issue on merge instead of
-at verify-pass. The store ships opt-in (`github.store`, default false); objectives 50–51 move enforcement
-onto it. Known gap: `gh trd freeze|scope|fold` need connectivity (offline they exit 1 and queue nothing),
-as does `gh pr start`.
+at verify-pass. Objective 50 (enforcement and setup) is implemented: the commit gate (`df-tools commit`
+refuses the default and unlinked branches, escape `DEVFLOW_SKIP_GH_GATE=1` logged as gate `gh`), the
+`gh-flush` hook, `validate health` Check 16 / `doctor` check 25 (W057–W061), `gh setup [--apply]`, the
+reusable workflow and its caller template, and the required checks `devflow/linked-issue` and
+`devflow/planning-consistency` posted as commit statuses. The store ships opt-in (`github.store`, default
+false); objective 51 completes the move onto it. Known gap: `gh trd freeze|scope|fold` need connectivity
+(offline they exit 1 and queue nothing), as does `gh pr start`. Open items for objective 50 are listed
+after its refinements below.
 
 ### Planning refinements (objective 47)
 
@@ -70,6 +75,59 @@ Decisions taken while planning objective 49 that refine, and do not change, the 
   50's linked-issue check matches `^Refs #\d+$`. A squash merge keeps these in the PR commit list only.
 - Open, unverified against the live API: the merge-queue probe reads `PullRequest.isInMergeQueue` and
   `Repository.mergeQueue(branch:)`; the fake GitHub models both.
+
+### Planning refinements (objective 50)
+
+Decisions taken while executing objective 50 that refine, and do not change, the table below:
+
+- Commit gate (50-02): "linked" is a local fact, an unmerged `prs[<objective>].branch`, so the gate needs no
+  network. A `df/exec-*` branch inherits the main checkout's branch when that is linked and is otherwise
+  refused as unlinked; the escape is the string `1` only. The decision is a pure function; `df-tools commit`
+  (50-06) records an escape after the commit lands, in the main checkout's override log.
+- Required checks are commit statuses (50-08, 50-10): the runner posts `devflow/linked-issue` and
+  `devflow/planning-consistency` itself on the PR head, or on the group head for `merge_group`, so the
+  required-context match cannot be broken by job or `workflow_call` nesting and no App is needed. Both
+  workflow files carry no path or branch filters and never use `pull_request_target`.
+- `planning-consistency` (50-03) validates the GitHub issue graph, never `.planning/` files, which are an
+  untracked cache in store mode: store off or no objective PR passes with a stated reason, and an objective PR
+  needs the default-branch base, the objective issue and every linked TRD closed, and nothing closed as
+  `not_planned`.
+- `linked-issue` (50-03) fails on a closing reference that is dead or is a pull request even beside a good one,
+  and when the default branch is unknown. `Refs #N` is reported, never required.
+- Reconcile (50-08) acts only on a merged PR whose base is the default branch (closing keywords never act
+  elsewhere) and closes stragglers as completed with one marker comment. Project → Done stays with GitHub's
+  built-in "Item closed" workflow: `GITHUB_TOKEN` cannot reach Projects v2.
+- `gh setup` plan (50-09): the plan is data, `renderPlan` prints exactly what apply sends. A ruleset that
+  already does everything asked, or more, is left alone; a weaker one is updated with the union and never has a
+  rule or a bypass actor removed. A ruleset DevFlow cannot read is skipped, never overwritten. An unmanaged
+  workflow file is a conflict, never overwritten.
+- `gh setup` apply (50-11): the dry-run is the default and apply sends the planned request through
+  `gh-client`. A 422 on a ruleset carrying the merge queue retries without that rule and records
+  `{merge_queue: false}` so a second apply writes nothing (`--refresh` tries the queue again); an issue-field
+  422 retries as a `text` field; a 403 or 404 on an organization endpoint is a skip. Enablement is
+  `github.enabled` plus `github.repo`, not store mode. A dry-run that finds a conflicting file exits 1.
+- Reusable workflow (50-10): the App token is optional (`DEVFLOW_APP_CLIENT_ID` variable,
+  `DEVFLOW_APP_PRIVATE_KEY` secret), scoped to the one caller repository, with job permissions that can only
+  narrow the caller's. The `uses:` target is `github.checks_workflow`, default
+  `AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml@v<version>`.
+
+Open items for objective 50 (none changes the decisions table):
+
+- Not verified on a real repository: that `uses:` through `workflow_call` resolves the sparse checkout of
+  `plugins/devflow/devflow/bin`; that `actions/create-github-app-token@v3` accepts `permission-*` with `owner`
+  and `repositories`; that `github.event.repository.name` is set on `merge_group`; and that the required
+  contexts match once the statuses arrive through the reusable workflow. The tests ran against the fake GitHub
+  and text assertions over the YAML.
+- Issue-field option shape: `{name, color, priority}` is from the documentation. A 422 falls back to a text
+  field, but a wrong shape that GitHub accepts silently would not be caught. Likewise that GitHub answers a
+  refused merge queue with a 422 on the ruleset POST or PUT is modelled, not observed.
+- The central workflow location (`github.checks_workflow`) is owned by platform/ops, and it must be reachable
+  by every repository that calls it; moving it is a one-key change per repository.
+- Bootstrap: the ruleset requires two statuses that exist only once the workflow is on the default branch, so
+  merge the workflow pull request first, with a one-time admin bypass if needed.
+- Migration 0010 and doctor check 20 print a `df-tools commit` follow-up that the gate refuses on a store-mode
+  default branch, and the `upgrade-project.js` background commit gets the same refusal. The commit needs the
+  logged escape or an objective branch; the printed notes do not say so yet.
 Team-review page: https://claude.ai/artifact/5WUeto6m5YYsxRAz8XJd2w (private; share before linking).
 
 ## Summary

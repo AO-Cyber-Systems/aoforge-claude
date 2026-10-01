@@ -7,6 +7,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Enforcement and setup on GitHub (objective 50).** Store mode now enforces the planning model
+  locally and on the remote. With `github.store` off every item below is inert: `df-tools commit`
+  behaves as before and nothing makes a `gh` call.
+  - Commit gate: in store mode `df-tools commit` refuses the default branch, an unlinked branch and a
+    detached HEAD (exit 1, `reason` `default_branch`, `unlinked_branch` or `detached_head`, before
+    anything is staged). A branch is linked when an unmerged `prs` entry names it; a `df/exec-*`
+    worktree branch inherits the main checkout's linked branch; a merge or rebase in progress skips the
+    gate. A commit on a linked branch with no recognised scope now ends with `Refs #<objective issue>`.
+    Escape: `DEVFLOW_SKIP_GH_GATE=1` (optional `DEVFLOW_SKIP_GH_GATE_REASON`) lets the commit land with
+    `gate_escaped: true` and appends gate `gh` to the main checkout's `.planning/.override-log.jsonl`;
+    `df-tools override --gate gh --reason <why>` is accepted too. Modules: `gh-gate.cjs`, `misc.cjs`.
+  - `hooks/gh-flush.js` (PostToolUse on `df-tools commit`, and Stop): flushes the outbox, reports
+    pending and halted writes, and reports cache drift (W055) at Stop. It never blocks and fails open.
+    Escape: `DEVFLOW_SKIP_GH_FLUSH_HOOK=1`; flush timeout override `DEVFLOW_GH_FLUSH_TIMEOUT_MS`.
+  - `validate health` Check 16 and `doctor` check 25 (`gh-store-sync`, report-only) report W057
+    (unsynced writes, a halted outbox), W058 (missing links), W059 (orphans), W060 (frozen TRD body
+    drift) and W061 (the check could not run). Doctor check 22 defers these codes to check 25. Source:
+    `gh-health.cjs`.
+  - `gh setup [--apply] [--refresh] [--require-wiki]`: a dry-run that prints the exact requests, or with
+    `--apply` an idempotent setup of the `devflow: default branch` ruleset (pull request required, no
+    force-push or deletion, the two required statuses, a merge queue where the plan allows it), labels,
+    issue types (Objective, TRD, Decision, Debug, Quick) and issue fields (`work`, `kind`) on
+    organizations, `has_wiki` and `delete_branch_on_merge`, the managed `.github/workflows/devflow.yml`
+    and a managed `.github/pull_request_template.md` block. It degrades per action: a refused merge queue
+    is recorded and dropped, fields fall back to text, org-only writes are skipped, an unmanaged
+    workflow file is never overwritten. A second `--apply` makes no write. The written files are left
+    uncommitted; commit them through a pull request (see the USER-GUIDE).
+  - Required checks `devflow/linked-issue` and `devflow/planning-consistency`, posted as commit
+    statuses by `gh-check-cli.cjs <linked-issue|planning-consistency|reconcile>` on `pull_request` and
+    `merge_group`, with a merge-time `reconcile` that closes what a merged PR left open.
+    `planning-consistency` reads the GitHub issue graph, not `.planning/`.
+  - Reusable workflow `.github/workflows/devflow-checks.yml` (`workflow_call`) and the managed caller
+    template `templates/github/devflow.yml`; optional App token through the `DEVFLOW_APP_CLIENT_ID`
+    variable and the `DEVFLOW_APP_PRIVATE_KEY` secret.
+  - New config keys: `github.app_id` (pins the required checks to that App's integration id) and
+    `github.checks_workflow` (the caller's `uses:` target), both empty by default.
+  - Tests: `gh-enforcement.e2e.test.cjs` and `gh-enforcement-parity.test.cjs` (store-off parity);
+    `devflow-workflows.repo.test.cjs` pins the workflow and templates.
 - **Objective branch and pull request lifecycle (objective 49).** In store mode each objective runs on
   one linked branch with one draft pull request, from `execute-objective` start to merge. With
   `github.store` off every verb below prints `skipped`, exits 0 and makes no `gh` call.
@@ -111,6 +149,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   subcommand without saying it is deprecated.
 
 ### Changed
+- **Store-mode commits need a linked branch (objective 50).** In store mode `df-tools commit` on the
+  default branch or an unlinked branch now exits 1 instead of committing. Run `gh pr start <objective>`
+  and commit on its branch, or take the logged escape `DEVFLOW_SKIP_GH_GATE=1`. This includes the
+  `df-tools commit` line that migration 0010 and doctor check 20 print, and the `upgrade-project.js`
+  background commit: on a store-mode default branch the upgrade stays applied but uncommitted and a
+  notice names `default_branch`. Local mode is unchanged.
+- **Required checks are commit statuses, not check runs (objective 50).** `devflow/linked-issue` and
+  `devflow/planning-consistency` are posted by the check runner as statuses, so no GitHub App is needed
+  to make them required; the App (`github.app_id`) is optional and only pins the required check to it.
 - **Objective branch and PR in store mode (objective 49).** `execute-objective` runs `gh pr start`,
   syncs the PR once per wave and offers `gh pr merge` then `gh pr reconcile` at the end; it never
   merges on its own. `complete-milestone` no longer creates or merges branches in store mode. An
