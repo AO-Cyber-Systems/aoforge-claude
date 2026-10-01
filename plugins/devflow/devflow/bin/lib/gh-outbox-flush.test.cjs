@@ -1408,3 +1408,250 @@ describe('static contract', () => {
     assert.doesNotMatch(src, /issue_id=\$\{[^}]*number/);
   });
 });
+
+// ─── 48-06: decision answers (D-09) ──────────────────────────────────────────
+
+describe('48-06 decision answer (D-09)', () => {
+  useStore();
+
+  test('1. an answer comment then a close: the answer is posted on the Decision issue and it is closed; a re-flush writes nothing', () => {
+    const body = '<!-- devflow:id=7-01-d1 -->\nWhich parser should 7-01 use?\n';
+    const n = S.fake.seedIssue({ title: '[Decision 7-01-d1] pick a parser', body, labels: ['devflow:decision'], type: 'Decision' });
+    const mapping = mappingNow();
+    mappingLib.setTrd(mapping, '7-01-d1', { issue_number: n, rest_id: restId(n), role: 'decision' });
+    assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+
+    enqueueOps([
+      { kind: 'upsert-comment', target: { id: '7-01-d1', kind: 'answer' }, payload: { mode: 'replace', text: 'Use option B' } },
+      { kind: 'patch-issue', target: { id: '7-01-d1' }, payload: { state: 'closed', state_reason: 'completed' } },
+    ]);
+    const res = runFlush();
+    assert.equal(res.status, 'flushed', JSON.stringify(res));
+    assert.deepEqual(res.done, [1, 2]);
+
+    const answers = commentsOf(n).filter((c) => c.body.startsWith(bodyLib.commentMarker('7-01-d1', 'answer')));
+    assert.equal(answers.length, 1, 'one answer comment, on the Decision issue');
+    assert.equal(stripMarker(answers[0].body), 'Use option B');
+    assert.match(answers[0].body, /^<!-- devflow:id=7-01-d1 kind=answer -->/);
+    assert.equal(issueByNumber(n).state, 'CLOSED');
+    assert.equal(issueByNumber(n).stateReason, 'completed');
+    assert.deepEqual(mappingLib.getTrd(mappingNow(), '7-01-d1').comment_ids.answer, [answers[0].id]);
+
+    const writesBefore = S.fake.writes().length;
+    enqueueOps([
+      { kind: 'upsert-comment', target: { id: '7-01-d1', kind: 'answer' }, payload: { mode: 'replace', text: 'Use option B' } },
+      { kind: 'patch-issue', target: { id: '7-01-d1' }, payload: { state: 'closed', state_reason: 'completed' } },
+    ]);
+    const again = runFlush();
+    assert.equal(again.status, 'flushed', JSON.stringify(again));
+    assert.equal(S.fake.writes().length, writesBefore, 're-flush writes nothing');
+    assert.equal(commentsOf(n).length, 1);
+  });
+});
+
+// ─── 48-06: todo, debug and quick issues (tests 2-9) ─────────────────────────
+
+const capLib = require('./gh-capability.cjs');
+
+const REQUIRED_TYPES = ['Objective', 'TRD', 'Decision'];
+const typesOf = (names) => names.map((name, i) => ({ id: i + 1, name, is_enabled: true }));
+/** Modes exactly as the capability probe resolves them for an org with `enabled` issue types. */
+const modesWith = (enabled) => capLib.resolveModes({
+  repo: 'o/r', owner_type: 'Organization', push: true, org_types: { available: true, enabled },
+  issue_fields: { available: true, ids: FIELD_IDS }, sub_issues: 'ok', dependencies: 'ok', wiki: 'ok',
+});
+const ENTITY_FILES = Object.freeze({ todo: (id) => `todos/pending/${id.slice(5)}.md`, debug: (id) => `debug/${id.slice(6)}.md`, quick: (id) => `quick/${id.slice(6)}-fix-x/${id.slice(6)}-JOB.md` });
+
+/** An upsert-issue op for an entity, its body hand-encoded with the 48-02 entity codec. */
+function entityOp(id, role, extra = {}, text = `# ${id}\n\nFirst text.\n`) {
+  const body = trd.encodeEntityBody({ id, file: ENTITY_FILES[role](id), text });
+  return {
+    kind: 'upsert-issue',
+    target: { id, role },
+    payload: { title: `[${role}] ${id}`, body, labels: [outbox.ENTITY_ROLES[role].label], ...extra },
+  };
+}
+
+/** Replace the fake with one whose org has exactly `names` issue types (the log keeps recording). */
+function useFakeTypes(names) {
+  S.fake = createFakeGitHub({ ...S.project.fakeOptions, types: typesOf(names) });
+  client._setRunGh((args, opts) => { S.log.push({ args, opts }); return S.fake.runGh(args, opts); });
+}
+
+const createPosts = () => S.log.filter((c) => c.args.join(' ') === 'api --method POST repos/o/r/issues --input -');
+
+describe('48-06 entity issues', () => {
+  useStore();
+
+  test('2. a todo upsert creates ONE issue labelled devflow:todo with no type, maps it under entities and records its base', () => {
+    const id = 'todo-2026-07-31-a';
+    const { res } = exec(entityOp(id, 'todo'), { modes: modesWith(REQUIRED_TYPES) });
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.created, true);
+    assert.deepEqual(res.warnings, []);
+
+    assert.equal(S.fake.issues.length, 1);
+    const issue = S.fake.issues[0];
+    assert.deepEqual(issue.labels, ['devflow:todo']);
+    assert.equal(issue.type, null);
+    assert.equal(Object.hasOwn(JSON.parse(createPosts()[0].opts.input), 'type'), false, 'no type is ever sent for a todo');
+    assert.deepEqual(trd.decodeEntityBody(issue.body), { ok: true, id, file: 'todos/pending/2026-07-31-a.md', text: `# ${id}\n\nFirst text.\n` });
+
+    const entry = mappingLib.getEntity(mappingNow(), id);
+    assert.equal(entry.issue_number, issue.number);
+    assert.equal(entry.rest_id, restId(issue.number));
+    assert.equal(entry.role, 'todo');
+    assert.equal(mappingLib.listTrds(mappingNow(), '7').length, 0, 'nothing is written under trds');
+    assert.equal(outbox.getBase(S.root, id).body_hash, hashOf(issue.body));
+  });
+
+  test('2b. a configured labels.<role> wins over the default entity label, and the scan uses it', () => {
+    const ctx = createCtx({ modes: modesWith(REQUIRED_TYPES) });
+    ctx.labels = { ...ctx.labels, todo: 'team:todo' };
+    const { res } = exec(entityOp('todo-b', 'todo', { labels: [] }), { ctx });
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.deepEqual(S.fake.issues[0].labels, ['team:todo'], 'the role label is always applied: the scan relies on it');
+    assert.ok(S.log.some((c) => c.args.join(' ').includes('labels=team%3Atodo')), 'the marker scan lists the configured label');
+  });
+
+  test('3. re-flushing after the mapping entry is cleared finds the issue by label scan + marker: no second issue, nothing written', () => {
+    const id = 'todo-2026-07-31-a';
+    const modes = modesWith(REQUIRED_TYPES);
+    enqueueOps([entityOp(id, 'todo')]);
+    assert.equal(runFlush({ modes }).status, 'flushed');
+    const number = S.fake.issues[0].number;
+    const m = mappingNow();
+    delete m.entities[id];
+    assert.ok(mappingLib.writeMappingV3(S.root, m).ok);
+    assert.equal(mappingLib.getEntity(mappingNow(), id), null);
+
+    const writesBefore = S.fake.writes().length;
+    enqueueOps([entityOp(id, 'todo')]);
+    const again = runFlush({ modes });
+    assert.equal(again.status, 'flushed', JSON.stringify(again));
+    assert.equal(S.fake.issues.length, 1, 'no second issue');
+    assert.equal(S.fake.writes().length, writesBefore, 'nothing was written at all');
+    assert.equal(mappingLib.getEntity(mappingNow(), id).issue_number, number, 'the mapping entry is restored');
+  });
+
+  test('4a. a debug issue gets the native Debug type when the org has it, plus devflow:debug; no warning', () => {
+    useFakeTypes([...REQUIRED_TYPES, 'Debug']);
+    const { res } = exec(entityOp('debug-x', 'debug', { type: 'Debug' }), { modes: modesWith([...REQUIRED_TYPES, 'Debug']) });
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.deepEqual(res.warnings, []);
+    assert.equal(S.fake.issues[0].type, 'Debug');
+    assert.deepEqual(S.fake.issues[0].labels, ['devflow:debug']);
+    assert.equal(mappingLib.getEntity(mappingNow(), 'debug-x').role, 'debug');
+  });
+
+  test('4b. without the Debug type: no type is sent, labels devflow:debug + devflow:type/debug, no warning', () => {
+    useFakeTypes(REQUIRED_TYPES);
+    const modes = modesWith(REQUIRED_TYPES);
+    assert.equal(modes.types, 'native', 'the required types are native: only Debug falls back');
+    const { res } = exec(entityOp('debug-x', 'debug', { type: 'Debug' }), { modes });
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.deepEqual(res.warnings, []);
+    assert.equal(Object.hasOwn(JSON.parse(createPosts()[0].opts.input), 'type'), false);
+    assert.equal(S.fake.issues[0].type, null);
+    assert.deepEqual(S.fake.issues[0].labels, ['devflow:debug', 'devflow:type/debug']);
+  });
+
+  test('5. quick: create with the Quick type, a summary comment, then close; a re-flush writes nothing', () => {
+    useFakeTypes([...REQUIRED_TYPES, 'Quick']);
+    const modes = modesWith([...REQUIRED_TYPES, 'Quick']);
+    const ops = () => [
+      entityOp('quick-12', 'quick', { type: 'Quick' }),
+      { kind: 'upsert-comment', target: { id: 'quick-12', kind: 'summary' }, payload: { mode: 'replace', text: 'Fixed x in 3 files.\n' } },
+      { kind: 'patch-issue', target: { id: 'quick-12' }, payload: { state: 'closed', state_reason: 'completed' } },
+    ];
+    enqueueOps(ops());
+    const res = runFlush({ modes });
+    assert.equal(res.status, 'flushed', JSON.stringify(res));
+    assert.deepEqual(res.warnings, []);
+
+    const issue = S.fake.issues[0];
+    assert.equal(issue.type, 'Quick');
+    assert.deepEqual(issue.labels, ['devflow:quick']);
+    assert.equal(issue.state, 'CLOSED');
+    assert.equal(issue.stateReason, 'completed');
+    const comments = commentsOf(issue.number);
+    assert.equal(comments.length, 1);
+    assert.ok(comments[0].body.startsWith('<!-- devflow:id=quick-12 kind=summary -->\n'));
+    assert.equal(stripMarker(comments[0].body), 'Fixed x in 3 files.\n');
+    assert.deepEqual(mappingLib.getEntity(mappingNow(), 'quick-12').comment_ids, { summary: [comments[0].id] });
+
+    const writesBefore = S.fake.writes().length;
+    enqueueOps(ops());
+    assert.equal(runFlush({ modes }).status, 'flushed');
+    assert.equal(S.fake.writes().length, writesBefore, 'a re-flush writes nothing');
+  });
+
+  test('6. a todo with payload.type gets no type and no type label, under native or labels types; a warning names it', () => {
+    for (const [id, modes] of [['todo-a', NATIVE], ['todo-b', modesWith([])]]) {
+      const { res } = exec(entityOp(id, 'todo', { type: 'Todo' }), { modes });
+      assert.equal(res.ok, true, JSON.stringify(res));
+      assert.ok(res.warnings.some((w) => /Todo/.test(w) && w.includes(id)), JSON.stringify(res.warnings));
+      const issue = issueByNumber(mappingLib.getEntity(mappingNow(), id).issue_number);
+      assert.equal(issue.type, null);
+      assert.deepEqual(issue.labels, ['devflow:todo'], `${id}: no devflow:type/* label`);
+    }
+    const patched = exec({ kind: 'patch-issue', target: { id: 'todo-a' }, payload: { type: 'Todo' } }, { modes: modesWith([]) });
+    assert.equal(patched.res.ok, true, JSON.stringify(patched.res));
+    assert.ok(patched.res.warnings.some((w) => /Todo/.test(w)), JSON.stringify(patched.res.warnings));
+    assert.deepEqual(issueByNumber(mappingLib.getEntity(mappingNow(), 'todo-a').issue_number).labels, ['devflow:todo']);
+  });
+
+  test('7. an entity body edited on GitHub halts the next upsert with the issue named; nothing else is written', () => {
+    const { res: made } = exec(entityOp('debug-x', 'debug'));
+    assert.equal(made.ok, true, JSON.stringify(made));
+    const n = mappingLib.getEntity(mappingNow(), 'debug-x').issue_number;
+    S.fake.humanEditBody(n, `${issueByNumber(n).body}\nhuman addition\n`);
+
+    const writesBefore = S.fake.writes().length;
+    enqueueOps([entityOp('debug-x', 'debug', {}, '# debug-x\n\nDevFlow wants this.\n'), entityOp('todo-a', 'todo')]);
+    const res = runFlush();
+    assert.equal(res.status, 'halted', JSON.stringify(res));
+    assert.equal(res.halted.reason, 'remote-edit');
+    assert.equal(res.halted.issue_number, n);
+    assert.match(res.halted.detail, new RegExp(`#${n} \\(debug-x\\)`));
+    assert.equal(S.fake.writes().length, writesBefore, 'zero writes: the next op never ran');
+    assert.equal(S.fake.issues.length, 1);
+    assert.match(issueByNumber(n).body, /human addition/);
+  });
+
+  test('8. a human comment on a todo issue does not halt the next body update', () => {
+    const { res: made } = exec(entityOp('todo-a', 'todo'));
+    assert.equal(made.ok, true, JSON.stringify(made));
+    const n = mappingLib.getEntity(mappingNow(), 'todo-a').issue_number;
+    S.fake.seedComment(n, 'A human: +1, this bites me too.');
+    issueByNumber(n).updatedAt = '2030-01-01T00:00:00Z'; // GitHub bumps updated_at on a comment; the fake does not
+
+    const { res } = exec(entityOp('todo-a', 'todo', {}, '# todo-a\n\nSecond text.\n'));
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.halt, undefined);
+    assert.equal(trd.decodeEntityBody(issueByNumber(n).body).text, '# todo-a\n\nSecond text.\n');
+    assert.equal(commentsOf(n).length, 1, 'the human comment is left alone');
+    assert.equal(outbox.getBase(S.root, 'todo-a').body_hash, hashOf(issueByNumber(n).body));
+  });
+
+  test('9. patch-issue / upsert-comment on an entity with no issue yet is an error, never a throw', () => {
+    const msg = 'todo-x has no issue yet; run the verb again after a flush';
+    const patched = exec({ kind: 'patch-issue', target: { id: 'todo-x' }, payload: { state: 'closed', state_reason: 'completed' } });
+    assert.deepEqual([patched.res.ok, patched.res.class, patched.res.error], [false, 'error', msg]);
+    const commented = exec(summaryCommentOp('text\n', 'todo-x'));
+    assert.deepEqual([commented.res.ok, commented.res.class, commented.res.error], [false, 'error', msg]);
+    assert.equal(S.fake.writes().length, 0);
+  });
+
+  test('9b. an entity role with a TRD id (or the wrong prefix) is refused by the flusher too', () => {
+    const p = entityOp('todo-a', 'todo').payload;
+    for (const [id, role] of [['7-01', 'todo'], ['quick-12', 'todo']]) {
+      const { res } = exec({ kind: 'upsert-issue', target: { id, role }, payload: p });
+      assert.equal(res.ok, false);
+      assert.equal(res.error, `upsert-issue: ${JSON.stringify(id)} is not a ${role} id`);
+    }
+    const trdRole = exec({ kind: 'upsert-issue', target: { id: 'todo-a', role: 'trd' }, payload: p });
+    assert.equal(trdRole.res.error, 'upsert-issue: "todo-a" is not a TRD or Decision id', 'the 47 message is unchanged');
+    assert.equal(S.fake.writes().length, 0);
+  });
+});

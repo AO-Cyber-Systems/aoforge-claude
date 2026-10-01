@@ -28,6 +28,9 @@ const ghProject = require('./gh-project.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
 
 const REQUIRED_TYPES = Object.freeze(['Objective', 'TRD', 'Decision']);
+// 48-06: Debug and Quick name the debug-session and quick-task issues. They are OPTIONAL: an org without
+// them still runs `types: 'native'` for the required three, and only those issues fall back to labels.
+const OPTIONAL_TYPES = Object.freeze(['Debug', 'Quick']);
 const REQUIRED_FIELDS = Object.freeze(['work', 'kind']);
 
 /**
@@ -100,13 +103,16 @@ function readRepo(repo) {
   return { ok: false, error, offline: res.kind === 'offline' };
 }
 
-/** Org issue types: `{available, enabled}` where `enabled` is the REQUIRED_TYPES that exist and are enabled. */
+/**
+ * Org issue types: `{available, enabled}` where `enabled` is the REQUIRED_TYPES, then the OPTIONAL_TYPES, that
+ * exist and are enabled.
+ */
 function probeOrgTypes(owner) {
   const res = readJson(`orgs/${owner}/issue-types`);
   if (res.kind !== 'ok' || !Array.isArray(res.json)) {
     return { value: { available: false, enabled: [] }, transient: res.kind !== 'absent', offline: res.kind === 'offline' };
   }
-  const enabled = REQUIRED_TYPES.filter((name) => res.json.some((t) => t && t.name === name && t.is_enabled !== false));
+  const enabled = [...REQUIRED_TYPES, ...OPTIONAL_TYPES].filter((name) => res.json.some((t) => t && t.name === name && t.is_enabled !== false));
   return { value: { available: true, enabled }, transient: false, offline: false };
 }
 
@@ -411,14 +417,28 @@ function detectCapabilities(cwd, opts = {}) {
 
 // ─── Modes (pure) ─────────────────────────────────────────────────────────────
 
-function typesByName(caps) {
-  const on = caps.org_types && caps.org_types.available === true && Array.isArray(caps.org_types.enabled)
+function enabledTypes(caps) {
+  return caps.org_types && caps.org_types.available === true && Array.isArray(caps.org_types.enabled)
     ? caps.org_types.enabled
     : [];
+}
+
+/**
+ * Per-type mode: every REQUIRED type (`native` or `labels`), then each OPTIONAL type the org has ENABLED
+ * (`native`). An optional type the org lacks is not named; a consumer reads an absent optional entry as
+ * `labels` (gh-outbox-flush's typeMode). Keeping the absent ones out leaves the 47 record shape intact for
+ * every org that has never enabled Debug or Quick.
+ */
+function typesByName(caps) {
+  const on = enabledTypes(caps);
   const out = {};
   for (const name of REQUIRED_TYPES) out[name] = on.includes(name) ? 'native' : 'labels';
+  for (const name of OPTIONAL_TYPES) if (on.includes(name)) out[name] = 'native';
   return out;
 }
+
+/** Only the REQUIRED types decide the aggregate `types` mode and the `types` degradation. */
+const requiredTypesNative = (byName) => REQUIRED_TYPES.every((n) => byName[n] === 'native');
 
 function fieldsMode(caps) {
   return caps.issue_fields && caps.issue_fields.available === true ? 'native' : 'meta';
@@ -433,7 +453,7 @@ function pagesMode(caps) {
 /** Capabilities that fell back, in a fixed order: types, fields, sub_issues, dependencies, wiki. */
 function degradedOf(caps) {
   const out = [];
-  if (Object.values(typesByName(caps)).some((m) => m !== 'native')) out.push('types');
+  if (!requiredTypesNative(typesByName(caps))) out.push('types');
   if (fieldsMode(caps) !== 'native') out.push('fields');
   if (caps.sub_issues === 'absent') out.push('sub_issues');
   if (caps.dependencies === 'absent') out.push('dependencies');
@@ -496,7 +516,7 @@ function resolveModes(caps) {
   const byName = typesByName(caps);
   const pages = pagesMode(caps);
   return {
-    types: Object.values(byName).every((m) => m === 'native') ? 'native' : 'labels',
+    types: requiredTypesNative(byName) ? 'native' : 'labels',
     types_by_name: byName,
     fields: fieldsMode(caps),
     hierarchy: caps.sub_issues === 'absent' ? 'tasklist' : 'native',
@@ -522,8 +542,38 @@ function describeDegraded(caps) {
   return out;
 }
 
+/**
+ * Advisories: things that run in a fallback without degrading a capability, in a fixed order. Kept apart
+ * from `degradedOf` / `describeDegraded` so their output (and every 47 notice) is unchanged.
+ *   optional_types  the required types are native but Debug and/or Quick are not enabled
+ */
+function advisoriesOf(caps) {
+  const out = [];
+  if (requiredTypesNative(typesByName(caps)) && OPTIONAL_TYPES.some((n) => !enabledTypes(caps).includes(n))) {
+    out.push('optional_types');
+  }
+  return out;
+}
+
+const ADVISORY_SENTENCES = {
+  optional_types(caps) {
+    const missing = OPTIONAL_TYPES.filter((n) => !enabledTypes(caps).includes(n));
+    if (missing.length === 1) {
+      return `Issue type ${missing[0]} is not enabled; DevFlow labels those issues devflow:type/${missing[0].toLowerCase()}.`;
+    }
+    return `Issue types ${missing.join('/')} are not enabled; DevFlow labels those issues devflow:type/<name>.`;
+  },
+};
+
+/** One human sentence per advisory (the order of `advisoriesOf`). Pure. */
+function describeAdvisories(caps) {
+  if (!caps || typeof caps !== 'object') throw new TypeError('describeAdvisories needs a capabilities record');
+  return advisoriesOf(caps).map((key) => ADVISORY_SENTENCES[key](caps));
+}
+
 module.exports = {
   REQUIRED_TYPES,
+  OPTIONAL_TYPES,
   REQUIRED_FIELDS,
   ISSUE_FIELDS_PATH,
   cachePath,
@@ -533,4 +583,6 @@ module.exports = {
   invalidate,
   resolveModes,
   describeDegraded,
+  advisoriesOf,
+  describeAdvisories,
 };

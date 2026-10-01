@@ -1045,3 +1045,42 @@ describe('module purity', () => {
     assert.ok(!/require\(\s*['"]\.\/gh-mapping(?:\.cjs)?['"]\s*\)/.test(src), 'must stay dependency-free');
   });
 });
+
+// ─── 48-06: entity markers (todo / debug / quick issues) ─────────────────────
+
+describe('48-06 entity markers', () => {
+  const trdLib = require('./gh-trd.cjs');
+
+  test('E1. an entity id is a marker id with exactly one spelling', () => {
+    assert.strictEqual(ghBody.markerLine('todo-2026-07-31-a'), '<!-- devflow:id=todo-2026-07-31-a -->');
+    assert.strictEqual(ghBody.commentMarker('quick-12', 'summary'), '<!-- devflow:id=quick-12 kind=summary -->');
+    assert.strictEqual(ghBody.commentMarker('debug-x', 'answer'), '<!-- devflow:id=debug-x kind=answer -->');
+    for (const bad of [' todo-a', 'Todo-a', 'todo-', 'quick-x', 'todo-a b', 'note-a']) {
+      assert.throws(() => ghBody.markerLine(bad), TypeError, bad);
+    }
+  });
+
+  test('E2. indexByMarker, findCommentsByMarker and extractMarker read entity markers', () => {
+    const body = trdLib.encodeEntityBody({ id: 'todo-a', file: 'todos/pending/a.md', text: 'x\n' });
+    const idx = ghBody.indexByMarker([
+      { number: 3, body }, { number: 4, body: '<!-- devflow:id=quick-12 -->\nq' }, { number: 5, body: 'human text' },
+    ]);
+    assert.deepStrictEqual(idx, { byId: { 'todo-a': 3, 'quick-12': 4 }, duplicates: {}, unmarked: [5] });
+    const comments = [
+      { id: 1, body: `${ghBody.commentMarker('quick-12', 'summary')}\ndone` },
+      { id: 2, body: '<!-- devflow:id=12 kind=summary -->\nanother issue' },
+    ];
+    assert.deepStrictEqual(ghBody.findCommentsByMarker(comments, 'quick-12', 'summary').map((f) => f.comment.id), [1]);
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=debug-x kind=answer -->\ntext'), { id: 'debug-x', kind: 'answer' });
+  });
+
+  test('E3. the entity grammar is gh-trd ENTITY_ID_RE (duplicated so gh-body stays dependency-free)', () => {
+    assert.strictEqual(new RegExp(`^${ghBody.ENTITY_ID_SOURCE}$`).source, trdLib.ENTITY_ID_RE.source);
+  });
+
+  test('E4. numeric ids are unchanged (leading zeros dropped, TRD and Decision forms kept)', () => {
+    assert.strictEqual(ghBody.markerLine('046'), '<!-- devflow:id=46 -->');
+    assert.strictEqual(ghBody.markerLine('7-01-d1'), '<!-- devflow:id=7-01-d1 -->');
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=07-02 -->'), { id: '7-02', kind: null });
+  });
+});

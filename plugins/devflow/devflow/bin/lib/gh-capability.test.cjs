@@ -937,3 +937,86 @@ describe('hygiene (test 14)', () => {
     assert.deepEqual(files(), before);
   });
 });
+
+// ─── 48-06: Debug and Quick are OPTIONAL issue types (tests 10, 11) ──────────
+
+describe('48-06 optional Debug/Quick types (tests 10, 11)', () => {
+  const REQUIRED = ['Objective', 'TRD', 'Decision'];
+  const caps = (enabled) => ({
+    repo: 'o/r', owner_type: 'Organization', push: true,
+    org_types: { available: true, enabled },
+    issue_fields: { available: true, ids: { work: 11, kind: 12 } },
+    sub_issues: 'ok', dependencies: 'ok', wiki: 'ok',
+  });
+  const OPTIONAL_SENTENCE = 'Issue types Debug/Quick are not enabled; DevFlow labels those issues devflow:type/<name>.';
+
+  test('10a. OPTIONAL_TYPES is Debug and Quick; REQUIRED_TYPES is unchanged', () => {
+    assert.deepEqual(cap.OPTIONAL_TYPES, ['Debug', 'Quick']);
+    assert.ok(Object.isFrozen(cap.OPTIONAL_TYPES));
+    assert.deepEqual(cap.REQUIRED_TYPES, REQUIRED);
+  });
+
+  test('10b. required types native, no Debug/Quick: types stay native, Debug/Quick read as labels, only an optional_types advisory', () => {
+    const c = caps(REQUIRED);
+    const modes = cap.resolveModes(c);
+    assert.equal(modes.types, 'native');
+    assert.deepEqual(modes.degraded, []);
+    // An optional type the org lacks is not named: an absent optional entry means labels (the flusher's rule).
+    assert.deepEqual(modes.types_by_name, { Objective: 'native', TRD: 'native', Decision: 'native' });
+    assert.equal(Object.hasOwn(modes.types_by_name, 'Debug'), false);
+    assert.deepEqual(cap.describeDegraded(c), [], 'the degraded notices are unchanged for this case');
+    assert.deepEqual(cap.advisoriesOf(c), ['optional_types']);
+    assert.deepEqual(cap.describeAdvisories(c), [OPTIONAL_SENTENCE]);
+  });
+
+  test('10c. only Quick missing: the advisory names Quick alone', () => {
+    const c = caps([...REQUIRED, 'Debug']);
+    assert.deepEqual(cap.resolveModes(c).types_by_name, { Objective: 'native', TRD: 'native', Decision: 'native', Debug: 'native' });
+    assert.deepEqual(cap.describeAdvisories(c), ['Issue type Quick is not enabled; DevFlow labels those issues devflow:type/quick.']);
+  });
+
+  test('10d. a live probe on an org with all five types records Debug and Quick as enabled', () => {
+    const fake = setup({
+      types: [
+        { id: 1, name: 'Objective', is_enabled: true }, { id: 2, name: 'TRD', is_enabled: true },
+        { id: 3, name: 'Decision', is_enabled: true }, { id: 4, name: 'Debug', is_enabled: true },
+        { id: 5, name: 'Quick', is_enabled: true }, { id: 9, name: 'Bug', is_enabled: true },
+      ],
+    });
+    const r = detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }) });
+    assert.deepEqual(r.org_types, { available: true, enabled: [...REQUIRED, 'Debug', 'Quick'] });
+    assert.deepEqual(r.degraded, []);
+  });
+
+  test('11a. all five enabled: every type native, no advisory', () => {
+    const c = caps([...REQUIRED, 'Debug', 'Quick']);
+    const modes = cap.resolveModes(c);
+    assert.equal(modes.types, 'native');
+    assert.deepEqual(modes.types_by_name, { Objective: 'native', TRD: 'native', Decision: 'native', Debug: 'native', Quick: 'native' });
+    assert.deepEqual(modes.degraded, []);
+    assert.deepEqual(cap.advisoriesOf(c), []);
+    assert.deepEqual(cap.describeAdvisories(c), []);
+  });
+
+  test('11b. no types at all: 47\'s degraded notice text is unchanged and there is no optional advisory', () => {
+    const c = caps([]);
+    const modes = cap.resolveModes(c);
+    assert.equal(modes.types, 'labels');
+    assert.deepEqual(modes.types_by_name, { Objective: 'labels', TRD: 'labels', Decision: 'labels' });
+    assert.deepEqual(modes.degraded, ['types']);
+    assert.deepEqual(cap.describeDegraded(c), [
+      'Issue types not enabled for the organization: Objective, TRD, Decision; DevFlow records those as devflow:type/<name> labels instead.',
+    ]);
+    assert.deepEqual(cap.advisoriesOf(c), [], 'the optional advisory only appears when the required types are native');
+  });
+
+  test('11c. Debug/Quick enabled but a required type missing: the aggregate is still decided by the required types', () => {
+    const c = caps(['Objective', 'TRD', 'Debug', 'Quick']);
+    const modes = cap.resolveModes(c);
+    assert.equal(modes.types, 'labels');
+    assert.equal(modes.types_by_name.Decision, 'labels');
+    assert.equal(modes.types_by_name.Debug, 'native');
+    assert.deepEqual(modes.degraded, ['types']);
+    assert.deepEqual(cap.advisoriesOf(c), []);
+  });
+});
