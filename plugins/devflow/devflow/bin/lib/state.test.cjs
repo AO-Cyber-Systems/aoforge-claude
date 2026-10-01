@@ -371,3 +371,206 @@ describe('sessionReplacePlainField (unit)', () => {
     assert.equal(fn('# S\n\nStopped at: nope\n', 'Stopped at', 'z'), null);
   });
 });
+
+// ─── TRD 48-13: STATE.md mutators — local-mode characterization + store mode ──
+//
+// Characterization (local mode) pins the bytes every STATE.md mutator writes
+// today, so the store-mode branch cannot drift local behaviour. Time-stamped
+// values are masked (no clock seam exists). The stray `- *()*` line pinned for
+// add-decision is today's behaviour on a freshly seeded archive (the `None yet`
+// scrub runs before the `*(none yet)*` scrub); 48-13 does not change it.
+//
+//   1. `state update Status Executing` → STATE.md line updated; state.json untouched.
+//   2. patch / advance-job / update-progress / record-metric / add-blocker /
+//      resolve-blocker / record-session → STATE.md, state.json, STATE_ARCHIVE.md pinned.
+//   3. `state add-decision --summary x` → STATE_ARCHIVE.md + state.json pinned.
+
+const CHAR_STATE = `# Project State
+
+## Current Position
+
+**Current Objective:** 7
+**Current Job:** 2
+**Total Jobs in Objective:** 4
+**Status:** Planning
+**Last Activity:** 2026-01-01
+**Progress:** [░░░░░░░░░░] 0%
+
+### Blockers/Concerns
+
+- API key missing
+- Flaky CI
+
+## Session
+
+**Last session:** 2026-01-01T00:00:00.000Z
+**Stopped At:** nowhere
+**Resume File:** None
+`;
+
+const CHAR_SJ = {
+  current_objective: '7',
+  current_job: 2,
+  total_jobs: 4,
+  progress_pct: 0,
+  status: 'Planning',
+  last_activity: '2026-01-01',
+  metrics: { jobs_completed: 0, jobs_failed: 0, sessions: 0 },
+  decisions: [],
+  blockers: ['API key missing', 'Flaky CI'],
+  session_log: [],
+};
+
+const ARCHIVE_HEAD = `# State Archive
+
+Append-only log. Written by df-tools \`add-decision\` and \`record-metric\`.
+STATE.md stays lean; this file grows over time.
+
+## Decisions
+
+`;
+const ARCHIVE_METRICS = `## Performance Metrics
+
+| Objective | Duration | Tasks | Files |
+|-----------|----------|-------|-------|
+`;
+
+const STORE_NOTE = 'STATE.md is a generated view in store mode';
+
+// Temp project: STATE.md + state.json fixtures, objective 07 with 2 TRDs / 1 SUMMARY
+// (so update-progress computes 50%), and an optional .planning/config.json.
+function charProject(config) {
+  const dir = tmpProject(CHAR_STATE);
+  fs.writeFileSync(path.join(dir, '.planning', 'state.json'), JSON.stringify(CHAR_SJ, null, 2), 'utf-8');
+  const obj = path.join(dir, '.planning', 'objectives', '07-x');
+  fs.mkdirSync(obj, { recursive: true });
+  for (const f of ['07-01-TRD.md', '07-02-TRD.md', '07-01-SUMMARY.md']) {
+    fs.writeFileSync(path.join(obj, f), '# x\n', 'utf-8');
+  }
+  if (config) {
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
+  }
+  return dir;
+}
+
+const STORE_CONFIG = { github: { enabled: true, store: true, repo: 'o/r' } };
+
+function readFile(dir, name) {
+  return fs.readFileSync(path.join(dir, '.planning', name), 'utf-8');
+}
+
+function readSj(dir) {
+  return JSON.parse(readFile(dir, 'state.json'));
+}
+
+// Exact-substring edit that fails loudly when the anchor is absent.
+function edit(src, from, to) {
+  assert.ok(src.includes(from), `fixture anchor missing: ${from}`);
+  return src.replace(from, to);
+}
+
+function sjBytes(overrides) {
+  return JSON.stringify(Object.assign({}, CHAR_SJ, overrides), null, 2);
+}
+
+function mask(s) {
+  return s
+    .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, '<ISO>')
+    .replace(/\d{4}-\d{2}-\d{2}/g, '<DATE>');
+}
+
+describe('48-13 characterization — local-mode STATE.md mutators write today\'s bytes', () => {
+  test('1. state update Status Executing → only the Status line changes; state.json untouched', () => {
+    const dir = charProject();
+    const r = run(['state', 'update', 'Status', 'Executing'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, '{\n  "updated": true\n}');
+    assert.equal(readFile(dir, 'STATE.md'), edit(CHAR_STATE, '**Status:** Planning', '**Status:** Executing'));
+    assert.equal(readFile(dir, 'state.json'), sjBytes({}));
+  });
+
+  test('2a. state patch → matched field written, unmatched reported failed', () => {
+    const dir = charProject();
+    const r = run(['state', 'patch', '--Status', 'Paused', '--Bogus', 'x'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { updated: ['Status'], failed: ['Bogus'] });
+    assert.equal(readFile(dir, 'STATE.md'), edit(CHAR_STATE, '**Status:** Planning', '**Status:** Paused'));
+    assert.equal(readFile(dir, 'state.json'), sjBytes({}));
+    assert.equal(run(['state', 'patch', '--Status', 'Again', '--raw'], dir).stdout, 'true');
+  });
+
+  test('2b. state advance-job → Current Job, Status, Last Activity in STATE.md and state.json', () => {
+    const dir = charProject();
+    const r = run(['state', 'advance-job'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { advanced: true, previous_job: 2, current_job: 3, total_jobs: 4 });
+    let want = edit(CHAR_STATE, '**Current Job:** 2', '**Current Job:** 3');
+    want = edit(want, '**Status:** Planning', '**Status:** Ready to execute');
+    want = edit(want, '**Last Activity:** 2026-01-01', '**Last Activity:** 2099-09-09');
+    assert.equal(mask(readFile(dir, 'STATE.md')), mask(want));
+    assert.equal(mask(readFile(dir, 'state.json')),
+      mask(sjBytes({ current_job: 3, total_jobs: 4, status: 'Ready to execute', last_activity: '2099-09-09' })));
+  });
+
+  test('2c. state update-progress → Progress bar in STATE.md, progress_pct in state.json', () => {
+    const dir = charProject();
+    const r = run(['state', 'update-progress'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { updated: true, percent: 50, completed: 1, total: 2, bar: '[█████░░░░░] 50%' });
+    assert.equal(readFile(dir, 'STATE.md'), edit(CHAR_STATE, '[░░░░░░░░░░] 0%', '[█████░░░░░] 50%'));
+    assert.equal(readFile(dir, 'state.json'), sjBytes({ progress_pct: 50 }));
+  });
+
+  test('2d. state record-metric → seeded STATE_ARCHIVE.md row; STATE.md and state.json untouched', () => {
+    const dir = charProject();
+    const r = run(['state', 'record-metric', '--objective', '7', '--job', '02', '--duration', '5min', '--tasks', '3', '--files', '4'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { recorded: true, objective: '7', job: '02', duration: '5min' });
+    assert.equal(readFile(dir, 'STATE_ARCHIVE.md'),
+      ARCHIVE_HEAD + '- *(none yet)*\n\n' + ARCHIVE_METRICS + '| Objective 7 P02 | 5min | 3 tasks | 4 files |\n');
+    assert.equal(readFile(dir, 'STATE.md'), CHAR_STATE);
+    assert.equal(readFile(dir, 'state.json'), sjBytes({}));
+  });
+
+  test('2e. state add-blocker → appended to Blockers section and state.json', () => {
+    const dir = charProject();
+    const r = run(['state', 'add-blocker', '--text', 'Disk full'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { added: true, blocker: 'Disk full' });
+    assert.equal(readFile(dir, 'STATE.md'), edit(CHAR_STATE, '- Flaky CI\n', '- Flaky CI\n- Disk full\n'));
+    assert.equal(readFile(dir, 'state.json'), sjBytes({ blockers: ['API key missing', 'Flaky CI', 'Disk full'] }));
+  });
+
+  test('2f. state resolve-blocker → matching line removed from STATE.md and state.json', () => {
+    const dir = charProject();
+    const r = run(['state', 'resolve-blocker', '--text', 'api key'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { resolved: true, blocker: 'api key' });
+    assert.equal(readFile(dir, 'STATE.md'), edit(CHAR_STATE, '- API key missing\n', ''));
+    assert.equal(readFile(dir, 'state.json'), sjBytes({ blockers: ['Flaky CI'] }));
+  });
+
+  test('2g. state record-session → bold session fields rewritten; state.json untouched', () => {
+    const dir = charProject();
+    const r = run(['state', 'record-session', '--stopped-at', 'halted', '--resume-file', '.planning/X.md'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { recorded: true, updated: ['Last session', 'Stopped At', 'Resume File'] });
+    let want = edit(CHAR_STATE, '**Stopped At:** nowhere', '**Stopped At:** halted');
+    want = edit(want, '**Resume File:** None', '**Resume File:** .planning/X.md');
+    assert.equal(mask(readFile(dir, 'STATE.md')), mask(want));
+    assert.match(readFile(dir, 'STATE.md'), /\*\*Last session:\*\* (?!2026-01-01T00)\d{4}-/);
+    assert.equal(readFile(dir, 'state.json'), sjBytes({}));
+  });
+
+  test('3. state add-decision --summary x → STATE_ARCHIVE.md + state.json pinned; STATE.md untouched', () => {
+    const dir = charProject();
+    const r = run(['state', 'add-decision', '--summary', 'x'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, '{\n  "added": true,\n  "decision": "- [Objective ?]: x"\n}');
+    assert.equal(readFile(dir, 'STATE_ARCHIVE.md'),
+      ARCHIVE_HEAD + '- *()*\n- [Objective ?]: x\n\n' + ARCHIVE_METRICS);
+    assert.equal(readFile(dir, 'state.json'),
+      sjBytes({ decisions: [{ objective: '?', summary: 'x', rationale: null }] }));
+    assert.equal(readFile(dir, 'STATE.md'), CHAR_STATE);
+  });
+});
