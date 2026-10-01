@@ -256,7 +256,8 @@ describe('validate-health: contract', () => {
     assert.equal(health.id, 'validate-health');
     assert.equal(health.scope, 'project');
     assert.deepEqual(doctor.contractIssues(health), []);
-    assert.deepEqual(health.DEFERRED, ['E020', 'I022', 'W040']);
+    // W057-W061 belong to 25-gh-store-sync (TRD 50-07), so the validate-health check defers them.
+    assert.deepEqual(health.DEFERRED, ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061']);
   });
 });
 
