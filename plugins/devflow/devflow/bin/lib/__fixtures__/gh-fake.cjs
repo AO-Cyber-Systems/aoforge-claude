@@ -40,6 +40,21 @@
 // title, description, state, due_on; closing stamps closed_at, reopening clears it).
 // What the repo can do is configured per fake (`ownerType`, `hasWiki`, `push`, `types`, `fields`,
 // `subIssuesApi`), and `setOffline(true)` turns every call into a network outage.
+//
+// Pull requests (objective 49, TRD 49-01). A PR is an ISSUE RECORD in `issues` carrying a `pr` object, drawn
+// from the same `nextIssue` counter, so an issue and a PR never share a number and PR comments are issue
+// comments (49 Pitfall 9). Its issue `state` is the PR state ('OPEN' | 'CLOSED'); `pr` holds the rest:
+//   pr { head:{ref, sha}, base:{ref}, draft, merged, mergedAt, mergeSha, mergeMethod, queued, author }
+// DevFlow drives PRs through `gh api` only (REST + GraphQL), so the fake has routes, not `pr` argv nouns:
+//   user (GET), repos/o/r (GET: default_branch, node_id 'R_1'), repos/o/r/pulls (GET head=<owner>:<branch>,
+//   state, base; POST), pulls/{n} (GET, PATCH title/body/state/base), pulls/{n}/merge (PUT merge_method).
+// `gh issue list` never shows a PR (as gh does); REST `issues` lists them (as GitHub does) with `pull_request`.
+// `GET pulls/{n}` also reports `queued` (a fake-only field: whether the PR sits in the merge queue).
+// Branches: `refs` = `{name: sha}`, seeded with `{[defaultBranch]: BASE_SHA}` (option `defaultBranch`, default
+// 'main'; option `refs` adds more). `pushRef(name, sha)` stands in for a `git push` the test made.
+// Comments carry an author: API-posted ones use the fake viewer (option `viewer`, default 'devflow-bot');
+// `seedComment(n, body, {login})` seeds another. Seeded issue `assignees` already appear on the issue.
+// `humanMergePr(n, {method})` is the human clicking merge (no call recorded).
 
 const { isWriteArgs } = require('../gh-client.cjs');
 
@@ -66,6 +81,8 @@ const API_BOOL_FLAGS = ['--paginate', '--slurp'];
 
 const ISSUE_ID_OFFSET = 1_000_000; // id = ISSUE_ID_OFFSET + number: an id is never a number
 const MAX_SUB_ISSUES = 100;        // GitHub: 100 sub-issues per parent, closed ones count
+const BASE_SHA = `base${'0'.repeat(36)}`; // the default branch's tip when nothing else is seeded (40 chars)
+const MERGE_METHODS = ['merge', 'squash', 'rebase'];
 
 // What gh prints, and how it exits, when the network is down: no HTTP status, no exit code of its own.
 const OFFLINE_RESPONSE = {
@@ -128,9 +145,12 @@ function matcherFor(match) {
  *   `ownerType` 'Organization' | 'User'; `hasWiki`; `push` (permissions.push); `isPrivate`;
  *   `types` the org's issue types `[{id,name,is_enabled}]`; `fields` the org's issue-field
  *   definitions `[{id,name,data_type}]`; `subIssuesApi` false answers 404 on every sub-issue route.
+ * 49-01 options: `viewer` (the authenticated login: author of API-posted comments, PRs and statuses),
+ *   `defaultBranch` (default 'main'), `refs` (extra `{name: sha}` branches beside the default branch).
  * @returns {{runGh:Function, issues:object[], comments:object[], milestones:object[], labels:string[],
- *   calls:()=>string[][], writes:()=>string[][], writeTimes:()=>(number|null)[], failNext:Function,
- *   humanEditBody:Function, seedIssue:Function, seedComment:Function, seedMilestone:Function}}
+ *   refs:object, calls:()=>string[][], writes:()=>string[][], writeTimes:()=>(number|null)[], failNext:Function,
+ *   humanEditBody:Function, seedIssue:Function, seedComment:Function, seedMilestone:Function,
+ *   pushRef:Function}}
  */
 function createFakeGitHub({
   repo = 'o/r', scopes = ['repo', 'project', 'read:project'], commentPageSize = 30, graphql = null, now = null,
@@ -138,6 +158,7 @@ function createFakeGitHub({
   types = [{ id: 1, name: 'Objective', is_enabled: true }, { id: 2, name: 'TRD', is_enabled: true }, { id: 3, name: 'Decision', is_enabled: true }],
   fields = [{ id: 11, name: 'work', data_type: 'single_select' }, { id: 12, name: 'kind', data_type: 'single_select' }],
   subIssuesApi = true,
+  viewer = 'devflow-bot', defaultBranch = 'main', refs: seedRefs = {},
 } = {}) {
   const repoOwner = repo.split('/')[0];
   const fieldDefs = fields; // runApi has a local `fields` (the request body), so name the definitions apart
@@ -145,6 +166,7 @@ function createFakeGitHub({
   const comments = [];
   const milestones = []; // { number, title, description, state, due_on, closed_at }
   const labels = [];     // names
+  const refs = { [defaultBranch]: BASE_SHA, ...seedRefs }; // branch name -> tip sha (49-01)
   const log = [];        // every argv runGh saw, in order
   const stamps = [];     // the `now()` reading for each entry of `log` (null without a clock)
   const failures = [];   // { test, response }
@@ -209,11 +231,12 @@ function createFakeGitHub({
     return issue;
   }
 
-  function addComment(issueNumber, body) {
+  /** Every API-posted comment is the viewer's; a seeded one may name another author (49-01). */
+  function addComment(issueNumber, body, login = viewer) {
     const at = tick();
     const id = nextComment++;
     const c = {
-      id, issue_number: issueNumber, body, user: { login: 'devflow-bot' }, created_at: at, updated_at: at,
+      id, issue_number: issueNumber, body, user: { login }, created_at: at, updated_at: at,
       html_url: `${issueUrl(issueNumber)}#issuecomment-${id}`,
     };
     comments.push(c);
@@ -225,8 +248,9 @@ function createFakeGitHub({
   function seedIssue(spec) {
     return addIssue(spec).number;
   }
-  function seedComment(issueNumber, body) {
-    return addComment(issueNumber, body).id;
+  /** `{login}` names the author (default: the viewer), so a test can seed a comment by someone else. */
+  function seedComment(issueNumber, body, { login } = {}) {
+    return addComment(issueNumber, body, login === undefined ? viewer : String(login)).id;
   }
   function seedMilestone(title, description) {
     return addMilestone(title, description).number;
@@ -271,9 +295,9 @@ function createFakeGitHub({
     const children = issue.subIssues.map((n) => findIssue(n)).filter(Boolean);
     const blocking = issues.filter((i) => i.blockedBy.includes(issue.number));
     const completed = children.filter((c) => c.state === 'CLOSED').length;
-    return {
+    const rest = {
       id: issue.id,
-      node_id: `I_${issue.id}`,
+      node_id: issue.pr ? `PR_${issue.number}` : `I_${issue.id}`,
       number: issue.number,
       title: issue.title,
       body: issue.body,
@@ -281,7 +305,7 @@ function createFakeGitHub({
       state_reason: issue.stateReason,
       url: apiIssueUrl(issue.number),
       html_url: issueUrl(issue.number),
-      user: { login: 'devflow-bot' },
+      user: { login: viewer },
       labels: issue.labels.map((name) => ({ name })),
       assignees: issue.assignees.map((login) => ({ login })),
       milestone: issue.milestone ? { number: ms ? ms.number : 0, title: issue.milestone, state: ms ? ms.state : 'open' } : null,
@@ -302,6 +326,170 @@ function createFakeGitHub({
       updated_at: issue.updatedAt,
       closed_at: issue.state === 'CLOSED' ? issue.updatedAt : null,
     };
+    // GitHub's issues API lists pull requests too, marking them with `pull_request` (and `draft`).
+    if (issue.pr) {
+      rest.pull_request = { url: apiPullUrl(issue.number), html_url: pullUrl(issue.number) };
+      rest.draft = issue.pr.draft;
+    }
+    return rest;
+  }
+
+  // ─── Pull requests (49-01) ─────────────────────────────────────────────────
+
+  const pullUrl = (n) => `https://github.com/${repo}/pull/${n}`;
+  const apiPullUrl = (n) => `https://api.github.com/repos/${repo}/pulls/${n}`;
+  const findPr = (n) => {
+    const issue = findIssue(n);
+    return issue && issue.pr ? issue : undefined;
+  };
+
+  /**
+   * An open PR's head sha follows the branch (a push advances it, as on GitHub); a closed or merged one keeps
+   * the sha it ended with.
+   */
+  function headSha(issue) {
+    if (issue.state === 'OPEN' && !issue.pr.merged && refs[issue.pr.head.ref] !== undefined) {
+      issue.pr.head.sha = refs[issue.pr.head.ref];
+    }
+    return issue.pr.head.sha;
+  }
+
+  /** The REST `pulls` shape of a PR record. `queued` is fake-only: whether the PR sits in the merge queue. */
+  function toRestPull(issue) {
+    const pr = issue.pr;
+    return {
+      id: issue.id,
+      node_id: `PR_${issue.number}`,
+      number: issue.number,
+      title: issue.title,
+      body: issue.body,
+      state: issue.state.toLowerCase(),
+      draft: pr.draft,
+      merged: pr.merged,
+      merged_at: pr.mergedAt,
+      merge_commit_sha: pr.mergeSha,
+      queued: pr.queued,
+      url: apiPullUrl(issue.number),
+      html_url: pullUrl(issue.number),
+      user: { login: pr.author },
+      labels: issue.labels.map((name) => ({ name })),
+      assignees: issue.assignees.map((login) => ({ login })),
+      head: { ref: pr.head.ref, sha: headSha(issue), label: `${repoOwner}:${pr.head.ref}` },
+      base: { ref: pr.base.ref, label: `${repoOwner}:${pr.base.ref}` },
+      created_at: issue.createdAt,
+      updated_at: issue.updatedAt,
+      closed_at: issue.state === 'CLOSED' ? issue.updatedAt : null,
+    };
+  }
+
+  const prOk = (issue) => ok(JSON.stringify(toRestPull(issue)));
+
+  /** `owner:branch` or `branch` -> `{owner, ref}`. */
+  function splitHead(head) {
+    const s = String(head);
+    const at = s.indexOf(':');
+    return at > 0 ? { owner: s.slice(0, at), ref: s.slice(at + 1) } : { owner: repoOwner, ref: s };
+  }
+
+  /** Validation failure that carries an error message line, as gh prints it for a 422 with `errors[].message`. */
+  const refused = (status, message, detail) => fail(`gh: ${message} (HTTP ${status})${detail ? `\n${detail}` : ''}`,
+    JSON.stringify({ message, ...(detail ? { errors: [{ resource: 'PullRequest', code: 'custom', message: detail }] } : {}), status: String(status) }));
+
+  /** POST repos/o/r/pulls. */
+  function restOpenPull(f) {
+    if (typeof f.title !== 'string' || !f.title) return invalid('PullRequest', 'missing_field', 'title');
+    if (typeof f.head !== 'string' || !f.head) return invalid('PullRequest', 'missing_field', 'head');
+    if (typeof f.base !== 'string' || !f.base) return invalid('PullRequest', 'missing_field', 'base');
+    const head = splitHead(f.head);
+    if (head.owner !== repoOwner || refs[head.ref] === undefined) return invalid('PullRequest', 'invalid', 'head');
+    if (refs[f.base] === undefined) return invalid('PullRequest', 'invalid', 'base');
+    if (refs[head.ref] === refs[f.base]) return refused(422, 'Validation Failed', `No commits between ${f.base} and ${head.ref}`);
+    if (issues.some((i) => i.pr && i.state === 'OPEN' && i.pr.head.ref === head.ref && i.pr.base.ref === f.base)) {
+      return refused(422, 'Validation Failed', `A pull request already exists for ${repoOwner}:${head.ref}.`);
+    }
+    const issue = addIssue({ title: f.title, body: f.body === undefined || f.body === null ? '' : String(f.body) });
+    issue.pr = {
+      head: { ref: head.ref, sha: refs[head.ref] },
+      base: { ref: f.base },
+      draft: toBool(f.draft),
+      merged: false,
+      mergedAt: null,
+      mergeSha: null,
+      mergeMethod: null,
+      queued: false,
+      author: viewer,
+    };
+    return prOk(issue);
+  }
+
+  /** GET repos/o/r/pulls: `head` (`owner:branch`), `base`, `state` (default open; closed includes merged). */
+  function restListPulls(p, qs) {
+    const state = (qs.get('state') || 'open').toLowerCase();
+    const head = qs.get('head') ? splitHead(qs.get('head')) : null;
+    const base = qs.get('base');
+    const rows = issues
+      .filter((i) => i.pr)
+      .filter((i) => state === 'all' || i.state.toLowerCase() === state)
+      .filter((i) => !head || (head.owner === repoOwner && i.pr.head.ref === head.ref))
+      .filter((i) => !base || i.pr.base.ref === base)
+      .sort((a, b) => b.number - a.number)
+      .map(toRestPull);
+    return respondList(rows, p, qs);
+  }
+
+  /** PATCH repos/o/r/pulls/{n}: title, body, state, base. A merged PR cannot be reopened. */
+  function restPatchPull(issue, f) {
+    let changed = false;
+    if (f.title !== undefined) {
+      if (typeof f.title !== 'string' || !f.title) return invalid('PullRequest', 'invalid', 'title');
+      if (issue.title !== f.title) { issue.title = f.title; changed = true; }
+    }
+    if (f.body !== undefined) {
+      const body = f.body === null ? '' : String(f.body);
+      if (issue.body !== body) { issue.body = body; changed = true; }
+    }
+    if (f.base !== undefined) {
+      if (refs[f.base] === undefined) return invalid('PullRequest', 'invalid', 'base');
+      if (issue.pr.base.ref !== f.base) { issue.pr.base.ref = f.base; changed = true; }
+    }
+    if (f.state !== undefined) {
+      const want = String(f.state).toLowerCase();
+      if (want !== 'open' && want !== 'closed') return invalid('PullRequest', 'invalid', 'state');
+      const next = want.toUpperCase();
+      if (issue.state !== next) {
+        if (issue.pr.merged) return refused(422, 'Validation Failed', 'Cannot reopen a merged pull request');
+        issue.pr.head.sha = headSha(issue);
+        issue.state = next;
+        issue.stateReason = next === 'CLOSED' ? 'completed' : 'reopened';
+        changed = true;
+      }
+    }
+    if (changed) issue.updatedAt = tick();
+    return prOk(issue);
+  }
+
+  /** Complete a merge: the PR is closed and merged. */
+  function completeMerge(issue, method) {
+    const at = tick();
+    issue.pr.head.sha = headSha(issue);
+    issue.pr.merged = true;
+    issue.pr.mergedAt = at;
+    issue.pr.mergeSha = `merge${String(issue.number).padStart(35, '0')}`;
+    issue.pr.mergeMethod = method;
+    issue.pr.queued = false;
+    issue.state = 'CLOSED';
+    issue.stateReason = 'completed';
+    issue.updatedAt = at;
+  }
+
+  /** PUT repos/o/r/pulls/{n}/merge. */
+  function restMergePull(issue, f) {
+    const method = f.merge_method === undefined ? 'merge' : String(f.merge_method);
+    if (!MERGE_METHODS.includes(method)) return invalid('PullRequest', 'invalid', 'merge_method');
+    if (issue.pr.draft) return refused(405, 'Pull Request is still a draft');
+    if (issue.pr.merged || issue.state !== 'OPEN') return refused(405, 'Pull Request is not mergeable');
+    completeMerge(issue, method);
+    return ok(JSON.stringify({ sha: issue.pr.mergeSha, merged: true, message: 'Pull Request successfully merged' }));
   }
 
   /** `--json a,b` -> key list, or an error result. */
@@ -350,6 +538,7 @@ function createFakeGitHub({
       const wanted = flagList(p, '--label');
       const limit = Number(flagOne(p, '--limit') || 30);
       const rows = issues
+        .filter((i) => !i.pr) // gh issue list never shows pull requests
         .filter((i) => state === 'all' || i.state.toLowerCase() === state)
         .filter((i) => wanted.every((l) => i.labels.includes(l)))
         .sort((a, b) => b.number - a.number)
@@ -833,6 +1022,32 @@ function createFakeGitHub({
       }
     }
 
+    // ── 49-01: pull requests and the authenticated user ──
+
+    if (rawPath === 'user') {
+      if (method !== 'GET') return unsupported(args);
+      return ok(JSON.stringify({ login: viewer, id: 7, type: 'User' }));
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/pulls$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      if (method === 'POST') return restOpenPull(fields);
+      if (method === 'GET') return restListPulls(p, qs);
+      return unsupported(args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/pulls\/(\d+)(\/merge)?$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      const issue = findPr(m[2]);
+      if (!issue) return notFound();
+      if (m[3]) return method === 'PUT' ? restMergePull(issue, fields) : unsupported(args);
+      if (method === 'GET') return prOk(issue);
+      if (method === 'PATCH') return restPatchPull(issue, fields);
+      return unsupported(args);
+    }
+
     // ── 47-02: repo meta and org-level capabilities ──
 
     m = /^repos\/([^/]+\/[^/]+)$/.exec(rawPath);
@@ -841,6 +1056,7 @@ function createFakeGitHub({
       if (method !== 'GET') return unsupported(args);
       return ok(JSON.stringify({
         id: 424242,
+        node_id: 'R_1',
         name: repo.split('/')[1],
         full_name: repo,
         owner: { login: repoOwner, type: ownerType },
@@ -848,7 +1064,7 @@ function createFakeGitHub({
         has_wiki: hasWiki,
         has_issues: true,
         html_url: `https://github.com/${repo}`,
-        default_branch: 'main',
+        default_branch: defaultBranch,
         permissions: { admin: push, maintain: push, push, triage: true, pull: true },
       }));
     }
@@ -875,7 +1091,7 @@ function createFakeGitHub({
       const list = scopes.map((s) => `'${s}'`).join(', ');
       return ok([
         'github.com',
-        '  ✓ Logged in to github.com account devflow-bot (keyring)',
+        `  ✓ Logged in to github.com account ${viewer} (keyring)`,
         '  - Active account: true',
         '  - Git operations protocol: https',
         '  - Token: gho_************************************',
@@ -937,12 +1153,24 @@ function createFakeGitHub({
     c.updated_at = tick();
   }
 
+  /**
+   * A `git push` the test made to its temp remote: set (or advance) branch `name` to `sha`. No gh call is
+   * recorded. A PR can only be opened from a ref that exists here, and only when it differs from the base tip.
+   */
+  function pushRef(name, sha) {
+    if (typeof name !== 'string' || !name) throw new Error('gh-fake: pushRef needs a branch name');
+    if (typeof sha !== 'string' || !sha) throw new Error('gh-fake: pushRef needs a sha');
+    refs[name] = sha;
+  }
+
   return {
     runGh,
     issues,
     comments,
     milestones,
     labels,
+    refs,
+    pushRef,
     calls: () => log.map((a) => a.slice()),
     writes: () => log.filter((a) => isWriteArgs(a)).map((a) => a.slice()),
     writeTimes: () => log.flatMap((a, i) => (isWriteArgs(a) ? [stamps[i]] : [])),
