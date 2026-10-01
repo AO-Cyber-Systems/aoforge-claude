@@ -128,7 +128,8 @@ function setup({ store = true, wiki = false, fake: fakeOptions = {}, assignees =
 
   const c0 = g.git(root, ['rev-parse', 'HEAD']);
   const fake = createFakeGitHub({
-    repo: 'o/r', hasWiki: wiki, refs: { main: c0 }, onCreateBranch: (name) => g.createRemoteBranch(name), ...fakeOptions,
+    // the token owner is alice, the objective issue's assignee: what DevFlow posts (a confirm included) is posted as alice
+    repo: 'o/r', hasWiki: wiki, viewer: 'alice', refs: { main: c0 }, onCreateBranch: (name) => g.createRemoteBranch(name), ...fakeOptions,
   });
   const clock = { t: T0 };
   client._setNow(() => clock.t);
@@ -343,5 +344,269 @@ describe('49-14 the objective lifecycle, start to reconcile', { skip: GIT ? fals
     assert.ok(commentsOn(S.trdN['49-01']).some((c) => c.body.includes('49-01 summary')), 'the summary is on the TRD issue');
     flushed();
     assert.equal(ghGet('repos/o/r/pulls?state=all').length, 1);
+  });
+
+  test('4. SC3: a stranger\'s scope is pending, outside `gh trd spec`, until an assignee confirms it; only then does it apply', () => {
+    const n3 = S.trdN['49-03'];
+    const scope = 'Mallory proposes an extra check.';
+    S.fake.seedComment(n3, trdLib.buildScopeComment(1, scope), { login: 'mallory' });
+
+    const spec = commentsLib.readEffectiveSpec(S.root, '49-03');
+    assert.equal(spec.ok, true, JSON.stringify(spec));
+    assert.deepEqual(spec.assignees, ['alice']);
+    assert.deepEqual(spec.applied, [], 'nothing applies');
+    assert.equal(spec.text.includes(scope), false, 'the stranger\'s text is not in the spec');
+    assert.deepEqual(spec.pending.map((p) => [p.n, p.author]), [[1, 'mallory']]);
+
+    const cliSpec = trdCmd(['spec', '49-03']);
+    assert.equal(exitOf(cliSpec), 0);
+    assert.equal(jsonOf(cliSpec).text.includes(scope), false);
+    assert.deepEqual(jsonOf(cliSpec).pending.map((p) => p.n), [1]);
+    const status = prLib.prStatus(S.root, OBJ);
+    assert.deepEqual((status.pending_scopes['49-03'] || []).map((p) => [p.n, p.author]), [[1, 'mallory']], 'gh pr status lists it too');
+
+    // the stranger cannot confirm their own scope
+    S.viewer = 'mallory';
+    const writes = writesNow();
+    const refused = trdCmd(['confirm-scope', '49-03', '1']);
+    assert.equal(exitOf(refused), 1, refused.stdout + refused.stderr);
+    assert.match(jsonOf(refused).error, /mallory is not an assignee/);
+    assert.equal(writesNow(), writes);
+    assert.equal(pendingOps().length, 0, 'nothing was queued');
+    assert.equal(commentsLib.readEffectiveSpec(S.root, '49-03').text.includes(scope), false);
+
+    // an assignee can: the confirm is queued, flushed, and the scope then applies
+    S.viewer = 'alice';
+    const ok = trdCmd(['confirm-scope', '49-03', '1']);
+    assert.equal(exitOf(ok), 0, ok.stdout + ok.stderr);
+    assert.ok(writesNow() > writes, 'the confirm reached GitHub');
+    flushed();
+    S.viewer = null;
+    const after = commentsLib.readEffectiveSpec(S.root, '49-03');
+    assert.deepEqual(after.applied, [1]);
+    assert.deepEqual(after.pending, []);
+    assert.ok(after.text.includes(scope), 'the confirmed scope is part of the spec');
+    assert.ok(commentsOn(n3).some((c) => c.body.includes('devflow:scope-confirm') && c.user.login === 'alice'), 'the confirm is signed by alice');
+    assert.deepEqual(prLib.prStatus(S.root, OBJ).pending_scopes, {}, 'no pending scope is left');
+  });
+
+  test('5. verify pass: the PR is ready, devflow/verification is success on its head, the wiki diff is on the PR; the objective issue stays open', () => {
+    assert.equal(verbs.docPut(S.root, { rel: 'research/b.md', text: '# B\n\nChanged during the objective.\n' }).ok, true);
+    const sync = prLib.syncObjectivePr(S.root, OBJ);
+    assert.equal(sync.ok, true, JSON.stringify(sync));
+    assert.equal(prNow().draft, true, 'a draft until the verify pass');
+
+    const r = verbs.verificationPost(S.root, { objective: OBJ, text: VERIFICATION });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0, JSON.stringify(r));
+    flushed();
+
+    const pr = prNow();
+    assert.equal(pr.draft, false, 'ready for review');
+    assert.equal(pr.head.sha, headNow());
+    const posted = (S.fake.statuses[pr.head.sha] || []).filter((s) => s.context === 'devflow/verification');
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].state, 'success');
+    const status = prLib.prStatus(S.root, OBJ);
+    assert.equal(status.pr.state, 'ready');
+    assert.equal(status.verification.state, 'success');
+    assert.deepEqual(status.errors, []);
+
+    const diff = commentsOn(prNumber()).filter((c) => c.body.includes('Research-b.md'));
+    assert.equal(diff.length, 1, 'one wiki-diff comment on the PR');
+    assert.match(diff[0].body, /Wiki changes during objective 49/);
+    assert.match(diff[0].body, /\+Changed during the objective\./);
+    assert.doesNotMatch(diff[0].body, /Research-a\.md/, 'only what changed since the objective started');
+
+    // marking the objective complete before the merge defers the close: the PR's merge closes it
+    const complete = verbs.objectiveSetStatus(S.root, { id: OBJ, status: 'complete' });
+    assert.equal(complete.ok, true, JSON.stringify(complete));
+    assert.equal(complete.close_deferred, `pr #${prNumber()}`);
+    assert.equal(queueNow().filter((o) => o.kind === 'patch-issue' && o.payload && o.payload.state === 'closed').length, 0, 'no close was ever queued');
+    for (const n of allIssues()) assert.equal(isOpen(n), true, `#${n} is still open before the merge`);
+  });
+
+  test('6. merge then reconcile: every issue is closed, both branches are gone, gh pull --all ran; a second reconcile writes nothing', () => {
+    const n = prNumber();
+    const unrelatedOpen = () => S.fake.issues.filter((i) => i.number < 100 && i.state === 'OPEN').length;
+    assert.equal(unrelatedOpen(), 99);
+
+    const r = prLib.mergeObjectivePr(S.root, OBJ);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.merged, true);
+    assert.equal(r.method, 'squash');
+    assert.equal(prNow().merged, true);
+    for (const num of allIssues()) assert.equal(isOpen(num), false, `#${num} is closed`);
+    assert.equal(unrelatedOpen(), 99, 'unrelated issues were left alone');
+    assert.equal(S.fake.refs[BRANCH], undefined, 'the remote objective branch is gone');
+    assert.deepEqual(originHeads(), ['main']);
+    assert.equal(branchNow(), 'main', 'the checkout is back on the default branch');
+    assert.equal(headNow(), originMain(), 'local main holds the merge');
+    assert.equal(S.g.git(S.root, ['log', '-1', '--format=%s', 'main']), 'squash merge');
+    assert.deepEqual(localBranches(), ['main'], 'the local objective branch is deleted');
+    assert.equal(S.pulls, 1, 'gh pull --all ran once');
+    assert.equal(typeof prRecord().merged_at, 'string');
+    assert.equal(typeof prRecord().reconciled_at, 'string');
+    assert.equal(prRecord().number, n);
+
+    // reconcile again, through the CLI: a no-op on GitHub and on disk
+    const writes = writesNow();
+    const head = headNow();
+    const again = prCmd(['reconcile', OBJ]);
+    assert.equal(exitOf(again), 0, again.stdout + again.stderr);
+    assert.equal(jsonOf(again).already_reconciled, true);
+    assert.deepEqual(jsonOf(again).closed, []);
+    assert.equal(writesNow(), writes, 'zero GitHub writes');
+    assert.equal(headNow(), head);
+    assert.deepEqual(localBranches(), ['main']);
+    assert.equal(S.pulls, 1, 'the cache is not pulled again');
+    assert.equal(pendingOps().length, 0);
+  });
+});
+
+// ─── The merge queue ─────────────────────────────────────────────────────────
+
+describe('49-14 the merge-queue variant', { skip: GIT ? false : 'git is not available' }, () => {
+  // closeKeywordCap 2: the merge honours only the first two closing links, so the reconcile has stragglers to close
+  before(() => { setup({ fake: { mergeQueue: true, closeKeywordCap: 2 } }); });
+  after(teardown);
+
+  test('7. merge only enqueues the PR (exit 3), reconcile waits (exit 3); once the queue lands it, reconcile closes the stragglers', () => {
+    assert.equal(prLib.startObjectivePr(S.root, OBJ).ok, true);
+    const verified = verbs.verificationPost(S.root, { objective: OBJ, text: VERIFICATION });
+    assert.equal(verified.ok, true, JSON.stringify(verified));
+    flushed();
+    const n = prNumber();
+    assert.equal(ghGet(`repos/o/r/pulls/${n}`).draft, false);
+
+    const merge = prCmd(['merge', OBJ]);
+    assert.equal(exitOf(merge), 3, merge.stdout + merge.stderr);
+    assert.equal(jsonOf(merge).merged, false);
+    assert.equal(jsonOf(merge).pending, true);
+    assert.match(jsonOf(merge).reason, /gh pr reconcile 49/);
+    assert.equal(ghGet(`repos/o/r/pulls/${n}`).queued, true, 'the PR is in the merge queue');
+    assert.equal(ghGet(`repos/o/r/pulls/${n}`).merged, false);
+    for (const num of allIssues()) assert.equal(isOpen(num), true, `#${num} is still open`);
+    assert.notEqual(S.fake.refs[BRANCH], undefined, 'the branch of a queued PR is kept');
+    assert.equal(branchNow(), BRANCH);
+
+    const writes = writesNow();
+    const waiting = prCmd(['reconcile', OBJ]);
+    assert.equal(exitOf(waiting), 3, waiting.stdout + waiting.stderr);
+    assert.equal(jsonOf(waiting).pending, true);
+    assert.equal(writesNow(), writes, 'a reconcile of a queued PR writes nothing');
+    assert.equal(S.pulls, 0);
+
+    // the queue lands the PR; GitHub honours two of the four closing links
+    S.fake.humanMergePr(n, { method: 'squash' });
+    S.g.advanceOrigin({ message: 'merge queue lands the PR' });
+    assert.equal(isOpen(S.objN), false);
+    assert.equal(isOpen(S.trdN['49-01']), false);
+    assert.equal(isOpen(S.trdN['49-02']), true, 'a straggler');
+    assert.equal(isOpen(S.trdN['49-03']), true, 'a straggler');
+
+    const done = prCmd(['reconcile', OBJ]);
+    assert.equal(exitOf(done), 0, done.stdout + done.stderr);
+    assert.deepEqual([...jsonOf(done).closed].sort(), [S.trdN['49-02'], S.trdN['49-03']].sort(), 'only the stragglers were closed');
+    for (const num of allIssues()) assert.equal(isOpen(num), false, `#${num} is closed`);
+    assert.equal(S.fake.refs[BRANCH], undefined);
+    assert.equal(branchNow(), 'main');
+    assert.equal(headNow(), originMain());
+    assert.equal(S.pulls, 1);
+  });
+});
+
+// ─── Store off ───────────────────────────────────────────────────────────────
+
+/** Run an init in-process; the JSON it printed. */
+function runInit(fn, ...args) {
+  const realWrite = process.stdout.write;
+  const realExit = process.exit;
+  let out = '';
+  const STOP = Symbol('init-exit');
+  process.stdout.write = (chunk) => { out += String(chunk); return true; };
+  process.exit = () => { throw STOP; };
+  try {
+    fn(...args);
+  } catch (e) {
+    if (e !== STOP) throw e;
+  } finally {
+    process.stdout.write = realWrite;
+    process.exit = realExit;
+  }
+  return JSON.parse(out);
+}
+
+describe('49-14 store-off parity (github.enabled true, github.store false)', { skip: GIT ? false : 'git is not available' }, () => {
+  before(() => { setup({ store: false }); });
+  after(teardown);
+
+  test('8. every gh pr and store verb is skipped with zero gh calls; commits carry no Refs; init reports pr_lifecycle:false; the objective completes as in objective 48', () => {
+    const head = headNow();
+
+    for (const [name, r] of [
+      ['start', prLib.startObjectivePr(S.root, OBJ)],
+      ['sync', prLib.syncObjectivePr(S.root, OBJ)],
+      ['status', prLib.prStatus(S.root, OBJ)],
+      ['merge', prLib.mergeObjectivePr(S.root, OBJ)],
+      ['reconcile', prLib.reconcileObjectivePr(S.root, OBJ)],
+    ]) {
+      assert.equal(r.skipped, true, `${name} is skipped: ${JSON.stringify(r)}`);
+    }
+    for (const verb of ['start', 'sync', 'status', 'merge', 'reconcile']) {
+      const r = prCmd([verb, OBJ]);
+      assert.equal(exitOf(r), 0, `${verb}: ${r.stdout}${r.stderr}`);
+      assert.equal(jsonOf(r).skipped, true, `${verb} reports skipped`);
+    }
+    for (const args of [['confirm-scope', '49-03', '1'], ['start', '49-01']]) {
+      const r = trdCmd(args);
+      assert.equal(exitOf(r), 0, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+      assert.equal(jsonOf(r).skipped, true, `gh trd ${args[0]} reports skipped`);
+    }
+    assert.deepEqual(S.fake.calls(), [], 'not one gh call');
+    assert.equal(pendingOps().length, 0, 'nothing queued');
+    assert.equal(headNow(), head, 'no git change');
+    assert.equal(branchNow(), 'main');
+    assert.deepEqual(localBranches(), ['main']);
+
+    // a commit message is exactly what was passed: no Refs, no refs key in the result
+    const scoped = commitIn(S.root, 'feat(49-01): a', 'src/a.txt', 'a\n');
+    assert.equal(scoped.committed, true, JSON.stringify(scoped));
+    assert.equal('refs' in scoped, false, 'local mode adds no refs key');
+    assert.equal(S.g.git(S.root, ['log', '-1', '--format=%B']).trim(), 'feat(49-01): a');
+    const objectiveWide = commitIn(S.root, 'docs(49): wave 1', 'src/b.txt', 'b\n');
+    assert.equal('refs' in objectiveWide, false);
+    assert.equal(S.g.git(S.root, ['log', '-1', '--format=%B']).trim(), 'docs(49): wave 1');
+    assert.doesNotMatch(S.g.git(S.root, ['log', '--format=%B']), /Refs #/);
+
+    const exec = runInit(init.cmdInitExecuteObjective, S.root, OBJ, new Set(), false, []);
+    assert.equal(exec.pr_lifecycle, false);
+    assert.equal('objective_branch' in exec, false, 'no objective branch is planned');
+    assert.equal('pr_number' in exec, false);
+
+    // even with a PR on record the local-mode verbs write their files and touch GitHub not at all
+    const mapping = mappingLib.readMappingV3(S.root);
+    mappingLib.setPr(mapping, OBJ, { branch: BRANCH, base: 'main', number: 104 });
+    assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+    const summaryText = '# 49-01 summary\n\nDone.\n';
+    const summary = verbs.summaryPost(S.root, { trd: '49-01', text: summaryText });
+    assert.equal(summary.ok, true, JSON.stringify(summary));
+    const objDir = path.join(S.root, '.planning', 'objectives', OBJ_DIR);
+    const summaries = fs.readdirSync(objDir).filter((f) => /SUMMARY\.md$/.test(f));
+    assert.equal(summaries.length, 1, `one SUMMARY was written: ${summaries}`);
+    assert.equal(fs.readFileSync(path.join(objDir, summaries[0]), 'utf8'), summaryText, 'today\'s bytes');
+    const verification = verbs.verificationPost(S.root, { objective: OBJ, text: VERIFICATION });
+    assert.equal(verification.ok, true, JSON.stringify(verification));
+    assert.ok(fs.readdirSync(objDir).some((f) => /VERIFICATION\.md$/.test(f)), 'the verification is written locally');
+
+    // as in objective 48: the status is written locally and nothing is deferred or sent
+    const complete = verbs.objectiveSetStatus(S.root, { id: OBJ, status: 'complete' });
+    assert.equal(complete.ok, true, JSON.stringify(complete));
+    assert.equal(complete.close_deferred, undefined);
+    assert.match(fs.readFileSync(path.join(objDir, 'OBJECTIVE.md'), 'utf8'), /^status: complete$/m);
+
+    assert.deepEqual(S.fake.calls(), [], 'still not one gh call');
+    assert.equal(pendingOps().length, 0);
+    assert.equal(S.pulls, 0);
   });
 });
