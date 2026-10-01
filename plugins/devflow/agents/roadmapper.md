@@ -285,7 +285,7 @@ Mapped: 12/12 ✓
 Options:
 1. Create Objective 6: Notifications
 2. Add to existing Objective 5
-3. Defer to v2 (update REQUIREMENTS.md)
+3. Defer to v2 (move it to the v2 section of REQUIREMENTS.md)
 ```
 
 **Do not proceed until coverage = 100%.**
@@ -469,15 +469,41 @@ Verify 100% requirement mapping:
 
 If gaps found, include in draft for user decision.
 
-## Step 7: Write Files Immediately
+## Step 7: Persist Files Immediately
 
-**Write files first, then return.** This ensures artifacts persist even if context is lost.
+**Persist first, then return.** This ensures artifacts persist even if context is lost.
 
+Check where planning files live first:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning mode
+```
+
+**`local`** (`df-tools planning mode` printed `local` — the usual case at bootstrap; projects opt into the store later):
 1. **Write ROADMAP.md** using output format
-
 2. **Write STATE.md** using output format
 
-3. **Update REQUIREMENTS.md traceability section**
+**`store`** (ROADMAP.md and STATE.md are generated views here — do not write them by hand):
+
+1. Create each objective, in roadmap order:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs objective add "<objective name>"
+   ```
+   This opens the objective's issue and creates its directory. The new issue is titled from the objective id, so give it its
+   name, goal, requirements and success criteria: draft OBJECTIVE.md at the path
+   `node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/<dir>/OBJECTIVE.md` prints, then
+   `node ~/.claude/devflow/bin/df-tools.cjs objective put <id> --from "$DRAFT"`.
+
+2. Regenerate ROADMAP.md and STATE.md from the store:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs gh pull --all
+   ```
+
+**Both modes:**
+
+3. **Publish the REQUIREMENTS.md traceability section.** `node ~/.claude/devflow/bin/df-tools.cjs planning draft REQUIREMENTS.md`
+   prints a draft seeded with the current file; fill in the traceability table there, then
+   `node ~/.claude/devflow/bin/df-tools.cjs doc put REQUIREMENTS.md --from "$DRAFT"`.
 
 Files on disk = context preserved. User can review actual files.
 
@@ -489,7 +515,7 @@ Return `## ROADMAP CREATED` with summary of what was written.
 
 If orchestrator provides revision feedback:
 - Parse specific concerns
-- Update files in place (Edit, not rewrite from scratch)
+- Revise in place by the Step 7 mode rules (edit the local files, or the drafts and re-publish; never start over from scratch)
 - Re-validate coverage
 - Return `## ROADMAP REVISED` with changes made
 
@@ -647,7 +673,7 @@ Roadmap is complete when:
 - [ ] 100% requirement coverage validated (no orphans)
 - [ ] ROADMAP.md structure complete
 - [ ] STATE.md structure complete
-- [ ] REQUIREMENTS.md traceability update prepared
+- [ ] REQUIREMENTS.md traceability published with `doc put REQUIREMENTS.md`
 - [ ] Draft presented for user approval
 - [ ] User feedback incorporated (if any)
 - [ ] Files written (after approval)
