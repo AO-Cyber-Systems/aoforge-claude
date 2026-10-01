@@ -402,17 +402,16 @@ Then record the full entry drafted in create_milestone_entry; it replaces the CL
 node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$DRAFT"
 ```
 
-**Store mode:** `milestone complete` closes the native milestone and publishes the archives already under `milestones/`; it does not build them. Draft each archive first (`planning draft milestones/v[X.Y]-<KIND>.md` prints a path): the ROADMAP archive is the milestone's objectives and details from the current ROADMAP.md, the REQUIREMENTS archive is REQUIREMENTS.md under the archive header from `templates/milestone-archive.md`, and the audit is the `v[X.Y]-MILESTONE-AUDIT.md` report if one exists. Then:
+**Store mode:** `milestone complete` closes the native milestone and publishes the archives already under `milestones/`; it does not build them. Draft each archive first (`planning draft milestones/v[X.Y]-<KIND>.md` prints a path): the ROADMAP archive is the milestone's objectives and details from the current ROADMAP.md and the REQUIREMENTS archive is REQUIREMENTS.md under the archive header from `templates/milestone-archive.md` (audit-milestone already published `milestones/v[X.Y]-MILESTONE-AUDIT.md` in store mode). Then:
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs doc put milestones/v[X.Y]-ROADMAP.md --from "$ROADMAP_DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs doc put milestones/v[X.Y]-REQUIREMENTS.md --from "$REQUIREMENTS_DRAFT"
-node ~/.claude/devflow/bin/df-tools.cjs doc put milestones/v[X.Y]-MILESTONE-AUDIT.md --from "$AUDIT_DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs milestone complete "v[X.Y]"
 ```
 
-Skip the audit line when there is no audit. The stats for the summary come from gather_stats.
+The stats for the summary come from gather_stats.
 
 **Objective archival (optional):** After archival completes, ask the user:
 

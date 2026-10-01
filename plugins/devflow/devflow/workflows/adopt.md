@@ -85,9 +85,12 @@ Continue to `infer_project`.
 
 <step name="infer_project">
 Unless `steps.project_md` is already true (from `resume`), read the 8 codebase maps, any README*,
-and the manifest files, then write two files.
+and the manifest files, then produce two files.
 
-**`$TARGET/.planning/PROJECT.md`** — frontmatter `kind` and `default_work`, then these sections:
+**PROJECT.md** — draft it at the path `node ~/.claude/devflow/bin/df-tools.cjs --cwd "$TARGET" planning draft PROJECT.md`
+prints, then publish it with `node ~/.claude/devflow/bin/df-tools.cjs --cwd "$TARGET" doc put PROJECT.md --from "$DRAFT"`
+(local mode, the normal case for adopt: that stores the draft's bytes as `$TARGET/.planning/PROJECT.md`).
+Frontmatter `kind` and `default_work`, then these sections:
 `## What This Is`, `## Core Value`, `## Requirements` (with `### Validated`, `### Active`,
 `### Out of Scope`), `## Constraints`.
 
