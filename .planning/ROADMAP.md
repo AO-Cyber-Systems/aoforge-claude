@@ -283,11 +283,11 @@ TRDs:
 **Plans:** 13 TRDs in 5 waves
 
 TRDs:
-- [ ] 50-01-fake-github-setup-and-check-routes-TRD.md — (W1) fake GitHub: rulesets (422 merge queue, 403 non-admin), repo PATCH, labels list, org type/field writes (api-version header, options 422), PR commits, contents
-- [ ] 50-02-commit-gate-decision-TRD.md — (W1) pure gate: default/unlinked/detached refused, linked `prs` branch and `df/exec-*` (main on linked branch) allowed, `DEVFLOW_SKIP_GH_GATE=1`; `gh` override gate
-- [ ] 50-03-required-check-logic-TRD.md — (W1) pure `devflow/linked-issue` (closing ref to an existing issue, base = default) and `devflow/planning-consistency` (GitHub graph in store mode, pass when store off), reconcile plan
-- [ ] 50-04-store-health-collector-TRD.md — (W1) offline store health: W057 unsynced, W058 missing links, W059 orphans, W060 frozen-body drift, W061 check failed
-- [ ] 50-05-outbox-flush-hook-TRD.md — (W1) `gh-flush.js` PostToolUse(Bash, after `df-tools commit`) + Stop: flush outbox, report pending/halted/drift, never blocks
+- [x] 50-01-fake-github-setup-and-check-routes-TRD.md — (W1) fake GitHub: rulesets (422 merge queue, 403 non-admin), repo PATCH, labels list, org type/field writes (api-version header, options 422), PR commits, contents
+- [x] 50-02-commit-gate-decision-TRD.md — (W1) pure gate: default/unlinked/detached refused, linked `prs` branch and `df/exec-*` (main on linked branch) allowed, `DEVFLOW_SKIP_GH_GATE=1`; `gh` override gate
+- [x] 50-03-required-check-logic-TRD.md — (W1) pure `devflow/linked-issue` (closing ref to an existing issue, base = default) and `devflow/planning-consistency` (GitHub graph in store mode, pass when store off), reconcile plan
+- [x] 50-04-store-health-collector-TRD.md — (W1) offline store health: W057 unsynced, W058 missing links, W059 orphans, W060 frozen-body drift, W061 check failed
+- [x] 50-05-outbox-flush-hook-TRD.md — (W1) `gh-flush.js` PostToolUse(Bash, after `df-tools commit`) + Stop: flush outbox, report pending/halted/drift, never blocks
 - [ ] 50-06-commit-gate-wiring-TRD.md — (W2) `df-tools commit` refuses before staging in store mode, logs the escape via override, `Refs #` falls back to the linked objective
 - [ ] 50-07-health-and-doctor-reports-TRD.md — (W2) validate Check 16 (W057-W061), doctor check 25 `gh-store-sync`, check 22 defers the codes
 - [ ] 50-08-check-runner-cli-TRD.md — (W2) Actions runner: posts the two contexts as commit statuses (PR + merge_group), merge-time reconcile closes stragglers
@@ -354,5 +354,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
 | 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
-| 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
+| 50. GitHub enforcement and setup | v1.4 | 5/13 | In Progress | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
