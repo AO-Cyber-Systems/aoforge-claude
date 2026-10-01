@@ -435,6 +435,77 @@ function queue(ctx) {
   return { ok: true, skipped: false, pending: backfill.hasPendingOps(main, opts).pending, live_writes: live, report };
 }
 
+/**
+ * Phase 3b (a resume only): the mapping is state too. When `.planning/.gh-mapping.json` lost entries after the queue
+ * phase (deleted, or a run killed between an issue create and the mapping write), the ops still queued that address an
+ * issue by id (links, edges, comments, closes, fields) would block with "has no issue yet" and halt the drain. Every
+ * DevFlow issue carries its `devflow:id` marker, so each id GitHub has and the mapping lacks is re-adopted by marker:
+ * one paginated list per DevFlow label, reads only. An entry the mapping still has always wins; an id two issues claim
+ * is left out, never guessed (its ops then block and the drain stops `halted` for a human).
+ * @returns {{ok:true, adopted:string[], duplicates:string[]} | {ok:false, error:string}}
+ */
+function readoptMapping(ctx) {
+  const main = mainOf(ctx);
+  const ghMapping = require('../gh-mapping.cjs');
+  const ghBody = require('../gh-body.cjs');
+  const gate = client.requireEnabled(main);
+  if (!gate.enabled) return { ok: false, error: gate.reason };
+  const read = ghMapping.readMappingV3WithReport(main);
+  if (read.error) return { ok: false, error: read.error };
+  const mapping = read.mapping;
+  const configured = gate.labels && typeof gate.labels === 'object' ? gate.labels : {};
+  const labelOf = (role, fallback) => (typeof configured[role] === 'string' && configured[role] !== '' ? configured[role] : fallback);
+  const lists = [
+    labelOf('objective', 'devflow:objective'),
+    labelOf('trd', 'devflow:trd'),
+    labelOf('decision', 'devflow:decision'),
+    ...Object.keys(outbox.ENTITY_ROLES).map((role) => labelOf(role, outbox.ENTITY_ROLES[role].label)),
+  ];
+  const adopted = [];
+  const duplicates = [];
+  for (const label of [...new Set(lists)]) {
+    const r = client.ghPaginate(`repos/${gate.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+    if (!r.ok) return { ok: false, error: `could not list ${label} issues: ${r.error || r.stderr || 'gh api failed'}` };
+    const issues = r.items.filter((i) => i && typeof i === 'object' && !i.pull_request && Number.isInteger(i.number));
+    const restOf = new Map(issues.map((i) => [i.number, i.id]));
+    const index = ghBody.indexByMarker(issues.map((i) => ({ number: i.number, body: typeof i.body === 'string' ? i.body : '' })));
+    for (const id of Object.keys(index.duplicates)) if (!duplicates.includes(id)) duplicates.push(id);
+    for (const [id, number] of Object.entries(index.byId)) {
+      const tid = ghMapping.toTrdId(id);
+      const ent = tid === null ? ghMapping.toEntityId(id) : null;
+      const oid = tid === null && ent === null ? ghMapping.toObjectiveId(id) : null;
+      const rest = restOf.get(number);
+      if (tid !== null) {
+        if (ghMapping.getTrd(mapping, tid) || !Number.isInteger(rest)) continue;
+        ghMapping.setTrd(mapping, tid, { issue_number: number, rest_id: rest });
+      } else if (ent !== null) {
+        if (ghMapping.getEntity(mapping, ent.id) || !Number.isInteger(rest)) continue;
+        ghMapping.setEntity(mapping, ent.id, { issue_number: number, rest_id: rest });
+      } else if (oid !== null) {
+        if (ghMapping.getEntry(mapping, oid)) continue;
+        ghMapping.setEntry(mapping, oid, { issue_id: number });
+      } else {
+        continue;
+      }
+      adopted.push(id);
+    }
+  }
+  if (adopted.length) {
+    const w = ghMapping.writeMappingV3(main, mapping);
+    if (!w.ok) return { ok: false, error: `could not save .planning/.gh-mapping.json: ${w.error}` };
+  }
+  return { ok: true, adopted, duplicates };
+}
+
+function readoptNote(r) {
+  if (!r.ok) return `mapping: could not check it against GitHub (${r.error}); the drain goes on with it as it is`;
+  const dup = r.duplicates.length
+    ? `; left out, two issues claim each (a human must close all but one): ${r.duplicates.join(', ')}` : '';
+  if (r.adopted.length === 0) return `mapping: complete${dup}`;
+  return `mapping: re-adopted ${plural(r.adopted.length, 'issue')} from GitHub by devflow:id marker (the mapping had ` +
+    `lost them): ${r.adopted.join(', ')}${dup}`;
+}
+
 function queueNote(q) {
   if (q.skipped) return `queue: already queued: ${q.pending} outbox op(s) pending; not re-imported (resume)`;
   const r = q.report;
@@ -529,7 +600,11 @@ function drain(ctx) {
   let done = 0;
   let res = null;
   let prose = '';
-  for (let round = 0; round < DRAIN_ROUNDS; round++) {
+  // Every exit below but `continue` is a `break` or a return, so `round` reaches DRAIN_ROUNDS only when the loop ran
+  // out of flushes while still allowed to continue (TRD 51-08: a retry-after too long to sleep through broke out
+  // early and was misreported as 'rounds').
+  let round = 0;
+  for (; round < DRAIN_ROUNDS; round++) {
     const opts = { wait: true, now, sleep };
     if (maxOps !== null) opts.maxOps = Math.max(0, maxOps - done);
     try {
@@ -557,8 +632,7 @@ function drain(ctx) {
     }
     break;
   }
-  const exhausted = res && res.status === 'pending' && !runBudgetSpent() &&
-    ((res.reason === 'budget' && res.budget === 'minute') || res.reason === 'rate_limited' || res.reason === 'retry_after');
+  const exhausted = round === DRAIN_ROUNDS;
   const info = exhausted ? { ...stopInfo(main, ctx, res, now()), reason: 'rounds' } : stopInfo(main, ctx, res, now());
   return { ok: false, code: 'pending', done, res, prose, ...info, why: whyText(info, res) };
 }
@@ -757,12 +831,16 @@ function migrate(ctx) {
     ? ['will stay local:', '  | file | why |', '  |---|---|', ...stayLocal.map(([rel, why]) => `  | ${cell(rel)} | ${cell(why)} |`)]
     : [];
 
+  // Phase 3b (a resume only): re-adopt by marker whatever the mapping lost since the queue phase.
+  const readopted = q.skipped ? readoptMapping(ctx) : null;
+  const queued = readopted ? [queueNote(q), readoptNote(readopted)] : [queueNote(q)];
+
   // Phase 4: drain inside the budgets. A stop leaves everything resumable: done ops stay done, the rest stays queued,
   // and the ledger is settled only by a drained flush.
   const d = drain(ctx);
   if (!d.ok) {
     const counts = opCounts(main, ctx, clockOf(ctx)());
-    const tail = [queueNote(q), ...switched];
+    const tail = [...queued, ...switched];
     const more = [...notes, d.prose];
     if (d.code === 'halted') return stop('halted', [...haltedDetails(d, counts), ...tail], { changed, notes: more });
     return stop('pending', [...pendingDetails(d, counts), ...tail], {
@@ -812,7 +890,7 @@ function migrate(ctx) {
     changed: [...new Set([...changed, ...(r10.changed || [])])],
     handoff: r10.applied === true ? '0010' : null,
     notes: [
-      queueNote(q),
+      ...queued,
       switched[0],
       drainNote(d),
       ...v.notes,

@@ -300,7 +300,8 @@ describe('0011 resume after interruption (tests 1-4)', () => {
     fs.rmSync(mappingFile);
 
     nextRun(env, rec);
-    assertCompleted(env, run(env));
+    const a = assertCompleted(env, run(env));
+    assert.match(a.notes, /mapping: re-adopted \d+ issues from GitHub by devflow:id marker/);
     assert.equal(env.fake.issues.length, base.state.issues.length, 'as many issues as the control: none duplicated');
     assertSameAsControl(env, rec, base, { writes: false });
   });
