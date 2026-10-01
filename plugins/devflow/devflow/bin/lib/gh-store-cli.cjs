@@ -17,11 +17,16 @@
 // helpers.output() always exits 0, so this module emits its own codes and calls process.exit itself.
 // process.exit is stubbed by the tests, so every handler RETURNS its result and `emit` runs exactly once.
 
+const fs = require('fs');
+const path = require('path');
+
 const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const capability = require('./gh-capability.cjs');
+const comments = require('./gh-comments.cjs');
+const hierarchy = require('./gh-hierarchy.cjs');
 
 const EXIT = Object.freeze({ OK: 0, ERROR: 1, HALTED: 2, PENDING: 3 });
 
@@ -34,11 +39,18 @@ const failure = (message, extra = {}) => result(EXIT.ERROR, { ok: false, error: 
 const usageError = (usage) => failure(usage, { usage: true });
 const skipped = (reason) => result(EXIT.OK, { ok: false, skipped: true, reason }, reason);
 
-/** Print a result and exit. Errors (code 1) go to stderr in prose mode; raw mode always prints JSON to stdout. */
+/**
+ * Print a result and exit. Errors (code 1) go to stderr in prose mode; raw mode always prints JSON to stdout.
+ * `res.warn` (optional) is side information for a human, printed to stderr in prose mode so stdout stays pipeable.
+ */
 function emit(res, raw) {
-  if (raw) process.stdout.write(`${JSON.stringify(res.payload, null, 2)}\n`);
-  else if (res.code === EXIT.ERROR) process.stderr.write(res.prose);
-  else process.stdout.write(res.prose);
+  if (raw) {
+    process.stdout.write(`${JSON.stringify(res.payload, null, 2)}\n`);
+  } else {
+    if (res.code === EXIT.ERROR) process.stderr.write(res.prose);
+    else process.stdout.write(res.prose);
+    if (res.warn) process.stderr.write(res.warn.endsWith('\n') ? res.warn : `${res.warn}\n`);
+  }
   if (res.code !== EXIT.OK) process.exit(res.code);
 }
 
@@ -253,7 +265,187 @@ function cmdGhOutbox(cwd, args, raw) {
   emit(res, raw);
 }
 
+// ─── gh trd ──────────────────────────────────────────────────────────────────
+
+const TRD_USAGE = [
+  'Usage:',
+  '  df-tools gh trd spec <trd>                                   print the effective spec (body + scope comments)',
+  '  df-tools gh trd freeze <trd> [--no-flush] [--no-wait]        log a freeze: from now on changes are scope comments',
+  '  df-tools gh trd fold <trd> [--force] [--no-flush] [--no-wait]  fold the scope comments into a CLOSED TRD\'s body',
+  '  df-tools gh trd scope <trd> <body|@file:path> [--n K] [--no-flush] [--no-wait]   post a scope change',
+  '<trd> accepts any spelling: 07-01, 7-01, 07-01-alpha. freeze, fold and scope flush the outbox unless --no-flush.',
+  'Flags: --raw prints JSON. Exit codes (when flushing): 0 done, 1 error, 2 halted for a human, 3 ops still pending.',
+].join('\n');
+
+const TRD_AVAILABLE = 'spec <trd>, freeze <trd>, fold <trd> [--force], scope <trd> <body|@file:path> [--n K]';
+
+/** `--n K` or `--n=K` -> `{n: K}` (K a positive integer), `{n: undefined}` when absent, `{invalid: true}` otherwise. */
+function parseScopeN(args) {
+  const i = args.findIndex((a) => a === '--n' || a.startsWith('--n='));
+  if (i < 0) return { n: undefined };
+  const value = args[i] === '--n' ? args[i + 1] : args[i].slice('--n='.length);
+  if (typeof value !== 'string' || !/^[1-9]\d{0,8}$/.test(value)) return { invalid: true };
+  return { n: Number(value) };
+}
+
+/** The scope body: the argument itself, or the contents of `@file:<path>` (relative to the project). */
+function readScopeBody(cwd, body) {
+  if (!body.startsWith('@file:')) return { text: body };
+  const file = path.resolve(cwd, body.slice('@file:'.length));
+  try {
+    return { text: fs.readFileSync(file, 'utf8') };
+  } catch (e) {
+    return { error: `could not read the scope file ${file}: ${e.message}` };
+  }
+}
+
+/**
+ * The verb queued something: unless `--no-flush`, write it to GitHub now. The result carries the exit code of
+ * the flush (0 done, 2 halted, 3 pending, 1 error); `--no-flush` leaves it queued and exits 0.
+ */
+function queuedResult(cwd, args, queued, headline) {
+  if (args.includes('--no-flush')) {
+    return result(EXIT.OK, { ...queued, ok: true }, `${headline}\nQueued only (--no-flush); run \`df-tools gh outbox flush\` to write it.`);
+  }
+  const flushed = flushResult(cwd, flushLib.flush(cwd, { wait: !args.includes('--no-wait') }));
+  return result(flushed.code, { ...queued, ok: flushed.payload.ok, flush: flushed.payload }, `${headline}\n${flushed.prose}`);
+}
+
+function trdSpec(cwd, trdId) {
+  const spec = comments.readEffectiveSpec(cwd, trdId);
+  if (!spec.ok) return spec.skipped ? skipped(spec.reason) : failure(spec.error);
+  const res = result(EXIT.OK, spec, spec.text);
+  const notes = [...(spec.errors || [])];
+  if (spec.overflow) notes.push(`the effective spec is ${spec.chars} chars, over the issue-body limit; the overflow becomes a new TRD`);
+  if (notes.length > 0) res.warn = notes.map((n) => `Warning: ${n}`).join('\n');
+  return res;
+}
+
+function trdFreeze(cwd, args, trdId) {
+  const r = comments.freezeTrd(cwd, trdId);
+  if (!r.ok) return failure(r.error);
+  if (r.noop) {
+    const drifted = r.drift && r.drift.drift === true;
+    const note = drifted
+      ? ` Warning: the body has changed since the freeze (${r.drift.expected} -> ${r.drift.actual}); record changes as scope comments.`
+      : '';
+    return result(EXIT.OK, r, `TRD ${r.id} is already frozen; nothing to do.${note}`);
+  }
+  return queuedResult(cwd, args, r, `Freeze of TRD ${r.id} recorded (body hash ${r.hash}, ${r.chars} chars).`);
+}
+
+function trdFold(cwd, args, trdId) {
+  const r = comments.foldTrd(cwd, trdId, { force: args.includes('--force') });
+  if (!r.ok) {
+    return failure(r.reason === 'open' ? r.error.replace('(pass force ', '(pass --force ') : r.error, r.reason ? { reason: r.reason } : {});
+  }
+  if (r.noop) return result(EXIT.OK, r, `Nothing to fold: no scope comment of TRD ${r.id} is waiting to be folded into the body.`);
+  if (!r.fits) return result(EXIT.OK, r, `Not folded: ${r.message}.`);
+  return queuedResult(cwd, args, r, `Fold of TRD ${r.id} queued (folded through scope ${r.folded_through}).`);
+}
+
+function trdScope(cwd, args, trdId, body, n) {
+  const read = readScopeBody(cwd, body);
+  if (read.error) return failure(read.error);
+  const r = comments.enqueueScope(cwd, { trdId, n, text: read.text });
+  if (r.overflow) {
+    const message = /becomes a new TRD/.test(r.message || '')
+      ? r.message
+      : `${r.message || r.error}; this change becomes a new TRD (it cannot be a scope comment)`;
+    return failure(message, { overflow: true, chars: r.chars, max: r.max });
+  }
+  if (!r.ok) return failure(r.error);
+  if (r.noop) return result(EXIT.OK, r, `Scope n=${r.n} of TRD ${r.id} is already recorded with this text; nothing to do.`);
+  return queuedResult(cwd, args, r, `Scope change n=${r.n} for TRD ${r.id} queued (effective spec ${r.chars} chars).`);
+}
+
+/** `gh trd spec|freeze|fold|scope <trd> ...`. */
+function cmdGhTrd(cwd, args, raw) {
+  const verb = args[0];
+  let res;
+  if (wantsHelp(args)) {
+    res = result(EXIT.OK, { ok: true, usage: TRD_USAGE }, TRD_USAGE);
+  } else if (!['spec', 'freeze', 'fold', 'scope'].includes(verb)) {
+    const what = verb === undefined ? 'Missing gh trd subcommand.' : `Unknown gh trd subcommand: ${verb}.`;
+    res = usageError(`${what} Available: ${TRD_AVAILABLE}\n${TRD_USAGE}`);
+  } else {
+    res = trdVerb(cwd, verb, args.slice(1));
+  }
+  emit(res, raw);
+}
+
+function trdVerb(cwd, verb, args) {
+  const pos = positionals(args, ['--n']);
+  const trdId = pos[0];
+  if (trdId === undefined) return usageError(`Usage: df-tools gh trd ${verb} <trd>${verb === 'scope' ? ' <body|@file:path> [--n K]' : ''}`);
+
+  let body;
+  let n;
+  if (verb === 'scope') {
+    body = pos[1];
+    const parsed = parseScopeN(args);
+    if (body === undefined || parsed.invalid) {
+      return usageError('Usage: df-tools gh trd scope <trd> <body|@file:path> [--n K]  (K is a positive integer)');
+    }
+    n = parsed.n;
+  }
+
+  const g = gate(cwd);
+  if (g.result) return g.result;
+
+  if (verb === 'spec') return trdSpec(cwd, trdId);
+  if (verb === 'freeze') return trdFreeze(cwd, args, trdId);
+  if (verb === 'fold') return trdFold(cwd, args, trdId);
+  return trdScope(cwd, args, trdId, body, n);
+}
+
+// ─── gh orphans ──────────────────────────────────────────────────────────────
+
+const ORPHANS_USAGE = [
+  'Usage: df-tools gh orphans <objective>',
+  '  Lists TRD issues that are not linked under the objective issue, and linked TRDs that have no local file.',
+  '  A report only: nothing is deleted, unlinked or rewritten. Flags: --raw prints JSON.',
+].join('\n');
+
+function orphansReport(cwd, objectiveArg) {
+  const g = gate(cwd);
+  if (g.result) return g.result;
+  const r = hierarchy.reportOrphans(cwd, objectiveArg);
+  if (r.skipped) return skipped(r.reason);
+  if (!r.ok) return failure(r.error);
+
+  const lines = [];
+  if (r.unlinked.length === 0 && r.missing_local.length === 0) {
+    lines.push(`No orphans for objective ${r.objective}: every TRD issue is linked and has a local file.`);
+  } else {
+    if (r.unlinked.length > 0) {
+      lines.push('TRD issues not linked under the objective issue:');
+      for (const o of r.unlinked) lines.push(`  ${o.id}  #${o.number}`);
+    }
+    if (r.missing_local.length > 0) {
+      lines.push('Linked TRD issues with no local TRD file:');
+      for (const o of r.missing_local) lines.push(`  ${o.id}  #${o.number}`);
+    }
+    lines.push('Nothing was deleted or changed; this is a report. Decide per issue whether to link it, pull it, or close it.');
+  }
+  return result(EXIT.OK, r, lines.join('\n'));
+}
+
+/** `gh orphans <objective>`. */
+function cmdGhOrphans(cwd, args, raw) {
+  let res;
+  if (wantsHelp(args)) {
+    res = result(EXIT.OK, { ok: true, usage: ORPHANS_USAGE }, ORPHANS_USAGE);
+  } else {
+    const objectiveArg = positionals(args)[0];
+    res = objectiveArg === undefined ? usageError(ORPHANS_USAGE) : orphansReport(cwd, objectiveArg);
+  }
+  emit(res, raw);
+}
+
 module.exports = {
   EXIT,
   cmdGhOutbox,
+  cmdGhTrd,
+  cmdGhOrphans,
 };
