@@ -532,6 +532,32 @@ function headSha(root) {
   return r.ok && sha !== '' ? sha : null;
 }
 
+/** A sha, branch or ref for `diff`: no leading dash (`--output=<file>` would write a file), no range syntax, no spaces. */
+function validRevision(x) {
+  return typeof x === 'string' && /^[0-9A-Za-z_][0-9A-Za-z_./^~@{}-]*$/.test(x) && !x.includes('..');
+}
+
+/**
+ * The unified diff of the wiki clone between two revisions (`git diff --no-color <from>..<to> --`), for the PR
+ * lifecycle's wiki-diff comment (GPR-03). `toSha` defaults to HEAD.
+ *   success: the diff TEXT, a plain string (untrimmed). `''` is a valid result: nothing changed.
+ *   failure: `{ok:false, reason, error}`, reason `no-wiki-clone` (no `.planning/wiki/.git`; git is not run),
+ *            `bad-revision` (refused before git runs) or `git-failed` (git exited non-zero, e.g. an unknown sha).
+ * Callers tell the two apart with `typeof result === 'string'`.
+ */
+function diff(root, fromSha, toSha = 'HEAD') {
+  const dir = cloneDir(root);
+  if (!fs.existsSync(path.join(dir, '.git'))) {
+    return { ok: false, reason: 'no-wiki-clone', error: `no wiki clone at ${WIKI_DIR_REL}` };
+  }
+  if (!validRevision(fromSha) || !validRevision(toSha)) {
+    return { ok: false, reason: 'bad-revision', error: `invalid revision: ${JSON.stringify([fromSha, toSha])}` };
+  }
+  const r = local(dir, ['diff', '--no-color', `${fromSha}..${toSha}`, '--']);
+  if (!r.ok) return failureResult(classifyGitFailure(r), r, { reason: 'git-failed' });
+  return String(r.stdout);
+}
+
 /**
  * Publish local page changes: add -> commit (skipped when nothing is staged) -> pull --rebase ->
  * push HEAD:master. A non-fast-forward push is retried (pull + push) up to 3 more times. Never forces.
@@ -764,6 +790,7 @@ module.exports = {
   push,
   fetch,
   headSha,
+  diff,
   readPage,
   writePage,
   listPages,
