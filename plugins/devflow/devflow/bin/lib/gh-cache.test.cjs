@@ -343,6 +343,8 @@ const TREE = {
   [`objectives/${DIR}/07-03-gamma-TRD.md`]: F.trds['07-03-gamma-TRD.md'],
   [`objectives/${DIR}/07-01-alpha-SUMMARY.md`]: F.summary,
   [`objectives/${DIR}/07-VERIFICATION.md`]: VERIFICATION_TEXT,
+  // 48-07 addition: seedIssues' Decision issue (`7-01-d1`, no answer comment) now materialises as decisions/<id>.md.
+  'decisions/7-01-d1.md': 'Use REST.\n',
 };
 const ALL_FILES = [...Object.keys(TREE), 'ROADMAP.md', 'STATE.md'].sort();
 
