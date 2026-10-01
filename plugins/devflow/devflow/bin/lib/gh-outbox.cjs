@@ -101,6 +101,14 @@ function branchErr(v, name) {
   return ok ? null : `${name} must be a git branch name, got ${JSON.stringify(v)}`;
 }
 
+/** 49-10: commit-status states, GitHub's 140-character description limit, a commit sha, a status context. */
+const STATUS_STATES = ['success', 'failure', 'pending', 'error'];
+const STATUS_DESCRIPTION_MAX = 140;
+const SHA_RE = /^[0-9a-fA-F]{7,40}$/;
+const STATUS_CONTEXT_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
+/** The three REST merge methods; a merge queue takes none of them. */
+const MERGE_METHODS = ['squash', 'merge', 'rebase'];
+
 /** `upsert-pr` payload.wiki: the buildWikiSection arguments, `{dir, page, url, sha}`, all non-empty strings. */
 const PR_WIKI_KEYS = ['dir', 'page', 'url', 'sha'];
 
@@ -348,6 +356,75 @@ const OP_KINDS = Object.freeze({
     target: ['id'],
     check(t, p) {
       return objectiveIdErr(t.id, 'target.id') || emptyPayload(p);
+    },
+  },
+  // 49-10: the PR-side writes that verify-pass and merge replay. All four target the objective's PR (or its branch)
+  // and are flushed after the PR exists.
+  //
+  // `post-status` posts a commit status (never a check run: only a GitHub App may create one, and the local
+  // identity is the developer's token). `sha` is optional because the flusher resolves the PR head when absent.
+  'post-status': {
+    target: ['id', 'context'],
+    check(t, p) {
+      const e = objectiveIdErr(t.id, 'target.id');
+      if (e) return e;
+      if (typeof t.context !== 'string' || !STATUS_CONTEXT_RE.test(t.context)) {
+        return `target.context must be a status context such as "devflow/verification", got ${JSON.stringify(t.context)}`;
+      }
+      if (!isPlainObject(p)) return 'payload must be an object';
+      const bad = unknownKey(p, ['state', 'description', 'sha', 'target_url'], 'payload');
+      if (bad) return bad;
+      if (!STATUS_STATES.includes(p.state)) return `payload.state must be one of ${STATUS_STATES.join('|')}`;
+      if (!isStr(p.description) || p.description.length > STATUS_DESCRIPTION_MAX) {
+        return `payload.description must be a non-empty string of at most ${STATUS_DESCRIPTION_MAX} characters`;
+      }
+      if (p.sha !== undefined && !(typeof p.sha === 'string' && SHA_RE.test(p.sha))) {
+        return 'payload.sha must be a 7 to 40 character hex commit sha';
+      }
+      if (p.target_url !== undefined && !(typeof p.target_url === 'string' && /^https?:\/\/\S+$/.test(p.target_url))) {
+        return 'payload.target_url must be an http(s) URL';
+      }
+      return null;
+    },
+  },
+  // One sticky, marker-keyed comment per `kind` on the objective PR (e.g. `wiki-diff`). Replace-only: the
+  // append-spec-rev log is an issue-comment device and has no meaning on a PR.
+  'upsert-pr-comment': {
+    target: ['id', 'kind'],
+    check(t, p) {
+      const e = objectiveIdErr(t.id, 'target.id');
+      if (e) return e;
+      if (typeof t.kind !== 'string' || !ID_RE.test(t.kind)) return 'target.kind must be a comment kind string such as "wiki-diff"';
+      if (!isPlainObject(p)) return 'payload must be an object';
+      if (p.mode !== 'replace') return 'payload.mode must be "replace"';
+      const bad = unknownKey(p, ['mode', 'text'], 'payload');
+      if (bad) return bad;
+      return isStr(p.text) ? null : 'payload.text must be a non-empty string';
+    },
+  },
+  // `method` is optional: absent means `github.pr.merge_method`, then squash. A merge queue ignores it.
+  'pr-merge': {
+    target: ['id'],
+    check(t, p) {
+      const e = objectiveIdErr(t.id, 'target.id');
+      if (e) return e;
+      if (!isPlainObject(p)) return 'payload must be an object';
+      const bad = unknownKey(p, ['method'], 'payload');
+      if (bad) return bad;
+      if (p.method !== undefined && !MERGE_METHODS.includes(p.method)) {
+        return `payload.method must be one of ${MERGE_METHODS.join('|')}`;
+      }
+      return null;
+    },
+  },
+  'delete-branch': {
+    target: ['id'],
+    check(t, p) {
+      const e = objectiveIdErr(t.id, 'target.id');
+      if (e) return e;
+      if (!isPlainObject(p)) return 'payload must be an object';
+      const bad = unknownKey(p, ['branch'], 'payload');
+      return bad || branchErr(p.branch, 'payload.branch');
     },
   },
 });
