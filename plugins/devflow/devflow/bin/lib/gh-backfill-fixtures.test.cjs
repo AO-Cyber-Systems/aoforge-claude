@@ -32,6 +32,7 @@ const planningPaths = require('./planning-paths.cjs');
 const LEGACY_TRD_RE = /^objectives\/([^/]+)\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
 
 const pad = (n) => String(n).padStart(2, '0');
+const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 
 /** Every file under `<root>/.planning`, as sorted rels relative to `.planning/` (posix). */
 function planningFiles(root) {
@@ -194,6 +195,16 @@ describe('51-02 makeBackfillProject (default build)', () => {
     assert.equal(Object.hasOwn(config.github, 'store'), false, 'store is OFF by absence (the migration flips it)');
     assert.equal(config.devflow.version, '2.12.0');
     assert.deepEqual(config.devflow.migrations_applied, ['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009']);
+
+    // Realism: the stamp is true. No migration through 0009 would still change this tree, so a later "re-run is a
+    // no-op" assertion (SC2) can only fail for a reason that belongs to the backfill. Fake HOME, no prune.
+    const out = execFileSync(process.execPath, [DF_TOOLS, 'upgrade', '--check', '--path', built.root], {
+      env: { ...gitEnv(built.home), DEVFLOW_SKIP_PRUNE: '1' },
+      encoding: 'utf8',
+    });
+    const check = JSON.parse(out);
+    assert.deepEqual(check.pending.map((p) => p.id), [], `pending: ${JSON.stringify(check.pending)}`);
+    assert.deepEqual(check.pending_confirm.map((p) => p.id), [], `pending_confirm: ${JSON.stringify(check.pending_confirm)}`);
   });
 
   test('4: every written file is tracked under .planning and the tree is clean', (t) => {
