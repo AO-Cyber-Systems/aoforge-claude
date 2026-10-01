@@ -328,6 +328,9 @@ const prompt = (text) => (ctx) => envelope('UserPromptSubmit', ctx, { prompt: te
 const preTool = (tool, input, extra = {}) => (ctx) =>
   envelope('PreToolUse', ctx, { tool_name: tool, tool_input: input, ...extra });
 
+const postTool = (tool, input, extra = {}) => (ctx) =>
+  envelope('PostToolUse', ctx, { tool_name: tool, tool_input: input, tool_response: {}, ...extra });
+
 /** An executor transcript whose first user record names TRD 45-10 (gate-executor-stop reads it). */
 function executorStopPayload(ctx) {
   const file = path.join(ctx.world.home, 'agent-transcript.jsonl');
@@ -435,6 +438,15 @@ const RUNS = {
   ],
   'guard-no-progress.js': [
     { label: 'repeated read', payload: preTool('Read', { file_path: '/nonexistent/file' }) },
+  ],
+  // gh-flush.js (TRD 50-05): store mode only. The audit world is a local-mode project, so both events must be
+  // silent here; the hook keeps no state at all, which is what this entry pins.
+  'gh-flush.js': [
+    {
+      label: 'df-tools commit just ran',
+      payload: postTool('Bash', { command: 'node ~/.claude/devflow/bin/df-tools.cjs commit "feat(50-05): x" --files a.js' }),
+    },
+    { label: 'session stop', payload: stop() },
   ],
   'statusline.js': [
     {
