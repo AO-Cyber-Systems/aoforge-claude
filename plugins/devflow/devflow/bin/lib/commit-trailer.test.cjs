@@ -160,6 +160,71 @@ describe('49-07 refsFor (test 2)', () => {
   });
 });
 
+/** A store project whose mapping also holds objective 50 (issue 500) and TRD 50-02 (issue 502). */
+function linkedProject(opts) {
+  const root = project(opts);
+  const read = gm.readMappingV3WithReport(root);
+  const m = read.mapping;
+  gm.setEntry(m, '50', { issue_id: 500 });
+  gm.setTrd(m, '50-02', { issue_number: 502, rest_id: 9502 });
+  const w = gm.writeMappingV3(root, m);
+  assert.equal(w.ok, true, w.error);
+  return root;
+}
+
+describe('50-06 refsFor fallback to the linked objective (test 6, unit half)', () => {
+  test('6a. an unscoped message falls back to the objective issue', () => {
+    const root = linkedProject();
+    assert.deepEqual(refsFor(root, 'wip: notes', { objective: '50' }), { issue: 500, id: '50' });
+  });
+
+  test('6b. a scope that names no issue falls back too', () => {
+    const root = linkedProject();
+    for (const msg of ['feat(auth): x', 'feat(50-demo): x']) {
+      assert.deepEqual(refsFor(root, msg, { objective: '50' }), { issue: 500, id: '50' }, msg);
+    }
+  });
+
+  test('6c. a scoped message ignores the option and keeps today\'s resolution', () => {
+    const root = linkedProject();
+    assert.deepEqual(refsFor(root, 'feat(50-02): x', { objective: '50' }), { issue: 502, id: '50-02' });
+    assert.deepEqual(refsFor(root, 'docs(49): x', { objective: '50' }), { issue: 490, id: '49' });
+  });
+
+  test('6d. a recognised scope with no mapping entry does not fall back', () => {
+    const root = linkedProject();
+    const r = refsFor(root, 'feat(49-99): x', { objective: '50' });
+    assert.equal(r.issue, null);
+    assert.equal(r.reason, 'no mapping entry');
+    assert.equal(r.id, '49-99');
+  });
+
+  test('6e. no option keeps `no scope` and `unrecognised scope`', () => {
+    const root = linkedProject();
+    assert.equal(refsFor(root, 'wip: notes').reason, 'no scope');
+    assert.equal(refsFor(root, 'wip: notes', {}).reason, 'no scope');
+    assert.equal(refsFor(root, 'wip: notes', { objective: null }).reason, 'no scope');
+    assert.equal(refsFor(root, 'wip: notes', { objective: 'not-an-id' }).reason, 'no scope');
+    assert.equal(refsFor(root, 'feat(auth): x', {}).reason, 'unrecognised scope');
+  });
+
+  test('6f. a padded objective id resolves, and an objective the mapping lacks has no issue', () => {
+    const root = linkedProject();
+    assert.deepEqual(refsFor(root, 'wip: notes', { objective: '050' }), { issue: 500, id: '50' });
+    const r = refsFor(root, 'wip: notes', { objective: '88' });
+    assert.equal(r.issue, null);
+    assert.equal(r.reason, 'no mapping entry');
+    assert.equal(r.id, '88');
+  });
+
+  test('6g. local mode never reads the mapping even with the option', () => {
+    const root = linkedProject({ store: false });
+    const r = refsFor(root, 'wip: notes', { objective: '50' });
+    assert.equal(r.issue, null);
+    assert.equal(r.reason, 'not store mode');
+  });
+});
+
 describe('49-07 applyRefs (test 3)', () => {
   test('3a. appends a final Refs paragraph after the body', () => {
     const out = applyRefs('feat(49-02): x\n\nbody', 102);
