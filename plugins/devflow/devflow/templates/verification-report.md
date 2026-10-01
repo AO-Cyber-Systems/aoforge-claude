@@ -2,6 +2,8 @@
 
 Template for `.planning/objectives/XX-name/{phase_num}-VERIFICATION.md` — objective goal verification results.
 
+Fill this template in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{phase_num}-VERIFICATION.md` prints its path), then publish it once with `node ~/.claude/devflow/bin/df-tools.cjs verification post <objective> --from <draft>`. Local mode produces the same file as before; store mode also posts the sticky `devflow:verification` comment on the objective issue.
+
 ---
 
 ## File Template

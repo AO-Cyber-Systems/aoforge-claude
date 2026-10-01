@@ -85,8 +85,12 @@ Invocation:
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs generate uat <objective>
-# Writes to .planning/objectives/<obj-dir>/<obj>-UAT.md
+# The generator fills .planning/objectives/<obj-dir>/<obj>-UAT.md; publish those bytes through the UAT verb
+# (local mode rewrites the same file; store mode also queues its wiki page):
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/<obj-dir>/<obj>-UAT.md --from .planning/objectives/<obj-dir>/<obj>-UAT.md
 ```
+
+Every later edit to the UAT (walkthrough results, diagnosis) goes through a `planning draft` of that path and `doc put` — never a direct edit of the `.planning/` file.
 
 **Safety:** the generator REFUSES to overwrite an existing UAT.md with non-pending results (i.e., once you've started walkthrough, the auto-generator is locked out).
 

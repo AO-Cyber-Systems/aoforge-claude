@@ -74,7 +74,7 @@ Each `states[]` entry: `{ state_id, verdict: 'pass'|'review'|'fail', is_broken, 
 
 Route by the engine's `resolution` field (the authoritative table is verifier.md Step 8c):
 - `not_applicable` → skip silently, exit 0.
-- `absent` → MISSING — keep the surface on the human-verification list, record a todo to author the manifest (when `reason: 'unscoped-candidates'`, the todo is to pass one of `candidates[]` explicitly or author the objective-scoped manifest, not to trust an unscoped repo-root file).
+- `absent` → MISSING — keep the surface on the human-verification list, record a todo to author the manifest (when `reason: 'unscoped-candidates'`, the todo is to pass one of `candidates[]` explicitly or author the objective-scoped manifest, not to trust an unscoped repo-root file). Raise the todo through the todo verb: fill the path `node ~/.claude/devflow/bin/df-tools.cjs planning draft todos/pending/<date>-<slug>.md` prints, then `node ~/.claude/devflow/bin/df-tools.cjs todo add --from <draft> --stem <date>-<slug>` (local mode writes the same pending todo file as before).
 - `invalid` → `gaps:` entry.
 - `resolved` → score per the rollup above.
 Never a hard fail on `not_applicable` or `absent`; only `invalid` and a judged `fail` produce gaps.

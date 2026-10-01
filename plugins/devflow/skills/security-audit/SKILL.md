@@ -19,7 +19,7 @@ Scan codebase for security vulnerabilities using 3 parallel security-auditor age
 
 This is a standalone command — no `.planning/` directory or DevFlow project state required. Works on any codebase.
 
-Output: SECURITY-AUDIT.md (in `.planning/` if it exists, otherwise project root).
+Output: SECURITY-AUDIT.md (in `.planning/` if it exists, otherwise project root). This is a runtime report that is written directly. An objective-scoped copy goes through `df-tools doc put objectives/<dir>/<NN>-SECURITY-AUDIT.md` (see the workflow).
 </objective>
 
 <execution_context>

@@ -90,6 +90,8 @@ Frame it explicitly as ADVISORY:
 Report path: `<manifest-dir>/design-review-report.md`.
 
 The high-priority items are the actionable output: they become `/devflow:todo add` candidates or scope for a future UI-polish objective. The sweep itself never blocks any other workflow.
+
+When a candidate is captured as a todo, use the todo verb (the same path verifier Step 8d uses), never a direct file write: fill the path `node ~/.claude/devflow/bin/df-tools.cjs planning draft todos/pending/<date>-<slug>.md` prints with area: ui and the debt anchor/observation/suggestion, then run `node ~/.claude/devflow/bin/df-tools.cjs todo add --from <draft> --stem <date>-<slug>`. Local mode writes the same pending todo file as before; store mode also files a todo issue. The report files next to the manifest (`design-review-report.md/.json`) are evidence, not planning documents, and are written directly.
 </step>
 
 </process>
