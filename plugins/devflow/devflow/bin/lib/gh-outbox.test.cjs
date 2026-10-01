@@ -71,7 +71,7 @@ function op(kind, target, payload) {
   return { kind, target, payload };
 }
 
-/** One valid op of each of the 9 kinds. */
+/** One valid op of each of the 11 kinds. */
 const VALID = {
   'upsert-issue': op('upsert-issue', { id: '07-01', role: 'trd' }, {
     title: 'TRD 07-01', body: 'body', labels: ['devflow'], milestone_title: null, type: null,
@@ -86,6 +86,8 @@ const VALID = {
   'wiki-push': op('wiki-push', { store: 'pages' }, {
     pages: ['objectives/07-store-demo/OBJECTIVE.md'], message: 'sync',
   }),
+  'upsert-pr': op('upsert-pr', { id: '07' }, { branch: 'df/objective-07-store-demo', base: 'main' }),
+  'pr-ready': op('pr-ready', { id: '07' }, {}),
 };
 
 function patchBody(id, sections) {
@@ -102,9 +104,9 @@ function readRaw() {
 // ─── Schema and keys ──────────────────────────────────────────────────────────
 
 describe('validateOp()', () => {
-  test('1a. accepts one valid op of each of the 9 kinds', () => {
+  test('1a. accepts one valid op of each of the 11 kinds', () => {
     assert.deepEqual(Object.keys(outbox.OP_KINDS).sort(), Object.keys(VALID).sort());
-    assert.equal(Object.keys(VALID).length, 9);
+    assert.equal(Object.keys(VALID).length, 11);
     for (const [kind, o] of Object.entries(VALID)) {
       const r = outbox.validateOp(o);
       assert.equal(r.ok, true, `${kind}: ${r.error}`);
@@ -1124,6 +1126,95 @@ describe('48-02 entity roles', () => {
     ];
     for (const o of ok) {
       assert.deepEqual(outbox.validateOp(o), { ok: true }, `${o.kind} ${JSON.stringify(o.target)}`);
+    }
+  });
+});
+
+// ─── 49-05: the objective PR ops ──────────────────────────────────────────────
+
+describe('49-05 PR op schemas', () => {
+  const WIKI = {
+    dir: '49-demo', page: 'Objective-49-demo', url: 'https://github.com/o/r/wiki/Objective-49-demo/abc1234', sha: 'abc1234',
+  };
+  const upsert = (payload, target = { id: '49' }) => op('upsert-pr', target, payload);
+  const accepts = (o) => { const r = outbox.validateOp(o); assert.equal(r.ok, true, `${o.kind}: ${r.error}`); };
+  const refuses = (o, re) => {
+    const r = outbox.validateOp(o);
+    assert.equal(r.ok, false, `should refuse ${o.kind} ${JSON.stringify(o.payload)}`);
+    if (re) assert.match(r.error, re);
+  };
+
+  test('3. upsert-pr is valid with and without a title, a wiki pin and a summary', () => {
+    accepts(upsert({ branch: 'df/objective-49-x', base: 'main' }));
+    accepts(upsert({ branch: 'df/objective-49-x', base: 'main', title: '[Objective 49] PR lifecycle' }));
+    accepts(upsert({ branch: 'df/objective-49-x', base: 'main', wiki: WIKI, summary: 'What changed.' }));
+    accepts(upsert({ branch: 'df/objective-49-x', base: 'main', title: 'T', wiki: WIKI, summary: 'S' }, { id: '2.1' }));
+  });
+
+  test('3. upsert-pr refuses closes in the payload, a missing branch or base, and an unknown key', () => {
+    refuses(upsert({ branch: 'df/b', base: 'main', closes: [1, 2] }), /closes/);
+    refuses(upsert({ base: 'main' }), /branch/);
+    refuses(upsert({ branch: 'df/b' }), /base/);
+    refuses(upsert({ branch: 'df/b', base: 'main', draft: false }), /draft/);
+    refuses(upsert({ branch: 'df/b', base: 'main', title: '' }), /title/);
+    refuses(upsert({ branch: 'df/b', base: 'main', summary: 5 }), /summary/);
+    refuses(upsert({ branch: 'df/b', base: 'main', wiki: 'x' }), /wiki/);
+    refuses(upsert({ branch: 'df/b', base: 'main', wiki: { ...WIKI, extra: 1 } }), /wiki/);
+    refuses(upsert({ branch: 'df/b', base: 'main', wiki: { dir: 'x' } }), /wiki/);
+    refuses(upsert('branch'), /payload/);
+  });
+
+  test('3. upsert-pr names an objective: a TRD id, a number or an extra target key is refused', () => {
+    const ok = { branch: 'df/b', base: 'main' };
+    refuses(upsert(ok, { id: '49-01' }), /objective/);
+    refuses(upsert(ok, { id: 49 }), /id/);
+    refuses(upsert(ok, { id: '49', n: 1 }), /target/);
+    refuses(op('upsert-pr', {}, ok), /target\.id/);
+  });
+
+  test('3. upsert-pr branch and base must be usable git branch names', () => {
+    for (const bad of ['', 'has space', 'a..b', '-lead', '/abs', 'trail/', 'with:colon', 'a~b', 'a^b', 'a?b', 'a\\b', 5, null]) {
+      refuses(upsert({ branch: bad, base: 'main' }), /branch/);
+      refuses(upsert({ branch: 'df/b', base: bad }), /base/);
+    }
+    accepts(upsert({ branch: 'df/objective-49-pr-lifecycle', base: 'release/1.x' }));
+  });
+
+  test('3. pr-ready is valid with an empty payload and nothing else', () => {
+    accepts(op('pr-ready', { id: '49' }, {}));
+    refuses(op('pr-ready', { id: '49' }, { draft: false }), /payload/);
+    refuses(op('pr-ready', { id: '49-01' }, {}), /objective/);
+    refuses(op('pr-ready', { id: '49', n: 1 }, {}), /target/);
+    refuses(op('pr-ready', { id: '49' }, undefined), /payload/);
+  });
+
+  test('3. patch-issue accepts labels_remove (an array of names) and refuses anything else', () => {
+    accepts(op('patch-issue', { id: '49-01' }, { labels_remove: ['devflow:in-progress'] }));
+    accepts(op('patch-issue', { id: '49-01' }, { labels_add: ['devflow:done'], labels_remove: ['devflow:in-progress'] }));
+    refuses(op('patch-issue', { id: '49-01' }, { labels_remove: 'devflow:in-progress' }), /labels_remove/);
+    refuses(op('patch-issue', { id: '49-01' }, { labels_remove: [] }), /labels_remove/);
+    refuses(op('patch-issue', { id: '49-01' }, { labels_remove: [''] }), /labels_remove/);
+    refuses(op('patch-issue', { id: '49-01' }, {}), /labels_remove/);
+  });
+
+  test('3. a PR op enqueues, and a second identical upsert-pr is one op', () => {
+    const o = upsert({ branch: 'df/objective-49-x', base: 'main' });
+    const a = outbox.enqueue(root, o);
+    const b = outbox.enqueue(root, upsert({ base: 'main', branch: 'df/objective-49-x' }));
+    assert.equal(a.ok, true, a.error);
+    assert.equal(b.ok, true, b.error);
+    assert.equal(readRaw().ops.length, 1);
+    assert.equal(outbox.enqueue(root, op('pr-ready', { id: '49' }, {})).ok, true);
+    assert.equal(readRaw().ops.length, 2);
+  });
+
+  test('3. the base store accepts a PR key (pr:<objective>) and refuses malformed ones', () => {
+    const BASE = { issue_number: 12, issue_id: 1000012, body_hash: 'sha256:a', updated_at: '2026-10-01T10:00:00Z' };
+    assert.equal(outbox.setBase(root, 'pr:49', BASE).ok, true);
+    assert.equal(outbox.setBase(root, 'pr:2.1', BASE).ok, true);
+    assert.deepEqual(outbox.getBase(root, 'pr:49'), BASE);
+    for (const bad of ['pr:', 'pr:x', 'pr:49-01', 'pr:49#summary', 'PR:49', 'pr: 49', 'pr:49:50', ':49']) {
+      assert.equal(outbox.setBase(root, bad, BASE).ok, false, bad);
     }
   });
 });

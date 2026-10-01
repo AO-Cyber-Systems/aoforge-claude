@@ -1084,3 +1084,146 @@ describe('48-06 entity markers', () => {
     assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:id=07-02 -->'), { id: '7-02', kind: null });
   });
 });
+
+// ─── 49-05: the objective PR body ────────────────────────────────────────────
+
+describe('49-05 PR body sections', () => {
+  const WIKI = {
+    dir: '49-demo', page: 'Objective-49-demo', url: 'https://github.com/o/r/wiki/Objective-49-demo/abc1234', sha: 'abc1234',
+  };
+  const PR_OPTS = { order: ghBody.PR_SECTION_ORDER, marker: 'pr' };
+  const prSections = () => ({
+    closes: ghBody.closesSection([120, 121, 122]),
+    wiki: ghBody.buildWikiSection(WIKI),
+    summary: 'Adds the PR lifecycle.',
+  });
+
+  test('1. closesSection is one Closes line per issue, in the order given', () => {
+    assert.strictEqual(ghBody.closesSection([120, 121, 122]), 'Closes #120\nCloses #121\nCloses #122');
+    assert.strictEqual(ghBody.closesSection([5]), 'Closes #5');
+    assert.strictEqual(ghBody.closesSection([7, 3, 7]), 'Closes #7\nCloses #3', 'a number is named once');
+    for (const bad of [[], 'Closes #1', [0], [-1], [1.5], ['12'], [null], undefined]) {
+      assert.throws(() => ghBody.closesSection(bad), TypeError, JSON.stringify(bad));
+    }
+  });
+
+  test('1. prMarker is devflow:pr=<objective id>, never devflow:id=, and only for an objective id', () => {
+    assert.strictEqual(ghBody.prMarker('49'), '<!-- devflow:pr=49 -->');
+    assert.strictEqual(ghBody.prMarker('049'), '<!-- devflow:pr=49 -->');
+    assert.strictEqual(ghBody.prMarker(2.1), '<!-- devflow:pr=2.1 -->');
+    for (const bad of ['49-01', '49-01-d1', 'todo-a', '', 'x', null]) {
+      assert.throws(() => ghBody.prMarker(bad), TypeError, String(bad));
+    }
+  });
+
+  test('1. PR_SECTION_ORDER is closes, wiki, summary', () => {
+    assert.deepStrictEqual([...ghBody.PR_SECTION_ORDER], ['closes', 'wiki', 'summary']);
+  });
+
+  test('1. buildPrBody opens with the PR marker and renders the sections in PR order', () => {
+    const body = ghBody.buildPrBody({ id: '49', sections: { summary: 'S', closes: 'Closes #1', wiki: 'W' } });
+    assert.ok(body.startsWith('<!-- devflow:pr=49 -->\n'), body);
+    assert.ok(!body.includes('devflow:id='), 'never an id marker');
+    assert.deepStrictEqual(
+      [...body.matchAll(/<!-- devflow:begin (\w+) -->/g)].map((m) => m[1]),
+      ['closes', 'wiki', 'summary'],
+    );
+    assert.strictEqual(
+      ghBody.buildPrBody({ id: '49', sections: { closes: 'Closes #1' } }),
+      '<!-- devflow:pr=49 -->\n<!-- devflow:begin closes -->\nCloses #1\n<!-- devflow:end closes -->\n',
+    );
+    assert.throws(() => ghBody.buildPrBody({ id: '49-01', sections: {} }), TypeError);
+  });
+
+  test('1. mergeManaged with PR sections keeps a human paragraph above and below', () => {
+    const first = ghBody.buildPrBody({ id: '49', sections: { closes: 'Closes #120\nCloses #121' } });
+    const edited = first.replace('<!-- devflow:pr=49 -->\n', '<!-- devflow:pr=49 -->\nHuman intro.\n\n').trimEnd() + '\n\nHuman outro.\n';
+    const r = ghBody.mergeManaged(edited, { closes: ghBody.closesSection([120, 121, 122]), summary: 'New summary.' }, '49', PR_OPTS);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.changed, true);
+    assert.ok(r.body.startsWith('<!-- devflow:pr=49 -->\nHuman intro.\n'), r.body);
+    assert.ok(r.body.includes('Closes #120\nCloses #121\nCloses #122'));
+    assert.ok(r.body.includes('Human outro.'));
+    assert.ok(r.body.indexOf('Human outro.') < r.body.indexOf('devflow:begin summary'), 'a new section is appended after the human text');
+    assert.ok(r.body.includes('<!-- devflow:begin summary -->\nNew summary.\n<!-- devflow:end summary -->'));
+  });
+
+  test('1a. a PR body round-trips: merging its own output is identical and closes is kept', () => {
+    const sections = prSections();
+    const body = ghBody.buildPrBody({ id: '49', sections });
+    const r = ghBody.mergeManaged(body, sections, '49', PR_OPTS);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.changed, false);
+    assert.strictEqual(r.body, body);
+    assert.ok(r.body.includes('<!-- devflow:begin closes -->'));
+    assert.deepStrictEqual(ghBody.extractSection(body, 'closes'), 'Closes #120\nCloses #121\nCloses #122');
+  });
+
+  test('1a. the same PR body merged without options is refused, as is a PR marker for another objective', () => {
+    const sections = prSections();
+    const body = ghBody.buildPrBody({ id: '49', sections });
+    const plain = ghBody.mergeManaged(body, { summary: 'S' }, '49');
+    assert.strictEqual(plain.ok, false);
+    assert.match(plain.error, /does not match/);
+    assert.match(plain.error, /devflow:pr=49/);
+
+    const other = ghBody.mergeManaged(body.replace('devflow:pr=49', 'devflow:pr=50'), sections, '49', PR_OPTS);
+    assert.strictEqual(other.ok, false);
+    assert.match(other.error, /devflow:pr=50/);
+    assert.match(other.error, /does not match/);
+  });
+
+  test('1a. a PR merge refuses a body carrying an issue marker, and a bad option', () => {
+    const issueBody = ghBody.mergeManaged('', { summary: 'S' }, '49').body;
+    const r = ghBody.mergeManaged(issueBody, { summary: 'S' }, '49', PR_OPTS);
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /devflow:id=49/);
+    assert.match(r.error, /does not match/);
+    assert.strictEqual(ghBody.mergeManaged('', {}, '49', { marker: 'weird' }).ok, false);
+    assert.strictEqual(ghBody.mergeManaged('', {}, '49', { order: 'closes' }).ok, false);
+  });
+
+  test('1a. a human PR description with no marker keeps its text whole and gains the PR marker', () => {
+    const r = ghBody.mergeManaged('Please review.\n', { closes: 'Closes #1' }, '49', PR_OPTS);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.ok(r.body.startsWith('<!-- devflow:pr=49 -->\nPlease review.\n'), r.body);
+    assert.ok(!r.body.includes('devflow:id='));
+  });
+
+  test('1b. mergeManaged with no options is byte-identical to before (objective order, id marker)', () => {
+    const r = ghBody.mergeManaged('', { summary: 'S', criteria: '- [ ] a', trds: 'T', footer: 'F' }, '49');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(
+      r.body,
+      '<!-- devflow:id=49 -->\n'
+      + '<!-- devflow:begin summary -->\nS\n<!-- devflow:end summary -->\n\n'
+      + '<!-- devflow:begin criteria -->\n- [ ] a\n<!-- devflow:end criteria -->\n\n'
+      + '<!-- devflow:begin trds -->\nT\n<!-- devflow:end trds -->\n\n'
+      + '<!-- devflow:begin footer -->\nF\n<!-- devflow:end footer -->\n',
+    );
+    const ignored = ghBody.mergeManaged('', { closes: 'Closes #1', summary: 'S' }, '49');
+    assert.ok(!ignored.body.includes('closes'), 'closes is a PR section: the objective order does not write it');
+    const mismatch = ghBody.mergeManaged('<!-- devflow:id=50 -->\nx', { summary: 'S' }, '49');
+    assert.strictEqual(mismatch.ok, false);
+    assert.match(mismatch.error, /body marker devflow:id=50 does not match 49/);
+    assert.strictEqual(ghBody.mergeManaged('', { summary: 'S' }, '49', {}).body, ghBody.mergeManaged('', { summary: 'S' }, '49').body);
+    assert.strictEqual(ghBody.mergeManaged('', { summary: 'S' }, '49', { marker: 'id' }).body, ghBody.mergeManaged('', { summary: 'S' }, '49').body);
+  });
+
+  test('2. an id-marker scan never reads devflow:pr= as an objective, TRD or comment marker', () => {
+    const body = ghBody.buildPrBody({ id: '49', sections: prSections() });
+    assert.strictEqual(ghBody.extractMarker(body), null);
+    assert.deepStrictEqual(ghBody.indexByMarker([{ number: 7, body }]), { byId: {}, duplicates: {}, unmarked: [7] });
+    const comments = [{ id: 1, body: `${ghBody.prMarker('49')}\nnot a summary` }];
+    assert.deepStrictEqual(ghBody.findCommentsByMarker(comments, '49', 'summary'), []);
+    assert.deepStrictEqual(ghBody.extractMarker('<!-- devflow:pr=49-01 -->'), null);
+  });
+
+  test('2. extractPrMarker reads only the PR marker', () => {
+    assert.deepStrictEqual(ghBody.extractPrMarker('<!-- devflow:pr=049 -->\nx'), { id: '49' });
+    assert.deepStrictEqual(ghBody.extractPrMarker('text\n<!--devflow:pr=2.1-->'), { id: '2.1' });
+    assert.strictEqual(ghBody.extractPrMarker('<!-- devflow:id=49 -->'), null);
+    assert.strictEqual(ghBody.extractPrMarker('<!-- devflow:pr=49-01 -->'), null);
+    assert.strictEqual(ghBody.extractPrMarker(null), null);
+  });
+});
