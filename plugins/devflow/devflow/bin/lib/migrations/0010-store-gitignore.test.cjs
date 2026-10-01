@@ -275,8 +275,10 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
     assert.equal(res.applied, true);
     assert.match(res.notes, /--files \.gitignore \.planning\//);
 
+    // TRD 50-06: store mode is on and this commit lands on the default branch, which the store-mode gate refuses; the
+    // staged-removal handling is what this test is about, so it takes the logged escape.
     const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', p.root, 'commit', 'chore: gitignore the planning cache', '--files', '.gitignore', '.planning/'], {
-      cwd: p.root, env: fx.gitEnv(p.home), encoding: 'utf-8',
+      cwd: p.root, env: { ...fx.gitEnv(p.home), DEVFLOW_SKIP_GH_GATE: '1' }, encoding: 'utf-8',
     });
     assert.equal(r.status, 0, `${r.stdout} ${r.stderr}`);
     assert.equal(JSON.parse(r.stdout).committed, true, r.stdout);

@@ -43,22 +43,35 @@ function parseScope(subject) {
  *
  * `mainRoot` is the MAIN checkout (`planningMode.resolveMainRoot(cwd)`). Reasons: `not store mode`, `no scope`,
  * `unrecognised scope`, `mapping unreadable`, `no mapping entry`.
+ *
+ * `opts.objective` (TRD 50-06): the objective whose branch the commit lands on. A message that names no scope (`no scope`)
+ * or a scope that names no issue (`unrecognised scope`) references that objective's issue instead, so every commit on a
+ * linked branch carries a `Refs #` paragraph. A message with a recognised scope keeps today's resolution, even when that
+ * scope has no mapping entry: the author named something specific.
  */
-function refsFor(mainRoot, message) {
+function refsFor(mainRoot, message, opts) {
   const none = (reason, id = null) => ({ issue: null, id, reason });
 
   // Local mode is today's behaviour: do not even look at the mapping.
   if (!planningMode.isStoreMode(mainRoot)) return none('not store mode');
 
   const scope = parseScope(message);
-  if (scope === null) return none('no scope');
 
   // A TRD (or Decision) id is `<objective>-<NN>[-dK]`; an objective scope is a bare number. Anything else — a slug, a
   // feature name — names no issue.
-  const trdId = ghMapping.toTrdId(scope);
-  const objectiveId = trdId === null && OBJECTIVE_SCOPE_RE.test(scope) ? ghMapping.toObjectiveId(scope) : null;
+  let trdId = null;
+  let objectiveId = null;
+  if (scope !== null) {
+    trdId = ghMapping.toTrdId(scope);
+    objectiveId = trdId === null && OBJECTIVE_SCOPE_RE.test(scope) ? ghMapping.toObjectiveId(scope) : null;
+  }
+  if (trdId === null && objectiveId === null) {
+    // No usable scope: the linked objective (if the caller has one) is the issue this commit serves.
+    const linked = opts && opts.objective !== undefined && opts.objective !== null ? ghMapping.toObjectiveId(opts.objective) : null;
+    if (linked === null) return none(scope === null ? 'no scope' : 'unrecognised scope');
+    objectiveId = linked;
+  }
   const id = trdId !== null ? trdId : objectiveId;
-  if (id === null) return none('unrecognised scope');
 
   let report;
   try {

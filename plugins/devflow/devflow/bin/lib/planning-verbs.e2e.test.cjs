@@ -100,7 +100,10 @@ function verb(root, argv) {
 
 /** Spawned df-tools (via the repo fixture), asserting the exit code. */
 function df(R, args, expected = 0) {
-  const r = R.run(args);
+  // TRD 50-06: store-mode `df-tools commit` refuses the default branch, and this scenario commits on `main` (the verbs
+  // under test are not about branches), so its commits take the logged escape.
+  const env = args[0] === 'commit' ? { DEVFLOW_SKIP_GH_GATE: '1' } : {};
+  const r = R.run(args, { env });
   assert.equal(r.status, expected, `df-tools ${args.join(' ')}\n${r.stdout}\n${r.stderr}`);
   return r;
 }
