@@ -2,6 +2,10 @@
 
 Template for `.planning/objectives/XX-name/{phase_num}-CONTEXT.md` - captures implementation decisions for an objective.
 
+**Publishing:** fill a draft from `node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{phase_num}-CONTEXT.md`,
+then `node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/{phase_num}-CONTEXT.md --from <draft>` — never a direct
+Write under `.planning/` (in local mode `doc put` writes this same file).
+
 **Purpose:** Document decisions that downstream agents need. Researcher uses this to know WHAT to investigate. Planner uses this to know WHAT choices are locked vs flexible.
 
 **Key principle:** Categories are NOT predefined. They emerge from what was actually discussed for THIS objective. A CLI objective has CLI-relevant sections, a UI objective has UI-relevant sections.

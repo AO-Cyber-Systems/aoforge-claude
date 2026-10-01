@@ -147,7 +147,7 @@ Use AskUserQuestion:
   - "Skip" — Use existing context as-is
 
 If "Update": Load existing, continue to analyze_objective
-If "View": Display CONTEXT.md, then offer update/skip
+If "View": Display CONTEXT.md, then ask again (revise it or skip)
 If "Skip": Exit workflow
 
 **If doesn't exist:**
@@ -296,18 +296,21 @@ Track deferred ideas internally.
 </step>
 
 <step name="write_context">
-Create CONTEXT.md capturing decisions made.
+Publish CONTEXT.md capturing decisions made — draft it, then `doc put` (never a direct Write under `.planning/`; in
+store mode the gate denies it, in local mode `doc put` writes the same file as before).
 
-**Find or create objective directory:**
+Use values from init: `objective_dir`, `objective_slug`, `padded_objective`. The objective directory is
+`${padded_objective}-${objective_slug}` (the last segment of `objective_dir`); if `objective_dir` is null, `doc put`
+creates it.
 
-Use values from init: `objective_dir`, `objective_slug`, `padded_objective`.
-
-If `objective_dir` is null (objective exists in roadmap but no directory):
 ```bash
-mkdir -p ".planning/objectives/${padded_objective}-${objective_slug}"
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft "objectives/${padded_objective}-${objective_slug}/${padded_objective}-CONTEXT.md")
 ```
 
-**File location:** `${objective_dir}/${padded_objective}-CONTEXT.md`
+The draft is seeded from the current CONTEXT.md when one exists ("Update it" path). `$DRAFT` stands for the printed
+path — shell variables do not survive between Bash calls, so pass it literally.
+
+**File location (local mode):** `${objective_dir}/${padded_objective}-CONTEXT.md`
 
 **Structure the content by what was discussed:**
 
@@ -363,7 +366,11 @@ mkdir -p ".planning/objectives/${padded_objective}-${objective_slug}"
 *Context gathered: [date]*
 ```
 
-Write file.
+Write this content to the draft (`$DRAFT`) with the Write tool, then publish it:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put "objectives/${padded_objective}-${objective_slug}/${padded_objective}-CONTEXT.md" --from "$DRAFT"
+```
 </step>
 
 <step name="confirm_creation">
@@ -398,7 +405,7 @@ Created: .planning/objectives/${PADDED_OBJECTIVE}-${SLUG}/${PADDED_OBJECTIVE}-CO
 
 **Also available:**
 - `/devflow:plan-objective ${OBJECTIVE} --skip-research` — plan without research
-- Review/edit CONTEXT.md before continuing
+- Review CONTEXT.md before continuing (to change it, re-run `/devflow:discuss-objective ${OBJECTIVE}` and pick "Update it")
 
 ---
 ```
