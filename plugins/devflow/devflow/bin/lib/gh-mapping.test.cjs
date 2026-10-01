@@ -875,3 +875,203 @@ describe('48-02 mapping serialisation (characterization)', () => {
     assert.equal(fs.readFileSync(file, 'utf-8'), PINNED_TEXT);
   });
 });
+
+describe('48-02 entities map accessors', () => {
+  const entityEntry = (issueNumber, restId, role, commentIds = {}) => ({
+    issue_number: issueNumber,
+    rest_id: restId,
+    role,
+    comment_ids: commentIds,
+  });
+
+  test('6. toEntityId accepts todo-<stem>, debug-<stem> and quick-<N> and returns {id, role}', () => {
+    assert.deepEqual(ghMapping.toEntityId('todo-a'), { id: 'todo-a', role: 'todo' });
+    assert.deepEqual(ghMapping.toEntityId('todo-2026-07-31-harden-df-tools-health'), {
+      id: 'todo-2026-07-31-harden-df-tools-health',
+      role: 'todo',
+    });
+    assert.deepEqual(ghMapping.toEntityId('debug-x'), { id: 'debug-x', role: 'debug' });
+    assert.deepEqual(ghMapping.toEntityId('quick-12'), { id: 'quick-12', role: 'quick' });
+  });
+
+  test('6b. toEntityId is null for anything else', () => {
+    for (const bad of ['quick-x', '47-01', 'todo-', 'debug-', 'quick-', 'Todo-a', 'todo-A', 'trd-a', '47', ' todo-a', '', null, undefined, 12]) {
+      assert.equal(ghMapping.toEntityId(bad), null, String(bad));
+    }
+  });
+
+  test('6c. toEntityId uses the same grammar as the gh-trd entity codec', () => {
+    const ghTrd = require('./gh-trd.cjs');
+    for (const id of ['todo-a', 'debug-x.y_z', 'quick-0', 'todo-', 'quick-x', '47-01', 'todo-' + 'a'.repeat(101)]) {
+      assert.equal(ghMapping.toEntityId(id) !== null, ghTrd.ENTITY_ID_RE.test(id), id);
+    }
+  });
+
+  test('7. setEntity defaults role from the id prefix and stores the four fields in order', () => {
+    const m = ghMapping.emptyMapping();
+    const returned = ghMapping.setEntity(m, 'debug-x', { issue_number: 5, rest_id: 9005 });
+    assert.equal(returned, m, 'returns the mapping for chaining');
+    assert.deepEqual(m.entities, { 'debug-x': entityEntry(5, 9005, 'debug') });
+    assert.deepEqual(Object.keys(m.entities['debug-x']), ['issue_number', 'rest_id', 'role', 'comment_ids']);
+    assert.deepEqual(ghMapping.getEntity(m, 'debug-x'), entityEntry(5, 9005, 'debug'));
+    ghMapping.setEntity(m, 'todo-a', { issue_number: 6, rest_id: 9006, role: 'todo' });
+    ghMapping.setEntity(m, 'quick-12', { issue_number: '7', rest_id: '9007' });
+    assert.deepEqual(ghMapping.getEntity(m, 'todo-a'), entityEntry(6, 9006, 'todo'));
+    assert.deepEqual(ghMapping.getEntity(m, 'quick-12'), entityEntry(7, 9007, 'quick'));
+  });
+
+  test('7b. a role that disagrees with the id prefix throws and leaves the map alone', () => {
+    const m = ghMapping.emptyMapping();
+    for (const role of ['todo', 'quick', 'trd', 'decision', 'epic']) {
+      assert.throws(() => ghMapping.setEntity(m, 'debug-x', { issue_number: 5, rest_id: 9005, role }), TypeError, role);
+    }
+    assert.equal(ghMapping.getEntity(m, 'debug-x'), null);
+    assert.equal(m.entities, undefined, 'a refused set does not even create the section');
+  });
+
+  test('7c. a missing or invalid issue_number or rest_id throws TypeError', () => {
+    const m = ghMapping.emptyMapping();
+    for (const patch of [{}, { issue_number: 5 }, { rest_id: 9005 }, { issue_number: 0, rest_id: 1 }, { issue_number: 1, rest_id: 'x' }]) {
+      assert.throws(() => ghMapping.setEntity(m, 'debug-x', patch), TypeError, JSON.stringify(patch));
+    }
+    assert.throws(() => ghMapping.setEntity(m, 'debug-x'), TypeError);
+    assert.equal(ghMapping.getEntity(m, 'debug-x'), null);
+  });
+
+  test('7d. setEntity with an id outside the grammar throws TypeError', () => {
+    const m = ghMapping.emptyMapping();
+    for (const id of ['47-01', 'todo-', 'quick-x', '', null]) {
+      assert.throws(() => ghMapping.setEntity(m, id, { issue_number: 1, rest_id: 2 }), TypeError, String(id));
+    }
+  });
+
+  test('7e. comment_ids merge per kind like setTrd', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setEntity(m, 'quick-12', { issue_number: 7, rest_id: 9007 });
+    ghMapping.setEntity(m, 'quick-12', { comment_ids: { summary: [55] } });
+    ghMapping.setEntity(m, 'quick-12', { comment_ids: { state: [60] } });
+    assert.deepEqual(m.entities['quick-12'].comment_ids, { summary: [55], state: [60] });
+    ghMapping.setEntity(m, 'quick-12', { comment_ids: { summary: ['56', 57] } });
+    assert.deepEqual(m.entities['quick-12'].comment_ids, { summary: [56, 57], state: [60] }, 'a kind the patch names is replaced whole');
+    ghMapping.setEntity(m, 'quick-12', { comment_ids: { state: null } });
+    assert.deepEqual(m.entities['quick-12'].comment_ids, { summary: [56, 57] }, 'null removes a kind');
+    ghMapping.setEntity(m, 'quick-12', { rest_id: 9999 });
+    assert.deepEqual(m.entities['quick-12'], entityEntry(7, 9999, 'quick', { summary: [56, 57] }), 'untouched fields survive');
+    assert.throws(() => ghMapping.setEntity(m, 'quick-12', { comment_ids: { summary: [0] } }), /setEntity: quick-12 comment_ids/);
+  });
+
+  test('7f. getEntity tolerates junk; the entities and trds maps do not see each other', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setTrd(m, '47-01', { issue_number: 1, rest_id: 2 });
+    ghMapping.setEntity(m, 'todo-a', { issue_number: 3, rest_id: 4 });
+    assert.equal(ghMapping.getEntity(m, '47-01'), null);
+    assert.equal(ghMapping.getTrd(m, 'todo-a'), null);
+    assert.deepEqual(Object.keys(m.trds), ['47-01']);
+    assert.deepEqual(Object.keys(m.entities), ['todo-a']);
+    assert.equal(ghMapping.getEntity(null, 'todo-a'), null);
+    assert.equal(ghMapping.getEntity({}, 'todo-a'), null);
+    assert.equal(ghMapping.getEntity(m, 'todo-b'), null);
+    assert.equal(ghMapping.getEntity(m, null), null);
+  });
+
+  test('8. serializeMapping renders entities after trds, natural-sorted, and nothing else moves', () => {
+    const m = pinnedMapping();
+    ghMapping.setEntity(m, 'todo-b', { issue_number: 43, rest_id: 1000043 });
+    ghMapping.setEntity(m, 'quick-10', { issue_number: 42, rest_id: 1000042 });
+    ghMapping.setEntity(m, 'quick-2', { issue_number: 41, rest_id: 1000041, comment_ids: { summary: [70] } });
+    ghMapping.setEntity(m, 'debug-x', { issue_number: 40, rest_id: 1000040 });
+
+    const entitiesBlock = `  "entities": {
+    "debug-x": {
+      "issue_number": 40,
+      "rest_id": 1000040,
+      "role": "debug",
+      "comment_ids": {}
+    },
+    "quick-2": {
+      "issue_number": 41,
+      "rest_id": 1000041,
+      "role": "quick",
+      "comment_ids": {
+        "summary": [
+          70
+        ]
+      }
+    },
+    "quick-10": {
+      "issue_number": 42,
+      "rest_id": 1000042,
+      "role": "quick",
+      "comment_ids": {}
+    },
+    "todo-b": {
+      "issue_number": 43,
+      "rest_id": 1000043,
+      "role": "todo",
+      "comment_ids": {}
+    }
+  },
+`;
+    const expected = PINNED_TEXT.replace('  "wiki": {\n', entitiesBlock + '  "wiki": {\n');
+    assert.notEqual(expected, PINNED_TEXT, 'the splice point exists');
+    assert.equal(ghMapping.serializeMapping(m), expected);
+  });
+
+  test('8b. an empty entities section is not rendered', () => {
+    const m = pinnedMapping();
+    m.entities = {};
+    assert.equal(ghMapping.serializeMapping(m), PINNED_TEXT);
+  });
+
+  test('8c. entities round-trip through writeMappingV3 / readMappingV3 byte-stably', () => {
+    const root = tmpProject();
+    const m = pinnedMapping();
+    ghMapping.setEntity(m, 'todo-a', { issue_number: 3, rest_id: 1000003, comment_ids: { state: [9] } });
+    ghMapping.setEntity(m, 'debug-x', { issue_number: 4, rest_id: 1000004 });
+    assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
+    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const first = fs.readFileSync(file, 'utf-8');
+
+    const r = ghMapping.readMappingV3WithReport(root);
+    assert.equal(r.changed, false);
+    assert.deepEqual(r.mapping.entities, m.entities);
+    assert.deepEqual(ghMapping.getEntity(r.mapping, 'todo-a'), entityEntry(3, 1000003, 'todo', { state: [9] }));
+    assert.deepEqual(r.mapping.trds, pinnedMapping().trds, 'trds untouched');
+
+    assert.equal(ghMapping.writeMappingV3(root, r.mapping).ok, true);
+    assert.equal(fs.readFileSync(file, 'utf-8'), first);
+  });
+
+  test('8d. migrateMapping carries entities through unchanged and drops a non-object entities with a note', () => {
+    const raw = { version: 3, milestones: {}, objectives: {}, trds: {}, entities: { 'todo-a': entityEntry(1, 2, 'todo') } };
+    const r = ghMapping.migrateMapping(raw);
+    assert.equal(r.changed, false);
+    assert.deepEqual(r.mapping.entities, raw.entities);
+    assert.notEqual(r.mapping.entities, raw.entities, 'cloned, not aliased');
+
+    const bad = ghMapping.migrateMapping({ version: 3, milestones: {}, objectives: {}, trds: {}, entities: ['todo-a'] });
+    assert.equal(bad.mapping.entities, undefined);
+    assert.ok(bad.notes.some((n) => /entities/.test(n)), bad.notes.join('; '));
+  });
+
+  test('9. listEntities returns one role\'s ids, natural-sorted; all ids with no role', () => {
+    const m = ghMapping.emptyMapping();
+    for (const id of ['todo-b', 'quick-10', 'todo-a', 'debug-z', 'quick-2', 'debug-a']) {
+      ghMapping.setEntity(m, id, { issue_number: 1, rest_id: 2 });
+    }
+    m.entities['not-an-entity'] = { issue_number: 1 };
+    assert.deepEqual(ghMapping.listEntities(m, 'todo'), ['todo-a', 'todo-b']);
+    assert.deepEqual(ghMapping.listEntities(m, 'debug'), ['debug-a', 'debug-z']);
+    assert.deepEqual(ghMapping.listEntities(m, 'quick'), ['quick-2', 'quick-10']);
+    assert.deepEqual(ghMapping.listEntities(m), ['debug-a', 'debug-z', 'quick-2', 'quick-10', 'todo-a', 'todo-b']);
+    assert.deepEqual(ghMapping.listEntities(m, 'trd'), []);
+    assert.deepEqual(ghMapping.listEntities(ghMapping.emptyMapping(), 'todo'), []);
+    assert.deepEqual(ghMapping.listEntities(null, 'todo'), []);
+  });
+
+  test('the entity accessors are exported', () => {
+    for (const fn of ['toEntityId', 'getEntity', 'setEntity', 'listEntities']) {
+      assert.equal(typeof ghMapping[fn], 'function', fn);
+    }
+  });
+});
