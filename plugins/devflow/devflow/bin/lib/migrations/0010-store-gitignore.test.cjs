@@ -452,6 +452,95 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
   });
 });
 
+describe('migration 0010: store-mode commit follow-up (TRD 51-04 test 5, G6)', () => {
+  // The printed escaped commit line, parsed back into its parts so 5b runs exactly what the notes print.
+  const ESCAPED_COMMIT_RE =
+    /^\s*DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="([^"]+)" node ~\/\.claude\/devflow\/bin\/df-tools\.cjs commit "([^"]+)" --files (.+)$/m;
+
+  /** A PATH dir holding a `gh` that logs and fails, so nothing here can reach the real GitHub CLI. */
+  function ghShim() {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0010-gh-')));
+    cleanup.push(dir);
+    const log = path.join(dir, 'gh.log');
+    fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\necho "$@" >> "${log}"\nexit 1\n`, { mode: 0o755 });
+    return { dir, log };
+  }
+
+  function dfCommit(p, shim, message, files, env = {}) {
+    const base = { ...fx.gitEnv(p.home), PATH: `${shim.dir}${path.delimiter}${process.env.PATH}` };
+    for (const key of ['DEVFLOW_ALLOW_RAW_COMMIT', 'DEVFLOW_SKIP_GH_GATE', 'DEVFLOW_SKIP_GH_GATE_REASON']) delete base[key];
+    const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', p.root, 'commit', message, '--files', ...files], {
+      cwd: p.root, env: { ...base, ...env }, encoding: 'utf-8',
+    });
+    let json = null;
+    try { json = JSON.parse((r.stdout || '').trim()); } catch { /* raw */ }
+    return { status: r.status, out: `${r.stdout || ''} ${r.stderr || ''}`, json };
+  }
+
+  test('5. the notes print the branch → logged-escape commit → push → PR sequence, never the bare refused command', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const m = m0010();
+    assert.equal(typeof m.STORE_COMMIT_STEPS, 'string', 'STORE_COMMIT_STEPS is exported (51-07 prints it after 0011)');
+    const p = project();
+    baselineAll(p);
+
+    const res = m.migrate(ctxFor(p));
+    assert.equal(res.applied, true, JSON.stringify(res));
+    assert.ok(res.notes.includes(m.STORE_COMMIT_STEPS), res.notes);
+    const s = res.notes;
+    const sw = s.indexOf('git switch -c devflow-store-cache');
+    const esc = s.indexOf('DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration"');
+    const push = s.indexOf('git push -u origin devflow-store-cache');
+    assert.ok(sw >= 0 && esc > sw && push > esc, `branch, then escaped commit, then push: ${s}`);
+    assert.match(s, /--files \.gitignore \.planning\//);
+    assert.match(s, /pull request/);
+    assert.match(s, /gate gh/, 'says the escape is logged');
+    assert.doesNotMatch(s, /commit with: node /, 'the bare command store mode refuses is gone');
+
+    const p2 = project();
+    baselineAll(p2);
+    const dry = m.migrate(ctxFor(p2, { dryRun: true }));
+    assert.equal(dry.dryRun, true, JSON.stringify(dry));
+    assert.ok(dry.notes.includes(m.STORE_COMMIT_STEPS), `a dry run prints the same steps: ${dry.notes}`);
+    assert.doesNotMatch(dry.notes, /commit with: node /);
+  });
+
+  test('5b. the printed steps work in store mode: bare commit refused on the new branch, the escaped one lands and logs gate gh', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const m = m0010();
+    const p = project();
+    baselineAll(p);
+    assert.equal(m.migrate(ctxFor(p)).applied, true);
+    const shim = ghShim();
+
+    const parsed = ESCAPED_COMMIT_RE.exec(m.STORE_COMMIT_STEPS);
+    assert.ok(parsed, `an escaped df-tools commit line is printed: ${m.STORE_COMMIT_STEPS}`);
+    const [, reason, message, filesText] = parsed;
+    const files = filesText.trim().split(/\s+/);
+    assert.deepEqual(files, ['.gitignore', '.planning/']);
+
+    git(p, 'switch', '-q', '-c', 'devflow-store-cache');
+    const bare = dfCommit(p, shim, message, files);
+    assert.equal(bare.status, 1, `without the escape the gate refuses: ${bare.out}`);
+    assert.equal(bare.json && bare.json.reason, 'unlinked_branch', bare.out);
+
+    const r = dfCommit(p, shim, message, files, { DEVFLOW_SKIP_GH_GATE: '1', DEVFLOW_SKIP_GH_GATE_REASON: reason });
+    assert.equal(r.status, 0, r.out);
+    assert.equal(r.json.committed, true, r.out);
+    assert.equal(r.json.gate_escaped, true, r.out);
+    const tree = git(p, 'ls-tree', '-r', '--name-only', 'HEAD', '--', '.planning').split('\n').filter(Boolean).sort();
+    assert.deepEqual(tree, ['.planning/STACK.md', '.planning/config.json']);
+    assert.equal(git(p, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'devflow-store-cache');
+
+    const logFile = path.join(p.root, '.planning', '.override-log.jsonl');
+    const log = fs.readFileSync(logFile, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(log.length, 1);
+    assert.equal(log[0].gate, 'gh');
+    assert.equal(log[0].reason, 'store migration');
+    assert.equal(fs.existsSync(shim.log), false, 'the printed commit step needs no gh call');
+  });
+});
+
 describe('migration 0010: confirm safety through the runner (test 13)', () => {
   test('13. upgrade.apply without --confirm/--only leaves 0010 pending_confirm and the index untouched', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
