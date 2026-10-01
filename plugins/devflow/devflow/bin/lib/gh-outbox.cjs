@@ -84,7 +84,31 @@ function emptyPayload(p) {
 
 // ─── OP_KINDS: the one contract between enqueuers (47-08/09/12) and the executor (47-07) ──────────
 
-const ROLES = ['trd', 'decision'];
+/** upsert-issue roles: 47's trd/decision, then 48's entity roles (todo, debug, quick). */
+const ROLES = Object.freeze(['trd', 'decision', 'todo', 'debug', 'quick']);
+
+/**
+ * Entity roles (48-02, D-03): todos, debug sessions and quick tasks are issues too. Each names the label the
+ * flusher applies (`config.github.labels.<role>` overrides it, exactly as labels.trd / labels.decision do)
+ * and the issue type: none for a todo; Debug and Quick are optional types, degraded per type.
+ */
+const ENTITY_ROLES = Object.freeze({
+  todo: Object.freeze({ label: 'devflow:todo', type: null }),
+  debug: Object.freeze({ label: 'devflow:debug', type: 'Debug' }),
+  quick: Object.freeze({ label: 'devflow:quick', type: 'Quick' }),
+});
+
+/**
+ * Entity ids: `todo-<stem>`, `debug-<stem>`, `quick-<N>`. Duplicated from gh-trd.cjs ENTITY_ID_RE on purpose,
+ * because this module stays hook-safe (builtins plus sync-state only); a test pins the two to one `.source`.
+ */
+const ENTITY_ID_RE = /^(?:(?:todo|debug)-[a-z0-9][a-z0-9._-]{0,99}|quick-\d+)$/;
+
+/** Is `id` an entity id whose prefix is `role`? */
+function entityIdHasRole(id, role) {
+  return typeof id === 'string' && ENTITY_ID_RE.test(id) && id.slice(0, id.indexOf('-')) === role;
+}
+
 const ISSUE_STATES = ['open', 'closed'];
 const DERIVE_KEYS = ['wiki', 'trds', 'meta'];
 const META_KEYS = ['type', 'work', 'kind'];
@@ -125,6 +149,10 @@ const OP_KINDS = Object.freeze({
       const e = idErr(t.id, 'target.id');
       if (e) return e;
       if (!ROLES.includes(t.role)) return `target.role must be one of ${ROLES.join('|')}`;
+      // An entity role must name an entity id of that role; trd/decision keep the 47 path unchanged.
+      if (Object.hasOwn(ENTITY_ROLES, t.role) && !entityIdHasRole(t.id, t.role)) {
+        return `entity id ${t.id} does not match role ${t.role}`;
+      }
       if (!isPlainObject(p)) return 'payload must be an object';
       if (!isStr(p.title)) return 'payload.title must be a non-empty string';
       if (typeof p.body !== 'string') return 'payload.body must be a string';
@@ -997,6 +1025,9 @@ function writeCacheIndex(projectRoot, index, opts = {}) {
 
 module.exports = {
   OP_KINDS,
+  ROLES,
+  ENTITY_ROLES,
+  ENTITY_ID_RE,
   MAX_DONE_OPS,
   BUDGET,
   LOCK_STALE_MS,
