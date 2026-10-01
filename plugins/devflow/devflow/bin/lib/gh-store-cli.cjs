@@ -29,6 +29,8 @@ const comments = require('./gh-comments.cjs');
 const hierarchy = require('./gh-hierarchy.cjs');
 const ghCache = require('./gh-cache.cjs');
 const ledgerLib = require('./planning-ledger.cjs');
+const planningMode = require('./planning-mode.cjs');
+const overrideLib = require('./override.cjs');
 
 const EXIT = Object.freeze({ OK: 0, ERROR: 1, HALTED: 2, PENDING: 3 });
 
@@ -305,15 +307,20 @@ function cmdGhOutbox(cwd, args, raw) {
 
 const TRD_USAGE = [
   'Usage:',
-  '  df-tools gh trd spec <trd>                                   print the effective spec (body + scope comments)',
+  '  df-tools gh trd spec <trd>                                   print the effective spec (body + scope comments); store mode lists pending scopes apart',
   '  df-tools gh trd freeze <trd> [--no-flush] [--no-wait]        log a freeze: from now on changes are scope comments',
   '  df-tools gh trd fold <trd> [--force] [--no-flush] [--no-wait]  fold the scope comments into a CLOSED TRD\'s body',
   '  df-tools gh trd scope <trd> <body|@file:path> [--n K] [--no-flush] [--no-wait]   post a scope change',
-  '<trd> accepts any spelling: 07-01, 7-01, 07-01-alpha. freeze, fold and scope flush the outbox unless --no-flush.',
+  '  df-tools gh trd confirm-scope <trd> <n> [--force --reason <why>] [--no-flush] [--no-wait]   (store mode) an objective assignee accepts a pending scope',
+  '  df-tools gh trd start <trd> [--no-flush] [--no-wait]         (store mode) mark the TRD in progress: the github.labels.in_progress label',
+  '<trd> accepts any spelling: 07-01, 7-01, 07-01-alpha. freeze, fold, scope, confirm-scope and start flush the outbox unless --no-flush.',
   'Flags: --raw prints JSON. Exit codes (when flushing): 0 done, 1 error, 2 halted for a human, 3 ops still pending.',
 ].join('\n');
 
-const TRD_AVAILABLE = 'spec <trd>, freeze <trd>, fold <trd> [--force], scope <trd> <body|@file:path> [--n K]';
+const TRD_AVAILABLE = 'spec <trd>, freeze <trd>, fold <trd> [--force], scope <trd> <body|@file:path> [--n K], confirm-scope <trd> <n> [--force --reason <why>], start <trd>';
+
+/** The verbs that only exist in store mode: with the store off they are skipped (exit 0, no gh call). */
+const STORE_ONLY_TRD_VERBS = ['confirm-scope', 'start'];
 
 /** `--n K` or `--n=K` -> `{n: K}` (K a positive integer), `{n: undefined}` when absent, `{invalid: true}` otherwise. */
 function parseScopeN(args) {
@@ -322,6 +329,14 @@ function parseScopeN(args) {
   const value = args[i] === '--n' ? args[i + 1] : args[i].slice('--n='.length);
   if (typeof value !== 'string' || !/^[1-9]\d{0,8}$/.test(value)) return { invalid: true };
   return { n: Number(value) };
+}
+
+/** `--reason <why>` or `--reason=<why>` -> the text, or null when absent or blank. */
+function parseReason(args) {
+  const i = args.findIndex((a) => a === '--reason' || a.startsWith('--reason='));
+  if (i < 0) return null;
+  const value = args[i] === '--reason' ? args[i + 1] : args[i].slice('--reason='.length);
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
 /** The scope body: the argument itself, or the contents of `@file:<path>` (relative to the project). */
@@ -347,13 +362,30 @@ function queuedResult(cwd, args, queued, headline) {
   return result(flushed.code, { ...queued, ok: flushed.payload.ok, flush: flushed.payload }, `${headline}\n${flushed.prose}`);
 }
 
+/**
+ * The pending scopes as prose (store mode): who posted each, and the verb that accepts it. Their text is never
+ * printed here: a pending scope is not part of the spec until an assignee confirms it.
+ */
+function pendingBlock(trdId, pending) {
+  const lines = ["Pending scope changes (NOT part of this spec until an assignee of the objective issue confirms them):"];
+  for (const p of pending) {
+    lines.push(`  n=${p.n} by ${p.author || 'an unknown author'}  ->  df-tools gh trd confirm-scope ${trdId} ${p.n}`);
+  }
+  return lines.join('\n');
+}
+
 function trdSpec(cwd, trdId) {
   const spec = comments.readEffectiveSpec(cwd, trdId);
   if (!spec.ok) return spec.skipped ? skipped(spec.reason) : failure(spec.error);
   const res = result(EXIT.OK, spec, spec.text);
-  const notes = [...(spec.errors || [])];
-  if (spec.overflow) notes.push(`the effective spec is ${spec.chars} chars, over the issue-body limit; the overflow becomes a new TRD`);
-  if (notes.length > 0) res.warn = notes.map((n) => `Warning: ${n}`).join('\n');
+  const notes = [...(spec.errors || [])].map((n) => `Warning: ${n}`);
+  if (spec.overflow) notes.push(`Warning: the effective spec is ${spec.chars} chars, over the issue-body limit; the overflow becomes a new TRD`);
+  if (spec.assignees === null) {
+    const objective = String(spec.id).split('-')[0];
+    notes.push(`Warning: the objective has no issue in the mapping, so no scope author can be recognised as an assignee; run \`df-tools gh sync ${objective}\``);
+  }
+  if (Array.isArray(spec.pending) && spec.pending.length > 0) notes.push(pendingBlock(spec.id, spec.pending));
+  if (notes.length > 0) res.warn = notes.join('\n');
   return res;
 }
 
@@ -375,9 +407,12 @@ function trdFold(cwd, args, trdId) {
   if (!r.ok) {
     return failure(r.reason === 'open' ? r.error.replace('(pass force ', '(pass --force ') : r.error, r.reason ? { reason: r.reason } : {});
   }
-  if (r.noop) return result(EXIT.OK, r, `Nothing to fold: no scope comment of TRD ${r.id} is waiting to be folded into the body.`);
+  const held = Array.isArray(r.pending) && r.pending.length > 0
+    ? ` Scope ${r.pending.map((p) => `n=${p.n}`).join(', ')} is pending an assignee's confirmation, so a fold stops before it.`
+    : '';
+  if (r.noop) return result(EXIT.OK, r, `Nothing to fold: no accepted scope comment of TRD ${r.id} is waiting to be folded into the body.${held}`);
   if (!r.fits) return result(EXIT.OK, r, `Not folded: ${r.message}.`);
-  return queuedResult(cwd, args, r, `Fold of TRD ${r.id} queued (folded through scope ${r.folded_through}).`);
+  return queuedResult(cwd, args, r, `Fold of TRD ${r.id} queued (folded through scope ${r.folded_through}).${held}`);
 }
 
 function trdScope(cwd, args, trdId, body, n) {
@@ -395,13 +430,72 @@ function trdScope(cwd, args, trdId, body, n) {
   return queuedResult(cwd, args, r, `Scope change n=${r.n} for TRD ${r.id} queued (effective spec ${r.chars} chars).`);
 }
 
-/** `gh trd spec|freeze|fold|scope <trd> ...`. */
+/**
+ * `gh trd confirm-scope <trd> <n>` (store mode). Only an assignee of the objective issue may confirm; the caller's login
+ * comes from `gh api user`. With no assignee at all, `--force --reason <why>` is required and the override is logged
+ * (gate `scope-confirm`) before the confirm is queued. Nothing is queued for a refusal.
+ */
+function trdConfirmScope(cwd, args, trdId, n) {
+  const ctx = comments.readScopeForConfirm(cwd, trdId, n);
+  if (!ctx.ok) return failure(ctx.error);
+  if (ctx.accepted) {
+    return result(EXIT.OK, { ok: true, id: ctx.id, n, noop: true, accepted: true }, `Scope n=${n} of TRD ${ctx.id} is already accepted; nothing to do.`);
+  }
+
+  const force = args.includes('--force');
+  const reason = parseReason(args);
+  const assignees = ctx.assignees || [];
+  let confirmedBy = null;
+
+  if (assignees.length > 0) {
+    const who = comments.readViewerLogin();
+    if (!who.ok) return failure(who.error);
+    if (!assignees.some((a) => a.toLowerCase() === who.login.toLowerCase())) {
+      const flagNote = force ? ' --force only applies when the objective issue has no assignee.' : '';
+      return failure(
+        `${who.login} is not an assignee of the objective issue, so cannot confirm scope n=${n} of TRD ${ctx.id}. ` +
+          `Assignees: ${assignees.join(', ')}.${flagNote}`,
+        { assignees }
+      );
+    }
+    confirmedBy = who.login;
+  } else {
+    if (!force || reason === null) {
+      const sync = ctx.assignees === null ? ' The objective has no issue in the mapping; `df-tools gh sync <objective>` links it.' : '';
+      return failure(
+        `The objective issue has no assignee, so nobody can confirm scope n=${n} of TRD ${ctx.id}. ` +
+          `To confirm it anyway pass --force --reason "<why>"; the override is logged as gate scope-confirm.${sync}`,
+        { assignees: ctx.assignees }
+      );
+    }
+    const planningDir = path.join(planningMode.planningMode(cwd).root || cwd, '.planning');
+    const rec = overrideLib.recordOverride({ planningDir, gate: 'scope-confirm', reason });
+    if (!rec.ok) return failure(rec.message);
+    overrideLib.pruneLog(planningDir);
+  }
+
+  const queued = comments.enqueueScopeConfirm(cwd, { trdId, n, text: ctx.text });
+  if (!queued.ok) return failure(queued.error);
+  if (queued.skipped) return skipped(queued.reason);
+  const by = confirmedBy ? ` by ${confirmedBy}` : ` under --force (${reason})`;
+  return queuedResult(cwd, args, { ...queued, confirmed_by: confirmedBy, forced: confirmedBy === null }, `Scope n=${n} of TRD ${queued.id} confirmed${by}.`);
+}
+
+/** `gh trd start <trd>` (store mode): the TRD is in progress. Reads nothing, so it queues offline (exit 3 when pending). */
+function trdStart(cwd, args, trdId) {
+  const r = comments.enqueueTrdStart(cwd, { trdId });
+  if (!r.ok) return failure(r.error);
+  if (r.skipped) return skipped(r.reason);
+  return queuedResult(cwd, args, r, `TRD ${r.id} marked in progress (label ${r.label}).`);
+}
+
+/** `gh trd spec|freeze|fold|scope|confirm-scope|start <trd> ...`. */
 function cmdGhTrd(cwd, args, raw) {
   const verb = args[0];
   let res;
   if (wantsHelp(args)) {
     res = result(EXIT.OK, { ok: true, usage: TRD_USAGE }, TRD_USAGE);
-  } else if (!['spec', 'freeze', 'fold', 'scope'].includes(verb)) {
+  } else if (!['spec', 'freeze', 'fold', 'scope', ...STORE_ONLY_TRD_VERBS].includes(verb)) {
     const what = verb === undefined ? 'Missing gh trd subcommand.' : `Unknown gh trd subcommand: ${verb}.`;
     res = usageError(`${what} Available: ${TRD_AVAILABLE}\n${TRD_USAGE}`);
   } else {
@@ -411,9 +505,18 @@ function cmdGhTrd(cwd, args, raw) {
 }
 
 function trdVerb(cwd, verb, args) {
-  const pos = positionals(args, ['--n']);
+  const pos = positionals(args, ['--n', '--reason']);
   const trdId = pos[0];
-  if (trdId === undefined) return usageError(`Usage: df-tools gh trd ${verb} <trd>${verb === 'scope' ? ' <body|@file:path> [--n K]' : ''}`);
+  const tail = { scope: ' <body|@file:path> [--n K]', 'confirm-scope': ' <n> [--force --reason <why>]' }[verb] || '';
+  if (trdId === undefined) return usageError(`Usage: df-tools gh trd ${verb} <trd>${tail}`);
+
+  let confirmN;
+  if (verb === 'confirm-scope') {
+    if (pos[1] === undefined || !/^[1-9]\d{0,8}$/.test(pos[1])) {
+      return usageError('Usage: df-tools gh trd confirm-scope <trd> <n> [--force --reason <why>] [--no-flush]  (n is a positive integer)');
+    }
+    confirmN = Number(pos[1]);
+  }
 
   let body;
   let n;
@@ -429,9 +532,15 @@ function trdVerb(cwd, verb, args) {
   const g = gate(cwd);
   if (g.result) return g.result;
 
+  if (STORE_ONLY_TRD_VERBS.includes(verb) && !planningMode.isStoreMode(cwd)) {
+    return skipped(`github.store is not true in .planning/config.json: gh trd ${verb} is a store-mode verb`);
+  }
+
   if (verb === 'spec') return trdSpec(cwd, trdId);
   if (verb === 'freeze') return trdFreeze(cwd, args, trdId);
   if (verb === 'fold') return trdFold(cwd, args, trdId);
+  if (verb === 'confirm-scope') return trdConfirmScope(cwd, args, trdId, confirmN);
+  if (verb === 'start') return trdStart(cwd, args, trdId);
   return trdScope(cwd, args, trdId, body, n);
 }
 

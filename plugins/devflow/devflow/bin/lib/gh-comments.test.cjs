@@ -306,11 +306,31 @@ function seedTrd({ text = TRD_TEXT, state = 'OPEN', mapped = true, id = TRD_ID, 
 /** A scope comment written the way 47-01 writes it. */
 const seedScope = (number, n, text) => fake.seedComment(number, trd.buildScopeComment(n, text));
 
-/** A spec-rev sticky comment holding `entries` (event/hash/chars rows), marker line first. */
+/**
+ * A spec-rev sticky comment holding `entries` (event/hash/chars rows), marker line first. The rows join the TRD's
+ * spec-rev comment when it already exists (there is one per TRD, as on GitHub), so a fixture can mix freeze, fold
+ * and DevFlow scope rows in any order (49-06).
+ */
 function seedSpecRev(number, entries, id = TRD_ID) {
-  let t = body.commentMarker(id, 'spec-rev') + '\n';
+  const marker = body.commentMarker(id, 'spec-rev');
+  const existing = fake.comments.find((c) => c.issue_number === number && c.body.startsWith(marker));
+  let t = existing ? existing.body : marker + '\n';
   for (const e of entries) t = trd.appendSpecRev(t, e);
+  if (existing) {
+    fake.humanEditComment(existing.id, t);
+    return existing.id;
+  }
   return fake.seedComment(number, t);
+}
+
+/**
+ * A scope change DevFlow posted (49-06): the scope comment, plus the hash-bound `scope n=K scope_hash=H` spec-rev row
+ * that `enqueueScope` queues in store mode. The store-mode gate accepts it whoever the comment's author is.
+ */
+function seedDevflowScope(number, n, text, { login } = {}) {
+  const id = fake.seedComment(number, trd.buildScopeComment(n, text), login === undefined ? undefined : { login });
+  seedSpecRev(number, [{ at: AT0, event: trd.scopeEvent(n, trd.scopeHash(text)), hash: trd.contentHash(`effective after ${n}`), chars: 1 }]);
+  return id;
 }
 
 /** The encoded effective spec the codec yields for `seed` plus `scopeComments` (each a full comment body). */
@@ -418,9 +438,9 @@ describe('readTrdState', () => {
 describe('readEffectiveSpec', () => {
   test('14a. returns body + scope comments in n order, honouring folded_through', () => {
     const seed = seedTrd();
-    seedScope(seed.number, 3, 'Third.');
-    seedScope(seed.number, 1, 'First.');
-    seedScope(seed.number, 2, 'Second.');
+    seedDevflowScope(seed.number, 3, 'Third.');
+    seedDevflowScope(seed.number, 1, 'First.');
+    seedDevflowScope(seed.number, 2, 'Second.');
     const r = comments.readEffectiveSpec(project.root, TRD_ID);
     assert.equal(r.ok, true);
     assert.deepEqual(r.applied, [1, 2, 3]);
@@ -439,8 +459,8 @@ describe('readEffectiveSpec', () => {
     const scopes = [1, 2, 3].map((n) => trd.buildScopeComment(n, `Change ${n}.`));
     const foldedText = TRD_TEXT + scopes.map((s) => '\n\n' + s).join('');
     const seed = seedTrd({ text: foldedText, state: 'CLOSED' });
-    for (let n = 1; n <= 3; n++) seedScope(seed.number, n, `Change ${n}.`);
-    seedScope(seed.number, 4, 'Change 4.');
+    for (let n = 1; n <= 3; n++) seedDevflowScope(seed.number, n, `Change ${n}.`);
+    seedDevflowScope(seed.number, 4, 'Change 4.');
     seedSpecRev(seed.number, [
       { at: AT0, event: 'fold folded_through=3 from=' + trd.contentHash('before'), hash: trd.contentHash(seed.encoded), chars: seed.encoded.length },
     ]);
@@ -453,8 +473,8 @@ describe('readEffectiveSpec', () => {
 
   test('14c. a scope gap is reported in errors while the spec is still returned', () => {
     const seed = seedTrd();
-    seedScope(seed.number, 1, 'One.');
-    seedScope(seed.number, 3, 'Three.');
+    seedDevflowScope(seed.number, 1, 'One.');
+    seedDevflowScope(seed.number, 3, 'Three.');
     const r = comments.readEffectiveSpec(project.root, TRD_ID);
     assert.equal(r.ok, true);
     assert.ok(r.errors.some((e) => /gap before n=3/.test(e)));
@@ -490,7 +510,7 @@ describe('enqueueScope', () => {
     ]);
     assert.deepEqual(list[1].payload.entry, {
       at: AT0,
-      event: 'scope n=3',
+      event: trd.scopeEvent(3, trd.scopeHash('Third change.')),
       hash: trd.contentHash(effective),
       chars: effective.length,
     });
@@ -517,7 +537,11 @@ describe('enqueueScope', () => {
     const scopeOps = ops().filter((o) => o.kind === 'post-scope');
     assert.deepEqual(scopeOps.map((o) => [o.target.n, o.payload.text]), [[2, 'Second change.'], [3, 'Third change.']]);
     const rows = specRevOps();
-    assert.deepEqual(rows.map((o) => o.payload.entry.event), ['scope n=2', 'scope n=3'], 'a later append must not replace an earlier one');
+    assert.deepEqual(
+      rows.map((o) => o.payload.entry.event),
+      [trd.scopeEvent(2, trd.scopeHash('Second change.')), trd.scopeEvent(3, trd.scopeHash('Third change.'))],
+      'a later append must not replace an earlier one'
+    );
 
     const both = encodedEffective(seed, [
       trd.buildScopeComment(1, 'First change.'),
@@ -699,7 +723,7 @@ describe('freezeTrd', () => {
     seedTrd();
     comments.freezeTrd(project.root, TRD_ID, { now: T0 });
     comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'Late change.', now: T0 + 1000 });
-    assert.deepEqual(specRevOps().map((o) => o.payload.entry.event), ['freeze', 'scope n=1']);
+    assert.deepEqual(specRevOps().map((o) => o.payload.entry.event), ['freeze', trd.scopeEvent(1, trd.scopeHash('Late change.'))]);
   });
 
   test('9f. disabled and invalid ids', () => {
@@ -714,9 +738,9 @@ describe('freezeTrd', () => {
 describe('foldTrd', () => {
   test('10. a closed TRD with scopes 1..3 that fit: patch-body replace with the effective spec, then a fold row', () => {
     const seed = seedTrd({ state: 'CLOSED' });
-    seedScope(seed.number, 2, 'Second.');
-    seedScope(seed.number, 1, 'First.');
-    seedScope(seed.number, 3, 'Third.');
+    seedDevflowScope(seed.number, 2, 'Second.');
+    seedDevflowScope(seed.number, 1, 'First.');
+    seedDevflowScope(seed.number, 3, 'Third.');
     const r = comments.foldTrd(project.root, '07-01', { now: T0 });
     assert.equal(r.ok, true);
     assert.equal(r.fits, true);
@@ -750,7 +774,7 @@ describe('foldTrd', () => {
 
   test('10b. scope comments are never deleted: the fold queues no comment removal', () => {
     const seed = seedTrd({ state: 'CLOSED' });
-    seedScope(seed.number, 1, 'First.');
+    seedDevflowScope(seed.number, 1, 'First.');
     comments.foldTrd(project.root, TRD_ID, { now: T0 });
     assert.deepEqual(ops().map((o) => o.kind), ['patch-body', 'upsert-comment']);
   });
@@ -759,9 +783,9 @@ describe('foldTrd', () => {
     const first = [1, 2].map((n) => trd.buildScopeComment(n, `Change ${n}.`));
     const foldedText = TRD_TEXT + first.map((s) => '\n\n' + s).join('');
     const seed = seedTrd({ text: foldedText, state: 'CLOSED' });
-    seedScope(seed.number, 1, 'Change 1.');
-    seedScope(seed.number, 2, 'Change 2.');
-    seedScope(seed.number, 3, 'Change 3.');
+    seedDevflowScope(seed.number, 1, 'Change 1.');
+    seedDevflowScope(seed.number, 2, 'Change 2.');
+    seedDevflowScope(seed.number, 3, 'Change 3.');
     seedSpecRev(seed.number, [
       { at: AT0, event: 'fold folded_through=2 from=' + trd.contentHash('older'), hash: trd.contentHash(seed.encoded), chars: seed.encoded.length },
     ]);
@@ -782,7 +806,7 @@ describe('foldTrd', () => {
 
   test('11a. an open TRD is refused: fold runs on close', () => {
     const seed = seedTrd({ state: 'OPEN' });
-    seedScope(seed.number, 1, 'First.');
+    seedDevflowScope(seed.number, 1, 'First.');
     const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
     assert.equal(r.ok, false);
     assert.equal(r.reason, 'open');
@@ -792,7 +816,7 @@ describe('foldTrd', () => {
 
   test('11b. {force:true} folds an open TRD', () => {
     const seed = seedTrd({ state: 'OPEN' });
-    seedScope(seed.number, 1, 'First.');
+    seedDevflowScope(seed.number, 1, 'First.');
     const r = comments.foldTrd(project.root, TRD_ID, { now: T0, force: true });
     assert.equal(r.ok, true);
     assert.equal(r.fits, true);
@@ -801,7 +825,7 @@ describe('foldTrd', () => {
 
   test('12. when the effective spec exceeds 60,000: {ok:true, fits:false} and nothing is queued', () => {
     const seed = seedTrd({ state: 'CLOSED', text: oversizedTrdText(55000, { id: TRD_ID, file: TRD_FILE }) });
-    seedScope(seed.number, 1, 'm'.repeat(7000));
+    seedDevflowScope(seed.number, 1, 'm'.repeat(7000));
     const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
     assert.equal(r.ok, true);
     assert.equal(r.fits, false);
@@ -812,8 +836,8 @@ describe('foldTrd', () => {
 
   test('13. a scope gap refuses the fold', () => {
     const seed = seedTrd({ state: 'CLOSED' });
-    seedScope(seed.number, 1, 'One.');
-    seedScope(seed.number, 3, 'Three.');
+    seedDevflowScope(seed.number, 1, 'One.');
+    seedDevflowScope(seed.number, 3, 'Three.');
     const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
     assert.equal(r.ok, false);
     assert.match(r.error, /gap/);
@@ -822,8 +846,8 @@ describe('foldTrd', () => {
 
   test('13b. a duplicate scope n refuses the fold', () => {
     const seed = seedTrd({ state: 'CLOSED' });
-    seedScope(seed.number, 1, 'One.');
-    seedScope(seed.number, 1, 'One again.');
+    seedDevflowScope(seed.number, 1, 'One.');
+    seedDevflowScope(seed.number, 1, 'One again.');
     const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
     assert.equal(r.ok, false);
     assert.match(r.error, /duplicate n=1/);
@@ -831,7 +855,7 @@ describe('foldTrd', () => {
 
   test('13c. folding twice before a flush queues one body replace and one fold row', () => {
     const seed = seedTrd({ state: 'CLOSED' });
-    seedScope(seed.number, 1, 'One.');
+    seedDevflowScope(seed.number, 1, 'One.');
     comments.foldTrd(project.root, TRD_ID, { now: T0 });
     comments.foldTrd(project.root, TRD_ID, { now: T0 + 5000 });
     assert.deepEqual(ops().map((o) => o.kind), ['patch-body', 'upsert-comment']);
@@ -885,6 +909,252 @@ describe('detectTrdDrift', () => {
     const r = comments.detectTrdDrift(project.root, TRD_ID);
     assert.equal(r.ok, false);
     assert.match(r.error, /no issue yet/);
+  });
+});
+
+// ─── 49-06: the scope-change gate (store mode only) ──────────────────────────
+
+const STORE_ON = { enabled: true, repo: 'o/r', store: true };
+const STORE_OFF = { enabled: true, repo: 'o/r' };
+
+const setGithub = (github) =>
+  fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), `${JSON.stringify({ github }, null, 2)}\n`);
+
+/** The objective's issue, mapped, with `assignees`: who may change a TRD's spec in store mode. */
+function seedObjectiveIssue(assignees) {
+  const n = fake.seedIssue({ title: '[Objective 7] Store demo', body: 'objective', assignees });
+  const map = mapping.readMappingV3(project.root);
+  mapping.setEntry(map, '7', { issue_id: n });
+  assert.equal(mapping.writeMappingV3(project.root, map).ok, true);
+  return n;
+}
+
+/** Reads of one issue: `gh api repos/o/r/issues/<n>`. */
+const issueReads = (n) => fake.calls().filter((a) => a[0] === 'api' && a[1] === `repos/o/r/issues/${n}`);
+
+/** A scope comment by `login` (an assignee, a stranger, a bot ...). */
+const scopeBy = (number, n, text, login) => fake.seedComment(number, trd.buildScopeComment(n, text), { login });
+
+describe('49-06 scope acceptance', () => {
+  test('1. store mode: only accepted scopes apply, the rest are pending, with ONE extra read (the objective issue)', () => {
+    const objective = seedObjectiveIssue(['alice']);
+    const seed = seedTrd();
+    scopeBy(seed.number, 1, 'Change by alice.', 'alice');
+    const mallory = scopeBy(seed.number, 2, 'Change by mallory.', 'mallory');
+
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.applied, [1]);
+    assert.ok(r.text.includes('Change by alice.'));
+    assert.equal(r.text.includes('Change by mallory.'), false, 'a pending scope never reaches the effective spec');
+    assert.equal(r.encoded, trd.encodeTrdBody({ id: TRD_ID, file: TRD_FILE, text: r.text }), 'the size covers only what applies');
+    assert.deepEqual(r.pending, [{ n: 2, author: 'mallory', comment_id: mallory }]);
+    assert.equal(fake.calls().length, 3, 'the TRD issue, its comments, and the objective issue');
+    assert.equal(issueReads(objective).length, 1);
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('1a. readTrdState reads the assignees only when asked ({acceptance:true}); R1 keeps its two reads', () => {
+    const objective = seedObjectiveIssue(['alice', 'Bob']);
+    seedTrd();
+    assert.equal(comments.readTrdState(project.root, TRD_ID).ok, true);
+    assert.equal(issueReads(objective).length, 0, 'a plain state read does not touch the objective issue');
+    const st = comments.readTrdState(project.root, TRD_ID, { acceptance: true });
+    assert.equal(st.ok, true);
+    assert.deepEqual(st.assignees, ['alice', 'Bob']);
+    assert.equal(typeof st.accept, 'function');
+    assert.equal(issueReads(objective).length, 1);
+  });
+
+  test('1b. an objective with no issue in the mapping: assignees null, nothing extra read, only DevFlow/App scopes apply', () => {
+    const seed = seedTrd();
+    scopeBy(seed.number, 1, 'Change by alice.', 'alice');
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.applied, []);
+    assert.equal(r.pending.length, 1);
+    assert.equal(r.assignees, null);
+    assert.equal(fake.calls().length, 2, 'no objective read: the mapping has no issue for it');
+  });
+
+  test('1c. a failing objective read is an error naming it, never a silent "no assignee"', () => {
+    const objective = seedObjectiveIssue(['alice']);
+    const seed = seedTrd();
+    scopeBy(seed.number, 1, 'Change by alice.', 'alice');
+    fake.failNext(new RegExp(`issues/${objective}$`), { ok: false, status: 1, stdout: '', stderr: 'gh: Server Error (HTTP 500)' });
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /objective/i);
+    assert.match(r.error, /500/);
+  });
+
+  test('2. a scope enqueueScope queued is accepted whoever posts it, while its comment still matches', () => {
+    seedObjectiveIssue(['alice']);
+    const seed = seedTrd();
+    scopeBy(seed.number, 1, 'One.', 'alice');
+    scopeBy(seed.number, 2, 'Two.', 'alice');
+    const queued = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'Third change.', now: T0 });
+    assert.equal(queued.n, 3);
+    const entry = specRevOps()[0].payload.entry;
+    assert.equal(entry.event, `scope n=3 scope_hash=${trd.scopeHash('Third change.')}`);
+
+    // what the flusher does, posting with bob's token: the comment, then the row
+    scopeBy(seed.number, 3, 'Third change.', 'bob');
+    seedSpecRev(seed.number, [entry]);
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.deepEqual(r.applied, [1, 2, 3]);
+    assert.deepEqual(r.pending, []);
+  });
+
+  test('2a. the same scope edited afterwards (by anyone) is pending and its text is left out', () => {
+    seedObjectiveIssue(['alice']);
+    const seed = seedTrd();
+    const posted = seedDevflowScope(seed.number, 1, 'As posted.', { login: 'bob' });
+    assert.deepEqual(comments.readEffectiveSpec(project.root, TRD_ID).applied, [1]);
+
+    fake.humanEditComment(posted, trd.buildScopeComment(1, 'Quietly changed.'));
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.deepEqual(r.applied, []);
+    assert.deepEqual(r.pending, [{ n: 1, author: 'bob', comment_id: posted }]);
+    assert.equal(r.text.includes('Quietly changed.'), false);
+  });
+
+  test('2b. store off (enabled): spec and fold behave as before: every scope applies, no pending key, no objective read', () => {
+    setGithub(STORE_OFF);
+    const objective = seedObjectiveIssue(['alice']);
+    const seed = seedTrd({ state: 'CLOSED' });
+    scopeBy(seed.number, 1, 'By mallory.', 'mallory');
+
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.applied, [1]);
+    assert.equal('pending' in r, false);
+    assert.equal('assignees' in r, false);
+
+    const f = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(f.ok, true);
+    assert.equal(f.folded_through, 1);
+    assert.equal('pending' in f, false);
+    assert.equal(issueReads(objective).length, 0, 'the gate never ran');
+  });
+
+  test('2c. the spec-rev event of a queued scope is exactly `scope n=1` with the store off', () => {
+    setGithub(STORE_OFF);
+    seedTrd();
+    comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'A change.', now: T0 });
+    assert.equal(specRevOps()[0].payload.entry.event, 'scope n=1');
+  });
+
+  test('2d. and `scope n=1 scope_hash=<hash of the text>` with the store on', () => {
+    seedTrd();
+    comments.enqueueScope(project.root, { trdId: TRD_ID, text: 'A change.', now: T0 });
+    assert.equal(specRevOps()[0].payload.entry.event, `scope n=1 scope_hash=${trd.scopeHash('A change.')}`);
+  });
+
+  test('3. a scope by github.app_login is accepted; another bot is not', () => {
+    setGithub({ ...STORE_ON, app_login: 'devflow-app[bot]' });
+    seedObjectiveIssue(['alice']);
+    const seed = seedTrd();
+    scopeBy(seed.number, 1, 'From the App.', 'devflow-app[bot]');
+    scopeBy(seed.number, 2, 'From another bot.', 'other-app[bot]');
+    const r = comments.readEffectiveSpec(project.root, TRD_ID);
+    assert.deepEqual(r.applied, [1]);
+    assert.deepEqual(r.pending.map((p) => p.n), [2]);
+  });
+
+  test('4. fold stops before the first pending scope; later accepted scopes stay comments; pending are listed', () => {
+    seedObjectiveIssue(['alice']);
+    const seed = seedTrd({ state: 'CLOSED' });
+    scopeBy(seed.number, 1, 'First.', 'alice');
+    const mallory = scopeBy(seed.number, 2, 'Second.', 'mallory');
+    scopeBy(seed.number, 3, 'Third.', 'alice');
+
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.fits, true);
+    assert.equal(r.folded_through, 1);
+    assert.deepEqual(r.pending, [{ n: 2, author: 'mallory', comment_id: mallory }]);
+
+    const list = ops();
+    assert.deepEqual(list.map((o) => o.kind), ['patch-body', 'upsert-comment']);
+    assert.equal(trd.decodeTrdBody(list[0].payload.body).text, TRD_TEXT + '\n\n' + trd.buildScopeComment(1, 'First.'));
+    assert.match(list[1].payload.entry.event, /^fold folded_through=1 from=/);
+  });
+
+  test('4b. a pending scope at n=1 leaves nothing to fold: a no-op that still lists it', () => {
+    seedObjectiveIssue(['alice']);
+    const seed = seedTrd({ state: 'CLOSED' });
+    scopeBy(seed.number, 1, 'First.', 'mallory');
+    scopeBy(seed.number, 2, 'Second.', 'alice');
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.noop, true);
+    assert.deepEqual(r.pending.map((p) => p.n), [1]);
+    assert.deepEqual(ops(), []);
+  });
+
+  test('4c. nothing pending: the fold is what it was, with an empty pending list', () => {
+    seedObjectiveIssue(['alice']);
+    const seed = seedTrd({ state: 'CLOSED' });
+    scopeBy(seed.number, 1, 'First.', 'alice');
+    scopeBy(seed.number, 2, 'Second.', 'alice');
+    const r = comments.foldTrd(project.root, TRD_ID, { now: T0 });
+    assert.equal(r.folded_through, 2);
+    assert.deepEqual(r.pending, []);
+  });
+
+  describe('confirmations', () => {
+    const confirm = (number, n, text, login, { sticky = false } = {}) => {
+      const marker = trd.buildScopeConfirm({ n, hash: trd.scopeHash(text) });
+      const bodyText = sticky ? `${body.commentMarker(TRD_ID, comments.scopeConfirmKind(n))}\n${marker}` : marker;
+      return fake.seedComment(number, bodyText, { login });
+    };
+
+    test('10. an assignee confirm applies a pending scope; editing the scope afterwards makes it pending again', () => {
+      seedObjectiveIssue(['alice']);
+      const seed = seedTrd();
+      const scope = scopeBy(seed.number, 1, 'Mallory proposes.', 'mallory');
+      assert.deepEqual(comments.readEffectiveSpec(project.root, TRD_ID).applied, [], 'pending before the confirm');
+
+      confirm(seed.number, 1, 'Mallory proposes.', 'alice', { sticky: true });
+      assert.deepEqual(comments.readEffectiveSpec(project.root, TRD_ID).applied, [1]);
+
+      fake.humanEditComment(scope, trd.buildScopeComment(1, 'Mallory proposes something else.'));
+      const after = comments.readEffectiveSpec(project.root, TRD_ID);
+      assert.deepEqual(after.applied, []);
+      assert.deepEqual(after.pending.map((p) => p.n), [1]);
+    });
+
+    test('10a. a confirm whose marker is the first line of a plain comment counts too', () => {
+      seedObjectiveIssue(['alice']);
+      const seed = seedTrd();
+      scopeBy(seed.number, 1, 'Mallory proposes.', 'mallory');
+      confirm(seed.number, 1, 'Mallory proposes.', 'alice');
+      assert.deepEqual(comments.readEffectiveSpec(project.root, TRD_ID).applied, [1]);
+    });
+
+    test('10b. a confirm by a non-assignee, for a stale hash, or posted BEFORE its scope does nothing; a valid one does', () => {
+      seedObjectiveIssue(['alice']);
+      const seed = seedTrd();
+      scopeBy(seed.number, 1, 'One.', 'mallory');
+      scopeBy(seed.number, 2, 'Two.', 'mallory');
+      confirm(seed.number, 1, 'One.', 'mallory'); // not an assignee
+      confirm(seed.number, 2, 'Some older text.', 'alice'); // the hash of other text
+      confirm(seed.number, 3, 'Three.', 'alice', { sticky: true }); // posted before scope 3 exists
+      scopeBy(seed.number, 3, 'Three.', 'mallory');
+      scopeBy(seed.number, 4, 'Four.', 'mallory');
+      confirm(seed.number, 4, 'Four.', 'alice'); // after its scope: the control
+      const r = comments.readEffectiveSpec(project.root, TRD_ID);
+      assert.deepEqual(r.applied, [4]);
+      assert.deepEqual(r.pending.map((p) => p.n), [1, 2, 3]);
+    });
+
+    test('10c. scopeConfirmKind spells n in letters: a digit is not a valid comment-kind character', () => {
+      assert.equal(comments.scopeConfirmKind(2), 'scope-confirm-two');
+      assert.equal(comments.scopeConfirmKind(10), 'scope-confirm-one-zero');
+      assert.equal(typeof body.commentMarker(TRD_ID, comments.scopeConfirmKind(305)), 'string');
+      assert.throws(() => comments.scopeConfirmKind(0), TypeError);
+    });
   });
 });
 
