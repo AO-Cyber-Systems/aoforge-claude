@@ -28,7 +28,7 @@ const ghMapping = require('./gh-mapping.cjs');
 const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
-const { STORE_FIXTURE, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+const { STORE_FIXTURE, hermeticEnv, makeStoreProject } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
 
 const F = STORE_FIXTURE;
@@ -831,5 +831,68 @@ describe('gh-cache source', () => {
     assert.doesNotMatch(src, /ghWrite/);
     assert.doesNotMatch(src, /--search/);
     assert.doesNotMatch(src, /\.push\(\)|writePage\(/, 'no wiki push or page write');
+  });
+});
+
+// ═══ TRD 48-07: entity issues, decisions and MILESTONES.md ═══════════════════
+//
+// materialize / render (pure):
+//   1. characterization: the 47 STORE_FIXTURE-shaped model and the 47 store project keep today's layout and owned list.
+//   2-7. todo / debug / quick / decision issues are placed by their header path, checked against planning-paths.
+//   8. renderMilestones: closed milestones, newest first; none closed -> null.
+// remote model / pull (fake GitHub):
+//   9-12. readRemoteModel lists entities, decision comments and milestones; pullAll writes them, safely.
+//   13. listOwnedLocal covers every cache-class path except wiki/**.
+
+const PRE_48_KEYS = ['files', 'sources', 'rejected', 'no_dir', 'orphan_trds', 'unmapped_pages'];
+
+describe('48-07 characterization (today\'s 47 values)', () => {
+  test('48-07 1: materialize(47 fixture model) keeps its files and sources', () => {
+    const r = cache.materialize(makeModel());
+    const pre = Object.fromEntries(PRE_48_KEYS.map((k) => [k, r[k]]));
+    assert.deepStrictEqual(Object.keys(pre.files).sort(), [
+      'PROJECT.md',
+      'REQUIREMENTS.md',
+      'codebase/CONVENTIONS.md',
+      'codebase/STACK.md',
+      `objectives/${DIR}/07-01-alpha-SUMMARY.md`,
+      `objectives/${DIR}/07-01-alpha-TRD.md`,
+      `objectives/${DIR}/07-02-beta-TRD.md`,
+      `objectives/${DIR}/07-03-gamma-TRD.md`,
+      `objectives/${DIR}/07-CONTEXT.md`,
+      `objectives/${DIR}/07-RESEARCH.md`,
+      `objectives/${DIR}/07-VERIFICATION.md`,
+      `objectives/${DIR}/OBJECTIVE.md`,
+    ]);
+    assert.deepStrictEqual(pre.sources, {
+      [`objectives/${DIR}/07-01-alpha-TRD.md`]: '7-01',
+      [`objectives/${DIR}/07-01-alpha-SUMMARY.md`]: '7-01#summary',
+      [`objectives/${DIR}/07-02-beta-TRD.md`]: '7-02',
+      [`objectives/${DIR}/07-03-gamma-TRD.md`]: '7-03',
+      [`objectives/${DIR}/07-VERIFICATION.md`]: '7#verification',
+    });
+    assert.deepStrictEqual(pre.rejected, []);
+    assert.deepStrictEqual(pre.no_dir, []);
+    assert.deepStrictEqual(pre.orphan_trds, []);
+    assert.deepStrictEqual(pre.unmapped_pages, ['Home']);
+  });
+
+  test('48-07 1: the owned local files of the 47 store project (seen as orphans of an empty write)', () => {
+    const S = makeStoreProject();
+    try {
+      assert.deepStrictEqual(cache.writeCache(S.root, {}).orphans, [
+        'PROJECT.md',
+        'REQUIREMENTS.md',
+        `objectives/${S.objectiveDir}/07-01-alpha-SUMMARY.md`,
+        `objectives/${S.objectiveDir}/07-01-alpha-TRD.md`,
+        `objectives/${S.objectiveDir}/07-02-beta-TRD.md`,
+        `objectives/${S.objectiveDir}/07-03-gamma-TRD.md`,
+        `objectives/${S.objectiveDir}/07-CONTEXT.md`,
+        `objectives/${S.objectiveDir}/07-RESEARCH.md`,
+        `objectives/${S.objectiveDir}/OBJECTIVE.md`,
+      ]);
+    } finally {
+      S.cleanup();
+    }
   });
 });
