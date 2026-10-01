@@ -559,3 +559,144 @@ describe('pushHierarchy: read-only token (14)', () => {
     assert.equal(S.fake.writes().length, writesBefore);
   });
 });
+
+// ─── Decisions and orphans (tests 12-13) ─────────────────────────────────────
+
+const QUESTION = 'REST or GraphQL?';
+
+describe('openDecision: native org (12)', () => {
+  useStore({ fake: { hasWiki: false }, project: { hasWiki: false } });
+
+  test('12. a Decision issue of type Decision blocks its TRD; ids count up, also across queued decisions', () => {
+    seedObjective();
+    assert.equal(push().flush.status, 'flushed');
+
+    const opened = hierarchy.openDecision(S.root, '07-03', { question: QUESTION, now: T0 });
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+    assert.equal(opened.id, '7-03-d1');
+    assert.equal(opened.enqueued.length, 2);
+
+    // a second decision queued before the first is flushed takes the next number
+    const second = hierarchy.openDecision(S.root, '7-03', { question: 'Which port?', now: T0 });
+    assert.equal(second.id, '7-03-d2');
+
+    assert.equal(flushLib.flush(S.root, { modes: NATIVE, caps: CAPS }).status, 'flushed');
+    const d1 = mappingNow().trds['7-03-d1'];
+    assert.equal(d1.role, 'decision');
+    const issue = issueByNumber(d1.issue_number);
+    assert.equal(issue.title, '[Decision 07-03-d1] REST or GraphQL?');
+    assert.equal(issue.type, 'Decision');
+    assert.ok(issue.labels.includes('devflow:decision'), issue.labels.join());
+    assert.equal(issue.body, `<!-- devflow:id=7-03-d1 -->\n\n${QUESTION}\n`);
+    assert.equal(issue.milestone, 'v9.9');
+
+    const blockers = getJson(`repos/o/r/issues/${trdNumber('7-03')}/dependencies/blocked_by`).map((i) => i.number);
+    assert.deepEqual(blockers.sort(), [trdNumber('7-01'), d1.issue_number, mappingNow().trds['7-03-d2'].issue_number].sort());
+  });
+
+  test('12b. bad input is refused before anything is queued', () => {
+    seedObjective();
+    assert.equal(push().flush.status, 'flushed');
+    const queued = journalOps().length;
+    for (const [trdId, question, re] of [
+      ['7', QUESTION, /invalid TRD id/],
+      ['07-01-d1', QUESTION, /invalid TRD id/],
+      ['07-03', '   ', /question/],
+      ['07-09', QUESTION, /07-09.*no issue|run.*gh sync/],
+    ]) {
+      const r = hierarchy.openDecision(S.root, trdId, { question });
+      assert.equal(r.ok, false, `${trdId}: ${JSON.stringify(r)}`);
+      assert.match(r.error, re);
+    }
+    assert.equal(journalOps().length, queued);
+  });
+
+  test('12c. a project with github disabled skips', () => {
+    fs.writeFileSync(path.join(S.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
+    const r = hierarchy.openDecision(S.root, '07-03', { question: QUESTION });
+    assert.equal(r.ok, true);
+    assert.equal(r.skipped, true);
+  });
+
+  test('13. reportOrphans lists unlinked TRD issues and linked TRDs with no local file, and writes nothing', () => {
+    const obj = seedObjective();
+    assert.equal(push().flush.status, 'flushed');
+    const ghost = S.fake.seedIssue({
+      title: '[TRD 07-09] ghost',
+      body: trd.encodeTrdBody({ id: '7-09', file: '07-09-ghost-TRD.md', text: '# ghost\n' }),
+      labels: ['devflow:trd'],
+    });
+    const stray = S.fake.seedIssue({
+      title: '[Objective 8] elsewhere',
+      body: trd.encodeTrdBody({ id: '8-01', file: '08-01-x-TRD.md', text: '# x\n' }),
+      labels: ['devflow:trd'],
+    });
+    fs.rmSync(path.join(objectiveDir(S.root), '07-02-beta-TRD.md'));
+
+    const writesBefore = S.fake.writes().length;
+    const mappingBefore = fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8');
+    const r = hierarchy.reportOrphans(S.root, '7');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.unlinked, [{ id: '7-09', number: ghost }]);
+    assert.deepEqual(r.missing_local, [{ id: '7-02', number: trdNumber('7-02') }]);
+    assert.equal(r.unlinked.some((u) => u.number === stray), false, 'a TRD of another objective is not this objective\'s orphan');
+    assert.equal(S.fake.writes().length, writesBefore);
+    assert.equal(fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8'), mappingBefore);
+    assert.equal(getJson(`repos/o/r/issues/${obj}/sub_issues`).length, 3, 'nothing is unlinked or deleted');
+  });
+
+  test('13b. a clean objective reports nothing; an unlinked TRD that still has a local file is listed too', () => {
+    seedObjective();
+    assert.equal(push().flush.status, 'flushed');
+    assert.deepEqual(
+      (({ unlinked, missing_local }) => ({ unlinked, missing_local }))(hierarchy.reportOrphans(S.root, '7')),
+      { unlinked: [], missing_local: [] },
+    );
+    fs.writeFileSync(path.join(objectiveDir(S.root), '07-05-new-TRD.md'), '---\nwave: 1\n---\n# new\n');
+    const n = S.fake.seedIssue({
+      title: '[TRD 07-05] new',
+      body: trd.encodeTrdBody({ id: '7-05', file: '07-05-new-TRD.md', text: '---\nwave: 1\n---\n# new\n' }),
+      labels: ['devflow:trd'],
+    });
+    assert.deepEqual(hierarchy.reportOrphans(S.root, '7').unlinked, [{ id: '7-05', number: n }]);
+  });
+});
+
+describe('openDecision: user-owned repo (12 degraded)', () => {
+  useStore({ fake: { ownerType: 'User', hasWiki: false }, project: { ownerType: 'User', hasWiki: false } });
+
+  test('12d. the Decision is labelled devflow:decision (and devflow:type/decision), with no native type', () => {
+    seedObjective();
+    assert.equal(push().flush.status, 'flushed');
+    assert.equal(hierarchy.openDecision(S.root, '07-03', { question: QUESTION }).ok, true);
+    const flushed = flushLib.flush(S.root, { modes: { ...NATIVE, types: 'labels', fields: 'meta' }, caps: CAPS });
+    assert.equal(flushed.status, 'flushed', JSON.stringify(flushed));
+    const issue = issueByNumber(mappingNow().trds['7-03-d1'].issue_number);
+    assert.equal(issue.type, null);
+    assert.ok(issue.labels.includes('devflow:decision'), issue.labels.join());
+    assert.ok(issue.labels.includes('devflow:type/decision'), issue.labels.join());
+    assert.ok(getJson(`repos/o/r/issues/${trdNumber('7-03')}/dependencies/blocked_by`).some((i) => i.number === issue.number));
+  });
+});
+
+describe('reportOrphans: task-list hierarchy (no sub-issues API)', () => {
+  useStore({ fake: { subIssuesApi: false, hasWiki: false }, project: { hasWiki: false } });
+
+  test('13c. linkage is read from the objective task list when the sub-issues endpoints answer 404', () => {
+    const obj = seedObjective();
+    const res = push();
+    assert.equal(res.flush.status, 'flushed', JSON.stringify(res.flush));
+    assert.equal(res.modes.hierarchy, 'tasklist');
+    assert.match(bodyLib.extractSection(issueByNumber(obj).body, 'trds'), /- \[ \] #\d+ 7-01/);
+
+    const ghost = S.fake.seedIssue({
+      title: '[TRD 07-09] ghost',
+      body: trd.encodeTrdBody({ id: '7-09', file: '07-09-ghost-TRD.md', text: '# ghost\n' }),
+      labels: ['devflow:trd'],
+    });
+    const r = hierarchy.reportOrphans(S.root, '7');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.unlinked, [{ id: '7-09', number: ghost }]);
+    assert.deepEqual(r.missing_local, []);
+  });
+});
