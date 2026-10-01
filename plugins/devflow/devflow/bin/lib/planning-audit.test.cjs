@@ -107,6 +107,21 @@ describe('planning-audit: write directives', () => {
     assert.equal(scanWrites('echo "{}" > .planning/config.json').findings.length, 0);
   });
 
+  test('5e: a df-tools commit message is narration, not a write directive', () => {
+    assert.equal(
+      scanWrites(
+        'node ~/.claude/devflow/bin/df-tools.cjs commit "docs: create roadmap ([N] objectives)" --files .planning/ROADMAP.md .planning/STATE.md',
+      ).findings.length,
+      0,
+    );
+    // ...but a write instruction on the same line as a commit still counts.
+    assert.equal(
+      scanWrites('Write ROADMAP.md, then `df-tools.cjs commit "docs: roadmap" --files .planning/ROADMAP.md`').findings
+        .length,
+      1,
+    );
+  });
+
   test('6: a finding inside a fenced bash block counts the same as prose', () => {
     const text = ['Intro', '```bash', 'cat > .planning/STATE.md <<EOF', 'x', 'EOF', '```'].join('\n');
     const r = scanWrites(text);
