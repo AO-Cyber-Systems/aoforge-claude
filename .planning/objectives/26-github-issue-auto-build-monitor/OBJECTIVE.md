@@ -1,5 +1,6 @@
 ---
 work: feature
+status: cancelled
 ---
 
 # GitHub issue auto-build monitor
@@ -9,6 +10,18 @@ work: feature
 Discover untracked GitHub issues in the current repo and drive qualifying ones through the
 full DevFlow pipeline (plan → execute → verify → PR) unattended, behind a trusted-author
 gate. File an issue → a PR appears, without opening a session.
+
+## Disposition
+
+**Killed 2026-10-01 by user decision (GMD-04).** The GitHub store (objective 47) and the
+objective branch and PR lifecycle (objective 49) already cover most of its value: the issue
+graph, the linked branch and the one PR per objective. An unattended issue-driven builder is
+not worth its trust and safety surface now (the unattended runner is a prompt-injection
+surface that the trusted-author gate only narrows). Not re-based. The locked design below is
+kept as the record of the constraints for any future restart.
+
+Recorded by TRD 51-01 (objective 51); status `cancelled`, which store mode files as a closed,
+not-planned issue.
 
 ## Locked decisions (settled with the user — do not re-litigate during planning)
 
