@@ -192,3 +192,143 @@ describe('0011 dry run (test 3)', () => {
     assert.equal(Object.hasOwn(JSON.parse(configText(env.root)).github, 'store'), false, 'the store stays off');
   });
 });
+
+// ─── 4-5. preflight ───────────────────────────────────────────────────────────
+
+/** apply(ctx) must throw a `preflight` refusal naming every pattern, with zero gh writes and config.json unchanged. */
+function assertPreflightRefusal(env, ctx, patterns) {
+  const before = configText(ctx.projectRoot);
+  let err = null;
+  assert.throws(() => m0011().apply(ctx), (e) => {
+    err = e;
+    return true;
+  });
+  assert.ok(err.refusal, `a typed refusal, got: ${err.stack}`);
+  assert.equal(err.refusal.code, 'preflight', err.message);
+  for (const p of patterns) {
+    assert.ok(err.refusal.details.some((d) => p.test(d)), `${p} in ${JSON.stringify(err.refusal.details)}`);
+    assert.match(err.message, p, 'the runner-facing message names it too');
+  }
+  assert.equal(configText(ctx.projectRoot), before, 'config.json unchanged: the store switch is never reached');
+  assert.equal(env.fake.writes().length, 0, 'zero gh writes');
+  return err.refusal;
+}
+
+function writeMergeHead(env) {
+  fs.writeFileSync(path.join(env.root, '.git', 'MERGE_HEAD'), `${'a'.repeat(40)}\n`);
+}
+
+function haltJournal(env, { blocked = false } = {}) {
+  if (blocked) {
+    const q = outbox.enqueue(env.root, [{ kind: 'patch-issue', target: { id: '1-01' }, payload: { state: 'closed', state_reason: 'completed' } }]);
+    assert.ok(q.ok && !q.skipped, JSON.stringify(q));
+  }
+  const { journal } = outbox.readJournal(env.root);
+  if (blocked) journal.ops[0].status = 'blocked';
+  else journal.halted = { reason: 'conflict', seq: 7 };
+  outbox.writeJournal(env.root, journal);
+}
+
+const LOCAL = {
+  noGit: /not a git work tree/,
+  merge: /merge in progress \(MERGE_HEAD\).*git merge --abort/,
+  halted: /outbox: halted \(conflict\).*gh outbox status/,
+  blocked: /outbox: 1 blocked op\(s\).*gh outbox resolve/,
+  legacy: /20-06-TRD-legacy-step\.md|02-03-TRD-legacy-step\.md/,
+  oversize: /over the 60,000-char TRD budget/,
+};
+
+describe('0011 local preflight (test 4)', () => {
+  test('4a: not a git work tree -> refused, zero gh calls', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0011-nogit-')));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(root, '.planning'));
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } }, null, 2)}\n`);
+    assertPreflightRefusal(env, ctxFor(env, { root }), [LOCAL.noGit]);
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('4b: a merge in progress (MERGE_HEAD) -> refused', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    writeMergeHead(env);
+    assertPreflightRefusal(env, ctxFor(env), [LOCAL.merge]);
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('4c: a halted journal -> refused', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    haltJournal(env);
+    assertPreflightRefusal(env, ctxFor(env), [LOCAL.halted]);
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('4d: a blocked op -> refused', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    haltJournal(env, { blocked: true });
+    assertPreflightRefusal(env, ctxFor(env), [LOCAL.blocked]);
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('4e: a legacy-named TRD -> refused with the rename', (t) => {
+    const env = useBackfillEnv(t, { ...SMALL, legacyTrd: true });
+    if (!env) return;
+    const r = assertPreflightRefusal(env, ctxFor(env), [/legacy TRD name has no GitHub home; rename it to 02-03-legacy-step-TRD\.md/]);
+    assert.equal(r.details.length, 1, JSON.stringify(r.details));
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('4f: a TRD over 60,000 chars -> refused with the split hint', (t) => {
+    const env = useBackfillEnv(t, { ...SMALL, oversizeTrd: true });
+    if (!env) return;
+    const r = assertPreflightRefusal(env, ctxFor(env), [LOCAL.oversize, /02-03-big-step-TRD\.md/, /split it or move bulk to a linked file/]);
+    assert.equal(r.details.length, 1, JSON.stringify(r.details));
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('4g: every blocker at once is listed in one refusal', (t) => {
+    const env = useBackfillEnv(t, { ...SMALL, legacyTrd: true, oversizeTrd: true });
+    if (!env) return;
+    writeMergeHead(env);
+    haltJournal(env, { blocked: true });
+    haltJournal(env);
+    const r = assertPreflightRefusal(env, ctxFor(env), [LOCAL.merge, LOCAL.halted, LOCAL.blocked, LOCAL.legacy, LOCAL.oversize]);
+    assert.equal(r.details.length, 5, JSON.stringify(r.details));
+    assert.equal(env.fake.calls().length, 0);
+    // preflightLocal itself returns the same list (no throw).
+    assert.equal(m0011().preflightLocal(ctxFor(env)).length, 5);
+  });
+});
+
+describe('0011 remote preflight (test 5)', () => {
+  const CASES = [
+    ['5a: the wiki is disabled -> refused with "enable it"', { fake: { hasWiki: false } }, null,
+      /wiki is disabled on o\/r.*enable it.*create its first page/],
+    ['5b: the wiki has no first page -> refused with the one-line fix', {}, (env) => {
+      process.env.DEVFLOW_WIKI_REMOTE = env.wiki.missingUrl;
+    }, /wiki has no first page.*create the first wiki page in the GitHub web UI/],
+    ['5c: a read-only token (push:false) -> refused', { fake: { push: false } }, null,
+      /no push permission on o\/r/],
+  ];
+  for (const [name, opts, arrange, pattern] of CASES) {
+    test(name, (t) => {
+      const env = useBackfillEnv(t, { ...SMALL, ...opts });
+      if (!env) return;
+      if (arrange) arrange(env);
+      assertPreflightRefusal(env, ctxFor(env), [pattern]);
+      assert.ok(env.fake.calls().length > 0, 'the remote preflight reads GitHub');
+      assert.deepEqual(outboxFiles(env), [], 'nothing queued');
+    });
+  }
+
+  test('5d: a healthy fake passes: preflightRemote returns no blocker and makes zero writes', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    assert.deepEqual(m0011().preflightRemote(ctxFor(env)), []);
+    assert.equal(env.fake.writes().length, 0);
+  });
+});
