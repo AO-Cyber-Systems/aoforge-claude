@@ -470,10 +470,28 @@ function mutate(projectRoot, opts, fn) {
 
 const isoAt = (ms) => new Date(ms).toISOString();
 
+const isSpecRevAppend = (o) => o.kind === 'upsert-comment' && isPlainObject(o.payload) && o.payload.mode === 'append-spec-rev';
+
+/**
+ * May `incoming` fold into the pending op `existing` (same kind and target)? Almost always yes (latest payload
+ * wins). The exception is an `append-spec-rev` op: it adds one row to an append-only log, so replacing a pending
+ * append with a different row would silently lose the earlier one. Two appends coalesce only when they are the
+ * same row (event and hash, the flusher's own idempotency key); an append never folds into a replace.
+ */
+function coalescible(existing, incoming) {
+  if (!isSpecRevAppend(existing) && !isSpecRevAppend(incoming)) return true;
+  if (!isSpecRevAppend(existing) || !isSpecRevAppend(incoming)) return false;
+  const a = existing.payload.entry;
+  const b = incoming.payload.entry;
+  return a.event === b.event && a.hash === b.hash;
+}
+
 /**
  * Queue logical ops. All-or-nothing: every op is validated before any is written. A pending op with the
  * same kind + target is replaced in place (latest payload wins, original seq and queued_at kept); a
- * blocked or done op is never replaced, a new op is appended instead.
+ * blocked or done op is never replaced, a new op is appended instead. The one exception (47-08): an
+ * `upsert-comment` in mode `append-spec-rev` adds a row to an append-only log, so it coalesces only with the
+ * same row (event + hash) and keeps the first entry; a different row is queued as its own op.
  *
  * When `github.enabled` is not true this writes nothing and returns `{ok:true, skipped:true, reason}`
  * (46's contract: disabled is not an error). Degraded mode is not disabled.
@@ -516,10 +534,14 @@ function enqueue(projectRoot, ops, opts = {}) {
   const coalesced = [];
   for (const n of normalized) {
     const tk = targetKey(n.target);
-    const existing = journal.ops.find((o) => o.status === 'pending' && o.kind === n.kind && targetKey(o.target) === tk);
+    const existing = journal.ops.find((o) => o.status === 'pending' && o.kind === n.kind && targetKey(o.target) === tk
+      && coalescible(o, n));
     if (existing) {
-      existing.payload = n.payload;
-      existing.key = opKey(n);
+      // An append is the same row already queued: keep the first entry (it holds the real time).
+      if (!isSpecRevAppend(n)) {
+        existing.payload = n.payload;
+        existing.key = opKey(n);
+      }
       if (n.base) existing.base = n.base;
       coalesced.push(existing.seq);
       continue;
