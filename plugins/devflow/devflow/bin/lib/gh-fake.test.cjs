@@ -230,6 +230,64 @@ describe('api milestones', () => {
     assert.deepEqual(list.flat().map((m) => m.title), ['v1.4', 'v1.5']);
     assert.deepEqual(list.flat().map((m) => m.number), [1, 2]);
   });
+
+  it('48-05 13. PATCH milestones/<n> edits title/description/state/due_on by NUMBER; GET returns one; unknown is 404', () => {
+    const fake = createFakeGitHub();
+    const n = fake.seedMilestone('v1.3', 'old');
+    fake.seedMilestone('v1.4', 'other');
+
+    const got = fake.runGh(['api', `repos/o/r/milestones/${n}`]);
+    assert.equal(got.ok, true);
+    assert.equal(json(got).title, 'v1.3');
+    assert.equal(json(got).description, 'old');
+    assert.equal(json(got).state, 'open');
+
+    // -f fields (the gh form) on a PATCH
+    const edited = fake.runGh(['api', '--method', 'PATCH', `repos/o/r/milestones/${n}`, '-f', 'description=new text', '-f', 'due_on=2026-12-31T00:00:00Z']);
+    assert.equal(edited.ok, true);
+    assert.equal(json(edited).description, 'new text');
+    assert.equal(json(edited).due_on, '2026-12-31T00:00:00Z');
+    assert.equal(json(edited).closed_at, null);
+
+    // --input body; closing stamps closed_at
+    const closed = fake.runGh(['api', '--method', 'PATCH', `repos/o/r/milestones/${n}`, '--input', '-'],
+      { input: JSON.stringify({ state: 'closed', title: 'v1.3.0' }) });
+    assert.equal(closed.ok, true);
+    assert.equal(json(closed).state, 'closed');
+    assert.equal(json(closed).title, 'v1.3.0');
+    assert.match(json(closed).closed_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    assert.equal(fake.milestones.find((m) => m.number === n).state, 'closed');
+    assert.equal(fake.milestones.find((m) => m.number === n).description, 'new text', 'fields not sent are kept');
+    // the other milestone is untouched
+    assert.equal(fake.milestones.find((m) => m.title === 'v1.4').description, 'other');
+
+    // reopening clears closed_at
+    const reopened = fake.runGh(['api', '-X', 'PATCH', `repos/o/r/milestones/${n}`, '-f', 'state=open']);
+    assert.equal(json(reopened).state, 'open');
+    assert.equal(json(reopened).closed_at, null);
+
+    // an invalid state is a 422, the milestone is unchanged
+    const bad = fake.runGh(['api', '-X', 'PATCH', `repos/o/r/milestones/${n}`, '-f', 'state=done']);
+    assert.equal(bad.ok, false);
+    assert.match(`${bad.stderr}\n${bad.stdout}`, /422/);
+    assert.equal(fake.milestones.find((m) => m.number === n).state, 'open');
+
+    // unknown number, other repo: 404
+    const missing = fake.runGh(['api', '--method', 'PATCH', 'repos/o/r/milestones/99', '-f', 'state=closed']);
+    assert.equal(missing.ok, false);
+    assert.match(missing.stderr, /404/);
+    assert.match(fake.runGh(['api', 'repos/o/r/milestones/99']).stderr, /404/);
+    assert.match(fake.runGh(['api', 'repos/x/y/milestones/1']).stderr, /404/);
+
+    // the writes are recorded (GET is not)
+    const writes = fake.writes().filter((a) => a.some((t) => /milestones\/\d+$/.test(t)));
+    assert.equal(writes.length, 5, 'four PATCHes plus the 404 PATCH are writes; the GETs are not');
+    for (const w of writes) assert.equal(isWriteArgs(w), true);
+
+    // the list reflects the edit
+    const list = json(fake.runGh(['api', '--paginate', '--slurp', 'repos/o/r/milestones?state=all'])).flat();
+    assert.equal(list.find((m) => m.number === n).description, 'new text');
+  });
 });
 
 // ─── Test 7: labels, auth, version ───────────────────────────────────────────
