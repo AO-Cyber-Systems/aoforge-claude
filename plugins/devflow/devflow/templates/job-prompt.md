@@ -155,7 +155,7 @@ Before declaring plan complete:
   </success_criteria>
 
 <output>
-After completion, create `.planning/objectives/XX-name/{objective}-{job}-SUMMARY.md`
+After completion, publish `.planning/objectives/XX-name/{objective}-{job}-SUMMARY.md` from a `planning draft` with `df-tools summary post {objective}-{job} --from <draft path>`
 </output>
 ```
 
@@ -421,7 +421,7 @@ src/features/user/
 </success_criteria>
 
 <output>
-After completion, create `.planning/objectives/03-features/03-01-SUMMARY.md`
+After completion, publish `.planning/objectives/03-features/03-01-SUMMARY.md` with `df-tools summary post 03-01 --from <draft path>`
 </output>
 ```
 
@@ -492,7 +492,7 @@ Output: Working dashboard component.
 </success_criteria>
 
 <output>
-After completion, create `.planning/objectives/03-features/03-03-SUMMARY.md`
+After completion, publish `.planning/objectives/03-features/03-03-SUMMARY.md` with `df-tools summary post 03-03 --from <draft path>`
 </output>
 ```
 

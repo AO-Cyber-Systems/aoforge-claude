@@ -179,14 +179,20 @@ cat .planning/objectives/XX-current/*-SUMMARY.md
    - If the product has meaningfully changed, update the description
    - Keep it current and accurate
 
-**Update PROJECT.md:**
+**Publish PROJECT.md through a draft.** Never edit it in place: in store mode `.planning/` is a read-only cache.
 
-Make the edits inline. Update "Last updated" footer:
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md
+```
+
+Make the edits in the printed draft path, including the "Last updated" footer:
 
 ```markdown
 ---
 *Last updated: [date] after Objective [X]*
 ```
+
+Then publish it: `node ~/.claude/devflow/bin/df-tools.cjs doc put PROJECT.md --from <draft path>`. Local mode puts the same `.planning/PROJECT.md` in place as before.
 
 **Example evolution:**
 
@@ -238,13 +244,13 @@ After (Objective 2 shipped JWT auth, discovered rate limiting needed):
 
 **Note:** Basic position updates (Current Objective, Status, Current Job, Last Activity) were already handled by `df-tools objective complete` in the update_roadmap_and_state step.
 
-Verify the updates are correct by reading STATE.md. If the progress bar needs updating, use:
+Verify the updates are correct by reading STATE.md. If the progress bar is stale, recalculate it from the summaries on disk:
 
 ```bash
-PROGRESS=$(node ~/.claude/devflow/bin/df-tools.cjs progress bar --raw)
+node ~/.claude/devflow/bin/df-tools.cjs state update-progress
 ```
 
-Update the progress bar line in STATE.md with the result.
+That command owns the progress bar line in STATE.md; do not change it by hand.
 
 **Step complete when:**
 
@@ -257,7 +263,7 @@ Update the progress bar line in STATE.md with the result.
 
 <step name="update_project_reference">
 
-Update Project Reference section in STATE.md.
+Refresh the Project Reference section in STATE.md one field at a time: `node ~/.claude/devflow/bin/df-tools.cjs state update "Current focus" "<next objective name>"` (and `"Core value"` when PROJECT.md changed it).
 
 ```markdown
 ## Project Reference
@@ -274,7 +280,7 @@ Update the date and current focus to reflect the transition.
 
 <step name="review_accumulated_context">
 
-Review and update Accumulated Context section in STATE.md.
+Review the Accumulated Context section in STATE.md and change it only through the state commands: `node ~/.claude/devflow/bin/df-tools.cjs state add-decision --objective <X> --summary "<decision>"`, `state add-blocker --text "<concern>"` and `state resolve-blocker --text "<blocker>"`.
 
 **Decisions:**
 
@@ -318,7 +324,7 @@ After (if database indexing was addressed in Objective 2):
 
 <step name="update_session_continuity_after_transition">
 
-Update Session Continuity section in STATE.md to reflect transition completion.
+Record session continuity in STATE.md with `node ~/.claude/devflow/bin/df-tools.cjs state record-session --stopped-at "Objective [X] complete, ready to plan Objective [X+1]"`.
 
 **Format:**
 
@@ -520,7 +526,7 @@ Respect user judgment — they know if work matters.
 
 **If marking complete with incomplete jobs:**
 
-- Update ROADMAP: "2/3 jobs complete" (not "3/3")
+- Keep the roadmap count honest: `node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress <X>` counts summaries on disk, so it shows "2/3 jobs complete" (not "3/3")
 - Note in transition message which plans were skipped
 
 </partial_completion>

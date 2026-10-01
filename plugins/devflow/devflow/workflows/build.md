@@ -53,7 +53,7 @@ No matching roadmap objective found for: "{description}"
 Entering quick-build mode — creating temporary objective...
 ```
 
-Create objective directory, generate 1-3 TRDs inline based on the description, execute them, and complete. Skip roadmap updates.
+Make the objective directory, plan 1-3 TRDs inline from the description, execute them, and complete. Leave the roadmap alone.
 
 **If `objective_found` is false but number given:**
 ```bash
@@ -191,7 +191,7 @@ Objective goal: ${goal from ROADMAP.md}
 Objective requirement IDs: ${OBJECTIVE_REQ_IDS}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from TRD/JOB frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
-Create VERIFICATION.md.",
+Draft VERIFICATION.md from `planning draft` and publish it with `node ~/.claude/devflow/bin/df-tools.cjs verification post ${OBJECTIVE_NUMBER} --from <draft path>`.",
   subagent_type="verifier",
   model="{verifier_model}"
 )

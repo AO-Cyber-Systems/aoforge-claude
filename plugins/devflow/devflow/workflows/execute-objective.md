@@ -328,7 +328,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
      prompt="
        <objective>
        Execute plan {plan_number} of objective {objective_number}-{objective_name}.
-       Commit each task atomically. Create SUMMARY.md. Update STATE.md and ROADMAP.md.
+       Commit each task atomically. Publish the SUMMARY with `df-tools summary checkpoint` (per task) and
+       `df-tools summary post` (once). Record state with the `df-tools state` and `roadmap update-job-progress` commands.
        </objective>
 
        <execution_context>
@@ -365,19 +366,22 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        <worktree_protocol>
        - You may be in a git worktree the orchestrator provisioned for you. Commit to your
          current branch as normal.
-       - Write SUMMARY.md at the path given in the TRD output section and COMMIT it —
-         the orchestrator reads it from your branch after merging.
-       - STATE.md/ROADMAP.md updates: include them in your commits; conflicts are resolved
-         at merge time by the orchestrator.
+       - Publish the SUMMARY only through `node ~/.claude/devflow/bin/df-tools.cjs summary checkpoint` (per task) and
+         `summary post` (once), from a `planning draft` path. The verbs resolve the MAIN checkout, so
+         from a worktree the SUMMARY lands there, not in your tree: leave it out of your commits. The
+         orchestrator reads it there and commits it after the merge.
+       - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job` (and the other
+         `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
+         your commits; conflicts are resolved at merge time by the orchestrator.
        </worktree_protocol>
 
        <success_criteria>
        - [ ] All tasks executed
        - [ ] Each task committed individually
-       - [ ] Committed after every task; SUMMARY.md ## Progress kept current (a cut-short run is resumed, not redone)
-       - [ ] SUMMARY.md created in plan directory and committed
-       - [ ] STATE.md updated with position and decisions
-       - [ ] ROADMAP.md updated with job progress (via `roadmap update-job-progress`)
+       - [ ] Committed after every task; SUMMARY ## Progress kept current via `df-tools summary checkpoint` (a cut-short run is resumed, not redone)
+       - [ ] SUMMARY published once via `df-tools summary post`
+       - [ ] STATE.md position and decisions recorded via the `df-tools state` commands
+       - [ ] Roadmap progress recorded via `df-tools roadmap update-job-progress`
        </success_criteria>
      "
    )
@@ -418,8 +422,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
 5b. **Merge the wave's worktree branches (parallel waves only):**
 
-   **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads each plan's own
-   checkout, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
+   **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads the main
+   checkout's `.planning/`, where the summary verbs publish, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
    executor is resumed inside its worktree, so merging that branch or removing that worktree
    would strand it. It is merged here, like any other plan, once a resume leaves it COMPLETE.
    A plan that falls through to item 7 keeps its worktree, so the fresh-respawn retry builds
@@ -454,6 +458,15 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    git worktree remove <worktree_path>
    ```
 
+   **Commit the wave's SUMMARYs (local mode).** The summary verbs resolve the main checkout, so each
+   parallel executor's SUMMARY is already in this tree, uncommitted, and not on its branch. After the
+   merges, commit them in one plain call:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs commit "docs({objective}): wave {N} summaries" --files <each merged plan's SUMMARY path>
+   ```
+   In store mode `.planning/` is a gitignored cache: the commit reports `skipped_gitignored` and there
+   is nothing more to do.
+
    **Why the base is stated rather than inferred (issue #86):** platform-managed isolation
    branched from the default branch, not the parent HEAD, so on a feature branch the prior
    waves' commits were simply missing from a fresh worktree — each wave silently re-did or
@@ -482,10 +495,11 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    - **COMMITS** = the line count of
      `git log --oneline --all --grep="({objective}-{trd})"`
      (`--all` sees an unmerged worktree branch too).
-   - **SUMMARY state**, read from the plan's own checkout (its worktree for a parallel wave, the
-     current tree for a sequential one). It is one of:
-     - `missing`: no `{objective}-{trd}-SUMMARY.md`;
-     - `checkpoint`: the file exists but has no `## Self-Check` heading. The executor contract
+   - **SUMMARY state**, read from the main checkout's `.planning/` (the current tree). The summary
+     verbs publish there for every plan, including a parallel wave's worktree executors. It is one of:
+     - `missing`: no `{objective}-{trd}-SUMMARY.md` and no `.planning/.trd-progress/{objective}-{trd}.md`;
+     - `checkpoint`: the SUMMARY exists but has no `## Self-Check` heading, or (store mode) only
+       `.planning/.trd-progress/{objective}-{trd}.md` exists. The executor contract
        says "A SUMMARY without `## Self-Check` means checkpoint, not complete";
      - `final`: it has `## Self-Check: PASSED` or `## Self-Check: FAILED`.
 
@@ -514,9 +528,10 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Remaining steps:
    1. {first unticked ## Progress item, or first TRD task with no commit}
    2. ...
-   N. Write the final SUMMARY.md with ## Self-Check and commit it.
+   N. Finish the SUMMARY draft with ## Self-Check and publish it once with `df-tools summary post`.
    ```
-   Build the numbered steps from the plan's SUMMARY `## Progress` section when there is one: its
+   Build the numbered steps from the plan's SUMMARY `## Progress` section (store mode: its
+   `.trd-progress/` file) when there is one: its
    unticked items in order, with the `next step:` line as step 1. Without one, list the TRD's
    tasks that have no commit yet. The last step is always the final SUMMARY with
    `## Self-Check`.
@@ -812,27 +827,34 @@ PARENT_INFO=$(node ~/.claude/devflow/bin/df-tools.cjs find-objective "${PARENT_O
 
 **If no parent UAT found:** Skip this step (gap-closure may have been triggered by VERIFICATION.md instead).
 
-**3. Update UAT gap statuses:**
+**3. Resolve the UAT gaps in a draft.** The UAT file is published through `doc put` and never edited in place:
 
-Read the parent UAT file's `## Gaps` section. For each gap entry with `status: failed`:
-- Update to `status: resolved`
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/<parent objective dir>/<parent UAT file name>
+```
 
-**4. Update UAT frontmatter:**
+In the printed draft path, read the `## Gaps` section. For each gap entry with `status: failed`:
+- Set it to `status: resolved`
+
+**4. UAT frontmatter (same draft):**
 
 If all gaps now have `status: resolved`:
-- Update frontmatter `status: diagnosed` → `status: resolved`
-- Update frontmatter `updated:` timestamp
+- Set frontmatter `status: diagnosed` → `status: resolved`
+- Refresh the frontmatter `updated:` timestamp
+
+Then publish the draft:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/<parent objective dir>/<parent UAT file name> --from <draft path>
+```
 
 **5. Resolve referenced debug sessions:**
 
 For each gap that has a `debug_session:` field:
 - Read the debug session file
-- Update frontmatter `status:` → `resolved`
-- Update frontmatter `updated:` timestamp
-- Move to resolved directory:
+- Resolve it with the debug verb. In local mode it marks the session resolved and moves it to `.planning/debug/resolved/`:
 ```bash
-mkdir -p .planning/debug/resolved
-mv .planning/debug/{slug}.md .planning/debug/resolved/
+node ~/.claude/devflow/bin/df-tools.cjs debug resolve {slug}
 ```
 
 **6. Commit updated artifacts:**
@@ -843,6 +865,12 @@ node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-${PARENT_OBJECTIV
 
 <step name="verify_objective_goal">
 Verify objective achieved its GOAL, not just completed tasks.
+
+Mark the objective as verifying before the verifier runs. The command is store-aware; in local mode it sets `status: verifying` in OBJECTIVE.md. A non-zero exit is reported, not fatal:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs objective set-status "${OBJECTIVE_NUMBER}" verifying
+```
 
 **Progress tracking (if available):**
 ```
@@ -865,7 +893,7 @@ Objective goal: {goal from ROADMAP.md}
 Objective requirement IDs: {objective_req_ids}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from TRD/JOB frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
-Create VERIFICATION.md.",
+Draft VERIFICATION.md from `planning draft` and publish it with `node ~/.claude/devflow/bin/df-tools.cjs verification post {objective_number} --from <draft path>`.",
   subagent_type="verifier",
   model="{verifier_model}"
 )
@@ -991,7 +1019,7 @@ Extract from result: `next_objective`, `next_objective_name`, `is_last_objective
 Before the final commit, reconcile any ROADMAP ↔ disk drift so the commit captures the corrected state in one atomic move. Non-blocking — failure produces a warning but does not abort completion.
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs sync-roadmap 2>/dev/null || {
+node ~/.claude/devflow/bin/df-tools.cjs sync-roadmap || {
   echo "Note: sync-roadmap reconcile skipped (CLI failed); continuing without ROADMAP drift correction."
 }
 ```
@@ -1014,6 +1042,8 @@ fi
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{X}): complete objective execution" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/objectives/{objective_dir}/*-VERIFICATION.md
 ```
+
+Add `.planning/objectives/{objective_dir}/OBJECTIVE.md` to `--files` when the objective has one, because `objective set-status` changed it.
 </step>
 
 <step name="offer_next">
