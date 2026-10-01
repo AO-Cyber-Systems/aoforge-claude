@@ -28,7 +28,7 @@ const ghMapping = require('./gh-mapping.cjs');
 const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
-const { STORE_FIXTURE, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+const { STORE_FIXTURE, hermeticEnv, makeStoreProject } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
 
 const F = STORE_FIXTURE;
@@ -343,6 +343,8 @@ const TREE = {
   [`objectives/${DIR}/07-03-gamma-TRD.md`]: F.trds['07-03-gamma-TRD.md'],
   [`objectives/${DIR}/07-01-alpha-SUMMARY.md`]: F.summary,
   [`objectives/${DIR}/07-VERIFICATION.md`]: VERIFICATION_TEXT,
+  // 48-07 addition: seedIssues' Decision issue (`7-01-d1`, no answer comment) now materialises as decisions/<id>.md.
+  'decisions/7-01-d1.md': 'Use REST.\n',
 };
 const ALL_FILES = [...Object.keys(TREE), 'ROADMAP.md', 'STATE.md'].sort();
 
@@ -623,7 +625,10 @@ describe('writeCache', () => {
 
     const r = cache.writeCache(root, { [`objectives/${DIR}/07-01-alpha-TRD.md`]: 'x\n' });
     assert.deepStrictEqual(r.orphans, [
-      'PROJECT.md', 'codebase/OLD.md', `objectives/${DIR}/07-04-extra-TRD.md`, 'objectives/99-gone/OBJECTIVE.md',
+      'PROJECT.md', 'codebase/OLD.md', `objectives/${DIR}/07-04-extra-TRD.md`,
+      // 48-07 addition: listOwnedLocal follows planning-paths, where an objective UAT doc is a cache file (doc put).
+      `objectives/${DIR}/07-UAT.md`,
+      'objectives/99-gone/OBJECTIVE.md',
     ]);
     for (const rel of r.orphans) assert.ok(fs.existsSync(abs(rel)), `${rel} was not deleted`);
   });
@@ -831,5 +836,431 @@ describe('gh-cache source', () => {
     assert.doesNotMatch(src, /ghWrite/);
     assert.doesNotMatch(src, /--search/);
     assert.doesNotMatch(src, /\.push\(\)|writePage\(/, 'no wiki push or page write');
+  });
+});
+
+// ═══ TRD 48-07: entity issues, decisions and MILESTONES.md ═══════════════════
+//
+// materialize / render (pure):
+//   1. characterization: the 47 STORE_FIXTURE-shaped model and the 47 store project keep today's layout and owned list.
+//   2-7. todo / debug / quick / decision issues are placed by their header path, checked against planning-paths.
+//   8. renderMilestones: closed milestones, newest first; none closed -> null.
+// remote model / pull (fake GitHub):
+//   9-12. readRemoteModel lists entities, decision comments and milestones; pullAll writes them, safely.
+//   13. listOwnedLocal covers every cache-class path except wiki/**.
+
+const PRE_48_KEYS = ['files', 'sources', 'rejected', 'no_dir', 'orphan_trds', 'unmapped_pages'];
+
+describe('48-07 characterization (today\'s 47 values)', () => {
+  test('48-07 1: materialize(47 fixture model) keeps its files and sources', () => {
+    const r = cache.materialize(makeModel());
+    const pre = Object.fromEntries(PRE_48_KEYS.map((k) => [k, r[k]]));
+    assert.deepStrictEqual(Object.keys(pre.files).sort(), [
+      'PROJECT.md',
+      'REQUIREMENTS.md',
+      'codebase/CONVENTIONS.md',
+      'codebase/STACK.md',
+      `objectives/${DIR}/07-01-alpha-SUMMARY.md`,
+      `objectives/${DIR}/07-01-alpha-TRD.md`,
+      `objectives/${DIR}/07-02-beta-TRD.md`,
+      `objectives/${DIR}/07-03-gamma-TRD.md`,
+      `objectives/${DIR}/07-CONTEXT.md`,
+      `objectives/${DIR}/07-RESEARCH.md`,
+      `objectives/${DIR}/07-VERIFICATION.md`,
+      `objectives/${DIR}/OBJECTIVE.md`,
+    ]);
+    assert.deepStrictEqual(pre.sources, {
+      [`objectives/${DIR}/07-01-alpha-TRD.md`]: '7-01',
+      [`objectives/${DIR}/07-01-alpha-SUMMARY.md`]: '7-01#summary',
+      [`objectives/${DIR}/07-02-beta-TRD.md`]: '7-02',
+      [`objectives/${DIR}/07-03-gamma-TRD.md`]: '7-03',
+      [`objectives/${DIR}/07-VERIFICATION.md`]: '7#verification',
+    });
+    assert.deepStrictEqual(pre.rejected, []);
+    assert.deepStrictEqual(pre.no_dir, []);
+    assert.deepStrictEqual(pre.orphan_trds, []);
+    assert.deepStrictEqual(pre.unmapped_pages, ['Home']);
+  });
+
+  test('48-07 1: the owned local files of the 47 store project (seen as orphans of an empty write)', () => {
+    const S = makeStoreProject();
+    try {
+      assert.deepStrictEqual(cache.writeCache(S.root, {}).orphans, [
+        'PROJECT.md',
+        'REQUIREMENTS.md',
+        `objectives/${S.objectiveDir}/07-01-alpha-SUMMARY.md`,
+        `objectives/${S.objectiveDir}/07-01-alpha-TRD.md`,
+        `objectives/${S.objectiveDir}/07-02-beta-TRD.md`,
+        `objectives/${S.objectiveDir}/07-03-gamma-TRD.md`,
+        `objectives/${S.objectiveDir}/07-CONTEXT.md`,
+        `objectives/${S.objectiveDir}/07-RESEARCH.md`,
+        `objectives/${S.objectiveDir}/OBJECTIVE.md`,
+      ]);
+    } finally {
+      S.cleanup();
+    }
+  });
+});
+
+// ─── 48-07 model builders (hand-built; no gh, no fs) ──────────────────────────
+
+/** An entity issue (todo / debug / quick) whose body is the 48-02 entity codec. */
+function entityIssue(number, id, file, text, { state = 'open', comments = [] } = {}) {
+  return {
+    id, number, rest_id: 2_000_000 + number, title: `[${id}]`, state,
+    body: ghTrd.encodeEntityBody({ id, file, text }), updated_at: '2026-07-31T00:00:00Z', comments,
+  };
+}
+
+/** A comment as the flusher posts it on an entity or decision issue: marker line, then the text. */
+const markedComment = (cid, id, kind, text) => ({ id: cid, body: `<!-- devflow:id=${id} kind=${kind} -->\n${text}`, updated_at: '2026-07-31T00:00:09Z' });
+
+function decisionIssue(number, id, question, { state = 'open', comments = [] } = {}) {
+  return {
+    id, number, rest_id: 3_000_000 + number, title: `[Decision ${id}] ${question}`, state,
+    body: `<!-- devflow:id=${id} -->\n\n${question}\n`, updated_at: '2026-07-31T00:00:00Z', comments,
+  };
+}
+
+const TODO_TEXT = '---\ncreated: 2026-07-31\ntitle: Harden health\n---\n\nHarden df-tools health.\n';
+const DEBUG_TEXT = '# Debug: flaky test\n\nstatus: investigating\n';
+const QUICK_JOB = '# Quick 12: fix x\n\n- [ ] fix x\n';
+const QUICK_SUMMARY = '# Quick 12 summary\n\nFixed x.\n';
+const entityModel = (extra) => makeModel({ objectives: [], trds: [], pages: {}, ...extra });
+
+describe('48-07 materialize: entity issues', () => {
+  test('48-07 2: an open todo lands byte-identically at its header path, keyed by its entity id', () => {
+    const r = cache.materialize(entityModel({ todos: [entityIssue(60, 'todo-2026-07-31-a', 'todos/pending/2026-07-31-a.md', TODO_TEXT)] }));
+    assert.deepStrictEqual(r.rejected, []);
+    assert.deepStrictEqual(Object.keys(r.files), ['todos/pending/2026-07-31-a.md']);
+    assert.strictEqual(r.files['todos/pending/2026-07-31-a.md'], TODO_TEXT);
+    assert.strictEqual(r.sources['todos/pending/2026-07-31-a.md'], 'todo-2026-07-31-a');
+    assert.deepStrictEqual(r.notes, []);
+  });
+
+  test('48-07 3: issue state places a todo: closed -> completed/ (noted); legacy done/ stays; open -> pending/', () => {
+    const r = cache.materialize(entityModel({ todos: [
+      entityIssue(60, 'todo-2026-07-31-a', 'todos/pending/2026-07-31-a.md', TODO_TEXT, { state: 'closed' }),
+      entityIssue(61, 'todo-2026-07-31-b', 'todos/done/2026-07-31-b.md', 'b\n', { state: 'closed' }),
+      entityIssue(62, 'todo-2026-07-31-c', 'todos/completed/2026-07-31-c.md', 'c\n', { state: 'open' }),
+      entityIssue(63, 'todo-2026-07-31-d', 'todos/done/2026-07-31-d.md', 'd\n', { state: 'open' }),
+    ] }));
+    assert.deepStrictEqual(r.rejected, []);
+    assert.deepStrictEqual(Object.keys(r.files).sort(), [
+      'todos/completed/2026-07-31-a.md',
+      'todos/done/2026-07-31-b.md',
+      'todos/pending/2026-07-31-c.md',
+      'todos/pending/2026-07-31-d.md',
+    ]);
+    assert.strictEqual(r.files['todos/completed/2026-07-31-a.md'], TODO_TEXT);
+    assert.strictEqual(r.sources['todos/completed/2026-07-31-a.md'], 'todo-2026-07-31-a');
+    assert.strictEqual(r.notes.length, 3, r.notes.join('\n'));
+    assert.ok(r.notes.some((n) => n.includes('todos/pending/2026-07-31-a.md') && n.includes('todos/completed/2026-07-31-a.md')), r.notes.join('\n'));
+    assert.ok(!r.notes.some((n) => n.includes('2026-07-31-b')), 'a closed todo already under done/ is not moved');
+  });
+
+  test('48-07 4: debug sessions follow the issue state between debug/ and debug/resolved/', () => {
+    const r = cache.materialize(entityModel({ debugs: [
+      entityIssue(70, 'debug-flaky-a', 'debug/resolved/flaky-a.md', DEBUG_TEXT, { state: 'open' }),
+      entityIssue(71, 'debug-flaky-b', 'debug/flaky-b.md', DEBUG_TEXT, { state: 'closed' }),
+      entityIssue(72, 'debug-flaky-c', 'debug/flaky-c.md', DEBUG_TEXT, { state: 'open' }),
+    ] }));
+    assert.deepStrictEqual(r.rejected, []);
+    assert.deepStrictEqual(Object.keys(r.files).sort(), ['debug/flaky-a.md', 'debug/flaky-c.md', 'debug/resolved/flaky-b.md']);
+    assert.strictEqual(r.sources['debug/resolved/flaky-b.md'], 'debug-flaky-b');
+    assert.strictEqual(r.notes.length, 2, r.notes.join('\n'));
+  });
+
+  test('48-07 5: a quick task brings its JOB and its summary comment into one quick dir, and never moves', () => {
+    const summary = markedComment(9001, 'quick-12', 'summary', `${ghTrd.fileLine('12-SUMMARY.md')}\n${QUICK_SUMMARY}`);
+    const r = cache.materialize(entityModel({ quicks: [
+      entityIssue(80, 'quick-12', 'quick/12-fix-x/12-JOB.md', QUICK_JOB, { state: 'closed', comments: [markedComment(9000, 'quick-12', 'note', 'x'), summary] }),
+    ] }));
+    assert.deepStrictEqual(r.rejected, []);
+    assert.deepStrictEqual(r.files, { 'quick/12-fix-x/12-JOB.md': QUICK_JOB, 'quick/12-fix-x/12-SUMMARY.md': QUICK_SUMMARY });
+    assert.strictEqual(r.sources['quick/12-fix-x/12-JOB.md'], 'quick-12');
+    assert.strictEqual(r.sources['quick/12-fix-x/12-SUMMARY.md'], 'quick-12#summary');
+    assert.deepStrictEqual(r.notes, [], 'quick placement never moves');
+  });
+
+  test('48-07 5: a quick summary comment named for another quick task is rejected, the JOB still lands', () => {
+    const summary = markedComment(9001, 'quick-12', 'summary', `${ghTrd.fileLine('13-SUMMARY.md')}\nintruder\n`);
+    const r = cache.materialize(entityModel({ quicks: [entityIssue(80, 'quick-12', 'quick/12-fix-x/12-JOB.md', QUICK_JOB, { comments: [summary] })] }));
+    assert.deepStrictEqual(Object.keys(r.files), ['quick/12-fix-x/12-JOB.md']);
+    assert.strictEqual(r.rejected.length, 1);
+    assert.strictEqual(r.rejected[0].kind, 'quick-summary');
+    assert.match(r.rejected[0].reason, /13-SUMMARY\.md/);
+  });
+
+  test('48-07 6: an entity whose header path is not that entity\'s file is rejected with a reason, never written', () => {
+    const r = cache.materialize(entityModel({
+      todos: [
+        entityIssue(90, 'todo-07-01-a-trd', 'objectives/07-x/07-01-a-TRD.md', 'stolen\n'),
+        entityIssue(91, 'todo-x', 'debug/x.md', 'wrong role\n'),
+        entityIssue(92, 'todo-a', 'todos/pending/b.md', 'wrong id\n'),
+        entityIssue(93, 'debug-y', 'debug/y.md', 'a debug body on a todo issue\n'),
+      ],
+      quicks: [entityIssue(94, 'quick-3', 'quick/4-other/4-JOB.md', 'wrong quick\n'), entityIssue(95, 'quick-5', 'quick/5-x/5-SUMMARY.md', 'not the JOB\n')],
+    }));
+    assert.deepStrictEqual(r.files, {});
+    assert.deepStrictEqual(r.rejected.map((x) => [x.kind, x.number]), [['todo', 90], ['todo', 91], ['todo', 92], ['todo', 93], ['quick', 94], ['quick', 95]]);
+    for (const x of r.rejected) assert.match(x.reason, /./);
+    assert.match(r.rejected[0].reason, /objectives\/07-x\/07-01-a-TRD\.md/);
+  });
+
+  test('48-07 6: an undecodable entity body is rejected, never written', () => {
+    const issue = { ...entityIssue(96, 'todo-z', 'todos/pending/z.md', 'z\n'), body: 'a human wrote this issue\n' };
+    const r = cache.materialize(entityModel({ todos: [issue] }));
+    assert.deepStrictEqual(r.files, {});
+    assert.deepStrictEqual(r.rejected.map((x) => [x.kind, x.number]), [['todo', 96]]);
+  });
+});
+
+describe('48-07 materialize: decisions', () => {
+  test('48-07 7: a decision becomes decisions/<id>.md: the question, then ## Answer from the answer comment', () => {
+    const r = cache.materialize(entityModel({ decisions: [
+      decisionIssue(100, '7-01-d1', 'Use REST or GraphQL?', { state: 'closed', comments: [markedComment(9100, '7-01-d1', 'answer', 'Use REST.\n')] }),
+      decisionIssue(101, '7-01-d2', 'Which cache?'),
+      decisionIssue(102, '7-01-d3', 'Which queue?', { comments: [markedComment(9101, '7-01-d3', 'answer', `${ghTrd.fileLine('7-01-d3.md')}\nThe outbox.`)] }),
+    ] }));
+    assert.deepStrictEqual(r.rejected, []);
+    assert.deepStrictEqual(r.files, {
+      'decisions/7-01-d1.md': 'Use REST or GraphQL?\n\n## Answer\n\nUse REST.\n',
+      'decisions/7-01-d2.md': 'Which cache?\n',
+      'decisions/7-01-d3.md': 'Which queue?\n\n## Answer\n\nThe outbox.\n',
+    });
+    assert.strictEqual(r.sources['decisions/7-01-d1.md'], '7-01-d1');
+  });
+
+  test('48-07 7: a decision issue without a decision id marker is rejected', () => {
+    const r = cache.materialize(entityModel({ decisions: [{ ...decisionIssue(103, '7-01-d4', 'q?'), body: 'a hand-labelled issue\n' }] }));
+    assert.deepStrictEqual(r.files, {});
+    assert.deepStrictEqual(r.rejected.map((x) => [x.kind, x.number]), [['decision', 103]]);
+  });
+});
+
+describe('48-07 renderMilestones', () => {
+  const MS = [
+    { number: 1, title: 'v1.0', state: 'closed', description: 'First release.', due_on: null, closed_at: '2026-01-02T03:04:05Z' },
+    { number: 3, title: 'v1.2', state: 'open', description: 'Not yet.', due_on: null, closed_at: null },
+    { number: 2, title: 'v1.1', state: 'closed', description: 'Second.\r\n\r\nFull notes: https://github.com/o/r/wiki/Milestone-v1_1', due_on: null, closed_at: '2026-03-01T00:00:00Z' },
+  ];
+
+  test('48-07 8: generated header, closed milestones newest first with shipped date and description, open omitted', () => {
+    assert.strictEqual(cache.renderMilestones(MS), [
+      cache.GENERATED_HEADER,
+      '# Milestones',
+      '',
+      '## v1.1 (Shipped: 2026-03-01)',
+      '',
+      'Second.',
+      '',
+      'Full notes: https://github.com/o/r/wiki/Milestone-v1_1',
+      '',
+      '## v1.0 (Shipped: 2026-01-02)',
+      '',
+      'First release.',
+      '',
+    ].join('\n'));
+  });
+
+  test('48-07 8: nothing closed renders null; a closed milestone without a description is a heading alone', () => {
+    assert.strictEqual(cache.renderMilestones([MS[1]]), null);
+    assert.strictEqual(cache.renderMilestones([]), null);
+    assert.strictEqual(cache.renderMilestones(undefined), null);
+    assert.strictEqual(
+      cache.renderMilestones([{ number: 4, title: 'v2.0', state: 'closed', description: '', closed_at: '2026-05-05T00:00:00Z' }]),
+      `${cache.GENERATED_HEADER}\n# Milestones\n\n## v2.0 (Shipped: 2026-05-05)\n`,
+    );
+  });
+
+  test('48-07 8: MILESTONES.md is a generated file (the hand-maintained rule keys off the header)', () => {
+    assert.ok(cache.GENERATED_FILES.includes('MILESTONES.md'));
+    assert.ok(cache.GENERATED_FILES.includes('ROADMAP.md') && cache.GENERATED_FILES.includes('STATE.md'));
+  });
+});
+
+// ─── 48-07 remote model and pull (fake GitHub, docs mode: no git needed) ──────
+
+const TODO_N = 6;
+const DEBUG_N = 7;
+const QUICK_N = 8;
+const DECISION_N = 9;
+
+/** One todo, one (closed) debug session, one quick task with its summary, one answered decision, one closed milestone. */
+function seedEntities(f, { todoLabel = 'devflow:todo' } = {}) {
+  f.seedIssue({ title: 'todo a', labels: [todoLabel], body: ghTrd.encodeEntityBody({ id: 'todo-2026-07-31-a', file: 'todos/pending/2026-07-31-a.md', text: TODO_TEXT }) });
+  f.seedIssue({ title: 'debug a', labels: ['devflow:debug'], state: 'CLOSED', body: ghTrd.encodeEntityBody({ id: 'debug-flaky-a', file: 'debug/flaky-a.md', text: DEBUG_TEXT }) });
+  f.seedIssue({ title: 'quick 12', labels: ['devflow:quick'], state: 'CLOSED', body: ghTrd.encodeEntityBody({ id: 'quick-12', file: 'quick/12-fix-x/12-JOB.md', text: QUICK_JOB }) });
+  f.seedComment(QUICK_N, `<!-- devflow:id=quick-12 kind=summary -->\n${ghTrd.fileLine('12-SUMMARY.md')}\n${QUICK_SUMMARY}`);
+  f.seedIssue({ title: 'Decision 7-01-d2', labels: ['devflow:decision'], state: 'CLOSED', body: '<!-- devflow:id=7-01-d2 -->\n\nWhich cache?\n' });
+  f.seedComment(DECISION_N, '<!-- devflow:id=7-01-d2 kind=answer -->\nThe outbox.\n');
+  const n = f.seedMilestone('v1.0', 'First release.');
+  Object.assign(f.milestones.find((m) => m.number === n), { state: 'closed', closed_at: '2026-01-02T03:04:05Z' });
+}
+
+/** The files 48-07 adds to a pull of startGithub + seedEntities. */
+const ENTITY_TREE = {
+  'todos/pending/2026-07-31-a.md': TODO_TEXT,
+  'debug/resolved/flaky-a.md': DEBUG_TEXT,
+  'quick/12-fix-x/12-JOB.md': QUICK_JOB,
+  'quick/12-fix-x/12-SUMMARY.md': QUICK_SUMMARY,
+  'decisions/7-01-d2.md': 'Which cache?\n\n## Answer\n\nThe outbox.\n',
+};
+const MILESTONES_TEXT = `${cache.GENERATED_HEADER}\n# Milestones\n\n## v1.0 (Shipped: 2026-01-02)\n\nFirst release.\n`;
+
+describe('48-07 readRemoteModel: entities, decision comments, milestones', () => {
+  test('48-07 9: lists todo / debug / quick issues, quick and decision comments, and every milestone', () => {
+    startGithub({ wiki: 'docs' });
+    seedEntities(fake);
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.deepStrictEqual(model.todos.map((t) => [t.id, t.role, t.number, t.state]), [['todo-2026-07-31-a', 'todo', TODO_N, 'open']]);
+    assert.deepStrictEqual(model.debugs.map((t) => [t.id, t.role, t.number, t.state]), [['debug-flaky-a', 'debug', DEBUG_N, 'closed']]);
+    assert.deepStrictEqual(model.quicks.map((t) => [t.id, t.role, t.number, t.state]), [['quick-12', 'quick', QUICK_N, 'closed']]);
+    assert.strictEqual(model.quicks[0].comments.length, 1);
+    assert.strictEqual(model.quicks[0].rest_id, 1_000_000 + QUICK_N);
+    assert.deepStrictEqual(model.decisions.map((d) => [d.id, d.number, d.comments.length]), [['7-01-d1', 5, 0], ['7-01-d2', DECISION_N, 1]]);
+    assert.deepStrictEqual(model.milestones.map((m) => [m.title, m.state]).sort(), [['v1.0', 'closed'], ['v9.9 Store Demo', 'open']]);
+    assert.strictEqual(model.milestones_report.skipped, false);
+    assert.deepStrictEqual(model.problems.undecodable_entities, []);
+
+    const calls = fake.calls().map((a) => a.join(' '));
+    for (const label of ['devflow:todo', 'devflow:debug', 'devflow:quick']) {
+      assert.ok(calls.some((c) => c.includes(`labels=${encodeURIComponent(label)}`) && c.includes('--paginate')), `${label} list paginates`);
+    }
+    assert.ok(calls.some((c) => c.includes('milestones?state=all')), 'milestones are listed');
+    for (const n of [QUICK_N, DECISION_N]) assert.ok(calls.some((c) => c.includes(`issues/${n}/comments`) && c.includes('--paginate')), `comments of #${n}`);
+    assert.ok(!calls.some((c) => c.includes(`issues/${TODO_N}/comments`)), 'todo comments are not read');
+    assert.deepStrictEqual(fake.writes(), [], 'reads only');
+
+    const m = cache.materialize(model);
+    assert.deepStrictEqual(m.rejected, []);
+    for (const [rel, text] of Object.entries(ENTITY_TREE)) assert.strictEqual(m.files[rel], text, rel);
+  });
+
+  test('48-07 9: entity labels follow config github.labels overrides', () => {
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', labels: { todo: 'team:todo' } } })}\n`);
+    startGithub({ wiki: 'docs' });
+    seedEntities(fake, { todoLabel: 'team:todo' });
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.deepStrictEqual(model.todos.map((t) => t.id), ['todo-2026-07-31-a']);
+    assert.ok(fake.calls().some((a) => a.join(' ').includes(`labels=${encodeURIComponent('team:todo')}`)));
+  });
+
+  test('48-07 9: an entity-labelled issue that is not a DevFlow entity body is reported, not modelled', () => {
+    startGithub({ wiki: 'docs' });
+    const n = fake.seedIssue({ title: 'hand made', labels: ['devflow:todo'], body: 'just a human issue\n' });
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.deepStrictEqual(model.todos, []);
+    assert.deepStrictEqual(model.problems.undecodable_entities, [n]);
+    const r = cache.pullAll(root);
+    assert.ok(r.attention.some((a) => a.includes(`#${n}`) && /entit|todo|debug|quick/i.test(a)), r.attention.join('\n'));
+  });
+
+  test('48-07 9: a milestone list that fails is reported in milestones_report; the pull still writes the rest', () => {
+    startGithub({ wiki: 'docs' });
+    seedEntities(fake);
+    fake.failNext(/milestones\?state=all/, { stderr: 'HTTP 500: server error' });
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.deepStrictEqual(model.milestones, []);
+    assert.strictEqual(model.milestones_report.skipped, true);
+    assert.match(model.milestones_report.message, /500|milestone/i);
+
+    fake.failNext(/milestones\?state=all/, { stderr: 'HTTP 500: server error' });
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.ok(!r.written.includes('MILESTONES.md'));
+    assert.ok(r.written.includes('todos/pending/2026-07-31-a.md'));
+    assert.ok(r.attention.some((a) => /milestone/i.test(a)), r.attention.join('\n'));
+  });
+});
+
+describe('48-07 pullAll: entities and MILESTONES.md', () => {
+  test('48-07 10: an empty .planning/ gets every entity, decision and MILESTONES.md; a second pull writes nothing', () => {
+    startGithub({ wiki: 'docs' });
+    seedEntities(fake);
+    const r1 = cache.pullAll(root);
+    assert.strictEqual(r1.ok, true, r1.error);
+    assert.deepStrictEqual(r1.written.sort(), [...ALL_FILES, ...Object.keys(ENTITY_TREE), 'MILESTONES.md'].sort());
+    for (const [rel, text] of Object.entries({ ...TREE, ...ENTITY_TREE })) assert.strictEqual(rd(rel), text, rel);
+    assert.strictEqual(rd('MILESTONES.md'), MILESTONES_TEXT);
+    assert.deepStrictEqual(r1.attention, []);
+    assert.ok(r1.notes.some((n) => n.includes('debug/resolved/flaky-a.md')), r1.notes.join('\n'));
+
+    const all = Object.keys(outbox.readCacheIndex(root));
+    age(all);
+    const r2 = cache.pullAll(root);
+    assert.deepStrictEqual(r2.written, []);
+    for (const rel of all) assert.strictEqual(mtime(rel), AGED.getTime(), `${rel} was not rewritten`);
+  });
+
+  test('48-07 10: no closed milestone means no MILESTONES.md', () => {
+    startGithub({ wiki: 'docs' });
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.ok(!r.written.includes('MILESTONES.md'));
+    assert.ok(!fs.existsSync(abs('MILESTONES.md')));
+  });
+
+  test('48-07 11: a hand-maintained MILESTONES.md is hand_maintained and untouched, even with --force', () => {
+    startGithub({ wiki: 'docs' });
+    seedEntities(fake);
+    fs.writeFileSync(abs('MILESTONES.md'), '# Milestones\n\nkept by hand\n');
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.deepStrictEqual(r.hand_maintained, ['MILESTONES.md']);
+    assert.ok(r.attention.some((a) => /MILESTONES\.md.*hand/.test(a)), r.attention.join('\n'));
+    cache.pullAll(root, { force: true });
+    assert.strictEqual(rd('MILESTONES.md'), '# Milestones\n\nkept by hand\n');
+  });
+
+  test('48-07 12: a todo edited locally since the last sync is local_modified; --force takes GitHub', () => {
+    startGithub({ wiki: 'docs' });
+    seedEntities(fake);
+    cache.pullAll(root);
+    const rel = 'todos/pending/2026-07-31-a.md';
+    fs.writeFileSync(abs(rel), `${TODO_TEXT}my local note\n`);
+    const r = cache.pullAll(root);
+    assert.deepStrictEqual(r.local_modified, [rel]);
+    assert.strictEqual(rd(rel), `${TODO_TEXT}my local note\n`);
+    const forced = cache.pullAll(root, { force: true });
+    assert.deepStrictEqual(forced.written, [rel]);
+    assert.strictEqual(rd(rel), TODO_TEXT);
+  });
+
+  test('48-07 12: a local todo GitHub does not have is an orphan, kept on disk', () => {
+    startGithub({ wiki: 'docs' });
+    seedEntities(fake);
+    cache.pullAll(root);
+    fs.writeFileSync(abs('todos/pending/2026-08-01-local.md'), 'never pushed\n');
+    const r = cache.pullAll(root);
+    assert.deepStrictEqual(r.orphans, ['todos/pending/2026-08-01-local.md']);
+    assert.ok(fs.existsSync(abs('todos/pending/2026-08-01-local.md')));
+  });
+});
+
+describe('48-07 listOwnedLocal', () => {
+  test('48-07 13: every cache-class file except wiki/**, a superset of the 47 owned list', () => {
+    const S = makeStoreProject();
+    try {
+      const before = cache.writeCache(S.root, {}).orphans;
+      const added = [
+        'research/a.md', 'milestones/v1.3.md', 'todos/pending/a.md', 'quick/1-x/1-JOB.md', 'objectives/07-x/07-UAT.md',
+      ];
+      for (const rel of [...added, 'quick/1-x/DECISION-001.md', 'wiki/Home.md', 'state.json', 'objectives/07-x/notes.txt']) {
+        const file = path.join(S.root, '.planning', rel);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, 'x\n');
+      }
+      const owned = cache.listOwnedLocal(S.root);
+      assert.deepStrictEqual(owned, [...before, ...added].sort());
+      for (const rel of before) assert.ok(owned.includes(rel), `47 owned ${rel} is still owned`);
+    } finally {
+      S.cleanup();
+    }
   });
 });
