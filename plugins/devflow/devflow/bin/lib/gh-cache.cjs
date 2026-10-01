@@ -504,7 +504,13 @@ function materialize(model) {
 
 // ─── Remote model (reads only) ────────────────────────────────────────────────
 
-const DEFAULT_LABELS = { objective: 'devflow:objective', trd: 'devflow:trd', decision: 'devflow:decision' };
+/** Labels listed for the model; `config.github.labels.<role>` overrides each (entity labels from 48-02 ENTITY_ROLES). */
+const DEFAULT_LABELS = Object.freeze({
+  objective: 'devflow:objective',
+  trd: 'devflow:trd',
+  decision: 'devflow:decision',
+  ...Object.fromEntries(ENTITY_LISTS.map(([role]) => [role, outbox.ENTITY_ROLES[role].label])),
+});
 
 const failureText = (r) => r.error || r.stderr || r.stdout || 'gh api failed';
 const stateOf = (issue) => (isClosed(issue) ? 'closed' : 'open');
@@ -595,12 +601,18 @@ function readPages(root, probeIssue, opts) {
  *
  * `opts.pagesMode` ('wiki' | 'docs') skips the capability probe for a caller that already knows.
  *
- * -> { ok:true, repo, pages, pages_report, objectives, trds, decisions, problems }
+ * -> { ok:true, repo, pages, pages_report, objectives, trds, todos, debugs, quicks, decisions, milestones,
+ *       milestones_report, problems }
  *  | { ok:false, error }                       a read failed (nothing partial is returned)
  *  | { ok:false, skipped:true, reason, error } github is not enabled (no gh call was made)
  *
  * `problems`: duplicate_objectives {id:[numbers]} (an id two issues claim is left OUT, never guessed),
- * unmarked_objectives [numbers], undecodable_trds [numbers] (labelled devflow:trd but not a DevFlow body).
+ * unmarked_objectives [numbers], undecodable_trds [numbers] (labelled devflow:trd but not a DevFlow body),
+ * undecodable_entities [numbers] (labelled todo / debug / quick but not a DevFlow entity body).
+ *
+ * Comments are read for objectives, TRDs, quick tasks (their summary) and decisions (their answer); todo and debug
+ * issues carry their whole file in the body. Native milestones come from gh-milestone-store.listMilestones (a read);
+ * a list that fails is REPORTED in `milestones_report` ({skipped, message?, offline?}) and never fails the model.
  */
 function readRemoteModel(root, opts = {}) {
   const gate = client.requireEnabled(root);
@@ -614,8 +626,14 @@ function readRemoteModel(root, opts = {}) {
   if (!trdList.ok) return trdList;
   const decisionList = listLabelled(repo, labels.decision);
   if (!decisionList.ok) return decisionList;
+  const entityLists = {};
+  for (const [role] of ENTITY_LISTS) {
+    const listed = listLabelled(repo, labels[role]);
+    if (!listed.ok) return listed;
+    entityLists[role] = listed.items;
+  }
 
-  const problems = { duplicate_objectives: {}, unmarked_objectives: [], undecodable_trds: [] };
+  const problems = { duplicate_objectives: {}, unmarked_objectives: [], undecodable_trds: [], undecodable_entities: [] };
 
   const index = ghBody.indexByMarker(objectiveList.items.map((i) => ({ number: i.number, body: str(i.body) })));
   problems.duplicate_objectives = index.duplicates;
@@ -649,11 +667,60 @@ function readRemoteModel(root, opts = {}) {
     trds.push({ id: decoded.id, ...issueFields(issue), comments: comments.items });
   }
 
-  const decisions = decisionList.items.map(issueFields);
+  const entities = {};
+  for (const [role] of ENTITY_LISTS) {
+    entities[role] = [];
+    for (const issue of entityLists[role]) {
+      const decoded = ghTrd.decodeEntityBody(str(issue.body));
+      if (!decoded.ok) {
+        if (!problems.undecodable_entities.includes(issue.number)) problems.undecodable_entities.push(issue.number);
+        continue;
+      }
+      let comments = [];
+      if (role === 'quick') {
+        const read = readComments(repo, issue.number);
+        if (!read.ok) return read;
+        comments = read.items;
+      }
+      entities[role].push({ id: decoded.id, role, ...issueFields(issue), comments });
+    }
+  }
+  problems.undecodable_entities.sort((a, b) => a - b);
+
+  const decisions = [];
+  for (const issue of decisionList.items) {
+    const fields = issueFields(issue);
+    const dec = decisionOf(fields);
+    let comments = [];
+    if (dec !== null) {
+      const read = readComments(repo, issue.number);
+      if (!read.ok) return read;
+      comments = read.items;
+    }
+    decisions.push({ id: dec === null ? null : dec.id, ...fields, comments });
+  }
+
+  const listed = milestoneStore.listMilestones(root);
+  const milestones = listed.ok ? listed.milestones : [];
+  const milestonesReport = listed.ok
+    ? { skipped: false }
+    : { skipped: true, message: `the milestones could not be listed: ${listed.error || listed.reason || 'unknown error'}`, offline: listed.offline === true };
 
   const pageRead = readPages(root, objectives.length > 0 ? objectives[0].number : undefined, opts);
   return {
-    ok: true, repo, pages: pageRead.pages, pages_report: pageRead.report, objectives, trds, decisions, problems,
+    ok: true,
+    repo,
+    pages: pageRead.pages,
+    pages_report: pageRead.report,
+    objectives,
+    trds,
+    todos: entities.todo,
+    debugs: entities.debug,
+    quicks: entities.quick,
+    decisions,
+    milestones,
+    milestones_report: milestonesReport,
+    problems,
   };
 }
 
@@ -679,49 +746,15 @@ function readLocal(file) {
   }
 }
 
-const OWNED_OBJECTIVE_FILE_RE = /^(?:OBJECTIVE|(?:.+-)?(?:CONTEXT|RESEARCH|TRD|SUMMARY|VERIFICATION))\.md$/;
-
-function markdownIn(dir) {
-  try {
-    return fs.readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isFile() && !e.name.startsWith('.') && e.name.endsWith('.md'))
-      .map((e) => e.name);
-  } catch {
-    return [];
-  }
-}
-
-function subdirsOf(dir) {
-  try {
-    return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name);
-  } catch {
-    return [];
-  }
-}
-
 /**
- * The local files the store owns: documents the page table knows, plus the OBJECTIVE / CONTEXT / RESEARCH /
- * TRD / SUMMARY / VERIFICATION files of each objective directory. Other files (config, UAT notes, the wiki
- * clone, hand-kept ROADMAP/STATE) are not the store's and are never called orphans.
+ * listOwnedLocal(root) — the local files the store owns: every `cache`-class path under `.planning/` per
+ * planning-paths.classify (documents, objective files incl. UAT/EVIDENCE docs, todos, debug, quick, decisions,
+ * research, milestones), except the wiki clone (`wiki/**`, read through the page store, never a cache file).
+ * Config, runtime files and the generated views (ROADMAP / STATE / MILESTONES) are not the store's and are never
+ * called orphans. Sorted. (48-07: replaces the 47 list, which it contains.)
  */
 function listOwnedLocal(root) {
-  const planning = path.join(root, '.planning');
-  const owned = [];
-  for (const rel of ['PROJECT.md', 'REQUIREMENTS.md']) {
-    if (fs.existsSync(path.join(planning, rel))) owned.push(rel);
-  }
-  for (const sub of ['codebase', 'adr', 'retros']) {
-    for (const name of markdownIn(path.join(planning, sub))) {
-      const rel = `${sub}/${name}`;
-      if (ghWiki.pageForCachePath(rel) !== null) owned.push(rel);
-    }
-  }
-  for (const dir of subdirsOf(path.join(planning, 'objectives'))) {
-    for (const name of markdownIn(path.join(planning, 'objectives', dir))) {
-      if (OWNED_OBJECTIVE_FILE_RE.test(name)) owned.push(`objectives/${dir}/${name}`);
-    }
-  }
-  return owned.sort();
+  return planningPaths.listByClass(path.join(root, '.planning')).cache.filter((rel) => !rel.startsWith('wiki/'));
 }
 
 /**
@@ -900,10 +933,12 @@ const listOf = (items, mapper) => items.map(mapper).join(', ');
 
 /**
  * pullAll(root, {force}) — `gh pull --all`: gate, read the remote model, materialise it (plus the generated
- * ROADMAP.md and STATE.md), write the changes, then refresh the outbox bases. Reads GitHub only.
+ * ROADMAP.md and STATE.md, and MILESTONES.md when a milestone is closed), write the changes, then refresh the
+ * outbox bases. Reads GitHub only.
  *
  * -> { ok:true, written, skipped, local_modified, hand_maintained, orphans, rejected, no_dir, orphan_trds,
- *      unmapped_pages, duplicates, pages, bases, notes, attention:[string], errors }
+ *      unmapped_pages, duplicates, pages, milestones, bases, notes, attention:[string], errors }
+ * MILESTONES.md is written only when a native milestone is closed (renderMilestones is non-null).
  *  | { ok:false, error } | { ok:false, skipped:true, reason, error }
  * `attention` is non-empty when a human should look (exit 2 in the command): locally modified or hand-kept
  * files left alone, orphans, rejected or unplaceable items, or pages that could not be read.
@@ -914,6 +949,10 @@ function pullAll(root, opts = {}) {
 
   const mat = materialize(model);
   const files = { ...mat.files, 'ROADMAP.md': renderRoadmap(model), 'STATE.md': renderState(model) };
+  const milestonesText = renderMilestones(model.milestones);
+  if (milestonesText !== null) files['MILESTONES.md'] = milestonesText;
+  const milestonesReport = model.milestones_report || { skipped: false };
+  const undecodableEntities = Array.isArray(model.problems.undecodable_entities) ? model.problems.undecodable_entities : [];
 
   let written;
   try {
@@ -949,10 +988,15 @@ function pullAll(root, opts = {}) {
   if (model.problems.undecodable_trds.length > 0) {
     attention.push(`issue(s) labelled as TRDs but not DevFlow bodies were skipped: ${model.problems.undecodable_trds.map((n) => `#${n}`).join(', ')}`);
   }
+  if (undecodableEntities.length > 0) {
+    attention.push(`issue(s) labelled as todo, debug or quick entities but not DevFlow entity bodies were skipped: ${undecodableEntities.map((n) => `#${n}`).join(', ')}`);
+  }
+  if (milestonesReport.skipped) attention.push(`MILESTONES.md not refreshed: ${milestonesReport.message}`);
 
   const notes = [];
   if (model.pages_report.ahead > 0) notes.push(`the wiki clone is ${model.pages_report.ahead} commit(s) ahead of GitHub; pages were read from the local clone (a pending wiki push will publish them)`);
   if (model.pages_report.dirty) notes.push('the wiki clone has uncommitted page changes; it was not reset and pages were read as they are');
+  notes.push(...(Array.isArray(mat.notes) ? mat.notes : []));
 
   return {
     ok: true,
@@ -967,6 +1011,7 @@ function pullAll(root, opts = {}) {
     unmapped_pages: mat.unmapped_pages,
     duplicates,
     pages: model.pages_report,
+    milestones: milestonesReport,
     bases,
     notes,
     attention,
@@ -988,4 +1033,5 @@ module.exports = {
   recordCacheBaseline,
   refreshBases,
   pullAll,
+  listOwnedLocal,
 };

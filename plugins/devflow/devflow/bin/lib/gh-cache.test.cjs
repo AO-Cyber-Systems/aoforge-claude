@@ -625,7 +625,10 @@ describe('writeCache', () => {
 
     const r = cache.writeCache(root, { [`objectives/${DIR}/07-01-alpha-TRD.md`]: 'x\n' });
     assert.deepStrictEqual(r.orphans, [
-      'PROJECT.md', 'codebase/OLD.md', `objectives/${DIR}/07-04-extra-TRD.md`, 'objectives/99-gone/OBJECTIVE.md',
+      'PROJECT.md', 'codebase/OLD.md', `objectives/${DIR}/07-04-extra-TRD.md`,
+      // 48-07 addition: listOwnedLocal follows planning-paths, where an objective UAT doc is a cache file (doc put).
+      `objectives/${DIR}/07-UAT.md`,
+      'objectives/99-gone/OBJECTIVE.md',
     ]);
     for (const rel of r.orphans) assert.ok(fs.existsSync(abs(rel)), `${rel} was not deleted`);
   });
