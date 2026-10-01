@@ -56,7 +56,10 @@ and does not read git state itself.
 4. **Commit a legacy-runtime-state fix.** If the `--fix` report has a `fixes` entry for
    `legacy-runtime-state` with `applied: true`, its `notes` contain a line
    `commit with: node ~/.claude/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`. Run that
-   exact command with the Bash tool. Never use raw `git commit`. When the notes say
+   exact command with the Bash tool. Never use raw `git commit`. In store mode (`github.store: true`)
+   the notes hold a multi-line sequence instead, because `df-tools commit` refuses the default branch
+   there: run its `git switch -c` line and its `DEVFLOW_SKIP_GH_GATE=1 ... commit` line, then show
+   the push and pull-request steps to the user. When the notes say
    `nothing to commit (working files only)`, there is nothing to commit. When the entry has
    `refused`, report the reason and the manual command; do not work around the guard.
 

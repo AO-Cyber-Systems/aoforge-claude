@@ -340,7 +340,7 @@ const COMMANDS = {
       '  planning mode     prints `local` or `store` (--raw: {mode, reason, root}); writes nothing.',
       '  planning draft    prints a draft path under the OS temp dir, seeded from the current file; edit it, then pass',
       '                    it to the owning verb with --from. Writes nothing under .planning/.',
-      '  planning import   store mode only: queue existing local planning files to GitHub (--dry-run: count only).',
+      '  planning import   store mode: queue existing local planning files to GitHub. --dry-run writes nothing and prints the plan, the request estimate and the history closes; with the store off and github.enabled true it previews the backfill.',
     ],
   },
   'project-hygiene': {
