@@ -13,7 +13,8 @@
 // the FINAL posted string, orders scope comments strictly by `n`, computes the
 // effective spec, decides a fold, and maintains the append-only `devflow:spec-rev`
 // log. It also owns the numbered-parts splitter used for oversized SUMMARY and
-// VERIFICATION comments.
+// VERIFICATION comments, and (48-02) the separate entity codec for todo, debug and
+// quick issues (`encodeEntityBody` / `decodeEntityBody`).
 //
 // Pure: no fs, no child_process, no gh calls — only `crypto`. It deliberately does
 // NOT require gh-body or gh-mapping: the id canonicalisation below is duplicated on
@@ -102,6 +103,55 @@ function parseFileLine(line) {
   return isSafeFileName(m[1]) ? m[1] : null;
 }
 
+// ─── Entity header lines (48-02) ─────────────────────────────────────────────
+//
+// Todos, debug sessions and quick tasks are issues too (objective 48, D-03). Their
+// ids are NOT numeric, so they get their own id-line regex: ID_LINE_RE stays
+// numeric-only, which keeps decodeTrdBody (and so gh-cache's TRD materialise) from
+// ever reading an entity body as a TRD.
+//
+//   todo-<stem>    debug-<stem>    quick-<N>
+//
+// `<stem>` is the lowercased file stem (todo files are dated, e.g.
+// `todo-2026-07-31-harden-df-tools-health`). This layer only validates ids; the
+// verb layer builds them.
+const ENTITY_ID_SOURCE = '(?:(?:todo|debug)-[a-z0-9][a-z0-9._-]{0,99}|quick-\\d+)';
+const ENTITY_ID_RE = new RegExp('^' + ENTITY_ID_SOURCE + '$');
+const ENTITY_ID_LINE_RE = new RegExp('^<!--\\s*devflow:id=(' + ENTITY_ID_SOURCE + ')\\s*-->$');
+
+function requireEntityId(id) {
+  if (typeof id !== 'string' || !ENTITY_ID_RE.test(id)) {
+    throw new TypeError(`invalid devflow entity id: ${JSON.stringify(id)}`);
+  }
+  return id;
+}
+
+/**
+ * isSafeEntityPath(path) — true for a path RELATIVE TO `.planning/` made of safe
+ * file-name segments joined by `/` (e.g. `todos/pending/x.md`,
+ * `quick/12-fix-x/12-JOB.md`). No leading or trailing `/`, no empty segment, no
+ * dot-prefixed segment, no `..`, no backslash: an entity body's file line can steer
+ * a pull to a location under `.planning/`, never outside it and never onto a
+ * runtime dotfile.
+ */
+function isSafeEntityPath(p) {
+  return typeof p === 'string' && p !== '' && p.split('/').every(isSafeFileName);
+}
+
+function entityFileLine(p) {
+  if (!isSafeEntityPath(p)) {
+    throw new TypeError(`invalid devflow entity file path: ${JSON.stringify(p)}`);
+  }
+  return `<!-- devflow:file=${p} -->`;
+}
+
+function parseEntityFileLine(line) {
+  if (typeof line !== 'string') return null;
+  const m = FILE_LINE_RE.exec(line.trim());
+  if (!m) return null;
+  return isSafeEntityPath(m[1]) ? m[1] : null;
+}
+
 // ─── Body codec ──────────────────────────────────────────────────────────────
 
 /**
@@ -118,31 +168,79 @@ function encodeTrdBody({ id, file, text } = {}) {
 const NOT_A_TRD_BODY = 'not a devflow TRD body';
 
 /**
- * decodeTrdBody(body) — reverse of encodeTrdBody. Verifies BOTH header lines and
- * their order; anything else (a human-created issue, a comment) is
- * `{ok:false, error}`. Never throws. On success the remainder after exactly
- * `idLine\n fileLine\n` is returned verbatim as `text`.
+ * decodeHeader(body, idLineRe, parseFile) — the strict two-line parse shared by
+ * decodeTrdBody and decodeEntityBody: `{rawId, file, text}`, or null when either
+ * header line is missing, malformed or out of order. `text` is the remainder after
+ * exactly `idLine\n fileLine\n`, verbatim.
  */
-function decodeTrdBody(body) {
-  if (typeof body !== 'string') return { ok: false, error: NOT_A_TRD_BODY };
+function decodeHeader(body, idLineRe, parseFile) {
+  if (typeof body !== 'string') return null;
   const s = normalise(body);
 
   const nl1 = s.indexOf('\n');
-  if (nl1 === -1) return { ok: false, error: NOT_A_TRD_BODY };
-  const m1 = ID_LINE_RE.exec(s.slice(0, nl1).trim());
-  if (!m1) return { ok: false, error: NOT_A_TRD_BODY };
+  if (nl1 === -1) return null;
+  const m1 = idLineRe.exec(s.slice(0, nl1).trim());
+  if (!m1) return null;
 
   const rest = s.slice(nl1 + 1);
   const nl2 = rest.indexOf('\n');
   // The second header line may be the last thing in the body when the file text
   // is empty and a trailing newline was stripped in transit.
   const line2 = nl2 === -1 ? rest : rest.slice(0, nl2);
-  const file = parseFileLine(line2);
-  if (file === null) return { ok: false, error: NOT_A_TRD_BODY };
+  const file = parseFile(line2);
+  if (file === null) return null;
 
-  const id = canonicalId(m1[1]);
+  return { rawId: m1[1], file, text: nl2 === -1 ? '' : rest.slice(nl2 + 1) };
+}
+
+/**
+ * decodeTrdBody(body) — reverse of encodeTrdBody. Verifies BOTH header lines and
+ * their order; anything else (a human-created issue, a comment, an entity body) is
+ * `{ok:false, error}`. Never throws. On success the remainder after exactly
+ * `idLine\n fileLine\n` is returned verbatim as `text`.
+ */
+function decodeTrdBody(body) {
+  const h = decodeHeader(body, ID_LINE_RE, parseFileLine);
+  if (h === null) return { ok: false, error: NOT_A_TRD_BODY };
+  const id = canonicalId(h.rawId);
   if (id === null) return { ok: false, error: NOT_A_TRD_BODY };
-  return { ok: true, id, file, text: nl2 === -1 ? '' : rest.slice(nl2 + 1) };
+  return { ok: true, id, file: h.file, text: h.text };
+}
+
+// ─── Entity body codec (48-02) ───────────────────────────────────────────────
+//
+//   <!-- devflow:id=todo-2026-07-31-a -->
+//   <!-- devflow:file=todos/pending/2026-07-31-a.md -->
+//   <the entity file text, exactly>
+//
+// The file line carries the path relative to `.planning/` so a pull rebuilds the
+// exact location. A separate codec from the TRD one: neither decoder accepts the
+// other's body.
+
+/**
+ * encodeEntityBody({id, file, text}) — the issue body for a todo, debug session or
+ * quick task. Throws TypeError for an id outside the entity grammar, an unsafe
+ * `.planning/`-relative path, or a non-string text.
+ */
+function encodeEntityBody({ id, file, text } = {}) {
+  if (typeof text !== 'string') {
+    throw new TypeError(`entity text must be a string, got ${text === null ? 'null' : typeof text}`);
+  }
+  const head = `<!-- devflow:id=${requireEntityId(id)} -->`;
+  return head + '\n' + entityFileLine(file) + '\n' + normalise(text);
+}
+
+const NOT_AN_ENTITY_BODY = 'not a devflow entity body';
+
+/**
+ * decodeEntityBody(body) — reverse of encodeEntityBody: `{ok:true, id, file, text}`
+ * or `{ok:false, error}` (a TRD body, a human-written body, a non-string). Never
+ * throws.
+ */
+function decodeEntityBody(body) {
+  const h = decodeHeader(body, ENTITY_ID_LINE_RE, parseEntityFileLine);
+  if (h === null) return { ok: false, error: NOT_AN_ENTITY_BODY };
+  return { ok: true, id: h.rawId, file: h.file, text: h.text };
 }
 
 // ─── Budget ──────────────────────────────────────────────────────────────────
@@ -737,6 +835,11 @@ module.exports = {
   parseFileLine,
   encodeTrdBody,
   decodeTrdBody,
+  ENTITY_ID_RE,
+  ENTITY_ID_LINE_RE,
+  isSafeEntityPath,
+  encodeEntityBody,
+  decodeEntityBody,
   budget,
   checkObjectiveBudgets,
   scopeMarker,

@@ -1092,3 +1092,166 @@ describe('joinParts', () => {
     assert.throws(() => ghTrd.joinParts([1]), TypeError);
   });
 });
+
+// ─── Entity codec (48-02, tests 2-4) ─────────────────────────────────────────
+//
+// Todos, debug sessions and quick tasks are issues whose body is the entity codec:
+// an entity id line, a file line carrying the path RELATIVE TO `.planning/`, then
+// the file verbatim. It is a separate codec from the TRD one, so neither decoder
+// accepts the other's body.
+
+describe('entity codec (48-02)', () => {
+  const TODO = {
+    id: 'todo-2026-07-31-a',
+    file: 'todos/pending/2026-07-31-a.md',
+    text: '---\ncreated: 2026-07-31\ntitle: a\n---\n\nbody\n',
+  };
+  const DEBUG = { id: 'debug-login-loop', file: 'debug/login-loop.md', text: '# Debug: login loop\n\n## Symptoms\n' };
+  const QUICK = { id: 'quick-12', file: 'quick/12-fix-x/12-JOB.md', text: 'no trailing newline' };
+
+  test('2. encodeEntityBody is the id line, the file line, then the text', () => {
+    assert.strictEqual(
+      ghTrd.encodeEntityBody(TODO),
+      '<!-- devflow:id=todo-2026-07-31-a -->\n' +
+        '<!-- devflow:file=todos/pending/2026-07-31-a.md -->\n' +
+        '---\ncreated: 2026-07-31\ntitle: a\n---\n\nbody\n'
+    );
+  });
+
+  test('2. todo, debug and quick bodies round-trip byte-exactly', () => {
+    for (const entity of [TODO, DEBUG, QUICK]) {
+      const body = ghTrd.encodeEntityBody(entity);
+      assert.deepStrictEqual(ghTrd.decodeEntityBody(body), {
+        ok: true,
+        id: entity.id,
+        file: entity.file,
+        text: entity.text,
+      });
+    }
+  });
+
+  test('2. a hand-written entity body decodes', () => {
+    const body = '<!-- devflow:id=debug-x -->\n<!-- devflow:file=debug/resolved/x.md -->\n# x\n';
+    assert.deepStrictEqual(ghTrd.decodeEntityBody(body), {
+      ok: true,
+      id: 'debug-x',
+      file: 'debug/resolved/x.md',
+      text: '# x\n',
+    });
+  });
+
+  test('2. CRLF is normalised on encode and on decode', () => {
+    const encoded = ghTrd.encodeEntityBody({ id: 'todo-a', file: 'todos/pending/a.md', text: 'a\r\nb\r\n' });
+    assert.strictEqual(encoded, '<!-- devflow:id=todo-a -->\n<!-- devflow:file=todos/pending/a.md -->\na\nb\n');
+
+    const crlfBody = '<!-- devflow:id=todo-a -->\r\n<!-- devflow:file=todos/pending/a.md -->\r\na\r\nb\r\n';
+    assert.deepStrictEqual(ghTrd.decodeEntityBody(crlfBody), {
+      ok: true,
+      id: 'todo-a',
+      file: 'todos/pending/a.md',
+      text: 'a\nb\n',
+    });
+  });
+
+  test('2. empty text round-trips, also when the trailing newline was stripped', () => {
+    const body = ghTrd.encodeEntityBody({ id: 'quick-3', file: 'quick/3-x/3-JOB.md', text: '' });
+    assert.strictEqual(body, '<!-- devflow:id=quick-3 -->\n<!-- devflow:file=quick/3-x/3-JOB.md -->\n');
+    const expected = { ok: true, id: 'quick-3', file: 'quick/3-x/3-JOB.md', text: '' };
+    assert.deepStrictEqual(ghTrd.decodeEntityBody(body), expected);
+    assert.deepStrictEqual(ghTrd.decodeEntityBody(body.slice(0, -1)), expected);
+  });
+
+  test('3. decodeTrdBody refuses an entity body', () => {
+    for (const entity of [TODO, DEBUG, QUICK]) {
+      const dec = ghTrd.decodeTrdBody(ghTrd.encodeEntityBody(entity));
+      assert.strictEqual(dec.ok, false, entity.id);
+      assert.strictEqual(typeof dec.error, 'string');
+    }
+  });
+
+  test('3. decodeEntityBody refuses a TRD body', () => {
+    const trdBody = ghTrd.encodeTrdBody(makeTrd());
+    const dec = ghTrd.decodeEntityBody(trdBody);
+    assert.strictEqual(dec.ok, false);
+    assert.strictEqual(typeof dec.error, 'string');
+    // A hand-written TRD body too, so the refusal does not depend on encodeTrdBody.
+    assert.strictEqual(ghTrd.decodeEntityBody(header('47-01', '47-01-x-TRD.md') + 'x\n').ok, false);
+  });
+
+  test('3. a human-written body or a non-string is {ok:false, error}', () => {
+    for (const body of ['# Bug\n\nthe login loops\n', '', 'one line', null, undefined, 42]) {
+      const dec = ghTrd.decodeEntityBody(body);
+      assert.strictEqual(dec.ok, false, JSON.stringify(body));
+      assert.strictEqual(typeof dec.error, 'string');
+    }
+  });
+
+  test('3. headers out of order or a bad entity id line are refused', () => {
+    const swapped = '<!-- devflow:file=todos/pending/a.md -->\n<!-- devflow:id=todo-a -->\nx\n';
+    assert.strictEqual(ghTrd.decodeEntityBody(swapped).ok, false);
+    const badId = '<!-- devflow:id=todo- -->\n<!-- devflow:file=todos/pending/a.md -->\nx\n';
+    assert.strictEqual(ghTrd.decodeEntityBody(badId).ok, false);
+    const noFile = '<!-- devflow:id=todo-a -->\nx\n';
+    assert.strictEqual(ghTrd.decodeEntityBody(noFile).ok, false);
+  });
+
+  test('3. an entity body whose file path would escape .planning/ is refused', () => {
+    for (const file of ['../x.md', '/etc/passwd', 'todos/../x.md', 'todos//x.md', 'todos/', '.skill-active', 'todos/.x', 'a\\b.md']) {
+      const body = `<!-- devflow:id=todo-a -->\n<!-- devflow:file=${file} -->\nx\n`;
+      assert.strictEqual(ghTrd.decodeEntityBody(body).ok, false, file);
+    }
+  });
+
+  test('4. encodeEntityBody throws TypeError for an id outside the grammar', () => {
+    const bad = ['todo-', 'quick-x', '47-01', 'debug-', 'quick-', 'Todo-a', 'todo-A', 'todo-.a', 'note-a', 'todo-a b', '', null, undefined, 47];
+    for (const id of bad) {
+      assert.throws(
+        () => ghTrd.encodeEntityBody({ id, file: 'todos/pending/a.md', text: 'x' }),
+        TypeError,
+        JSON.stringify(id)
+      );
+    }
+  });
+
+  test('4. the stem is 1 to 100 chars', () => {
+    const ok = 'todo-' + 'a'.repeat(100);
+    assert.ok(ghTrd.encodeEntityBody({ id: ok, file: 'todos/pending/a.md', text: '' }).startsWith(`<!-- devflow:id=${ok} -->`));
+    assert.throws(
+      () => ghTrd.encodeEntityBody({ id: 'todo-' + 'a'.repeat(101), file: 'todos/pending/a.md', text: '' }),
+      TypeError
+    );
+  });
+
+  test('encodeEntityBody throws TypeError for an unsafe file or a non-string text', () => {
+    for (const file of ['../x.md', '/abs.md', 'todos//x.md', '', '.hidden', null, undefined]) {
+      assert.throws(() => ghTrd.encodeEntityBody({ id: 'todo-a', file, text: '' }), TypeError, JSON.stringify(file));
+    }
+    for (const text of [null, undefined, 1]) {
+      assert.throws(() => ghTrd.encodeEntityBody({ id: 'todo-a', file: 'todos/pending/a.md', text }), TypeError);
+    }
+  });
+
+  test('ENTITY_ID_RE accepts exactly todo-<stem>, debug-<stem> and quick-<N>', () => {
+    assert.ok(ghTrd.ENTITY_ID_RE instanceof RegExp);
+    for (const id of ['todo-a', 'todo-2026-07-31-harden-df-tools-health', 'debug-x.y_z', 'quick-12', 'quick-0']) {
+      assert.ok(ghTrd.ENTITY_ID_RE.test(id), id);
+    }
+    for (const id of ['todo-', 'quick-x', '47-01', 'quick-1a', 'trd-a', 'todo-a\n']) {
+      assert.ok(!ghTrd.ENTITY_ID_RE.test(id), id);
+    }
+  });
+
+  test('ENTITY_ID_LINE_RE matches an entity id line and never a TRD id line', () => {
+    assert.ok(ghTrd.ENTITY_ID_LINE_RE.test('<!-- devflow:id=quick-12 -->'));
+    assert.ok(!ghTrd.ENTITY_ID_LINE_RE.test('<!-- devflow:id=47-01 -->'));
+  });
+
+  test('isSafeEntityPath accepts .planning-relative paths of safe segments only', () => {
+    for (const p of ['todos/pending/a.md', 'todos/completed/a.md', 'debug/resolved/x.md', 'quick/12-fix-x/12-JOB.md', 'debug/x.md']) {
+      assert.strictEqual(ghTrd.isSafeEntityPath(p), true, p);
+    }
+    for (const p of ['../x.md', '/x.md', 'x/../y.md', 'x//y.md', 'x/', '.x/y.md', 'x/.y', 'x\\y', '', null]) {
+      assert.strictEqual(ghTrd.isSafeEntityPath(p), false, String(p));
+    }
+  });
+});
