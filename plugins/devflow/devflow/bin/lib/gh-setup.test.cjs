@@ -268,3 +268,522 @@ describe('unionRuleset', () => {
     assert.deepEqual(Object.keys(union).sort(), ['bypass_actors', 'conditions', 'enforcement', 'name', 'rules', 'target']);
   });
 });
+
+// ─── planSetup: state builders ────────────────────────────────────────────────
+
+const cap = require('./gh-capability.cjs');
+
+const START = '<!-- devflow:pr-template:start -->';
+const END = '<!-- devflow:pr-template:end -->';
+const BLOCK = `${START}\n## Summary\n\nCloses #\n${END}`;
+const TEMPLATES = {
+  workflow: '# devflow:managed\nname: DevFlow checks\non:\n  pull_request:\n  merge_group:\n',
+  prTemplate: `${BLOCK}\n`,
+};
+const WORKFLOW_PATH = '.github/workflows/devflow.yml';
+const PR_TEMPLATE_PATH = '.github/pull_request_template.md';
+const ALL_LABELS = ['devflow:objective', 'devflow:trd', 'devflow:decision', 'devflow:todo', 'devflow:debug', 'devflow:quick'];
+const TYPE_NAMES = ['Objective', 'TRD', 'Decision', 'Debug', 'Quick'];
+const FIELD_HEADER = 'X-GitHub-Api-Version: 2026-03-10';
+
+/** An empty Organization repository: wiki off, nothing set up, no local files. Override per case. */
+function baseState(over = {}) {
+  return {
+    repo: 'o/r',
+    owner: 'o',
+    name: 'r',
+    ownerType: 'Organization',
+    meta: { has_wiki: false, delete_branch_on_merge: false, default_branch: 'main' },
+    github: { enabled: true, repo: 'o/r' },
+    rulesets: [],
+    labels: [],
+    types: [],
+    fields: [],
+    wiki: 'disabled',
+    local: { workflow: null, prTemplate: null, otherWorkflows: [] },
+    templates: TEMPLATES,
+    record: {},
+    ...over,
+  };
+}
+
+/** Everything already in place, so a plan over it has nothing to do. */
+function satisfiedState(over = {}) {
+  return baseState({
+    meta: { has_wiki: true, delete_branch_on_merge: true, default_branch: 'main' },
+    labels: [...ALL_LABELS],
+    types: TYPE_NAMES.map((name, i) => ({ id: `IT_${i + 1}`, name, is_enabled: true })),
+    fields: [{ id: 11, name: 'work', data_type: 'single_select' }, { id: 12, name: 'kind', data_type: 'single_select' }],
+    local: { workflow: TEMPLATES.workflow, prTemplate: `${BLOCK}\n`, otherWorkflows: [] },
+    rulesets: [{ id: 9001, ...setup.desiredRuleset({ mergeMethod: 'squash' }) }],
+    wiki: 'ok',
+    ...over,
+  });
+}
+
+const kindsOf = (actions) => actions.map((a) => a.kind).filter((k, i, all) => k !== all[i - 1]);
+const pick = (actions, kind, target) => actions.find((a) => a.kind === kind && (target === undefined || a.target === target));
+const all = (actions, kind) => actions.filter((a) => a.kind === kind);
+const sent = (action) => JSON.parse(action.request.input);
+
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const v of Object.values(value)) deepFreeze(v);
+  }
+  return value;
+}
+
+// ─── Test 3: an empty Organization repository ────────────────────────────────
+
+describe('planSetup, an empty Organization repository (test 3)', () => {
+  const actions = () => setup.planSetup(baseState());
+
+  test('the actions come in the documented order', () => {
+    assert.deepEqual(kindsOf(actions()), [
+      'repo-settings', 'label', 'issue-type', 'issue-field', 'workflow', 'pr-template', 'ruleset', 'advisory', 'wiki',
+    ]);
+  });
+
+  test('every action has kind, target, status and a description', () => {
+    for (const a of actions()) {
+      assert.equal(typeof a.kind, 'string');
+      assert.equal(typeof a.target, 'string');
+      assert.ok(['create', 'update', 'exists', 'skip', 'manual', 'conflict', 'advisory'].includes(a.status), `${a.kind}: ${a.status}`);
+      assert.ok(typeof a.desc === 'string' && a.desc.length > 0, `${a.kind} ${a.target} has a desc`);
+    }
+  });
+
+  test('the ruleset action POSTs the desired ruleset as --input -', () => {
+    const rule = pick(actions(), 'ruleset');
+    assert.equal(rule.status, 'create');
+    assert.equal(rule.target, 'devflow: default branch');
+    assert.deepEqual(rule.request.args, ['api', '-X', 'POST', 'repos/o/r/rulesets', '--input', '-']);
+    assert.deepEqual(rule.payload, setup.desiredRuleset({ mergeMethod: 'squash' }));
+    assert.deepEqual(sent(rule), rule.payload, 'what is sent is exactly the payload');
+  });
+
+  test('repo settings: PATCH with both keys', () => {
+    const s = pick(actions(), 'repo-settings');
+    assert.equal(s.status, 'create');
+    assert.deepEqual(s.payload, { has_wiki: true, delete_branch_on_merge: true });
+    assert.deepEqual(s.request.args, ['api', '-X', 'PATCH', 'repos/o/r', '--input', '-']);
+    assert.deepEqual(sent(s), s.payload);
+  });
+
+  test('labels: one create per label, through gh label create', () => {
+    const labels = all(actions(), 'label');
+    assert.deepEqual(labels.map((l) => l.target), ALL_LABELS);
+    assert.ok(labels.every((l) => l.status === 'create'));
+    assert.deepEqual(labels[0].request.args,
+      ['label', 'create', 'devflow:objective', '--repo', 'o/r', '--color', '1d76db', '--description', 'DevFlow tracking']);
+    assert.equal(labels[0].request.input, undefined, 'a label create has no stdin');
+  });
+
+  test('issue types: the five names with their colours, POSTed to the org', () => {
+    const types = all(actions(), 'issue-type');
+    assert.deepEqual(types.map((t) => t.target), TYPE_NAMES);
+    assert.deepEqual(types.map((t) => t.payload.color), ['purple', 'blue', 'yellow', 'red', 'gray']);
+    for (const t of types) {
+      assert.equal(t.status, 'create');
+      assert.deepEqual(t.request.args, ['api', '-X', 'POST', 'orgs/o/issue-types', '--input', '-']);
+      assert.equal(t.payload.name, t.target);
+      assert.equal(t.payload.is_enabled, true);
+      assert.deepEqual(sent(t), t.payload);
+    }
+  });
+
+  test('issue fields: work and kind as single_select with inline options and the api-version header', () => {
+    const fields = all(actions(), 'issue-field');
+    assert.deepEqual(fields.map((f) => f.target), ['work', 'kind']);
+    for (const f of fields) {
+      assert.equal(f.status, 'create');
+      assert.deepEqual(f.request.args, ['api', '-X', 'POST', 'orgs/o/issue-fields', '-H', FIELD_HEADER, '--input', '-']);
+      assert.equal(f.payload.data_type, 'single_select');
+      assert.deepEqual(sent(f), f.payload);
+    }
+    assert.deepEqual(fields[0].payload.options.map((o) => o.name), ['feature', 'port', 'refactor', 'foundation', 'bugfix', 'prototype', 'spike']);
+    assert.deepEqual(fields[1].payload.options.map((o) => o.name), ['api', 'app', 'library', 'ui-lib', 'cli', 'plugin']);
+  });
+
+  test('local files: the workflow and the PR template are created from the templates', () => {
+    const wf = pick(actions(), 'workflow');
+    assert.equal(wf.status, 'create');
+    assert.equal(wf.target, WORKFLOW_PATH);
+    assert.deepEqual(wf.file, { path: WORKFLOW_PATH, content: TEMPLATES.workflow });
+    assert.equal(wf.request, undefined, 'a local file is not a gh request');
+
+    const pr = pick(actions(), 'pr-template');
+    assert.equal(pr.status, 'create');
+    assert.equal(pr.target, PR_TEMPLATE_PATH);
+    assert.deepEqual(pr.file, { path: PR_TEMPLATE_PATH, content: `${BLOCK}\n` });
+  });
+
+  test('the unpinned App advisory follows the ruleset; the disabled wiki is covered by the settings action', () => {
+    const list = actions();
+    const advisory = pick(list, 'advisory', 'ruleset');
+    assert.equal(advisory.status, 'advisory');
+    assert.match(advisory.desc, /required checks are not pinned to an App; anyone with write access can post these contexts/);
+    const wiki = pick(list, 'wiki');
+    assert.equal(wiki.status, 'skip');
+    assert.match(wiki.desc, /has_wiki/);
+  });
+
+  test('planSetup is pure: it does not mutate a frozen state and is repeatable', () => {
+    const state = deepFreeze(baseState());
+    assert.deepEqual(setup.planSetup(state), setup.planSetup(state));
+  });
+
+  test('planSetup needs the templates it renders', () => {
+    const state = baseState();
+    delete state.templates;
+    assert.throws(() => setup.planSetup(state), /templates/);
+  });
+});
+
+// ─── Test 4: nothing to do ───────────────────────────────────────────────────
+
+describe('planSetup, everything present and satisfied (test 4)', () => {
+  test('every action is exists (or an advisory) and nothing carries a request, payload or file', () => {
+    const actions = setup.planSetup(satisfiedState());
+    for (const a of actions) {
+      assert.ok(a.status === 'exists' || a.status === 'advisory', `${a.kind} ${a.target} is ${a.status}`);
+      assert.equal(a.request, undefined, `${a.kind} ${a.target} has no request`);
+      assert.equal(a.payload, undefined, `${a.kind} ${a.target} has no payload`);
+      assert.equal(a.file, undefined, `${a.kind} ${a.target} has no file`);
+    }
+    const settled = actions.filter((a) => a.status !== 'advisory');
+    assert.ok(settled.length >= 1 + 6 + 5 + 2 + 2 + 1 + 1, 'every kind is reported, not omitted');
+    assert.ok(settled.every((a) => a.status === 'exists'));
+  });
+
+  test('a ruleset stricter than the desired one is exists too', () => {
+    const stricter = setup.desiredRuleset({ mergeMethod: 'squash' });
+    stricter.rules.find((r) => r.type === 'pull_request').parameters.required_approving_review_count = 3;
+    stricter.rules.push({ type: 'required_linear_history' });
+    const rule = pick(setup.planSetup(satisfiedState({ rulesets: [{ id: 9001, ...stricter }] })), 'ruleset');
+    assert.equal(rule.status, 'exists');
+    assert.equal(rule.request, undefined);
+  });
+
+  test('only the settings that differ are patched', () => {
+    const a = pick(setup.planSetup(satisfiedState({ meta: { has_wiki: true, delete_branch_on_merge: false, default_branch: 'main' } })), 'repo-settings');
+    assert.equal(a.status, 'update');
+    assert.deepEqual(a.payload, { delete_branch_on_merge: true });
+    const b = pick(setup.planSetup(satisfiedState({ meta: { has_wiki: false, delete_branch_on_merge: true, default_branch: 'main' } })), 'repo-settings');
+    assert.deepEqual(b.payload, { has_wiki: true });
+  });
+
+  test('a label that exists in another case is not created again', () => {
+    const labels = [...ALL_LABELS];
+    labels[0] = 'DevFlow:Objective';
+    const l = pick(setup.planSetup(satisfiedState({ labels })), 'label', 'devflow:objective');
+    assert.equal(l.status, 'exists');
+  });
+});
+
+// ─── Test 5: an existing weaker ruleset ──────────────────────────────────────
+
+describe('planSetup, an existing weaker ruleset (test 5)', () => {
+  const existing = () => ({
+    id: 9007,
+    name: 'devflow: default branch',
+    target: 'branch',
+    enforcement: 'active',
+    bypass_actors: [],
+    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+    rules: [{ type: 'deletion' }, { type: 'required_linear_history' }],
+  });
+
+  test('update: PUT to rulesets/<id> with the union, keeping the user\'s extra rule', () => {
+    const rule = pick(setup.planSetup(satisfiedState({ rulesets: [existing()] })), 'ruleset');
+    assert.equal(rule.status, 'update');
+    assert.deepEqual(rule.request.args, ['api', '-X', 'PUT', 'repos/o/r/rulesets/9007', '--input', '-']);
+    assert.deepEqual(rule.payload, setup.unionRuleset(existing(), setup.desiredRuleset({ mergeMethod: 'squash' })));
+    assert.deepEqual(sent(rule), rule.payload);
+    const types = rule.payload.rules.map((r) => r.type);
+    assert.ok(types.includes('required_linear_history'), 'the user\'s rule survives');
+    for (const t of ['deletion', 'non_fast_forward', 'pull_request', 'required_status_checks', 'merge_queue']) assert.ok(types.includes(t), t);
+    assert.equal(setup.rulesetSatisfies(rule.payload, setup.desiredRuleset({ mergeMethod: 'squash' })), true);
+  });
+
+  test('a ruleset with another name is not ours: a new one is created beside it', () => {
+    const other = { ...existing(), id: 5, name: 'org-wide protections' };
+    const rule = pick(setup.planSetup(satisfiedState({ rulesets: [other] })), 'ruleset');
+    assert.equal(rule.status, 'create');
+  });
+
+  test('a ruleset that could not be read is reported, never overwritten', () => {
+    const summaryOnly = { id: 9007, name: 'devflow: default branch', target: 'branch', enforcement: 'active' };
+    const rule = pick(setup.planSetup(satisfiedState({ rulesets: [summaryOnly] })), 'ruleset');
+    assert.equal(rule.status, 'skip');
+    assert.equal(rule.request, undefined);
+    const none = pick(setup.planSetup(satisfiedState({ rulesets: null, readErrors: { rulesets: 'gh: Forbidden (HTTP 403)' } })), 'ruleset');
+    assert.equal(none.status, 'skip');
+    assert.match(none.desc, /403/);
+  });
+});
+
+// ─── Ruleset options: App pin, merge method, merge queue record ──────────────
+
+describe('planSetup, ruleset options', () => {
+  test('github.app_id pins each required check and drops the unpinned advisory', () => {
+    const list = setup.planSetup(baseState({ github: { enabled: true, repo: 'o/r', app_id: 42 } }));
+    const rule = pick(list, 'ruleset');
+    const checks = rule.payload.rules.find((r) => r.type === 'required_status_checks').parameters.required_status_checks;
+    assert.deepEqual(checks.map((c) => c.integration_id), [42, 42]);
+    assert.equal(pick(list, 'advisory', 'ruleset'), undefined);
+  });
+
+  test('github.pr.merge_method sets the merge queue method', () => {
+    const rule = pick(setup.planSetup(baseState({ github: { enabled: true, repo: 'o/r', pr: { merge_method: 'rebase' } } })), 'ruleset');
+    assert.equal(rule.payload.rules.find((r) => r.type === 'merge_queue').parameters.merge_method, 'REBASE');
+  });
+
+  test('a recorded merge-queue rejection omits the rule, says so, and keeps a second apply write-free', () => {
+    const list = setup.planSetup(baseState({ record: { merge_queue: false } }));
+    const rule = pick(list, 'ruleset');
+    assert.equal(rule.payload.rules.some((r) => r.type === 'merge_queue'), false);
+    const advisory = list.find((a) => a.status === 'advisory' && /merge queue/i.test(a.desc));
+    assert.ok(advisory, 'an advisory names the unavailable merge queue');
+    assert.match(advisory.desc, /--refresh/);
+
+    // The ruleset an apply would have stored (no merge_queue) satisfies the next plan: zero writes.
+    const stored = { id: 9001, ...rule.payload };
+    const second = pick(setup.planSetup(satisfiedState({ record: { merge_queue: false }, rulesets: [stored] })), 'ruleset');
+    assert.equal(second.status, 'exists');
+  });
+});
+
+// ─── Test 6: a User-owned repository ─────────────────────────────────────────
+
+describe('planSetup, a User-owned repository (test 6)', () => {
+  const caps = {
+    repo: 'o/r', owner_type: 'User', push: true,
+    org_types: { available: false, enabled: [] }, issue_fields: { available: false, ids: {} },
+    sub_issues: 'ok', dependencies: 'ok', wiki: 'ok',
+  };
+  const state = () => baseState({ ownerType: 'User', types: null, fields: null });
+
+  test('issue types and fields are skipped with the describeDegraded text, never an error', () => {
+    const [typesSentence, fieldsSentence] = cap.describeDegraded(caps);
+    const list = setup.planSetup(state());
+    const types = all(list, 'issue-type');
+    const fields = all(list, 'issue-field');
+    assert.equal(types.length, 1);
+    assert.equal(fields.length, 1);
+    assert.equal(types[0].status, 'skip');
+    assert.equal(fields[0].status, 'skip');
+    assert.equal(types[0].desc, typesSentence);
+    assert.equal(fields[0].desc, fieldsSentence);
+    assert.match(typesSentence, /labels/, 'the degraded text names the fallback (labels / body metadata)');
+    assert.match(fieldsSentence, /body meta/);
+    for (const a of [...types, ...fields]) assert.equal(a.request, undefined);
+  });
+
+  test('labels, settings, files and the ruleset are still planned', () => {
+    const list = setup.planSetup(state());
+    assert.equal(all(list, 'label').length, ALL_LABELS.length);
+    assert.ok(all(list, 'label').every((l) => l.status === 'create'));
+    assert.equal(pick(list, 'ruleset').status, 'create');
+    assert.equal(pick(list, 'workflow').status, 'create');
+  });
+
+  test('an Organization whose types could not be read is skipped the same way', () => {
+    const list = setup.planSetup(baseState({ types: null, fields: null }));
+    assert.equal(all(list, 'issue-type')[0].status, 'skip');
+    assert.match(all(list, 'issue-type')[0].desc, /could not be read/);
+    assert.equal(all(list, 'issue-field')[0].status, 'skip');
+  });
+});
+
+// ─── Test 7: types and fields on an Organization ─────────────────────────────
+
+describe('planSetup, issue types and fields (test 7)', () => {
+  test('a disabled Decision type is updated to enabled; the others already exist', () => {
+    const types = TYPE_NAMES.map((name, i) => ({ id: `IT_${i + 1}`, name, is_enabled: name !== 'Decision' }));
+    const list = all(setup.planSetup(satisfiedState({ types })), 'issue-type');
+    const decision = list.find((t) => t.target === 'Decision');
+    assert.equal(decision.status, 'update');
+    assert.deepEqual(decision.request.args, ['api', '-X', 'PUT', 'orgs/o/issue-types/IT_3', '--input', '-']);
+    assert.deepEqual(decision.payload, { name: 'Decision', is_enabled: true });
+    assert.deepEqual(sent(decision), decision.payload);
+    assert.ok(list.filter((t) => t !== decision).every((t) => t.status === 'exists'));
+  });
+
+  test('only the missing types are created', () => {
+    const types = [{ id: 'IT_1', name: 'Objective', is_enabled: true }, { id: 'IT_2', name: 'TRD', is_enabled: true }];
+    const list = all(setup.planSetup(satisfiedState({ types })), 'issue-type');
+    assert.deepEqual(list.filter((t) => t.status === 'create').map((t) => t.target), ['Decision', 'Debug', 'Quick']);
+    assert.deepEqual(list.filter((t) => t.status === 'exists').map((t) => t.target), ['Objective', 'TRD']);
+  });
+
+  test('a missing kind field is created with options and the api-version header; work exists', () => {
+    const list = all(setup.planSetup(satisfiedState({ fields: [{ id: 11, name: 'work', data_type: 'single_select' }] })), 'issue-field');
+    assert.equal(list.find((f) => f.target === 'work').status, 'exists');
+    const kind = list.find((f) => f.target === 'kind');
+    assert.equal(kind.status, 'create');
+    assert.deepEqual(kind.request.args, ['api', '-X', 'POST', 'orgs/o/issue-fields', '-H', FIELD_HEADER, '--input', '-']);
+    assert.equal(kind.payload.name, 'kind');
+    assert.equal(kind.payload.data_type, 'single_select');
+    assert.deepEqual(kind.payload.options.map((o) => o.name), ['api', 'app', 'library', 'ui-lib', 'cli', 'plugin']);
+    assert.deepEqual(sent(kind), kind.payload);
+  });
+
+  test('an existing field of any type, in any case, is exists and is never retyped', () => {
+    const fields = [{ id: 11, name: 'Work', data_type: 'text' }, { id: 12, name: 'KIND', data_type: 'number' }];
+    const list = all(setup.planSetup(satisfiedState({ fields })), 'issue-field');
+    assert.ok(list.every((f) => f.status === 'exists' && f.request === undefined));
+  });
+});
+
+// ─── Test 8: local files ─────────────────────────────────────────────────────
+
+describe('planSetup, the local files (test 8)', () => {
+  const withLocal = (local) => setup.planSetup(satisfiedState({ local: { workflow: TEMPLATES.workflow, prTemplate: `${BLOCK}\n`, otherWorkflows: [], ...local } }));
+
+  test('a workflow without the managed header that differs is a conflict, reported and never overwritten', () => {
+    const wf = pick(withLocal({ workflow: 'name: my own ci\non: push\n' }), 'workflow');
+    assert.equal(wf.status, 'conflict');
+    assert.equal(wf.file, undefined);
+    assert.match(wf.desc, /devflow:managed/);
+  });
+
+  test('a byte-equal workflow is exists; a managed one that drifted is updated', () => {
+    assert.equal(pick(withLocal({}), 'workflow').status, 'exists');
+    const drifted = pick(withLocal({ workflow: '# devflow:managed\nname: DevFlow checks (old)\n' }), 'workflow');
+    assert.equal(drifted.status, 'update');
+    assert.deepEqual(drifted.file, { path: WORKFLOW_PATH, content: TEMPLATES.workflow });
+  });
+
+  test('a byte-equal file that lacks the managed header is still exists (equal wins over conflict)', () => {
+    const plain = { ...TEMPLATES, workflow: 'name: no header\non: pull_request\n' };
+    const list = setup.planSetup(satisfiedState({ templates: plain, local: { workflow: plain.workflow, prTemplate: `${BLOCK}\n`, otherWorkflows: [] } }));
+    assert.equal(pick(list, 'workflow').status, 'exists');
+  });
+
+  test('a PR template without the block gets it appended, keeping the user\'s text', () => {
+    const mine = '## My own template\n\nDescribe the change.\n';
+    const pr = pick(withLocal({ prTemplate: mine }), 'pr-template');
+    assert.equal(pr.status, 'update');
+    assert.ok(pr.file.content.startsWith('## My own template\n\nDescribe the change.'));
+    assert.ok(pr.file.content.endsWith(`${BLOCK}\n`));
+    assert.equal(pr.file.content.split(START).length, 2, 'exactly one block');
+    assert.equal(pr.file.path, PR_TEMPLATE_PATH);
+  });
+
+  test('a drifted block is replaced in place and the text around it is untouched', () => {
+    const drifted = `Before.\n\n${START}\nold text\n${END}\n\nAfter.\n`;
+    const pr = pick(withLocal({ prTemplate: drifted }), 'pr-template');
+    assert.equal(pr.status, 'update');
+    assert.equal(pr.file.content, `Before.\n\n${BLOCK}\n\nAfter.\n`);
+  });
+
+  test('an equal block is exists, whatever surrounds it', () => {
+    const pr = pick(withLocal({ prTemplate: `Before.\n\n${BLOCK}\n\nAfter.\n` }), 'pr-template');
+    assert.equal(pr.status, 'exists');
+    assert.equal(pr.file, undefined);
+  });
+
+  test('a template given without the markers is wrapped in them', () => {
+    const bare = { ...TEMPLATES, prTemplate: '## Summary\n\nCloses #\n' };
+    const pr = pick(setup.planSetup(baseState({ templates: bare })), 'pr-template');
+    assert.equal(pr.file.content, `${START}\n## Summary\n\nCloses #\n${END}\n`);
+  });
+});
+
+// ─── Test 9: wiki and merge_group advisories ─────────────────────────────────
+
+describe('planSetup, wiki and merge_group (test 9)', () => {
+  test('the wiki action follows the capability state', () => {
+    const wiki = (state) => pick(setup.planSetup(satisfiedState({ wiki: state })), 'wiki');
+    assert.equal(wiki('ok').status, 'exists');
+    assert.equal(wiki('uninitialised').status, 'manual');
+    assert.match(wiki('uninitialised').desc, /first wiki page in the web UI/);
+    assert.equal(wiki('disabled').status, 'skip');
+    assert.match(wiki('disabled').desc, /has_wiki/);
+    assert.equal(wiki('unavailable').status, 'skip');
+    assert.match(wiki('unavailable').desc, /docs\/devflow\//);
+    assert.equal(wiki('unknown').status, 'skip');
+  });
+
+  test('another workflow naming a required check without merge_group is an advisory naming the file', () => {
+    const otherWorkflows = [
+      { file: '.github/workflows/ci.yml', text: 'on: pull_request\njobs:\n  x:\n    name: devflow/linked-issue\n' },
+      { file: '.github/workflows/also.yml', text: 'on:\n  pull_request:\njobs:\n  y:\n    name: devflow/planning-consistency\n' },
+      { file: '.github/workflows/fine.yml', text: 'on:\n  pull_request:\n  merge_group:\njobs:\n  z:\n    name: devflow/linked-issue\n' },
+      { file: '.github/workflows/unrelated.yml', text: 'on: push\njobs:\n  w:\n    name: build\n' },
+    ];
+    const list = setup.planSetup(satisfiedState({ local: { workflow: TEMPLATES.workflow, prTemplate: `${BLOCK}\n`, otherWorkflows } }));
+    const advisories = list.filter((a) => a.kind === 'advisory' && a.target.startsWith('.github/workflows/'));
+    assert.deepEqual(advisories.map((a) => a.target), ['.github/workflows/ci.yml', '.github/workflows/also.yml']);
+    for (const a of advisories) {
+      assert.equal(a.status, 'advisory');
+      assert.match(a.desc, /merge_group/);
+      assert.match(a.desc, new RegExp(a.target.replace(/[.]/g, '\\.')));
+      assert.equal(a.file, undefined, 'never rewritten');
+    }
+  });
+
+  test('the merge_group advisories are last', () => {
+    const otherWorkflows = [{ file: '.github/workflows/ci.yml', text: 'name: devflow/linked-issue\non: pull_request\n' }];
+    const list = setup.planSetup(baseState({ local: { workflow: null, prTemplate: null, otherWorkflows } }));
+    assert.equal(list[list.length - 1].target, '.github/workflows/ci.yml');
+    assert.equal(list[list.length - 2].kind, 'wiki');
+  });
+});
+
+// ─── Test 10: renderPlan ─────────────────────────────────────────────────────
+
+describe('renderPlan (test 10)', () => {
+  const indent4 = (text) => text.split('\n').map((l) => `    ${l}`).join('\n');
+
+  test('prints every action line', () => {
+    const actions = setup.planSetup(baseState());
+    const text = setup.renderPlan(actions);
+    for (const a of actions) assert.ok(text.includes(`[${a.status}] ${a.kind} ${a.target}`), `${a.kind} ${a.target}`);
+  });
+
+  test('prints the request and the exact pretty JSON payload of every create and update', () => {
+    const actions = setup.planSetup(baseState());
+    const text = setup.renderPlan(actions);
+    for (const a of actions.filter((x) => (x.status === 'create' || x.status === 'update') && x.payload)) {
+      assert.ok(text.includes(indent4(JSON.stringify(a.payload, null, 2))), `payload of ${a.kind} ${a.target}`);
+    }
+    assert.ok(text.includes("    gh api -X POST orgs/o/issue-fields -H 'X-GitHub-Api-Version: 2026-03-10' --input -"));
+    assert.ok(text.includes('    gh api -X POST repos/o/r/rulesets --input -'));
+    assert.ok(text.includes("    gh label create devflow:objective --repo o/r --color 1d76db --description 'DevFlow tracking'"));
+  });
+
+  test('prints the ruleset with every rule and both contexts', () => {
+    const text = setup.renderPlan(setup.planSetup(baseState()));
+    for (const needle of ['"~DEFAULT_BRANCH"', '"deletion"', '"non_fast_forward"', '"pull_request"', '"required_status_checks"',
+      '"merge_queue"', 'devflow/linked-issue', 'devflow/planning-consistency']) {
+      assert.ok(text.includes(needle), needle);
+    }
+    for (const name of [...TYPE_NAMES, 'work', 'kind']) assert.ok(text.includes(name), name);
+  });
+
+  test('local files print their path and size, and an exists action prints no payload', () => {
+    const text = setup.renderPlan(setup.planSetup(baseState()));
+    assert.ok(text.includes(`    write ${WORKFLOW_PATH} (${TEMPLATES.workflow.split('\n').length - 1} lines)`));
+
+    const settled = setup.renderPlan(setup.planSetup(satisfiedState()));
+    assert.ok(!settled.includes('gh api'), 'nothing to send');
+    assert.ok(!settled.includes('    write '), 'nothing to write');
+    assert.ok(settled.includes('[exists] ruleset devflow: default branch'));
+  });
+
+  test('ends with a count of each status; an empty plan says so', () => {
+    const actions = setup.planSetup(baseState());
+    const text = setup.renderPlan(actions);
+    const creates = actions.filter((a) => a.status === 'create').length;
+    assert.match(text, new RegExp(`Plan: ${actions.length} actions \\(${creates} create,`));
+    assert.match(setup.renderPlan([]), /no setup actions/i);
+  });
+
+  test('renderPlan is pure: the same actions render the same text', () => {
+    const actions = deepFreeze(setup.planSetup(baseState()));
+    assert.equal(setup.renderPlan(actions), setup.renderPlan(actions));
+  });
+});
