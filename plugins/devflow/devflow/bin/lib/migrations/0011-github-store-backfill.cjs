@@ -432,7 +432,43 @@ function queue(ctx) {
   const live = client.writeCount() - before;
   backfill.recordLiveWrites(main, live, nowOf(ctx), opts);
   if (!report.ok) return { ok: false, error: report.error || 'planning import failed', live_writes: live, report };
-  return { ok: true, skipped: false, pending: backfill.hasPendingOps(main, opts).pending, live_writes: live, report };
+  const based = recordObjectiveBases(ctx);
+  return {
+    ok: true, skipped: false, pending: backfill.hasPendingOps(main, opts).pending, live_writes: live, report, based,
+  };
+}
+
+/**
+ * Phase 3 (after the import): the objective issues the import created or found LIVE (outside the outbox) get their
+ * remote-edit base now. The flush records a base only after it writes, so without this an objective's first queued
+ * body patch has no base and ADOPTS whatever GitHub holds: a human edit of the managed sections between an
+ * interrupted run and its resume would be merged over silently instead of halting (TRD 51-08). One paginated list
+ * of the objective label, reads only; an objective that already has a base keeps it.
+ * @returns {{ok:true, recorded:number} | {ok:false, error:string}}
+ */
+function recordObjectiveBases(ctx) {
+  const main = mainOf(ctx);
+  const ghMapping = require('../gh-mapping.cjs');
+  const flushLib = require('../gh-outbox-flush.cjs');
+  const gate = client.requireEnabled(main);
+  if (!gate.enabled) return { ok: false, error: gate.reason };
+  const mapping = ghMapping.readMappingV3(main);
+  const wanted = new Map();
+  for (const [id, e] of Object.entries(mapping.objectives || {})) {
+    if (e && Number.isInteger(e.issue_id) && !outbox.getBase(main, id)) wanted.set(e.issue_id, id);
+  }
+  if (wanted.size === 0) return { ok: true, recorded: 0 };
+  const configured = gate.labels && typeof gate.labels.objective === 'string' && gate.labels.objective !== ''
+    ? gate.labels.objective : 'devflow:objective';
+  const r = client.ghPaginate(`repos/${gate.repo}/issues?labels=${encodeURIComponent(configured)}&state=all`);
+  if (!r.ok) return { ok: false, error: `could not list ${configured} issues: ${r.error || 'gh api failed'}` };
+  let recorded = 0;
+  for (const issue of r.items) {
+    if (!issue || !wanted.has(issue.number)) continue;
+    const set = outbox.setBase(main, wanted.get(issue.number), flushLib.baseFromIssue(issue, null));
+    if (set.ok) recorded += 1;
+  }
+  return { ok: true, recorded };
 }
 
 /**
@@ -637,6 +673,49 @@ function drain(ctx) {
   return { ok: false, code: 'pending', done, res, prose, ...info, why: whyText(info, res) };
 }
 
+/**
+ * Phase 4b (after a drained flush): an objective's structural body sections (`wiki`, whose `devflow:dir` marker is how
+ * `gh pull` places the objective's TRDs; `trds`; `meta`) reach GitHub in its one queued patch-body. When a human edit
+ * halted that op and it was resolved `--accept-remote`, the op was dropped whole, so the objective stayed unplaceable
+ * and verify could never pass (TRD 51-08). Each objective with an issue whose GitHub body lacks its `devflow:dir`
+ * marker gets the same patch-body re-queued (gh-hierarchy.buildOps) with NO caller sections: summary, criteria and
+ * footer stay as GitHub has them, so the accepted human edit survives. Reads: one list of the objective label.
+ * @returns {{ok:true, repaired:string[]} | {ok:false, error:string}}
+ */
+function repairObjectiveBodies(ctx) {
+  const main = mainOf(ctx);
+  const ghMapping = require('../gh-mapping.cjs');
+  const ghHierarchy = require('../gh-hierarchy.cjs');
+  const ghBody = require('../gh-body.cjs');
+  const gate = client.requireEnabled(main);
+  if (!gate.enabled) return { ok: false, error: gate.reason };
+  const mapping = ghMapping.readMappingV3(main);
+  const local = ghMapping.listObjectiveIndex(main).filter((o) => o.dir && ghMapping.getEntry(mapping, o.id));
+  if (local.length === 0) return { ok: true, repaired: [] };
+  const label = gate.labels && typeof gate.labels.objective === 'string' && gate.labels.objective !== ''
+    ? gate.labels.objective : 'devflow:objective';
+  const r = client.ghPaginate(`repos/${gate.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+  if (!r.ok) return { ok: false, error: `could not list ${label} issues: ${r.error || 'gh api failed'}` };
+  const byNumber = new Map(r.items.filter((i) => i && Number.isInteger(i.number)).map((i) => [i.number, i]));
+  const ops = [];
+  const repaired = [];
+  for (const o of local) {
+    const issue = byNumber.get(ghMapping.getEntry(mapping, o.id).issue_id);
+    if (!issue || ghBody.parseDirMarker(typeof issue.body === 'string' ? issue.body : '') === o.dir) continue;
+    const plan = ghHierarchy.planPush(main, o.id);
+    if (!plan.ok) continue; // verify names the objective
+    const op = ghHierarchy.buildOps(plan).find((x) => x.kind === 'patch-body');
+    if (!op) continue;
+    ops.push(op);
+    repaired.push(o.id);
+  }
+  if (ops.length) {
+    const q = outbox.enqueue(main, ops, { now: nowOf(ctx) });
+    if (!q.ok) return { ok: false, error: q.error || 'could not queue the repair' };
+  }
+  return { ok: true, repaired };
+}
+
 function minutesText(ms) {
   const min = Math.ceil(ms / 60000);
   return min >= 120 ? `~${Math.round(min / 60)} h` : `~${min} min`;
@@ -837,7 +916,18 @@ function migrate(ctx) {
 
   // Phase 4: drain inside the budgets. A stop leaves everything resumable: done ops stay done, the rest stays queued,
   // and the ledger is settled only by a drained flush.
-  const d = drain(ctx);
+  let d = drain(ctx);
+  // Phase 4b (after a drained flush): an objective body that lost its derived sections gets them back, then drains.
+  const repaired = d.ok ? repairObjectiveBodies(ctx) : null;
+  if (repaired && repaired.ok && repaired.repaired.length) {
+    queued.push(`repair: re-queued the derived sections (wiki, trds, meta) of ${plural(repaired.repaired.length, 'objective')} ` +
+      `whose GitHub body lost its devflow:dir marker (a dropped body patch): ${repaired.repaired.join(', ')}; ` +
+      'the summary, criteria and footer stay as GitHub has them');
+    const d2 = drain(ctx);
+    d = d2.ok ? { ...d2, done: d.done + d2.done, settled: [...d.settled, ...d2.settled] } : { ...d2, done: d.done + d2.done };
+  } else if (repaired && !repaired.ok) {
+    queued.push(`repair: could not check the objective bodies (${repaired.error}); verify reports any gap`);
+  }
   if (!d.ok) {
     const counts = opCounts(main, ctx, clockOf(ctx)());
     const tail = [...queued, ...switched];
