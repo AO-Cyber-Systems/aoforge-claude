@@ -32,6 +32,11 @@
 // `issue_number` is the number GitHub shows (#12); `rest_id` is the database id the REST sub-issues API
 // takes. They are different values that may coincide, and are never interchangeable.
 //
+// Entities (objective 48): todos, debug sessions and quick tasks are issues too, keyed `todo-<stem>`,
+// `debug-<stem>` and `quick-<N>` in a top-level `entities` map with the same entry shape as `trds`
+// (`toEntityId`, `getEntity`, `setEntity`, `listEntities`). `entities` is rendered after `trds` ONLY when it
+// has an entry, so a mapping without entities serialises exactly as it did in objective 47.
+//
 // Never `parseInt` a directory prefix anywhere else: `parseInt("02.1")` is 2. The one legitimate use is
 // the integer part inside `toObjectiveId`, plus numeric sorting.
 
@@ -39,6 +44,8 @@ const fs = require('fs');
 const path = require('path');
 const { atomicWrite } = require('./sync-state.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+// gh-trd requires nothing but `crypto`, so this is no cycle; one entity-id grammar for codec and mapping.
+const { ENTITY_ID_RE } = require('./gh-trd.cjs');
 
 const MAPPING_VERSION = 3;
 const MAPPING_REL = path.join('.planning', '.gh-mapping.json');
@@ -159,7 +166,7 @@ const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 // Top-level fields this module owns. Anything else is carried through untouched (additive fields from a
 // later objective survive a read-modify-write); `milestone_id` is the legacy field and is dropped.
-const KNOWN_TOP_LEVEL = new Set(['version', 'repo', 'milestones', 'objectives', 'trds', 'conflicts', 'milestone_id']);
+const KNOWN_TOP_LEVEL = new Set(['version', 'repo', 'milestones', 'objectives', 'trds', 'entities', 'conflicts', 'milestone_id']);
 
 /** An empty v3 mapping. */
 function emptyMapping() {
@@ -260,6 +267,12 @@ function migrateMapping(raw, index = []) {
   out.milestones = isPlainObject(raw.milestones) ? clone(raw.milestones) : {};
   out.objectives = {};
   out.trds = isPlainObject(raw.trds) ? clone(raw.trds) : {};
+  // `entities` (48) is present only when the input has it, so a 47 mapping converts to itself unchanged.
+  if (isPlainObject(raw.entities)) {
+    out.entities = clone(raw.entities);
+  } else if (raw.entities !== undefined && raw.entities !== null) {
+    notes.push(`dropped entities ${JSON.stringify(raw.entities)}: not an object of entity entries`);
+  }
   for (const k of Object.keys(raw)) if (!KNOWN_TOP_LEVEL.has(k)) out[k] = clone(raw[k]);
 
   if (raw.milestone_id !== undefined && raw.milestone_id !== null && raw.milestone_id !== '') {
@@ -374,8 +387,9 @@ const renderJson = (value, level) => JSON.stringify(value, null, 2).replace(/\n/
 
 /**
  * Byte-stable text for a v3 mapping: canonical top-level order (version, repo, milestones, objectives,
- * trds, conflicts, extras), objectives and conflicts sorted numerically by id, trailing newline. The file
- * is tracked in git, so stable output means stable diffs.
+ * trds, entities, conflicts, extras), objectives and conflicts sorted numerically by id, trds and entities
+ * natural-sorted, trailing newline. `entities` and `conflicts` appear only when non-empty. The file is
+ * tracked in git, so stable output means stable diffs.
  */
 function serializeMapping(mapping) {
   const sorted = (obj, cmp, level) => Object.keys(obj || {}).sort(cmp).map((k) => [k, renderJson(obj[k], level + 1)]);
@@ -384,6 +398,9 @@ function serializeMapping(mapping) {
   top.push(['milestones', renderObject(sorted(mapping.milestones, naturalCompare, 1), 1)]);
   top.push(['objectives', renderObject(sorted(mapping.objectives, compareIds, 1), 1)]);
   top.push(['trds', renderObject(sorted(mapping.trds, naturalCompare, 1), 1)]);
+  if (isPlainObject(mapping.entities) && Object.keys(mapping.entities).length) {
+    top.push(['entities', renderObject(sorted(mapping.entities, naturalCompare, 1), 1)]);
+  }
   if (isPlainObject(mapping.conflicts) && Object.keys(mapping.conflicts).length) {
     top.push(['conflicts', renderObject(sorted(mapping.conflicts, compareIds, 1), 1)]);
   }
@@ -515,17 +532,18 @@ function getTrd(mapping, id) {
 }
 
 // comment_ids: `{ <kind>: [commentId, ...] }`. Values coerce to positive integers; anything else throws.
-function mergeCommentIds(tid, existing, patch) {
+// `fn` names the caller in the error (setTrd or setEntity).
+function mergeCommentIds(tid, existing, patch, fn = 'setTrd') {
   const base = isPlainObject(existing) ? existing : {};
   const out = {};
   for (const [kind, ids] of Object.entries(base)) out[kind] = clone(ids);
   if (patch === null) return {};
-  if (!isPlainObject(patch)) throw new TypeError(`setTrd: ${tid} comment_ids must be an object of arrays`);
+  if (!isPlainObject(patch)) throw new TypeError(`${fn}: ${tid} comment_ids must be an object of arrays`);
   for (const [kind, ids] of Object.entries(patch)) {
     if (ids === null) { delete out[kind]; continue; }
     const coerced = Array.isArray(ids) ? ids.map(coerceId) : null;
     if (coerced === null || coerced.some((n) => n === null)) {
-      throw new TypeError(`setTrd: ${tid} comment_ids.${kind} must be an array of positive integers`);
+      throw new TypeError(`${fn}: ${tid} comment_ids.${kind} must be an array of positive integers`);
     }
     out[kind] = coerced;
   }
@@ -582,6 +600,73 @@ function listTrds(mapping, objectiveArg, { includeDecisions = false } = {}) {
     .sort(naturalCompare);
 }
 
+// ─── Entity entries (objective 48: todo, debug, quick) ───────────────────────
+
+const ENTITY_ROLE_NAMES = ['todo', 'debug', 'quick'];
+
+/**
+ * `{ id, role }` for an entity id, or null. The grammar is gh-trd's ENTITY_ID_RE. Entity ids have exactly
+ * one spelling, so, unlike toTrdId, nothing is trimmed or normalised: a key is an entity id or it is not.
+ *   "todo-2026-07-31-a" -> { id: "todo-2026-07-31-a", role: "todo" }   "quick-12" -> { id, role: "quick" }
+ *   "quick-x" | "47-01" | "todo-" | " todo-a" | null -> null
+ */
+function toEntityId(arg) {
+  if (typeof arg !== 'string' || !ENTITY_ID_RE.test(arg)) return null;
+  return { id: arg, role: arg.slice(0, arg.indexOf('-')) };
+}
+
+/** The entry for an entity id, or null. */
+function getEntity(mapping, id) {
+  const e = toEntityId(id);
+  if (e === null || !isPlainObject(mapping) || !isPlainObject(mapping.entities)) return null;
+  return hasOwn(mapping.entities, e.id) ? mapping.entities[e.id] : null;
+}
+
+/**
+ * Set fields on an entity's entry, in place, and return the mapping. Same rules as setTrd: the patch MERGES
+ * onto the existing entry and the result always carries the four fields, in this order:
+ *   { issue_number, rest_id, role: 'todo' | 'debug' | 'quick', comment_ids: { <kind>: [id, ...] } }
+ * `role` defaults from the id prefix and must agree with it. Throws TypeError, leaving the mapping
+ * untouched, for an unrecognised id or any invalid field.
+ */
+function setEntity(mapping, id, patch) {
+  const e = toEntityId(id);
+  if (e === null) throw new TypeError(`setEntity: unrecognised entity id ${JSON.stringify(id)}`);
+  const eid = e.id;
+  const existing = isPlainObject(mapping.entities) && hasOwn(mapping.entities, eid) ? mapping.entities[eid] : {};
+  const p = isPlainObject(patch) ? patch : {};
+  const pick = (field, fallback) => (hasOwn(p, field) ? p[field] : (existing[field] ?? fallback));
+
+  const issueNumber = coerceId(pick('issue_number', null));
+  if (issueNumber === null) throw new TypeError(`setEntity: ${eid} needs a positive integer issue_number`);
+  const restId = coerceId(pick('rest_id', null));
+  if (restId === null) throw new TypeError(`setEntity: ${eid} needs a positive integer rest_id`);
+
+  const role = pick('role', e.role);
+  if (!ENTITY_ROLE_NAMES.includes(role)) throw new TypeError(`setEntity: ${eid} role must be todo, debug or quick`);
+  if (role !== e.role) throw new TypeError(`setEntity: ${eid} is a ${e.role} id but role is ${role}`);
+
+  const commentIds = mergeCommentIds(eid, existing.comment_ids, p.comment_ids === undefined ? {} : p.comment_ids, 'setEntity');
+
+  if (!isPlainObject(mapping.entities)) mapping.entities = {};
+  mapping.entities[eid] = { issue_number: issueNumber, rest_id: restId, role, comment_ids: commentIds };
+  return mapping;
+}
+
+/**
+ * Entity ids in `mapping.entities` with role `role` (every entity id when `role` is omitted),
+ * natural-sorted (`quick-2` before `quick-10`). Keys that are not entity ids are skipped.
+ */
+function listEntities(mapping, role) {
+  if (!isPlainObject(mapping) || !isPlainObject(mapping.entities)) return [];
+  return Object.keys(mapping.entities)
+    .filter((key) => {
+      const e = toEntityId(key);
+      return e !== null && (role === undefined || e.role === role);
+    })
+    .sort(naturalCompare);
+}
+
 module.exports = {
   MAPPING_VERSION,
   MAPPING_REL,
@@ -590,6 +675,10 @@ module.exports = {
   getTrd,
   setTrd,
   listTrds,
+  toEntityId,
+  getEntity,
+  setEntity,
+  listEntities,
   compareIds,
   listObjectiveIndex,
   resolveObjective,
