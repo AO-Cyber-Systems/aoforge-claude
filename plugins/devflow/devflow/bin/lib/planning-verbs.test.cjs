@@ -353,3 +353,166 @@ describe('store mode: a worktree writes the MAIN checkout (D-14)', () => {
     assert.equal(ledgerExists(wt), false, 'no worktree ledger');
   });
 });
+
+// ─── Task 2: objective, summary, verification and doc verbs ──────────────────
+
+const commentsOn = (number) => S.fake.comments.filter((c) => c.issue_number === number);
+const NEW_SUMMARY = `${STORE_FIXTURE.summary}\nUpdated by summary post.\n`;
+const VERIFICATION = '# Objective 7 Verification\n\nstatus: passed\n\nEvery success criterion holds.\n';
+
+describe('local mode: the other verbs write today\'s files (D-01)', () => {
+  useProject({ store: false });
+
+  test('3. objective put, summary post/checkpoint, verification post, doc put -> exact files, zero calls', () => {
+    const objective = `${STORE_FIXTURE.objective}\nA local edit.\n`;
+    const cases = [
+      [verbs.objectivePut(S.root, { id: '7', text: objective }), `${OBJ_REL}/OBJECTIVE.md`, objective],
+      [verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY }), `${OBJ_REL}/07-01-alpha-SUMMARY.md`, NEW_SUMMARY],
+      [verbs.summaryPost(S.root, { trd: '07-02', text: 'two\n' }), `${OBJ_REL}/07-02-SUMMARY.md`, 'two\n'],
+      [verbs.summaryCheckpoint(S.root, { trd: '07-03', text: 'wip\n' }), `${OBJ_REL}/07-03-SUMMARY.md`, 'wip\n'],
+      [verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION }), `${OBJ_REL}/07-VERIFICATION.md`, VERIFICATION],
+      [verbs.docPut(S.root, { rel: 'PROJECT.md', text: '# P\n' }), 'PROJECT.md', '# P\n'],
+    ];
+    for (const [r, rel, text] of cases) {
+      assert.equal(r.ok, true, JSON.stringify(r));
+      assert.equal(r.mode, 'local');
+      assert.equal(r.exit, 0);
+      assert.equal(r.rel, rel);
+      assert.ok(Buffer.from(text).equals(fs.readFileSync(planning(rel))), `${rel}: same bytes`);
+    }
+    assert.equal(fs.existsSync(planning('.trd-progress')), false, 'no checkpoint file in local mode');
+    assert.equal(S.fake.calls().length, 0, 'zero gh calls');
+    assert.equal(journalExists(), false);
+    assert.equal(ledgerExists(), false);
+  });
+
+  test('4. set-status edits only the status line; complete delegates; an unknown status lists them', () => {
+    const r = verbs.objectiveSetStatus(S.root, { id: '7', status: 'verifying' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0);
+    assert.equal(readRel(`${OBJ_REL}/OBJECTIVE.md`), STORE_FIXTURE.objective.replace('status: planned', 'status: verifying'));
+
+    const done = verbs.objectiveSetStatus(S.root, { id: '7', status: 'complete' });
+    assert.equal(done.ok, true);
+    assert.equal(done.delegate, 'objective complete');
+    assert.equal(readRel(`${OBJ_REL}/OBJECTIVE.md`), STORE_FIXTURE.objective.replace('status: planned', 'status: complete'));
+
+    const bogus = verbs.objectiveSetStatus(S.root, { id: '7', status: 'bogus' });
+    assert.equal(bogus.ok, false);
+    assert.equal(bogus.exit, 1);
+    for (const s of verbs.STATUSES) assert.ok(bogus.error.includes(s), `${s} is listed`);
+    assert.deepEqual(verbs.STATUSES, ['planned', 'in_progress', 'verifying', 'complete', 'cancelled', 'reopened']);
+    assert.equal(S.fake.calls().length, 0);
+    assert.equal(journalExists(), false);
+  });
+
+  test('5. doc put refuses files another verb owns, naming the class and the verb', () => {
+    const trdRel = `${OBJ_REL}/07-01-alpha-TRD.md`;
+    const before = readRel(trdRel);
+    const r = verbs.docPut(S.root, { rel: trdRel, text: 'nope\n' });
+    assert.equal(r.ok, false);
+    assert.equal(r.exit, 1);
+    assert.match(r.error, /plan put-trd/);
+    assert.match(r.error, /cache/);
+    assert.equal(readRel(trdRel), before, 'not written');
+    assert.match(verbs.docPut(S.root, { rel: `${OBJ_REL}/OBJECTIVE.md`, text: 'x\n' }).error, /objective put/);
+    assert.match(verbs.docPut(S.root, { rel: 'STATE.md', text: 'x\n' }).error, /generated/);
+    assert.match(verbs.docPut(S.root, { rel: '.trd-progress/7-01.md', text: 'x\n' }).error, /runtime/);
+    assert.equal(S.fake.calls().length, 0);
+  });
+});
+
+describe('store mode: summary, checkpoint, verification and status verbs', () => {
+  useProject({ store: true, sync: true });
+
+  test('9. summary post -> the summary comment on the TRD issue; the checkpoint file is removed', () => {
+    if (S.skipped) return;
+    fs.mkdirSync(planning('.trd-progress'), { recursive: true });
+    fs.writeFileSync(planning('.trd-progress', '7-01.md'), 'wip\n');
+    const r = verbs.summaryPost(S.root, { trd: '07-01', text: NEW_SUMMARY });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0, JSON.stringify(r));
+    assert.equal(r.rel, `${OBJ_REL}/07-01-alpha-SUMMARY.md`);
+    assert.equal(readRel(r.rel), NEW_SUMMARY);
+    const summaries = commentsOn(trdIssueNumber('7-01')).filter((c) => c.body.includes('kind=summary'));
+    assert.equal(summaries.length, 1, 'one sticky summary comment');
+    assert.ok(summaries[0].body.includes('Updated by summary post.'));
+    assert.equal(fs.existsSync(planning('.trd-progress', '7-01.md')), false, 'checkpoint removed');
+    assert.deepEqual(ledgerEntries(), {});
+    assert.equal(outbox.readCacheIndex(S.root)[r.rel], ghTrd.contentHash(NEW_SUMMARY));
+  });
+
+  test('10. summary checkpoint -> .trd-progress/<trd>.md, zero calls, no ledger entry, nothing queued', () => {
+    if (S.skipped) return;
+    const calls = S.fake.calls().length;
+    const r = verbs.summaryCheckpoint(S.root, { trd: '07-02', text: 'task 1 done\n' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0);
+    assert.equal(r.rel, '.trd-progress/7-02.md');
+    assert.equal(fs.readFileSync(planning('.trd-progress', '7-02.md'), 'utf8'), 'task 1 done\n');
+    assert.equal(fs.existsSync(planning(OBJ_REL, '07-02-SUMMARY.md')), false);
+    assert.equal(S.fake.calls().length, calls, 'zero gh calls');
+    assert.deepEqual(ledgerEntries(), {});
+    assert.equal(pendingOps().length, 0);
+  });
+
+  test('11. verification post -> the sticky verification comment on the objective issue', () => {
+    if (S.skipped) return;
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0, JSON.stringify(r));
+    assert.equal(readRel(`${OBJ_REL}/07-VERIFICATION.md`), VERIFICATION);
+    const found = commentsOn(objectiveIssue().number).filter((c) => c.body.includes('kind=verification'));
+    assert.equal(found.length, 1);
+    assert.ok(found[0].body.includes('Every success criterion holds.'));
+    assert.deepEqual(ledgerEntries(), {});
+  });
+
+  test('13. set-status complete closes the objective issue as completed; the frontmatter follows', () => {
+    if (S.skipped) return;
+    const r = verbs.objectiveSetStatus(S.root, { id: '7', status: 'complete' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0, JSON.stringify(r));
+    assert.equal(r.delegate, undefined, 'store mode closes the issue itself');
+    const issue = objectiveIssue();
+    assert.equal(issue.state, 'CLOSED');
+    assert.equal(issue.stateReason, 'completed');
+    assert.match(readRel(`${OBJ_REL}/OBJECTIVE.md`), /^status: complete$/m);
+  });
+
+  test('13b. set-status cancelled closes it as not planned; in_progress only edits the frontmatter', () => {
+    if (S.skipped) return;
+    const writes = S.fake.writes().length;
+    const moving = verbs.objectiveSetStatus(S.root, { id: '7', status: 'in_progress' });
+    assert.equal(moving.ok, true, JSON.stringify(moving));
+    assert.equal(objectiveIssue().state, 'OPEN');
+    assert.match(readRel(`${OBJ_REL}/OBJECTIVE.md`), /^status: in_progress$/m);
+    assert.ok(!S.fake.writes().slice(writes).some((w) => w.join(' ').includes('"state"')), 'no state change sent');
+
+    const r = verbs.objectiveSetStatus(S.root, { id: '7', status: 'cancelled' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(objectiveIssue().state, 'CLOSED');
+    assert.equal(objectiveIssue().stateReason, 'not_planned');
+  });
+});
+
+describe('store mode: doc put -> wiki pages', () => {
+  useProject({ store: true, sync: true });
+
+  test('12. research/a.md -> Research-a; 07-CONTEXT.md -> the objective context page', () => {
+    if (S.skipped) return;
+    const research = '# Research note a\n\nFindings.\n';
+    const r = verbs.docPut(S.root, { rel: 'research/a.md', text: research });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0, JSON.stringify(r));
+    assert.equal(readRel('research/a.md'), research);
+    assert.equal(S.remote.readRemotePage('Research-a'), research);
+
+    const context = `${STORE_FIXTURE.context}\n- One more decision.\n`;
+    const c = verbs.docPut(S.root, { rel: `${OBJ_REL}/07-CONTEXT.md`, text: context, message: 'context edit' });
+    assert.equal(c.ok, true, JSON.stringify(c));
+    assert.equal(S.remote.readRemotePage('Objective-7-store-demo-Context'), context);
+    assert.deepEqual(ledgerEntries(), {});
+    assert.equal(outbox.readCacheIndex(S.root)['research/a.md'], ghTrd.contentHash(research));
+  });
+});
