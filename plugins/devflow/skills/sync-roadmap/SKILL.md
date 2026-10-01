@@ -64,7 +64,7 @@ Plus objective-level rollup (decision #3) when ALL TRDs are `[x]`.
 
 Limitations:
 - **Single ROADMAP only.** No multi-repo, no nested ROADMAPs.
-- **No GitHub side effects.** Use `df:gh-sync` for GH state sync.
+- **No GitHub side effects.** Use `/devflow:gh-sync` for GitHub (store status, flush, pull; the mirror with the store off).
 - **No auto-deletion.** Orphan TRDs surface as warnings only — user manually decides.
 - **Forward-only rollup.** Once an objective Status flips to `complete`, the reconciler doesn't auto-revert even if a TRD becomes `[ ] (failed)`. Revert it with `df-tools objective set-status <id> reopened`; in local mode also correct the ROADMAP `**Status:**` line by hand (only the store regenerates it).
 

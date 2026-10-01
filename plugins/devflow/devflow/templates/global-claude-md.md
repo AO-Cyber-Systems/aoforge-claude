@@ -19,7 +19,7 @@ invoke the matching skill via the Skill tool instead of editing files directly.
 - Resume / status / progress / health → `/devflow:status` (`status resume`, `status pause`, `status check`)
 - Milestones → `/devflow:milestone <sub>`
 - Todos → `/devflow:todo add`, `/devflow:todo list`
-- Push planning state to GitHub issues → `/devflow:gh-sync`
+- GitHub store (migrate, status, flush, setup, release) → `/devflow:gh-sync`
 - Talk through an objective before planning → `/devflow:discuss-objective`
 
 Skills enforce atomic commits, state tracking, and verification. Run `/devflow:help` to list all commands.

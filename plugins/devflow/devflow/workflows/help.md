@@ -281,6 +281,16 @@ Archive accumulated objective directories from completed milestones.
 
 Usage: `/devflow:cleanup`
 
+**`/devflow:gh-sync [migrate [--dry-run]|status|flush|pull|setup [--apply]|release <tag>|<objective>|--all]`**
+Operate the GitHub store (opt-in `github.store: true`, where GitHub is the system of record).
+
+- `migrate` moves an existing project onto the store: it shows the plan and request estimate, asks, then runs migration 0011 (resumable)
+- `status`, `flush`, `pull` inspect and drain the outbox and rebuild the cache; `setup` configures the repository
+- `release <tag>` generates release notes; `<objective>` / `--all` mirror objectives to issues when the store is off
+
+Usage: `/devflow:gh-sync migrate --dry-run`
+Usage: `/devflow:gh-sync status`
+
 **`/devflow:help`**
 Show this command reference.
 
