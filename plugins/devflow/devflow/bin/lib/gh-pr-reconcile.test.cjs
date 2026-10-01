@@ -419,6 +419,30 @@ describe('49-12 gh pr reconcile', { skip: GIT ? false : 'git is not available' }
     assert.equal(headNow(), head);
   });
 
+  test('7b. when GitHub closed nothing on merge, the objective issue itself is a straggler and is closed with the TRDs', () => {
+    setup({ fake: { closeKeywordCap: 0 } });
+    startPr();
+    S.fake.humanMergePr(prNumber(), { method: 'squash' });
+    S.g.advanceOrigin({ message: 'squash merge' });
+    for (const num of allIssues()) assert.equal(isOpen(num), true, `#${num} is open after the merge`);
+    const r = reconcile();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(r.closed.includes(S.objN), 'the objective issue was closed by the reconcile');
+    for (const num of allIssues()) assert.equal(isOpen(num), false, `#${num} is closed`);
+  });
+
+  test('7c. merged_at is recorded as soon as the merge is confirmed, even when the rest of the reconcile could not run', () => {
+    setup({ fake: { closeKeywordCap: 1 } });
+    startPr();
+    S.fake.humanMergePr(prNumber(), { method: 'squash' });
+    S.g.advanceOrigin({ message: 'squash merge' });
+    assert.equal(prRecord().merged_at, undefined);
+    const r = reconcile({ flush: false });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(typeof prRecord().merged_at, 'string', 'merged_at is the merge signal planning verbs read');
+    assert.equal(prRecord().reconciled_at, undefined, 'but the reconcile is not done');
+  });
+
   test('15. a reconcile run with --no-flush leaves the GitHub ops queued and does nothing locally', () => {
     setup({ fake: { closeKeywordCap: 1 } });
     startPr();
