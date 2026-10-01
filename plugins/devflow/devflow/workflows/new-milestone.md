@@ -3,7 +3,7 @@ status: active
 ---
 <purpose>
 
-Start a new milestone cycle for an existing project. Loads project context, gathers milestone goals (from MILESTONE-CONTEXT.md or conversation), updates PROJECT.md and STATE.md, optionally runs parallel research, defines scoped requirements with REQ-IDs, spawns the roadmapper to create phased execution plan, and commits all artifacts. Brownfield equivalent of new-project.
+Start a new milestone cycle for an existing project. Loads project context, gathers milestone goals (from MILESTONE-CONTEXT.md or conversation), revises PROJECT.md (`df-tools doc put`) and the STATE.md position, optionally runs parallel research, defines scoped requirements with REQ-IDs, spawns the roadmapper to plan the objectives, and commits all artifacts. Brownfield equivalent of new-project.
 
 </purpose>
 
@@ -39,9 +39,9 @@ Read all files referenced by the invoking prompt's execution_context before star
 - Suggest next version (v1.0 → v1.1, or v2.0 for major)
 - Confirm with user
 
-## 4. Update PROJECT.md
+## 4. Revise PROJECT.md
 
-Add/update:
+Work in the draft `node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md` prints (seeded with the current file). Add or revise:
 
 ```markdown
 ## Current Milestone: v[X.Y] [Name]
@@ -54,9 +54,15 @@ Add/update:
 - [Feature 3]
 ```
 
-Update Active requirements section and "Last updated" footer.
+Also revise the Active requirements section and the "Last updated" footer, then publish:
 
-## 5. Update STATE.md
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put PROJECT.md --from "$DRAFT"
+```
+
+## 5. Move STATE.md to the new milestone
+
+Check `node ~/.claude/devflow/bin/df-tools.cjs planning mode`. **Store:** STATE.md is generated — `gh pull --all` refreshes it once the roadmapper has created this milestone's objectives; no hand edit here. **Local:** edit `.planning/STATE.md` as today:
 
 ```markdown
 ## Current Position
@@ -138,7 +144,8 @@ Focus ONLY on what's needed for the NEW features.
 <quality_gate>{GATES}</quality_gate>
 
 <output>
-Write to: .planning/research/{FILE}
+Draft path: `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/{FILE}` — put the file there.
+Publish: `node ~/.claude/devflow/bin/df-tools.cjs doc put research/{FILE} --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/devflow/templates/research-project/{FILE}
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="{DIMENSION} research")
@@ -168,7 +175,7 @@ Return the SUMMARY.md content between the BEGIN/END markers. Do not write files.
 ", subagent_type="research-synthesizer", model="{synthesizer_model}", description="Synthesize research")
 ```
 
-**Write and commit SUMMARY.md (orchestrator):**
+**Publish and commit SUMMARY.md (orchestrator):**
 
 a. **Extract** the text strictly between the `--- BEGIN SUMMARY.md ---` and
    `--- END SUMMARY.md ---` lines of the synthesizer's final message (markers excluded).
@@ -176,9 +183,12 @@ a. **Extract** the text strictly between the `--- BEGIN SUMMARY.md ---` and
    `## SYNTHESIS COMPLETE` header block (the header line and the file list / `**Output:**` lines
    that follow it, up to the first line of the summary body).
    If the message is `## SYNTHESIS BLOCKED`, surface the blocker instead of writing anything.
-b. **Write** it verbatim to `.planning/research/SUMMARY.md` with the Write tool. Do not
-   summarise, reword or reformat it.
-c. **Commit** all research in one commit. The researchers wrote their four files without
+b. **Publish** it verbatim. Run `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/SUMMARY.md`,
+   put the extracted text at the printed path with the Write tool, then run
+   `node ~/.claude/devflow/bin/df-tools.cjs doc put research/SUMMARY.md --from "$DRAFT"`.
+   Do not summarise, reword or reformat it: local mode stores exactly those bytes in
+   `.planning/research/SUMMARY.md`; store mode publishes the research wiki page.
+c. **Commit** all research in one commit. The researchers published their four files without
    committing, so this single commit covers all 5 files:
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs commit "docs: complete project research" --files .planning/research/
@@ -297,10 +307,10 @@ Create roadmap for milestone v[X.Y]:
 3. Map every requirement to exactly one objective
 4. Derive 2-5 success criteria per objective (observable user behaviors)
 5. Validate 100% coverage
-6. Write files immediately (ROADMAP.md, STATE.md, update REQUIREMENTS.md traceability)
+6. Persist immediately, per your Step 7: run `node ~/.claude/devflow/bin/df-tools.cjs planning mode`; `local` → write ROADMAP.md and STATE.md as today; `store` → `objective add` + `objective put` per objective, then `gh pull --all`; both → publish the REQUIREMENTS.md traceability with `doc put REQUIREMENTS.md`
 7. Return ROADMAP CREATED with summary
 
-Write files first, then return.
+Persist first, then return.
 </instructions>
 ", subagent_type="roadmapper", model="{roadmapper_model}", description="Create roadmap")
 ```

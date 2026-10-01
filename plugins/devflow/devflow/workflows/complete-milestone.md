@@ -3,7 +3,7 @@ status: active
 ---
 <purpose>
 
-Mark a shipped version (v1.0, v1.1, v2.0) as complete. Creates historical record in MILESTONES.md, performs full PROJECT.md evolution review, reorganizes ROADMAP.md with milestone groupings, and tags the release in git.
+Mark a shipped version (v1.0, v1.1, v2.0) as complete. Records the historical MILESTONES.md entry (`df-tools milestone put`), performs full PROJECT.md evolution review, regroups ROADMAP.md by milestone, and tags the release in git.
 
 </purpose>
 
@@ -23,12 +23,15 @@ When a milestone completes:
 
 1. Extract full milestone details to `.planning/milestones/v[X.Y]-ROADMAP.md`
 2. Archive requirements to `.planning/milestones/v[X.Y]-REQUIREMENTS.md`
-3. Update ROADMAP.md — replace milestone details with one-line summary
+   (local: `df-tools milestone complete` builds both; store: each is published with `df-tools doc put milestones/v[X.Y]-<KIND>.md`)
+3. Collapse ROADMAP.md — replace milestone details with one-line summary
 4. Delete REQUIREMENTS.md (fresh one for next milestone)
 5. Perform full PROJECT.md evolution review
 6. Offer to create next milestone inline
 
 **Context Efficiency:** Archives keep ROADMAP.md constant-size and REQUIREMENTS.md milestone-scoped.
+
+**Store mode (D-05):** In store mode the milestone is a native GitHub milestone; its description holds a short summary and links the wiki page `Milestone-vX_Y` with the full entry. `df-tools milestone put` sets both; `df-tools milestone complete <version>` closes the milestone and publishes the `milestones/v[X.Y]-*.md` archives as wiki pages.
 
 **ROADMAP archive** uses `templates/milestone-archive.md` — includes milestone header (status, objectives, date), full objective details, milestone summary (decisions, issues, tech debt).
 
@@ -176,9 +179,9 @@ Key accomplishments for this milestone:
 
 <step name="create_milestone_entry">
 
-**Note:** MILESTONES.md entry is now created automatically by `df-tools milestone complete` in the archive_milestone step. The entry includes version, date, objective/job/task counts, and accomplishments extracted from SUMMARY.md files.
+Draft the full MILESTONES.md entry now; the archive_milestone step records it with `milestone put`. `node ~/.claude/devflow/bin/df-tools.cjs planning draft milestones/v[X.Y].md` prints the draft path. Follow `templates/milestone.md`: version, date, objective/job/task counts, accomplishments from the SUMMARY.md files, plus any user-provided "Delivered" summary, git range, LOC stats and — if the user proceeded with gaps — `### Known Gaps`.
 
-If additional details are needed (e.g., user-provided "Delivered" summary, git range, LOC stats), add them manually after the CLI creates the base entry.
+In local mode `df-tools milestone complete` first adds a base entry with the counts and accomplishments; `milestone put` then replaces it, because both carry the same `## v[X.Y]` heading.
 
 </step>
 
@@ -231,11 +234,17 @@ cat .planning/objectives/*-*/*-SUMMARY.md
 6. **Constraints check:**
    - Any constraints changed during development? Update as needed
 
-Update PROJECT.md inline. Update "Last updated" footer:
+Make these PROJECT.md changes in the draft `node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md` prints (seeded with the current file). Set the "Last updated" footer:
 
 ```markdown
 ---
 *Last updated: [date] after v[X.Y] milestone*
+```
+
+When the review is done, publish the draft:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put PROJECT.md --from "$DRAFT"
 ```
 
 **Example full evolution (v1.0 → v1.1 prep):**
@@ -323,7 +332,7 @@ Initial user testing showed demand for shape tools.
 
 <step name="reorganize_roadmap">
 
-Update `.planning/ROADMAP.md` — group completed milestone objectives:
+Check `node ~/.claude/devflow/bin/df-tools.cjs planning mode`. **Store:** ROADMAP.md is a generated view — `gh pull --all` regroups it from the native milestones after archive_milestone; do not hand-edit it. **Local:** edit `.planning/ROADMAP.md` as today — group completed milestone objectives:
 
 ```markdown
 # Roadmap: [Project Name]
@@ -367,7 +376,9 @@ Update `.planning/ROADMAP.md` — group completed milestone objectives:
 
 <step name="archive_milestone">
 
-**Delegate archival to df-tools:**
+**Delegate archival to df-tools.** Check `node ~/.claude/devflow/bin/df-tools.cjs planning mode` first.
+
+**Local mode** (as today):
 
 ```bash
 ARCHIVE=$(node ~/.claude/devflow/bin/df-tools.cjs milestone complete "v[X.Y]" --name "[Milestone Name]")
@@ -384,6 +395,23 @@ The CLI handles:
 Extract from result: `version`, `date`, `objectives`, `plans`, `tasks`, `accomplishments`, `archived`.
 
 Verify: `✅ Milestone archived to .planning/milestones/`
+
+Then record the full entry drafted in create_milestone_entry; it replaces the CLI's base entry:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$DRAFT"
+```
+
+**Store mode:** `milestone complete` closes the native milestone and publishes the archives already under `milestones/`; it does not build them. Draft each archive first (`planning draft milestones/v[X.Y]-<KIND>.md` prints a path): the ROADMAP archive is the milestone's objectives and details from the current ROADMAP.md and the REQUIREMENTS archive is REQUIREMENTS.md under the archive header from `templates/milestone-archive.md` (audit-milestone already published `milestones/v[X.Y]-MILESTONE-AUDIT.md` in store mode). Then:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put milestones/v[X.Y]-ROADMAP.md --from "$ROADMAP_DRAFT"
+node ~/.claude/devflow/bin/df-tools.cjs doc put milestones/v[X.Y]-REQUIREMENTS.md --from "$REQUIREMENTS_DRAFT"
+node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$DRAFT"
+node ~/.claude/devflow/bin/df-tools.cjs milestone complete "v[X.Y]"
+```
+
+The stats for the summary come from gather_stats.
 
 **Objective archival (optional):** After archival completes, ask the user:
 
@@ -443,7 +471,7 @@ rm .planning/REQUIREMENTS.md
 
 <step name="update_state">
 
-Most STATE.md updates were handled by `milestone complete`, but verify and update remaining fields:
+Check `node ~/.claude/devflow/bin/df-tools.cjs planning mode`. **Store:** STATE.md is generated — run `node ~/.claude/devflow/bin/df-tools.cjs gh pull --all` so it reflects the closed milestone, and leave the fields below to it. **Local:** most STATE.md fields were set by `milestone complete`; check them and edit the remaining ones:
 
 **Project Reference:**
 

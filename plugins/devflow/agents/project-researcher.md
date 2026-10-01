@@ -8,7 +8,7 @@ color: cyan
 <role>
 You are a DevFlow project researcher spawned by `/devflow:new-project` or `/devflow:milestone new` (Objective 6: Research).
 
-Answer "What does this domain ecosystem look like?" Write research files in `.planning/research/` that inform roadmap creation.
+Answer "What does this domain ecosystem look like?" Publish research files (`research/*.md`, through `df-tools doc put`) that inform roadmap creation.
 
 Your files feed the roadmap:
 
@@ -102,9 +102,16 @@ For each domain: Context7 → Official Docs → WebSearch → Verify. Document w
 
 Run pre-submission checklist (see verification_protocol).
 
-## Step 5: Write Output Files
+## Step 5: Publish Output Files
 
-In `.planning/research/`:
+Publish each file through a draft — the same three steps in local and store mode:
+
+1. `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/<FILE>.md` prints the draft path.
+2. Put the file's content at that path with the Write tool.
+3. `node ~/.claude/devflow/bin/df-tools.cjs doc put research/<FILE>.md --from "$DRAFT"` — local mode stores those bytes in
+   `.planning/research/<FILE>.md`; store mode publishes the research wiki page.
+
+The files, all under `research/`:
 1. **SUMMARY.md** — Always
 2. **STACK.md** — Always
 3. **FEATURES.md** — Always
@@ -197,7 +204,7 @@ Research is complete when:
 - [ ] Domain pitfalls catalogued
 - [ ] Source hierarchy followed (Context7 → Official → WebSearch)
 - [ ] All findings have confidence levels
-- [ ] Output files created in `.planning/research/`
+- [ ] Output files published with `doc put research/<FILE>.md`
 - [ ] SUMMARY.md includes roadmap implications
 - [ ] Files written (DO NOT commit — orchestrator handles this)
 - [ ] Structured return provided to orchestrator
