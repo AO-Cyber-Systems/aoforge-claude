@@ -1655,3 +1655,407 @@ describe('48-06 entity issues', () => {
     assert.equal(S.fake.writes().length, 0);
   });
 });
+
+// ─── 49-05: the objective pull request ───────────────────────────────────────
+
+describe('49-05 objective PR', () => {
+  const BRANCH = 'df/objective-49-pr-lifecycle';
+  const TIP = `feed${'0'.repeat(36)}`;
+  const WIKI = {
+    dir: '49-pr-lifecycle', page: 'Objective-49-pr-lifecycle',
+    url: 'https://github.com/o/r/wiki/Objective-49-pr-lifecycle/abc1234', sha: 'abc1234',
+  };
+  const TITLE = '[Objective 49] PR lifecycle';
+  useStore({ fake: { refs: { [BRANCH]: TIP } } });
+
+  const upsertPr = (payload = {}, id = '49') => ({
+    kind: 'upsert-pr', target: { id }, payload: { branch: BRANCH, base: 'main', title: TITLE, ...payload },
+  });
+  const readyOp = (id = '49') => ({ kind: 'pr-ready', target: { id }, payload: {} });
+  const prs = () => S.fake.issues.filter((i) => i.pr);
+  const calls = (from = 0) => S.log.slice(from).map((c) => c.args.join(' '));
+
+  function addTrd(mapping, id, labels = ['devflow:trd']) {
+    const n = S.fake.seedIssue({ title: `[TRD ${id}] x`, labels });
+    mappingLib.setTrd(mapping, id, { issue_number: n, rest_id: restId(n) });
+    return n;
+  }
+  /** The objective issue and its TRD issues, seeded in the fake and mapped. Returns `{objective, '49-01': n, ...}`. */
+  function seedProject(trdIds = ['49-01', '49-02'], labels = ['devflow:trd']) {
+    const objective = S.fake.seedIssue({
+      title: '[Objective 49] PR lifecycle', body: bodyLib.mergeManaged('', { summary: 'S' }, '49').body, labels: ['devflow:objective'],
+    });
+    const mapping = mappingNow();
+    mappingLib.setEntry(mapping, '49', { issue_id: objective });
+    const numbers = { objective };
+    for (const id of trdIds) numbers[id] = addTrd(mapping, id, labels);
+    assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+    return numbers;
+  }
+  function addTrdNow(id, labels) {
+    const mapping = mappingNow();
+    const n = addTrd(mapping, id, labels);
+    assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+    return n;
+  }
+  const closesOf = (n) => bodyLib.extractSection(issueByNumber(n).body, 'closes');
+  const closesText = (...numbers) => numbers.map((n) => `Closes #${n}`).join('\n');
+
+  test('3a. classifyFailure: a 422 "No commits between" is pending, any other 422 is still a validation failure', () => {
+    const fail = (stderr) => ({ ok: false, status: 1, stdout: '', stderr });
+    assert.equal(flushLib.classifyFailure(fail('gh: Validation Failed (HTTP 422)\nNo commits between main and df/x')), 'pending');
+    assert.equal(flushLib.classifyFailure(fail('gh: Validation Failed (HTTP 422)\nA pull request already exists for o:df/x.')), 'already_exists');
+    assert.equal(flushLib.classifyFailure(fail('gh: Validation Failed (HTTP 422)\nhead invalid')), 'validation');
+    assert.equal(flushLib.classifyFailure(fail('gh: Server Error (HTTP 500) No commits between a and b')), 'error', 'only a 422 is pending');
+  });
+
+  test('4. upsert-pr creates ONE draft PR (base = default branch, head = objective branch) closing the objective and each TRD, in order', () => {
+    const nums = seedProject(['49-01', '49-02']);
+    const decision = S.fake.seedIssue({ title: '[Decision 49-01-d1]', labels: ['devflow:decision'] });
+    const withDecision = mappingNow();
+    mappingLib.setTrd(withDecision, '49-01-d1', { issue_number: decision, rest_id: restId(decision) });
+    assert.ok(mappingLib.writeMappingV3(S.root, withDecision).ok);
+
+    const { res } = exec(upsertPr({ wiki: WIKI, summary: 'Adds the PR lifecycle.' }));
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(prs().length, 1);
+    const pr = prs()[0];
+    assert.equal(pr.pr.draft, true);
+    assert.equal(pr.pr.base.ref, 'main');
+    assert.equal(pr.pr.head.ref, BRANCH);
+    assert.equal(pr.title, TITLE);
+
+    assert.equal(closesOf(pr.number), closesText(nums.objective, nums['49-01'], nums['49-02']));
+    assert.ok(!pr.body.includes(`#${decision}`), 'a Decision issue is never closed by the PR');
+    assert.ok(pr.body.startsWith('<!-- devflow:pr=49 -->\n'), pr.body);
+    assert.ok(!pr.body.includes('devflow:id='));
+    assert.equal(bodyLib.extractSection(pr.body, 'wiki'), bodyLib.buildWikiSection(WIKI));
+    assert.equal(bodyLib.extractSection(pr.body, 'summary'), 'Adds the PR lifecycle.');
+
+    const entry = mappingLib.getPr(mappingNow(), '49');
+    assert.equal(entry.number, pr.number);
+    assert.equal(entry.node_id, `PR_${pr.number}`);
+    assert.equal(entry.branch, BRANCH);
+    assert.equal(entry.base, 'main');
+    assert.ok(typeof entry.url === 'string' && entry.url.endsWith(`/pull/${pr.number}`), entry.url);
+
+    const posts = S.log.filter((c) => c.args.join(' ') === 'api --method POST repos/o/r/pulls --input -');
+    assert.equal(posts.length, 1, 'the body travels on stdin, never in argv');
+    assert.deepEqual(JSON.parse(posts[0].opts.input), { title: TITLE, head: BRANCH, base: 'main', body: pr.body, draft: true });
+    assert.equal(S.fake.writes().length, 1);
+    const base = outbox.getBase(S.root, 'pr:49');
+    assert.equal(base.issue_number, pr.number);
+    assert.equal(base.body_hash, hashOf(pr.body));
+  });
+
+  test('4b. an objective with no issue yet is an error, never a PR', () => {
+    const { res } = exec(upsertPr());
+    assert.equal(res.ok, false);
+    assert.match(res.error, /objective 49 has no issue yet/);
+    assert.equal(S.fake.writes().length, 0);
+    assert.equal(prs().length, 0);
+  });
+
+  test('4c. the default branch is read once per context', () => {
+    seedProject();
+    const ctx = createCtx();
+    assert.equal(exec(upsertPr(), { ctx }).res.ok, true);
+    assert.equal(exec(upsertPr(), { ctx }).res.ok, true);
+    assert.equal(calls().filter((a) => a === 'api repos/o/r').length, 1);
+  });
+
+  test('5. a re-flush writes nothing; with the mapped number cleared the PR is found by its head, never created twice', () => {
+    seedProject();
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const writes = S.fake.writes().length;
+
+    const again = exec(upsertPr());
+    assert.equal(again.res.ok, true);
+    assert.equal(S.fake.writes().length, writes, 'zero writes on an unchanged PR');
+    assert.equal(prs().length, 1);
+
+    const mapping = mappingNow();
+    const number = mappingLib.getPr(mapping, '49').number;
+    mappingLib.setPr(mapping, '49', { number: null });
+    assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+    const start = S.log.length;
+    const found = exec(upsertPr());
+    assert.equal(found.res.ok, true, JSON.stringify(found.res));
+    assert.ok(calls(start).includes('api --paginate --slurp repos/o/r/pulls?head=o%3Adf%2Fobjective-49-pr-lifecycle&state=all'), calls(start).join('\n'));
+    assert.equal(S.fake.writes().length, writes, 'still zero writes');
+    assert.equal(prs().length, 1);
+    assert.equal(mappingLib.getPr(mappingNow(), '49').number, number, 'the number is recorded again');
+  });
+
+  test('5b. a stale mapped number (404) falls back to the head lookup', () => {
+    seedProject();
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const mapping = mappingNow();
+    mappingLib.setPr(mapping, '49', { number: 987 });
+    assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+    const writes = S.fake.writes().length;
+    const { res } = exec(upsertPr());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(S.fake.writes().length, writes);
+    assert.equal(mappingLib.getPr(mappingNow(), '49').number, prs()[0].number);
+  });
+
+  test('6. a TRD added after the PR exists is closed by the next upsert-pr; the human text is kept', () => {
+    const nums = seedProject(['49-01', '49-02']);
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const n = prs()[0].number;
+    S.fake.humanEditBody(n, `${issueByNumber(n).body}\nHuman note below.\n`);
+    nums['49-03'] = addTrdNow('49-03');
+    const { res } = exec(upsertPr());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(closesOf(n), closesText(nums.objective, nums['49-01'], nums['49-02'], nums['49-03']));
+    assert.match(issueByNumber(n).body, /Human note below\./);
+    assert.equal(prs().length, 1);
+  });
+
+  test('6b. TRDs are closed in id order, natural (49-10 after 49-02), whatever order the mapping holds them', () => {
+    const nums = seedProject(['49-10', '49-02', '49-01']);
+    assert.equal(exec(upsertPr()).res.ok, true);
+    assert.equal(closesOf(prs()[0].number), closesText(nums.objective, nums['49-01'], nums['49-02'], nums['49-10']));
+  });
+
+  test('6c. a refresh with no wiki or summary leaves the earlier ones in place', () => {
+    seedProject();
+    assert.equal(exec(upsertPr({ wiki: WIKI, summary: 'First.' })).res.ok, true);
+    const n = prs()[0].number;
+    addTrdNow('49-03');
+    assert.equal(exec(upsertPr({ title: undefined })).res.ok, true);
+    assert.equal(bodyLib.extractSection(issueByNumber(n).body, 'summary'), 'First.');
+    assert.equal(bodyLib.extractSection(issueByNumber(n).body, 'wiki'), bodyLib.buildWikiSection(WIKI));
+  });
+
+  test('7. a human edit INSIDE the closes section halts the queue with a report naming the PR; nothing is written', () => {
+    const nums = seedProject();
+    enqueueOps([upsertPr()]);
+    assert.equal(runFlush().status, 'flushed');
+    const n = prs()[0].number;
+    S.fake.humanEditBody(n, issueByNumber(n).body.replace(`Closes #${nums.objective}`, 'Closes #9999'));
+    addTrdNow('49-03');
+    const writes = S.fake.writes().length;
+
+    enqueueOps([upsertPr()]);
+    const res = runFlush();
+    assert.equal(res.status, 'halted');
+    assert.equal(res.halted.reason, 'remote-edit');
+    assert.equal(res.issue_number, n);
+    assert.match(res.halted.detail, new RegExp(`pull request #${n}\\b`));
+    assert.equal(S.fake.writes().length, writes, 'nothing was written');
+    assert.match(issueByNumber(n).body, /Closes #9999/, 'the human edit is untouched');
+  });
+
+  test('7b. a human edit only OUTSIDE the managed sections is merged and the update goes through', () => {
+    const nums = seedProject();
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const n = prs()[0].number;
+    S.fake.humanEditBody(n, `Reviewer note above.\n\n${issueByNumber(n).body}`);
+    nums['49-03'] = addTrdNow('49-03');
+    const { res } = exec(upsertPr());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.halt, undefined);
+    assert.match(issueByNumber(n).body, /Reviewer note above\./);
+    assert.equal(closesOf(n), closesText(nums.objective, nums['49-01'], nums['49-02'], nums['49-03']));
+  });
+
+  test('7c. resolveHalt: overwrite restores DevFlow\'s closes on the next flush; accept-remote drops the op and keeps the human text', () => {
+    const nums = seedProject();
+    enqueueOps([upsertPr()]);
+    assert.equal(runFlush().status, 'flushed');
+    const n = prs()[0].number;
+    const edit = () => S.fake.humanEditBody(n, issueByNumber(n).body.replace(`Closes #${nums.objective}`, 'Closes #9999'));
+    edit();
+    addTrdNow('49-03');
+    const [seq] = enqueueOps([upsertPr()]);
+    assert.equal(runFlush().status, 'halted');
+
+    const kept = flushLib.resolveHalt(S.root, seq, 'overwrite', { modes: NATIVE, caps: CAPS });
+    assert.equal(kept.ok, true, JSON.stringify(kept));
+    assert.equal(runFlush().status, 'flushed');
+    assert.ok(!issueByNumber(n).body.includes('#9999'));
+    assert.match(closesOf(n), new RegExp(`Closes #${nums.objective}\\n`));
+
+    edit();
+    const [seq2] = enqueueOps([upsertPr({ summary: 'again' })]);
+    assert.equal(runFlush().status, 'halted');
+    const taken = flushLib.resolveHalt(S.root, seq2, 'accept-remote', { modes: NATIVE, caps: CAPS });
+    assert.equal(taken.ok, true, JSON.stringify(taken));
+    assert.equal(taken.dropped, true);
+    assert.match(issueByNumber(n).body, /Closes #9999/);
+    assert.equal(outbox.getBase(S.root, 'pr:49').body_hash, hashOf(issueByNumber(n).body));
+    assert.equal(outbox.status(S.root).queue.length, 0);
+  });
+
+  test('8. a base that is not the default branch halts the op, naming both branches; nothing is written', () => {
+    seedProject();
+    const { res } = exec(upsertPr({ base: 'release' }));
+    assert.equal(res.ok, false);
+    assert.equal(res.class, 'validation');
+    assert.match(res.error, /"release"/);
+    assert.match(res.error, /"main"/);
+    assert.equal(S.fake.writes().length, 0);
+    assert.equal(prs().length, 0);
+
+    enqueueOps([upsertPr({ base: 'release' })]);
+    const flushed = runFlush();
+    assert.equal(flushed.status, 'halted');
+    assert.equal(flushed.halted.reason, 'blocked');
+    assert.match(flushed.halted.detail, /"release"/);
+  });
+
+  test('9. a head equal to the base tip stays PENDING (not halted); after a push the next flush creates the PR', () => {
+    seedProject();
+    S.fake.pushRef(BRANCH, S.fake.refs.main);
+    enqueueOps([upsertPr()]);
+    const first = runFlush();
+    assert.equal(first.status, 'pending');
+    assert.equal(first.reason, 'pending');
+    assert.match(first.detail, /No commits between/);
+    assert.equal(first.halted, null);
+    assert.deepEqual(first.done, []);
+    assert.equal(queueNow()[0].status, 'pending');
+    assert.equal(prs().length, 0);
+
+    S.fake.pushRef(BRANCH, TIP);
+    const second = runFlush();
+    assert.equal(second.status, 'flushed', JSON.stringify(second));
+    assert.equal(prs().length, 1);
+    assert.equal(prs()[0].pr.draft, true);
+  });
+
+  test('9a. a create needs a title: without one the op halts and nothing is written', () => {
+    seedProject();
+    const { res } = exec(upsertPr({ title: undefined }));
+    assert.equal(res.ok, false);
+    assert.equal(res.class, 'validation');
+    assert.match(res.error, /title needed to create the PR for objective 49/);
+    assert.equal(S.fake.writes().length, 0);
+    assert.equal(prs().length, 0);
+  });
+
+  test('9a. a refresh without a title updates the body only; a human-renamed title survives a refresh that carries one', () => {
+    seedProject();
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const n = prs()[0].number;
+    addTrdNow('49-03');
+    const start = S.log.length;
+    assert.equal(exec(upsertPr({ title: undefined })).res.ok, true);
+    const patches = S.log.slice(start).filter((c) => c.args.join(' ') === `api --method PATCH repos/o/r/pulls/${n} --input -`);
+    assert.equal(patches.length, 1);
+    assert.deepEqual(Object.keys(JSON.parse(patches[0].opts.input)), ['body'], 'only the body is sent');
+    assert.equal(issueByNumber(n).title, TITLE);
+
+    issueByNumber(n).title = 'Human renamed this';
+    addTrdNow('49-04');
+    const again = S.log.length;
+    assert.equal(exec(upsertPr({ title: '[Objective 49] A newer title' })).res.ok, true);
+    assert.equal(issueByNumber(n).title, 'Human renamed this');
+    const sent = S.log.slice(again).filter((c) => /--method PATCH repos\/o\/r\/pulls\//.test(c.args.join(' ')));
+    assert.deepEqual(sent.map((c) => Object.keys(JSON.parse(c.opts.input))), [['body']]);
+  });
+
+  test('9b. a closed PR for the head is not recreated and not edited', () => {
+    seedProject();
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const n = prs()[0].number;
+    issueByNumber(n).state = 'CLOSED';
+    addTrdNow('49-03');
+    const writes = S.fake.writes().length;
+    const { res } = exec(upsertPr());
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.ok(res.warnings.some((m) => /closed/.test(m) && m.includes(`#${n}`)), JSON.stringify(res.warnings));
+    assert.equal(S.fake.writes().length, writes);
+    assert.equal(prs().length, 1);
+  });
+
+  test('10. pr-ready on a draft marks it ready for review; a second flush writes nothing', () => {
+    seedProject();
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const n = prs()[0].number;
+    assert.equal(issueByNumber(n).pr.draft, true);
+
+    const start = S.log.length;
+    const first = exec(readyOp());
+    assert.equal(first.res.ok, true, JSON.stringify(first.res));
+    assert.equal(issueByNumber(n).pr.draft, false);
+    const mutations = S.log.slice(start).filter((c) => c.args[1] === 'graphql');
+    assert.equal(mutations.length, 1);
+    assert.ok(mutations[0].args.some((a) => /^query=mutation\b.*markPullRequestReadyForReview/s.test(a)));
+    assert.ok(mutations[0].args.includes(`pullRequestId=PR_${n}`));
+
+    const writes = S.fake.writes().length;
+    const second = exec(readyOp());
+    assert.equal(second.res.ok, true);
+    assert.equal(S.fake.writes().length, writes, 'already ready: zero writes');
+  });
+
+  test('10b. pr-ready with no PR yet is an error; on a closed PR it writes nothing and says so', () => {
+    seedProject();
+    const none = exec(readyOp());
+    assert.equal(none.res.ok, false);
+    assert.match(none.res.error, /objective 49 has no pull request yet/);
+
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const n = prs()[0].number;
+    issueByNumber(n).state = 'CLOSED';
+    const writes = S.fake.writes().length;
+    const closed = exec(readyOp());
+    assert.equal(closed.res.ok, true, JSON.stringify(closed.res));
+    assert.ok(closed.res.warnings.some((m) => /closed/.test(m)));
+    assert.equal(S.fake.writes().length, writes);
+    assert.equal(issueByNumber(n).pr.draft, true);
+  });
+
+  test('11. patch-issue labels_remove drops a label that is there and writes nothing for one that is not', () => {
+    const nums = seedProject(['49-01'], ['devflow:trd', 'devflow:in-progress']);
+    const remove = (labels) => exec({ kind: 'patch-issue', target: { id: '49-01' }, payload: { labels_remove: labels } });
+
+    const first = remove(['devflow:in-progress']);
+    assert.equal(first.res.ok, true, JSON.stringify(first.res));
+    assert.deepEqual(issueByNumber(nums['49-01']).labels, ['devflow:trd']);
+    assert.equal(S.fake.writes().length, 1);
+
+    const absent = remove(['devflow:in-progress']);
+    assert.equal(absent.res.ok, true);
+    assert.equal(S.fake.writes().length, 1, 'removing an absent label is a no-op');
+    assert.equal(remove(['devflow:never-there']).res.ok, true);
+    assert.equal(S.fake.writes().length, 1);
+  });
+
+  test('11b. labels_add and labels_remove together are one PATCH; a label in both is added, not removed', () => {
+    const nums = seedProject(['49-01'], ['devflow:trd', 'devflow:in-progress']);
+    const { res } = exec({ kind: 'patch-issue', target: { id: '49-01' }, payload: { labels_add: ['devflow:done'], labels_remove: ['devflow:in-progress'] } });
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.deepEqual(issueByNumber(nums['49-01']).labels, ['devflow:trd', 'devflow:done']);
+    assert.equal(writesMatching(/PATCH repos\/o\/r\/issues\/\d+/).length, 1);
+
+    const both = exec({ kind: 'patch-issue', target: { id: '49-01' }, payload: { labels_add: ['devflow:done'], labels_remove: ['devflow:done'] } });
+    assert.equal(both.res.ok, true);
+    assert.deepEqual(issueByNumber(nums['49-01']).labels, ['devflow:trd', 'devflow:done']);
+  });
+
+  test('12. a scan over issues does not resolve the PR as a TRD (records with pull_request are skipped)', () => {
+    seedProject(['49-01', '49-02']);
+    assert.equal(exec(upsertPr()).res.ok, true);
+    const pr = prs()[0];
+    pr.labels.push('devflow:trd');
+    S.fake.humanEditBody(pr.number, `<!-- devflow:id=49-03 -->\n${pr.body}`);
+
+    const file = '49-03-x-TRD.md';
+    const { res } = exec({
+      kind: 'upsert-issue',
+      target: { id: '49-03', role: 'trd' },
+      payload: {
+        title: '[TRD 49-03] x', body: trd.encodeTrdBody({ id: '49-03', file, text: '# x\n' }), labels: ['devflow:trd'], milestone_title: null, type: null,
+      },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.created, true, 'the PR was not adopted as TRD 49-03');
+    const entry = mappingLib.getTrd(mappingNow(), '49-03');
+    assert.notEqual(entry.issue_number, pr.number);
+    assert.equal(S.fake.issues.find((i) => i.number === entry.issue_number).pr, undefined);
+  });
+});
