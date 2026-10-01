@@ -15,10 +15,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const hierarchy = require('./gh-hierarchy.cjs');
+const { pathToFileURL } = require('node:url');
+
 const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const trd = require('./gh-trd.cjs');
+const bodyLib = require('./gh-body.cjs');
+const mappingLib = require('./gh-mapping.cjs');
+const comments = require('./gh-comments.cjs');
+const flushLib = require('./gh-outbox-flush.cjs');
+const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, oversizedTrdText, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
+const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
 
 const objectiveDir = (root) => path.join(root, '.planning', 'objectives', STORE_FIXTURE.objectiveDir);
 
@@ -257,5 +265,297 @@ describe('pure planning', () => {
     const kinds = ops.map((o) => `${o.kind}:${o.target.id || ''}:${o.target.kind || ''}`);
     assert.ok(kinds.indexOf('upsert-comment:7:verification') > kinds.indexOf('upsert-comment:7-01:summary'), kinds.join('\n'));
     assert.ok(kinds.indexOf('upsert-comment:7:verification') < kinds.indexOf('wiki-push::'), kinds.join('\n'));
+  });
+});
+
+// ─── Push + flush on the fake (tests 5-11, 14) ───────────────────────────────
+
+const T0 = Date.UTC(2026, 9, 1, 12, 0, 0);
+const SECTIONS = Object.freeze({ summary: 'Summary text', criteria: '- [ ] one\n- [ ] two', footer: 'Footer text' });
+const NATIVE = Object.freeze({ types: 'native', fields: 'native', hierarchy: 'native', pages: 'docs', writable: true });
+const CAPS = Object.freeze({ issue_fields: { available: true, ids: { work: 11, kind: 12 } } });
+
+/** Per-test state; `useStore()` rebuilds it before every test of the describe it is called in. */
+let S;
+
+/**
+ * Hermetic env, a store project, a fake GitHub installed through the client seam and a fake clock whose
+ * sleep advances it. `DEVFLOW_WIKI_REMOTE` points at a path that does not exist, so a test that has not
+ * set up a wiki cannot reach a real one by accident.
+ */
+function useStore({ fake: fakeOverrides = {}, project: projectOverrides = {} } = {}) {
+  beforeEach(() => {
+    const envh = hermeticEnv();
+    const project = makeStoreProject({ store: true, ...projectOverrides });
+    const fake = createFakeGitHub({ ...project.fakeOptions, ...fakeOverrides });
+    const clock = { t: T0, sleeps: [] };
+    client._setNow(() => clock.t);
+    client._setSleep((ms) => { clock.sleeps.push(ms); clock.t += ms; });
+    client._setRunGh(fake.runGh);
+    const savedRemote = process.env.DEVFLOW_WIKI_REMOTE;
+    process.env.DEVFLOW_WIKI_REMOTE = pathToFileURL(path.join(envh.root, 'no-wiki.git')).href;
+    S = { envh, project, root: project.root, fake, clock, savedRemote };
+  });
+  afterEach(() => {
+    client._resetClient();
+    if (S.savedRemote === undefined) delete process.env.DEVFLOW_WIKI_REMOTE;
+    else process.env.DEVFLOW_WIKI_REMOTE = S.savedRemote;
+    S.envh.restore();
+    S.project.cleanup();
+  });
+}
+
+const issueByNumber = (n) => S.fake.issues.find((i) => i.number === n);
+const mappingNow = () => mappingLib.readMappingV3(S.root);
+const trdNumber = (id) => mappingLib.getTrd(mappingNow(), id).issue_number;
+const getJson = (endpoint) => JSON.parse(S.fake.runGh(['api', endpoint]).stdout);
+
+/** The objective issue (marker + all four managed sections) seeded in the fake and mapped, as 46 leaves it. */
+function seedObjective({ criteria = SECTIONS.criteria } = {}) {
+  const body = bodyLib.mergeManaged('', { summary: SECTIONS.summary, criteria, trds: '_None yet._', footer: SECTIONS.footer }, '7').body;
+  const n = S.fake.seedIssue({ title: '[Objective 7] Store demo', body, labels: ['devflow:objective'] });
+  const mapping = mappingNow();
+  mappingLib.setEntry(mapping, '7', { issue_id: n });
+  assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
+  return n;
+}
+
+const push = (extra = {}) => hierarchy.pushHierarchy(S.root, '7', { objectiveSections: SECTIONS, flush: true, ...extra });
+const journalOps = () => outbox.readJournal(S.root).journal.ops;
+
+/** Run `fn(remote)` with a seeded local wiki remote wired in through DEVFLOW_WIKI_REMOTE and isolated git. */
+function withWikiRemote(fn) {
+  const restoreGit = applyGitTestEnv(path.join(S.envh.root, 'home'));
+  const remote = createWikiRemote();
+  process.env.DEVFLOW_WIKI_REMOTE = remote.remoteUrl;
+  try {
+    return fn(remote);
+  } finally {
+    restoreGit();
+    remote.cleanup();
+  }
+}
+
+describe('budget refusal (SC2)', () => {
+  useStore();
+
+  test('5. an oversized TRD refuses the objective: zero journal ops, zero gh writes, zero gh calls', () => {
+    seedObjective();
+    fs.writeFileSync(
+      path.join(objectiveDir(S.root), '07-04-big-TRD.md'),
+      oversizedTrdText(60001, { id: '7-04', file: '07-04-big-TRD.md' }),
+    );
+    const writesBefore = S.fake.writes().length;
+    const callsBefore = S.fake.calls().length;
+
+    const res = push();
+    assert.equal(res.ok, false);
+    assert.equal(res.refused, 'budget');
+    assert.deepEqual(res.over, [{ id: '7-04', chars: 60001 }]);
+    assert.match(res.message, /TRD 07-04 is 60,001 characters/);
+
+    assert.deepEqual(journalOps(), []);
+    assert.equal(S.fake.writes().length, writesBefore);
+    assert.equal(S.fake.calls().length, callsBefore, 'the gate runs before any capability probe');
+  });
+
+  test('5b. a project with github disabled is skipped; an objective with no issue yet says how to get one', () => {
+    const noIssue = push();
+    assert.equal(noIssue.ok, false);
+    assert.equal(noIssue.error, 'objective 7 has no issue yet; run df-tools gh sync 7');
+    assert.deepEqual(journalOps(), []);
+
+    const cfgFile = path.join(S.root, '.planning', 'config.json');
+    fs.writeFileSync(cfgFile, JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
+    const off = push();
+    assert.equal(off.ok, true);
+    assert.equal(off.skipped, true);
+    assert.equal(S.fake.calls().length, 0);
+  });
+});
+
+describe('pushHierarchy: native org with a wiki (SC1 push half)', () => {
+  useStore();
+
+  test('6. one push + flush builds sub-issues in id order, the blocked-by edge, TRD bodies, fields and the wiki link', (t) => {
+    if (!gitAvailable()) return t.skip('git is not available');
+    const obj = seedObjective();
+    withWikiRemote((remote) => {
+      const res = push();
+      assert.equal(res.ok, true, JSON.stringify(res));
+      assert.equal(res.flush.status, 'flushed', JSON.stringify(res.flush));
+      assert.deepEqual(res.degraded, []);
+
+      const numbers = ['7-01', '7-02', '7-03'].map(trdNumber);
+      assert.deepEqual(getJson(`repos/o/r/issues/${obj}/sub_issues`).map((i) => i.number), numbers);
+      assert.deepEqual(getJson(`repos/o/r/issues/${numbers[2]}/dependencies/blocked_by`).map((i) => i.number), [numbers[0]]);
+      assert.deepEqual(getJson(`repos/o/r/issues/${numbers[1]}/dependencies/blocked_by`), []);
+
+      for (const [i, id] of ['7-01', '7-02', '7-03'].entries()) {
+        const issue = issueByNumber(numbers[i]);
+        const file = STORE_FIXTURE.trdFiles[i];
+        assert.deepEqual(trd.decodeTrdBody(issue.body), { ok: true, id, file, text: STORE_FIXTURE.trds[file] });
+        assert.equal(issue.type, 'TRD');
+        assert.ok(issue.labels.includes('devflow:trd'));
+        assert.equal(issue.milestone, 'v9.9');
+      }
+      assert.equal(issueByNumber(trdNumber('7-03')).title, '[TRD 07-03] gamma');
+
+      const objective = issueByNumber(obj);
+      assert.equal(objective.type, 'Objective');
+      const fieldValues = JSON.stringify(objective.fieldValues);
+      assert.ok(fieldValues.includes('feature') && fieldValues.includes('plugin'), fieldValues);
+
+      // the objective body: caller sections, derived trds line, wiki section at the pushed revision
+      assert.equal(bodyLib.extractSection(objective.body, 'summary'), 'Summary text');
+      assert.equal(bodyLib.extractSection(objective.body, 'criteria'), SECTIONS.criteria);
+      assert.equal(bodyLib.extractSection(objective.body, 'trds'), '3 TRDs, tracked as sub-issues.');
+      assert.equal(bodyLib.parseDirMarker(objective.body), '07-store-demo');
+      const wikiSection = bodyLib.extractSection(objective.body, 'wiki');
+      assert.ok(wikiSection.includes(remote.headSha().slice(0, 7)), wikiSection);
+      assert.equal(bodyLib.extractSection(objective.body, 'meta'), null, 'native types and fields need no meta section');
+
+      assert.equal(remote.readRemotePage('Objective-7-store-demo'), STORE_FIXTURE.objective);
+      assert.equal(remote.readRemotePage('Project'), STORE_FIXTURE.project);
+    });
+  });
+
+  test('7. a SUMMARY file becomes a kind=summary comment on its TRD whose decode is the file', (t) => {
+    if (!gitAvailable()) return t.skip('git is not available');
+    seedObjective();
+    withWikiRemote(() => {
+      assert.equal(push().flush.status, 'flushed');
+      const n = trdNumber('7-01');
+      const mine = S.fake.comments.filter((c) => c.issue_number === n);
+      const decoded = comments.decodeFileComment(mine, '7-01', 'summary');
+      assert.equal(decoded.ok, true, JSON.stringify(decoded));
+      assert.equal(decoded.file, STORE_FIXTURE.summaryFile);
+      assert.equal(decoded.text, STORE_FIXTURE.summary);
+      assert.equal(S.fake.comments.filter((c) => c.issue_number === trdNumber('7-02')).length, 0);
+    });
+  });
+
+  test('8. a tick made on GitHub survives a re-push without a halt; an edited criterion TEXT halts', (t) => {
+    if (!gitAvailable()) return t.skip('git is not available');
+    const obj = seedObjective();
+    withWikiRemote(() => {
+      assert.equal(push().flush.status, 'flushed');
+
+      const ticked = issueByNumber(obj).body.replace('- [ ] one', '- [x] one');
+      assert.notEqual(ticked, issueByNumber(obj).body);
+      S.fake.humanEditBody(obj, ticked);
+      const again = push();
+      assert.equal(again.flush.status, 'flushed', JSON.stringify(again.flush));
+      assert.equal(bodyLib.extractSection(issueByNumber(obj).body, 'criteria'), '- [x] one\n- [ ] two', 'preserve_ticks keeps it');
+
+      S.fake.humanEditBody(obj, issueByNumber(obj).body.replace('- [ ] two', '- [ ] two, reworded by a human'));
+      const halted = push();
+      assert.equal(halted.flush.status, 'halted', JSON.stringify(halted.flush));
+      assert.equal(halted.flush.halted.reason, 'remote-edit');
+      assert.match(bodyLib.extractSection(issueByNumber(obj).body, 'criteria'), /reworded by a human/, 'the human text is not overwritten');
+    });
+  });
+
+  test('9. re-pushing an unchanged objective performs zero gh writes', (t) => {
+    if (!gitAvailable()) return t.skip('git is not available');
+    seedObjective();
+    withWikiRemote(() => {
+      assert.equal(push().flush.status, 'flushed');
+      const before = S.fake.writes().length;
+      assert.ok(before > 0);
+      const again = push();
+      assert.equal(again.flush.status, 'flushed', JSON.stringify(again.flush));
+      assert.equal(S.fake.writes().length, before, JSON.stringify(S.fake.writes().slice(before)));
+    });
+  });
+});
+
+describe('pushHierarchy: user-owned repo without a wiki (SC5 push half)', () => {
+  useStore({ fake: { ownerType: 'User', hasWiki: false }, project: { ownerType: 'User', hasWiki: false } });
+
+  test('10. labels + a meta section, native sub-issues and blocked-by, pages under docs/devflow/', () => {
+    const obj = seedObjective();
+    const res = push();
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.flush.status, 'flushed', JSON.stringify(res.flush));
+    assert.deepEqual(res.degraded, ['types', 'fields', 'wiki']);
+
+    const numbers = ['7-01', '7-02', '7-03'].map(trdNumber);
+    for (const n of numbers) {
+      const issue = issueByNumber(n);
+      assert.equal(issue.type, null);
+      assert.ok(issue.labels.includes('devflow:trd'), issue.labels.join());
+      assert.ok(issue.labels.includes('devflow:type/trd'), issue.labels.join());
+    }
+    const objective = issueByNumber(obj);
+    assert.ok(objective.labels.includes('devflow:type/objective'), objective.labels.join());
+    assert.deepEqual(bodyLib.parseMeta(bodyLib.extractSection(objective.body, 'meta')), { type: 'Objective', work: 'feature', kind: 'plugin' });
+
+    assert.deepEqual(getJson(`repos/o/r/issues/${obj}/sub_issues`).map((i) => i.number), numbers);
+    assert.deepEqual(getJson(`repos/o/r/issues/${numbers[2]}/dependencies/blocked_by`).map((i) => i.number), [numbers[0]]);
+
+    assert.equal(
+      fs.readFileSync(path.join(S.root, 'docs', 'devflow', 'Objective-7-store-demo.md'), 'utf8'),
+      STORE_FIXTURE.objective,
+    );
+    assert.equal(fs.existsSync(path.join(S.root, '.planning', 'wiki')), false, 'no wiki clone is created');
+    assert.match(bodyLib.extractSection(objective.body, 'wiki'), /docs\/devflow\/Objective-7-store-demo\.md/);
+  });
+});
+
+describe('pushHierarchy: frozen TRDs, read-only tokens, offline', () => {
+  useStore({ fake: { hasWiki: false }, project: { hasWiki: false } });
+
+  test('11. a frozen TRD body is never patched: a drift warning, no halt', () => {
+    seedObjective();
+    assert.equal(push().flush.status, 'flushed');
+    const n = trdNumber('7-01');
+    const original = issueByNumber(n).body;
+
+    const frozen = comments.freezeTrd(S.root, '7-01', { now: T0 });
+    assert.equal(frozen.ok, true, JSON.stringify(frozen));
+    assert.equal(flushLib.flush(S.root, { modes: NATIVE, caps: CAPS }).status, 'flushed');
+
+    const file = path.join(objectiveDir(S.root), '07-01-alpha-TRD.md');
+    fs.writeFileSync(file, `${STORE_FIXTURE.trds['07-01-alpha-TRD.md']}\nAn edit made after the freeze.\n`);
+    const again = push();
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal(again.flush.status, 'flushed', JSON.stringify(again.flush));
+    assert.equal(issueByNumber(n).body, original, 'the frozen body is unchanged on GitHub');
+    assert.ok(
+      again.flush.warnings.some((w) => /7-01/.test(w.message) && /frozen|drift/i.test(w.message)),
+      JSON.stringify(again.flush.warnings),
+    );
+  });
+
+  test('5c. pushed offline, the ops are queued and the flush stays pending; the same queue flushes once online', () => {
+    seedObjective();
+    S.fake.setOffline(true);
+    const res = push();
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.flush.status, 'pending', JSON.stringify(res.flush));
+    assert.equal(res.flush.reason, 'offline');
+    assert.ok(journalOps().length >= 12, `${journalOps().length} ops queued`);
+    assert.equal(S.fake.writes().filter((a) => a.includes('POST')).length, 0);
+
+    S.fake.setOffline(false);
+    const flushed = flushLib.flush(S.root, {});
+    assert.equal(flushed.status, 'flushed', JSON.stringify(flushed));
+    assert.deepEqual(getJson(`repos/o/r/issues/${mappingNow().objectives['7'].issue_id}/sub_issues`).length, 3);
+  });
+});
+
+describe('pushHierarchy: read-only token (14)', () => {
+  useStore({ fake: { push: false, hasWiki: false }, project: { hasWiki: false } });
+
+  test('14. writable:false refuses before anything is enqueued', () => {
+    seedObjective();
+    const writesBefore = S.fake.writes().length;
+    const res = push();
+    assert.equal(res.ok, false);
+    assert.equal(res.refused, 'readonly');
+    assert.match(res.error, /push access|read-only|not writable/i);
+    assert.deepEqual(journalOps(), []);
+    assert.equal(S.fake.writes().length, writesBefore);
   });
 });
