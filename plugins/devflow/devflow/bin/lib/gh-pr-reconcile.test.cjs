@@ -433,3 +433,220 @@ describe('49-12 gh pr reconcile', { skip: GIT ? false : 'git is not available' }
     assert.equal(S.pull.calls.length, 0);
   });
 });
+
+// ─── merge ───────────────────────────────────────────────────────────────────
+
+const merge = (opts = {}) => prLib.mergeObjectivePr(S.root, '7', { deps: deps(), ...opts });
+
+/** Mark the draft PR ready for review (the `pr-ready` op the verify pass queues). */
+function readyPr() {
+  assert.equal(outbox.enqueue(S.root, [{ kind: 'pr-ready', target: { id: '7' }, payload: {} }]).ok, true);
+  const f = flushLib.flush(S.root, { wait: false });
+  assert.equal(f.status, 'flushed', JSON.stringify(f));
+}
+
+/** Post the `devflow/verification` commit status on the PR head, as the verify pass does. */
+function verify(state = 'success') {
+  const op = { kind: 'post-status', target: { id: '7', context: 'devflow/verification' }, payload: { state, description: `Verification ${state}` } };
+  assert.equal(outbox.enqueue(S.root, [op]).ok, true);
+  const f = flushLib.flush(S.root, { wait: false });
+  assert.equal(f.status, 'flushed', JSON.stringify(f));
+}
+
+function setMergeMethod(value) {
+  const file = path.join(S.root, '.planning', 'config.json');
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  cfg.github.pr = { merge_method: value };
+  fs.writeFileSync(file, JSON.stringify(cfg));
+}
+
+describe('49-12 gh pr merge', { skip: GIT ? false : 'git is not available' }, () => {
+  test('1. a draft PR is refused before anything is queued', () => {
+    setup();
+    startPr();
+    verify();
+    const w = writesNow();
+    const r = merge();
+    assert.equal(r.ok, false);
+    assert.match(r.error, /PR is still a draft; run verification first/);
+    assert.equal(writesNow(), w);
+    assert.equal(queueNow().filter((o) => o.status !== 'done').length, 0);
+    assert.equal(issue(prNumber()).pr.merged, false);
+  });
+
+  test('2. a ready PR with no verification status is refused, naming devflow/verification', () => {
+    setup();
+    startPr();
+    readyPr();
+    const w = writesNow();
+    const r = merge();
+    assert.equal(r.ok, false);
+    assert.match(r.error, /devflow\/verification/);
+    assert.equal(writesNow(), w);
+    assert.equal(queueNow().filter((o) => o.status !== 'done').length, 0);
+    assert.equal(issue(prNumber()).pr.merged, false);
+  });
+
+  test('2b. a verification status that is not success is refused, with its state in the message', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify('failure');
+    const r = merge();
+    assert.equal(r.ok, false);
+    assert.match(r.error, /devflow\/verification/);
+    assert.match(r.error, /failure/);
+    assert.equal(issue(prNumber()).pr.merged, false);
+  });
+
+  test('2c. a success posted on an earlier head does not count once the branch has moved on', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify();
+    S.g.commitFile(S.root, 'later.txt', 'later\n', 'feat(7-01): later work');
+    assert.equal(prLib.syncObjectivePr(S.root, '7').ok, true);
+    const r = merge();
+    assert.equal(r.ok, false);
+    assert.match(r.error, /devflow\/verification/);
+    assert.equal(issue(prNumber()).pr.merged, false);
+  });
+
+  test('3. ready and verified with no queue: the PR is squash-merged and the same call reconciles', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify();
+    const n = prNumber();
+    const r = merge();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.merged, true);
+    assert.equal(r.method, 'squash');
+    assert.equal(issue(n).pr.merged, true);
+    assert.equal(issue(n).pr.mergeMethod, 'squash');
+    for (const num of allIssues()) assert.equal(isOpen(num), false, `#${num} is closed`);
+    assert.equal(S.fake.refs[BRANCH], undefined, 'the remote branch is gone');
+    assert.equal(branchNow(), 'main');
+    assert.equal(headNow(), originMain(), 'main is at origin\'s tip');
+    assert.ok(!localBranches().includes(BRANCH));
+    assert.equal(S.pull.calls.length, 1);
+    assert.equal(typeof prRecord().merged_at, 'string');
+    assert.equal(typeof prRecord().reconciled_at, 'string');
+    assert.equal(r.local, 'done');
+  });
+
+  test('4. github.pr.merge_method overrides the squash default (and a bad value falls back to squash)', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify();
+    setMergeMethod('merge');
+    const n = prNumber();
+    const r = merge();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.method, 'merge');
+    assert.equal(issue(n).pr.mergeMethod, 'merge');
+  });
+
+  test('4b. an unknown github.pr.merge_method is squash', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify();
+    setMergeMethod('fast-forward');
+    const r = merge();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.method, 'squash');
+    assert.equal(issue(prNumber()).pr.mergeMethod, 'squash');
+  });
+
+  test('5. with a merge queue the PR is only enqueued: pending, told to run gh pr reconcile, nothing closed or deleted', () => {
+    setup({ fake: { mergeQueue: true } });
+    startPr();
+    readyPr();
+    verify();
+    const n = prNumber();
+    const r = merge();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.merged, false);
+    assert.equal(r.pending, true);
+    assert.match(r.reason, /gh pr reconcile 7/);
+    assert.equal(issue(n).pr.queued, true);
+    assert.equal(issue(n).pr.merged, false);
+    for (const num of allIssues()) assert.equal(isOpen(num), true, `#${num} is still open`);
+    assert.notEqual(S.fake.refs[BRANCH], undefined, 'the branch of a queued PR is kept');
+    assert.equal(branchNow(), BRANCH);
+    assert.equal(S.pull.calls.length, 0);
+    assert.equal(prRecord().reconciled_at, undefined);
+
+    // the queue lands it; one reconcile finishes the job
+    S.fake.humanMergePr(n);
+    S.g.advanceOrigin({ message: 'merge queue lands the PR' });
+    const done = reconcile();
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.equal(done.pending, undefined);
+    for (const num of allIssues()) assert.equal(isOpen(num), false);
+    assert.equal(typeof prRecord().reconciled_at, 'string');
+  });
+
+  test('5b. an already merged PR goes straight to the reconcile without queuing a merge', () => {
+    setup();
+    startPr();
+    S.fake.humanMergePr(prNumber(), { method: 'squash' });
+    S.g.advanceOrigin({ message: 'squash merge' });
+    const r = merge();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.merged, true);
+    assert.equal(queueNow().filter((o) => o.kind === 'pr-merge').length, 0);
+    for (const num of allIssues()) assert.equal(isOpen(num), false);
+  });
+
+  test('5c. a PR closed without merging is refused', () => {
+    setup();
+    startPr();
+    const n = prNumber();
+    assert.equal(S.fake.runGh(['api', '--method', 'PATCH', `repos/o/r/pulls/${n}`, '-f', 'state=closed']).ok, true);
+    const r = merge();
+    assert.equal(r.ok, false);
+    assert.match(r.error, /closed without merging/);
+  });
+
+  test('5d. an objective with no pull request, or GitHub unreachable, is an error with nothing queued', () => {
+    setup();
+    const none = merge();
+    assert.equal(none.ok, false);
+    assert.match(none.error, /gh pr start 7/);
+
+    startPr();
+    readyPr();
+    verify();
+    S.fake.setOffline(true);
+    const r = merge();
+    assert.equal(r.ok, false);
+    assert.equal(queueNow().filter((o) => o.status !== 'done').length, 0);
+  });
+
+  test('5e. --no-flush queues the merge and reports it pending', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify();
+    const r = merge({ flush: false });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.merged, false);
+    assert.equal(r.pending, true);
+    assert.equal(r.flush, null);
+    assert.equal(queueNow().filter((o) => o.kind === 'pr-merge' && o.status !== 'done').length, 1);
+    assert.equal(issue(prNumber()).pr.merged, false);
+  });
+
+  test('5f. local mode: merge is skipped with zero gh calls and no git change', () => {
+    setup({ store: false });
+    const head = headNow();
+    const r = merge();
+    assert.equal(r.ok, true);
+    assert.equal(r.skipped, true);
+    assert.deepEqual(S.fake.calls(), []);
+    assert.equal(headNow(), head);
+  });
+});
