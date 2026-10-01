@@ -18,6 +18,7 @@ Goal-backward verification of PLANS before execution. Start from what the object
 - Dependencies are broken or circular
 - Artifacts are planned but wiring between them isn't
 - Scope exceeds context budget (quality will degrade)
+- A TRD is too large to post as one issue, or pastes bulk inline instead of linking it (`trd_budget`, Dimension 8)
 - **Plans contradict user decisions from CONTEXT.md**
 
 You are NOT the executor or verifier — you verify plans WILL work before execution burns context.
@@ -286,6 +287,70 @@ issue:
   fix_hint: "Remove search task - belongs in future objective per user decision"
 ```
 
+## Dimension 8: TRD Size and Linked Bulk
+
+**Question:** Does each TRD fit the issue-body budget, and are its fixtures and long listings linked rather than pasted inline?
+
+U-2 sets the linked-bulk thresholds (warning only); D-06 sets the budget severity (blocker in store mode, warning locally).
+
+**Process:**
+1. Run the preflight and read `checks.trd_budget`. Run it without `--raw`: `--raw` prints only the summary line, not the JSON.
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs verify trd-pre "$OBJECTIVE_NUMBER"
+   ```
+   `checks.trd_budget` is `{passed, trds:[{trd, chars, status, bulk:[...]}], over:[{trd, chars}], warn:[{trd, chars}], severity:{store, local}}`. `chars` is the encoded issue body (the TRD file plus its two `devflow:` header lines), never the file length, so measure nothing yourself.
+2. Pick the severity for an `over` TRD from `.planning/config.json`:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs config-get github.enabled
+   node ~/.claude/devflow/bin/df-tools.cjs config-get github.store
+   ```
+   Both `true` → use `severity.store` (`blocker`: the TRD cannot be posted as an issue). Otherwise → use `severity.local` (`warning`).
+3. Report every entry of `over` and `warn`, and every `bulk` finding of every TRD. Bulk findings are always `warning`, in both modes.
+
+**Thresholds:**
+| Metric | Target | Warning | Blocker |
+|--------|--------|---------|---------|
+| Encoded TRD size | < 40,000 chars | 40,000 - 60,000 chars | > 60,000 chars (store mode; warning locally) |
+| One fenced block | <= 8,000 chars | > 8,000 chars | never |
+| Fenced share of a TRD of 40,000+ chars | <= 40% | > 40% | never |
+
+Only fenced blocks (```` ``` ```` or `~~~`, any info string) count as bulk. Prose that says "inline fixtures" or "sample data" is a description, not bulk; do not flag it.
+
+**Red flags:**
+- A TRD in `over` (store mode: it cannot be posted; local mode: it will not fit once the objective moves to the store)
+- A TRD in `warn` that is still growing across revisions
+- A fenced block over 8,000 chars: a fixture, sample data set or long listing pasted into the TRD
+- Fenced blocks making up more than 40% of a large TRD: the TRD is mostly listing, not plan
+
+**Fix hints:** split the TRD or move work to a follow-up TRD; move fixtures, sample data and long listings to the repo or wiki and link them; never trim prose to fit.
+
+**Example issue — over budget (store mode):**
+```yaml
+issue:
+  dimension: trd_budget
+  severity: blocker          # severity.store; severity.local (warning) when github.store is not on
+  description: "TRD 04-01 is 69,177 encoded chars, over the 60,000 ceiling"
+  job: "04-01"
+  metrics:
+    chars: 69177
+    status: over
+  fix_hint: "Split the TRD or move work to a follow-up TRD; move fixtures, sample data and long listings to the repo or wiki and link them; never trim prose to fit"
+```
+
+**Example issue — linked bulk:**
+```yaml
+issue:
+  dimension: trd_budget
+  severity: warning          # bulk findings are always warnings
+  description: "Fenced block at line 868 of TRD 04-01 is 13,164 chars (over 8,000)"
+  job: "04-01"
+  metrics:
+    kind: block
+    line: 868
+    chars: 13164
+  fix_hint: "Move the listing to the repo or wiki and link it; never trim prose to fit"
+```
+
 </verification_dimensions>
 
 <confidence_scoring>
@@ -464,6 +529,10 @@ grep "files_modified:" "$OBJECTIVE_DIR"/$OBJECTIVE-01-TRD.md "$OBJECTIVE_DIR"/$O
 
 Thresholds: 2-3 tasks/plan good, 4 warning, 5+ blocker (split required).
 
+## Step 8b: Check TRD Size and Linked Bulk
+
+Run `verify trd-pre` (no `--raw`) and apply Dimension 8 to `checks.trd_budget`: every `over` TRD at the severity Dimension 8 step 2 selects, every `warn` TRD and every `bulk` finding as a warning.
+
 ## Step 9: Verify must_haves Derivation
 
 **Truths:** user-observable (not "bcrypt installed" but "passwords are secure"), testable, specific.
@@ -474,7 +543,7 @@ Thresholds: 2-3 tasks/plan good, 4 warning, 5+ blocker (split required).
 
 ## Step 10: Determine Overall Status
 
-**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, must_haves properly derived.
+**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, no TRD over the size ceiling in store mode, must_haves properly derived.
 
 **issues_found:** One or more blockers or warnings. Plans need revision.
 
@@ -546,11 +615,14 @@ issue:
 - Missing required task fields
 - Circular dependencies
 - Scope > 5 tasks per job
+- TRD over 60,000 encoded chars when `github.store` is on (`trd_budget`)
 
 **warning** - Should fix, execution may work
 - Scope 4 tasks (borderline)
 - Implementation-focused truths
 - Minor wiring missing
+- TRD at 40,000+ encoded chars, or over 60,000 when `github.store` is off (`trd_budget`)
+- Fenced block over 8,000 chars, or fenced share over 40% of a 40,000+ char TRD (`trd_budget`, always a warning)
 
 **info** - Suggestions for improvement
 - Could split for better parallelization
