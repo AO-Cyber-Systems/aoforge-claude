@@ -44,6 +44,29 @@ function writeStateJson(cwd, data) {
   return merged;
 }
 
+// ─── Store mode (TRD 48-13, D-07) ─────────────────────────────────────────────
+// In store mode STATE.md is a view rendered from GitHub by `gh pull --all`, so
+// the STATE.md mutators never write it. They record into the per-clone
+// state.json instead (writeStateJson stays its only writer) and say so in their
+// output. The mode is read once per command, through planning-mode, which
+// resolves the main checkout's config.
+
+const STORE_TARGET = 'state.json';
+const STORE_NOTE = 'STATE.md is a generated view in store mode';
+const DECISION_HINT = 'durable decisions belong in GitHub: df-tools decision open <trd> --question <text>';
+
+function storeMode(cwd) {
+  return require('./planning-mode.cjs').isStoreMode(cwd);
+}
+
+function storeOutput(result, raw, rawValue) {
+  output(Object.assign({}, result, { target: STORE_TARGET, note: STORE_NOTE }), raw, rawValue);
+}
+
+function stateJsonOrDefaults(cwd) {
+  return readStateJson(cwd) || Object.assign({}, STATE_JSON_DEFAULTS);
+}
+
 // ─── State Archive Helper ───────────────────────────────────────────────────
 
 const ARCHIVE_SEED = `# State Archive
@@ -199,6 +222,16 @@ function cmdStateGet(cwd, section, raw) {
 }
 
 function cmdStatePatch(cwd, patches, raw) {
+  if (storeMode(cwd)) {
+    // Every pair lands in state.json `fields`; there is no STATE.md to miss a field in.
+    const updated = Object.keys(patches);
+    if (updated.length > 0) {
+      writeStateJson(cwd, { fields: Object.assign({}, stateJsonOrDefaults(cwd).fields, patches) });
+    }
+    storeOutput({ updated, failed: [] }, raw, updated.length > 0 ? 'true' : 'false');
+    return;
+  }
+
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   try {
     let content = fs.readFileSync(statePath, 'utf-8');
@@ -231,6 +264,12 @@ function cmdStateUpdate(cwd, field, value) {
     error('field and value required for state update');
   }
 
+  if (storeMode(cwd)) {
+    writeStateJson(cwd, { fields: Object.assign({}, stateJsonOrDefaults(cwd).fields, { [field]: value }) });
+    storeOutput({ updated: true });
+    return;
+  }
+
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   try {
     let content = fs.readFileSync(statePath, 'utf-8');
@@ -249,10 +288,14 @@ function cmdStateUpdate(cwd, field, value) {
 }
 
 function cmdStateAdvanceJob(cwd, raw) {
+  const store = storeMode(cwd);
   const statePath = path.join(cwd, '.planning', 'STATE.md');
-  if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
+  const hasStateMd = fs.existsSync(statePath);
+  if (!hasStateMd && !store) { output({ error: 'STATE.md not found' }, raw); return; }
 
-  let content = fs.readFileSync(statePath, 'utf-8');
+  // Store mode reads a rendered STATE.md only as the counters' fallback; it never writes it.
+  let content = hasStateMd ? fs.readFileSync(statePath, 'utf-8') : '';
+  const emit = store ? storeOutput : output;
   const today = new Date().toISOString().split('T')[0];
 
   // Prefer JSON sidecar; fall back to markdown parsing
@@ -266,23 +309,28 @@ function cmdStateAdvanceJob(cwd, raw) {
   }
 
   if (currentJob >= totalJobs) {
-    content = stateReplaceField(content, 'Status', 'Objective complete — ready for verification') || content;
-    content = stateReplaceField(content, 'Last Activity', today) || content;
-    fs.writeFileSync(statePath, content, 'utf-8');
+    if (!store) {
+      content = stateReplaceField(content, 'Status', 'Objective complete — ready for verification') || content;
+      content = stateReplaceField(content, 'Last Activity', today) || content;
+      fs.writeFileSync(statePath, content, 'utf-8');
+    }
     writeStateJson(cwd, { current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification', last_activity: today });
-    output({ advanced: false, reason: 'last_job', current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification' }, raw, 'false');
+    emit({ advanced: false, reason: 'last_job', current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification' }, raw, 'false');
   } else {
     const newJob = currentJob + 1;
-    content = stateReplaceField(content, 'Current Job', String(newJob)) || content;
-    content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
-    content = stateReplaceField(content, 'Last Activity', today) || content;
-    fs.writeFileSync(statePath, content, 'utf-8');
+    if (!store) {
+      content = stateReplaceField(content, 'Current Job', String(newJob)) || content;
+      content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
+      content = stateReplaceField(content, 'Last Activity', today) || content;
+      fs.writeFileSync(statePath, content, 'utf-8');
+    }
     writeStateJson(cwd, { current_job: newJob, total_jobs: totalJobs, status: 'Ready to execute', last_activity: today });
-    output({ advanced: true, previous_job: currentJob, current_job: newJob, total_jobs: totalJobs }, raw, 'true');
+    emit({ advanced: true, previous_job: currentJob, current_job: newJob, total_jobs: totalJobs }, raw, 'true');
   }
 }
 
 function cmdStateRecordMetric(cwd, options, raw) {
+  const store = storeMode(cwd);
   const archivePath = path.join(cwd, '.planning', 'STATE_ARCHIVE.md');
   ensureArchive(cwd);
 
@@ -311,6 +359,14 @@ function cmdStateRecordMetric(cwd, options, raw) {
 
     content = content.replace(metricsPattern, `${tableHeader}${tableBody}\n`);
     fs.writeFileSync(archivePath, content, 'utf-8');
+    if (store) {
+      // STATE_ARCHIVE.md is runtime in store mode; state.json carries the same row.
+      const metrics_log = [...(stateJsonOrDefaults(cwd).metrics_log || []),
+        { objective, job, duration, tasks: tasks || null, files: files || null }];
+      writeStateJson(cwd, { metrics_log });
+      storeOutput({ recorded: true, objective, job, duration }, raw, 'true');
+      return;
+    }
     output({ recorded: true, objective, job, duration }, raw, 'true');
   } else {
     output({ recorded: false, reason: 'Performance Metrics section not found in STATE_ARCHIVE.md' }, raw, 'false');
@@ -318,10 +374,9 @@ function cmdStateRecordMetric(cwd, options, raw) {
 }
 
 function cmdStateUpdateProgress(cwd, raw) {
+  const store = storeMode(cwd);
   const statePath = path.join(cwd, '.planning', 'STATE.md');
-  if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
-
-  let content = fs.readFileSync(statePath, 'utf-8');
+  if (!store && !fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
 
   // Count summaries across all objectives
   const objectivesDir = path.join(cwd, '.planning', 'objectives');
@@ -344,6 +399,13 @@ function cmdStateUpdateProgress(cwd, raw) {
   const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barWidth - filled);
   const progressStr = `[${bar}] ${percent}%`;
 
+  if (store) {
+    writeStateJson(cwd, { progress_pct: percent });
+    storeOutput({ updated: true, percent, completed: totalSummaries, total: totalJobs, bar: progressStr }, raw, progressStr);
+    return;
+  }
+
+  let content = fs.readFileSync(statePath, 'utf-8');
   const progressPattern = /(\*\*Progress:\*\*\s*).*/i;
   if (progressPattern.test(content)) {
     content = content.replace(progressPattern, `$1${progressStr}`);
@@ -358,6 +420,7 @@ function cmdStateUpdateProgress(cwd, raw) {
 }
 
 function cmdStateAddDecision(cwd, options, raw) {
+  const store = storeMode(cwd);
   const archivePath = path.join(cwd, '.planning', 'STATE_ARCHIVE.md');
   ensureArchive(cwd);
 
@@ -382,6 +445,12 @@ function cmdStateAddDecision(cwd, options, raw) {
     const sj = readStateJson(cwd) || Object.assign({}, STATE_JSON_DEFAULTS);
     const decisions = [...(sj.decisions || []), { objective: objective || '?', summary, rationale: rationale || null }];
     writeStateJson(cwd, { decisions });
+    if (store) {
+      // The archive is runtime in store mode: point durable decisions at GitHub.
+      if (raw) process.stderr.write(DECISION_HINT + '\n');
+      output({ added: true, decision: entry, hint: DECISION_HINT }, raw, 'true');
+      return;
+    }
     output({ added: true, decision: entry }, raw, 'true');
   } else {
     output({ added: false, reason: 'Decisions section not found in STATE_ARCHIVE.md' }, raw, 'false');
@@ -389,6 +458,13 @@ function cmdStateAddDecision(cwd, options, raw) {
 }
 
 function cmdStateAddBlocker(cwd, text, raw) {
+  if (storeMode(cwd)) {
+    if (!text) { output({ error: 'text required' }, raw); return; }
+    writeStateJson(cwd, { blockers: [...(stateJsonOrDefaults(cwd).blockers || []), text] });
+    storeOutput({ added: true, blocker: text }, raw, 'true');
+    return;
+  }
+
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
   if (!text) { output({ error: 'text required' }, raw); return; }
@@ -415,6 +491,15 @@ function cmdStateAddBlocker(cwd, text, raw) {
 }
 
 function cmdStateResolveBlocker(cwd, text, raw) {
+  if (storeMode(cwd)) {
+    if (!text) { output({ error: 'text required' }, raw); return; }
+    const needle = text.toLowerCase();
+    const blockers = (stateJsonOrDefaults(cwd).blockers || []).filter(b => !String(b).toLowerCase().includes(needle));
+    writeStateJson(cwd, { blockers });
+    storeOutput({ resolved: true, blocker: text }, raw, 'true');
+    return;
+  }
+
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
   if (!text) { output({ error: 'text required' }, raw); return; }
@@ -453,6 +538,18 @@ function cmdStateResolveBlocker(cwd, text, raw) {
 }
 
 function cmdStateRecordSession(cwd, options, raw) {
+  if (storeMode(cwd)) {
+    const entry = {
+      at: new Date().toISOString(),
+      stopped_at: options.stopped_at || null,
+      resume_file: options.resume_file || 'None',
+    };
+    writeStateJson(cwd, { session_log: [...(stateJsonOrDefaults(cwd).session_log || []), entry] });
+    const updated = options.stopped_at ? ['Last session', 'Stopped At', 'Resume File'] : ['Last session', 'Resume File'];
+    storeOutput({ recorded: true, updated }, raw, 'true');
+    return;
+  }
+
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
 
@@ -587,6 +684,8 @@ module.exports = {
   readStateJson,
   writeStateJson,
   STATE_JSON_DEFAULTS,
+  STORE_NOTE,
+  DECISION_HINT,
   stateExtractField,
   stateReplaceField,
   cmdStateLoad,

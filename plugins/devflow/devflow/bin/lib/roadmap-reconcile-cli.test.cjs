@@ -301,3 +301,141 @@ test('RS4: mixed changes + warnings → both sections present', () => {
   assert.ok(result.includes('Drift corrected'), 'changes section');
   assert.ok(result.includes('Warnings:'), 'warnings section');
 });
+
+// ─── TRD 48-13: sync-roadmap — local characterization + store mode ───────────
+//
+// sync-roadmap modes (cmdSyncRoadmapRoute): default `write` and `--interactive`
+// (which falls back to write without a TTY) WRITE ROADMAP.md; `--dry-run` is
+// read-only.
+//
+// 4c. Local mode: write mode ticks exactly the drifted TRD line (bytes pinned).
+// 9.  Store mode: write / --interactive / --raw are no-ops (exit 0, message names
+//     `gh pull --all`, ROADMAP.md byte-identical); --dry-run is unchanged.
+// 10. github.enabled without github.store → local behaviour.
+
+const SR_ROADMAP = `# Roadmap: Test Project
+
+## Objective Details
+
+### Objective 7: Seven
+
+**Status:** in flight
+
+- [ ] 07-01-alpha-TRD.md — first
+- [ ] 07-02-beta-TRD.md — second
+`;
+
+const SR_STORE_MESSAGE = 'ROADMAP.md is generated in store mode; run `df-tools gh pull --all`';
+
+const srDirs = [];
+require('node:test').afterEach(() => {
+  while (srDirs.length) fs.rmSync(srDirs.pop(), { recursive: true, force: true });
+});
+
+function srProject(config) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-sync-roadmap-'));
+  srDirs.push(dir);
+  const obj = path.join(dir, '.planning', 'objectives', '07-seven');
+  fs.mkdirSync(obj, { recursive: true });
+  fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), SR_ROADMAP, 'utf-8');
+  fs.writeFileSync(path.join(obj, '07-01-alpha-TRD.md'), '# a\n', 'utf-8');
+  fs.writeFileSync(path.join(obj, '07-02-beta-TRD.md'), '# b\n', 'utf-8');
+  fs.writeFileSync(path.join(obj, '07-01-alpha-SUMMARY.md'), '# s\n\n## Self-Check: PASSED\n', 'utf-8');
+  if (config) {
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
+  }
+  return dir;
+}
+
+function srRun(args, cwd) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-sync-roadmap-home-'));
+  srDirs.push(home);
+  const r = spawnSync(process.execPath, [DF_TOOLS, 'sync-roadmap', ...args], {
+    cwd,
+    env: Object.assign({}, process.env, { HOME: home }),
+    encoding: 'utf-8',
+    timeout: 30000,
+  });
+  let json = null;
+  try { json = JSON.parse(r.stdout); } catch { /* raw text */ }
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };
+}
+
+function srRoadmap(dir) {
+  return fs.readFileSync(path.join(dir, '.planning', 'ROADMAP.md'), 'utf-8');
+}
+
+const SR_TICKED = SR_ROADMAP.replace('- [ ] 07-01-alpha-TRD.md', '- [x] 07-01-alpha-TRD.md');
+
+test('48-13 4c: local write mode ticks exactly the drifted TRD line', () => {
+  const dir = srProject();
+  const r = srRun([], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.json.mode, 'write');
+  assert.strictEqual(r.json.changes_count, 1);
+  assert.notStrictEqual(SR_TICKED, SR_ROADMAP);
+  assert.strictEqual(srRoadmap(dir), SR_TICKED);
+
+  const rawDir = srProject();
+  const raw = srRun(['--raw'], rawDir);
+  assert.strictEqual(raw.stdout,
+    'Drift corrected: 1 change(s)\n  [trd_summary_exists] obj=7 trd=07-01\n' +
+    '    - - [ ] 07-01-alpha-TRD.md — first\n    + - [x] 07-01-alpha-TRD.md — first');
+  assert.strictEqual(srRoadmap(rawDir), SR_TICKED);
+});
+
+test('48-13 4d: local --dry-run reports the change and leaves ROADMAP.md alone', () => {
+  const dir = srProject();
+  const r = srRun(['--dry-run'], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.json.mode, 'dry-run');
+  assert.strictEqual(r.json.changes_count, 1);
+  assert.strictEqual(srRoadmap(dir), SR_ROADMAP);
+});
+
+const SR_STORE = { github: { enabled: true, store: true, repo: 'o/r' } };
+
+test('48-13 9a: store mode write (default) is a no-op naming gh pull --all', () => {
+  const dir = srProject(SR_STORE);
+  const r = srRun([], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(r.json, { updated: false, skipped: 'store-mode', message: SR_STORE_MESSAGE });
+  assert.strictEqual(srRoadmap(dir), SR_ROADMAP);
+});
+
+test('48-13 9b: store mode --interactive (no TTY) is the same no-op, no write-mode fallback', () => {
+  const dir = srProject(SR_STORE);
+  const r = srRun(['--interactive'], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.json.skipped, 'store-mode');
+  assert.doesNotMatch(r.stderr, /falling back to write mode/);
+  assert.strictEqual(srRoadmap(dir), SR_ROADMAP);
+});
+
+test('48-13 9c: store mode --raw prints `skipped`', () => {
+  const dir = srProject(SR_STORE);
+  const r = srRun(['--raw'], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.stdout, 'skipped');
+  assert.strictEqual(srRoadmap(dir), SR_ROADMAP);
+});
+
+test('48-13 9d: store mode --dry-run runs unchanged', () => {
+  const local = srProject();
+  const store = srProject(SR_STORE);
+  const a = srRun(['--dry-run'], local);
+  const b = srRun(['--dry-run'], store);
+  assert.strictEqual(b.status, 0, b.stderr);
+  assert.strictEqual(b.json.mode, 'dry-run');
+  assert.strictEqual(b.json.changes_count, 1);
+  assert.strictEqual(b.stdout.split(store).join('<P>'), a.stdout.split(local).join('<P>'));
+  assert.strictEqual(srRoadmap(store), SR_ROADMAP);
+});
+
+test('48-13 10: github.enabled without github.store → local write', () => {
+  const dir = srProject({ github: { enabled: true, repo: 'o/r' } });
+  const r = srRun([], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.json.mode, 'write');
+  assert.strictEqual(srRoadmap(dir), SR_TICKED);
+});
