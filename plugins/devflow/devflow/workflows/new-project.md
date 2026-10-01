@@ -315,7 +315,7 @@ If "Skip" is chosen, omit `default_work` from PROJECT.md frontmatter — the pla
 
 **If auto mode:** Synthesize from provided document. No "Ready?" gate was shown — proceed directly to commit.
 
-Synthesize all context into a PROJECT.md draft using the template from `templates/project.md`. **Include the `kind` (and optionally `default_work`) values from Step 3.5 in the YAML frontmatter at the top of the file.** The draft path comes from `node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md`; put the content there with the Write tool. It is published with `doc put PROJECT.md` just before the commit below (local mode: that writes `.planning/PROJECT.md` with exactly the draft's bytes).
+Synthesize all context into a PROJECT.md draft using the template from `templates/project.md`. **Include the `kind` (and optionally `default_work`) values from Step 3.5 in the YAML frontmatter at the top of the file.** The draft path comes from `node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md`; put the content there with the Write tool. It is published with `doc put PROJECT.md` just before the commit below (in local mode the published file is byte-identical to the draft).
 
 **For greenfield projects:**
 
