@@ -252,7 +252,24 @@ TRDs:
 1. One draft PR per objective with closing references for every TRD
 2. Wave worktrees merge into the objective branch with no extra PRs
 3. Non-assignee scope changes wait for assignee confirmation
-**Plans:** TBD (run /devflow:plan-objective 49)
+**Plans:** 15 TRDs in 6 waves
+
+TRDs:
+- [ ] 49-01-fake-github-prs-branches-statuses-TRD.md — (W1) fake GitHub: PRs on the shared issue counter, pulls/statuses/refs REST, linked-branch/ready/merge-queue GraphQL, comment authors + assignees, humanMergePr
+- [ ] 49-02-mapping-prs-and-read-classification-TRD.md — (W1) mapping top-level `prs` map (byte-stable when empty), `issue develop --list` is a read
+- [ ] 49-03-scope-acceptance-predicate-TRD.md — (W1) GPR-05 pure half: scope authors, confirm marker bound to the scope hash, acceptance predicate, pending scopes in effectiveSpec
+- [ ] 49-04-objective-branch-git-seam-and-wiki-diff-TRD.md — (W1) `objective-branch` git seam (fetch/switch/start commit/push/cleanup), `makeGitRemote` fixture, `gh-wiki.diff`
+- [ ] 49-05-outbox-upsert-pr-and-ready-TRD.md — (W2) outbox `upsert-pr` (draft, closes derived at flush, wiki pin, `devflow:pr=` marker), `pr-ready`, `patch-issue labels_remove`
+- [ ] 49-06-scope-gate-confirm-and-trd-start-TRD.md — (W2) only accepted scopes change a TRD; `gh trd confirm-scope` (assignee only), `gh trd start` (in_progress label)
+- [ ] 49-07-commit-refs-trailer-TRD.md — (W2) `df-tools commit` adds `Refs #issue` from the commit scope in store mode (main-root mapping)
+- [ ] 49-08-init-pr-lifecycle-fields-TRD.md — (W2) init `pr_lifecycle`, `objective_branch`, `pr_number`, `branching_strategy_ignored`; local deprecation notice
+- [ ] 49-09-gh-pr-start-sync-status-TRD.md — (W3) `gh pr start|sync|status`: linked branch, start commit, one draft PR, freeze every TRD; dispatch, help, seam guard
+- [ ] 49-10-outbox-status-comment-merge-ops-TRD.md — (W3) outbox `post-status` (devflow/verification), `upsert-pr-comment`, `pr-merge` (squash default, queue-aware), `delete-branch`
+- [ ] 49-11-summary-verify-pr-hooks-TRD.md — (W4) summary post drops in_progress + refreshes PR; verify pass → status, ready, wiki diff; objective issue closes on merge, not at verify
+- [ ] 49-12-pr-merge-and-reconcile-TRD.md — (W4) `gh pr merge` (verified + ready only) and `gh pr reconcile` (stragglers closed, Project Done, branches deleted, cache pulled)
+- [ ] 49-13-workflow-prose-pr-lifecycle-TRD.md — (W5) execute-objective + complete-milestone drive the PR in store mode; `branching_strategy` deprecated (GPR-06)
+- [ ] 49-14-pr-lifecycle-e2e-and-parity-TRD.md — (W5) SC1 one PR closing every TRD, SC2 worktrees with no extra PRs, SC3 scope pending until confirmed; store-off parity
+- [ ] 49-15-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync skill; `npm test` (SC4)
 
 ### Objective 50: GitHub enforcement and setup
 
