@@ -19,7 +19,7 @@ allowed-tools:
 <objective>
 Analyze existing codebase using parallel codebase-mapper agents to produce structured codebase documents, then synthesize a prescriptive CLAUDE.md.
 
-Each mapper agent explores a focus area and **writes documents directly** to `.planning/codebase/`. The orchestrator only receives confirmations, then reads the 8 docs to generate CLAUDE.md with coding rules that Claude Code auto-loads every session.
+Each mapper agent explores a focus area and **writes its documents to drafts itself** (`df-tools planning draft codebase/<NAME>.md` prints each path). The orchestrator only receives confirmations, publishes each draft in one sequential pass with `df-tools doc put codebase/<NAME>.md --from <draft>`, then reads the 8 docs to generate CLAUDE.md with coding rules that Claude Code auto-loads every session.
 
 Output: .planning/codebase/ folder with 8 structured documents + CLAUDE.md at project root.
 </objective>
@@ -55,22 +55,23 @@ Check for .planning/STATE.md - loads context if project already initialized
 
 <process>
 1. Check if .planning/codebase/ already exists (offer to refresh or skip)
-2. Create .planning/codebase/ directory structure
-3. Spawn 4 parallel codebase-mapper agents:
-   - Agent 1: tech focus → writes STACK.md, INTEGRATIONS.md
-   - Agent 2: arch focus → writes ARCHITECTURE.md, STRUCTURE.md
-   - Agent 3: quality focus → writes CONVENTIONS.md, TESTING.md, PATTERNS.md
-   - Agent 4: concerns focus → writes CONCERNS.md
+2. Resolve draft paths (`df-tools planning draft codebase/<NAME>.md`); nothing is created under `.planning/` by hand
+3. Spawn 4 parallel codebase-mapper agents, each writing drafts only:
+   - Agent 1: tech focus → STACK.md, INTEGRATIONS.md drafts
+   - Agent 2: arch focus → ARCHITECTURE.md, STRUCTURE.md drafts
+   - Agent 3: quality focus → CONVENTIONS.md, TESTING.md, PATTERNS.md drafts
+   - Agent 4: concerns focus → CONCERNS.md draft
 4. Wait for agents to complete, collect confirmations (NOT document contents)
-5. Verify all 8 documents exist with line counts
+5. Verify all 8 drafts exist with line counts, check them for secrets, then publish each one in turn:
+   `node ~/.claude/devflow/bin/df-tools.cjs doc put codebase/<NAME>.md --from <draft>`
 6. Synthesize CLAUDE.md from all 8 docs (prescriptive coding rules, marker-based merge)
 7. Commit codebase map + CLAUDE.md
 8. Offer next steps (typically: /devflow:new-project or /devflow:plan-objective)
 </process>
 
 <success_criteria>
-- [ ] .planning/codebase/ directory created
-- [ ] All 8 codebase documents written by mapper agents
+- [ ] All 8 codebase drafts written by mapper agents
+- [ ] Each draft published by the orchestrator with `doc put codebase/<NAME>.md`, one at a time
 - [ ] Documents follow template structure
 - [ ] Parallel agents completed without errors
 - [ ] CLAUDE.md generated at project root with prescriptive coding rules
