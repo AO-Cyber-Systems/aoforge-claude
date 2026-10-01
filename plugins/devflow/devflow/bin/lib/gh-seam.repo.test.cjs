@@ -61,6 +61,9 @@ const GUARDED = [
   'gh-setup.cjs',
   // objective 50 (TRD 50-11): the `gh setup` command. It calls applySetup and nothing else: it neither spawns nor writes.
   'gh-setup-cli.cjs',
+  // objective 51 (TRD 51-03): the backfill core. Pure: it reads local files and the journal, returns ops, and never
+  // spawns gh or git, enqueues, flushes or writes to GitHub.
+  'gh-backfill.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
@@ -72,6 +75,7 @@ const NO_DIRECT_WRITE = [
   'gh-gate.cjs',
   'gh-check.cjs',
   'gh-setup-cli.cjs',
+  'gh-backfill.cjs', // objective 51 (TRD 51-03)
   ...PLANNING_MODULES,
 ];
 
@@ -227,5 +231,17 @@ describe('one gh seam (TRD 46-08)', () => {
     for (const f of ['gh-pr.cjs', 'gh-pr-cli.cjs', 'commit-trailer.cjs']) {
       assert.equal(code(f).filter((l) => GIT_SPAWN.test(l) || /spawnSync\(\s*['"]gh['"]/.test(l)).length, 0, `${f} spawns neither git nor gh`);
     }
+  });
+
+  test('24 (51-03): gh-backfill.cjs is guarded, never writes to GitHub, spawns nothing and never queues or flushes', () => {
+    const f = 'gh-backfill.cjs';
+    assert.ok(fs.existsSync(path.join(__dirname, f)), `${f} exists (a stale guard entry otherwise)`);
+    assert.ok(GUARDED.includes(f), `${f} is guarded`);
+    assert.ok(NO_DIRECT_WRITE.includes(f), `${f} must never call ghWrite(`);
+    const code = read(f).split('\n').filter((l) => !isComment(l));
+    const bad = (re) => code.filter((l) => re.test(l));
+    assert.deepStrictEqual(bad(/\bghWrite\(|\bghRead\(|\brunGh\(/), [], 'no GitHub calls');
+    assert.deepStrictEqual(bad(/child_process|\bspawn(Sync)?\(|\bexecFile(Sync)?\(|\bexecSync\(/), [], 'spawns nothing (neither gh nor git)');
+    assert.deepStrictEqual(bad(/\benqueue\(|\bflush\(|gh-outbox-flush/), [], 'never queues or flushes: callers own that');
   });
 });

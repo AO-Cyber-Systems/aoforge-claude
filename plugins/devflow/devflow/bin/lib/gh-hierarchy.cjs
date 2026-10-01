@@ -702,5 +702,6 @@ module.exports = {
   openDecision,
   reportOrphans,
   linkedNumbers, // objective 50 (TRD 50-08): the Actions check runner reads the TRDs linked under an objective
+  findSummaries, // objective 51 (TRD 51-03): the backfill pairs TRDs with SUMMARYs exactly as a push does
   REFERENCE_PAGES,
 };
