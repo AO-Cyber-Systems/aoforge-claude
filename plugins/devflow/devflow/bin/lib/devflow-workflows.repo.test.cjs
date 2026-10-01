@@ -145,7 +145,9 @@ describe('reusable workflow .github/workflows/devflow-checks.yml', () => {
     // With no App, the job falls back to the caller's GITHUB_TOKEN.
     assert.match(text, /steps\.app\.outputs\.token\s*\|\|\s*github\.token/, 'token falls back to github.token');
     assert.match(text, /DEVFLOW_GH_CACHE_DIR:\s*\$\{\{\s*runner\.temp\s*\}\}\/devflow/, 'gh-client state kept off the runner home');
-    assert.doesNotMatch(text, /pull_request_target/, 'checks only read - no pull_request_target');
+    // Comments may explain why it is absent; only a real trigger/line counts.
+    const code = lines.filter((l) => !/^\s*#/.test(l)).join('\n');
+    assert.doesNotMatch(code, /pull_request_target/, 'checks only read - no pull_request_target');
   });
 
   test('4. reconcile runs only on a merged pull_request; the checks run on merge_group and non-closed pull_request', () => {
