@@ -347,6 +347,14 @@ function buildScopeComment(n, text) {
   return comment;
 }
 
+// A comment's author login and timestamp, or null when the comment lacks them.
+function commentAuthor(c) {
+  return c && c.user && typeof c.user.login === 'string' && c.user.login !== '' ? c.user.login : null;
+}
+function commentCreatedAt(c) {
+  return c && typeof c.created_at === 'string' && c.created_at !== '' ? c.created_at : null;
+}
+
 // Comment ids are REST ids (numbers, or numeric strings). Compare numerically
 // when both are numeric — `Infinity` stands for a comment not posted yet and sorts
 // last — otherwise fall back to string order.
@@ -361,9 +369,13 @@ function commentIdOrder(a, b) {
 }
 
 /**
- * parseScopeComments(comments) — `comments` is `[{id, body}]` (GitHub REST subset).
+ * parseScopeComments(comments) — `comments` is `[{id, body, user?, created_at?}]`
+ * (GitHub REST subset).
  *
- * -> { scopes:[{n, text, body, comment_id}], errors:[string] }
+ * -> { scopes:[{n, text, body, comment_id, author, created_at}], errors:[string] }
+ *
+ * `author` is the comment's `user.login` and `created_at` its timestamp; each is
+ * `null` when the comment does not carry it (49-03: acceptance needs both).
  *
  * Scopes are ordered STRICTLY by `n` (never by created_at or comment id: those
  * disagree after an edit or an outbox replay). Non-scope comments are ignored.
@@ -390,7 +402,14 @@ function parseScopeComments(comments) {
       errors.push(`invalid scope n=${m[1]} (comment ${String(c.id)})`);
       continue;
     }
-    found.push({ n, text: nl === -1 ? '' : body.slice(nl + 1), body, comment_id: c.id });
+    found.push({
+      n,
+      text: nl === -1 ? '' : body.slice(nl + 1),
+      body,
+      comment_id: c.id,
+      author: commentAuthor(c),
+      created_at: commentCreatedAt(c),
+    });
   }
 
   found.sort((a, b) => a.n - b.n || commentIdOrder(a.comment_id, b.comment_id));
@@ -454,6 +473,188 @@ function effectiveSpec(text, comments, { foldedThrough = 0, id, file } = {}) {
   const chars =
     id !== undefined && file !== undefined ? encodeTrdBody({ id, file, text: out }).length : out.length;
   return { text: out, chars, applied, overflow: chars > TRD_MAX_CHARS, errors };
+}
+
+// ─── Scope acceptance (49-03, GPR-05) ────────────────────────────────────────
+//
+// A scope comment changes a TRD's effective spec, so WHO may change it matters.
+// A scope is ACCEPTED when any of these holds, and PENDING otherwise:
+//
+//   1. its author is an assignee of the objective's issue;
+//   2. its author is the DevFlow GitHub App login (`github.app_login`, objective 50);
+//   3. the spec-rev log holds a `scope n=K scope_hash=H` row for it whose H equals the
+//      hash of the scope's CURRENT text (DevFlow posted it; locally that happens with
+//      the developer's own token, so the login alone cannot tell);
+//   4. an assignee posted `<!-- devflow:scope-confirm n=K hash=H -->` after the scope,
+//      naming the same n and the scope's CURRENT text hash.
+//
+// Routes 3 and 4 bind the CONTENT hash, so editing a scope after it was posted or
+// confirmed drops it back to pending. Everything here is pure: the caller (gh-comments,
+// 49-06) gathers assignees, spec-rev rows and confirms and hands them in.
+//
+// Not detected here: someone other than a confirm's author editing that confirm
+// comment on GitHub. Its `user.login` is still the original author.
+
+const SCOPE_CONFIRM_LINE_RE = /^\s*<!--\s*devflow:scope-confirm\s+n=(\d+)\s+hash=([^\s<>]+)\s*-->/;
+const SCOPE_ROW_EVENT_RE = /^scope\s+n=(\d+)\s+scope_hash=(\S+)\s*$/;
+const CONFIRM_HASH_RE = /^[^\s<>]+$/;
+const EVENT_HASH_RE = /^[^\s|]+$/;
+
+function requireScopeN(n) {
+  if (!Number.isSafeInteger(n) || n < 1) {
+    throw new TypeError(`scope n must be a positive integer, got ${JSON.stringify(n)}`);
+  }
+  return n;
+}
+
+/**
+ * scopeHash(scopeText) — the content hash of a scope comment's text (everything after
+ * its marker line), CRLF-normalised. The hash a spec-rev `scope_hash=` and a confirm
+ * `hash=` both bind.
+ */
+function scopeHash(scopeText) {
+  return contentHash(scopeText);
+}
+
+/**
+ * scopeEvent(n, hash) — the spec-rev `event` cell for a DevFlow-posted scope:
+ * `scope n=K scope_hash=H`. It still begins `scope`, so detectDrift keeps skipping it.
+ */
+function scopeEvent(n, hash) {
+  requireScopeN(n);
+  if (typeof hash !== 'string' || !EVENT_HASH_RE.test(hash)) {
+    throw new TypeError(`scope_hash must be a non-empty string without whitespace or "|", got ${JSON.stringify(hash)}`);
+  }
+  return `scope n=${n} scope_hash=${hash}`;
+}
+
+/**
+ * devflowScopesFrom(specRev) — `parseSpecRev(...)` output (or its `entries` array) ->
+ * `[{n, hash}]` for every row written as `scope n=K scope_hash=H`, in log order. A legacy
+ * `scope n=K` row has no `scope_hash`, binds no content, and yields nothing: it is not
+ * trusted (those scopes need an assignee author or a confirm).
+ */
+function devflowScopesFrom(specRev) {
+  const entries = Array.isArray(specRev)
+    ? specRev
+    : specRev && Array.isArray(specRev.entries)
+      ? specRev.entries
+      : [];
+  const out = [];
+  for (const e of entries) {
+    if (!e || typeof e.event !== 'string') continue;
+    const m = SCOPE_ROW_EVENT_RE.exec(e.event);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (!Number.isSafeInteger(n) || n < 1) continue;
+    out.push({ n, hash: m[2] });
+  }
+  return out;
+}
+
+/**
+ * buildScopeConfirm({n, hash, note}) — the comment an assignee posts to confirm scope
+ * `n`: the marker line `<!-- devflow:scope-confirm n=K hash=H -->`, then `note` when
+ * given. Throws TypeError on a bad n, hash or note. Over COMMENT_MAX_CHARS it is
+ * refused (never trimmed): `{ok:false, overflow:true, chars, max, error}`; callers
+ * discriminate on `typeof result === 'string'`, as for buildScopeComment.
+ */
+function buildScopeConfirm({ n, hash, note } = {}) {
+  requireScopeN(n);
+  if (typeof hash !== 'string' || !CONFIRM_HASH_RE.test(hash)) {
+    throw new TypeError(`confirm hash must be a non-empty string without whitespace, "<" or ">", got ${JSON.stringify(hash)}`);
+  }
+  if (note !== undefined && note !== null && typeof note !== 'string') {
+    throw new TypeError(`confirm note must be a string, got ${typeof note}`);
+  }
+  const marker = `<!-- devflow:scope-confirm n=${n} hash=${hash} -->`;
+  const comment = note ? marker + '\n' + normalise(note) : marker;
+  if (comment.length > COMMENT_MAX_CHARS) {
+    return {
+      ok: false,
+      overflow: true,
+      chars: comment.length,
+      max: COMMENT_MAX_CHARS,
+      error: `scope confirmation is ${comment.length} chars (limit ${COMMENT_MAX_CHARS}); shorten the note`,
+    };
+  }
+  return comment;
+}
+
+/**
+ * parseScopeConfirms(comments) — `[{id, body, user?, created_at?}]` ->
+ * `[{n, hash, author, comment_id, created_at}]`, in the order given. Only the FIRST line
+ * of a comment is read, like a scope marker. A marker with no hash, an `n` below 1 or an
+ * `n` that is not a number is ignored. `author` and `created_at` are null when absent.
+ */
+function parseScopeConfirms(comments) {
+  if (!Array.isArray(comments)) throw new TypeError('parseScopeConfirms() needs an array of comments');
+  const out = [];
+  for (const c of comments) {
+    if (!c || typeof c.body !== 'string') continue;
+    const body = normalise(c.body);
+    const nl = body.indexOf('\n');
+    const m = SCOPE_CONFIRM_LINE_RE.exec(nl === -1 ? body : body.slice(0, nl));
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (!Number.isSafeInteger(n) || n < 1) continue;
+    out.push({ n, hash: m[2], author: commentAuthor(c), comment_id: c.id, created_at: commentCreatedAt(c) });
+  }
+  return out;
+}
+
+// Logins compare case-insensitively (GitHub treats them so). Empty or non-string is no login.
+function loginKey(v) {
+  return typeof v === 'string' && v !== '' ? v.toLowerCase() : null;
+}
+
+// Is `later` posted after `earlier`? By created_at when both parse and differ; otherwise
+// (equal, missing or unparseable) by comment id. Equal everywhere is NOT after: fail closed.
+function postedAfter(later, earlier) {
+  const a = Date.parse(later.created_at);
+  const b = Date.parse(earlier.created_at);
+  if (Number.isFinite(a) && Number.isFinite(b) && a !== b) return a > b;
+  return commentIdOrder(later.comment_id, earlier.comment_id) > 0;
+}
+
+/**
+ * scopeAcceptance({assignees, appLogin, devflowScopes, confirms}) — a predicate
+ * `(scope) => 'accepted' | 'pending'` over a parseScopeComments scope
+ * (`{n, text, author, comment_id, created_at}`). See the rules above.
+ *
+ *   assignees       logins (strings, or `{login}` objects) of the objective's assignees
+ *   appLogin        the DevFlow App login, or null/absent (it then matches nothing)
+ *   devflowScopes   devflowScopesFrom(parseSpecRev(...))
+ *   confirms        parseScopeConfirms(comments)
+ *
+ * With nothing supplied every scope is pending: nothing is trusted by default.
+ */
+function scopeAcceptance({ assignees = [], appLogin = null, devflowScopes = [], confirms = [] } = {}) {
+  const assigneeKeys = new Set(
+    (Array.isArray(assignees) ? assignees : [])
+      .map((a) => loginKey(typeof a === 'string' ? a : a && a.login))
+      .filter((k) => k !== null)
+  );
+  const appKey = loginKey(appLogin);
+  const rows = Array.isArray(devflowScopes) ? devflowScopes : [];
+  const confs = Array.isArray(confirms) ? confirms : [];
+
+  return function accept(scope) {
+    if (!scope || typeof scope.text !== 'string') return 'pending';
+
+    const author = loginKey(scope.author);
+    if (author !== null && (assigneeKeys.has(author) || author === appKey)) return 'accepted';
+
+    const hash = scopeHash(scope.text);
+    if (rows.some((r) => r && r.n === scope.n && r.hash === hash)) return 'accepted';
+
+    const confirmed = confs.some((c) => {
+      if (!c || c.n !== scope.n || c.hash !== hash) return false;
+      const by = loginKey(c.author);
+      return by !== null && assigneeKeys.has(by) && postedAfter(c, scope);
+    });
+    return confirmed ? 'accepted' : 'pending';
+  };
 }
 
 // ─── spec-rev log ────────────────────────────────────────────────────────────
@@ -845,6 +1046,12 @@ module.exports = {
   scopeMarker,
   buildScopeComment,
   parseScopeComments,
+  parseScopeConfirms,
+  buildScopeConfirm,
+  scopeHash,
+  scopeEvent,
+  devflowScopesFrom,
+  scopeAcceptance,
   effectiveSpec,
   specRevLine,
   parseSpecRev,
