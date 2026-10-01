@@ -49,3 +49,40 @@ describe('48-14 characterization: requirements mark-complete in local mode', () 
     });
   });
 });
+
+describe('48-14 store mode: requirements mark-complete publishes with doc put', () => {
+  test('11: REQUIREMENTS.md updated in the cache, ledgered as doc put, wiki-push queued (exit 3 pending)', () => {
+    withProject({ store: true }, (p) => {
+      const r = p.run(['requirements', 'mark-complete', 'STO-01']);
+      assert.equal(r.status, 3, r.stderr);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.updated, true);
+      assert.deepEqual(out.marked_complete, ['STO-01']);
+      assert.deepEqual(out.not_found, []);
+      assert.equal(out.total, 1);
+      assert.equal(out.verb.rel, 'REQUIREMENTS.md');
+      assert.equal(out.verb.mode, 'store');
+      assert.equal(out.verb.flush, 'pending');
+
+      assert.equal(p.read('REQUIREMENTS.md'), STO01_DONE);
+      const entry = p.ledgerEntries()['REQUIREMENTS.md'];
+      assert.ok(entry, 'REQUIREMENTS.md is in the verb-write ledger');
+      assert.equal(entry.verb, 'doc put');
+      const wiki = p.journalOps().find((op) => op.kind === 'wiki-push');
+      assert.ok(wiki, 'a wiki-push op is queued');
+      assert.ok(wiki.payload.pages.includes('REQUIREMENTS.md'));
+      assert.equal(wiki.payload.message, 'requirements: mark STO-01 complete');
+    });
+  });
+
+  test('11b: nothing found -> nothing written, nothing queued, exit 0', () => {
+    withProject({ store: true }, (p) => {
+      const r = p.run(['requirements', 'mark-complete', 'NOPE-09']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(JSON.parse(r.stdout).updated, false);
+      assert.equal(p.read('REQUIREMENTS.md'), STORE_FIXTURE.requirements);
+      assert.deepEqual(p.journalOps(), []);
+      assert.deepEqual(p.ghCalls(), []);
+    });
+  });
+});
