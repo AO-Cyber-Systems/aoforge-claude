@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, normalizeObjectiveName, generateSlugInternal, isGitIgnored } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
@@ -504,6 +505,59 @@ function isPlanningPath(cwd, p) {
   return rel === '.planning' || rel.startsWith('.planning/');
 }
 
+/** Run git with stdin; never throws. */
+function gitInput(cwd, args, input) {
+  const r = spawnSync('git', args, { cwd, input, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  return { status: r.status, stdout: r.stdout || '', error: r.error };
+}
+
+/** True when the cwd-relative posix `entry` is `rel` or lies under it. */
+function coversPath(rel, entry) {
+  return rel === '' || entry === rel || entry.startsWith(rel + '/');
+}
+
+/**
+ * ignoredPaths(cwd, paths) -> Set of the `paths` arguments (verbatim) that `git add` would refuse as ignored
+ * (TRD 48-10, D-20). Store mode ignores `.planning/*` except config.json and STACK.md (U-1), so the whole-dir
+ * probe (`isGitIgnored(cwd, '.planning')`) no longer answers for a single path.
+ *
+ * One `git check-ignore --no-index --stdin -z -v -n` call: verbose + non-matching give one record per input, in
+ * input order, so a path is matched back by position (no reliance on how git echoes it), and a path matched only
+ * by a negation (`!.planning/config.json`) counts as NOT ignored.
+ *
+ * A path git already knows about (in the index, or in HEAD — e.g. a staged `rm --cached` removal) is never
+ * reported: `git add` stages a tracked file regardless of ignore rules, and a staged removal must reach the commit
+ * (TRD 44-06, migrations 0008 and 0010). So the set holds exactly the paths whose pathspec commit git would reject
+ * today ("did not match any file(s) known to git"). Any git failure → empty set (today's behaviour).
+ */
+function ignoredPaths(cwd, paths) {
+  if (!paths.length) return new Set();
+  const probe = gitInput(cwd, ['check-ignore', '--no-index', '--stdin', '-z', '-v', '-n'], paths.map((p) => `${p}\0`).join(''));
+  if (probe.error || (probe.status !== 0 && probe.status !== 1)) return new Set();
+  const fields = probe.stdout.split('\0');
+  const candidates = [];
+  paths.forEach((p, i) => {
+    const source = fields[i * 4];
+    const pattern = fields[i * 4 + 2] || '';
+    if (source && !pattern.startsWith('!')) candidates.push(p);
+  });
+  if (!candidates.length) return new Set();
+
+  const relOf = (p) => {
+    const rel = path.relative(cwd, path.resolve(cwd, String(p))).split(path.sep).join('/');
+    return rel === '.' ? '' : rel;
+  };
+  const known = [];
+  const index = gitInput(cwd, ['ls-files', '-z', '--', ...candidates], '');
+  if (index.status === 0) known.push(...index.stdout.split('\0').filter(Boolean));
+  const tree = gitInput(cwd, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...candidates], '');
+  if (tree.status === 0) known.push(...tree.stdout.split('\0').filter(Boolean));
+  return new Set(candidates.filter((p) => {
+    const rel = relOf(p);
+    return !known.some((entry) => coversPath(rel, entry));
+  }));
+}
+
 function cmdCommit(cwd, message, files, raw, amend) {
   if (!message && !amend) {
     error('commit message required');
@@ -517,18 +571,33 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // Order matters: commit_docs first, and only then the gitignore probe. The filter runs
   // BEFORE the TRD 44-06 removal detection below, so it and the foreign-index check see only
   // the filtered list — a staged planning path then counts as foreign and is never swept in.
+  //
+  // TRD 48-10 (D-20): the gitignore probe is two-stage. `.planning` wholly ignored → today's
+  // whole-dir drop, unchanged. Otherwise each requested planning path is probed on its own
+  // (store mode ignores `.planning/*` except config.json and STACK.md): an ignored path git
+  // knows nothing about is dropped into skipped_planning; config.json, STACK.md, tracked files,
+  // staged removals and code still commit. With no ignore rule under `.planning/` (local mode)
+  // nothing is dropped and the result is exactly today's.
   const blocked = !config.commit_docs ? 'skipped_commit_docs_false'
     : isGitIgnored(cwd, '.planning') ? 'skipped_gitignored' : null;
   let filesToStage = requested;
   let skippedPlanning = [];
+  let dropReason = blocked;
   if (blocked) {
     skippedPlanning = requested.filter((f) => isPlanningPath(cwd, f));
     filesToStage = requested.filter((f) => !isPlanningPath(cwd, f));
-    if (filesToStage.length === 0) {
-      const result = { committed: false, hash: null, reason: blocked };
-      output(result, raw, 'skipped');
-      return;
+  } else {
+    const ignored = ignoredPaths(cwd, requested.filter((f) => isPlanningPath(cwd, f)));
+    if (ignored.size) {
+      skippedPlanning = requested.filter((f) => ignored.has(f));
+      filesToStage = requested.filter((f) => !ignored.has(f));
+      dropReason = 'skipped_gitignored';
     }
+  }
+  if (dropReason && filesToStage.length === 0) {
+    const result = { committed: false, hash: null, reason: dropReason };
+    output(result, raw, 'skipped');
+    return;
   }
   const skippedField = skippedPlanning.length ? { skipped_planning: skippedPlanning } : {};
 
