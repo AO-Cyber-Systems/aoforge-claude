@@ -7,9 +7,12 @@ migration) is implemented: every planning write is a df-tools verb (`plan put-tr
 `doc put`, ...) that writes today's file with the store off and the cache plus the outbox with it on; the
 edit gate denies direct edits of cache files in store mode; `validate health` reports drift (W055);
 migration 0010 untracks the cache; and skills, workflows, agents and templates hold zero direct
-planning-write instructions (CI-enforced). The store ships opt-in (`github.store`, default false);
-objectives 49–51 move enforcement and the PR lifecycle onto it. Known gap: `gh trd freeze|scope|fold`
-need connectivity (offline they exit 1 and queue nothing).
+planning-write instructions (CI-enforced). Objective 49 (branch and PR lifecycle) is implemented:
+`gh pr start|sync|status|merge|reconcile`, the scope gate (`gh trd confirm-scope|start`), the `Refs #N`
+commit paragraph, the `prs` mapping map, and the fix that closes the objective issue on merge instead of
+at verify-pass. The store ships opt-in (`github.store`, default false); objectives 50–51 move enforcement
+onto it. Known gap: `gh trd freeze|scope|fold` need connectivity (offline they exit 1 and queue nothing),
+as does `gh pr start`.
 
 ### Planning refinements (objective 47)
 
@@ -40,6 +43,33 @@ Decisions taken while planning objective 48 that refine, and do not change, the 
   characters, warns (never blocks) in `verify trd-pre` and job-checker Dimension 8.
 - D-12 summary checkpoints: `summary checkpoint` writes runtime `.planning/.trd-progress/<trd>.md` in
   store mode and is never enqueued; `summary post` is the single GitHub write per TRD.
+
+### Planning refinements (objective 49)
+
+Decisions taken while planning objective 49 that refine, and do not change, the table below:
+
+- Verification status: locally, verification is the commit status `devflow/verification` on the PR head;
+  a check run comes only from the GitHub App (objective 50), because only an App can create one.
+- `gh pr start` is online-required (exit 1, nothing queued). Every later PR operation goes through the
+  outbox.
+- In-progress is the `github.labels.in_progress` label, added at spawn (`gh trd start`) and removed at
+  `summary post`.
+- `gh pr start` freezes every TRD, so a change after start is a scope comment.
+- Merge method defaults to squash (`github.pr.merge_method`); the merge queue is used where the base
+  branch has one. Under a queue `gh pr merge` and `gh pr reconcile` exit 3 until the queue lands the PR.
+- Reconcile verifies the closure of every issue and closes stragglers; it does not rely on GitHub's
+  closing-keyword limits. It trusts only the PR's `merged_at` and each issue's `state`.
+- `git.branching_strategy` is replaced in store mode only (local mode prints a deprecation notice);
+  `complete-milestone` no longer merges branches in store mode.
+- Close-on-merge fix: store mode no longer closes the objective issue at verify-pass. It closes on merge
+  (the PR's `Closes #<obj>`) or in reconcile, and `objective complete` warns while the PR is unmerged.
+- Scope acceptance: a scope comment is accepted when an assignee or the App (`github.app_login`) wrote
+  it, DevFlow recorded it, or an assignee confirmed it (`gh trd confirm-scope`); a confirm counts only if
+  an assignee posted it.
+- The `Refs #N` commit marker is a plain last paragraph (git's trailer parser needs a colon), so objective
+  50's linked-issue check matches `^Refs #\d+$`. A squash merge keeps these in the PR commit list only.
+- Open, unverified against the live API: the merge-queue probe reads `PullRequest.isInMergeQueue` and
+  `Repository.mergeQueue(branch:)`; the fake GitHub models both.
 Team-review page: https://claude.ai/artifact/5WUeto6m5YYsxRAz8XJd2w (private; share before linking).
 
 ## Summary

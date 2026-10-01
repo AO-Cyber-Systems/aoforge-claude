@@ -59,7 +59,7 @@ node ~/.claude/devflow/bin/df-tools.cjs gh outbox flush
 node ~/.claude/devflow/bin/df-tools.cjs gh pull --all
 ```
 
-Exit 2 from `gh outbox flush` means someone edited the issue on GitHub; do not decide for the user. Show them `gh outbox status` (it names the issue and both resolve commands) and let them pick `gh outbox resolve <seq> --accept-remote` or `--overwrite`. `gh pull --all` never overwrites a hand-maintained ROADMAP.md and, without `--force`, a file the user edited locally. A TRD over 60,000 characters makes the sync refuse before any GitHub call: tell the user to split it. The `gh trd` verbs (`spec|freeze|fold|scope`) need connectivity (offline they exit 1 and queue nothing).
+Exit 2 from `gh outbox flush` means someone edited the issue on GitHub; do not decide for the user. Show them `gh outbox status` (it names the issue and both resolve commands) and let them pick `gh outbox resolve <seq> --accept-remote` or `--overwrite`. `gh pull --all` never overwrites a hand-maintained ROADMAP.md and, without `--force`, a file the user edited locally. A TRD over 60,000 characters makes the sync refuse before any GitHub call: tell the user to split it. The `gh trd` verbs (`spec|freeze|fold|scope`) need connectivity (offline they exit 1 and queue nothing). In store mode an objective's branch and pull request have their own verbs (`gh pr start|sync|status|merge|reconcile`), which `/devflow:execute-objective` runs; `gh pr status <objective>` shows where one stands.
 
 How a sync treats GitHub:
 - Each issue body starts with `<!-- devflow:id=N -->`. DevFlow rewrites only the text between its `devflow:begin` / `devflow:end` section markers; text a human wrote above, between or below them is preserved byte for byte.

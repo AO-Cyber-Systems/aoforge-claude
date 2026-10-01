@@ -7,6 +7,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Objective branch and pull request lifecycle (objective 49).** In store mode each objective runs on
+  one linked branch with one draft pull request, from `execute-objective` start to merge. With
+  `github.store` off every verb below prints `skipped`, exits 0 and makes no `gh` call.
+  - `gh pr start|sync|status|merge|reconcile <objective>`. `start` creates the branch (linked to the
+    objective issue), the start commit and a draft PR that carries `Closes #<obj>` plus each TRD and
+    the wiki revision it was planned against, and freezes every TRD; it needs connectivity (offline
+    it exits 1 and queues nothing). `sync` pushes the branch and refreshes the PR body once per wave.
+    `status` prints the PR, its `devflow/verification` status, the closing set and pending scopes.
+    `merge` refuses a draft, a PR with no passing `devflow/verification` on the current head and a
+    closed PR; it merges with `github.pr.merge_method` (default `squash`), or enqueues the PR where
+    the base branch has a merge queue, and exits 0 merged, 3 enqueued, 2 halted for a human, 1
+    refused. `reconcile` (exit 0 / 3 / 1) runs after the merge, by DevFlow or by a person on GitHub:
+    it verifies every issue the PR should close and closes stragglers, sets the Project fields,
+    deletes the branch, returns the checkout to the default branch and pulls the cache. It is
+    idempotent and exits 3 until a queued PR has landed.
+  - Scope gate: `gh trd start <trd>` marks a TRD in progress with `github.labels.in_progress` at spawn
+    (`summary post` removes it). A scope comment counts only when an objective assignee wrote it, the
+    DevFlow App (`github.app_login`) wrote it, DevFlow recorded it, or an assignee confirmed it with
+    `gh trd confirm-scope <trd> <n>`. Editing a scope after it was accepted makes it pending again.
+  - Every store-mode commit on the objective branch ends with a `Refs #N` paragraph (the TRD's issue
+    for a wave commit, the objective's for the start commit). It is a plain final paragraph, not a git
+    trailer, and matches `^Refs #\d+$`.
+  - The mapping gains a `prs` map (`branch`, `base`, PR `number` and `url`, `wiki_base_sha`, `merged_at`, `reconciled_at`).
+    `init execute-objective` reports `pr_lifecycle`, `objective_branch` and `pr_number`.
+  - Verification posts the commit status `devflow/verification` on the PR head, not a check run (only
+    a GitHub App can create a check run; the App is objective 50), marks the PR ready on a pass and
+    posts the wiki diff as a PR comment.
+  - New config keys: `github.pr.merge_method` (`squash` | `merge` | `rebase`, default `squash`; a merge
+    queue ignores it) and `github.app_login` (default empty).
 - **Planning verbs and the store-mode write path (objective 48).** Every planning write is now a
   df-tools verb that takes its content with `--from <path|->`: `plan put-trd` / `plan push`,
   `summary checkpoint` / `summary post`, `verification post`, `doc put`, `objective put` /
@@ -82,6 +111,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   subcommand without saying it is deprecated.
 
 ### Changed
+- **Objective branch and PR in store mode (objective 49).** `execute-objective` runs `gh pr start`,
+  syncs the PR once per wave and offers `gh pr merge` then `gh pr reconcile` at the end; it never
+  merges on its own. `complete-milestone` no longer creates or merges branches in store mode. An
+  auto-advance chain that skips the merge builds the next objective from the default branch, without
+  this objective's work.
 - **Edit gate in store mode.** With `github.enabled` and `github.store` both true, an Edit/Write of a
   cache or generated `.planning/` file is denied for everyone, skill markers and `devflow:*` agents
   included, and the reason names the verb to use. `config.json`, `STACK.md` and runtime files stay
@@ -117,6 +151,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   push reports no drift.
 
 ### Fixed
+- Store mode closed the objective issue at verify-pass, before anything was merged (objective 49). It
+  now closes on merge, through the PR's `Closes #<obj>`, or by `gh pr reconcile` when GitHub's
+  closing-keyword limit skipped it. `objective complete` writes the status and warns while the PR is
+  unmerged.
 - check-todos completed a todo with a hand `mv` into `todos/done/`, a directory df-tools does not
   use. It now runs `todo complete`, which moves the file to `todos/completed/`; add-todo no longer
   creates `todos/done/`, and existing `todos/done/` files still read as closed.
@@ -138,6 +176,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   disabled; an enabled project that cannot reach GitHub exits 1.
 
 ### Deprecated
+- `git.branching_strategy` (objective 49). In store mode it is ignored and `init` reports it as
+  `branching_strategy_ignored`; the PR lifecycle replaces it. In local mode it still works and `init`
+  prints a deprecation notice for `objective` and `milestone`.
 - `gh sync-objectives`. It still works and prints a one-line notice; use `gh sync --all`. The rename
   is recorded in `DF_TOOLS_DEPRECATIONS` (`lib/skill-route.cjs`).
 

@@ -410,6 +410,8 @@ Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub in
 | `github.store` | `false` | Store mode (strict boolean: only `true` turns it on). See **Store mode** below |
 | `github.labels.trd` / `github.labels.decision` | `"devflow:trd"` / `"devflow:decision"` | Labels for TRD and Decision issues; also how a repository without issue types tells them apart |
 | `github.wiki.remote` | `""` | Wiki remote override; empty means `https://github.com/<repo>.wiki.git` (env override `DEVFLOW_WIKI_REMOTE`) |
+| `github.pr.merge_method` | `"squash"` | How `gh pr merge` merges the objective PR: `squash`, `merge` or `rebase`. A merge queue ignores it |
+| `github.app_login` | `""` | Login of the DevFlow GitHub App; a scope comment it wrote counts as accepted (store mode) |
 
 ### Git Branching
 
@@ -426,6 +428,8 @@ Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub in
 | `none` | Never | N/A | Solo development, simple projects |
 | `objective` | At each `execute-objective` | One objective per branch | Code review per objective, granular rollback |
 | `milestone` | At first `execute-objective` | All objectives share one branch | Release branches, PR per version |
+
+`git.branching_strategy` is deprecated. In store mode (`github.store: true`) it no longer applies: each objective gets one linked branch and one pull request (see **One branch and one pull request per objective** under **Store mode**), and `init` reports a configured strategy as `branching_strategy_ignored`. In local mode it behaves as above and `init` prints a deprecation notice for `objective` and `milestone`.
 
 **Template variables:** `{objective}` = zero-padded number (e.g., "03"), `{slug}` = lowercase hyphenated name, `{milestone}` = version (e.g., "v1.0").
 
@@ -690,11 +694,12 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 | End of `/devflow:new-project` (after roadmap creation) | Creates one milestone per roadmap version + one issue per objective, persists numbers to `.planning/.gh-mapping.json` | `df-tools gh sync --all` |
 | End of `/devflow:execute-objective` | Pushes that objective: creates its issue on the first sync, updates the managed body sections, the sticky state comment and the Project fields, and writes `github_issue` to its OBJECTIVE.md. A failure prints a warning and the retry command | `df-tools gh sync <objective>` |
 | Verifier finds gaps (`status: gaps_found`) | Posts the VERIFICATION.md `gaps:` block as an issue comment (`--kind verification`) | `df-tools gh comment <objective> @file:path --kind verification` |
-| Verifier final pass passes | Closes the issue with link to verification report | `df-tools gh close-issue <objective>` |
+| Verifier final pass passes | Closes the issue with link to verification report. In store mode nothing closes here: the issue closes when the objective PR merges | `df-tools gh close-issue <objective>` |
 | Tag push (`vX.Y.Z`) | Generates rich release notes from SUMMARY.md files since previous tag, creates or edits the GitHub release | `df-tools gh sync-release vX.Y.Z` |
 | Read back | Compares the issue with the local state and reports drift; `--apply` writes the differences | `df-tools gh pull <objective> [--apply]` |
 | Rebuild the cache (store mode) | Rebuilds `.planning/` from GitHub: TRDs, SUMMARY and VERIFICATION, pages, a generated ROADMAP.md and STATE.md | `df-tools gh pull --all [--force]` |
 | Queued writes (store mode) | Shows or drains the outbox of pending GitHub writes | `df-tools gh outbox status`, `df-tools gh outbox flush [--no-wait]` |
+| Objective branch and PR (store mode) | One linked branch and one draft PR per objective, from execute start to merge | `df-tools gh pr start\|sync\|status\|merge\|reconcile <objective>` |
 | TRD spec and scope (store mode) | Prints a TRD's effective spec, freezes it, adds a scope change or folds scope comments into the body | `df-tools gh trd spec\|freeze\|fold\|scope <trd>` |
 | Orphans (store mode) | Lists TRD issues with no local file and local TRDs with no issue; deletes nothing | `df-tools gh orphans <objective>` |
 | Manual recovery | All of the above | `/devflow:gh-sync [<objective>|--all|release vX.Y.Z|status]` |
@@ -736,7 +741,7 @@ If the mapping file is lost, re-run `gh sync --all`: the `devflow:id` markers on
 
 ### Store mode
 
-Store mode (objectives 47 and 48) makes GitHub hold the whole planning hierarchy, not just a mirror of objectives. It is off unless `github.store` is exactly `true`; with it off, everything above behaves as before and every planning verb writes the same `.planning/` file it always did. With it on, skills and agents publish planning files through df-tools verbs and `.planning/` becomes a cache you can rebuild from GitHub (see **The planning write path** below). Objectives 49-51 move enforcement and the PR lifecycle onto the store.
+Store mode (objectives 47 and 48) makes GitHub hold the whole planning hierarchy, not just a mirror of objectives. It is off unless `github.store` is exactly `true`; with it off, everything above behaves as before and every planning verb writes the same `.planning/` file it always did. With it on, skills and agents publish planning files through df-tools verbs and `.planning/` becomes a cache you can rebuild from GitHub (see **The planning write path** below). Objective 49 adds the per-objective branch and pull request (see **One branch and one pull request per objective** below); objectives 50-51 move enforcement onto the store.
 
 With `github.store: true`, `df-tools gh sync <objective>` also pushes:
 
@@ -850,6 +855,45 @@ node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0010 --confirm
 Run the named verb with a draft instead. `config.json`, `STACK.md` and runtime files (`.trd-progress/`, `.skill-active` and the like) are always editable. The deny takes effect only once the installed DevFlow plugin is at or above the release that carries objective 48; `df-tools doctor` reports a stale plugin cache (check 11).
 
 **W055.** `validate health` (Check 15) reports W055 for a cache or generated file whose bytes match neither its last GitHub baseline nor a pending verb write: someone changed it outside a verb. The message names the verb that publishes it, or `gh pull --all --force` to take GitHub's version back. W056 means the check could not run, or stopped at its 5,000-file cap (for example an unreadable ledger). Neither appears in local mode.
+
+#### One branch and one pull request per objective (objective 49)
+
+In store mode `/devflow:execute-objective` runs each objective on one linked branch and one pull request. With `github.store` off none of this applies: every `gh pr` verb, `gh trd confirm-scope` and `gh trd start` prints `skipped`, exits 0 and makes no `gh` call, and `git.branching_strategy` keeps its old meaning. In store mode `git.branching_strategy` is ignored (see **Git Branching**), and `complete-milestone` no longer merges branches itself.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr start <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr sync <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr status <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr merge <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr reconcile <objective>
+```
+
+**Start.** `gh pr start` creates the objective branch linked to the objective issue, makes a start commit and opens a draft PR. The PR body carries `Closes #<objective issue>` and one `Closes #<TRD issue>` per TRD, and pins the wiki revision the objective was planned against. It also freezes every TRD, so a change after this point is a scope comment, not a body edit. `start` reads GitHub first: offline it exits 1 and queues nothing, so run it again when you are back online. The later verbs queue through the outbox.
+
+**TRDs.** At spawn, `gh trd start <trd>` puts the `github.labels.in_progress` label on the TRD's issue; `summary post` takes it off. Every commit on the objective branch ends with a `Refs #N` paragraph, the TRD's issue for a wave commit and the objective's for the start commit. It is a plain last paragraph, not a git trailer (git's trailer parser needs a colon), and matches `^Refs #\d+$`. A squash merge keeps these only in the PR's commit list, not in the squashed commit. After each wave, `gh pr sync` pushes the branch and refreshes the PR body.
+
+**Scope confirmation.** An executor reads a TRD's effective spec with `gh trd spec <trd>`. A scope comment counts only when an assignee of the objective issue wrote it, the DevFlow App (`github.app_login`) wrote it, DevFlow recorded it, or an assignee confirmed it. Anything else is pending, and `gh pr status` lists it with the command to accept it:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh trd confirm-scope <trd> <n>
+```
+
+A confirm counts only if an assignee posted it, so the token DevFlow uses must belong to one. Editing a scope after it was accepted makes it pending again.
+
+**Verify.** On a pass, `verification post` sets the commit status `devflow/verification` on the PR's head commit, marks the PR ready for review and posts the wiki diff as a PR comment. It is a commit status, not a check run, because only a GitHub App can create a check run; the App arrives with objective 50. Run `gh pr sync` first: the status is posted on the pushed head, so that head has to contain the verified commits. The objective issue stays open at this point.
+
+**Merge.** DevFlow offers the merge once the objective is verified; it never merges on its own. If you decline, or an auto-advance chain moves on without it, the next objective starts from the default branch without this one's work. `gh pr merge` refuses a draft PR, a PR with no passing `devflow/verification` on its current head and a closed PR. It merges with `github.pr.merge_method` (default `squash`), or enqueues the PR where the base branch has a merge queue.
+
+| Exit (`gh pr merge`) | Meaning | What to do |
+|---|---|---|
+| 0 | merged and reconciled | nothing |
+| 3 | enqueued in a merge queue, or `--no-flush` | run `gh pr reconcile` after the queue lands the PR; repeat until it exits 0 |
+| 2 | halted for a human (the halt names the PR and the reason) | fix it on GitHub, then `gh outbox flush` |
+| 1 | refused (draft, no passing status, closed unmerged, offline) | read the message; nothing was queued |
+
+**Reconcile.** `gh pr reconcile` runs after the PR merges, whether DevFlow or a person merged it on GitHub. GitHub caps how many issues a closing keyword closes, so reconcile reads every issue the PR should have closed (the objective and each TRD) and closes the ones that are still open. It then updates the Project fields, deletes the remote branch, returns your checkout to the default branch (a local branch that holds unmerged work is kept and reported) and pulls the cache. It is idempotent. Exit 0 is done, 3 means a queued PR has not landed yet, 1 is an error; warnings go to stderr with exit 0. The objective issue closes here or through the PR's `Closes`, never at verify.
+
+`gh pr status <objective>` shows where an objective stands at any point: the branch, the PR and its state, the `devflow/verification` status, the issues the PR closes, pending scopes and queued writes.
 
 ### What does NOT sync
 
