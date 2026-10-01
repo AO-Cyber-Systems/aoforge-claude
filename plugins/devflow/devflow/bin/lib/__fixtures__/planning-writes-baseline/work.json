@@ -1,3 +1,10 @@
 {
-  "_comment": "Planning-write ratchet baseline for the 'work' group (TRD 48-04, D-21). Per-file counts of direct planning-file write instructions not yet routed through a df-tools verb. Counts may only go down: lower a count in the commit that migrates the prose. TRD 48-20 drives this group to zero; 48-23 deletes these files. Regenerate by measuring with planning-audit.cjs, never by hand."
+  "_comment": "Planning-write ratchet baseline for the 'work' group (TRD 48-04, D-21). Per-file counts of direct planning-file write instructions not yet routed through a df-tools verb. Counts may only go down: lower a count in the commit that migrates the prose. TRD 48-20 drives this group to zero; 48-23 deletes these files. Regenerate by measuring with planning-audit.cjs, never by hand.",
+  "plugins/devflow/devflow/templates/debug-subagent-prompt.md": 1,
+  "plugins/devflow/devflow/workflows/add-todo.md": 1,
+  "plugins/devflow/devflow/workflows/check-todos.md": 2,
+  "plugins/devflow/devflow/workflows/micro.md": 2,
+  "plugins/devflow/devflow/workflows/quick.md": 6,
+  "plugins/devflow/skills/debug/SKILL.md": 1,
+  "plugins/devflow/skills/quick/SKILL.md": 1
 }

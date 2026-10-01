@@ -60,7 +60,75 @@ const OWNER = { plan: '48-16', execute: '48-17', verify: '48-18', bootstrap: '48
 // {file, line_contains, reason}: a finding in `file` whose text includes `line_contains` is
 // not counted. Reason >= 20 chars; each entry must match a real line of a real file.
 
-const EXEMPT = [];
+const EXEMPT = [
+  // ── the regex misreads the verb: nothing here writes a planning file ──
+  {
+    file: 'plugins/devflow/agents/executor.md',
+    line_contains: 'before reading the TRD, before any edit, before any commit',
+    reason: 'preflight ordering sentence: "edit" means any code edit, and the TRD is only read here',
+  },
+  {
+    file: 'plugins/devflow/agents/executor.md',
+    line_contains: 'create a progress task for each task in the TRD',
+    reason: 'TaskCreate progress tracking creates a harness task entry; the TRD is only read',
+  },
+  {
+    file: 'plugins/devflow/agents/executor.md',
+    line_contains: 'Record this as a deviation if the TRD asked for a direct edit',
+    reason: 'generated-file guard about editing source code; the TRD is only the thing that asked',
+  },
+  {
+    file: 'plugins/devflow/agents/planner.md',
+    line_contains: ': Create User',
+    reason: 'example TRD titles in the slicing guidance; "Create" names the code each TRD builds',
+  },
+  {
+    file: 'plugins/devflow/agents/planner.md',
+    line_contains: 'When a TRD creates 2+ new files',
+    reason: 'describes the <file_tree> section: the TRD\'s own tasks create source files',
+  },
+  {
+    file: 'plugins/devflow/devflow/templates/trd-prompt.md',
+    line_contains: 'Include when TRD creates 2+ new files',
+    reason: 'template comment for <file_tree>: the TRD\'s own tasks create source files',
+  },
+  {
+    file: 'plugins/devflow/agents/planner.md',
+    line_contains: 'post-write check eliminate that failure mode',
+    reason: 'background paragraph on why the boundary rule exists; it instructs nothing',
+  },
+  {
+    file: 'plugins/devflow/devflow/templates/project.md',
+    line_contains: 'to update Project v2 custom fields',
+    reason: 'the update targets GitHub Project v2 fields; OBJECTIVE.md is only a field source',
+  },
+  {
+    file: 'plugins/devflow/devflow/templates/research.md',
+    line_contains: 'Write "No user constraints',
+    reason: 'section-content guidance: write this sentence; CONTEXT.md is only the condition',
+  },
+  {
+    file: 'plugins/devflow/skills/gh-sync/SKILL.md',
+    line_contains: 'create or edit the GitHub release',
+    reason: 'the write targets a GitHub release; SUMMARY.md files are only read for the notes',
+  },
+  // ── negations the scanner cannot see (the negation follows the verb, or is "refuse") ──
+  {
+    file: 'plugins/devflow/agents/planner.md',
+    line_contains: '**STOP. Write no TRDs.**',
+    reason: '"Write no TRDs" forbids the write; the negation follows the verb, past the rule',
+  },
+  {
+    file: 'plugins/devflow/agents/verifier.md',
+    line_contains: 'refusing to overwrite" — this means',
+    reason: 'quotes the UAT generator refusal and says skip, do NOT regenerate; a forbid',
+  },
+  {
+    file: 'plugins/devflow/devflow/templates/UAT.md',
+    line_contains: 'the generator REFUSES to overwrite',
+    reason: 'safety note that the UAT generator refuses an overwrite; it forbids the write',
+  },
+];
 
 // ─── measurement ────────────────────────────────────────────────────────────────────
 
