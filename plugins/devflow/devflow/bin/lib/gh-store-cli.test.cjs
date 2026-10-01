@@ -369,3 +369,305 @@ describe('gh outbox: shared behaviour', () => {
     assert.deepEqual({ ...cli.EXIT }, { OK: 0, ERROR: 1, HALTED: 2, PENDING: 3 });
   });
 });
+
+// ─── Task 2: gh trd spec|freeze|fold|scope and gh orphans (tests 7-11, 12b) ──
+
+const { oversizedTrdText } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+const TRD_ID = '7-01';
+const TRD_FILE = '07-01-alpha-TRD.md';
+const TRD_TEXT = '# TRD 07-01: alpha\n\nThe alpha spec.\n';
+
+const trdCmd = (args, raw = true) => capture(() => cli.cmdGhTrd(S.root, args, raw));
+const orphansCmd = (args, raw = true) => capture(() => cli.cmdGhOrphans(S.root, args, raw));
+
+/** Seed a TRD issue carrying the 47-01 body header and map it, as `gh sync` leaves it. */
+function seedTrd({ text = TRD_TEXT, state = 'OPEN', id = TRD_ID, file = TRD_FILE } = {}) {
+  const number = S.fake.seedIssue({ title: `[TRD ${id}] ${file}`, body: trd.encodeTrdBody({ id, file, text }), state, labels: ['devflow:trd'] });
+  const map = mappingNow();
+  mappingLib.setTrd(map, id, { issue_number: number, rest_id: 1_000_000 + number });
+  assert.equal(mappingLib.writeMappingV3(S.root, map).ok, true);
+  return number;
+}
+
+const seedScope = (number, n, text) => S.fake.seedComment(number, trd.buildScopeComment(n, text));
+const commentsOf = (number) => S.fake.comments.filter((c) => c.issue_number === number);
+const specRevOf = (number) => commentsOf(number).find((c) => c.body.startsWith(bodyLib.commentMarker(TRD_ID, 'spec-rev')));
+const ghWrites = () => S.fake.writes().length;
+
+describe('gh trd spec', () => {
+  useStore();
+
+  test('7. prints the effective spec; --raw gives {text, applied, chars} for the seeded scope comments', () => {
+    const number = seedTrd();
+    seedScope(number, 1, 'First change.');
+    seedScope(number, 2, 'Second change.');
+    const writes = ghWrites();
+
+    const raw = trdCmd(['spec', '07-01']);
+    assert.equal(exitOf(raw), 0, raw.stdout + raw.stderr);
+    const j = json(raw);
+    assert.equal(j.ok, true);
+    assert.deepEqual(j.applied, [1, 2]);
+    assert.ok(j.text.includes('The alpha spec.'));
+    assert.ok(j.text.includes('First change.') && j.text.includes('Second change.'));
+    assert.equal(typeof j.chars, 'number');
+    assert.ok(j.chars >= j.text.length, 'chars is the encoded size, header included');
+
+    const prose = trdCmd(['spec', '7-01'], false);
+    assert.equal(exitOf(prose), 0);
+    assert.equal(prose.stdout, j.text.endsWith('\n') ? j.text : `${j.text}\n`, 'prose is the spec itself, ready to pipe');
+    assert.equal(ghWrites(), writes, 'reading the spec writes nothing');
+  });
+
+  test('7b. a TRD with no issue: exit 1 with the reason', () => {
+    const r = trdCmd(['spec', '07-02'], false);
+    assert.equal(exitOf(r), 1);
+    assert.match(r.stderr, /07-02|7-02/);
+  });
+});
+
+describe('gh trd freeze', () => {
+  useStore();
+
+  test('8. freezes after an implicit flush: the spec-rev comment on GitHub carries a freeze row', () => {
+    const number = seedTrd();
+    const r = trdCmd(['freeze', '07-01'], false);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /freeze/i);
+    const rev = specRevOf(number);
+    assert.ok(rev, 'a spec-rev comment was posted');
+    assert.match(rev.body, /freeze/);
+    assert.equal(outbox.status(S.root).pending, 0);
+  });
+
+  test('8b. --no-flush leaves the freeze queued and writes nothing', () => {
+    const number = seedTrd();
+    const writes = ghWrites();
+    const r = trdCmd(['freeze', '07-01', '--no-flush'], true);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.equal(ghWrites(), writes);
+    assert.equal(specRevOf(number), undefined);
+    const ops = queueNow().filter((o) => o.status === 'pending');
+    assert.equal(ops.length, 1);
+    assert.deepEqual(ops[0].target, { id: TRD_ID, kind: 'spec-rev' });
+    assert.equal(json(r).flush, undefined, 'no flush ran');
+  });
+
+  test('8c. a flush that is rate limited surfaces as exit 3 with the freeze still queued (--no-wait)', () => {
+    seedTrd();
+    S.fake.failNext(/POST repos\/o\/r\/issues\/\d+\/comments/, { ok: false, status: 1, stderr: 'gh: HTTP 403: You have exceeded a secondary rate limit' });
+    const r = trdCmd(['freeze', '07-01', '--no-wait'], false);
+    assert.equal(exitOf(r), 3, r.stdout + r.stderr);
+    assert.match(r.stdout, /pending/i);
+    assert.equal(outbox.status(S.root).pending, 1);
+  });
+
+  test('8d. freezing an already frozen TRD is a no-op that says so', () => {
+    seedTrd();
+    assert.equal(exitOf(trdCmd(['freeze', '07-01'], false)), 0);
+    const r = trdCmd(['freeze', '07-01'], false);
+    assert.equal(exitOf(r), 0);
+    assert.match(r.stdout, /already frozen/i);
+  });
+});
+
+describe('gh trd fold', () => {
+  useStore();
+
+  test('9. a closed TRD: the body is replaced with the effective spec and spec-rev gets a fold row', () => {
+    const number = seedTrd({ state: 'CLOSED' });
+    seedScope(number, 1, 'Folded change.');
+    const r = trdCmd(['fold', '07-01'], false);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.ok(S.fake.issues.find((i) => i.number === number).body.includes('Folded change.'), 'the scope text is now in the body');
+    assert.match(specRevOf(number).body, /fold/);
+    assert.equal(outbox.status(S.root).pending, 0);
+  });
+
+  test('9b. an open TRD: exit 1 with the message and nothing queued; --force proceeds', () => {
+    const number = seedTrd();
+    seedScope(number, 1, 'Folded change.');
+    const refused = trdCmd(['fold', '07-01'], false);
+    assert.equal(exitOf(refused), 1);
+    assert.match(refused.stderr, /open/);
+    assert.match(refused.stderr, /--force/);
+    assert.equal(queueNow().length, 0);
+
+    const forced = trdCmd(['fold', '07-01', '--force'], false);
+    assert.equal(exitOf(forced), 0, forced.stdout + forced.stderr);
+    assert.ok(S.fake.issues.find((i) => i.number === number).body.includes('Folded change.'));
+  });
+
+  test('9c. nothing waiting to fold: exit 0 and says so', () => {
+    seedTrd({ state: 'CLOSED' });
+    const r = trdCmd(['fold', '07-01'], false);
+    assert.equal(exitOf(r), 0);
+    assert.match(r.stdout, /nothing to fold/i);
+    assert.equal(queueNow().length, 0);
+  });
+});
+
+describe('gh trd scope', () => {
+  useStore();
+
+  test('10. @file: posts the next scope comment (n = highest + 1)', () => {
+    const number = seedTrd();
+    seedScope(number, 1, 'First change.');
+    const file = path.join(S.root, 'scope.md');
+    fs.writeFileSync(file, 'Second change, from a file.\n');
+    const r = trdCmd(['scope', '07-01', `@file:${file}`], false);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    const posted = commentsOf(number).find((c) => c.body.startsWith(trd.scopeMarker(2)));
+    assert.ok(posted, 'scope comment n=2 is on GitHub');
+    assert.ok(posted.body.includes('Second change, from a file.'));
+    assert.match(specRevOf(number).body, /scope/);
+  });
+
+  test('10b. inline text with --n K, and --no-flush queues without writing', () => {
+    const number = seedTrd();
+    const writes = ghWrites();
+    const queued = trdCmd(['scope', '07-01', 'An inline change.', '--n', '4', '--no-flush'], true);
+    assert.equal(exitOf(queued), 0, queued.stdout + queued.stderr);
+    assert.equal(json(queued).n, 4);
+    assert.equal(ghWrites(), writes);
+    assert.equal(queueNow().filter((o) => o.kind === 'post-scope').length, 1);
+
+    assert.equal(exitOf(trdCmd(['flush-not-a-verb'], false)), 1);
+    assert.equal(exitOf(outboxCmd(['flush'])), 0);
+    assert.ok(commentsOf(number).some((c) => c.body.startsWith(trd.scopeMarker(4))));
+  });
+
+  test('10c. an oversized scope is refused with "becomes a new TRD" and nothing is queued', () => {
+    seedTrd();
+    const file = path.join(S.root, 'big.md');
+    fs.writeFileSync(file, 'x'.repeat(70000));
+    const r = trdCmd(['scope', '07-01', `@file:${file}`], false);
+    assert.equal(exitOf(r), 1);
+    assert.match(r.stderr, /becomes a new TRD/);
+    assert.equal(queueNow().length, 0);
+  });
+
+  test('10d. an effective spec pushed over the limit by a small scope is refused the same way', () => {
+    const number = seedTrd({ text: oversizedTrdText(59000, { id: TRD_ID, file: TRD_FILE }) });
+    assert.ok(number > 0);
+    const r = trdCmd(['scope', '07-01', 'n'.repeat(2500)], true);
+    assert.equal(exitOf(r), 1);
+    const j = json(r);
+    assert.equal(j.overflow, true);
+    assert.match(j.error, /becomes a new TRD/);
+    assert.equal(queueNow().length, 0);
+  });
+
+  test('10e. a missing @file: path is exit 1; a missing body or a bad --n is usage on stderr, exit 1', () => {
+    seedTrd();
+    const missing = trdCmd(['scope', '07-01', `@file:${path.join(S.root, 'nope.md')}`], false);
+    assert.equal(exitOf(missing), 1);
+    assert.match(missing.stderr, /nope\.md/);
+    for (const args of [['scope', '07-01'], ['scope', '07-01', 'text', '--n', 'abc'], ['scope', '07-01', 'text', '--n', '0']]) {
+      const r = trdCmd(args, false);
+      assert.equal(exitOf(r), 1, args.join(' '));
+      assert.match(r.stderr, /[Uu]sage/, args.join(' '));
+    }
+    assert.equal(queueNow().length, 0);
+  });
+});
+
+describe('gh orphans', () => {
+  useStore();
+
+  /** The objective, a linked TRD with no local file (7-04) and an unlinked TRD issue (7-09). */
+  function seedOrphans() {
+    const objective = seedObjective();
+    const trdIssue = (id, file) => S.fake.seedIssue({
+      title: `[TRD ${id}] ${file}`,
+      body: trd.encodeTrdBody({ id, file, text: '# x\n' }),
+      labels: ['devflow:trd'],
+    });
+    const missingLocal = trdIssue('7-04', '07-04-gone-TRD.md');
+    const unlinked = trdIssue('7-09', '07-09-ghost-TRD.md');
+    const link = S.fake.runGh(
+      ['api', '--method', 'POST', `repos/o/r/issues/${objective}/sub_issues`, '--input', '-'],
+      { input: JSON.stringify({ sub_issue_id: 1_000_000 + missingLocal }) },
+    );
+    assert.equal(link.ok, true, link.stderr);
+    return { objective, missingLocal, unlinked };
+  }
+
+  test('11. lists unlinked TRD issues and linked TRDs without a local file; zero writes', () => {
+    const { missingLocal, unlinked } = seedOrphans();
+    const writes = ghWrites();
+    const mapping = fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8');
+
+    const raw = orphansCmd(['7']);
+    assert.equal(exitOf(raw), 0, raw.stdout + raw.stderr);
+    const j = json(raw);
+    assert.deepEqual(j.unlinked, [{ id: '7-09', number: unlinked }]);
+    assert.deepEqual(j.missing_local, [{ id: '7-04', number: missingLocal }]);
+
+    const prose = orphansCmd(['7'], false);
+    assert.equal(exitOf(prose), 0);
+    assert.match(prose.stdout, new RegExp(`7-09.*#${unlinked}`));
+    assert.match(prose.stdout, new RegExp(`7-04.*#${missingLocal}`));
+    assert.match(prose.stdout, /nothing was (deleted|changed)/i);
+
+    assert.equal(ghWrites(), writes);
+    assert.equal(fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8'), mapping);
+  });
+
+  test('11b. a clean objective says so; an objective with no issue is exit 1', () => {
+    seedObjective();
+    const clean = orphansCmd(['7'], false);
+    assert.equal(exitOf(clean), 0);
+    assert.match(clean.stdout, /no orphans/i);
+
+    const none = orphansCmd(['8'], false);
+    assert.equal(exitOf(none), 1);
+    assert.match(none.stderr, /8/);
+  });
+
+  test('11c. a missing objective argument is usage, exit 1', () => {
+    const r = orphansCmd([], false);
+    assert.equal(exitOf(r), 1);
+    assert.match(r.stderr, /[Uu]sage/);
+  });
+});
+
+describe('gh trd / gh orphans: shared behaviour', () => {
+  useStore();
+
+  test('12b. github.enabled:false: every trd verb and orphans is skipped with zero gh calls', () => {
+    setConfig({ enabled: false, repo: 'o/r' });
+    const runs = [
+      trdCmd(['spec', '07-01']), trdCmd(['freeze', '07-01']), trdCmd(['fold', '07-01']),
+      trdCmd(['scope', '07-01', 'text']), orphansCmd(['7']),
+    ];
+    for (const r of runs) {
+      assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+      assert.equal(json(r).skipped, true);
+      assert.match(json(r).reason, /github\.enabled/);
+    }
+    assert.equal(S.fake.calls().length, 0);
+    assert.equal(queueNow().length, 0);
+  });
+
+  test('unknown and missing trd verbs list the available ones; a missing TRD id is usage; --help exits 0', () => {
+    for (const args of [['nope', '07-01'], []]) {
+      const r = trdCmd(args, false);
+      assert.equal(exitOf(r), 1);
+      for (const verb of ['spec', 'freeze', 'fold', 'scope']) assert.match(r.stderr, new RegExp(verb));
+    }
+    for (const verb of ['spec', 'freeze', 'fold']) {
+      const r = trdCmd([verb], false);
+      assert.equal(exitOf(r), 1, verb);
+      assert.match(r.stderr, /[Uu]sage/, verb);
+    }
+    const help = trdCmd(['--help'], false);
+    assert.equal(exitOf(help), 0);
+    assert.match(help.stdout, /gh trd scope/);
+    const orphanHelp = orphansCmd(['--help'], false);
+    assert.equal(exitOf(orphanHelp), 0);
+    assert.match(orphanHelp.stdout, /gh orphans/);
+    assert.equal(S.fake.calls().length, 0);
+  });
+});
