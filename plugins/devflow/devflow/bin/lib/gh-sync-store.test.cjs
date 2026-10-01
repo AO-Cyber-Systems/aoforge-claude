@@ -84,6 +84,8 @@ const issueByNumber = (n) => S.fake.issues.find((i) => i.number === n);
 const getJson = (endpoint) => JSON.parse(S.fake.runGh(['api', endpoint]).stdout);
 const sync = (arg = '7') => gh.syncObjective(arg, S.root);
 const sections = (body) => (name) => body.split(`<!-- devflow:begin ${name} -->`).length - 1;
+/** OBJECTIVE.md as `gh sync` leaves it: 46's step 9 writes `github_issue` into the frontmatter before the push. */
+const withGithubIssue = (n) => STORE_FIXTURE.objective.replace('depends_on: Objective 6\n', `depends_on: Objective 6\ngithub_issue: o/r#${n}\n`);
 const isObjectiveBodyEdit = (n) => (argv) => argv.includes('PATCH') && argv.some((a) => a === `repos/o/r/issues/${n}`);
 const isTrdCreate = (argv) => argv.includes('POST') && argv.some((a) => /^repos\/o\/r\/issues$/.test(a));
 
@@ -184,7 +186,7 @@ describe('github.store on, organisation repo with a wiki', () => {
     for (const page of ['Objective-7-store-demo', 'Project', 'Requirements', 'Roadmap']) {
       assert.equal(typeof S.remote.readRemotePage(page), 'string', `${page} page exists on the wiki`);
     }
-    assert.equal(S.remote.readRemotePage('Objective-7-store-demo'), STORE_FIXTURE.objective);
+    assert.equal(S.remote.readRemotePage('Objective-7-store-demo'), withGithubIssue(obj), 'the page is the local file, github_issue write-back included');
     const roadmap = S.remote.readRemotePage('Roadmap');
     assert.ok(roadmap.includes(ghCache.GENERATED_HEADER), 'the Roadmap page carries the generated header');
     const model = ghCache.readRemoteModel(S.root);
@@ -248,8 +250,11 @@ describe('github.store on, organisation repo with a wiki', () => {
     if (needsGit(t)) return;
     addSecondObjective();
     const realFlush = flushLib.flush;
-    let flushes = 0;
-    flushLib.flush = (...args) => { flushes += 1; return realFlush(...args); };
+    const flushes = [];
+    flushLib.flush = (...args) => {
+      flushes.push(journalOps().filter((op) => op.status !== 'done').map((op) => `${op.kind}:${op.target.id || op.target.child || op.target.blocked || op.target.store}`));
+      return realFlush(...args);
+    };
     let res;
     try {
       res = gh.syncAll(S.root);
@@ -258,7 +263,14 @@ describe('github.store on, organisation repo with a wiki', () => {
     }
     assert.equal(res.ok, true, JSON.stringify(res));
     assert.equal(res.results.length, 2);
-    assert.equal(flushes, 1, 'one flush for the whole run');
+    // ONE flush drains the whole queue, with both objectives enqueued before it ran. The only other flush is the
+    // convergence pass after the Roadmap page: it carries just the objective body patches (the wiki section
+    // must name the revision that includes the Roadmap commit, or the next unchanged sync would patch it).
+    assert.ok(flushes.length >= 1 && flushes.length <= 2, JSON.stringify(flushes));
+    for (const id of ['upsert-issue:7-01', 'upsert-issue:7-03', 'upsert-issue:8-01', 'patch-body:7', 'patch-body:8']) {
+      assert.ok(flushes[0].includes(id), `${id} was queued before the first flush: ${JSON.stringify(flushes[0])}`);
+    }
+    if (flushes.length === 2) assert.deepEqual(flushes[1], ['patch-body:7', 'patch-body:8']);
     assert.equal(res.hierarchy.outbox, 'flushed', JSON.stringify(res.hierarchy));
     assert.equal(res.roadmap_page, 'pushed');
 
@@ -271,6 +283,19 @@ describe('github.store on, organisation repo with a wiki', () => {
     const map = mappingNow();
     assert.ok(map.trds['7-01'] && map.trds['8-01'], 'the final mapping write kept the flusher\'s TRD entries');
     assert.ok(map.objectives['7'] && map.objectives['8']);
+  });
+
+  test('5b. an unchanged `sync --all` re-run performs zero gh writes (the first run ended converged)', (t) => {
+    if (needsGit(t)) return;
+    addSecondObjective();
+    assert.equal(gh.syncAll(S.root).ok, true);
+    const before = S.fake.writes().length;
+    const again = gh.syncAll(S.root);
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal(again.hierarchy.outbox, 'flushed');
+    assert.equal(again.roadmap_page, 'unchanged');
+    const extra = S.fake.writes().slice(before);
+    assert.deepEqual(extra, [], JSON.stringify(extra));
   });
 });
 
@@ -423,7 +448,7 @@ describe('github.store on, user-owned repo without a wiki', () => {
     assert.equal(sections(objective.body)('summary'), 1);
 
     const docs = path.join(S.root, 'docs', 'devflow');
-    assert.equal(fs.readFileSync(path.join(docs, 'Objective-7-store-demo.md'), 'utf8'), STORE_FIXTURE.objective);
+    assert.equal(fs.readFileSync(path.join(docs, 'Objective-7-store-demo.md'), 'utf8'), withGithubIssue(res.issue_number));
     const roadmap = fs.readFileSync(path.join(docs, 'Roadmap.md'), 'utf8');
     assert.ok(roadmap.includes(ghCache.GENERATED_HEADER));
     assert.equal(fs.existsSync(path.join(S.root, '.planning', 'wiki')), false, 'no wiki clone is created');
