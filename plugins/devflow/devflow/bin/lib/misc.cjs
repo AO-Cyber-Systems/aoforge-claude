@@ -461,6 +461,18 @@ function mergeInProgress(cwd) {
   return execGit(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).exitCode === 0;
 }
 
+/**
+ * A merge or a rebase in progress in THIS checkout's own git dir (TRD 50-06). The same markers hooks/gate-commits.js reads:
+ * MERGE_HEAD, `rebase-merge/` and `rebase-apply/`. `--absolute-git-dir` is the per-worktree dir, which is where a linked
+ * worktree's rebase state lives. Any git failure reads as "nothing in progress".
+ */
+function mergeOrRebaseInProgress(cwd) {
+  if (mergeInProgress(cwd)) return true;
+  const gitDir = execGit(cwd, ['rev-parse', '--absolute-git-dir']);
+  if (gitDir.exitCode !== 0 || !gitDir.stdout) return false;
+  return ['rebase-merge', 'rebase-apply'].some((name) => fs.existsSync(path.join(gitDir.stdout, name)));
+}
+
 /** A --files argument as a repo-root-relative posix path ('' means the whole repo). */
 function repoPathOf(prefix, file) {
   const full = path.posix.normalize(prefix + String(file).replace(/\\/g, '/')).replace(/\/+$/, '');
@@ -601,6 +613,30 @@ function cmdCommit(cwd, message, files, raw, amend) {
   }
   const skippedField = skippedPlanning.length ? { skipped_planning: skippedPlanning } : {};
 
+  // TRD 50-06 (GEN-01): in store mode a commit lands only on an objective's linked branch (or on a `df/exec-*` worktree
+  // of it), never on the default branch or an unlinked one. The decision is gh-gate.cjs's (50-02, offline); it runs here —
+  // after the planning filter, so a commit that is wholly skipped stays `skipped` with exit 0, and BEFORE the `git add`
+  // loop below, so a refusal never touches the index. A merge or rebase in progress skips it: the `merge_in_progress`
+  // refusal and the raw-commit completion path own that case, and a rebase leaves HEAD detached. Amend is gated like any
+  // commit. DEVFLOW_SKIP_GH_GATE=1 lets the refused commit land; the override is logged once it has (see below), in the
+  // MAIN checkout's `.planning/`. Local mode never loads gh-gate.cjs, so its result keys and message bytes are unchanged.
+  const planningMode = require('./planning-mode.cjs');
+  const storeMode = planningMode.isStoreMode(cwd);
+  let gateObjective;
+  let gateEscape = null;
+  if (storeMode && !mergeOrRebaseInProgress(cwd)) {
+    const ghGate = require('./gh-gate.cjs');
+    const inputs = ghGate.readGateInputs(cwd);
+    const verdict = ghGate.evaluateGate({ ...inputs, env: process.env });
+    if (!verdict.allow) {
+      const result = { committed: false, hash: null, reason: verdict.reason, branch: inputs.branch, error: verdict.message };
+      output(result, raw, verdict.reason, 1);
+      return;
+    }
+    if (verdict.escaped) gateEscape = { verdict, branch: inputs.branch, env: ghGate.ESCAPE_ENV };
+    else gateObjective = verdict.objective;
+  }
+
   // TRD 44-06: staged removals whose working copy survives cannot go through the pathspec commit
   // below (it would re-add them from disk). Detect them first; `git add` must skip them too, or
   // an un-ignored one would be re-staged here instead. null → the ordinary path, unchanged.
@@ -633,12 +669,14 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // the message untouched and the result carries `refs: null` with a reason. `--amend` keeps its message, so it is
   // never touched. Local mode takes neither branch — the message bytes and result keys are exactly as before, and the
   // trailer module (and so the mapping) is never even loaded.
+  //
+  // TRD 50-06: on a linked branch a message with no usable scope (`wip: notes`) references the linked objective's issue
+  // (the gate's `objective`), so every commit there carries a `Refs #`. A scoped message keeps the resolution above.
   let commitMessage = message;
   let refsField = {};
-  const planningMode = require('./planning-mode.cjs');
-  if (!amend && planningMode.isStoreMode(cwd)) {
+  if (!amend && storeMode) {
     const { refsFor, applyRefs } = require('./commit-trailer.cjs');
-    const refs = refsFor(planningMode.resolveMainRoot(cwd) || cwd, message);
+    const refs = refsFor(planningMode.resolveMainRoot(cwd) || cwd, message, { objective: gateObjective });
     commitMessage = applyRefs(message, refs.issue);
     refsField = refs.issue === null ? { refs: null, refs_reason: refs.reason } : { refs: refs.issue };
   }
@@ -724,7 +762,24 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // Get short hash
   const hashResult = execGit(cwd, ['rev-parse', '--short', 'HEAD']);
   const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
-  const result = { committed: true, hash, reason: 'committed', ...skippedField, ...refsField };
+  // TRD 50-06: an escaped commit is logged only once it has landed — an override that overrode nothing (nothing to commit,
+  // a git failure) is not a signal worth keeping. The entry goes to the MAIN checkout's `.planning/` (a worktree's own is
+  // not where `df-tools override --list` reads). A log failure never undoes the commit: it is reported, not thrown.
+  let gateField = {};
+  if (gateEscape) {
+    const { verdict, branch, env } = gateEscape;
+    const reason = process.env.DEVFLOW_SKIP_GH_GATE_REASON ||
+      `env ${env}=1 (${verdict.reason} on ${branch || 'a detached HEAD'})`;
+    const mainRoot = planningMode.resolveMainRoot(cwd) || cwd;
+    let logged;
+    try {
+      logged = require('./override.cjs').recordOverride({ planningDir: path.join(mainRoot, '.planning'), gate: 'gh', reason });
+    } catch (e) {
+      logged = { ok: false, message: e.message };
+    }
+    gateField = logged.ok ? { gate_escaped: true } : { gate_escaped: true, gate_log_error: logged.message || logged.reason_code || 'override log failed' };
+  }
+  const result = { committed: true, hash, reason: 'committed', ...skippedField, ...refsField, ...gateField };
   output(result, raw, hash || 'committed');
 }
 

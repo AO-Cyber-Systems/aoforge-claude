@@ -179,7 +179,7 @@ function assertRefused(p, r, before, reason) {
   assert.equal(typeof r.json.error, 'string');
   assert.equal(staged(p), '', 'a refused commit stages nothing');
   assert.equal(head(p), before, 'HEAD is unchanged');
-  assert.equal(git(p, 'status', '--porcelain', '--', SRC), ` M ${SRC}`, 'the change is still an unstaged edit');
+  assert.equal(git(p, 'diff', '--name-only', '--', SRC), SRC, 'the change is still an unstaged edit');
 }
 
 describe('50-06 the default and unlinked branches (tests 1-3)', () => {
