@@ -124,6 +124,10 @@ No REFACTOR commits were needed.
 | test | `node --test state.test.cjs roadmap.test.cjs roadmap-reconcile-cli.test.cjs` | 0 | PASS (102/102) |
 | regression | `node --test df-tools.test.cjs roadmap-progress.test.cjs` | 0 | PASS (161/161) |
 | full suite | `node --test` over the three `npm test` globs (worktree, absolute paths) | 0 | PASS: 7211 tests, 7178 pass, 0 fail, 33 skipped |
+| full suite | `npm --prefix <worktree> test` (plain, no extra args) | 1 | 7211 tests, 7178 pass, **1 fail**, 32 skipped. The one failure is **MA-7** in `handoff-e2e.test.cjs` (doctl auth, PTY-path mock auth), the known flake: it passed in the run above, so it is intermittent and unrelated to this TRD. Noted, not fixed. |
+
+An earlier `npm test -- --test-reporter=dot` exited 1 for a different reason. npm appends the flag after the globs, where
+`node --test` reads it as a file pattern. That invocation is not a valid signal, and the two rows above replace it.
 
 ### Store-off invariant (this repo)
 
