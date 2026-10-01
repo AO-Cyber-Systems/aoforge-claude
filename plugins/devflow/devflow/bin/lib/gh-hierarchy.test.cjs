@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const hierarchy = require('./gh-hierarchy.cjs');
+const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const trd = require('./gh-trd.cjs');
 const { makeStoreProject, hermeticEnv, oversizedTrdText, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
@@ -29,8 +30,11 @@ describe('pure planning', () => {
   beforeEach(() => {
     envh = hermeticEnv();
     project = makeStoreProject({ store: true });
+    // planning is local-only: any gh call from it is a bug, so make it loud
+    client._setRunGh(() => { throw new Error('pure planning must not call gh'); });
   });
   afterEach(() => {
+    client._resetClient();
     envh.restore();
     project.cleanup();
   });
