@@ -22,11 +22,15 @@
 // same file still finds `objectives[k].issue_id`):
 //   { "version": 3, "repo": "owner/name", "milestones": { "v1.4": 7 },
 //     "objectives": { "46": { "issue_id": 123, "state_comment_id": 456, "verified_at": null } },
-//     "trds": {} }
+//     "trds": { "46-02": { "issue_number": 12, "rest_id": 1000012, "role": "trd", "comment_ids": { "summary": [55] } } } }
 // plus a top-level `conflicts` block only when non-empty (see migrateMapping).
 //
-// Scope: these are OBJECTIVE ids. A TRD id such as "46-02" is reserved for objective 47's `trds` map and
-// reads here as objective 46 with slug "02" — `trds` keys are out of scope and untouched.
+// Scope: `objectives` keys are OBJECTIVE ids. A TRD id such as "46-02" reads through `toObjectiveId` as
+// objective 46 with slug "02", so the `trds` map has its own accessors (objective 47): `toTrdId`, `getTrd`,
+// `setTrd`, `listTrds`. Keys are `<objective>-<NN>` for a TRD and `<objective>-<NN>-d<k>` for a Decision
+// (`role: "decision"`); both share the one map, so the file's shape did not change and v3 needs no migration.
+// `issue_number` is the number GitHub shows (#12); `rest_id` is the database id the REST sub-issues API
+// takes. They are different values that may coincide, and are never interchangeable.
 //
 // Never `parseInt` a directory prefix anywhere else: `parseInt("02.1")` is 2. The one legitimate use is
 // the integer part inside `toObjectiveId`, plus numeric sorting.
@@ -484,10 +488,108 @@ function setEntry(mapping, arg, patch) {
   return mapping;
 }
 
+// ─── TRD / Decision entries (objective 47) ────────────────────────────────────
+
+// `<objective>-<NN>` or `<objective>-<NN>-d<k>`: group 1 objective integer part, 2 optional `.N`, 3 the `-NN`
+// TRD part, 4 the optional `-dK` Decision suffix. Strict on purpose: a trailing slug is not a TRD id.
+const TRD_ID_RE = /^(\d+)(\.\d+)?-(\d+)(-d\d+)?$/;
+const TRD_ROLES = ['trd', 'decision'];
+
+/**
+ * Canonical TRD (or Decision) id, or null. The objective part is normalised exactly like `toObjectiveId`
+ * and the `-NN` part is kept as written:
+ *   "047-01" -> "47-01"   "07-01-d2" -> "7-01-d2"   "2.1-03" -> "2.1-03"
+ *   "47" | "x" | "47-d1" | "47-01-store-demo" | null -> null
+ */
+function toTrdId(arg) {
+  const m = String(arg ?? '').trim().match(TRD_ID_RE);
+  if (!m) return null;
+  return `${parseInt(m[1], 10)}${m[2] || ''}-${m[3]}${m[4] || ''}`;
+}
+
+/** The entry for any spelling of a TRD or Decision id ("007-01", "47-01-d1"), or null. */
+function getTrd(mapping, id) {
+  const tid = toTrdId(id);
+  if (tid === null || !isPlainObject(mapping) || !isPlainObject(mapping.trds)) return null;
+  return hasOwn(mapping.trds, tid) ? mapping.trds[tid] : null;
+}
+
+// comment_ids: `{ <kind>: [commentId, ...] }`. Values coerce to positive integers; anything else throws.
+function mergeCommentIds(tid, existing, patch) {
+  const base = isPlainObject(existing) ? existing : {};
+  const out = {};
+  for (const [kind, ids] of Object.entries(base)) out[kind] = clone(ids);
+  if (patch === null) return {};
+  if (!isPlainObject(patch)) throw new TypeError(`setTrd: ${tid} comment_ids must be an object of arrays`);
+  for (const [kind, ids] of Object.entries(patch)) {
+    if (ids === null) { delete out[kind]; continue; }
+    const coerced = Array.isArray(ids) ? ids.map(coerceId) : null;
+    if (coerced === null || coerced.some((n) => n === null)) {
+      throw new TypeError(`setTrd: ${tid} comment_ids.${kind} must be an array of positive integers`);
+    }
+    out[kind] = coerced;
+  }
+  return out;
+}
+
+/**
+ * Set fields on a TRD's or Decision's entry, in place, and return the mapping. The patch MERGES onto the
+ * existing entry (a field the patch names wins) and the result always carries the four fields, in this order:
+ *   { issue_number, rest_id, role: 'trd' | 'decision', comment_ids: { <kind>: [id, ...] } }
+ * `comment_ids` merges per kind (a kind the patch names is replaced whole; `null` removes it). `role` defaults
+ * from the id form and must agree with it. `issue_number` and `rest_id` must both resolve to positive
+ * integers; they are NOT required to differ (GitHub can issue equal values), the protection is the names.
+ * Throws TypeError, leaving the mapping untouched, for an unrecognised id or any invalid field.
+ */
+function setTrd(mapping, id, patch) {
+  const tid = toTrdId(id);
+  if (tid === null) throw new TypeError(`setTrd: unrecognised TRD id ${JSON.stringify(id)}`);
+  const existing = isPlainObject(mapping.trds) && hasOwn(mapping.trds, tid) ? mapping.trds[tid] : {};
+  const p = isPlainObject(patch) ? patch : {};
+  const pick = (field, fallback) => (hasOwn(p, field) ? p[field] : (existing[field] ?? fallback));
+
+  const issueNumber = coerceId(pick('issue_number', null));
+  if (issueNumber === null) throw new TypeError(`setTrd: ${tid} needs a positive integer issue_number`);
+  const restId = coerceId(pick('rest_id', null));
+  if (restId === null) throw new TypeError(`setTrd: ${tid} needs a positive integer rest_id`);
+
+  const idRole = /-d\d+$/.test(tid) ? 'decision' : 'trd';
+  const role = pick('role', idRole);
+  if (!TRD_ROLES.includes(role)) throw new TypeError(`setTrd: ${tid} role must be trd or decision`);
+  if (role !== idRole) throw new TypeError(`setTrd: ${tid} is a ${idRole} id but role is ${role}`);
+
+  const commentIds = mergeCommentIds(tid, existing.comment_ids, p.comment_ids === undefined ? {} : p.comment_ids);
+
+  if (!isPlainObject(mapping.trds)) mapping.trds = {};
+  mapping.trds[tid] = { issue_number: issueNumber, rest_id: restId, role, comment_ids: commentIds };
+  return mapping;
+}
+
+/**
+ * Ids in `mapping.trds` that belong to objective `objectiveArg` (any spelling), natural-sorted. TRDs only,
+ * unless `{ includeDecisions: true }`. Keys that are not TRD ids are skipped; the objective part must be
+ * equal, so objective 7 does not list "70-01" or "7.1-01".
+ */
+function listTrds(mapping, objectiveArg, { includeDecisions = false } = {}) {
+  const objective = toObjectiveId(objectiveArg);
+  if (objective === null || !isPlainObject(mapping) || !isPlainObject(mapping.trds)) return [];
+  return Object.keys(mapping.trds)
+    .filter((key) => {
+      const m = key.match(TRD_ID_RE);
+      if (!m || `${parseInt(m[1], 10)}${m[2] || ''}` !== objective) return false;
+      return includeDecisions || !m[4];
+    })
+    .sort(naturalCompare);
+}
+
 module.exports = {
   MAPPING_VERSION,
   MAPPING_REL,
   toObjectiveId,
+  toTrdId,
+  getTrd,
+  setTrd,
+  listTrds,
   compareIds,
   listObjectiveIndex,
   resolveObjective,
