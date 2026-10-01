@@ -618,10 +618,10 @@ describe('mergeManaged', () => {
 // ─── 47: store sections ──────────────────────────────────────────────────────
 
 describe('47 store sections', () => {
-  const PAGE_URL = 'https://github.com/o/r/wiki/Objective-7-store-demo/abc1234';
+  const PAGE_URL = 'https://github.com/o/r/wiki/Objective-7-store-demo/1a2b3c4';
   const wikiArgs = (over) =>
     Object.assign(
-      { dir: '07-store-demo', page: 'Objective-7-store-demo', url: PAGE_URL, sha: 'abc1234' },
+      { dir: '07-store-demo', page: 'Objective-7-store-demo', url: PAGE_URL, sha: '1a2b3c4' },
       over || {}
     );
   const body46 = () =>
@@ -667,12 +667,12 @@ describe('47 store sections', () => {
   test('3: a new sha changes only the wiki inner text; an identical merge is changed:false', () => {
     const first = ghBody.mergeManaged(body46(), { wiki: ghBody.buildWikiSection(wikiArgs()) }, '7');
     const next = ghBody.buildWikiSection(
-      wikiArgs({ sha: 'def5678', url: PAGE_URL.replace('abc1234', 'def5678') })
+      wikiArgs({ sha: 'def5678', url: PAGE_URL.replace('1a2b3c4', 'def5678') })
     );
     const second = ghBody.mergeManaged(first.body, { wiki: next }, '7');
     assert.strictEqual(second.ok, true);
     assert.strictEqual(second.changed, true);
-    assert.strictEqual(second.body, first.body.split('abc1234').join('def5678'));
+    assert.strictEqual(second.body, first.body.split('1a2b3c4').join('def5678'));
     assert.ok(second.body.startsWith(body46()), 'the 46 part of the body did not move');
 
     const third = ghBody.mergeManaged(second.body, { wiki: next }, '7');
@@ -684,7 +684,7 @@ describe('47 store sections', () => {
     assert.strictEqual(
       ghBody.buildWikiSection(wikiArgs()),
       '<!-- devflow:dir=07-store-demo -->\n' +
-        'Detail: [Objective-7-store-demo](https://github.com/o/r/wiki/Objective-7-store-demo/abc1234) (revision `abc1234`)'
+        'Detail: [Objective-7-store-demo](https://github.com/o/r/wiki/Objective-7-store-demo/1a2b3c4) (revision `1a2b3c4`)'
     );
   });
 

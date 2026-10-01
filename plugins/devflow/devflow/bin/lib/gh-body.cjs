@@ -26,6 +26,13 @@
 // Fixed order in which sections are emitted and appended.
 const SECTION_ORDER = ['summary', 'criteria', 'trds', 'footer'];
 
+// Optional managed sections (objective 47). buildObjectiveSections never emits them; a caller opts in by
+// naming them in the `sections` object, and they are appended after SECTION_ORDER. Kept apart from
+// SECTION_ORDER so the 46 bodies already on GitHub (and the 46 tests) are not disturbed.
+//   wiki: <!-- devflow:dir=NAME --> plus the link to the wiki page at a pinned revision
+//   meta: `type:` / `work:` / `kind:` lines (degraded mode, when native fields/types are unavailable)
+const OPTIONAL_SECTIONS = ['wiki', 'meta'];
+
 // The sticky-comment marker written before the devflow:id form existed.
 const LEGACY_STATE_MARKER = '<!-- df:state -->';
 
@@ -319,14 +326,21 @@ function appendBlock(body, name, content) {
  *    CRLF, a changed result is written back with CRLF so human text keeps its
  *    bytes.
  *
- * `sections` is `{ summary, criteria, trds, footer }` (see buildObjectiveSections);
- * names left out are skipped.
+ * `sections` is `{ summary, criteria, trds, footer }` (see buildObjectiveSections)
+ * plus the optional `wiki` and `meta` (OPTIONAL_SECTIONS); names left out are skipped.
+ * A missing wiki/meta pair is appended at the end; an existing body is never re-ordered.
+ *
+ * `opts.preserveTicks` (default false, so 46's sync behaves exactly as before): when the
+ * `criteria` pair already exists, a `- [ ]` line in the new content whose text matches a
+ * `- [x]` line already on GitHub is written as `- [x]`. The verifier ticks criteria on
+ * GitHub; a re-push must not un-tick them. Matching is by criterion text, never position.
  */
-function mergeManaged(existingBody, sections, id) {
+function mergeManaged(existingBody, sections, id, opts = {}) {
   const cid = canonicalId(id);
   if (cid === null) return { ok: false, error: `invalid devflow id: ${JSON.stringify(id)}` };
 
-  const provided = SECTION_ORDER.filter((n) => sections && sections[n] !== undefined);
+  const preserveTicks = Boolean(opts && opts.preserveTicks);
+  const provided = [...SECTION_ORDER, ...OPTIONAL_SECTIONS].filter((n) => sections && sections[n] !== undefined);
   for (const name of provided) {
     const content = sections[name];
     if (typeof content !== 'string') {
@@ -353,9 +367,12 @@ function mergeManaged(existingBody, sections, id) {
     }
     merged = found ? norm : `${markerLine(cid)}\n${norm}`;
     for (const name of provided) {
-      const content = sections[name];
+      let content = sections[name];
       const pair = findPair(merged, name);
       if (pair) {
+        if (preserveTicks && name === 'criteria') {
+          content = keepTicks(merged.slice(pair.innerStart, pair.endIndex), content);
+        }
         merged = `${merged.slice(0, pair.innerStart)}\n${content}\n${merged.slice(pair.endIndex)}`;
       } else {
         if (merged.includes(beginMarker(name)) || merged.includes(endMarker(name))) {
@@ -379,10 +396,177 @@ function mergeManaged(existingBody, sections, id) {
   return { ok: true, body: changed ? out : raw, changed, warnings };
 }
 
+// ─── Store sections (objective 47) ───────────────────────────────────────────
+
+// A checklist line: `- [ ] text`, `- [x] text` (also `*`/`+` bullets and `[X]`). Group 1 is the
+// bullet incl. trailing space, 2 the tick character, 4 the criterion text.
+const TICK_LINE_RE = /^(\s*[-*+]\s+)\[([ xX])\](\s+)(\S.*?)\s*$/;
+const collapseWs = (s) => s.replace(/\s+/g, ' ').trim();
+
+/**
+ * keepTicks(existingInner, content) — `content` with every unticked checklist line whose
+ * text matches a ticked line in `existingInner` rewritten as ticked. Text is compared with
+ * whitespace collapsed; only `- [ ]` -> `- [x]` ever happens (a tick is never removed).
+ */
+function keepTicks(existingInner, content) {
+  const ticked = new Set();
+  for (const line of existingInner.split('\n')) {
+    const m = TICK_LINE_RE.exec(line);
+    if (m && m[2] !== ' ') ticked.add(collapseWs(m[4]));
+  }
+  if (ticked.size === 0) return content;
+  return content
+    .split('\n')
+    .map((line) => {
+      const m = TICK_LINE_RE.exec(line);
+      if (!m || m[2] !== ' ' || !ticked.has(collapseWs(m[4]))) return line;
+      return `${m[1]}[x]${line.slice(m[1].length + 3)}`;
+    })
+    .join('\n');
+}
+
+/**
+ * extractSection(body, name) — the inner text of the first well-formed `devflow:begin NAME` /
+ * `devflow:end NAME` pair, without the newline mergeManaged puts on each side; null when there is no
+ * well-formed pair (missing or malformed). CRLF is folded to LF.
+ */
+function extractSection(body, name) {
+  if (typeof body !== 'string' || typeof name !== 'string') return null;
+  const norm = body.replace(/\r\n/g, '\n');
+  const pair = findPair(norm, name);
+  if (!pair) return null;
+  let inner = norm.slice(pair.innerStart, pair.endIndex);
+  if (inner.startsWith('\n')) inner = inner.slice(1);
+  if (inner.endsWith('\n')) inner = inner.slice(0, -1);
+  return inner;
+}
+
+// The cache directory name is read back off GitHub and becomes a path, so it is held to one safe segment:
+// starts alphanumeric, then [A-Za-z0-9._-], and no `..` anywhere.
+const SAFE_DIR_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const isSafeDir = (dir) => typeof dir === 'string' && SAFE_DIR_RE.test(dir) && !dir.includes('..');
+const DIR_MARKER_RE = /<!--\s*devflow:dir=(\S+?)\s*-->/;
+const SAFE_PAGE_RE = /^[^\s[\]()<>`|]+$/;
+const SAFE_URL_RE = /^https?:\/\/[^\s()<>`]+$/;
+const SHA_RE = /^[0-9a-f]{7,40}$/i;
+
+/**
+ * buildWikiSection({ dir, page, url, sha }) — inner text of the `wiki` section:
+ *   <!-- devflow:dir=07-store-demo -->
+ *   Detail: [Objective-7-store-demo](URL) (revision `abc1234`)
+ * `dir` is the objective's cache directory name — the only place GitHub stores it, so `pull --all` can
+ * place files from an empty cache. `url` is the full page-at-revision URL (gh-wiki's pageRevisionUrl);
+ * it is used as given. Throws TypeError for a value that would not read back safely.
+ */
+function buildWikiSection(args) {
+  const a = args || {};
+  if (!isSafeDir(a.dir)) throw new TypeError(`invalid wiki dir: ${JSON.stringify(a.dir)}`);
+  if (typeof a.page !== 'string' || !SAFE_PAGE_RE.test(a.page)) {
+    throw new TypeError(`invalid wiki page: ${JSON.stringify(a.page)}`);
+  }
+  if (typeof a.url !== 'string' || !SAFE_URL_RE.test(a.url)) {
+    throw new TypeError(`invalid wiki url: ${JSON.stringify(a.url)}`);
+  }
+  if (typeof a.sha !== 'string' || !SHA_RE.test(a.sha)) {
+    throw new TypeError(`invalid wiki revision: ${JSON.stringify(a.sha)}`);
+  }
+  return `<!-- devflow:dir=${a.dir} -->\nDetail: [${a.page}](${a.url}) (revision \`${a.sha}\`)`;
+}
+
+/**
+ * parseDirMarker(body) — the cache directory named by the `wiki` section's `devflow:dir` marker, or
+ * null: no wiki section, no marker inside it (a marker pasted elsewhere does not count), or a value
+ * that is not one safe path segment.
+ */
+function parseDirMarker(body) {
+  const section = extractSection(body, 'wiki');
+  if (section === null) return null;
+  const m = DIR_MARKER_RE.exec(section);
+  return m && isSafeDir(m[1]) ? m[1] : null;
+}
+
+const META_KEYS = ['type', 'work', 'kind'];
+const META_LINE_RE = new RegExp(`^(${META_KEYS.join('|')}):\\s*(\\S.*?)\\s*$`);
+
+/**
+ * buildMetaSection({ type, work, kind }) — inner text of the `meta` section (degraded mode): one
+ * `key: value` line per key that has a value, in that order. Empty/absent keys are omitted; all
+ * absent gives ''. A non-string or multi-line value throws TypeError.
+ */
+function buildMetaSection(meta) {
+  const m = meta || {};
+  const lines = [];
+  for (const key of META_KEYS) {
+    const v = m[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string' || /[\r\n]/.test(v)) throw new TypeError(`invalid meta ${key}: ${JSON.stringify(v)}`);
+    if (v.trim() === '') continue;
+    lines.push(`${key}: ${v.trim()}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * parseMeta(text) — `{ type?, work?, kind? }` from the inner text of a `meta` section
+ * (extractSection(body, 'meta')). Unknown lines are ignored; null/non-string gives {}.
+ */
+function parseMeta(text) {
+  const out = {};
+  if (typeof text !== 'string') return out;
+  for (const line of text.split(/\r?\n/)) {
+    const m = META_LINE_RE.exec(line.trim());
+    if (m && !(m[1] in out)) out[m[1]] = m[2];
+  }
+  return out;
+}
+
+const TRD_MODES = ['native', 'tasklist'];
+const TRD_NATURAL = (a, b) => a.localeCompare(b, 'en', { numeric: true });
+
+/**
+ * buildTrdsSection({ mode, trds }) — inner text of the objective's `trds` section.
+ *   mode 'native'   — one line, `3 TRDs, tracked as sub-issues.` (GitHub renders the children itself)
+ *   mode 'tasklist' — `- [ ] #12 07-01 alpha` per TRD, ticked when done/closed, sorted by TRD id, for
+ *                     hosts without the sub-issues API
+ * `trds` is `[{ id, number, title?, done? }]` (`issue_number` and `closed` are accepted spellings of
+ * number and done). No TRDs gives `_None yet._`. Throws TypeError for an unknown mode and, in tasklist
+ * mode, for an item without a TRD id or a positive integer issue number.
+ */
+function buildTrdsSection(args) {
+  const a = args || {};
+  if (!TRD_MODES.includes(a.mode)) throw new TypeError(`invalid trds mode: ${JSON.stringify(a.mode)}`);
+  const trds = Array.isArray(a.trds) ? a.trds : [];
+  if (trds.length === 0) return '_None yet._';
+  if (a.mode === 'native') return `${trds.length} TRD${trds.length === 1 ? '' : 's'}, tracked as sub-issues.`;
+
+  const rows = trds.map((t) => {
+    const item = t || {};
+    const number = item.number !== undefined ? item.number : item.issue_number;
+    if (typeof item.id !== 'string' || item.id.trim() === '') {
+      throw new TypeError(`trds item needs a TRD id: ${JSON.stringify(item)}`);
+    }
+    if (!Number.isInteger(number) || number <= 0) {
+      throw new TypeError(`trds item ${item.id} needs a positive integer issue number`);
+    }
+    const done = item.done === true || item.closed === true || item.state === 'closed';
+    const title = typeof item.title === 'string' ? collapseWs(item.title) : '';
+    return { id: item.id.trim(), line: `- [${done ? 'x' : ' '}] #${number} ${item.id.trim()}${title ? ` ${title}` : ''}` };
+  });
+  rows.sort((x, y) => TRD_NATURAL(x.id, y.id));
+  return rows.map((r) => r.line).join('\n');
+}
+
 module.exports = {
   SECTION_ORDER,
+  OPTIONAL_SECTIONS,
   MAX_BODY_CHARS,
   mergeManaged,
+  extractSection,
+  buildWikiSection,
+  parseDirMarker,
+  buildMetaSection,
+  parseMeta,
+  buildTrdsSection,
   markerLine,
   commentMarker,
   extractMarker,
