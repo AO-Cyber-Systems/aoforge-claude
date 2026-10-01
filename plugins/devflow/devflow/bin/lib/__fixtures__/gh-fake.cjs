@@ -1200,6 +1200,120 @@ function createFakeGitHub({
     }), p, qs);
   }
 
+  // ─── Org writes, PR commits, contents (50-01) ──────────────────────────────
+
+  const FIELD_DATA_TYPES = ['text', 'date', 'single_select', 'multi_select', 'number'];
+  const ISSUE_FIELDS_API_VERSION = '2026-03-10';
+
+  /** The value of request header `name` (lower case) among the `-H` / `--header` flags, or undefined. */
+  function headerValue(p, name) {
+    for (const h of [...(p.flags['-H'] || []), ...(p.flags['--header'] || [])]) {
+      const at = String(h).indexOf(':');
+      if (at > 0 && String(h).slice(0, at).trim().toLowerCase() === name) return String(h).slice(at + 1).trim();
+    }
+    return undefined;
+  }
+
+  function restCreateIssueType(f) {
+    if (typeof f.name !== 'string' || !f.name) return invalid('IssueType', 'missing_field', 'name');
+    if (f.is_enabled === undefined) return invalid('IssueType', 'missing_field', 'is_enabled');
+    if (typeDefs.some((t) => t.name === f.name)) return invalid('IssueType', 'already_exists', 'name');
+    const row = {
+      id: `IT_${nextTypeSeq++}`,
+      name: f.name,
+      is_enabled: toBool(f.is_enabled),
+      description: f.description === undefined ? null : f.description,
+      color: f.color === undefined ? null : f.color,
+    };
+    typeDefs.push(row);
+    return ok(JSON.stringify(row));
+  }
+
+  /** PUT orgs/o/issue-types/{id}: patches only the fields the body names. The id is a string in the path. */
+  function restPatchIssueType(id, f) {
+    const row = typeDefs.find((t) => String(t.id) === id);
+    if (!row) return notFound();
+    if (f.name !== undefined && (typeof f.name !== 'string' || !f.name || typeDefs.some((t) => t !== row && t.name === f.name))) {
+      return invalid('IssueType', 'invalid', 'name');
+    }
+    for (const key of ['name', 'description', 'color']) if (f[key] !== undefined) row[key] = f[key];
+    if (f.is_enabled !== undefined) row.is_enabled = toBool(f.is_enabled);
+    return ok(JSON.stringify(row));
+  }
+
+  /** POST orgs/o/issue-fields: needs the dated api-version header, joins `fieldDefs`. 400 / 422 as GitHub answers. */
+  function restCreateIssueField(f, p) {
+    if (headerValue(p, 'x-github-api-version') !== ISSUE_FIELDS_API_VERSION) {
+      return badRequest(`Issue fields need the X-GitHub-Api-Version: ${ISSUE_FIELDS_API_VERSION} header`);
+    }
+    if (typeof f.name !== 'string' || !f.name) return invalid('IssueField', 'missing_field', 'name');
+    if (!FIELD_DATA_TYPES.includes(f.data_type)) {
+      return invalid('IssueField', f.data_type === undefined ? 'missing_field' : 'invalid', 'data_type');
+    }
+    if (fieldDefs.some((d) => d.name === f.name)) return invalid('IssueField', 'already_exists', 'name');
+    if (f.options !== undefined && !fieldOptionsAccepted) return unprocessable('Options cannot be set when an issue field is created');
+    const row = {
+      id: Math.max(0, ...fieldDefs.map((d) => d.id)) + 1,
+      name: f.name,
+      data_type: f.data_type,
+      description: f.description === undefined ? null : f.description,
+      visibility: f.visibility === undefined ? null : f.visibility,
+    };
+    if (f.options !== undefined) row.options = copy(f.options);
+    fieldDefs.push(row);
+    return ok(JSON.stringify(row));
+  }
+
+  /** orgs/{o}/issue-types (GET, POST), issue-types/{id} (PUT) and issue-fields (GET, POST). */
+  function restOrgRoute(m, method, fields, p, qs, args) {
+    const [, org, kind, id] = m;
+    const isTypes = kind === 'issue-types';
+    const known = id === undefined ? (method === 'GET' || method === 'POST') : (method === 'PUT' && isTypes);
+    if (!known) return unsupported(args);
+    // An org endpoint exists only for an Organization owner, and only for THIS repo's org.
+    if (ownerType !== 'Organization' || org !== repoOwner) return notFound();
+    if (method === 'GET') return respondList((isTypes ? typeDefs : fieldDefs).map((r) => ({ ...r })), p, qs);
+    if (!orgAdmin) return forbidden('Must have admin rights to Organization.');
+    if (!isTypes) return restCreateIssueField(fields, p);
+    return id === undefined ? restCreateIssueType(fields) : restPatchIssueType(id, fields);
+  }
+
+  /** GET repos/o/r/pulls/{n}/commits: the seeded messages, with stable fake shas. 404 for a PR that does not exist. */
+  function restPullCommits(n, p, qs) {
+    const pr = findPr(n);
+    if (!pr) return notFound();
+    const rows = (prCommits[pr.number] || []).map((message, i) => ({
+      sha: crypto.createHash('sha1').update(`pr-${pr.number}-commit-${i}\n${message}`).digest('hex'),
+      commit: { message },
+    }));
+    return respondList(rows, p, qs);
+  }
+
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+  /** GET repos/o/r/contents/<path>?ref=: a seeded file as GitHub serves it (base64 wrapped at 60 columns). */
+  function restContents(rawFilePath, qs) {
+    let filePath;
+    try {
+      filePath = decodeURIComponent(rawFilePath);
+    } catch (e) {
+      return notFound();
+    }
+    const ref = qs.get('ref') || defaultBranch;
+    if (!hasOwn(files, ref) || !hasOwn(files[ref], filePath) || typeof files[ref][filePath] !== 'string') return notFound();
+    const text = files[ref][filePath];
+    const b64 = Buffer.from(text, 'utf8').toString('base64');
+    return ok(JSON.stringify({
+      type: 'file',
+      encoding: 'base64',
+      name: filePath.split('/').pop(),
+      path: filePath,
+      sha: crypto.createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest('hex'),
+      size: Buffer.byteLength(text),
+      content: b64 ? `${b64.match(/.{1,60}/g).join('\n')}\n` : '',
+    }));
+  }
+
   function runApi(args, opts = {}) {
     const p = parseArgs(args, 1, API_VALUE_FLAGS, API_BOOL_FLAGS);
     if (p.unknown.length || p.pos.length !== 1) return unsupported(args);
@@ -1398,6 +1512,20 @@ function createFakeGitHub({
       return unsupported(args);
     }
 
+    // ── 50-01: the inputs the required checks read (PR commits, file contents) ──
+
+    m = /^repos\/([^/]+\/[^/]+)\/pulls\/(\d+)\/commits$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'GET' ? restPullCommits(m[2], p, qs) : unsupported(args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/contents\/(.+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'GET' ? restContents(m[2], qs) : unsupported(args);
+    }
+
     // ── 49-01: commit statuses and branch refs ──
 
     m = /^repos\/([^/]+\/[^/]+)\/statuses\/([^/]+)$/.exec(rawPath);
@@ -1450,14 +1578,8 @@ function createFakeGitHub({
       return repoOk();
     }
 
-    m = /^orgs\/([^/]+)\/(issue-types|issue-fields)$/.exec(rawPath);
-    if (m) {
-      if (method !== 'GET') return unsupported(args);
-      // An org endpoint exists only for an Organization owner, and only for THIS repo's org.
-      if (ownerType !== 'Organization' || m[1] !== repoOwner) return notFound();
-      const rows = m[2] === 'issue-types' ? typeDefs : fieldDefs;
-      return respondList(rows.map((r) => ({ ...r })), p, qs);
-    }
+    m = /^orgs\/([^/]+)\/(issue-types|issue-fields)(?:\/([^/]+))?$/.exec(rawPath);
+    if (m) return restOrgRoute(m, method, fields, p, qs, args);
 
     return unsupported(args);
   }
