@@ -14,15 +14,22 @@
 //   8-13 writeCache / pullAll: idempotent, local edits survive, GitHub wins over untouched files, hand-kept
 //        ROADMAP/STATE untouched, orphans reported not deleted, base refresh skips pending targets.
 
-const { test, describe } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const cache = require('./gh-cache.cjs');
 const ghTrd = require('./gh-trd.cjs');
 const ghBody = require('./gh-body.cjs');
 const ghWiki = require('./gh-wiki.cjs');
 const ghMapping = require('./gh-mapping.cjs');
-const { STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
+const client = require('./gh-client.cjs');
+const outbox = require('./gh-outbox.cjs');
+const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
+const { STORE_FIXTURE, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
 
 const F = STORE_FIXTURE;
 const DIR = F.objectiveDir;
@@ -303,5 +310,526 @@ describe('renderState', () => {
     const text = cache.renderState(makeModel({ objectives: [], trds: [] }));
     assert.ok(text.startsWith(cache.GENERATED_HEADER));
     assert.match(text, /No open objectives/);
+  });
+});
+
+// ═══ Task 2: remote model reader and safe cache writer ═══════════════════════
+
+const wikiAvailable = gitAvailable();
+const SKIP_NO_GIT = wikiAvailable ? false : 'git is not available';
+
+const WIKI_SEED = {
+  'Home.md': '# Home\n',
+  'Project.md': F.project,
+  'Requirements.md': CRLF(F.requirements),
+  'Codebase-Stack.md': '# Stack\n\nNode.\n',
+  'Codebase-Conventions.md': '# Conventions\n\nNo semicolon wars.\n',
+  'Objective-7-store-demo.md': F.objective,
+  'Objective-7-store-demo-Context.md': F.context,
+  'Objective-7-store-demo-Research.md': F.research,
+};
+
+/** The tree a clean pull must produce (generated ROADMAP.md / STATE.md excluded). */
+const TREE = {
+  'PROJECT.md': F.project,
+  'REQUIREMENTS.md': F.requirements,
+  'codebase/STACK.md': '# Stack\n\nNode.\n',
+  'codebase/CONVENTIONS.md': '# Conventions\n\nNo semicolon wars.\n',
+  [`objectives/${DIR}/OBJECTIVE.md`]: F.objective,
+  [`objectives/${DIR}/07-CONTEXT.md`]: F.context,
+  [`objectives/${DIR}/07-RESEARCH.md`]: F.research,
+  [`objectives/${DIR}/07-01-alpha-TRD.md`]: F.trds['07-01-alpha-TRD.md'],
+  [`objectives/${DIR}/07-02-beta-TRD.md`]: F.trds['07-02-beta-TRD.md'],
+  [`objectives/${DIR}/07-03-gamma-TRD.md`]: F.trds['07-03-gamma-TRD.md'],
+  [`objectives/${DIR}/07-01-alpha-SUMMARY.md`]: F.summary,
+  [`objectives/${DIR}/07-VERIFICATION.md`]: VERIFICATION_TEXT,
+};
+const ALL_FILES = [...Object.keys(TREE), 'ROADMAP.md', 'STATE.md'].sort();
+
+const OBJ = 1;
+const ALPHA = 2;
+const BETA = 3;
+const GAMMA = 4;
+
+let h;
+let restoreGit;
+let savedRemote;
+let root;
+let fake;
+let remote;
+
+function emptyProject({ enabled = true } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-cache-'));
+  fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled, repo: 'o/r' } }, null, 2)}\n`);
+  return dir;
+}
+
+beforeEach(() => {
+  h = hermeticEnv();
+  restoreGit = applyGitTestEnv(h.env.HOME);
+  savedRemote = process.env.DEVFLOW_WIKI_REMOTE;
+  delete process.env.DEVFLOW_WIKI_REMOTE;
+  root = emptyProject();
+  fake = null;
+  remote = null;
+});
+
+afterEach(() => {
+  client._setRunGh(null);
+  client._resetClient();
+  if (remote) remote.cleanup();
+  fs.rmSync(root, { recursive: true, force: true });
+  if (savedRemote === undefined) delete process.env.DEVFLOW_WIKI_REMOTE;
+  else process.env.DEVFLOW_WIKI_REMOTE = savedRemote;
+  restoreGit();
+  h.restore();
+});
+
+/** Issues and comments of the demo objective, written literally into the fake. */
+function seedIssues(f) {
+  f.seedMilestone('v9.9 Store Demo');
+  f.seedIssue({ title: '[Objective 7] Store demo', body: objectiveBody('7', DIR), labels: ['devflow:objective'], milestone: 'v9.9 Store Demo' });
+  F.trdFiles.forEach((file, i) => {
+    const id = ghMapping.toTrdId(file.slice(0, 5));
+    const body = ghTrd.encodeTrdBody({ id, file, text: F.trds[file] });
+    f.seedIssue({
+      title: `[TRD ${file.slice(0, 5)}] ${file}`,
+      body: i === 1 ? CRLF(body) : body,
+      labels: ['devflow:trd'],
+      state: i === 0 ? 'CLOSED' : 'OPEN',
+    });
+  });
+  // The SUMMARY is three numbered parts with human comments between them: page size 2 forces three pages.
+  const parts = fileComment('7-01', 'summary', SUMMARY_FILE, F.summary, { max: 300 });
+  assert.ok(parts.length >= 3, `the fixture summary must split in three or more (got ${parts.length})`);
+  f.seedComment(ALPHA, parts[0].body);
+  f.seedComment(ALPHA, 'looks good to me');
+  parts.slice(1).forEach((p) => f.seedComment(ALPHA, p.body));
+  f.seedComment(ALPHA, 'thanks!');
+  f.seedComment(OBJ, fileComment('7', 'verification', VERIFICATION_FILE, VERIFICATION_TEXT)[0].body);
+  f.seedIssue({ title: 'Decision 7-01-d1', body: '<!-- devflow:id=7-01-d1 -->\nUse REST.\n', labels: ['devflow:decision'] });
+}
+
+/** `wiki`: 'remote' (a bare repo), 'missing' (a wiki that was never created), 'docs' (wiki disabled). */
+function startGithub({ wiki = 'remote' } = {}) {
+  const docs = wiki === 'docs';
+  fake = createFakeGitHub({ repo: 'o/r', commentPageSize: 2, hasWiki: !docs, ownerType: docs ? 'User' : 'Organization' });
+  client._setRunGh(fake.runGh);
+  seedIssues(fake);
+  if (wiki === 'remote') {
+    remote = createWikiRemote({ seed: WIKI_SEED });
+    process.env.DEVFLOW_WIKI_REMOTE = remote.remoteUrl;
+  } else if (wiki === 'missing') {
+    remote = createWikiRemote();
+    process.env.DEVFLOW_WIKI_REMOTE = remote.missingUrl;
+  } else {
+    const dir = path.join(root, 'docs', 'devflow');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [name, text] of Object.entries(WIKI_SEED)) fs.writeFileSync(path.join(dir, name), text);
+  }
+}
+
+const abs = (rel) => path.join(root, '.planning', rel);
+const rd = (rel) => fs.readFileSync(abs(rel), 'utf-8');
+const AGED = new Date('2020-01-01T00:00:00Z');
+const age = (rels) => { for (const rel of rels) fs.utimesSync(abs(rel), AGED, AGED); };
+const mtime = (rel) => fs.statSync(abs(rel)).mtimeMs;
+
+describe('readRemoteModel', () => {
+  test('5: reads objectives, TRDs, decisions, comments (full pagination) and wiki pages', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.deepStrictEqual(model.objectives.map((o) => [o.id, o.number, o.state, o.milestone]), [['7', OBJ, 'open', 'v9.9 Store Demo']]);
+    assert.deepStrictEqual(model.trds.map((t) => [t.id, t.number, t.state]), [['7-01', ALPHA, 'closed'], ['7-02', BETA, 'open'], ['7-03', GAMMA, 'open']]);
+    assert.strictEqual(model.decisions.length, 1);
+    assert.strictEqual(model.trds[0].comments.length, 5, 'every comment, across three pages of two');
+    assert.strictEqual(model.trds[0].rest_id, 1_000_000 + ALPHA, 'the REST id is kept, never the number');
+    assert.deepStrictEqual(Object.keys(model.pages).sort(), Object.keys(WIKI_SEED).map((f) => f.slice(0, -3)).sort());
+    assert.strictEqual(model.pages_report.mode, 'wiki');
+
+    const m = cache.materialize(model);
+    assert.deepStrictEqual(m.rejected, []);
+    assert.deepStrictEqual(m.files, TREE);
+    assert.deepStrictEqual(m.unmapped_pages, ['Home']);
+  });
+
+  test('5: list-and-scan only: every list read paginates, nothing searches, nothing writes', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    cache.readRemoteModel(root);
+    const calls = fake.calls().map((a) => a.join(' '));
+    assert.ok(!calls.some((c) => /search/i.test(c)), 'no --search / search endpoint');
+    for (const label of ['devflow:objective', 'devflow:trd', 'devflow:decision']) {
+      assert.ok(calls.some((c) => c.includes(`labels=${encodeURIComponent(label)}`) && c.includes('--paginate')), `${label} list paginates`);
+    }
+    for (const n of [OBJ, ALPHA, BETA, GAMMA]) {
+      assert.ok(calls.some((c) => c.includes(`issues/${n}/comments`) && c.includes('--paginate')), `comments of #${n} paginate`);
+    }
+    assert.deepStrictEqual(fake.writes(), []);
+  });
+
+  test('6: docs mode (wiki disabled, user-owned repo) gives the same model from docs/devflow/', () => {
+    startGithub({ wiki: 'docs' });
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.strictEqual(model.pages_report.mode, 'docs');
+    assert.deepStrictEqual(cache.materialize(model).files, TREE);
+    assert.ok(!fs.existsSync(path.join(root, '.planning', 'wiki')), 'docs mode never clones the wiki');
+  });
+
+  test('7: an objective without a dir marker is no_dir and a TRD without an objective is an orphan', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    fake.seedIssue({ title: '[Objective 8] Undirected', body: '<!-- devflow:id=8 -->\nplain body\n', labels: ['devflow:objective'] });
+    fake.seedIssue({ title: 'lost TRD', body: ghTrd.encodeTrdBody({ id: '9-01', file: '09-01-lost-TRD.md', text: 'lost\n' }), labels: ['devflow:trd'] });
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.deepStrictEqual(model.objectives.map((o) => o.id), ['7', '8']);
+    const m = cache.materialize(model);
+    assert.deepStrictEqual(m.no_dir, [{ id: '8', number: 6 }]);
+    assert.deepStrictEqual(m.orphan_trds, [{ id: '9-01', number: 7 }]);
+    assert.ok(!Object.keys(m.files).some((p) => p.includes('09-01')));
+    assert.deepStrictEqual(m.files, TREE, 'the rest of the tree is untouched');
+  });
+
+  test('7: two objective issues claiming one id are reported and left out, never guessed', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    fake.seedIssue({ title: '[Objective 7] copy', body: objectiveBody('7', DIR), labels: ['devflow:objective'] });
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.deepStrictEqual(model.objectives, []);
+    assert.deepStrictEqual(model.problems.duplicate_objectives, { 7: [OBJ, 6] });
+  });
+
+  test('5: a project with github.enabled false makes no gh call', () => {
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: false, repo: 'o/r' } })}\n`);
+    startGithub({ wiki: 'docs' });
+    const r = cache.readRemoteModel(root);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.skipped, true);
+    assert.deepStrictEqual(fake.calls(), []);
+  });
+
+  test('5: an unreachable GitHub is an error, not an empty model', () => {
+    startGithub({ wiki: 'docs' });
+    fake.setOffline(true);
+    const r = cache.readRemoteModel(root);
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /./);
+  });
+
+  test('5: an uninitialised wiki skips the pages with a message and keeps the issue-derived data', { skip: SKIP_NO_GIT }, () => {
+    startGithub({ wiki: 'missing' });
+    const model = cache.readRemoteModel(root);
+    assert.strictEqual(model.ok, true, model.error);
+    assert.strictEqual(model.pages_report.skipped, true);
+    assert.match(model.pages_report.message, /wiki/i);
+    assert.deepStrictEqual(model.pages, {});
+    assert.strictEqual(model.trds.length, 3);
+  });
+});
+
+describe('writeCache', () => {
+  const GEN_ROADMAP = `${cache.GENERATED_HEADER}\n# Roadmap\n\n_No objectives yet._\n`;
+
+  test('8: an empty cache gets every file; the next run writes none and touches no mtime', () => {
+    const files = { 'PROJECT.md': 'a\n', 'objectives/07-x/OBJECTIVE.md': 'b\n', 'codebase/STACK.md': 'c' };
+    const first = cache.writeCache(root, files);
+    assert.deepStrictEqual(first.written.sort(), Object.keys(files).sort());
+    assert.deepStrictEqual(first.skipped, []);
+    age(Object.keys(files));
+    const second = cache.writeCache(root, files);
+    assert.deepStrictEqual(second.written, []);
+    assert.deepStrictEqual(second.skipped.sort(), Object.keys(files).sort());
+    for (const rel of Object.keys(files)) assert.strictEqual(mtime(rel), AGED.getTime(), `${rel} was not rewritten`);
+    assert.strictEqual(rd('codebase/STACK.md'), 'c', 'no trailing newline added');
+  });
+
+  test('9: a file edited locally since the last sync is local_modified, and only --force overwrites it', () => {
+    cache.writeCache(root, { 'PROJECT.md': 'v1\n' });
+    fs.writeFileSync(abs('PROJECT.md'), 'v1 and my own notes\n');
+    const r = cache.writeCache(root, { 'PROJECT.md': 'v1\n' });
+    assert.deepStrictEqual(r.local_modified, ['PROJECT.md']);
+    assert.deepStrictEqual(r.written, []);
+    assert.strictEqual(rd('PROJECT.md'), 'v1 and my own notes\n');
+
+    const both = cache.writeCache(root, { 'PROJECT.md': 'v2\n' });
+    assert.deepStrictEqual(both.local_modified, ['PROJECT.md'], 'GitHub changed too: still the human decides');
+    assert.strictEqual(rd('PROJECT.md'), 'v1 and my own notes\n');
+
+    const forced = cache.writeCache(root, { 'PROJECT.md': 'v2\n' }, { force: true });
+    assert.deepStrictEqual(forced.written, ['PROJECT.md']);
+    assert.deepStrictEqual(forced.local_modified, []);
+    assert.strictEqual(rd('PROJECT.md'), 'v2\n');
+  });
+
+  test('9: a file that exists with no recorded baseline and differs is local_modified, not overwritten', () => {
+    fs.writeFileSync(abs('PROJECT.md'), 'written by hand before DevFlow synced\n');
+    const r = cache.writeCache(root, { 'PROJECT.md': 'from github\n' });
+    assert.deepStrictEqual(r.local_modified, ['PROJECT.md']);
+    assert.strictEqual(rd('PROJECT.md'), 'written by hand before DevFlow synced\n');
+  });
+
+  test('9: identical bytes with no baseline are skipped and the baseline is recorded for next time', () => {
+    fs.writeFileSync(abs('PROJECT.md'), 'same\n');
+    const r = cache.writeCache(root, { 'PROJECT.md': 'same\n' });
+    assert.deepStrictEqual(r.skipped, ['PROJECT.md']);
+    assert.strictEqual(outbox.readCacheIndex(root)['PROJECT.md'], ghTrd.contentHash('same\n'));
+    const later = cache.writeCache(root, { 'PROJECT.md': 'changed on github\n' });
+    assert.deepStrictEqual(later.written, ['PROJECT.md'], 'untouched since the baseline, so GitHub wins');
+  });
+
+  test('10: a file untouched since the last sync is overwritten when GitHub changed', () => {
+    cache.writeCache(root, { 'PROJECT.md': 'v1\n' });
+    const r = cache.writeCache(root, { 'PROJECT.md': 'v2\n' });
+    assert.deepStrictEqual(r.written, ['PROJECT.md']);
+    assert.deepStrictEqual(r.local_modified, []);
+    assert.strictEqual(rd('PROJECT.md'), 'v2\n');
+    assert.strictEqual(outbox.readCacheIndex(root)['PROJECT.md'], ghTrd.contentHash('v2\n'));
+  });
+
+  test('11: a hand-maintained ROADMAP.md / STATE.md is never overwritten, even with --force', () => {
+    fs.writeFileSync(abs('ROADMAP.md'), '# Roadmap\n\nhand written\n');
+    fs.writeFileSync(abs('STATE.md'), '# State\n\nhand written too\n');
+    const r = cache.writeCache(root, { 'ROADMAP.md': GEN_ROADMAP, 'STATE.md': `${cache.GENERATED_HEADER}\n# State\n` });
+    assert.deepStrictEqual(r.hand_maintained.sort(), ['ROADMAP.md', 'STATE.md']);
+    assert.deepStrictEqual(r.written, []);
+    const forced = cache.writeCache(root, { 'ROADMAP.md': GEN_ROADMAP }, { force: true });
+    assert.deepStrictEqual(forced.hand_maintained, ['ROADMAP.md']);
+    assert.strictEqual(rd('ROADMAP.md'), '# Roadmap\n\nhand written\n');
+    assert.strictEqual(rd('STATE.md'), '# State\n\nhand written too\n');
+  });
+
+  test('11: an absent ROADMAP.md is generated, and a generated one is refreshed', () => {
+    const first = cache.writeCache(root, { 'ROADMAP.md': GEN_ROADMAP });
+    assert.deepStrictEqual(first.written, ['ROADMAP.md']);
+    const next = `${cache.GENERATED_HEADER}\n# Roadmap\n\n## v1\n`;
+    const second = cache.writeCache(root, { 'ROADMAP.md': next });
+    assert.deepStrictEqual(second.written, ['ROADMAP.md']);
+    assert.strictEqual(rd('ROADMAP.md'), next);
+  });
+
+  test('12: a local store file GitHub lacks is an orphan and stays on disk; other files are not', () => {
+    const objectiveDir = path.join(root, '.planning', 'objectives', DIR);
+    fs.mkdirSync(objectiveDir, { recursive: true });
+    fs.mkdirSync(path.join(root, '.planning', 'objectives', '99-gone'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.planning', 'codebase'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.planning', 'wiki'), { recursive: true });
+    for (const rel of [
+      `objectives/${DIR}/07-04-extra-TRD.md`, `objectives/${DIR}/07-UAT.md`, 'objectives/99-gone/OBJECTIVE.md',
+      'codebase/OLD.md', 'PROJECT.md', 'wiki/Home.md', 'notes.txt',
+    ]) fs.writeFileSync(abs(rel), 'local\n');
+    fs.writeFileSync(abs('ROADMAP.md'), '# hand kept\n');
+
+    const r = cache.writeCache(root, { [`objectives/${DIR}/07-01-alpha-TRD.md`]: 'x\n' });
+    assert.deepStrictEqual(r.orphans, [
+      'PROJECT.md', 'codebase/OLD.md', `objectives/${DIR}/07-04-extra-TRD.md`, 'objectives/99-gone/OBJECTIVE.md',
+    ]);
+    for (const rel of r.orphans) assert.ok(fs.existsSync(abs(rel)), `${rel} was not deleted`);
+  });
+
+  test('writeCache refuses a path that would leave .planning/', () => {
+    assert.throws(() => cache.writeCache(root, { '../escape.md': 'x' }), /unsafe/);
+    assert.throws(() => cache.writeCache(root, { '/etc/passwd': 'x' }), /unsafe/);
+    assert.ok(!fs.existsSync(path.join(root, 'escape.md')));
+  });
+
+  test('recordCacheBaseline records the current local hash of each file and names the missing ones', () => {
+    fs.writeFileSync(abs('PROJECT.md'), 'pushed text\n');
+    const r = cache.recordCacheBaseline(root, ['PROJECT.md', 'REQUIREMENTS.md']);
+    assert.deepStrictEqual(r.recorded, ['PROJECT.md']);
+    assert.deepStrictEqual(r.missing, ['REQUIREMENTS.md']);
+    assert.strictEqual(outbox.readCacheIndex(root)['PROJECT.md'], ghTrd.contentHash('pushed text\n'));
+    assert.ok(!('REQUIREMENTS.md' in outbox.readCacheIndex(root)));
+    // After a push the file equals GitHub; a later GitHub edit therefore overwrites it.
+    assert.deepStrictEqual(cache.writeCache(root, { 'PROJECT.md': 'edited on github\n' }).written, ['PROJECT.md']);
+  });
+});
+
+describe('pullAll', () => {
+  test('8: rebuilds the whole cache from GitHub; a second pull with no remote change writes zero files', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    const r1 = cache.pullAll(root);
+    assert.strictEqual(r1.ok, true, r1.error);
+    assert.deepStrictEqual(r1.written.sort(), ALL_FILES);
+    for (const [rel, text] of Object.entries(TREE)) assert.strictEqual(rd(rel), text, rel);
+    assert.deepStrictEqual(r1.attention, []);
+
+    const roadmap = rd('ROADMAP.md');
+    assert.ok(roadmap.startsWith(`${cache.GENERATED_HEADER}\n`));
+    assert.ok(roadmap.includes(`### Objective 7: Store demo  (#${OBJ}, open)`));
+    assert.ok(roadmap.includes(`- [x] 07-01 alpha (wave 1, #${ALPHA})`));
+    assert.ok(roadmap.includes(`- [ ] 07-03 gamma (wave 2, #${GAMMA}, blocked by 07-01)`));
+    assert.strictEqual(roadmap, cache.renderRoadmap(cache.readRemoteModel(root)), 'one renderer for the file and the wiki page');
+    assert.ok(rd('STATE.md').includes('1/3 TRDs done'));
+
+    age(ALL_FILES);
+    const writesBefore = fake.writes().length;
+    const r2 = cache.pullAll(root);
+    assert.deepStrictEqual(r2.written, []);
+    assert.deepStrictEqual(r2.skipped.sort(), ALL_FILES);
+    for (const rel of ALL_FILES) assert.strictEqual(mtime(rel), AGED.getTime(), `${rel} was not rewritten`);
+    assert.strictEqual(fake.writes().length, writesBefore, 'a pull never writes to GitHub');
+  });
+
+  test('6: docs mode rebuilds the same tree', () => {
+    startGithub({ wiki: 'docs' });
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.deepStrictEqual(r.written.sort(), ALL_FILES);
+    for (const [rel, text] of Object.entries(TREE)) assert.strictEqual(rd(rel), text, rel);
+  });
+
+  test('9: a local edit survives the pull and is reported; --force takes GitHub', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    cache.pullAll(root);
+    fs.writeFileSync(abs('PROJECT.md'), `${F.project}my local addition\n`);
+    const r = cache.pullAll(root);
+    assert.deepStrictEqual(r.local_modified, ['PROJECT.md']);
+    assert.ok(r.attention.some((a) => /local_modified|locally modified/.test(a)));
+    assert.strictEqual(rd('PROJECT.md'), `${F.project}my local addition\n`);
+    const forced = cache.pullAll(root, { force: true });
+    assert.deepStrictEqual(forced.written, ['PROJECT.md']);
+    assert.strictEqual(rd('PROJECT.md'), F.project);
+  });
+
+  test('10: a human edit on the wiki reaches an untouched cache file', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    cache.pullAll(root);
+    remote.commitPage('Project', '# Edited on the web\n');
+    const r = cache.pullAll(root);
+    assert.deepStrictEqual(r.written, ['PROJECT.md']);
+    assert.strictEqual(rd('PROJECT.md'), '# Edited on the web\n');
+  });
+
+  test('11: this repo-style hand-written ROADMAP.md and STATE.md are never clobbered', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    fs.writeFileSync(abs('ROADMAP.md'), '# Roadmap: hand written\n');
+    fs.writeFileSync(abs('STATE.md'), '# State: hand written\n');
+    const r = cache.pullAll(root);
+    assert.deepStrictEqual(r.hand_maintained.sort(), ['ROADMAP.md', 'STATE.md']);
+    assert.strictEqual(rd('ROADMAP.md'), '# Roadmap: hand written\n');
+    assert.strictEqual(rd('STATE.md'), '# State: hand written\n');
+    assert.ok(r.attention.some((a) => /hand/.test(a)));
+    assert.ok(fs.existsSync(abs(`objectives/${DIR}/07-01-alpha-TRD.md`)), 'the rest of the tree is still written');
+  });
+
+  test('12: a local objective file GitHub lacks is reported as an orphan, not deleted', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    cache.pullAll(root);
+    const stray = `objectives/${DIR}/07-04-extra-TRD.md`;
+    fs.writeFileSync(abs(stray), 'a TRD that was never pushed\n');
+    const r = cache.pullAll(root);
+    assert.deepStrictEqual(r.orphans, [stray]);
+    assert.ok(fs.existsSync(abs(stray)));
+  });
+
+  test('5: an uninitialised wiki skips the pages, still writes the issue-derived files and asks for a look', { skip: SKIP_NO_GIT }, () => {
+    startGithub({ wiki: 'missing' });
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.pages.skipped, true);
+    assert.ok(r.attention.some((a) => /wiki|pages/i.test(a)));
+    assert.ok(!fs.existsSync(abs('PROJECT.md')));
+    for (const file of F.trdFiles) assert.ok(fs.existsSync(abs(`objectives/${DIR}/${file}`)), file);
+    assert.strictEqual(rd(`objectives/${DIR}/07-01-alpha-SUMMARY.md`), F.summary);
+    assert.strictEqual(rd(`objectives/${DIR}/07-VERIFICATION.md`), VERIFICATION_TEXT);
+    assert.ok(fs.existsSync(abs('ROADMAP.md')));
+  });
+
+  test('a wiki clone with an unpushed local page is read as is, never reset, and reported', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    cache.pullAll(root);
+    fs.writeFileSync(path.join(root, '.planning', 'wiki', 'Project.md'), '# Not pushed yet\n');
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.pages.dirty, true);
+    assert.strictEqual(fs.readFileSync(path.join(root, '.planning', 'wiki', 'Project.md'), 'utf-8'), '# Not pushed yet\n');
+  });
+
+  test('a disabled project is skipped with zero gh calls and nothing written', () => {
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: false, repo: 'o/r' } })}\n`);
+    startGithub({ wiki: 'docs' });
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.skipped, true);
+    assert.deepStrictEqual(fake.calls(), []);
+    assert.ok(!fs.existsSync(abs('ROADMAP.md')));
+  });
+
+  test('an unreachable GitHub is an error and writes nothing', () => {
+    startGithub({ wiki: 'docs' });
+    fake.setOffline(true);
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, false);
+    assert.ok(!fs.existsSync(abs('ROADMAP.md')));
+    assert.ok(!fs.existsSync(abs('PROJECT.md')));
+  });
+
+  test('13: pulled issues and comments get fresh outbox bases', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    const alpha = outbox.getBase(root, '7-01');
+    assert.strictEqual(alpha.issue_number, ALPHA);
+    assert.strictEqual(alpha.issue_id, 1_000_000 + ALPHA, 'the REST id');
+    assert.strictEqual(alpha.body_hash, ghTrd.contentHash(fake.issues[ALPHA - 1].body));
+    assert.ok(alpha.updated_at);
+    const objective = outbox.getBase(root, '7');
+    assert.strictEqual(objective.issue_number, OBJ);
+    assert.strictEqual(objective.managed_hash, require('./gh-outbox-flush.cjs').managedHash(fake.issues[OBJ - 1].body));
+    const summary = outbox.getBase(root, '7-01#summary');
+    assert.strictEqual(summary.issue_number, ALPHA);
+    assert.strictEqual(summary.issue_id, 1_000_000 + ALPHA);
+    assert.strictEqual(summary.body_hash, ghTrd.contentHash(`${ghTrd.fileLine(SUMMARY_FILE)}\n${F.summary}`));
+    assert.strictEqual(outbox.getBase(root, '7#verification').issue_number, OBJ);
+    assert.deepStrictEqual(r.bases.skipped_pending, []);
+    assert.ok(r.bases.refreshed.includes('7-02'));
+  });
+
+  test('13: a target with a pending op keeps its old base so the write still detects a remote edit', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    outbox.setBase(root, '7-02', { issue_number: BETA, issue_id: 1_000_000 + BETA, body_hash: 'sha256:old', updated_at: null });
+    const q = outbox.enqueue(root, [
+      { kind: 'patch-body', target: { id: '7-02' }, payload: { mode: 'replace', body: 'queued locally' } },
+      { kind: 'upsert-comment', target: { id: '7-01', kind: 'summary' }, payload: { mode: 'replace', text: `${ghTrd.fileLine(SUMMARY_FILE)}\nqueued` } },
+    ]);
+    assert.strictEqual(q.ok, true);
+    const r = cache.pullAll(root);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(outbox.getBase(root, '7-02').body_hash, 'sha256:old');
+    assert.strictEqual(outbox.getBase(root, '7-01#summary'), null);
+    assert.deepStrictEqual(r.bases.skipped_pending.sort(), ['7-01#summary', '7-02']);
+    assert.strictEqual(outbox.getBase(root, '7-01').issue_number, ALPHA, 'its neighbours are refreshed');
+  });
+
+  test('13: a TRD whose cache file stays local_modified keeps its base, so a remote edit stays visible to the flusher', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    cache.pullAll(root);
+    const before = outbox.getBase(root, '7-02');
+    const rel = `objectives/${DIR}/07-02-beta-TRD.md`;
+    fake.humanEditBody(BETA, ghTrd.encodeTrdBody({ id: '7-02', file: '07-02-beta-TRD.md', text: `${F.trds['07-02-beta-TRD.md']}edited on github\n` }));
+    fs.writeFileSync(abs(rel), 'my local rewrite\n');
+    const r = cache.pullAll(root);
+    assert.deepStrictEqual(r.local_modified, [rel]);
+    assert.deepStrictEqual(outbox.getBase(root, '7-02'), before);
+    assert.deepStrictEqual(r.bases.skipped_local, ['7-02']);
+  });
+
+  test('the cache index records what each pull wrote', { skip: SKIP_NO_GIT }, () => {
+    startGithub();
+    cache.pullAll(root);
+    const index = outbox.readCacheIndex(root);
+    for (const [rel, text] of Object.entries(TREE)) assert.strictEqual(index[rel], ghTrd.contentHash(text), rel);
+    assert.ok(index['ROADMAP.md'] && index['STATE.md']);
+  });
+});
+
+describe('gh-cache source', () => {
+  test('reads only: no gh write path and no search appear in gh-cache.cjs', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'gh-cache.cjs'), 'utf-8');
+    assert.doesNotMatch(src, /ghWrite/);
+    assert.doesNotMatch(src, /--search/);
+    assert.doesNotMatch(src, /\.push\(\)|writePage\(/, 'no wiki push or page write');
   });
 });
