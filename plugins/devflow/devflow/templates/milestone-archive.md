@@ -1,6 +1,6 @@
 # Milestone Archive Template
 
-This template is used by the complete-milestone workflow to create archive files in `.planning/milestones/`.
+The complete-milestone workflow uses this template for the archive files under `milestones/` (local: `df-tools milestone complete` builds them; store: each is published with `df-tools doc put milestones/<file>`).
 
 ---
 
@@ -112,12 +112,12 @@ _For current project status, see .planning/ROADMAP.md_
 
 **Archive location:**
 
-- Save to `.planning/milestones/v{VERSION}-{NAME}.md`
+- Publish as `milestones/v{VERSION}-{NAME}.md`: `df-tools doc put milestones/v{VERSION}-{NAME}.md --from <draft>`
 - Example: `.planning/milestones/v1.0-mvp.md`
 
 **After archiving:**
 
-- Update ROADMAP.md to collapse completed milestone in `<details>` tag
-- Update PROJECT.md to brownfield format with Current State section
+- Collapse the completed milestone in ROADMAP.md inside a `<details>` tag (local; in store mode `df-tools gh pull --all` regenerates it)
+- Move PROJECT.md to brownfield format with a Current State section, published with `df-tools doc put PROJECT.md`
 - Continue objective numbering in next milestone (never restart at 01)
   </guidelines>

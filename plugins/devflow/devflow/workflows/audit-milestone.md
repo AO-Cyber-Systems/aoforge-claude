@@ -132,7 +132,7 @@ For each REQ-ID, determine status using all three sources:
 
 ## 6. Aggregate into v{version}-MILESTONE-AUDIT.md
 
-Create `.planning/v{version}-v{version}-MILESTONE-AUDIT.md` with:
+Draft `v{version}-MILESTONE-AUDIT.md` (path from `node ~/.claude/devflow/bin/df-tools.cjs planning draft v{version}-MILESTONE-AUDIT.md`) with the content below, then publish it with `node ~/.claude/devflow/bin/df-tools.cjs doc put v{version}-MILESTONE-AUDIT.md --from "$DRAFT"`. Local mode stores it as `.planning/v{version}-MILESTONE-AUDIT.md`, where `milestone complete` picks it up for the archive:
 
 ```yaml
 ---

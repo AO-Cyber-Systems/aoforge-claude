@@ -29,7 +29,7 @@ Add this entry to `.planning/MILESTONES.md` when completing a milestone:
 ```
 
 <structure>
-If MILESTONES.md doesn't exist, create it with header:
+Record each entry with `df-tools milestone put <version> --from <draft>`: the draft holds one entry (its `## v[X.Y]` heading is added if missing) and replaces that version's entry if there is one. A missing MILESTONES.md starts with a plain `# Milestones` header. The file as a whole reads:
 
 ```markdown
 # Project Milestones: [Project Name]
