@@ -77,13 +77,20 @@ If CONSIDERATIONS is empty (df-tools failed or scanners returned nothing), proce
 
 If CONSIDERATIONS is non-empty:
 
+The section is assembled in a draft and published with `doc put` — never edited in place under `.planning/` (in store
+mode the gate denies that; in local mode `doc put` lands on the same CONTEXT.md file as before):
+
 ```bash
 CONTEXT_PATH="${objective_dir}/${padded_objective}-CONTEXT.md"
+CONTEXT_REL="objectives/$(basename "${objective_dir}")/${padded_objective}-CONTEXT.md"
 SECTION_HEADER="## Cross-Repo Considerations"
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft "$CONTEXT_REL")
+# Start from the current file, never a stale draft left by an earlier run
+if [[ -f "$CONTEXT_PATH" ]]; then cp "$CONTEXT_PATH" "$DRAFT"; else rm -f "$DRAFT"; fi
 
-if [[ ! -f "$CONTEXT_PATH" ]]; then
-  # Create CONTEXT.md with just this section as a starting scaffold
-  cat > "$CONTEXT_PATH" <<EOF
+if [[ ! -f "$DRAFT" ]]; then
+  # New CONTEXT.md draft with just this section as a starting scaffold
+  cat > "$DRAFT" <<EOF
 ---
 objective: ${objective_number}-${objective_slug}
 title: ${objective_name}
@@ -97,7 +104,7 @@ ${SECTION_HEADER}
 
 ${CONSIDERATIONS}
 EOF
-elif grep -q "^${SECTION_HEADER}" "$CONTEXT_PATH"; then
+elif grep -q "^${SECTION_HEADER}" "$DRAFT"; then
   # Replace existing section body in-place
   # Write body to a temp file first (avoids macOS BSD awk -v newline limitation)
   BODY_TMP=$(mktemp)
@@ -118,15 +125,17 @@ elif grep -q "^${SECTION_HEADER}" "$CONTEXT_PATH"; then
       if (in_section && /^## /) { in_section = 0 }
       if (!in_section) print $0
     }
-  ' "$CONTEXT_PATH" > "$CONTEXT_PATH.tmp" && mv "$CONTEXT_PATH.tmp" "$CONTEXT_PATH"
+  ' "$DRAFT" > "$DRAFT.tmp" && mv "$DRAFT.tmp" "$DRAFT"
   rm -f "$BODY_TMP"
 else
-  # Append section at end
-  echo "" >> "$CONTEXT_PATH"
-  echo "${SECTION_HEADER}" >> "$CONTEXT_PATH"
-  echo "" >> "$CONTEXT_PATH"
-  echo "${CONSIDERATIONS}" >> "$CONTEXT_PATH"
+  # Add the section at the end of the draft
+  echo "" >> "$DRAFT"
+  echo "${SECTION_HEADER}" >> "$DRAFT"
+  echo "" >> "$DRAFT"
+  echo "${CONSIDERATIONS}" >> "$DRAFT"
 fi
+
+node ~/.claude/devflow/bin/df-tools.cjs doc put "$CONTEXT_REL" --from "$DRAFT"
 ```
 
 Display: "Cross-Repo Considerations refreshed in ${CONTEXT_PATH}"
@@ -198,7 +207,9 @@ Before declaring complete, verify:
 </quality_gate>
 
 <output>
-Write to: .planning/objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md
+Publish `objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md` (relative to `.planning/`) as your Step 5 says:
+`node ~/.claude/devflow/bin/df-tools.cjs planning draft <that path>`, Write the draft, then
+`node ~/.claude/devflow/bin/df-tools.cjs doc put <that path> --from <draft>`.
 </output>
 ```
 

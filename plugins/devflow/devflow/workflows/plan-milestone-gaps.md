@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Create all objectives necessary to close gaps identified by `/devflow:milestone audit`. Reads MILESTONE-AUDIT.md, groups gaps into logical objectives, creates objective entries in ROADMAP.md, and offers to plan each objective. One command creates all fix objectives — no manual `/devflow:objective add` per gap.
+Plan every objective needed to close gaps identified by `/devflow:milestone audit`. Reads MILESTONE-AUDIT.md, groups gaps into logical objectives, registers them (ROADMAP.md entries in local mode, `df-tools objective add` in store mode), and offers to plan each objective. One command covers all fix objectives — no manual `/devflow:objective add` per gap.
 </purpose>
 
 <required_reading>
@@ -112,9 +112,16 @@ Create these {X} objectives? (yes / adjust / defer all optional)
 
 Wait for user confirmation.
 
-## 6. Update ROADMAP.md
+## 6. Register the New Objectives (ROADMAP.md in local mode)
 
-Add new objectives to current milestone:
+```bash
+MODE=$(node ~/.claude/devflow/bin/df-tools.cjs planning mode)
+```
+- **`store`:** ROADMAP.md is generated (`gh pull --all`) — do not edit it. For each objective run
+  `node ~/.claude/devflow/bin/df-tools.cjs objective add "{Name}"`, then record its Goal / Requirements / Gap Closure
+  lines in its OBJECTIVE.md: draft from `planning draft objectives/{NN}-{name}/OBJECTIVE.md`, then
+  `node ~/.claude/devflow/bin/df-tools.cjs objective put {N} --from <draft>`. Skip step 8 (`objective add` made the directories).
+- **`local`:** add the new objectives to the current milestone in ROADMAP.md, as before:
 
 ```markdown
 ### Objective {N}: {Name}
@@ -126,15 +133,28 @@ Add new objectives to current milestone:
 ...
 ```
 
-## 7. Update REQUIREMENTS.md Traceability Table (REQUIRED)
+## 7. Revise the REQUIREMENTS.md Traceability Table (REQUIRED)
+
+Make these changes in a draft and publish it with `doc put` (both modes; in local mode it lands on the same
+`.planning/REQUIREMENTS.md`):
+
+```bash
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft REQUIREMENTS.md)
+```
 
 For each REQ-ID assigned to a gap closure objective:
-- Update the Objective column to reflect the new gap closure objective
+- Set the Objective column to the new gap closure objective
 - Reset Status to `Pending`
 
 Reset checked-off requirements the audit found unsatisfied:
 - Change `[x]` → `[ ]` for any requirement marked unsatisfied in the audit
-- Update coverage count at top of REQUIREMENTS.md
+- Recount the coverage line at the top
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put REQUIREMENTS.md --from "$DRAFT"
+```
+
+`$DRAFT` stands for the path `planning draft` printed — pass it literally.
 
 ```bash
 # Verify traceability table reflects gap closure assignments

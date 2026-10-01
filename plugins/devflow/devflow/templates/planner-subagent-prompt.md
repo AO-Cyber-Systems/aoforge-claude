@@ -44,7 +44,7 @@ Plans must be executable prompts with:
 
 <quality_gate>
 Before returning PLANNING COMPLETE:
-- [ ] JOB.md files created in objective directory
+- [ ] Each TRD published with `node ~/.claude/devflow/bin/df-tools.cjs plan put-trd <objective> <file> --from <draft> --no-push`, then one `plan push <objective>`
 - [ ] Each job has valid frontmatter
 - [ ] Tasks are specific and actionable
 - [ ] Dependencies correctly identified

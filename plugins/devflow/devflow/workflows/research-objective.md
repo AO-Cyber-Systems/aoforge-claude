@@ -61,7 +61,9 @@ Objective context: {context_md}
 </context>
 
 <output>
-Write to: .planning/objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md
+Publish `objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md` (relative to `.planning/`) as your Step 5 says:
+`node ~/.claude/devflow/bin/df-tools.cjs planning draft <that path>`, Write the draft, then
+`node ~/.claude/devflow/bin/df-tools.cjs doc put <that path> --from <draft>`.
 </output>",
   subagent_type="objective-researcher",
   model="{researcher_model}"

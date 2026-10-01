@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Create executable objective prompts (TRD.md files) for a roadmap objective with optional inline discussion, integrated research, and verification. Default flow: Discuss (brief, optional) -> Research (if needed) -> Plan -> Verify -> Done. Orchestrates objective-researcher, planner, and job-checker agents with a revision loop (max 3 iterations).
+Produce executable objective prompts (TRD.md files, published by the planner with `plan put-trd`) for a roadmap objective with optional inline discussion, integrated research, and verification. Default flow: Discuss (brief, optional) -> Research (if needed) -> Plan -> Verify -> Done. Orchestrates objective-researcher, planner, and job-checker agents with a revision loop (max 3 iterations).
 </purpose>
 
 <required_reading>
@@ -52,11 +52,16 @@ Extract from $ARGUMENTS: objective number (integer or decimal like `2.1`), flags
 - `--depth <level>` — Override planning depth: `quick | standard | comprehensive`.
 - `--model <profile>` — Override model profile: `quality | balanced | budget`.
 
-If any of these flags are present, write a corresponding `overrides:` block into `.planning/objectives/<id>/OBJECTIVE.md` so the override persists for future executor runs (not just this planning invocation).
+If any of these flags are present, record a corresponding `overrides:` block in the objective's OBJECTIVE.md so the override persists for future executor runs (not just this planning invocation). Edit a draft (seeded from the current OBJECTIVE.md) and publish it — never a direct Write under `.planning/`:
+```bash
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft "objectives/${padded_objective}-${objective_slug}/OBJECTIVE.md")
+node ~/.claude/devflow/bin/df-tools.cjs objective put "${objective_number}" --from "$DRAFT"
+```
+(Add the `overrides:` block to the draft with the Edit/Write tool between the two commands; `$DRAFT` is the printed path, passed literally. In local mode `objective put` lands on the same OBJECTIVE.md as before.)
 
 **If no objective number:** Detect next unplanned objective from roadmap.
 
-**If `objective_found` is false:** Validate objective exists in ROADMAP.md. If valid, create the directory using `objective_slug` and `padded_objective` from init:
+**If `objective_found` is false:** Validate objective exists in ROADMAP.md (a read). If valid, make the directory with `mkdir -p` using `objective_slug` and `padded_objective` from init:
 ```bash
 mkdir -p ".planning/objectives/${padded_objective}-${objective_slug}"
 ```
@@ -198,7 +203,9 @@ If context/preferences exist below, they contain user decisions.
 </additional_context>
 
 <output>
-Write to: {objective_dir}/{padded_objective}-RESEARCH.md
+Publish `objectives/<dir>/{padded_objective}-RESEARCH.md` (relative to `.planning/`; `<dir>` is the last segment of
+{objective_dir}) as your Step 5 says: `node ~/.claude/devflow/bin/df-tools.cjs planning draft <that path>`, Write the
+draft, then `node ~/.claude/devflow/bin/df-tools.cjs doc put <that path> --from <draft>`.
 </output>
 ```
 
@@ -514,7 +521,7 @@ Task(
 TaskUpdate(taskId=plan_task_id, status="completed")
 ```
 
-- **`## PLANNING COMPLETE`:** Display TRD count. If `--skip-verify` or `job_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
+- **`## PLANNING COMPLETE`:** Display TRD count. If the return says `**Pushed:** no` (TRDs published with `--no-push` and no push), push them now: `node ~/.claude/devflow/bin/df-tools.cjs plan push "${objective_number}"` (in local mode it reports `local mode` and does nothing). If `--skip-verify` or `job_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
 - **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation (step 12)
 - **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual
 - **`## RESEARCH NEEDED`:** The planner detected a novel domain with no research and wrote no TRDs. It is a subagent and cannot spawn the researcher, so you do. Spawn objective-researcher exactly as in step 6 (same banner, prompt and spawn call; handle its return as in step 6), appending the returned **Signals** to the research prompt's `<additional_context>` as `**Novel-domain signals (why research was triggered):** {signals}`. Then re-run the step 1 init so `has_research` and `research_content` are refreshed, and re-spawn the planner (step 9) with the new research. Allow at most one re-spawn: a second `## RESEARCH NEEDED` is handled as `## PLANNING INCONCLUSIVE`. If `--skip-research` was passed, the planner never emits this (step 9 passes the flag); if it does anyway, handle it as `## PLANNING INCONCLUSIVE` rather than overriding the flag.

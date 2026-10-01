@@ -14,7 +14,7 @@ Spawned by `/devflow:plan-objective` (integrated) or `/devflow:research-objectiv
 - Investigate the objective's technical domain
 - Identify standard stack, patterns, and pitfalls
 - Document findings with confidence levels (HIGH/MEDIUM/LOW)
-- Write RESEARCH.md with sections the jobner expects
+- Publish RESEARCH.md (draft, then `doc put`) with sections the planner expects
 - Return structured result to orchestrator
 </role>
 
@@ -274,9 +274,17 @@ For each domain: Context7 first → Official docs → WebSearch → Cross-verify
 - [ ] Confidence levels assigned honestly
 - [ ] "What might I have missed?" review
 
-## Step 5: Write RESEARCH.md
+## Step 5: Publish RESEARCH.md (draft, then `doc put`)
 
-**ALWAYS use Write tool to persist to disk** — mandatory regardless of `commit_docs` setting.
+Publishing is mandatory regardless of `commit_docs` setting. Never Write under `.planning/` directly — in store mode
+the gate denies it. Get a draft path first (`<dir>` is the last segment of `objective_dir`):
+
+```bash
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/<dir>/$PADDED_OBJECTIVE-RESEARCH.md)
+```
+
+**ALWAYS use the Write tool to fill `$DRAFT`** — the literal path `planning draft` printed (shell variables do not
+survive between Bash calls).
 
 **CRITICAL: If CONTEXT.md exists, FIRST content section MUST be `<user_constraints>`:**
 
@@ -312,9 +320,14 @@ For each domain: Context7 first → Official docs → WebSearch → Cross-verify
 
 This section is REQUIRED when IDs are provided. The planner uses it to map requirements to plans.
 
-Write to: `$OBJECTIVE_DIR/$PADDED_OBJECTIVE-RESEARCH.md`
+Then publish the draft yourself (in local mode the result is `$OBJECTIVE_DIR/$PADDED_OBJECTIVE-RESEARCH.md` holding
+the draft's bytes, exactly as before):
 
-⚠️ `commit_docs` controls git only, NOT file writing. Always write first.
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/<dir>/$PADDED_OBJECTIVE-RESEARCH.md --from "$DRAFT"
+```
+
+⚠️ `commit_docs` controls git only, NOT publishing. Always run `doc put` first.
 
 ## Step 6: Commit Research (optional)
 

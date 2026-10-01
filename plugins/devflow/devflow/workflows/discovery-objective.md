@@ -110,7 +110,7 @@ For: Choosing between options, new external integration.
 
 5. **Cross-verify:** Any WebSearch finding → confirm with Context7/official docs.
 
-6. **Create DISCOVERY.md** using ~/.claude/devflow/templates/discovery.md structure:
+6. **Publish DISCOVERY.md** (draft, then `doc put` — see `create_discovery_output`) using ~/.claude/devflow/templates/discovery.md structure:
 
    - Summary with recommendation
    - Key findings per option
@@ -161,7 +161,7 @@ For: Architectural decisions, novel problems, high-risk choices.
    - Mark what's verified vs assumed
    - Flag contradictions
 
-6. **Create comprehensive DISCOVERY.md:**
+6. **Publish a comprehensive DISCOVERY.md** (draft, then `doc put` — see `create_discovery_output`):
 
    - Full structure from ~/.claude/devflow/templates/discovery.md
    - Quality report with source attribution
@@ -206,11 +206,24 @@ Run the discovery:
 </step>
 
 <step name="create_discovery_output">
-Write `.planning/objectives/XX-name/DISCOVERY.md`:
+Publish `objectives/XX-name/DISCOVERY.md` (relative to `.planning/`) through a draft — never a direct Write under
+`.planning/` (in store mode the gate denies it; in local mode `doc put` writes the same file as before):
+
+```bash
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/DISCOVERY.md)
+```
+
+Write the draft (`$DRAFT` is the printed path; pass it literally) with:
 - Summary with recommendation
 - Key findings with sources
 - Code examples if applicable
 - Metadata (confidence, dependencies, open questions, assumptions)
+
+Then publish it:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/DISCOVERY.md --from "$DRAFT"
+```
 </step>
 
 <step name="confidence_gate">
@@ -244,7 +257,7 @@ Present them inline:
 
 These may affect implementation. Acknowledge and proceed? (yes / address first)"
 
-If "address first": Gather user input on questions, update discovery.
+If "address first": Gather user input on questions, revise the draft and run the same `doc put` again.
 </step>
 
 <step name="offer_next">
