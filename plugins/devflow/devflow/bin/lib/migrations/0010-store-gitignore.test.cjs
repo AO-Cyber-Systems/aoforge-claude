@@ -1,6 +1,7 @@
 'use strict';
 
 // TRD 48-10 — migration 0010 store-gitignore (test list items 8-14, GWP-04, U-1, D-17).
+// TRD 51-04 — detect defers to an in-progress backfill (tests 1-4, G4); store-mode commit follow-up (test 5, G6).
 //
 // no_llm_test_data: every project is a hand-built temp git repo (initGitFixture: local identity, signing off). The
 // outbox journal and cache index live under hermeticEnv()'s temp DEVFLOW_OUTBOX_DIR, seeded only through the real
@@ -191,7 +192,11 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     assert.throws(() => m0010().apply(ctxFor(p)), /1 pending op/, 'the runner adapter throws the refusal');
   });
 
-  test('9b. through upgrade.apply --only 0010 --confirm the refusal is a failure: no stamp, nothing untracked', (t) => {
+  // TRD 51-04 (G4): this test used to expect a FAILURE here. A failed 0010 halts every later migration in the runner, so
+  // a resumed 0011 backfill (whose queued ops are exactly these pending ones) could never be reached by a bare
+  // `upgrade --apply --confirm`. A pending-only journal now makes 0010's detect defer: the runner SKIPS it with the
+  // resume command, nothing fails, nothing is untracked and nothing is stamped. `migrate` still refuses (test 9).
+  test('9b. through upgrade.apply --only 0010 --confirm a pending op SKIPS 0010 (G4): no failure, no stamp, nothing untracked', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project();
     baselineAll(p);
@@ -199,13 +204,15 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     const before = lsPlanning(p);
 
     const report = upgrade.apply({ projectRoot: p.root, userHome: p.home, pluginVersion: PLUGIN_VERSION, only: '0010', confirm: true });
-    const failed = report.failed.find((f) => f.id === '0010');
-    assert.ok(failed, JSON.stringify(report));
-    assert.match(failed.error, /1 pending op/);
+    assert.ok(!report.failed.some((f) => f.id === '0010'), `0010 must not fail (it would halt later migrations): ${JSON.stringify(report.failed)}`);
+    const skipped = report.skipped.find((s) => s.id === '0010');
+    assert.ok(skipped, JSON.stringify(report));
+    assert.match(skipped.reason, /--only 0011/);
     assert.ok(!report.applied.some((a) => a.id === '0010'));
     assert.deepEqual(lsPlanning(p), before);
+    assert.equal(gitignoreText(p), null);
     const stamp = JSON.parse(fs.readFileSync(path.join(p.root, '.planning/config.json'), 'utf-8')).devflow;
-    assert.ok(!stamp.migrations_applied.includes('0010'), 'a refusal is never stamped as applied');
+    assert.ok(!stamp.migrations_applied.includes('0010'), 'a deferral is never stamped as applied');
   });
 
   test('10. a cache file with no baseline / changed since sync → each listed', (t) => {
@@ -236,6 +243,102 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     );
     assert.deepEqual(lsPlanning(p), before);
     assert.match(m0010().detect(ctxFor(p)).reason, /1 legacy TRD name/);
+  });
+});
+
+describe('migration 0010: defers to an in-progress backfill (TRD 51-04 tests 1-4, G4)', () => {
+  const TWO_OPS = [
+    { kind: 'link-sub-issue', target: { parent: '07', child: '07-01' } },
+    { kind: 'link-sub-issue', target: { parent: '07', child: '07-02' } },
+  ];
+
+  function enqueueTwo(p) {
+    const q = outbox.enqueue(p.root, TWO_OPS);
+    assert.equal(q.ok, true, JSON.stringify(q));
+    assert.equal(q.enqueued.length, 2, JSON.stringify(q));
+    return q;
+  }
+
+  test('1. store on, 2 pending ops (none blocked, not halted) → detect not applicable, naming the 0011 resume command', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    enqueueTwo(p);
+
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, false, JSON.stringify(det));
+    assert.match(det.reason, /GitHub backfill in progress/);
+    assert.match(det.reason, /2 outbox op\(s\) pending/);
+    assert.ok(det.reason.includes('df-tools upgrade --apply --only 0011 --confirm'), det.reason);
+    assert.match(det.reason, /gh-flush hook/);
+  });
+
+  test('2. migrate on the same state still refuses with the unchanged text; apply throws; nothing written', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    enqueueTwo(p);
+    const before = lsPlanning(p);
+
+    const res = m0010().migrate(ctxFor(p));
+    assert.equal(res.applied, false);
+    assert.deepEqual(res.details, ['outbox: 2 pending op(s)']);
+    assert.match(res.refused, /^0010 refused \(1 blocker\(s\)\): outbox: 2 pending op\(s\)\. Get everything onto GitHub first/);
+    assert.throws(() => m0010().apply(ctxFor(p)), /2 pending op/);
+    assert.equal(gitignoreText(p), null);
+    assert.deepEqual(lsPlanning(p), before);
+    assert.equal(fs.existsSync(backupsDir(p.home)), false, 'a refusal makes no backup');
+  });
+
+  test('3. a blocked op → detect still applies; migrate refuses naming it', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    const q = enqueueTwo(p);
+    assert.equal(outbox.markBlocked(p.root, q.enqueued[0], 'remote edit').ok, true);
+
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.doesNotMatch(det.reason, /backfill in progress/);
+    const res = m0010().migrate(ctxFor(p));
+    assert.equal(res.applied, false);
+    assert.ok(res.details.includes('outbox: 1 blocked op(s)'), JSON.stringify(res.details));
+    assert.ok(res.details.includes('outbox: 1 pending op(s)'), JSON.stringify(res.details));
+  });
+
+  test('3b. a halted journal (with pending ops) → detect still applies; migrate refuses naming the halt', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    const q = enqueueTwo(p);
+    assert.equal(outbox.setHalted(p.root, { reason: 'remote-edit', seq: q.enqueued[0], detail: 'edited on GitHub' }).ok, true);
+
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.doesNotMatch(det.reason, /backfill in progress/);
+    const res = m0010().migrate(ctxFor(p));
+    assert.equal(res.applied, false);
+    assert.ok(res.details.includes('outbox: halted (remote-edit)'), JSON.stringify(res.details));
+  });
+
+  test('4. store on, empty journal, cache tracked → detect applies (unchanged)', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.match(det.reason, /7 \.planning\/ path\(s\) still tracked/);
+    assert.equal(det.tracked, 7);
+  });
+
+  test('4b. a deferral never hides an already-finished migration: block current + nothing tracked stays "nothing to do"', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project();
+    baselineAll(p);
+    assert.equal(m0010().migrate(ctxFor(p)).applied, true);
+    enqueueTwo(p);
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, false);
+    assert.match(det.reason, /only config\.json and STACK\.md are tracked/);
   });
 });
 
