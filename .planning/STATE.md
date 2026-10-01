@@ -37,6 +37,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 44 — Autonomy hardening (verified 2026-09-29, 7/7 SC after gap cycle 1; 10 TRDs in 4 waves. Changes: executor/verifier turn caps removed; INCOMPLETE outcome with SendMessage resume; SubagentStop executor gate; auto-continue Stop hook; edit gate allows devflow:* agents; commit gate allows merge/rebase/cherry-pick completion via rebase-merge/rebase-apply only, plus the inline bypass; migration 0008; config-get defaults; 13 legacy agent-read instructions removed and CI-guarded. Both hooks were E2E-tested live on Claude Code 2.1.284. Full npm test 5341/5374, with the single failure being environmental MA-7 doctl. Not yet released: installed plugin is 2.11.0)
 **Objective complete:** 46 — GitHub sync foundations (completed 2026-09-30, 10/10 TRDs)
 **Objective complete:** 47 — GitHub authoritative store (completed 2026-10-01, 14/14 TRDs)
+**Objective complete:** 48 — Planning write-path migration (completed 2026-10-01, 23/23 TRDs)
 **Status:** Objective complete — ready for verification
 
 ## Branch State (post-merge)
