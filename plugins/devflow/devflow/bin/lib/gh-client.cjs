@@ -13,6 +13,9 @@
  *   are retried honouring `retry-after`, else the rate-limit reset, else >= 60 s with
  *   exponential growth, up to MAX_RETRIES.
  * - Budget: a per-process write counter stops a runaway loop well under GitHub's 500/h.
+ * - Retry policy (47-07): `withRetryPolicy({maxRetries}, fn)` scopes the retry count for the duration of
+ *   `fn`. A flush running inside a hook uses 0 so a secondary limit never sleeps for minutes. The policy
+ *   is module state, never a key of `opts`: `opts` still goes to `spawnSync` untouched.
  *
  * Nothing in this module may spawn gh except through the runner below.
  */
@@ -78,18 +81,46 @@ let sleepImpl = defaultSleep;
 let nowImpl = Date.now;
 let lastWriteAt = -Infinity;
 let writeCount = 0;
+let activePolicy = { maxRetries: MAX_RETRIES };
 
 function _setRunGh(fn) { runGhImpl = (fn != null) ? fn : defaultRunGh; }
 function _setSleep(fn) { sleepImpl = (fn != null) ? fn : defaultSleep; }
 function _setNow(fn) { nowImpl = (fn != null) ? fn : Date.now; }
 
-/** Restore the runner, clock, sleep, write timer and write counter. Tests call this in afterEach. */
+/** Restore the runner, clock, sleep, write timer, write counter and retry policy. Tests call this in afterEach. */
 function _resetClient() {
   runGhImpl = defaultRunGh;
   sleepImpl = defaultSleep;
   nowImpl = Date.now;
   lastWriteAt = -Infinity;
   writeCount = 0;
+  activePolicy = { maxRetries: MAX_RETRIES };
+}
+
+// ─── Retry policy ────────────────────────────────────────────────────────────
+
+/**
+ * Run `fn` with a different secondary-limit retry count, then restore the previous policy (also when `fn`
+ * throws). Scopes nest: the innermost wins while it runs. Every helper `fn` calls (for example
+ * gh-issue.ensureMilestone) inherits it, which is why it is module state and not an argument.
+ * `policy.maxRetries` must be a non-negative integer; `{maxRetries: 0}` never sleeps on a limit.
+ * @template T
+ * @param {{maxRetries:number}} policy
+ * @param {() => T} fn
+ * @returns {T} whatever `fn` returns
+ */
+function withRetryPolicy(policy, fn) {
+  if (!policy || typeof policy !== 'object' || !Number.isInteger(policy.maxRetries) || policy.maxRetries < 0) {
+    throw new TypeError('withRetryPolicy: policy.maxRetries must be a non-negative integer');
+  }
+  if (typeof fn !== 'function') throw new TypeError('withRetryPolicy: fn must be a function');
+  const previous = activePolicy;
+  activePolicy = { maxRetries: policy.maxRetries };
+  try {
+    return fn();
+  } finally {
+    activePolicy = previous;
+  }
 }
 
 // ─── Write classification ────────────────────────────────────────────────────
@@ -227,7 +258,7 @@ function attemptLoop(args, opts, paced) {
       writeCount++;
       lastWriteAt = nowImpl();
     }
-    if (r.ok || !isSecondaryLimit(r) || attempt >= MAX_RETRIES) {
+    if (r.ok || !isSecondaryLimit(r) || attempt >= activePolicy.maxRetries) {
       return { ...r, attempts: attempt + 1 };
     }
     sleepImpl(retryDelayMs(r, attempt));
@@ -409,6 +440,12 @@ module.exports = {
   _setSleep,
   _setNow,
   _resetClient,
+  // the injected clock, for callers that must share the client's seam (47-07 flusher)
+  now: () => nowImpl(),
+  sleep: (ms) => sleepImpl(ms),
+  // retry policy and write counter
+  withRetryPolicy,
+  writeCount: () => writeCount,
   // classification and delay
   isWriteArgs,
   isSecondaryLimit,
