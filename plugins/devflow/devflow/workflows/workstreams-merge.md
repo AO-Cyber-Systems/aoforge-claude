@@ -129,12 +129,18 @@ RECONCILE=$(node ~/.claude/devflow/bin/df-tools.cjs workstreams reconcile)
 ```
 
 This command:
-- Updates ROADMAP.md progress from disk (counts actual JOB vs SUMMARY files)
+- Recounts ROADMAP.md progress from disk (actual TRD vs SUMMARY files)
 - Regenerates STATE.md pointing to the join objective
 - Merges accumulated context (decisions, blockers) from all workstream STATE.md files
-- Updates workstreams.json (moves active to completed_workstreams)
+- Moves the active entries in workstreams.json to completed_workstreams
 
 Parse the result for `next_objective` and `next_objective_name`.
+
+**Store mode** (`node ~/.claude/devflow/bin/df-tools.cjs planning mode` prints `store`): ROADMAP.md and
+STATE.md are generated views, so reconcile's local rewrite of them must not stand. Run
+`node ~/.claude/devflow/bin/df-tools.cjs gh pull --all` right after reconcile to regenerate both from the
+store, and carry any workstream decisions or blockers over with `df-tools state add-decision` /
+`state add-blocker`. In local mode, reconcile's output stands as is.
 
 </step>
 

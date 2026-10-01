@@ -265,7 +265,7 @@ Report final status.
 |--------|--------|------|
 | createConfig | Create config.json with defaults | None |
 | resetConfig | Delete + recreate config.json | Loses custom settings |
-| regenerateState | Create STATE.md from ROADMAP structure | Loses session history |
+| regenerateState | Create STATE.md from ROADMAP structure | Loses session history <!-- planning-audit: allow describes what df-tools validate health --repair does itself; no agent write --> |
 
 **Not repairable (too risky):**
 - PROJECT.md, ROADMAP.md content

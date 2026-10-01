@@ -251,19 +251,15 @@ Based on user selection, route to appropriate workflow:
 </step>
 
 <step name="update_session">
-Before proceeding to routed workflow, update session continuity:
+Before proceeding to routed workflow, record session continuity with the state command (never by
+editing STATE.md; the command works in local and store mode alike):
 
-Update STATE.md:
-
-```markdown
-## Session Continuity
-
-Last session: [now]
-Stopped at: Session resumed, proceeding to [action]
-Resume file: [updated if applicable]
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs state record-session --stopped-at "Session resumed, proceeding to [action]" --resume-file "[path, if applicable]"
 ```
 
-This ensures if session ends unexpectedly, next resume knows the state.
+It stamps `Last session` with now and sets `Stopped At` / `Resume File` (omit `--resume-file` when
+there is none). This ensures if session ends unexpectedly, next resume knows the state.
 </step>
 
 </process>
@@ -279,7 +275,13 @@ If STATE.md is missing but other artifacts exist:
 4. Count pending todos in .planning/todos/pending/
 5. Check for .continue-here files → Session continuity
 
-Reconstruct and write STATE.md, then proceed normally.
+Then rebuild STATE.md and proceed normally:
+
+- Store mode (`node ~/.claude/devflow/bin/df-tools.cjs planning mode` prints `store`): STATE.md is a
+  generated view — `node ~/.claude/devflow/bin/df-tools.cjs gh pull --all` regenerates it from the store.
+- Local mode: `node ~/.claude/devflow/bin/df-tools.cjs validate health --repair` regenerates a minimal
+  STATE.md from ROADMAP.md; then record the position found above with
+  `node ~/.claude/devflow/bin/df-tools.cjs state patch --<field> <value>` and `state record-session`.
 
 This handles cases where:
 
