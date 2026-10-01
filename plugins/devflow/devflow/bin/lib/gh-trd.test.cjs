@@ -1255,3 +1255,414 @@ describe('entity codec (48-02)', () => {
     }
   });
 });
+
+// ─── 49-03: scope-change acceptance (GPR-05) ─────────────────────────────────
+//
+// Fixtures are hand-written REST comments `{id, user:{login}, body, created_at}`;
+// markers are spelled out here rather than produced by the module under test.
+
+describe('49-03 scope acceptance', () => {
+  const AT = '2026-10-01T10:00:00Z'; // the scope comment is posted
+  const AT_LATER = '2026-10-01T11:00:00Z';
+  const AT_EARLIER = '2026-10-01T09:00:00Z';
+  const SCOPE3 = 'third change';
+
+  function scoped(id, n, text, login, at = AT) {
+    return {
+      id,
+      user: login === undefined ? undefined : { login },
+      body: `<!-- devflow:scope n=${n} -->\n${text}`,
+      created_at: at,
+    };
+  }
+  function confirmed(id, n, hash, login, at = AT_LATER) {
+    return {
+      id,
+      user: login === undefined ? undefined : { login },
+      body: `<!-- devflow:scope-confirm n=${n} hash=${hash} -->\nlooks right`,
+      created_at: at,
+    };
+  }
+  // the parsed scope n=3, as the predicate sees it
+  function scope3(login, text = SCOPE3, { id = 30, at = AT } = {}) {
+    return ghTrd.parseScopeComments([scoped(id, 3, text, login, at)]).scopes[0];
+  }
+
+  test('1. parseScopeComments carries author and comment_id; the existing fields keep their order', () => {
+    const { scopes } = ghTrd.parseScopeComments([
+      scoped(10, 1, 'first', 'alice'),
+      scoped(20, 2, 'second', 'mallory'),
+      { id: 30, body: '<!-- devflow:scope n=3 -->\nno user on this one' },
+    ]);
+    assert.deepStrictEqual(
+      scopes.map((s) => [s.n, s.author, s.comment_id, s.text]),
+      [
+        [1, 'alice', 10, 'first'],
+        [2, 'mallory', 20, 'second'],
+        [3, null, 30, 'no user on this one'],
+      ]
+    );
+    assert.deepStrictEqual(Object.keys(scopes[0]).slice(0, 4), ['n', 'text', 'body', 'comment_id']);
+    assert.strictEqual(scopes[0].created_at, AT);
+    assert.strictEqual(scopes[2].created_at, null);
+  });
+
+  test('2. parseScopeConfirms reads n, hash, author and comment id from the marker', () => {
+    const confirms = ghTrd.parseScopeConfirms([
+      { id: 1, user: { login: 'bob' }, body: 'LGTM' },
+      confirmed(9, 2, 'abc', 'alice'),
+      scoped(10, 1, 'a scope is not a confirm', 'alice'),
+      null,
+    ]);
+    assert.deepStrictEqual(confirms, [{ n: 2, hash: 'abc', author: 'alice', comment_id: 9, created_at: AT_LATER }]);
+  });
+
+  test('2. a confirm with no user or no created_at carries null for them', () => {
+    const [c] = ghTrd.parseScopeConfirms([{ id: 4, body: '<!-- devflow:scope-confirm n=1 hash=h1 -->' }]);
+    assert.strictEqual(c.author, null);
+    assert.strictEqual(c.created_at, null);
+    assert.strictEqual(c.comment_id, 4);
+  });
+
+  test('2. malformed confirm markers are ignored', () => {
+    const bad = [
+      '<!-- devflow:scope-confirm n=2 -->', // no hash
+      '<!-- devflow:scope-confirm n=2 hash= -->', // empty hash
+      '<!-- devflow:scope-confirm n=0 hash=abc -->', // n < 1
+      '<!-- devflow:scope-confirm n=x hash=abc -->',
+      '<!-- devflow:scope-confirm hash=abc -->', // no n
+      'prose first\n<!-- devflow:scope-confirm n=2 hash=abc -->', // not on the first line
+      '<!-- devflow:scope n=2 -->', // a scope marker
+    ];
+    const confirms = ghTrd.parseScopeConfirms(bad.map((body, i) => ({ id: i + 1, user: { login: 'alice' }, body })));
+    assert.deepStrictEqual(confirms, []);
+  });
+
+  test('2. parseScopeConfirms requires an array; a confirm comment is never a scope comment', () => {
+    assert.throws(() => ghTrd.parseScopeConfirms(undefined), TypeError);
+    const { scopes } = ghTrd.parseScopeComments([confirmed(1, 1, 'abc', 'alice')]);
+    assert.deepStrictEqual(scopes, []);
+  });
+
+  test('3. buildScopeConfirm starts with the marker line and round-trips through parseScopeConfirms', () => {
+    const text = ghTrd.buildScopeConfirm({ n: 2, hash: 'abc', note: 'looks right' });
+    assert.strictEqual(text, '<!-- devflow:scope-confirm n=2 hash=abc -->\nlooks right');
+    const [c] = ghTrd.parseScopeConfirms([{ id: 5, user: { login: 'alice' }, body: text }]);
+    assert.strictEqual(c.n, 2);
+    assert.strictEqual(c.hash, 'abc');
+    assert.strictEqual(c.author, 'alice');
+  });
+
+  test('3. buildScopeConfirm without a note is the marker line alone; a real content hash round-trips', () => {
+    const hash = ghTrd.scopeHash('x');
+    const text = ghTrd.buildScopeConfirm({ n: 1, hash });
+    assert.strictEqual(text, `<!-- devflow:scope-confirm n=1 hash=${hash} -->`);
+    assert.strictEqual(ghTrd.parseScopeConfirms([{ id: 1, body: text }])[0].hash, hash);
+  });
+
+  test('3. buildScopeConfirm rejects a bad n, hash or note; an over-long note is refused, not trimmed', () => {
+    for (const n of [0, -1, 1.5, '2', undefined]) {
+      assert.throws(() => ghTrd.buildScopeConfirm({ n, hash: 'abc' }), TypeError, `n=${String(n)}`);
+    }
+    for (const hash of ['', 'a b', 'a>b', 'a\nb', undefined, null]) {
+      assert.throws(() => ghTrd.buildScopeConfirm({ n: 1, hash }), TypeError, `hash=${JSON.stringify(hash)}`);
+    }
+    assert.throws(() => ghTrd.buildScopeConfirm({ n: 1, hash: 'abc', note: 5 }), TypeError);
+    assert.throws(() => ghTrd.buildScopeConfirm(), TypeError);
+    const over = ghTrd.buildScopeConfirm({ n: 1, hash: 'abc', note: 'x'.repeat(60000) });
+    assert.strictEqual(over.ok, false);
+    assert.strictEqual(over.overflow, true);
+  });
+
+  test('scopeHash is the content hash of the normalised scope text', () => {
+    assert.strictEqual(ghTrd.scopeHash('why\nmore'), ghTrd.contentHash('why\nmore'));
+    assert.strictEqual(ghTrd.scopeHash('why\r\nmore'), ghTrd.scopeHash('why\nmore'));
+    assert.notStrictEqual(ghTrd.scopeHash('why'), ghTrd.scopeHash('why '));
+    assert.throws(() => ghTrd.scopeHash(undefined), TypeError);
+  });
+
+  test('4. an author who is an assignee is accepted', () => {
+    const accepted = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    assert.strictEqual(accepted(scope3('alice')), 'accepted');
+  });
+
+  test('4. logins compare case-insensitively, and an assignee may be a {login} object', () => {
+    assert.strictEqual(ghTrd.scopeAcceptance({ assignees: ['Alice'] })(scope3('aLICE')), 'accepted');
+    assert.strictEqual(ghTrd.scopeAcceptance({ assignees: [{ login: 'alice' }] })(scope3('alice')), 'accepted');
+  });
+
+  test('5. an author who is not an assignee, with no confirm, is pending', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    assert.strictEqual(accept(scope3('mallory')), 'pending');
+  });
+
+  test('5. with no options at all, every scope is pending (nothing is trusted by default)', () => {
+    assert.strictEqual(ghTrd.scopeAcceptance()(scope3('alice')), 'pending');
+    assert.strictEqual(ghTrd.scopeAcceptance({})(scope3(undefined)), 'pending');
+  });
+
+  test('5. a scope with no author is never accepted through the assignee list', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['', null, 'alice'] });
+    assert.strictEqual(accept(scope3(undefined)), 'pending');
+  });
+
+  test('6. a DevFlow-posted scope (spec-rev row with its content hash) is accepted whoever the author is', () => {
+    const accept = ghTrd.scopeAcceptance({
+      assignees: ['alice'],
+      devflowScopes: [{ n: 3, hash: ghTrd.scopeHash(SCOPE3) }],
+    });
+    assert.strictEqual(accept(scope3('bob')), 'accepted');
+  });
+
+  test('6. a spec-rev row for a different n does not accept scope n=3', () => {
+    const accept = ghTrd.scopeAcceptance({ devflowScopes: [{ n: 2, hash: ghTrd.scopeHash(SCOPE3) }] });
+    assert.strictEqual(accept(scope3('bob')), 'pending');
+  });
+
+  test('6a. a DevFlow-posted scope edited afterwards (hash no longer matches its row) is pending', () => {
+    const accept = ghTrd.scopeAcceptance({
+      assignees: ['alice'],
+      devflowScopes: [{ n: 3, hash: ghTrd.scopeHash(SCOPE3) }],
+    });
+    assert.strictEqual(accept(scope3('mallory', SCOPE3 + '\nplus a sneaky edit')), 'pending');
+  });
+
+  test('6b. devflowScopesFrom reads scope rows that carry scope_hash', () => {
+    const log = [
+      '| rev | at | event | hash | chars |',
+      '|---|---|---|---|---|',
+      `| 1 | ${AT} | freeze | sha256:${'a'.repeat(64)} | 100 |`,
+      `| 2 | ${AT} | scope n=3 scope_hash=ab12 | sha256:${'b'.repeat(64)} | 120 |`,
+    ].join('\n');
+    assert.deepStrictEqual(ghTrd.devflowScopesFrom(ghTrd.parseSpecRev(log)), [{ n: 3, hash: 'ab12' }]);
+  });
+
+  test('6b. a legacy `scope n=K` row (no scope_hash) and a fold row yield no entry', () => {
+    const log = [
+      '| rev | at | event | hash | chars |',
+      '|---|---|---|---|---|',
+      `| 1 | ${AT} | scope n=3 | sha256:${'a'.repeat(64)} | 100 |`,
+      `| 2 | ${AT} | fold through 2 | sha256:${'b'.repeat(64)} | 120 |`,
+      `| 3 | ${AT} | fold folded_through=2 from=sha256:${'c'.repeat(64)} | sha256:${'d'.repeat(64)} | 120 |`,
+    ].join('\n');
+    assert.deepStrictEqual(ghTrd.devflowScopesFrom(ghTrd.parseSpecRev(log)), []);
+    assert.deepStrictEqual(ghTrd.devflowScopesFrom(ghTrd.parseSpecRev('')), []);
+  });
+
+  test('6b. a legacy row does not accept its scope: the author must be an assignee or a confirm is needed', () => {
+    const log = `| 1 | ${AT} | scope n=3 | sha256:${'a'.repeat(64)} | 100 |`;
+    const accept = ghTrd.scopeAcceptance({ devflowScopes: ghTrd.devflowScopesFrom(ghTrd.parseSpecRev(log)) });
+    assert.strictEqual(accept(scope3('bob')), 'pending');
+  });
+
+  test('6b. scopeEvent builds the row event devflowScopesFrom reads, and the row is a scope row for drift', () => {
+    const hash = ghTrd.scopeHash(SCOPE3);
+    const event = ghTrd.scopeEvent(3, hash);
+    assert.strictEqual(event, `scope n=3 scope_hash=${hash}`);
+
+    const entry = { at: AT, event, hash: ghTrd.contentHash('effective spec'), chars: 14 };
+    const log = ghTrd.appendSpecRev(ghTrd.appendSpecRev('', { at: AT, event: 'freeze', hash: ghTrd.contentHash('body'), chars: 4 }), entry);
+    assert.deepStrictEqual(ghTrd.devflowScopesFrom(ghTrd.parseSpecRev(log)), [{ n: 3, hash }]);
+    assert.deepStrictEqual(ghTrd.detectDrift('body', log), { drift: false });
+    assert.strictEqual(ghTrd.appendSpecRev(log, entry), log, 'replaying the row is a no-op');
+  });
+
+  test('6b. scopeEvent rejects a bad n or a hash that would corrupt the table', () => {
+    for (const n of [0, -1, 1.5, '3', undefined]) assert.throws(() => ghTrd.scopeEvent(n, 'ab12'), TypeError);
+    for (const hash of ['', 'a b', 'a|b', 'a\nb', undefined]) assert.throws(() => ghTrd.scopeEvent(3, hash), TypeError);
+  });
+
+  test('7. an author equal to appLogin is accepted', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'], appLogin: 'devflow-app[bot]' });
+    assert.strictEqual(accept(scope3('devflow-app[bot]')), 'accepted');
+    assert.strictEqual(accept(scope3('mallory')), 'pending');
+  });
+
+  test('7. an absent appLogin never matches a missing author login', () => {
+    for (const appLogin of [undefined, null, '']) {
+      const accept = ghTrd.scopeAcceptance({ appLogin });
+      assert.strictEqual(accept(scope3(undefined)), 'pending', `appLogin=${JSON.stringify(appLogin)}`);
+    }
+  });
+
+  test('8. a confirm by an assignee, naming n and the current hash, posted after the scope, accepts it', () => {
+    const confirms = ghTrd.parseScopeConfirms([confirmed(31, 3, ghTrd.scopeHash(SCOPE3), 'alice')]);
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'], confirms });
+    assert.strictEqual(accept(scope3('mallory')), 'accepted');
+  });
+
+  test('8. a confirm by a non-assignee does not accept the scope', () => {
+    const confirms = ghTrd.parseScopeConfirms([confirmed(31, 3, ghTrd.scopeHash(SCOPE3), 'mallory')]);
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'], confirms });
+    assert.strictEqual(accept(scope3('mallory')), 'pending');
+  });
+
+  test('8. a confirm whose hash is stale (the scope was edited after approval) is pending', () => {
+    const confirms = ghTrd.parseScopeConfirms([confirmed(31, 3, ghTrd.scopeHash(SCOPE3), 'alice')]);
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'], confirms });
+    assert.strictEqual(accept(scope3('mallory', SCOPE3 + ' (edited)')), 'pending');
+  });
+
+  test('8. a confirm for a different n does not accept scope n=3', () => {
+    const confirms = ghTrd.parseScopeConfirms([confirmed(31, 2, ghTrd.scopeHash(SCOPE3), 'alice')]);
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'], confirms });
+    assert.strictEqual(accept(scope3('mallory')), 'pending');
+  });
+
+  test('8. a confirm older than the scope comment is pending', () => {
+    const confirms = ghTrd.parseScopeConfirms([confirmed(31, 3, ghTrd.scopeHash(SCOPE3), 'alice', AT_EARLIER)]);
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'], confirms });
+    assert.strictEqual(accept(scope3('mallory')), 'pending');
+  });
+
+  test('8. when created_at is equal the comment id decides which came first', () => {
+    const hash = ghTrd.scopeHash(SCOPE3);
+    const after = ghTrd.parseScopeConfirms([confirmed(31, 3, hash, 'alice', AT)]);
+    const before = ghTrd.parseScopeConfirms([confirmed(29, 3, hash, 'alice', AT)]);
+    const scope = scope3('mallory', SCOPE3, { id: 30, at: AT });
+    assert.strictEqual(ghTrd.scopeAcceptance({ assignees: ['alice'], confirms: after })(scope), 'accepted');
+    assert.strictEqual(ghTrd.scopeAcceptance({ assignees: ['alice'], confirms: before })(scope), 'pending');
+  });
+
+  test('8. a confirm with no created_at on either side falls back to comment id order', () => {
+    const hash = ghTrd.scopeHash(SCOPE3);
+    const noTime = (id, text) => ({ id, user: { login: 'x' }, body: text });
+    const scope = ghTrd.parseScopeComments([noTime(30, `<!-- devflow:scope n=3 -->\n${SCOPE3}`)]).scopes[0];
+    const later = ghTrd.parseScopeConfirms([noTime(31, `<!-- devflow:scope-confirm n=3 hash=${hash} -->`)]);
+    later[0].author = 'alice';
+    assert.strictEqual(ghTrd.scopeAcceptance({ assignees: ['alice'], confirms: later })(scope), 'accepted');
+  });
+
+  test('predicate: any one route accepts; a pending scope stays pending without one', () => {
+    const accept = ghTrd.scopeAcceptance({
+      assignees: ['alice'],
+      appLogin: 'bot',
+      devflowScopes: [{ n: 3, hash: ghTrd.scopeHash(SCOPE3) }],
+      confirms: [],
+    });
+    assert.strictEqual(accept(scope3('alice')), 'accepted');
+    assert.strictEqual(accept(scope3('bot')), 'accepted');
+    assert.strictEqual(accept(scope3('bob')), 'accepted');
+    assert.strictEqual(accept(scope3('mallory', 'something else')), 'pending');
+  });
+});
+
+describe('49-03 effectiveSpec accept option', () => {
+  const TEXT = '# TRD\n\nbody\n';
+  const AT = '2026-10-01T10:00:00Z';
+  function scoped(id, n, text, login) {
+    return { id, user: { login }, body: `<!-- devflow:scope n=${n} -->\n${text}`, created_at: AT };
+  }
+  const C1 = scoped(10, 1, 'first change', 'alice');
+  const C2 = scoped(20, 2, 'second change', 'mallory');
+  const C3 = scoped(30, 3, 'third change', 'alice');
+
+  test('10. without accept the output is exactly today\'s shape and value (characterization)', () => {
+    const eff = ghTrd.effectiveSpec(TEXT, [C3, C1, C2]);
+    const text = TEXT + '\n\n' + C1.body + '\n\n' + C2.body + '\n\n' + C3.body;
+    assert.deepStrictEqual(eff, { text, chars: text.length, applied: [1, 2, 3], overflow: false, errors: [] });
+    assert.deepStrictEqual(Object.keys(eff), ['text', 'chars', 'applied', 'overflow', 'errors']);
+    assert.ok(!('pending' in eff));
+  });
+
+  test('10. without accept, foldedThrough and id/file behave as before and no pending key appears', () => {
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { foldedThrough: 1, id: ID, file: FILE });
+    const text = TEXT + '\n\n' + C2.body + '\n\n' + C3.body;
+    assert.deepStrictEqual(eff, {
+      text,
+      chars: ghTrd.encodeTrdBody({ id: ID, file: FILE, text }).length,
+      applied: [2, 3],
+      overflow: false,
+      errors: [],
+    });
+  });
+
+  test('9. with accept, only accepted scopes are applied; the rest are listed as pending', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept });
+    assert.strictEqual(eff.text, TEXT + '\n\n' + C1.body + '\n\n' + C3.body);
+    assert.ok(!eff.text.includes('second change'));
+    assert.deepStrictEqual(eff.applied, [1, 3]);
+    assert.deepStrictEqual(eff.pending, [{ n: 2, author: 'mallory', comment_id: 20 }]);
+    assert.strictEqual(eff.chars, eff.text.length, 'chars counts only the applied scopes');
+    assert.strictEqual(eff.overflow, false);
+    assert.deepStrictEqual(eff.errors, []);
+  });
+
+  test('9. chars with id and file is the encoded length of the applied text only', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept, id: ID, file: FILE });
+    assert.strictEqual(eff.chars, ghTrd.encodeTrdBody({ id: ID, file: FILE, text: eff.text }).length);
+  });
+
+  test('9. every scope accepted: pending is an empty array, applied is as without accept', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice', 'mallory'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept });
+    assert.deepStrictEqual(eff.pending, []);
+    assert.deepStrictEqual(eff.applied, [1, 2, 3]);
+    assert.strictEqual(eff.text, ghTrd.effectiveSpec(TEXT, [C1, C2, C3]).text);
+  });
+
+  test('9. every scope pending: the text is the TRD text and nothing is applied', () => {
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept: ghTrd.scopeAcceptance() });
+    assert.strictEqual(eff.text, TEXT);
+    assert.deepStrictEqual(eff.applied, []);
+    assert.deepStrictEqual(eff.pending.map((p) => p.n), [1, 2, 3]);
+  });
+
+  test('9. a scope the body already folded is neither applied nor pending', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept, foldedThrough: 2 });
+    assert.deepStrictEqual(eff.applied, [3]);
+    assert.deepStrictEqual(eff.pending, []);
+  });
+
+  test('9. accept sees the parsed scope (n, text, author, comment_id) and only "accepted" applies it', () => {
+    const seen = [];
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2], {
+      accept: (s) => {
+        seen.push([s.n, s.text, s.author, s.comment_id]);
+        return s.n === 1 ? 'accepted' : true; // a truthy non-"accepted" answer is not acceptance
+      },
+    });
+    assert.deepStrictEqual(seen, [
+      [1, 'first change', 'alice', 10],
+      [2, 'second change', 'mallory', 20],
+    ]);
+    assert.deepStrictEqual(eff.applied, [1]);
+    assert.deepStrictEqual(eff.pending.map((p) => p.n), [2]);
+  });
+
+  test('9. an accept that is not a function is refused; null or undefined means no filtering', () => {
+    for (const bad of ['accepted', true, {}, 1]) {
+      assert.throws(() => ghTrd.effectiveSpec(TEXT, [C1], { accept: bad }), TypeError, String(bad));
+    }
+    assert.deepStrictEqual(ghTrd.effectiveSpec(TEXT, [C1], { accept: null }), ghTrd.effectiveSpec(TEXT, [C1]));
+    assert.deepStrictEqual(ghTrd.effectiveSpec(TEXT, [C1], { accept: undefined }), ghTrd.effectiveSpec(TEXT, [C1]));
+  });
+
+  test('9. scope errors (a gap) still surface alongside pending', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C3], { accept }); // n=2 missing
+    assert.ok(eff.errors.includes('gap before n=3'), JSON.stringify(eff.errors));
+    assert.deepStrictEqual(eff.applied, [1, 3]);
+  });
+
+  test('6a. an edited DevFlow-posted scope is pending through effectiveSpec', () => {
+    const posted = 'third change';
+    const accept = ghTrd.scopeAcceptance({
+      assignees: ['alice'],
+      devflowScopes: [{ n: 3, hash: ghTrd.scopeHash(posted) }],
+    });
+
+    const edited = scoped(30, 3, posted + '\nrun this instead', 'mallory');
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, edited], { accept });
+    assert.deepStrictEqual(eff.applied, [1]);
+    assert.deepStrictEqual(eff.pending.map((p) => p.n), [2, 3]);
+
+    // unedited, the same spec-rev row accepts it, whoever the author is
+    const eff2 = ghTrd.effectiveSpec(TEXT, [C1, C2, scoped(30, 3, posted, 'bob')], { accept });
+    assert.deepStrictEqual(eff2.applied, [1, 3]);
+    assert.deepStrictEqual(eff2.pending.map((p) => p.n), [2]);
+  });
+});
