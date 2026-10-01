@@ -1,7 +1,7 @@
 'use strict';
 
-// SC1 ratchet: direct planning-file write instructions in DevFlow's own prose (TRD 48-04,
-// objective 48-planning-write-path-migration, GWP-02, decision D-21).
+// SC1: zero direct planning-file write instructions in DevFlow's own prose (TRD 48-04 started
+// the ratchet, TRD 48-23 closed it; objective 48-planning-write-path-migration, GWP-02, D-21).
 //
 // WHAT COUNTS. planning-audit.cjs scans every skill (skills/<name>/SKILL.md), every non-legacy
 // workflow, every agent and every template (references are out of scope: they explain, they do
@@ -10,16 +10,10 @@
 // STATE.md, MILESTONES, codebase/, todos/, debug/, quick/, research/, milestones/, decisions/)
 // with no store-aware df-tools verb call within 3 lines. See planning-audit.cjs for the regexes.
 //
-// THE RATCHET. Per-file counts may only go down:
-//   - a file absent from every baseline must have zero findings (every one is listed file:line);
-//   - actual[file] > baseline[file] fails, naming the file and both counts;
-//   - baseline[file] > actual[file] fails as stale ("lower the baseline for <file> to <n>"),
-//     so the TRD that migrates prose lowers the number in the same commit;
-//   - a baseline key must sit in the JSON of its own group (groupOf).
-// Baselines live in __fixtures__/planning-writes-baseline/<group>.json, one file per group so
-// the six prose TRDs edit disjoint files: 48-16 plan, 48-17 execute, 48-18 verify,
-// 48-19 bootstrap, 48-20 work, 48-21 misc. Each drives its group to zero; 48-23 deletes the
-// baselines and asserts zero findings outright.
+// THE RULE. Zero findings, every one listed `file:line: <text>` on failure. There is no
+// baseline: the per-group __fixtures__/planning-writes-baseline/*.json ratchet (48-04) was driven
+// to zero by 48-16..48-21 and deleted by 48-23, and the directory must not come back. A new
+// planning write goes through a df-tools verb (plan put-trd, summary post, doc put, ...).
 //
 // A line that is read-only, explanatory, or about a runtime/tracked-config path (STACK.md,
 // config.json, .trd-progress/) takes an inline `<!-- planning-audit: allow <reason> -->` marker
@@ -27,16 +21,10 @@
 // EXEMPT below is for lines the regexes misjudge outright; never for real write instructions.
 //
 // Test list:
-// 9.  Every finding in a file absent from all baselines fails with `file:line: <text>` (all listed).
-// 10. actual[file] > baseline[file] fails naming the file and both counts.
-// 11. baseline[file] > actual[file] fails as stale ("lower the baseline for <file> to <n>").
-// 12. A baseline key whose groupOf differs from the JSON it sits in fails.
-// 13. Sensitivity: >= 1 finding in today's agents/planner.md while planner.md is baselined, else 0.
+// 9.  Every finding fails with `file:line: <text>` (all listed, not just the first).
+// 10. The planning-writes-baseline/ directory does not exist (no ratchet left).
+// 13. Sensitivity: agents/planner.md has zero findings, and an injected write line yields one.
 // 14. Every EXEMPT entry matches a real line and has a 20+ char reason; zero bad inline markers.
-//
-// Regenerating counts (only ever by measuring, never by hand):
-//   PLANNING_AUDIT_MEASURE=1 node -e "<require this file>.measuredBaselines()" and write each
-//   group's object to <group>.json. PLANNING_AUDIT_MEASURE=1 skips the suite when required.
 //
 // Runtime model: read-only. Repo root is five levels up; a mirror install (no README.md there)
 // skips the whole file.
@@ -46,15 +34,12 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const { scanWrites, scanSet, groupOf, GROUPS, GROUP_PATHS } = require('./planning-audit.cjs');
+const { scanWrites, scanSet, GROUP_PATHS } = require('./planning-audit.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const IS_DEVFLOW_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
+/** The deleted ratchet's home (48-04..48-23). Its presence is a failure. */
 const BASELINE_DIR = path.join(__dirname, '__fixtures__', 'planning-writes-baseline');
-const GROUP_NAMES = Object.keys(GROUPS);
-
-/** The prose TRD that owns each group and must drive it to zero. */
-const OWNER = { plan: '48-16', execute: '48-17', verify: '48-18', bootstrap: '48-19', work: '48-20', misc: '48-21' };
 
 // ─── EXEMPT (test 14) ───────────────────────────────────────────────────────────────
 // {file, line_contains, reason}: a finding in `file` whose text includes `line_contains` is
@@ -154,106 +139,25 @@ function measure({ root = REPO_ROOT, exempt = EXEMPT, override = {} } = {}) {
   return { findings, badMarkers };
 }
 
-function baselineComment(group) {
-  return (
-    `Planning-write ratchet baseline for the '${group}' group (TRD 48-04, D-21). Per-file counts of ` +
-    'direct planning-file write instructions not yet routed through a df-tools verb. Counts may only ' +
-    `go down: lower a count in the commit that migrates the prose. TRD ${OWNER[group]} drives this ` +
-    'group to zero; 48-23 deletes these files. Regenerate by measuring with planning-audit.cjs, never by hand.'
-  );
-}
-
-/** Today's counts as the six baseline objects: `_comment` first, then sorted keys with count > 0. */
-function measuredBaselines(opts) {
-  const counts = Object.fromEntries(GROUP_NAMES.map((g) => [g, {}]));
-  for (const f of measure(opts).findings) {
-    const g = groupOf(f.file);
-    counts[g][f.file] = (counts[g][f.file] || 0) + 1;
-  }
-  return Object.fromEntries(
-    GROUP_NAMES.map((g) => [
-      g,
-      Object.fromEntries([
-        ['_comment', baselineComment(g)],
-        ...Object.keys(counts[g])
-          .sort()
-          .map((k) => [k, counts[g][k]]),
-      ]),
-    ]),
-  );
-}
-
-/** The six baseline files as parsed JSON (with `_comment`). */
-function loadBaselineFiles() {
-  return Object.fromEntries(
-    GROUP_NAMES.map((g) => [g, JSON.parse(fs.readFileSync(path.join(BASELINE_DIR, `${g}.json`), 'utf-8'))]),
-  );
-}
-
-// ─── the ratchet (tests 9-12) ───────────────────────────────────────────────────────
+// ─── the zero rule (tests 9-10) ─────────────────────────────────────────────────────
 
 /**
- * Compare findings against per-group baselines. Pure.
+ * One message per finding, `file:line: <text>`, sorted by file then line. Pure. Empty when clean.
  * @param {{file:string, line:number, text:string}[]} findings
- * @param {Object<string, Object<string, number|string>>} baselines group -> {file: count, _comment}
- * @returns {string[]} one message per problem; empty when the ratchet holds
+ * @returns {string[]}
  */
-function checkRatchet(findings, baselines) {
-  const errors = [];
-  const base = new Map(); // file -> {count, group}
-  for (const [group, entries] of Object.entries(baselines)) {
-    for (const [file, count] of Object.entries(entries)) {
-      if (file === '_comment') continue;
-      const owner = groupOf(file);
-      if (owner !== group) {
-        errors.push(`${file} sits in ${group}.json but groupOf says '${owner}' — move it to ${owner}.json`);
-      }
-      if (!Number.isInteger(count) || count < 1) {
-        errors.push(`${file}: baseline in ${group}.json must be a positive integer (drop the key at zero), got ${JSON.stringify(count)}`);
-      }
-      base.set(file, { count, group });
-    }
-  }
-
-  const byFile = new Map();
-  for (const f of findings) {
-    if (!byFile.has(f.file)) byFile.set(f.file, []);
-    byFile.get(f.file).push(f);
-  }
-  const lines = (fs_) => fs_.map((f) => `  ${f.file}:${f.line}: ${f.text}`);
-
-  for (const [file, fs_] of [...byFile.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    const b = base.get(file);
-    if (!b) {
-      for (const f of fs_) errors.push(`${f.file}:${f.line}: ${f.text}`);
-    } else if (fs_.length > b.count) {
-      errors.push(
-        [
-          `${file}: ${fs_.length} planning-write directives > baseline ${b.count} (${b.group}.json) — ` +
-            'route the new one through a df-tools verb:',
-          ...lines(fs_),
-        ].join('\n'),
-      );
-    }
-  }
-  for (const [file, b] of [...base.entries()].sort(([a], [c]) => a.localeCompare(c))) {
-    const actual = (byFile.get(file) || []).length;
-    if (Number.isInteger(b.count) && b.count > actual) {
-      errors.push(
-        `${file}: baseline ${b.count} > actual ${actual} (stale) — lower the baseline for ${file} to ${actual}` +
-          ` in ${b.group}.json${actual === 0 ? ' (delete the key)' : ''}`,
-      );
-    }
-  }
-  return errors;
+function checkZero(findings) {
+  return [...findings]
+    .sort((x, y) => x.file.localeCompare(y.file) || x.line - y.line)
+    .map((f) => `${f.file}:${f.line}: ${f.text}`);
 }
 
-function formatRatchetFailure(errors) {
+function formatZeroFailure(errors) {
   return [
-    'planning-write ratchet failed (D-21: counts may only go down). Route each write through a df-tools',
-    'verb (plan put-trd, summary post, doc put, ...); a read-only or explanatory line takes an inline',
-    '`<!-- planning-audit: allow <reason of 20+ chars> -->` marker instead:',
-    ...errors,
+    `planning-write audit failed (SC1, D-21): ${errors.length} direct planning-file write instruction(s).`,
+    'Route each write through a df-tools verb (plan put-trd, summary post, doc put, ...); a read-only or',
+    'explanatory line takes an inline `<!-- planning-audit: allow <reason of 20+ chars> -->` marker instead:',
+    ...errors.map((e) => `  ${e}`),
   ].join('\n');
 }
 
@@ -333,9 +237,9 @@ const SKIP = !IS_DEVFLOW_CHECKOUT
 
 describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
   describe('GATE', () => {
-    test('the repo holds the ratchet against the six pinned baselines', () => {
-      const errors = checkRatchet(measure().findings, loadBaselineFiles());
-      assert.deepEqual(errors, [], formatRatchetFailure(errors));
+    test('the repo has zero planning-write findings', () => {
+      const errors = checkZero(measure().findings);
+      assert.deepEqual(errors, [], formatZeroFailure(errors));
     });
 
     test('injected `Write the SUMMARY.md file` in skills/todo/SKILL.md fails naming that line', () => {
@@ -343,8 +247,7 @@ describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
       const original = fs.readFileSync(path.join(REPO_ROOT, file), 'utf-8');
       const text = `${original.replace(/\n?$/, '\n')}Write the SUMMARY.md file\n`;
       const injectedLine = text.split('\n').length - 1;
-      const errors = checkRatchet(measure({ override: { [file]: text } }).findings, loadBaselineFiles());
-      const message = formatRatchetFailure(errors);
+      const message = formatZeroFailure(checkZero(measure({ override: { [file]: text } }).findings));
       assert.ok(
         message.includes(`${file}:${injectedLine}: Write the SUMMARY.md file`),
         `the failure must name ${file}:${injectedLine}, got:\n${message}`,
@@ -352,85 +255,45 @@ describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
     });
   });
 
-  describe('RATCHET rules (injected findings/baselines)', () => {
-    const A = 'plugins/devflow/agents/planner.md'; // plan
-    const B = 'plugins/devflow/skills/status/SKILL.md'; // misc
+  describe('ZERO rule (injected findings)', () => {
+    const A = 'plugins/devflow/agents/planner.md';
+    const B = 'plugins/devflow/skills/status/SKILL.md';
     const f = (file, line, text = `Write the SUMMARY.md ${line}`) => ({ file, line, text, artifact: 'SUMMARY' });
-    const empty = () => Object.fromEntries(GROUP_NAMES.map((g) => [g, { _comment: 'x' }]));
 
-    test('9: every finding in an un-baselined file is listed file:line, not just the first', () => {
-      const errors = checkRatchet([f(B, 3), f(B, 9)], empty());
-      const message = formatRatchetFailure(errors);
-      assert.ok(message.includes(`${B}:3: Write the SUMMARY.md 3`), message);
-      assert.ok(message.includes(`${B}:9: Write the SUMMARY.md 9`), message);
+    test('9: every finding is listed file:line, sorted, not just the first', () => {
+      const errors = checkZero([f(B, 9), f(A, 4), f(B, 3)]);
+      assert.deepEqual(errors, [`${A}:4: Write the SUMMARY.md 4`, `${B}:3: Write the SUMMARY.md 3`, `${B}:9: Write the SUMMARY.md 9`]);
+      const message = formatZeroFailure(errors);
+      assert.ok(message.includes('3 direct planning-file write instruction(s)'), message);
+      assert.ok(message.includes(`  ${B}:9: Write the SUMMARY.md 9`), message);
     });
 
-    test('10: actual above baseline fails naming the file and both counts', () => {
-      const baselines = empty();
-      baselines.plan[A] = 2;
-      const errors = checkRatchet([f(A, 1), f(A, 5), f(A, 8)], baselines);
-      assert.equal(errors.length, 1);
-      assert.match(errors[0], new RegExp(`${A.replace(/[.]/g, '\\.')}: 3 planning-write directives > baseline 2`));
-      assert.ok(errors[0].includes(`${A}:8: Write the SUMMARY.md 8`), errors[0]);
-    });
-
-    test('11: baseline above actual fails as stale with the number to lower it to', () => {
-      const baselines = empty();
-      baselines.plan[A] = 3;
-      const errors = checkRatchet([f(A, 1)], baselines);
-      assert.equal(errors.length, 1);
-      assert.ok(errors[0].includes(`lower the baseline for ${A} to 1`), errors[0]);
-
-      const zero = empty();
-      zero.misc[B] = 1;
-      const [e0] = checkRatchet([], zero);
-      assert.ok(e0.includes(`lower the baseline for ${B} to 0`) && e0.includes('delete the key'), e0);
-    });
-
-    test('12: a baseline key filed under the wrong group fails', () => {
-      const baselines = empty();
-      baselines.execute[A] = 1;
-      const errors = checkRatchet([f(A, 1)], baselines);
-      assert.ok(
-        errors.some((e) => e.includes(`${A} sits in execute.json but groupOf says 'plan'`)),
-        errors.join('\n'),
-      );
-    });
-
-    test('12b: a non-positive or non-integer baseline count fails', () => {
-      const baselines = empty();
-      baselines.misc[B] = 0;
-      assert.ok(checkRatchet([], baselines).some((e) => e.includes('must be a positive integer')));
-    });
-
-    test('ratchet holds when counts match exactly', () => {
-      const baselines = empty();
-      baselines.plan[A] = 2;
-      assert.deepEqual(checkRatchet([f(A, 1), f(A, 2)], baselines), []);
+    test('no findings, no errors', () => {
+      assert.deepEqual(checkZero([]), []);
     });
   });
 
-  describe('BASELINE files', () => {
-    test('six group files exist, each with a _comment naming its owner TRD, keys sorted', () => {
-      const files = loadBaselineFiles();
-      assert.deepEqual(Object.keys(files), GROUP_NAMES);
-      for (const g of GROUP_NAMES) {
-        const obj = files[g];
-        assert.equal(typeof obj._comment, 'string', `${g}.json needs a _comment`);
-        assert.ok(obj._comment.includes(OWNER[g]), `${g}.json _comment must name ${OWNER[g]}`);
-        const keys = Object.keys(obj).filter((k) => k !== '_comment');
-        assert.deepEqual(keys, [...keys].sort(), `${g}.json keys must be sorted`);
-      }
+  describe('NO BASELINE', () => {
+    test('10: baseline files must be deleted — __fixtures__/planning-writes-baseline/ does not exist', () => {
+      const left = fs.existsSync(BASELINE_DIR) ? fs.readdirSync(BASELINE_DIR) : null;
+      assert.equal(
+        left,
+        null,
+        `baseline files must be deleted: SC1 asserts zero outright (48-23), found ${BASELINE_DIR}` +
+          (left ? ` holding ${left.join(', ') || 'nothing'}` : ''),
+      );
     });
   });
 
   describe('SENSITIVITY', () => {
-    test('13: agents/planner.md has >= 1 finding while baselined, else exactly 0', () => {
+    test('13: agents/planner.md has zero findings, and an injected write line yields exactly one', () => {
       const rel = 'plugins/devflow/agents/planner.md';
-      const n = measure().findings.filter((x) => x.file === rel).length;
-      const baselined = Object.values(loadBaselineFiles()).some((g) => rel in g);
-      if (baselined) assert.ok(n >= 1, `expected >= 1 finding in ${rel}, got ${n}`);
-      else assert.equal(n, 0, `${rel} is not baselined, so it must have zero findings`);
+      const clean = measure().findings.filter((x) => x.file === rel);
+      assert.deepEqual(clean, [], `${rel} must have zero findings`);
+      const original = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+      const text = `${original.replace(/\n?$/, '\n')}\nCreate the TRD file at .planning/objectives/01-x/01-01-TRD.md\n`;
+      const hit = measure({ override: { [rel]: text } }).findings.filter((x) => x.file === rel);
+      assert.equal(hit.length, 1, `expected the scanner to flag the injected line, got ${JSON.stringify(hit)}`);
     });
   });
 
@@ -483,4 +346,4 @@ describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
   });
 });
 
-module.exports = { EXEMPT, OWNER, measure, measuredBaselines, checkRatchet, baselineComment, auditVerbs, verbsExist };
+module.exports = { EXEMPT, measure, checkZero, formatZeroFailure, auditVerbs, verbsExist };
