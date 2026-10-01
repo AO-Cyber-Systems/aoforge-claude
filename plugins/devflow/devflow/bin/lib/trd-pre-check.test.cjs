@@ -579,3 +579,78 @@ describe('e2e — cmdVerifyTrdPre', () => {
     assert.strictEqual(didThrow, false, 'should not throw on malformed TRD');
   });
 });
+
+// ─── 6. Characterization (TRD 48-03, test 9) ─────────────────────────────────
+//
+// Pins today's JSON for the four original checks so the trd_budget addition is provably additive.
+// The literals were captured from cmdVerifyTrdPre before 48-03 changed it.
+
+describe('characterization — the four original checks are unchanged (48-03 test 9)', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTmp(); });
+  afterEach(() => { removeTmp(tmpDir); });
+
+  test('a mixed fixture objective -> the four checks, passed and needs_agent deep-equal the captured literal', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      roadmap_requirements: ['F1', 'F2', 'F3'],
+      trds: [
+        { trd: '99-01', requirements: ['F1'], depends_on: [], tasks: [{ type: 'auto' }] },
+        {
+          trd: '99-02',
+          requirements: ['F2'],
+          depends_on: ['99-01', '99-07'],
+          tasks: [{ type: 'auto' }, { type: 'auto', hasVerify: false }, { type: 'auto' }, { type: 'auto' }],
+        },
+      ],
+    });
+    const { result } = runCheck(tmpDir, '99');
+
+    assert.strictEqual(result.objective, '99');
+    assert.strictEqual(result.passed, false);
+    assert.strictEqual(result.needs_agent, false);
+    assert.ok(typeof result.summary === 'string');
+    assert.ok(typeof result.elapsed_ms === 'number');
+
+    const { requirement_coverage, task_completeness, dependency_correctness, scope_sanity } = result.checks;
+    assert.deepStrictEqual(
+      { requirement_coverage, task_completeness, dependency_correctness, scope_sanity },
+      {
+        requirement_coverage: { passed: false, missing: ['F3'] },
+        task_completeness: {
+          passed: false,
+          incomplete: [{ trd: '99-02', task: 'Task 2: some task', missing: ['verify'] }],
+        },
+        dependency_correctness: {
+          passed: false,
+          cycles: [],
+          orphan_refs: [{ trd: '99-02', missing: '99-07' }],
+        },
+        scope_sanity: {
+          passed: true,
+          oversized_trds: [],
+          warning_trds: [{ trd: '99-02', task_count: 4 }],
+          total_trds: 2,
+        },
+      },
+    );
+  });
+
+  test('an objective with no TRDs -> the four early-return checks deep-equal the captured literal', () => {
+    setupObjectiveDir(tmpDir, { objective: '99-test', roadmap_requirements: ['F1'], trds: [] });
+    const { result } = runCheck(tmpDir, '99');
+
+    assert.strictEqual(result.passed, false);
+    assert.strictEqual(result.needs_agent, false);
+    const { requirement_coverage, task_completeness, dependency_correctness, scope_sanity } = result.checks;
+    assert.deepStrictEqual(
+      { requirement_coverage, task_completeness, dependency_correctness, scope_sanity },
+      {
+        requirement_coverage: { passed: false, missing: [], note: 'no TRD files found' },
+        task_completeness: { passed: false, incomplete: [] },
+        dependency_correctness: { passed: false, cycles: [], orphan_refs: [] },
+        scope_sanity: { passed: false, oversized_trds: [], total_trds: 0 },
+      },
+    );
+  });
+});
