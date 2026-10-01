@@ -979,6 +979,416 @@ describe('remote-edit detection', () => {
   });
 });
 
+// ─── Flush loop (tests 17-26) ────────────────────────────────────────────────
+
+const enqueueOps = (ops) => {
+  const r = outbox.enqueue(S.root, ops, { now: S.clock.t });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  return r.enqueued;
+};
+const runFlush = (opts = {}) => flushLib.flush(S.root, { modes: NATIVE, caps: CAPS, ...opts });
+const queueNow = () => outbox.status(S.root, { now: S.clock.t }).queue;
+const successfulCreates = () => S.fake.issues.map((i) => i.title);
+
+/** Seed N writes into the journal's cross-process budget. */
+function seedWrites(count, at) {
+  const { journal } = outbox.readJournal(S.root);
+  for (let i = 0; i < count; i++) outbox.recordWrite(journal, at(i));
+  outbox.writeJournal(S.root, journal);
+}
+
+describe('flush: order, offline and blocked ops (tests 17, 18)', () => {
+  useStore();
+  const threeTrds = () => [trdOp('7-01'), trdOp('7-02'), trdOp('7-03')];
+
+  test('17. offline: the flush stops with status pending, all ops stay pending; reconnecting completes them in order (SC4)', () => {
+    enqueueOps(threeTrds());
+    S.fake.setOffline(true);
+    const first = runFlush();
+    assert.equal(first.status, 'pending');
+    assert.equal(first.reason, 'offline');
+    assert.deepEqual(first.done, []);
+    assert.equal(first.pending, 3);
+    assert.equal(S.fake.issues.length, 0, 'nothing was created while offline');
+    assert.deepEqual(queueNow().map((o) => o.status), ['pending', 'pending', 'pending']);
+    assert.equal(queueNow()[0].attempts, 1);
+
+    S.fake.setOffline(false);
+    const second = runFlush();
+    assert.equal(second.status, 'flushed');
+    assert.deepEqual(second.done, [1, 2, 3]);
+    assert.equal(second.pending, 0);
+    assert.deepEqual(successfulCreates(), ['[TRD 7-01] 07-01-alpha-TRD.md', '[TRD 7-02] 07-02-beta-TRD.md', '[TRD 7-03] 07-03-gamma-TRD.md']);
+    assert.equal(outbox.status(S.root).queue.length, 0);
+    assert.equal(fs.existsSync(outbox.lockPath(S.root)), false, 'the lock is released');
+  });
+
+  test('18. a blocked op (403) stops the queue: the next op is not executed and the halt says blocked', () => {
+    enqueueOps(threeTrds());
+    let n = 0;
+    S.fake.failNext(
+      (argv) => argv.join(' ') === 'api --method POST repos/o/r/issues --input -' && ++n === 2,
+      { ok: false, status: 1, stderr: 'gh: Resource not accessible by integration (HTTP 403)' },
+    );
+    const res = runFlush();
+    assert.equal(res.status, 'halted');
+    assert.equal(res.halted.reason, 'blocked');
+    assert.deepEqual(res.halted.target, { id: '7-02', role: 'trd' });
+    assert.deepEqual(res.done, [1]);
+    assert.equal(S.fake.issues.length, 1, 'op 3 never ran');
+    assert.deepEqual(queueNow().map((o) => [o.seq, o.status]), [[2, 'blocked'], [3, 'pending']]);
+    assert.match(queueNow()[0].last_error, /403|not accessible/i);
+
+    const again = runFlush();
+    assert.equal(again.status, 'halted', 'a blocked head op keeps the queue stopped');
+    assert.equal(S.fake.issues.length, 1);
+  });
+
+  test('18b. resolveHalt overwrite on a blocked op makes it pending again; the next flush finishes the queue in order', () => {
+    enqueueOps(threeTrds());
+    let n = 0;
+    S.fake.failNext(
+      (argv) => argv.join(' ') === 'api --method POST repos/o/r/issues --input -' && ++n === 2,
+      { ok: false, status: 1, stderr: 'gh: Validation Failed (HTTP 422)' },
+    );
+    assert.equal(runFlush().status, 'halted');
+    const r = flushLib.resolveHalt(S.root, 2, 'overwrite', { modes: NATIVE, caps: CAPS });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(outbox.status(S.root).halted, null);
+    assert.equal(queueNow()[0].status, 'pending');
+    const res = runFlush();
+    assert.equal(res.status, 'flushed');
+    assert.deepEqual(res.done, [2, 3]);
+    assert.equal(S.fake.issues.length, 3);
+  });
+
+  test('18c. an unexpected throw inside a handler blocks that op, halts, and still releases the lock', () => {
+    enqueueOps([trdOp('7-01')]);
+    client._setRunGh(() => { throw new Error('boom from the runner'); });
+    const res = runFlush();
+    assert.equal(res.status, 'halted');
+    assert.equal(res.halted.reason, 'blocked');
+    assert.match(queueNow()[0].last_error, /boom from the runner/);
+    assert.equal(fs.existsSync(outbox.lockPath(S.root)), false);
+  });
+
+  test('18d. pages:"blocked" blocks a wiki-push op and halts the flush with the capability message', () => {
+    enqueueOps([{ kind: 'wiki-push', target: { store: 'pages' }, payload: { pages: ['PROJECT.md'], message: 'm' } }]);
+    const res = runFlush({ modes: { ...NATIVE, pages: 'blocked', pages_message: 'create the first wiki page in the GitHub web UI' } });
+    assert.equal(res.status, 'halted');
+    assert.equal(res.halted.reason, 'blocked');
+    assert.match(res.halted.detail, /create the first wiki page in the GitHub web UI/);
+    assert.equal(queueNow()[0].status, 'blocked');
+  });
+
+  test('18e. an empty queue is flushed with zero gh calls; maxOps stops cleanly with the rest pending', () => {
+    const empty = runFlush();
+    assert.equal(empty.status, 'flushed');
+    assert.deepEqual(empty.done, []);
+    assert.equal(S.fake.calls().length, 0);
+
+    enqueueOps(threeTrds());
+    const some = runFlush({ maxOps: 2 });
+    assert.equal(some.status, 'pending');
+    assert.equal(some.reason, 'max_ops');
+    assert.deepEqual(some.done, [1, 2]);
+    assert.equal(some.pending, 1);
+  });
+
+  test('18f. warnings from a done op are returned with its seq and kind', () => {
+    // the default fake knows the TRD type, so ask for a type it does not have
+    enqueueOps([trdOp('7-01', { type: 'NoSuchType' })]);
+    const res = runFlush();
+    assert.equal(res.status, 'flushed');
+    assert.equal(res.warnings.length, 1);
+    assert.equal(res.warnings[0].seq, 1);
+    assert.equal(res.warnings[0].kind, 'upsert-issue');
+    assert.match(res.warnings[0].message, /type NoSuchType not applied/);
+  });
+});
+
+describe('flush: disabled and locked (tests 25)', () => {
+  describe('github not enabled', () => {
+    useStore({ project: { enabled: false } });
+    test('25a. a project with github.enabled not true is skipped with zero gh calls', () => {
+      const res = runFlush();
+      assert.equal(res.status, 'skipped');
+      assert.equal(S.fake.calls().length, 0);
+    });
+  });
+
+  describe('lock', () => {
+    useStore();
+    test('25. a live lock held by another flusher: status running, zero gh calls, the lock is left alone', () => {
+      enqueueOps([trdOp('7-01')]);
+      const held = outbox.acquireLock(S.root, { now: S.clock.t, pid: 424242 });
+      assert.equal(held.ok, true);
+      const res = runFlush();
+      assert.equal(res.status, 'running');
+      assert.equal(S.fake.calls().length, 0);
+      assert.equal(fs.existsSync(outbox.lockPath(S.root)), true, 'not ours to release');
+      held.release();
+    });
+
+    test('25b. a stale lock (older than 10 minutes) is taken over', () => {
+      enqueueOps([trdOp('7-01')]);
+      outbox.acquireLock(S.root, { now: S.clock.t - 11 * 60 * 1000, pid: 424242 });
+      const res = runFlush();
+      assert.equal(res.status, 'flushed');
+      assert.equal(S.fake.issues.length, 1);
+    });
+  });
+});
+
+describe('flush: remote-edit halt and resolution (tests 19, 22, 23)', () => {
+  useStore();
+
+  /** An objective patched once by DevFlow, then edited by a human inside the summary section. */
+  function haltedObjective() {
+    const n = seedObjective();
+    enqueueOps([managed({ summary: 'Mine 1' })]);
+    assert.equal(runFlush().status, 'flushed');
+    S.fake.humanEditBody(n, issueByNumber(n).body.replace('Mine 1', 'A human rewrote this'));
+    const [seq] = enqueueOps([managed({ summary: 'Mine 2' })]);
+    const writesBefore = S.fake.writes().length;
+    const res = runFlush();
+    return { n, seq, res, writesBefore };
+  }
+
+  test('19. an edit inside a managed section halts the flush: halted remote-edit naming the issue, ZERO writes after it', () => {
+    const { n, seq, res, writesBefore } = haltedObjective();
+    assert.equal(res.status, 'halted');
+    assert.equal(res.halted.reason, 'remote-edit');
+    assert.deepEqual(res.halted.target, { id: '7' });
+    assert.equal(res.halted.issue_number, n);
+    assert.equal(res.halted.seq, seq);
+    assert.equal(S.fake.writes().length, writesBefore);
+    assert.deepEqual(queueNow().map((o) => [o.seq, o.status]), [[seq, 'pending']], 'the op stays pending for the resolution');
+    assert.equal(outbox.status(S.root).halted.reason, 'remote-edit');
+
+    const callsBefore = S.fake.calls().length;
+    assert.equal(runFlush().status, 'halted');
+    assert.equal(S.fake.calls().length, callsBefore, 'a halted journal makes no gh call at all');
+  });
+
+  test('22f. in ONE flush DevFlow\'s own patch, link and comment writes never halt the later patch (Pitfall 2)', () => {
+    const n = seedObjective();
+    makeTrd('7-01');
+    S.clock.t += 5000;
+    enqueueOps([
+      managed({ summary: 'Mine 1' }),
+      { kind: 'link-sub-issue', target: { parent: '7', child: '7-01' }, payload: {} },
+      summaryCommentOp('verification text\n', '7', 'verification'),
+      managed({ criteria: '- [ ] one\n- [ ] two' }),
+    ]);
+    const res = runFlush();
+    assert.equal(res.status, 'flushed', JSON.stringify(res));
+    assert.equal(res.done.length, 4);
+    assert.equal(bodyLib.extractSection(issueByNumber(n).body, 'summary'), 'Mine 1');
+  });
+
+  test('23. resolveHalt accept-remote drops the op and takes GitHub\'s body as the new base; the next flush has nothing to do', () => {
+    const { n, seq } = haltedObjective();
+    const r = flushLib.resolveHalt(S.root, seq, 'accept-remote', { modes: NATIVE, caps: CAPS });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(outbox.status(S.root).halted, null);
+    assert.equal(queueNow().length, 0, 'the op was dropped');
+    const base = outbox.getBase(S.root, '7');
+    assert.equal(base.body_hash, hashOf(issueByNumber(n).body));
+    assert.equal(base.managed_hash, flushLib.managedHash(issueByNumber(n).body));
+
+    const writesBefore = S.fake.writes().length;
+    const res = runFlush();
+    assert.equal(res.status, 'flushed');
+    assert.deepEqual(res.done, []);
+    assert.equal(S.fake.writes().length, writesBefore);
+    assert.match(issueByNumber(n).body, /A human rewrote this/, 'the human edit survived');
+  });
+
+  test('23b. resolveHalt overwrite refreshes the base and keeps the op; the next flush applies it over the human edit', () => {
+    const { n, seq } = haltedObjective();
+    const r = flushLib.resolveHalt(S.root, seq, 'overwrite', { modes: NATIVE, caps: CAPS });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(outbox.status(S.root).halted, null);
+    assert.deepEqual(queueNow().map((o) => [o.seq, o.status]), [[seq, 'pending']]);
+
+    const res = runFlush();
+    assert.equal(res.status, 'flushed');
+    assert.deepEqual(res.done, [seq]);
+    assert.equal(bodyLib.extractSection(issueByNumber(n).body, 'summary'), 'Mine 2');
+  });
+
+  test('23c. resolveHalt refuses an unknown choice, an unknown seq, and an op that is not halted', () => {
+    const { seq } = haltedObjective();
+    assert.equal(flushLib.resolveHalt(S.root, seq, 'merge', { modes: NATIVE }).ok, false);
+    assert.equal(flushLib.resolveHalt(S.root, 999, 'overwrite', { modes: NATIVE }).ok, false);
+    assert.equal(outbox.status(S.root).halted.reason, 'remote-edit', 'a refused resolution changes nothing');
+    assert.equal(queueNow().length, 1);
+    enqueueOps([trdOp('7-01')]);
+    assert.match(flushLib.resolveHalt(S.root, 2, 'overwrite', { modes: NATIVE }).error, /not halted|nothing to resolve/i);
+  });
+});
+
+describe('flush: budget (test 24)', () => {
+  useStore();
+  const sleepsOfAtLeast = (ms) => S.clock.sleeps.filter((x) => x >= ms);
+
+  test('24. 80 writes in the last 60 s: wait:true sleeps until one ages out, then runs', () => {
+    enqueueOps([trdOp('7-01')]);
+    seedWrites(80, () => S.clock.t - 30000);
+    const res = runFlush({ wait: true });
+    assert.equal(res.status, 'flushed', JSON.stringify(res));
+    assert.ok(S.clock.sleeps.includes(30000), `slept the 30 s remainder, got ${JSON.stringify(S.clock.sleeps)}`);
+    assert.equal(S.fake.issues.length, 1);
+  });
+
+  test('24b. 80 writes in the last 60 s: wait:false stops pending (reason budget) without sleeping or calling gh', () => {
+    enqueueOps([trdOp('7-01')]);
+    seedWrites(80, () => S.clock.t - 30000);
+    const res = runFlush({ wait: false });
+    assert.equal(res.status, 'pending');
+    assert.equal(res.reason, 'budget');
+    assert.equal(res.budget, 'minute');
+    assert.deepEqual(S.clock.sleeps, []);
+    assert.equal(S.fake.calls().length, 0);
+    assert.equal(res.pending, 1);
+  });
+
+  test('24c. 450 writes in the hour: stop pending (reason budget) even for wait:true, with no sleep', () => {
+    enqueueOps([trdOp('7-01')]);
+    seedWrites(450, (i) => S.clock.t - 1800000 + i * 4000);
+    const res = runFlush({ wait: true });
+    assert.equal(res.status, 'pending');
+    assert.equal(res.reason, 'budget');
+    assert.equal(res.budget, 'hour');
+    assert.deepEqual(S.clock.sleeps, []);
+    assert.equal(S.fake.calls().length, 0);
+  });
+
+  test('24d. every gh write the flusher performs is recorded in the journal, retried or failed ones included', () => {
+    enqueueOps([trdOp('7-01'), trdOp('7-02')]);
+    const res = runFlush();
+    assert.equal(res.status, 'flushed');
+    const writes = S.fake.writes().length;
+    assert.ok(writes >= 4, `label, milestone and two creates, got ${writes}`);
+    assert.equal(outbox.status(S.root, { now: S.clock.t }).writes.hour, writes);
+  });
+
+  test('24e. a minute-budget wait that cannot clear (a sleep that never advances the clock) gives up pending', () => {
+    enqueueOps([trdOp('7-01')]);
+    seedWrites(80, () => S.clock.t - 30000);
+    client._setSleep((ms) => { S.clock.sleeps.push(ms); });
+    const res = runFlush({ wait: true });
+    assert.equal(res.status, 'pending');
+    assert.equal(res.reason, 'budget');
+    assert.equal(S.fake.calls().length, 0);
+  });
+});
+
+describe('flush: secondary limits and retry_after (test 26)', () => {
+  useStore();
+  const secondary = (extra = '') => ({ ok: false, status: 1, stderr: `HTTP 403: You have exceeded a secondary rate limit${extra}` });
+
+  /** An objective and a TRD, then a link op: its only write is the POST that the fake will refuse. */
+  function linkSetup() {
+    seedObjective();
+    makeTrd('7-01');
+    S.clock.t += 5000; // clear the 1 s write pacing from the setup writes
+    enqueueOps([{ kind: 'link-sub-issue', target: { parent: '7', child: '7-01' }, payload: {} }]);
+  }
+
+  test('26. a secondary limit during a wait:false flush leaves the op pending with retry_after and sleeps for nothing', () => {
+    linkSetup();
+    S.fake.failNext(/POST .*sub_issues/, secondary('\nretry-after: 30'));
+    const t = S.clock.t;
+    const res = runFlush({ wait: false });
+    assert.equal(res.status, 'pending');
+    assert.equal(res.reason, 'rate_limited');
+    assert.deepEqual(S.clock.sleeps, [], 'no sleep recorded');
+    const [op] = queueNow();
+    assert.equal(op.status, 'pending');
+    assert.equal(op.retry_after, t + 30000);
+    assert.equal(op.attempts, 1);
+  });
+
+  test('26b. a wait:false flush honours retry_after: nothing runs before it, and a wait:true flush ignores it', () => {
+    linkSetup();
+    S.fake.failNext(/POST .*sub_issues/, secondary('\nretry-after: 30'));
+    runFlush({ wait: false });
+    const callsBefore = S.fake.calls().length;
+    const early = runFlush({ wait: false });
+    assert.equal(early.status, 'pending');
+    assert.equal(early.reason, 'retry_after');
+    assert.ok(early.wait_ms > 0);
+    assert.equal(S.fake.calls().length, callsBefore, 'no gh call before retry_after');
+
+    const manual = runFlush({ wait: true });
+    assert.equal(manual.status, 'flushed', JSON.stringify(manual));
+    assert.equal(issueByNumber(1).subIssues.length, 1);
+  });
+
+  test('26c. an interactive flush retries a secondary limit with the client policy, then leaves the op pending', () => {
+    linkSetup();
+    for (let i = 0; i < client.MAX_RETRIES + 1; i++) S.fake.failNext(/POST .*sub_issues/, secondary());
+    const res = runFlush({ wait: true });
+    assert.equal(res.status, 'pending');
+    assert.equal(res.reason, 'rate_limited');
+    assert.equal(S.clock.sleeps.filter((ms) => ms >= 60000).length, client.MAX_RETRIES);
+    assert.equal(queueNow()[0].status, 'pending');
+  });
+});
+
+describe('flush: capability resolution', () => {
+  useStore();
+
+  test('27. modes are resolved ONCE per flush through getModes, and a {modes, caps} answer is understood', () => {
+    seedObjective();
+    makeTrd('7-01');
+    makeTrd('7-02');
+    let calls = 0;
+    enqueueOps([
+      { kind: 'link-sub-issue', target: { parent: '7', child: '7-01' }, payload: {} },
+      { kind: 'link-sub-issue', target: { parent: '7', child: '7-02' }, payload: {} },
+    ]);
+    const res = flushLib.flush(S.root, { getModes: () => { calls++; return { modes: NATIVE, caps: CAPS }; } });
+    assert.equal(res.status, 'flushed');
+    assert.equal(calls, 1);
+  });
+
+  test('27b. the default getModes asks gh-capability (injected here): detect, re-detect a provisional answer, resolve', () => {
+    seedObjective();
+    makeTrd('7-01');
+    const seen = [];
+    const capability = {
+      detectCapabilities: (root, o) => { seen.push(o); return o.refresh ? { fresh: true } : { provisional: true }; },
+      resolveModes: (caps) => (caps.fresh ? { ...NATIVE, hierarchy: 'tasklist' } : NATIVE),
+    };
+    enqueueOps([{ kind: 'link-sub-issue', target: { parent: '7', child: '7-01' }, payload: {} }]);
+    const writesBefore = S.fake.writes().length;
+    const res = flushLib.flush(S.root, { capability });
+    assert.equal(res.status, 'flushed');
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].refresh, undefined);
+    assert.equal(seen[1].refresh, true);
+    assert.equal(S.fake.writes().length, writesBefore, 'the re-detected tasklist mode wrote no link');
+  });
+
+  test('27c. a repository the token cannot write to (writable:false) blocks the op instead of failing every call', () => {
+    enqueueOps([trdOp('7-01')]);
+    const res = runFlush({ modes: { ...NATIVE, writable: false } });
+    assert.equal(res.status, 'halted');
+    assert.match(res.halted.detail, /no push access/);
+    assert.equal(S.fake.calls().length, 0);
+  });
+
+  test('27d. a capability lookup that throws blocks the op with the reason', () => {
+    enqueueOps([trdOp('7-01')]);
+    const res = flushLib.flush(S.root, { getModes: () => { throw new Error('probe exploded'); } });
+    assert.equal(res.status, 'halted');
+    assert.match(res.halted.detail, /probe exploded/);
+  });
+});
+
 // ─── Contract: nothing here spawns, and ids (not numbers) are sent ────────────
 
 describe('static contract', () => {
