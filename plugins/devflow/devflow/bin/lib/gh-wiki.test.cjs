@@ -150,6 +150,36 @@ describe('page mapping (tests 1-4)', () => {
   });
 });
 
+// ─── 48-05: research, milestones and other objective docs (D-04, D-05) ────────
+
+describe('48-05 page rules', () => {
+  test('48-05 1. characterization: the 47 mappings are unchanged and issue-backed files stay null', () => {
+    const pinned = [
+      ['PROJECT.md', 'Project'],
+      ['REQUIREMENTS.md', 'Requirements'],
+      ['ROADMAP.md', 'Roadmap'],
+      ['codebase/STACK.md', 'Codebase-Stack'],
+      ['objectives/07-store-demo/07-CONTEXT.md', 'Objective-7-store-demo-Context'],
+      ['objectives/07-store-demo/07-RESEARCH.md', 'Objective-7-store-demo-Research'],
+      ['objectives/07-store-demo/OBJECTIVE.md', 'Objective-7-store-demo'],
+      ['adr/0001-x.md', 'ADR-0001-x'],
+      ['retros/v1.3.md', 'Retro-v1_3'],
+    ];
+    for (const [rel, page] of pinned) {
+      assert.equal(wiki.pageForCachePath(rel), page, `${rel} -> ${page}`);
+      assert.equal(wiki.cachePathForPage(page, { objectiveDirs: ['07-store-demo'] }), rel, `${page} -> ${rel}`);
+    }
+    for (const rel of [
+      'objectives/07-store-demo/07-01-a-TRD.md',
+      'objectives/07-store-demo/07-01-a-SUMMARY.md',
+      'objectives/07-store-demo/07-VERIFICATION.md',
+      'STATE.md',
+    ]) {
+      assert.equal(wiki.pageForCachePath(rel), null, rel);
+    }
+  });
+});
+
 describe('revision URL (test 5)', () => {
   test('5. pageRevisionUrl is the one place the revision URL format lives', () => {
     assert.equal(
