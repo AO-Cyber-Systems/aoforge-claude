@@ -48,6 +48,8 @@ const GUARDED = [
   // objective 50 (TRD 50-02): the store-mode commit gate decision. Offline by design: it calls neither gh nor git itself
   // (git is read through objective-branch.cjs) and never writes.
   'gh-gate.cjs',
+  // objective 50 (TRD 50-03): the pure logic of the two required checks; takes plain data, spawns and writes nothing.
+  'gh-check.cjs',
 ];
 
 // The store modules that must never write to GitHub themselves; `gh-outbox-flush` is the one writer.
@@ -56,6 +58,7 @@ const NO_DIRECT_WRITE = [
   'objective-branch.cjs',
   'gh-pr-cli.cjs', 'commit-trailer.cjs',
   'gh-gate.cjs',
+  'gh-check.cjs',
   ...PLANNING_MODULES,
 ];
 

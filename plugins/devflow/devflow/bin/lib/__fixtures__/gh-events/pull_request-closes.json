@@ -1,0 +1,14 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 123,
+    "body": "Make the sync idempotent.\n\nCloses #12",
+    "base": { "ref": "main" },
+    "head": { "sha": "1111111111111111111111111111111111111111" },
+    "merged": false
+  },
+  "repository": {
+    "full_name": "acme/widgets",
+    "default_branch": "main"
+  }
+}

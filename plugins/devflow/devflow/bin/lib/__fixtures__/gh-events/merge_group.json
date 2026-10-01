@@ -1,0 +1,12 @@
+{
+  "action": "checks_requested",
+  "merge_group": {
+    "head_ref": "refs/heads/gh-readonly-queue/main/pr-123-3333333333333333333333333333333333333333",
+    "head_sha": "3333333333333333333333333333333333333333",
+    "base_ref": "refs/heads/main"
+  },
+  "repository": {
+    "full_name": "acme/widgets",
+    "default_branch": "main"
+  }
+}
