@@ -893,3 +893,202 @@ describe('planFold', () => {
     assert.throws(() => ghTrd.planFold(body, undefined, '', T3), TypeError);
   });
 });
+
+// ─── Numbered parts (tests 22-24) ────────────────────────────────────────────
+
+const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+// Strip the part line from one part (what a comment reader does after dropping the marker).
+function partBody(part) {
+  return part.replace(/^<!-- devflow:part=\d+\/\d+ -->\n/, '');
+}
+
+describe('partLine', () => {
+  test('24. partLine(2,3) is the locked form', () => {
+    assert.strictEqual(ghTrd.partLine(2, 3), '<!-- devflow:part=2/3 -->');
+  });
+
+  test('24. partLine rejects bad indices', () => {
+    assert.throws(() => ghTrd.partLine(0, 3), TypeError);
+    assert.throws(() => ghTrd.partLine(4, 3), TypeError);
+    assert.throws(() => ghTrd.partLine(1.5, 3), TypeError);
+    assert.throws(() => ghTrd.partLine(1, 0), TypeError);
+  });
+});
+
+describe('splitParts', () => {
+  const PARAS = ['a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40), 'd'.repeat(40)];
+  const TEXT = PARAS.join('\n\n');
+
+  test('22. paragraphs of 40 chars split into parts that each fit 100, header included', () => {
+    const parts = ghTrd.splitParts(TEXT, 100);
+    assert.ok(parts.length > 1);
+    parts.forEach((p, i) => {
+      assert.ok(p.length <= 100, `part ${i + 1} is ${p.length} chars`);
+      assert.ok(p.startsWith(ghTrd.partLine(i + 1, parts.length) + '\n'), `part ${i + 1} header`);
+    });
+    const joined = ghTrd.joinParts(parts);
+    assert.deepStrictEqual(joined, { ok: true, text: TEXT, missing: [] });
+  });
+
+  test('22. splits fall on blank-line boundaries when paragraphs fit', () => {
+    const parts = ghTrd.splitParts(TEXT, 100);
+    for (const p of parts.slice(0, -1)) {
+      assert.ok(partBody(p).endsWith('\n\n'), 'a non-final part ends at a paragraph boundary');
+    }
+    for (const p of parts) assert.match(partBody(p), /^[abcd]/, 'no part starts mid-paragraph');
+  });
+
+  test('22. a text under the limit is one part with no part header', () => {
+    assert.deepStrictEqual(ghTrd.splitParts('short text', 100), ['short text']);
+    assert.deepStrictEqual(ghTrd.splitParts('', 100), ['']);
+    assert.deepStrictEqual(ghTrd.joinParts(['short text']), { ok: true, text: 'short text', missing: [] });
+  });
+
+  test('22. exactly at the limit is one part; one over is split', () => {
+    assert.strictEqual(ghTrd.splitParts('x'.repeat(100), 100).length, 1);
+    assert.ok(ghTrd.splitParts('x'.repeat(101), 100).length > 1);
+  });
+
+  test('22. reserve counts against each part so the final comment fits', () => {
+    const parts = ghTrd.splitParts(TEXT, 100, { reserve: 30 });
+    assert.ok(parts.length > 1);
+    for (const p of parts) assert.ok(p.length + 30 <= 100, `${p.length} + 30 > 100`);
+    assert.strictEqual(ghTrd.joinParts(parts).text, TEXT);
+  });
+
+  test('22. reserve can push an otherwise-fitting text into parts', () => {
+    const text = 'x'.repeat(80);
+    assert.strictEqual(ghTrd.splitParts(text, 100).length, 1);
+    assert.ok(ghTrd.splitParts(text, 100, { reserve: 30 }).length > 1);
+  });
+
+  test('22. the default limit is COMMENT_MAX_CHARS', () => {
+    const text = 'x'.repeat(130000);
+    const parts = ghTrd.splitParts(text);
+    assert.strictEqual(parts.length, 3);
+    for (const p of parts) assert.ok(p.length <= ghTrd.COMMENT_MAX_CHARS);
+    assert.strictEqual(ghTrd.joinParts(parts).text, text);
+  });
+
+  test('22. text is never trimmed: leading, trailing and repeated newlines survive', () => {
+    for (const text of [
+      '\n\n' + TEXT + '\n\n\n',
+      TEXT + '\n',
+      PARAS.join('\n\n\n\n'),
+      '   ' + TEXT + '   ',
+    ]) {
+      const parts = ghTrd.splitParts(text, 100);
+      assert.strictEqual(ghTrd.joinParts(parts).text, text);
+      for (const p of parts) assert.ok(p.length <= 100);
+    }
+  });
+
+  test('22. part numbers that roll over to two digits still fit (header width is accounted for)', () => {
+    // 10 paragraphs of 72 chars. With a 1-digit header a paragraph plus its
+    // separator (74) fits exactly; the 2-digit header ("10/10") is wider, so it must not.
+    const text = Array.from({ length: 10 }, (_, i) => String.fromCharCode(97 + i).repeat(72)).join('\n\n');
+    const parts = ghTrd.splitParts(text, 100);
+    assert.ok(parts.length >= 10);
+    for (const p of parts) assert.ok(p.length <= 100, `${p.length} chars`);
+    assert.strictEqual(ghTrd.joinParts(parts).text, text);
+    assert.ok(parts[0].startsWith(`<!-- devflow:part=1/${parts.length} -->\n`));
+  });
+
+  test('23. a single 250-char paragraph with no newline is hard-split losslessly', () => {
+    const text = 'x'.repeat(250);
+    const parts = ghTrd.splitParts(text, 100);
+    assert.ok(parts.length >= 3);
+    for (const p of parts) assert.ok(p.length <= 100);
+    assert.strictEqual(ghTrd.joinParts(parts).text, text);
+  });
+
+  test('23. an oversized paragraph is split at the last newline before the limit when there is one', () => {
+    const text = Array.from({ length: 9 }, (_, i) => String(i).repeat(29)).join('\n'); // 29 chars + \n, no blank line
+    const parts = ghTrd.splitParts(text, 100);
+    assert.ok(parts.length > 1);
+    for (const p of parts.slice(0, -1)) {
+      assert.ok(partBody(p).endsWith('\n'), 'split lands just after a newline, not mid-line');
+    }
+    for (const p of parts) assert.ok(p.length <= 100);
+    assert.strictEqual(ghTrd.joinParts(parts).text, text);
+  });
+
+  test('23. a hard split never cuts a surrogate pair in half', () => {
+    for (let lead = 0; lead < 4; lead++) {
+      const text = 'x'.repeat(lead) + '\u{1F600}'.repeat(60); // 2 UTF-16 units each
+      const parts = ghTrd.splitParts(text, 100);
+      for (const p of parts) {
+        assert.ok(p.length <= 100);
+        assert.ok(!LONE_SURROGATE_RE.test(p), `lead=${lead}: lone surrogate in a part`);
+      }
+      assert.strictEqual(ghTrd.joinParts(parts).text, text, `lead=${lead}`);
+    }
+  });
+
+  test('23. text that itself begins with a part line still round-trips', () => {
+    const text = ghTrd.partLine(1, 2) + '\nthis is real content\n';
+    const parts = ghTrd.splitParts(text, 200);
+    assert.deepStrictEqual(ghTrd.joinParts(parts), { ok: true, text, missing: [] });
+  });
+
+  test('a limit too small for the part header is refused', () => {
+    assert.throws(() => ghTrd.splitParts('x'.repeat(200), 20), RangeError);
+    assert.throws(() => ghTrd.splitParts('x'.repeat(200), 100, { reserve: 100 }), RangeError);
+  });
+
+  test('splitParts requires a string and a positive integer limit', () => {
+    assert.throws(() => ghTrd.splitParts(undefined, 100), TypeError);
+    assert.throws(() => ghTrd.splitParts('x', 0), TypeError);
+    assert.throws(() => ghTrd.splitParts('x', 10.5), TypeError);
+  });
+});
+
+describe('joinParts', () => {
+  const p = (i, n, chunk) => `${ghTrd.partLine(i, n)}\n${chunk}`;
+
+  test('24. orders by part index even if given out of order', () => {
+    const joined = ghTrd.joinParts([p(3, 3, 'C'), p(1, 3, 'A'), p(2, 3, 'B')]);
+    assert.deepStrictEqual(joined, { ok: true, text: 'ABC', missing: [] });
+  });
+
+  test('24. reports a missing part', () => {
+    const joined = ghTrd.joinParts([p(1, 3, 'A'), p(3, 3, 'C')]);
+    assert.strictEqual(joined.ok, false);
+    assert.deepStrictEqual(joined.missing, [2]);
+    assert.strictEqual(joined.text, null);
+  });
+
+  test('24. reports a missing final part', () => {
+    const joined = ghTrd.joinParts([p(1, 3, 'A'), p(2, 3, 'B')]);
+    assert.strictEqual(joined.ok, false);
+    assert.deepStrictEqual(joined.missing, [3]);
+  });
+
+  test('a duplicate part index is refused', () => {
+    const joined = ghTrd.joinParts([p(1, 2, 'A'), p(1, 2, 'A2'), p(2, 2, 'B')]);
+    assert.strictEqual(joined.ok, false);
+    assert.match(joined.error, /duplicate part 1/);
+  });
+
+  test('disagreeing part counts are refused', () => {
+    const joined = ghTrd.joinParts([p(1, 2, 'A'), p(2, 3, 'B')]);
+    assert.strictEqual(joined.ok, false);
+    assert.match(joined.error, /part count/);
+  });
+
+  test('a headerless part mixed with headered parts is refused', () => {
+    const joined = ghTrd.joinParts([p(1, 2, 'A'), 'plain']);
+    assert.strictEqual(joined.ok, false);
+  });
+
+  test('several headerless strings are ambiguous and refused; zero parts are refused', () => {
+    assert.strictEqual(ghTrd.joinParts(['a', 'b']).ok, false);
+    assert.strictEqual(ghTrd.joinParts([]).ok, false);
+  });
+
+  test('joinParts requires an array of strings', () => {
+    assert.throws(() => ghTrd.joinParts(undefined), TypeError);
+    assert.throws(() => ghTrd.joinParts([1]), TypeError);
+  });
+});
