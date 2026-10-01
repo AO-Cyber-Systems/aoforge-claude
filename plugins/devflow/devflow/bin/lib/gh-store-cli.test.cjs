@@ -22,6 +22,8 @@ const outbox = require('./gh-outbox.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const bodyLib = require('./gh-body.cjs');
 const trd = require('./gh-trd.cjs');
+const ghComments = require('./gh-comments.cjs');
+const overrideLib = require('./override.cjs');
 const capability = require('./gh-capability.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
@@ -95,10 +97,10 @@ function trdOp(id) {
   };
 }
 
-/** An objective issue (marker + the managed sections) seeded in the fake and mapped. */
-function seedObjective() {
+/** An objective issue (marker + the managed sections) seeded in the fake and mapped; `assignees` are its GitHub assignees. */
+function seedObjective(assignees = []) {
   const body = bodyLib.mergeManaged('', { summary: 'Mine 1', criteria: '- [ ] one', trds: '_None yet._', footer: 'Footer' }, '7').body;
-  const n = S.fake.seedIssue({ title: '[Objective 7] Store demo', body, labels: ['devflow:objective'] });
+  const n = S.fake.seedIssue({ title: '[Objective 7] Store demo', body, labels: ['devflow:objective'], assignees });
   const mapping = mappingNow();
   mappingLib.setEntry(mapping, '7', { issue_id: n });
   assert.ok(mappingLib.writeMappingV3(S.root, mapping).ok);
@@ -833,5 +835,299 @@ describe('48-11: a drained flush settles the verb-write ledger', () => {
     assert.equal(res.code, cli.EXIT.PENDING);
     assert.equal(res.payload.settled, undefined);
     assert.ok(Object.hasOwn(ledgerLib.readLedger(S.root).entries, 'research/match.md'));
+  });
+});
+
+// ─── 49-06: the scope gate, `gh trd confirm-scope` and `gh trd start` ────────
+
+const readOverrideLog = () => overrideLib.readOverrides({ planningDir: path.join(S.root, '.planning') });
+const scopeBy = (number, n, text, login) => S.fake.seedComment(number, trd.buildScopeComment(n, text), { login });
+const userReads = () => S.fake.calls().filter((a) => a[0] === 'api' && a[1] === 'user');
+
+describe('49-06 gh trd spec: pending scopes', () => {
+  useStore();
+
+  test('5. spec lists pending scopes (author, n) apart from the spec, in prose and JSON; their text is never in it', () => {
+    seedObjective(['alice']);
+    const number = seedTrd();
+    scopeBy(number, 1, 'Accepted change.', 'alice');
+    const stranger = scopeBy(number, 2, 'Sneaky change.', 'mallory');
+
+    const raw = trdCmd(['spec', '07-01']);
+    assert.equal(exitOf(raw), 0, raw.stdout + raw.stderr);
+    const j = json(raw);
+    assert.deepEqual(j.applied, [1]);
+    assert.deepEqual(j.pending, [{ n: 2, author: 'mallory', comment_id: stranger }]);
+    assert.equal(j.text.includes('Sneaky change.'), false);
+
+    const prose = trdCmd(['spec', '7-01'], false);
+    assert.equal(exitOf(prose), 0);
+    assert.equal(prose.stdout.includes('Sneaky change.'), false, 'the spec on stdout has only what applies');
+    assert.match(prose.stderr, /pending/i);
+    assert.match(prose.stderr, /n=2/);
+    assert.match(prose.stderr, /mallory/);
+    assert.match(prose.stderr, /confirm-scope 7-01 2/, 'it names the verb that accepts it');
+  });
+
+  test('5b. with nothing pending there is no pending block; an objective not in the mapping hints at gh sync', () => {
+    seedObjective(['alice']);
+    const number = seedTrd();
+    scopeBy(number, 1, 'Fine.', 'alice');
+    const clean = trdCmd(['spec', '07-01'], false);
+    assert.equal(clean.stderr, '');
+
+    const unmapped = mappingNow();
+    delete unmapped.objectives['7'];
+    assert.ok(mappingLib.writeMappingV3(S.root, unmapped).ok);
+    const r = trdCmd(['spec', '07-01'], false);
+    assert.equal(exitOf(r), 0);
+    assert.match(r.stderr, /gh sync/);
+  });
+});
+
+describe('49-06 gh trd confirm-scope: an assignee', () => {
+  useStore({ fake: { viewer: 'alice' } });
+
+  test('6. queues one sticky scope-confirm comment bound to the current text; after the flush the scope applies', () => {
+    seedObjective(['alice']);
+    const number = seedTrd();
+    scopeBy(number, 1, 'Mallory proposes.', 'mallory');
+    assert.deepEqual(ghComments.readEffectiveSpec(S.root, '7-01').applied, []);
+    const readsBefore = S.fake.calls().length;
+
+    const r = trdCmd(['confirm-scope', '07-01', '1', '--no-flush']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.equal(userReads().length, 1, 'the caller is read from `gh api user`');
+    assert.ok(S.fake.calls().length > readsBefore);
+    assert.equal(S.fake.writes().length, 0, 'queued only');
+    const pending = queueNow().filter((o) => o.status === 'pending');
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].kind, 'upsert-comment');
+    assert.deepEqual(pending[0].target, { id: '7-01', kind: ghComments.scopeConfirmKind(1) });
+    assert.equal(pending[0].payload.mode, 'replace');
+    assert.ok(
+      pending[0].payload.text.includes(`<!-- devflow:scope-confirm n=1 hash=${trd.scopeHash('Mallory proposes.')} -->`),
+      pending[0].payload.text
+    );
+
+    assert.equal(exitOf(outboxCmd(['flush'])), 0);
+    const posted = commentsOf(number).find((c) => c.body.includes('devflow:scope-confirm'));
+    assert.ok(posted, 'the confirm is on GitHub');
+    assert.equal(posted.user.login, 'alice');
+    const after = ghComments.readEffectiveSpec(S.root, '7-01');
+    assert.deepEqual(after.applied, [1]);
+    assert.deepEqual(after.pending, []);
+  });
+
+  test('6b. without --no-flush the verb flushes and the answer says it confirmed; logins compare case-insensitively', () => {
+    seedObjective(['Alice']);
+    const number = seedTrd();
+    scopeBy(number, 1, 'Mallory proposes.', 'mallory');
+    const r = trdCmd(['confirm-scope', '7-01', '1'], false);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /confirm/i);
+    assert.equal(outbox.status(S.root).pending, 0);
+    assert.deepEqual(ghComments.readEffectiveSpec(S.root, '7-01').applied, [1]);
+  });
+
+  test('6c. a scope edited after a confirm needs a new confirm, which replaces the sticky comment', () => {
+    seedObjective(['alice']);
+    const number = seedTrd();
+    const scope = scopeBy(number, 1, 'First text.', 'mallory');
+    assert.equal(exitOf(trdCmd(['confirm-scope', '07-01', '1'], false)), 0);
+    S.fake.humanEditComment(scope, trd.buildScopeComment(1, 'Second text.'));
+    assert.deepEqual(ghComments.readEffectiveSpec(S.root, '7-01').applied, [], 'pending again');
+
+    assert.equal(exitOf(trdCmd(['confirm-scope', '07-01', '1'], false)), 0);
+    assert.deepEqual(ghComments.readEffectiveSpec(S.root, '7-01').applied, [1]);
+    assert.equal(commentsOf(number).filter((c) => c.body.includes('devflow:scope-confirm')).length, 1, 'one sticky comment per scope');
+  });
+
+  test('8. with no assignee: exit 1 explaining --force --reason; with them the override is logged and the op queued', () => {
+    seedObjective([]);
+    const number = seedTrd();
+    scopeBy(number, 1, 'Mallory proposes.', 'mallory');
+
+    const refused = trdCmd(['confirm-scope', '07-01', '1'], false);
+    assert.equal(exitOf(refused), 1);
+    assert.match(refused.stderr, /--force/);
+    assert.match(refused.stderr, /--reason/);
+    const noReason = trdCmd(['confirm-scope', '07-01', '1', '--force'], false);
+    assert.equal(exitOf(noReason), 1);
+    assert.match(noReason.stderr, /--reason/);
+    assert.equal(queueNow().length, 0);
+    assert.equal(readOverrideLog().total, 0);
+
+    const forced = trdCmd(['confirm-scope', '07-01', '1', '--force', '--reason', 'solo repo', '--no-flush'], true);
+    assert.equal(exitOf(forced), 0, forced.stdout + forced.stderr);
+    const log = readOverrideLog();
+    assert.equal(log.total, 1);
+    assert.equal(log.entries[0].gate, 'scope-confirm');
+    assert.equal(log.entries[0].reason, 'solo repo');
+    assert.equal(queueNow().filter((o) => o.status === 'pending').length, 1);
+  });
+
+  test('8b. an objective that is not in the mapping counts as having no assignee', () => {
+    const number = seedTrd();
+    scopeBy(number, 1, 'Mallory proposes.', 'mallory');
+    const r = trdCmd(['confirm-scope', '07-01', '1'], false);
+    assert.equal(exitOf(r), 1);
+    assert.match(r.stderr, /--force/);
+    assert.match(r.stderr, /gh sync/);
+  });
+
+  test('9. a scope that does not exist is exit 1; one already accepted is exit 0 "already accepted" with nothing queued', () => {
+    seedObjective(['alice']);
+    const number = seedTrd();
+    scopeBy(number, 1, 'By an assignee.', 'alice');
+
+    const missing = trdCmd(['confirm-scope', '07-01', '4'], false);
+    assert.equal(exitOf(missing), 1);
+    assert.match(missing.stderr, /no scope n=4/);
+
+    const accepted = trdCmd(['confirm-scope', '07-01', '1'], false);
+    assert.equal(exitOf(accepted), 0);
+    assert.match(accepted.stdout, /already accepted/);
+    assert.equal(queueNow().length, 0);
+  });
+
+  test('9b. usage: a missing or non-numeric n is a usage error on stderr, exit 1', () => {
+    seedObjective(['alice']);
+    seedTrd();
+    for (const args of [['confirm-scope', '07-01'], ['confirm-scope', '07-01', 'abc'], ['confirm-scope', '07-01', '0'], ['confirm-scope']]) {
+      const r = trdCmd(args, false);
+      assert.equal(exitOf(r), 1, args.join(' '));
+      assert.match(r.stderr, /[Uu]sage/, args.join(' '));
+    }
+    assert.equal(queueNow().length, 0);
+  });
+});
+
+describe('49-06 gh trd confirm-scope: someone who is not an assignee', () => {
+  useStore({ fake: { viewer: 'mallory' } });
+
+  test('7. exit 1 naming the assignees; nothing queued, nothing logged; --force does not get around it', () => {
+    seedObjective(['alice', 'carol']);
+    const number = seedTrd();
+    scopeBy(number, 1, 'Mallory proposes.', 'mallory');
+
+    const r = trdCmd(['confirm-scope', '07-01', '1'], false);
+    assert.equal(exitOf(r), 1);
+    assert.match(r.stderr, /alice/);
+    assert.match(r.stderr, /carol/);
+    assert.match(r.stderr, /mallory/);
+    assert.equal(queueNow().length, 0);
+
+    const forced = trdCmd(['confirm-scope', '07-01', '1', '--force', '--reason', 'let me'], false);
+    assert.equal(exitOf(forced), 1, '--force is for an objective with no assignee, not a way past the assignees');
+    assert.equal(queueNow().length, 0);
+    assert.equal(readOverrideLog().total, 0);
+    assert.equal(S.fake.writes().length, 0);
+  });
+});
+
+describe('49-06 gh trd start', () => {
+  useStore();
+
+  test('11. queues the in-progress label on the TRD issue with no read; after the flush the label is on it', () => {
+    const number = seedTrd();
+    const r = trdCmd(['start', '07-01', '--no-flush']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.deepEqual(S.fake.calls(), [], 'a start reads nothing, so it queues offline too');
+    const pending = queueNow().filter((o) => o.status === 'pending');
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].kind, 'patch-issue');
+    assert.deepEqual(pending[0].target, { id: '7-01' });
+    assert.deepEqual(pending[0].payload, { labels_add: ['devflow:in-progress'] });
+
+    assert.equal(exitOf(outboxCmd(['flush'])), 0);
+    assert.ok(issueByNumber(number).labels.includes('devflow:in-progress'));
+  });
+
+  test('11b. github.labels.in_progress names the label', () => {
+    setConfig({ enabled: true, repo: 'o/r', store: true, labels: { in_progress: 'wip' } });
+    const number = seedTrd();
+    assert.equal(exitOf(trdCmd(['start', '07-01'], false)), 0);
+    assert.ok(issueByNumber(number).labels.includes('wip'));
+    assert.equal(issueByNumber(number).labels.includes('devflow:in-progress'), false);
+  });
+
+  test('11c. offline: exit 3 and the op is still queued; starting twice queues one op', () => {
+    seedTrd();
+    S.fake.setOffline(true);
+    const r = trdCmd(['start', '07-01', '--no-wait'], false);
+    assert.equal(exitOf(r), 3, r.stdout + r.stderr);
+    assert.equal(queueNow().filter((o) => o.status === 'pending').length, 1);
+    trdCmd(['start', '7-01', '--no-flush'], false);
+    assert.equal(queueNow().filter((o) => o.status === 'pending' && o.kind === 'patch-issue').length, 1);
+  });
+
+  test('11d. usage: a missing or junk TRD id is exit 1 and queues nothing', () => {
+    for (const args of [['start'], ['start', 'nope']]) {
+      const r = trdCmd(args, false);
+      assert.equal(exitOf(r), 1, args.join(' '));
+    }
+    assert.equal(queueNow().length, 0);
+  });
+});
+
+describe('49-06 store off: only the new verbs are skipped', () => {
+  useStore({ project: { store: false } });
+
+  test('12. confirm-scope and start are exit 0 "skipped" with zero gh calls and nothing queued', () => {
+    for (const args of [['confirm-scope', '07-01', '1'], ['start', '07-01']]) {
+      const r = trdCmd(args);
+      assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+      assert.equal(json(r).skipped, true, args.join(' '));
+    }
+    assert.equal(S.fake.calls().length, 0);
+    assert.equal(queueNow().length, 0);
+  });
+
+  test('12a. spec and fold are NOT skipped: they run as today, every scope applies and nothing extra is read', () => {
+    const objective = seedObjective(['alice']);
+    const number = seedTrd({ state: 'CLOSED' });
+    scopeBy(number, 1, 'By mallory.', 'mallory');
+    const spec = trdCmd(['spec', '07-01']);
+    assert.equal(exitOf(spec), 0, spec.stdout + spec.stderr);
+    assert.equal(json(spec).skipped, undefined);
+    assert.deepEqual(json(spec).applied, [1]);
+    assert.equal('pending' in json(spec), false);
+    assert.equal(S.fake.calls().filter((a) => a[1] === `repos/o/r/issues/${objective}`).length, 0);
+
+    const fold = trdCmd(['fold', '07-01'], false);
+    assert.equal(exitOf(fold), 0, fold.stdout + fold.stderr);
+    assert.ok(issueByNumber(number).body.includes('By mallory.'));
+  });
+
+  test('12b. github disabled skips the new verbs too, with zero gh calls', () => {
+    setConfig({ enabled: false, repo: 'o/r' });
+    for (const args of [['confirm-scope', '07-01', '1'], ['start', '07-01']]) {
+      assert.equal(json(trdCmd(args)).skipped, true, args.join(' '));
+    }
+    assert.equal(S.fake.calls().length, 0);
+  });
+});
+
+describe('49-06 help', () => {
+  test('13. the gh usage string lists trd <spec|freeze|fold|scope|confirm-scope|start>', () => {
+    assert.ok(HELP_COMMANDS.gh.usage.includes('trd <spec|freeze|fold'), HELP_COMMANDS.gh.usage);
+    assert.ok(HELP_COMMANDS.gh.usage.includes('confirm-scope'), 'usage names confirm-scope');
+    assert.match(HELP_COMMANDS.gh.usage, /\bstart\b/);
+  });
+
+  describe('the trd help and the unknown-verb message', () => {
+    useStore();
+    test('13b. both name confirm-scope and start', () => {
+      const help = trdCmd(['--help'], false);
+      assert.equal(exitOf(help), 0);
+      assert.match(help.stdout, /gh trd confirm-scope/);
+      assert.match(help.stdout, /gh trd start/);
+      const unknown = trdCmd(['nope', '07-01'], false);
+      assert.equal(exitOf(unknown), 1);
+      assert.match(unknown.stderr, /confirm-scope/);
+      assert.match(unknown.stderr, /start/);
+      assert.equal(S.fake.calls().length, 0);
+    });
   });
 });
