@@ -36,7 +36,9 @@ const BLOCK = [
 // planning-relative rel -> content. Classes per planning-paths (48-01).
 const FILES = {
   'STACK.md': '# Stack\n',                                        // tracked-config
-  'PROJECT.md': '# Project\n',                                    // cache
+  // `kind` set so the confirm migration 0006 is not applicable: `--only 0010 --confirm` lets EVERY applicable
+  // confirm migration run (upgrade.cjs selects `named || confirm`), and 0006 without `--kind` fails and halts.
+  'PROJECT.md': '---\nkind: app\ndefault_work: feature\n---\n\n# Project\n', // cache
   'objectives/07-x/OBJECTIVE.md': '# Objective 07\n',             // cache
   'objectives/07-x/07-01-a-TRD.md': '# TRD 07-01\n',              // cache
   'ROADMAP.md': '# Roadmap\n',                                    // generated
@@ -162,7 +164,8 @@ describe('migration 0010: local mode is never touched (test 8)', () => {
     const p = project();
     const det = m0010().detect(ctxFor(p));
     assert.equal(det.applies, true);
-    assert.match(det.reason, /8 \.planning\/ path\(s\) still tracked/);
+    assert.match(det.reason, /7 \.planning\/ path\(s\) still tracked/);
+    assert.equal(det.tracked, 7);
   });
 });
 
