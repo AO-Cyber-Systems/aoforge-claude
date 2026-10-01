@@ -1043,14 +1043,87 @@ describe('48-02 upsert-issue roles (characterization)', () => {
   test('10b. an unknown role is refused with a message listing every role', () => {
     assert.deepEqual(outbox.validateOp(op('upsert-issue', { id: '07-01', role: 'bogus' }, payload)), {
       ok: false,
-      error: 'upsert-issue: target.role must be one of trd|decision',
+      error: 'upsert-issue: target.role must be one of trd|decision|todo|debug|quick',
     });
   });
+});
 
-  test('10c. role todo is refused before 48-02', () => {
-    assert.deepEqual(outbox.validateOp(op('upsert-issue', { id: 'todo-a', role: 'todo' }, payload)), {
+describe('48-02 entity roles', () => {
+  const entityPayload = { title: 'x', body: '', labels: [] };
+
+  test('11. upsert-issue accepts a todo, debug or quick id with its own role', () => {
+    const ok = [
+      op('upsert-issue', { id: 'todo-a', role: 'todo' }, entityPayload),
+      op('upsert-issue', { id: 'todo-2026-07-31-harden-df-tools-health', role: 'todo' }, entityPayload),
+      op('upsert-issue', { id: 'debug-x', role: 'debug' }, { ...entityPayload, labels: ['devflow:debug'], type: 'Debug' }),
+      op('upsert-issue', { id: 'quick-12', role: 'quick' }, { ...entityPayload, labels: ['devflow:quick'], type: 'Quick' }),
+    ];
+    for (const o of ok) {
+      assert.deepEqual(outbox.validateOp(o), { ok: true }, JSON.stringify(o.target));
+    }
+  });
+
+  test('11b. an entity id whose prefix disagrees with its role is refused', () => {
+    assert.deepEqual(outbox.validateOp(op('upsert-issue', { id: 'todo-a', role: 'debug' }, entityPayload)), {
       ok: false,
-      error: 'upsert-issue: target.role must be one of trd|decision',
+      error: 'upsert-issue: entity id todo-a does not match role debug',
     });
+    for (const [id, role] of [['47-01', 'todo'], ['quick-x', 'quick'], ['todo-', 'todo'], ['debug-x', 'quick'], ['quick-12', 'todo'], ['Todo-a', 'todo']]) {
+      const r = outbox.validateOp(op('upsert-issue', { id, role }, entityPayload));
+      assert.equal(r.ok, false, `${id} as ${role}`);
+      assert.equal(r.error, `upsert-issue: entity id ${id} does not match role ${role}`);
+    }
+  });
+
+  test('11c. a numeric id is still refused before the role check', () => {
+    const r = outbox.validateOp(op('upsert-issue', { id: 12, role: 'todo' }, entityPayload));
+    assert.equal(r.ok, false);
+    assert.match(r.error, /target\.id must be a DevFlow id string/);
+  });
+
+  test('11d. enqueue journals an entity upsert-issue and refuses a mismatched one', () => {
+    const good = op('upsert-issue', { id: 'todo-a', role: 'todo' }, { ...entityPayload, labels: ['devflow:todo'] });
+    const r = outbox.enqueue(root, [good], { now: T0 });
+    assert.equal(r.ok, true, r.error);
+    assert.deepEqual(r.enqueued, [1]);
+    assert.deepEqual(readRaw().ops[0].target, { id: 'todo-a', role: 'todo' });
+
+    const bad = outbox.enqueue(root, [op('upsert-issue', { id: 'todo-b', role: 'quick' }, entityPayload)], { now: T0 + 1 });
+    assert.equal(bad.ok, false);
+    assert.match(bad.error, /entity id todo-b does not match role quick/);
+    assert.equal(readRaw().ops.length, 1, 'nothing written for the refused op');
+  });
+
+  test('12. ENTITY_ROLES is frozen and names each role\'s label and issue type; ROLES lists all five', () => {
+    assert.deepEqual(outbox.ENTITY_ROLES, {
+      todo: { label: 'devflow:todo', type: null },
+      debug: { label: 'devflow:debug', type: 'Debug' },
+      quick: { label: 'devflow:quick', type: 'Quick' },
+    });
+    assert.ok(Object.isFrozen(outbox.ENTITY_ROLES));
+    for (const role of Object.keys(outbox.ENTITY_ROLES)) {
+      assert.ok(Object.isFrozen(outbox.ENTITY_ROLES[role]), role);
+    }
+    assert.deepEqual(outbox.ROLES, ['trd', 'decision', 'todo', 'debug', 'quick']);
+    assert.ok(Object.isFrozen(outbox.ROLES));
+    assert.deepEqual(outbox.ROLES.slice(2), Object.keys(outbox.ENTITY_ROLES));
+  });
+
+  test('12b. the outbox entity-id grammar is the gh-trd codec grammar (duplicated to keep the module hook-safe)', () => {
+    const ghTrd = require('./gh-trd.cjs');
+    assert.ok(outbox.ENTITY_ID_RE instanceof RegExp);
+    assert.equal(outbox.ENTITY_ID_RE.source, ghTrd.ENTITY_ID_RE.source);
+    assert.equal(outbox.ENTITY_ID_RE.flags, ghTrd.ENTITY_ID_RE.flags);
+  });
+
+  test('13. upsert-comment and patch-issue targets accept entity ids', () => {
+    const ok = [
+      op('upsert-comment', { id: 'quick-12', kind: 'summary' }, { mode: 'replace', text: 'done' }),
+      op('patch-issue', { id: 'debug-x' }, { state: 'closed', state_reason: 'completed' }),
+      op('patch-issue', { id: 'todo-2026-07-31-a' }, { state: 'closed', state_reason: 'completed' }),
+    ];
+    for (const o of ok) {
+      assert.deepEqual(outbox.validateOp(o), { ok: true }, `${o.kind} ${JSON.stringify(o.target)}`);
+    }
   });
 });
