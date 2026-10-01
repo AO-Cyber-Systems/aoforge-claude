@@ -7,6 +7,9 @@
 //      by `wait_ms`, and `--apply --only 0011 --confirm` completes; the end state is checked by `devflow:id` marker
 //   3  pacing over the whole run: >= 1 s between writes, <= 80 in any minute, <= 450 in any hour
 //   4  a TRD issue missing on GitHub when verification runs refuses `verify`; 0010 does not run
+//   5  SC2 (on test 2's end state): check reports 0011 and 0010 not applicable; another `--only 0011 --confirm` applies
+//      nothing, makes zero gh writes, and leaves the tree, config.json and the journal byte-identical
+//   6  parity: a never-enabled project sees zero gh calls and a byte-identical tree from check and apply --confirm
 //
 // no_llm_test_data: every project is the hand-built 51-02 backfill fixture (useBackfillEnv: hermetic HOME, outbox and
 // gh-cache dirs, the fake GitHub on the gh seam, a local bare wiki remote, a fake clock that only moves when the code
@@ -26,6 +29,7 @@ const ghHierarchy = require('../gh-hierarchy.cjs');
 const planningPaths = require('../planning-paths.cjs');
 const client = require('../gh-client.cjs');
 const gh = require('../gh.cjs');
+const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 const { useBackfillEnv } = require('../__fixtures__/gh-backfill-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0011-github-store-backfill.cjs');
@@ -336,5 +340,65 @@ describe('0011 SC1 on the 20-objective fixture (tests 2-3)', () => {
       assert.ok(within(60_000) <= outbox.BUDGET.minute, `per minute: ${within(60_000)}`);
       assert.ok(within(3_600_000) <= outbox.BUDGET.hour, `per hour: ${within(3_600_000)}`);
     });
+
+    await t.test('5: SC2: after completion, re-running the backfill is a no-op', () => {
+      const configFile = path.join(env.root, '.planning', 'config.json');
+      const journalFile = outbox.journalPath(env.root);
+      const before = fx.snapshot(env.root);
+      const configBefore = fs.readFileSync(configFile);
+      const journalBefore = fs.readFileSync(journalFile);
+      const writes = env.fake.writes().length;
+      nextRun(env);
+
+      const c = upgrade.check({ projectRoot: env.root, userHome: env.home, pluginVersion: PLUGIN_VERSION });
+      assert.deepEqual(c.failed, []);
+      assert.deepEqual(c.pending_confirm, [], JSON.stringify(c.pending_confirm));
+      const reasonOf = (id) => (c.skipped.find((x) => x.id === id) || {}).reason;
+      assert.match(reasonOf('0011'), /already on GitHub \(backfill complete\)/);
+      assert.equal(typeof reasonOf('0010'), 'string', '0010 is skipped (not applicable) too');
+
+      const r = applyOnly0011(env);
+      assert.deepEqual(r.failed, []);
+      assert.deepEqual(r.applied, [], 'nothing applies');
+      assert.deepEqual(r.changed_files, []);
+      assert.equal(env.fake.writes().length, writes, 'zero gh writes');
+      assert.deepEqual(fx.diffSnapshots(before, fx.snapshot(env.root)), [], 'the tree is unchanged');
+      assert.ok(fs.readFileSync(configFile).equals(configBefore), 'config.json bytes unchanged');
+      assert.ok(fs.readFileSync(journalFile).equals(journalBefore), 'journal bytes unchanged');
+    });
+  });
+});
+
+// ─── 6. parity: a project that never enabled GitHub ───────────────────────────
+
+describe('0011 store-off parity (test 6)', () => {
+  test('6: a never-enabled project: check and apply --confirm make zero gh calls and leave the tree byte-identical', (t) => {
+    const env = useBackfillEnv(t, { objectives: 2 });
+    if (!env) return;
+    const file = path.join(env.root, '.planning', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    cfg.github.enabled = false;
+    fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
+    // Current with this plugin version, so the runner's own version stamp has nothing to write either.
+    upgrade.writeStamp(env.root, { ...upgrade.readStamp(env.root), version: PLUGIN_VERSION });
+
+    const before = fx.snapshot(env.root);
+    const outboxDir = env.env.DEVFLOW_OUTBOX_DIR;
+    const outboxBefore = fs.existsSync(outboxDir) ? fs.readdirSync(outboxDir) : [];
+
+    const c = upgrade.check({ projectRoot: env.root, userHome: env.home, pluginVersion: PLUGIN_VERSION });
+    assert.match((c.skipped.find((x) => x.id === '0011') || {}).reason || '', /GitHub integration not enabled/);
+    assert.equal(c.pending_confirm.some((x) => x.id === '0011'), false);
+
+    for (const extra of [{ only: ['0011'] }, { only: undefined }]) {
+      const r = applyOnly0011(env, extra);
+      assert.deepEqual(r.failed, [], JSON.stringify(r.failed));
+      assert.equal(r.applied.some((x) => x.id === '0011'), false);
+      assert.deepEqual(r.changed_files, [], JSON.stringify(r.applied));
+    }
+
+    assert.equal(env.fake.calls().length, 0, 'zero gh calls');
+    assert.deepEqual(fx.diffSnapshots(before, fx.snapshot(env.root)), [], 'byte-identical tree');
+    assert.deepEqual(fs.existsSync(outboxDir) ? fs.readdirSync(outboxDir) : [], outboxBefore, 'nothing queued');
   });
 });
