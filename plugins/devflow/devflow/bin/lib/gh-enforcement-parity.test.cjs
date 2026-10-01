@@ -249,9 +249,22 @@ describe('D-01 parity: store off, objective 50 changes nothing (test 8)', () => 
     assert.ok(all.length > 0, 'the fixture is imperfect enough that the comparison compares something');
     assert.deepEqual(all.filter((i) => ['W057', 'W058', 'W059', 'W060', 'W061'].includes(i.code)), []);
 
+    // TRD 51-06: migration 0011 (the GitHub backfill, confirm-only) applies to a github-enabled local project, so
+    // Check 13's W040 counts one more migration needing confirmation. That count is the one thing a github block adds.
+    const confirmCount = (h) => {
+      const w = h.warnings.find((i) => i.code === 'W040');
+      const m = w && /(\d+) need confirmation/.exec(w.message);
+      return m ? Number(m[1]) : 0;
+    };
+    const sansCount = (h) => ({
+      ...h,
+      warnings: h.warnings.map((i) => (i.code === 'W040' ? { ...i, message: i.message.replace(/\d+ need confirmation/, 'N need confirmation') } : i)),
+    });
     for (const variant of VARIANTS) {
       const p = localRepo(variant.github);
-      assert.deepEqual(healthOf(p), base, `${variant.name}: same findings as the baseline`);
+      const health = healthOf(p);
+      assert.equal(confirmCount(health), confirmCount(base) + 1, `${variant.name}: 0011 needs confirmation`);
+      assert.deepEqual(sansCount(health), sansCount(base), `${variant.name}: same findings as the baseline`);
       assert.deepEqual(p.shim.readCalls(), [], `${variant.name}: zero gh calls`);
       assert.deepEqual(files(p.outbox), [], `${variant.name}: validate health created no outbox`);
     }

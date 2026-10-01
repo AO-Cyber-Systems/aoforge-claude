@@ -1549,12 +1549,18 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
     ['github enabled, store absent', { enabled: true, repo: 'acme/demo' }],
   ];
 
+  // TRD 51-06: with GitHub enabled, migration 0011 (the GitHub backfill, confirm-only) applies, so Check 13 adds a W040
+  // "1 need confirmation". It is the only difference; a project with GitHub off is unchanged.
+  const BACKFILL_PENDING = { errors: [], warnings: ['W001', 'W040'], info: ['I001'] };
+
   for (const [name, github] of LOCAL_SHAPES) {
     test(`9. characterization, local mode (${name}): issue codes are the pinned list, no W055/W056`, () => {
       tmpProject = makeProjectWithGithub(github);
       tmpHome = makeHome();
       const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
-      assert.deepStrictEqual(codes(json), PINNED_LOCAL_CODES, JSON.stringify(json, null, 2));
+      const enabled = !!(github && github.enabled === true);
+      assert.deepStrictEqual(codes(json), enabled ? BACKFILL_PENDING : PINNED_LOCAL_CODES, JSON.stringify(json, null, 2));
+      if (enabled) assert.match(json.warnings.find((w) => w.code === 'W040').message, /0 pending, 1 need confirmation/);
       assert.strictEqual(fs.existsSync(env.env.DEVFLOW_OUTBOX_DIR), false, 'local mode reads and writes no outbox state');
     });
   }
@@ -1658,9 +1664,10 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
     assert.deepStrictEqual(
       { errors: notCheck16(seen.errors), warnings: notCheck16(seen.warnings), info: notCheck16(seen.info) },
       {
-        errors: PINNED_LOCAL_CODES.errors,
-        warnings: [...PINNED_LOCAL_CODES.warnings, 'W056'],
-        info: PINNED_LOCAL_CODES.info,
+        // W040: store on with un-baselined cache files, so migration 0011 still applies (TRD 51-06).
+        errors: BACKFILL_PENDING.errors,
+        warnings: [...BACKFILL_PENDING.warnings, 'W056'],
+        info: BACKFILL_PENDING.info,
       },
     );
   });
