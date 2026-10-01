@@ -43,6 +43,10 @@
  * Pull requests (49-05): `upsert-pr` creates (draft) and refreshes the ONE PR of an objective, `pr-ready` marks it
  * ready. A PR is not an issue to the scans: it carries `devflow:pr=<objective id>`, its base is stored under the
  * key `pr:<objective id>`, and records with `pull_request` are skipped by every issue scan.
+ *
+ * PR-side writes (49-10): `post-status` (the `devflow/verification` commit status), `upsert-pr-comment` (a sticky
+ * comment per kind on the PR, sharing upsert-comment's replace path), `pr-merge` (direct, or enqueued where the base
+ * branch has a merge queue) and `delete-branch`. A 405 on a merge is `not_mergeable` (halt); a 409 is `pending`.
  */
 
 const fs = require('fs');
@@ -84,14 +88,17 @@ function httpStatus(text) {
  * | validation     | any other 422                                                                     |
  * | permission     | 401, or a 403 that is not a secondary limit                                       |
  * | not_found      | 404                                                                               |
+ * | not_mergeable  | 405, for `kind === 'pr-merge'` only (the PR cannot be merged: halt for a human)   |
+ * | pending        | 409, for `kind === 'pr-merge'` only (the head moved: try again on the next flush) |
  * | error          | anything else                                                                     |
  *
  * A rate-limit message wins over the network words it may contain, and the client's budget refusal (which
  * has `status: null` because gh was never run) is a rate limit, not an outage.
  * @param {{ok?:boolean, status?:number|null, stdout?:string, stderr?:string, error?:string}|null|undefined} r
- * @returns {'offline'|'rate_limited'|'pending'|'already_exists'|'validation'|'permission'|'not_found'|'error'}
+ * @param {string} [kind] the op kind the call belongs to; 405 and 409 mean something only for `pr-merge`
+ * @returns {'offline'|'rate_limited'|'pending'|'already_exists'|'validation'|'permission'|'not_found'|'not_mergeable'|'error'}
  */
-function classifyFailure(r) {
+function classifyFailure(r, kind) {
   if (!r || typeof r !== 'object') return 'error';
   const text = `${r.stderr || ''}\n${r.stdout || ''}\n${r.error || ''}`;
   if (BUDGET_RE.test(text) || client.isSecondaryLimit({ ok: false, stderr: r.stderr, stdout: r.stdout })) return 'rate_limited';
@@ -104,6 +111,10 @@ function classifyFailure(r) {
   }
   if (http === 401 || http === 403) return 'permission';
   if (http === 404) return 'not_found';
+  if (kind === 'pr-merge') {
+    if (http === 405) return 'not_mergeable';
+    if (http === 409) return 'pending';
+  }
   return 'error';
 }
 
@@ -113,8 +124,8 @@ const ok = (warnings, extra = {}) => ({ ok: true, warnings, ...extra });
 const failWith = (klass, error) => ({ ok: false, class: klass, error });
 
 /** A handler failure from a failed gh result. A rate limit carries how long to wait (ms). */
-function failFrom(r, what) {
-  const klass = classifyFailure(r);
+function failFrom(r, what, kind) {
+  const klass = classifyFailure(r, kind);
   const detail = String((r && (r.error || r.stderr || r.stdout)) || 'unknown failure').trim();
   const out = failWith(klass, `${what}: ${detail}`);
   if (klass === 'rate_limited') {
@@ -882,6 +893,9 @@ function textOfComments(bodies) {
   return trd.joinParts(bodies.map(stripMarker));
 }
 
+/** The base-store key of a sticky comment. A PR comment is keyed apart from an issue comment of the same kind. */
+const commentBaseKey = (ref, kind) => (ref.kind === 'pr' ? `${ref.id}#pr-${kind}` : `${ref.id}#${kind}`);
+
 function readComments(ctx, ref) {
   const list = getList(`${issueEndpoint(ctx, ref.number)}/comments`);
   return list.ok ? { ok: true, items: list.items.map((c) => ({ id: c.id, body: str(c.body), updated_at: c.updated_at })) } : list;
@@ -921,6 +935,14 @@ function markFrozen(ctx, ref, warnings) {
 function handleUpsertComment(ctx, op) {
   const ref = issueRef(ctx, op.target.id);
   if (ref.error) return failWith('error', ref.error);
+  return upsertCommentOn(ctx, op, ref);
+}
+
+/**
+ * The shared body of upsert-comment and upsert-pr-comment (49-10). `ref` is an issue ref from `issueRef`, or a pull
+ * request ref (`kind: 'pr'`, see `prCommentRef`): a PR's conversation comments are issue comments on its number.
+ */
+function upsertCommentOn(ctx, op, ref) {
   const idErr = ensureRestId(ctx, ref);
   if (idErr) return idErr;
   const read = readComments(ctx, ref);
@@ -946,7 +968,7 @@ function replaceComment(ctx, op, ref, items) {
   const text = trd.normalise(op.payload.text);
   const marker = bodyLib.commentMarker(ref.id, kind);
   const existing = bodyLib.findCommentsByMarker(items, ref.id, kind);
-  const key = `${ref.id}#${kind}`;
+  const key = commentBaseKey(ref, kind);
   const base = outbox.getBase(ctx.root, key);
 
   let currentText = null;
@@ -954,7 +976,7 @@ function replaceComment(ctx, op, ref, items) {
     const joined = textOfComments(existing.map((f) => f.comment.body));
     currentText = joined.ok ? joined.text : null;
     if (base && !(currentText !== null && trd.contentHash(currentText) === base.body_hash)) {
-      return haltResult(ref, op, `${kind} comment on issue`);
+      return haltResult(ref, op, `${kind} comment on ${ref.kind === 'pr' ? 'pull request' : 'issue'}`);
     }
   }
 
@@ -1290,6 +1312,164 @@ function handlePrReady(ctx, op) {
   return ok(w, { pr_number: cur.number });
 }
 
+// ─── Verification status, PR comments, merge and branch delete (49-10) ───────
+
+// One read answers both questions a merge needs: does the base branch have a merge queue, and is this PR already in it
+// (`isInMergeQueue`; the fake reports a queued PR on `pulls/{n}` instead, which handlePrMerge also honours).
+const MERGE_QUEUE_QUERY = 'query($o: String!, $n: String!, $b: String!, $num: Int!) { repository(owner: $o, name: $n) { mergeQueue(branch: $b) { id } pullRequest(number: $num) { isInMergeQueue } } }';
+const ENQUEUE_MUTATION = 'mutation($pullRequestId: ID!) { enqueuePullRequest(input: {pullRequestId: $pullRequestId}) { mergeQueueEntry { id position } } }';
+// Duplicated from gh-outbox.cjs MERGE_METHODS, which is not exported; `github.pr.merge_method` is validated against it.
+const MERGE_METHODS = ['squash', 'merge', 'rebase'];
+const DEFAULT_MERGE_METHOD = 'squash';
+const ALREADY_QUEUED_RE = /already (?:in|queued|enqueued)|in the merge queue/i;
+
+/**
+ * The objective's pull request for an op that acts on it: `{id, mapped, pr}`, or `{res}` (a handler failure) when the
+ * objective has no PR yet. Reads only.
+ */
+function objectivePr(ctx, op) {
+  const id = mappingLib.toObjectiveId(op.target.id);
+  if (id === null) return { res: failWith('error', `${op.kind}: ${JSON.stringify(op.target.id)} is not an objective id`) };
+  const missing = () => ({ res: failWith('error', `objective ${id} has no pull request yet; queue upsert-pr first`) });
+  const mapped = mappingLib.getPr(ctx.mapping, id);
+  if (!mapped) return missing();
+  const found = findObjectivePr(ctx, id, mapped.branch);
+  if (!found.ok) return { res: failFrom(found.r, `find the pull request for objective ${id}`) };
+  return found.pr === null ? missing() : { id, mapped, pr: found.pr };
+}
+
+/** The `issueRef` shape for a PR (`kind: 'pr'`): its conversation comments are issue comments on its number. */
+function prCommentRef(ctx, rawId, kind) {
+  const got = objectivePr(ctx, { kind, target: { id: rawId } });
+  if (got.res) return got;
+  const { pr, id } = got;
+  return { ref: { number: pr.number, rest_id: Number.isInteger(pr.id) ? pr.id : pr.number, kind: 'pr', id } };
+}
+
+/**
+ * post-status: one commit status (`devflow/verification`), on `payload.sha` or else the PR's head sha. A status is
+ * never a check run: only a GitHub App may create one, and the local identity is the developer's token. A status whose
+ * state, description (and target_url, when given) already match writes nothing.
+ */
+function handlePostStatus(ctx, op) {
+  const w = [];
+  const p = op.payload;
+  const { context } = op.target;
+  let { sha } = p;
+  if (sha === undefined) {
+    const got = objectivePr(ctx, op);
+    if (got.res) return got.res;
+    sha = str(got.pr.head && got.pr.head.sha);
+    if (sha === '') return failWith('error', `pull request #${got.pr.number} has no head sha`);
+  }
+  const read = getJson(`repos/${ctx.repo}/commits/${sha}/status?per_page=100`);
+  if (!read.ok) return failFrom(read.r, `read the commit status of ${sha.slice(0, 7)}`);
+  const have = (Array.isArray(read.json.statuses) ? read.json.statuses : []).find((x) => x && x.context === context);
+  if (have && have.state === p.state && str(have.description) === p.description
+    && (p.target_url === undefined || str(have.target_url) === p.target_url)) {
+    return ok(w, { sha });
+  }
+  const body = { state: p.state, context, description: p.description };
+  if (p.target_url !== undefined) body.target_url = p.target_url;
+  const sent = sendJson('POST', `repos/${ctx.repo}/statuses/${sha}`, body);
+  if (!sent.ok) return failFrom(sent.r, `post status ${context} on ${sha.slice(0, 7)}`);
+  return ok(w, { sha });
+}
+
+/** upsert-pr-comment: the sticky, marker-keyed comment of one kind on the objective's PR (shares upsert-comment's replace path). */
+function handleUpsertPrComment(ctx, op) {
+  const got = prCommentRef(ctx, op.target.id, op.kind);
+  if (got.res) return got.res;
+  return upsertCommentOn(ctx, op, got.ref);
+}
+
+/** `payload.method`, else `github.pr.merge_method`, else squash. A merge queue ignores all three. */
+function mergeMethodFor(ctx, payload) {
+  if (payload.method !== undefined) return payload.method;
+  const gate = client.requireEnabled(ctx.root);
+  const pr = gate.config && isObject(gate.config.pr) ? gate.config.pr : {};
+  return MERGE_METHODS.includes(pr.merge_method) ? pr.merge_method : DEFAULT_MERGE_METHOD;
+}
+
+/** Does the PR's base branch have a merge queue, and is the PR already in it? `{ok:true, hasQueue, inQueue}` or `{ok:false, r}`. */
+function mergeQueueProbe(ctx, pr) {
+  const [owner, name] = ctx.repo.split('/');
+  const r = client.ghRead(['api', 'graphql', '-f', `query=${MERGE_QUEUE_QUERY}`, '-f', `o=${owner}`, '-f', `n=${name}`,
+    '-f', `b=${str(pr.base && pr.base.ref)}`, '-F', `num=${pr.number}`]);
+  if (!r.ok) return { ok: false, r };
+  let repository = null;
+  try {
+    const data = JSON.parse(r.stdout).data;
+    repository = data && data.repository;
+  } catch {
+    repository = null;
+  }
+  if (!isObject(repository)) return { ok: false, r: unparseable('gh api graphql (merge queue)', r) };
+  return {
+    ok: true,
+    hasQueue: isObject(repository.mergeQueue),
+    inQueue: isObject(repository.pullRequest) && repository.pullRequest.isInMergeQueue === true,
+  };
+}
+
+/**
+ * pr-merge: merge the objective's PR. Merged already, or already in the queue: nothing to do. A closed PR and a draft
+ * halt. When the base branch has a merge queue the PR is enqueued and stays open (the queue merges it later, with its
+ * own rules and no method); otherwise it is merged with `payload.method`, pinned to the head sha that was read, so a
+ * push in between answers 409 (pending) instead of merging unverified code. 405 means not mergeable and halts.
+ */
+function handlePrMerge(ctx, op) {
+  const w = [];
+  const got = objectivePr(ctx, op);
+  if (got.res) return got.res;
+  const { id, mapped, pr: cur } = got;
+  const what = `pull request #${cur.number} for objective ${id}`;
+  if (cur.merged === true || cur.merged_at) return ok(w, { pr_number: cur.number, merged: true });
+  if (cur.state !== 'open') return failWith('error', `${what} was closed without merging; reopen it, then merge again`);
+  if (cur.draft === true) return failWith('error', `${what} is a draft; mark it ready (pr-ready) before merging`);
+
+  const probe = mergeQueueProbe(ctx, cur);
+  if (!probe.ok) return failFrom(probe.r, `probe the merge queue for ${what}`);
+  if (cur.queued === true || probe.inQueue) return ok(w, { pr_number: cur.number, queued: true });
+
+  if (probe.hasQueue) {
+    const nodeId = str(cur.node_id) || str(mapped.node_id);
+    if (nodeId === '') return failWith('error', `${what} has no GraphQL node id; run upsert-pr again`);
+    const r = client.ghWrite(['api', 'graphql', '-f', `query=${ENQUEUE_MUTATION}`, '-f', `pullRequestId=${nodeId}`]);
+    if (r.ok || ALREADY_QUEUED_RE.test(`${str(r.stderr)}\n${str(r.stdout)}`)) return ok(w, { pr_number: cur.number, queued: true });
+    return failFrom(r, `add ${what} to the merge queue`, 'pr-merge');
+  }
+
+  const method = mergeMethodFor(ctx, op.payload);
+  const body = { merge_method: method };
+  const sha = str(cur.head && cur.head.sha);
+  if (sha !== '') body.sha = sha;
+  const sent = sendJson('PUT', `repos/${ctx.repo}/pulls/${cur.number}/merge`, body);
+  if (!sent.ok) return failFrom(sent.r, `merge ${what}`, 'pr-merge');
+  return ok(w, { pr_number: cur.number, merged: true, method });
+}
+
+/**
+ * delete-branch: remove the objective branch ref on GitHub. A branch that is already gone is success (404, or the 422
+ * "Reference does not exist" GitHub answers a DELETE of a missing ref); any other 422 is a failure. The repository
+ * default branch is never deleted.
+ */
+function handleDeleteBranch(ctx, op) {
+  const w = [];
+  const { branch } = op.payload;
+  const info = repoInfo(ctx);
+  if (!info.ok) return failFrom(info.r, `read repository ${ctx.repo}`);
+  if (branch === ctx.defaultBranch) {
+    return failWith('validation', `delete-branch: "${branch}" is the repository default branch and is never deleted`);
+  }
+  const ref = branch.split('/').map(encodeURIComponent).join('/');
+  const r = client.ghWrite(['api', '--method', 'DELETE', `repos/${ctx.repo}/git/refs/heads/${ref}`]);
+  if (r.ok) return ok(w);
+  const text = `${str(r.stderr)}\n${str(r.stdout)}\n${str(r.error)}`;
+  if (classifyFailure(r) === 'not_found' || (httpStatus(text) === 422 && /reference does not exist/i.test(text))) return ok(w);
+  return failFrom(r, `delete branch ${branch}`);
+}
+
 /** One handler per `OP_KINDS` kind. `(ctx, op) -> {ok, warnings, ...} | {ok:false, class|halt, ...}`. */
 const HANDLERS = Object.freeze({
   'upsert-issue': handleUpsertIssue,
@@ -1303,6 +1483,10 @@ const HANDLERS = Object.freeze({
   'wiki-push': handleWikiPush,
   'upsert-pr': handleUpsertPr,
   'pr-ready': handlePrReady,
+  'post-status': handlePostStatus,
+  'upsert-pr-comment': handleUpsertPrComment,
+  'pr-merge': handlePrMerge,
+  'delete-branch': handleDeleteBranch,
 });
 
 // ─── Executing one op ─────────────────────────────────────────────────────────
@@ -1474,6 +1658,22 @@ function refreshBase(ctx, op) {
     const joined = textOfComments(found.map((f) => f.comment.body));
     if (!joined.ok) return failWith('error', `the ${t.kind} comments on #${ref.number} are incomplete (${joined.error}); fix them on GitHub first`);
     const r = outbox.setBase(ctx.root, `${ref.id}#${t.kind}`, {
+      issue_number: ref.number, issue_id: ref.rest_id, body_hash: trd.contentHash(joined.text),
+      updated_at: found[found.length - 1].comment.updated_at || null,
+    });
+    return r.ok ? ok(w) : failWith('error', r.error);
+  }
+  if (op.kind === 'upsert-pr-comment') {
+    const got = prCommentRef(ctx, t.id, op.kind);
+    if (got.res) return got.res;
+    const { ref } = got;
+    const read = readComments(ctx, ref);
+    if (!read.ok) return failFrom(read.r, `read comments of #${ref.number}`);
+    const found = bodyLib.findCommentsByMarker(read.items, ref.id, t.kind);
+    if (found.length === 0) return ok(w);
+    const joined = textOfComments(found.map((f) => f.comment.body));
+    if (!joined.ok) return failWith('error', `the ${t.kind} comments on #${ref.number} are incomplete (${joined.error}); fix them on GitHub first`);
+    const r = outbox.setBase(ctx.root, commentBaseKey(ref, t.kind), {
       issue_number: ref.number, issue_id: ref.rest_id, body_hash: trd.contentHash(joined.text),
       updated_at: found[found.length - 1].comment.updated_at || null,
     });
