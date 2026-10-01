@@ -327,3 +327,186 @@ describe('49-09 gh pr start', { skip: GIT ? false : 'git is not available' }, ()
     assert.equal(writesNow(), writes);
   });
 });
+
+const prBody = () => prRecords()[0].body;
+const started = (opts) => {
+  setup(opts);
+  const r = prLib.startObjectivePr(S.root, '7');
+  assert.equal(r.ok, true, JSON.stringify(r));
+  return r;
+};
+
+describe('49-09 gh pr sync', { skip: GIT ? false : 'git is not available' }, () => {
+  test('9. pushes the branch, re-queues upsert-pr (summary "TRDs complete 1/2", a newly mapped TRD joins closes), and keeps the PR title', () => {
+    started();
+    S.g.commitFile(S.root, 'a.txt', 'one\n', 'feat(7-01): first wave');
+    const n3 = seedTrd('7-03');
+
+    const r = prLib.syncObjectivePr(S.root, '7');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.push.ok, true);
+    assert.equal(r.pending, false);
+    assert.equal(r.flush.status, 'flushed', JSON.stringify(r.flush));
+    assert.equal(S.g.git(S.g.origin, ['rev-parse', `refs/heads/${BRANCH}`]), headNow(), 'origin advanced');
+    assert.equal(prRecords().length, 1, 'still one PR');
+    assert.ok(bodyLib.extractSection(prBody(), 'summary').includes('TRDs complete 1/2'), bodyLib.extractSection(prBody(), 'summary'));
+    assert.deepEqual(closesIn(prBody()), [S.objN, S.trdN['7-01'], S.trdN['7-02'], n3]);
+    assert.equal(prRecords()[0].title, 'Objective 7: Store demo', 'sync sends no title');
+    assert.equal(r.summary, 'TRDs complete 1/2');
+  });
+
+  test('9b. syncing twice writes nothing the second time', () => {
+    started();
+    assert.equal(prLib.syncObjectivePr(S.root, '7').ok, true);
+    const writes = writesNow();
+    const again = prLib.syncObjectivePr(S.root, '7');
+    assert.equal(again.ok, true);
+    assert.equal(writesNow(), writes);
+  });
+
+  test('9c. an objective that was never started: failure telling the user to run gh pr start first', () => {
+    setup();
+    const r = prLib.syncObjectivePr(S.root, '7');
+    assert.equal(r.ok, false);
+    assert.match(r.error, /gh pr start 7/);
+    assert.deepEqual(S.fake.calls(), []);
+  });
+
+  test('10. offline: the push failure is reported, the upsert-pr stays queued, the result is pending', () => {
+    started();
+    S.g.commitFile(S.root, 'a.txt', 'one\n', 'feat(7-01): first wave');
+    S.g.git(S.root, ['remote', 'set-url', 'origin', path.join(S.g.root, 'gone.git')]);
+    S.fake.setOffline(true);
+
+    const r = prLib.syncObjectivePr(S.root, '7');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.push.ok, false);
+    assert.ok(r.push.error);
+    assert.equal(r.pending, true);
+    assert.equal(r.flush.status, 'pending');
+    const queued = queueNow().filter((o) => o.kind === 'upsert-pr' && o.status !== 'done');
+    assert.equal(queued.length, 1, 'the op is still queued');
+    assert.equal(queued[0].target.id, '7');
+    assert.equal(queued[0].payload.title, undefined, 'a sync never carries a title');
+  });
+
+  test('10b. a failed push with GitHub reachable still refreshes the PR but is pending (the branch is not published)', () => {
+    started();
+    S.g.commitFile(S.root, 'a.txt', 'one\n', 'feat(7-01): first wave');
+    S.g.git(S.root, ['remote', 'set-url', 'origin', path.join(S.g.root, 'gone.git')]);
+    const r = prLib.syncObjectivePr(S.root, '7');
+    assert.equal(r.push.ok, false);
+    assert.equal(r.pending, true);
+    assert.equal(r.flush.status, 'flushed');
+  });
+
+  test('10c. --no-flush (flush:false) queues and writes nothing', () => {
+    started();
+    const writes = writesNow();
+    const r = prLib.syncObjectivePr(S.root, '7', { flush: false });
+    assert.equal(r.ok, true);
+    assert.equal(r.flush, null);
+    assert.equal(writesNow(), writes);
+    assert.equal(queueNow().filter((o) => o.kind === 'upsert-pr' && o.status === 'pending').length, 1);
+  });
+});
+
+describe('49-09 gh pr status', { skip: GIT ? false : 'git is not available' }, () => {
+  test('11. reports branch, PR number and draft state, no verification yet, closes, no pending scopes, and never writes', () => {
+    started();
+    const writes = writesNow();
+    const r = prLib.prStatus(S.root, '7');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.started, true);
+    assert.equal(r.branch, BRANCH);
+    assert.equal(r.base, 'main');
+    assert.equal(r.pr.number, prRecords()[0].number);
+    assert.equal(r.pr.draft, true);
+    assert.equal(r.pr.state, 'draft');
+    assert.equal(r.verification, null);
+    assert.deepEqual(r.closes, [S.objN, S.trdN['7-01'], S.trdN['7-02']]);
+    assert.deepEqual(r.closes_missing, []);
+    assert.deepEqual(r.pending_scopes, {});
+    assert.equal(writesNow(), writes, 'status never writes');
+  });
+
+  test('11b. the latest devflow/verification status of the PR head is reported', () => {
+    started();
+    const head = headNow();
+    S.fake.statuses[head] = [{ context: 'devflow/verification', state: 'success', description: 'Objective 7 verified' }];
+    const r = prLib.prStatus(S.root, '7');
+    assert.equal(r.verification.state, 'success');
+    assert.equal(r.verification.description, 'Objective 7 verified');
+  });
+
+  test('11c. a mapped TRD missing from the PR body is named in closes_missing', () => {
+    started();
+    const n3 = seedTrd('7-03');
+    const r = prLib.prStatus(S.root, '7');
+    assert.deepEqual(r.closes, [S.objN, S.trdN['7-01'], S.trdN['7-02'], n3]);
+    assert.deepEqual(r.closes_missing, [n3]);
+  });
+
+  test('11d. a scope comment from a non-assignee is listed per TRD as pending', () => {
+    started();
+    S.fake.seedComment(S.trdN['7-01'], trdLib.buildScopeComment(1, 'Change by mallory.'), { login: 'mallory' });
+    const r = prLib.prStatus(S.root, '7');
+    assert.deepEqual(r.pending_scopes, { '7-01': [{ n: 1, author: 'mallory' }] });
+  });
+
+  test('11e. ready, merged and queued states', () => {
+    started();
+    const n = prRecords()[0].number;
+    const ready = S.fake.runGh(['api', 'graphql', '-f', 'query=mutation($pullRequestId: ID!){ markPullRequestReadyForReview(input:{pullRequestId:$pullRequestId}){ pullRequest { isDraft } } }', '-f', `pullRequestId=PR_${n}`]);
+    assert.equal(ready.ok, true, ready.stderr);
+    assert.equal(prLib.prStatus(S.root, '7').pr.state, 'ready');
+    S.fake.humanMergePr(n);
+    const merged = prLib.prStatus(S.root, '7');
+    assert.equal(merged.pr.state, 'merged');
+    assert.equal(merged.pr.merged, true);
+  });
+
+  test('11f. an upsert-pr that is queued but has no PR yet reads as queued', () => {
+    setup();
+    const r = prLib.startObjectivePr(S.root, '7', { flush: false });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const s = prLib.prStatus(S.root, '7');
+    assert.equal(s.ok, true);
+    assert.equal(s.pr.state, 'queued');
+    assert.equal(s.pr.number, null);
+    assert.equal(s.branch, BRANCH);
+    assert.equal(s.queued_ops, 1 + 2, 'the PR and two TRD freezes');
+  });
+
+  test('11g. an objective that was never started reports started:false with its closes', () => {
+    setup();
+    const r = prLib.prStatus(S.root, '7');
+    assert.equal(r.ok, true);
+    assert.equal(r.started, false);
+    assert.equal(r.branch, null);
+    assert.equal(r.pr.state, 'none');
+    assert.deepEqual(r.closes, [S.objN, S.trdN['7-01'], S.trdN['7-02']]);
+  });
+
+  test('12. a GitHub read that fails is a failure naming the read, not a silent empty status', () => {
+    started();
+    S.fake.setOffline(true);
+    const r = prLib.prStatus(S.root, '7');
+    assert.equal(r.ok, false);
+    assert.match(r.error, /pull request|GitHub/i);
+  });
+});
+
+describe('49-09 local mode', { skip: GIT ? false : 'git is not available' }, () => {
+  test('13. sync and status are skipped with zero gh calls and no git change', () => {
+    setup({ store: false });
+    for (const fn of [prLib.syncObjectivePr, prLib.prStatus]) {
+      const r = fn(S.root, '7');
+      assert.equal(r.ok, true);
+      assert.equal(r.skipped, true);
+    }
+    assert.deepEqual(S.fake.calls(), []);
+    assert.equal(branchNow(), 'main');
+    assert.equal(headNow(), S.c0);
+  });
+});
