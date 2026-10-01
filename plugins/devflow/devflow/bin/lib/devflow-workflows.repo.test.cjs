@@ -5,7 +5,9 @@
  *
  * Pins, as plain text assertions, the GitHub Actions side of enforcement:
  *
- *   .github/workflows/devflow-checks.yml   the reusable workflow (workflow_call)
+ *   .github/workflows/devflow-checks.yml                         the reusable workflow (workflow_call)
+ *   plugins/devflow/devflow/templates/github/devflow.yml         the caller `gh setup` writes into a repo
+ *   plugins/devflow/devflow/templates/github/pull_request_template.md   the managed PR-template block
  *
  * No YAML parser is used on purpose: the plugin has no runtime dependencies, and
  * the properties that matter here (triggers, token source, no path filters, the
@@ -20,6 +22,9 @@ const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'devflow-checks.yml');
+const TEMPLATES = path.join(REPO_ROOT, 'plugins', 'devflow', 'devflow', 'templates', 'github');
+const CALLER = path.join(TEMPLATES, 'devflow.yml');
+const PR_TEMPLATE = path.join(TEMPLATES, 'pull_request_template.md');
 
 function read(file) {
   return fs.readFileSync(file, 'utf-8');
@@ -180,5 +185,88 @@ describe('reusable workflow .github/workflows/devflow-checks.yml', () => {
     assert.match(header, /devflow\/linked-issue/);
     assert.match(header, /devflow\/planning-consistency/);
     assert.match(header, /GITHUB_TOKEN|github\.token/);
+  });
+});
+
+describe('caller workflow template templates/github/devflow.yml', () => {
+  const text = read(CALLER);
+  const lines = text.split('\n');
+
+  test('5a. first line is the managed marker', () => {
+    assert.match(lines[0], /^# devflow:managed\b/);
+    assert.match(lines[0], /df-tools gh setup/);
+  });
+
+  test('5b. triggers: pull_request with the six types, and merge_group', () => {
+    assert.match(text, /^name:\s*DevFlow\s*$/m);
+    const on = blockUnder(lines, 'on', 0);
+    assert.ok(on, 'top-level on: block');
+    assert.ok(on.some((l) => /^ {2}merge_group:/.test(l)), 'merge_group: trigger');
+    const pr = blockUnder(on, 'pull_request', 2);
+    assert.ok(pr, 'pull_request: trigger');
+    const types = pr.join('\n');
+    for (const t of ['opened', 'edited', 'synchronize', 'reopened', 'ready_for_review', 'closed']) {
+      assert.match(types, new RegExp('\\b' + t + '\\b'), `pull_request type ${t}`);
+    }
+  });
+
+  test('5c. no path or branch filters anywhere (a filtered required check never reports)', () => {
+    const code = lines.filter((l) => !/^\s*#/.test(l)).join('\n');
+    assert.doesNotMatch(code, /^\s*paths:/m);
+    assert.doesNotMatch(code, /^\s*paths-ignore:/m);
+    assert.doesNotMatch(code, /^\s*branches(-ignore)?:/m);
+    assert.doesNotMatch(code, /pull_request_target/);
+  });
+
+  test('5d. permissions grant statuses: write; one job calls the reusable workflow via the placeholders', () => {
+    const perms = blockUnder(lines, 'permissions', 0);
+    assert.ok(perms, 'top-level permissions:');
+    const p = perms.join('\n');
+    assert.match(p, /^\s+statuses:\s*write\s*$/m);
+    assert.match(p, /^\s+issues:\s*write\s*$/m);
+    assert.match(p, /^\s+contents:\s*read\s*$/m);
+    assert.match(p, /^\s+pull-requests:\s*read\s*$/m);
+
+    assert.match(text, /\{\{checks_workflow\}\}/);
+    assert.match(text, /\{\{devflow_ref\}\}/);
+    const jobs = blockUnder(lines, 'jobs', 0);
+    const job = blockUnder(jobs, 'devflow', 2);
+    assert.ok(job, 'single job named devflow');
+    const j = job.join('\n');
+    assert.match(j, /^\s+uses:\s*\{\{checks_workflow\}\}\s*$/m);
+    assert.match(j, /^\s+devflow-ref:\s*\{\{devflow_ref\}\}\s*$/m);
+    assert.match(j, /^\s+app-client-id:\s*\$\{\{\s*vars\.DEVFLOW_APP_CLIENT_ID\s*\}\}\s*$/m);
+    assert.match(j, /^\s+app-private-key:\s*\$\{\{\s*secrets\.DEVFLOW_APP_PRIVATE_KEY\s*\}\}\s*$/m);
+  });
+
+  test('5e. only the documented placeholders appear; ${{ }} expressions are left alone', () => {
+    const tokens = new Set(text.match(/\{\{[a-z_]+\}\}/g) || []);
+    assert.deepEqual([...tokens].sort(), ['{{checks_workflow}}', '{{devflow_ref}}']);
+  });
+});
+
+describe('PR template templates/github/pull_request_template.md', () => {
+  const text = read(PR_TEMPLATE);
+  const START = '<!-- devflow:pr-template:start -->';
+  const END = '<!-- devflow:pr-template:end -->';
+
+  test('6a. start and end markers appear exactly once each, start before end', () => {
+    assert.equal(text.split(START).length - 1, 1, 'one start marker');
+    assert.equal(text.split(END).length - 1, 1, 'one end marker');
+    assert.ok(text.indexOf(START) < text.indexOf(END), 'start precedes end');
+  });
+
+  test('6b. the managed block asks for Closes #<objective issue> and the default base branch', () => {
+    const block = text.slice(text.indexOf(START), text.indexOf(END));
+    assert.match(block, /Closes #<objective issue>/);
+    assert.match(block, /one `Closes #` per TRD/);
+    assert.match(block, /df-tools gh pr start/);
+    assert.match(block, /default branch/i);
+  });
+
+  test('6c. no stale command reference (doc-refs scanner)', () => {
+    const { scanText, liveSkillNames } = require('./doc-refs.cjs');
+    const liveSkills = liveSkillNames(path.join(REPO_ROOT, 'plugins/devflow/skills'));
+    assert.deepEqual(scanText(text, { liveSkills }), []);
   });
 });
