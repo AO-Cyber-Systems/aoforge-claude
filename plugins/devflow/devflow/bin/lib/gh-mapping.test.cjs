@@ -568,3 +568,212 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
     }
   });
 });
+
+// ─── Objective 47: the `trds` map ─────────────────────────────────────────────
+
+describe('47 trds map accessors', () => {
+  const trdEntry = (issueNumber, restId, role = 'trd', commentIds = {}) => ({
+    issue_number: issueNumber,
+    rest_id: restId,
+    role,
+    comment_ids: commentIds,
+  });
+
+  test('14. toTrdId drops leading zeros on the objective part and keeps the TRD part as written', () => {
+    assert.equal(ghMapping.toTrdId('047-01'), '47-01');
+    assert.equal(ghMapping.toTrdId('07-01-d2'), '7-01-d2');
+    assert.equal(ghMapping.toTrdId('47-01'), '47-01');
+    assert.equal(ghMapping.toTrdId('2.1-03'), '2.1-03');
+    assert.equal(ghMapping.toTrdId('02.10-03-d12'), '2.10-03-d12');
+    assert.equal(ghMapping.toTrdId('  47-01 '), '47-01');
+  });
+
+  test('14b. toTrdId is null for an objective id, a decision with no TRD, and junk', () => {
+    for (const bad of ['47', '2.1', 'x', '', null, undefined, '47-01-d', '47-d1', '47-01-D1', '47-01-store', '-01', '47-', '47-01-d1-2']) {
+      assert.equal(ghMapping.toTrdId(bad), null, String(bad));
+    }
+  });
+
+  test('14c. the objective part of a TRD id is the objective id, so 2.1-03 is objective 2.1 and not 2', () => {
+    const id = ghMapping.toTrdId('02.1-03');
+    assert.equal(id.split('-')[0], ghMapping.toObjectiveId('02.1-foo'));
+  });
+
+  test('15. setTrd then getTrd (any spelling) returns the canonical entry with empty comment_ids', () => {
+    const m = ghMapping.emptyMapping();
+    const returned = ghMapping.setTrd(m, '07-01', { issue_number: 12, rest_id: 1000012, role: 'trd' });
+    assert.equal(returned, m, 'returns the mapping for chaining');
+    assert.deepEqual(m.trds, { '7-01': trdEntry(12, 1000012) });
+    assert.deepEqual(ghMapping.getTrd(m, '007-01'), trdEntry(12, 1000012));
+    assert.deepEqual(Object.keys(ghMapping.getTrd(m, '7-01')), ['issue_number', 'rest_id', 'role', 'comment_ids']);
+    assert.equal(ghMapping.getTrd(m, '7-02'), null);
+    assert.equal(ghMapping.getTrd(m, 'x'), null);
+    assert.equal(ghMapping.getTrd(m, '7'), null, 'an objective id is not a TRD id');
+    assert.equal(ghMapping.getTrd(m, null), null);
+    assert.equal(ghMapping.getTrd(null, '7-01'), null);
+    assert.equal(ghMapping.getTrd({}, '7-01'), null);
+  });
+
+  test('15b. a patch merges onto the entry; comment_ids merge shallowly', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setTrd(m, '7-01', { issue_number: 12, rest_id: 1000012 });
+    ghMapping.setTrd(m, '7-01', { comment_ids: { summary: [55] } });
+    assert.deepEqual(m.trds['7-01'], trdEntry(12, 1000012, 'trd', { summary: [55] }));
+    ghMapping.setTrd(m, '007-01', { comment_ids: { spec: [60, 61] } });
+    assert.deepEqual(m.trds['7-01'].comment_ids, { summary: [55], spec: [60, 61] });
+    ghMapping.setTrd(m, '7-01', { comment_ids: { summary: [56, 57] } });
+    assert.deepEqual(m.trds['7-01'].comment_ids, { summary: [56, 57], spec: [60, 61] }, 'a key the patch names is replaced whole');
+    ghMapping.setTrd(m, '7-01', { comment_ids: { spec: null } });
+    assert.deepEqual(m.trds['7-01'].comment_ids, { summary: [56, 57] }, 'null removes a kind');
+    ghMapping.setTrd(m, '7-01', { rest_id: 1000099 });
+    assert.equal(m.trds['7-01'].issue_number, 12, 'untouched fields survive');
+    assert.equal(m.trds['7-01'].rest_id, 1000099);
+    assert.deepEqual(m.trds['7-01'].comment_ids, { summary: [56, 57] });
+  });
+
+  test('15c. role defaults from the id form; a decision shares the map with role decision', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setTrd(m, '47-01', { issue_number: 3, rest_id: 1000003 });
+    ghMapping.setTrd(m, '47-01-d1', { issue_number: 4, rest_id: 1000004 });
+    assert.equal(m.trds['47-01'].role, 'trd');
+    assert.equal(m.trds['47-01-d1'].role, 'decision');
+    assert.deepEqual(ghMapping.getTrd(m, '047-01-d1'), trdEntry(4, 1000004, 'decision'));
+    assert.throws(() => ghMapping.setTrd(m, '47-02', { issue_number: 5, rest_id: 6, role: 'decision' }), TypeError);
+    assert.throws(() => ghMapping.setTrd(m, '47-02-d1', { issue_number: 5, rest_id: 6, role: 'trd' }), TypeError);
+    assert.throws(() => ghMapping.setTrd(m, '47-02', { issue_number: 5, rest_id: 6, role: 'epic' }), TypeError);
+    assert.equal(ghMapping.getTrd(m, '47-02'), null, 'a refused set leaves the map alone');
+  });
+
+  test('15d. numeric strings are coerced; the issue number and rest id may coincide and are never swapped', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setTrd(m, '7-01', { issue_number: '12', rest_id: '1000012' });
+    assert.deepEqual(m.trds['7-01'], trdEntry(12, 1000012));
+    ghMapping.setTrd(m, '7-02', { issue_number: 7, rest_id: 7 });
+    assert.deepEqual(m.trds['7-02'], trdEntry(7, 7));
+    ghMapping.setTrd(m, '7-03', { issue_number: 9, rest_id: 3 });
+    assert.equal(m.trds['7-03'].issue_number, 9);
+    assert.equal(m.trds['7-03'].rest_id, 3);
+  });
+
+  test('15e. setTrd creates trds when the mapping has none', () => {
+    const m = { version: 3, objectives: {} };
+    ghMapping.setTrd(m, '7-01', { issue_number: 1, rest_id: 2 });
+    assert.deepEqual(m.trds, { '7-01': trdEntry(1, 2) });
+  });
+
+  test('16. setTrd with a missing or invalid issue_number or rest_id throws TypeError', () => {
+    const m = ghMapping.emptyMapping();
+    for (const patch of [
+      {},
+      { issue_number: 12 },
+      { rest_id: 1000012 },
+      { issue_number: 0, rest_id: 1 },
+      { issue_number: 1, rest_id: 0 },
+      { issue_number: -1, rest_id: 1 },
+      { issue_number: 1.5, rest_id: 1 },
+      { issue_number: 'abc', rest_id: 1 },
+      { issue_number: 1, rest_id: null },
+      { issue_number: null, rest_id: 1 },
+    ]) {
+      assert.throws(() => ghMapping.setTrd(m, '7-01', patch), TypeError, JSON.stringify(patch));
+    }
+    assert.deepEqual(m.trds, {}, 'nothing was written');
+    assert.throws(() => ghMapping.setTrd(m, '7-01'), TypeError);
+  });
+
+  test('16b. setTrd with an unparseable id throws TypeError', () => {
+    const m = ghMapping.emptyMapping();
+    for (const id of ['x', '', null, '47', '47-01-d']) {
+      assert.throws(() => ghMapping.setTrd(m, id, { issue_number: 1, rest_id: 2 }), TypeError, String(id));
+    }
+    assert.deepEqual(m.trds, {});
+  });
+
+  test('16c. setTrd refuses a malformed comment_ids', () => {
+    const m = ghMapping.emptyMapping();
+    const base = { issue_number: 1, rest_id: 2 };
+    for (const comment_ids of ['x', 5, [1], { summary: 55 }, { summary: ['a'] }, { summary: [0] }, { summary: [1.5] }]) {
+      assert.throws(() => ghMapping.setTrd(m, '7-01', { ...base, comment_ids }), TypeError, JSON.stringify(comment_ids));
+    }
+    assert.deepEqual(m.trds, {});
+    ghMapping.setTrd(m, '7-01', { ...base, comment_ids: { summary: ['55', 56] } });
+    assert.deepEqual(m.trds['7-01'].comment_ids, { summary: [55, 56] });
+  });
+
+  test('17. serializeMapping after setTrd round-trips through readMappingV3; trds keys are natural-sorted; objectives are untouched', () => {
+    const root = tmpProject();
+    const m = ghMapping.emptyMapping();
+    m.repo = 'o/r';
+    m.objectives['7'] = ent(70, 71);
+    ghMapping.setTrd(m, '7-10', { issue_number: 20, rest_id: 1000020 });
+    ghMapping.setTrd(m, '7-02', { issue_number: 12, rest_id: 1000012, comment_ids: { summary: [55, 56] } });
+    ghMapping.setTrd(m, '7-01-d1', { issue_number: 11, rest_id: 1000011 });
+    ghMapping.setTrd(m, '7-01', { issue_number: 10, rest_id: 1000010 });
+    const objectivesBefore = JSON.stringify(m.objectives);
+
+    const text = ghMapping.serializeMapping(m);
+    const keys = [...text.matchAll(/^ {4}"(7-[^"]+)": \{$/gm)].map((x) => x[1]);
+    assert.deepEqual(keys, ['7-01', '7-01-d1', '7-02', '7-10']);
+    assert.ok(text.endsWith('\n'));
+
+    assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
+    const back = ghMapping.readMappingV3(root);
+    assert.deepEqual(back.trds, m.trds);
+    assert.equal(JSON.stringify(back.objectives), objectivesBefore);
+    assert.deepEqual(ghMapping.getTrd(back, '07-02'), trdEntry(12, 1000012, 'trd', { summary: [55, 56] }));
+    assert.equal(ghMapping.serializeMapping(back), text, 'byte-stable');
+  });
+
+  test('17b. write -> read -> write of a mapping with trds is byte-stable on disk', () => {
+    const root = tmpProject();
+    const m = ghMapping.emptyMapping();
+    ghMapping.setTrd(m, '47-01', { issue_number: 3, rest_id: 1000003, comment_ids: { spec: [9] } });
+    ghMapping.setTrd(m, '47-01-d1', { issue_number: 4, rest_id: 1000004 });
+    assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
+    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const first = fs.readFileSync(file, 'utf-8');
+    assert.equal(ghMapping.writeMappingV3(root, ghMapping.readMappingV3(root)).ok, true);
+    assert.equal(fs.readFileSync(file, 'utf-8'), first);
+  });
+
+  test('18. listTrds returns the TRD ids for one objective, sorted; decisions only on request', () => {
+    const m = ghMapping.emptyMapping();
+    for (const id of ['7-10', '7-02', '7-01', '7-01-d2', '7-01-d1', '8-01', '70-01', '7.1-01', '70-01-d1']) {
+      ghMapping.setTrd(m, id, { issue_number: 1, rest_id: 2 });
+    }
+    assert.deepEqual(ghMapping.listTrds(m, '7'), ['7-01', '7-02', '7-10']);
+    assert.deepEqual(ghMapping.listTrds(m, '07-store-demo'), ['7-01', '7-02', '7-10']);
+    assert.deepEqual(ghMapping.listTrds(m, '7', { includeDecisions: true }), [
+      '7-01', '7-01-d1', '7-01-d2', '7-02', '7-10',
+    ]);
+    assert.deepEqual(ghMapping.listTrds(m, '7.1'), ['7.1-01']);
+    assert.deepEqual(ghMapping.listTrds(m, '8'), ['8-01']);
+    assert.deepEqual(ghMapping.listTrds(m, '9'), []);
+  });
+
+  test('18b. listTrds tolerates junk: an unknown objective, no trds map, or a hand-written key', () => {
+    assert.deepEqual(ghMapping.listTrds(ghMapping.emptyMapping(), '7'), []);
+    assert.deepEqual(ghMapping.listTrds(ghMapping.emptyMapping(), 'abc'), []);
+    assert.deepEqual(ghMapping.listTrds({}, '7'), []);
+    assert.deepEqual(ghMapping.listTrds(null, '7'), []);
+    const m = ghMapping.emptyMapping();
+    m.trds['not-a-trd'] = { issue_number: 1 };
+    ghMapping.setTrd(m, '7-01', { issue_number: 1, rest_id: 2 });
+    assert.deepEqual(ghMapping.listTrds(m, '7'), ['7-01']);
+  });
+
+  test('18c. objective accessors and the trds map do not see each other', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setEntry(m, '7', { issue_id: 70 });
+    ghMapping.setTrd(m, '7-01', { issue_number: 12, rest_id: 1000012 });
+    assert.deepEqual(ghMapping.getEntry(m, '7'), ent(70));
+    assert.deepEqual(Object.keys(m.objectives), ['7']);
+    assert.deepEqual(Object.keys(m.trds), ['7-01']);
+  });
+
+  test('19. the new accessors are exported alongside the 46 surface', () => {
+    for (const fn of ['toTrdId', 'getTrd', 'setTrd', 'listTrds', 'getEntry', 'setEntry']) {
+      assert.equal(typeof ghMapping[fn], 'function', fn);
+    }
+  });
+});
