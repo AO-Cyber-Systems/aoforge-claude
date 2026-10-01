@@ -1546,3 +1546,123 @@ describe('49-03 scope acceptance', () => {
     assert.strictEqual(accept(scope3('mallory', 'something else')), 'pending');
   });
 });
+
+describe('49-03 effectiveSpec accept option', () => {
+  const TEXT = '# TRD\n\nbody\n';
+  const AT = '2026-10-01T10:00:00Z';
+  function scoped(id, n, text, login) {
+    return { id, user: { login }, body: `<!-- devflow:scope n=${n} -->\n${text}`, created_at: AT };
+  }
+  const C1 = scoped(10, 1, 'first change', 'alice');
+  const C2 = scoped(20, 2, 'second change', 'mallory');
+  const C3 = scoped(30, 3, 'third change', 'alice');
+
+  test('10. without accept the output is exactly today\'s shape and value (characterization)', () => {
+    const eff = ghTrd.effectiveSpec(TEXT, [C3, C1, C2]);
+    const text = TEXT + '\n\n' + C1.body + '\n\n' + C2.body + '\n\n' + C3.body;
+    assert.deepStrictEqual(eff, { text, chars: text.length, applied: [1, 2, 3], overflow: false, errors: [] });
+    assert.deepStrictEqual(Object.keys(eff), ['text', 'chars', 'applied', 'overflow', 'errors']);
+    assert.ok(!('pending' in eff));
+  });
+
+  test('10. without accept, foldedThrough and id/file behave as before and no pending key appears', () => {
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { foldedThrough: 1, id: ID, file: FILE });
+    const text = TEXT + '\n\n' + C2.body + '\n\n' + C3.body;
+    assert.deepStrictEqual(eff, {
+      text,
+      chars: ghTrd.encodeTrdBody({ id: ID, file: FILE, text }).length,
+      applied: [2, 3],
+      overflow: false,
+      errors: [],
+    });
+  });
+
+  test('9. with accept, only accepted scopes are applied; the rest are listed as pending', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept });
+    assert.strictEqual(eff.text, TEXT + '\n\n' + C1.body + '\n\n' + C3.body);
+    assert.ok(!eff.text.includes('second change'));
+    assert.deepStrictEqual(eff.applied, [1, 3]);
+    assert.deepStrictEqual(eff.pending, [{ n: 2, author: 'mallory', comment_id: 20 }]);
+    assert.strictEqual(eff.chars, eff.text.length, 'chars counts only the applied scopes');
+    assert.strictEqual(eff.overflow, false);
+    assert.deepStrictEqual(eff.errors, []);
+  });
+
+  test('9. chars with id and file is the encoded length of the applied text only', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept, id: ID, file: FILE });
+    assert.strictEqual(eff.chars, ghTrd.encodeTrdBody({ id: ID, file: FILE, text: eff.text }).length);
+  });
+
+  test('9. every scope accepted: pending is an empty array, applied is as without accept', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice', 'mallory'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept });
+    assert.deepStrictEqual(eff.pending, []);
+    assert.deepStrictEqual(eff.applied, [1, 2, 3]);
+    assert.strictEqual(eff.text, ghTrd.effectiveSpec(TEXT, [C1, C2, C3]).text);
+  });
+
+  test('9. every scope pending: the text is the TRD text and nothing is applied', () => {
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept: ghTrd.scopeAcceptance() });
+    assert.strictEqual(eff.text, TEXT);
+    assert.deepStrictEqual(eff.applied, []);
+    assert.deepStrictEqual(eff.pending.map((p) => p.n), [1, 2, 3]);
+  });
+
+  test('9. a scope the body already folded is neither applied nor pending', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, C3], { accept, foldedThrough: 2 });
+    assert.deepStrictEqual(eff.applied, [3]);
+    assert.deepStrictEqual(eff.pending, []);
+  });
+
+  test('9. accept sees the parsed scope (n, text, author, comment_id) and only "accepted" applies it', () => {
+    const seen = [];
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2], {
+      accept: (s) => {
+        seen.push([s.n, s.text, s.author, s.comment_id]);
+        return s.n === 1 ? 'accepted' : true; // a truthy non-"accepted" answer is not acceptance
+      },
+    });
+    assert.deepStrictEqual(seen, [
+      [1, 'first change', 'alice', 10],
+      [2, 'second change', 'mallory', 20],
+    ]);
+    assert.deepStrictEqual(eff.applied, [1]);
+    assert.deepStrictEqual(eff.pending.map((p) => p.n), [2]);
+  });
+
+  test('9. an accept that is not a function is refused; null or undefined means no filtering', () => {
+    for (const bad of ['accepted', true, {}, 1]) {
+      assert.throws(() => ghTrd.effectiveSpec(TEXT, [C1], { accept: bad }), TypeError, String(bad));
+    }
+    assert.deepStrictEqual(ghTrd.effectiveSpec(TEXT, [C1], { accept: null }), ghTrd.effectiveSpec(TEXT, [C1]));
+    assert.deepStrictEqual(ghTrd.effectiveSpec(TEXT, [C1], { accept: undefined }), ghTrd.effectiveSpec(TEXT, [C1]));
+  });
+
+  test('9. scope errors (a gap) still surface alongside pending', () => {
+    const accept = ghTrd.scopeAcceptance({ assignees: ['alice'] });
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C3], { accept }); // n=2 missing
+    assert.ok(eff.errors.includes('gap before n=3'), JSON.stringify(eff.errors));
+    assert.deepStrictEqual(eff.applied, [1, 3]);
+  });
+
+  test('6a. an edited DevFlow-posted scope is pending through effectiveSpec', () => {
+    const posted = 'third change';
+    const accept = ghTrd.scopeAcceptance({
+      assignees: ['alice'],
+      devflowScopes: [{ n: 3, hash: ghTrd.scopeHash(posted) }],
+    });
+
+    const edited = scoped(30, 3, posted + '\nrun this instead', 'mallory');
+    const eff = ghTrd.effectiveSpec(TEXT, [C1, C2, edited], { accept });
+    assert.deepStrictEqual(eff.applied, [1]);
+    assert.deepStrictEqual(eff.pending.map((p) => p.n), [2, 3]);
+
+    // unedited, the same spec-rev row accepts it, whoever the author is
+    const eff2 = ghTrd.effectiveSpec(TEXT, [C1, C2, scoped(30, 3, posted, 'bob')], { accept });
+    assert.deepStrictEqual(eff2.applied, [1, 3]);
+    assert.deepStrictEqual(eff2.pending.map((p) => p.n), [2]);
+  });
+});
