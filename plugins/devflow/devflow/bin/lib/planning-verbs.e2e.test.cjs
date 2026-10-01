@@ -32,13 +32,19 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const gh = require('./gh.cjs');
+const ghPull = require('./gh-pull.cjs');
 const client = require('./gh-client.cjs');
+const outbox = require('./gh-outbox.cjs');
+const storeCli = require('./gh-store-cli.cjs');
+const ledgerLib = require('./planning-ledger.cjs');
+const planningPaths = require('./planning-paths.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
-const { makeE2eRepo, OBJECTIVE_DIR, REPO } = require('./__fixtures__/planning-e2e-fixtures.cjs');
+const { makeE2eRepo, OBJECTIVE_DIR, REPO, TODO_STEM } = require('./__fixtures__/planning-e2e-fixtures.cjs');
 
 const cli = require('./planning-verbs-cli.cjs');
 
@@ -133,6 +139,81 @@ function installStoreWorld() {
   };
 }
 
+/**
+ * The objective, driven only through the verbs (TRD 48-22 "Scenario"). `onStep({kind, argv, res, n})` runs after
+ * every verb and around every code commit (`kind` 'code-written' before the commit, 'code-committed' after it).
+ * @returns {Array<{argv:string[], code:number, out:any, stderr:string}>}
+ */
+function runScenario(R, onStep = () => {}) {
+  const results = [];
+  const run = (argv) => {
+    const res = verb(R.root, argv);
+    results.push({ argv, ...res });
+    onStep({ kind: 'verb', argv, res });
+    return res;
+  };
+  const trds = ['07-01-alpha-TRD.md', '07-02-beta-TRD.md', '07-03-gamma-TRD.md'];
+
+  run(['objective', 'put', '7', '--from', R.draft('OBJECTIVE.md')]);
+  for (const f of trds) run(['plan', 'put-trd', '7', f, '--from', R.draft(f), '--no-push']);
+  run(['plan', 'push', '7']);
+  run(['doc', 'put', `${D}/07-CONTEXT.md`, '--from', R.draft('07-CONTEXT.md')]);
+  run(['doc', 'put', `${D}/07-RESEARCH.md`, '--from', R.draft('07-RESEARCH.md')]);
+  for (const n of [1, 2, 3]) {
+    const rel = R.writeCode(n);
+    onStep({ kind: 'code-written', n, rel });
+    df(R, ['commit', `feat(07-0${n}): t${n}`, '--files', rel]);
+    onStep({ kind: 'code-committed', n, rel });
+    run(['summary', 'checkpoint', `7-0${n}`, '--from', R.draft(`checkpoint-0${n}.md`)]);
+    run(['summary', 'post', `7-0${n}`, '--from', R.draft(`07-0${n}-SUMMARY.md`)]);
+  }
+  run(['todo', 'add', '--from', R.draft('todo.md'), '--stem', TODO_STEM]);
+  run(['quick', 'put', '1', 'x', '--from', R.draft('quick-job.md')]);
+  run(['quick', 'summary', '1', '--from', R.draft('quick-summary.md')]);
+  run(['verification', 'post', '7', '--from', R.draft('07-VERIFICATION.md')]);
+  run(['objective', 'set-status', '7', 'complete']);
+  return results;
+}
+
+/** `{rel: Buffer}` of every file under `.planning/` (sorted walk) whose rel passes `keep`. */
+function snapshotPlanning(R, keep = () => true) {
+  const out = {};
+  const walk = (dir, rel) => {
+    if (!fs.existsSync(dir)) return;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(dir, e.name), r);
+      else if (keep(r)) out[r] = fs.readFileSync(path.join(dir, e.name));
+    }
+  };
+  walk(path.join(R.root, '.planning'), '');
+  return out;
+}
+
+/**
+ * True for a `.planning/` rel the store owns in the cache (a verb writes it; gh pull rebuilds it). `wiki/**` is the
+ * local clone of the wiki repository that gh pull reads the pages from, not a cache file (gh-cache.listOwnedLocal
+ * drops it the same way), so it is kept like the runtime files.
+ */
+const isCache = (rel) => !rel.startsWith('wiki/') && planningPaths.classify(rel).class === 'cache';
+
+/** The W055 issues of a spawned `validate health --raw`. */
+function w055(R) {
+  const r = R.run(['validate', 'health', '--raw']);
+  let payload;
+  try { payload = JSON.parse(r.stdout); } catch { assert.fail(`validate health --raw printed no JSON:\n${r.stdout}\n${r.stderr}`); }
+  const all = [...(payload.errors || []), ...(payload.warnings || []), ...(payload.info || [])];
+  return { payload, drift: all.filter((i) => i && i.code === 'W055') };
+}
+
+/** The wiki pages at the remote's master: `{name: text}`. */
+function wikiPages(remote) {
+  const ls = spawnSync('git', ['ls-tree', '--name-only', 'master'], { cwd: remote.bareDir, encoding: 'utf-8' });
+  const out = {};
+  for (const f of ls.stdout.split('\n').filter((n) => n.endsWith('.md'))) out[f.slice(0, -3)] = remote.readRemotePage(f.slice(0, -3));
+  return out;
+}
+
 // ─── Store mode (SC3) ────────────────────────────────────────────────────────
 
 describe('store mode: plan -> execute -> verify through the verbs', { skip: gitAvailable() ? false : 'git is not available' }, () => {
@@ -163,5 +244,138 @@ describe('store mode: plan -> execute -> verify through the verbs', { skip: gitA
     assert.ok(start >= 0 && end > start, ignore.join('\n'));
     assert.deepEqual(R.gitStatus(), [], 'the setup leaves the tree clean');
     assert.deepEqual(JSON.parse(R.read('config.json')).github.store, true);
+  });
+
+  test('2. SC3: after every verb git status is empty, apart from the in-flight src/t<N>.cjs before its commit', () => {
+    const seen = [];
+    runScenario(R, (step) => {
+      const status = R.gitStatus();
+      if (step.kind === 'verb') {
+        seen.push(step.argv.slice(0, 2).join(' '));
+        assert.equal(step.res.code, 0, `${step.argv.join(' ')} exits 0\n${step.stdout}\n${step.stderr}`);
+        assert.deepEqual(status, [], `git sees nothing after ${step.argv.join(' ')}`);
+      } else if (step.kind === 'code-written') {
+        assert.deepEqual(status, [`?? ${step.rel}`], 'only the code file, before its commit');
+      } else {
+        assert.deepEqual(status, [], `clean after committing ${step.rel}`);
+      }
+    });
+    assert.equal(seen.length, 18, seen.join('\n'));
+    assert.deepEqual(R.gitStatus(), [], 'clean at the end');
+    assert.deepEqual(R.lsFiles('.planning'), ['.planning/STACK.md', '.planning/config.json'], 'nothing new tracked under .planning/');
+    assert.deepEqual(R.lsFiles('src'), ['src/t1.cjs', 'src/t2.cjs', 'src/t3.cjs']);
+    // The cache holds every file the verbs wrote, with the draft bytes.
+    for (const f of ['07-01-alpha-TRD.md', '07-02-beta-TRD.md', '07-03-gamma-TRD.md', '07-CONTEXT.md', '07-RESEARCH.md']) {
+      assert.equal(R.read(`${D}/${f}`), R.draftText(f), f);
+    }
+    assert.equal(R.read(`${D}/07-01-SUMMARY.md`), R.draftText('07-01-SUMMARY.md'));
+    assert.equal(R.read(`${D}/07-VERIFICATION.md`), R.draftText('07-VERIFICATION.md'));
+  });
+
+  test('3. GitHub holds the objective (closed), 3 TRD sub-issues with the wave edge, summaries, verification, pages, todo, quick', () => {
+    const { fake, remote } = W;
+    const byId = (id) => fake.issues.filter((i) => i.body.includes(`devflow:id=${id} `) || i.body.includes(`devflow:id=${id}-->`) || i.body.includes(`devflow:id=${id} -->`));
+    const trdIssues = ['7-01', '7-02', '7-03'].map((id) => {
+      const hits = byId(id);
+      assert.equal(hits.length, 1, `one issue for TRD ${id}`);
+      return hits[0];
+    });
+    const objective = fake.issues.find((i) => i.number === trdIssues[0].parent);
+    assert.ok(objective, 'the TRD issues hang under the objective issue');
+    assert.deepEqual([...objective.subIssues].sort(), trdIssues.map((i) => i.number).sort(), 'the 3 TRDs are its sub-issues');
+    for (const i of trdIssues) assert.equal(i.parent, objective.number);
+    assert.deepEqual(trdIssues[2].blockedBy, [trdIssues[0].number], '07-03 (wave 2) is blocked by 07-01');
+    assert.deepEqual(trdIssues[0].blockedBy, []);
+    assert.deepEqual(trdIssues[1].blockedBy, []);
+    assert.equal(objective.state, 'CLOSED', 'objective set-status complete closes the objective');
+    assert.equal(String(objective.stateReason).toLowerCase(), 'completed');
+
+    const commentsOn = (n, kind) => fake.comments.filter((c) => c.issue_number === n && c.body.includes(`kind=${kind}`));
+    trdIssues.forEach((i, k) => {
+      const s = commentsOn(i.number, 'summary');
+      assert.equal(s.length, 1, `one devflow:summary comment on TRD 7-0${k + 1}`);
+      assert.ok(s[0].body.includes(R.draftText(`07-0${k + 1}-SUMMARY.md`).trimEnd()), 'the comment carries the final SUMMARY');
+    });
+    const verification = commentsOn(objective.number, 'verification');
+    assert.equal(verification.length, 1, 'one sticky verification comment');
+    assert.ok(verification[0].body.includes('GitHub holds every planning file'));
+
+    const pages = Object.values(wikiPages(remote));
+    assert.ok(pages.some((t) => t && t.includes(R.draftText('07-CONTEXT.md').trimEnd())), 'the Context wiki page');
+    assert.ok(pages.some((t) => t && t.includes(R.draftText('07-RESEARCH.md').trimEnd())), 'the Research wiki page');
+
+    const todos = fake.issues.filter((i) => i.labels.includes('devflow:todo'));
+    assert.equal(todos.length, 1, 'one devflow:todo issue');
+    assert.equal(todos[0].state, 'OPEN');
+    const quicks = fake.issues.filter((i) => i.body.includes('devflow:id=quick-1'));
+    assert.equal(quicks.length, 1, 'one quick issue');
+    assert.equal(quicks[0].state, 'CLOSED', 'quick summary closes the quick issue');
+    assert.equal(commentsOn(quicks[0].number, 'summary').length, 1, 'with its summary comment');
+  });
+
+  test('4. delete the cache, gh pull --all rebuilds every file byte-identically; a second pull writes nothing', () => {
+    const before = snapshotPlanning(R, isCache);
+    assert.ok(Object.keys(before).length >= 12, Object.keys(before).join('\n'));
+    for (const rel of Object.keys(before)) fs.rmSync(R.planning(rel));
+    const writes = W.fake.writes().length;
+
+    const first = capture(() => ghPull.cmdGhPull(R.root, ['--all'], true));
+    assert.equal(first.code, 0, first.stdout + first.stderr);
+    const rebuilt = snapshotPlanning(R, isCache);
+    assert.deepEqual(Object.keys(rebuilt).sort(), Object.keys(before).sort(), 'the same cache files');
+    for (const rel of Object.keys(before)) assert.ok(before[rel].equals(rebuilt[rel]), `${rel} is byte-identical after the pull`);
+
+    const all = snapshotPlanning(R, (rel) => !rel.split('/').some((s) => s.startsWith('.')));
+    const second = capture(() => ghPull.cmdGhPull(R.root, ['--all'], true));
+    assert.equal(second.code, 0, second.stdout + second.stderr);
+    const again = snapshotPlanning(R, (rel) => !rel.split('/').some((s) => s.startsWith('.')));
+    assert.deepEqual(Object.keys(again).sort(), Object.keys(all).sort());
+    for (const rel of Object.keys(all)) assert.ok(all[rel].equals(again[rel]), `${rel} unchanged by the second pull`);
+    assert.equal(W.fake.writes().length, writes, 'a pull never writes to GitHub');
+    assert.deepEqual(R.gitStatus(), [], 'the pulled cache is ignored by git');
+  });
+
+  test('5. validate health (spawned, same HOME/outbox) reports no W055 after the scenario', () => {
+    const { drift } = w055(R);
+    assert.deepEqual(drift, []);
+  });
+
+  test('6. negative: a Bash-style write to a cached TRD -> W055 naming the file and `plan put-trd`', () => {
+    const rel = `${D}/07-01-alpha-TRD.md`;
+    const original = R.read(rel);
+    fs.writeFileSync(R.planning(rel), `${original}\nEdited behind the verbs' back.\n`);
+    try {
+      const { drift } = w055(R);
+      assert.equal(drift.length, 1, JSON.stringify(drift, null, 2));
+      const text = `${drift[0].message}\n${drift[0].fix || ''}`;
+      assert.ok(text.includes('07-01-alpha-TRD.md'), text);
+      assert.match(text, /plan put-trd/);
+    } finally {
+      fs.writeFileSync(R.planning(rel), original);
+    }
+    assert.deepEqual(w055(R).drift, [], 'restoring the bytes clears it');
+  });
+
+  test('7. negative: offline plan put-trd queues (exit 3); the next online gh outbox flush exits 0 and settles the ledger', () => {
+    const rel = `${D}/07-04-delta-TRD.md`;
+    W.fake.setOffline(true);
+    let queued;
+    try {
+      queued = verb(R.root, ['plan', 'put-trd', '7', '07-04-delta-TRD.md', '--from', R.draft('07-04-delta-TRD.md')]);
+    } finally {
+      W.fake.setOffline(false);
+    }
+    assert.equal(queued.code, 3, queued.stdout + queued.stderr);
+    assert.equal(R.read(rel), R.draftText('07-04-delta-TRD.md'), 'the cache file is written');
+    assert.ok(outbox.readJournal(R.root).journal.ops.some((op) => op.status !== 'done'), 'the journal holds the op');
+    assert.ok(ledgerLib.readLedger(R.root).entries[rel], 'the write is in the ledger');
+
+    const flush = capture(() => storeCli.cmdGhOutbox(R.root, ['flush'], true));
+    assert.equal(flush.code, 0, flush.stdout + flush.stderr);
+    assert.deepEqual(outbox.readJournal(R.root).journal.ops.filter((op) => op.status !== 'done'), [], 'drained');
+    assert.equal(ledgerLib.readLedger(R.root).entries[rel], undefined, 'the ledger entry is settled');
+    assert.ok(W.fake.issues.some((i) => i.body.includes('devflow:id=7-04')), 'the TRD issue exists after the flush');
+    assert.deepEqual(R.gitStatus(), []);
+    assert.deepEqual(w055(R).drift, []);
   });
 });
