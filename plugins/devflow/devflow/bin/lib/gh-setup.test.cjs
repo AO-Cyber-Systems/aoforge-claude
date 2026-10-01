@@ -6,7 +6,7 @@
 // renderer is pure, and `readSetupState` makes gh READS only (tested against the 50-01 fake, whose
 // `writes()` must stay empty). Nothing here touches the network, port 8080, or the real ~/.claude.
 
-const { describe, test } = require('node:test');
+const { describe, test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
 const setup = require('./gh-setup.cjs');
@@ -785,5 +785,231 @@ describe('renderPlan (test 10)', () => {
   test('renderPlan is pure: the same actions render the same text', () => {
     const actions = deepFreeze(setup.planSetup(baseState()));
     assert.equal(setup.renderPlan(actions), setup.renderPlan(actions));
+  });
+});
+
+// ─── Test 11: readSetupState against the fake ────────────────────────────────
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const client = require('./gh-client.cjs');
+const wiki = require('./gh-wiki.cjs');
+const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
+const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+const GIT_OK = { ok: true, status: 0, stdout: 'abc123\tHEAD\n', stderr: '' };
+const FORBIDDEN = { status: 1, stderr: 'gh: Forbidden (HTTP 403)', stdout: '{"message":"Forbidden","status":"403"}' };
+
+describe('readSetupState (test 11)', () => {
+  let hermetic;
+  let root;
+  let fake;
+
+  beforeEach(() => {
+    hermetic = hermeticEnv();
+    // The wiki is probed through gh-wiki's git seam: a stub that answers, never a network call.
+    wiki._setRunGit(() => ({ ...GIT_OK }));
+  });
+
+  afterEach(() => {
+    client._resetClient();
+    wiki._setRunGit(null);
+    if (root) fs.rmSync(root, { recursive: true, force: true });
+    root = null;
+    hermetic.restore();
+  });
+
+  /** A project dir with `.planning/config.json` (github enabled, repo o/r) and any extra files (relative path -> text). */
+  function project(github = {}, files = {}) {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-setup-'));
+    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', ...github } })}\n`);
+    for (const [rel, text] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), text);
+    }
+    return root;
+  }
+
+  function install(opts = {}) {
+    fake = createFakeGitHub(opts);
+    client._setRunGh(fake.runGh);
+    return fake;
+  }
+
+  const ours = { name: 'devflow: default branch', enforcement: 'active', conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } }, rules: [{ type: 'deletion' }] };
+  const writeRecord = (record, text) => {
+    const dir = path.join(hermetic.env.DEVFLOW_GH_CACHE_DIR, 'setup');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'o__r.json'), text === undefined ? JSON.stringify(record) : text);
+  };
+
+  test('reads the repo, rulesets (full body for ours), labels, types, fields, wiki and local files, with zero writes', () => {
+    install({
+      rulesets: [ours, { name: 'org-wide', enforcement: 'evaluate' }],
+      types: [
+        { id: 1, name: 'Objective', is_enabled: true }, { id: 2, name: 'TRD', is_enabled: true }, { id: 3, name: 'Decision', is_enabled: false },
+      ],
+      hasWiki: true,
+    });
+    fake.labels.push('devflow:trd');
+    const dir = project({ app_id: 42, pr: { merge_method: 'rebase' } }, {
+      '.github/workflows/devflow.yml': TEMPLATES.workflow,
+      '.github/workflows/ci.yml': 'name: ci\non: pull_request\n',
+      '.github/workflows/lint.yaml': 'name: lint\non: push\n',
+      '.github/pull_request_template.md': '## mine\n',
+    });
+
+    const r = setup.readSetupState(dir);
+    assert.equal(r.ok, true, r.error);
+    const s = r.state;
+    assert.deepEqual([s.repo, s.owner, s.name, s.ownerType], ['o/r', 'o', 'r', 'Organization']);
+    assert.deepEqual(s.meta, { has_wiki: true, delete_branch_on_merge: false, default_branch: 'main', private: false });
+    assert.equal(s.github.app_id, 42);
+    assert.equal(s.github.pr.merge_method, 'rebase');
+
+    assert.equal(s.rulesets.length, 2);
+    const mine = s.rulesets.find((x) => x.name === 'devflow: default branch');
+    assert.deepEqual(mine.rules, [{ type: 'deletion' }], 'the full body of our ruleset was read by id');
+    assert.deepEqual(mine.conditions, ours.conditions);
+    assert.equal(mine.id, 9001);
+    const other = s.rulesets.find((x) => x.name === 'org-wide');
+    assert.equal(other.rules, undefined, 'a ruleset that is not ours stays a summary');
+
+    assert.deepEqual(s.labels, ['devflow:trd']);
+    assert.deepEqual(s.types.map((t) => [t.name, t.is_enabled]), [['Objective', true], ['TRD', true], ['Decision', false]]);
+    assert.deepEqual(s.types[2].id, 3, 'the id is kept: an update PUTs to it');
+    assert.deepEqual(s.fields.map((f) => f.name), ['work', 'kind']);
+    assert.equal(s.wiki, 'ok');
+    assert.equal(s.capabilities.owner_type, 'Organization');
+
+    assert.equal(s.local.workflow, TEMPLATES.workflow);
+    assert.equal(s.local.prTemplate, '## mine\n');
+    assert.deepEqual(s.local.otherWorkflows, [
+      { file: '.github/workflows/ci.yml', text: 'name: ci\non: pull_request\n' },
+      { file: '.github/workflows/lint.yaml', text: 'name: lint\non: push\n' },
+    ], 'every other workflow, sorted, never devflow.yml itself');
+    assert.deepEqual(s.record, {});
+    assert.equal(s.templates, undefined, 'templates are an input of planSetup, not something the reader invents');
+
+    assert.deepEqual(fake.writes(), [], 'zero gh writes');
+    assert.ok(fake.calls().length > 0);
+  });
+
+  test('absent local files read as null and an absent .github as no other workflows', () => {
+    install();
+    const s = setup.readSetupState(project()).state;
+    assert.equal(s.local.workflow, null);
+    assert.equal(s.local.prTemplate, null);
+    assert.deepEqual(s.local.otherWorkflows, []);
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('the whole read feeds planSetup: an empty repository plans creates, a set-up one plans nothing', () => {
+    install();
+    const empty = setup.readSetupState(project());
+    const plan = setup.planSetup({ ...empty.state, templates: TEMPLATES });
+    assert.equal(pick(plan, 'ruleset').status, 'create');
+    assert.deepEqual(fake.writes(), []);
+    client._resetClient();
+    fs.rmSync(root, { recursive: true, force: true });
+
+    install({
+      rulesets: [setup.desiredRuleset({ mergeMethod: 'squash' })],
+      types: TYPE_NAMES.map((name, i) => ({ id: i + 1, name, is_enabled: true })),
+      deleteBranchOnMerge: true,
+    });
+    fake.labels.push(...ALL_LABELS);
+    const dir = project({}, { [WORKFLOW_PATH]: TEMPLATES.workflow, [PR_TEMPLATE_PATH]: `${BLOCK}\n` });
+    const full = setup.readSetupState(dir);
+    const settled = setup.planSetup({ ...full.state, templates: TEMPLATES }).filter((a) => a.status !== 'advisory');
+    assert.ok(settled.every((a) => a.status === 'exists'), settled.filter((a) => a.status !== 'exists').map((a) => `${a.kind} ${a.target} ${a.status}`).join(', '));
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('a User-owned repository: no org endpoint is read, types and fields are null', () => {
+    install({ ownerType: 'User' });
+    const r = setup.readSetupState(project());
+    assert.equal(r.ok, true, r.error);
+    assert.equal(r.state.ownerType, 'User');
+    assert.equal(r.state.types, null);
+    assert.equal(r.state.fields, null);
+    assert.deepEqual(fake.calls().filter((argv) => argv.join(' ').includes('orgs/')), [], 'never asked an org endpoint');
+    assert.deepEqual(fake.writes(), []);
+  });
+
+  test('a disabled wiki is reported as disabled', () => {
+    install({ hasWiki: false });
+    assert.equal(setup.readSetupState(project()).state.wiki, 'disabled');
+  });
+
+  test('the setup record is read from <gh cache dir>/setup/<owner>__<repo>.json; refresh ignores it; junk reads as empty', () => {
+    install();
+    const dir = project();
+    writeRecord({ merge_queue: false, at: '2026-10-01T00:00:00.000Z' });
+    assert.equal(setup.setupRecordPath('o/r'), path.join(hermetic.env.DEVFLOW_GH_CACHE_DIR, 'setup', 'o__r.json'));
+    assert.deepEqual(setup.readSetupState(dir).state.record, { merge_queue: false, at: '2026-10-01T00:00:00.000Z' });
+    assert.deepEqual(setup.readSetupState(dir, { refresh: true }).state.record, {});
+    writeRecord(null, 'not json');
+    assert.deepEqual(setup.readSetupState(dir).state.record, {});
+    writeRecord(null, '[1,2]');
+    assert.deepEqual(setup.readSetupState(dir).state.record, {});
+  });
+
+  test('a rulesets list that cannot be read is a null with the reason, never a failure', () => {
+    install();
+    fake.failNext((argv) => argv.join(' ').includes('repos/o/r/rulesets'), FORBIDDEN);
+    const r = setup.readSetupState(project());
+    assert.equal(r.ok, true);
+    assert.equal(r.state.rulesets, null);
+    assert.match(r.state.readErrors.rulesets, /403/);
+    assert.equal(pick(setup.planSetup({ ...r.state, templates: TEMPLATES }), 'ruleset').status, 'skip');
+  });
+
+  test('our ruleset whose body cannot be read stays a summary (planSetup leaves it alone)', () => {
+    install({ rulesets: [ours] });
+    fake.failNext((argv) => /repos\/o\/r\/rulesets\/9001/.test(argv.join(' ')), FORBIDDEN);
+    const r = setup.readSetupState(project());
+    assert.equal(r.ok, true);
+    assert.equal(r.state.rulesets[0].rules, undefined);
+    assert.match(r.state.readErrors.ruleset, /403/);
+    assert.equal(pick(setup.planSetup({ ...r.state, templates: TEMPLATES }), 'ruleset').status, 'skip');
+  });
+
+  test('types or fields that cannot be read are null with the reason', () => {
+    install();
+    fake.failNext((argv) => argv.join(' ').includes('orgs/o/issue-types'), FORBIDDEN);
+    const r = setup.readSetupState(project());
+    assert.equal(r.ok, true);
+    assert.equal(r.state.types, null);
+    assert.match(r.state.readErrors.types, /403/);
+    assert.equal(Array.isArray(r.state.fields), true, 'fields were still read');
+  });
+
+  test('github.enabled false: skipped with zero gh calls', () => {
+    client._setRunGh(() => { throw new Error('gh must not run when github is disabled'); });
+    const r = setup.readSetupState(project({ enabled: false }));
+    assert.equal(r.ok, false);
+    assert.equal(r.skipped, true);
+    assert.match(r.reason, /github\.enabled/);
+  });
+
+  test('a repository that cannot be read is a failure that says so', () => {
+    install({ repo: 'x/y' });
+    const r = setup.readSetupState(project());
+    assert.equal(r.ok, false);
+    assert.match(r.error, /o\/r/);
+    assert.match(r.error, /not found|not accessible/);
+  });
+
+  test('every gh call is a read, nothing is written to the project, and the cache stays in the temp dir', () => {
+    install();
+    const dir = project({}, { [WORKFLOW_PATH]: TEMPLATES.workflow });
+    const before = fs.readdirSync(dir).sort();
+    setup.readSetupState(dir);
+    assert.deepEqual(fake.writes(), []);
+    assert.deepEqual(fs.readdirSync(dir).sort(), before);
+    assert.equal(fs.readFileSync(path.join(dir, WORKFLOW_PATH), 'utf-8'), TEMPLATES.workflow);
   });
 });
