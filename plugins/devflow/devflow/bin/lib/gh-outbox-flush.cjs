@@ -30,6 +30,14 @@
  *
  * Results of a handler: `{ok:true, warnings, note?}`, `{ok:false, class, error, retry_after_ms?}` or
  * `{ok:false, halt:true, issue_number, detail}`.
+ *
+ * Issue roles (`upsert-issue` target.role, gh-outbox ROLES):
+ *   trd, decision        47: mapped under `trds`, labelled labels.trd / labels.decision, types TRD / Decision
+ *   todo, debug, quick   48-06: mapped under `entities` (gh-mapping getEntity / setEntity), labelled
+ *                        labels.<role> or gh-outbox ENTITY_ROLES[role].label; Debug / Quick are optional
+ *                        issue types (devflow:type/<name> when the org lacks one), a todo never carries a type.
+ *                        An entity body is fully DevFlow-managed (the TRD rule: any remote edit halts) and is
+ *                        never frozen. Comments and state changes reach entities through issueRef.
  */
 
 const fs = require('fs');
@@ -247,10 +255,17 @@ function ensureModes(ctx) {
   return null;
 }
 
-/** `types_by_name[Name]` when the capability record is per type, else the repo-wide `types` mode. */
+/** gh-capability OPTIONAL_TYPES: a per-type record names one only when the org has it enabled. */
+const OPTIONAL_TYPE_NAMES = Object.freeze(['Debug', 'Quick']);
+
+/**
+ * `types_by_name[Name]` when the capability record is per type, else the repo-wide `types` mode. An optional
+ * type (Debug, Quick) that a per-type record does not name is not enabled for the org: `labels`.
+ */
 function typeMode(modes, name) {
   const by = modes.types_by_name;
   if (isObject(by) && typeof by[name] === 'string') return by[name];
+  if (isObject(by) && OPTIONAL_TYPE_NAMES.includes(name)) return 'labels';
   return modes.types || 'native';
 }
 
@@ -263,9 +278,10 @@ function fieldIds(ctx) {
 // ─── Issue references ─────────────────────────────────────────────────────────
 
 /**
- * Resolve a DevFlow id to its GitHub issue through the mapping. A TRD or Decision has `issue_number` and
- * `rest_id`; an objective only a number (46's `issue_id` IS the number), so `rest_id` is null for it.
- * @returns {{number:number, rest_id:number|null, kind:'trd'|'objective', id:string}|{error:string}}
+ * Resolve a DevFlow id to its GitHub issue through the mapping, in this order: TRD / Decision, entity
+ * (todo, debug, quick), objective. A TRD, Decision or entity has `issue_number` and `rest_id`; an objective
+ * only a number (46's `issue_id` IS the number), so `rest_id` is null for it.
+ * @returns {{number:number, rest_id:number|null, kind:'trd'|'entity'|'objective', id:string, role?:string}|{error:string}}
  */
 function issueRef(ctx, id) {
   const tid = mappingLib.toTrdId(id);
@@ -273,6 +289,12 @@ function issueRef(ctx, id) {
     const e = mappingLib.getTrd(ctx.mapping, tid);
     if (!e) return { error: `TRD ${tid} has no issue yet; run gh sync first` };
     return { number: e.issue_number, rest_id: e.rest_id, kind: 'trd', id: tid };
+  }
+  const ent = mappingLib.toEntityId(id);
+  if (ent !== null) {
+    const e = mappingLib.getEntity(ctx.mapping, ent.id);
+    if (!e) return { error: `${ent.id} has no issue yet; run the verb again after a flush` };
+    return { number: e.issue_number, rest_id: e.rest_id, kind: 'entity', role: e.role, id: ent.id };
   }
   const oid = mappingLib.toObjectiveId(id);
   if (oid === null) return { error: `${JSON.stringify(id)} is not an objective, TRD or Decision id` };
@@ -367,8 +389,40 @@ function ensureLabel(ctx, name) {
   return r;
 }
 
-const labelFor = (ctx, role) => (role === 'decision' ? ctx.labels.decision || 'devflow:decision' : ctx.labels.trd || 'devflow:trd');
+const isEntityRole = (role) => typeof role === 'string' && Object.hasOwn(outbox.ENTITY_ROLES, role);
+
+/** The scan label of a role: labels.<role> from config, else the default (devflow:trd, ENTITY_ROLES[role].label). */
+function labelFor(ctx, role) {
+  if (isEntityRole(role)) {
+    const configured = ctx.labels[role];
+    return typeof configured === 'string' && configured !== '' ? configured : outbox.ENTITY_ROLES[role].label;
+  }
+  return role === 'decision' ? ctx.labels.decision || 'devflow:decision' : ctx.labels.trd || 'devflow:trd';
+}
+
+/** The issue type a role carries: Decision, TRD, Debug, Quick, or null for a todo (label only, never a type). */
+function typeNameFor(role) {
+  if (isEntityRole(role)) return outbox.ENTITY_ROLES[role].type;
+  return role === 'decision' ? 'Decision' : 'TRD';
+}
+
 const typeLabel = (name) => `devflow:type/${String(name).toLowerCase()}`;
+const typeIgnored = (ctx, id, role, type) => `type ${type} ignored for ${id}: ${role} issues carry no issue type; the ${labelFor(ctx, role)} label identifies them`;
+
+/** The id of an upsert-issue target: a TRD / Decision id, or for an entity role an entity id of that role. */
+function upsertIdOf(target) {
+  if (!isEntityRole(target.role)) return mappingLib.toTrdId(target.id);
+  const e = mappingLib.toEntityId(target.id);
+  return e !== null && e.role === target.role ? e.id : null;
+}
+
+const getMapped = (ctx, id, role) => (isEntityRole(role) ? mappingLib.getEntity(ctx.mapping, id) : mappingLib.getTrd(ctx.mapping, id));
+
+/** Record an issue in the mapping: entities under `entities`, TRDs and Decisions under `trds`. */
+function setMapped(ctx, id, role, patch) {
+  if (isEntityRole(role)) mappingLib.setEntity(ctx.mapping, id, { ...patch, role });
+  else mappingLib.setTrd(ctx.mapping, id, { ...patch, role });
+}
 
 /** The issues carrying `label`, listed once per context and indexed by their `devflow:id` marker. */
 function scanByLabel(ctx, label) {
@@ -405,28 +459,42 @@ function carryTaskTicks(existing, rendered) {
 const MAX_COMMENT_BODY = trd.COMMENT_MAX_CHARS;
 
 /**
- * upsert-issue: find (mapping, else marker scan), then create or update one TRD / Decision issue.
+ * upsert-issue: find (mapping, else marker scan), then create or update one TRD / Decision / entity issue.
  * Create is one REST POST (`--input -`) that stores BOTH number and rest id. Update patches only what
- * changed and only writes the body after the remote-edit check; a frozen TRD body is never patched.
+ * changed and only writes the body after the remote-edit check; a frozen TRD body is never patched. An
+ * entity always carries its role label (the scan finds it by that label) and is never frozen.
  */
 function handleUpsertIssue(ctx, op) {
   const w = [];
   const { role } = op.target;
   const p = op.payload;
-  const id = mappingLib.toTrdId(op.target.id);
-  if (id === null) return failWith('error', `upsert-issue: ${JSON.stringify(op.target.id)} is not a TRD or Decision id`);
+  const entity = isEntityRole(role);
+  const id = upsertIdOf(op.target);
+  if (id === null) {
+    return failWith('error', entity
+      ? `upsert-issue: ${JSON.stringify(op.target.id)} is not a ${role} id`
+      : `upsert-issue: ${JSON.stringify(op.target.id)} is not a TRD or Decision id`);
+  }
   const modeErr = ensureModes(ctx);
   if (modeErr) return modeErr;
   if (trd.budget(p.body).status === 'over') {
     return failWith('validation', `issue body for ${id} is ${p.body.length} characters; the limit is ${trd.TRD_MAX_CHARS}`);
   }
 
-  const typeName = role === 'decision' ? 'Decision' : 'TRD';
-  const native = typeMode(ctx.modes, typeName) === 'native';
-  const wantType = p.type && native ? p.type : null;
-  const labels = [...new Set([...p.labels, ...(p.type && !native ? [typeLabel(p.type)] : [])])];
+  const typeName = typeNameFor(role);
+  const roleLabels = entity ? [labelFor(ctx, role)] : [];
+  let wantType = null;
+  let labels;
+  if (typeName === null) {
+    if (p.type) w.push(typeIgnored(ctx, id, role, p.type));
+    labels = [...new Set([...p.labels, ...roleLabels])];
+  } else {
+    const native = typeMode(ctx.modes, typeName) === 'native';
+    wantType = p.type && native ? p.type : null;
+    labels = [...new Set([...p.labels, ...roleLabels, ...(p.type && !native ? [typeLabel(p.type)] : [])])];
+  }
 
-  const entry = mappingLib.getTrd(ctx.mapping, id);
+  const entry = getMapped(ctx, id, role);
   let number = entry ? entry.issue_number : null;
   if (number === null) {
     const scan = scanByLabel(ctx, labelFor(ctx, role));
@@ -437,17 +505,17 @@ function handleUpsertIssue(ctx, op) {
     number = Object.hasOwn(scan.byId, id) ? scan.byId[id] : null;
   }
 
-  if (number === null) return createTrdIssue(ctx, id, role, p, labels, wantType, w);
+  if (number === null) return createIssue(ctx, id, role, p, labels, wantType, w);
 
   const got = getJson(issueEndpoint(ctx, number));
   if (!got.ok) return failFrom(got.r, `read issue #${number}`);
   const cur = got.json;
-  mappingLib.setTrd(ctx.mapping, id, { issue_number: cur.number, rest_id: cur.id, role });
+  setMapped(ctx, id, role, { issue_number: cur.number, rest_id: cur.id });
   const base = outbox.getBase(ctx.root, id);
   const ref = { number: cur.number, id };
 
   const sameBody = trd.normalise(str(cur.body)) === trd.normalise(p.body);
-  const frozen = (base && base.frozen === true) || (!sameBody && frozenByLog(ctx, cur.number));
+  const frozen = !entity && ((base && base.frozen === true) || (!sameBody && frozenByLog(ctx, cur.number)));
   if (frozen) {
     if (base && trd.contentHash(str(cur.body)) !== base.body_hash) {
       w.push(`drift: frozen TRD ${id} (#${cur.number}) differs from its last recorded body; it was not patched`);
@@ -494,8 +562,11 @@ function handleUpsertIssue(ctx, op) {
   return ok(w, { issue_number: cur.number });
 }
 
-/** Create one TRD / Decision issue. Labels and the milestone are ensured first; the type is verified after. */
-function createTrdIssue(ctx, id, role, p, labels, wantType, w) {
+/**
+ * Create one TRD / Decision / entity issue. Labels and the milestone are ensured first; the type is verified
+ * after. The mapping writer follows the role (setMapped).
+ */
+function createIssue(ctx, id, role, p, labels, wantType, w) {
   for (const l of labels) {
     const failed = ensureLabel(ctx, l);
     if (failed) return failFrom(failed, `create label ${l}`);
@@ -511,7 +582,7 @@ function createTrdIssue(ctx, id, role, p, labels, wantType, w) {
   const sent = sendJson('POST', `repos/${ctx.repo}/issues`, body);
   if (!sent.ok) return failFrom(sent.r, `create issue for ${id}`);
   const made = sent.json;
-  mappingLib.setTrd(ctx.mapping, id, { issue_number: made.number, rest_id: made.id, role });
+  setMapped(ctx, id, role, { issue_number: made.number, rest_id: made.id });
   if (wantType && !(made.type && made.type.name === wantType)) {
     w.push(`type ${wantType} not applied to #${made.number} (${id}): GitHub dropped it (no push access, or the org has no such issue type); the ${labelFor(ctx, role)} label still identifies it`);
   }
@@ -566,7 +637,7 @@ function handlePatchBody(ctx, op) {
     saveBase(ctx, ref.id, cur, w);
     return ok(w, { issue_number: ref.number });
   }
-  const chk = remoteEditCheck(base, cur, p.mode === 'managed');
+  const chk = remoteEditCheck(base, cur, p.mode === 'managed' && ref.kind !== 'entity');
   if (chk.halt) return haltResult(ref, op, 'issue');
   if (chk.note) w.push(chk.note);
 
@@ -658,8 +729,13 @@ function handlePatchIssue(ctx, op) {
   const have = labelNames(cur);
   const wantLabels = [...(p.labels_add || [])];
   if (p.type !== undefined) {
-    const typeName = ref.kind === 'objective' ? 'Objective' : (/-d\d+$/.test(ref.id) ? 'Decision' : 'TRD');
-    if (typeMode(ctx.modes, typeName) === 'native') {
+    let typeName;
+    if (ref.kind === 'objective') typeName = 'Objective';
+    else if (ref.kind === 'entity') typeName = typeNameFor(ref.role);
+    else typeName = /-d\d+$/.test(ref.id) ? 'Decision' : 'TRD';
+    if (typeName === null) {
+      w.push(typeIgnored(ctx, ref.id, ref.role, p.type));
+    } else if (typeMode(ctx.modes, typeName) === 'native') {
       if (!(cur.type && cur.type.name === p.type)) changes.type = p.type;
     } else {
       wantLabels.push(typeLabel(p.type));
@@ -791,14 +867,16 @@ function readComments(ctx, ref) {
   return list.ok ? { ok: true, items: list.items.map((c) => ({ id: c.id, body: str(c.body), updated_at: c.updated_at })) } : list;
 }
 
-/** Record the comment ids of `kind` for a TRD in the mapping (objectives keep none). */
+/** Record the comment ids of `kind` for a TRD or an entity in the mapping (objectives keep none). */
 function recordCommentIds(ctx, ref, kind, ids) {
-  if (ref.kind !== 'trd') return;
-  const e = mappingLib.getTrd(ctx.mapping, ref.id);
+  if (ref.kind !== 'trd' && ref.kind !== 'entity') return;
+  const entity = ref.kind === 'entity';
+  const e = entity ? mappingLib.getEntity(ctx.mapping, ref.id) : mappingLib.getTrd(ctx.mapping, ref.id);
   if (!e) return;
   const have = (e.comment_ids && e.comment_ids[kind]) || [];
   if (JSON.stringify(have) === JSON.stringify(ids)) return;
-  mappingLib.setTrd(ctx.mapping, ref.id, { comment_ids: { [kind]: ids } });
+  if (entity) mappingLib.setEntity(ctx.mapping, ref.id, { comment_ids: { [kind]: ids } });
+  else mappingLib.setTrd(ctx.mapping, ref.id, { comment_ids: { [kind]: ids } });
 }
 
 /** Mark a TRD frozen in the base store (the push must never patch its body again). */
