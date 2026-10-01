@@ -3,6 +3,9 @@
 // TRD 51-07 — migration 0011 github-store-backfill, part 2 (GMD-01; SC1, SC2): drain, verify, the 0010 hand-off.
 //   1  a small project: one apply queues, drains, verifies and hands off to 0010 (.gitignore, the store-mode commit
 //      steps, the stamp lists 0011 and 0010)
+//   2  SC1: the 20-objective fixture stops on the hour budget (`pending`, resumable, nothing stamped), the clock moves
+//      by `wait_ms`, and `--apply --only 0011 --confirm` completes; the end state is checked by `devflow:id` marker
+//   3  pacing over the whole run: >= 1 s between writes, <= 80 in any minute, <= 450 in any hour
 //   4  a TRD issue missing on GitHub when verification runs refuses `verify`; 0010 does not run
 //
 // no_llm_test_data: every project is the hand-built 51-02 backfill fixture (useBackfillEnv: hermetic HOME, outbox and
@@ -19,6 +22,10 @@ const upgrade = require('../upgrade.cjs');
 const outbox = require('../gh-outbox.cjs');
 const backfill = require('../gh-backfill.cjs');
 const ghBody = require('../gh-body.cjs');
+const ghHierarchy = require('../gh-hierarchy.cjs');
+const planningPaths = require('../planning-paths.cjs');
+const client = require('../gh-client.cjs');
+const gh = require('../gh.cjs');
 const { useBackfillEnv } = require('../__fixtures__/gh-backfill-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0011-github-store-backfill.cjs');
@@ -92,6 +99,52 @@ function deleteTrdIssue(fake, id) {
   return gone;
 }
 
+/** A fresh df-tools process on the same fake GitHub and clock: the gh client's per-run write budget starts over. */
+function nextRun(env) {
+  client._resetClient();
+  client._setNow(() => env.clock.t);
+  client._setSleep((ms) => { env.clock.t += ms; });
+  gh._setRunGh(env.fake.runGh);
+}
+
+const pad = (n) => String(n).padStart(2, '0');
+
+/** `devflow:id` -> issue, for the fake's issues of one type (pull requests never carry a type). */
+function byMarker(fake, type) {
+  const out = new Map();
+  for (const issue of fake.issues) {
+    if (issue.type !== type) continue;
+    const id = markerId(issue.body);
+    assert.ok(id, `a ${type} issue #${issue.number} without a devflow:id marker`);
+    assert.equal(out.has(id), false, `one ${type} issue per id (${id})`);
+    out.set(id, issue);
+  }
+  return out;
+}
+
+/** The fixture's intent for issue state (51-02 shape): shipped 1-15 (03-05 deferred), 16-18 in progress, 19 cancelled. */
+function expectedObjectiveState(n) {
+  if (n <= 15) return ['CLOSED', 'completed'];
+  if (n === 19) return ['CLOSED', 'not_planned'];
+  return ['OPEN', null];
+}
+
+function expectedTrdState(n, m) {
+  if (n <= 15) return ['CLOSED', n === 3 && m === 5 ? 'not_planned' : 'completed'];
+  if (n <= 18) return m <= 2 ? ['CLOSED', 'completed'] : ['OPEN', null];
+  if (n === 19) return ['CLOSED', 'not_planned'];
+  return ['OPEN', null];
+}
+
+/** The wiki remote's page files at master. */
+function wikiPages(env) {
+  const r = spawnSync('git', ['--git-dir', env.wiki.bareDir, 'ls-tree', '--name-only', 'master'], {
+    env: { ...process.env, ...env.env }, encoding: 'utf-8',
+  });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.split('\n').filter(Boolean).sort();
+}
+
 // ─── 1. one apply, every phase ────────────────────────────────────────────────
 
 describe('0011 drain, verify, hand-off (test 1)', () => {
@@ -157,5 +210,131 @@ describe('0011 verify (test 4)', () => {
     assert.deepEqual(trackedPlanning(env), trackedBefore, 'nothing untracked: 0010 did not run');
     assert.equal(upgrade.readStamp(env.root).migrations_applied.includes('0010'), false);
     assert.equal(m0011().detect(ctxFor(env)).applies, true, 'still applies: the hand-off is ahead');
+  });
+});
+
+// ─── 2-3. SC1: the 20-objective backfill across the hour budget ───────────────
+
+describe('0011 SC1 on the 20-objective fixture (tests 2-3)', () => {
+  // ~15 s of wall clock: the whole backfill against the fake GitHub, on fake time (no real sleep).
+  test('SC1: the backfill completes under the limits across a resume', { timeout: 300000 }, async (t) => {
+    const env = useBackfillEnv(t, { fake: { now: () => client.now() } });
+    if (!env) return;
+    const roadmapBefore = fs.readFileSync(path.join(env.root, '.planning', 'ROADMAP.md'), 'utf-8');
+    const pagesBefore = wikiPages(env);
+    // The intent, read from the fixture before anything runs: the wave edges and the TRDs that carry a SUMMARY.
+    const expectedEdges = [];
+    for (let n = 1; n <= env.shape.objectives; n++) {
+      for (const e of ghHierarchy.waveEdges(ghHierarchy.readObjectiveTrds(env.root, String(n)))) {
+        expectedEdges.push(`${e.blocker}>${e.blocked}`);
+      }
+    }
+    const summarised = env.files
+      .map((rel) => /^objectives\/[^/]+\/(\d+)-(\d+)-SUMMARY\.md$/.exec(rel))
+      .filter(Boolean)
+      .map((m) => `${parseInt(m[1], 10)}-${m[2]}`)
+      .sort();
+    assert.equal(summarised.length, env.shape.summaries);
+
+    await t.test('2: apply #1 stops on the hour budget; after wait_ms, --only 0011 --confirm completes', () => {
+      const err = stopped(ctxFor(env));
+      assert.equal(err.refusal.code, 'pending', err.message);
+      assert.equal(err.refusal.reason, 'budget', err.message);
+      assert.equal(err.refusal.budget, 'hour', err.message);
+      assert.ok(err.refusal.wait_ms > 0, `wait_ms ${err.refusal.wait_ms}`);
+      assert.ok(err.refusal.remaining > 0 && err.refusal.remaining < err.refusal.total, JSON.stringify(err.refusal));
+      assert.equal(err.refusal.resume_at, new Date(env.clock.t + err.refusal.wait_ms).toISOString());
+      assert.match(err.message, new RegExp(`not an error: ${err.refusal.remaining} of ${err.refusal.total} ops remain`));
+      assert.match(err.message, /hourly write budget/);
+      assert.match(err.message, /resume at \d{4}-\d\d-\d\dT/);
+      assert.match(err.message, /--only 0011 --confirm/);
+      assert.match(err.message, /gh-flush hook/);
+      assert.ok(backfill.hasPendingOps(env.root).pending > 0, 'the rest stays queued');
+      assert.equal(gitignoreOf(env), null, '0010 did not run');
+
+      // Inside the spent hour the runner reports a failure (not stamped) and writes nothing more.
+      const writes = env.fake.writes().length;
+      const early = applyOnly0011(env);
+      assert.deepEqual(early.applied, []);
+      assert.equal(early.failed.length, 1, JSON.stringify(early.failed));
+      assert.equal(early.failed[0].id, '0011');
+      assert.match(early.failed[0].error, /^0011 stopped \(pending\): not an error: \d+ of \d+ ops remain/);
+      assert.equal(env.fake.writes().length, writes, 'no write inside the spent hour');
+      assert.equal(upgrade.readStamp(env.root).migrations_applied.includes('0011'), false, 'nothing stamped');
+
+      // An hour later (the refusal's wait), a new run completes.
+      env.clock.t += err.refusal.wait_ms;
+      nextRun(env);
+      const r = applyOnly0011(env);
+      assert.deepEqual(r.failed, [], JSON.stringify(r.failed));
+      assert.deepEqual(r.applied.map((a) => a.id), ['0011']);
+      const stamp = upgrade.readStamp(env.root);
+      assert.ok(stamp.migrations_applied.includes('0011') && stamp.migrations_applied.includes('0010'), JSON.stringify(stamp));
+
+      // GitHub, compared by devflow:id: 20 Objective issues, 100 TRD sub-issues, the wave edges, the SUMMARY comments.
+      const objectives = byMarker(env.fake, 'Objective');
+      const trds = byMarker(env.fake, 'TRD');
+      assert.equal(objectives.size, env.shape.objectives);
+      assert.equal(trds.size, env.shape.trds);
+      const idOf = new Map([...trds].map(([id, issue]) => [issue.number, id]));
+      for (const [id, issue] of trds) {
+        const parent = objectives.get(id.split('-')[0]);
+        assert.ok(parent && parent.subIssues.includes(issue.number), `${id} is a sub-issue of its objective`);
+      }
+      const edges = [];
+      const otherBlockers = [];
+      for (const [id, issue] of trds) {
+        for (const b of issue.blockedBy) {
+          if (idOf.has(b)) edges.push(`${idOf.get(b)}>${id}`);
+          else otherBlockers.push(`${b}>${id}`);
+        }
+      }
+      assert.deepEqual(edges.sort(), expectedEdges.sort(), 'TRD blocked-by edges equal the wave edges');
+      // The one other blocker is the pending Decision that names its TRD (DECISION-002, `trd: 16-03`).
+      const decisions = byMarker(env.fake, 'Decision');
+      assert.deepEqual(otherBlockers, [...decisions.values()].map((d) => `${d.number}>16-03`));
+      const summaryComments = env.fake.comments
+        .map((c) => ghBody.extractMarker(c.body))
+        .filter((mk) => mk && mk.kind === 'summary' && /^\d+-\d+$/.test(mk.id)) // a TRD's, not the quick task's
+        .map((mk) => mk.id)
+        .sort();
+      assert.deepEqual([...new Set(summaryComments)], summarised, 'one SUMMARY comment per summarised TRD');
+
+      // History: shipped work closed completed, objective 19 and the deferred TRD not_planned, open work open.
+      for (let n = 1; n <= env.shape.objectives; n++) {
+        const o = objectives.get(String(n));
+        assert.deepEqual([o.state, o.state === 'CLOSED' ? o.stateReason : null], expectedObjectiveState(n), `objective ${n}`);
+        for (let m = 1; m <= env.shape.trdsPerObjective; m++) {
+          const id = `${n}-${pad(m)}`;
+          const i = trds.get(id);
+          assert.deepEqual([i.state, i.state === 'CLOSED' ? i.stateReason : null], expectedTrdState(n, m), `TRD ${id}`);
+        }
+      }
+
+      // The wiki got its pages; the journal is empty; every cache file is baselined; the cache is gitignored and
+      // untracked; the hand-maintained ROADMAP.md was left alone by the pull.
+      const pages = wikiPages(env);
+      assert.ok(pages.length > pagesBefore.length, `wiki pages pushed: ${pages.join(', ')}`);
+      assert.equal(backfill.hasPendingOps(env.root).any, false, 'the journal is empty');
+      const index = outbox.readCacheIndex(env.root);
+      const cache = planningPaths.listByClass(path.join(env.root, '.planning')).cache.filter((rel) => !rel.startsWith('wiki/'));
+      assert.deepEqual(cache.filter((rel) => !Object.hasOwn(index, rel)), [], 'every cache file is baselined');
+      assert.ok(gitignoreOf(env).includes(m0010().BLOCK_START));
+      assert.deepEqual(trackedPlanning(env), ['.planning/config.json']);
+      assert.equal(fs.readFileSync(path.join(env.root, '.planning', 'ROADMAP.md'), 'utf-8'), roadmapBefore,
+        'gh pull --all kept the hand-maintained ROADMAP.md');
+    });
+
+    await t.test('3: pacing over the whole run: >= 1 s apart, <= 80 per minute, <= 450 per hour', () => {
+      const ts = env.fake.writeTimes();
+      assert.ok(ts.length > outbox.BUDGET.hour, `the run crossed the hour budget (${ts.length} writes)`);
+      assert.ok(ts.every((x) => Number.isFinite(x)), 'every write is stamped on the fake clock');
+      for (let i = 1; i < ts.length; i++) {
+        assert.ok(ts[i] - ts[i - 1] >= client.MIN_WRITE_INTERVAL_MS, `writes ${i - 1} and ${i} are ${ts[i] - ts[i - 1]} ms apart`);
+      }
+      const within = (ms) => Math.max(0, ...ts.map((x) => ts.filter((y) => y >= x && y < x + ms).length));
+      assert.ok(within(60_000) <= outbox.BUDGET.minute, `per minute: ${within(60_000)}`);
+      assert.ok(within(3_600_000) <= outbox.BUDGET.hour, `per hour: ${within(3_600_000)}`);
+    });
   });
 });
