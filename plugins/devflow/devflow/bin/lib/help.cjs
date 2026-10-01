@@ -314,7 +314,7 @@ const COMMANDS = {
     mutates: true,
   },
   'gh': {
-    usage: 'df-tools gh <status|sync [<objective>|--all]|pull <objective> [--apply]|pull --all [--force]|resolve <objective>|comment <objective|#issue> <body|@file:path> [--kind k]|close-issue <objective|#issue> [comment]|sync-release <tag>|outbox <status|flush [--no-wait]|resolve <seq> --accept-remote|--overwrite>|trd <spec|freeze|fold [--force]|scope <body|@file:path> [--n K]|confirm-scope <n> [--force --reason <why>]|start> <trd>|orphans <objective>> [--raw]  (sync-objectives: deprecated alias of sync --all; outbox flush exits 0 flushed, 1 error, 2 halted for a human, 3 pending)',
+    usage: 'df-tools gh <status|sync [<objective>|--all]|pull <objective> [--apply]|pull --all [--force]|resolve <objective>|comment <objective|#issue> <body|@file:path> [--kind k]|close-issue <objective|#issue> [comment]|sync-release <tag>|outbox <status|flush [--no-wait]|resolve <seq> --accept-remote|--overwrite>|trd <spec|freeze|fold [--force]|scope <body|@file:path> [--n K]|confirm-scope <n> [--force --reason <why>]|start> <trd>|orphans <objective>|pr <start|sync|status> <objective> [--name <branch>] [--no-flush]> [--raw]  (sync-objectives: deprecated alias of sync --all; outbox flush exits 0 flushed, 1 error, 2 halted for a human, 3 pending; pr start needs a store-mode project and is online-required)',
     summary: 'Sync DevFlow planning state to and from GitHub.',
     mutates: true,
   },

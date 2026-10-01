@@ -1124,8 +1124,13 @@ async function main() {
         // df-tools gh orphans <objective> [--raw]
         const { cmdGhOrphans } = require('./lib/gh-store-cli.cjs');
         cmdGhOrphans(cwd, args.slice(2), raw);
+      } else if (subcommand === 'pr') {
+        // df-tools gh pr <start <objective> [--name <branch>]|sync <objective>|status <objective>> [--no-flush] [--raw]
+        // Store mode only (skipped otherwise). Exit codes: 0 ok, 1 error, 2 halted for a human, 3 pending.
+        const { cmdGhPr } = require('./lib/gh-pr-cli.cjs');
+        cmdGhPr(cwd, args.slice(2), raw);
       } else {
-        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans (sync-objectives: deprecated alias)');
+        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans, pr (sync-objectives: deprecated alias)');
       }
       break;
     }
