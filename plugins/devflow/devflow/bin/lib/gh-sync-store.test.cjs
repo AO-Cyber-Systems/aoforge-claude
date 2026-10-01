@@ -454,3 +454,42 @@ describe('github.store on, user-owned repo without a wiki', () => {
     assert.equal(fs.existsSync(path.join(S.root, '.planning', 'wiki')), false, 'no wiki clone is created');
   });
 });
+
+// ─── Config defaults (test 11) ───────────────────────────────────────────────
+
+describe('templates/config.json store defaults', () => {
+  const TEMPLATE = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'templates', 'config.json'), 'utf8'));
+  const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
+
+  test('11. github.store is false; labels.trd / labels.decision and wiki.remote are documented', () => {
+    assert.strictEqual(TEMPLATE.github.store, false, 'store mode is opt-in');
+    assert.strictEqual(TEMPLATE.github.labels.trd, 'devflow:trd');
+    assert.strictEqual(TEMPLATE.github.labels.decision, 'devflow:decision');
+    assert.strictEqual(TEMPLATE.github.labels.objective, 'devflow:objective', 'existing labels are preserved');
+    assert.deepStrictEqual(TEMPLATE.github.wiki, { remote: '' });
+    assert.strictEqual(TEMPLATE.github.enabled, false, 'github itself is still off by default');
+  });
+
+  test('11b. `config-get github.store` answers the documented default (false) for a project that does not set it', () => {
+    const envh = hermeticEnv();
+    const project = makeStoreProject({ store: false });
+    try {
+      const { spawnSync } = require('node:child_process');
+      for (const [key, expected] of [['github.store', 'false'], ['github.labels.trd', 'devflow:trd'], ['github.labels.decision', 'devflow:decision']]) {
+        const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', project.root, 'config-get', key, '--raw'], { encoding: 'utf8' });
+        assert.strictEqual(r.status, 0, `${key}: ${r.stderr}`);
+        assert.strictEqual(r.stdout, expected, key);
+      }
+      // a project that opted in keeps its own value
+      const file = path.join(project.root, '.planning', 'config.json');
+      const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+      cfg.github.store = true;
+      fs.writeFileSync(file, JSON.stringify(cfg));
+      const on = spawnSync(process.execPath, [DF_TOOLS, '--cwd', project.root, 'config-get', 'github.store', '--raw'], { encoding: 'utf8' });
+      assert.strictEqual(on.stdout, 'true');
+    } finally {
+      project.cleanup();
+      envh.restore();
+    }
+  });
+});
