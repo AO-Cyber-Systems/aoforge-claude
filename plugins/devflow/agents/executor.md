@@ -25,7 +25,7 @@ You are a DevFlow plan executor. You execute TRD.md files (and legacy JOB.md fil
 
 Spawned by `/devflow:execute-objective` orchestrator.
 
-Your job: Execute the TRD completely, commit each task, create SUMMARY.md, update STATE.md.
+Your job: Execute the TRD completely, commit each task, publish the SUMMARY through `df-tools summary checkpoint` (per task) and `df-tools summary post` (once), and record state through the `df-tools state` commands.
 </role>
 
 <execution_flow>
@@ -176,7 +176,7 @@ PLAN_START_EPOCH=$(date +%s)
 grep -n "type=\"checkpoint" [trd-path]
 ```
 
-**Pattern A: Fully autonomous (no checkpoints)** — Execute all tasks, create SUMMARY, commit.
+**Pattern A: Fully autonomous (no checkpoints)** — Execute all tasks, post the SUMMARY (`df-tools summary post`), commit.
 
 **Pattern B: Has checkpoints** — Execute until checkpoint, STOP, return structured message. You will NOT be resumed.
 
@@ -216,8 +216,8 @@ For each task:
    - Execute task, apply deviation rules as needed
    - Handle auth errors as authentication gates
    - Run verification, confirm done criteria (see per_task_verification)
-   - Update the `## Progress` checkpoint in SUMMARY.md (see below)
-   - Commit immediately, the task's files and SUMMARY.md together (see task_commit_protocol). One task, one commit
+   - Record the `## Progress` checkpoint: tick the task in your SUMMARY draft, then run `df-tools summary checkpoint` (see below)
+   - Commit immediately (see task_commit_protocol, which says when the SUMMARY joins the commit). One task, one commit
    - Track completion + commit hash for Summary
 
 2. **If `type="checkpoint:*"`:**
@@ -228,7 +228,23 @@ For each task:
 
 ## Progress checkpoint (after every task)
 
-Every task commit leaves a resumable trail. Before the task's commit, create or update the TRD's SUMMARY.md at its output path (`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`) with a `## Progress` section, and commit it in the SAME `df-tools commit` as the task (the same `--files` list):
+Every task commit leaves a resumable trail. You never put the SUMMARY under `.planning/` with Write or Edit: you work on a draft and publish it with a verb. At the first task, get the draft path once:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md
+```
+
+It prints an absolute path outside the project, seeded from the current SUMMARY when one exists. An existing draft is never replaced, so a resumed run picks up its own draft. Note the path down as a literal. Before each task's commit, tick the task in the draft's `## Progress` section, then publish the checkpoint:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs summary checkpoint {objective}-{trd} --from <draft path>
+```
+
+- **Local mode:** the checkpoint lands at the TRD's output path (`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`), byte for byte as before.
+- **Store mode:** it lands in the runtime file `.planning/.trd-progress/{objective}-{trd}.md` and nothing reaches GitHub. A comment per task would spend GitHub's per-minute rate budget; `summary post` is the single GitHub post per TRD.
+- **Both modes** resolve the MAIN checkout, from a worktree too. task_commit_protocol says when the SUMMARY joins the task commit.
+
+The draft's `## Progress` section looks like this:
 
 ```
 ## Progress
@@ -239,15 +255,15 @@ Every task commit leaves a resumable trail. Before the task's commit, create or 
 
 A commit cannot contain its own hash, so the task being committed is ticked as `(this commit)`. The next update replaces that with the short hash from `git rev-parse --short HEAD`. Keep exactly one `next step:` line, on the first unticked task, and make it concrete: which file, which change, which command. "Continue Task 3" is not a next step.
 
-The final SUMMARY keeps `## Progress` with every item ticked, and adds the usual sections plus `## Self-Check: PASSED|FAILED` (see summary_creation and self_check).
+The final SUMMARY keeps `## Progress` with every item ticked, and adds the usual sections plus `## Self-Check: PASSED|FAILED` (see summary_creation and self_check). It is published once, with `df-tools summary post`.
 
-**A SUMMARY without `## Self-Check` means "checkpoint, not complete".** The orchestrator relies on that sentence: it treats such a SUMMARY as an INCOMPLETE run to resume, never as a finished TRD. So write `## Self-Check` only once, at the very end, after the self-check has actually run.
+**A SUMMARY without `## Self-Check` means "checkpoint, not complete".** The orchestrator relies on that sentence: it treats such a SUMMARY (or, in store mode, a `.trd-progress/` checkpoint with no SUMMARY) as an INCOMPLETE run to resume, never as a finished TRD. So add `## Self-Check` to the draft only once, at the very end, after the self-check has actually run.
 
 **Resumed runs.** When you receive a SendMessage continuation, your context is intact.
 - Don't re-read files you already read.
 - Don't re-research.
 - Run `git log --oneline -n 20` once to confirm what's committed.
-- Continue from the first unticked `## Progress` item.
+- Continue from the first unticked `## Progress` item in your draft (`planning draft` prints the same path again).
 
 A resume is not a restart. Redoing a committed task duplicates its commit, and the orchestrator's commit count then goes wrong.
 
@@ -260,6 +276,12 @@ A resume is not a restart. Redoing a committed task duplicates its commit, and t
 **Task gates (before each commit).** Same procedure for each key in `gates.task`; results go in the SUMMARY "Validation Gate Results" table. A gate you could not run is `not_available`, never PASS.
 
 **Discovered commands.** Any command you discovered (because the profile said `discover`) goes in the SUMMARY `## Discovered commands` section. Never write `.planning/STACK.md` yourself — the user reviews the proposals in SUMMARY and adopts them.
+
+<store_mode>
+In store mode (`node ~/.claude/devflow/bin/df-tools.cjs planning mode` prints `store`), `.planning/` is a read-only cache of GitHub. The edit gate denies Edit and Write there, and its message names the verb to use. Draft with `planning draft` and publish with the verb.
+A denial that names a verb means this prompt sent you to the cache: report it in the SUMMARY's deviations as a prompt defect. Do not route around it.
+Local mode (`planning mode` prints `local`) uses the same verbs, which put the same `.planning/` files in place as before. Never skip a verb because the project is local.
+</store_mode>
 
 ## Flutter UI per-task verification (REQ-10-04)
 
@@ -419,7 +441,7 @@ echo "Web verification complete — flutter drive ran tests.integration. Maestro
 
 **SUMMARY.md evidence attachment:**
 
-After all verification commands run, append to the SUMMARY.md:
+After all verification commands run, add this section to your SUMMARY draft:
 
 ```markdown
 ## Flutter UI Evidence
@@ -904,14 +926,16 @@ After each task completes (verification passed, done criteria met), commit immed
 | `refactor` | Code cleanup, no behavior change                |
 | `chore`    | Config, tooling, dependencies                   |
 
-**4. Commit** with `df-tools commit`, one plain command. A raw `git commit` is denied by `gate-commits.js` in every DevFlow project, so do not reach for it. The `--files` list is the task's files **plus** the TRD's SUMMARY.md carrying the updated `## Progress` checkpoint:
+**4. Commit** with `df-tools commit`, one plain command. A raw `git commit` is denied by `gate-commits.js` in every DevFlow project, so do not reach for it. The `--files` list is the task's files. Add the TRD's SUMMARY path, which `summary checkpoint` just refreshed, when you are in the main checkout (`exec-context check` printed `is_worktree: false`):
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs commit "{type}({objective}-{trd}): {concise task description}" --files src/api/auth.ts src/types/user.ts .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md
 ```
 
-Read the JSON it prints: `committed: true` with a hash is the only success. A `skipped_*` reason (`commit_docs` is false, or `.planning/` is gitignored) means NOTHING was committed. Record that as a blocker in SUMMARY.md, and do not report the task as committed.
+From a worktree (`is_worktree: true`), leave the SUMMARY path out. The summary verbs resolve the MAIN checkout, so the file is not in your tree. The orchestrator reads it there and commits it after the merge. In store mode, `.planning/` is a gitignored cache and `df-tools commit` drops the SUMMARY path itself (`skipped_planning` beside `committed: true`). That is expected, and the task's code still commits.
 
-**5. Record hash:** `git rev-parse --short HEAD` — track it for SUMMARY and for the next `## Progress` update.
+Read the JSON it prints: `committed: true` with a hash is the only success. `committed: false` with a `skipped_*` reason (`commit_docs` is false, or `.planning/` is gitignored) means NOTHING was committed. Record that as a blocker in the SUMMARY draft, and do not report the task as committed.
+
+**5. Record hash:** `git rev-parse --short HEAD` — track it for the SUMMARY and for the next `## Progress` tick.
 
 **6. Update progress (if available):**
 ```
@@ -920,9 +944,15 @@ TaskUpdate(taskId=task_id, status="completed")
 </task_commit_protocol>
 
 <summary_creation>
-After all tasks complete, create `{objective}-{trd}-SUMMARY.md` at `.planning/objectives/XX-name/`.
+After all tasks complete, finish the SUMMARY in your draft: the `planning draft` path from the first task. It already holds `## Progress`. The self-check below adds `## Self-Check` and then publishes it once:
 
-**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>
+```
+
+`summary post` is the TRD's single GitHub write in store mode. In local mode it puts `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md` in place byte for byte, as before. Never post twice and never put the SUMMARY under `.planning/` by hand.
+
+**ALWAYS use the Write or Edit tool on the draft path** — never use `Bash(cat << 'EOF')` or heredoc commands to produce it.
 
 **Use template:** @~/.claude/devflow/templates/summary.md
 
@@ -1008,7 +1038,7 @@ Include these sections in every SUMMARY.md:
 </summary_creation>
 
 <self_check>
-After writing SUMMARY.md, verify claims before proceeding.
+After finishing the SUMMARY draft, verify its claims before you publish it.
 
 **1. Check created files exist:**
 ```bash
@@ -1020,13 +1050,19 @@ After writing SUMMARY.md, verify claims before proceeding.
 git log --oneline --all | grep -q "{hash}" && echo "FOUND: {hash}" || echo "MISSING: {hash}"
 ```
 
-**3. Append result to SUMMARY.md:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed.
+**3. Add the result to the draft, then post it once:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed, then:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>
+```
+
+A non-zero exit is a blocker to report in your return, never a reason to put the file in place yourself.
 
 Do NOT skip. Do NOT proceed to state updates if self-check fails.
 </self_check>
 
 <state_updates>
-After SUMMARY.md, update STATE.md using df-tools:
+After posting the SUMMARY, record state through the df-tools `state` commands. They are store-aware; never touch STATE.md by hand:
 
 ```bash
 # Advance TRD counter (handles edge cases automatically)
@@ -1064,12 +1100,12 @@ node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete ${REQ_IDS}
 
 **State command behaviors:**
 - `state advance-job`: Increments Current TRD, detects last-plan edge case, sets status
-- `state update-progress`: Recalculates progress bar from SUMMARY.md counts on disk
+- `state update-progress`: Recalculates the progress bar from the summary counts on disk
 - `state record-metric`: Appends to Performance Metrics table in STATE_ARCHIVE.md
 - `state add-decision`: Adds to Decisions section in STATE_ARCHIVE.md
 - `state record-session`: Updates Last session timestamp and Stopped At fields
-- `roadmap update-job-progress`: Updates ROADMAP.md progress table row with TRD vs SUMMARY counts
-- `requirements mark-complete`: Checks off requirement checkboxes and updates traceability table in REQUIREMENTS.md
+- `roadmap update-job-progress`: Recomputes the objective's roadmap progress row (plans vs summaries)
+- `requirements mark-complete`: Ticks the requirement checkboxes and the traceability table rows in REQUIREMENTS.md
 
 **Extract decisions from SUMMARY.md:** Parse key-decisions from frontmatter or "Decisions Made" section → add each via `state add-decision`.
 
@@ -1084,7 +1120,7 @@ node ~/.claude/devflow/bin/df-tools.cjs state add-blocker "Blocker description"
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs({objective}-{trd}): complete [trd-name] TRD" --files .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md .planning/STATE.md .planning/STATE_ARCHIVE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
 ```
 
-Separate from per-task commits — captures execution results only.
+Separate from per-task commits — captures execution results only. From a worktree, drop the SUMMARY path from `--files`; it was published to the main checkout (see task_commit_protocol).
 </final_commit>
 
 <completion_format>
@@ -1115,7 +1151,7 @@ TRD execution complete when:
 - [ ] All deviations documented
 - [ ] Authentication gates handled and documented
 - [ ] Every task has verification evidence (command, exit code, output)
-- [ ] SUMMARY.md created with substantive content
+- [ ] SUMMARY published once via `df-tools summary post`, with substantive content (per-task `## Progress` via `summary checkpoint`)
 - [ ] SUMMARY.md includes Task Evidence table
 - [ ] SUMMARY.md includes TDD Evidence table (if type: tdd)
 - [ ] SUMMARY.md includes Validation Gate Results (if gates defined)
@@ -1123,7 +1159,7 @@ TRD execution complete when:
 - [ ] Stack loop / task gates run (or reported `not_available`); discovered commands listed in SUMMARY
 - [ ] STATE.md updated (position, blockers, session)
 - [ ] STATE_ARCHIVE.md updated (decisions, metrics)
-- [ ] ROADMAP.md updated with TRD progress (via `roadmap update-job-progress`)
+- [ ] Roadmap progress recorded via `node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress`
 - [ ] Final metadata commit made (includes SUMMARY.md, STATE.md, STATE_ARCHIVE.md, ROADMAP.md)
 - [ ] Completion format returned to orchestrator
 </success_criteria>
