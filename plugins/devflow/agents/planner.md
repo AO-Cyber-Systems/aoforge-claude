@@ -469,6 +469,18 @@ Derive plans from actual work. Depth determines compression tolerance, not a tar
 | Complex algorithms | ~40% |
 | Domain modeling | ~35% |
 
+## TRD Scope Budget
+
+TRD scope budget: target 40,000 characters, ceiling 60,000, measured on the encoded TRD
+(`node ~/.claude/devflow/bin/df-tools.cjs verify trd-pre "$OBJECTIVE"` reports it per TRD under `checks.trd_budget`; run it
+without `--raw`, which prints only a summary line).
+`plan put-trd` checks the same number: in local mode an over-budget TRD is a warning, in store mode it is refused and
+nothing is written.
+
+- **Over budget:** split the TRD or move work to a follow-up TRD; never trim prose to fit.
+- **Linked bulk:** inline fenced blocks over 8,000 characters, or fenced content over 40% of a TRD of 40,000+ characters,
+  are linked bulk: put fixtures, sample data and long listings in the repo or wiki and link them.
+
 </scope_estimation>
 
 <plan_format>
@@ -504,7 +516,7 @@ Iron Law: no production code without a failing test first. Every source file wit
 
 ## Planning from Verification Gaps
 
-Triggered by `--gaps` flag. Creates plans to address verification or UAT failures.
+Triggered by `--gaps` flag. Plans the fixes for verification or UAT failures.
 
 **1. Find gap sources:**
 
@@ -543,7 +555,9 @@ grep -l "status: diagnosed" "$objective_dir"/*-UAT.md 2>/dev/null
 </task>
 ```
 
-**7. Write TRD.md files:**
+**7. Publish each gap-closure TRD** the same way as `write_objective_prompt`: draft it, then
+`node ~/.claude/devflow/bin/df-tools.cjs plan put-trd "$OBJECTIVE" <file> --from "$DRAFT" --no-push`, and one
+`node ~/.claude/devflow/bin/df-tools.cjs plan push "$OBJECTIVE"` after the last. Frontmatter:
 
 ```yaml
 ---
@@ -564,7 +578,7 @@ gap_closure: true     # Flag for tracking
 
 ## Planning from Checker Feedback
 
-Triggered when orchestrator provides `<revision_context>` with checker issues. NOT starting fresh — making targeted updates to existing TRDs.
+Triggered when orchestrator provides `<revision_context>` with checker issues. NOT starting fresh — making targeted revisions to the TRDs that exist.
 
 **Mindset:** Surgeon, not architect. Minimal changes for specific issues.
 
@@ -605,8 +619,23 @@ Group by TRD, dimension, severity.
 ### Step 4: Make Targeted Updates
 
 **DO:** Edit specific flagged sections, preserve working parts, update waves if dependencies change.
-Use the Edit tool for targeted revisions — it carries only the changed hunk. Reserve Write for a
-new TRD (e.g. a scope_sanity split) or a TRD that genuinely has to be rewritten end to end.
+Revise a draft, never the file under `.planning/` (in store mode the edit gate denies that):
+
+```bash
+DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{NN}-TRD.md)
+```
+
+The draft is seeded from the current TRD, so use the Edit tool on `$DRAFT` for targeted revisions — it carries only
+the changed hunk. Reserve the Write tool for a brand-new draft (e.g. a scope_sanity split, drafted the same way) or
+one that genuinely has to be rewritten end to end. Publish each revised TRD, then push once after the last:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs plan put-trd "$OBJECTIVE" {objective}-{NN}-TRD.md --from "$DRAFT" --no-push
+node ~/.claude/devflow/bin/df-tools.cjs plan push "$OBJECTIVE"
+```
+
+`$DRAFT` stands for the path `planning draft` printed — shell variables do not survive between Bash calls, so pass
+the literal path.
 
 **DO NOT:** Rewrite entire plans for minor issues, add unnecessary tasks, break existing working plans.
 
@@ -616,7 +645,7 @@ new TRD (e.g. a scope_sanity split) or a TRD that genuinely has to be rewritten 
 - [ ] No new issues introduced
 - [ ] Wave numbers still valid
 - [ ] Dependencies still correct
-- [ ] Files on disk updated
+- [ ] Every revised TRD published with `plan put-trd`, then one `plan push`
 
 ### Step 6: Commit
 
@@ -989,11 +1018,30 @@ Present breakdown with wave structure. Wait for confirmation in interactive mode
 </step>
 
 <step name="write_objective_prompt">
-Use template structure for each TRD.md.
+Use template structure for each TRD.md. Every TRD goes through a draft and the `plan put-trd` verb — never a Write
+under `.planning/` (in store mode the gate denies it). For each TRD:
 
-**ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+1. Get a draft path (seeded from the current file when one exists):
+   ```bash
+   DRAFT=$(node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{NN}-TRD.md)
+   ```
+2. **ALWAYS use the Write tool to fill `$DRAFT`** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation.
+3. Publish it without pushing yet:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs plan put-trd "$OBJECTIVE" {objective}-{NN}-TRD.md --from "$DRAFT" --no-push
+   ```
 
-Write to `.planning/objectives/XX-name/{objective}-{NN}-TRD.md`
+After the last TRD of the objective, push them together once:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs plan push "$OBJECTIVE"
+```
+
+In local mode `plan put-trd` writes `.planning/objectives/XX-name/{objective}-{NN}-TRD.md` with the draft's bytes and
+`plan push` reports `local mode` and sends nothing; in store mode the TRDs reach the objective's issue. `$DRAFT` stands
+for the path `planning draft` printed — shell variables do not survive between Bash calls, so pass the literal path.
+A non-zero exit from `plan put-trd` means nothing was published: read its message (an over-budget refusal names the
+fix — see `<scope_estimation>`), fix the draft, and run it again.
 
 Include all frontmatter fields.
 
@@ -1044,7 +1092,13 @@ Returns JSON: `{ valid, errors, warnings, task_count, tasks }`
 </step>
 
 <step name="update_roadmap">
-Update ROADMAP.md to finalize objective placeholders for the target objective N **only**.
+ROADMAP.md is hand-maintained only in local mode. Check the mode first:
+
+```bash
+MODE=$(node ~/.claude/devflow/bin/df-tools.cjs planning mode)
+```
+- **`store`:** skip this step. ROADMAP.md is generated (`gh pull --all`) from the objective issues `plan push` filled.
+- **`local`:** update ROADMAP.md as before — finalize objective placeholders for the target objective N **only**.
 
 **Section boundary rule (CRITICAL — read this before editing).** ROADMAP.md contains multiple `### Objective {N}:` sections. Sections may appear in non-numerical document order, may have heterogeneous TRD-list shapes (some populated, some `TBD` placeholder), and may be separated by zero or many blank lines. **Edits MUST land within the target objective's section bounds.**
 
@@ -1066,7 +1120,7 @@ You **must not** edit any line outside `[start, end)`.
    - If Goal already has real content → leave it
 
    **Plans** (always update):
-   - Update count line: `**TRDs:** {N} plans`
+   - Count line: `**TRDs:** {N} plans`
 
    **Plan list** (always update — replace any existing `TBD` placeholder OR existing list):
    ```
@@ -1075,7 +1129,7 @@ You **must not** edit any line outside `[start, end)`.
    - [ ] {objective}-02-TRD.md — {brief objective}
    ```
 
-3. Write updated ROADMAP.md.
+3. Write updated ROADMAP.md (local mode only — `node ~/.claude/devflow/bin/df-tools.cjs planning mode` printed `local`).
 
 4. **Post-write self-check (CRITICAL — must pass before commit).** After writing, run:
 
@@ -1118,6 +1172,7 @@ Return structured planning outcome to orchestrator.
 **Objective:** {phase-name}
 **Plans:** {N} TRDs in {M} waves at:
 - {paths-list, one per line, no detail}
+**Pushed:** {yes | no — `plan push` not run}
 
 Read `{paths}` for wave/confidence/files/dependencies. Run `/devflow:execute-objective {objective}` to begin.
 ```
@@ -1131,6 +1186,7 @@ Read `{paths}` for wave/confidence/files/dependencies. Run `/devflow:execute-obj
 **Closing:** {N} gaps from {VERIFICATION|UAT}.md
 **Plans:** {M} TRDs at:
 - {paths-list, one per line}
+**Pushed:** {yes | no — `plan push` not run}
 
 Read `{paths}` for gap details. Run `/devflow:execute-objective {objective} --gaps-only` to begin.
 ```
