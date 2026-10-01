@@ -30,6 +30,11 @@ const hierarchy = require('./gh-hierarchy.cjs');
 
 const EXIT = Object.freeze({ OK: 0, ERROR: 1, HALTED: 2, PENDING: 3 });
 
+// A planning-verb write that was NOT queued (`plan put-trd --no-push`, or an enqueue that failed) is recorded in the
+// verb-write ledger with this suffix on its verb (48-11). GitHub does not hold those bytes yet, so a drained flush must
+// never baseline them; the next verb that queues the file clears the mark.
+const UNQUEUED_MARK = ' (not queued)';
+
 // ─── Results and output ──────────────────────────────────────────────────────
 
 /** @returns {{code:number, payload:object, prose:string}} */
@@ -445,6 +450,11 @@ function cmdGhOrphans(cwd, args, raw) {
 
 module.exports = {
   EXIT,
+  UNQUEUED_MARK,
+  // The enqueue-then-flush helpers, also used by the planning verbs (48-11) so a verb and a `gh` command report a
+  // flush with the same exit codes and prose.
+  queuedResult,
+  flushResult,
   cmdGhOutbox,
   cmdGhTrd,
   cmdGhOrphans,
