@@ -22,7 +22,9 @@ Load all context in one call:
 INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init execute-objective "${OBJECTIVE_ARG}")
 ```
 
-Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `jobs`, `incomplete_jobs`, `job_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `bootstrap`, `bootstrap_objectives`.
+Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `jobs`, `incomplete_jobs`, `job_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `bootstrap`, `bootstrap_objectives`, `pr_lifecycle`, `objective_branch`, `pr_number`, `branching_strategy_ignored`, `deprecations`.
+
+`pr_lifecycle` is the one switch for the objective branch and pull request (store mode). Branch on this field only; never probe config with a shell command. When it is true, `objective_branch` is the linked branch name, `pr_number` is the PR number (null until `gh pr start` has opened it) and `branch_name` is null. When it is false, every value is as before and `deprecations` is present only if `branching_strategy` is `objective` or `milestone`.
 
 **Bootstrap surface (one line, only when something changed).** If `bootstrap.applied` is true or
 `bootstrap_objectives.applied > 0`, print exactly one line and continue:
@@ -37,7 +39,17 @@ When `parallelization` is false, plans within a wave execute sequentially.
 </step>
 
 <step name="handle_branching">
-Check `branching_strategy` from init:
+Branch on `pr_lifecycle` from init.
+
+**If `pr_lifecycle` is true (store mode):** the objective runs on one linked branch with one pull request, and `branching_strategy` is ignored (init reports it as `branching_strategy_ignored`; say so in one line if it is set, and do nothing with it). Start it once, here, before the first wave:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr start "${OBJECTIVE_NUMBER}"
+```
+
+It puts the checkout on `objective_branch`, makes one start commit and opens the draft PR. It needs GitHub, so it is an online step and queues nothing. On exit 1 (offline, uncommitted changes to tracked files, an objective with no issue yet — run `df-tools gh sync` for it first — or a refused branch name) STOP: report the message and do not spawn any executor, because every later step builds on that branch. Exit 3 means the push or flush is pending: report it, run the command again, and go on once it exits 0. Re-running it on an objective that already has its branch is safe. From here on every commit goes to `objective_branch`; the merge happens through the PR (see `update_roadmap`), never by a local merge.
+
+**If `pr_lifecycle` is false (local mode):** unchanged. If init returned `deprecations`, print each entry once, then check `branching_strategy` from init:
 
 **"none":** Skip, continue on current branch.
 
@@ -252,6 +264,12 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Note the two values down as literals (`REPO_ROOT`, `WAVE_BASE`) — a shell variable does
    not survive into the next Bash call. Both go into every executor prompt in this wave.
 
+   **If `pr_lifecycle` is true:** `gh pr start` left this checkout on `objective_branch`, so the `HEAD`
+   read above is the objective branch tip, and that tip is `WAVE_BASE` for every wave, sequential or
+   parallel (each wave's merge-back moves it forward). Confirm it once per wave with
+   `git rev-parse --abbrev-ref HEAD`: it must print `objective_branch`. If it does not, STOP and report
+   it. Something switched branches mid-objective, and worktrees cut from there would build on the wrong base.
+
    **Sequential wave (`PARALLELIZATION=false`, or a single plan):** the executor runs in
    `REPO_ROOT` itself, on the branch already checked out. `WAVE_BASE` is the current HEAD,
    so the previous wave's commits are present by construction, and its preflight proves it.
@@ -320,6 +338,17 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    ```
    TRD_CONTENT = Read("{objective_dir}/{plan_file}")
    ```
+
+   **If `pr_lifecycle` is true:** mark each TRD in progress as you spawn it, one plain call per TRD:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs gh trd start {plan_id}
+   ```
+
+   It queues a label write and reads nothing, so it works offline: exit 3 only means the write is pending,
+   and the wave goes on. Exit 1 is shown as a warning and does not stop the wave. The executor's
+   `summary post` removes the label and refreshes the PR when the TRD completes, so do neither yourself.
+   The executor agent and its prompt are unchanged.
 
    ```
    Task(
@@ -458,6 +487,16 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    git worktree remove <worktree_path>
    ```
 
+   **If `pr_lifecycle` is true:** `df/exec-*` branches are never pushed. They are scratch branches for one
+   executor, and pushing one creates a stray remote branch (and can open a stray PR). Only
+   `objective_branch` ever reaches GitHub. Once a plan's branch is merged and its worktree removed,
+   delete the branch locally, one plain call per merged plan:
+   ```bash
+   git branch -d df/exec-{plan_id}
+   ```
+   `-d` refuses an unmerged branch, which is what you want: if it refuses, the merge did not happen, so
+   report it and keep the branch. A plan that fell through to item 7 keeps its branch and worktree.
+
    **Commit the wave's SUMMARYs (local mode).** The summary verbs resolve the main checkout, so each
    parallel executor's SUMMARY is already in this tree, uncommitted, and not on its branch. After the
    merges, commit them in one plain call:
@@ -466,6 +505,18 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    ```
    In store mode `.planning/` is a gitignored cache: the commit reports `skipped_gitignored` and there
    is nothing more to do.
+
+   **If `pr_lifecycle` is true, sync the objective PR once per wave** (every wave, a sequential one with
+   nothing to merge included). It pushes `objective_branch` and refreshes the PR body, so running it once
+   per wave, not after every executor, keeps the number of pushes and PR updates low:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs gh pr sync "${OBJECTIVE_NUMBER}"
+   ```
+   Exit 0: done. Exit 3: the push or the flush is pending (offline, a rate limit); say so and go on. The
+   work is committed locally, and the verify step syncs again before it posts anything. Exit 2: the outbox
+   halted for a human; stop and report it. Exit 1: show the message and go on, since the commits are
+   safe; the verify step will not post until a sync succeeds. Warnings arrive on stderr with exit 0:
+   surface them in the wave report.
 
    **Why the base is stated rather than inferred (issue #86):** platform-managed isolation
    branched from the default branch, not the parent HEAD, so on a feature branch the prior
@@ -872,6 +923,16 @@ Mark the objective as verifying before the verifier runs. The command is store-a
 node ~/.claude/devflow/bin/df-tools.cjs objective set-status "${OBJECTIVE_NUMBER}" verifying
 ```
 
+**If `pr_lifecycle` is true, sync the objective PR BEFORE the verifier runs:**
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr sync "${OBJECTIVE_NUMBER}"
+```
+
+The verification result is recorded against the PR's head commit on GitHub. Syncing first means GitHub holds the head being verified, so the status lands on the verified head instead of a stale one. This sync must exit 0. On exit 3 (pending) or exit 1, run it again; if it still does not exit 0, STOP and report why, and do not start the verifier. Nothing may be committed to `objective_branch` between this sync and the post. Run the same sync again before every re-verify in the gap-closure loop below, because the fix TRDs moved the head.
+
+The verifier's `verification post` does the rest: it queues the verification comment, the commit status, the ready-for-review change and the wiki diff when the verdict is `passed`. Do not call any of those from here.
+
 **Progress tracking (if available):**
 ```
 TaskCreate(
@@ -893,7 +954,8 @@ Objective goal: {goal from ROADMAP.md}
 Objective requirement IDs: {objective_req_ids}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from TRD/JOB frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
-Draft VERIFICATION.md from `planning draft` and publish it with `node ~/.claude/devflow/bin/df-tools.cjs verification post {objective_number} --from <draft path>`.",
+Draft VERIFICATION.md from `planning draft` and publish it with `node ~/.claude/devflow/bin/df-tools.cjs verification post {objective_number} --from <draft path>`.
+The VERIFICATION frontmatter must carry `status: passed|gaps_found|human_needed` (optional `score:`); `verification post` reads it.",
   subagent_type="verifier",
   model="{verifier_model}"
 )
@@ -971,7 +1033,7 @@ MAX_GAP_CYCLES=2
    Spawn executor agents for gap-closure TRDs (same wave-based execution as main execute step).
 
 3. **Re-verify:**
-   Re-run verification. Read new status.
+   If `pr_lifecycle` is true, run `gh pr sync` first (see the sync before the verifier above). Re-run verification. Read new status.
 
    - `passed` → Break loop, continue to update_roadmap
    - `gaps_found` → Continue loop (next cycle)
@@ -1044,6 +1106,32 @@ node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{X}): complete ob
 ```
 
 Add `.planning/objectives/{objective_dir}/OBJECTIVE.md` to `--files` when the objective has one, because `objective set-status` changed it.
+
+**If `pr_lifecycle` is true — merge the objective PR, then reconcile.**
+
+In store mode `objective complete` does not close the objective's GitHub issue while its PR is unmerged: it exits 0, writes the status and prints a warning that the close is deferred. The objective issue closes on merge, not at verify, so the objective is not finished until its PR is. Local mode is unaffected (nothing here applies to it).
+
+Offer the merge with AskUserQuestion (header "Merge", options "Merge now" and "Leave open for review"). Never merge without a yes. The merge method is `github.pr.merge_method` (default `squash`). On "Merge now":
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr merge "${OBJECTIVE_NUMBER}"
+```
+
+- exit 0: merged and reconciled in the same call. The issues are closed, the Project is Done, the checkout is back on the default branch and the objective branch is deleted.
+- exit 3: the PR was only enqueued in the merge queue (or the flush is pending). Nothing is wrong. Tell the user to run `gh pr reconcile` once it lands (below).
+- exit 2: the outbox halted for a human. Stop and report the PR and the reason it printed.
+- exit 1: refused (still a draft, no successful `devflow/verification` status on the current head, closed, or offline). Nothing was queued. Report the message. A missing or stale verification means `gh pr sync` and the verification have to be redone (`verify_objective_goal`); do not retry the merge unchanged.
+- Warnings (a kept branch, a skipped Project or local step) arrive on stderr with exit 0. Show them; do not swallow them.
+
+Then reconcile:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr reconcile "${OBJECTIVE_NUMBER}"
+```
+
+Run it when the merge exited 3 (a merge queue) and the PR has landed, or when a human merged the PR on GitHub instead. It is idempotent, so running it twice is safe. Exit 0: reconciled. Exit 3: the PR is still open or a flush is pending, so run it again later. Exit 1: the PR was closed without merging; report it and do not mark anything done.
+
+A dependent objective starts from the default branch, so merge (or reconcile) this PR before starting it.
 </step>
 
 <step name="offer_next">
