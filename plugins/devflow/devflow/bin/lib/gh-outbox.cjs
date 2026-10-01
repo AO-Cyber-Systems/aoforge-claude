@@ -43,6 +43,10 @@ const STATUSES = ['pending', 'done', 'blocked'];
 const HALT_REASONS = ['remote-edit', 'blocked'];
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
+/** Cross-process GitHub write budget: refuse at >= this many writes inside the window. */
+const BUDGET = Object.freeze({ minute: 80, hour: 450 });
+/** A flush lock older than this is assumed to belong to a dead flusher. */
+const LOCK_STALE_MS = 10 * MINUTE_MS;
 
 // ─── small validators ─────────────────────────────────────────────────────────
 
@@ -735,9 +739,227 @@ function status(projectRoot, opts = {}) {
   };
 }
 
+// ─── single-flusher lock ──────────────────────────────────────────────────────
+
+/** @returns {string} absolute path of this project's flush lock (outside the project). */
+function lockPath(projectRoot, opts = {}) {
+  return repoFile(projectRoot, '.lock', opts);
+}
+
+/**
+ * The parsed owner of a lock file, or null when it is gone. A file that cannot be parsed (a flusher
+ * caught between creating and writing it) is dated by its mtime, so it is neither instantly stale
+ * nor immortal.
+ */
+function readLockOwner(file) {
+  let raw;
+  let mtimeMs;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+    mtimeMs = fs.statSync(file).mtimeMs;
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return null;
+    throw e;
+  }
+  try {
+    const o = JSON.parse(raw);
+    if (isPlainObject(o)) {
+      const at = typeof o.at === 'number' ? o.at : Date.parse(o.at);
+      if (Number.isFinite(at)) return { pid: o.pid === undefined ? null : o.pid, at, token: o.token || null };
+    }
+  } catch {
+    // fall through to the mtime fallback
+  }
+  return { pid: null, at: mtimeMs, token: null };
+}
+
+/** Releases the lock only while the file still holds OUR pid and token; idempotent. */
+function makeRelease(file, pid, token) {
+  return function release() {
+    try {
+      const o = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (o && o.pid === pid && o.token === token) {
+        fs.unlinkSync(file);
+        return true;
+      }
+    } catch {
+      // already gone, or not ours to read: nothing to release
+    }
+    return false;
+  };
+}
+
+/**
+ * Take the per-repo flush lock so one flusher runs at a time. The file is created with O_EXCL
+ * (`wx`), holds `{pid, at, token}`, and is stale once `at` is more than `staleMs` (10 min) old.
+ * A stale lock is moved aside (rename is atomic, so only one contender wins it) and replaced.
+ *
+ * @param {string} projectRoot
+ * @param {{now?:number, staleMs?:number, pid?:number, env?:object, home?:string}} [opts]
+ * @returns {{ok:true, release:function():boolean, stale_replaced:boolean}
+ *   | {ok:false, running:true, owner:{pid:number|null, at:number|null}}}
+ *   The caller of a `running` result exits 0 with "flush already running".
+ */
+function acquireLock(projectRoot, opts = {}) {
+  const { now = Date.now(), staleMs = LOCK_STALE_MS, pid = process.pid } = opts;
+  const file = lockPath(projectRoot, opts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const token = crypto.randomBytes(8).toString('hex');
+  let staleReplaced = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const fd = fs.openSync(file, 'wx');
+      try {
+        fs.writeSync(fd, JSON.stringify({ pid, at: now, token }));
+      } finally {
+        fs.closeSync(fd);
+      }
+      return { ok: true, stale_replaced: staleReplaced, release: makeRelease(file, pid, token) };
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+    }
+    const owner = readLockOwner(file);
+    if (!owner) continue; // released between our open and our read: try again
+    if (now - owner.at <= staleMs) return { ok: false, running: true, owner: { pid: owner.pid, at: owner.at } };
+    const aside = `${file}.stale-${pid}-${token}`;
+    try {
+      fs.renameSync(file, aside);
+    } catch (e) {
+      if (e && e.code === 'ENOENT') continue; // someone else took it over first
+      throw e;
+    }
+    // Between our read and our rename another contender may have replaced the stale lock with a live
+    // one, which we have just moved aside. If what we hold is not the lock we judged stale, put it back.
+    const moved = readLockOwner(aside);
+    if (moved && (moved.at !== owner.at || moved.token !== owner.token)) {
+      try {
+        fs.linkSync(aside, file);
+      } catch {
+        // someone already created a new lock; theirs stands
+      }
+      try { fs.unlinkSync(aside); } catch { /* best effort */ }
+      return { ok: false, running: true, owner: { pid: moved.pid, at: moved.at } };
+    }
+    try { fs.unlinkSync(aside); } catch { /* best effort */ }
+    staleReplaced = true;
+  }
+  const owner = readLockOwner(file);
+  return { ok: false, running: true, owner: { pid: owner ? owner.pid : null, at: owner ? owner.at : null } };
+}
+
+// ─── cross-process write budget ───────────────────────────────────────────────
+
+/**
+ * The write budget GitHub's secondary limits need, kept in the journal so it holds across processes
+ * (gh-client's per-run counter cannot see another session). Minute window: wait for the oldest write
+ * to age out. Hour window: stop and resume later.
+ * @param {{writes?:number[]}} journal
+ * @param {number} [now]
+ * @returns {{ok:true, minute:number, hour:number}
+ *   | {ok:false, reason:'minute'|'hour', wait_ms:number, minute:number, hour:number}}
+ *   `wait_ms` is how long until enough writes age out for one more to fit. The hour (the stop) wins
+ *   when both windows are full.
+ */
+function budgetCheck(journal, now = Date.now()) {
+  const inHour = (journal.writes || []).filter((w) => typeof w === 'number' && w > now - HOUR_MS).sort((a, b) => a - b);
+  const inMinute = inHour.filter((w) => w > now - MINUTE_MS);
+  const counts = { minute: inMinute.length, hour: inHour.length };
+  if (inHour.length >= BUDGET.hour) {
+    return { ok: false, reason: 'hour', wait_ms: inHour[inHour.length - BUDGET.hour] + HOUR_MS - now, ...counts };
+  }
+  if (inMinute.length >= BUDGET.minute) {
+    return { ok: false, reason: 'minute', wait_ms: inMinute[inMinute.length - BUDGET.minute] + MINUTE_MS - now, ...counts };
+  }
+  return { ok: true, ...counts };
+}
+
+/**
+ * Record one GitHub write at `at` (epoch ms) and drop writes older than an hour. Mutates and returns
+ * `journal`; the caller persists it with writeJournal.
+ */
+function recordWrite(journal, at = Date.now()) {
+  const kept = (Array.isArray(journal.writes) ? journal.writes : []).filter((w) => typeof w === 'number' && w > at - HOUR_MS);
+  kept.push(at);
+  journal.writes = kept.sort((a, b) => a - b);
+  return journal;
+}
+
+// ─── base store: last known state of each issue, for remote-edit detection ────
+
+const positiveInt = (v) => Number.isInteger(v) && v > 0;
+
+function readMap(projectRoot, suffix, valid, opts) {
+  const { now = Date.now() } = opts;
+  return readJsonFile(repoFile(projectRoot, suffix, opts), valid, () => ({}), now).value;
+}
+
+function writeMap(projectRoot, suffix, map, opts) {
+  atomicWrite(repoFile(projectRoot, suffix, opts), `${JSON.stringify(map, null, 2)}\n`);
+}
+
+/** @returns {Object<string, {issue_number:number, issue_id:number, body_hash:string, updated_at:string|null}>} `{}` when missing */
+function readBase(projectRoot, opts = {}) {
+  return readMap(projectRoot, '.base.json', (v) => isPlainObject(v) && Object.values(v).every(isPlainObject), opts);
+}
+
+/** @returns {object|null} the base recorded for a DevFlow id */
+function getBase(projectRoot, id, opts = {}) {
+  const all = readBase(projectRoot, opts);
+  return Object.hasOwn(all, id) ? all[id] : null;
+}
+
+/**
+ * Record the last known remote state of one issue: its number AND database id (the sub-issue and
+ * dependency endpoints take the id; storing both avoids ever sending one as the other), the hash of
+ * its body and its `updated_at`. Only those four fields are kept.
+ * @returns {{ok:true, base:object}|{ok:false, error:string}}
+ */
+function setBase(projectRoot, id, entry, opts = {}) {
+  const idError = idErr(id, 'id');
+  if (idError) return { ok: false, error: idError };
+  if (!isPlainObject(entry)) return { ok: false, error: 'base entry must be an object' };
+  if (!positiveInt(entry.issue_number)) return { ok: false, error: 'issue_number must be a positive integer' };
+  if (!positiveInt(entry.issue_id)) return { ok: false, error: 'issue_id must be a positive integer' };
+  if (!isStr(entry.body_hash)) return { ok: false, error: 'body_hash must be a non-empty string' };
+  const updatedAt = entry.updated_at === undefined ? null : entry.updated_at;
+  if (updatedAt !== null && !isStr(updatedAt)) return { ok: false, error: 'updated_at must be a string or null' };
+  const base = {
+    issue_number: entry.issue_number, issue_id: entry.issue_id, body_hash: entry.body_hash, updated_at: updatedAt,
+  };
+  const all = readBase(projectRoot, opts);
+  all[id] = base;
+  writeMap(projectRoot, '.base.json', all, opts);
+  return { ok: true, base };
+}
+
+// ─── cache index: hash of each materialised cache file, so 47-10 never overwrites a local edit ──
+
+/** @returns {Object<string,string>} `{relPath: contentHash}`, `{}` when missing */
+function readCacheIndex(projectRoot, opts = {}) {
+  return readMap(projectRoot, '.cache.json', (v) => isPlainObject(v) && Object.values(v).every((x) => typeof x === 'string'), opts);
+}
+
+/**
+ * Replace the whole index. Keys are paths relative to `.planning/` (no absolute paths, no `..`).
+ * @returns {{ok:true}|{ok:false, error:string}}
+ */
+function writeCacheIndex(projectRoot, index, opts = {}) {
+  if (!isPlainObject(index)) return { ok: false, error: 'cache index must be an object of {relPath: hash}' };
+  const entries = Object.entries(index);
+  const badKey = entries.find(([k]) => !safeRelPath(k));
+  if (badKey) return { ok: false, error: `cache index key ${JSON.stringify(badKey[0])} is not a safe relative path` };
+  const badValue = entries.find(([, v]) => !isStr(v));
+  if (badValue) return { ok: false, error: `cache index hash for ${JSON.stringify(badValue[0])} must be a non-empty string` };
+  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  writeMap(projectRoot, '.cache.json', Object.fromEntries(entries), opts);
+  return { ok: true };
+}
+
 module.exports = {
   OP_KINDS,
   MAX_DONE_OPS,
+  BUDGET,
+  LOCK_STALE_MS,
   validateOp,
   targetKey,
   opKey,
@@ -756,4 +978,13 @@ module.exports = {
   clearHalted,
   dropOp,
   status,
+  lockPath,
+  acquireLock,
+  budgetCheck,
+  recordWrite,
+  readBase,
+  getBase,
+  setBase,
+  readCacheIndex,
+  writeCacheIndex,
 };
