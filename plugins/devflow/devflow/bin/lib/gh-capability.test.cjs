@@ -589,7 +589,17 @@ describe('cache location and reading (test 10)', () => {
     fs.writeFileSync(file, JSON.stringify({ repo: 'o/r', checked_at: 'yesterday' }));
     assert.equal(cap.readCachedCapabilities('o/r', env), null);
 
-    const old = { repo: 'o/r', owner_type: 'Organization', checked_at: '2001-01-01T00:00:00.000Z' };
+    // A record missing what resolveModes reads is a miss, however well-formed the JSON is.
+    fs.writeFileSync(file, JSON.stringify({ repo: 'o/r', owner_type: 'Organization', checked_at: '2001-01-01T00:00:00.000Z' }));
+    assert.equal(cap.readCachedCapabilities('o/r', env), null);
+
+    const old = {
+      repo: 'o/r', owner_type: 'Organization', push: true, private: false,
+      org_types: { available: true, enabled: ['Objective', 'TRD', 'Decision'] },
+      issue_fields: { available: true, ids: { work: 11, kind: 12 } },
+      sub_issues: 'ok', dependencies: 'ok', wiki: 'ok', wiki_detail: null,
+      checked_at: '2001-01-01T00:00:00.000Z', stale: false, provisional: false, final: true,
+    };
     fs.writeFileSync(file, JSON.stringify(old));
     assert.equal(cap.readCachedCapabilities('o/r', env).owner_type, 'Organization');
   });

@@ -20,8 +20,12 @@
 //   pages      wiki   -> docs/devflow/<Page>.md in the working tree (only when the wiki is DISABLED);
 //                        a wiki that exists but is uninitialised or unreachable is `blocked`, never `docs`
 
+const fs = require('fs');
+const path = require('path');
 const client = require('./gh-client.cjs');
 const wiki = require('./gh-wiki.cjs');
+const ghProject = require('./gh-project.cjs');
+const { atomicWrite } = require('./sync-state.cjs');
 
 const REQUIRED_TYPES = Object.freeze(['Objective', 'TRD', 'Decision']);
 const REQUIRED_FIELDS = Object.freeze(['work', 'kind']);
@@ -100,21 +104,22 @@ function readRepo(repo) {
 function probeOrgTypes(owner) {
   const res = readJson(`orgs/${owner}/issue-types`);
   if (res.kind !== 'ok' || !Array.isArray(res.json)) {
-    return { value: { available: false, enabled: [] }, transient: res.kind !== 'absent' };
+    return { value: { available: false, enabled: [] }, transient: res.kind !== 'absent', offline: res.kind === 'offline' };
   }
   const enabled = REQUIRED_TYPES.filter((name) => res.json.some((t) => t && t.name === name && t.is_enabled !== false));
-  return { value: { available: true, enabled }, transient: false };
+  return { value: { available: true, enabled }, transient: false, offline: false };
 }
 
 /**
  * D-07: the org's issue-field definitions, matched case-insensitively against REQUIRED_FIELDS. Any
  * non-2xx or unparseable answer, and any missing required field, means `available:false`.
- * `{value:{available, ids, missing?}, transient}`; `transient` marks an answer not worth caching.
+ * `{value:{available, ids, missing?}, transient, offline}`; `transient` marks an answer not worth caching,
+ * `offline` that there was no answer at all.
  */
 function readFieldDefinitions(owner) {
   const res = readJson(ISSUE_FIELDS_PATH.replace('{owner}', owner));
   if (res.kind !== 'ok' || !Array.isArray(res.json)) {
-    return { value: { available: false, ids: {} }, transient: res.kind !== 'absent' };
+    return { value: { available: false, ids: {} }, transient: res.kind !== 'absent', offline: res.kind === 'offline' };
   }
   const ids = {};
   for (const name of REQUIRED_FIELDS) {
@@ -123,7 +128,7 @@ function readFieldDefinitions(owner) {
   }
   const missing = REQUIRED_FIELDS.filter((name) => !(name in ids));
   const value = missing.length === 0 ? { available: true, ids } : { available: false, ids, missing };
-  return { value, transient: false };
+  return { value, transient: false, offline: false };
 }
 
 /** The org's issue-field definitions: `{available, ids, missing?}`. Never throws. */
@@ -134,13 +139,15 @@ function listFieldDefinitions(owner) {
 /**
  * Sub-issues and blocked-by on a KNOWN issue. A 404 is ambiguous (no such endpoint, or no such issue), so
  * a 404 is only believed after the issue itself reads back; otherwise the answer is `unknown`.
- * `{sub_issues, dependencies, transient}`.
+ * `{sub_issues, dependencies, transient, offline}`.
  */
 function probeIssueApis(repo, number) {
   let existence = null;
+  let offline = false;
   const issueExists = () => {
     if (existence === null) {
       const k = classify(client.ghRead(['api', `repos/${repo}/issues/${number}`]));
+      if (k === 'offline') offline = true;
       existence = k === 'ok' ? 'yes' : (k === 'absent' ? 'no' : 'unknown');
     }
     return existence === 'yes';
@@ -151,12 +158,13 @@ function probeIssueApis(repo, number) {
     const kind = classify(r);
     if (kind === 'ok') return 'ok';
     if (kind === 'absent' && (httpStatus(r) !== 404 || issueExists())) return 'absent';
+    if (kind === 'offline') offline = true;
     transient = true;
     return 'unknown';
   };
   const sub = one('sub_issues');
   const deps = one('dependencies/blocked_by');
-  return { sub_issues: sub, dependencies: deps, transient };
+  return { sub_issues: sub, dependencies: deps, transient, offline };
 }
 
 /** `disabled` (has_wiki false), `ok`, `uninitialised` or `unavailable`, via gh-wiki's git seam. */
@@ -189,37 +197,81 @@ function isBlockedWiki(state) {
   return WIKI_BLOCKED.has(state);
 }
 
+// ─── The cache ────────────────────────────────────────────────────────────────
+
+/**
+ * D-22: `<gh cache dir>/capabilities/<owner>__<repo>.json`. The directory is gh-project's (override
+ * `DEVFLOW_GH_CACHE_DIR`, default `~/.claude/devflow/state/gh-project`), so this never lands in the repo.
+ * Every character outside `[A-Za-z0-9_.-]` becomes `_`, so a slug cannot leave the directory.
+ */
+function cachePath(repo, env = process.env) {
+  const name = String(repo).split('/').map((seg) => seg.replace(/[^A-Za-z0-9_.-]/g, '_')).join('__');
+  return path.join(ghProject.cacheDir(env), 'capabilities', `${name}.json`);
+}
+
+/** A record we wrote and can still serve: right repo, a real timestamp and every field `resolveModes` reads. */
+function isUsableRecord(repo, r) {
+  return Boolean(r) && typeof r === 'object' && !Array.isArray(r)
+    && r.repo === repo
+    && typeof r.checked_at === 'string' && !Number.isNaN(Date.parse(r.checked_at))
+    && typeof r.owner_type === 'string' && typeof r.push === 'boolean'
+    && r.org_types && typeof r.org_types === 'object'
+    && r.issue_fields && typeof r.issue_fields === 'object'
+    && typeof r.wiki === 'string';
+}
+
+/** The cached record for `repo`, or null (missing, corrupt, another repo's, malformed). The TTL is NOT applied here. */
+function readCachedCapabilities(repo, env = process.env) {
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(cachePath(repo, env), 'utf-8'));
+  } catch {
+    return null;
+  }
+  return isUsableRecord(repo, parsed) ? parsed : null;
+}
+
+/** Best effort: a cache that cannot be written costs one extra probe next time, never a failed detection. */
+function writeCache(repo, env, record) {
+  try {
+    atomicWrite(cachePath(repo, env), `${JSON.stringify(record, null, 2)}\n`);
+  } catch {
+    // intentionally ignored
+  }
+}
+
+/** Delete the cached answer for `repo`. `{ok:true, removed}`; only an unexpected fs error is `ok:false`. */
+function invalidate(repo, env = process.env) {
+  try {
+    fs.unlinkSync(cachePath(repo, env));
+    return { ok: true, removed: true };
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { ok: true, removed: false };
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
+/** `github.project_cache_ttl_minutes`, falling back to gh-project's default for anything that is not a number >= 0. */
+function ttlMinutes(cwd) {
+  const cfg = client.readConfig(cwd);
+  const v = cfg && cfg.github && cfg.github.project_cache_ttl_minutes;
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : ghProject.DEFAULT_TTL_MINUTES;
+}
+
+function isFresh(record, now, ttl) {
+  const age = now - Date.parse(record.checked_at);
+  return age >= 0 && age < ttl * 60 * 1000;
+}
+
 // ─── Detection ────────────────────────────────────────────────────────────────
 
 /**
- * Probe the repo once and describe what it supports.
- *
- * @param {string} cwd project root (the repo comes from `client.resolveRepo(cwd)`)
- * @param {{probeIssue?:number|string, now?:number|Date|(()=>number), env?:object}} [opts]
- *   `probeIssue` an issue that is known to exist (the objective issue); sub-issues and dependencies are
- *   only probed against it. Without one they are `unknown` (treated as native) and the answer is not final.
- * @returns {{ok:true, repo:string, owner_type:string, push:boolean, private:boolean,
- *   org_types:{available:boolean, enabled:string[]}, issue_fields:{available:boolean, ids:object, missing?:string[]},
- *   sub_issues:'ok'|'absent'|'unknown', dependencies:'ok'|'absent'|'unknown',
- *   wiki:'ok'|'disabled'|'uninitialised'|'unavailable'|'unknown', wiki_detail:string|null,
- *   checked_at:string, stale:boolean, provisional:boolean, final:boolean, degraded:string[]}
- *   | {ok:false, error:string}}
- *   `final` is true only for an answer worth remembering: every probe gave a definitive answer, the repo
- *   is writable and the wiki is not blocked on a step the user has yet to take.
+ * The probes themselves. `{ok:true, record}`, `{ok:false, error}`, or `{ok:false, offline:true}` when any
+ * probe got no answer at all (a half-probed repo says nothing reliable about its capabilities).
  */
-function detectCapabilities(cwd, opts = {}) {
-  const env = opts.env || process.env;
-  const repo = client.resolveRepo(cwd);
-  if (!repo) {
-    return {
-      ok: false,
-      error: 'github.repo is not set (need an owner/name in .planning/config.json github.repo or PROJECT.md github_repo)',
-    };
-  }
-  const probeIssue = parseProbeIssue(opts.probeIssue);
-
+function probeLive(cwd, repo, env, probeIssue, now) {
   const meta = readRepo(repo);
-  if (!meta.ok) return { ok: false, error: meta.error };
+  if (!meta.ok) return meta.offline ? { ok: false, offline: true } : { ok: false, error: meta.error };
   const data = meta.data;
 
   const owner = repo.split('/')[0];
@@ -231,9 +283,11 @@ function detectCapabilities(cwd, opts = {}) {
   let issueFields = { available: false, ids: {} };
   if (ownerType === 'Organization') {
     const t = probeOrgTypes(owner);
+    if (t.offline) return { ok: false, offline: true };
     orgTypes = t.value;
     if (t.transient) final = false;
     const f = readFieldDefinitions(owner);
+    if (f.offline) return { ok: false, offline: true };
     issueFields = f.value;
     if (f.transient) final = false;
   }
@@ -242,6 +296,7 @@ function detectCapabilities(cwd, opts = {}) {
   let dependencies = 'unknown';
   if (probeIssue !== null) {
     const p = probeIssueApis(repo, probeIssue);
+    if (p.offline) return { ok: false, offline: true };
     subIssues = p.sub_issues;
     dependencies = p.dependencies;
     if (p.transient) final = false;
@@ -250,7 +305,8 @@ function detectCapabilities(cwd, opts = {}) {
   }
 
   const w = probeWiki(cwd, env, data.has_wiki);
-  if (isBlockedWiki(w.state) || w.offline) final = false;
+  if (w.offline) return { ok: false, offline: true };
+  if (isBlockedWiki(w.state)) final = false;
   if (!push) final = false;
 
   const record = {
@@ -264,13 +320,93 @@ function detectCapabilities(cwd, opts = {}) {
     dependencies,
     wiki: w.state,
     wiki_detail: w.detail,
-    checked_at: new Date(nowMs(opts.now)).toISOString(),
+    checked_at: new Date(now).toISOString(),
     stale: false,
     provisional: false,
     final,
   };
   record.degraded = degradedOf(record);
-  return { ok: true, ...record };
+  return { ok: true, record };
+}
+
+/**
+ * The answer when GitHub cannot be reached. A cache (of any age) is returned as it was written, flagged
+ * `stale`; with none, the defaults are `provisional`: every capability native, which the flusher
+ * re-detects before it executes anything. Neither is ever written to disk.
+ */
+function offlineAnswer(repo, env, now) {
+  const cached = readCachedCapabilities(repo, env);
+  if (cached) {
+    const record = { ...cached, stale: true, provisional: false, final: false };
+    record.degraded = degradedOf(record);
+    return { ok: true, ...record, offline: true, cached: true };
+  }
+  const record = {
+    repo,
+    owner_type: 'unknown',
+    push: true,
+    private: false,
+    org_types: { available: true, enabled: [...REQUIRED_TYPES] },
+    issue_fields: { available: true, ids: {} },
+    sub_issues: 'unknown',
+    dependencies: 'unknown',
+    wiki: 'unknown',
+    wiki_detail: null,
+    checked_at: new Date(now).toISOString(),
+    stale: false,
+    provisional: true,
+    final: false,
+    degraded: [],
+  };
+  return { ok: true, ...record, offline: true, cached: false };
+}
+
+/**
+ * Probe the repo once and describe what it supports. The answer is cached per repo for
+ * `github.project_cache_ttl_minutes` (default 360); `refresh:true` bypasses the cache.
+ *
+ * @param {string} cwd project root (the repo comes from `client.resolveRepo(cwd)`)
+ * @param {{probeIssue?:number|string, refresh?:boolean, now?:number|Date|(()=>number), env?:object}} [opts]
+ *   `probeIssue` an issue that is known to exist (the objective issue); sub-issues and dependencies are
+ *   only probed against it. Without one they are `unknown` (treated as native) and the answer is not final.
+ *   `now` is the clock (ms, Date or a function); `env` replaces `process.env` for the cache and wiki lookups.
+ * @returns {{ok:true, repo:string, owner_type:string, push:boolean, private:boolean,
+ *   org_types:{available:boolean, enabled:string[]}, issue_fields:{available:boolean, ids:object, missing?:string[]},
+ *   sub_issues:'ok'|'absent'|'unknown', dependencies:'ok'|'absent'|'unknown',
+ *   wiki:'ok'|'disabled'|'uninitialised'|'unavailable'|'unknown', wiki_detail:string|null,
+ *   checked_at:string, stale:boolean, provisional:boolean, final:boolean, degraded:string[],
+ *   cached:boolean, offline?:true}
+ *   | {ok:false, error:string}}
+ *   `final` is true only for an answer worth remembering: every probe gave a definitive answer, the repo
+ *   is writable and the wiki is not blocked on a step the user has yet to take; only those are cached.
+ *   `cached` is true when the answer came from disk. `offline` is set (with `stale` or `provisional`) when
+ *   GitHub could not be reached. A missing or inaccessible repository is `ok:false`, never offline.
+ */
+function detectCapabilities(cwd, opts = {}) {
+  const env = opts.env || process.env;
+  const repo = client.resolveRepo(cwd);
+  if (!repo) {
+    return {
+      ok: false,
+      error: 'github.repo is not set (need an owner/name in .planning/config.json github.repo or PROJECT.md github_repo)',
+    };
+  }
+  const now = nowMs(opts.now);
+
+  if (!opts.refresh) {
+    const cached = readCachedCapabilities(repo, env);
+    if (cached && isFresh(cached, now, ttlMinutes(cwd))) {
+      return { ok: true, ...cached, degraded: degradedOf(cached), cached: true };
+    }
+  }
+
+  const live = probeLive(cwd, repo, env, parseProbeIssue(opts.probeIssue), now);
+  if (live.ok) {
+    if (live.record.final) writeCache(repo, env, live.record);
+    return { ok: true, ...live.record, cached: false };
+  }
+  if (live.offline) return offlineAnswer(repo, env, now);
+  return { ok: false, error: live.error };
 }
 
 // ─── Modes (pure) ─────────────────────────────────────────────────────────────
@@ -390,8 +526,11 @@ module.exports = {
   REQUIRED_TYPES,
   REQUIRED_FIELDS,
   ISSUE_FIELDS_PATH,
+  cachePath,
   listFieldDefinitions,
   detectCapabilities,
+  readCachedCapabilities,
+  invalidate,
   resolveModes,
   describeDegraded,
 };
