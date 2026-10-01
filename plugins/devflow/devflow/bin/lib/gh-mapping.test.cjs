@@ -777,3 +777,101 @@ describe('47 trds map accessors', () => {
     }
   });
 });
+
+// ─── 48-02: entities section ──────────────────────────────────────────────────
+//
+// A mapping with no entities must serialise byte-identically to the 47 output, so every existing
+// `.gh-mapping.json` is unchanged by a read-modify-write. The literal below was copied from the 47
+// serializeMapping output before `entities` existed.
+
+// Built fresh per test: tests mutate what they get.
+function pinnedMapping() {
+  return {
+    version: 3,
+    repo: 'o/r',
+    milestones: { 'v1.10': 9, 'v1.4': 7 },
+    objectives: {
+      10: { issue_id: 100, state_comment_id: null, verified_at: null },
+      '2.1': { issue_id: 21, state_comment_id: 2101, verified_at: '2026-09-01T00:00:00Z' },
+      2: { issue_id: 20, state_comment_id: null, verified_at: null },
+    },
+    trds: {
+      '47-10': { issue_number: 31, rest_id: 1000031, role: 'trd', comment_ids: {} },
+      '47-01-d1': { issue_number: 30, rest_id: 1000030, role: 'decision', comment_ids: {} },
+      '47-01': { issue_number: 29, rest_id: 1000029, role: 'trd', comment_ids: { summary: [55, 56] } },
+    },
+    wiki: { pages: { Home: 'abc' } },
+  };
+}
+
+const PINNED_TEXT = `{
+  "version": 3,
+  "repo": "o/r",
+  "milestones": {
+    "v1.4": 7,
+    "v1.10": 9
+  },
+  "objectives": {
+    "2": {
+      "issue_id": 20,
+      "state_comment_id": null,
+      "verified_at": null
+    },
+    "2.1": {
+      "issue_id": 21,
+      "state_comment_id": 2101,
+      "verified_at": "2026-09-01T00:00:00Z"
+    },
+    "10": {
+      "issue_id": 100,
+      "state_comment_id": null,
+      "verified_at": null
+    }
+  },
+  "trds": {
+    "47-01": {
+      "issue_number": 29,
+      "rest_id": 1000029,
+      "role": "trd",
+      "comment_ids": {
+        "summary": [
+          55,
+          56
+        ]
+      }
+    },
+    "47-01-d1": {
+      "issue_number": 30,
+      "rest_id": 1000030,
+      "role": "decision",
+      "comment_ids": {}
+    },
+    "47-10": {
+      "issue_number": 31,
+      "rest_id": 1000031,
+      "role": "trd",
+      "comment_ids": {}
+    }
+  },
+  "wiki": {
+    "pages": {
+      "Home": "abc"
+    }
+  }
+}
+`;
+
+describe('48-02 mapping serialisation (characterization)', () => {
+  test('5. serializeMapping of a v3 mapping with milestones/objectives/trds and no entities is pinned', () => {
+    assert.equal(ghMapping.serializeMapping(pinnedMapping()), PINNED_TEXT);
+  });
+
+  test('5b. a pinned file on disk survives read -> write byte-identically', () => {
+    const root = tmpProject();
+    const file = writeRel(root, '.planning/.gh-mapping.json', PINNED_TEXT);
+    const r = ghMapping.readMappingV3WithReport(root);
+    assert.equal(r.changed, false);
+    assert.equal(ghMapping.writeMappingV3(root, r.mapping).ok, true);
+    assert.equal(fs.readFileSync(file, 'utf-8'), PINNED_TEXT);
+  });
+});
