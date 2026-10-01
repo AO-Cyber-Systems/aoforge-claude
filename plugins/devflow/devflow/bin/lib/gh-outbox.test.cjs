@@ -16,7 +16,27 @@ const path = require('path');
 const outbox = require('./gh-outbox.cjs');
 const awareness = require('./awareness-store.cjs');
 
+const { spawn, execFileSync } = require('child_process');
+
 const T0 = Date.UTC(2026, 8, 30, 10, 0, 0); // 2026-09-30T10:00:00Z
+const MIN = 60 * 1000;
+const HOUR = 60 * MIN;
+
+// Hygiene guard (test 16): the REAL outbox dir, taken before any test runs. os.userInfo().homedir
+// ignores $HOME, so the suite's HOME override cannot hide a leak into it.
+const REAL_OUTBOX = path.join(os.userInfo().homedir, '.claude', 'devflow', 'state', 'outbox');
+function snapshotDir(dir) {
+  try {
+    return fs.readdirSync(dir).sort().map((name) => {
+      const st = fs.statSync(path.join(dir, name));
+      return `${name}:${st.size}:${st.mtimeMs}`;
+    });
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+const REAL_OUTBOX_BEFORE = snapshotDir(REAL_OUTBOX);
 
 let tmp;
 let stateDir;
@@ -607,5 +627,316 @@ describe('done-op pruning', () => {
     assert.equal(j.ops.filter((o) => o.status === 'pending').length, 1);
     assert.equal(j.next_seq, 252);
     assert.equal(outbox.status(root, { now: T0 }).done, 200);
+  });
+});
+
+// ─── Lock and budget ──────────────────────────────────────────────────────────
+
+/** A journal object with exactly these write timestamps. */
+function journalWith(writes) {
+  return { version: 1, repo: null, ops: [], halted: null, next_seq: 1, writes };
+}
+
+describe('acquireLock()', () => {
+  test('12a. a second acquire is refused while the first is held; release() frees it', () => {
+    const a = outbox.acquireLock(root, { now: T0, pid: 111 });
+    assert.equal(a.ok, true);
+    assert.equal(a.stale_replaced, false);
+    assert.equal(typeof a.release, 'function');
+    assert.ok(fs.existsSync(outbox.lockPath(root)));
+
+    const b = outbox.acquireLock(root, { now: T0 + 1000, pid: 222 });
+    assert.equal(b.ok, false);
+    assert.equal(b.running, true);
+    assert.equal(b.owner.pid, 111);
+    assert.equal(b.owner.at, T0);
+
+    a.release();
+    assert.equal(fs.existsSync(outbox.lockPath(root)), false);
+    const c = outbox.acquireLock(root, { now: T0 + 2000, pid: 222 });
+    assert.equal(c.ok, true);
+    assert.equal(c.stale_replaced, false);
+    c.release();
+  });
+
+  test('12b. a lock older than 10 minutes is stale and replaced; exactly 10 minutes is not', () => {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(outbox.lockPath(root), JSON.stringify({ pid: 4242, at: T0 }));
+    const held = outbox.acquireLock(root, { now: T0 + 10 * MIN, pid: 7 });
+    assert.equal(held.ok, false);
+    assert.equal(held.running, true);
+    const r = outbox.acquireLock(root, { now: T0 + 10 * MIN + 1, pid: 7 });
+    assert.equal(r.ok, true);
+    assert.equal(r.stale_replaced, true);
+    const owner = JSON.parse(fs.readFileSync(outbox.lockPath(root), 'utf8'));
+    assert.equal(owner.pid, 7);
+    assert.equal(owner.at, T0 + 10 * MIN + 1);
+    // no stray quarantine files are left behind
+    assert.deepEqual(fs.readdirSync(stateDir), [path.basename(outbox.lockPath(root))]);
+    r.release();
+  });
+
+  test('12c. staleMs is configurable and `at` may be an ISO string', () => {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(outbox.lockPath(root), JSON.stringify({ pid: 4242, at: new Date(T0).toISOString() }));
+    assert.equal(outbox.acquireLock(root, { now: T0 + 5000, staleMs: 10000 }).ok, false);
+    const r = outbox.acquireLock(root, { now: T0 + 10001, staleMs: 10000 });
+    assert.equal(r.ok, true);
+    assert.equal(r.stale_replaced, true);
+  });
+
+  test('12d. an unparseable lock file falls back to its mtime for staleness', () => {
+    fs.mkdirSync(stateDir, { recursive: true });
+    const lock = outbox.lockPath(root);
+    fs.writeFileSync(lock, '');
+    const fresh = outbox.acquireLock(root, { now: Date.now() });
+    assert.equal(fresh.ok, false, 'a just-created empty lock is a flusher mid-start, not stale');
+    assert.equal(fresh.running, true);
+    const old = new Date(Date.now() - 11 * MIN);
+    fs.utimesSync(lock, old, old);
+    const r = outbox.acquireLock(root, { now: Date.now() });
+    assert.equal(r.ok, true);
+    assert.equal(r.stale_replaced, true);
+  });
+
+  test('12e. release() removes the lock only while it still holds our pid and token', () => {
+    const a = outbox.acquireLock(root, { now: T0, pid: 111 });
+    // the lock went stale and another flusher took it over
+    fs.writeFileSync(outbox.lockPath(root), JSON.stringify({ pid: 222, at: T0 + 1, token: 'other' }));
+    a.release();
+    assert.ok(fs.existsSync(outbox.lockPath(root)), 'must not remove another flusher lock');
+    a.release(); // and is idempotent
+    assert.ok(fs.existsSync(outbox.lockPath(root)));
+  });
+
+  test('12f. creates the state dir when it does not exist', () => {
+    assert.equal(fs.existsSync(stateDir), false);
+    const r = outbox.acquireLock(root, { now: T0 });
+    assert.equal(r.ok, true);
+    assert.ok(fs.existsSync(stateDir));
+    r.release();
+  });
+
+  test('12g. of five processes racing for the lock exactly one wins (O_EXCL)', async () => {
+    const script = `
+      const o = require(${JSON.stringify(path.join(__dirname, 'gh-outbox.cjs'))});
+      const r = o.acquireLock(${JSON.stringify(root)}, { now: ${T0} });
+      process.stdout.write(r.ok ? 'won' : 'lost');
+    `;
+    const run = () => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['-e', script], { env: { ...process.env } });
+      let out = '';
+      child.stdout.on('data', (d) => { out += d; });
+      child.on('error', reject);
+      child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`child exited ${code}`))));
+    });
+    const results = await Promise.all([run(), run(), run(), run(), run()]);
+    assert.equal(results.filter((r) => r === 'won').length, 1, results.join(','));
+    assert.equal(results.filter((r) => r === 'lost').length, 4, results.join(','));
+  });
+});
+
+describe('budgetCheck() / recordWrite()', () => {
+  test('13a. 79 writes in the last 60 s is ok; 80 refuses with a wait that ages out the oldest', () => {
+    const ok = outbox.budgetCheck(journalWith(Array.from({ length: 79 }, (_, i) => T0 - 1000 - i * 500)), T0);
+    assert.equal(ok.ok, true);
+    assert.equal(ok.minute, 79);
+
+    const writes = Array.from({ length: 80 }, (_, i) => T0 - 100 - i * 500); // oldest = T0 - 39600
+    const r = outbox.budgetCheck(journalWith(writes), T0);
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'minute');
+    assert.equal(r.wait_ms, 20400);
+    assert.equal(outbox.budgetCheck(journalWith(writes), T0 + r.wait_ms).ok, true, 'ok again once the oldest ages out');
+    assert.equal(outbox.budgetCheck(journalWith(writes), T0 + r.wait_ms - 1).ok, false);
+  });
+
+  test('13b. a write exactly 60 s old has aged out of the minute window', () => {
+    const writes = [T0 - MIN, ...Array.from({ length: 79 }, (_, i) => T0 - 1000 - i * 100)];
+    const r = outbox.budgetCheck(journalWith(writes), T0);
+    assert.equal(r.ok, true);
+    assert.equal(r.minute, 79);
+  });
+
+  test('13c. 449 writes in the last hour is ok; 450 stops with reason hour', () => {
+    const spread = (n) => Array.from({ length: n }, (_, i) => T0 - i * 7000); // 449 * 7 s = 52 min
+    const ok = outbox.budgetCheck(journalWith(spread(449)), T0);
+    assert.equal(ok.ok, true);
+    assert.equal(ok.hour, 449);
+    const r = outbox.budgetCheck(journalWith(spread(450)), T0);
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'hour');
+    assert.equal(r.wait_ms, T0 - 449 * 7000 + HOUR - T0);
+  });
+
+  test('13d. when both windows are full the hour (the stop) is reported', () => {
+    const r = outbox.budgetCheck(journalWith(Array.from({ length: 450 }, () => T0 - 1000)), T0);
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'hour');
+  });
+
+  test('13e. writes older than an hour never count', () => {
+    const old = Array.from({ length: 600 }, (_, i) => T0 - HOUR - 1000 - i);
+    const r = outbox.budgetCheck(journalWith(old), T0);
+    assert.equal(r.ok, true);
+    assert.equal(r.hour, 0);
+  });
+
+  test('13f. budgetCheck does not mutate the journal', () => {
+    const j = journalWith([T0 - 2 * HOUR, T0 - 10]);
+    outbox.budgetCheck(j, T0);
+    assert.deepEqual(j.writes, [T0 - 2 * HOUR, T0 - 10]);
+  });
+
+  test('13g. recordWrite appends, mutates and returns the journal, and prunes writes older than 1 h', () => {
+    const j = journalWith([T0 - 2 * HOUR, T0 - HOUR - 1, T0 - HOUR + 1000, T0 - 10]);
+    const r = outbox.recordWrite(j, T0);
+    assert.equal(r, j);
+    assert.deepEqual(j.writes, [T0 - HOUR + 1000, T0 - 10, T0]);
+  });
+
+  test('13h. the budget survives a persist and reload, across processes', () => {
+    outbox.enqueue(root, [link('07', '07-01')], { now: T0 });
+    const { journal } = outbox.readJournal(root, { now: T0 });
+    for (let i = 0; i < 80; i++) outbox.recordWrite(journal, T0 - i * 100);
+    outbox.writeJournal(root, journal);
+    const reread = outbox.readJournal(root, { now: T0 }).journal;
+    assert.equal(outbox.budgetCheck(reread, T0).reason, 'minute');
+    assert.deepEqual(outbox.status(root, { now: T0 }).writes, { minute: 80, hour: 80 });
+  });
+});
+
+// ─── Base store and cache index ───────────────────────────────────────────────
+
+const BASE = {
+  issue_number: 12, issue_id: 1000012, body_hash: 'sha256:abc', updated_at: '2026-09-30T10:00:00Z',
+};
+
+describe('base store', () => {
+  test('14a. setBase / getBase round-trip; readBase on a missing file is {}', () => {
+    assert.deepEqual(outbox.readBase(root), {});
+    assert.equal(outbox.getBase(root, '07-01'), null);
+    assert.equal(fs.existsSync(stateDir), false, 'reading creates nothing');
+    assert.equal(outbox.setBase(root, '07-01', BASE).ok, true);
+    assert.deepEqual(outbox.getBase(root, '07-01'), BASE);
+    assert.deepEqual(outbox.readBase(root), { '07-01': BASE });
+    assert.equal(outbox.getBase(root, '07-02'), null);
+  });
+
+  test('14b. entries for other issues are kept; the same id is overwritten', () => {
+    outbox.setBase(root, '07-01', BASE);
+    outbox.setBase(root, '07', { ...BASE, issue_number: 3, issue_id: 1000003 });
+    outbox.setBase(root, '07-01', { ...BASE, body_hash: 'sha256:new' });
+    const all = outbox.readBase(root);
+    assert.deepEqual(Object.keys(all).sort(), ['07', '07-01']);
+    assert.equal(all['07-01'].body_hash, 'sha256:new');
+    assert.equal(all['07'].issue_number, 3);
+  });
+
+  test('14c. lives at <repoKey>.base.json beside the journal and stores exactly four fields', () => {
+    outbox.setBase(root, '07-01', { ...BASE, extra: 'dropped' });
+    const file = path.join(stateDir, `${outbox.repoKey(root)}.base.json`);
+    assert.ok(fs.existsSync(file));
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { '07-01': BASE });
+  });
+
+  test('14d. an invalid entry is refused without writing', () => {
+    const bad = [
+      ['07-01', { ...BASE, issue_number: '12' }],
+      ['07-01', { ...BASE, issue_number: 0 }],
+      ['07-01', { ...BASE, issue_id: 'abc' }],
+      ['07-01', { ...BASE, body_hash: '' }],
+      ['07-01', { ...BASE, updated_at: 5 }],
+      [12, BASE],
+      ['07-01', null],
+    ];
+    for (const [id, entry] of bad) {
+      assert.equal(outbox.setBase(root, id, entry).ok, false, JSON.stringify([id, entry]));
+    }
+    assert.equal(fs.existsSync(stateDir), false);
+    // updated_at may be null (a freshly created issue not yet re-read)
+    assert.equal(outbox.setBase(root, '07-01', { ...BASE, updated_at: null }).ok, true);
+  });
+
+  test('14e. a corrupt base file is renamed aside and reads as {}', () => {
+    fs.mkdirSync(stateDir, { recursive: true });
+    const file = path.join(stateDir, `${outbox.repoKey(root)}.base.json`);
+    fs.writeFileSync(file, '{ nope');
+    assert.deepEqual(outbox.readBase(root, { now: T0 }), {});
+    assert.equal(fs.readFileSync(`${file}.corrupt-${T0}`, 'utf8'), '{ nope');
+    assert.equal(outbox.setBase(root, '07-01', BASE, { now: T0 }).ok, true);
+    assert.deepEqual(outbox.getBase(root, '07-01'), BASE);
+  });
+});
+
+describe('cache index', () => {
+  const INDEX = {
+    'objectives/07-store-demo/OBJECTIVE.md': 'sha256:aaa',
+    'objectives/07-store-demo/07-01-TRD.md': 'sha256:bbb',
+  };
+
+  test('15a. writeCacheIndex / readCacheIndex round-trip; missing is {}', () => {
+    assert.deepEqual(outbox.readCacheIndex(root), {});
+    assert.equal(outbox.writeCacheIndex(root, INDEX).ok, true);
+    assert.deepEqual(outbox.readCacheIndex(root), INDEX);
+    assert.ok(fs.existsSync(path.join(stateDir, `${outbox.repoKey(root)}.cache.json`)));
+  });
+
+  test('15b. a write replaces the whole index', () => {
+    outbox.writeCacheIndex(root, INDEX);
+    outbox.writeCacheIndex(root, { 'a.md': 'sha256:1' });
+    assert.deepEqual(outbox.readCacheIndex(root), { 'a.md': 'sha256:1' });
+  });
+
+  test('15c. a non-object index or non-string hash is refused without writing', () => {
+    assert.equal(outbox.writeCacheIndex(root, null).ok, false);
+    assert.equal(outbox.writeCacheIndex(root, []).ok, false);
+    assert.equal(outbox.writeCacheIndex(root, { 'a.md': 5 }).ok, false);
+    assert.equal(fs.existsSync(stateDir), false);
+  });
+
+  test('15d. a corrupt cache index is renamed aside and reads as {}', () => {
+    fs.mkdirSync(stateDir, { recursive: true });
+    const file = path.join(stateDir, `${outbox.repoKey(root)}.cache.json`);
+    fs.writeFileSync(file, '[1,2');
+    assert.deepEqual(outbox.readCacheIndex(root, { now: T0 }), {});
+    assert.ok(fs.existsSync(`${file}.corrupt-${T0}`));
+  });
+
+  test('15e. base, cache and journal share one dir and one key without colliding', () => {
+    outbox.enqueue(root, [link('07', '07-01')], { now: T0 });
+    outbox.setBase(root, '07-01', BASE);
+    outbox.writeCacheIndex(root, INDEX);
+    const key = outbox.repoKey(root);
+    assert.deepEqual(fs.readdirSync(stateDir).sort(), [`${key}.base.json`, `${key}.cache.json`, `${key}.json`]);
+  });
+});
+
+// ─── Hygiene ──────────────────────────────────────────────────────────────────
+
+describe('hygiene', () => {
+  test('16. the suite never touched the real ~/.claude/devflow/state/outbox', () => {
+    assert.deepEqual(snapshotDir(REAL_OUTBOX), REAL_OUTBOX_BEFORE);
+  });
+
+  test('17a. gh-outbox.cjs requires only fs, os, path, crypto and ./sync-state.cjs', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'gh-outbox.cjs'), 'utf8');
+    const all = src.match(/\brequire\(/g) || [];
+    const literal = [...src.matchAll(/\brequire\(\s*(['"])([^'"]+)\1\s*\)/g)].map((m) => m[2]);
+    assert.equal(literal.length, all.length, 'every require() takes a string literal');
+    assert.deepEqual([...new Set(literal)].sort(), ['./sync-state.cjs', 'crypto', 'fs', 'os', 'path']);
+    assert.ok(!/\bimport\s*\(/.test(src), 'no dynamic import()');
+  });
+
+  test('17b. loading the module pulls in none of the heavy modules a hook must avoid', () => {
+    const script = `
+      require(${JSON.stringify(path.join(__dirname, 'gh-outbox.cjs'))});
+      process.stdout.write(Object.keys(require.cache).map((f) => require('path').basename(f)).join(','));
+    `;
+    const loaded = execFileSync(process.execPath, ['-e', script], { encoding: 'utf8' }).split(',');
+    for (const heavy of ['gh-client.cjs', 'helpers.cjs', 'upgrade.cjs', 'awareness-store.cjs', 'gh-mapping.cjs']) {
+      assert.ok(!loaded.includes(heavy), `${heavy} must not be loaded; got ${loaded.join(',')}`);
+    }
+    assert.ok(loaded.includes('sync-state.cjs'));
   });
 });
