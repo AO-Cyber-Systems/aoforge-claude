@@ -35,6 +35,8 @@ const GUARDED = [
   'gh-comments.cjs', 'gh-wiki.cjs', 'gh-cache.cjs',
   // the command surface over the store (TRD 47-11), guarded since TRD 47-13
   'gh-store-cli.cjs',
+  // objective 50 (TRD 50-04): the offline store-health collector. It reads local state only: no gh, no git, no writes.
+  'gh-health.cjs',
   // objective 48 planning modules and their CLI (guarded since TRD 48-15): none spawns gh or git
   ...PLANNING_MODULES,
   'trd-bulk.cjs',
@@ -56,6 +58,7 @@ const GUARDED = [
 const NO_DIRECT_WRITE = [
   'gh-hierarchy.cjs', 'gh-comments.cjs', 'gh-cache.cjs', 'gh-capability.cjs', 'gh-trd.cjs', 'gh-outbox.cjs', 'gh-wiki.cjs', 'gh-store-cli.cjs',
   'objective-branch.cjs',
+  'gh-health.cjs',
   'gh-pr-cli.cjs', 'commit-trailer.cjs',
   'gh-gate.cjs',
   'gh-check.cjs',
