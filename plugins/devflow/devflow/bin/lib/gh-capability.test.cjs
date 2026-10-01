@@ -339,6 +339,8 @@ describe('wiki state (tests 7 and 8)', () => {
     assert.match(modes.pages_message, /web UI/);
     assert.match(modes.pages_message, /df-tools gh outbox flush/);
     assert.deepEqual(modes.degraded, ['wiki']);
+    // The user fixes this in the web UI and re-runs the flush at once: it must not be remembered.
+    assert.equal(r.final, false);
     assert.ok(cap.describeDegraded(r).some((s) => /web UI/.test(s)));
   });
 
@@ -367,6 +369,7 @@ describe('wiki state (tests 7 and 8)', () => {
     const modes = cap.resolveModes(r);
     assert.equal(modes.pages, 'blocked');
     assert.match(modes.pages_message, /remote end hung up unexpectedly/);
+    assert.equal(r.final, false);
   });
 
   test('the wiki remote is resolved the way gh-wiki resolves it (env override wins)', () => {
@@ -392,6 +395,7 @@ describe('push permission (test 9)', () => {
     assert.equal(r.ok, true);
     assert.equal(r.push, false);
     assert.equal(cap.resolveModes(r).writable, false);
+    assert.equal(r.final, false); // access can be granted at any moment
     assert.ok(cap.describeDegraded(r).some((s) => /push/i.test(s) && /o\/r/.test(s)));
     assert.deepEqual(fake.writes(), []);
   });
