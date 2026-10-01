@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record)
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (KILLED 2026-10-01), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record)
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -304,7 +304,8 @@ TRDs:
 **Depends on:** Objective 50
 **Success Criteria**:
 1. Backfill stays under secondary limits, resumes after interruption, and re-runs as a no-op
-2. Docs pass doc-refs; objective 26 re-based or killed
+2. Docs pass doc-refs; `npm test` green
+3. objective 26 killed; decision recorded
 **Plans:** 10 TRDs in 6 waves
 
 TRDs:
@@ -321,7 +322,7 @@ TRDs:
 
 ### Other v1.4 candidates
 
-- **Objective 26: GitHub issue auto-build monitor** — moved out of v1.3 on 2026-09-28 by user decision; **candidate for killing**. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
+- **Objective 26: GitHub issue auto-build monitor** — **KILLED 2026-10-01** (user decision, GMD-04; see its OBJECTIVE.md Disposition). Moved out of v1.3 on 2026-09-28 by user decision. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
 
 - **v1.3 delivery (not objectives — user actions):**
   - merge `feat/stack-profile-loader` → `main`, then tag v2.11.0 on the merge commit and push it;
@@ -361,7 +362,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
 | 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
-| 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
+| 26. GitHub issue auto-build monitor | v1.4 | 0/— | Cancelled (killed by user decision 2026-10-01; GMD-04) | 2026-10-01 |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |

@@ -128,7 +128,7 @@ Open decisions carried to v1.4:
 - the CI Anthropic secret for the live visual judge;
 - `main` branch protection.
 
-Objective 26 (GitHub issue auto-build monitor) moved to v1.4 as a kill candidate.
+Objective 26 (GitHub issue auto-build monitor) was killed on 2026-10-01 (resolved; GMD-04).
 
 ---
 *Last updated: 2026-09-28 after v1.3 milestone*
