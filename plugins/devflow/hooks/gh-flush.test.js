@@ -64,7 +64,8 @@ function makeScenario({ store = true } = {}) {
     repo: REPO,
     milestones: {},
     objectives: {},
-    trds: { '07-01': { issue_number: 207, rest_id: 9207, role: 'trd', comment_ids: {} } },
+    // gh-mapping keys a TRD by its normalised id (`7-01`, no leading zero); an op may spell it `07-01`.
+    trds: { '7-01': { issue_number: 207, rest_id: 9207, role: 'trd', comment_ids: {} } },
   }, null, 2)}\n`);
 
   const shim = installGhShim({ dir: path.join(base, 'shim'), table: offlineTable(), defaultCode: 1 });
