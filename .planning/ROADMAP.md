@@ -288,11 +288,11 @@ TRDs:
 - [x] 50-03-required-check-logic-TRD.md — (W1) pure `devflow/linked-issue` (closing ref to an existing issue, base = default) and `devflow/planning-consistency` (GitHub graph in store mode, pass when store off), reconcile plan
 - [x] 50-04-store-health-collector-TRD.md — (W1) offline store health: W057 unsynced, W058 missing links, W059 orphans, W060 frozen-body drift, W061 check failed
 - [x] 50-05-outbox-flush-hook-TRD.md — (W1) `gh-flush.js` PostToolUse(Bash, after `df-tools commit`) + Stop: flush outbox, report pending/halted/drift, never blocks
-- [ ] 50-06-commit-gate-wiring-TRD.md — (W2) `df-tools commit` refuses before staging in store mode, logs the escape via override, `Refs #` falls back to the linked objective
-- [ ] 50-07-health-and-doctor-reports-TRD.md — (W2) validate Check 16 (W057-W061), doctor check 25 `gh-store-sync`, check 22 defers the codes
-- [ ] 50-08-check-runner-cli-TRD.md — (W2) Actions runner: posts the two contexts as commit statuses (PR + merge_group), merge-time reconcile closes stragglers
-- [ ] 50-09-setup-plan-TRD.md — (W2) `gh setup` state reader, pure plan (ruleset superset-idempotent, types, fields, labels, settings, files, wiki, merge_group advisories), dry-run renderer
-- [ ] 50-10-actions-workflows-and-templates-TRD.md — (W2) reusable `devflow-checks.yml` (workflow_call, App token via client-id), managed caller template, PR-template block
+- [x] 50-06-commit-gate-wiring-TRD.md — (W2) `df-tools commit` refuses before staging in store mode, logs the escape via override, `Refs #` falls back to the linked objective
+- [x] 50-07-health-and-doctor-reports-TRD.md — (W2) validate Check 16 (W057-W061), doctor check 25 `gh-store-sync`, check 22 defers the codes
+- [x] 50-08-check-runner-cli-TRD.md — (W2) Actions runner: posts the two contexts as commit statuses (PR + merge_group), merge-time reconcile closes stragglers
+- [x] 50-09-setup-plan-TRD.md — (W2) `gh setup` state reader, pure plan (ruleset superset-idempotent, types, fields, labels, settings, files, wiki, merge_group advisories), dry-run renderer
+- [x] 50-10-actions-workflows-and-templates-TRD.md — (W2) reusable `devflow-checks.yml` (workflow_call, App token via client-id), managed caller template, PR-template block
 - [ ] 50-11-gh-setup-apply-and-cli-TRD.md — (W3) `df-tools gh setup [--apply]`: idempotent apply, merge-queue/field/403 degradation, dispatch, help, `github.app_id` / `github.checks_workflow`
 - [ ] 50-12-enforcement-e2e-and-parity-TRD.md — (W4) SC1-SC3 through real entry points; store-off parity (zero gh calls) for everything but `gh setup`
 - [ ] 50-13-docs-and-full-suite-TRD.md — (W5) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync/help skills; `npm test` (SC4)
@@ -354,5 +354,5 @@ Candidate scope carried forward from v1.2 deferrals:
 | 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
 | 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
-| 50. GitHub enforcement and setup | v1.4 | 5/13 | In Progress | — |
+| 50. GitHub enforcement and setup | v1.4 | 10/13 | In Progress | — |
 | 51. GitHub migration and docs | v1.4 | 0/— | Registered | — |
