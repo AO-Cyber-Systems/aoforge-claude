@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, stripPlanSuffix } = require('./helpers.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
+const planningMode = require('./planning-mode.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -262,6 +263,148 @@ function cmdObjectivesList(cwd, options, raw) {
   }
 }
 
+// ─── Store mode (objective 48, TRD 48-14, D-08/D-19) ─────────────────────────
+//
+// With `github.store` on (planning-mode.cjs), ROADMAP.md and STATE.md are generated views and OBJECTIVE.md is a
+// GitHub-backed cache file. The objective commands then route through planning-verbs and never edit the views:
+//   add       the new dir and its OBJECTIVE.md through `objective put` (find-or-create of the issue, ledger)
+//   insert    unchanged: deprecated since 12-06, it writes nothing in either mode
+//   remove    refused: deletes are never automatic
+//   complete  `objective set-status <id> complete` (closes the issue as completed)
+// Each command takes ONE early store branch; the local bodies below are unchanged. planning-verbs is required
+// lazily (it loads the gh libraries), and the store branch works on the MAIN checkout (D-14).
+
+const ROADMAP_GENERATED = 'generated (gh pull --all)';
+
+/** The parts of a planning-verb result an objective command reports under `verb`. */
+function verbSummary(r) {
+  const out = {
+    ok: r.ok === true,
+    mode: r.mode,
+    rel: r.rel,
+    exit: r.exit,
+    flush: r.flush ? r.flush.status : null,
+    warnings: r.warnings || [],
+  };
+  if (r.error) out.error = r.error;
+  if (r.note) out.note = r.note;
+  if (r.prose) out.prose = r.prose;
+  return out;
+}
+
+/** OBJECTIVE.md for a new objective: the entry today's `objective add` appends to ROADMAP.md, under frontmatter. */
+function newObjectiveText(dirName, num, description, dependsOn) {
+  return [
+    '---',
+    `objective: ${dirName}`,
+    'status: planned',
+    '---',
+    '',
+    `# Objective ${num}: ${description}`,
+    '',
+    '**Goal:** [To be planned]',
+    `**Depends on:** Objective ${dependsOn}`,
+    '**Jobs:** 0 jobs',
+    '',
+    'Jobs:',
+    `- [ ] TBD (run /devflow:plan-objective ${num} to break down)`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Store-mode `objective add`: number and slug exactly as the local body does (ROADMAP headings when the view is
+ * rendered, plus the objective dirs), create the dir, and write its OBJECTIVE.md through `objective put`.
+ * ROADMAP.md is not edited: `gh pull --all` regenerates it from the objective issues.
+ */
+function storeObjectiveAdd(root, description, raw) {
+  const roadmapPath = path.join(root, '.planning', 'ROADMAP.md');
+  const content = fs.existsSync(roadmapPath) ? fs.readFileSync(roadmapPath, 'utf-8') : '';
+
+  let slug = generateSlugInternal(description);
+  if (slug.length > 60) slug = slug.slice(0, 60).replace(/-+$/, '');
+
+  let maxObjective = 0;
+  const objectivePattern = /#{2,4}\s*Objective\s+(\d+)(?:\.\d+)?:/gi;
+  let m;
+  while ((m = objectivePattern.exec(content)) !== null) maxObjective = Math.max(maxObjective, parseInt(m[1], 10));
+  const objectivesDir = path.join(root, '.planning', 'objectives');
+  try {
+    for (const entry of fs.readdirSync(objectivesDir, { withFileTypes: true })) {
+      const dm = entry.isDirectory() ? entry.name.match(/^(\d+)(?:\.\d+)?-/) : null;
+      if (dm) maxObjective = Math.max(maxObjective, parseInt(dm[1], 10));
+    }
+  } catch (_) {
+    // No objectives dir yet: the ROADMAP count stands, as in the local body.
+  }
+
+  const newObjectiveNum = maxObjective + 1;
+  const paddedNum = String(newObjectiveNum).padStart(2, '0');
+  const dirName = `${paddedNum}-${slug}`;
+  fs.mkdirSync(path.join(objectivesDir, dirName), { recursive: true });
+
+  const text = newObjectiveText(dirName, newObjectiveNum, description, maxObjective);
+  const r = require('./planning-verbs.cjs').objectivePut(root, { id: String(newObjectiveNum), text });
+  const result = {
+    objective_number: newObjectiveNum,
+    padded: paddedNum,
+    name: description,
+    slug,
+    directory: `.planning/objectives/${dirName}`,
+    objective_file: `.planning/objectives/${dirName}/OBJECTIVE.md`,
+    roadmap: ROADMAP_GENERATED,
+    published: r.ok === true,
+    verb: verbSummary(r),
+  };
+  if (r.ok !== true) {
+    result.hint = `${result.objective_file} is written; run \`df-tools gh sync ${newObjectiveNum}\` once GitHub is reachable to create its issue`;
+  }
+  output(result, raw, paddedNum, r.exit);
+}
+
+/** The first objective directory numbered after `objectiveNum`: `{num, name}` or null (the local body's scan). */
+function nextObjectiveDir(objectivesDir, objectiveNum) {
+  try {
+    const dirs = fs.readdirSync(objectivesDir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
+    const currentFloat = parseFloat(objectiveNum);
+    for (const dir of dirs) {
+      const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+      if (dm && parseFloat(dm[1]) > currentFloat) return { num: dm[1], name: dm[2] || null };
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Store-mode `objective complete`: `objective set-status <id> complete` (OBJECTIVE.md `status:`, the objective
+ * sync, and a patch-issue closing the issue as completed). ROADMAP.md, STATE.md and REQUIREMENTS.md are not edited;
+ * requirements are ticked with `requirements mark-complete`, which publishes through `doc put`.
+ */
+function storeObjectiveComplete(root, objectiveNum, raw) {
+  const objectiveInfo = findObjectiveInternal(root, objectiveNum);
+  if (!objectiveInfo) {
+    error(`Objective ${objectiveNum} not found`);
+  }
+  const r = require('./planning-verbs.cjs').objectiveSetStatus(root, { id: objectiveNum, status: 'complete' });
+  const next = nextObjectiveDir(path.join(root, '.planning', 'objectives'), objectiveNum);
+  const result = {
+    completed: r.ok === true,
+    completed_objective: objectiveNum,
+    objective_name: objectiveInfo.objective_name,
+    jobs_executed: `${objectiveInfo.summaries.length}/${objectiveInfo.jobs.length}`,
+    next_objective: next ? next.num : null,
+    next_objective_name: next ? next.name : null,
+    is_last_objective: next === null,
+    date: new Date().toISOString().split('T')[0],
+    roadmap_updated: false,
+    state_updated: false,
+    state_update_reason: 'store_mode',
+    roadmap: ROADMAP_GENERATED,
+    verb: verbSummary(r),
+  };
+  output(result, raw, undefined, r.exit);
+}
+
 function cmdObjectiveAdd(cwd, description, raw) {
   if (!description) {
     error('description required for objective add');
@@ -271,6 +414,8 @@ function cmdObjectiveAdd(cwd, description, raw) {
   if (description.trim().startsWith('--')) {
     error('description must not start with "--" — got a flag-like argument: ' + description);
   }
+
+  if (planningMode.isStoreMode(cwd)) return storeObjectiveAdd(planningMode.resolveMainRoot(cwd), description, raw);
 
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) {
@@ -480,6 +625,10 @@ function renderPlanText(target, plan) {
 function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   if (!targetObjective) {
     error('objective number required for objective remove');
+  }
+
+  if (planningMode.isStoreMode(cwd)) {
+    error(`objective remove is refused in store mode: deletes are never automatic. Close the objective issue with df-tools objective set-status ${targetObjective} cancelled`);
   }
 
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
@@ -703,6 +852,8 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
   if (!objectiveNum) {
     error('objective number required for objective complete');
   }
+
+  if (planningMode.isStoreMode(cwd)) return storeObjectiveComplete(planningMode.resolveMainRoot(cwd), objectiveNum, raw);
 
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
   const statePath = path.join(cwd, '.planning', 'STATE.md');
