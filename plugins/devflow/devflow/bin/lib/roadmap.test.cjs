@@ -788,3 +788,109 @@ describe('roadmap update-job-progress — nested TRD checkboxes', () => {
     assert.deepEqual(second.json.trd_checkboxes, []);
   });
 });
+
+// ─── TRD 48-13: update-job-progress — local characterization + store mode ────
+//
+// 4. Local mode: `roadmap update-job-progress 7` writes today's ROADMAP.md bytes
+//    (Jobs prefix, Progress row, per-TRD checkbox; on completion the objective
+//    checkbox and Completed date, masked — no clock seam).
+// 8. Store mode: no-op, exit 0, message names `gh pull --all`, ROADMAP.md untouched;
+//    read-only roadmap commands answer exactly as in local mode.
+// 10. github.enabled without github.store → local behaviour.
+
+const ROADMAP_7 = `# Roadmap: Test Project
+
+## Objectives
+
+- [ ] **Objective 7: Seven** — does things
+- [ ] **Objective 8: Eight** — later
+
+## Objective Details
+
+### Objective 7: Seven
+
+**Status:** in flight
+
+**Jobs:** 0/2 jobs executed — 2 TRDs in 1 wave
+
+- [ ] 07-01-alpha-TRD.md — first
+- [ ] 07-02-beta-TRD.md — second
+
+### Objective 8: Eight
+
+**Jobs:** 0/1 jobs executed
+
+## Progress
+
+| Objective | Milestone | Plans Complete | Status | Completed |
+|-----------|-----------|----------------|--------|-----------|
+| 7. Seven | v1.0 | 0/2 | Planned | - |
+| 8. Eight | v1.0 | 0/1 | Planned | - |
+`;
+
+const ROADMAP_STORE_MESSAGE = 'ROADMAP.md is generated in store mode; run `df-tools gh pull --all`';
+
+function roadmap7Project(summaries, config) {
+  const project = tmpProject();
+  const obj = path.join(project, '.planning', 'objectives', '07-seven');
+  fs.mkdirSync(obj, { recursive: true });
+  fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), ROADMAP_7, 'utf-8');
+  fs.writeFileSync(path.join(obj, '07-01-alpha-TRD.md'), '# a\n', 'utf-8');
+  fs.writeFileSync(path.join(obj, '07-02-beta-TRD.md'), '# b\n', 'utf-8');
+  for (const s of summaries) {
+    fs.writeFileSync(path.join(obj, `${s}-SUMMARY.md`), '# s\n\n## Self-Check: PASSED\n', 'utf-8');
+  }
+  if (config) {
+    fs.writeFileSync(path.join(project, '.planning', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
+  }
+  return project;
+}
+
+function readRoadmap(project) {
+  return fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+}
+
+function rmEdit(src, from, to) {
+  assert.ok(src.includes(from), `fixture anchor missing: ${from}`);
+  return src.replace(from, to);
+}
+
+function rmMask(s) {
+  return s.replace(/\d{4}-\d{2}-\d{2}/g, '<DATE>');
+}
+
+const ROADMAP_7_IN_PROGRESS = [
+  ['**Jobs:** 0/2 jobs executed', '**Jobs:** 1/2 jobs executed'],
+  ['- [ ] 07-01-alpha-TRD.md', '- [x] 07-01-alpha-TRD.md'],
+  ['| 7. Seven | v1.0 | 0/2 | Planned | - |', '| 7. Seven | v1.0 | 1/2 | In Progress | - |'],
+].reduce((s, [from, to]) => rmEdit(s, from, to), ROADMAP_7);
+
+describe('48-13 characterization — local-mode roadmap update-job-progress bytes', () => {
+  test('4a. one of two SUMMARYs → Jobs prefix, Progress row, one TRD checkbox; nothing else', () => {
+    const project = roadmap7Project(['07-01-alpha']);
+    const r = run(['roadmap', 'update-job-progress', '7'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, {
+      updated: true, objective: '7', job_count: 2, summary_count: 1, status: 'In Progress',
+      complete: false, trd_checkboxes_ticked: 1, trd_checkboxes: ['07-01'],
+    });
+    assert.equal(readRoadmap(project), ROADMAP_7_IN_PROGRESS);
+    assert.equal(run(['roadmap', 'update-job-progress', '7', '--raw'], roadmap7Project(['07-01-alpha'])).stdout, '1/2 In Progress');
+  });
+
+  test('4b. all SUMMARYs → objective checkbox + Completed date (masked), every TRD ticked', () => {
+    const project = roadmap7Project(['07-01-alpha', '07-02-beta']);
+    const r = run(['roadmap', 'update-job-progress', '7'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.status, 'Complete');
+    assert.equal(r.json.trd_checkboxes_ticked, 2);
+    const want = [
+      ['- [ ] **Objective 7: Seven** — does things', '- [x] **Objective 7: Seven** — does things (completed 2099-09-09)'],
+      ['**Jobs:** 0/2 jobs executed', '**Jobs:** 2/2 jobs executed'],
+      ['- [ ] 07-01-alpha-TRD.md', '- [x] 07-01-alpha-TRD.md'],
+      ['- [ ] 07-02-beta-TRD.md', '- [x] 07-02-beta-TRD.md'],
+      ['| 7. Seven | v1.0 | 0/2 | Planned | - |', '| 7. Seven | v1.0 | 2/2 | Complete | 2099-09-09 |'],
+    ].reduce((s, [from, to]) => rmEdit(s, from, to), ROADMAP_7);
+    assert.equal(rmMask(readRoadmap(project)), rmMask(want));
+  });
+});
