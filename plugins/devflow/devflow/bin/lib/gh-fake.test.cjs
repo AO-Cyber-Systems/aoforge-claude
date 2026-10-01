@@ -1148,3 +1148,318 @@ describe('49-01 pull requests', () => {
     assert.equal(custom.calls().length, 0);
   });
 });
+
+// ─── 49-01 linked branches, ready, merge queue, statuses, refs, human merge (TRD 49-01, Task 2) ───
+
+const Q_CREATE_BRANCH = 'mutation($issueId: ID!, $oid: GitObjectID!, $name: String!, $repositoryId: ID!) {'
+  + ' createLinkedBranch(input:{issueId:$issueId, oid:$oid, name:$name, repositoryId:$repositoryId})'
+  + ' { linkedBranch { id ref { name target { oid } } } } }';
+const Q_LINKED_BRANCHES = 'query($owner:String!,$name:String!,$n:Int!){ repository(owner:$owner,name:$name){'
+  + ' issue(number:$n){ id linkedBranches(first:10){ nodes { ref { name } } } } } }';
+const Q_READY = 'mutation($id: ID!){ markPullRequestReadyForReview(input:{pullRequestId:$id}){ pullRequest { isDraft } } }';
+const Q_MERGE_QUEUE = 'query($o:String!,$n:String!,$b:String!){ repository(owner:$o,name:$n){ mergeQueue(branch:$b){ id } } }';
+const Q_ENQUEUE = 'mutation($id: ID!){ enqueuePullRequest(input:{pullRequestId:$id}){ mergeQueueEntry { id } } }';
+
+/** `gh api graphql -f query=... -f k=v` (numbers go as -F, which gh types as Int). */
+const gql = (query, vars = {}) => ['api', 'graphql', '-f', `query=${query}`,
+  ...Object.entries(vars).flatMap(([k, v]) => [typeof v === 'number' ? '-F' : '-f', `${k}=${v}`])];
+
+/** A fake with objective issue #1, ready to hang a linked branch off. */
+function fakeWithObjectiveIssue(opts = {}) {
+  const fake = createFakeGitHub(opts);
+  fake.seedIssue({ title: '[Objective 49] lifecycle' });
+  const issueId = json(restGet(fake, 'repos/o/r/issues/1')).node_id;
+  const repositoryId = json(restGet(fake, 'repos/o/r')).node_id;
+  return { fake, issueId, repositoryId };
+}
+
+describe('49-01 branches, statuses and merge', () => {
+  it('5. linkedBranches reads empty; createLinkedBranch adds the ref at oid and calls onCreateBranch once; a second read lists it', () => {
+    const mirrored = [];
+    const { fake, issueId, repositoryId } = fakeWithObjectiveIssue({ onCreateBranch: (name, oid) => mirrored.push([name, oid]) });
+    assert.equal(issueId, 'I_1000001', 'the node id, never the number');
+
+    const none = fake.runGh(gql(Q_LINKED_BRANCHES, { owner: 'o', name: 'r', n: 1 }));
+    assert.equal(none.ok, true, none.stderr);
+    assert.equal(json(none).data.repository.issue.id, issueId);
+    assert.deepEqual(json(none).data.repository.issue.linkedBranches.nodes, []);
+
+    const made = fake.runGh(gql(Q_CREATE_BRANCH, { issueId, oid: fake.refs.main, name: BRANCH, repositoryId }));
+    assert.equal(made.ok, true, made.stderr);
+    const lb = json(made).data.createLinkedBranch.linkedBranch;
+    assert.equal(lb.ref.name, BRANCH);
+    assert.equal(lb.ref.target.oid, BASE_SHA);
+    assert.deepEqual(mirrored, [[BRANCH, BASE_SHA]], 'onCreateBranch runs once, on success');
+    assert.equal(fake.refs[BRANCH], BASE_SHA, 'the ref now exists at oid');
+
+    const again = fake.runGh(gql(Q_LINKED_BRANCHES, { owner: 'o', name: 'r', n: 1 }));
+    assert.deepEqual(json(again).data.repository.issue.linkedBranches.nodes.map((n) => n.ref.name), [BRANCH]);
+    assert.equal(mirrored.length, 1, 'a read never creates a branch');
+
+    // A mutation is a recorded write, a query is not (gh-client isWriteArgs classification).
+    assert.equal(fake.calls().length, 3);
+    assert.equal(fake.writes().length, 1);
+    assert.ok(isWriteArgs(fake.writes()[0]));
+  });
+
+  it('5b. createLinkedBranch refuses a number for the issue id, an unknown repository id and a missing oid', () => {
+    const { fake, issueId, repositoryId } = fakeWithObjectiveIssue();
+    const before = { ...fake.refs };
+    assert.equal(fake.runGh(gql(Q_CREATE_BRANCH, { issueId: 1, oid: BASE_SHA, name: BRANCH, repositoryId })).ok, false, 'number as id');
+    assert.equal(fake.runGh(gql(Q_CREATE_BRANCH, { issueId: 1_000_001, oid: BASE_SHA, name: BRANCH, repositoryId })).ok, false, 'REST id as node id');
+    assert.equal(fake.runGh(gql(Q_CREATE_BRANCH, { issueId, oid: BASE_SHA, name: BRANCH, repositoryId: 'R_99' })).ok, false, 'wrong repository');
+    assert.equal(fake.runGh(gql(Q_CREATE_BRANCH, { issueId, name: BRANCH, repositoryId })).ok, false, 'oid is required');
+    assert.deepEqual(fake.refs, before, 'a refused mutation changes nothing');
+
+    const missing = fake.runGh(gql(Q_LINKED_BRANCHES, { owner: 'o', name: 'r', n: 99 }));
+    assert.equal(missing.ok, false);
+    assert.match(missing.stderr, /Could not resolve to an Issue/);
+  });
+
+  it('6. createLinkedBranch on a name that already exists returns linkedBranch null: no callback, refs unchanged', () => {
+    const mirrored = [];
+    const { fake, issueId, repositoryId } = fakeWithObjectiveIssue({
+      refs: { [BRANCH]: 'someone-elses' }, onCreateBranch: (name, oid) => mirrored.push([name, oid]),
+    });
+    const before = { ...fake.refs };
+
+    const r = fake.runGh(gql(Q_CREATE_BRANCH, { issueId, oid: BASE_SHA, name: BRANCH, repositoryId }));
+    assert.equal(r.ok, true, 'the real API answers 200 with a null, not an error (Pitfall 2)');
+    assert.deepEqual(json(r), { data: { createLinkedBranch: { linkedBranch: null } } });
+    assert.deepEqual(mirrored, []);
+    assert.deepEqual(fake.refs, before);
+    const nodes = json(fake.runGh(gql(Q_LINKED_BRANCHES, { owner: 'o', name: 'r', n: 1 }))).data.repository.issue.linkedBranches.nodes;
+    assert.deepEqual(nodes, [], 'the existing branch was not linked');
+  });
+
+  it('7. markPullRequestReadyForReview clears isDraft; on a ready PR it stays ready without an error', () => {
+    const fake = createFakeGitHub();
+    fake.pushRef(BRANCH, 'c1');
+    const pr = json(openPr(fake, BRANCH, { draft: true }));
+    assert.equal(pr.node_id, 'PR_1');
+
+    const r = fake.runGh(gql(Q_READY, { id: pr.node_id }));
+    assert.equal(r.ok, true, r.stderr);
+    assert.equal(json(r).data.markPullRequestReadyForReview.pullRequest.isDraft, false);
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls/1')).draft, false);
+
+    const again = fake.runGh(gql(Q_READY, { id: pr.node_id }));
+    assert.equal(again.ok, true, again.stderr);
+    assert.equal(json(again).data.markPullRequestReadyForReview.pullRequest.isDraft, false);
+
+    const unknown = fake.runGh(gql(Q_READY, { id: 'PR_77' }));
+    assert.equal(unknown.ok, false);
+    assert.match(unknown.stderr, /Could not resolve to a node/);
+    assert.equal(fake.writes().length, 4, 'the PR create and the three ready mutations are writes');
+  });
+
+  it('8. mergeQueue is null by default and {id} with the option; enqueuePullRequest queues without merging', () => {
+    const plain = createFakeGitHub();
+    const probe = plain.runGh(gql(Q_MERGE_QUEUE, { o: 'o', n: 'r', b: 'main' }));
+    assert.equal(probe.ok, true, probe.stderr);
+    assert.deepEqual(json(probe), { data: { repository: { mergeQueue: null } } });
+    assert.equal(plain.writes().length, 0, 'the probe is a read');
+
+    const fake = createFakeGitHub({ mergeQueue: true, refs: { release: 'r1' } });
+    assert.deepEqual(json(fake.runGh(gql(Q_MERGE_QUEUE, { o: 'o', n: 'r', b: 'main' }))).data.repository.mergeQueue, { id: 'MQ_1' });
+    assert.equal(json(fake.runGh(gql(Q_MERGE_QUEUE, { o: 'o', n: 'r', b: 'release' }))).data.repository.mergeQueue, null, 'only the default branch has a queue');
+
+    fake.pushRef('df/draft', 'c1');
+    fake.pushRef('df/ready', 'c2');
+    openPr(fake, 'df/draft', { draft: true });
+    openPr(fake, 'df/ready', { draft: false });
+    assert.equal(fake.runGh(gql(Q_ENQUEUE, { id: 'PR_1' })).ok, false, 'a draft cannot be queued');
+
+    const q = fake.runGh(gql(Q_ENQUEUE, { id: 'PR_2' }));
+    assert.equal(q.ok, true, q.stderr);
+    assert.ok(json(q).data.enqueuePullRequest.mergeQueueEntry.id);
+    const after = json(restGet(fake, 'repos/o/r/pulls/2'));
+    assert.equal(after.state, 'open', 'queued is not merged');
+    assert.equal(after.merged, false);
+    assert.equal(after.queued, true);
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls/1')).queued, false);
+
+    plain.pushRef('df/ready', 'c2');
+    openPr(plain, 'df/ready', { draft: false });
+    const noQueue = plain.runGh(gql(Q_ENQUEUE, { id: 'PR_1' }));
+    assert.equal(noQueue.ok, false, 'without a queue there is nothing to enqueue into');
+    assert.match(noQueue.stderr, /merge queue/i);
+    assert.equal(json(restGet(plain, 'repos/o/r/pulls/1')).queued, false);
+  });
+
+  it('10. POST statuses/{sha} then GET commits/{sha}/status: one entry per context, latest wins, combined state', () => {
+    const fake = createFakeGitHub();
+    const none = json(restGet(fake, 'repos/o/r/commits/c1/status'));
+    assert.equal(none.state, 'pending', 'no statuses is pending');
+    assert.equal(none.total_count, 0);
+    assert.deepEqual(none.statuses, []);
+
+    const first = restCall(fake, 'POST', 'repos/o/r/statuses/c1',
+      { state: 'success', context: 'devflow/verification', description: 'Objective 49 verified (12/12 must-haves)' });
+    assert.equal(first.ok, true, first.stderr);
+    assert.equal(json(first).state, 'success');
+    assert.equal(json(first).context, 'devflow/verification');
+    assert.equal(json(first).creator.login, 'devflow-bot');
+
+    const one = json(restGet(fake, 'repos/o/r/commits/c1/status'));
+    assert.equal(one.state, 'success');
+    assert.equal(one.sha, 'c1');
+    assert.equal(one.statuses.length, 1);
+    assert.equal(one.statuses[0].context, 'devflow/verification');
+    assert.equal(one.statuses[0].description, 'Objective 49 verified (12/12 must-haves)');
+
+    restCall(fake, 'POST', 'repos/o/r/statuses/c1', { state: 'failure', context: 'devflow/verification', description: 'gaps found' });
+    const two = json(restGet(fake, 'repos/o/r/commits/c1/status'));
+    assert.equal(two.state, 'failure');
+    assert.equal(two.statuses.length, 1, 'still one entry for the context');
+    assert.equal(two.statuses[0].description, 'gaps found');
+    assert.equal(fake.statuses.c1.length, 2, 'the history keeps both, newest first');
+    assert.equal(fake.statuses.c1[0].state, 'failure');
+
+    restCall(fake, 'POST', 'repos/o/r/statuses/c1', { state: 'success', context: 'ci/other' });
+    const three = json(restGet(fake, 'repos/o/r/commits/c1/status'));
+    assert.equal(three.statuses.length, 2);
+    assert.equal(three.state, 'failure', 'any failing context fails the commit');
+    restCall(fake, 'POST', 'repos/o/r/statuses/c1', { state: 'success', context: 'devflow/verification' });
+    assert.equal(json(restGet(fake, 'repos/o/r/commits/c1/status')).state, 'success');
+    restCall(fake, 'POST', 'repos/o/r/statuses/c1', { state: 'pending', context: 'ci/other' });
+    assert.equal(json(restGet(fake, 'repos/o/r/commits/c1/status')).state, 'pending');
+
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/commits/other-sha/status')).statuses, [], 'statuses are per sha');
+    const bad = restCall(fake, 'POST', 'repos/o/r/statuses/c1', { state: 'great', context: 'x' });
+    assert.equal(bad.ok, false);
+    assert.match(bad.stderr, /422/);
+  });
+
+  it('11. DELETE git/refs/heads/<b> removes the ref (a second delete is 422); GET git/ref/heads/<b> answers the sha or 404', () => {
+    const fake = createFakeGitHub();
+    fake.pushRef(BRANCH, 'c1');
+
+    const got = json(restGet(fake, `repos/o/r/git/ref/heads/${BRANCH}`));
+    assert.equal(got.ref, `refs/heads/${BRANCH}`);
+    assert.equal(got.object.sha, 'c1');
+    assert.equal(json(restGet(fake, 'repos/o/r/git/ref/heads/main')).object.sha, BASE_SHA);
+    assert.match(restGet(fake, 'repos/o/r/git/ref/heads/df/missing').stderr, /404/);
+
+    const del = fake.runGh(['api', '--method', 'DELETE', `repos/o/r/git/refs/heads/${BRANCH}`]);
+    assert.equal(del.ok, true, del.stderr);
+    assert.equal(del.stdout, '', 'a 204 prints nothing');
+    assert.equal(fake.refs[BRANCH], undefined);
+    assert.match(restGet(fake, `repos/o/r/git/ref/heads/${BRANCH}`).stderr, /404/);
+
+    const second = fake.runGh(['api', '--method', 'DELETE', `repos/o/r/git/refs/heads/${BRANCH}`]);
+    assert.equal(second.ok, false);
+    assert.match(second.stderr, /422/);
+    assert.match(second.stderr, /Reference does not exist/);
+    assert.equal(fake.writes().length, 2, 'both deletes are writes; the reads are not');
+  });
+
+  it('11b. deleting a branch drops its issue link, so the name can be linked again', () => {
+    const { fake, issueId, repositoryId } = fakeWithObjectiveIssue();
+    fake.runGh(gql(Q_CREATE_BRANCH, { issueId, oid: BASE_SHA, name: BRANCH, repositoryId }));
+    fake.runGh(['api', '--method', 'DELETE', `repos/o/r/git/refs/heads/${BRANCH}`]);
+    const nodes = json(fake.runGh(gql(Q_LINKED_BRANCHES, { owner: 'o', name: 'r', n: 1 }))).data.repository.issue.linkedBranches.nodes;
+    assert.deepEqual(nodes, []);
+    const again = fake.runGh(gql(Q_CREATE_BRANCH, { issueId, oid: BASE_SHA, name: BRANCH, repositoryId }));
+    assert.notEqual(json(again).data.createLinkedBranch.linkedBranch, null);
+  });
+
+  it('13. humanMergePr merges a PR and closes each Closes #N issue only for the default branch, honouring closeKeywordCap', () => {
+    function scenario(opts, base = 'main') {
+      const fake = createFakeGitHub({ refs: { release: 'r1' }, ...opts });
+      fake.seedIssue({ title: 'objective' });
+      fake.seedIssue({ title: 'trd' });
+      fake.pushRef(BRANCH, 'c1');
+      openPr(fake, BRANCH, { base, draft: false, body: 'Closes #1\nCloses #2' });
+      const calls = fake.calls().length;
+      fake.humanMergePr(3);
+      assert.equal(fake.calls().length, calls, 'a human merge records no DevFlow call');
+      return fake;
+    }
+    const state = (fake) => fake.issues.slice(0, 2).map((i) => i.state);
+
+    const all = scenario({});
+    assert.deepEqual(state(all), ['CLOSED', 'CLOSED']);
+    assert.ok(all.issues.slice(0, 2).every((i) => i.stateReason === 'completed'));
+    const merged = json(restGet(all, 'repos/o/r/pulls/3'));
+    assert.equal(merged.merged, true);
+    assert.equal(merged.state, 'closed');
+    assert.match(merged.merged_at, /^\d{4}-\d{2}-\d{2}T/);
+
+    assert.deepEqual(state(scenario({}, 'release')), ['OPEN', 'OPEN'], 'a merge into a non-default branch closes nothing');
+    assert.deepEqual(state(scenario({ closeKeywordCap: 1 })), ['CLOSED', 'OPEN'], 'only the first link is honoured under a cap of 1');
+    assert.deepEqual(state(scenario({ defaultBranch: 'trunk', refs: { main: 'm1' } }, 'main')), ['OPEN', 'OPEN'], 'main is not the default branch here');
+  });
+
+  it('13b. the closing-keyword grammar: closes/fixes/resolves, any case, a colon, dedup; PRs and closed issues are skipped', () => {
+    const fake = createFakeGitHub();
+    for (const t of ['a', 'b', 'c', 'd', 'e']) fake.seedIssue({ title: t });
+    fake.issues[4].state = 'CLOSED';
+    const closedAt = fake.issues[4].updatedAt;
+    fake.pushRef(BRANCH, 'c1');
+    openPr(fake, BRANCH, { draft: false, body: 'closes #1, Fixes: #2\nRESOLVED #3\nCloses #1\nRefs #4\nCloses #5\nCloses #6' });
+    fake.humanMergePr(6, { method: 'squash' });
+    assert.deepEqual(fake.issues.slice(0, 5).map((i) => i.state), ['CLOSED', 'CLOSED', 'CLOSED', 'OPEN', 'CLOSED']);
+    assert.equal(fake.issues[4].updatedAt, closedAt, 'an already closed issue is left alone');
+    assert.equal(fake.issues[5].pr.mergeMethod, 'squash');
+    assert.equal(fake.issues[5].state, 'CLOSED');
+  });
+
+  it('13c. a REST merge closes the keyword issues too; humanMergePr completes a queued PR; misuse throws', () => {
+    const fake = createFakeGitHub({ mergeQueue: true });
+    fake.seedIssue({ title: 'objective' });
+    fake.pushRef('df/a', 'c1');
+    fake.pushRef('df/b', 'c2');
+    openPr(fake, 'df/a', { draft: false, body: 'Closes #1' });
+    openPr(fake, 'df/b', { draft: false, body: 'nothing' });
+
+    assert.equal(restCall(fake, 'PUT', 'repos/o/r/pulls/2/merge', { merge_method: 'squash' }).ok, true);
+    assert.equal(fake.issues[0].state, 'CLOSED', 'GitHub closes keyword issues on any merge to the default branch');
+
+    fake.runGh(gql(Q_ENQUEUE, { id: 'PR_3' }));
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls/3')).queued, true);
+    fake.humanMergePr(3);
+    const done = json(restGet(fake, 'repos/o/r/pulls/3'));
+    assert.equal(done.merged, true);
+    assert.equal(done.queued, false, 'the queue entry is consumed by the merge');
+
+    assert.throws(() => fake.humanMergePr(3), /already merged/);
+    assert.throws(() => fake.humanMergePr(1), /no pull request #1/, 'an issue is not a PR');
+    assert.throws(() => fake.humanMergePr(99), /no pull request #99/);
+    assert.throws(() => fake.humanMergePr(2, { method: 'fast-forward' }), /merge method/);
+  });
+
+  it('15. a caller graphql handler still answers every query the built-ins do not; the built-ins win for theirs', () => {
+    const seen = [];
+    const fake = createFakeGitHub({
+      graphql: (argv) => { seen.push(argv); return JSON.stringify({ data: { custom: true } }); },
+    });
+    const custom = fake.runGh(gql('query($x:Int!){ something(x:$x){ id } }', { x: 1 }));
+    assert.deepEqual(json(custom), { data: { custom: true } });
+    assert.equal(seen.length, 1);
+
+    const probe = fake.runGh(gql(Q_MERGE_QUEUE, { o: 'o', n: 'r', b: 'main' }));
+    assert.deepEqual(json(probe), { data: { repository: { mergeQueue: null } } });
+    assert.equal(seen.length, 1, 'a built-in query never reaches the caller');
+
+    const bare = createFakeGitHub();
+    const unsupported = bare.runGh(gql('query{ viewer { login } }'));
+    assert.equal(unsupported.ok, false);
+    assert.match(unsupported.stderr, /unsupported/);
+  });
+
+  it('16. a PR can be opened off a linked branch only once a commit lands on it (Pitfall 1, end to end)', () => {
+    const { fake, issueId, repositoryId } = fakeWithObjectiveIssue();
+    fake.runGh(gql(Q_CREATE_BRANCH, { issueId, oid: fake.refs.main, name: BRANCH, repositoryId }));
+    const early = openPr(fake, BRANCH, { draft: true });
+    assert.equal(early.ok, false);
+    assert.match(early.stderr, /No commits between main and df\/objective-49-x/);
+
+    fake.pushRef(BRANCH, 'c1');
+    const pr = openPr(fake, BRANCH, { draft: true, body: 'Closes #1' });
+    assert.equal(pr.ok, true, pr.stderr);
+    assert.equal(json(pr).head.sha, 'c1');
+    fake.pushRef(BRANCH, 'c2');
+    assert.equal(json(restGet(fake, 'repos/o/r/pulls/2')).head.sha, 'c2', 'an open PR follows its branch');
+  });
+});
