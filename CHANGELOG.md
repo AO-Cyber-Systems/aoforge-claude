@@ -7,6 +7,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Migration onto the GitHub store (objective 51).** Migration 0011 `github-store-backfill` (confirm)
+  moves an existing project onto the store in place: a local and a remote preflight that list every
+  blocker with its fix, the `github.store` switch after a config backup, the whole backfill queued once,
+  a drain inside the 80/min and 450/h budgets, verification through `gh pull --all` and the orphan
+  report, then the hand-off to 0010. A stop on the hour budget, offline or on a long secondary rate limit
+  reports "not an error: N of M ops remain" with the resume time; the same command resumes without
+  re-importing, and on a resume a lost mapping is re-adopted by `devflow:id` marker. A completed run
+  records 0010 and 0011, and running it again changes nothing. Run it with
+  `df-tools upgrade --apply --only 0011 --confirm` or `/devflow:gh-sync migrate`. Modules:
+  `migrations/0011-github-store-backfill.cjs`, `gh-backfill.cjs`.
+  - Backfill estimate and preview: `planning import --dry-run` prints an upper-bound request estimate
+    (`estimate:`), the history closes and a `will stay local:` table. With the store off and
+    `github.enabled` true it previews the backfill; a real import still refuses until the store is on.
+  - History closes: a backfill, and any real `planning import`, closes shipped TRDs and objectives as
+    completed, a cancelled objective and its TRDs without a SUMMARY as not planned, and each shipped
+    MILESTONES.md milestone.
+  - Tests: a 20-objective backfill fixture with a fake clock, resume scenarios (op cap, offline, lost
+    mapping, secondary limits, a remote-edit halt) and a CLI end-to-end run through a `gh` shim.
 - **Enforcement and setup on GitHub (objective 50).** Store mode now enforces the planning model
   locally and on the remote. With `github.store` off every item below is inert: `df-tools commit`
   behaves as before and nothing makes a `gh` call.
@@ -149,12 +167,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   subcommand without saying it is deprecated.
 
 ### Changed
+- **`/devflow:gh-sync` is the GitHub store operator (objective 51).** Its modes are `migrate [--dry-run]`,
+  `status`, `flush`, `pull`, `setup [--apply]`, `release <tag>`, and `<objective>|--all` as the store-off
+  mirror. `migrate` shows the plan and the request estimate, asks before applying, and shows the branch
+  plus logged-escape commit; it runs that commit only when asked. The skill no longer commits
+  `.planning/.gh-mapping.json`. The flow chains, the help reference and the README describe the store
+  model. The routing line in the managed `~/.claude/CLAUDE.md` template changed but its template version
+  did not, so existing blocks pick it up at the next version bump.
+- **Migration 0010 defers during a backfill and prints the store-mode commit (objective 51).** While the
+  outbox holds only pending ops, 0010 skips with a reason that names `--only 0011`, so a bare
+  `upgrade --apply --confirm` reaches 0011; a direct apply still refuses. Its printed follow-up, and doctor
+  check 20's in store mode, is a new branch, a `df-tools commit` with `DEVFLOW_SKIP_GH_GATE=1` and a
+  reason, a push and a pull request. The wiki clone `.planning/wiki/` is no longer counted as an
+  un-synced cache file.
+- **Objective 26 (GitHub issue auto-build monitor) is killed (objective 51).** Its OBJECTIVE.md is
+  `status: cancelled` with a dated Disposition, and DECISION-002 records the decision. Nothing was
+  renumbered.
+- A GitHub-enabled project with the store off now sees migration 0011 as a pending confirm migration:
+  `validate health` reports W040 and doctor check 21 names it. There is no opt-out key yet.
 - **Store-mode commits need a linked branch (objective 50).** In store mode `df-tools commit` on the
   default branch or an unlinked branch now exits 1 instead of committing. Run `gh pr start <objective>`
   and commit on its branch, or take the logged escape `DEVFLOW_SKIP_GH_GATE=1`. This includes the
-  `df-tools commit` line that migration 0010 and doctor check 20 print, and the `upgrade-project.js`
-  background commit: on a store-mode default branch the upgrade stays applied but uncommitted and a
-  notice names `default_branch`. Local mode is unchanged.
+  `upgrade-project.js` background commit: on a store-mode default branch the upgrade stays applied but
+  uncommitted and a notice names `default_branch`. Migration 0010 and doctor check 20 print a commit
+  sequence that takes the escape (objective 51). Local mode is unchanged.
 - **Required checks are commit statuses, not check runs (objective 50).** `devflow/linked-issue` and
   `devflow/planning-consistency` are posted by the check runner as statuses, so no GitHub App is needed
   to make them required; the App (`github.app_id`) is optional and only pins the required check to it.
@@ -198,6 +234,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   push reports no drift.
 
 ### Fixed
+- A successful `planning import` printed `planning import: nothing to do ().` It now prints the counts,
+  the estimate, the history line and the will-stay-local table (objective 51).
+- The flow skill's ship-and-release chain called `/devflow:gh-sync sync-release`, a mode that does not
+  exist; it now calls `release` (objective 51).
 - Store mode closed the objective issue at verify-pass, before anything was merged (objective 49). It
   now closes on merge, through the PR's `Closes #<obj>`, or by `gh pr reconcile` when GitHub's
   closing-keyword limit skipped it. `objective complete` writes the status and warns while the PR is

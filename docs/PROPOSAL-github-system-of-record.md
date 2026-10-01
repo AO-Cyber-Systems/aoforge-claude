@@ -14,8 +14,12 @@ at verify-pass. Objective 50 (enforcement and setup) is implemented: the commit 
 refuses the default and unlinked branches, escape `DEVFLOW_SKIP_GH_GATE=1` logged as gate `gh`), the
 `gh-flush` hook, `validate health` Check 16 / `doctor` check 25 (W057–W061), `gh setup [--apply]`, the
 reusable workflow and its caller template, and the required checks `devflow/linked-issue` and
-`devflow/planning-consistency` posted as commit statuses. The store ships opt-in (`github.store`, default
-false); objective 51 completes the move onto it. Known gap: `gh trd freeze|scope|fold` need connectivity
+`devflow/planning-consistency` posted as commit statuses. Objective 51 (migration and docs) is implemented:
+confirm migration 0011 backfills an existing project onto the store (preflight, store switch, a paced and
+resumable drain with history closes, verification, then 0010), `planning import --dry-run` prints the plan
+and an upper-bound request estimate, `/devflow:gh-sync` is the store operator, the user guide describes
+GitHub as the system of record, and objective 26 is killed. The store ships opt-in (`github.store`, default
+false). Its refinements are listed below. Known gap: `gh trd freeze|scope|fold` need connectivity
 (offline they exit 1 and queue nothing), as does `gh pr start`. Open items for objective 50 are listed
 after its refinements below.
 
@@ -125,9 +129,37 @@ Open items for objective 50 (none changes the decisions table):
   by every repository that calls it; moving it is a one-key change per repository.
 - Bootstrap: the ruleset requires two statuses that exist only once the workflow is on the default branch, so
   merge the workflow pull request first, with a one-time admin bypass if needed.
-- Migration 0010 and doctor check 20 print a `df-tools commit` follow-up that the gate refuses on a store-mode
-  default branch, and the `upgrade-project.js` background commit gets the same refusal. The commit needs the
-  logged escape or an objective branch; the printed notes do not say so yet.
+- The `upgrade-project.js` background commit is refused on a store-mode default branch; the upgrade stays
+  applied and uncommitted, and a notice names `default_branch`. (Migration 0010 and doctor check 20 now print a
+  branch plus logged-escape commit sequence; objective 51, 51-04.)
+
+### Planning refinements (objective 51)
+
+Decisions taken while planning and executing objective 51 that refine, and do not change, the table below:
+
+- OQ1 closed history: the backfill puts the whole shipped history on GitHub as closed issues. TRDs with a
+  SUMMARY and objectives marked complete (OBJECTIVE.md `status`, else the ROADMAP Progress row) close as
+  `completed`; a cancelled objective and its un-summarised TRDs close as `not_planned`; shipped
+  MILESTONES.md milestones are closed. There is no wiki-only history option.
+- OQ2 empty plan flips: a GitHub-enabled project with nothing to import still has `github.store` turned on
+  by migration 0011, because the user confirmed the migration.
+- OQ5 kept_local printed: files the import keeps local (for example a decision with no `trd:`) are listed in
+  the dry run's `will stay local:` table and in the apply's notes; `--confirm` is the acknowledgement. After
+  verification they get a baseline so 0010 can untrack the cache.
+- G4 0010 deferral: while the outbox holds only pending ops, 0010's detect reports not applicable with a
+  reason naming `--only 0011`, so the id-ordered runner reaches 0011 on a resume; a direct 0010 apply still
+  refuses, and a blocked or halted journal still applies so a human sees the refusal.
+- G5 live-create bookkeeping: objective issues that `planning import` creates live are booked into the
+  journal's rolling budget window (`recordLiveWrites`), and get a remote-edit base so a human edit between
+  runs halts instead of being merged over.
+- Migration 0011 is a re-entrant phase machine (preflight, store switch, queue once, drain, verify, 0010
+  hand-off) whose only state is the outbox journal and the cache index. A stop on the hourly budget is
+  `failed` with "not an error: N ops remain" and resumes with the same command; it is never slept through.
+- Objective 26 (GitHub issue auto-build monitor) is killed (DECISION-002, 2026-10-01): status `cancelled`
+  through `objective set-status`, nothing renumbered.
+- Open: the first backfill of a real repository is a manual UAT step against a throwaway repository; CI
+  runs the fake GitHub and a `gh` shim only.
+
 Team-review page: https://claude.ai/artifact/5WUeto6m5YYsxRAz8XJd2w (private; share before linking).
 
 ## Summary
