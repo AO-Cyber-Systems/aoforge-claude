@@ -5,16 +5,21 @@
  *
  * Implements `df-tools verify trd-pre <objective>`:
  * - Pure logic, no agent spawn, no network
- * - Checks: requirement_coverage, task_completeness, dependency_correctness, scope_sanity
+ * - Checks: requirement_coverage, task_completeness, dependency_correctness, scope_sanity, trd_budget
  * - Performance budget: <2s wall clock
  *
- * Output shape (from 14-RESEARCH.md):
+ * Output shape (from 14-RESEARCH.md; trd_budget added by TRD 48-03):
  * {
  *   objective, passed, needs_agent, checks: {
- *     requirement_coverage, task_completeness, dependency_correctness, scope_sanity
+ *     requirement_coverage, task_completeness, dependency_correctness, scope_sanity, trd_budget
  *   },
  *   summary, elapsed_ms
  * }
+ *
+ * trd_budget (GWP-05) is the encoded-body size of each TRD (D-06: 40,000 target, 60,000 ceiling) and its
+ * linked-bulk warnings (U-2), measured by trd-bulk.checkTrd — the same measurement the job-checker's
+ * Dimension 8 and `plan put-trd` use. It reports both severities for an over-budget TRD and does not read
+ * `github.store` (D-01): the consumer picks `severity.store` or `severity.local`.
  */
 
 const fs = require('fs');
@@ -22,6 +27,7 @@ const path = require('path');
 const { output, error, safeReadFile } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const trdBulk = require('./trd-bulk.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -374,6 +380,36 @@ function checkScopeSanity(trds) {
   };
 }
 
+// ─── Dimension: trd_budget ────────────────────────────────────────────────────
+
+// An over-budget TRD blocks a store-mode objective (it cannot be posted) and warns a local one.
+// Warn-budget TRDs and bulk findings are warnings in both modes.
+const TRD_BUDGET_SEVERITY = Object.freeze({ store: 'blocker', local: 'warning' });
+
+function budgetSeverity() {
+  return { store: TRD_BUDGET_SEVERITY.store, local: TRD_BUDGET_SEVERITY.local };
+}
+
+/**
+ * checkTrdBudget(trds) — per-TRD encoded size and linked bulk, from the content loadTrds already read.
+ * -> {passed, trds:[{trd, chars, status, bulk, note?}], over:[{trd, chars}], warn:[{trd, chars}], severity}
+ * `passed` is false only when a TRD is over 60,000 encoded chars; bulk findings never fail it.
+ */
+function checkTrdBudget(trds) {
+  const rows = [];
+  const over = [];
+  const warn = [];
+  for (const trd of trds) {
+    const r = trdBulk.checkTrd({ file: trd.filename, text: trd.content || '' });
+    const row = { trd: trd.trdId, chars: r.chars, status: r.status, bulk: r.bulk };
+    if (r.note !== undefined) row.note = r.note;
+    rows.push(row);
+    if (r.status === 'over') over.push({ trd: trd.trdId, chars: r.chars });
+    else if (r.status === 'warn') warn.push({ trd: trd.trdId, chars: r.chars });
+  }
+  return { passed: over.length === 0, trds: rows, over, warn, severity: budgetSeverity() };
+}
+
 // ─── cmdVerifyTrdPre ──────────────────────────────────────────────────────────
 
 function cmdVerifyTrdPre(cwd, objective, raw) {
@@ -404,30 +440,34 @@ function cmdVerifyTrdPre(cwd, objective, raw) {
 
   if (trds.length === 0) {
     const elapsed_ms = Number(process.hrtime.bigint() - startNs) / 1e6;
+    const checks = {
+      requirement_coverage: { passed: false, missing: [], note: 'no TRD files found' },
+      task_completeness: { passed: false, incomplete: [] },
+      dependency_correctness: { passed: false, cycles: [], orphan_refs: [] },
+      scope_sanity: { passed: false, oversized_trds: [], total_trds: 0 },
+      trd_budget: { passed: true, trds: [], over: [], warn: [], severity: budgetSeverity() },
+    };
+    const passedCount = Object.values(checks).filter(c => c.passed).length;
     const result = {
       objective,
       passed: false,
       needs_agent: false,
-      checks: {
-        requirement_coverage: { passed: false, missing: [], note: 'no TRD files found' },
-        task_completeness: { passed: false, incomplete: [] },
-        dependency_correctness: { passed: false, cycles: [], orphan_refs: [] },
-        scope_sanity: { passed: false, oversized_trds: [], total_trds: 0 },
-      },
-      summary: '0/4 dimensions passed',
+      checks,
+      summary: `${passedCount}/${Object.keys(checks).length} dimensions passed`,
       elapsed_ms: Math.round(elapsed_ms),
     };
     output(result, raw, result.summary);
     return;
   }
 
-  // Run all four dimensions
+  // Run all five dimensions
   const requirement_coverage = checkRequirementCoverage(cwd, objectiveNum, trds);
   const task_completeness = checkTaskCompleteness(trds);
   const dependency_correctness = checkDependencyCorrectness(trds);
   const scope_sanity = checkScopeSanity(trds);
+  const trd_budget = checkTrdBudget(trds);
 
-  const checks = { requirement_coverage, task_completeness, dependency_correctness, scope_sanity };
+  const checks = { requirement_coverage, task_completeness, dependency_correctness, scope_sanity, trd_budget };
 
   const passedCount = Object.values(checks).filter(c => c.passed).length;
   const totalDimensions = Object.keys(checks).length;
