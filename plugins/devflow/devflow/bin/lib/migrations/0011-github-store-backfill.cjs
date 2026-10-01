@@ -38,7 +38,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
 
 const planningMode = require('../planning-mode.cjs');
 const planningPaths = require('../planning-paths.cjs');
@@ -241,14 +240,14 @@ function detect(ctx) {
 
 // ─── phases ─────────────────────────────────────────────────────────────────────
 
-function gitEnv() {
-  const env = { ...process.env };
-  for (const key of GIT_REDIRECT_VARS) delete env[key];
-  return env;
-}
-
+/**
+ * A git read through objective-branch's runGit, the named git seam (gh-seam test 20: this migration spawns nothing,
+ * TRD 51-08). The variables that would redirect git at another repository are unset for the child (an undefined env
+ * value is dropped by child_process), so the answer is about `cwd`.
+ */
 function git(cwd, args) {
-  const r = spawnSync('git', args, { cwd, env: gitEnv(), input: '', encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  const unset = Object.fromEntries(GIT_REDIRECT_VARS.map((key) => [key, undefined]));
+  const r = require('../objective-branch.cjs').runGit(args, { cwd, env: unset });
   return { status: r.status, out: (r.stdout || '').trim() };
 }
 
