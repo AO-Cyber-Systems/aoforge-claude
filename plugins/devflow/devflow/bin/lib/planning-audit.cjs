@@ -7,7 +7,7 @@
  * The prose that drives DevFlow (skills, workflows, agents, templates) must reach planning
  * files through df-tools verbs, so that store mode (GitHub as the store) and local mode both
  * work. This module finds the lines that still tell an agent to write a planning file
- * directly. `planning-writes.repo.test.cjs` walks the repo with it and ratchets the counts.
+ * directly. `planning-writes.repo.test.cjs` walks the repo with it and asserts zero findings.
  *
  * Scan set (scanSet): plugins/devflow/skills/<name>/SKILL.md, plugins/devflow/devflow/workflows/*.md
  * (minus `status: legacy` frontmatter), plugins/devflow/agents/*.md and

@@ -7,6 +7,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Planning verbs and the store-mode write path (objective 48).** Every planning write is now a
+  df-tools verb that takes its content with `--from <path|->`: `plan put-trd` / `plan push`,
+  `summary checkpoint` / `summary post`, `verification post`, `doc put`, `objective put` /
+  `objective set-status`, `todo add` / `todo complete`, `debug put` / `debug resolve`, `quick put` /
+  `quick summary`, `decision open` / `decision answer`, `milestone put` / `milestone complete`.
+  `planning mode` prints `local` or `store`, `planning draft <rel>` prints a temp copy to edit, and
+  `planning import [--dry-run]` queues existing local planning files to GitHub. With `github.store`
+  off (the default) every verb writes the same `.planning/` file, byte for byte, with zero `gh`
+  calls, and `.planning/` stays tracked.
+  - Store mode: a verb writes the cache, records it in an out-of-tree ledger, queues the GitHub
+    write and flushes. `summary checkpoint` writes runtime `.planning/.trd-progress/<trd>.md` and
+    never reaches GitHub; `summary post` is the one GitHub write per TRD.
+  - Todos, debug sessions and quick tasks are GitHub issues (`Debug` / `Quick` issue types, or
+    `devflow:type/<name>` labels where the org has none). Milestones are native GitHub milestones
+    with a `Milestone-vX_Y` wiki page (`gh-milestone-store.cjs`). Research notes and the remaining
+    objective docs are wiki pages. `gh pull --all` rebuilds all of them byte for byte.
+  - `verify trd-pre` reports `checks.trd_budget` (`trd-bulk.cjs`): a TRD over 40,000 encoded chars
+    warns, over 60,000 is refused, and inline bulk (a fenced block over 8,000 chars, or fenced
+    content over 40% of a 40,000+ char TRD) warns. The job-checker carries it as Dimension 8.
+  - `validate health` Check 15 reports W055 for a cache or generated `.planning/` file changed
+    outside a verb (naming the verb, or `gh pull --all --force`), and W056 when the check cannot run.
+  - Migration 0010 (confirm, store mode only): once the outbox is drained and every cache file is
+    on GitHub, it gitignores `.planning/*` except `config.json` and `STACK.md` and untracks the rest
+    from the index. Run `df-tools upgrade --apply --only 0010 --confirm`. Doctor check 24
+    (`store-cache-tracked`) reports a store-mode project that still tracks its cache.
+  - `planning-writes.repo.test.cjs` fails CI on any direct planning-write instruction in a skill,
+    non-legacy workflow, agent or template (the 48-04 ratchet, now at zero with no baseline).
 - **GitHub authoritative store (objective 47).** Opt-in with `github.store: true` in
   `.planning/config.json`; the default is `false`, and with it off `gh sync` behaves exactly as in
   objective 46. Skills and agents still read the planning files until objectives 48-51 move them
@@ -55,6 +82,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   subcommand without saying it is deprecated.
 
 ### Changed
+- **Edit gate in store mode.** With `github.enabled` and `github.store` both true, an Edit/Write of a
+  cache or generated `.planning/` file is denied for everyone, skill markers and `devflow:*` agents
+  included, and the reason names the verb to use. `config.json`, `STACK.md` and runtime files stay
+  editable. With store off the gate is unchanged. The deny needs an installed plugin at or above the
+  release carrying objective 48 (D-10); `df-tools doctor` reports a stale plugin cache (check 11).
+- Skills, workflows, agents and templates now publish planning files through the verbs: the planner
+  uses `planning draft` + `plan put-trd --no-push` + one `plan push`; the executor uses
+  `summary checkpoint` per task and one `summary post`; verify, bootstrap, milestone, todo, debug,
+  quick, decision and codebase-map flows use their verbs. `summary checkpoint|post` write the main
+  checkout even from a worktree, so execute-objective commits a wave's SUMMARYs from the main
+  checkout after the merge.
+- In store mode the STATE.md mutators write the per-clone `state.json`; `roadmap
+  update-job-progress` and the writing `sync-roadmap` modes are no-ops that point at `gh pull
+  --all`; `objective add|complete` go through `objective put|set-status` and `objective remove` is
+  refused; `frontmatter set|merge` on a cache file names the owning verb. Local mode is unchanged.
+- `df-tools commit` skips ignored, untracked planning paths one path at a time.
 - **`gh sync [<objective>|--all]` is the one push command.** It finds or creates the objective's
   issue, updates it, posts the sticky state comment, sets Project fields and writes `github_issue`
   to OBJECTIVE.md. `--all` runs every objective through one run context, keeps going past a failure,
@@ -74,6 +117,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   push reports no drift.
 
 ### Fixed
+- check-todos completed a todo with a hand `mv` into `todos/done/`, a directory df-tools does not
+  use. It now runs `todo complete`, which moves the file to `todos/completed/`; add-todo no longer
+  creates `todos/done/`, and existing `todos/done/` files still read as closed.
 - Mapping shapes and keys. v1 (bare numbers) and v2 (objects) were read by different commands, so an
   issue edit could receive `[object Object]`, and one objective had three key spellings (`2.1`,
   `02.1-foo` run through `parseInt` to `2`, the directory name). There is one id now.
