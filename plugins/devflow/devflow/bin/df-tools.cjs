@@ -757,31 +757,55 @@ async function main() {
         cmdObjectiveRemove(cwd, args[2], { force: forceFlag, confirm: confirmFlag }, raw);
       } else if (subcommand === 'complete') {
         cmdObjectiveComplete(cwd, args[2], raw);
+      } else if (subcommand === 'put' || subcommand === 'set-status') {
+        // TRD 48-15: the planning verbs (logic in planning-verbs-cli.cjs).
+        require('./lib/planning-verbs-cli.cjs').cmdObjectiveVerb(cwd, args.slice(1), raw);
       } else {
-        error('Unknown objective subcommand. Available: next-decimal, add, insert, remove, complete');
+        error('Unknown objective subcommand. Available: next-decimal, add, insert, remove, complete, put, set-status');
       }
       break;
     }
 
     case 'milestone': {
-      const subcommand = args[1];
-      if (subcommand === 'complete') {
-        const nameIndex = args.indexOf('--name');
-        const archiveObjectives = args.includes('--archive-objectives');
-        // Collect --name value (everything after --name until next flag or end)
-        let milestoneName = null;
-        if (nameIndex !== -1) {
-          const nameArgs = [];
-          for (let i = nameIndex + 1; i < args.length; i++) {
-            if (args[i].startsWith('--')) break;
-            nameArgs.push(args[i]);
-          }
-          milestoneName = nameArgs.join(' ') || null;
-        }
-        cmdMilestoneComplete(cwd, args[2], { name: milestoneName, archiveObjectives }, raw);
-      } else {
-        error('Unknown milestone subcommand. Available: complete');
-      }
+      // milestone put | complete — TRD 48-15. Local `complete` runs cmdMilestoneComplete unchanged; store mode routes
+      // to the entity verb.
+      require('./lib/planning-verbs-cli.cjs').cmdMilestoneVerb(cwd, args.slice(1), raw);
+      break;
+    }
+
+    // ── Planning verbs (TRD 48-15): one argument shape, `--from <path|->`, `--raw`; logic in planning-verbs-cli.cjs.
+    case 'plan': {
+      require('./lib/planning-verbs-cli.cjs').cmdPlan(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'summary': {
+      require('./lib/planning-verbs-cli.cjs').cmdSummary(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'verification': {
+      require('./lib/planning-verbs-cli.cjs').cmdVerification(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'doc': {
+      require('./lib/planning-verbs-cli.cjs').cmdDoc(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'decision': {
+      require('./lib/planning-verbs-cli.cjs').cmdDecision(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'debug': {
+      require('./lib/planning-verbs-cli.cjs').cmdDebug(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'quick': {
+      require('./lib/planning-verbs-cli.cjs').cmdQuick(cwd, args.slice(1), raw);
       break;
     }
 
@@ -874,12 +898,9 @@ async function main() {
     }
 
     case 'todo': {
-      const subcommand = args[1];
-      if (subcommand === 'complete') {
-        cmdTodoComplete(cwd, args[2], raw);
-      } else {
-        error('Unknown todo subcommand. Available: complete');
-      }
+      // todo add | complete — TRD 48-15. Local `complete` runs cmdTodoComplete unchanged; store mode routes to the
+      // entity verb.
+      require('./lib/planning-verbs-cli.cjs').cmdTodoVerb(cwd, args.slice(1), raw);
       break;
     }
 
@@ -1171,7 +1192,12 @@ async function main() {
         }
         process.exit(0);
       }
-      error(`Unknown planning subcommand${sub ? ': ' + sub : ''}. Available: sibling-trd-scan`);
+      if (sub === 'draft' || sub === 'import' || sub === 'mode') {
+        // TRD 48-15: planning draft <rel> | import [--dry-run] | mode (logic in planning-verbs-cli.cjs).
+        require('./lib/planning-verbs-cli.cjs').cmdPlanningVerb(cwd, args.slice(1), raw);
+        break;
+      }
+      error(`Unknown planning subcommand${sub ? ': ' + sub : ''}. Available: sibling-trd-scan, draft, import, mode`);
       break;
     }
 

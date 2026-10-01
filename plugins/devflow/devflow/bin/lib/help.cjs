@@ -19,6 +19,14 @@
  * are safe to ask.
  */
 
+// The shared shape of every planning verb (TRD 48-15, planning-verbs-cli.cjs).
+const VERB_DETAILS = [
+  '  Planning verb: content comes from --from <path> or --from - (stdin). A missing --from is a usage error;',
+  '  `df-tools planning draft <rel>` prints a draft path seeded with the current file.',
+  '  Prose by default, the result JSON with --raw. Store mode (github.store): --no-flush / --no-wait (no-ops locally).',
+  '  Exit: 0 ok, 1 error; store mode also 2 halted for a human, 3 ops still pending (offline / rate limited).',
+];
+
 // name → { usage, summary, mutates?, details? }
 const COMMANDS = {
   'state': {
@@ -160,14 +168,62 @@ const COMMANDS = {
     mutates: true,
   },
   'objective': {
-    usage: 'df-tools objective <next-decimal <N>|add <description>|insert <after> <description>|remove <N> [--confirm]|complete <N>> [--raw]',
-    summary: 'Add, insert, remove or complete a roadmap objective.',
+    usage: 'df-tools objective <next-decimal <N>|add <description>|insert <after> <description>|remove <N> [--confirm]|complete <N>|put <id> --from <path|->|set-status <id> <planned|in_progress|verifying|complete|cancelled|reopened>> [--raw]',
+    summary: 'Add, insert, remove or complete a roadmap objective; write OBJECTIVE.md (put) or its status (set-status).',
     mutates: true,
+    details: [
+      '  put / set-status are planning verbs (TRD 48-15). Local `set-status <id> complete` sets the status, then runs',
+      '  `objective complete <id>` unchanged.',
+      ...VERB_DETAILS,
+    ],
   },
   'milestone': {
-    usage: 'df-tools milestone complete <version> [--name <name>] [--archive-objectives] [--raw]',
-    summary: 'Archive a milestone and write MILESTONES.md.',
+    usage: 'df-tools milestone put <version> --from <path|-> | milestone complete <version> [--name ...] [--archive-objectives] [--raw]',
+    summary: 'Write a MILESTONES.md entry (put) or archive a milestone (complete).',
     mutates: true,
+    details: VERB_DETAILS,
+  },
+  'plan': {
+    usage: 'df-tools plan put-trd <objective> <file-name> --from <path|-> [--no-push] [--no-flush] | plan push <objective> [--no-flush] [--raw]',
+    summary: 'Write a TRD (put-trd; store mode refuses one over 60,000 encoded chars) or push an objective\'s hierarchy.',
+    mutates: true,
+    details: VERB_DETAILS,
+  },
+  'summary': {
+    usage: 'df-tools summary post <trd-id> --from <path|-> [--file <name>] | summary checkpoint <trd-id> --from <path|-> [--raw]',
+    summary: 'Write a TRD\'s SUMMARY (post) or a per-task progress checkpoint.',
+    mutates: true,
+    details: VERB_DETAILS,
+  },
+  'verification': {
+    usage: 'df-tools verification post <objective> --from <path|-> [--file <name>] [--raw]',
+    summary: 'Write an objective\'s VERIFICATION.',
+    mutates: true,
+    details: VERB_DETAILS,
+  },
+  'doc': {
+    usage: 'df-tools doc put <rel-under-.planning> --from <path|-> [--message <text>] [--raw]',
+    summary: 'Write a planning document that has a wiki page (PROJECT.md, research/, CONTEXT, RESEARCH, ...).',
+    mutates: true,
+    details: VERB_DETAILS,
+  },
+  'decision': {
+    usage: 'df-tools decision open <trd-id> --question <text|@path> | decision answer <trd-id>-d<k> --from <path|-> | --text <t> [--raw]',
+    summary: 'Open a decision a TRD waits on, or answer one (local ids are DECISION-NNN).',
+    mutates: true,
+    details: VERB_DETAILS,
+  },
+  'debug': {
+    usage: 'df-tools debug put <slug> --from <path|-> | debug resolve <slug> [--raw]',
+    summary: 'Write a debug session, or resolve it.',
+    mutates: true,
+    details: VERB_DETAILS,
+  },
+  'quick': {
+    usage: 'df-tools quick put <N> <slug> --from <path|-> | quick summary <N> --from <path|-> [--raw]',
+    summary: 'Write a quick task\'s JOB (put) or its SUMMARY.',
+    mutates: true,
+    details: VERB_DETAILS,
   },
   'validate': {
     usage: 'df-tools validate <consistency|health [--repair]|docs> [--raw]',
@@ -207,9 +263,10 @@ const COMMANDS = {
     summary: 'Render roadmap progress.',
   },
   'todo': {
-    usage: 'df-tools todo complete <filename> [--raw]',
-    summary: 'Move a todo from pending to completed.',
+    usage: 'df-tools todo add --from <path|-> [--stem <stem>] | todo complete <stem|filename> [--raw]',
+    summary: 'Add a todo, or move one from pending to completed.',
     mutates: true,
+    details: VERB_DETAILS,
   },
   'handoff': {
     usage: 'df-tools handoff <create <command...> [--inputs-json json]|complete <id> [--exit-code N] [--output s] [--output-file f]|list|get <id>> [--raw]',
@@ -275,8 +332,16 @@ const COMMANDS = {
     summary: 'Org-wide progress across repos.',
   },
   'planning': {
-    usage: 'df-tools planning sibling-trd-scan <objective> [--raw]',
-    summary: 'Scan sibling repos for TRDs matching an objective.',
+    usage: 'df-tools planning sibling-trd-scan <objective> | planning draft <rel> | planning import [--dry-run] | planning mode [--raw]',
+    summary: 'Planning mode (local|store), a draft path for a planning file, import local work into the store, sibling TRD scan.',
+    // `import` writes; `mode`, `draft` (a temp draft outside .planning/) and `sibling-trd-scan` do not.
+    mutates: true,
+    details: [
+      '  planning mode     prints `local` or `store` (--raw: {mode, reason, root}); writes nothing.',
+      '  planning draft    prints a draft path under the OS temp dir, seeded from the current file; edit it, then pass',
+      '                    it to the owning verb with --from. Writes nothing under .planning/.',
+      '  planning import   store mode only: queue existing local planning files to GitHub (--dry-run: count only).',
+    ],
   },
   'project-hygiene': {
     usage: 'df-tools project-hygiene <check|move [args]|archive [args]> [--raw]',

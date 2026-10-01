@@ -257,6 +257,72 @@ function formatRatchetFailure(errors) {
   ].join('\n');
 }
 
+// ─── verbs exist (TRD 48-15) ────────────────────────────────────────────────────────
+
+const { COMMANDS } = require('./help.cjs');
+const { VERB_TABLE } = require('./planning-paths.cjs');
+const { VERB_CALL_RE } = require('./planning-audit.cjs');
+
+const DF_TOOLS_SRC = path.join(__dirname, '..', 'df-tools.cjs');
+
+/** Split on `|` at parenthesis depth 0. */
+function splitTop(s) {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of s) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === '|' && depth === 0) {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * Every verb the audit regex accepts, expanded: `plan (put-trd|push)` -> `plan put-trd`, `plan push`; a pattern
+ * subcommand (`state [a-z-]+`) -> `state *` (any documented subcommand).
+ */
+function auditVerbs(re = VERB_CALL_RE) {
+  const m = /\\s\+\((.*)\)$/.exec(re.source);
+  if (!m) throw new Error(`cannot read the verb group of ${re.source}`);
+  const out = [];
+  for (const alt of splitTop(m[1])) {
+    const g = /^(.*?)\((.*)\)$/.exec(alt);
+    if (g) for (const sub of splitTop(g[2])) out.push(`${g[1]}${sub}`);
+    else out.push(alt.replace(/\[a-z-\]\+$/, '*'));
+  }
+  return out;
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * verbsExist(verbs, commands, dispatchSrc) — each verb (`<command> <sub> [<flag>...]`) needs a top-level `case` in
+ * df-tools.cjs and a help.cjs COMMANDS entry whose usage documents every further word (`*` = any). -> missing[]
+ */
+function verbsExist(verbs, commands = COMMANDS, dispatchSrc = fs.readFileSync(DF_TOOLS_SRC, 'utf8')) {
+  const missing = [];
+  for (const verb of verbs) {
+    const [top, ...words] = verb.split(' ');
+    const entry = commands[top];
+    if (!entry || !new RegExp(`^ {4}case '${escapeRe(top)}':`, 'm').test(dispatchSrc)) {
+      missing.push(`${verb}: no df-tools command \`${top}\``);
+      continue;
+    }
+    const documented = new Set(entry.usage.split(/[\s<>|[\]()]+/).filter(Boolean));
+    for (const w of words) {
+      if (w !== '*' && !documented.has(w)) missing.push(`${verb}: \`df-tools ${top} --help\` does not document \`${w}\``);
+    }
+  }
+  return missing;
+}
+
 // ─── tests ──────────────────────────────────────────────────────────────────────────
 
 const SKIP = !IS_DEVFLOW_CHECKOUT
@@ -386,6 +452,24 @@ describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
     });
   });
 
+  describe('VERBS EXIST (48-15): a deny message or a satisfied directive never names a verb df-tools lacks', () => {
+    test('every planning-paths VERB_TABLE verb and every verb the audit regex accepts is a documented df-tools command', () => {
+      const expanded = auditVerbs();
+      for (const v of ['plan put-trd', 'planning mode', 'state *', 'roadmap update-job-progress', 'requirements mark-complete', 'template fill', 'gh pull']) {
+        assert.ok(expanded.includes(v), `the audit regex expands to ${v} (got ${expanded.join(', ')})`);
+      }
+      assert.ok(VERB_TABLE.length >= 10, `VERB_TABLE: ${VERB_TABLE.join(', ')}`);
+      const missing = verbsExist([...VERB_TABLE, ...expanded]);
+      assert.deepStrictEqual(missing, [], `verbs named by the gate or the audit that df-tools does not have:\n${missing.join('\n')}`);
+    });
+
+    test('sensitivity: a made-up subcommand or command fails, naming it', () => {
+      assert.deepStrictEqual(verbsExist(['plan bogus']), ['plan bogus: `df-tools plan --help` does not document `bogus`']);
+      assert.deepStrictEqual(verbsExist(['nope put']), ['nope put: no df-tools command `nope`']);
+      assert.deepStrictEqual(verbsExist(['gh pull --all', 'state *']), []);
+    });
+  });
+
   describe('GROUP table', () => {
     test('every pinned group path is a scanned file (or a prefix of one)', () => {
       const scanned = scanSet(REPO_ROOT);
@@ -399,4 +483,4 @@ describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
   });
 });
 
-module.exports = { EXEMPT, OWNER, measure, measuredBaselines, checkRatchet, baselineComment };
+module.exports = { EXEMPT, OWNER, measure, measuredBaselines, checkRatchet, baselineComment, auditVerbs, verbsExist };
