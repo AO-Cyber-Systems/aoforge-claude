@@ -214,12 +214,13 @@ describe('49-12 gh pr reconcile', { skip: GIT ? false : 'git is not available' }
     assert.equal(isOpen(S.trdN['7-02']), true);
 
     const w = writesNow();
+    const patched = patchWrites().length;
     const r = reconcile();
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(isOpen(S.trdN['7-01']), false);
     assert.equal(isOpen(S.trdN['7-02']), false);
     assert.deepEqual(r.closed.sort(), [S.trdN['7-01'], S.trdN['7-02']].sort(), 'only the stragglers were closed');
-    assert.equal(patchWrites().length, 2, 'two patch-issue writes, none for the already-closed objective');
+    assert.equal(patchWrites().length - patched, 2, 'two patch-issue writes, none for the already-closed objective');
     assert.equal(writesNow() - w, 3, 'two issue patches and one branch delete');
   });
 
