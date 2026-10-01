@@ -1500,3 +1500,161 @@ describe('df-tools validate docs (CLI)', () => {
     assert.match(r.stderr, /docs/);
   });
 });
+
+// ─── Check 15: planning cache drift, W055 / W056 (TRD 48-09) ────────────────
+//
+// Store mode only. Test 9 pins today's issue codes for local-mode projects that hold
+// cache-shaped files with no baselines (every one would be W055 in store mode), so
+// Check 15's "not applicable in local mode" is proven additive. All outbox state lives
+// under hermeticEnv()'s temp DEVFLOW_OUTBOX_DIR; nothing reads the real ~/.claude.
+describe('Check 15: planning cache drift (W055/W056)', () => {
+  const upgradeFx = require('./__fixtures__/upgrade-fixtures.cjs');
+  const { pluginVersion } = require('./helpers.cjs');
+  const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+  let env = null;
+  beforeEach(() => {
+    env = hermeticEnv();
+  });
+  afterEach(() => {
+    if (env) env.restore();
+    env = null;
+  });
+
+  /** A current, stamped project (no W040) whose config.json gets `github` merged in. */
+  function makeProjectWithGithub(github) {
+    const root = upgradeFx.makeStampedProject(pluginVersion());
+    const configPath = path.join(root, '.planning', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    if (github !== undefined) config.github = github;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    return root;
+  }
+
+  const codes = (json) => ({
+    errors: json.errors.map((i) => i.code),
+    warnings: json.warnings.map((i) => i.code),
+    info: json.info.map((i) => i.code),
+  });
+
+  // Pinned from `validate health` at WAVE_BASE fdfb4b4f for upgrade-fixtures makeStampedProject:
+  // W001 (PROJECT.md missing a section) and I001 (02-01-TRD.md has no SUMMARY.md). The fixture's
+  // PROJECT.md, OBJECTIVE.md, TRDs and SUMMARY are all cache-shaped with no baseline, so each would
+  // be a W055 in store mode. Any change here is a behaviour change for local projects.
+  const PINNED_LOCAL_CODES = { errors: [], warnings: ['W001'], info: ['I001'] };
+
+  const LOCAL_SHAPES = [
+    ['no github block', undefined],
+    ['github disabled (this repo’s shape)', { enabled: false, repo: '' }],
+    ['github enabled, store absent', { enabled: true, repo: 'acme/demo' }],
+  ];
+
+  for (const [name, github] of LOCAL_SHAPES) {
+    test(`9. characterization, local mode (${name}): issue codes are the pinned list, no W055/W056`, () => {
+      tmpProject = makeProjectWithGithub(github);
+      tmpHome = makeHome();
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+      assert.deepStrictEqual(codes(json), PINNED_LOCAL_CODES, JSON.stringify(json, null, 2));
+      assert.strictEqual(fs.existsSync(env.env.DEVFLOW_OUTBOX_DIR), false, 'local mode reads and writes no outbox state');
+    });
+  }
+
+  // ─── store mode ───────────────────────────────────────────────────────────
+  const ghCache = require('./gh-cache.cjs');
+  const planningPaths = require('./planning-paths.cjs');
+  const planningDrift = require('./planning-drift.cjs');
+
+  const DRIFTED_REL = 'objectives/01-alpha/01-01-TRD.md';
+  const w055s = (json) => json.warnings.filter((w) => w.code === 'W055');
+  const w056s = (json) => json.warnings.filter((w) => w.code === 'W056');
+
+  afterEach(() => {
+    planningDrift._setDriftReaders(null);
+  });
+
+  /**
+   * A store-mode project in sync with "GitHub": generated views carry the header and every cache
+   * and generated file has a cache-index baseline (gh-cache.recordCacheBaseline, the 47 writer).
+   */
+  function makeSyncedStoreProject() {
+    const root = makeProjectWithGithub({ enabled: true, store: true, repo: 'acme/demo' });
+    const planning = path.join(root, '.planning');
+    for (const rel of ['ROADMAP.md', 'STATE.md']) {
+      const abs = path.join(planning, rel);
+      fs.writeFileSync(abs, `${ghCache.GENERATED_HEADER}\n${fs.readFileSync(abs, 'utf-8')}`);
+    }
+    const byClass = planningPaths.listByClass(planning);
+    const rec = ghCache.recordCacheBaseline(root, [...byClass.cache, ...byClass.generated]);
+    assert.deepStrictEqual(rec.missing, []);
+    assert.deepStrictEqual(rec.invalid, []);
+    assert.ok(rec.recorded.includes(DRIFTED_REL), JSON.stringify(rec));
+    return root;
+  }
+
+  test('10a. store mode, every file baselined -> no W055 and no W056', () => {
+    tmpProject = makeSyncedStoreProject();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+    assert.deepStrictEqual(w055s(json), []);
+    assert.deepStrictEqual(w056s(json), []);
+  });
+
+  test('10. store mode, one TRD edited outside the verbs -> exactly one non-repairable W055 naming it and `plan put-trd`', () => {
+    tmpProject = makeSyncedStoreProject();
+    tmpHome = makeHome();
+    fs.appendFileSync(path.join(tmpProject, '.planning', DRIFTED_REL), '\nedited with Bash\n');
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+    const found = w055s(json);
+    assert.strictEqual(found.length, 1, `one W055; got ${JSON.stringify(json.warnings, null, 2)}`);
+    const w = found[0];
+    assert.ok(w.message.startsWith(`${DRIFTED_REL} was changed outside a df-tools verb (changed)`), w.message);
+    assert.match(w.message, /`df-tools plan put-trd`/);
+    assert.match(w.message, /`df-tools gh pull --all --force`/);
+    assert.strictEqual(w.fix, w.message);
+    assert.strictEqual(w.repairable, false);
+    assert.deepStrictEqual(w056s(json), []);
+  });
+
+  test('11. --repair leaves the drifted file byte-identical and still reports W055 as not repairable', () => {
+    tmpProject = makeSyncedStoreProject();
+    tmpHome = makeHome();
+    const abs = path.join(tmpProject, '.planning', DRIFTED_REL);
+    fs.appendFileSync(abs, '\nedited with Bash\n');
+    const before = fs.readFileSync(abs);
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, true);
+    assert.ok(fs.readFileSync(abs).equals(before), 'the drifted TRD is untouched by --repair');
+    const found = w055s(json);
+    assert.strictEqual(found.length, 1, JSON.stringify(json.warnings, null, 2));
+    assert.strictEqual(found[0].repairable, false);
+    for (const action of json.repairs_performed || []) {
+      assert.notStrictEqual(action.path, DRIFTED_REL, `no repair targets ${DRIFTED_REL}`);
+    }
+  });
+
+  test('12. a drift reader that throws -> one W056 planning-drift-check-failed, every other check still runs', () => {
+    tmpProject = makeProjectWithGithub({ enabled: true, store: true, repo: 'acme/demo' });
+    tmpHome = makeHome();
+    planningDrift._setDriftReaders({
+      readIndex: () => {
+        throw new Error('index reader boom');
+      },
+    });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+    const found = w056s(json);
+    assert.strictEqual(found.length, 1, JSON.stringify(json.warnings, null, 2));
+    assert.strictEqual(found[0].message, 'planning-drift-check-failed: index reader boom');
+    assert.match(found[0].fix, /df-tools validate health --raw/);
+    assert.match(found[0].fix, /gh pull --all/);
+    assert.strictEqual(found[0].repairable, false);
+    assert.deepStrictEqual(w055s(json), []);
+    // Checks 1-14 ran as they do in local mode: the pinned codes plus the one W056.
+    assert.deepStrictEqual(codes(json), {
+      errors: PINNED_LOCAL_CODES.errors,
+      warnings: [...PINNED_LOCAL_CODES.warnings, 'W056'],
+      info: PINNED_LOCAL_CODES.info,
+    });
+  });
+});
