@@ -1075,3 +1075,309 @@ describe('48-02 entities map accessors', () => {
     }
   });
 });
+
+// ─── 49-02: prs section (objective branch and PR state) ──────────────────────
+//
+// `prs` is a top-level map keyed by objective id. It is NOT a field of `objectives[id]`: readLegacyEntry and
+// setEntry normalise an objective entry to exactly three fields, so PR state put there would be dropped.
+// The section is rendered only when it has an entry, so every mapping written before objective 49 is
+// byte-identical after a read-modify-write.
+
+// A v3 file with entities, conflicts and an extra, and NO prs. Hand-written to match the pre-49 serializer
+// (it must pass before the implementation exists, which is what makes it a characterization pin).
+const NO_PRS_TEXT = `{
+  "version": 3,
+  "repo": "o/r",
+  "milestones": {
+    "v1.4": 7
+  },
+  "objectives": {
+    "2": {
+      "issue_id": 20,
+      "state_comment_id": null,
+      "verified_at": null
+    },
+    "49": {
+      "issue_id": 490,
+      "state_comment_id": 4901,
+      "verified_at": null
+    }
+  },
+  "trds": {
+    "49-01": {
+      "issue_number": 491,
+      "rest_id": 1000491,
+      "role": "trd",
+      "comment_ids": {}
+    }
+  },
+  "entities": {
+    "todo-a": {
+      "issue_number": 3,
+      "rest_id": 1000003,
+      "role": "todo",
+      "comment_ids": {}
+    }
+  },
+  "conflicts": {
+    "7": [
+      {
+        "legacy_key": "7",
+        "issue_id": 70,
+        "state_comment_id": null
+      },
+      {
+        "legacy_key": "07",
+        "issue_id": 71,
+        "state_comment_id": null
+      }
+    ]
+  },
+  "wiki": {
+    "pages": {
+      "Home": "abc"
+    }
+  }
+}
+`;
+
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+const PR_FULL = {
+  branch: 'df/objective-49-x',
+  base: 'main',
+  number: 120,
+  node_id: 'PR_120',
+  url: 'https://github.com/o/r/pull/120',
+  wiki_base_sha: 'abc123',
+  merged_at: '2026-10-02T00:00:00Z',
+  reconciled_at: '2026-10-02T01:00:00Z',
+};
+
+describe('49-02 prs map', () => {
+  test('1. a v3 file with no prs serialises byte-for-byte and survives read -> write on disk', () => {
+    assert.equal(ghMapping.serializeMapping(JSON.parse(NO_PRS_TEXT)), NO_PRS_TEXT);
+
+    const root = tmpProject();
+    const file = writeRel(root, '.planning/.gh-mapping.json', NO_PRS_TEXT);
+    const r = ghMapping.readMappingV3WithReport(root);
+    assert.equal(r.changed, false);
+    assert.equal(r.mapping.prs, undefined, 'reading a file with no prs does not invent the section');
+    assert.equal(ghMapping.writeMappingV3(root, r.mapping).ok, true);
+    assert.equal(fs.readFileSync(file, 'utf-8'), NO_PRS_TEXT);
+  });
+
+  test('2. setPr then getPr returns the entry; prs serialises after entities and before conflicts and extras', () => {
+    const m = JSON.parse(NO_PRS_TEXT);
+    const returned = ghMapping.setPr(m, '49', { branch: 'df/objective-49-x', base: 'main' });
+    assert.equal(returned, m, 'returns the mapping for chaining');
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'df/objective-49-x', base: 'main' });
+
+    const prsBlock = `  "prs": {
+    "49": {
+      "branch": "df/objective-49-x",
+      "base": "main"
+    }
+  },
+`;
+    const expected = NO_PRS_TEXT.replace('  "conflicts": {\n', prsBlock + '  "conflicts": {\n');
+    assert.notEqual(expected, NO_PRS_TEXT, 'the splice point exists');
+    assert.equal(ghMapping.serializeMapping(m), expected);
+  });
+
+  test('2b. every field renders in the fixed order, keys sorted by objective id (7.1 before 49)', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setPr(m, '49', PR_FULL);
+    ghMapping.setPr(m, '7.1', { base: 'main', branch: 'df/objective-7.1-y' });
+    const text = ghMapping.serializeMapping(m);
+    const expected = `{
+  "version": 3,
+  "milestones": {},
+  "objectives": {},
+  "trds": {},
+  "prs": {
+    "7.1": {
+      "branch": "df/objective-7.1-y",
+      "base": "main"
+    },
+    "49": {
+      "branch": "df/objective-49-x",
+      "base": "main",
+      "number": 120,
+      "node_id": "PR_120",
+      "url": "https://github.com/o/r/pull/120",
+      "wiki_base_sha": "abc123",
+      "merged_at": "2026-10-02T00:00:00Z",
+      "reconciled_at": "2026-10-02T01:00:00Z"
+    }
+  }
+}
+`;
+    assert.equal(text, expected);
+  });
+
+  test('3. setPr merge-patches: a later patch keeps the fields it does not name', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setPr(m, '49', { branch: 'df/objective-49-x', base: 'main' });
+    ghMapping.setPr(m, '49', { number: 120, node_id: 'PR_120' });
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'df/objective-49-x', base: 'main', number: 120, node_id: 'PR_120' });
+    ghMapping.setPr(m, '49', { base: 'release' });
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'df/objective-49-x', base: 'release', number: 120, node_id: 'PR_120' });
+  });
+
+  test('3b. the stored field order is fixed whatever order the patches arrive in', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setPr(m, '49', { reconciled_at: PR_FULL.reconciled_at, url: PR_FULL.url, branch: PR_FULL.branch });
+    ghMapping.setPr(m, '49', { number: 120, wiki_base_sha: 'abc123', base: 'main', merged_at: PR_FULL.merged_at, node_id: 'PR_120' });
+    assert.deepEqual(Object.keys(ghMapping.getPr(m, '49')), Object.keys(PR_FULL));
+    assert.deepEqual(ghMapping.getPr(m, '49'), PR_FULL);
+  });
+
+  test('3c. an explicit null clears a field, undefined leaves it alone, numeric strings coerce', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setPr(m, '49', { branch: 'b', number: '120', node_id: 'PR_120' });
+    assert.equal(ghMapping.getPr(m, '49').number, 120, 'a numeric string becomes the integer');
+    ghMapping.setPr(m, '49', { number: null });
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'b', node_id: 'PR_120' }, 'null removes the key outright');
+    ghMapping.setPr(m, '49', { node_id: undefined });
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'b', node_id: 'PR_120' }, 'undefined is not a patch');
+  });
+
+  test('4. a decimal objective id keys as 7.1 and any spelling resolves the same entry', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setPr(m, '7.1', { branch: 'df/objective-7.1-x' });
+    assert.deepEqual(Object.keys(m.prs), ['7.1']);
+    assert.deepEqual(ghMapping.getPr(m, '07.1'), { branch: 'df/objective-7.1-x' });
+    assert.deepEqual(ghMapping.getPr(m, '07.1-some-dir'), { branch: 'df/objective-7.1-x' });
+    assert.equal(ghMapping.getPr(m, '7'), null, 'objective 7 is not objective 7.1');
+    assert.equal(ghMapping.getPr(m, '71'), null);
+  });
+
+  test('4b. a padded id keys canonically: setPr 049 and getPr 49 agree', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setPr(m, '049-objective-branch-and-pr-lifecycle', { branch: 'b' });
+    assert.deepEqual(Object.keys(m.prs), ['49']);
+    assert.deepEqual(ghMapping.getPr(m, 49), { branch: 'b' });
+  });
+
+  test('5. an unknown key throws TypeError naming it, and leaves the mapping untouched', () => {
+    const m = ghMapping.emptyMapping();
+    assert.throws(() => ghMapping.setPr(m, '49', { branch: 'b', numbr: 1 }), (e) => e instanceof TypeError && /numbr/.test(e.message));
+    assert.equal(m.prs, undefined, 'a refused set does not even create the section');
+    ghMapping.setPr(m, '49', { branch: 'b' });
+    assert.throws(() => ghMapping.setPr(m, '49', { title: 'nope' }), (e) => e instanceof TypeError && /title/.test(e.message));
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'b' });
+  });
+
+  test('5b. an unrecognised objective, a missing branch or a bad field value throws TypeError and changes nothing', () => {
+    const m = ghMapping.emptyMapping();
+    for (const id of ['abc', '', null, undefined]) {
+      assert.throws(() => ghMapping.setPr(m, id, { branch: 'b' }), TypeError, String(id));
+    }
+    assert.throws(() => ghMapping.setPr(m, '49', { base: 'main' }), /branch/, 'a new entry needs a branch');
+    assert.throws(() => ghMapping.setPr(m, '49'), TypeError);
+    assert.throws(() => ghMapping.setPr(m, '49', { branch: '' }), /branch/);
+    assert.equal(m.prs, undefined);
+
+    ghMapping.setPr(m, '49', { branch: 'b' });
+    assert.throws(() => ghMapping.setPr(m, '49', { branch: null }), /branch/, 'the branch cannot be cleared');
+    for (const bad of [{ number: 0 }, { number: -1 }, { number: 'x' }, { number: 1.5 }, { node_id: 5 }, { url: '' }, { merged_at: 12 }, { base: {} }]) {
+      assert.throws(() => ghMapping.setPr(m, '49', bad), TypeError, JSON.stringify(bad));
+    }
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'b' }, 'every refused patch left the entry as it was');
+  });
+
+  test('6. setEntry after setPr leaves objectives[49] with its three fields only; listPrs returns [id, entry] pairs', () => {
+    const m = ghMapping.emptyMapping();
+    ghMapping.setPr(m, '49', { branch: 'df/objective-49-x', base: 'main' });
+    ghMapping.setEntry(m, '49', { issue_id: 490 });
+    assert.deepEqual(m.objectives['49'], { issue_id: 490, state_comment_id: null, verified_at: null });
+    assert.deepEqual(Object.keys(m.objectives['49']), ['issue_id', 'state_comment_id', 'verified_at']);
+    assert.deepEqual(ghMapping.listPrs(m), [['49', { branch: 'df/objective-49-x', base: 'main' }]]);
+
+    ghMapping.setEntry(m, '49', { verified_at: '2026-10-01T00:00:00Z' });
+    assert.deepEqual(Object.keys(m.objectives['49']), ['issue_id', 'state_comment_id', 'verified_at']);
+    assert.deepEqual(ghMapping.getPr(m, '49'), { branch: 'df/objective-49-x', base: 'main' }, 'objective writes do not touch prs');
+  });
+
+  test('6b. listPrs sorts numerically by objective id and the accessors tolerate junk', () => {
+    const m = ghMapping.emptyMapping();
+    for (const id of ['10', '2', '2.1', '49']) ghMapping.setPr(m, id, { branch: `b-${id}` });
+    assert.deepEqual(ghMapping.listPrs(m).map(([id]) => id), ['2', '2.1', '10', '49']);
+    assert.deepEqual(ghMapping.listPrs(ghMapping.emptyMapping()), []);
+    assert.deepEqual(ghMapping.listPrs(null), []);
+    assert.deepEqual(ghMapping.listPrs({ prs: [] }), []);
+    assert.equal(ghMapping.getPr(null, '49'), null);
+    assert.equal(ghMapping.getPr({}, '49'), null);
+    assert.equal(ghMapping.getPr(m, '99'), null);
+    assert.equal(ghMapping.getPr(m, null), null);
+    assert.equal(ghMapping.getPr(m, 'junk'), null);
+  });
+
+  test('7. migrateMapping of a v2 file with no prs produces no prs key', () => {
+    const raw = { milestone_id: null, objectives: { 0: { issue_id: 20, state_comment_id: 4374249280 } } };
+    const r = ghMapping.migrateMapping(raw);
+    assert.equal(hasOwn(r.mapping, 'prs'), false);
+    assert.equal(hasOwn(ghMapping.migrateMapping({ version: 3, objectives: {}, trds: {} }).mapping, 'prs'), false);
+    assert.equal(hasOwn(ghMapping.migrateMapping(null).mapping, 'prs'), false);
+    assert.equal(hasOwn(ghMapping.emptyMapping(), 'prs'), false);
+  });
+
+  test('7b. migrateMapping carries prs through (cloned, unchanged) and drops a non-object prs with a note', () => {
+    const raw = { version: 3, milestones: {}, objectives: {}, trds: {}, prs: { 49: { ...PR_FULL } } };
+    const r = ghMapping.migrateMapping(raw);
+    assert.equal(r.changed, false);
+    assert.deepEqual(r.mapping.prs, raw.prs);
+    assert.notEqual(r.mapping.prs, raw.prs, 'cloned, not aliased');
+    assert.notEqual(r.mapping.prs['49'], raw.prs['49'], 'entries cloned too');
+
+    for (const bad of [['49'], 'x', 7]) {
+      const out = ghMapping.migrateMapping({ version: 3, milestones: {}, objectives: {}, trds: {}, prs: bad });
+      assert.equal(out.mapping.prs, undefined, JSON.stringify(bad));
+      assert.ok(out.notes.some((n) => /prs/.test(n)), out.notes.join('; '));
+    }
+    assert.equal(hasOwn(ghMapping.migrateMapping({ version: 3, prs: null }).mapping, 'prs'), false, 'null is absence, silently');
+  });
+
+  test('7c. prs is a known section: it is rendered once, in its own position, never as an extra', () => {
+    const raw = { version: 3, milestones: {}, objectives: {}, trds: {}, prs: { 49: { branch: 'b' } }, zeta: { a: 1 } };
+    const text = ghMapping.serializeMapping(ghMapping.migrateMapping(raw).mapping);
+    assert.equal(text.match(/"prs"/g).length, 1);
+    assert.ok(text.indexOf('"prs"') < text.indexOf('"zeta"'), 'prs precedes extras');
+  });
+
+  test('8. an empty prs section is not rendered', () => {
+    const m = JSON.parse(NO_PRS_TEXT);
+    m.prs = {};
+    assert.equal(ghMapping.serializeMapping(m), NO_PRS_TEXT);
+    m.prs = null;
+    assert.equal(ghMapping.serializeMapping(m), NO_PRS_TEXT);
+  });
+
+  test('8b. prs round-trips through writeMappingV3 / readMappingV3 byte-stably, without disturbing other sections', () => {
+    const root = tmpProject();
+    const m = JSON.parse(NO_PRS_TEXT);
+    ghMapping.setPr(m, '49', PR_FULL);
+    ghMapping.setPr(m, '2', { branch: 'df/objective-2-y' });
+    assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
+    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const first = fs.readFileSync(file, 'utf-8');
+
+    const r = ghMapping.readMappingV3WithReport(root);
+    assert.equal(r.changed, false);
+    assert.deepEqual(ghMapping.getPr(r.mapping, '49'), PR_FULL);
+    assert.deepEqual(ghMapping.getPr(r.mapping, '02'), { branch: 'df/objective-2-y' });
+    assert.deepEqual(r.mapping.objectives, JSON.parse(NO_PRS_TEXT).objectives, 'objectives untouched');
+    assert.deepEqual(r.mapping.entities, JSON.parse(NO_PRS_TEXT).entities, 'entities untouched');
+    assert.deepEqual(r.mapping.conflicts, JSON.parse(NO_PRS_TEXT).conflicts, 'conflicts untouched');
+
+    assert.equal(ghMapping.writeMappingV3(root, r.mapping).ok, true);
+    assert.equal(fs.readFileSync(file, 'utf-8'), first);
+  });
+
+  test('the prs accessors are exported', () => {
+    for (const fn of ['getPr', 'setPr', 'listPrs']) {
+      assert.equal(typeof ghMapping[fn], 'function', fn);
+    }
+  });
+});
