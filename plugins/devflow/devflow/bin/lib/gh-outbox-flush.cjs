@@ -1048,6 +1048,189 @@ function executeOp(ctx, op) {
   return res;
 }
 
+// ─── The flush loop ───────────────────────────────────────────────────────────
+
+/** Give up waiting on the minute budget after this many sleeps that did not clear it (a clock that never moves). */
+const MAX_BUDGET_SLEEPS = 3;
+
+function clockOf(opts) {
+  if (typeof opts.now === 'function') return opts.now;
+  if (typeof opts.now === 'number') return () => opts.now;
+  return () => client.now();
+}
+
+/** Record `count` gh writes in the journal's cross-process budget (a failed or retried attempt counts too). */
+function recordWrites(root, count, at) {
+  if (count <= 0) return;
+  const { journal } = outbox.readJournal(root, { now: at });
+  for (let i = 0; i < count; i++) outbox.recordWrite(journal, at);
+  outbox.writeJournal(root, journal, { now: at });
+}
+
+/**
+ * Drain the outbox: the one executor. Strictly in `seq` order, one handler per op kind, one flusher at a
+ * time (the lock), every gh write recorded against the 80/min and 450/h budget.
+ *
+ * Options: `wait` (default true; false is the hook mode: no sleeping on a limit and none on the minute
+ * budget), `modes` / `caps` / `getModes` / `capability` (see createContext), `wikiRemote`, `now` (a
+ * `() => epoch ms`, default the client's injectable clock), `sleep` (default the client's), `maxOps`.
+ *
+ * Returns `{status, done:[seq], pending, halted, warnings:[{seq, kind, message}], ...}`, `status` being
+ *   flushed  the queue is empty
+ *   pending  nothing is wrong: offline, rate limited, over budget, a retry_after not reached, or maxOps
+ *            (`reason` says which; `retry_after` / `wait_ms` when known)
+ *   halted   a human must act: a remote edit (`halted.reason 'remote-edit'`, `issue_number`) or a blocked
+ *            op (`halted.reason 'blocked'`); resolve with resolveHalt
+ *   running  another flusher holds the lock
+ *   skipped  github.enabled is not true
+ *   error    the project cannot be flushed at all (`error` says why)
+ */
+function flush(root, opts = {}) {
+  const wait = opts.wait !== false;
+  const clock = clockOf(opts);
+  const sleep = typeof opts.sleep === 'function' ? opts.sleep : (ms) => client.sleep(ms);
+  const result = { status: 'flushed', done: [], pending: 0, halted: null, warnings: [] };
+
+  if (!outbox.isEnabled(root)) {
+    return { ...result, status: 'skipped', reason: 'github.enabled is not true in .planning/config.json' };
+  }
+  const lock = outbox.acquireLock(root, { now: clock() });
+  if (!lock.ok) return { ...result, status: 'running', owner: lock.owner };
+
+  const finish = (status, extra = {}) => {
+    const st = outbox.status(root, { now: clock() });
+    const halted = status === 'halted' && st.halted && extra.issue_number !== undefined
+      ? { ...st.halted, issue_number: extra.issue_number }
+      : st.halted;
+    return { ...result, status, pending: st.pending, halted: status === 'halted' ? halted : null, ...extra };
+  };
+
+  try {
+    let ctx = null;
+    let executed = 0;
+    let budgetSleeps = 0;
+    for (;;) {
+      const next = outbox.nextOp(root, { now: clock(), ignoreRetryAfter: wait });
+      if (next.reason === 'empty') return finish('flushed');
+      if (next.reason === 'halted' || next.reason === 'blocked') return finish('halted');
+      if (next.reason === 'retry_after') return finish('pending', { reason: 'retry_after', wait_ms: next.wait_ms });
+      if (opts.maxOps !== undefined && executed >= opts.maxOps) return finish('pending', { reason: 'max_ops' });
+      const { op } = next;
+
+      const { journal } = outbox.readJournal(root, { now: clock() });
+      const budget = outbox.budgetCheck(journal, clock());
+      if (!budget.ok) {
+        if (budget.reason === 'minute' && wait && budgetSleeps < MAX_BUDGET_SLEEPS) {
+          budgetSleeps += 1;
+          sleep(budget.wait_ms);
+          continue;
+        }
+        return finish('pending', { reason: 'budget', budget: budget.reason, wait_ms: budget.wait_ms });
+      }
+
+      if (!ctx) {
+        ctx = createContext(root, opts);
+        if (ctx.skipped) return { ...result, status: 'skipped', reason: ctx.error };
+        if (ctx.error) return finish('error', { error: ctx.error });
+      }
+
+      const before = client.writeCount();
+      const res = client.withRetryPolicy({ maxRetries: wait ? client.MAX_RETRIES : 0 }, () => executeOp(ctx, op));
+      recordWrites(root, client.writeCount() - before, clock());
+      for (const message of res.warnings) result.warnings.push({ seq: op.seq, kind: op.kind, message });
+
+      if (res.ok) {
+        outbox.markDone(root, op.seq, { now: clock() });
+        result.done.push(op.seq);
+        executed += 1;
+        continue;
+      }
+      if (res.halt) {
+        outbox.setHalted(root, { reason: 'remote-edit', seq: op.seq, target: op.target, detail: res.detail });
+        return finish('halted', { issue_number: res.issue_number });
+      }
+      if (res.class === 'offline' || res.class === 'rate_limited') {
+        const retryAfter = res.class === 'rate_limited' ? clock() + (res.retry_after_ms || 60000) : null;
+        outbox.markPending(root, op.seq, { error: res.error, retry_after: retryAfter });
+        return finish('pending', { reason: res.class, retry_after: retryAfter });
+      }
+      outbox.markBlocked(root, op.seq, res.error);
+      outbox.setHalted(root, { reason: 'blocked', seq: op.seq, target: op.target, detail: res.error });
+      return finish('halted', { class: res.class, error: res.error });
+    }
+  } finally {
+    lock.release();
+  }
+}
+
+// ─── Resolving a halt (D-21) ──────────────────────────────────────────────────
+
+/** Re-read what GitHub holds for an op's target and make it the base, so the next run is judged against it. */
+function refreshBase(ctx, op) {
+  const w = [];
+  const t = op.target || {};
+  if (op.kind === 'upsert-comment') {
+    const ref = issueRef(ctx, t.id);
+    if (ref.error) return ok([`${ref.error}; there is no base to refresh`]);
+    const idErr = ensureRestId(ctx, ref);
+    if (idErr) return idErr;
+    const read = readComments(ctx, ref);
+    if (!read.ok) return failFrom(read.r, `read comments of #${ref.number}`);
+    const found = bodyLib.findCommentsByMarker(read.items, ref.id, t.kind);
+    if (found.length === 0) return ok(w);
+    const joined = textOfComments(found.map((f) => f.comment.body));
+    if (!joined.ok) return failWith('error', `the ${t.kind} comments on #${ref.number} are incomplete (${joined.error}); fix them on GitHub first`);
+    const r = outbox.setBase(ctx.root, `${ref.id}#${t.kind}`, {
+      issue_number: ref.number, issue_id: ref.rest_id, body_hash: trd.contentHash(joined.text),
+      updated_at: found[found.length - 1].comment.updated_at || null,
+    });
+    return r.ok ? ok(w) : failWith('error', r.error);
+  }
+  if (!['upsert-issue', 'patch-body', 'patch-issue', 'set-fields'].includes(op.kind)) return ok(w);
+  const ref = issueRef(ctx, t.id);
+  if (ref.error) return ok([`${ref.error}; there is no base to refresh`]);
+  const got = getJson(issueEndpoint(ctx, ref.number));
+  if (!got.ok) return failFrom(got.r, `read issue #${ref.number}`);
+  saveBase(ctx, ref.id, got.json, w);
+  return ok(w);
+}
+
+/**
+ * Resolve the halt on op `seq`:
+ *   accept-remote  GitHub wins: the op is dropped and the base is refreshed from GitHub.
+ *   overwrite      DevFlow wins: the base is refreshed so the check passes, and the op is kept unchanged
+ *                  (a blocked op becomes pending again); the next flush merges / replaces.
+ * Both clear the halt. `opts` are the flush options (capabilities, wikiRemote) and are only used to open
+ * the context. -> `{ok:true, choice, seq, dropped|requeued}` or `{ok:false, error}`.
+ */
+function resolveHalt(root, seq, choice, opts = {}) {
+  if (choice !== 'accept-remote' && choice !== 'overwrite') {
+    return { ok: false, error: `choice must be "accept-remote" or "overwrite", got ${JSON.stringify(choice)}` };
+  }
+  const { journal } = outbox.readJournal(root);
+  const op = journal.ops.find((o) => o.seq === Number(seq));
+  if (!op) return { ok: false, error: `no op with seq ${seq}` };
+  const halted = journal.halted && journal.halted.seq === op.seq;
+  if (!halted && op.status !== 'blocked') return { ok: false, error: `op ${seq} is not halted; nothing to resolve` };
+
+  const ctx = createContext(root, opts);
+  if (ctx.error) return { ok: false, error: ctx.error };
+  const mappingErr = refreshMapping(ctx);
+  if (mappingErr) return { ok: false, error: mappingErr };
+  const refreshed = client.withRetryPolicy({ maxRetries: 0 }, () => refreshBase(ctx, op));
+  if (!refreshed.ok) return { ok: false, error: `could not refresh the base from GitHub: ${refreshed.error}` };
+
+  if (choice === 'accept-remote') {
+    const dropped = outbox.dropOp(root, op.seq);
+    if (!dropped.ok) return { ok: false, error: dropped.error };
+  } else if (op.status === 'blocked') {
+    const pending = outbox.markPending(root, op.seq, { error: null });
+    if (!pending.ok) return { ok: false, error: pending.error };
+  }
+  outbox.clearHalted(root);
+  return { ok: true, choice, seq: op.seq, ...(choice === 'accept-remote' ? { dropped: true } : { requeued: true }) };
+}
+
 module.exports = {
   classifyFailure,
   HANDLERS,
@@ -1056,4 +1239,6 @@ module.exports = {
   deriveSections,
   managedHash,
   baseFromIssue,
+  flush,
+  resolveHalt,
 };

@@ -1171,20 +1171,23 @@ describe('flush: remote-edit halt and resolution (tests 19, 22, 23)', () => {
     assert.equal(S.fake.calls().length, callsBefore, 'a halted journal makes no gh call at all');
   });
 
-  test('22f. in ONE flush DevFlow\'s own patch, link and comment writes never halt the later patch (Pitfall 2)', () => {
+  test('22f. in ONE flush DevFlow\'s own link and comment writes bump updated_at but never halt the later patch (Pitfall 2)', () => {
     const n = seedObjective();
     makeTrd('7-01');
-    S.clock.t += 5000;
+    enqueueOps([managed({ summary: 'Mine 1' })]);
+    assert.equal(runFlush().status, 'flushed');
+    const baseBefore = outbox.getBase(S.root, '7');
+
     enqueueOps([
-      managed({ summary: 'Mine 1' }),
       { kind: 'link-sub-issue', target: { parent: '7', child: '7-01' }, payload: {} },
       summaryCommentOp('verification text\n', '7', 'verification'),
-      managed({ criteria: '- [ ] one\n- [ ] two' }),
+      managed({ summary: 'Mine 2' }),
     ]);
     const res = runFlush();
     assert.equal(res.status, 'flushed', JSON.stringify(res));
-    assert.equal(res.done.length, 4);
-    assert.equal(bodyLib.extractSection(issueByNumber(n).body, 'summary'), 'Mine 1');
+    assert.equal(res.done.length, 3);
+    assert.equal(bodyLib.extractSection(issueByNumber(n).body, 'summary'), 'Mine 2');
+    assert.notEqual(baseBefore.updated_at, outbox.getBase(S.root, '7').updated_at);
   });
 
   test('23. resolveHalt accept-remote drops the op and takes GitHub\'s body as the new base; the next flush has nothing to do', () => {
@@ -1224,8 +1227,9 @@ describe('flush: remote-edit halt and resolution (tests 19, 22, 23)', () => {
     assert.equal(flushLib.resolveHalt(S.root, 999, 'overwrite', { modes: NATIVE }).ok, false);
     assert.equal(outbox.status(S.root).halted.reason, 'remote-edit', 'a refused resolution changes nothing');
     assert.equal(queueNow().length, 1);
-    enqueueOps([trdOp('7-01')]);
-    assert.match(flushLib.resolveHalt(S.root, 2, 'overwrite', { modes: NATIVE }).error, /not halted|nothing to resolve/i);
+    const [other] = enqueueOps([trdOp('7-01')]);
+    assert.match(flushLib.resolveHalt(S.root, other, 'overwrite', { modes: NATIVE }).error, /not halted|nothing to resolve/i);
+    assert.equal(outbox.status(S.root).halted.reason, 'remote-edit');
   });
 });
 
@@ -1294,6 +1298,7 @@ describe('flush: secondary limits and retry_after (test 26)', () => {
     seedObjective();
     makeTrd('7-01');
     S.clock.t += 5000; // clear the 1 s write pacing from the setup writes
+    S.clock.sleeps.length = 0;
     enqueueOps([{ kind: 'link-sub-issue', target: { parent: '7', child: '7-01' }, payload: {} }]);
   }
 
