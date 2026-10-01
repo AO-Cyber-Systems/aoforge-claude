@@ -34,6 +34,7 @@
 const planningMode = require('./planning-mode.cjs');
 const ghMapping = require('./gh-mapping.cjs');
 const ghHierarchy = require('./gh-hierarchy.cjs');
+const ghTrd = require('./gh-trd.cjs');
 const outbox = require('./gh-outbox.cjs');
 
 const CODES = Object.freeze({
@@ -46,6 +47,7 @@ const CODES = Object.freeze({
 
 // ─── small helpers ───────────────────────────────────────────────────────────
 
+const natural = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true });
 const errText = (e) => (e && e.message ? e.message : String(e));
 const plural = (n, one, many) => (n === 1 ? one : many);
 const objectiveOf = (trdId) => String(trdId).replace(/-\d+$/, '');
@@ -193,6 +195,84 @@ function linkFindings(local, mapping) {
   return out;
 }
 
+// ─── W059: orphans (offline half) ────────────────────────────────────────────
+
+/**
+ * Mapping entries with nothing local behind them. The GitHub-side scan (`gh orphans`) needs the network, so every
+ * finding names it for the online confirmation. A Decision entry has no file by design and is skipped, and so is a TRD
+ * of an objective whose files could not be read (that is a W061, not an orphan).
+ */
+function orphanFindings(local, mapping) {
+  const out = [];
+
+  const present = new Set();
+  for (const o of local.objectives) for (const t of o.trds) present.add(t.id);
+
+  for (const key of Object.keys(mapping.trds || {}).sort(natural)) {
+    const tid = ghMapping.toTrdId(key);
+    const entry = ghMapping.getTrd(mapping, key);
+    if (tid === null || !entry || entry.role === 'decision' || /-d\d+$/.test(tid)) continue;
+    const objective = objectiveOf(tid);
+    if (local.unreadable.has(objective) || present.has(tid)) continue;
+    out.push(finding(
+      CODES.ORPHANS,
+      `TRD ${tid} is mapped to issue #${entry.issue_number} but its file is gone from .planning/objectives/`,
+      `df-tools gh orphans ${objective} confirms against GitHub; restore the file with df-tools gh pull --all, `
+        + `or close issue #${entry.issue_number} if the TRD was removed on purpose`,
+      { objective, id: tid },
+    ));
+  }
+
+  const withDir = new Set(local.index.filter((e) => e.dir !== null).map((e) => e.id));
+  for (const [key, pr] of ghMapping.listPrs(mapping)) {
+    const objective = ghMapping.toObjectiveId(key) || key;
+    if (withDir.has(objective)) continue;
+    const branch = typeof pr.branch === 'string' && pr.branch !== '' ? ` (branch ${pr.branch})` : '';
+    const number = isPositiveInt(pr.number) ? ` #${pr.number}` : '';
+    out.push(finding(
+      CODES.ORPHANS,
+      `objective ${objective} has a pull request entry${number}${branch} but no objective directory under .planning/objectives/`,
+      `df-tools gh orphans ${objective} confirms against GitHub; if the objective was removed on purpose, close its pull request there`,
+      { objective },
+    ));
+  }
+  return out;
+}
+
+// ─── W060: frozen-body drift ─────────────────────────────────────────────────
+
+/**
+ * A TRD is frozen when its sync base carries `frozen: true`; from then on its body changes only through a scope comment.
+ * The recorded `body_hash` is `contentHash` of the issue body (gh-outbox-flush `baseFromIssue`), and the body of a TRD
+ * issue is `encodeTrdBody({id, file, text})` of the file (gh-hierarchy buildOps), so the local file drifted exactly when
+ * that encoding no longer hashes to `base.body_hash`. Comment (`<id>#<kind>`) and PR (`pr:<n>`) bases are not TRD ids and
+ * are skipped; a frozen base with no local file is left to W059.
+ */
+function frozenDriftFindings(main, local, outboxOpts) {
+  const bases = outbox.readBase(main, outboxOpts);
+  const files = new Map();
+  for (const o of local.objectives) for (const t of o.trds) files.set(t.id, { objective: o.id, file: t.file, text: t.text });
+
+  const out = [];
+  for (const key of Object.keys(bases).sort(natural)) {
+    const base = bases[key];
+    if (!base || base.frozen !== true) continue;
+    const tid = ghMapping.toTrdId(key);
+    const trd = tid === null ? undefined : files.get(tid);
+    if (!trd) continue;
+    const actual = ghTrd.contentHash(ghTrd.encodeTrdBody({ id: tid, file: trd.file, text: trd.text }));
+    if (actual === base.body_hash) continue;
+    out.push(finding(
+      CODES.FROZEN_DRIFT,
+      `frozen TRD ${tid} (${trd.file}) no longer matches the body recorded for issue #${base.issue_number}`,
+      `a frozen TRD changes only through a scope comment: df-tools gh trd scope ${tid} ...; `
+        + 'restore the file with df-tools gh pull --all --force',
+      { objective: trd.objective, id: tid },
+    ));
+  }
+  return out;
+}
+
 // ─── the collector ───────────────────────────────────────────────────────────
 
 /**
@@ -236,6 +316,16 @@ function collectStoreHealth(root, opts = {}) {
 
   if (local && mapping) {
     section('the TRD and PR links', () => linkFindings(local, mapping));
+    section('mapped TRDs and PRs that have nothing local', () => orphanFindings(local, mapping));
+  }
+
+  // Needs only the sync bases and the files, not the mapping, so an unreadable mapping does not hide it.
+  if (local) {
+    section(
+      'the frozen TRD bodies',
+      () => frozenDriftFindings(main, local, outboxOpts),
+      'run df-tools gh outbox status to see why the sync bases cannot be read',
+    );
   }
 
   return { applicable: true, findings };
