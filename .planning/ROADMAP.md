@@ -305,7 +305,19 @@ TRDs:
 **Success Criteria**:
 1. Backfill stays under secondary limits, resumes after interruption, and re-runs as a no-op
 2. Docs pass doc-refs; objective 26 re-based or killed
-**Plans:** TBD (run /devflow:plan-objective 51)
+**Plans:** 10 TRDs in 6 waves
+
+TRDs:
+- [ ] 51-01-record-objective-26-kill-TRD.md — (W1) GMD-04: objective 26 KILLED via `objective set-status 26 cancelled`, Disposition section, decision record, ROADMAP/STATE/PROJECT lines; never `objective remove`
+- [ ] 51-02-backfill-fixtures-TRD.md — (W1, tdd) `makeBackfillProject` 20-objective x 5-TRD fixture (shipped/in progress/cancelled/planned, entities, docs, milestones, legacy/oversize variants) + `useBackfillEnv` fake-clock harness
+- [ ] 51-03-gh-backfill-core-TRD.md — (W1, tdd) `gh-backfill.cjs`: history classification + close ops for finished work (G1), upper-bound request estimate (G3), `hasPendingOps`, live-create budget bookkeeping (G5); seam guard
+- [ ] 51-04-0010-resume-and-commit-guidance-TRD.md — (W1, tdd) 0010 `detect` defers while the outbox has pending ops (G4); store-mode branch + logged-escape commit text in 0010 and doctor check 20 (G6)
+- [ ] 51-05-import-estimate-and-preview-TRD.md — (W2, tdd) `planning import --dry-run` estimate + history + will-stay-local table, store-off preview, `noFlush`, history closes queued after creates; calibration test (GMD-02)
+- [ ] 51-06-migration-0011-queue-TRD.md — (W3, tdd) confirm migration 0011: offline `detect` with the plan summary, zero-write dry run, local + remote preflight refusals, store switch, resume-aware queue (GMD-01, GMD-02)
+- [ ] 51-07-migration-0011-drain-and-handoff-TRD.md — (W4, tdd) 0011 drain loop (hour budget stops resumably), `gh pull --all` + orphan verify, handoff to 0010; SC1 happy path across a resume with pacing asserts; SC2 re-run no-op + store-off parity
+- [ ] 51-08-backfill-resilience-and-cli-e2e-TRD.md — (W5, tdd) interruption, lost mapping, secondary limit, remote-edit halt, bare `--apply --confirm` resume (G4); CLI e2e through `df-tools upgrade`; seam guard covers 0011
+- [ ] 51-09-gh-sync-store-operator-TRD.md — (W5, tdd) `/devflow:gh-sync` repurposed in place as the store operator (`migrate [--dry-run]`, status, flush, pull, setup, release; mirror mode store-off only); flow/help/README/global template (GMD-03)
+- [ ] 51-10-docs-and-full-suite-TRD.md — (W6) USER-GUIDE system-of-record chapter + migration guide, CLAUDE.md slimmed (detail moved to USER-GUIDE), CHANGELOG, proposal refinements; full `npm test` (SC3)
 
 ### Other v1.4 candidates
 
