@@ -123,7 +123,8 @@ OBJECTIVE.md is optional. Resolution still works without it:
 - `overrides` defaults to empty
 - The planner emits a slightly louder resolved-configuration message noting the file is absent
 
-Create OBJECTIVE.md when you need to:
+Add an OBJECTIVE.md (draft from `node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/OBJECTIVE.md`,
+then `node ~/.claude/devflow/bin/df-tools.cjs objective put <id> --from <draft>`) when you need to:
 1. Override the project's `default_work` for this objective
 2. Override a specific knob (`tdd`, `depth`, `model_profile`)
 3. Capture per-objective notes the planner should consider
