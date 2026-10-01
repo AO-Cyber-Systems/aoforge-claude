@@ -2087,6 +2087,7 @@ module.exports = {
 
   // TRD 46-08 — one push command:
   syncAll,
+  storeEnabled,
   cmdGhSync,
   readMappingV2,
   writeMappingV2,
