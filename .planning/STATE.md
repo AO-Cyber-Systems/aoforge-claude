@@ -39,6 +39,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 47 — GitHub authoritative store (completed 2026-10-01, 14/14 TRDs)
 **Objective complete:** 48 — Planning write-path migration (completed 2026-10-01, 23/23 TRDs)
 **Objective complete:** 49 — Objective branch and PR lifecycle (completed 2026-10-01, 15/15 TRDs)
+**Objective complete:** 50 — GitHub enforcement and setup (completed 2026-10-01, 13/13 TRDs)
 **Status:** Objective complete — ready for verification
 
 ## Branch State (post-merge)
