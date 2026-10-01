@@ -178,6 +178,85 @@ describe('48-05 page rules', () => {
       assert.equal(wiki.pageForCachePath(rel), null, rel);
     }
   });
+
+  const DIRS_48 = ['07-store-demo', '42-codebase-aware-stack-drafter', '48-planning-write-path-migration', '02.1-b'];
+  const roundTrip = (rel, page) => {
+    assert.equal(wiki.pageForCachePath(rel), page, `${rel} -> ${page}`);
+    assert.equal(wiki.cachePathForPage(page, { objectiveDirs: DIRS_48 }), rel, `${page} -> ${rel}`);
+  };
+
+  const NEW_ROWS = [
+    ['research/tdd-scope-summary.md', 'Research-tdd-scope-summary'],
+    ['research/STACK_notes.md', 'Research-STACK_notes'],
+    ['milestones/v1.3.md', 'Milestone-v1_3'],
+    ['milestones/v2.10.1.md', 'Milestone-v2_10_1'],
+    ['milestones/v1.3-MILESTONE-AUDIT.md', 'Milestone-v1_3-Milestone-Audit'],
+    ['milestones/v1.2-ROADMAP.md', 'Milestone-v1_2-Roadmap'],
+    ['objectives/42-codebase-aware-stack-drafter/42-ROLLOUT.md', 'Objective-42-codebase-aware-stack-drafter-Rollout'],
+    ['objectives/48-planning-write-path-migration/48-UAT.md', 'Objective-48-planning-write-path-migration-Uat'],
+    ['objectives/07-store-demo/07-EVIDENCE.md', 'Objective-7-store-demo-Evidence'],
+    ['objectives/07-store-demo/07-DISCOVERY.md', 'Objective-7-store-demo-Discovery'],
+    ['objectives/02.1-b/02.1-UAT.md', 'Objective-2_1-b-Uat'],
+  ];
+
+  test('48-05 2. research notes map to Research-<stem> and back', () => {
+    roundTrip('research/tdd-scope-summary.md', 'Research-tdd-scope-summary');
+    roundTrip('research/STACK_notes.md', 'Research-STACK_notes');
+    for (const rel of ['research/sub/x.md', 'research/.hidden.md', 'research/x.txt', 'research/-x.md']) {
+      assert.equal(wiki.pageForCachePath(rel), null, rel);
+    }
+  });
+
+  test('48-05 3. milestone entries and archives map to Milestone-v<X_Y>[-<Kind>] and back', () => {
+    roundTrip('milestones/v1.3.md', 'Milestone-v1_3');
+    roundTrip('milestones/v2.10.1.md', 'Milestone-v2_10_1');
+    roundTrip('milestones/v1.3-MILESTONE-AUDIT.md', 'Milestone-v1_3-Milestone-Audit');
+    roundTrip('milestones/v1.2-ROADMAP.md', 'Milestone-v1_2-Roadmap');
+    for (const rel of ['milestones/1.3.md', 'milestones/v1.3-audit.md', 'milestones/v1.3-.md', 'milestones/notes.md']) {
+      assert.equal(wiki.pageForCachePath(rel), null, rel);
+    }
+    for (const page of ['Milestone-v1.3', 'Milestone-v1_3-AUDIT', 'Milestone-1_3', 'Milestone-v1_3-audit']) {
+      assert.equal(wiki.cachePathForPage(page, { objectiveDirs: DIRS_48 }), null, page);
+    }
+  });
+
+  test('48-05 4. other objective docs map to <ObjectivePage>-<Suffix>; TRD/SUMMARY/VERIFICATION stay null', () => {
+    roundTrip('objectives/42-codebase-aware-stack-drafter/42-ROLLOUT.md', 'Objective-42-codebase-aware-stack-drafter-Rollout');
+    roundTrip('objectives/48-planning-write-path-migration/48-UAT.md', 'Objective-48-planning-write-path-migration-Uat');
+    roundTrip('objectives/07-store-demo/07-EVIDENCE.md', 'Objective-7-store-demo-Evidence');
+    roundTrip('objectives/02.1-b/02.1-UAT.md', 'Objective-2_1-b-Uat');
+    for (const rel of [
+      'objectives/07-store-demo/07-VERIFICATION.md',
+      'objectives/07-store-demo/07-01-a-TRD.md',
+      'objectives/07-store-demo/07-01-SUMMARY.md',
+      'objectives/07-store-demo/07-TRD.md',
+      'objectives/07-store-demo/07-SUMMARY.md',
+      'objectives/07-store-demo/08-UAT.md',
+      'objectives/07-store-demo/7-UAT.md',
+      'objectives/07-store-demo/07-uat.md',
+      'objectives/07-store-demo/UAT.md',
+      'objectives/misc/07-UAT.md',
+    ]) {
+      assert.equal(wiki.pageForCachePath(rel), null, rel);
+    }
+    // CONTEXT / RESEARCH keep their 47 rules (the generic rule never claims them).
+    assert.equal(wiki.cachePathForPage('Objective-7-store-demo-Context', { objectiveDirs: DIRS_48 }), 'objectives/07-store-demo/07-CONTEXT.md');
+    assert.equal(wiki.cachePathForPage('Objective-7-store-demo-Research', { objectiveDirs: DIRS_48 }), 'objectives/07-store-demo/07-RESEARCH.md');
+    // Inverting needs the objective directory list, like every objective page.
+    assert.equal(wiki.cachePathForPage('Objective-42-codebase-aware-stack-drafter-Rollout'), null);
+    assert.equal(wiki.cachePathForPage('Objective-7-store-demo-Verification', { objectiveDirs: DIRS_48 }), null);
+  });
+
+  test('48-05 5. every new rule produces a valid wiki page name', () => {
+    for (const [rel, page] of NEW_ROWS) {
+      assert.equal(wiki.pageForCachePath(rel), page, rel);
+      assert.equal(wiki.validPage(page), true, page);
+    }
+    const names = wiki.PAGE_TABLE.map((r) => r.name);
+    for (const n of ['research', 'milestone', 'milestone-archive', 'objective-doc']) assert.ok(names.includes(n), n);
+    assert.ok(names.indexOf('research') < names.indexOf('objective-context'), 'research precedes the objective rules');
+    assert.ok(names.indexOf('objective-doc') > names.indexOf('objective'), 'the generic objective doc rule follows the 47 objective rules');
+  });
 });
 
 describe('revision URL (test 5)', () => {
