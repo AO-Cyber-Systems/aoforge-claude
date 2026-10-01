@@ -205,7 +205,7 @@ TRDs:
 - [x] 47-11-store-cli-TRD.md — (W4, tdd) `gh outbox status|flush|resolve` (exit 0/1/2/3), `gh trd spec|freeze|fold|scope`, `gh orphans`; dispatch + help
 - [x] 47-12-sync-store-wiring-TRD.md — (W4, tdd) `gh sync` store mode behind `github.store`: hierarchy via outbox, Roadmap wiki page, cache baseline; config defaults; seam guard
 - [x] 47-13-store-e2e-TRD.md — (W5) end-to-end SC1-SC5 on one fake GitHub + local wiki remote; seam guard covers gh-store-cli
-- [ ] 47-14-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG [Unreleased], USER-GUIDE, gh-sync skill, proposal status; full `npm test` (SC6)
+- [x] 47-14-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG [Unreleased], USER-GUIDE, gh-sync skill, proposal status; full `npm test` (SC6)
 
 ### Objective 48: Planning write-path migration
 
@@ -294,7 +294,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
-| 47. GitHub authoritative store | v1.4 | 13/14 | In Progress | — |
+| 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
 | 48. Planning write-path migration | v1.4 | 0/— | Registered | — |
 | 49. Objective branch and PR lifecycle | v1.4 | 0/— | Registered | — |
 | 50. GitHub enforcement and setup | v1.4 | 0/— | Registered | — |
