@@ -42,6 +42,7 @@ const path = require('path');
 const verbs = require('./planning-verbs.cjs');
 const entity = require('./planning-entity-verbs.cjs');
 const planningImport = require('./planning-import.cjs');
+const backfill = require('./gh-backfill.cjs');
 const planningMode = require('./planning-mode.cjs');
 const { EXIT } = require('./gh-store-cli.cjs');
 
@@ -374,13 +375,37 @@ const describeItem = (x) => {
   return JSON.stringify(x);
 };
 
+const tableCell = (s) => String(s).replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+
+/** The `will stay local:` table (51-05, OQ5): every refused TRD and every kept-local file, one row each. */
+function stayLocalTable(res) {
+  const rows = [];
+  for (const x of Array.isArray(res.refused) ? res.refused : []) {
+    const chars = Number.isFinite(x.chars) ? `${x.chars.toLocaleString('en-US')} chars, ` : '';
+    rows.push([x.rel, `refused: ${chars}over the TRD budget${x.hint ? ` (${x.hint})` : ''}`]);
+  }
+  for (const x of Array.isArray(res.kept_local) ? res.kept_local : []) rows.push([x.rel, x.reason || '']);
+  if (rows.length === 0) return ['will stay local: nothing.'];
+  return ['will stay local:', '  | file | why |', '  |---|---|', ...rows.map(([rel, why]) => `  | ${tableCell(rel)} | ${tableCell(why)} |`)];
+}
+
+/**
+ * The prose of `planning import`: the preview banner (store off), the per-kind counts, the one-line request estimate,
+ * the history closes, the will-stay-local table, then anything skipped.
+ */
 function importProse(res) {
   const counts = Object.entries(res.queued || {}).filter(([, n]) => Number(n) > 0).map(([k, n]) => `${n} ${k}`);
-  const lines = [`planning import${res.dry_run ? ' (dry run)' : ''}: ${counts.length ? `queued ${counts.join(', ')}` : 'nothing to queue'}.`];
-  for (const [title, items] of [['Refused', res.refused], ['Kept local', res.kept_local], ['Skipped', res.skipped]]) {
-    if (!Array.isArray(items) || items.length === 0) continue;
-    lines.push(`${title}:`);
-    for (const x of items) lines.push(`  - ${describeItem(x)}`);
+  const lines = [];
+  if (res.preview) lines.push('preview (store is off): this is what the GitHub backfill would queue.');
+  lines.push(`planning import${res.dry_run ? ' (dry run)' : ''}: ${counts.length ? `queued ${counts.join(', ')}` : 'nothing to queue'}.`);
+  if (res.estimate) lines.push(`estimate: ${backfill.renderEstimate(res.estimate)}`);
+  if (res.history) {
+    lines.push(`history: ${res.history.closed_completed} closed (completed), ${res.history.closed_not_planned} closed (not planned)`);
+  }
+  lines.push(...stayLocalTable(res));
+  if (Array.isArray(res.skipped) && res.skipped.length > 0) {
+    lines.push('Skipped:');
+    for (const x of res.skipped) lines.push(`  - ${describeItem(x)}`);
   }
   return lines.join('\n');
 }
@@ -409,7 +434,12 @@ function cmdPlanningVerb(cwd, args, raw) {
   if (sub === 'import') {
     const res = planningImport.planImport(cwd, { dryRun: has(rest, '--dry-run') });
     if (raw) return report('planning import', res, raw);
-    return report('planning import', { ...res, refused: undefined }, raw, res.ok === false ? null : importProse(res));
+    if (res.ok === false) return report('planning import', { ...res, refused: undefined }, raw);
+    // The import prose is the whole report: report()'s generic headline would read the `skipped` ARRAY as a skip.
+    for (const w of res.warnings || []) line('stderr', `Warning: ${w}`);
+    line('stdout', importProse(res));
+    if (res.prose) line('stdout', res.prose);
+    return finish(exitOf(res));
   }
   return unknown('planning', sub, 'sibling-trd-scan, draft, import, mode', raw);
 }
