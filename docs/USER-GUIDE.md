@@ -412,6 +412,8 @@ Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub in
 | `github.wiki.remote` | `""` | Wiki remote override; empty means `https://github.com/<repo>.wiki.git` (env override `DEVFLOW_WIKI_REMOTE`) |
 | `github.pr.merge_method` | `"squash"` | How `gh pr merge` merges the objective PR: `squash`, `merge` or `rebase`. A merge queue ignores it |
 | `github.app_login` | `""` | Login of the DevFlow GitHub App; a scope comment it wrote counts as accepted (store mode) |
+| `github.app_id` | `""` | Numeric id of the DevFlow GitHub App. When set, `gh setup` pins the two required checks to that App (`integration_id`); leave empty to accept the checks from any source. See **Enforcement and setup** |
+| `github.checks_workflow` | `""` | `owner/repo/.github/workflows/devflow-checks.yml@ref` that the managed caller workflow runs. Empty means `AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml@v<installed version>` |
 
 ### Git Branching
 
@@ -741,7 +743,7 @@ If the mapping file is lost, re-run `gh sync --all`: the `devflow:id` markers on
 
 ### Store mode
 
-Store mode (objectives 47 and 48) makes GitHub hold the whole planning hierarchy, not just a mirror of objectives. It is off unless `github.store` is exactly `true`; with it off, everything above behaves as before and every planning verb writes the same `.planning/` file it always did. With it on, skills and agents publish planning files through df-tools verbs and `.planning/` becomes a cache you can rebuild from GitHub (see **The planning write path** below). Objective 49 adds the per-objective branch and pull request (see **One branch and one pull request per objective** below); objectives 50-51 move enforcement onto the store.
+Store mode (objectives 47 and 48) makes GitHub hold the whole planning hierarchy, not just a mirror of objectives. It is off unless `github.store` is exactly `true`; with it off, everything above behaves as before and every planning verb writes the same `.planning/` file it always did. With it on, skills and agents publish planning files through df-tools verbs and `.planning/` becomes a cache you can rebuild from GitHub (see **The planning write path** below). Objective 49 adds the per-objective branch and pull request (see **One branch and one pull request per objective** below). Objective 50 adds enforcement and the one-time repository setup (see **Enforcement and setup** below); objective 51 finishes the move onto the store.
 
 With `github.store: true`, `df-tools gh sync <objective>` also pushes:
 
@@ -826,7 +828,7 @@ node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0010 --confirm
 
 `planning import` reports, rather than skips, TRDs over the 60,000-character budget, decisions with no TRD and legacy-named TRDs (`NN-MM-TRD-<slug>.md`); rename or split those first. Running it twice queues nothing new. Migration 0010 refuses until the outbox is drained and every cache file is on GitHub, and lists each blocker. `--confirm` also runs any other pending confirm migration (for example 0006 on a project without `kind`); `--only 0010` without `--confirm` runs 0010 alone.
 
-**What git tracks afterwards.** Migration 0010 writes a `.gitignore` block (`.planning/*`, `!.planning/config.json`, `!.planning/STACK.md`) and untracks everything else from the index; the files stay on disk as the cache. Commit the result with the `df-tools commit ... --files .gitignore .planning/` line the migration prints. `df-tools doctor` warns (check 24) while a store-mode project still tracks its cache.
+**What git tracks afterwards.** Migration 0010 writes a `.gitignore` block (`.planning/*`, `!.planning/config.json`, `!.planning/STACK.md`) and untracks everything else from the index; the files stay on disk as the cache. Commit the result with the `df-tools commit ... --files .gitignore .planning/` line the migration prints. Since objective 50 that commit is refused on the default branch of a store-mode project (`default_branch`; see **Enforcement and setup**), and the note the migration prints does not say so: run the printed line with `DEVFLOW_SKIP_GH_GATE=1` in front (the override is logged), or from an objective branch. `doctor` check 20 prints a similar `df-tools commit` line and has the same limit. `df-tools doctor` warns (check 24) while a store-mode project still tracks its cache.
 
 **The verbs.**
 
@@ -856,6 +858,18 @@ Run the named verb with a draft instead. `config.json`, `STACK.md` and runtime f
 
 **W055.** `validate health` (Check 15) reports W055 for a cache or generated file whose bytes match neither its last GitHub baseline nor a pending verb write: someone changed it outside a verb. The message names the verb that publishes it, or `gh pull --all --force` to take GitHub's version back. W056 means the check could not run, or stopped at its 5,000-file cap (for example an unreadable ledger). Neither appears in local mode.
 
+**W057-W061.** `validate health` (Check 16) and `df-tools doctor` (check 25, `gh-store-sync`) report whether the store and GitHub agree. They read local state only (the outbox, the mapping, the objective files) and make no GitHub call; all five are warnings that `--repair` and `doctor --fix` never touch. None appears in local mode.
+
+| Code | Meaning | What to do |
+|---|---|---|
+| W057 | unsynced writes: pending or blocked ops in the outbox, a halted outbox, or a recovered journal (a `.corrupt-*` file is named) | `gh outbox flush`; for a halt, `gh outbox status` then `gh outbox resolve <seq> --accept-remote\|--overwrite`; for a recovered journal, read the named file, run `gh sync --all` to queue what it held, then delete it |
+| W058 | missing links: a TRD file with no mapped issue, an objective with TRDs and no issue, a PR entry with no number | `gh sync <objective>` (or `gh pr sync <objective>` for a PR entry) |
+| W059 | orphans: a mapped TRD whose file is gone, or a PR entry whose objective has no directory | `gh orphans <objective>` confirms against GitHub; restore a missing file with `gh pull --all`, or, if the objective was removed on purpose, close its pull request on GitHub |
+| W060 | frozen-body drift: a frozen TRD whose local text no longer matches the body hash recorded at the last sync | publish the change as a scope comment (`gh trd scope`), or take GitHub's version back with `gh pull --all --force` |
+| W061 | the check itself could not run (an unreadable mapping, outbox or file); the other checks still ran | read the message; fix the named input |
+
+`doctor` check 25 shows the same findings as one warning with the most urgent fix command (a halt first, then unsynced writes, frozen drift, missing links, orphans, a failed check) and the full list under `--json`. Doctor check 22 (`validate health`) leaves these five codes to check 25, so each problem appears once.
+
 #### One branch and one pull request per objective (objective 49)
 
 In store mode `/devflow:execute-objective` runs each objective on one linked branch and one pull request. With `github.store` off none of this applies: every `gh pr` verb, `gh trd confirm-scope` and `gh trd start` prints `skipped`, exits 0 and makes no `gh` call, and `git.branching_strategy` keeps its old meaning. In store mode `git.branching_strategy` is ignored (see **Git Branching**), and `complete-milestone` no longer merges branches itself.
@@ -880,7 +894,7 @@ node ~/.claude/devflow/bin/df-tools.cjs gh trd confirm-scope <trd> <n>
 
 A confirm counts only if an assignee posted it, so the token DevFlow uses must belong to one. Editing a scope after it was accepted makes it pending again.
 
-**Verify.** On a pass, `verification post` sets the commit status `devflow/verification` on the PR's head commit, marks the PR ready for review and posts the wiki diff as a PR comment. It is a commit status, not a check run, because only a GitHub App can create a check run; the App arrives with objective 50. Run `gh pr sync` first: the status is posted on the pushed head, so that head has to contain the verified commits. The objective issue stays open at this point.
+**Verify.** On a pass, `verification post` sets the commit status `devflow/verification` on the PR's head commit, marks the PR ready for review and posts the wiki diff as a PR comment. It is a commit status, not a check run, because only a GitHub App can create a check run; the two required checks of objective 50 are commit statuses too (see **Enforcement and setup**). Run `gh pr sync` first: the status is posted on the pushed head, so that head has to contain the verified commits. The objective issue stays open at this point.
 
 **Merge.** DevFlow offers the merge once the objective is verified; it never merges on its own. If you decline, or an auto-advance chain moves on without it, the next objective starts from the default branch without this one's work. `gh pr merge` refuses a draft PR, a PR with no passing `devflow/verification` on its current head and a closed PR. It merges with `github.pr.merge_method` (default `squash`), or enqueues the PR where the base branch has a merge queue.
 
@@ -894,6 +908,58 @@ A confirm counts only if an assignee posted it, so the token DevFlow uses must b
 **Reconcile.** `gh pr reconcile` runs after the PR merges, whether DevFlow or a person merged it on GitHub. GitHub caps how many issues a closing keyword closes, so reconcile reads every issue the PR should have closed (the objective and each TRD) and closes the ones that are still open. It then updates the Project fields, deletes the remote branch, returns your checkout to the default branch (a local branch that holds unmerged work is kept and reported) and pulls the cache. It is idempotent. Exit 0 is done, 3 means a queued PR has not landed yet, 1 is an error; warnings go to stderr with exit 0. The objective issue closes here or through the PR's `Closes`, never at verify.
 
 `gh pr status <objective>` shows where an objective stands at any point: the branch, the PR and its state, the `devflow/verification` status, the issues the PR closes, pending scopes and queued writes.
+
+#### Enforcement and setup (objective 50)
+
+Objective 50 enforces the planning model in two places: on your machine, where `df-tools commit` and a hook guard the working copy, and on GitHub, where `df-tools gh setup` configures the repository once and two required checks run on every pull request. The local guards act in store mode only. With `github.store` off, `df-tools commit` behaves as before, the hook stays silent, and none of this makes a `gh` call.
+
+**Why a commit is refused.** In store mode `df-tools commit` checks the branch before it stages anything. On the default branch it exits 1 with:
+
+```
+Refusing to commit on main, the default branch. To get a linked branch, run `df-tools gh pr start <objective>` and commit on its branch, or set DEVFLOW_SKIP_GH_GATE=1 (logged).
+```
+
+The `reason` is `default_branch`, `unlinked_branch` (a branch that no unmerged objective PR names, which includes the old branch of a merged objective) or `detached_head`. Nothing is staged and HEAD does not move. A branch counts as linked when the mapping's `prs` entry for an objective names it and that PR is not merged; that is a local fact, so the gate works offline. A `df/exec-*` executor branch is allowed when the main checkout is on a linked branch, and a merge or rebase in progress is never refused. What to do: run `gh pr start <objective>` and commit on the branch it creates. `/devflow:execute-objective` already does this. A commit on a linked branch whose message has no recognised scope ends with `Refs #<objective issue>`.
+
+**The escape.** Put `DEVFLOW_SKIP_GH_GATE=1` in front of the command, for example `DEVFLOW_SKIP_GH_GATE=1 df-tools commit "chore: ..." --files <paths>`, and a refused commit lands anyway. The value must be exactly `1`. The result carries `gate_escaped: true`. Once the commit has landed, a `gate: gh` entry is appended to `.planning/.override-log.jsonl` in the main checkout (also when you commit from an executor worktree), and `df-tools override --list` shows it. Set `DEVFLOW_SKIP_GH_GATE_REASON="<why>"` to record the reason. A refused or empty commit logs nothing. The gate guards `df-tools commit` only.
+
+**Queued writes are flushed for you.** In store mode the `gh-flush` hook runs after a `df-tools commit` and at Stop. It sends queued GitHub writes, and says so when writes are still queued (offline, rate limited), when the outbox is halted for a human, or, at Stop, when a cache file was changed outside a verb (W055). It never blocks and never writes under `.planning/`. `DEVFLOW_SKIP_GH_FLUSH_HOOK=1` turns it off.
+
+**`gh setup`.** One command configures a repository. It is a dry-run until you pass `--apply`, and it needs `github.enabled` and `github.repo` (not store mode):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh setup              # dry-run: prints every action and the exact request, changes nothing
+node ~/.claude/devflow/bin/df-tools.cjs gh setup --apply      # does it
+node ~/.claude/devflow/bin/df-tools.cjs gh setup --apply --refresh   # also forget a recorded merge-queue refusal and try again
+node ~/.claude/devflow/bin/df-tools.cjs gh setup --require-wiki      # exit 1 while the wiki has no first page
+```
+
+Read the dry-run first. A run reads the repository, then lists one line per action as `[created|updated|exists|skipped|manual|conflict|advisory|failed] kind target`, with the `gh` command or the file it would write underneath. `--apply` makes these changes, in order, and attempts every action even when one fails:
+
+- repository settings: wiki on, delete branch on merge;
+- labels: `github.labels` roles (objective, trd, decision, todo, debug, quick, plus in-progress and gaps when configured);
+- on an organization: issue types Objective, TRD, Decision, Debug and Quick, and the issue fields `work` and `kind`;
+- the ruleset `devflow: default branch` on the default branch: pull request required (no approvals), no force-push, no deletion, the required checks below, and a merge queue (method from `github.pr.merge_method`) where the plan allows one;
+- `.github/workflows/devflow.yml`, a managed caller of the reusable workflow, and a managed block in `.github/pull_request_template.md` that asks for `Closes #<objective issue>`.
+
+A second `--apply` makes no GitHub write and changes no file. A ruleset that already does everything asked, or more, is left alone; a weaker one is updated with the union and never loses a rule or a bypass actor. A workflow file you wrote yourself (no `# devflow:managed` line at the top) is a `conflict`: it is never overwritten and the run exits 1, in a dry-run too, so CI can use the dry-run as a readiness check.
+
+Degraded cases never stop the run. On a user-owned repository, or where an organization endpoint answers 403 or 404, issue types, fields and rulesets are `skipped` and DevFlow keeps using labels and body metadata. If GitHub refuses the merge queue (HTTP 422, usually a plan limit), `gh setup` retries the ruleset without it, reports "merge queue unavailable on this plan" and records that, so the next run writes nothing; `--refresh` tries the queue again. An issue-field write that GitHub refuses is retried as a plain text field. A wiki with no first page is reported; create the first page once in the GitHub web UI (`--require-wiki` makes that an exit 1).
+
+**Committing the written files.** `--apply` writes the two files into your working tree and leaves them uncommitted. Put them on a branch and merge them through a pull request, before anything else: the ruleset requires two checks that exist only once the workflow is on the default branch, so until then nothing can merge, and an administrator may need to bypass the ruleset once for that pull request. `df-tools commit` refuses an unlinked branch in store mode, so for this one commit use the escape above or `git commit` in your own terminal.
+
+**The App (optional).** The checks run on the workflow's own token by default. To run them as a GitHub App, create the App and install it on the repository, then set the repository or organization variable `DEVFLOW_APP_CLIENT_ID` and the secret `DEVFLOW_APP_PRIVATE_KEY`. The workflow mints a token scoped to the one repository (and a read-only one to check out DevFlow). Set `github.app_id` to the App's numeric id and rerun `gh setup --apply` only once those are set: the ruleset then accepts the two checks only from that App, and a status posted by the workflow token would not satisfy it.
+
+**The two required checks.** The reusable workflow `.github/workflows/devflow-checks.yml` (the caller's `uses:` target, `github.checks_workflow`) runs `gh-check-cli.cjs` on `pull_request` and on `merge_group`, and posts each result as a commit status on the PR head (or the merge-queue group head). The statuses are the required contexts, so the match does not depend on job or workflow names. There are no path or branch filters; a required check that a filter stops from running would hold every merge forever.
+
+| Context | Passes when |
+|---|---|
+| `devflow/linked-issue` | the PR targets the default branch and carries at least one closing reference (`Closes`, `Fixes` or `Resolves #N`, any tense, also `owner/repo#N` for this repository and issue URLs) to an issue that exists and is not itself a pull request. Fenced code and HTML comments are ignored, a reference to another repository does not count, and `Refs #N` in commits is noted but never required |
+| `devflow/planning-consistency` | store mode is off or the PR is not a DevFlow objective PR (it carries no `devflow:pr` marker), which pass with the reason stated; otherwise the PR targets the default branch and closes the objective issue and every TRD issue linked under it, and none of those was closed as not planned. It reads the GitHub issue graph, never `.planning/`, which is an untracked cache |
+
+A failing check names each problem on its own line in the status description and the workflow log, and an internal error posts an `error` status rather than leaving the check pending. After a merged PR into the default branch, the workflow's `reconcile` job closes any issue the PR should have closed and left open and adds one comment; it does nothing for an unmerged PR or another base branch.
+
+**Not yet verified on a real repository.** The reusable workflow, the status contexts through `workflow_call` and the issue-field option shape were tested against a model of GitHub, not a live repository. The central location of the reusable workflow is owned by platform and operations; point `github.checks_workflow` at it. If an action fails, `gh setup` reports it as `failed` with GitHub's one-line error and exits 1 after trying the rest.
 
 ### What does NOT sync
 

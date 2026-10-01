@@ -3,7 +3,7 @@ name: gh-sync
 description: |
   Sync DevFlow planning state to GitHub — create/update objective issues, generate release notes, or push a single objective's state (body sections + sticky comment + Project v2 fields).
   Triggers on: "sync to github", "push objectives to github", "github release notes", "sync objective".
-argument-hint: "[<objective>|--all|objectives|release <tag>|status]"
+argument-hint: "[<objective>|--all|objectives|release <tag>|status|setup [--apply]]"
 allowed-tools:
   - Read
   - Bash
@@ -17,8 +17,9 @@ Modes (parsed from $ARGUMENTS):
 - `<objective>` (any spelling: `46`, `046`, `46-github-sync-foundations`, `2.1`) — sync ONE objective (`gh sync <objective>`). The first sync opens the issue, and `gh sync` itself records `github_issue` in the objective's OBJECTIVE.md — never hand-edit it; any other OBJECTIVE.md change goes through `df-tools objective put <id> --from <draft>`. Idempotent — safe to run repeatedly.
 - `release <tag>` — generate release notes from SUMMARY.md files since the previous tag and create or edit the GitHub release
 - `status` — report whether GitHub integration is enabled and reachable
+- `setup [--apply]` — one-time repository setup (`gh setup`): ruleset with the required checks, labels, issue types and fields, workflow and PR template; a dry-run unless `--apply`
 
-If $ARGUMENTS does not match `--all`, `objectives`, `release <tag>` or `status`, treat it as an objective and run the single-objective sync.
+If $ARGUMENTS does not match `--all`, `objectives`, `release <tag>`, `status` or `setup`, treat it as an objective and run the single-objective sync.
 </objective>
 
 <execution_context>
@@ -42,7 +43,12 @@ node ~/.claude/devflow/bin/df-tools.cjs gh sync-release "$TAG"
 
 # Status check
 node ~/.claude/devflow/bin/df-tools.cjs gh status
+
+# One-time repository setup: a dry-run that prints every action and its exact request, changing nothing
+node ~/.claude/devflow/bin/df-tools.cjs gh setup
 ```
+
+`gh setup --apply` makes those changes (the default-branch ruleset with the required checks `devflow/linked-issue` and `devflow/planning-consistency`, labels, issue types and fields, the managed `.github/workflows/devflow.yml` and a pull-request-template block). It is idempotent, degrades per action, and leaves the two written files uncommitted for the user to merge through a pull request. Run the dry-run first and show it to the user; do not `--apply` without their say-so. `gh setup --apply --refresh` retries a merge queue that an earlier run recorded as refused, and `--require-wiki` exits 1 while the wiki has no first page.
 
 `gh sync --all` keeps going past a failing objective, prints JSON on stdout and exits 1 if any objective failed. `gh sync-objectives` still works but is a deprecated alias of `gh sync --all`.
 
