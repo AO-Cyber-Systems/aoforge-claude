@@ -32,6 +32,15 @@
  * `--dry-run` enqueues nothing, writes nothing and calls no GitHub write, and returns the same report. Import is
  * idempotent: a second run finds every imported file baselined and queues nothing.
  *
+ * The backfill plan (objective 51, TRD 51-05, GMD-02): every run also reports
+ *   estimate     an upper-bound request estimate of what the run queues (gh-backfill.estimate over the planned ops:
+ *                each objective's buildOps, one live create per unmapped objective, the decision and entity ops, the
+ *                wiki push, the milestone puts and the history closes) plus `objectives`, `trds`, `history_closes`
+ *   history      `{closed_completed, closed_not_planned}`: the shipped / cancelled work of the imported objectives
+ *                (gh-backfill.historyOps) whose issues the import closes instead of leaving open
+ * A dry run with store OFF but `github.enabled: true` is a PREVIEW (`preview: true`): the same report, so a user sees the
+ * whole backfill and its cost before flipping `github.store`. Any other local-mode run still refuses.
+ *
  * A library: no spawns, no stdout, no process.exit. `exit` is gh-store-cli's EXIT (0 ok, 1 error, 2 halted, 3 pending).
  */
 
@@ -52,6 +61,7 @@ const ghMilestone = require('./gh-milestone.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const verbs = require('./planning-verbs.cjs');
 const ev = require('./planning-entity-verbs.cjs');
+const backfill = require('./gh-backfill.cjs');
 
 const { EXIT } = storeCli;
 const { STORE } = planningMode;
@@ -131,6 +141,40 @@ function trdRelFor(main, dir, trdId) {
   return file ? `objectives/${dir}/${file}` : `objectives/${dir}`;
 }
 
+/**
+ * The outbox op kinds importing one entity file queues (planning-entity-verbs.importEntity's `build`), for the estimate:
+ * a todo or debug session is an upsert (+ a close when its location says closed), a quick JOB an upsert, a quick
+ * SUMMARY the summary comment + the close.
+ */
+function entityOpKinds(rel) {
+  const e = planningPaths.classify(rel).entity;
+  if (!e) return [];
+  if (e.role === 'todo' || e.role === 'debug') return e.state === 'closed' ? ['upsert-issue', 'patch-issue'] : ['upsert-issue'];
+  if (e.part === 'job') return ['upsert-issue'];
+  return ['upsert-comment', 'patch-issue'];
+}
+
+/** The ops a decision import queues: openDecision's upsert + block, and decisionAnswer's comment + close when answered. */
+const decisionOpKinds = (answered) => (answered ? ['upsert-issue', 'block', 'upsert-comment', 'patch-issue'] : ['upsert-issue', 'block']);
+
+const kindOps = (kinds) => kinds.map((kind) => ({ kind }));
+
+/** `{closed_completed, closed_not_planned}` of a historyOps list. */
+function historyCounts(ops) {
+  const counts = { closed_completed: 0, closed_not_planned: 0 };
+  for (const op of ops) {
+    if (op.payload.state_reason === 'completed') counts.closed_completed += 1;
+    else counts.closed_not_planned += 1;
+  }
+  return counts;
+}
+
+/** `github.enabled === true` in the main checkout's config (planning-mode's reader, never an ad hoc parse). */
+function githubEnabled(main) {
+  const cfg = planningMode.readPlanningConfig(main);
+  return isObject(cfg) && isObject(cfg.github) && cfg.github.enabled === true;
+}
+
 /** The `## vX.Y` sections of a hand-maintained MILESTONES.md: [{version, text}] (trailing `---` dropped). */
 function milestoneSections(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -156,9 +200,15 @@ function milestoneSections(text) {
 }
 
 /**
- * planImport(root, {dryRun}) -> {ok, mode, dry_run, queued:{objective, decision, todo, debug, quick, doc, milestone},
- *   skipped:[{rel, reason}], kept_local:[{rel, reason}], refused:[{objective, rel, id, chars, hint}], warnings,
- *   flush?, prose?, error?, exit}
+ * planImport(root, {dryRun}) -> {ok, mode, dry_run, preview?, queued:{objective, decision, todo, debug, quick, doc,
+ *   milestone}, skipped:[{rel, reason}], kept_local:[{rel, reason}], refused:[{objective, rel, id, chars, hint}],
+ *   warnings, estimate?, history?, flush?, prose?, error?, exit}
+ *
+ *   preview    true on a store-off dry run with github.enabled (absent otherwise)
+ *   estimate   {objectives, trds, history_closes, ops, writes_max, reads_approx, minutes_min, hour_windows, hours_min,
+ *               by_kind, writes_by_kind, live_creates, wiki_pushes, milestones, unknown_kinds} (gh-backfill.estimate
+ *               plus the three counts); in a real run it prices what was actually queued
+ *   history    {closed_completed, closed_not_planned}: the close ops of the imported objectives' finished work
  */
 function planImport(root, opts = {}) {
   const o = isObject(opts) ? opts : {};
@@ -167,7 +217,11 @@ function planImport(root, opts = {}) {
   const main = planningMode.resolveMainRoot(root);
   if (!main) return { ...report, ok: false, error: `no .planning/ directory at or above ${root}`, exit: EXIT.ERROR };
   report.mode = planningMode.planningMode(main).mode;
-  if (report.mode !== STORE) return { ...report, ok: false, error: 'planning import needs github.store: true', exit: EXIT.ERROR };
+  if (report.mode !== STORE) {
+    // A preview: what the backfill would queue once the store is switched on. Only a dry run, only with GitHub on.
+    if (!(dryRun && githubEnabled(main))) return { ...report, ok: false, error: 'planning import needs github.store: true', exit: EXIT.ERROR };
+    report.preview = true;
+  }
 
   const index = outbox.readCacheIndex(main);
   const lists = planningPaths.listByClass(path.join(main, '.planning'));
@@ -176,6 +230,8 @@ function planImport(root, opts = {}) {
   const covered = new Set();
   const errors = [];
   let queuedAny = false;
+  // The backfill plan (51-05): what this run queues, priced by gh-backfill.estimate after step 6.
+  const plan = { ops: [], imported: [], trds: 0, liveCreates: 0, wikiPushes: 0, milestones: 0 };
 
   // 1. Objectives: one hierarchy push each, no flush.
   const dirs = unique(pending.filter((rel) => OBJECTIVE_VERBS.has(verbOf(rel))).map((rel) => rel.split('/')[1])).sort();
@@ -186,24 +242,34 @@ function planImport(root, opts = {}) {
       report.kept_local.push({ rel: `objectives/${dir}`, reason: 'not a known objective directory (no ROADMAP entry resolves to it)' });
       continue;
     }
-    const plan = ghHierarchy.planPush(main, resolved.id);
-    if (!plan.ok) {
-      if (plan.refused === 'budget') {
-        for (const over of plan.over || []) {
+    const pushPlan = ghHierarchy.planPush(main, resolved.id);
+    if (!pushPlan.ok) {
+      if (pushPlan.refused === 'budget') {
+        for (const over of pushPlan.over || []) {
           report.refused.push({ objective: resolved.id, rel: trdRelFor(main, dir, over.id), id: over.id, chars: over.chars, hint: BUDGET_HINT });
         }
-        for (const bad of plan.invalid || []) report.kept_local.push({ rel: trdRelFor(main, dir, bad.id), reason: bad.error });
+        for (const bad of pushPlan.invalid || []) report.kept_local.push({ rel: trdRelFor(main, dir, bad.id), reason: bad.error });
       } else {
-        report.kept_local.push({ rel: `objectives/${dir}`, reason: plan.error || plan.message || `refused (${plan.refused})` });
+        report.kept_local.push({ rel: `objectives/${dir}`, reason: pushPlan.error || pushPlan.message || `refused (${pushPlan.refused})` });
       }
       continue;
     }
     const objectiveRel = `objectives/${dir}/OBJECTIVE.md`;
-    const covers = unique([...(fs.existsSync(planningFile(main, objectiveRel)) ? [objectiveRel] : []), ...pushedRels(plan)]);
+    const covers = unique([...(fs.existsSync(planningFile(main, objectiveRel)) ? [objectiveRel] : []), ...pushedRels(pushPlan)]);
     for (const rel of covers) covered.add(rel);
     report.queued.objective += 1;
-    if (dryRun) continue;
+    // buildOps is pure (no gh, no outbox): the ops the push below queues, for the estimate.
     const mapped = ghMapping.getEntry(ghMapping.readMappingV3(main), resolved.id);
+    const planned = () => {
+      plan.ops.push(...ghHierarchy.buildOps(pushPlan));
+      plan.imported.push(resolved.id);
+      plan.trds += pushPlan.trds.length;
+      if (!mapped) plan.liveCreates += 1;
+    };
+    if (dryRun) {
+      planned();
+      continue;
+    }
     let q;
     try {
       q = mapped ? ghHierarchy.pushHierarchy(main, resolved.id) : require('./gh.cjs').syncObjective(resolved.id, main, { deferFlush: true });
@@ -217,6 +283,7 @@ function planImport(root, opts = {}) {
     }
     for (const w of q.warnings || []) report.warnings.push(typeof w === 'string' ? w : w.message || String(w));
     queuedAny = true;
+    planned();
     for (const rel of covers) recordQueued(main, rel, report.warnings);
   }
 
@@ -233,7 +300,11 @@ function planImport(root, opts = {}) {
       continue;
     }
     report.queued.decision += 1;
-    if (dryRun) continue;
+    const resolution = frontmatterField(text, 'resolution');
+    if (dryRun) {
+      plan.ops.push(...kindOps(decisionOpKinds(resolution !== null)));
+      continue;
+    }
     const question = bodyOf(text).trim() !== '' ? bodyOf(text) : text;
     const q = ghHierarchy.openDecision(main, trd, { question });
     if (!q.ok || q.skipped || !q.id) {
@@ -249,10 +320,11 @@ function planImport(root, opts = {}) {
       continue;
     }
     queuedAny = true;
-    const resolution = frontmatterField(text, 'resolution');
+    plan.ops.push(...kindOps(decisionOpKinds(false)));
     if (resolution !== null) {
       const a = ev.decisionAnswer(main, { id: q.id, text: resolution, noFlush: true });
       if (!a.ok) errors.push(a.error);
+      else plan.ops.push(...kindOps(decisionOpKinds(true).slice(2)));
     }
     ev.removeThrough(main, STORE, rel, report.warnings);
   }
@@ -269,6 +341,7 @@ function planImport(root, opts = {}) {
       continue;
     }
     report.queued[r.role] += 1;
+    plan.ops.push(...kindOps(entityOpKinds(rel)));
     if (!dryRun) queuedAny = true;
   }
 
@@ -279,10 +352,13 @@ function planImport(root, opts = {}) {
     else docs.push(rel);
   }
   report.queued.doc += docs.length;
+  if (dryRun && docs.length > 0) plan.wikiPushes = 1;
   if (!dryRun && docs.length > 0) {
     const d = ev.docsPut(main, docs, { message: 'devflow: planning import', noFlush: true });
-    if (d.ok) queuedAny = true;
-    else {
+    if (d.ok) {
+      queuedAny = true;
+      plan.wikiPushes = 1;
+    } else {
       report.queued.doc -= docs.length;
       errors.push(d.error);
     }
@@ -298,10 +374,15 @@ function planImport(root, opts = {}) {
         const rel = `milestones/${s.version}.md`;
         if (index[rel] === ghTrd.contentHash(s.text)) continue;
         report.queued.milestone += 1;
-        if (dryRun) continue;
+        if (dryRun) {
+          plan.milestones += 1;
+          continue;
+        }
         const r = ev.milestonePut(main, { version: s.version, text: s.text, noFlush: true });
-        if (r.ok) queuedAny = true;
-        else {
+        if (r.ok) {
+          queuedAny = true;
+          plan.milestones += 1;
+        } else {
           report.queued.milestone -= 1;
           errors.push(r.error);
         }
@@ -314,6 +395,17 @@ function planImport(root, opts = {}) {
     const m = LEGACY_TRD_RE.exec(rel);
     if (m) report.kept_local.push({ rel, reason: `legacy TRD name; rename it to objectives/${m[1]}/${m[2]}-${m[3]}-TRD.md so plan put-trd owns it` });
   }
+
+  // 6b. History (51-05, G1): close the shipped / cancelled work of every objective imported above, and price the run.
+  const history = backfill.historyOps(main, plan.imported);
+  report.history = historyCounts(history);
+  const priced = backfill.estimate({
+    ops: [...plan.ops, ...history],
+    live_creates: plan.liveCreates,
+    wiki_pushes: plan.wikiPushes,
+    milestones: plan.milestones,
+  });
+  report.estimate = { objectives: plan.imported.length, trds: plan.trds, history_closes: history.length, ...priced };
 
   // 7. One flush; a drained flush baselines every ledgered file (gh-store-cli settleLedger).
   let exit = EXIT.OK;
