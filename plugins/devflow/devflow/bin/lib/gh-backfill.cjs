@@ -7,9 +7,12 @@
 //                                     cancelled | open, from local files only
 //   historyOps(root, ids)             `patch-issue` close ops for finished work, so the backfill closes the
 //                                     issues of shipped history instead of opening them (gap G1)
+//   COST / estimate / renderEstimate  an upper-bound request estimate, priced before any write (gap G3)
+//   hasPendingOps(root)               resume detection: pending / blocked / halted ops in the outbox journal
+//   recordLiveWrites(root, n, now)    book writes made outside the outbox into the budget window (gap G5)
 //
 // Nothing here calls gh or git, and nothing is enqueued or flushed: the callers (planImport in 51-05, migration
-// 0011 in 51-06/07) own queuing. TRD and objective ids are derived exactly as gh-hierarchy's push derives them
+// 0011 in 51-06/07) own queuing. The one write is recordLiveWrites' journal update. TRD and objective ids are derived exactly as gh-hierarchy's push derives them
 // (`readObjectiveTrds` + `findSummaries`), so every close op targets an issue the hierarchy creates.
 
 const fs = require('fs');
@@ -18,6 +21,8 @@ const path = require('path');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const ghMapping = require('./gh-mapping.cjs');
 const ghHierarchy = require('./gh-hierarchy.cjs');
+const outbox = require('./gh-outbox.cjs');
+const planningMode = require('./planning-mode.cjs');
 
 // ─── small helpers ───────────────────────────────────────────────────────────
 
@@ -324,9 +329,167 @@ function historyOps(root, ids, opts = {}) {
   return ops;
 }
 
+// ─── estimate (G3) ───────────────────────────────────────────────────────────
+
+/**
+ * GitHub writes per op, UPPER bounds (any doubt takes the higher cost). `upsert-issue` is a create plus one
+ * amortised label/milestone ensure; `set-fields` is one write per field in `payload.values` (4 when it cannot tell);
+ * `wiki-push` is git, not the API; `milestone` is a native milestone put (it writes directly, not through the
+ * outbox); `live-create` is a `gh.syncObjective` for an unmapped objective; `unknown` prices every kind not listed
+ * here; `read` is reads per op (informational, never paced). 51-05's calibration test pins this table.
+ */
+const COST = Object.freeze({
+  'upsert-issue': 2,
+  'link-sub-issue': 1,
+  block: 1,
+  'upsert-comment': 1,
+  'patch-issue': 1,
+  'patch-body': 1,
+  'set-fields': 4,
+  'wiki-push': 0,
+  milestone: 2,
+  'live-create': 3,
+  unknown: 2,
+  read: 2,
+});
+
+/** The op kinds the table prices; the pseudo-entries `unknown` and `read` are not kinds. */
+const PRICED = new Set(Object.keys(COST).filter((k) => k !== 'unknown' && k !== 'read'));
+const INVALID_KIND = '(invalid)';
+
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+/** A count from caller input: a positive finite number rounded UP (an upper bound), anything else 0. */
+const count = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.ceil(v) : 0);
+
+/** `{kind, writes, unknown}` of one planned op. */
+function priceOp(op) {
+  if (!isObject(op) || typeof op.kind !== 'string' || op.kind === '') return { kind: INVALID_KIND, writes: COST.unknown, unknown: true };
+  if (op.kind === 'set-fields') {
+    const values = isObject(op.payload) && isObject(op.payload.values) ? Object.keys(op.payload.values).length : 0;
+    return { kind: op.kind, writes: values > 0 ? values : COST['set-fields'], unknown: false };
+  }
+  if (PRICED.has(op.kind)) return { kind: op.kind, writes: COST[op.kind], unknown: false };
+  return { kind: op.kind, writes: COST.unknown, unknown: true };
+}
+
+/**
+ * estimate({ops, live_creates, wiki_pushes, milestones}) — an honest upper bound of what a backfill costs, before
+ * any write. Pure and total: junk input prices as zero, the input is never mutated, it never throws. A bare array
+ * is taken as `ops`.
+ *
+ *   {ops, writes_max, reads_approx, minutes_min, hour_windows, hours_min, by_kind, writes_by_kind,
+ *    live_creates, wiki_pushes, milestones, unknown_kinds}
+ *
+ * Pacing comes from `outbox.BUDGET` (writes per minute and per hour): `minutes_min = ceil(writes / minute)`,
+ * `hour_windows = ceil(writes / hour)`, `hours_min = hour_windows - 1` full hourly waits (never below 0).
+ */
+function estimate(input) {
+  const src = Array.isArray(input) ? { ops: input } : isObject(input) ? input : {};
+  const list = Array.isArray(src.ops) ? src.ops : [];
+  const extras = { 'live-create': count(src.live_creates), 'wiki-push': count(src.wiki_pushes), milestone: count(src.milestones) };
+
+  const byKind = {};
+  const writesByKind = {};
+  const unknown = new Set();
+  const add = (kind, n, writes) => {
+    byKind[kind] = (byKind[kind] || 0) + n;
+    writesByKind[kind] = (writesByKind[kind] || 0) + writes;
+  };
+  for (const op of list) {
+    const p = priceOp(op);
+    if (p.unknown) unknown.add(p.kind);
+    add(p.kind, 1, p.writes);
+  }
+  for (const [kind, n] of Object.entries(extras)) if (n > 0) add(kind, n, n * COST[kind]);
+
+  const ops = Object.values(byKind).reduce((a, b) => a + b, 0);
+  const writesMax = Object.values(writesByKind).reduce((a, b) => a + b, 0);
+  const hourWindows = Math.ceil(writesMax / outbox.BUDGET.hour);
+  return {
+    ops,
+    writes_max: writesMax,
+    reads_approx: ops * COST.read,
+    minutes_min: Math.ceil(writesMax / outbox.BUDGET.minute),
+    hour_windows: hourWindows,
+    hours_min: Math.max(0, hourWindows - 1),
+    by_kind: byKind,
+    writes_by_kind: writesByKind,
+    live_creates: extras['live-create'],
+    wiki_pushes: extras['wiki-push'],
+    milestones: extras.milestone,
+    unknown_kinds: [...unknown].sort(),
+  };
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * renderEstimate(e) — the estimate as one line, e.g.
+ *   `~540 writes (upper bound) in 612 ops; at 80/min and 450/h at least 1 h of hourly-budget waits`
+ * Total: anything that is not an estimate renders as the empty estimate.
+ */
+function renderEstimate(e) {
+  const est = isObject(e) && typeof e.writes_max === 'number' ? e : estimate({});
+  const head = `~${est.writes_max} writes (upper bound) in ${est.ops} ops`;
+  const pace = `at ${outbox.BUDGET.minute}/min and ${outbox.BUDGET.hour}/h`;
+  let tail;
+  if (est.writes_max === 0) tail = 'nothing to pace';
+  else if (est.hours_min > 0) tail = `${pace} at least ${est.hours_min} h of hourly-budget waits`;
+  else tail = `${pace} at least ${est.minutes_min} min, within one hourly budget`;
+  const kinds = Array.isArray(est.unknown_kinds) ? est.unknown_kinds : [];
+  let line = `${head}; ${tail}`;
+  if (kinds.length > 0) {
+    const n = kinds.reduce((a, k) => a + ((est.by_kind && est.by_kind[k]) || 0), 0);
+    line += `; ${plural(n, 'op')} of unknown kind (${kinds.join(', ')}) priced at ${COST.unknown} writes each`;
+  }
+  return line;
+}
+
+// ─── journal helpers (resume detection, G5 budget bookkeeping) ───────────────
+
+/** The journal belongs to the MAIN checkout (D-14): a worktree shares its main checkout's queue. */
+function journalRoot(root) {
+  return planningMode.resolveMainRoot(root) || root;
+}
+
+/**
+ * hasPendingOps(root, opts) — `{pending, blocked, halted, any}` from the outbox journal, without a gh call. `halted`
+ * is 1 when the queue is halted (a stored halt, or a blocked op at its head, as `gh outbox status` reports it) else
+ * 0. A missing journal is all zeros and is not created. `opts` is passed to the outbox (`env`, `home`, `now`).
+ */
+function hasPendingOps(root, opts = {}) {
+  const s = outbox.status(journalRoot(root), opts);
+  const halted = s.halted ? 1 : 0;
+  return { pending: s.pending, blocked: s.blocked, halted, any: s.pending + s.blocked + halted > 0 };
+}
+
+/**
+ * recordLiveWrites(root, n, now, opts) — book `n` GitHub writes made OUTSIDE the outbox (live objective creates,
+ * milestone puts) into the journal's budget window at `now`, so the flusher paces the rest of the backfill around
+ * them (G5). Read, `outbox.recordWrite` x n, `outbox.writeJournal`. `n <= 0` (or not a number) writes nothing.
+ * Call it outside a flush: the flusher holds the journal while it drains.
+ *
+ * @returns {{ok:true, recorded:number, path?:string}}
+ */
+function recordLiveWrites(root, n, now = Date.now(), opts = {}) {
+  const writes = count(n);
+  if (writes === 0) return { ok: true, recorded: 0 };
+  const main = journalRoot(root);
+  const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+  const { journal } = outbox.readJournal(main, { ...opts, now: at });
+  for (let i = 0; i < writes; i++) outbox.recordWrite(journal, at);
+  const file = outbox.writeJournal(main, journal, opts);
+  return { ok: true, recorded: writes, path: file };
+}
+
 module.exports = {
   parseProgress,
   progressStateOf,
   historyOf,
   historyOps,
+  COST,
+  estimate,
+  renderEstimate,
+  hasPendingOps,
+  recordLiveWrites,
 };
