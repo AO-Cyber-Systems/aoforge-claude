@@ -894,3 +894,44 @@ describe('48-13 characterization — local-mode roadmap update-job-progress byte
     assert.equal(rmMask(readRoadmap(project)), rmMask(want));
   });
 });
+
+describe('48-13 store mode — roadmap update-job-progress defers to gh pull --all', () => {
+  const STORE = { github: { enabled: true, store: true, repo: 'o/r' } };
+
+  test('8. no-op: exit 0, message names gh pull --all, ROADMAP.md byte-identical', () => {
+    const project = roadmap7Project(['07-01-alpha', '07-02-beta'], STORE);
+    const r = run(['roadmap', 'update-job-progress', '7'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { updated: false, skipped: 'store-mode', message: ROADMAP_STORE_MESSAGE });
+    assert.match(r.json.message, /gh pull --all/);
+    assert.equal(readRoadmap(project), ROADMAP_7);
+  });
+
+  test('8b. --raw prints `skipped` and still writes nothing', () => {
+    const project = roadmap7Project(['07-01-alpha'], STORE);
+    const r = run(['roadmap', 'update-job-progress', '7', '--raw'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, 'skipped');
+    assert.equal(readRoadmap(project), ROADMAP_7);
+  });
+
+  test('8c. read-only roadmap commands answer exactly as in local mode', () => {
+    const local = roadmap7Project(['07-01-alpha']);
+    const store = roadmap7Project(['07-01-alpha'], STORE);
+    for (const args of [['roadmap', 'get-objective', '7'], ['roadmap', 'analyze']]) {
+      const a = run(args, local);
+      const b = run(args, store);
+      assert.equal(b.status, a.status, `${args.join(' ')}: ${b.stderr}`);
+      assert.equal(b.stdout.split(store).join('<P>'), a.stdout.split(local).join('<P>'), args.join(' '));
+    }
+    assert.equal(readRoadmap(store), ROADMAP_7);
+  });
+
+  test('10. github.enabled without github.store → local write', () => {
+    const project = roadmap7Project(['07-01-alpha'], { github: { enabled: true, repo: 'o/r' } });
+    const r = run(['roadmap', 'update-job-progress', '7'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.updated, true);
+    assert.equal(readRoadmap(project), ROADMAP_7_IN_PROGRESS);
+  });
+});
