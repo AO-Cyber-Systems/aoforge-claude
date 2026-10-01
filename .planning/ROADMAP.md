@@ -216,7 +216,32 @@ TRDs:
 1. No skill/agent/workflow writes planning files directly (CI audit test)
 2. The edit gate denies direct cache edits and names the verb
 3. Plan → execute → verify leaves `git status` clean apart from code
-**Plans:** TBD (run /devflow:plan-objective 48)
+**Plans:** 23 TRDs in 6 waves
+
+TRDs:
+- [ ] 48-01-planning-mode-paths-ledger-TRD.md — (W1, tdd) `planning-mode` (store iff github.enabled && github.store; main-checkout root), `planning-paths` total classifier + verb table + U-1 gitignore lines, `planning-ledger` verb-write ledger
+- [ ] 48-02-entity-issue-contract-TRD.md — (W1, tdd) entity body codec, mapping `entities`, outbox roles todo/debug/quick + ENTITY_ROLES
+- [ ] 48-03-trd-budget-and-bulk-TRD.md — (W1, tdd) `trd-bulk` 40K/60K budget + linked-bulk (8,000-char block, 40% share) warnings; `verify trd-pre` trd_budget; job-checker Dimension 8 (GWP-05)
+- [ ] 48-04-planning-writes-audit-ratchet-TRD.md — (W1, tdd) SC1 audit: planning-write scanner + repo ratchet test with six per-group baselines
+- [ ] 48-05-wiki-pages-and-native-milestones-TRD.md — (W1, tdd) PAGE_TABLE rules for research/, milestones/, objective docs; `gh-milestone-store` native milestones; fake milestone PATCH
+- [ ] 48-06-flusher-entity-roles-TRD.md — (W2, tdd) flusher creates/updates/closes todo, debug (Debug type), quick (Quick type) issues; optional types; decision answer pinned
+- [ ] 48-07-cache-materialize-entities-TRD.md — (W2, tdd) `gh pull --all` rebuilds todos, debug, quick, decisions, generated MILESTONES.md; owned list via classifier
+- [ ] 48-08-edit-gate-cache-deny-TRD.md — (W2, tdd) store-mode gate denies cache/generated edits naming the verb (`plan put-trd`), store off unchanged (SC2)
+- [ ] 48-09-validate-w055-cache-drift-TRD.md — (W2, tdd) `validate health` W055: cache file changed outside a verb (baseline + ledger hashes)
+- [ ] 48-10-store-gitignore-migration-TRD.md — (W2, tdd) confirm migration 0010 (gitignore `.planning/*` except config.json + STACK.md), per-path `commit` filter, doctor check 24
+- [ ] 48-11-core-planning-verbs-TRD.md — (W2, tdd) `writeThrough` + put-trd/push, objective put/set-status, summary post/checkpoint, verification post, doc put, drafts; flush settles ledger
+- [ ] 48-12-entity-verbs-and-import-TRD.md — (W3, tdd) decision open/answer, todo add/complete, debug put/resolve, quick put/summary, milestone put/complete; `planning import`
+- [ ] 48-13-generated-view-writers-store-mode-TRD.md — (W2, tdd) state mutators write state.json only, roadmap writers no-op in store mode
+- [ ] 48-14-cache-writers-store-mode-TRD.md — (W3, tdd) objective add/insert/remove/complete, frontmatter set/merge, template fill, requirements mark-complete in store mode
+- [ ] 48-15-verb-cli-wiring-TRD.md — (W4, tdd) df-tools dispatch + help for every verb; seam guard; verbs-exist audit
+- [ ] 48-16-prose-plan-research-discuss-TRD.md — (W5, tdd) prose group `plan`: planner (put-trd, scope budget), researcher, discuss, discovery
+- [ ] 48-17-prose-execute-TRD.md — (W5, tdd) prose group `execute`: executor summary checkpoint/post, execute flows, transition, build
+- [ ] 48-18-prose-verify-TRD.md — (W5, tdd) prose group `verify`: verifier verification post, UAT, UI eval, design review, security audit
+- [ ] 48-19-prose-bootstrap-milestone-TRD.md — (W5, tdd) prose group `bootstrap`: new-project, roadmapper, researchers, milestones, adopt, add/remove objective
+- [ ] 48-20-prose-todo-decide-debug-quick-TRD.md — (W5, tdd) prose group `work`: todos, decide, debugger, quick, micro
+- [ ] 48-21-prose-codebase-status-misc-TRD.md — (W5, tdd) prose group `misc`: map-codebase, gh-sync, sync-roadmap, status, help, workstreams
+- [ ] 48-22-store-e2e-and-parity-TRD.md — (W5) SC3 plan→execute→verify on the fake GitHub leaves git clean apart from code; store-off parity; W055/offline negatives
+- [ ] 48-23-docs-ratchet-zero-full-suite-TRD.md — (W6, tdd) SC1 audit to zero (baselines deleted), CLAUDE.md, CHANGELOG, USER-GUIDE, proposal status; `npm test` (SC4)
 
 ### Objective 49: Objective branch and PR lifecycle
 
