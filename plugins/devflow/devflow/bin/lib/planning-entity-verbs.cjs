@@ -635,7 +635,46 @@ function milestoneComplete(root, opts = {}) {
   return { ...r, version, milestone: { number: closed.number, title: closed.title, updated: closed.updated === true } };
 }
 
+// ─── Import (planning-import.cjs) ────────────────────────────────────────────
+
+/**
+ * importEntity(root, rel, {dryRun}) — queue an EXISTING store-mode cache entity file (todo, debug, quick JOB or
+ * SUMMARY) as its GitHub home, no flush: the same ops the verbs queue, with the file's own location deciding open or
+ * closed (todos/completed|done, debug/resolved, a quick SUMMARY). The bytes are rewritten unchanged so writeThrough
+ * ledgers them; planning-import flushes once at the end.
+ * -> writeThrough's result + {id, role} | {ok:false, keep:<reason>} when the file cannot be imported.
+ */
+function importEntity(root, rel, opts = {}) {
+  const o = optsOf(opts);
+  const ctx = contextOf(root);
+  if (ctx.error) return fail(ctx.error);
+  const c = planningPaths.classify(rel);
+  const e = c.entity;
+  if (!e) return { ok: false, keep: `no entity id (the stem must be lowercase letters, digits, '.', '_' or '-')` };
+  const text = readOrNull(planningFile(ctx.main, rel));
+  if (text === null) return { ok: false, keep: 'the file vanished' };
+  const name = rel.slice(rel.lastIndexOf('/') + 1);
+  let build;
+  if (e.role === 'todo' || e.role === 'debug') {
+    const stem = name.replace(/\.md$/, '');
+    const title = e.role === 'todo' ? todoTitle(text) || stem : debugTitle(text, stem);
+    build = (m) => [upsertOp(m, { id: e.id, role: e.role, rel, text, title }), ...(e.state === 'closed' ? [closeOp(m, e.id)] : [])];
+  } else if (e.part === 'job') {
+    const dir = rel.split('/')[1];
+    build = (m) => [upsertOp(m, { id: e.id, role: 'quick', rel, text, title: quickTitle(e.id.slice('quick-'.length), dir.replace(/^\d+-/, '')) })];
+  } else {
+    build = (m) => [
+      { kind: 'upsert-comment', target: { id: e.id, kind: 'summary' }, payload: { mode: 'replace', text: ghComments.fileCommentText(name, text) } },
+      closeOp(m, e.id),
+    ];
+  }
+  if (o.dryRun === true) return { ok: true, mode: ctx.mode, rel, id: e.id, role: e.role, dryRun: true, warnings: [], exit: EXIT.OK };
+  const r = verbs.writeThrough(ctx.main, { rel, text, verb: 'planning import', enqueue: enqueueOf(build), noFlush: true });
+  return { ...r, id: e.id, role: e.role };
+}
+
 module.exports = {
+  importEntity,
   entityIdFor,
   todoAdd,
   todoComplete,
