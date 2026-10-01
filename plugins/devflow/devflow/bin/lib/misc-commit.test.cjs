@@ -20,7 +20,7 @@
  * real ~/.claude, the network or any port.
  */
 
-const { describe, test, afterEach } = require('node:test');
+const { describe, test, afterEach, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -82,9 +82,9 @@ function repo({ files = {}, gitignore = null, commitDocs = true } = {}) {
   return { root, home };
 }
 
-function dfCommit({ root, home }, message, files, { raw = false } = {}) {
+function dfCommit({ root, home }, message, files, { raw = false, env = {} } = {}) {
   const args = [TOOLS_PATH, '--cwd', root, 'commit', message, '--files', ...files, ...(raw ? ['--raw'] : [])];
-  const r = spawnSync(process.execPath, args, { cwd: root, env: fx.gitEnv(home), encoding: 'utf-8' });
+  const r = spawnSync(process.execPath, args, { cwd: root, env: { ...fx.gitEnv(home), ...env }, encoding: 'utf-8' });
   const out = (r.stdout || '').trim();
   let json = null;
   try { json = JSON.parse(out); } catch { /* raw or not JSON */ }
@@ -177,7 +177,9 @@ describe('df-tools commit: per-path ignore filter under the U-1 block (tests 5-6
     write(p.root, '.planning/config.json', '{"commit_docs":true,"github":{"enabled":true,"store":true}}\n');
     write(p.root, 'src/a.cjs', 'module.exports = 1;\n');
 
-    const r = dfCommit(p, 'docs: x', [TRD, '.planning/config.json', 'src/a.cjs']);
+    // TRD 50-06: the config.json written above turns store mode on, and this commit lands on the default branch, which the
+    // store-mode gate refuses. The per-path ignore filter is what this test is about, so it takes the logged escape.
+    const r = dfCommit(p, 'docs: x', [TRD, '.planning/config.json', 'src/a.cjs'], { env: { DEVFLOW_SKIP_GH_GATE: '1' } });
     assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
     assert.equal(r.json.committed, true, r.out);
     assert.equal(r.json.reason, 'committed');
@@ -284,6 +286,20 @@ describe('df-tools commit: store-off parity (test 7)', () => {
 describe('49-07 Refs trailer', () => {
   const gm = require('./gh-mapping.cjs');
   const SRC = 'src/keep.cjs';
+
+  // TRD 50-06: these fixtures commit on the default branch, which the store-mode gate refuses. The trailer is what is
+  // under test, so the whole describe runs under the logged escape. An escaped commit has no linked objective, so the
+  // trailer resolves exactly as it did before the gate existed (scope only; no objective fallback). Children inherit
+  // the variable through fx.gitEnv; the linked-branch behaviour is covered in misc-commit-gate.test.cjs.
+  let savedEscape;
+  before(() => {
+    savedEscape = process.env.DEVFLOW_SKIP_GH_GATE;
+    process.env.DEVFLOW_SKIP_GH_GATE = '1';
+  });
+  after(() => {
+    if (savedEscape === undefined) delete process.env.DEVFLOW_SKIP_GH_GATE;
+    else process.env.DEVFLOW_SKIP_GH_GATE = savedEscape;
+  });
 
   function mappingText() {
     const m = gm.emptyMapping();
