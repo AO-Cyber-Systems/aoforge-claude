@@ -365,6 +365,56 @@ describe('enqueue()', () => {
     assert.deepEqual(r.coalesced, []);
   });
 
+  // 47-08: an append-spec-rev op ADDS a row to an append-only log, so "latest payload wins" would silently
+  // lose the earlier row. Two pending appends coalesce only when they are the same row (event + hash).
+  const specRevAppend = (event, hash, at) => op(
+    'upsert-comment',
+    { id: '7-01', kind: 'spec-rev' },
+    { mode: 'append-spec-rev', entry: { at, event, hash: `sha256:${hash.repeat(64)}`, chars: 10 } }
+  );
+
+  test('6f. two pending spec-rev appends with different rows both survive (nothing is overwritten)', () => {
+    const r = outbox.enqueue(root, [
+      specRevAppend('freeze', 'a', '2026-10-01T10:00:00Z'),
+      specRevAppend('scope n=1', 'b', '2026-10-01T10:00:01Z'),
+    ], { now: T0 });
+    assert.deepEqual(r.enqueued, [1, 2]);
+    assert.deepEqual(r.coalesced, []);
+    const j = readRaw();
+    assert.deepEqual(j.ops.map((o) => o.payload.entry.event), ['freeze', 'scope n=1']);
+  });
+
+  test('6g. the same row (event + hash) enqueued again coalesces and keeps the first entry', () => {
+    outbox.enqueue(root, [specRevAppend('freeze', 'a', '2026-10-01T10:00:00Z')], { now: T0 });
+    const r = outbox.enqueue(root, [specRevAppend('freeze', 'a', '2026-10-01T11:00:00Z')], { now: T0 + 1000 });
+    assert.deepEqual(r.enqueued, []);
+    assert.deepEqual(r.coalesced, [1]);
+    const j = readRaw();
+    assert.equal(j.ops.length, 1);
+    assert.equal(j.ops[0].payload.entry.at, '2026-10-01T10:00:00Z', 'the first time the event happened is kept');
+  });
+
+  test('6h. the same event with a different hash is a different row', () => {
+    const r = outbox.enqueue(root, [
+      specRevAppend('freeze', 'a', '2026-10-01T10:00:00Z'),
+      specRevAppend('freeze', 'c', '2026-10-01T10:00:02Z'),
+    ], { now: T0 });
+    assert.deepEqual(r.enqueued, [1, 2]);
+  });
+
+  test('6i. an append never coalesces with a replace on the same target, and replace still does latest-wins', () => {
+    const replace = (text) => op('upsert-comment', { id: '7-01', kind: 'spec-rev' }, { mode: 'replace', text });
+    const r = outbox.enqueue(root, [
+      specRevAppend('freeze', 'a', '2026-10-01T10:00:00Z'),
+      replace('one'),
+      replace('two'),
+    ], { now: T0 });
+    assert.deepEqual(r.enqueued, [1, 2]);
+    assert.deepEqual(r.coalesced, [2]);
+    const j = readRaw();
+    assert.equal(j.ops[1].payload.text, 'two');
+  });
+
   test('7a. github.enabled false: {skipped:true}, nothing is created', () => {
     writeConfig({ github: { enabled: false, repo: 'o/r' } });
     const r = outbox.enqueue(root, [patchBody('07', { a: '1' })], { now: T0 });
