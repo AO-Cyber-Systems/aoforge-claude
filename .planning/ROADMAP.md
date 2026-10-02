@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (KILLED 2026-10-01), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record)
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (KILLED 2026-10-01), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record); gap closure: Objective 43 (SDR-08), Objective 52 (store-mode polish) — audit 2026-10-01 gaps_found
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -132,7 +132,8 @@ TRDs:
 ### Objective 43: Stack drafter rules
 
 **Goal:** Fix the drafter defects objective 42's rollout hand-fixed (aggregate targets, multi-stack roots, manifest-less roots, environment targets, internal Taskfile tasks, wrapped component recipes, commit gitignore check) so re-drafting matches the 11 override files.
-**Requirements:** see `.planning/objectives/43-stack-drafter-rules/OBJECTIVE.md`
+**Requirements:** SDR-08 (confirm each proposed command runs), SDR-03 hardening (`stack verify --run` side-effect safe); defects in `.planning/objectives/43-stack-drafter-rules/OBJECTIVE.md`
+**Gap Closure:** Closes the v1.4 audit gap (`milestones/v1.4-MILESTONE-AUDIT.md`): SDR-08 partial and objective 42's "drafts correct without hand edits" truth
 **Plans:** TBD
 
 ### Objective 45: DevFlow doctor + runtime hygiene
@@ -320,6 +321,14 @@ TRDs:
 - [x] 51-09-gh-sync-store-operator-TRD.md — (W5, tdd) `/devflow:gh-sync` repurposed in place as the store operator (`migrate [--dry-run]`, status, flush, pull, setup, release; mirror mode store-off only); flow/help/README/global template (GMD-03)
 - [x] 51-10-docs-and-full-suite-TRD.md — (W6) USER-GUIDE system-of-record chapter + migration guide, CLAUDE.md slimmed (detail moved to USER-GUIDE), CHANGELOG, proposal refinements; full `npm test` (SC3)
 
+### Objective 52: Store-mode polish
+
+**Goal:** Clear the store-mode rough edges the v1.4 audit logged as tech debt: printed follow-ups and gate messages that the GitHub gates refuse or under-explain, store-mode writers that drift the generated views, and the mirror-mode / `decision answer` gaps from objective 51.
+**Requirements:** none (tech debt; see `.planning/objectives/52-store-mode-polish/OBJECTIVE.md`)
+**Gap Closure:** v1.4 audit tech debt (objectives 48, 50, 51)
+**Depends on:** Objective 51
+**Plans:** TBD
+
 ### Other v1.4 candidates
 
 - **Objective 26: GitHub issue auto-build monitor** — **KILLED 2026-10-01** (user decision, GMD-04; see its OBJECTIVE.md Disposition). Moved out of v1.3 on 2026-09-28 by user decision. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
@@ -360,7 +369,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
-| 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
+| 43. Stack drafter rules | v1.4 | 0/— | Gap closure (v1.4 audit; SDR-08) | — |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Cancelled (killed by user decision 2026-10-01; GMD-04) | 2026-10-01 |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
@@ -369,3 +378,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
 | 50. GitHub enforcement and setup | v1.4 | 13/13 | Complete | 2026-10-01 |
 | 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
+| 52. Store-mode polish | v1.4 | 0/— | Registered (audit tech debt) | — |

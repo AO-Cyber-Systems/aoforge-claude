@@ -4,11 +4,24 @@ kind: plugin
 work: bugfix
 status: registered
 milestone: v1.4
+requirements: [SDR-08, SDR-03]
+gap_closure: v1.4-MILESTONE-AUDIT
 ---
 
 # Objective 43 — Stack drafter rules (follow-up to 42)
 
 Registered 2026-09-29. Objective 42's two gap cycles were exhausted with 11 fleet drafts still wrong; the user chose to hand-fix those rows for the rollout (`42-codebase-aware-stack-drafter/overrides/*.STACK.md` are the expected outputs) and fix the drafter here so future `stack init` / `/devflow:adopt` runs produce them unaided.
+
+## Gap closure (v1.4 audit, 2026-10-01)
+
+Promoted from registered candidate to the v1.4 gap-closure objective by `milestones/v1.4-MILESTONE-AUDIT.md`. It closes:
+
+- **SDR-08** (partial: 3/33 fleet repos ran `stack verify --run`) via defects 8 and 10.
+- **SDR-03 hardening**: `--run` safety must be effect-based, not key-based (defect 8), with a post-run porcelain delta guard inside `runCommands` and a stub-`flutter` regression fixture.
+- Objective 42 truth "real-repo drafts are correct without hand edits" (partial) via defects 1-7.
+- 42 debt: defects 9 and 11.
+
+Re-audit after completion: `/devflow:milestone audit`.
 
 ## Defects (each override file is a golden fixture shape — hand-build fixtures, don't copy repo content)
 
