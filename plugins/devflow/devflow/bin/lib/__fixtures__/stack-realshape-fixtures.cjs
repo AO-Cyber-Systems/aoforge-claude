@@ -556,6 +556,86 @@ function toolDirectPrimaryShape() {
   });
 }
 
+// ─── root image build beside a component build (aodex.build and politihub.build rows, TRD 43-10) ─
+
+/**
+ * imageBuildRootShape() — a `general` root with a Go service in `server/` and a Flutter client in `ui/`
+ * that has its own Dockerfile. The service's Makefile has build and test; its CI runs the Go tools
+ * directly (`go vet`, `go build`, `go test`). The ONLY root-level build evidence is one release
+ * workflow step: a `docker build` of the client image (`--target builder`, build args carrying
+ * `${{ }}` expressions, `-f ./ui/Dockerfile ./ui`). It is unverifiable (a workflow expression), and
+ * it is an image build, which packages what the repository builds and is not the build.
+ *
+ * Per-area counts (runner + CI items, canonical build/test/lint ones): server 5 and 5, ui 2 and 2.
+ * Reviewed: build `make build`, test `make test` and lint `go vet ./...`, all with cwd `server`.
+ */
+function imageBuildRootShape() {
+  return makeWhole({
+    'README.md': '# cardroom\n',
+    'server/go.mod': goMod('cardroom'),
+    'server/main.go': GO_MAIN,
+    'server/cmd/roomd/main.go': GO_MAIN,
+    'server/Makefile': mk([
+      '.PHONY: build test',
+      '',
+      'build: ## Build the server binary',
+      '\tgo build -o bin/roomd ./cmd/roomd',
+      '',
+      'test: ## Run the unit tests',
+      '\tgo test ./...',
+    ]),
+    'ui/pubspec.yaml': flutterPubspec('cardroom_ui'),
+    'ui/lib/main.dart': DART_MAIN,
+    'ui/Dockerfile': 'FROM scratch AS builder\nCOPY . /src\n',
+    '.github/workflows/server.yml': wf([
+      'name: server',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: server',
+      'jobs:',
+      '  checks:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go vet ./...',
+      '      - run: go build ./cmd/roomd',
+      '      - run: go test ./... -count=1',
+    ]),
+    '.github/workflows/ui.yml': wf([
+      'name: ui',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: ui',
+      'jobs:',
+      '  checks:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter test',
+      '      - run: flutter build web --release',
+    ]),
+    '.github/workflows/release-ui.yml': wf([
+      'name: release-ui',
+      'on:',
+      '  push:',
+      '    tags: ["v*"]',
+      'jobs:',
+      '  image:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - id: ref',
+      '        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"',
+      '      - name: Build the client image',
+      '        run: docker build --target builder -t cardroom-ui-builder --build-arg VERSION=${{ steps.ref.outputs.version }} --build-arg COMMIT=${{ github.sha }} -f ./ui/Dockerfile ./ui',
+    ]),
+  });
+}
+
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
 
 const REALSHAPE = Object.freeze({
@@ -588,6 +668,22 @@ const REALSHAPE = Object.freeze({
       },
     },
     absent: ['deps', 'codegen'],
+    extraAllowed: [],
+    noEvidence: [],
+  },
+  imageBuildRootShape: {
+    build: imageBuildRootShape,
+    tools: tools(),
+    expect: {
+      extends: 'general',
+      components: [{ path: 'server/', profile: 'go' }, { path: 'ui/', profile: 'flutter' }],
+      commands: {
+        build: { run: 'make build', cwd: 'server' },
+        test: { run: 'make test', cwd: 'server' },
+        lint: { run: 'go vet ./...', cwd: 'server' },
+      },
+    },
+    absent: [],
     extraAllowed: [],
     noEvidence: [],
   },
@@ -645,4 +741,5 @@ module.exports = {
   workflowEnvChartShape,
   crossStackPrimaryShape,
   toolDirectPrimaryShape,
+  imageBuildRootShape,
 };

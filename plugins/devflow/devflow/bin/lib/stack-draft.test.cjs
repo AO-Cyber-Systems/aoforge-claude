@@ -345,17 +345,20 @@ describe('assembleDraft primary-component placement (43-05, D6)', () => {
     ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
   ];
 
-  test('D17d (test 10): a root-area candidate for a key beats a primary-component candidate for it; the loser is a component note', () => {
+  // TRD 43-10 re-baseline (B2). D17d used to say a root-area candidate beats a primary-component one. The
+  // placement is now tiered by source: a task-runner target of the primary component (tier 2) beats the
+  // other root-area candidates (tier 3: CI, docs, manifest), so the primary's `make test` is the key and
+  // the root CI script is the shadowed note. A key with no root candidate still takes the primary one.
+  test('D17d (test 10, re-baselined by 43-10): the primary component\'s runner target (tier 2) beats a root CI script (tier 3); the loser is a note', () => {
     const evidence = [
       ev('test', './ci/test.sh', { source: 'ci', tool: null, bodyStacks: [], effectiveArea: '' }),
       ev('test', 'make test', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
       ...primaryEvidence(),
     ];
     const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
-    assert.equal(d.commands.test.run, './ci/test.sh', JSON.stringify(d.commands.test));
-    assert.equal('cwd' in d.commands.test, false, 'a root candidate has no cwd');
+    assert.deepStrictEqual(d.commands.test, { run: 'make test', cwd: 'svc' }, JSON.stringify(d.commands.test));
     assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' }, 'a key with no root candidate still takes the primary one');
-    assert.ok(d.notes.some((n) => n.key === 'test' && n.candidate === 'make test' && n.area === 'svc/'), JSON.stringify(d.notes));
+    assert.ok(d.notes.some((n) => n.key === 'test' && n.candidate === './ci/test.sh' && n.status === 'shadowed'), JSON.stringify(d.notes));
   });
 
   test('D17e: a primary candidate keeps its OWN cwd; a recipe that does the cd itself keeps none (just test-go)', () => {
@@ -431,6 +434,104 @@ describe('assembleDraft primary-component placement (43-05, D6)', () => {
     assert.ok(n, JSON.stringify(d.notes));
     assert.equal(n.area, 'app/');
     assert.match(n.detail, /component app\/ uses tier flutter/);
+  });
+});
+
+// TRD 43-10 (B2; eden-biz, aodex and politihub rows). In a `general` root with a primary component a key's
+// candidates are taken by TIER, not "root list else primary list":
+//   (1) recipes of a task-runner file at the repo root, wherever their body runs;
+//   (2) targets of the primary component's own runner file, each keeping its own cwd;
+//   (3) the other root-area candidates (CI, docs, manifest);
+//   (4) the primary component's other candidates.
+// The first tier that supplies the key wins. A tier none of whose candidates verify falls through to the
+// next, and only when every tier is spent does the key end as `discover`.
+describe('assembleDraft tiered root/primary placement (B2, TRD 43-10)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  // Make `svc/` the primary component: it holds the lint and test evidence, `app/` holds none.
+  const primaryEvidence = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', tool: 'go' }),
+  ];
+  const t1 = (extra = {}) => ev('build', 'make build-all', { source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'build', tool: 'go', effectiveArea: '', ...extra });
+  const t2 = (extra = {}) => ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', form: 'build', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/', ...extra });
+  const t3 = (extra = {}) => ev('build', './ci/build.sh', { source: 'ci', form: 'build', tool: null, bodyStacks: [], effectiveArea: '', ...extra });
+  const t4 = (extra = {}) => ev('build', 'go build ./...', { source: 'ci', form: 'build', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/', ...extra });
+  const draft = (evidence, verify = resolvedAll) => assembleDraft({ areas: AREAS, evidence: [...evidence, ...primaryEvidence()], tierCommands: TIERS, verify });
+
+  test('B2a: each tier wins over the next: root runner, primary runner, root CI, primary CI', () => {
+    assert.deepStrictEqual(draft([t4(), t3(), t2(), t1()]).commands.build, { run: 'make build-all' }, 'tier 1: no cwd');
+    assert.deepStrictEqual(draft([t4(), t3(), t2()]).commands.build, { run: 'make build', cwd: 'svc' }, 'tier 2 beats the root CI step');
+    assert.deepStrictEqual(draft([t4(), t3()]).commands.build, { run: './ci/build.sh' }, 'tier 3 beats the primary CI step');
+    assert.deepStrictEqual(draft([t4()]).commands.build, { run: 'go build ./...', cwd: 'svc' }, 'tier 4 alone');
+  });
+
+  test('B2b: a tier none of whose candidates verify falls through to the next; every tier spent ends as discover', () => {
+    const verify = (cmd) => (cmd === 'make build-all' || cmd === './ci/build.sh'
+      ? { status: 'binary_missing', detail: 'stub: not on PATH' }
+      : { status: 'resolved', detail: 'stub' });
+    const d = draft([t1(), t2(), t3()], verify);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' }, JSON.stringify(d.commands.build));
+    assert.ok(d.notes.some((n) => n.candidate === 'make build-all' && n.status === 'binary_missing'), 'the failed tier is noted');
+
+    const none = draft([t1(), t3(), t4()], () => ({ status: 'binary_missing', detail: 'stub' }));
+    assert.deepStrictEqual(none.commands.build, { run: 'discover' }, 'every tier spent with candidates: discover');
+  });
+
+  test('B2c: a tier-2 target keeps its own cwd even when its body leaves the dir (`cd .. && buf generate`)', () => {
+    const generate = ev('codegen', 'make generate', {
+      source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', form: 'mutate', cwd: 'svc', area: 'svc/', tool: 'buf', bodyStacks: ['neutral'], effectiveArea: '',
+    });
+    const rootCi = ev('codegen', 'buf generate', { source: 'ci', form: 'mutate', tool: 'buf', bodyStacks: ['neutral'], effectiveArea: '' });
+    const d = draft([generate, rootCi]);
+    assert.deepStrictEqual(d.commands.codegen, { run: 'make generate', when: 'sources_changed', cwd: 'svc' }, JSON.stringify(d.commands.codegen));
+  });
+
+  test('B2d: a root image build that loses to the primary runner is a shadowed note with an image_build detail (aodex)', () => {
+    const image = ev('build', 'docker build --target builder -t ui-builder --build-arg VERSION=${{ steps.ref.outputs.version }} -f ./ui/Dockerfile ./ui', {
+      source: 'ci', form: 'build', tool: 'docker', bodyStacks: ['docker'], effectiveArea: '',
+    });
+    const d = draft([image, t2()]);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' }, JSON.stringify(d.commands.build));
+    const n = d.notes.find((x) => x.key === 'build' && x.status === 'shadowed');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.match(n.detail, /image_build/);
+    assert.match(n.detail, /make build/);
+  });
+
+  test('B2e: a non-image root candidate that loses is a shadowed note without the image_build detail', () => {
+    const d = draft([t3(), t2()]);
+    const n = d.notes.find((x) => x.candidate === './ci/build.sh');
+    assert.ok(n && n.status === 'shadowed', JSON.stringify(d.notes));
+    assert.doesNotMatch(n.detail, /image_build/);
+  });
+
+  test('B2f: off_primary still applies to tier 1 and tier 3 when a lower tier supplies the key', () => {
+    const flutterBuild = ev('build', 'flutter build web', { source: 'ci', form: 'build', tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: '' });
+    const rootRecipe = ev('build', 'just build-app', { source: 'runner', sourceFile: 'justfile', runner: 'just', form: 'build', tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: 'app/' });
+    const d = draft([flutterBuild, rootRecipe, t2()]);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' });
+    const off = d.notes.filter((n) => n.status === 'off_primary' && n.key === 'build').map((n) => n.candidate).sort();
+    assert.deepStrictEqual(off, ['flutter build web', 'just build-app']);
+  });
+
+  test('B2g: the primary component\'s losing candidates are component notes when a root tier wins (as before)', () => {
+    const d = draft([t1(), t2()]);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build-all' });
+    assert.ok(d.notes.some((n) => n.area === 'svc/' && n.key === 'build' && n.candidate === 'make build'), JSON.stringify(d.notes));
+  });
+
+  test('B2h: a declared row still beats every tier', () => {
+    const declared = ev('build', './scripts/mine.sh', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', form: 'build', tool: null, bodyStacks: [], effectiveArea: '' });
+    assert.deepStrictEqual(draft([t2(), t1(), declared]).commands.build, { run: './scripts/mine.sh' });
+  });
+
+  test('B2i: a general root with no primary component (a root product, no components) is placed as before', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [t3(), t1()], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build-all' }, 'rank by source, as before');
+    assert.ok(!d.notes.some((n) => n.status === 'shadowed'));
   });
 });
 

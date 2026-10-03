@@ -46,15 +46,9 @@ const ACCEPTED = {
 // 43-09 removed devflowops.format, devflowops.tidy, aodex.codegen and aocore.lint_helm (captured and
 // snapshot drift checks, workflow env literals, version probes).
 // 43-10 removed eden-biz.build, eden-biz.test (the primary component is chosen on build/test/lint
-// evidence) and, out of scope but closed by the same rule, politihub.test.
+// evidence), aodex.build (tiered placement) and, out of scope but closed by the same rules, politihub.test
+// and politihub.build.
 const KNOWN_DRIFT = {
-  aodex: [
-    {
-      keys: ['build'],
-      closes: '43-10',
-      reason: 'build: draft `discover` vs committed `make build (cwd go)`',
-    },
-  ],
   aocore: [
     {
       keys: ['lint', 'audit'],
@@ -134,15 +128,6 @@ const KNOWN_DRIFT = {
       reason: 'stale committed file (go root under control-plane/): extends: draft `general` vs committed `go`; '
         + 'components: draft `control-plane/|go` vs committed none; audit, codegen, fix, format: draft `discover`; '
         + 'tidy: draft has none vs committed `go mod tidy -diff (apply: go mod tidy) (cwd control-plane)`',
-    },
-  ],
-  politihub: [
-    {
-      keys: ['build'],
-      closes: 'out-of-scope',
-      reason: 'first evaluated by 43-08 (43-07 skipped it: HEAD moved to 30be797fb85b). '
-        + 'build: draft `discover` vs committed `make build (cwd go)`. Recorded, not targeted; '
-        + '43-10 closed its test row with the build/test/lint primary choice',
     },
   ],
 };
