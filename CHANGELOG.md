@@ -167,6 +167,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   subcommand without saying it is deprecated.
 
 ### Changed
+- **`stack verify --run` is effect-based (objective 43, SDR-03).** A gate was judged safe by its key, yet
+  `flutter analyze` rewrote `analysis_options.yaml` and its implicit `pub get` bumped `pubspec.lock`. Now
+  the work tree is snapshotted before and after each gate and any path the gate changed is restored
+  byte-exact (a pre-existing edit included); after a mutation the remaining Dart/Flutter gates in that
+  root halt; `flutter analyze|test` run with `--no-pub`. New skip reasons: `side-effect-unsafe` (halted),
+  `side-effect-unproven` (no git work tree to observe) and `needs-pub-get` (no
+  `.dart_tool/package_config.json`).
 - **`/devflow:gh-sync` is the GitHub store operator (objective 51).** Its modes are `migrate [--dry-run]`,
   `status`, `flush`, `pull`, `setup [--apply]`, `release <tag>`, and `<objective>|--all` as the store-off
   mirror. `migrate` shows the plan and the request estimate, asks before applying, and shows the branch
@@ -234,6 +241,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   push reports no drift.
 
 ### Fixed
+- **Stack drafter rules (objective 43).** `stack init` re-drafts the eleven fleet shapes hand-fixed in
+  objective 42 with no hand edit, apart from keys only a human names; a golden suite holds them in CI.
+  - D1: a Makefile's own `$(VAR)` / `${VAR}` assignments are expanded, so an aggregate target (`build:
+    frontend backend` running `$(GO) build`) drafts `make build` instead of being dropped as off-stack.
+  - D2/D3/D6: a root with no supported manifest is `extends: general` with every supported sub-area a
+    component. The primary component (a component whose CI runs its task runner first, then the most
+    evidence, go first on a tie) supplies root build/test/lint with its `cwd`; a root that builds itself in
+    a stack of its own has none. Sub-area scripts and non-area working directories are `sub_area` notes.
+  - D4: new key `e2e_env` for a scenario-named environment bring-up (`make e2e-stack-up`); a body-only
+    bring-up is a note. A scenario wrapper keeps its name's key; single-purpose and smoke scripts are never
+    the repo-wide `test`.
+  - D5: Taskfile `internal: true` tasks are `target_missing` in `stack verify` and never proposed.
+  - D7: `df-tools commit --files` reports a gitignored, untracked path under `skipped_ignored` and commits
+    the rest, instead of failing with `commit_failed`.
+  - D9: `stack mcp` keeps the Flutter tools when a pure-Dart component is listed after a Flutter one.
+  - D11: `verify artifacts` parses `must_haves` at the file's own indent (2-space TRDs); `verify
+    key-links` reports a string key_link as `not machine-checkable`, counted under `unchecked`.
+  - Check and apply targets pair up (`lint` / `lint-fix`, `fmt-check: fmt` then `git diff --exit-code`,
+    `openapi-verify` / `openapi-regen`), the target named for a key ranks first for every key, and
+    `shellcheck` is a lint.
 - A successful `planning import` printed `planning import: nothing to do ().` It now prints the counts,
   the estimate, the history line and the will-stay-local table (objective 51).
 - The flow skill's ship-and-release chain called `/devflow:gh-sync sync-release`, a mode that does not
