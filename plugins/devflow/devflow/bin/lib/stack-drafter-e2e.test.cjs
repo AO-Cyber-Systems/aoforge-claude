@@ -445,6 +445,7 @@ describe('stack init gives environment and scenario targets their own key end to
     const { fm, json } = r;
     const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
     assert.equal((fm.commands.e2e_env || {}).run, 'make e2e-stack-up', detail);
+    assert.notEqual((fm.commands.e2e_env || {}).run, 'make infra-up', `a generic compose target must not outrank the scenario-named one: ${detail}`);
     assert.notEqual((fm.commands.e2e || {}).run, 'make e2e-stack-up', detail);
     assert.equal((fm.commands.e2e || {}).run, 'make e2e', detail);
     assert.ok(!allRuns(fm.commands).some((v) => /check-migrations/.test(v)), detail);

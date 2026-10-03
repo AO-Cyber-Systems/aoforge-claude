@@ -777,8 +777,9 @@ function internalTaskShape() {
  * envBringUpShape() — TRD 43-04 D4, an eden-biz-shaped repo (invented `shopsvc`): the Go module lives
  * in `go/`, the root Makefile has a scenario environment bring-up (`e2e-stack-up`, a compose file)
  * beside the real scenario suite (`e2e`), and CI runs a single-purpose check script whose body is not
- * a recognisable test runner. Expected: `e2e_env: make e2e-stack-up`, `e2e: make e2e`, and the check
- * script is a `narrow` note, never the repo-wide `test`.
+ * a recognisable test runner. A generic `infra-up` (compose up, listed FIRST) sits beside it: its body is
+ * a bring-up signal too, but the scenario-named target wins. Expected: `e2e_env: make e2e-stack-up`,
+ * `e2e: make e2e`, and the check script is a `narrow` note, never the repo-wide `test`.
  */
 function envBringUpShape() {
   return makeWhole({
@@ -788,7 +789,10 @@ function envBringUpShape() {
     'go/scripts/check-migrations_test.sh': '#!/bin/sh\nset -eu\ngo run ./cmd/migrate verify --dir ./migrations\n',
     'e2e/compose.yml': 'services:\n  db:\n    image: postgres:16\n    ports:\n      - "8091:5432"\n',
     Makefile: [
-      '.PHONY: e2e-stack-up e2e',
+      '.PHONY: infra-up e2e-stack-up e2e',
+      '',
+      'infra-up:',
+      '\tdocker compose up -d',
       '',
       'e2e-stack-up:',
       '\tdocker compose -f e2e/compose.yml up -d',

@@ -782,3 +782,43 @@ describe('assembleDraft single-purpose scripts are narrow (D33, TRD 43-04)', () 
     assert.equal(d.commands.lint.run, './scripts/check-style.sh');
   });
 });
+
+// TRD 43-04 (D4, spot-check recovery): among e2e_env candidates the one whose NAME carries the
+// scenario and environment tokens (stack-evidence `scenarioNamed`) outranks one that only has a
+// bring-up body, though the body is high confidence and the name is low. (eden-biz: `make e2e-stack-up`
+// over the generic `make infra-up`.)
+describe('assembleDraft e2e_env prefers the scenario-named target (D34, TRD 43-04)', () => {
+  const bodyOnly = () => ev('e2e_env', 'make infra-up', {
+    source: 'runner', sourceFile: 'go/Makefile', runner: 'make', form: 'mutate', tool: 'docker', confidence: 'high',
+    target: { name: 'infra-up', deps: [], isDefault: false, dependedOn: false, order: 0 },
+  });
+  const named = (extra = {}) => ev('e2e_env', 'make e2e-stack-up', {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'check', tool: null, confidence: 'low', scenarioNamed: true,
+    target: { name: 'e2e-stack-up', deps: [], isDefault: false, dependedOn: false, order: 0 }, ...extra,
+  });
+
+  test('D34: a low-confidence scenario-named target beats a high-confidence body-only one, in either evidence order', () => {
+    for (const evidence of [[bodyOnly(), named()], [named(), bodyOnly()]]) {
+      const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+      assert.equal(d.commands.e2e_env.run, 'make e2e-stack-up', JSON.stringify(d.commands));
+    }
+  });
+
+  test('D34b: without the flag the old order stands: confidence decides (the flag is the only new input)', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [named({ scenarioNamed: undefined }), bodyOnly()], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.e2e_env.run, 'make infra-up');
+  });
+
+  test('D34c: source still outranks the flag: a declared body-only candidate beats a named runner target', () => {
+    const declared = ev('e2e_env', 'make infra-up', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', tool: 'docker' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [named(), declared], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.e2e_env.run, 'make infra-up');
+  });
+
+  test('D34d: the flag changes ranking for e2e_env only; a flagged e2e candidate ranks as before', () => {
+    const lowFlagged = ev('e2e', 'make e2e', { source: 'runner', runner: 'make', tool: null, confidence: 'low', scenarioNamed: true });
+    const highPlain = ev('e2e', 'npx playwright test', { source: 'runner', runner: 'make', tool: 'playwright', confidence: 'high' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [lowFlagged, highPlain], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.e2e.run, 'npx playwright test');
+  });
+});

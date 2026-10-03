@@ -892,3 +892,50 @@ describe('stack-evidence name-carried scenario keys (E16, TRD 43-04 tests 6-7)',
     }
   });
 });
+
+// TRD 43-04 (D4, spot-check recovery): an item whose key was carried by a scenario NAME is flagged
+// `scenarioNamed`, so stack-draft can prefer it over a body-only e2e_env. Present only when true.
+describe('stack-evidence scenarioNamed (E17, TRD 43-04)', () => {
+  test('E17: make e2e-stack-up and a docs-e2e.sh wrapper are scenarioNamed; make infra-up (body only) is not', () => {
+    const root = makeRepo({
+      Makefile: [
+        '.PHONY: infra-up e2e-stack-up',
+        'infra-up:',
+        '\tdocker compose up -d',
+        'e2e-stack-up:',
+        '\tbash scripts/e2e-stack-up.sh',
+        '',
+      ].join('\n'),
+      'scripts/e2e-stack-up.sh': '#!/bin/sh\ndocker compose -f e2e/compose.yml up -d\n',
+      'scripts/docs-e2e.sh': '#!/bin/sh\ngo build -o /tmp/x ./cmd/x\n',
+      '.github/workflows/ci.yml': ['jobs:', '  j:', '    steps:', '      - run: ./scripts/docs-e2e.sh'].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      const byCmd = (c) => evidence.find((e) => e.command === c);
+      assert.equal(byCmd('make e2e-stack-up').key, 'e2e_env');
+      assert.equal(byCmd('make e2e-stack-up').scenarioNamed, true);
+      assert.equal(byCmd('make infra-up').key, 'e2e_env');
+      assert.ok(!('scenarioNamed' in byCmd('make infra-up')), 'a body-only bring-up is not named');
+      assert.equal(byCmd('./scripts/docs-e2e.sh').key, 'e2e');
+      assert.equal(byCmd('./scripts/docs-e2e.sh').scenarioNamed, true);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E17b: a plain build target and a neutral script are never scenarioNamed', () => {
+    const root = makeRepo({
+      Makefile: '.PHONY: build\nbuild:\n\tgo build ./...\n',
+      'scripts/run.sh': '#!/bin/sh\ngo build ./...\n',
+      '.github/workflows/ci.yml': ['jobs:', '  j:', '    steps:', '      - run: ./scripts/run.sh', '      - run: make build'].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      assert.ok(evidence.length >= 2);
+      for (const item of evidence) assert.ok(!('scenarioNamed' in item), item.command);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
