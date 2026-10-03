@@ -87,6 +87,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 43]: 43-08: KNOWN_DRIFT is a per-repo list of entries (keys, closes, reason); a committed run none against a draft command is a conflict; table guards run even when the fleet harness is skipped
 - [Objective 43]: 43-09: drift checks are also read from raw recipe text (a captured git diff whose -n/-z test reads the capture, or a mktemp/snapshot diff -q, then a failing exit); a check-suffixed name turns a body-classified writer into its check form; workflow/job/step env literals are substituted into run lines (runtime values never); version probes are never gates; a ; after an unescaped # on a Make rule line is comment text
 - [Objective 43]: 43-10: the primary component is chosen on build/test/lint evidence (a CI step through a runner lifts it only for those keys); a general root's key candidates are tiered (root runner recipes, the primary's runner targets with their own cwd, other root candidates, the primary's other candidates) and an unresolved tier falls through before discover; a root runner recipe running in 2+ areas makes a workspace root with no primary; evidence items carry unitAreas
+- [Objective 43]: 43-11: the mixed-aggregate rule judges single-purpose keys only; build/test/lint entry points and the e2e/e2e_env scenario keys are exempt (narrowed after the literal rule regressed 7 fleet rows)
+- [Objective 43]: 43-11: ao-terminal.deps stays in KNOWN_DRIFT as a flag-only residual (draft npm ci --no-audit --no-fund vs reviewed npm ci), closes 43-15; the drafter never strips flags
 
 ## Performance Metrics
 
@@ -118,4 +120,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 43 P08 | 35min | 2 tasks | 4 files |
 | Objective 43 P09 | 25min | 3 tasks | 11 files |
 | Objective 43 P10 | 21min | 3 tasks | 8 files |
+| Objective 43 P11 | 22min | 2 tasks | 10 files |
 
