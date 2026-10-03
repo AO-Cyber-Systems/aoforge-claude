@@ -145,9 +145,15 @@ function rank(items, key) {
 /**
  * breadthOf(item) -> { breadth: 'broad'|'narrow'|'unknown', reason?, fitsKey?, detail? }. Judged
  * over every invocation the item runs; any broad one makes it broad, else the first narrow one
- * decides; nothing recognisable is `unknown` (treated as broad by the caller).
+ * decides; nothing recognisable is `unknown` (treated as broad by the caller). A single-purpose
+ * script (stack-evidence `singlePurpose`: `check-*`, `verify-*`, `*_test.sh`) is narrow before any
+ * invocation is read, whatever its body looks like (TRD 43-04, D4). The flag is computed in
+ * stack-evidence; this module reads it and never looks at a script name.
  */
 function breadthOf(item) {
+  if (item.singlePurpose === true) {
+    return { breadth: 'narrow', reason: 'single-purpose script', fitsKey: 'test', detail: 'single-purpose script' };
+  }
   const invs = Array.isArray(item.bodyInvocations) && item.bodyInvocations.length
     ? item.bodyInvocations
     : [item.command, item.resolvesTo].filter(Boolean);

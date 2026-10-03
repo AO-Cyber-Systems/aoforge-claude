@@ -740,7 +740,7 @@ describe('assembleDraft root-override policy: neutral generators (TRD 42-15 reco
 // only reads the flag, so it stays pure) is narrow in breadthOf and can never become the repo-wide test.
 describe('assembleDraft single-purpose scripts are narrow (D33, TRD 43-04)', () => {
   const script = (extra = {}) => ev('test', './go/scripts/check-migrations_test.sh', {
-    runner: 'script', tool: null, confidence: 'low', singlePurpose: true, ...extra,
+    runner: 'script', tool: null, confidence: 'low', singlePurpose: true, bodyStacks: ['go'], ...extra,
   });
 
   test('D33: a singlePurpose script never fills test: one narrow note, the parent test is inherited', () => {

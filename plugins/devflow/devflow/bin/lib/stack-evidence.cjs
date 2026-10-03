@@ -32,6 +32,8 @@
 //   effectiveArea  the area the body really runs in: from a `cd x &&`, a Taskfile `dir:`, `make -C`
 //               / `npm --prefix`, a CI working-directory or a script's cwd; else `area`. stack-draft
 //               never places an item whose effectiveArea is an unsupported sub-area at the root.
+//   singlePurpose  true (only then present) when the item runs a script named `check-*`, `verify-*` or
+//               `*_test.sh`: one check, not the repo's suite. stack-draft reads it (TRD 43-04, D4).
 //   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
 //               dependedOn is true when another target in the same file lists it in its deps;
 //               order is its position in that file. stack-draft's canonical ranking reads it.
@@ -48,7 +50,7 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizeScript } = require('./stack-shell.cjs');
-const { classifyInvocation, toolStack } = require('./stack-classify.cjs');
+const { classifyInvocation, classifyHint, toolStack } = require('./stack-classify.cjs');
 const { parseWorkflows } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
@@ -176,6 +178,28 @@ function classifyBody(text, cwd) {
   return { result: null, inv: null, empty: invs.length === 0 };
 }
 
+// Scenario-class keys: a NAME that says one of these keeps it (TRD 43-04, D4). The body of an `e2e`
+// wrapper or an `e2e_env` bring-up starts with whatever it must (`go build`, `docker compose up`),
+// so its first classified line says nothing about what the item is.
+const SCENARIO_KEYS = new Set(['e2e', 'e2e_env']);
+
+/**
+ * keyFromName(name, hit) -> hit with the name's scenario key, or hit unchanged.
+ *
+ * `hit` is a classifyBody result (`{ result, inv }`). When `name` classifies to a scenario-class key
+ * that differs from the body's, the name wins: the item keeps the body's tool and weak markers (for
+ * scope and the drafter's collapse rules) but is low confidence (the key came from a name) and is not
+ * `resolvesTo` the body line it is no longer judged by. A name with no such key, or a body that
+ * already agrees, changes nothing.
+ */
+function keyFromName(name, hit) {
+  const named = name ? classifyHint(name) : null;
+  if (!named || !SCENARIO_KEYS.has(named.key) || named.key === hit.result.key) {
+    return { ...hit.result, resolvesTo: hit.inv.text };
+  }
+  return { key: named.key, form: named.form, tool: hit.result.tool, weak: hit.result.weak, confidence: named.confidence };
+}
+
 /** How a runner target is invoked from ITS OWN directory (`make test`, `pnpm run lint`, `./bin/test.sh`). */
 function localInvocation(t) {
   const q = shq(t.name);
@@ -201,12 +225,14 @@ function hintFor(t) {
  * classifyTarget(target) -> classification | null. The BODY decides the key and form; the target
  * name is a low-confidence tiebreaker only when the body is empty (prerequisites only) or runs
  * nothing the classifier recognises. A body that normalises to nothing (`@echo done`) is not a gate.
+ * One exception (TRD 43-04): a name that carries a scenario-class key (`e2e`, `e2e_env`) keeps it
+ * over the body's first classified line (see keyFromName).
  */
 function classifyTarget(t) {
   const cwd = normDir(t.cwd) || normDir(t.dir);
   const body = Array.isArray(t.body) ? t.body : [];
   const b = classifyBody(body.join('\n'), cwd);
-  if (b.result) return { ...b.result, resolvesTo: b.inv.text };
+  if (b.result) return keyFromName(hintFor(t), b);
   if (body.length && b.empty) return null;
   return classifyInvocation(localInvocation(t), { hint: hintFor(t) });
 }
@@ -277,7 +303,7 @@ function classifyStep(inv, index, projectRoot) {
     if (text !== null) {
       const b = classifyBody(text, normDir(inv.cwd));
       const bodyInvocations = safeNormalize(text, normDir(inv.cwd)).map((i) => i.text);
-      if (b.result) return { cls: { ...b.result, resolvesTo: b.inv.text }, runner: 'script', bodyInvocations };
+      if (b.result) return { cls: keyFromName(hint, b), runner: 'script', bodyInvocations };
       if (b.empty) return { cls: null, runner: 'script' };
     }
     return { cls: classifyInvocation(inv, { hint }), runner: 'script' };
@@ -382,6 +408,20 @@ function scopeOf(units, key, itemArea, areaDirs) {
   if (areas.length === 1) effectiveArea = areas[0];
   else if (areas.length > 1 && !areas.includes(itemArea)) effectiveArea = areas[0];
   return { bodyStacks, bodyScopes, effectiveArea };
+}
+
+// ─── single-purpose scripts (TRD 43-04, D4) ───────────────────────────────────
+
+// `check-migrations.sh`, `verify_schema.sh`, `api_test.sh`: one check, not the repo's suite. A script
+// named exactly `test.sh`, `check.sh` or `run-tests.sh` is the conventional entry point and is not.
+const SINGLE_PURPOSE_RE = /^(?:(?:check|verify)[-_]|.*_test\.sh$)/i;
+
+/** True when `command` directly invokes a script file whose basename is single-purpose. */
+function isSinglePurposeScript(command, cwd) {
+  const first = safeNormalize(command, cwd)[0];
+  if (!first) return false;
+  const d = safeDescribe(first);
+  return d.kind === 'script' && !!d.file && SINGLE_PURPOSE_RE.test(path.posix.basename(String(d.file)));
 }
 
 // ─── readers ──────────────────────────────────────────────────────────────────
@@ -567,6 +607,7 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
     };
     if (raw.resolvesTo) out.resolvesTo = raw.resolvesTo;
     if (raw.target) out.target = raw.target;
+    if (isSinglePurposeScript(raw.command, cwd)) out.singlePurpose = true;
     out.bodyInvocations = Array.isArray(raw.bodyInvocations) && raw.bodyInvocations.length
       ? [...raw.bodyInvocations]
       : [raw.command];

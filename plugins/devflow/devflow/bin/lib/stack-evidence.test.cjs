@@ -859,13 +859,13 @@ describe('stack-evidence name-carried scenario keys (E16, TRD 43-04 tests 6-7)',
   test('E16g: singlePurpose is set for check-*, verify-* and *_test.sh scripts, and for bash <script>', () => {
     const root = makeRepo({
       'scripts/check-migrations_test.sh': '#!/bin/sh\ngo run ./cmd/migrate verify\n',
-      'scripts/verify-schema.sh': '#!/bin/sh\ngo run ./cmd/schema verify\n',
+      'scripts/verify-tests.sh': '#!/bin/sh\ngo run ./cmd/schema verify\n',
       'scripts/api_test.sh': '#!/bin/sh\ngo run ./cmd/apitest\n',
-      '.github/workflows/ci.yml': ciRun('./scripts/check-migrations_test.sh', 'bash scripts/verify-schema.sh', './scripts/api_test.sh'),
+      '.github/workflows/ci.yml': ciRun('./scripts/check-migrations_test.sh', 'bash scripts/verify-tests.sh', './scripts/api_test.sh'),
     });
     try {
       const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
-      for (const cmd of ['./scripts/check-migrations_test.sh', 'bash scripts/verify-schema.sh', './scripts/api_test.sh']) {
+      for (const cmd of ['./scripts/check-migrations_test.sh', 'bash scripts/verify-tests.sh', './scripts/api_test.sh']) {
         const item = evidence.find((e) => e.command === cmd);
         assert.ok(item, `${cmd}: ${JSON.stringify(evidence.map((e) => e.command))}`);
         assert.equal(item.singlePurpose, true, cmd);
