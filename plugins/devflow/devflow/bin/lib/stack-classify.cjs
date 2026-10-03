@@ -984,6 +984,70 @@ function testBreadth(inv) {
   return null;
 }
 
+// ─── Build breadth (TRD 43-13) ────────────────────────────────────────────────
+//
+// The repo-wide `build` builds the module. buildBreadth reads a `go build`'s OWN flags and operands, as
+// testBreadth reads a test runner's:
+//   broad    an operand that is a `...` pattern (`./...`, `./cmd/...`), or no operand and no `-o`
+//   narrow   an explicit package operand (`./cmd/server`, `.`, `main.go`): those packages only; or no
+//            operand with an `-o` output: the one package of its directory, to one binary
+//   unknown  an operand that is a template or variable (`"./cmd/${bin}"`), any other tool, no build at all
+// Flags that change HOW the build runs (`-tags`, `-ldflags`, `-race`, `-trimpath`) never decide breadth.
+
+/** go build flags that take a separate value (`-o X`, `-tags X`), so X is not read as an operand. */
+const GO_BUILD_VALUE_FLAGS = new Set([...GO_SPEC.value, '-pgo']);
+
+/** Why a build invocation is narrow, with the words a note prints. */
+const BUILD_BREADTH_REASONS = Object.freeze({
+  'package-path': 'builds the named packages, not the whole module',
+  'single-output': 'builds one package to an -o output, not the whole module',
+});
+
+/** `{ breadth, reason?, detail?, packages?, tool? }` for the args after `go build`. */
+function judgeGoBuild(args) {
+  let output = false;
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const x = String(args[i]);
+    if (x === '--') continue;
+    if (/^(?:\d*|&)(?:>>?|<)/.test(x)) { // a redirection (`2>&1`, `>/dev/null`, `> out`): never an operand
+      if (/^(?:\d*|&)(?:>>?|<)$/.test(x)) i += 1;
+      continue;
+    }
+    if (x.startsWith('-') && x !== '-') {
+      const eq = x.indexOf('=');
+      const name = GO_SPEC.norm(eq === -1 ? x : x.slice(0, eq));
+      if (name === '-o') output = true;
+      if (eq === -1 && GO_BUILD_VALUE_FLAGS.has(name) && i + 1 < args.length) i += 1;
+      continue;
+    }
+    operands.push(x);
+  }
+  if (operands.some((p) => p.includes('...'))) return { breadth: 'broad', tool: 'go' };
+  if (operands.some((p) => /\{\{|\$/.test(p))) return { breadth: 'unknown', tool: 'go' };
+  const narrow = (reason, packages) => ({
+    breadth: 'narrow', reason, detail: `${reason}: ${BUILD_BREADTH_REASONS[reason]}`, packages, tool: 'go',
+  });
+  if (operands.length) return narrow('package-path', operands);
+  return output ? narrow('single-output', ['.']) : { breadth: 'broad', tool: 'go' };
+}
+
+/**
+ * buildBreadth(inv) -> { breadth: 'broad'|'narrow'|'unknown', reason?, detail?, packages?, tool? }
+ *
+ * `inv` is a normalised invocation (`{ text, argv? }`) or a shell string; the first invocation that runs
+ * `go build` decides. `packages` lists what a narrow build builds (`.` for an operand-less `-o` build), so
+ * the drafter can tell one product binary from several variants. Never null: anything that is not a
+ * `go build` is `{ breadth: 'unknown' }`.
+ */
+function buildBreadth(inv) {
+  for (const c of toInvocations(inv)) {
+    const stage = unwrap(firstStage(c.argv));
+    if (is(stage, 'go', 'build')) return judgeGoBuild(stage.slice(2));
+  }
+  return { breadth: 'unknown' };
+}
+
 // ─── Tool stack (TRD 42-15, D3) ───────────────────────────────────────────────
 //
 // Which language / ecosystem a command's TOOL belongs to, so stack-draft can ask "does this root
@@ -1079,6 +1143,8 @@ module.exports = {
   testBreadth,
   TEST_BREADTH,
   BREADTH_REASONS,
+  buildBreadth,
+  BUILD_BREADTH_REASONS,
   WEAK_MARKERS,
   STANDARD_KEYS_EXT,
   USES_MAP,

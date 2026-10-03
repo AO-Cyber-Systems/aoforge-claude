@@ -1075,6 +1075,9 @@ describe('K31 buildBreadth (TRD 43-13 test 3)', () => {
       ['go build -ldflags "-s -w" -o bin/app ./cmd/app', ['./cmd/app']],
       ['go build -o /tmp/x', ['.']],
       ['go build ./cmd/a ./cmd/b', ['./cmd/a', './cmd/b']],
+      // a redirection is never an operand (found on the fleet in GREEN: `2>&1` was read as a package)
+      ['go build -o /dev/null ./cmd/x 2>&1', ['./cmd/x']],
+      ['go build -o /tmp/x ./cmd/x > build.log', ['./cmd/x']],
     ];
     for (const [inv, packages] of cases) {
       const b = buildBreadth(inv);

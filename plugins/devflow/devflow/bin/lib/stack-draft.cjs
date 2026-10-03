@@ -131,12 +131,25 @@
 // parent test, else `discover`. A chosen test whose breadth cannot be read is kept and noted
 // `breadth-unknown`.
 //
+// Single-binary build variants (TRD 43-13). For `build`, a candidate that is not a task-runner target and
+// not a declared row (a CI line, a script, a docs step) is NARROW when every build invocation it runs (its
+// build-classified `bodyInvocations`, else its command) is narrow by stack-classify.buildBreadth: one
+// package, or one `-o` output. Narrow candidates are variants, not the build, when the tier's candidates build
+// two or more DIFFERENT packages between them, or a broad build stands beside them; each is then a `narrow`
+// note under build. When that leaves no build candidate, the GOVERNING default applies (the wrapper rule's
+// governing tier): the primary component's tier default with its cwd for a primary tier, the inherited
+// extends default at a tier root, and in a `general` root the primary's default with its cwd once no later
+// tier supplies build. An info note tagged `narrow_fallback` names the variants. With no governing default
+// nothing is filtered. Narrowed on the fleet: ONE package that is the only thing the candidates build is the
+// repo's product build and is kept (`go build ./cmd/app` as a tier root's sole CI build). A runner target is
+// the repo's own interface and is never filtered.
+//
 // Command cwd hygiene (TRD 42-14). An item whose `cwdStatus` is ignored / untracked / nested_repo /
 // external is never a candidate: it is a `cwd_<status>` note. A `missing` cwd stays a candidate
 // that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
 // other unresolved candidate. Items without a cwdStatus are treated as ok.
 
-const { classifyInvocation, testBreadth, toolStack, envRole, isDedicatedLinter, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
+const { classifyInvocation, testBreadth, buildBreadth, toolStack, envRole, isDedicatedLinter, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
 const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
@@ -289,6 +302,33 @@ function breadthOf(item) {
   if (judged.some((j) => j.breadth === 'broad')) return { breadth: 'broad' };
   return judged.find((j) => j.breadth === 'narrow') || { breadth: 'unknown' };
 }
+
+/** The build-classified invocations an item runs (its `bodyInvocations`), else its own command (TRD 43-13). */
+function buildInvocationsOf(item) {
+  const body = Array.isArray(item.bodyInvocations) ? item.bodyInvocations : [];
+  const builds = body.filter((b) => (classifyInvocation(b) || {}).key === 'build');
+  return builds.length ? builds : [item.command];
+}
+
+/**
+ * narrowBuildOf(item) -> { packages, detail } when the item is a single-binary build variant candidate: not a
+ * task-runner target, not a declared row, and every build invocation it runs is narrow (buildBreadth). null
+ * otherwise. `packages` are what it builds, each as `<cwd>\0<package>` so `./cmd/x` and `cmd/x` are one.
+ */
+function narrowBuildOf(item) {
+  if (item.source === 'declared' || TASK_RUNNERS.has(item.runner)) return null;
+  const judged = buildInvocationsOf(item).map((inv) => buildBreadth(inv));
+  if (!judged.length || !judged.every((j) => j.breadth === 'narrow')) return null;
+  const pkg = (p) => String(p).replace(/^\.\/+/, '').replace(/\/+$/, '') || '.';
+  const shown = unique(judged.flatMap((j) => j.packages || []));
+  return {
+    packages: unique(shown.map((p) => `${trimDir(item.cwd)}\u0000${pkg(p)}`)),
+    detail: `${judged[0].detail}: ${shown.join(', ')}`,
+  };
+}
+
+/** True when some build invocation the item runs builds the whole module (buildBreadth broad). */
+const broadBuild = (item) => buildInvocationsOf(item).some((inv) => buildBreadth(inv).breadth === 'broad');
 
 /** The candidate IS the tier default: same text, or a runner target whose body is that text. */
 function equivalent(item, parentRun) {
@@ -846,6 +886,56 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       });
     }
 
+    // Single-binary build variants (TRD 43-13): with a governing default to fall back to, a non-runner build
+    // candidate that builds only named packages is a variant when the candidates build two or more different
+    // packages, or a broad build stands beside it. One package that is the only build is the product: kept.
+    // The governing default: the primary tier's for a primary candidate; the root's extends default at a tier
+    // root; in a general root with a primary, the primary's, applied only when no later tier supplies build.
+    let narrowBuilds = [];
+    let narrowFallback = null; // { entry, note } — the governing default, when the variants were all there was
+    const primaryBuild = primary && primaryTier.build && typeof primaryTier.build === 'object' && runnable(primaryTier.build.run) ? primaryTier.build : null;
+    const governing = key !== 'build' ? null
+      : fromPrimary ? (formEntry && runnable(formRun) ? { entry: formEntry, tier: primary.profile, cwd: trimDir(primary.path) } : null)
+        : runnable(parentRun) ? { entry: null, tier: extendsId, cwd: null }
+          : primaryBuild ? { entry: primaryBuild, tier: primary.profile, cwd: trimDir(primary.path), deferred: true } : null;
+    if (governing) {
+      const judged = runCands.map((c) => ({ c, n: narrowBuildOf(c) }));
+      const narrow = judged.filter((j) => j.n);
+      const packages = new Set(narrow.flatMap((j) => j.n.packages));
+      if (narrow.length && (packages.size >= 2 || judged.some((j) => !j.n && broadBuild(j.c)))) {
+        const seen = new Set();
+        for (const { c, n } of narrow) {
+          if (seen.has(c.command)) continue;
+          seen.add(c.command);
+          notes.push(note(c, key, 'narrow', `not the repo-wide build (${n.detail})`));
+        }
+        narrowBuilds = narrow.map((j) => j.c);
+        runCands = runCands.filter((c) => !narrowBuilds.includes(c));
+      }
+    }
+    if (narrowBuilds.length && !runCands.length) {
+      const run = governing.entry ? governing.entry.run : parentRun;
+      const variants = unique(narrowBuilds.map((c) => `\`${c.command}\``)).join(', ');
+      narrowFallback = {
+        entry: governing.entry ? { ...governing.entry, ...(governing.cwd ? { cwd: governing.cwd } : {}) } : null,
+        note: {
+          area: governing.cwd ? `${governing.cwd}/` : '',
+          key,
+          candidate: null,
+          status: 'info',
+          detail: `every build candidate is a single-binary variant (${variants}); build is the ${governing.tier} default \`${run}\`${governing.cwd ? `, run from ${governing.cwd}` : ', inherited'}`,
+          source: null,
+          tag: 'narrow_fallback',
+        },
+      };
+      if (!governing.deferred) {
+        notes.push(narrowFallback.note);
+        return { entry: narrowFallback.entry, supplies: true, via: run, narrowFallback: null };
+      }
+      // A general root: a later tier may still supply build; the per-key loop applies this when none does.
+      return { entry: null, supplies: false, via: null, narrowFallback };
+    }
+
     let chosen = null;
     let chosenAt = -1;
     let inheritedAt = undefined; // null = inherited as-is; a string = inherited but needs that cwd
@@ -1020,6 +1110,13 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     } else {
       const entries = outcomes.map((o) => o.entry).filter(Boolean);
       entry = entries.find((e) => e.run === 'discover') || entries[0] || null;
+      // TRD 43-13: a root tier of a general root held only single-binary build variants and no later tier
+      // supplied build: the primary component's tier default applies, run from its dir.
+      const deferred = entry ? null : outcomes.find((o) => o.narrowFallback);
+      if (deferred) {
+        entry = deferred.narrowFallback.entry;
+        notes.push(deferred.narrowFallback.note);
+      }
     }
     if (entry) commands[key] = entry;
   }
