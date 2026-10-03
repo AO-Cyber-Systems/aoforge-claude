@@ -1052,3 +1052,42 @@ describe('K30 lookupUsesCli and dedicated linters (TRD 43-12 test 4)', () => {
     for (const t of ['go', 'dart', 'flutter', 'cargo', 'govulncheck', 'gofmt', null, '']) assert.equal(isDedicatedLinter(t), false, String(t));
   });
 });
+
+// TRD 43-13 (aocore.build row): buildBreadth judges a `go build` the way testBreadth judges a test. A `./...`
+// pattern operand builds the module (broad), as does a bare `go build` with no `-o`. An explicit package
+// operand, or a single `-o` output with none, builds one binary (narrow). Any other tool is `unknown`.
+describe('K31 buildBreadth (TRD 43-13 test 3)', () => {
+  const buildBreadth = (inv) => (typeof classify.buildBreadth === 'function' ? classify.buildBreadth(inv) : undefined);
+  const breadth = (inv) => (buildBreadth(inv) || {}).breadth;
+
+  test('K31a: a `./...` pattern operand, or no operand and no -o, is broad', () => {
+    for (const inv of ['go build ./...', 'go build', 'go build ./cmd/...', 'go build -v -trimpath ./...', 'GOOS=linux go build ./...',
+      'go build -o bin/ ./...', 'go build ./cmd/a/... ./cmd/b/...']) {
+      assert.equal(breadth(inv), 'broad', inv);
+    }
+  });
+
+  test('K31b: an explicit package operand or a single -o output is narrow, with the packages it builds', () => {
+    const cases = [
+      ['go build ./cmd/x', ['./cmd/x']],
+      ['go build -o /tmp/x ./cmd/x', ['./cmd/x']],
+      ['go build -tags dev -o /tmp/x ./cmd/x', ['./cmd/x']],
+      ['go build -ldflags "-s -w" -o bin/app ./cmd/app', ['./cmd/app']],
+      ['go build -o /tmp/x', ['.']],
+      ['go build ./cmd/a ./cmd/b', ['./cmd/a', './cmd/b']],
+    ];
+    for (const [inv, packages] of cases) {
+      const b = buildBreadth(inv);
+      assert.equal(b && b.breadth, 'narrow', inv);
+      assert.deepStrictEqual(b.packages, packages, inv);
+      assert.ok(typeof b.reason === 'string' && b.reason, `${inv}: a narrow build says why`);
+    }
+  });
+
+  test('K31c: another tool, a non-build go command, a variable operand and junk are unknown', () => {
+    for (const inv of ['flutter build web', 'dart compile exe bin/main.dart', 'go test ./cmd/x', 'go vet ./...', 'make build',
+      'go build -o "out/${bin}" "./cmd/${bin}"', '', null]) {
+      assert.equal(breadth(inv), 'unknown', String(inv));
+    }
+  });
+});

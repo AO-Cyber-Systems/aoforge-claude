@@ -58,13 +58,14 @@ const ACCEPTED = {
 // its body is the tier default), aocore.audit (a script not named for the key that runs the tier
 // default reduces to that default) and aocore.lint (a lint action with a fixed CLI equivalent is a
 // candidate, and a dedicated linter outranks the default within a source).
+// 43-13 removed aocore.build (single-binary CI build variants of several packages are narrow; the tier default
+// applies with the primary component's cwd).
 const KNOWN_DRIFT = {
   aocore: [
     {
-      keys: ['build', 'test'],
+      keys: ['test'],
       closes: '43-13',
-      reason: 'build: draft `go build -tags dev -o /tmp/dev-edge ./cmd/dev-edge (cwd go)` vs committed `go build ./... (cwd go)`; '
-        + 'test: draft `go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out -timeout 35m (cwd go)` '
+      reason: 'test: draft `go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out -timeout 35m (cwd go)` '
         + 'vs committed `go test -short -race ./... -timeout 5m (cwd go)`',
     },
   ],

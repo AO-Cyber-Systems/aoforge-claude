@@ -1866,3 +1866,94 @@ describe('assembleDraft lint prefers a dedicated linter within a source (L1-L5, 
     assert.ok(d.notes.some((x) => x.key === 'lint' && x.candidate === 'go vet ./...' && x.status === 'alternate'), JSON.stringify(d.notes));
   });
 });
+
+// TRD 43-13 (aocore.build row): a build candidate that is NOT a task-runner target (a CI line, a script, a
+// docs step) and whose build invocations are all narrow (stack-classify buildBreadth: one package, or one -o
+// output) is a variant of the build, not the build, when the key's candidates build two or more different
+// packages or a broad build exists beside it. Each such variant is a `narrow` note under build. When that
+// leaves nothing, the governing tier default applies: the primary component's with its cwd in a general
+// root, inherited at a tier root, and a `narrow_fallback` info note names the variants. A runner target is
+// the repo's own interface and is never filtered; a single package that is the only build is kept.
+describe('assembleDraft narrow builds fall back to the tier default (NB1-NB7, TRD 43-13 test 6)', () => {
+  const AREAS = [
+    { dir: 'console/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'go/', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'sandbox/edge/', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'site/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+  ];
+  const inGo = (key, command, extra = {}) => ev(key, command, { cwd: 'go', area: 'go/', tool: 'go', form: key === 'build' ? 'build' : 'check', ...extra });
+  const SCRIPT_BODY = ['docker info >/dev/null 2>&1', 'go build -o /tmp/bin-migrate ./cmd/migrate', 'go build -o /tmp/bin-seed ./cmd/seed', '/tmp/bin-migrate', 'go test "$pkg" -run "$expr" -count=1'];
+  const variants = () => [
+    inGo('build', 'go build -tags dev -o /tmp/api-dev ./cmd/api', { sourceFile: '.github/workflows/e2e.yml' }),
+    inGo('build', './scripts/db-backed-tests.sh', { runner: 'script', invokedName: 'db-backed-tests', resolvesTo: 'go build -o /tmp/bin-migrate ./cmd/migrate', bodyInvocations: SCRIPT_BODY }),
+    inGo('build', 'go build ./cmd/api'),
+  ];
+  const run = (evidence, areas) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('NB1: general root, 4 components: CI variants of several packages give the primary tier default with its cwd', () => {
+    const d = run([inGo('test', 'go test ./...'), ...variants()], AREAS);
+    assert.deepStrictEqual(d.commands.build, { run: 'go build ./...', cwd: 'go' });
+    for (const c of ['go build -tags dev -o /tmp/api-dev ./cmd/api', './scripts/db-backed-tests.sh', 'go build ./cmd/api']) {
+      assert.ok(d.notes.some((x) => x.key === 'build' && x.status === 'narrow' && x.candidate === c), `${c} is a narrow build note: ${JSON.stringify(d.notes)}`);
+    }
+    const fb = d.notes.find((x) => x.tag === 'narrow_fallback');
+    assert.ok(fb, JSON.stringify(d.notes));
+    assert.equal(fb.status, 'info');
+    assert.equal(fb.key, 'build');
+    assert.match(fb.detail, /go build -tags dev -o \/tmp\/api-dev \.\/cmd\/api/);
+    assert.match(fb.detail, /go build \.\/\.\.\./);
+  });
+
+  test('NB2: at a tier root the same variants leave build inherited, with the narrow_fallback note', () => {
+    const atRoot = variants().map((e) => ({ ...e, cwd: null, area: '' }));
+    const d = run(atRoot, ROOT_GO);
+    assert.equal('build' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('build'));
+    assert.ok(d.notes.some((x) => x.tag === 'narrow_fallback' && x.key === 'build'), JSON.stringify(d.notes));
+  });
+
+  test('NB3: a task-runner target is never filtered, even when every build it runs is narrow', () => {
+    const d = run([
+      ev('build', 'make build-all', {
+        source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', form: 'build',
+        resolvesTo: 'go build -o bin/a ./cmd/a', target: { name: 'build-all', deps: [], order: 0, legs: [] },
+        bodyInvocations: ['go build -o bin/a ./cmd/a', 'go build -o bin/b ./cmd/b'],
+      }),
+      ev('build', 'go build -o /tmp/c ./cmd/c', { tool: 'go', form: 'build' }),
+    ], ROOT_GO);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build-all' });
+    assert.equal(d.notes.some((x) => x.tag === 'narrow_fallback'), false, JSON.stringify(d.notes));
+  });
+
+  test('NB4: one package that is the only build is the repo\'s build and is kept', () => {
+    const d = run([ev('build', 'go build ./cmd/app', { tool: 'go', form: 'build' })], ROOT_GO);
+    assert.deepStrictEqual(d.commands.build, { run: 'go build ./cmd/app' });
+    assert.equal(d.notes.some((x) => x.status === 'narrow' && x.key === 'build'), false, JSON.stringify(d.notes));
+  });
+
+  test('NB5: a broad build beside a narrow variant listed first wins; the variant is a narrow note', () => {
+    const d = run([
+      ev('build', 'go build -o /tmp/x ./cmd/x', { tool: 'go', form: 'build' }),
+      ev('build', 'go build -tags extra ./...', { tool: 'go', form: 'build' }),
+    ], ROOT_GO);
+    assert.deepStrictEqual(d.commands.build, { run: 'go build -tags extra ./...' });
+    assert.ok(d.notes.some((x) => x.status === 'narrow' && x.key === 'build' && x.candidate === 'go build -o /tmp/x ./cmd/x'), JSON.stringify(d.notes));
+    assert.equal(d.notes.some((x) => x.tag === 'narrow_fallback'), false);
+  });
+
+  test('NB6: with no build candidate at all nothing changes: no build key, no narrow_fallback note', () => {
+    const d = run([inGo('test', 'go test ./...')], AREAS);
+    assert.equal('build' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal(d.notes.some((x) => x.tag === 'narrow_fallback'), false);
+  });
+
+  test('NB7: a build whose breadth cannot be read (another tool) is never filtered', () => {
+    const areas = [{ dir: '', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }];
+    const d = run([
+      ev('build', 'flutter build web --release', { tool: 'flutter', form: 'build' }),
+      ev('build', 'flutter build apk --debug', { tool: 'flutter', form: 'build' }),
+    ], areas);
+    assert.deepStrictEqual(d.commands.build, { run: 'flutter build web --release' });
+    assert.equal(d.notes.some((x) => x.status === 'narrow' && x.key === 'build'), false);
+  });
+});

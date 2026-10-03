@@ -1305,10 +1305,15 @@ function declaredDefaultTargetShape() {
  *     `working-directory: go` and only-new-issues (`go/.golangci.yml` exists);
  *   - vuln-scan job: `go install …/govulncheck@<v>`, then `run: ../scripts/vuln-gate.sh`, a wrapper whose
  *     body runs `govulncheck ./... > "$OUT" 2>&1` and then applies an allowlist;
- *   - unit-test and build jobs. go-nightly.yml runs variant builds and tests (43-13).
+ *   - unit-test and build jobs; the build job builds one binary (`go build ./cmd/harbor-api`);
+ *   - a db-tests job running `./scripts/db-backed-tests.sh` (in go/), whose body builds two more single
+ *     binaries to /tmp (`cmd/migrate`, `cmd/seed`), probes docker and runs `-run`-scoped tests.
+ * flutter.yml's e2e job (step cwd `go`) builds the api to /tmp to serve the browser tests, and go-nightly.yml
+ * runs a dev-tagged variant build and the heavy coverage lane (43-13). Every CI build is a single binary.
  *
  * Reviewed: lint `golangci-lint run ./...` and audit `govulncheck ./...`, both cwd `go`; codegen the CI
- * generate line. This TRD (43-12) asserts lint and audit; 43-13 adds build and test.
+ * generate line; build the go tier default `go build ./...` (cwd go). 43-12 asserts lint and audit; 43-13
+ * adds build (the single-binary variants are narrow notes) and test.
  */
 function ciVariantComponentShape() {
   const setup = [
@@ -1328,6 +1333,28 @@ function ciVariantComponentShape() {
     'go/go.mod': goMod('harborline'),
     'go/main.go': GO_MAIN,
     'go/cmd/harbor-api/main.go': GO_MAIN,
+    'go/cmd/migrate/main.go': GO_MAIN,
+    'go/cmd/seed/main.go': GO_MAIN,
+    'go/scripts/db-backed-tests.sh': [
+      '#!/usr/bin/env bash',
+      '# Builds the migrate and seed binaries (compiled, so their exit codes survive), migrates and seeds a',
+      '# scratch database, then runs each -run-scoped target and fails on any SKIP.',
+      'set -euo pipefail',
+      'if ! docker info >/dev/null 2>&1; then',
+      '  echo "db-backed-tests: docker is not reachable" >&2',
+      '  exit 2',
+      'fi',
+      'go build -o /tmp/bin-migrate ./cmd/migrate',
+      'go build -o /tmp/bin-seed ./cmd/seed',
+      '/tmp/bin-migrate',
+      '/tmp/bin-seed --tenant demo',
+      'while read -r pkg expr; do',
+      '  go test "$pkg" -run "$expr" -count=1 -v | tee "/tmp/${pkg//\\//_}.log"',
+      '  if grep -q -- "--- SKIP" "/tmp/${pkg//\\//_}.log"; then exit 1; fi',
+      'done < scripts/db-targets.txt',
+      '',
+    ].join('\n'),
+    'go/scripts/db-targets.txt': './internal/store TestStore\n./internal/tenant TestProvision\n',
     'go/internal/spec/spec.go': 'package spec\n\n//go:generate go run ./gen\n',
     'go/.golangci.yml': 'version: "2"\nlinters:\n  default: standard\n',
     'sandbox/edge/go.mod': goMod('harborline-edge'),
@@ -1380,6 +1407,19 @@ function ciVariantComponentShape() {
       '      - uses: subosito/flutter-action@v2',
       '      - run: flutter pub get',
       '      - run: flutter test --platform chrome',
+      '  e2e:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - name: Build and start the api on :4000',
+      '        working-directory: go',
+      '        run: |',
+      '          go build -o /tmp/harbor-api ./cmd/harbor-api',
+      '          /tmp/harbor-api &',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: flutter test integration_test --platform chrome',
     ]),
     '.github/workflows/go-nightly.yml': wf([
       'name: go nightly',
@@ -1434,6 +1474,12 @@ function ciVariantComponentShape() {
       '    steps:',
       ...setup,
       '      - run: go test -short ./... -race -coverprofile=coverage.out -timeout 5m',
+      '  db-tests:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - name: DB-backed tests (migrate, seed, run, zero-skip guard)',
+      '        run: ./scripts/db-backed-tests.sh',
       '  build:',
       '    runs-on: ubuntu-latest',
       '    steps:',
@@ -1455,7 +1501,7 @@ function ciVariantComponentShape() {
       '      - run: flutter pub get',
       '      - run: flutter analyze --fatal-infos',
     ]),
-  }, { modes: { 'scripts/vuln-gate.sh': 0o755 } });
+  }, { modes: { 'scripts/vuln-gate.sh': 0o755, 'go/scripts/db-backed-tests.sh': 0o755 } });
 }
 
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
@@ -1682,15 +1728,18 @@ const REALSHAPE = Object.freeze({
         codegen: { run: 'go generate ./internal/spec/...', cwd: 'go' },
         lint: { run: 'golangci-lint run ./...', cwd: 'go' },
         audit: { run: 'govulncheck ./...', cwd: 'go' },
+        build: { run: 'go build ./...', cwd: 'go' },
       },
     },
     absent: [],
-    // build, test: CI variants (a nightly dev-tagged build, a 35m coverage run), closed by 43-13, which adds
-    // their expectations here.
-    extraAllowed: ['build', 'test'],
+    // test: the heavy coverage lane (a 35m nightly run), closed by 43-13 Task 2, which adds its expectation.
+    extraAllowed: ['test'],
     noEvidence: [],
-    // wrapper: the vuln-gate script; alternate: the `go vet ./...` line the dedicated linter displaces.
-    noteStatuses: { present: ['wrapper', 'alternate'], absent: [] },
+    // wrapper: the vuln-gate script; alternate: the `go vet ./...` line the dedicated linter displaces;
+    // narrow: the single-binary CI builds (and the narrow test lanes).
+    noteStatuses: { present: ['wrapper', 'alternate', 'narrow'], absent: [] },
+    // narrow_fallback: every CI build is a single binary, so build is the go tier default (43-13).
+    noteTags: { present: ['narrow_fallback'], absent: [] },
   },
 });
 
