@@ -1171,10 +1171,13 @@ describe('assembleDraft root product and root-invoked attachable keys (D37, TRD 
     ];
     const evidence = [
       ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
       ev('e2e', './app/scripts/e2e.sh', { runner: 'script', tool: null, confidence: 'low', invokedName: 'e2e', effectiveArea: 'app/', bodyStacks: [] }),
       ev('codegen', 'bash app/build.sh', { form: 'mutate', runner: 'script', tool: null, invokedName: 'build', effectiveArea: 'app/', bodyStacks: [] }),
     ];
     const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.notes.find((n) => n.tag === 'primary_component').area, 'svc/');
     assert.deepStrictEqual(d.commands.e2e, { run: './app/scripts/e2e.sh' }, JSON.stringify(d.commands));
     assert.equal('codegen' in d.commands, false, JSON.stringify(d.commands));
   });

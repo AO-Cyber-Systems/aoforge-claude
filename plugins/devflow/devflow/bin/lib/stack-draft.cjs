@@ -22,7 +22,10 @@
 // Primary component (TRD 43-05, D6). A `general` root with 1+ components picks one primary component
 // (`pickPrimaryComponent`): a component whose CI steps go through its task runner first (TRD 43-06),
 // then the one holding the most runner + CI evidence, ties broken go > flutter > dart > other, then
-// the shallower path, then the lexical one. It is recorded in an info note tagged
+// the shallower path, then the lexical one. A `general` root that builds itself in a stack no component
+// has (a root build that is not only an image build) is a product: its components are sidecars and there
+// is no primary (tag `root_product`, TRD 43-06). A root-invoked attachable key (e2e, lint_helm,
+// lint_docker) is a root candidate wherever its script lives. It is recorded in an info note tagged
 // `primary_component`. A tier root has no primary component and behaves exactly as before.
 //
 // Which items may fill a ROOT key (TRD 42-15, D3; TRD 43-05, D6): items whose body RUNS (stack-evidence
@@ -244,6 +247,15 @@ function scopesOf(item) {
   return stacks.filter(Boolean).map((stack) => ({ stack, area }));
 }
 
+/** The toolStack of container image tools (stack-classify TOOL_STACKS.docker). */
+const IMAGE_STACK = 'docker';
+
+/** True when every stack an item's body runs is the container image stack (`docker build -t x .`). */
+function imageBuildOnly(item) {
+  const stacks = unique(scopesOf(item).map((s) => s.stack));
+  return stacks.length > 0 && stacks.every((s) => s === IMAGE_STACK);
+}
+
 /**
  * Heuristic (user decision 2026-10-02): the primary-component tie-break is go-first. The 5 multi-stack
  * fleet goldens (aocore, aodex, politihub, eden-biz, navigators) all build their product from a Go
@@ -412,7 +424,28 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   // root; from an unsupported sub-area it is now a sub_area note like every other key.)
   // TRD 43-05 (D6): a `general` root with 1+ components has a primary component. Its candidates fill
   // the root keys that no root-area candidate fills. A tier root has none (it behaves as before).
-  const primary = extendsId === 'general' ? pickPrimaryComponent(components, items) : null;
+  // TRD 43-06 (root product): a `general` root that BUILDS ITSELF in a stack of its own — a root-area
+  // build candidate whose body runs no component tier's stack (autotools, a shell script) and is not only
+  // a container image build (an image packages what the repo builds) — is a product. Its components are
+  // sidecars: none is primary, none fills a root key, and the single-component fallback does not apply.
+  // A root build that runs a component's stack (`go build`, `flutter build`) keeps the primary rules.
+  const componentStacks = new Set(components.flatMap((c) => (Object.prototype.hasOwnProperty.call(TIER_STACKS, c.profile) ? TIER_STACKS[c.profile] : [])));
+  const buildsOwnStack = (e) => !imageBuildOnly(e) && !scopesOf(e).some((s) => componentStacks.has(s.stack));
+  const rootProduct = extendsId === 'general' && components.length
+    ? items.find((e) => e.key === 'build' && RUN_FORMS.has(e.form) && effectiveAreaOf(e) === '' && buildsOwnStack(e)) || null
+    : null;
+  const primary = extendsId === 'general' && !rootProduct ? pickPrimaryComponent(components, items) : null;
+  if (rootProduct) {
+    notes.push({
+      area: '',
+      key: null,
+      candidate: rootProduct.command,
+      status: 'info',
+      detail: `the root builds itself (${rootProduct.command}): components ${components.map((c) => c.path).join(', ')} are sidecars, so there is no primary component`,
+      source: rootProduct.source,
+      tag: 'root_product',
+    });
+  }
   if (primary) {
     notes.push({
       area: primary.path,
@@ -442,6 +475,11 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     if (primary && eff === primary.path) {
       seeKey(item.key);
       bucket(primaryByKey, item.key, item.area !== eff ? { ...item, area: eff } : item);
+    } else if (componentDirs.has(eff) && !item.cwd && ATTACHABLE_KEYS.has(item.key)) {
+      // TRD 43-06: a repo-level check run FROM the root (e2e, chart lint, Dockerfile lint) is a root
+      // candidate wherever its script lives (`./wopi-host/scripts/wopi-e2e.sh` exercises the whole repo).
+      seeKey(item.key);
+      bucket(rootByKey, item.key, item);
     } else if (componentDirs.has(eff)) {
       const e = item.area !== eff ? { ...item, area: eff } : item;
       bucket(elsewhere, `${eff}\u0000${e.key}`, e);

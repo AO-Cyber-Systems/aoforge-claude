@@ -39,7 +39,7 @@
 //   scenarioNamed  true (only then present) when the item's key (e2e or e2e_env) was carried by the NAME
 //               of its target or script (`make e2e-stack-up`, `docs-e2e.sh`), not only by its body.
 //               stack-draft ranks a scenario-named e2e_env above a body-only one (TRD 43-04, D4).
-//   singlePurpose  true (only then present) when the item runs a script named `check-*`, `verify-*` or
+//   singlePurpose  true (only then present) when the item runs a script named `check-*`, `verify-*`, `*smoke*` (whole token) or
 //               `*_test.sh`: one check, not the repo's suite. stack-draft reads it (TRD 43-04, D4).
 //   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
 //               dependedOn is true when another target in the same file lists it in its deps;
@@ -504,7 +504,9 @@ function invocationName(command, cwd) {
 
 // `check-migrations.sh`, `verify_schema.sh`, `api_test.sh`: one check, not the repo's suite. A script
 // named exactly `test.sh`, `check.sh` or `run-tests.sh` is the conventional entry point and is not.
-const SINGLE_PURPOSE_RE = /^(?:(?:check|verify)[-_]|.*_test\.sh$)/i;
+// A smoke test (`smoke-test.sh`, `api_smoke.sh`: the whole token `smoke`) quickly checks a built
+// artifact; it is one check too (TRD 43-06).
+const SINGLE_PURPOSE_RE = /^(?:(?:check|verify)[-_]|.*_test\.sh$|(?:.*[-_.])?smoke(?:[-_.]|$))/i;
 
 /** True when `command` directly invokes a script file whose basename is single-purpose. */
 function isSinglePurposeScript(command, cwd) {
