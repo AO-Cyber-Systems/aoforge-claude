@@ -751,3 +751,144 @@ describe('stack-evidence bodyStacks / effectiveArea (E15, TRD 42-15 test 12)', (
     }
   });
 });
+
+// TRD 43-04 (D4): a NAME that carries a scenario-class key (e2e, e2e_env) keeps it, so the first
+// classified line of a wrapper's body cannot re-key it; the body still supplies tool and scope. A
+// neutral name keeps today's body-first-line behaviour. A single-purpose script is flagged for the
+// drafter (`singlePurpose`), which only reads the flag.
+describe('stack-evidence name-carried scenario keys (E16, TRD 43-04 tests 6-7)', () => {
+  const ciRun = (...cmds) => ['jobs:', '  j:', '    steps:', ...cmds.map((c) => `      - run: ${c}`)].join('\n');
+  const BUILD_FIRST = '#!/bin/sh\nset -eu\ngo build -o /tmp/docsvc ./cmd/docsvc\n./scripts/scenario.sh\n';
+
+  function scriptRepo(name, body = BUILD_FIRST) {
+    return makeRepo({
+      [`scripts/${name}`]: body,
+      '.github/workflows/ci.yml': ciRun(`./scripts/${name}`),
+    });
+  }
+
+  test('E16a: a script named docs-e2e.sh with a go build first line is e2e, keeping the body tool and stack', () => {
+    const root = scriptRepo('docs-e2e.sh');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/docs-e2e.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'e2e');
+      assert.equal(item.source, 'ci');
+      assert.equal(item.tool, 'go', 'the body tool is kept for scope');
+      assert.ok(item.bodyStacks.includes('go'), JSON.stringify(item.bodyStacks));
+      assert.equal(item.confidence, 'low', 'the key came from the name');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16b: a script named integration-env-up.sh with a go build first line is e2e_env', () => {
+    const root = scriptRepo('integration-env-up.sh');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/integration-env-up.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'e2e_env');
+      assert.equal(item.tool, 'go');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16c: a neutral name (run.sh) keeps the body first line: go build is build', () => {
+    const root = scriptRepo('run.sh');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/run.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'build');
+      assert.equal(item.confidence, 'high');
+      assert.equal(item.resolvesTo, 'go build -o /tmp/docsvc ./cmd/docsvc');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16d: a body that already agrees with the name is kept as is (high confidence, its own form)', () => {
+    const root = scriptRepo('smoke-e2e.sh', '#!/bin/sh\nset -eu\nnpx playwright test\n');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/smoke-e2e.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'e2e');
+      assert.equal(item.confidence, 'high');
+      assert.equal(item.tool, 'playwright');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16e: runner targets: e2e-stack-up (compose up body) is e2e_env; e2e (playwright) is e2e; a named e2e target keeps e2e over a go test body', () => {
+    const root = makeRepo({
+      Makefile: [
+        '.PHONY: e2e-stack-up e2e test-e2e',
+        'e2e-stack-up:',
+        '\tdocker compose -f e2e/compose.yml up -d',
+        'e2e:',
+        '\tnpx playwright test',
+        'test-e2e:',
+        '\tgo test -tags=e2e ./...',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      const keyOf = (cmd) => (evidence.find((e) => e.command === cmd) || {}).key;
+      assert.equal(keyOf('make e2e-stack-up'), 'e2e_env');
+      assert.equal(keyOf('make e2e'), 'e2e');
+      assert.equal(keyOf('make test-e2e'), 'e2e');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16f: a CI step `docker compose up -d` is e2e_env (body signal), never build or test', () => {
+    const root = makeRepo({ '.github/workflows/ci.yml': ciRun('docker compose -f e2e/compose.yml up -d') });
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' })[0];
+      assert.ok(item);
+      assert.equal(item.key, 'e2e_env');
+      assert.equal(item.form, 'mutate');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16g: singlePurpose is set for check-*, verify-* and *_test.sh scripts, and for bash <script>', () => {
+    const root = makeRepo({
+      'scripts/check-migrations_test.sh': '#!/bin/sh\ngo run ./cmd/migrate verify\n',
+      'scripts/verify-schema.sh': '#!/bin/sh\ngo run ./cmd/schema verify\n',
+      'scripts/api_test.sh': '#!/bin/sh\ngo run ./cmd/apitest\n',
+      '.github/workflows/ci.yml': ciRun('./scripts/check-migrations_test.sh', 'bash scripts/verify-schema.sh', './scripts/api_test.sh'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      for (const cmd of ['./scripts/check-migrations_test.sh', 'bash scripts/verify-schema.sh', './scripts/api_test.sh']) {
+        const item = evidence.find((e) => e.command === cmd);
+        assert.ok(item, `${cmd}: ${JSON.stringify(evidence.map((e) => e.command))}`);
+        assert.equal(item.singlePurpose, true, cmd);
+      }
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16h: test.sh, run-tests.sh, check.sh and a make target named check-x are not singlePurpose', () => {
+    const root = makeRepo({
+      'scripts/test.sh': '#!/bin/sh\ngo test ./...\n',
+      'scripts/run-tests.sh': '#!/bin/sh\ngo test ./...\n',
+      'scripts/check.sh': '#!/bin/sh\ngo vet ./...\n',
+      Makefile: '.PHONY: check-x\ncheck-x:\n\tgo vet ./...\n',
+      '.github/workflows/ci.yml': ciRun('./scripts/test.sh', './scripts/run-tests.sh', './scripts/check.sh', 'make check-x'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      assert.ok(evidence.length >= 4, JSON.stringify(evidence.map((e) => e.command)));
+      for (const item of evidence) assert.ok(!item.singlePurpose, `${item.command} must not be singlePurpose`);
+    } finally {
+      cleanup(root);
+    }
+  });
+});

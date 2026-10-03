@@ -735,3 +735,50 @@ describe('assembleDraft root-override policy: neutral generators (TRD 42-15 reco
     assert.ok(d2.notes.some((n) => n.status === 'off_stack' && n.candidate === 'npm run gen'));
   });
 });
+
+// TRD 43-04 (D4, test 8): a single-purpose script (stack-evidence sets `singlePurpose`; this module
+// only reads the flag, so it stays pure) is narrow in breadthOf and can never become the repo-wide test.
+describe('assembleDraft single-purpose scripts are narrow (D33, TRD 43-04)', () => {
+  const script = (extra = {}) => ev('test', './go/scripts/check-migrations_test.sh', {
+    runner: 'script', tool: null, confidence: 'low', singlePurpose: true, ...extra,
+  });
+
+  test('D33: a singlePurpose script never fills test: one narrow note, the parent test is inherited', () => {
+    const d = assembleDraft({ areas: ROOT_GO, evidence: [script()], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('test'));
+    const n = d.notes.filter((x) => x.status === 'narrow');
+    assert.equal(n.length, 1, JSON.stringify(d.notes));
+    assert.equal(n[0].key, 'test');
+    assert.equal(n[0].candidate, './go/scripts/check-migrations_test.sh');
+    assert.match(n[0].detail, /single-purpose script/);
+  });
+
+  test('D33b: it is narrow even when its body reads as broad, and it beats nothing: a broad CI test is chosen', () => {
+    const evidence = [
+      script({ bodyInvocations: ['go test -race ./...'], confidence: 'high', source: 'runner' }),
+      ev('test', 'go test -count=1 ./...', { tool: 'go' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, 'go test -count=1 ./...');
+    assert.ok(d.notes.some((x) => x.status === 'narrow' && /single-purpose script/.test(x.detail)), JSON.stringify(d.notes));
+  });
+
+  test('D33c: with no parent test the only candidate being narrow gives test: discover and the note', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [script()], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'discover' });
+    assert.ok(d.notes.some((x) => x.status === 'narrow' && x.key === 'test'), JSON.stringify(d.notes));
+  });
+
+  test('D33d: the same script without the flag stays a candidate (no name guessing here: evidence owns the flag)', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [script({ singlePurpose: undefined })], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, './go/scripts/check-migrations_test.sh');
+    assert.ok(!d.notes.some((x) => x.status === 'narrow'));
+  });
+
+  test('D33e: the flag only judges the repo-wide test; another key is untouched', () => {
+    const evidence = [ev('lint', './scripts/check-style.sh', { runner: 'script', tool: null, confidence: 'low', singlePurpose: true })];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.lint.run, './scripts/check-style.sh');
+  });
+});

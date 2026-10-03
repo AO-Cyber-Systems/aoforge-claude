@@ -429,3 +429,44 @@ describe('stack init closes the runner-reader defects end to end (TRD 43-01)', (
     assertNoFragments(fm.commands);
   }));
 });
+
+// ─── TRD 43-04: environment and scenario targets get their own key (D4) ─────────────────────────
+//
+//  20  env bring-up (eden-biz)   `make e2e-stack-up` is e2e_env, never e2e; a single-purpose check
+//                                script is a narrow note, never the repo-wide test
+//  21  scenario wrapper (EdenDocs) a wrapper named *-e2e.sh is e2e, though its first body line is go build
+
+describe('stack init gives environment and scenario targets their own key end to end (TRD 43-04)', () => {
+  const TOOLS = [...fx.DEFAULT_TOOLCHAIN, 'docker', 'npx'];
+
+  test('20: env bring-up — `make e2e-stack-up` is e2e_env; the migrations check script is a narrow note (eden-biz-shaped)', () => withShape(fx.envBringUpShape, (repo) => {
+    const r = stackInit(repo, { tools: TOOLS });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal((fm.commands.e2e_env || {}).run, 'make e2e-stack-up', detail);
+    assert.notEqual((fm.commands.e2e || {}).run, 'make e2e-stack-up', detail);
+    assert.equal((fm.commands.e2e || {}).run, 'make e2e', detail);
+    assert.ok(!allRuns(fm.commands).some((v) => /check-migrations/.test(v)), detail);
+    const n = json.notes.find((x) => x.status === 'narrow' && /check-migrations_test\.sh/.test(String(x.candidate)));
+    assert.ok(n, detail);
+    assert.match(n.detail, /single-purpose script/);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('21: scenario wrapper — `docs-e2e.sh` is e2e, never build, though its first body line is go build (EdenDocs-shaped)', () => withShape(fx.scenarioWrapperShape, (repo) => {
+    const r = stackInit(repo, { tools: TOOLS });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal((fm.commands.e2e || {}).run, './docsvc/scripts/docs-e2e.sh', detail);
+    for (const [key, entry] of Object.entries(fm.commands)) {
+      if (key === 'e2e') continue;
+      assert.ok(!allRuns({ [key]: entry }).some((v) => /docs-e2e/.test(v)), `${key} holds the scenario script: ${detail}`);
+    }
+    assert.ok(!json.notes.some((x) => x.key === 'build' && /docs-e2e/.test(String(x.candidate))), detail);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+});

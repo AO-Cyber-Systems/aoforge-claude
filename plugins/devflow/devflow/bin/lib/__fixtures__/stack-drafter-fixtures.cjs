@@ -773,6 +773,70 @@ function internalTaskShape() {
   });
 }
 
+/**
+ * envBringUpShape() — TRD 43-04 D4, an eden-biz-shaped repo (invented `shopsvc`): the Go module lives
+ * in `go/`, the root Makefile has a scenario environment bring-up (`e2e-stack-up`, a compose file)
+ * beside the real scenario suite (`e2e`), and CI runs a single-purpose check script whose body is not
+ * a recognisable test runner. Expected: `e2e_env: make e2e-stack-up`, `e2e: make e2e`, and the check
+ * script is a `narrow` note, never the repo-wide `test`.
+ */
+function envBringUpShape() {
+  return makeWhole({
+    'go/go.mod': goMod('shopsvc'),
+    'go/main.go': GO_MAIN,
+    'go/cmd/migrate/main.go': GO_MAIN,
+    'go/scripts/check-migrations_test.sh': '#!/bin/sh\nset -eu\ngo run ./cmd/migrate verify --dir ./migrations\n',
+    'e2e/compose.yml': 'services:\n  db:\n    image: postgres:16\n    ports:\n      - "8091:5432"\n',
+    Makefile: [
+      '.PHONY: e2e-stack-up e2e',
+      '',
+      'e2e-stack-up:',
+      '\tdocker compose -f e2e/compose.yml up -d',
+      '',
+      'e2e:',
+      '\tnpx playwright test',
+      '',
+    ].join('\n'),
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [push]',
+      'jobs:',
+      '  migrations:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - name: check migrations',
+      '        run: ./go/scripts/check-migrations_test.sh',
+    ]),
+  }, { modes: { 'go/scripts/check-migrations_test.sh': 0o755 } });
+}
+
+/**
+ * scenarioWrapperShape() — TRD 43-04 D4, an EdenDocs-shaped repo (invented `docsvc`): CI runs a
+ * scenario wrapper script whose first body line is a `go build` and whose next line runs the
+ * scenario. Expected: the script is `e2e`, never `build`; the go tier's build is untouched.
+ */
+function scenarioWrapperShape() {
+  return makeWhole({
+    'docsvc/go.mod': goMod('docsvc'),
+    'docsvc/main.go': GO_MAIN,
+    'docsvc/cmd/docsvc/main.go': GO_MAIN,
+    'docsvc/scripts/docs-e2e.sh': '#!/bin/sh\nset -eu\ngo build -o /tmp/docsvc ./cmd/docsvc\n./scripts/scenario.sh\n',
+    'docsvc/scripts/scenario.sh': '#!/bin/sh\nset -eu\ncurl -fsS http://localhost:8091/healthz\n',
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [push]',
+      'jobs:',
+      '  scenario:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - name: scenario',
+      '        run: ./docsvc/scripts/docs-e2e.sh',
+    ]),
+  }, { modes: { 'docsvc/scripts/docs-e2e.sh': 0o755, 'docsvc/scripts/scenario.sh': 0o755 } });
+}
+
 /** Every e2e shape, by name, for "for each fixture" assertions. */
 const SHAPES = Object.freeze({
   multiAreaCiShape,
@@ -814,6 +878,8 @@ module.exports = {
   trackedPlanningIgnoredShape,
   aggregateMakeShape,
   internalTaskShape,
+  envBringUpShape,
+  scenarioWrapperShape,
   gitOnlyBin,
   hasGit: detectFx.hasGit,
   SHAPES,
