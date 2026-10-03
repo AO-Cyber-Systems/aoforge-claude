@@ -854,3 +854,50 @@ describe('K23 e2e_env: name and body classification (TRD 43-04, tests 3-5)', () 
     assert.ok(keys.lastIndexOf('e2e_env') < keys.indexOf('test'));
   });
 });
+
+// TRD 43-06 (devflowops / aodex goldens): a check or apply SUFFIX in a target name names the form of the
+// key the rest of the name carries, for every key with that form, not only format. `lint-fix` is
+// lint's apply, `tidy-check` tidy's check. A drift check (`git diff --exit-code` / `--quiet`) is what a
+// `<x>-check` target runs after regenerating; stack-evidence reads it through isDriftCheck.
+describe('K25 hint forms from check / apply suffixes; drift checks (TRD 43-06)', () => {
+  const { classifyHint, isDriftCheck } = require('./stack-classify.cjs');
+  const pick = (r) => (r ? { key: r.key, form: r.form } : null);
+
+  test('K25a: `<key>-fix` (any separator) is the apply form of lint, format and tidy', () => {
+    for (const name of ['lint-fix', 'lint:fix', 'lint_fix', 'fix-lint']) {
+      assert.deepEqual(pick(classifyHint(name)), { key: 'lint', form: 'apply' }, name);
+    }
+    assert.deepEqual(pick(classifyHint('fmt-fix')), { key: 'format', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('tidy-fix')), { key: 'tidy', form: 'apply' });
+  });
+
+  test('K25b: `<key>-check` / `-verify` / `-diff` is the check form of format, tidy, codegen and fix', () => {
+    assert.deepEqual(pick(classifyHint('tidy-check')), { key: 'tidy', form: 'check' });
+    assert.deepEqual(pick(classifyHint('generate-check')), { key: 'codegen', form: 'check' });
+    assert.deepEqual(pick(classifyHint('codegen:verify')), { key: 'codegen', form: 'check' });
+    assert.deepEqual(pick(classifyHint('fmt-check')), { key: 'format', form: 'check' });
+    assert.deepEqual(pick(classifyHint('format-diff')), { key: 'format', form: 'check' });
+    assert.deepEqual(pick(classifyHint('fix-check')), { key: 'fix', form: 'check' });
+  });
+
+  test('K25c: without a suffix the conservative forms stand; a suffix never changes the key', () => {
+    assert.deepEqual(pick(classifyHint('fmt')), { key: 'format', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('tidy')), { key: 'tidy', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('generate')), { key: 'codegen', form: 'mutate' });
+    assert.deepEqual(pick(classifyHint('fix')), { key: 'fix', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('lint')), { key: 'lint', form: 'check' });
+    assert.deepEqual(pick(classifyHint('build-check')), { key: 'build', form: 'build' }, 'build has no check form');
+    assert.deepEqual(pick(classifyHint('test-fix')), { key: 'test', form: 'check' }, 'test has no apply form');
+    assert.equal(classifyHint('check'), null);
+    assert.equal(classifyHint('verify'), null);
+  });
+
+  test('K25d: isDriftCheck is `git diff` with --exit-code or --quiet, nothing else', () => {
+    for (const cmd of ['git diff --exit-code', 'git diff --exit-code -- go.mod go.sum', 'git diff --quiet', 'git --no-pager diff --exit-code']) {
+      assert.equal(isDriftCheck(cmd), true, cmd);
+    }
+    for (const cmd of ['git diff', 'git diff --stat', 'git status --porcelain', 'go test ./...', 'diff -u a b', '']) {
+      assert.equal(isDriftCheck(cmd), false, cmd);
+    }
+  });
+});

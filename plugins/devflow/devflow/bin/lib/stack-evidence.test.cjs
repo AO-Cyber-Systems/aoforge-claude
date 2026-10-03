@@ -1074,3 +1074,84 @@ describe('stack-evidence pseudo-area and script-dir area (E18, TRD 43-05 tests 1
     }
   });
 });
+
+// TRD 43-06 (devflowops / aodex goldens): check / apply target pairs.
+// - E19a a target whose recipe is a drift check (`git diff --exit-code`) after a prerequisite that
+//   WRITES key K (fmt, tidy, a generator) is K's check form, high confidence: `fmt-check: fmt`,
+//   `tidy-check: tidy`, `openapi-verify: openapi-regen`. Also a body that regenerates then diffs.
+// - E19b a target's prerequisites run before its recipe, so they are part of its units: the check
+//   target's stack is the prerequisite's (gofmt at the root), not unknown.
+// - E19c a prerequisites-only `lint-fix` is lint's apply form (its name says so).
+describe('check / apply target pairs (E19, TRD 43-06)', () => {
+  const MAKEFILE = [
+    'fmt:',
+    '\tgofmt -w .',
+    '',
+    'fmt-check: fmt',
+    '\tgit diff --exit-code',
+    '',
+    'tidy:',
+    '\tgo mod tidy',
+    '',
+    'tidy-check: tidy',
+    '\tgit diff --exit-code go.mod go.sum',
+    '',
+    'openapi-regen:',
+    '\tgo generate ./api/...',
+    '',
+    'openapi-verify: openapi-regen',
+    '\tgit diff --exit-code -- api/',
+    '',
+    'proto-check:',
+    '\tbuf generate',
+    '\tgit diff --quiet',
+    '',
+    'lint-fix: lint-go-fix',
+    '',
+    'lint-go-fix:',
+    '\tgolangci-lint run --fix',
+    '',
+    'notes:',
+    '\tgit diff --exit-code',
+    '',
+  ].join('\n');
+
+  function items() {
+    const root = makeRepo({ 'go.mod': 'module example.invalid/pairs\n\ngo 1.23\n', Makefile: MAKEFILE });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd) => list.find((e) => e.command === cmd) || null;
+
+  test('E19a: a drift check after a writing prerequisite is that key\'s check form, high confidence', () => {
+    const list = items();
+    const want = { 'make fmt-check': 'format', 'make tidy-check': 'tidy', 'make openapi-verify': 'codegen', 'make proto-check': 'codegen' };
+    for (const [cmd, key] of Object.entries(want)) {
+      const it = byCmd(list, cmd);
+      assert.ok(it, `${cmd} is evidence`);
+      assert.equal(it.key, key, cmd);
+      assert.equal(it.form, 'check', cmd);
+      assert.equal(it.confidence, 'high', cmd);
+    }
+    assert.equal(byCmd(list, 'make notes'), null, 'a bare drift check with no writer is not evidence');
+    assert.equal(byCmd(list, 'make openapi-regen').form, 'mutate', 'the generator itself keeps its form');
+  });
+
+  test('E19b: the prerequisite is part of the check target\'s units: its stack runs at the root', () => {
+    const list = items();
+    for (const cmd of ['make fmt-check', 'make tidy-check', 'make openapi-verify']) {
+      const it = byCmd(list, cmd);
+      assert.ok(it.bodyScopes.some((s) => s.stack === 'go' && s.area === ''), `${cmd}: ${JSON.stringify(it.bodyScopes)}`);
+    }
+  });
+
+  test('E19c: a prerequisites-only `lint-fix` is lint apply', () => {
+    const it = byCmd(items(), 'make lint-fix');
+    assert.ok(it);
+    assert.equal(it.key, 'lint');
+    assert.equal(it.form, 'apply');
+  });
+});
