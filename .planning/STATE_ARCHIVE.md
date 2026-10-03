@@ -106,4 +106,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 39-telemetry-audit-cli P39-02 | ~35min | 2 tasks | 3 files |
 | Objective 39-telemetry-audit-cli P39-04 | 30min | 2 tasks | 2 files |
 | Objective 45 P09 | 10min | 3 tasks | 7 files |
+| Objective 43 P05 | 18min | 3 tasks | 7 files |
 
