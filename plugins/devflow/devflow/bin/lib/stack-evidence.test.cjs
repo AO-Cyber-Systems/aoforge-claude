@@ -1396,3 +1396,125 @@ describe('stack-evidence unitAreas (E19, TRD 43-10 test 8)', () => {
     }
   });
 });
+
+// ─── TRD 43-11 test 6: unitKeys and target legs ───────────────────────────────────────────────────────
+//
+// unitKeys are the distinct keys an item's units classify to, over ALL its units: recipe lines, prerequisite
+// targets (transitively), called targets and internal tasks; an unclassified unit (`buf lint`) adds nothing.
+// A runner item's `target.legs` are the targets it runs directly: its prerequisites and the targets its recipe
+// calls, in the same runner file. stack-draft reads both (a mixed aggregate; a partial drift check).
+
+describe('stack-evidence unitKeys and legs (E23, TRD 43-11 test 6)', () => {
+  const MAKEFILE = [
+    'proto:',
+    '\tbuf lint',
+    '\tbuf generate',
+    '',
+    'sqlc:',
+    '\tsqlc generate',
+    '',
+    'gen-sdk: proto',
+    '\t@cd /opt/example/sdk-dart && dart pub get >/dev/null',
+    '\t@cd /opt/example/sdk-dart && dart analyze',
+    '',
+    'generate: proto sqlc gen-sdk',
+    '',
+    'acceptance:',
+    '\tmake gen-sdk',
+    '\tgo test ./...',
+    '',
+    'build: plugins',
+    '',
+  ].join('\n');
+  const TASKFILE = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  npm:install:',
+    '    internal: true',
+    '    cmd: npm install',
+    '',
+    '  go:mod:tidy:',
+    '    internal: true',
+    '    cmd: go mod tidy',
+    '',
+    '  init:',
+    '    cmds:',
+    '      - task: npm:install',
+    '      - task: go:mod:tidy',
+    '',
+  ].join('\n');
+  const WORKFLOW = [
+    'name: ci',
+    'on: [push]',
+    'jobs:',
+    '  gen:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: sqlc generate',
+    '',
+  ].join('\n');
+  function items() {
+    const root = makeRepo({
+      'go.mod': 'module example.invalid/unitkeys\n\ngo 1.23\n',
+      Makefile: MAKEFILE,
+      'Taskfile.yml': TASKFILE,
+      '.github/workflows/ci.yml': WORKFLOW,
+    });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd, source) => list.find((e) => e.command === cmd && (!source || e.source === source)) || null;
+
+  test('E23a: a prerequisite-only aggregate takes the keys of every leg, transitively, in first-seen order', () => {
+    const generate = byCmd(items(), 'make generate');
+    assert.ok(generate, 'make generate is evidence');
+    assert.deepStrictEqual(generate.unitKeys, ['codegen', 'deps', 'lint']);
+    assert.deepStrictEqual(generate.target.legs, ['proto', 'sqlc', 'gen-sdk']);
+  });
+
+  test('E23b: an unclassified recipe line adds no key; a prerequisite is a leg', () => {
+    const list = items();
+    const proto = byCmd(list, 'make proto');
+    assert.deepStrictEqual(proto.unitKeys, ['codegen'], '`buf lint` classifies to nothing');
+    assert.deepStrictEqual(proto.target.legs, []);
+    const sdk = byCmd(list, 'make gen-sdk');
+    assert.deepStrictEqual(sdk.unitKeys, ['codegen', 'deps', 'lint'], 'its prerequisite runs first');
+    assert.deepStrictEqual(sdk.target.legs, ['proto']);
+  });
+
+  test('E23c: a called target is a leg, and its units are the caller\'s', () => {
+    const acceptance = byCmd(items(), 'make acceptance');
+    assert.ok(acceptance, 'make acceptance is evidence');
+    assert.deepStrictEqual(acceptance.target.legs, ['gen-sdk']);
+    assert.deepStrictEqual(acceptance.unitKeys, ['codegen', 'deps', 'lint', 'test']);
+  });
+
+  test('E23d: a task calling internal tasks takes their keys, and they are its legs', () => {
+    const init = byCmd(items(), 'task init');
+    assert.ok(init, 'task init is evidence');
+    assert.deepStrictEqual(init.unitKeys, ['deps', 'tidy']);
+    assert.deepStrictEqual(init.target.legs, ['npm:install', 'go:mod:tidy']);
+  });
+
+  test('E23e: an item with no units has no key; a raw CI line has its own', () => {
+    const list = items();
+    const build = byCmd(list, 'make build');
+    assert.ok(build, 'make build is evidence (by its name)');
+    assert.deepStrictEqual(build.unitKeys, []);
+    assert.deepStrictEqual(build.target.legs, [], 'a prerequisite that is no target is no leg');
+    const ci = byCmd(list, 'sqlc generate', 'ci');
+    assert.deepStrictEqual(ci.unitKeys, ['codegen']);
+  });
+
+  test('E23f: every item carries unitKeys as a list of strings', () => {
+    for (const item of items()) {
+      assert.ok(Array.isArray(item.unitKeys), JSON.stringify(item.command));
+      assert.ok(item.unitKeys.every((k) => typeof k === 'string' && k));
+    }
+  });
+});

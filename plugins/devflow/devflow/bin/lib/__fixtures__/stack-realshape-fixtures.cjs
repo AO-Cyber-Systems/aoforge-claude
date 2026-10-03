@@ -23,6 +23,7 @@
 //   extraAllowed  keys whose conflict or more_specific row is tolerated (each with its reason inline)
 //   noEvidence    commands that must not appear as any evidence item (any key)
 //   noteTags      optional { present, absent }: note `tag`s the draft must (not) carry (TRD 43-10)
+//   noteStatuses  optional { present, absent }: note `status`es the draft must (not) carry (TRD 43-11)
 //
 // Makefile recipe lines need a literal tab, hence `\t`.
 
@@ -789,6 +790,201 @@ function workspaceRunnerShape() {
   });
 }
 
+// ─── mixed codegen aggregate (justinforme.codegen and smartWellness.codegen rows) ────
+
+/**
+ * mixedAggregateCodegenShape() — a Go root whose Makefile's FIRST target (the default goal) is the proto
+ * generator `proto:` (`buf lint`, then `buf generate`); then `sqlc:`; then `gen-sdk: proto`, which proves a
+ * client SDK in a sibling checkout OUTSIDE the repo compiles (two `@cd /abs/path && dart …` lines: `dart pub
+ * get`, `dart analyze`); then the aggregate `generate: proto sqlc gen-sdk`. An acceptance target re-runs
+ * `$(MAKE) gen-sdk`, greps, and runs the client suites. CI runs `sqlc generate` and `buf generate` raw and
+ * prints "run 'make generate'" when the tree moved. A Flutter client is a component.
+ *
+ * Competing codegen candidates: `make generate` (named for the key, but it also pulls deps and lint through
+ * gen-sdk), `make proto`, `make sqlc`, the two CI lines. deps: `make gen-sdk` and the acceptance target, both
+ * mixed, neither pure. Reviewed: codegen `make proto`, deps `make gen-sdk`, build and test the Makefile's.
+ */
+function mixedAggregateCodegenShape() {
+  return makeWhole({
+    'go.mod': goMod('ballotdesk'),
+    'main.go': GO_MAIN,
+    'cmd/api/main.go': GO_MAIN,
+    'proto/ballot/v1/ballot.proto': 'syntax = "proto3";\npackage ballot.v1;\n',
+    'buf.yaml': 'version: v2\nmodules:\n  - path: proto\n',
+    'buf.gen.yaml': 'version: v2\nplugins: []\n',
+    'sqlc.yaml': 'version: "2"\nsql: []\n',
+    'clients/desk/pubspec.yaml': flutterPubspec('desk_app'),
+    'clients/desk/lib/main.dart': DART_MAIN,
+    Makefile: mk([
+      '.PHONY: proto sqlc generate gen-sdk build test lint acceptance',
+      '',
+      '# ── Code generation ──────────────────────────────',
+      '',
+      'proto:',
+      '\tbuf lint',
+      '\tbuf generate',
+      '',
+      'sqlc:',
+      '\tsqlc generate',
+      '',
+      '## gen-sdk: regenerate the Dart client SDK (it lives in a sibling checkout), then prove it compiles.',
+      'gen-sdk: proto',
+      '\t@echo "==> checking the client SDK after codegen"',
+      '\t@cd /srv/checkouts/ballotdesk-sdk-dart && dart pub get >/dev/null',
+      '\t@cd /srv/checkouts/ballotdesk-sdk-dart && dart analyze',
+      '\t@echo "PASS: client SDK regenerated and clean"',
+      '',
+      'generate: proto sqlc gen-sdk',
+      '',
+      '# ── Build, test, lint ────────────────────────────',
+      '',
+      'build:',
+      '\tgo build -o bin/api ./cmd/api',
+      '',
+      'test:',
+      '\tgo test ./...',
+      '',
+      'lint:',
+      '\tgo vet ./...',
+      '\tbuf lint',
+      '',
+      '## acceptance: regenerate, then run every client suite',
+      'acceptance:',
+      '\t@$(MAKE) gen-sdk',
+      '\t@count=$$(grep -r "TODO(sdk)" /srv/checkouts/ballotdesk/clients/desk/lib | wc -l | tr -d " "); \\',
+      '\t  if [ "$$count" -ne 0 ]; then echo "FAIL: $$count markers"; exit 1; fi',
+      '\t@cd /srv/checkouts/ballotdesk/clients/desk && flutter pub get >/dev/null && flutter analyze && flutter test',
+      '\t@cd /srv/checkouts/ballotdesk-sdk-dart && dart pub get >/dev/null && dart test',
+    ]),
+    '.github/workflows/ci.yml': wf([
+      'name: CI',
+      'on: [pull_request]',
+      'jobs:',
+      '  verify-generation:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - name: Install generators',
+      '        run: |',
+      '          go install example.invalid/sqlc/cmd/sqlc@latest',
+      '          go install example.invalid/buf/cmd/buf@latest',
+      '      - name: sqlc',
+      '        run: sqlc generate',
+      '      - name: buf',
+      '        run: buf generate',
+      '      - name: No drift',
+      '        run: |',
+      '          if [ -n "$(git status --porcelain)" ]; then',
+      '            echo "generated code is stale: run \'make generate\' and commit"',
+      '            exit 1',
+      '          fi',
+      '  unit:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go test -v ./...',
+    ]),
+  });
+}
+
+// ─── bootstrap task (ao-terminal.deps row) ────────────────────────────────────
+
+/**
+ * bootstrapTaskShape() — a Go root with a root package.json and a docs site (node, unsupported). The
+ * Taskfile's `init:` is a one-shot developer bootstrap whose cmds run `npm install`, `go mod tidy`, then
+ * `cd docs && npm install`. Internal tasks `npm:install` and `go:mod:tidy` (`internal: true`) are the
+ * prerequisites of the public build and typecheck tasks. CI installs with `npm ci --no-audit --no-fund` in a
+ * step named for the lockfile, and a setup workflow runs `go mod download`.
+ *
+ * Competing deps candidates: `task init` (it also tidies), the CI `npm ci …` and `go mod download` lines.
+ * Reviewed: deps = the CI install line; the drafter keeps it VERBATIM (no flag is ever stripped).
+ */
+function bootstrapTaskShape() {
+  return makeWhole({
+    'go.mod': goMod('panelterm'),
+    'main.go': GO_MAIN,
+    'cmd/server/main.go': GO_MAIN,
+    'package.json': `${JSON.stringify({ name: 'panelterm', private: true, devDependencies: { typescript: '^5.6.0' } }, null, 2)}\n`,
+    'package-lock.json': `${JSON.stringify({ name: 'panelterm', lockfileVersion: 3, packages: {} }, null, 2)}\n`,
+    'docs/package.json': `${JSON.stringify({ name: 'panelterm-docs', private: true, scripts: { build: 'docusaurus build' } }, null, 2)}\n`,
+    'Taskfile.yml': mk([
+      "version: '3'",
+      '',
+      'tasks:',
+      '  build:backend:',
+      '    desc: Build the server binary.',
+      '    cmds:',
+      '      - task: build:server',
+      '',
+      '  build:server:',
+      '    desc: Build the server for this platform.',
+      '    cmds:',
+      '      - task: build:server:internal',
+      '    deps:',
+      '      - go:mod:tidy',
+      '',
+      '  build:server:internal:',
+      '    internal: true',
+      '    cmd: go build -o dist/bin/panelterm ./cmd/server',
+      '',
+      '  check:ts:',
+      '    desc: Typecheck the TypeScript code.',
+      '    cmd: npx tsc --noEmit',
+      '    deps:',
+      '      - npm:install',
+      '',
+      '  init:',
+      '    desc: Initialize the project for development.',
+      '    cmds:',
+      '      - npm install',
+      '      - go mod tidy',
+      '      - cd docs && npm install',
+      '',
+      '  npm:install:',
+      '    desc: Runs `npm install`',
+      '    internal: true',
+      '    sources:',
+      '      - package-lock.json',
+      '      - package.json',
+      '    cmd: npm install',
+      '',
+      '  go:mod:tidy:',
+      '    desc: Runs `go mod tidy`',
+      '    internal: true',
+      '    sources:',
+      '      - go.mod',
+      '    cmd: go mod tidy',
+    ]),
+    '.github/workflows/build.yml': wf([
+      'name: build',
+      'on: [pull_request]',
+      'jobs:',
+      '  build:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-node@v4',
+      '      - name: npm ci (locked)',
+      '        run: npm ci --no-audit --no-fund',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go test ./...',
+    ]),
+    '.github/workflows/setup-steps.yml': wf([
+      'name: setup steps',
+      'on: [workflow_dispatch]',
+      'jobs:',
+      '  setup:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go mod download',
+    ]),
+  });
+}
+
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
 
 const REALSHAPE = Object.freeze({
@@ -911,10 +1107,48 @@ const REALSHAPE = Object.freeze({
     extraAllowed: [],
     noEvidence: ['kubeconform -v'],
   },
+  mixedAggregateCodegenShape: {
+    build: mixedAggregateCodegenShape,
+    tools: tools('buf', 'sqlc'),
+    expect: {
+      extends: 'go',
+      components: [{ path: 'clients/desk/', profile: 'flutter' }],
+      commands: {
+        build: { run: 'make build' },
+        test: { run: 'make test' },
+        codegen: { run: 'make proto' },
+        deps: { run: 'make gen-sdk' },
+      },
+    },
+    absent: [],
+    extraAllowed: [],
+    noEvidence: [],
+    noteStatuses: { present: ['mixed_aggregate'], absent: [] },
+  },
+  bootstrapTaskShape: {
+    build: bootstrapTaskShape,
+    tools: tools('npm', 'npx'),
+    expect: {
+      extends: 'go',
+      components: [],
+      commands: {
+        deps: { run: 'npm ci --no-audit --no-fund' },
+        build: { run: 'task build:backend' },
+        typecheck: { run: 'task check:ts' },
+        test: { run: 'go test ./...' },
+      },
+    },
+    absent: [],
+    extraAllowed: [],
+    noEvidence: [],
+    noteStatuses: { present: ['mixed_aggregate'], absent: [] },
+  },
 });
 
 module.exports = {
   REALSHAPE,
+  mixedAggregateCodegenShape,
+  bootstrapTaskShape,
   captureDiffCheckShape,
   snapshotVerifyShape,
   workflowEnvChartShape,

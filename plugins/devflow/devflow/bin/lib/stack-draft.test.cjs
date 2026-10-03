@@ -1509,3 +1509,58 @@ describe('assembleDraft e2e_env needs a scenario name (D38, TRD 43-06)', () => {
     assert.deepStrictEqual(d.commands.e2e_env, { run: 'make up' });
   });
 });
+
+// TRD 43-11 (justinforme / smartWellness / ao-terminal rows): an aggregate whose units run key K AND other
+// keys (stack-evidence `unitKeys`) is a MIXED aggregate. While a PURE candidate for K exists (unitKeys exactly
+// [K]; an item without unitKeys counts as pure), the mixed one never fills K: it is a `mixed_aggregate` note.
+// With no pure candidate the ranking is unchanged.
+describe('assembleDraft mixed aggregates (M1-M4, TRD 43-11 test 7)', () => {
+  const tgt = (name, order, extra = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [], ...extra });
+  const make = (key, name, order, unitKeys, extra = {}) => ev(key, `make ${name}`, {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'mutate', tool: null, confidence: 'high',
+    target: tgt(name, order), unitKeys, ...extra,
+  });
+
+  test('M1: a pure leg fills codegen over the canonically named mixed aggregate, which is a note', () => {
+    const evidence = [
+      make('codegen', 'proto', 0, ['codegen'], { target: tgt('proto', 0, { isDefault: true }) }),
+      make('codegen', 'sqlc', 1, ['codegen']),
+      make('codegen', 'generate', 3, ['codegen', 'deps', 'lint'], { confidence: 'low', target: tgt('generate', 3, { legs: ['proto', 'sqlc', 'gen-sdk'] }) }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make proto', JSON.stringify(d.commands));
+    const n = d.notes.filter((x) => x.status === 'mixed_aggregate');
+    assert.deepEqual(n.map((x) => [x.key, x.candidate]), [['codegen', 'make generate']]);
+    assert.match(n[0].detail, /also runs deps, lint/);
+  });
+
+  test('M2: with no pure candidate the ranking is unchanged and nothing is noted', () => {
+    const evidence = [
+      make('deps', 'gen-sdk', 2, ['codegen', 'deps', 'lint']),
+      make('deps', 'acceptance', 5, ['deps', 'lint', 'test']),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.deps.run, 'make gen-sdk', JSON.stringify(d.commands));
+    assert.equal(d.notes.filter((x) => x.status === 'mixed_aggregate').length, 0);
+  });
+
+  test('M3: a raw CI line (no unitKeys) is pure, so a mixed bootstrap task does not fill deps', () => {
+    const evidence = [
+      ev('deps', 'task init', { source: 'runner', sourceFile: 'Taskfile.yml', runner: 'task', form: 'mutate', tool: 'npm', target: tgt('init', 0), unitKeys: ['deps', 'tidy'] }),
+      ev('deps', 'npm ci --no-audit --no-fund', { form: 'mutate', tool: 'npm' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.deps.run, 'npm ci --no-audit --no-fund', 'the CI line is kept verbatim');
+    assert.ok(d.notes.some((x) => x.status === 'mixed_aggregate' && x.candidate === 'task init' && /also runs tidy/.test(x.detail)));
+  });
+
+  test('M4: an empty unitKeys (name-only item) counts as pure', () => {
+    const evidence = [
+      make('codegen', 'gen-all', 0, ['codegen', 'lint']),
+      make('codegen', 'generate', 1, [], { confidence: 'low' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make generate', JSON.stringify(d.commands));
+    assert.ok(d.notes.some((x) => x.status === 'mixed_aggregate' && x.candidate === 'make gen-all'));
+  });
+});

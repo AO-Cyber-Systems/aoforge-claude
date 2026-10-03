@@ -75,27 +75,6 @@ const KNOWN_DRIFT = {
         + '(seeded as `make buf-generate (cwd go)`; 43-10 moved the go component\'s runner targets into tier 2)',
     },
   ],
-  justinforme: [
-    {
-      keys: ['codegen'],
-      closes: '43-11',
-      reason: 'codegen: draft `make generate` vs committed `make proto`',
-    },
-  ],
-  smartWellness: [
-    {
-      keys: ['codegen'],
-      closes: '43-11',
-      reason: 'codegen: draft `make generate` vs committed `make proto`',
-    },
-  ],
-  'ao-terminal': [
-    {
-      keys: ['deps'],
-      closes: '43-11',
-      reason: 'deps: draft `task init` vs committed `npm ci`',
-    },
-  ],
   aoedge: [
     {
       keys: ['lint'],

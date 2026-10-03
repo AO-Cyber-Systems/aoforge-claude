@@ -10,11 +10,13 @@
 //  R1 per shape    compareDrift(expect, draft) has no row (conflict OR more_specific) outside the
 //                  shape's extraAllowed; every `absent` key is missing from the draft's own commands;
 //                  no evidence item runs a `noEvidence` command; the draft validates; an optional
-//                  `noteTags` { present, absent } says which note tags the draft carries (TRD 43-10)
+//                  `noteTags` { present, absent } says which note tags the draft carries (TRD 43-10), and
+//                  an optional `noteStatuses` { present, absent } which note statuses (TRD 43-11)
 //  R2 table guard  every entry has build/tools/expect/absent/extraAllowed/noEvidence, and no shape
 //                  name carries a fleet repository's name (shapes are named by structure)
 //
-// 43-11..43-13 extend REALSHAPE; this file does not change for them. (43-10 added the optional noteTags.)
+// 43-11..43-13 extend REALSHAPE; this file does not change for them. (43-10 added the optional noteTags,
+// 43-11 the optional noteStatuses.)
 
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -128,6 +130,14 @@ describe('stack init on real evidence shapes (TRD 43-09 realshape suite)', () =>
       for (const tag of wanted.absent || []) {
         if (tags.has(tag)) problems.push(`the draft carries a \`${tag}\` note`);
       }
+      const statuses = new Set((Array.isArray(d.json.notes) ? d.json.notes : []).map((n) => n.status).filter(Boolean));
+      const wantedStatus = shape.noteStatuses || {};
+      for (const status of wantedStatus.present || []) {
+        if (!statuses.has(status)) problems.push(`the draft carries no \`${status}\` note status`);
+      }
+      for (const status of wantedStatus.absent || []) {
+        if (statuses.has(status)) problems.push(`the draft carries a \`${status}\` note status`);
+      }
       if (!d.json.validation || d.json.validation.ok !== true) {
         problems.push(`draft does not validate: ${JSON.stringify(d.json.validation && d.json.validation.errors)}`);
       }
@@ -151,9 +161,10 @@ describe('REALSHAPE table (TRD 43-09 guards)', () => {
       for (const field of ['absent', 'extraAllowed', 'noEvidence']) {
         assert.ok(Array.isArray(shape[field]), `${name}: ${field} must be a list`);
       }
-      if (shape.noteTags !== undefined) {
+      for (const opt of ['noteTags', 'noteStatuses']) {
+        if (shape[opt] === undefined) continue;
         for (const field of ['present', 'absent']) {
-          assert.ok(Array.isArray(shape.noteTags[field]), `${name}: noteTags.${field} must be a list`);
+          assert.ok(Array.isArray(shape[opt][field]), `${name}: ${opt}.${field} must be a list`);
         }
       }
     }
