@@ -792,6 +792,37 @@ describe('runCommands: executor (test 3, unit level)', () => {
   });
 });
 
+// ─── 43-02 test 9: the effect guard needs a git work tree to prove a Dart/Flutter gate safe ───────
+
+describe('runCommands: effect guard outside a git work tree (43-02 test 9)', () => {
+  const dartRepo = () => track(fx.makeRepo({
+    'pubspec.yaml': 'name: plain_fixture\n',
+    '.dart_tool/package_config.json': '{"configVersion":2,"packages":[]}\n',
+  }));
+
+  test('a Dart or Flutter item is refused `side-effect-unproven` and never spawned', () => {
+    const root = dartRepo();
+    for (const command of ['dart analyze', 'flutter analyze', 'dart format --set-exit-if-changed .', 'cd . && flutter analyze', 'fvm flutter analyze']) {
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command, 'lint')], { root, spawn });
+      assert.equal(r.skipped, 'side-effect-unproven', command);
+      assert.equal(r.run.skipped, 'side-effect-unproven', command);
+      assert.match(r.run.detail, /git work tree/, command);
+      assert.equal(spawn.calls.length, 0, command);
+    }
+  });
+
+  test('another tool keeps today\'s behaviour: `go vet ./...` still runs through the injected spawn', () => {
+    const root = dartRepo();
+    const spawn = spySpawn();
+    const [r] = runCommands([item('go vet ./...', 'lint')], { root, spawn });
+    assert.equal(r.skipped, undefined);
+    assert.equal(r.run.exit_code, 0);
+    assert.equal(spawn.calls.length, 1);
+    assert.deepEqual(spawn.calls[0].args, ['-c', 'go vet ./...']);
+  });
+});
+
 // ─── Task 3: the `stack verify` CLI (tests 1-4, through the real df-tools) ─────
 
 const { spawnSync } = require('child_process');
