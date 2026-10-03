@@ -11,7 +11,8 @@
 //                                   the audit); no `-fmt` format; lint_helm; e2e is not test
 //  2  fragment build (eden-biz)     api-dart is dart; no `${{`; the build is noted, never a fragment
 //  3  comment test (devflow)        extends go; test is never a comment; lint inherited/go vet
-//  4  echo release (aoinference)    extends go; keys from control-plane/Makefile with cwd; no echo
+//  4  echo release (aoinference)    extends general + component control-plane/ (TRD 43-05); build/test/lint from its
+//                                   Makefile with cwd; no echo
 //  5  control fragment (eden-circle) no control fragment; test from the Makefile
 //  6  continuation + sed            the joined go test; sed never classified
 //  7  manifest-only Flutter         extends flutter; only e2e: maestro test .maestro; inherits mcp
@@ -152,12 +153,16 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     const r = stackInit(repo);
     assert.equal(r.status, 0, r.stderr);
     const { fm } = r;
-    assert.equal(fm.extends, 'go');
+    // TRD 43-05, D3 (literal rule): no root manifest -> general + the one go area as a component; the
+    // primary component supplies the root build/test/lint, each from `control-plane`.
+    assert.equal(fm.extends, 'general');
+    assert.deepStrictEqual(fm.components, [{ path: 'control-plane/', profile: 'go' }]);
     assert.deepStrictEqual(fm.commands.test, { run: 'make test', cwd: 'control-plane' });
     assert.deepStrictEqual(fm.commands.lint, { run: 'make lint', cwd: 'control-plane' });
     assert.deepStrictEqual(fm.commands.build, { run: 'make build', cwd: 'control-plane' });
     assert.ok(!allRuns(fm.commands).some((v) => /echo|Published/.test(v)));
-    // Inherited go commands would otherwise run at the root, where there is no go.mod.
+    // The component inherits format/fix/audit/codegen/tidy from its tier: none is a root key.
+    for (const key of ['tidy', 'format', 'fix', 'audit', 'codegen']) assert.equal(key in fm.commands, false, key);
     for (const entry of Object.values(fm.commands)) assert.equal(entry.cwd, 'control-plane');
     assertNoFragments(fm.commands);
   }));
@@ -343,9 +348,12 @@ describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
     const r = stackInit(repo, { git: true });
     assert.equal(r.status, 0, r.stderr);
     const { fm, json } = r;
-    assert.equal(fm.extends, 'go');
+    // TRD 43-05, D3: general root + the one go area `go/` as a component (the checkout path is still never the cwd).
+    assert.equal(fm.extends, 'general');
+    assert.deepStrictEqual(fm.components, [{ path: 'go/', profile: 'go' }]);
     assert.deepStrictEqual(fm.commands.test, { run: 'go test -race -count=1 ./...', scoped: 'go test -race {packages}', cwd: 'go' });
     for (const cwd of cwdsOf(fm.commands)) assert.equal(cwd, 'go', JSON.stringify(fm.commands));
+    for (const key of ['build', 'lint']) assert.equal((fm.commands[key] || {}).cwd, 'go', `${key} falls back to the go tier from go/: ${JSON.stringify(fm.commands)}`);
     assert.ok(!json.evidence.some((e) => String(e.cwd || '').startsWith('svcrepo')), JSON.stringify(json.evidence.map((e) => e.cwd)));
     assert.ok(!JSON.stringify(json.notes).includes('svcrepo/'), JSON.stringify(json.notes));
   }));

@@ -9,19 +9,28 @@
 // (stack-profile.draftProfile passes stack-verify.verifyCommand); `tierCommands` maps a profile id
 // to its RESOLVED commands (general + its extends chain).
 //
-// Extends and components (research_context step 2). A language area is one with `kinds`; it is
-// SUPPORTED when its profile (`area.profile`, else `area.tier`) is a real tier, not `general`.
-//   0 supported               -> extends general
-//   1 supported, at the root  -> extends that tier
-//   1 supported, non-root D   -> extends that tier; re-emitted keys carry `cwd: D` (and every
-//                                runnable tier command is re-emitted with that cwd)
-//   2+ supported              -> extends the root area's tier (or general); every non-root
-//                                supported area is a component `{ path: 'D/', profile: <tier id> }`
+// Extends and components (research_context step 2; TRD 43-05, D3 literal rule). A language area is
+// one with `kinds`; it is SUPPORTED when its profile (`area.profile`, else `area.tier`) is a real
+// tier, not `general`. The root manifest decides the root extends:
+//   a supported area at the root -> extends that tier
+//   no supported area at the root -> extends general (even with ONE supported sub-area: it is never
+//                                    promoted to the root extends)
+// Every supported area that is not at the root is a component `{ path: 'D/', profile: <tier id> }`.
 // Unsupported areas are never components; they are notes. `stack init` never writes a component
-// profile file, so a command that belongs to a component is a NOTE, not a root command.
+// profile file, so a command that belongs to a NON-primary component is a NOTE, not a root command.
 //
-// Which items may fill a ROOT key (TRD 42-15, D3): items whose body RUNS (stack-evidence
-// `effectiveArea`) at the root or in the single non-root area. One running in a component is
+// Primary component (TRD 43-05, D6). A `general` root with 1+ components picks one primary component
+// (`pickPrimaryComponent`): the one holding the most runner + CI evidence, ties broken go > flutter >
+// dart > other, then the shallower path, then the lexical one. It is recorded in an info note tagged
+// `primary_component`. A tier root has no primary component and behaves exactly as before.
+//
+// Which items may fill a ROOT key (TRD 42-15, D3; TRD 43-05, D6): items whose body RUNS (stack-evidence
+// `effectiveArea`) at the root, then, for a key with no root candidate, in the primary component (the
+// candidate keeps its own `cwd`: `make build` in `go/` is `{ run: make build, cwd: go }`; a root `just
+// test-go` whose recipe does the `cd` itself keeps no cwd). A root candidate whose tool stack belongs
+// ONLY to a non-primary component (`flutter build` beside a go primary) is an `off_primary` note.
+// With exactly ONE component, root build/test/lint also fall back to that component's tier defaults
+// with `cwd` = the component dir when nothing else supplied them. One running in another component is
 // summarised per (area, key) as a component note unless it equals the tier default; one running
 // in an unsupported sub-area is a `sub_area` note per (area, key), for every key.
 // Root-override policy: for a key the extends profile supplies with a runnable run, only a root
@@ -206,6 +215,40 @@ function scopesOf(item) {
   return stacks.filter(Boolean).map((stack) => ({ stack, area }));
 }
 
+/**
+ * Heuristic (user decision 2026-10-02): the primary-component tie-break is go-first. The 5 multi-stack
+ * fleet goldens (aocore, aodex, politihub, eden-biz, navigators) all build their product from a Go
+ * component, so on equal evidence a go component is the primary, then flutter, then dart, then any
+ * other tier. It is a heuristic, untested on the rest of the fleet. The names live here, next to
+ * TIER_STACKS' consumers, and never in stack-profile.cjs (P11).
+ */
+const PRIMARY_ORDER = Object.freeze(['go', 'flutter', 'dart']);
+
+const depthOf = (p) => String(p).split('/').filter(Boolean).length;
+
+/**
+ * pickPrimaryComponent(components, items) -> { path, profile, score } | null
+ *
+ * score = the runner and CI evidence items whose effectiveArea is the component dir. Sorted by score
+ * (most first), then PRIMARY_ORDER (others last), then a shallower path, then the lexical path. With
+ * zero evidence everywhere this is the go component if any, else the first by path.
+ */
+function pickPrimaryComponent(components, items = []) {
+  const list = (Array.isArray(components) ? components : []).filter((c) => c && typeof c.path === 'string');
+  if (!list.length) return null;
+  const evidence = (Array.isArray(items) ? items : []).filter((e) => e && (e.source === 'runner' || e.source === 'ci'));
+  const orderOf = (c) => {
+    const i = PRIMARY_ORDER.indexOf(c.profile);
+    return i === -1 ? PRIMARY_ORDER.length : i;
+  };
+  return list
+    .map((c) => ({ path: c.path, profile: c.profile, score: evidence.filter((e) => effectiveAreaOf(e) === c.path).length }))
+    .sort((a, b) => b.score - a.score
+      || orderOf(a) - orderOf(b)
+      || depthOf(a.path) - depthOf(b.path)
+      || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))[0];
+}
+
 function note(item, key, status, detail, extra = {}) {
   return {
     area: item ? item.area || '' : '',
@@ -230,25 +273,16 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   const supported = lang.filter((a) => profileOf(a) && profileOf(a) !== 'general');
 
   // ── extends / components ────────────────────────────────────────────────
-  let extendsId = 'general';
-  let single = null; // the one non-root supported area dir ('svc/')
-  let components = [];
+  // D3 (TRD 43-05), the literal rule: the root manifest decides the root extends, and EVERY supported
+  // area that is not at the root is a component, a lone one included.
   const rootArea = supported.find((a) => a.dir === '');
-  if (supported.length === 1) {
-    extendsId = profileOf(supported[0]);
-    if (supported[0].dir !== '') single = supported[0].dir;
-  } else if (supported.length > 1) {
-    extendsId = rootArea ? profileOf(rootArea) : 'general';
-    components = supported
-      .filter((a) => a.dir !== '')
-      .map((a) => ({ path: a.dir, profile: profileOf(a) }))
-      .sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
-  }
-  if (explicit) {
-    if (single && profileOf(supported[0]) !== explicit) single = null;
-    extendsId = explicit;
-  }
-  const singleCwd = single ? trimDir(single) : null;
+  let extendsId = rootArea ? profileOf(rootArea) : 'general';
+  const components = supported
+    .filter((a) => a.dir !== '')
+    .map((a) => ({ path: a.dir, profile: profileOf(a) }))
+    .sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+  // An explicit --extends sets the root extends and leaves the components alone.
+  if (explicit) extendsId = explicit;
   // The extends tier's stack family (D3 gate); null for general or a tier this classifier does
   // not know, which makes the gate a no-op.
   const family = Object.prototype.hasOwnProperty.call(TIER_STACKS, extendsId) ? TIER_STACKS[extendsId] : null;
@@ -335,20 +369,43 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   // (area, key). One running in a component is noted against that component.
   // (An attachable key — e2e, lint_helm, lint_docker — from a non-component area used to reach the
   // root; from an unsupported sub-area it is now a sub_area note like every other key.)
-  const rootAreas = new Set(single ? ['', single] : ['']);
+  // TRD 43-05 (D6): a `general` root with 1+ components has a primary component. Its candidates fill
+  // the root keys that no root-area candidate fills. A tier root has none (it behaves as before).
+  const primary = extendsId === 'general' ? pickPrimaryComponent(components, items) : null;
+  if (primary) {
+    notes.push({
+      area: primary.path,
+      key: null,
+      candidate: null,
+      status: 'info',
+      detail: `primary component ${primary.path} (${primary.profile}): ${primary.score} evidence items`,
+      source: null,
+      tag: 'primary_component',
+    });
+  }
+  const rootAreas = new Set(['']);
   const rootByKey = new Map();
+  const primaryByKey = new Map(); // primary component: key -> items (each keeps its own cwd)
   const elsewhere = new Map(); // component (area, key) -> items
   const subArea = new Map(); // unsupported sub-area (area, key) -> items
+  const rootKeyOrder = []; // the keys of rootByKey / primaryByKey in first-seen evidence order
   const bucket = (map, k, e) => {
     if (!map.has(k)) map.set(k, []);
     map.get(k).push(e);
   };
+  const seeKey = (k) => {
+    if (!rootKeyOrder.includes(k)) rootKeyOrder.push(k);
+  };
   for (const item of items) {
     const eff = effectiveAreaOf(item);
-    if (componentDirs.has(eff)) {
+    if (primary && eff === primary.path) {
+      seeKey(item.key);
+      bucket(primaryByKey, item.key, item.area !== eff ? { ...item, area: eff } : item);
+    } else if (componentDirs.has(eff)) {
       const e = item.area !== eff ? { ...item, area: eff } : item;
       bucket(elsewhere, `${eff}\u0000${e.key}`, e);
     } else if (rootAreas.has(eff)) {
+      seeKey(item.key);
       bucket(rootByKey, item.key, item);
     } else {
       bucket(subArea, `${eff}\u0000${item.key}`, item);
@@ -362,10 +419,33 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
 
   // ── root keys ───────────────────────────────────────────────────────────
   const parent = tierCommands[extendsId] || {};
+  const primaryTier = primary ? tierCommands[primary.profile] || {} : {};
   const commands = {};
-  for (const [key, list] of rootByKey) {
+  // With exactly ONE component the root build/test/lint fall back to that component's runnable tier
+  // defaults, run from the component's dir (TRD 43-05, D6). Never any other key, never with 2+.
+  const fallbackFor = (key) => {
+    if (!primary || components.length !== 1 || !CANONICAL_KEYS.has(key)) return null;
+    const entry = primaryTier[key];
+    return entry && typeof entry === 'object' && runnable(entry.run) ? { ...entry, cwd: trimDir(primary.path) } : null;
+  };
+  for (const key of rootKeyOrder) {
+    // Root-area candidates first. A key none of them fills takes the primary component's candidates;
+    // when a root candidate exists the primary ones are component notes.
+    let list = rootByKey.get(key) || [];
+    let fromPrimary = false;
+    const primaryList = primaryByKey.get(key) || [];
+    if (primaryList.length && !list.length) {
+      list = primaryList;
+      fromPrimary = true;
+    } else if (primaryList.length) {
+      for (const e of primaryList) bucket(elsewhere, `${primary.path}\u0000${key}`, e);
+    }
     const parentEntry = parent[key] && typeof parent[key] === 'object' ? parent[key] : null;
     const parentRun = parentEntry ? parentEntry.run : undefined;
+    // A primary candidate that runs the SAME tool as the component tier's default keeps that tier's
+    // scoped/apply forms (they run in the same cwd); a root one is judged against the root's parent.
+    const formEntry = fromPrimary ? (primaryTier[key] && typeof primaryTier[key] === 'object' ? primaryTier[key] : null) : parentEntry;
+    const formRun = formEntry ? formEntry.run : undefined;
     // D3 (TRD 42-15): a key the extends profile supplies is overridden only by a root candidate
     // that runs the tier's stack at the root; the rest are off_stack notes (the default applies).
     const gated = family && runnable(parentRun);
@@ -458,9 +538,9 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       }
     } else if (chosen) {
       entry = { run: chosen.command };
-      if (sameTool(chosen, key, parentRun)) {
-        if (parentEntry.scoped) entry.scoped = parentEntry.scoped;
-        if (!apply && parentEntry.apply) entry.apply = parentEntry.apply;
+      if (sameTool(chosen, key, formRun)) {
+        if (formEntry.scoped) entry.scoped = formEntry.scoped;
+        if (!apply && formEntry.apply) entry.apply = formEntry.apply;
       }
       if (apply && (apply.cwd || null) === (chosen.cwd || null)) entry.apply = apply.command;
       withWhen(entry);
@@ -468,8 +548,9 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       if (chosen.weak && chosen.weak.length) {
         notes.push(note(chosen, key, 'resolved', `weak gate kept verbatim: ${chosen.weak.join(', ')}`, { weak: [...chosen.weak] }));
       }
-    } else if (runCands.length || (narrowed && !runnable(parentRun))) {
-      // Unresolved candidates, or only narrow tests with no parent test to inherit.
+    } else if (runCands.length || (narrowed && !runnable(parentRun) && !fallbackFor(key))) {
+      // Unresolved candidates, or only narrow tests with no parent test to inherit (the one
+      // component's tier test is that parent: the fallback below supplies it).
       entry = withWhen({ run: 'discover' });
       if (apply) {
         entry.apply = apply.command;
@@ -482,13 +563,12 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     if (entry) commands[key] = entry;
   }
 
-  // A single non-root area: the tier's own commands would run at the repo root, so each runnable
-  // one is re-emitted with the area's cwd (scoped/apply/when kept: it is the same command there).
-  if (singleCwd) {
-    for (const [key, entry] of Object.entries(parent)) {
-      if (commands[key] || !entry || !runnable(entry.run)) continue;
-      commands[key] = { ...entry, cwd: singleCwd };
-    }
+  // Exactly one component: root build/test/lint nothing else supplied are that component's tier
+  // defaults, run from its dir (scoped kept: it is the same command there). Not format/fix/audit/
+  // codegen/tidy: the component inherits those from its tier.
+  for (const key of ['build', 'test', 'lint']) {
+    const entry = fallbackFor(key);
+    if (entry && !commands[key]) commands[key] = entry;
   }
 
   // ── commands that belong to a component or an unsupported area: one note per (area, key) ──
@@ -534,6 +614,7 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
 
 module.exports = {
   assembleDraft,
+  pickPrimaryComponent,
   SOURCE_RANK,
   ATTACHABLE_KEYS,
   MAESTRO_COMMAND,

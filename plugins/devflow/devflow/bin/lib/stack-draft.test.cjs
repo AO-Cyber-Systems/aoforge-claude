@@ -7,11 +7,12 @@
 // - D13 sast->audit collapse: gosec with no other audit candidate -> audit is gosec, no sast;
 //       gosec + govulncheck -> sast gosec, audit govulncheck.
 // - D14 a weak marker is kept verbatim (`--no-fatal-infos`) and recorded as a note.
-// - D15 a best candidate equal to the tier default is not re-emitted; a single non-root area
-//       re-emits with cwd (tier keys included, scoped kept).
+// - D15 a best candidate equal to the tier default is not re-emitted; a lone non-root area is the
+//       one component of a general root and build/test/lint fall back to its tier with cwd (43-05).
 // - D16 an unresolved candidate -> run: discover plus one note per candidate; `${{ }}` is never run.
-// - D17 extends/components: 0 areas -> general + info note; 2+ areas -> components by tier id,
-//       unsupported areas are notes; component commands that differ from the tier are notes.
+// - D17 extends/components: 0 areas -> general + info note; no supported root area -> general plus
+//       every supported area as a component (43-05, literal rule); the primary component's candidates
+//       are root keys with cwd, other components' commands that differ from the tier are notes.
 // - D18 e2e: maestro only with a .maestro/ flag; a maestro candidate without one is dropped.
 // - D19 loop for a general extends lists resolved format/lint/test; codegen/deps keep `when`.
 // - D20 purity: stack-draft.cjs requires neither stack-profile.cjs nor fs.
@@ -268,7 +269,11 @@ describe('assembleDraft extends and components (D17)', () => {
     assert.equal(d.extendsId, 'general');
     assert.deepStrictEqual(d.components, [{ path: 'app/', profile: 'flutter' }, { path: 'svc/', profile: 'go' }]);
     assert.deepStrictEqual(d.commands.lint_helm, { run: 'helm lint chart/' });
-    assert.deepStrictEqual(d.commands.test, { run: 'go test -race -count=1 ./...', cwd: 'svc' }, 'the primary component supplies the root test, with its cwd');
+    assert.deepStrictEqual(
+      d.commands.test,
+      { run: 'go test -race -count=1 ./...', scoped: 'go test -race {packages}', cwd: 'svc' },
+      'the primary component supplies the root test, with its cwd; the same tool as its tier default keeps the tier scoped form',
+    );
     assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' }, 'equal to the tier default, but it is the root command now');
     assert.ok(d.notes.some((n) => n.area === 'app/' && n.key === 'test' && /flutter test --coverage/.test(n.candidate)), 'a non-primary component candidate stays a note');
     assert.ok(d.notes.some((n) => n.area === 'portal/' && n.status === 'info'), 'an unsupported area is noted');
