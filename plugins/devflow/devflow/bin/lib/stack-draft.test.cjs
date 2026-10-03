@@ -980,9 +980,13 @@ describe('assembleDraft e2e_env prefers the scenario-named target (D34, TRD 43-0
     }
   });
 
-  test('D34b: without the flag the old order stands: confidence decides (the flag is the only new input)', () => {
+  // Re-baselined in TRD 43-06 (D38): it asserted that with no scenario-named candidate the body-only
+  // `make infra-up` still became e2e_env. The devcluster, navigators and quanta-local goldens key no
+  // body-only bring-up, so without the flag there is no e2e_env key: both candidates are env_unnamed notes.
+  test('D34b: without the flag no candidate is the e2e environment: no e2e_env key, both noted (43-06)', () => {
     const d = assembleDraft({ areas: NO_AREAS, evidence: [named({ scenarioNamed: undefined }), bodyOnly()], tierCommands: TIERS, verify: resolvedAll });
-    assert.equal(d.commands.e2e_env.run, 'make infra-up');
+    assert.equal('e2e_env' in d.commands, false, JSON.stringify(d.commands));
+    assert.deepEqual(d.notes.filter((n) => n.status === 'env_unnamed').map((n) => n.candidate).sort(), ['make e2e-stack-up', 'make infra-up']);
   });
 
   test('D34c: source still outranks the flag: a declared body-only candidate beats a named runner target', () => {

@@ -568,7 +568,17 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         return false;
       })
       : list;
-    const ranked = rank(onStack, key);
+    // e2e_env is the environment the e2e scenarios run against, and only a NAME says that (stack-evidence
+    // `scenarioNamed`: `make e2e-stack-up`). A body-only bring-up (`make up`, `just infra`, a live-cluster
+    // script) is some environment: an `env_unnamed` note, never the key. A declared row counts (TRD 43-06).
+    const eligible = key === 'e2e_env'
+      ? onStack.filter((c) => {
+        if (c.scenarioNamed === true || c.source === 'declared') return true;
+        notes.push(note(c, key, 'env_unnamed', 'brings an environment up, but no target or script name says it is the e2e environment; never a root key'));
+        return false;
+      })
+      : onStack;
+    const ranked = rank(eligible, key);
     // A codegen drift check (check form: regenerate, then fail on a diff) is the codegen gate; the
     // generator it re-runs (mutate) is then its apply, not a competing run (TRD 43-06).
     const generatorIsApply = key === 'codegen' && ranked.some((e) => e.form === 'check');

@@ -144,6 +144,8 @@ const CLASSIFY_TABLE = [
   R('lint', 'check', 'eslint', (a) => a[0] === 'eslint'),
   R('lint', 'check', 'ruff', (a) => is(a, 'ruff', 'check')),
   R('lint', 'check', 'cargo', (a) => is(a, 'cargo', 'clippy')),
+  // A shell repo's linter (TRD 43-06): `shellcheck bin/*.sh lib/*.sh`.
+  R('lint', 'check', 'shellcheck', (a) => a[0] === 'shellcheck'),
 
   // lint_helm / lint_docker: never the repo-wide `lint`.
   R('lint_helm', 'check', 'helm', (a) => is(a, 'helm', 'lint')),
@@ -330,7 +332,7 @@ const HINT_TOKENS = [
   ['typecheck', 'check', ['typecheck', 'tsc', 'mypy', 'pyright']],
   ['lint', 'check', ['lint', 'linter', 'vet', 'analyze', 'analyse', 'staticcheck', 'eslint', 'clippy']],
   ['format', 'apply', ['fmt', 'format', 'gofmt', 'gofumpt', 'goimports', 'prettier']],
-  ['test', 'check', ['test', 'tests', 'unit', 'pytest', 'jest', 'vitest', 'ginkgo', 'spec', 'specs']],
+  ['test', 'check', ['test', 'tests', 'unit', 'pytest', 'jest', 'vitest', 'ginkgo', 'spec', 'specs', 'selftest', 'selftests']],
   ['build', 'build', ['build', 'compile']],
   ['codegen', 'mutate', ['generate', 'codegen', 'gen']],
   ['tidy', 'apply', ['tidy']],
