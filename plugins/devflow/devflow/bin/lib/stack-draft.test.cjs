@@ -1527,7 +1527,7 @@ describe('assembleDraft mixed aggregates (M1-M4, TRD 43-11 test 7)', () => {
       make('codegen', 'sqlc', 1, ['codegen']),
       make('codegen', 'generate', 3, ['codegen', 'deps', 'lint'], { confidence: 'low', target: tgt('generate', 3, { legs: ['proto', 'sqlc', 'gen-sdk'] }) }),
     ];
-    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
     assert.equal(d.commands.codegen.run, 'make proto', JSON.stringify(d.commands));
     const n = d.notes.filter((x) => x.status === 'mixed_aggregate');
     assert.deepEqual(n.map((x) => [x.key, x.candidate]), [['codegen', 'make generate']]);
@@ -1559,8 +1559,24 @@ describe('assembleDraft mixed aggregates (M1-M4, TRD 43-11 test 7)', () => {
       make('codegen', 'gen-all', 0, ['codegen', 'lint']),
       make('codegen', 'generate', 1, [], { confidence: 'low' }),
     ];
-    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
     assert.equal(d.commands.codegen.run, 'make generate', JSON.stringify(d.commands));
     assert.ok(d.notes.some((x) => x.status === 'mixed_aggregate' && x.candidate === 'make gen-all'));
+  });
+
+  // Narrowed on fleet regression (eden-biz, ao-terminal, eden-libs build; aoid, devflowops test; devflowops
+  // lint; eden-biz e2e_env): an entry point of build/test/lint runs whatever its key needs, and a scenario key
+  // orchestrates, so neither is a mixed aggregate.
+  test('M5: build/test/lint and the scenario keys are never judged mixed', () => {
+    const evidence = [
+      make('build', 'build', 0, ['codegen', 'build'], { form: 'build', tool: 'go', target: tgt('build', 0, { deps: ['generate'], legs: ['generate'] }) }),
+      make('build', 'docker-build', 1, ['build'], { form: 'build', tool: 'docker' }),
+      make('e2e_env', 'e2e-stack-up', 2, ['e2e_env', 'build'], { form: 'check', scenarioNamed: true }),
+      make('e2e_env', 'e2e-env-boot', 3, ['e2e_env'], { form: 'check', scenarioNamed: true }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.build.run, 'make build', JSON.stringify(d.commands));
+    assert.equal(d.commands.e2e_env.run, 'make e2e-stack-up', JSON.stringify(d.commands));
+    assert.equal(d.notes.filter((x) => x.status === 'mixed_aggregate').length, 0);
   });
 });

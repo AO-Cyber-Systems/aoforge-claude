@@ -399,7 +399,7 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
     '',
   ].join('\n');
 
-  test('E13: runner items carry target {name, deps, isDefault, dependedOn, order} and bodyInvocations', () => {
+  test('E13: runner items carry target {name, deps, isDefault, dependedOn, order, legs} and bodyInvocations', () => {
     const root = runnerFx.taskfileDepsShape({ '.github/workflows/guard.yml': guardWorkflow });
     try {
       const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
@@ -410,7 +410,8 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
       assert.equal(bundle.key, 'build');
       assert.deepStrictEqual(
         { ...bundle.target, order: typeof bundle.target.order },
-        { name: 'build:bundle', deps: ['gen', 'tidy'], isDefault: false, dependedOn: true, order: 'number' },
+        // TRD 43-11 added `legs`: its prerequisites, then the targets its cmds call (build:daemon is no target).
+        { name: 'build:bundle', deps: ['gen', 'tidy'], isDefault: false, dependedOn: true, order: 'number', legs: ['gen', 'tidy', 'build:relay:internal'] },
         'the `default` task depends on build:bundle',
       );
       assert.deepStrictEqual(bundle.bodyInvocations, ['task build:daemon', 'task build:relay:internal']);
@@ -1438,7 +1439,7 @@ describe('stack-evidence unitKeys and legs (E23, TRD 43-11 test 6)', () => {
     '    internal: true',
     '    cmd: go mod tidy',
     '',
-    '  init:',
+    '  bootstrap:',
     '    cmds:',
     '      - task: npm:install',
     '      - task: go:mod:tidy',
@@ -1495,10 +1496,11 @@ describe('stack-evidence unitKeys and legs (E23, TRD 43-11 test 6)', () => {
   });
 
   test('E23d: a task calling internal tasks takes their keys, and they are its legs', () => {
-    const init = byCmd(items(), 'task init');
-    assert.ok(init, 'task init is evidence');
-    assert.deepStrictEqual(init.unitKeys, ['deps', 'tidy']);
-    assert.deepStrictEqual(init.target.legs, ['npm:install', 'go:mod:tidy']);
+    // Named `bootstrap` so its key comes from the name: a body of `task:` calls classifies to nothing itself.
+    const boot = byCmd(items(), 'task bootstrap');
+    assert.ok(boot, 'task bootstrap is evidence');
+    assert.deepStrictEqual(boot.unitKeys, ['deps', 'tidy']);
+    assert.deepStrictEqual(boot.target.legs, ['npm:install', 'go:mod:tidy']);
   });
 
   test('E23e: an item with no units has no key; a raw CI line has its own', () => {

@@ -45,9 +45,14 @@
 //               stack-draft ranks a scenario-named e2e_env above a body-only one (TRD 43-04, D4).
 //   singlePurpose  true (only then present) when the item runs a script named `check-*`, `verify-*`, `*smoke*` (whole token) or
 //               `*_test.sh`: one check, not the repo's suite. stack-draft reads it (TRD 43-04, D4).
-//   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
+//   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order, legs } —
 //               dependedOn is true when another target in the same file lists it in its deps;
-//               order is its position in that file. stack-draft's canonical ranking reads it.
+//               order is its position in that file. stack-draft's canonical ranking reads it. legs are the
+//               targets of the same file it runs directly: its prerequisites, then the targets its recipe
+//               calls (TRD 43-11).
+//   unitKeys    the distinct keys ALL of the item's units classify to (recipe lines, prerequisites
+//               transitively, called targets, internal tasks), first-seen order; unclassified units add
+//               nothing. stack-draft reads it to tell a mixed aggregate from a pure candidate (TRD 43-11).
 //   invokedName  items WITHOUT a `target` only (CI, docs, declared): the runner target or script name the
 //               command goes through (`make lint-backend` -> lint-backend, `./scripts/eden/build.sh` ->
 //               build); absent for a raw command. stack-draft's canonical ranking reads it (TRD 43-06).
@@ -328,8 +333,34 @@ function dependedOnIndex(targets) {
   return byFile;
 }
 
+/**
+ * legsOf(target, index) -> the names of the targets it runs DIRECTLY in its own runner file (TRD 43-11): its
+ * prerequisites, then the targets its recipe calls (`make gen-sdk`, a Taskfile `task: npm:install`), each once,
+ * in that order. A prerequisite or call that names no target of the same file is no leg. stack-draft reads it
+ * to tell a drift check of one leg from a check of the whole generator.
+ */
+function legsOf(t, index) {
+  const legs = [];
+  if (!index) return legs;
+  const dir = normDir(t.dir) || '';
+  const sameFile = (lt) => !!lt && lt !== t && lt.file === t.file;
+  for (const dep of Array.isArray(t.deps) ? t.deps : []) {
+    if (sameFile(index.get(`${t.runner}|${dir}|${dep}`)) && !legs.includes(dep)) legs.push(dep);
+  }
+  const cwd = normDir(t.cwd) || normDir(t.dir);
+  const body = Array.isArray(t.body) ? t.body : [];
+  for (const inv of safeNormalize(body.join('\n'), cwd)) {
+    const d = safeDescribe(inv);
+    if (d.kind !== 'runner' || d.runner !== t.runner || d.unresolvable) continue;
+    const name = Array.isArray(d.names) && d.names.length === 1 ? d.names[0] : null;
+    if (!name || legs.includes(name)) continue;
+    if (sameFile(index.get(`${d.runner}|${normDir(d.dir) || ''}|${name}`))) legs.push(name);
+  }
+  return legs;
+}
+
 /** The ranking metadata of a runner target (TRD 42-13): stack-draft's canonical ordering reads it. */
-function targetMeta(t, depended) {
+function targetMeta(t, depended, index = null) {
   const names = [t.name, ...(Array.isArray(t.aliases) ? t.aliases : [])];
   const set = depended.get(t.file);
   return {
@@ -338,6 +369,7 @@ function targetMeta(t, depended) {
     isDefault: t.isDefault === true,
     dependedOn: !!set && names.some((n) => set.has(n)),
     order: Number.isInteger(t.order) ? t.order : 0,
+    legs: legsOf(t, index),
   };
 }
 
@@ -532,6 +564,20 @@ function scopeOf(units, key, itemAreaOwn, areaDirs, itemCwd = null) {
   return { bodyStacks, bodyScopes, effectiveArea, unitAreas };
 }
 
+/**
+ * unitKeysOf(units) -> the distinct keys ALL of an item's units classify to, in first-seen order (TRD 43-11).
+ * Units already hold the recipe lines, the prerequisites (transitively), the called targets and the internal
+ * tasks they reach; an unclassified unit (`buf lint`, `tailwindcss …`) adds nothing. [] = no unit classifies.
+ */
+function unitKeysOf(units) {
+  const keys = [];
+  for (const u of units) {
+    const c = u && u.inv ? classifyInvocation(u.inv) : null;
+    if (c && c.key && !keys.includes(c.key)) keys.push(c.key);
+  }
+  return keys;
+}
+
 /** The target or script name an invocation goes through (`make x` -> x, `./s/docs-e2e.sh` -> docs-e2e), or null. */
 function invocationName(command, cwd) {
   const first = safeNormalize(command, cwd)[0];
@@ -625,7 +671,7 @@ function readRunnerTargets(targets, push, ctx) {
       weak: cls.weak,
       tool: cls.tool,
       resolvesTo: cls.resolvesTo,
-      target: targetMeta(t, depended),
+      target: targetMeta(t, depended, ctx.index),
       bodyInvocations: targetInvocations(t),
       units: targetUnits(t, ctx, 0, new Set()),
     });
@@ -759,6 +805,8 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
     // TRD 42-15: the stacks the body runs and the area it runs in (stack-draft's D3 gate).
     const units = Array.isArray(raw.units) ? raw.units : expandUnits(safeNormalize(raw.command, cwd), ctx);
     Object.assign(out, scopeOf(units, out.key, out.area, areaDirs, cwd));
+    // TRD 43-11: the keys the whole body runs, so stack-draft can tell a mixed aggregate from a pure candidate.
+    out.unitKeys = unitKeysOf(units);
     if (raw.external === true) externalItems.add(out);
     (buckets[raw.source] || buckets.docs).push(out);
   };

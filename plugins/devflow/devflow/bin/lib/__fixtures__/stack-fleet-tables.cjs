@@ -51,6 +51,8 @@ const ACCEPTED = {
 // of scope but closed by the same rules, politihub.test and politihub.build. The tiered placement also
 // closed eden-biz.e2e_env, which 43-11 had claimed (root runner recipes are root candidates wherever
 // their body runs).
+// 43-11 removed justinforme.codegen and smartWellness.codegen (a mixed aggregate never fills a key a pure
+// candidate fills) and re-tagged ao-terminal.deps as a flag-only residual for the 43-15 decision.
 const KNOWN_DRIFT = {
   aocore: [
     {
@@ -73,6 +75,15 @@ const KNOWN_DRIFT = {
       closes: '43-11',
       reason: 'codegen: draft `make templ-check (apply: make generate) (cwd go)` vs committed `make generate (cwd go)`; '
         + '(seeded as `make buf-generate (cwd go)`; 43-10 moved the go component\'s runner targets into tier 2)',
+    },
+  ],
+  'ao-terminal': [
+    {
+      keys: ['deps'],
+      closes: '43-15',
+      residual: 'flag-only: CI adds --no-audit --no-fund; the reviewed value dropped them by hand',
+      reason: 'deps: draft `npm ci --no-audit --no-fund` vs committed `npm ci` (seeded as `task init`; 43-11 made the '
+        + 'one-shot bootstrap a mixed_aggregate note, so the CI install line fills deps, verbatim)',
     },
   ],
   aoedge: [

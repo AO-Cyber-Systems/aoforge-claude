@@ -91,6 +91,12 @@
 // codegen (TRD 43-06): when a codegen candidate is a drift check (check form), the generators (mutate)
 // are its apply, so `make openapi-verify` is the run and `make openapi-regen` the apply.
 //
+// Mixed aggregates (TRD 43-11). Before ranking a single-purpose key K (not build/test/lint, not e2e/e2e_env:
+// WHOLE_ENTRY_KEYS), a candidate whose units run K AND other keys (stack-evidence `unitKeys`) is a
+// `mixed_aggregate` note while a PURE candidate for K exists (unitKeys exactly [K], or none). `generate: proto
+// sqlc gen-sdk`, which also runs `dart pub get` and `dart analyze`, loses codegen to `make proto`; a one-shot
+// `task init` that also tidies loses deps to the CI install line. With no pure candidate nothing changes.
+//
 // Repo-wide test (TRD 42-13). For `test`, a candidate is NARROW when some invocation it runs
 // (`bodyInvocations`) is narrow by stack-classify.testBreadth and none is broad. Narrow candidates
 // never fill `test`: each becomes a `narrow` note under the key it fits (test / integration / e2e;
@@ -112,6 +118,12 @@ const VARIANT_TOKENS = Object.freeze([
   'internal', 'quickdev', 'dev', 'preview', 'debug', 'local', 'macos', 'windows', 'linux', 'darwin', 'arm64', 'amd64',
 ]);
 const ATTACHABLE_KEYS = new Set(['e2e', 'lint_helm', 'lint_docker']);
+/**
+ * Keys whose entry point runs a whole workflow by design, so a body that also runs other keys is not a
+ * mixed aggregate (TRD 43-11): build/test/lint (the canonical entry points, TRD 42-13) and the scenario
+ * keys (an e2e wrapper or an environment bring-up orchestrates, TRD 43-04 D4).
+ */
+const WHOLE_ENTRY_KEYS = new Set([...CANONICAL_KEYS, 'e2e', 'e2e_env']);
 const WHEN_DEFAULT = Object.freeze({ codegen: 'sources_changed', deps: 'deps_changed' });
 const LOOP_KEYS = ['format', 'lint', 'test'];
 const RUN_FORMS = new Set(['check', 'build', 'mutate']);
@@ -617,7 +629,30 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         return false;
       })
       : onStack;
-    const ranked = rank(eligible, key);
+    // A mixed aggregate (TRD 43-11): a candidate whose body runs K AND other keys (stack-evidence `unitKeys`;
+    // `generate: proto sqlc gen-sdk` also pulls deps and lint through gen-sdk) never fills K while a pure
+    // candidate (unitKeys exactly [K]; none at all counts as pure, so a raw CI line is unaffected) exists.
+    // It is a `mixed_aggregate` note. With no pure candidate the ranking is unchanged. Only single-purpose
+    // keys are judged: a build/test/lint entry point runs whatever its key needs (`build: generate`, a lint
+    // that builds its vet tool, a test that installs node modules) and the canonical ranking picks it (42-13);
+    // a scenario key's body is an orchestration by nature (43-04, D4).
+    const keysOf = (c) => (Array.isArray(c.unitKeys) ? c.unitKeys : []);
+    const isPure = (c) => keysOf(c).every((k) => k === key);
+    const mixedOthers = (c) => (keysOf(c).includes(key) ? keysOf(c).filter((k) => k !== key) : []);
+    let pool = eligible;
+    if (!WHOLE_ENTRY_KEYS.has(key) && eligible.some(isPure)) {
+      const mixedSeen = new Set();
+      pool = eligible.filter((c) => {
+        const others = mixedOthers(c);
+        if (!others.length) return true;
+        if (!mixedSeen.has(c.command)) {
+          mixedSeen.add(c.command);
+          notes.push(note(c, key, 'mixed_aggregate', `also runs ${others.join(', ')}; a candidate that runs only ${key} exists, so this aggregate never fills ${key}`));
+        }
+        return false;
+      });
+    }
+    const ranked = rank(pool, key);
     // A codegen drift check (check form: regenerate, then fail on a diff) is the codegen gate; the
     // generator it re-runs (mutate) is then its apply, not a competing run (TRD 43-06).
     const generatorIsApply = key === 'codegen' && ranked.some((e) => e.form === 'check');
