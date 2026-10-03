@@ -948,6 +948,29 @@ describe('K27 drift checks as real recipes write them (TRD 43-09)', () => {
   });
 });
 
+// TRD 43-09 (aocore.lint_helm row): an install step that ends by printing the tool's version
+// (`kubeconform -v`) is a presence probe, never a gate for any key. Checked before the table, so no row
+// (a bare-tool row like kubeconform's, or kubectl's e2e_env row) can claim it. `-v` stays verbose for the
+// runners whose bare invocation runs the suite (pytest, ginkgo, mypy).
+describe('K28 version probes are never gates (TRD 43-09)', () => {
+  test('K28a: `<tool> -v`, `--version`, `version` and `version --short|--client` classify to null', () => {
+    for (const cmd of ['kubeconform -v', 'helm version', 'golangci-lint --version', 'go version', 'kubectl version --client', 'helm version --short', 'govulncheck --version', 'npx eslint -v']) {
+      assert.equal(classifyInvocation(cmd), null, cmd);
+      assert.equal(classifyInvocation(cmd, { hint: 'lint' }), null, `${cmd} with a hint`);
+    }
+  });
+
+  test('K28b: the gates themselves still classify; `-v` among other operands is a flag, not a probe', () => {
+    const pick = (r) => (r ? { key: r.key, form: r.form } : null);
+    assert.deepEqual(pick(classifyInvocation('kubeconform -strict -summary out.yaml')), { key: 'lint_helm', form: 'check' });
+    assert.deepEqual(pick(classifyInvocation('go test -v ./...')), { key: 'test', form: 'check' });
+    assert.deepEqual(pick(classifyInvocation('pytest -v')), { key: 'test', form: 'check' }, 'pytest -v runs the suite');
+    assert.deepEqual(pick(classifyInvocation('ginkgo -v')), { key: 'test', form: 'check' }, 'ginkgo -v runs the suite');
+    assert.deepEqual(pick(classifyInvocation('helm lint charts/a/')), { key: 'lint_helm', form: 'check' });
+    assert.deepEqual(pick(classifyInvocation('go version -m ./bin/x')), null, 'go version -m reads a binary: not a gate either');
+  });
+});
+
 // TRD 43-06 (devcluster golden): shellcheck is the repo-wide linter of a shell repo, and a `selftest`
 // is a test entry point (an offline self-test), so both classify without a runner around them.
 describe('K26 shellcheck and selftest (TRD 43-06)', () => {

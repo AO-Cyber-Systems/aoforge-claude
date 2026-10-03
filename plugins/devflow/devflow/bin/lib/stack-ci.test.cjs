@@ -14,6 +14,8 @@
 // - C10 Workflow files are read in sorted order (`.yaml` and `.yml`); a malformed file never throws.
 // - C11 Reader robustness: `>` folding, key order independence, look-alike block scalars, CRLF,
 //       multi-document files, flow maps / anchors skipped, hostile input.
+// - C14 (TRD 43-09) Workflow / job / step `env:` literals substituted into run lines; runtime values
+//       (`${{ }}`, in-block assignments, $GITHUB_ENV exports, single quotes) left as written.
 //
 // Fixtures are hand-built (`__fixtures__/stack-ci-fixtures.cjs`), never generated.
 
@@ -408,11 +410,132 @@ describe('C11 reader robustness', () => {
 
   test('step records carry exactly the contracted fields', () => {
     const [step] = _parseWorkflowText('on: [push]\njobs:\n  j:\n    steps:\n      - name: n\n        run: go vet ./...\n', 'wf.yml');
-    // `checkouts` and `external` joined the contract in TRD 42-14 (D1).
-    assert.deepEqual(Object.keys(step).sort(), ['checkouts', 'continueOnError', 'cwd', 'external', 'file', 'invocations', 'job', 'name', 'scheduled', 'uses']);
+    // `checkouts` and `external` joined the contract in TRD 42-14 (D1); `envSubstituted` in TRD 43-09.
+    assert.deepEqual(Object.keys(step).sort(), ['checkouts', 'continueOnError', 'cwd', 'envSubstituted', 'external', 'file', 'invocations', 'job', 'name', 'scheduled', 'uses']);
     assert.equal(step.file, 'wf.yml');
     assert.deepEqual(step.checkouts, []);
     assert.equal(step.external, false);
+    assert.deepEqual(step.envSubstituted, []);
+  });
+});
+
+// ─── TRD 43-09: literal `env:` values reach the run lines ────────────────────
+//
+// 8. Workflow, job and step `env:` literals are substituted into run lines (step > job > workflow).
+//    A `${{ }}` value, a variable assigned in the same run block, a variable an earlier step of the job
+//    exports to $GITHUB_ENV, and anything inside single quotes stay as written. A double-quoted word
+//    that holds a substitution and is left with no whitespace or shell metacharacter is unquoted.
+
+describe('C14 env literals substituted into run lines (TRD 43-09)', () => {
+  const textOf = (steps, name) => byName(steps, name).invocations.map((i) => i.text);
+
+  test('workflow and job env reach the run lines; step beats job beats workflow', () => {
+    const yml = [
+      'on: [push]',
+      'env:',
+      '  CHART: deploy/charts/web',
+      '  LEVEL: workflow',
+      'jobs:',
+      '  j:',
+      '    env:',
+      '      LEVEL: job',
+      '    steps:',
+      '      - name: wf',
+      '        run: helm lint "${CHART}/"',
+      '      - name: job',
+      '        run: tool --level $LEVEL',
+      '      - name: step',
+      '        env:',
+      '          LEVEL: step',
+      '        run: tool --level ${LEVEL}',
+      '      - name: flow',
+      '        env: { LEVEL: flowstep }',
+      '        run: tool --level "$LEVEL"',
+      '',
+    ].join('\n');
+    const steps = _parseWorkflowText(yml, 'x');
+    assert.deepEqual(textOf(steps, 'wf'), ['helm lint deploy/charts/web/']);
+    assert.deepEqual(byName(steps, 'wf').envSubstituted, ['CHART']);
+    assert.deepEqual(textOf(steps, 'job'), ['tool --level job']);
+    assert.deepEqual(textOf(steps, 'step'), ['tool --level step']);
+    assert.deepEqual(textOf(steps, 'flow'), ['tool --level flowstep']);
+  });
+
+  test('`${{ }}` values and expressions are runtime: left as written', () => {
+    const yml = [
+      'on: [push]',
+      'env:',
+      '  REF: ${{ github.ref }}',
+      'jobs:',
+      '  j:',
+      '    steps:',
+      '      - name: deploy',
+      '        run: deploy --ref "$REF" --sha "${{ github.sha }}"',
+      '',
+    ].join('\n');
+    const steps = _parseWorkflowText(yml, 'x');
+    assert.deepEqual(textOf(steps, 'deploy'), ['deploy --ref "$REF" --sha "${{ github.sha }}"']);
+    assert.deepEqual(byName(steps, 'deploy').envSubstituted, []);
+  });
+
+  test('a variable assigned in the same run block is untouched; the others still substitute', () => {
+    const yml = [
+      'on: [push]',
+      'env:',
+      '  OUT: dist',
+      '  CHART: charts/api',
+      'jobs:',
+      '  j:',
+      '    steps:',
+      '      - name: render',
+      '        run: |',
+      '          OUT="$(mktemp -d)"',
+      '          helm template "$CHART" --output-dir "$OUT"',
+      '',
+    ].join('\n');
+    const steps = _parseWorkflowText(yml, 'x');
+    assert.deepEqual(textOf(steps, 'render'), ['helm template charts/api --output-dir "$OUT"']);
+    assert.deepEqual(byName(steps, 'render').envSubstituted, ['CHART']);
+  });
+
+  test('a variable an earlier step exports to $GITHUB_ENV is runtime for the rest of the job', () => {
+    const yml = [
+      'on: [push]',
+      'env:',
+      '  TAG: base',
+      'jobs:',
+      '  j:',
+      '    steps:',
+      '      - run: echo "TAG=$(git describe --tags)" >> "$GITHUB_ENV"',
+      '      - name: image',
+      '        run: docker build -t "app:$TAG" .',
+      '  k:',
+      '    steps:',
+      '      - name: other',
+      '        run: docker build -t "app:$TAG" .',
+      '',
+    ].join('\n');
+    const steps = _parseWorkflowText(yml, 'x');
+    assert.deepEqual(textOf(steps, 'image'), ['docker build -t "app:$TAG" .']);
+    assert.deepEqual(textOf(steps, 'other'), ['docker build -t app:base .'], 'another job is unaffected');
+  });
+
+  test('quoting: whitespace or a metacharacter keeps the quotes; single quotes are literal', () => {
+    const yml = [
+      'on: [push]',
+      'env:',
+      '  MSG: hello world',
+      '  DIR: charts/a',
+      'jobs:',
+      '  j:',
+      '    steps:',
+      '      - name: q',
+      `        run: tool --msg "$MSG" --glob "\${DIR}/*.yaml" --lit '\${DIR}' "\${DIR}/x" "keep"`,
+      '',
+    ].join('\n');
+    const steps = _parseWorkflowText(yml, 'x');
+    assert.deepEqual(textOf(steps, 'q'), [`tool --msg "hello world" --glob "charts/a/*.yaml" --lit '\${DIR}' charts/a/x "keep"`]);
+    assert.deepEqual(byName(steps, 'q').envSubstituted, ['MSG', 'DIR']);
   });
 });
 
