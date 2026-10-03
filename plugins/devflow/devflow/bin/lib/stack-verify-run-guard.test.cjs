@@ -241,7 +241,8 @@ describe('--run effect guard: real spawn, stub flutter, scratch git repo', { ski
 });
 
 describe('CLI: stack verify --run with the effect guard (test 12)', { skip: SKIP }, () => {
-  test('the JSON shows `mutated` and the halt skip, and the work tree is unchanged', () => {
+  /** A pre-dirty Dart repo whose STACK.md runs two flutter gates, and `df-tools stack verify --run <extra>` on it. */
+  function verifyRun(extra = []) {
     const yaml = ['schema: 1', 'extends: general', 'commands:',
       '  lint: { run: "flutter analyze --fatal-infos" }',
       '  format: { run: "flutter analyze --no-fatal-infos" }'].join('\n');
@@ -253,12 +254,24 @@ describe('CLI: stack verify --run with the effect guard (test 12)', { skip: SKIP
     const home = track(fx.fakeHome({}));
     const optionsBefore = read(root, 'analysis_options.yaml');
     const statusBefore = porcelain(root);
-
-    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', root, 'stack', 'verify', '--run'], {
+    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', root, 'stack', 'verify', '--run', ...extra], {
       encoding: 'utf-8',
       env: { ...envWith(bin), HOME: home },
       timeout: 60000,
     });
+    return { root, r, optionsBefore, statusBefore };
+  }
+
+  test('--raw marks a mutated gate and the halted one, so a change is never invisible', () => {
+    const { r } = verifyRun(['--raw']);
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+    const lines = r.stdout.split('\n');
+    assert.ok(lines.includes('lint resolved run=0 mutated=2'), r.stdout);
+    assert.ok(lines.includes('format resolved skipped=side-effect-unsafe'), r.stdout);
+  });
+
+  test('the JSON shows `mutated` and the halt skip, and the work tree is unchanged', () => {
+    const { root, r, optionsBefore, statusBefore } = verifyRun();
     assert.equal(r.status, 0, r.stderr || r.stdout);
     const json = JSON.parse(r.stdout);
     const lint = json.results.find((x) => x.key === 'lint');

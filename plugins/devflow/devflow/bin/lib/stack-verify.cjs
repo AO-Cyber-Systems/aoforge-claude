@@ -1385,11 +1385,19 @@ function verifyStack({ projectRoot, userHome = null, draft = false, run = false,
   return { result, exitCode: summary.missing > 0 || summary.failed > 0 ? 1 : 0 };
 }
 
-/** The compact `--raw` table: `key[@component] status` (a run appends ` run=<exit>` or ` skipped=<reason>`). */
+/**
+ * The compact `--raw` table: `key[@component] status` (a run appends ` run=<exit>` or ` skipped=<reason>`).
+ * A run that changed the work tree adds ` mutated=<n>` (` restored=false` when it could not be put back), or
+ * ` mutated=unknown` when the after-state could not be read: a change must never be invisible in this view.
+ */
 function rawTable(result) {
   const lines = result.results.map((r) => {
     let line = `${r.key}${r.component ? `@${r.component}` : ''} ${r.resolve.status}`;
-    if (r.run) line += r.run.skipped !== undefined ? ` skipped=${r.run.skipped}` : ` run=${r.run.timed_out ? 'timeout' : r.run.exit_code}`;
+    if (r.run) {
+      line += r.run.skipped !== undefined ? ` skipped=${r.run.skipped}` : ` run=${r.run.timed_out ? 'timeout' : r.run.exit_code}`;
+      if (r.run.mutated) line += ` mutated=${r.run.mutated.length}${r.run.restored ? '' : ' restored=false'}`;
+      else if (r.run.mutated_unknown) line += ' mutated=unknown';
+    }
     return line;
   });
   return `${lines.join('\n')}\n`;
