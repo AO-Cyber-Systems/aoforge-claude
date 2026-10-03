@@ -986,3 +986,30 @@ describe('K26 shellcheck and selftest (TRD 43-06)', () => {
     assert.equal(classifyInvocation('bash t0-conformance/selftest.sh', { hint: 'selftest' }).key, 'test');
   });
 });
+
+// TRD 43-11 (eden-biz e2e rows): a scenario-environment NAME can say the target tears the environment down
+// (`e2e-stack-down`, `e2e-teardown`, `integration-env-stop`) or resets it (`e2e-db-reset`). envRole reads
+// whole tokens only: `seed`, `up` and `start` stay bring-ups (43-04 keeps `e2e:seed` an e2e_env), and
+// `downstream` or `presets` say nothing.
+describe('K29 envRole: environment teardown and reset names (TRD 43-11 test 8)', () => {
+  const { envRole, classifyHint } = require('./stack-classify.cjs');
+  test('K29a: down / stop / teardown / destroy whole tokens are a teardown', () => {
+    for (const name of ['e2e-stack-down', 'e2e-teardown', 'integration-env-stop', 'e2e:destroy', 'scenario_down']) {
+      assert.equal(envRole(name), 'teardown', name);
+    }
+  });
+  test('K29b: a reset whole token is a reset', () => {
+    for (const name of ['e2e-db-reset', 'integration:reset', 'reset-e2e-env']) assert.equal(envRole(name), 'reset', name);
+  });
+  test('K29c: bring-ups, seeds and look-alike tokens carry no role', () => {
+    for (const name of ['e2e-stack-up', 'e2e:seed', 'integration-env-up', 'e2e-start', 'e2e-downstream', 'presets', 'e2e', '']) {
+      assert.equal(envRole(name), null, name);
+    }
+    assert.equal(envRole(null), null);
+    assert.equal(envRole(undefined), null);
+  });
+  test('K29d: classifyHint is unchanged — a teardown name still classifies as e2e_env (the drafter reads the role)', () => {
+    assert.equal((classifyHint('e2e-stack-down') || {}).key, 'e2e_env');
+    assert.equal((classifyHint('e2e:seed') || {}).key, 'e2e_env');
+  });
+});

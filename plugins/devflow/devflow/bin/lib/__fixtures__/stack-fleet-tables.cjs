@@ -52,7 +52,8 @@ const ACCEPTED = {
 // closed eden-biz.e2e_env, which 43-11 had claimed (root runner recipes are root candidates wherever
 // their body runs).
 // 43-11 removed justinforme.codegen and smartWellness.codegen (a mixed aggregate never fills a key a pure
-// candidate fills) and re-tagged ao-terminal.deps as a flag-only residual for the 43-15 decision.
+// candidate fills) and eden-biz.codegen (a drift check of one leg of the generator is a partial_check), and
+// re-tagged ao-terminal.deps as a flag-only residual for the 43-15 decision.
 const KNOWN_DRIFT = {
   aocore: [
     {
@@ -67,14 +68,6 @@ const KNOWN_DRIFT = {
       reason: 'build: draft `go build -tags dev -o /tmp/dev-edge ./cmd/dev-edge (cwd go)` vs committed `go build ./... (cwd go)`; '
         + 'test: draft `go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out -timeout 35m (cwd go)` '
         + 'vs committed `go test -short -race ./... -timeout 5m (cwd go)`',
-    },
-  ],
-  'eden-biz': [
-    {
-      keys: ['codegen'],
-      closes: '43-11',
-      reason: 'codegen: draft `make templ-check (apply: make generate) (cwd go)` vs committed `make generate (cwd go)`; '
-        + '(seeded as `make buf-generate (cwd go)`; 43-10 moved the go component\'s runner targets into tier 2)',
     },
   ],
   'ao-terminal': [

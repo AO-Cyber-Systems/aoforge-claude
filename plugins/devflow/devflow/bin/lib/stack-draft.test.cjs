@@ -1580,3 +1580,111 @@ describe('assembleDraft mixed aggregates (M1-M4, TRD 43-11 test 7)', () => {
     assert.equal(d.notes.filter((x) => x.status === 'mixed_aggregate').length, 0);
   });
 });
+
+// TRD 43-11 (eden-biz codegen row): R5 (43-06) makes a codegen drift check the run and the generators its
+// apply. A check is the GENERATOR's check only when its writer (stack-evidence `driftWriter`) is the best
+// generator G itself: G's target, or the same invocation G's body runs (redirections aside). A check whose
+// writer is a strict LEG of G (`templ-check: templ` under `generate: templ tailwind buf-generate`) covers
+// one leg only: a `partial_check` note that neither fills run nor turns G into apply. Any other check keeps R5.
+describe('assembleDraft partial drift checks (P1-P5, TRD 43-11 test 7)', () => {
+  const tgt = (name, order, extra = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [], ...extra });
+  const make = (name, form, order, extra = {}) => ev('codegen', `make ${name}`, {
+    source: 'runner', sourceFile: 'go/Makefile', runner: 'make', form, tool: null, confidence: 'high', cwd: 'go',
+    target: tgt(name, order), unitKeys: ['codegen'], ...extra,
+  });
+  const run = (evidence) => assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('P1: a check of one leg is a partial_check note; the aggregate generator is the run, with no apply', () => {
+    const d = run([
+      make('templ', 'mutate', 0, { bodyInvocations: ['templ generate -f "$f"'] }),
+      make('templ-check', 'check', 1, { target: tgt('templ-check', 1, { deps: ['templ'], legs: ['templ'] }), driftWriter: { target: 'templ' } }),
+      make('buf-generate', 'mutate', 3, { bodyInvocations: ['buf generate'] }),
+      make('generate', 'mutate', 4, { confidence: 'low', target: tgt('generate', 4, { deps: ['templ', 'tailwind', 'buf-generate'], legs: ['templ', 'tailwind', 'buf-generate'] }) }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply, cwd: d.commands.codegen.cwd }, { run: 'make generate', apply: undefined, cwd: 'go' });
+    const n = d.notes.filter((x) => x.status === 'partial_check');
+    assert.deepEqual(n.map((x) => x.candidate), ['make templ-check']);
+    assert.match(n[0].detail, /templ/);
+  });
+
+  test('P2: a check whose writer IS the generator keeps R5 (the 43-06 aodex golden)', () => {
+    const d = run([
+      make('openapi-regen', 'mutate', 0, { bodyInvocations: ['go generate ./internal/api/...'] }),
+      make('openapi-verify', 'check', 1, { target: tgt('openapi-verify', 1, { deps: ['openapi-regen'], legs: ['openapi-regen'] }), driftWriter: { target: 'openapi-regen' } }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply }, { run: 'make openapi-verify', apply: 'make openapi-regen' });
+    assert.equal(d.notes.filter((x) => x.status === 'partial_check').length, 0);
+  });
+
+  test('P3: a check that re-runs the generator\'s own invocation (redirections aside) keeps R5', () => {
+    const d = run([
+      make('schema-regen', 'mutate', 0, { bodyInvocations: ['go generate ./wire/...'] }),
+      make('schema-verify', 'check', 1, { driftWriter: { invocation: 'go generate ./wire/... >/dev/null 2>&1' } }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply }, { run: 'make schema-verify', apply: 'make schema-regen' });
+  });
+
+  test('P4: a check that re-runs a LEG\'s invocation is partial', () => {
+    const d = run([
+      make('templ', 'mutate', 0, { bodyInvocations: ['templ generate'] }),
+      make('views-verify', 'check', 1, { driftWriter: { invocation: 'templ generate' } }),
+      make('generate', 'mutate', 2, { target: tgt('generate', 2, { legs: ['templ', 'buf-generate'] }) }),
+    ]);
+    assert.equal(d.commands.codegen.run, 'make generate', JSON.stringify(d.commands));
+    assert.equal(d.commands.codegen.apply, undefined);
+    assert.ok(d.notes.some((x) => x.status === 'partial_check' && x.candidate === 'make views-verify'));
+  });
+
+  test('P5: a check whose writer is neither the generator nor one of its legs keeps R5', () => {
+    const d = run([
+      make('docs-check', 'check', 0, { driftWriter: { target: 'docs-gen' } }),
+      make('generate', 'mutate', 1, { target: tgt('generate', 1, { legs: ['templ'] }) }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply }, { run: 'make docs-check', apply: 'make generate' });
+  });
+});
+
+// TRD 43-11 (eden-biz e2e rows): a scenario-environment name that tears the environment down
+// (stack-classify envRole `teardown`: `e2e-stack-down`) or resets it (`reset`: `e2e-db-reset`) fills neither
+// e2e_env nor e2e: an `env_teardown` / `env_reset` note. A bring-up (`up`, `seed`) is unaffected, and a
+// declared row is the user's own.
+describe('assembleDraft environment teardown and reset (T1-T5, TRD 43-11 test 7)', () => {
+  const tgt = (name, order) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [] });
+  const make = (key, name, order, extra = {}) => ev(key, `make ${name}`, {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'check', tool: null, confidence: 'low',
+    target: tgt(name, order), scenarioNamed: true, ...extra,
+  });
+  const run = (evidence) => assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('T1: the teardown never fills e2e_env, even listed first; the bring-up does', () => {
+    const d = run([make('e2e_env', 'e2e-stack-down', 0), make('e2e_env', 'e2e-stack-up', 1)]);
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-up' });
+    assert.ok(d.notes.some((x) => x.status === 'env_teardown' && x.candidate === 'make e2e-stack-down'));
+  });
+
+  test('T2: a reset is not the e2e suite: no e2e key, an env_reset note', () => {
+    const d = run([make('e2e', 'e2e-db-reset', 0)]);
+    assert.equal('e2e' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.notes.some((x) => x.status === 'env_reset' && x.key === 'e2e' && x.candidate === 'make e2e-db-reset'));
+  });
+
+  test('T3: a CI step through a teardown script is read by its invoked name', () => {
+    const d = run([
+      ev('e2e_env', './scripts/e2e-teardown.sh', { runner: 'script', tool: null, form: 'check', confidence: 'low', invokedName: 'e2e-teardown', scenarioNamed: true }),
+    ]);
+    assert.equal('e2e_env' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.notes.some((x) => x.status === 'env_teardown' && x.candidate === './scripts/e2e-teardown.sh'));
+  });
+
+  test('T4: `seed` stays a bring-up (43-04)', () => {
+    const d = run([make('e2e_env', 'e2e:seed', 0)]);
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e:seed' });
+    assert.equal(d.notes.filter((x) => x.status === 'env_teardown' || x.status === 'env_reset').length, 0);
+  });
+
+  test('T5: a declared row is the user\'s own choice and stays', () => {
+    const declared = ev('e2e_env', 'make e2e-stack-down', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', tool: null });
+    const d = run([declared]);
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-down' });
+  });
+});

@@ -1520,3 +1520,80 @@ describe('stack-evidence unitKeys and legs (E23, TRD 43-11 test 6)', () => {
     }
   });
 });
+
+// ─── TRD 43-11: the writer of a drift check ───────────────────────────────────────────────────────────
+//
+// A drift check (driftCheckOf) regenerates, then fails on a diff. Its WRITER is the prerequisite target it
+// regenerates through (`templ-check: templ` -> { target: 'templ' }) or the earlier statement of its own recipe
+// (`… go generate ./api/... && if ! diff -q …` -> { invocation: 'go generate ./api/...' }). stack-draft
+// compares the writer with the codegen generator to tell a check of one leg from a check of the whole.
+
+describe('stack-evidence driftWriter (E24, TRD 43-11)', () => {
+  const MAKEFILE = [
+    'templ:',
+    '\ttempl generate',
+    '',
+    'templ-check: templ',
+    '\t@if ! git diff --exit-code --stat -- views; then echo "templ drift"; exit 1; fi',
+    '',
+    'api-guard:',
+    '\t@snap=$$(mktemp -d) && cp api/a.gen.go $$snap/ && go generate ./api/... >/dev/null 2>&1 && \\',
+    '\tif ! diff -q $$snap/a.gen.go api/a.gen.go >/dev/null; then cp $$snap/a.gen.go api/; exit 1; fi',
+    '',
+    'fmt:',
+    '\tgofmt -w .',
+    '',
+    'fmt-check: fmt',
+    '\t@out=$$(git diff --color=never); if [ -n "$$out" ]; then echo "$$out"; exit 1; fi',
+    '',
+    'generate: templ',
+    '',
+  ].join('\n');
+  const WORKFLOW = [
+    'name: drift',
+    'on: [push]',
+    'jobs:',
+    '  drift:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: make templ-check',
+    '',
+  ].join('\n');
+  function items() {
+    const root = makeRepo({
+      'go.mod': 'module example.invalid/writers\n\ngo 1.23\n',
+      Makefile: MAKEFILE,
+      '.github/workflows/drift.yml': WORKFLOW,
+    });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd, source) => list.find((e) => e.command === cmd && (!source || e.source === source)) || null;
+
+  test('E24a: a check that regenerates through a prerequisite names that target', () => {
+    const list = items();
+    assert.deepStrictEqual(byCmd(list, 'make templ-check', 'runner').driftWriter, { target: 'templ' });
+    assert.deepStrictEqual(byCmd(list, 'make fmt-check', 'runner').driftWriter, { target: 'fmt' });
+  });
+
+  test('E24b: a check that regenerates in its own recipe names that invocation', () => {
+    assert.deepStrictEqual(byCmd(items(), 'make api-guard', 'runner').driftWriter, { invocation: 'go generate ./api/... >/dev/null 2>&1' });
+  });
+
+  test('E24c: a CI step through a drift-check target carries the same writer', () => {
+    assert.deepStrictEqual(byCmd(items(), 'make templ-check', 'ci').driftWriter, { target: 'templ' });
+  });
+
+  test('E24d: a writer or an aggregate that checks nothing has no driftWriter', () => {
+    const list = items();
+    for (const cmd of ['make templ', 'make generate', 'make fmt']) {
+      const item = byCmd(list, cmd, 'runner');
+      assert.ok(item, cmd);
+      assert.equal(item.driftWriter, undefined, cmd);
+    }
+  });
+});

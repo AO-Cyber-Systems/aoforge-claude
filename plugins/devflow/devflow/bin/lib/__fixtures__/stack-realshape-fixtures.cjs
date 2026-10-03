@@ -985,6 +985,244 @@ function bootstrapTaskShape() {
   });
 }
 
+// ─── partial drift check (eden-biz.codegen row) ───────────────────────────────
+
+/**
+ * partialDriftCheckShape() — a `general` root with a Go server in `go/` (the primary: its CI builds and tests
+ * there) and a Flutter app in `app/`. The server Makefile's aggregate generator is `generate: views styles
+ * buf-generate`: `views:` regenerates the view templates file by file (`find … | sort | while read -r f; do
+ * <gen> -f "$$f" || exit 1; done`), `styles:` runs the CSS bundler (classifies to nothing), `buf-generate:` runs
+ * `cd .. && buf generate`. `views-check: views` then fails on `git diff --exit-code` over the views dir: a drift
+ * check of ONE leg. There are also a narrow `proto-gen:` (`cd .. && buf generate --path a --path b`), a watcher
+ * and a `dev:` target that backgrounds watchers. `build: generate`. A root CI drift workflow runs `buf
+ * generate`; a views drift workflow loops the generator in `go/`.
+ *
+ * Reviewed: codegen `make generate`, cwd `go`, no apply; build and test the server Makefile's, cwd `go`.
+ */
+function partialDriftCheckShape() {
+  return makeWhole({
+    'README.md': '# tidewell\n',
+    'buf.yaml': 'version: v2\nmodules:\n  - path: proto\n',
+    'buf.gen.yaml': 'version: v2\nplugins: []\n',
+    'proto/tide/v1/tide.proto': 'syntax = "proto3";\npackage tide.v1;\n',
+    'go/go.mod': goMod('tidewell'),
+    'go/main.go': GO_MAIN,
+    'go/cmd/tide-api/main.go': GO_MAIN,
+    'go/internal/views/home.templ': 'package views\n\ntempl Home() { <p>tide</p> }\n',
+    'go/static/css/site-input.css': '@tailwind base;\n',
+    'go/Makefile': mk([
+      'BINARY := bin/tide-api',
+      '',
+      '.PHONY: build test views views-check views-watch styles buf-generate generate proto-gen dev',
+      '',
+      'build: generate',
+      '\tgo build -o $(BINARY) ./cmd/tide-api',
+      '',
+      '# ── Views (generated *_templ.go are committed) ──',
+      '',
+      'views:',
+      "\t@find internal/views -name '*.templ' | sort | while read -r f; do \\",
+      '\t  templ generate -f "$$f" || exit 1; \\',
+      '\tdone',
+      '',
+      '## views-check: regenerate the views, then fail on any drift (CI gate)',
+      'views-check: views',
+      '\t@if ! git diff --exit-code --stat -- internal/views; then \\',
+      "\t  echo \"views drift: run 'make views' and commit\"; \\",
+      '\t  git diff -- internal/views; \\',
+      '\t  exit 1; \\',
+      '\tfi',
+      '\t@echo "No views drift."',
+      '',
+      'views-watch:',
+      '\ttempl generate --watch',
+      '',
+      'styles:',
+      '\ttailwindcss -i static/css/site-input.css -o static/css/site.css --minify',
+      '',
+      'buf-generate:',
+      '\tcd .. && buf generate',
+      '',
+      'generate: views styles buf-generate',
+      '',
+      '## proto-gen: regenerate only the public booking protos',
+      'proto-gen:',
+      '\tcd .. && buf generate \\',
+      '\t  --path proto/tide/v1/tide.proto \\',
+      '\t  --path proto/tide/v1/tide_public.proto',
+      '',
+      'dev:',
+      '\t@echo "Starting watchers..."',
+      '\t@templ generate --watch &',
+      '\t@tailwindcss -i static/css/site-input.css -o static/css/site.css --watch &',
+      '\t@go run ./cmd/tide-api',
+      '',
+      'test:',
+      '\tgo test ./...',
+    ]),
+    'app/pubspec.yaml': flutterPubspec('tide_app'),
+    'app/lib/main.dart': DART_MAIN,
+    '.github/workflows/go.yml': wf([
+      'name: go',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: go',
+      'jobs:',
+      '  server:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go build ./...',
+      '      - run: go test ./... -count=1',
+    ]),
+    '.github/workflows/proto-drift.yml': wf([
+      'name: proto drift',
+      'on: [pull_request]',
+      'jobs:',
+      '  drift:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - run: buf generate',
+      '      - run: git diff --exit-code',
+    ]),
+    '.github/workflows/views-drift.yml': wf([
+      'name: views drift',
+      'on: [pull_request]',
+      'jobs:',
+      '  drift:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: go',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - name: Regenerate views',
+      '        run: |',
+      "          find internal/views -name '*.templ' | sort | while read -r f; do",
+      '            templ generate -f "$f" || exit 1',
+      '          done',
+      '      - run: git diff --exit-code -- internal/views',
+    ]),
+  });
+}
+
+// ─── scenario stack targets (eden-biz e2e_env and e2e rows) ───────────────────
+
+/**
+ * scenarioStackShape() — a `general` root with a Go server in `go/` (the primary) and a Flutter app in `app/`
+ * whose browser suite lives in `app/web_e2e/` (node, unsupported). The ROOT Makefile is the e2e harness
+ * entry point (default goal `help`): `e2e-stack-up: ## cold machine -> live e2e stack …` and `e2e-stack-down:
+ * ## Tear down …; idempotent` each run a script under `app/web_e2e/scripts/`, `e2e-db-reset: ## Suite-level
+ * reset …` runs a reset script, and `e2e-build-web:` delegates with `$(MAKE) -C app`. The up script brings the
+ * server's infra up through `make -C go infra-up`, migrates and builds; the down script kills pids and runs
+ * `make -C go infra-down`; the reset script truncates and reseeds. The server Makefile has `infra-up` /
+ * `infra-down` (`cd .. && docker compose …`).
+ *
+ * Competing scenario candidates: e2e_env `make e2e-stack-up` and `make e2e-stack-down`; e2e `make e2e-db-reset`.
+ * Reviewed: e2e_env `make e2e-stack-up`, and no e2e key (the reset is not a suite).
+ */
+function scenarioStackShape() {
+  return makeWhole({
+    'docker-compose.yml': 'services:\n  db:\n    image: postgres:16\n',
+    Makefile: mk([
+      '# Monorepo root Makefile: e2e harness orchestration. Component targets stay in go/ and app/.',
+      '',
+      '.DEFAULT_GOAL := help',
+      '',
+      '.PHONY: help',
+      'help: ## Print available targets',
+      "\t@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = \":.*?## \"}; {printf \"%-22s %s\\n\", $$1, $$2}'",
+      '',
+      '.PHONY: e2e-stack-up',
+      'e2e-stack-up: ## Cold machine -> live e2e stack: infra, migrate, seed, server on :8091',
+      '\tbash app/web_e2e/scripts/e2e-stack-up.sh',
+      '',
+      '.PHONY: e2e-stack-down',
+      'e2e-stack-down: ## Tear down the e2e stack (server pids + docker infra); idempotent',
+      '\tbash app/web_e2e/scripts/e2e-stack-down.sh',
+      '',
+      '.PHONY: e2e-db-reset',
+      'e2e-db-reset: ## Suite-level reset: truncate + reseed; the server stays up',
+      '\tbash app/web_e2e/scripts/db-reset.sh',
+      '',
+      '.PHONY: e2e-build-web',
+      'e2e-build-web: ## Build the web e2e bundle',
+      '\t$(MAKE) -C app e2e-build-web',
+    ]),
+    'app/web_e2e/scripts/e2e-stack-up.sh': [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"',
+      'cd "$REPO_ROOT"',
+      'make -C go infra-up',
+      '(cd go && go run ./cmd/tide-migrate -cmd up)',
+      '(cd go && go build -tags dev -o "$RUN_DIR/tide-api" ./cmd/tide-api)',
+      '',
+    ].join('\n'),
+    'app/web_e2e/scripts/e2e-stack-down.sh': [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"',
+      'cd "$REPO_ROOT"',
+      'for pid in $(cat "$RUN_DIR"/*.pid 2>/dev/null); do',
+      '  kill "$pid" 2>/dev/null || true',
+      'done',
+      'make -C go infra-down',
+      '',
+    ].join('\n'),
+    'app/web_e2e/scripts/db-reset.sh': [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"',
+      'cd "$REPO_ROOT"',
+      'psql "$DATABASE_URL" -c "TRUNCATE tenants CASCADE"',
+      '(cd go && go run ./cmd/seed-tenant --tenant=both)',
+      '',
+    ].join('\n'),
+    'app/web_e2e/package.json': `${JSON.stringify({ name: 'tide-web-e2e', private: true, scripts: { test: 'playwright test' } }, null, 2)}\n`,
+    'app/pubspec.yaml': flutterPubspec('tide_app'),
+    'app/lib/main.dart': DART_MAIN,
+    'app/Makefile': mk([
+      'e2e-build-web:',
+      '\tflutter build web -t lib/main_e2e.dart --dart-define=API_URL=http://localhost:8091',
+    ]),
+    'go/go.mod': goMod('tidewell'),
+    'go/main.go': GO_MAIN,
+    'go/cmd/tide-api/main.go': GO_MAIN,
+    'go/Makefile': mk([
+      'build:',
+      '\tgo build -o bin/tide-api ./cmd/tide-api',
+      '',
+      'test:',
+      '\tgo test ./...',
+      '',
+      'infra-up:',
+      '\tcd .. && docker compose up -d',
+      '',
+      'infra-down:',
+      '\tcd .. && docker compose down',
+    ]),
+    '.github/workflows/go.yml': wf([
+      'name: go',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: go',
+      'jobs:',
+      '  server:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go build ./...',
+      '      - run: go test ./... -count=1',
+    ]),
+  }, { modes: { 'app/web_e2e/scripts/e2e-stack-up.sh': 0o755, 'app/web_e2e/scripts/e2e-stack-down.sh': 0o755, 'app/web_e2e/scripts/db-reset.sh': 0o755 } });
+}
+
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
 
 const REALSHAPE = Object.freeze({
@@ -1143,12 +1381,48 @@ const REALSHAPE = Object.freeze({
     noEvidence: [],
     noteStatuses: { present: ['mixed_aggregate'], absent: [] },
   },
+  partialDriftCheckShape: {
+    build: partialDriftCheckShape,
+    tools: tools('buf', 'templ', 'tailwindcss'),
+    expect: {
+      extends: 'general',
+      components: [{ path: 'app/', profile: 'flutter' }, { path: 'go/', profile: 'go' }],
+      commands: {
+        build: { run: 'make build', cwd: 'go' },
+        test: { run: 'make test', cwd: 'go' },
+        codegen: { run: 'make generate', cwd: 'go' },
+      },
+    },
+    absent: [],
+    extraAllowed: [],
+    noEvidence: [],
+    noteStatuses: { present: ['partial_check'], absent: [] },
+  },
+  scenarioStackShape: {
+    build: scenarioStackShape,
+    tools: tools('bash', 'docker', 'psql'),
+    expect: {
+      extends: 'general',
+      components: [{ path: 'app/', profile: 'flutter' }, { path: 'go/', profile: 'go' }],
+      commands: {
+        build: { run: 'make build', cwd: 'go' },
+        test: { run: 'make test', cwd: 'go' },
+        e2e_env: { run: 'make e2e-stack-up' },
+      },
+    },
+    absent: ['e2e'],
+    extraAllowed: [],
+    noEvidence: [],
+    noteStatuses: { present: ['env_teardown', 'env_reset'], absent: [] },
+  },
 });
 
 module.exports = {
   REALSHAPE,
   mixedAggregateCodegenShape,
   bootstrapTaskShape,
+  partialDriftCheckShape,
+  scenarioStackShape,
   captureDiffCheckShape,
   snapshotVerifyShape,
   workflowEnvChartShape,
