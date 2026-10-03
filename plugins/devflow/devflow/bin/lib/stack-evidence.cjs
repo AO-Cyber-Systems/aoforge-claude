@@ -62,7 +62,9 @@
 // It composes the 42-03..05 readers instead of scraping lines: `.planning/<from>/STACK.md`
 // Commands rows (declared), stack-runners targets whose BODY is normalised and classified
 // (runner, and package.json scripts as manifest), stack-ci workflow steps (ci; a `make x` or
-// `./scripts/x.sh` step is classified by the body it runs), and TESTING.md fenced blocks (docs).
+// `./scripts/x.sh` step is classified by the body it runs; a `uses:` step of an action with a fixed CLI
+// equivalent, stack-classify USES_CLI, is that command, run in the action's `with: working-directory`
+// (TRD 43-12)), and TESTING.md fenced blocks (docs).
 // Shell text always goes through stack-shell.normalizeScript first, so a `\` continuation is one
 // command and a comment, `echo`, `test -f x || {` or `${{ }}` fragment is never an item.
 //
@@ -71,7 +73,7 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizeScript } = require('./stack-shell.cjs');
-const { classifyInvocation, classifyHint, toolStack, isDriftCheck, driftCheckAt, checkFormByName } = require('./stack-classify.cjs');
+const { classifyInvocation, classifyHint, toolStack, isDriftCheck, driftCheckAt, checkFormByName, lookupUsesCli } = require('./stack-classify.cjs');
 const { parseWorkflows } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
@@ -683,9 +685,29 @@ function readRunnerTargets(targets, push, ctx) {
   }
 }
 
-// 3. CI: every logical invocation of every workflow step (stack-ci).
+// 3. CI: every logical invocation of every workflow step (stack-ci), and every `uses:` step of an action
+// with a fixed CLI equivalent (TRD 43-12: golangci-lint-action is `golangci-lint run ./...`). Its cwd is the
+// action's `with: working-directory`, else the step's; cwd hygiene and placement treat it as any CI line.
 function readCi(projectRoot, index, push, ctx) {
   for (const step of parseWorkflows(projectRoot)) {
+    const cli = step.uses ? lookupUsesCli(step.uses) : null;
+    if (cli) {
+      const fromWith = !!step.with && Object.prototype.hasOwnProperty.call(step.with, 'working-directory');
+      const weak = step.continueOnError ? ['continue-on-error'] : [];
+      push({
+        key: cli.key,
+        command: cli.command,
+        form: cli.form,
+        source: 'ci',
+        sourceFile: step.file,
+        cwd: normDir(fromWith ? step.with['working-directory'] : step.cwd),
+        runner: null,
+        confidence: 'high',
+        weak,
+        tool: cli.tool,
+        external: fromWith ? step.withExternal === true : step.external === true,
+      });
+    }
     for (const inv of step.invocations || []) {
       const { cls, runner, bodyInvocations } = classifyStep(inv, index, projectRoot);
       if (!cls) continue;

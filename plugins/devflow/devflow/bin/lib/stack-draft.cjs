@@ -101,6 +101,12 @@
 // file (never the alphabet). When a runner target wins build/test/lint, every other resolved runner
 // candidate for the key is an `alternate` note.
 //
+// Dedicated linter (TRD 43-12). For `lint` only, right after the name rank: a candidate running a dedicated
+// linter (stack-classify isDedicatedLinter: a tool the table classifies as lint and never as build or test,
+// such as golangci-lint) other than the governing default's tool ranks ahead of one running that default's
+// tool (`go vet ./...`) or a toolchain driver (`dart analyze`). Source and name rank still decide first. When
+// it decides, each displaced candidate running the default's tool is an `alternate` note.
+//
 // codegen (TRD 43-06): when a codegen candidate is a drift check (check form), the generators (mutate)
 // are its apply, so `make openapi-verify` is the run and `make openapi-regen` the apply.
 //
@@ -130,7 +136,7 @@
 // that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
 // other unresolved candidate. Items without a cwdStatus are treated as ok.
 
-const { classifyInvocation, testBreadth, toolStack, envRole, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
+const { classifyInvocation, testBreadth, toolStack, envRole, isDedicatedLinter, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
 const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
@@ -216,12 +222,29 @@ function canonicalOf(item, key) {
  */
 const scenarioNamedOf = (item, key) => (key === 'e2e_env' && item.scenarioNamed !== true ? 1 : 0);
 
-function rankOf(item, key) {
+/**
+ * For `lint` only (TRD 43-12), right after the name rank: 0 when the candidate runs a DEDICATED linter
+ * (stack-classify isDedicatedLinter: golangci-lint, staticcheck, eslint, ruff, shellcheck) that is not the
+ * governing default's own tool, else 1 (the default's tool, a toolchain driver such as `go vet` or
+ * `dart analyze`, or no known tool). Neutral for every other key. Source and name still rank first, so a
+ * runner target or a key-named script beats a CI linter line.
+ */
+const linterOf = (item, key, defaultTool) => (key === 'lint'
+  ? (isDedicatedLinter(item.tool) && item.tool !== defaultTool ? 0 : 1)
+  : 0);
+
+/** The tool of a tier default's run (stack-classify), or null when it is not runnable or not classified. */
+const defaultToolOf = (run) => (runnable(run) ? ((classifyInvocation(run) || {}).tool || null) : null);
+
+function rankOf(item, key, defaultTool = null) {
   const s = SOURCE_RANK[item.source];
+  const [nameRank, ...canonicalRest] = canonicalOf(item, key);
   return [
     s === undefined ? 9 : s,
     scenarioNamedOf(item, key),
-    ...canonicalOf(item, key),
+    nameRank,
+    linterOf(item, key, defaultTool),
+    ...canonicalRest,
     item.confidence === 'low' ? 1 : 0,
     item.weak && item.weak.length ? 1 : 0,
   ];
@@ -233,10 +256,13 @@ function sourceOrder(a, b) {
   return (a.target.order || 0) - (b.target.order || 0);
 }
 
-/** Stable ranking by (source, canonical target tuple, confidence, weak, source order). */
-function rank(items, key) {
+/**
+ * Stable ranking by (source, scenario name, name rank, dedicated linter, the rest of the canonical target
+ * tuple, confidence, weak, source order). `defaultTool` is the governing tier default's tool (linterOf).
+ */
+function rank(items, key, defaultTool = null) {
   return items
-    .map((item, i) => ({ item, i, r: rankOf(item, key) }))
+    .map((item, i) => ({ item, i, r: rankOf(item, key, defaultTool) }))
     .sort((a, b) => {
       for (let k = 0; k < a.r.length; k++) if (a.r[k] !== b.r[k]) return a.r[k] - b.r[k];
       return sourceOrder(a.item, b.item) || a.i - b.i;
@@ -778,7 +804,9 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         return false;
       });
     }
-    let ranked = rank(pool, key);
+    // The governing default's tool decides the dedicated-linter rank for lint (TRD 43-12, linterOf).
+    const formTool = defaultToolOf(formRun);
+    let ranked = rank(pool, key, formTool);
     // A codegen drift check (check form: regenerate, then fail on a diff) is the codegen gate; the
     // generator it re-runs (mutate) is then its apply, not a competing run (TRD 43-06, R5). TRD 43-11: the
     // check must check the GENERATOR. Take G = the best-ranked generator. A check whose writer (stack-evidence
@@ -848,10 +876,24 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       }
       notes.push(note(c, key, v.status, v.detail));
     }
+    const alternates = new Set();
     if (chosen && chosen.target && CANONICAL_KEYS.has(key)) {
       for (const c of runCands.slice(chosenAt + 1)) {
         if (!c.target || squash(c.command) === squash(chosen.command)) continue;
-        if (check(c).status === 'resolved') notes.push(note(c, key, 'alternate', `canonical pick: ${chosen.command}`));
+        if (check(c).status === 'resolved') {
+          alternates.add(squash(c.command));
+          notes.push(note(c, key, 'alternate', `canonical pick: ${chosen.command}`));
+        }
+      }
+    }
+    // A dedicated linter that won on linterOf displaced the governing default's linter: each candidate
+    // running that default tool is an `alternate` note naming the pick (TRD 43-12).
+    if (chosen && key === 'lint' && formTool && linterOf(chosen, key, formTool) === 0) {
+      const tier = fromPrimary ? primary.profile : extendsId;
+      for (const c of runCands.slice(chosenAt + 1)) {
+        if (c.tool !== formTool || alternates.has(squash(c.command))) continue;
+        alternates.add(squash(c.command));
+        notes.push(note(c, key, 'alternate', `dedicated linter pick: ${chosen.command}; this runs the ${tier} default linter (${formTool})`));
       }
     }
     if (chosen && key === 'test' && breadthOf(chosen).breadth === 'unknown') {
@@ -963,7 +1005,7 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         }
       }
       if (winner === 1 && lists[2].length) {
-        const ordered = rank(lists[2], key);
+        const ordered = rank(lists[2], key, defaultToolOf(parent[key] && parent[key].run));
         const best = ordered.find((e) => RUN_FORMS.has(e.form)) || ordered[0];
         const via = outcomes[outcomes.length - 1].via;
         const detail = key === 'build' && imageBuildOnly(best)
@@ -992,10 +1034,11 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
 
   // ── commands that belong to a component or an unsupported area: one note per (area, key) ──
   for (const list of elsewhere.values()) {
-    const ordered = rank(list, list[0].key);
-    const best = ordered.find((e) => RUN_FORMS.has(e.form)) || ordered[0];
-    const areaProfile = profileByDir.get(best.area) || null;
+    // Every item of a bucket shares its area and key; the area's tier default decides linterOf (TRD 43-12).
+    const areaProfile = profileByDir.get(list[0].area) || null;
     const tier = areaProfile && areaProfile !== 'general' ? (tierCommands[areaProfile] || {}) : {};
+    const ordered = rank(list, list[0].key, defaultToolOf(tier[list[0].key] && tier[list[0].key].run));
+    const best = ordered.find((e) => RUN_FORMS.has(e.form)) || ordered[0];
     const tierEntry = tier[best.key];
     if (tierEntry && equivalent(best, tierEntry.run)) continue;
     const v = check(best);

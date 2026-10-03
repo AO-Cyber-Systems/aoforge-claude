@@ -229,8 +229,9 @@ const WEAK_MARKERS = [
 
 // ─── Uses map ─────────────────────────────────────────────────────────────────
 //
-// A `uses:` step proves a lint / audit / sast step EXISTS but gives no command: the report uses it,
-// the drafter never turns it into a `run`. `key: null` with `role: 'setup'` is toolchain setup.
+// A `uses:` step proves a lint / audit / sast step EXISTS. Only an action with a FIXED CLI equivalent
+// (USES_CLI below, a closed table) becomes a candidate command; every other entry gives no command: the
+// report uses it, the drafter never turns it into a `run`. `key: null` with `role: 'setup'` is toolchain setup.
 
 const USES_MAP = [
   { prefix: 'golangci/golangci-lint-action', key: 'lint', role: 'check' },
@@ -246,15 +247,37 @@ const USES_MAP = [
   { prefix: 'dart-lang/setup-dart', key: null, role: 'setup' },
 ];
 
-/** lookupUses(ref) -> the USES_MAP entry for `owner/repo[/path][@ref]`, or null. `@ref` is ignored. */
-function lookupUses(ref) {
+/**
+ * Actions whose job IS one command line, so a `uses:` step of one is that command (TRD 43-12): the action
+ * installs the tool and runs it over the module (`with: working-directory` says where; stack-ci records it).
+ * Closed: an action is added only when its default invocation is a fixed CLI line. Each prefix is also a
+ * USES_MAP entry of the same key.
+ */
+const USES_CLI = Object.freeze([
+  Object.freeze({ prefix: 'golangci/golangci-lint-action', key: 'lint', form: 'check', command: 'golangci-lint run ./...', tool: 'golangci-lint' }),
+  Object.freeze({ prefix: 'golang/govulncheck-action', key: 'audit', form: 'check', command: 'govulncheck ./...', tool: 'govulncheck' }),
+]);
+
+/** The entry of `table` whose prefix is `owner/repo[/path]` of `ref` (`@ref` ignored), or null. */
+function matchUses(ref, table) {
   if (typeof ref !== 'string') return null;
   const base = ref.trim().split('@')[0];
   if (!base || base.startsWith('.') || base.startsWith('docker:')) return null;
-  for (const entry of USES_MAP) {
+  for (const entry of table) {
     if (base === entry.prefix || base.startsWith(`${entry.prefix}/`)) return entry;
   }
   return null;
+}
+
+/** lookupUses(ref) -> the USES_MAP entry for `owner/repo[/path][@ref]`, or null. `@ref` is ignored. */
+function lookupUses(ref) {
+  return matchUses(ref, USES_MAP);
+}
+
+/** lookupUsesCli(ref) -> { key, form, command, tool } for an action with a fixed CLI equivalent, else null. */
+function lookupUsesCli(ref) {
+  const e = matchUses(ref, USES_CLI);
+  return e ? { key: e.key, form: e.form, command: e.command, tool: e.tool } : null;
 }
 
 /** classifyUses(ref) -> a key, or null (unknown action, or setup-only). */
@@ -1017,6 +1040,26 @@ function toolStack(inv) {
   return null;
 }
 
+/**
+ * Tools the table classifies as `lint` and never as `build` or `test`: a DEDICATED linter (golangci-lint,
+ * staticcheck, eslint, ruff, shellcheck), as opposed to a toolchain driver whose subcommand lints (`go vet`,
+ * `dart analyze`, `flutter analyze`, `cargo clippy`). Derived from CLASSIFY_TABLE (TRD 43-12).
+ */
+const DEDICATED_LINTERS = (() => {
+  const lint = new Set();
+  const driver = new Set();
+  for (const r of CLASSIFY_TABLE) {
+    if (r.key === 'lint') lint.add(r.tool);
+    if (r.key === 'build' || r.key === 'test') driver.add(r.tool);
+  }
+  return new Set([...lint].filter((t) => !driver.has(t)));
+})();
+
+/** isDedicatedLinter(tool) -> true for a tool that only lints (DEDICATED_LINTERS). */
+function isDedicatedLinter(tool) {
+  return typeof tool === 'string' && DEDICATED_LINTERS.has(tool);
+}
+
 module.exports = {
   CLASSIFY_TABLE,
   TOOL_STACKS,
@@ -1031,10 +1074,13 @@ module.exports = {
   checkFormByName,
   classifyUses,
   lookupUses,
+  lookupUsesCli,
+  isDedicatedLinter,
   testBreadth,
   TEST_BREADTH,
   BREADTH_REASONS,
   WEAK_MARKERS,
   STANDARD_KEYS_EXT,
   USES_MAP,
+  USES_CLI,
 };

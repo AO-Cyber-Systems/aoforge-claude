@@ -118,10 +118,15 @@ function flowMap(v) {
   return out;
 }
 
-/** An `actions/checkout` `with:` key (block or flow spelling) recorded on the raw step. */
+/**
+ * A `with:` key (block or flow spelling) recorded on the raw step: `actions/checkout`'s `path` and
+ * `repository`, and any action's `working-directory` (TRD 43-12: where an action such as
+ * golangci-lint-action runs; read only as a plain scalar).
+ */
 function applyWithKey(step, key, value) {
   if (key === 'path') step.withPath = scalar(value) || null;
   else if (key === 'repository') step.withRepo = scalar(value) || null;
+  else if (key === 'working-directory') step.withCwd = scalar(value);
 }
 
 // ─── working-directory normalisation (TRD 42-14, D1) ──────────────────────
@@ -523,7 +528,14 @@ function parseDoc(doc, file, { root = null, repoName = null } = {}) {
       inv.external = n.external;
     }
     const { cwd, external } = normaliseWorkingDirectory(rawCwd, ctx);
-    steps.push({ file, job: s.job, name: s.name, uses: s.uses, cwd, external, checkouts, continueOnError, scheduled, invocations, envSubstituted });
+    const step = { file, job: s.job, name: s.name, uses: s.uses, cwd, external, checkouts, continueOnError, scheduled, invocations, envSubstituted };
+    // An action's own `with: working-directory` (TRD 43-12), normalised like a step cwd; null is the repo root.
+    if (typeof s.withCwd === 'string' && s.withCwd.trim() !== '') {
+      const w = normaliseWorkingDirectory(s.withCwd, ctx);
+      step.with = { 'working-directory': w.cwd };
+      if (w.external) step.withExternal = true;
+    }
+    steps.push(step);
   }
   return steps;
 }
@@ -563,7 +575,9 @@ function _parseWorkflowText(text, file, opts = {}) {
  * cwd is inside another repo's checkout. `checkouts` lists the job's `actions/checkout` steps as
  * `{ path, repository }`. Each invocation additionally carries any `cd` made inside the block, and
  * its own normalised `cwd` + `external`. `scheduled` is per WORKFLOW. A `uses:` step is recorded
- * with `uses` set and `invocations: []`.
+ * with `uses` set and `invocations: []`. A step whose `with:` sets `working-directory` also carries
+ * `with: { 'working-directory': <normalised dir, null for the root> }` (and `withExternal: true` when that
+ * dir is in another checkout); it never changes `cwd` (TRD 43-12).
  */
 function parseWorkflows(root) {
   const dir = path.join(root, '.github', 'workflows');
