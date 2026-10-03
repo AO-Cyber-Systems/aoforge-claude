@@ -516,3 +516,100 @@ KNOWN_DRIFT after this TRD (both residual, both closed by 43-15):
 | ao-terminal | `deps` | 43-15 | flag-only residual: CI adds `--no-audit --no-fund`, the reviewed value dropped them |
 
 ACCEPTED is unchanged (devcluster `lint`, `test`).
+
+## Gap closure cycle 1: dry-run drift (TRD 43-15)
+
+Taken 2026-10-03 (21:27Z) with the CHECKOUT drafter at devflow-claude HEAD `c3ad796c` (`node plugins/devflow/devflow/bin/df-tools.cjs --cwd <repo> stack init`, JSON, no `--write`, no `--run`, real `process.env`). Each draft was compared with the repo's committed `.planning/STACK.md` read from `HEAD` (never the work tree), with `compareDrift` and `formatRow` from `__fixtures__/stack-drift-compare.cjs` (the function the fleet harness uses, so this table and the harness cannot disagree), the golden HAND_ONLY keys and the `helm_lint` to `lint_helm` alias. The scope is the 43-07 one: `extends`, the `components` set, and per command key the effective `run`, `apply` and `cwd`.
+
+**Read-only proof.** For each of the 33 repos a signature (HEAD, branch, the `git status --porcelain=v1 -uall` bytes, and a `git hash-object --no-filters` of every listed path; symlinks by target) was taken before and after the draft, with `GIT_OPTIONAL_LOCKS=0`. **33 of 33 signatures are identical and every HEAD is unchanged.** The whole pass was run a second time after the read-only investigation of the residual rows (`git show`, `stack init` without `--write`, ripgrep): 33 of 33 identical again, and 33 of 33 repos have a second-pass "before" signature equal to the first-pass "after" one, so the investigation in between changed nothing. The two passes printed the same rows for 33 of 33 repos. Nothing was written, staged or committed in any fleet repo.
+
+**HEADs against the 43-07 pins.** 30 of 33 equal the 43-07 Run plan pin. aoinference (`87ea0e1a2ff2`) and opsCluster (`9f22c0d62849`) moved by the two commits the human approved in 43-14 (stale committed files refreshed, no drafter rule changed). politihub is at `30be797fb85b`, the value 43-08 recorded when it first evaluated it. No repo changed since, so no row is reported as `repo changed`.
+
+Columns and classes are the 43-07 ones plus `class`: `match` (no differing row; HAND_ONLY keys skipped do not count), `more_specific` (the draft only adds a key or resolves a committed `discover`: nothing needs fixing to use the draft, it is not equal to the reviewed file), `ACCEPTED` (every conflict is a user-accepted row), `residual` (a conflict with no general rule, listed for the human below).
+
+| repo | result | differing keys (committed STACK.md vs `stack init` draft) | would need a hand-fix? | class |
+|---|---|---|---|---|
+| ao-terminal | drift | deps: committed `npm ci` vs draft `npm ci --no-audit --no-fund`<br>(HAND_ONLY skipped: bootstrap, test_frontend) | yes: deps | residual |
+| aocore | drift | test: committed `go test -short -race ./... -timeout 5m (cwd go)` vs draft `go test -short ./... -race -coverprofile=coverage.out -timeout 5m (cwd go)`<br>(HAND_ONLY skipped: portal_codegen) | yes: test | residual |
+| aodex | drift | audit: committed `discover` vs draft `bash scripts/check-govulncheck.sh --self-test (cwd go)`<br>lint: committed `discover` vs draft `golangci-lint run ./... (cwd go)`<br>(HAND_ONLY skipped: guards) | no, but not equal: the draft is more specific on audit, lint | more_specific |
+| aoedge | match | HAND_ONLY keys accepted at the checkpoint, skipped: acceptance | no | match |
+| aofamily | drift | build: committed `discover` vs draft `go build ./... (cwd ai/go)`<br>deps: draft only `go mod download (cwd ai/go)`<br>lint: committed `discover` vs draft `go vet ./... (cwd ai/go)` | no, but not equal: the draft is more specific on build, deps, lint | more_specific |
+| aoid | match | none | no | match |
+| aoinference | match | none (HEAD `87ea0e1a2ff2`, moved from the 43-07 pin `c9f1bdccc2da` by the approved 43-14 refresh) | no | match |
+| AOSignal | match | none | no | match |
+| aostudio | match | none | no | match |
+| devcluster | drift | lint: committed `shellcheck bin/*.sh lib/*.sh t0-conformance/*.sh` vs draft `discover`<br>test: committed `bash t0-conformance/selftest.sh` vs draft `./bin/test.sh`<br>(HAND_ONLY skipped: build, cluster_test) | yes: lint, test (accepted: user decision 2026-10-03, remedy (c)) | ACCEPTED |
+| devflow | match | none | no | match |
+| devflow-test | match | none | no | match |
+| devflowops | match | none | no | match |
+| dfip | match | none | no | match |
+| eden-biz | drift | e2e: draft only `discover` | no, but not equal: the draft is more specific on e2e | more_specific |
+| eden-circle | match | none | no | match |
+| eden-libs | match | none | no | match |
+| eden-platform-go | match | none | no | match |
+| eden-press | match | none | no | match |
+| eden-ui-flutter | match | none | no | match |
+| EdenDocs | drift | deps: draft only `discover`<br>(HAND_ONLY skipped: branding, smoke) | no, but not equal: the draft is more specific on deps | more_specific |
+| github-enterprise-migration | match | none | no | match |
+| justinforme | drift | e2e: draft only `make smoke-canvass` | no, but not equal: the draft is more specific on e2e | more_specific |
+| navigators | match | HAND_ONLY keys accepted at the checkpoint, skipped: sqlc | no | match |
+| opsCluster | match | none (HEAD `9f22c0d62849`, moved from the 43-07 pin `a547076a0dae` by the approved 43-14 refresh) | no | match |
+| politihub | drift | lint: committed `discover` vs draft `go vet ./... (cwd go)` (HEAD `30be797fb85b`, equals the 43-08 record; 43-07 pinned `686cb0b82a9f`) | no, but not equal: the draft is more specific on lint | more_specific |
+| qrCodeBuilder | match | none | no | match |
+| quanta-local | match | HAND_ONLY keys accepted at the checkpoint, skipped: preflight, verify | no | match |
+| recycling-oracle | match | none | no | match |
+| smartWellness | match | none | no | match |
+| torrentConsole | match | none | no | match |
+| trades | match | none | no | match |
+| videoArchive | match | none | no | match |
+
+**Totals, 33 evaluated: 24 match, 6 more_specific, 3 conflict (1 ACCEPTED, 2 residual).** By row: 4 conflict rows (2 ACCEPTED in devcluster, 2 residual) and 9 more-specific rows. Against the 43-07 baseline (32 evaluated: 18 match, 14 drift = 12 conflict + 2 more_specific, politihub not evaluated): conflict repos 12 to 3, match 18 to 24, and politihub is now evaluated (no conflict; one more-specific row, counted). Of the 12 conflict repos of 43-07, nine closed (aodex, aoedge, aoinference, devflowops, eden-biz, eden-libs, justinforme, opsCluster, smartWellness), and ao-terminal, aocore and devcluster remain. devcluster is the user's accepted row (it stays out of the match count). ao-terminal and aocore each keep one flag-only row.
+
+### Residual rows (need a decision)
+
+Nothing below is applied. Task 3 changes no table until the human replies. No drafter rule names a repo, and none is added or changed in this TRD: a rule found missing here goes into the SUMMARY as a follow-up.
+
+**A. Conflict rows no general rule closes (2).** Both are flag-only hand edits. The drafter emits CI commands verbatim (42-07), so a reviewed value that was hand-edited cannot be derived.
+
+| # | repo.key | committed (reviewed) | draft | why no general rule closes it | recommended |
+|---|---|---|---|---|---|
+| 1 | ao-terminal.deps | `npm ci` | `npm ci --no-audit --no-fund` | CI runs only the flagged form (`ao-build.yml:84`, `deploy-docsite.yml:49`, `codeql.yml:82`, `copilot-setup-steps.yml:54`); the reviewed value dropped the two flags by hand. A rule that strips flags from a CI command would rewrite the command against the verbatim principle, and the flags carry no per-repo signal a rule could read. | accept |
+| 2 | aocore.test | `go test -short -race ./... -timeout 5m` (cwd go) | `go test -short ./... -race -coverprofile=coverage.out -timeout 5m` (cwd go) | The draft is the verbatim light CI lane (`go.yml:242`; 43-13 already ranks the heavy, runtime-parameterised `go-heavy.yml:458` lane after it). The reviewed value reorders `-race` and drops `-coverprofile=coverage.out` (a write into `go/`). A rule would need to reorder flags and delete an output flag from a verbatim command. | accept |
+
+Options for each row, from the TRD:
+
+- (a) accept: the row joins ACCEPTED with the reason "hand-edited flags; drafter stays verbatim", `by: 'user'` and a date.
+- (b) leave it open: the row goes to OPEN with a reason, is reported by the harness as a diagnostic, and keeps the objective at `gaps_found` for the verifier.
+- (c) refresh later: change that repo's committed file to the draft value. This is a separate approval and a commit in that repo, NOT done in this TRD. Until then the row is OPEN.
+
+**B. Already ACCEPTED, unchanged.** devcluster `lint` and `test` (user decision 2026-10-03, remedy (c)). The HAND_ONLY keys are accepted by the golden suite and are not listed.
+
+**C. More-specific rows (9, in 6 repos; never a conflict, never fail the harness).** The 43-07 and later dry runs reported these. Each was re-checked at HEAD above. Nothing needs fixing to use the draft; the question is only whether the human wants one of them tracked.
+
+| repo.key | committed | draft | note | recommended |
+|---|---|---|---|---|
+| aodex.audit | `discover` | `bash scripts/check-govulncheck.sh --self-test` (cwd go) | The draft picked the SELF-TEST step (`go.yml:116`, "has no govulncheck"), not the gate. The real audit is the step without the flag (`go.yml:127`, after `go install govulncheck@latest`). The value scans nothing. A general rule could exist (of two CI steps that run the same script, the one passing a self-test flag is a test of the gate, not the gate), but it is a drafter change and is out of scope here. | open |
+| aodex.lint | `discover` | `golangci-lint run ./...` (cwd go) | From the CI golangci action with `working-directory: go` (43-12). | accept |
+| aofamily.build | `discover` | `go build ./...` (cwd ai/go) | The primary component is `ai/go/` (3 of 4 evidence items, an `info` note). The repo has four Go modules, so this covers one. | accept |
+| aofamily.deps | (none) | `go mod download` (cwd ai/go) | Same primary-component choice. | accept |
+| aofamily.lint | `discover` | `go vet ./...` (cwd ai/go) | Same primary-component choice. | accept |
+| eden-biz.e2e | (none) | `discover` | Draft-only `discover`: carries no command. | accept |
+| EdenDocs.deps | (none) | `discover` | Draft-only `discover`: carries no command. | accept |
+| justinforme.e2e | (none) | `make smoke-canvass` | The target prints "canvass golden path is a stub until Obj 9 ships" and needs a live stack and Flutter. Real, but a weak e2e. | accept |
+| politihub.lint | `discover` | `go vet ./...` (cwd go) | politihub, see E. | accept |
+
+"Accept" on a more-specific row adds no table entry (the harness already reports it with `t.diagnostic`). "Open" adds an OPEN entry. For a more-specific row the OPEN ratchet must therefore treat any drift (conflict or more_specific) as "still drifting", not only a conflict.
+
+**D. Lint coverage (43-12 observation).** dfip, justinforme and smartWellness inherit `go vet ./...` (their committed files carry no `lint` key and the draft agrees, so the harness shows no row), but each `make lint` runs more.
+
+| repo | `make lint` body | the draft and the reviewed file run | recommended |
+|---|---|---|---|
+| dfip | `go vet ./...`, then `golangci-lint run` only when installed (`command -v … && … \|\| echo "golangci-lint not installed; ran go vet only"`) | `go vet ./...` | accept (the guaranteed part is the vet line; the second linter is optional by its own design) |
+| justinforme | `go vet ./...`, then `buf lint` | `go vet ./...` | open (a real second lint is dropped) |
+| smartWellness | `go vet ./...`, then `buf lint` | `go vet ./...` | open (a real second lint is dropped) |
+
+43-12 narrowed its declared-target rule on purpose so these three keep matching, and recorded keeping `make lint` as a user decision, not a drafter rule. These rows cannot be OPEN TABLE rows: the harness sees no drift, so an OPEN ratchet would fail them as "no longer drifts". If the human opens one, it is recorded as a follow-up in the SUMMARY and for the verifier (a rule such as "a key-named target whose body is the tier default plus further linters is the entry point", or refreshing the committed files to `lint: make lint`), not as a table entry.
+
+**E. politihub.** Evaluated by the harness since 43-08 (HEAD `30be797fb85b`). It has no conflict (43-10's rules closed its `build` and `test` conflicts), only the more-specific `lint` row above, so it is counted and not out of scope. No decision is needed beyond that row.
+
+Reply with an option id (`accept-all`, `per-row`, `none`). For `per-row`, reply `<repo>.<key>: accept|open|refresh-later` per row. Recommended per-row reply: `ao-terminal.deps: accept`, `aocore.test: accept`, `aodex.audit: open`, `justinforme.lint: open`, `smartWellness.lint: open`, `dfip.lint: accept`; every other more-specific row accept.
