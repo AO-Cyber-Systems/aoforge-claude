@@ -1268,3 +1268,24 @@ describe('CLI: this repo (the build gate)', () => {
     assert.equal(resultFor(json, 'build').resolve.status, 'none');
   });
 });
+
+// TRD 43-04 (D4): `e2e_env` brings a live environment up. It is in neither defaultKeys nor optInKeys, so
+// no --include can ever run it. (Passes before the classifier change: it guards the allow lists.)
+describe('runCommands: e2e_env is never runnable (TRD 43-04, test 9)', () => {
+  test('e2e_env is skipped key-not-runnable and never spawned, even with include', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const out = runCommands([{ component: null, key: 'e2e_env', command: 'make e2e-stack-up', cwd: '' }], { root, spawn, include: ['e2e', 'test'] });
+    assert.equal(out[0].run.skipped, 'key-not-runnable');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('--include e2e_env cannot promote it either, and RUN_POLICY lists it nowhere', () => {
+    const root = track(fx.makeRepo({}));
+    const spawn = spySpawn();
+    const out = runCommands([{ component: null, key: 'e2e_env', command: 'make e2e-stack-up', cwd: '' }], { root, spawn, include: ['e2e_env'] });
+    assert.equal(out[0].run.skipped, 'key-not-runnable');
+    assert.equal(spawn.calls.length, 0);
+    for (const list of [RUN_POLICY.defaultKeys, RUN_POLICY.optInKeys, RUN_POLICY.neverKeys]) assert.ok(!list.includes('e2e_env'));
+  });
+});

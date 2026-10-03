@@ -750,3 +750,107 @@ describe('toolStack: language-neutral generators (TRD 42-15 recovery)', () => {
     });
   }
 });
+
+// TRD 43-04 (D4): environment bring-up and scenario targets get their own key, `e2e_env`. A name that
+// pairs an environment token with a scenario token, or a body that brings an environment up, is never
+// build / test / e2e. Tokens are whole words from the existing splitter, never substrings.
+describe('K23 e2e_env: name and body classification (TRD 43-04, tests 3-5)', () => {
+  const { classifyHint } = require('./stack-classify.cjs');
+
+  for (const name of ['e2e-stack-up', 'integration-env-up', 'e2e:seed', 'scenario-cluster-start', 'e2e_compose_down', 'up-e2e']) {
+    test(`classifyHint(${JSON.stringify(name)}) is e2e_env, low confidence, check form`, () => {
+      const got = classifyHint(name);
+      assert.equal(got.key, 'e2e_env');
+      assert.equal(got.form, 'check');
+      assert.equal(got.confidence, 'low');
+    });
+    test(`an opaque wrapper hinted ${JSON.stringify(name)} is e2e_env`, () => {
+      assert.equal(classifyInvocation('make x', { hint: name }).key, 'e2e_env');
+      assert.equal(classifyInvocation('./scripts/x.sh', { hint: name }).key, 'e2e_env');
+    });
+  }
+
+  for (const name of ['e2e', 'test-e2e', 'playwright', 'e2e-tests', 'integration']) {
+    test(`classifyHint(${JSON.stringify(name)}) keeps its old key (no environment token)`, () => {
+      const got = classifyHint(name);
+      assert.ok(!got || got.key !== 'e2e_env');
+    });
+  }
+
+  test('a plain e2e hint stays e2e; test-e2e and playwright too', () => {
+    assert.equal(classifyHint('e2e').key, 'e2e');
+    assert.equal(classifyHint('test-e2e').key, 'e2e');
+    assert.equal(classifyHint('playwright').key, 'e2e');
+  });
+
+  test('tokens are whole words: setup is not up, restart is not start, upstream is not up', () => {
+    for (const name of ['e2e-setup', 'e2e-restart', 'integration-upstream', 'scenario-environment', 'e2e-stacked']) {
+      const got = classifyHint(name);
+      assert.ok(!got || got.key !== 'e2e_env', `${name} must not be e2e_env`);
+    }
+  });
+
+  test('an environment token without a scenario token is not e2e_env', () => {
+    for (const name of ['stack-up', 'docker-up', 'start', 'env-seed', 'cluster-down']) {
+      const got = classifyHint(name);
+      assert.ok(!got || got.key !== 'e2e_env', `${name} must not be e2e_env`);
+    }
+  });
+
+  test('the name rule outranks the test and build tokens: e2e-stack-up is never e2e, test or build', () => {
+    for (const name of ['e2e-stack-up', 'build-e2e-env', 'integration-test-env-up']) {
+      assert.equal(classifyHint(name).key, 'e2e_env', name);
+    }
+  });
+
+  const BODIES = [
+    'docker compose up -d',
+    'docker compose -f e2e/compose.yml up -d',
+    'docker compose -p shopsvc --profile e2e up -d --wait',
+    'docker compose run --rm tests',
+    'docker compose start db',
+    'docker-compose up -d',
+    'docker-compose run --rm tests',
+    'kind create cluster --name shopsvc',
+    'k3d cluster create shopsvc',
+    'kubectl apply -f k8s/',
+    'kubectl wait --for=condition=ready pod --all',
+    'helm install shopsvc ./chart',
+    'helm upgrade --install shopsvc ./chart',
+    'tilt up',
+  ];
+  for (const body of BODIES) {
+    test(`body ${JSON.stringify(body)} is e2e_env in mutate form`, () => {
+      const got = classifyInvocation(body);
+      assert.ok(got, 'classified');
+      assert.equal(got.key, 'e2e_env');
+      assert.equal(got.form, 'mutate');
+      assert.equal(got.confidence, 'high');
+    });
+  }
+
+  test('bodies that merely mention the tools are not e2e_env', () => {
+    for (const body of ['docker compose build', 'docker compose config', 'docker compose logs api', 'docker compose down', 'helm lint chart/', 'helm template x ./chart', 'kind version', 'echo kubectl apply']) {
+      const got = classifyInvocation(body);
+      assert.ok(!got || got.key !== 'e2e_env', `${body} must not be e2e_env`);
+    }
+  });
+
+  test('docker build is still build; helm lint is still lint_helm', () => {
+    assert.equal(classifyInvocation('docker build .').key, 'build');
+    assert.equal(classifyInvocation('helm lint chart/').key, 'lint_helm');
+  });
+
+  test('e2e_env is a known key: in STANDARD_KEYS_EXT right after e2e, and it satisfies the key pattern', () => {
+    const i = STANDARD_KEYS_EXT.indexOf('e2e');
+    assert.equal(STANDARD_KEYS_EXT[i + 1], 'e2e_env');
+    assert.ok(KEY_PATTERN.test('e2e_env'));
+  });
+
+  test('every e2e_env row sits after the last e2e row and before the first test row', () => {
+    const keys = CLASSIFY_TABLE.map((r) => r.key);
+    assert.ok(keys.includes('e2e_env'));
+    assert.ok(keys.indexOf('e2e_env') > keys.lastIndexOf('e2e'));
+    assert.ok(keys.lastIndexOf('e2e_env') < keys.indexOf('test'));
+  });
+});
