@@ -1076,3 +1076,40 @@ describe('assembleDraft canonical names for every key (D35, TRD 43-06)', () => {
     assert.equal(d.commands.codegen.apply, undefined);
   });
 });
+
+// TRD 43-06 (politihub / aodex goldens): CI steps that go through a component's TASK RUNNER (`make
+// build` in `go/`) say that component's runner is the repo's declared build interface; a component whose
+// CI only runs its tier's tools directly (`flutter build web` in three workflows) is built by its tier.
+// So a component with CI-through-runner evidence is the primary first; the evidence count decides among
+// the rest (P1-P5 unchanged: their items go through no runner).
+describe('pickPrimaryComponent: CI through a task runner first (P7, TRD 43-06)', () => {
+  const comp = (p, profile) => ({ path: p, profile });
+  const ci = (dir, n, runner = null) => Array.from({ length: n }, (_, i) => ev('build', `cmd-${dir}-${runner || 'raw'}-${i}`, {
+    source: 'ci', runner, effectiveArea: dir, area: dir,
+  }));
+  const rn = (dir, n) => Array.from({ length: n }, (_, i) => ev('build', `make t${i}`, { source: 'runner', runner: 'make', effectiveArea: dir, area: dir }));
+
+  test('P7a: a component whose CI runs its runner targets beats one with more direct CI steps', () => {
+    const items = [...ci('flutter-app/', 9), ...rn('go/', 2), ...ci('go/', 2, 'make')];
+    const p = pickPrimaryComponent([comp('flutter-app/', 'flutter'), comp('go/', 'go')], items);
+    assert.equal(p.path, 'go/');
+    assert.equal(p.score, 4);
+  });
+
+  test('P7b: a CI step running a script file is not through a task runner', () => {
+    const items = [...ci('portal/', 3, 'script'), ...ci('go/', 2)];
+    assert.equal(pickPrimaryComponent([comp('portal/', 'flutter'), comp('go/', 'go')], items).path, 'portal/', 'evidence count decides');
+  });
+
+  test('P7c: when several components have CI through a runner, the evidence count decides, then go-first', () => {
+    const items = [...ci('app/', 4, 'make'), ...ci('svc/', 2, 'just')];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items).path, 'app/');
+    const tie = [...ci('app/', 2, 'make'), ...ci('svc/', 2, 'task')];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], tie).path, 'svc/');
+  });
+
+  test('P7d: runner items alone (no CI calling them) do not lift a component over more CI evidence (P1 stands)', () => {
+    const items = [...ci('app/', 3), ...rn('svc/', 1)];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items).path, 'app/');
+  });
+});
