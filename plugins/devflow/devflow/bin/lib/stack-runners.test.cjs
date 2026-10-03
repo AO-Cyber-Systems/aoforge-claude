@@ -18,6 +18,9 @@
 //  9. Depth limit (default 1) and skip-dirs.
 // 10. Exec enrichment through an injected exec; ENOENT leaves the static result unchanged.
 // 11. Empty repo -> [] and no throw.
+// 12. (TRD 43-01 D1) Makefile `$(VAR)` / `${VAR}` expansion from `?=` `:=` `::=` `=`, depth <= 3.
+// 13. (TRD 43-01 D5) Taskfile `internal: true` is flagged, not invocable (hasTarget false), and
+//     stays in the parsed index.
 //
 // Fixtures are hand-built (`__fixtures__/stack-runner-fixtures.cjs`), never generated.
 
@@ -157,6 +160,76 @@ describe('readRunners — Makefile (root and one level down)', () => {
     assert.equal(_parseMakefile('-include a.mk\nx:\n').hasInclude, true);
     assert.equal(_parseMakefile('sinclude a.mk\nx:\n').hasInclude, true);
     assert.equal(_parseMakefile('x:\n\techo include y\n').hasInclude, false);
+  });
+
+  // ─── TRD 43-01 D1: simple variable references in recipe lines ────────────────
+
+  const bodyOf = (text, name) => _parseMakefile(text).targets.find((t) => t.name === name).body;
+
+  test('2g. `GO ?= go` expands $(GO) in a recipe line, through readRunners too', () => {
+    assert.deepEqual(bodyOf('GO ?= go\nbuild:\n\t$(GO) build ./...\n', 'build'), ['go build ./...']);
+    const root = track(fx.makeRepo({ Makefile: 'GO ?= go\nbuild:\n\t$(GO) build ./...\n' }));
+    assert.deepEqual(find(readRunners(root), 'make', '', 'build').body, ['go build ./...']);
+  });
+
+  test('2h. the brace form ${GO}, `export`, `override`, an inline `; recipe` and a trailing comment expand too', () => {
+    assert.deepEqual(bodyOf('GO := go\nbuild:\n\t${GO} build ./...\n', 'build'), ['go build ./...']);
+    assert.deepEqual(bodyOf('export GO ::= go # the toolchain\nbuild:\n\t$(GO) vet ./...\n', 'build'), ['go vet ./...']);
+    assert.deepEqual(bodyOf('override GO = go\nbuild: ; $(GO) build\n', 'build'), ['go build']);
+  });
+
+  test('2i. `?=` keeps the first definition; `:=` and `=` override; `+=` defines nothing', () => {
+    assert.deepEqual(bodyOf('GO ?= go\nGO ?= gccgo\nb:\n\t$(GO) x\n', 'b'), ['go x']);
+    assert.deepEqual(bodyOf('GO := go\nGO ?= gccgo\nb:\n\t$(GO) x\n', 'b'), ['go x']);
+    assert.deepEqual(bodyOf('GO ?= go\nGO := gccgo\nb:\n\t$(GO) x\n', 'b'), ['gccgo x']);
+    assert.deepEqual(bodyOf('GO = go\nGO = gccgo\nb:\n\t$(GO) x\n', 'b'), ['gccgo x']);
+    assert.deepEqual(bodyOf('GO += go\nb:\n\t$(GO) x\n', 'b'), ['$(GO) x'], '+= is not a definition');
+  });
+
+  test('2j. a variable defined BELOW the rule still applies (make expands recipes lazily)', () => {
+    assert.deepEqual(bodyOf('build:\n\t$(GO) build\nGO ?= go\n', 'build'), ['go build']);
+  });
+
+  test('2k. chains resolve through depth 3; a longer chain and a self-reference stay verbatim', () => {
+    const chain = 'A := go\nB := $(A)\nC := $(B)\nD := $(C)\nb:\n\t$(C) x\nc:\n\t$(D) x\n';
+    assert.deepEqual(bodyOf(chain, 'b'), ['go x'], 'three levels deep');
+    assert.deepEqual(bodyOf(chain, 'c'), ['$(D) x'], 'four levels is past the bound');
+    assert.deepEqual(bodyOf('A = $(A) x\nb:\n\t$(A) go\n', 'b'), ['$(A) go'], 'no infinite loop');
+    assert.deepEqual(bodyOf('A = $(B)\nB = $(A)\nb:\n\t$(A) go\n', 'b'), ['$(A) go'], 'mutual recursion');
+  });
+
+  test('2l. `$(shell ...)`, function calls and undefined variables stay verbatim', () => {
+    const text = 'GO ?= go\nb:\n\techo $(shell go env GOPATH) $(call f,x) $(FOO) $(GO:go=x) $(wildcard *.go)\n';
+    assert.deepEqual(
+      bodyOf(text, 'b'),
+      ['echo $(shell go env GOPATH) $(call f,x) $(FOO) $(GO:go=x) $(wildcard *.go)'],
+    );
+  });
+
+  test('2m. a make-escaped dollar ($$HOME, $$(GO)) is not expanded; `$$$(GO)` is `$$` plus a reference', () => {
+    assert.deepEqual(bodyOf('GO := go\nb:\n\techo $$HOME $$(GO) $${GO}\n', 'b'), ['echo $$HOME $$(GO) $${GO}']);
+    assert.deepEqual(bodyOf('GO := go\nb:\n\techo $$$(GO)\n', 'b'), ['echo $$go']);
+  });
+
+  test('2n. assignments inside define ... endef are ignored', () => {
+    const text = [
+      'define BLOCK',
+      'GO := gccgo',
+      'X := y',
+      'endef',
+      'GO ?= go',
+      'b:',
+      '\techo $(GO) $(X)',
+      '',
+    ].join('\n');
+    assert.deepEqual(bodyOf(text, 'b'), ['echo go $(X)']);
+  });
+
+  test('2o. an assignment is never a rule, and the return shape is unchanged', () => {
+    const parsed = _parseMakefile('GO := go\nGOFLAGS ::= -v\nOUT=bin/x\nb:\n\t$(GO) x\n');
+    assert.deepEqual(Object.keys(parsed).sort(), ['defaultGoal', 'deps', 'hasInclude', 'targets']);
+    assert.deepEqual(parsed.targets.map((t) => t.name), ['b']);
+    assert.deepEqual(parsed.deps, { b: [] });
   });
 });
 

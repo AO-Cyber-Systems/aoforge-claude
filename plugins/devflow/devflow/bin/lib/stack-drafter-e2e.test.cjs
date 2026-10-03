@@ -384,3 +384,26 @@ describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
     assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false, 'a preview writes nothing');
   }));
 });
+
+// ─── TRD 43-01: runner readers (D1 Make variables, D5 internal Taskfile tasks) ────────────────
+//
+//  18  D1 aggregate Make    `build: frontend backend` with a `$(GO) build` leg drafts make build/test/lint
+//  19  D5 internal tasks    `internal: true` Taskfile tasks are never a command or a candidate
+
+describe('stack init closes the runner-reader defects end to end (TRD 43-01)', () => {
+  test('18: D1 aggregate Make — `$(GO)` expands, so `make build/test/lint` win (devflowops-shaped)', () => withShape(fx.aggregateMakeShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    for (const key of ['build', 'test', 'lint']) {
+      assert.equal((fm.commands[key] || {}).run, `make ${key}`, `${key}: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`);
+    }
+    assert.ok(
+      !json.notes.some((n) => n.status === 'off_stack' && n.candidate === 'make build'),
+      `make build is not off_stack: ${JSON.stringify(json.notes)}`,
+    );
+    assert.ok(!JSON.stringify(fm.commands).includes('app_no_gcc'), `no variant name in commands: ${JSON.stringify(fm.commands)}`);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+});
