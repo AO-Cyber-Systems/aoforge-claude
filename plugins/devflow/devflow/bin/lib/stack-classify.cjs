@@ -30,7 +30,7 @@ const { normalizeScript, splitWords, isFragment } = require('./stack-shell.cjs')
 const STANDARD_KEYS = ['build', 'test', 'lint', 'format', 'fix', 'typecheck', 'audit', 'codegen', 'deps'];
 
 // Custom keys this classifier can emit. All satisfy the schema key pattern `^[a-z][a-z0-9_]*$`.
-const STANDARD_KEYS_EXT = [...STANDARD_KEYS, 'sast', 'e2e', 'lint_helm', 'lint_docker', 'tidy', 'outdated'];
+const STANDARD_KEYS_EXT = [...STANDARD_KEYS, 'sast', 'e2e', 'e2e_env', 'lint_helm', 'lint_docker', 'tidy', 'outdated'];
 
 // ─── Matching helpers ─────────────────────────────────────────────────────────
 
@@ -50,6 +50,36 @@ const outputNone = (a) => flag(a, '--output') && (a.includes('--output=none') ||
 
 const R = (key, form, tool, match, extra = {}) => ({ key, form, tool, match, ...extra });
 
+// `docker compose [global flags] <verb>` / `docker-compose [flags] <verb>`: the verb, or null. A
+// flag that takes a separate value (`-f e2e/compose.yml`, `-p name`, `--profile e2e`) is skipped
+// together with its value so the value is never read as the verb.
+const COMPOSE_VALUE_FLAGS = new Set([
+  '-f', '--file', '-p', '--project-name', '--profile', '--env-file', '--project-directory', '--ansi', '--parallel', '--progress',
+]);
+const DOCKER_VALUE_FLAGS = new Set(['-c', '--context', '-H', '--host', '-l', '--log-level', '--config']);
+
+function composeVerb(a) {
+  let i;
+  if (a[0] === 'docker-compose') {
+    i = 1;
+  } else if (a[0] === 'docker') {
+    i = 1;
+    while (i < a.length && a[i].startsWith('-')) i += DOCKER_VALUE_FLAGS.has(a[i]) ? 2 : 1;
+    if (a[i] !== 'compose') return null;
+    i += 1;
+  } else {
+    return null;
+  }
+  for (; i < a.length; i++) {
+    if (!a[i].startsWith('-')) return a[i];
+    if (COMPOSE_VALUE_FLAGS.has(a[i])) i += 1;
+  }
+  return null;
+}
+
+/** The compose verbs that bring containers up (see the e2e_env rows in CLASSIFY_TABLE). */
+const ENV_COMPOSE_VERBS = new Set(['up', 'run', 'start']);
+
 // ─── CLASSIFY_TABLE ───────────────────────────────────────────────────────────
 
 const CLASSIFY_TABLE = [
@@ -60,6 +90,16 @@ const CLASSIFY_TABLE = [
   R('e2e', 'check', 'patrol', (a) => is(a, 'patrol', 'test')),
   R('e2e', 'check', 'flutter', (a) => is(a, 'flutter', 'test') && a.some((x) => x.includes('integration_test'))),
   R('e2e', 'check', 'flutter', (a) => is(a, 'flutter', 'drive')),
+
+  // e2e_env: bringing an environment up (TRD 43-04, D4). The command mutates the machine (starts
+  // containers, creates a cluster, installs a release), so it is `mutate`, never a check gate, and
+  // stack verify --run never runs the key. Never build / test / e2e.
+  R('e2e_env', 'mutate', 'docker', (a) => ENV_COMPOSE_VERBS.has(composeVerb(a))),
+  R('e2e_env', 'mutate', 'kind', (a) => is(a, 'kind', 'create')),
+  R('e2e_env', 'mutate', 'k3d', (a) => is(a, 'k3d', 'cluster', 'create')),
+  R('e2e_env', 'mutate', 'kubectl', (a) => a[0] === 'kubectl'),
+  R('e2e_env', 'mutate', 'helm', (a) => is(a, 'helm', 'install') || is(a, 'helm', 'upgrade')),
+  R('e2e_env', 'mutate', 'tilt', (a) => is(a, 'tilt', 'up')),
 
   // audit: dependency vulnerabilities.
   R('audit', 'check', 'govulncheck', (a) => a[0] === 'govulncheck'),
@@ -298,6 +338,12 @@ const HINT_TOKENS = [
   ['fix', 'apply', ['fix']],
 ];
 
+// A name that pairs an ENVIRONMENT token with a SCENARIO token (`e2e-stack-up`, `integration-env-up`,
+// `e2e:seed`) brings a scenario's environment up; it is not the scenario suite, and never `test` or
+// `build` (TRD 43-04, D4). Whole tokens only: `setup` is not `up`, `restart` is not `start`.
+const ENV_TOKENS = Object.freeze(['up', 'down', 'stack', 'env', 'seed', 'infra', 'cluster', 'compose', 'start', 'stop']);
+const SCENARIO_TOKENS = Object.freeze(['e2e', 'integration', 'scenario']);
+
 /** What a target / script NAME says the command does. Always low confidence; null when it says nothing. */
 function classifyHint(hint) {
   const h = typeof hint === 'string' ? hint.trim() : '';
@@ -306,6 +352,9 @@ function classifyHint(hint) {
   const viaTable = classifyText(h);
   if (viaTable) return { ...viaTable, confidence: 'low' };
   const tokens = h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.some((t) => ENV_TOKENS.includes(t)) && tokens.some((t) => SCENARIO_TOKENS.includes(t))) {
+    return { key: 'e2e_env', form: 'check', tool: null, weak: [], confidence: 'low' };
+  }
   for (const [key, form, names] of HINT_TOKENS) {
     if (tokens.some((t) => names.includes(t))) {
       // `fmt-check` / `format-verify` describe the checking form.
@@ -792,6 +841,7 @@ module.exports = {
   NEUTRAL_STACK,
   toolStack,
   classifyInvocation,
+  classifyHint,
   classifyUses,
   lookupUses,
   testBreadth,
