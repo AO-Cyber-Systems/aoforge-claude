@@ -33,6 +33,7 @@ const {
   STANDARD_KEYS_EXT,
   USES_MAP,
 } = require('./stack-classify.cjs');
+const classify = require('./stack-classify.cjs');
 const { STANDARD_KEYS } = require('./stack-evidence.cjs');
 
 const KEY_PATTERN = new RegExp(
@@ -1011,5 +1012,43 @@ describe('K29 envRole: environment teardown and reset names (TRD 43-11 test 8)',
   test('K29d: classifyHint is unchanged — a teardown name still classifies as e2e_env (the drafter reads the role)', () => {
     assert.equal((classifyHint('e2e-stack-down') || {}).key, 'e2e_env');
     assert.equal((classifyHint('e2e:seed') || {}).key, 'e2e_env');
+  });
+});
+
+// TRD 43-12 (aocore.lint row): an action with a FIXED CLI equivalent is a candidate (USES_CLI), looked up with
+// lookupUses' prefix matching; every other action (gosec, codeql, buf, setup-*) stays existence-only. A lint
+// tool is dedicated when the table gives it lint and no build/test row (golangci-lint, not `go vet`).
+describe('K30 lookupUsesCli and dedicated linters (TRD 43-12 test 4)', () => {
+  const lookupUsesCli = (ref) => (typeof classify.lookupUsesCli === 'function' ? classify.lookupUsesCli(ref) : undefined);
+
+  test('K30a: an @ref, a pinned sha and a sub-path all find the entry; the command is the fixed CLI', () => {
+    const want = { key: 'lint', form: 'check', command: 'golangci-lint run ./...', tool: 'golangci-lint' };
+    assert.deepStrictEqual(lookupUsesCli('golangci/golangci-lint-action@v9'), want);
+    assert.deepStrictEqual(lookupUsesCli('golangci/golangci-lint-action@9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c'), want);
+    assert.deepStrictEqual(lookupUsesCli('golang/govulncheck-action/sub@v1'), { key: 'audit', form: 'check', command: 'govulncheck ./...', tool: 'govulncheck' });
+    assert.deepStrictEqual(lookupUsesCli('golang/govulncheck-action'), { key: 'audit', form: 'check', command: 'govulncheck ./...', tool: 'govulncheck' });
+  });
+
+  test('K30b: an action with no fixed CLI equivalent, a setup action, a look-alike and junk give null', () => {
+    for (const ref of ['securego/gosec@v2', 'github/codeql-action/analyze@v3', 'bufbuild/buf-action@v1', 'actions/setup-go@v5',
+      'golangci/golangci-lint-action-fork@v1', './.github/actions/lint', 'docker://golangci/golangci-lint:v2', '', null, 3]) {
+      assert.equal(lookupUsesCli(ref), null, JSON.stringify(ref));
+    }
+  });
+
+  test('K30c: every USES_CLI command classifies to its own key and tool, and its prefix is a USES_MAP entry of that key', () => {
+    assert.ok(Array.isArray(classify.USES_CLI) && classify.USES_CLI.length >= 2);
+    for (const e of classify.USES_CLI) {
+      const c = classifyInvocation(e.command);
+      assert.equal(c && c.key, e.key, e.command);
+      assert.equal(c && c.tool, e.tool, e.command);
+      assert.equal((lookupUses(e.prefix) || {}).key, e.key, e.prefix);
+    }
+  });
+
+  test('K30d: isDedicatedLinter — a lint tool with no build/test row; a toolchain driver is not one', () => {
+    const isDedicatedLinter = (t) => (typeof classify.isDedicatedLinter === 'function' ? classify.isDedicatedLinter(t) : undefined);
+    for (const t of ['golangci-lint', 'staticcheck', 'eslint', 'ruff', 'shellcheck']) assert.equal(isDedicatedLinter(t), true, t);
+    for (const t of ['go', 'dart', 'flutter', 'cargo', 'govulncheck', 'gofmt', null, '']) assert.equal(isDedicatedLinter(t), false, String(t));
   });
 });

@@ -636,3 +636,53 @@ describe('C13 parseWorkflows records checkouts and normalised cwds (TRD 42-14 te
     assert.equal(byName(steps, 'Lib analyze').external, true);
   });
 });
+
+// TRD 43-12 (aocore.lint row): an action's `with: working-directory` is where the action runs (golangci-lint-action
+// runs at the repo root unless told otherwise). It is recorded as `step.with['working-directory']`, normalised like
+// a step cwd, and never changes `step.cwd` (C6). A `with:` holding only other inputs records nothing.
+describe('C15 an action\'s `with: working-directory` (TRD 43-12 test 5)', () => {
+  const yml = (withLines) => [
+    'on: [push]',
+    'defaults:',
+    '  run:',
+    '    working-directory: svc',
+    'jobs:',
+    '  j:',
+    '    steps:',
+    '      - uses: golangci/golangci-lint-action@0123456789abcdef0123456789abcdef01234567 # v9.1.0',
+    ...withLines,
+    '      - run: go vet ./...',
+    '',
+  ].join('\n');
+
+  test('C15a: a block `with:` working-directory is read into step.with, normalised; step.cwd is untouched', () => {
+    const [step, vet] = _parseWorkflowText(yml([
+      '        with:',
+      '          version: v2.5.0',
+      '          install-mode: goinstall',
+      '          working-directory: ./mod/go',
+      '          # only new findings fail a PR',
+      '          only-new-issues: true',
+    ]), 'x.yml');
+    assert.deepStrictEqual(step.with, { 'working-directory': 'mod/go' });
+    assert.equal(step.cwd, 'svc');
+    assert.equal(vet.with, undefined);
+    assert.deepEqual(vet.invocations.map((i) => i.text), ['go vet ./...']);
+  });
+
+  test('C15b: the flow spelling and a `${{ github.workspace }}/` prefix are read the same way', () => {
+    const [step] = _parseWorkflowText(yml(["        with: { version: v2.5.0, working-directory: '${{ github.workspace }}/core' }"]), 'x.yml');
+    assert.deepStrictEqual(step.with, { 'working-directory': 'core' });
+  });
+
+  test('C15c: a `with:` holding only other inputs records no with and leaves the cwd alone', () => {
+    const [step] = _parseWorkflowText(yml(['        with:', '          version: v2.5.0', '          args: --timeout=5m']), 'x.yml');
+    assert.equal(step.with, undefined);
+    assert.equal(step.cwd, 'svc');
+  });
+
+  test('C15d: `working-directory: .` is the repo root (null), and it is still recorded', () => {
+    const [step] = _parseWorkflowText(yml(['        with:', '          working-directory: .']), 'x.yml');
+    assert.deepStrictEqual(step.with, { 'working-directory': null });
+  });
+});

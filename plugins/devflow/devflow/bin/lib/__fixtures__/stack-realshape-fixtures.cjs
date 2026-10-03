@@ -1686,10 +1686,11 @@ const REALSHAPE = Object.freeze({
     },
     absent: [],
     // build, test: CI variants (a nightly dev-tagged build, a 35m coverage run), closed by 43-13, which adds
-    // their expectations here. lint: the golangci action becomes a candidate in task 2 of 43-12.
-    extraAllowed: ['build', 'test', 'lint'],
+    // their expectations here.
+    extraAllowed: ['build', 'test'],
     noEvidence: [],
-    noteStatuses: { present: ['wrapper'], absent: [] },
+    // wrapper: the vuln-gate script; alternate: the `go vet ./...` line the dedicated linter displaces.
+    noteStatuses: { present: ['wrapper', 'alternate'], absent: [] },
   },
 });
 

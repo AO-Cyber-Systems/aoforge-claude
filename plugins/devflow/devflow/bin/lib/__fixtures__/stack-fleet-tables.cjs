@@ -55,15 +55,11 @@ const ACCEPTED = {
 // candidate fills) and eden-biz.codegen (a drift check of one leg of the generator is a partial_check), and
 // re-tagged ao-terminal.deps as a flag-only residual for the 43-15 decision.
 // 43-12 removed aoedge.lint (a task-runner target named for the key is the declared entry point, even when
-// its body is the tier default) and aocore.audit (a script not named for the key that runs the tier
-// default reduces to that default).
+// its body is the tier default), aocore.audit (a script not named for the key that runs the tier
+// default reduces to that default) and aocore.lint (a lint action with a fixed CLI equivalent is a
+// candidate, and a dedicated linter outranks the default within a source).
 const KNOWN_DRIFT = {
   aocore: [
-    {
-      keys: ['lint'],
-      closes: '43-12',
-      reason: 'lint: draft `go vet ./... (cwd go)` vs committed `golangci-lint run ./... (cwd go)`',
-    },
     {
       keys: ['build', 'test'],
       closes: '43-13',

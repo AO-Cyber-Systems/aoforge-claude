@@ -1812,3 +1812,57 @@ describe('assembleDraft wrapper scripts reduce to the tier default (W1-W5, TRD 4
     assert.equal(d.notes.filter((x) => x.status === 'wrapper').length, 0);
   });
 });
+
+// TRD 43-12 (aocore.lint row): for `lint` only, right after the name rank, a candidate running a DEDICATED
+// linter (stack-classify isDedicatedLinter: golangci-lint, staticcheck, eslint, ruff, shellcheck) other than the
+// governing default's tool ranks ahead of a same-source candidate equal to that default. Source and name rank
+// still come first, so a runner target or a key-named script wins. The displaced default linter is an
+// `alternate` note. A toolchain driver (`dart analyze`) is no dedicated linter.
+describe('assembleDraft lint prefers a dedicated linter within a source (L1-L5, TRD 43-12 test 6)', () => {
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('L1: a CI golangci-lint line beats the CI `go vet` line equal to the default, listed first; the vet line is an alternate note', () => {
+    const d = run([ev('lint', 'go vet ./...', { tool: 'go' }), ev('lint', 'golangci-lint run ./...', { tool: 'golangci-lint' })]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'golangci-lint run ./...' });
+    const n = d.notes.find((x) => x.key === 'lint' && x.candidate === 'go vet ./...');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.status, 'alternate');
+    assert.match(n.detail, /golangci-lint run/);
+  });
+
+  test('L2: a runner target still wins by source over a CI dedicated linter', () => {
+    const d = run([
+      ev('lint', 'golangci-lint run ./...', { tool: 'golangci-lint' }),
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet -vettool=./bin/extra ./...', target: { name: 'lint', deps: [], order: 0, legs: [] }, bodyInvocations: ['go vet -vettool=./bin/extra ./...'] }),
+    ]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'make lint' });
+  });
+
+  test('L3: the name rank comes first: a key-named lint script beats a raw dedicated-linter line', () => {
+    const d = run([
+      ev('lint', 'golangci-lint run ./...', { tool: 'golangci-lint' }),
+      ev('lint', './scripts/lint.sh', { runner: 'script', tool: 'go', invokedName: 'lint', bodyInvocations: ['go vet ./...', 'staticcheck ./...'] }),
+    ]);
+    assert.deepStrictEqual(d.commands.lint, { run: './scripts/lint.sh' });
+  });
+
+  test('L4: a toolchain driver is no dedicated linter: `dart analyze` does not displace the flutter default', () => {
+    const areas = [{ dir: '', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }];
+    const d = run([ev('lint', 'flutter analyze --fatal-infos', { tool: 'flutter' }), ev('lint', 'dart analyze .', { tool: 'dart' })], areas);
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+  });
+
+  test('L5: in the primary component the dedicated linter is the key with its cwd (the governing default is the component tier)', () => {
+    const areas = [
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+      { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+    ];
+    const d = run([
+      ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+      ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+      ev('lint', 'golangci-lint run ./...', { cwd: 'svc', area: 'svc/', tool: 'golangci-lint' }),
+    ], areas);
+    assert.deepStrictEqual(d.commands.lint, { run: 'golangci-lint run ./...', cwd: 'svc' });
+    assert.ok(d.notes.some((x) => x.key === 'lint' && x.candidate === 'go vet ./...' && x.status === 'alternate'), JSON.stringify(d.notes));
+  });
+});
