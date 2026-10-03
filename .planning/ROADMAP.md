@@ -146,7 +146,7 @@ TRDs:
 - [x] 43-07-TRD.md — (W5, checkpoint) mirror sync + approved fleet `stack verify --run`, results in 43-ROLLOUT.md only (D10, SDR-08)
 - [x] 43-08-TRD.md — (W6, tdd, gap closure) drift comparison helper + real-fleet regression harness with KNOWN_DRIFT ratchet (SDR-08)
 - [x] 43-09-TRD.md — (W7, tdd, gap closure) evidence shapes: Makefile `##` comment `;`, captured/snapshot drift checks, workflow env literals, version probes
-- [ ] 43-10-TRD.md — (W8, tdd, gap closure) multi-stack scope: canonical-key primary, tiered root/primary placement, workspace root
+- [x] 43-10-TRD.md — (W8, tdd, gap closure) multi-stack scope: canonical-key primary, tiered root/primary placement, workspace root
 - [ ] 43-11-TRD.md — (W9, tdd, gap closure) mixed aggregates (codegen, bootstrap), partial drift checks, env teardown/reset
 - [ ] 43-12-TRD.md — (W10, tdd, gap closure) declared key targets, wrapper reduction, lint actions with a CLI equivalent
 - [ ] 43-13-TRD.md — (W11, tdd, gap closure) narrow CI builds fall back to the tier default; runtime-variable commands rank last
@@ -386,7 +386,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
-| 43. Stack drafter rules | v1.4 | 9/15 | In Progress | 2026-10-03 |
+| 43. Stack drafter rules | v1.4 | 10/15 | In Progress | 2026-10-03 |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Cancelled (killed by user decision 2026-10-01; GMD-04) | 2026-10-01 |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |

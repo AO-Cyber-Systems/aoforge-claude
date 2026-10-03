@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 96,
+  "progress_pct": 97,
   "status": "ready_for_verification",
   "last_activity": "2026-10-03",
   "metrics": {
@@ -494,6 +494,11 @@
     {
       "objective": "43",
       "summary": "43-09: drift checks are also read from raw recipe text (a captured git diff whose -n/-z test reads the capture, or a mktemp/snapshot diff -q, then a failing exit); a check-suffixed name turns a body-classified writer into its check form; workflow/job/step env literals are substituted into run lines (runtime values never); version probes are never gates; a ; after an unescaped # on a Make rule line is comment text",
+      "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-10: the primary component is chosen on build/test/lint evidence (a CI step through a runner lifts it only for those keys); a general root's key candidates are tiered (root runner recipes, the primary's runner targets with their own cwd, other root candidates, the primary's other candidates) and an unresolved tier falls through before discover; a root runner recipe running in 2+ areas makes a workspace root with no primary; evidence items carry unitAreas",
       "rationale": null
     }
   ],
