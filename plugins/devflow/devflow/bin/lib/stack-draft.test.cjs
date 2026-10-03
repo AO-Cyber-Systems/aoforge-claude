@@ -1113,3 +1113,69 @@ describe('pickPrimaryComponent: CI through a task runner first (P7, TRD 43-06)',
     assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items).path, 'app/');
   });
 });
+
+// TRD 43-06 (EdenDocs golden). A `general` root that BUILDS ITSELF (a root build candidate that is not
+// only a container image build) is a product of its own: its components are sidecars, so no component is
+// primary, none fills the root's keys and the single-component fallback does not apply. A repo-level
+// check run FROM the root (an attachable key: e2e, lint_helm, lint_docker) stays a root key even when its
+// script lives in a component.
+describe('assembleDraft root product and root-invoked attachable keys (D37, TRD 43-06)', () => {
+  const AREAS = [{ dir: 'side/', kinds: ['go'], tier: 'go', flags: [], evidence: ['side/go.mod'] }];
+  const sideCi = () => [
+    ev('lint', 'go vet ./...', { cwd: 'side', area: 'side/', effectiveArea: 'side/', tool: 'go', bodyStacks: ['go'] }),
+    ev('test', 'go test ./...', { cwd: 'side', area: 'side/', effectiveArea: 'side/', tool: 'go', bodyStacks: ['go'] }),
+  ];
+  const e2e = () => ev('e2e', './side/scripts/e2e.sh', { runner: 'script', tool: null, confidence: 'low', invokedName: 'e2e', effectiveArea: 'side/', bodyStacks: [] });
+
+  test('D37a: a root that builds itself has no primary component: no root lint/test from the sidecar, no fallback', () => {
+    const evidence = [
+      ev('build', './scripts/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build', bodyStacks: [] }),
+      ...sideCi(),
+      e2e(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.extendsId, 'general');
+    assert.deepStrictEqual(d.components, [{ path: 'side/', profile: 'go' }]);
+    assert.deepStrictEqual(d.commands.build, { run: './scripts/build.sh' });
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands));
+    assert.deepStrictEqual(d.commands.e2e, { run: './side/scripts/e2e.sh' }, 'a root-invoked e2e stays a root key');
+    assert.ok(!d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(d.notes.some((n) => n.tag === 'root_product'), JSON.stringify(d.notes));
+  });
+
+  test('D37b: a narrow-only root test beside a root product is discover, never the sidecar tier test', () => {
+    const evidence = [
+      ev('build', './scripts/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build', bodyStacks: [] }),
+      ev('test', './scripts/smoke-test.sh', { runner: 'script', tool: null, confidence: 'low', invokedName: 'smoke-test', singlePurpose: true, bodyStacks: [] }),
+      ...sideCi(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'discover' }, JSON.stringify(d.commands));
+  });
+
+  test('D37c: a root image build alone does not make the root a product: the component stays primary', () => {
+    const evidence = [
+      ev('build', 'docker build -t x .', { form: 'build', tool: 'docker', bodyStacks: ['docker'] }),
+      ...sideCi(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.notes.find((n) => n.tag === 'primary_component').area, 'side/');
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'side' });
+  });
+
+  test('D37d: with a primary, a root-invoked e2e from a NON-primary component is a root key; a root-invoked codegen there is a note', () => {
+    const areas = [
+      { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [], evidence: ['svc/go.mod'] },
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [], evidence: ['app/pubspec.yaml'] },
+    ];
+    const evidence = [
+      ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('e2e', './app/scripts/e2e.sh', { runner: 'script', tool: null, confidence: 'low', invokedName: 'e2e', effectiveArea: 'app/', bodyStacks: [] }),
+      ev('codegen', 'bash app/build.sh', { form: 'mutate', runner: 'script', tool: null, invokedName: 'build', effectiveArea: 'app/', bodyStacks: [] }),
+    ];
+    const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.e2e, { run: './app/scripts/e2e.sh' }, JSON.stringify(d.commands));
+    assert.equal('codegen' in d.commands, false, JSON.stringify(d.commands));
+  });
+});

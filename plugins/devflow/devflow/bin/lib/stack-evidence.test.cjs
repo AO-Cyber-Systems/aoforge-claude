@@ -1185,3 +1185,25 @@ describe('invokedName (E20, TRD 43-06)', () => {
     }
   });
 });
+
+// TRD 43-06 (EdenDocs golden): a smoke test checks a built artifact quickly; it is one check, not the
+// repo's suite, so a script whose name carries the whole token `smoke` is single-purpose.
+describe('smoke scripts are single-purpose (E21, TRD 43-06)', () => {
+  test('E21: smoke-test.sh, smoke.sh and api_smoke.sh are singlePurpose; smokey.sh and test.sh are not', () => {
+    const names = ['smoke-test.sh', 'smoke.sh', 'api_smoke.sh', 'smokey.sh', 'test.sh'];
+    const files = { '.github/workflows/ci.yml': ['jobs:', '  j:', '    steps:', ...names.map((n) => `      - run: ./ci/${n}`)].join('\n') };
+    for (const n of names) files[`ci/${n}`] = '#!/bin/sh\n./bin/server --selftest\n';
+    const root = makeRepo(files);
+    try {
+      const ev = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      const sp = (n) => (ev.find((e) => e.command === `./ci/${n}`) || {}).singlePurpose === true;
+      assert.equal(sp('smoke-test.sh'), true);
+      assert.equal(sp('smoke.sh'), true);
+      assert.equal(sp('api_smoke.sh'), true);
+      assert.equal(sp('smokey.sh'), false);
+      assert.equal(sp('test.sh'), false);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
