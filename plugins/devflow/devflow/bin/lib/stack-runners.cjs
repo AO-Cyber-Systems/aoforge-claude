@@ -187,14 +187,41 @@ function expandMakeVars(text, vars, depth = 0, trail = []) {
   return blocked && depth > 0 ? null : out;
 }
 
+/** The index of the first unescaped `#` in `text` (a `\#` is a literal hash), or -1. */
+function makeCommentAt(text) {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '#') continue;
+    let slashes = 0;
+    for (let k = i - 1; k >= 0 && text[k] === '\\'; k--) slashes++;
+    if (slashes % 2 === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * The index of the `;` that starts a rule line's inline recipe, or -1 (TRD 43-09). GNU make takes the
+ * inline recipe from "an unquoted ; that is not after an unquoted #": in `t: ## help; more`, the `;`
+ * is comment text, so `more` never becomes a recipe unit. A `#` AFTER the `;` belongs to the recipe
+ * (make passes it to the shell).
+ */
+function makeInlineSemi(rest) {
+  const semi = rest.indexOf(';');
+  if (semi < 0) return -1;
+  const hash = makeCommentAt(rest);
+  return hash >= 0 && hash < semi ? -1 : semi;
+}
+
 /**
  * Prerequisite names from the text after a rule's colon: everything before a `;` inline recipe,
  * order-only prerequisites (after `|`) included. A target-specific variable line
  * (`test: GOFLAGS += -v`) has no prerequisites; variable references and patterns are skipped.
  */
 function makePrereqs(rest) {
-  const semi = rest.indexOf(';');
-  const part = (semi >= 0 ? rest.slice(0, semi) : rest).replace(/#.*$/, '');
+  const semi = makeInlineSemi(rest);
+  let part = semi >= 0 ? rest.slice(0, semi) : rest;
+  const hash = makeCommentAt(part);
+  if (hash >= 0) part = part.slice(0, hash);
+  part = part.replace(/\\#/g, '#');
   if (part.includes('=')) return [];
   return part.trim().split(/\s+/).filter((n) => n && n !== '|' && !/[%$()]/.test(n));
 }
@@ -271,7 +298,7 @@ function parseMakefile(text) {
       .filter((n) => n && !MAKE_SPECIAL.test(n) && !/[%$()]/.test(n));
     if (names.length === 0) continue;
     const rest = rule[2];
-    const semi = rest.indexOf(';');
+    const semi = makeInlineSemi(rest);
     const inline = semi >= 0 ? cleanRecipeText(rest.slice(semi + 1)) : null;
     const prereqs = makePrereqs(rest);
     for (const name of names) {

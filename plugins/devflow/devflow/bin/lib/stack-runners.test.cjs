@@ -21,6 +21,8 @@
 // 12. (TRD 43-01 D1) Makefile `$(VAR)` / `${VAR}` expansion from `?=` `:=` `::=` `=`, depth <= 3.
 // 13. (TRD 43-01 D5) Taskfile `internal: true` is flagged, not invocable (hasTarget false), and
 //     stays in the parsed index.
+// 14. (TRD 43-09) A `;` after an unescaped `#` on a rule line is comment text, never an inline
+//     recipe (`t: ## help; more` has no `more` unit); a `;` before the `#` still is (2p-2r).
 //
 // Fixtures are hand-built (`__fixtures__/stack-runner-fixtures.cjs`), never generated.
 
@@ -162,6 +164,39 @@ describe('readRunners — Makefile (root and one level down)', () => {
     assert.equal(_parseMakefile('-include a.mk\nx:\n').hasInclude, true);
     assert.equal(_parseMakefile('sinclude a.mk\nx:\n').hasInclude, true);
     assert.equal(_parseMakefile('x:\n\techo include y\n').hasInclude, false);
+  });
+
+  // ─── TRD 43-09: a `;` after an unescaped `#` on a rule line is comment text ───
+  // GNU make looks for "an unquoted ; that is not after an unquoted #": a `## help; more` comment
+  // never starts an inline recipe, so its tail never becomes a body unit.
+
+  test('2p. _parseMakefile: `t: ## a; b` has no inline recipe; the tab recipe stays', () => {
+    const parsed = _parseMakefile([
+      'down: ## Stop the local stack (all services); safe to rerun',
+      '\tbash tools/stack-down.sh',
+      'reset: dep ## Reset the database; the API keeps running',
+      'dep:',
+      '',
+    ].join('\n'));
+    const byName = Object.fromEntries(parsed.targets.map((t) => [t.name, t.body]));
+    assert.deepEqual(byName.down, ['bash tools/stack-down.sh'], 'no `safe to rerun` unit');
+    assert.deepEqual(byName.reset, [], 'no `the API keeps running` unit');
+    assert.deepEqual(parsed.deps.down, []);
+    assert.deepEqual(parsed.deps.reset, ['dep']);
+  });
+
+  test('2q. _parseMakefile: a `;` before the comment still starts the inline recipe', () => {
+    const parsed = _parseMakefile('t: dep ; echo x # c\n');
+    const [t] = parsed.targets;
+    assert.equal(t.body.length, 1);
+    assert.ok(t.body[0].startsWith('echo x'), JSON.stringify(t.body));
+    assert.deepEqual(parsed.deps.t, ['dep']);
+  });
+
+  test('2r. _parseMakefile: `t: ## a` with no `;` is unchanged; an escaped `\\#` is not a comment', () => {
+    assert.deepEqual(_parseMakefile('t: ## a help line\n\tgo test ./...\n').targets, [{ name: 't', body: ['go test ./...'] }]);
+    const escaped = _parseMakefile('t: dep\\#1 ; echo y\n');
+    assert.deepEqual(escaped.targets[0].body, ['echo y'], 'an escaped hash does not hide the `;`');
   });
 
   // ─── TRD 43-01 D1: simple variable references in recipe lines ────────────────
