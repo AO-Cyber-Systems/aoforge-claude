@@ -1223,6 +1223,241 @@ function scenarioStackShape() {
   }, { modes: { 'app/web_e2e/scripts/e2e-stack-up.sh': 0o755, 'app/web_e2e/scripts/e2e-stack-down.sh': 0o755, 'app/web_e2e/scripts/db-reset.sh': 0o755 } });
 }
 
+// ─── key-named target equal to the tier default (aoedge.lint row) ─────────────
+
+/**
+ * declaredDefaultTargetShape() — a Go root whose Makefile `lint:` target runs exactly the go tier's lint
+ * default (`go vet ./...`), with a comment saying a heavier linter is not wired up yet. CI runs the same
+ * `go vet ./...` line, annotated as identical to `make lint`. Build has a shipping target and a local
+ * variant; `test:` runs `go test ./...` (not the tier's `-race` default); `fmt:` rewrites in place.
+ *
+ * Competing lint candidates: the runner target `make lint` (body = the tier default) and the raw CI line
+ * (= the tier default). Reviewed: lint `make lint` (the repo's declared entry point), build
+ * `make build-release`, test `make test`, format inherited with apply `make fmt`.
+ */
+function declaredDefaultTargetShape() {
+  return makeWhole({
+    'go.mod': goMod('lanternd'),
+    'main.go': GO_MAIN,
+    'cmd/lanternd/main.go': GO_MAIN,
+    Makefile: mk([
+      'LDFLAGS := -s -w',
+      '',
+      '.PHONY: build-release build-local test test-race lint fmt clean',
+      '',
+      '# build-release: the shipping binary (static, trimmed).',
+      'build-release:',
+      '\tCGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o lanternd ./cmd/lanternd',
+      '',
+      '# build-local: the same binary for a laptop.',
+      'build-local:',
+      '\tgo build -ldflags="$(LDFLAGS)" -o lanternd ./cmd/lanternd',
+      '',
+      'test:',
+      '\tgo test ./...',
+      '',
+      'test-race:',
+      '\tgo test -race ./...',
+      '',
+      '# lint: static analysis via go vet.',
+      '# A heavier linter is not wired up yet; add it here when it is.',
+      'lint:',
+      '\tgo vet ./...',
+      '',
+      'fmt:',
+      '\tgofmt -s -w .',
+      '',
+      'clean:',
+      '\trm -f lanternd',
+    ]),
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [pull_request]',
+      'jobs:',
+      '  check:',
+      '    name: build / vet / test',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - name: Check out',
+      '        uses: actions/checkout@v4',
+      '      - name: Set up Go',
+      '        uses: actions/setup-go@v5',
+      '      - name: go build ./...',
+      '        run: go build ./...',
+      '      - name: go vet ./...',
+      '        # Same as `make lint`: the Makefile lint target is only go vet.',
+      '        run: go vet ./...',
+      '      - name: go test ./...',
+      '        # Same as `make test`.',
+      '        run: go test ./...',
+    ]),
+  });
+}
+
+// ─── runner-less component with CI variants (aocore lint, audit, build, test rows) ─
+
+/**
+ * ciVariantComponentShape() — a `general` root with no task runner anywhere: components `console/` and
+ * `site/` (flutter), `go/` (go, the primary) and `sandbox/edge/` (go). Workflows sort flutter, go-nightly,
+ * go, site. In go.yml (workflow default cwd `go`):
+ *   - lint job: `go generate ./internal/spec/...`, `go vet ./...`, then a pinned
+ *     `uses: golangci/golangci-lint-action@<sha> # v9.x` whose `with:` sets version, install-mode,
+ *     `working-directory: go` and only-new-issues (`go/.golangci.yml` exists);
+ *   - vuln-scan job: `go install …/govulncheck@<v>`, then `run: ../scripts/vuln-gate.sh`, a wrapper whose
+ *     body runs `govulncheck ./... > "$OUT" 2>&1` and then applies an allowlist;
+ *   - unit-test and build jobs. go-nightly.yml runs variant builds and tests (43-13).
+ *
+ * Reviewed: lint `golangci-lint run ./...` and audit `govulncheck ./...`, both cwd `go`; codegen the CI
+ * generate line. This TRD (43-12) asserts lint and audit; 43-13 adds build and test.
+ */
+function ciVariantComponentShape() {
+  const setup = [
+    '      - uses: actions/checkout@0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c # v4.2.0',
+    '      - uses: actions/setup-go@a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 # v5.4.0',
+    '        with:',
+    '          go-version: "1.24.2"',
+    '          cache-dependency-path: go/go.sum',
+    '      - run: go generate ./internal/spec/...',
+  ];
+  return makeWhole({
+    'README.md': '# harborline\n',
+    'console/pubspec.yaml': flutterPubspec('harbor_console'),
+    'console/lib/main.dart': DART_MAIN,
+    'site/pubspec.yaml': flutterPubspec('harbor_site'),
+    'site/lib/main.dart': DART_MAIN,
+    'go/go.mod': goMod('harborline'),
+    'go/main.go': GO_MAIN,
+    'go/cmd/harbor-api/main.go': GO_MAIN,
+    'go/internal/spec/spec.go': 'package spec\n\n//go:generate go run ./gen\n',
+    'go/.golangci.yml': 'version: "2"\nlinters:\n  default: standard\n',
+    'sandbox/edge/go.mod': goMod('harborline-edge'),
+    'sandbox/edge/main.go': GO_MAIN,
+    'scripts/vuln-gate.sh': [
+      '#!/usr/bin/env bash',
+      '# govulncheck with a short allowlist of advisories that have no fix yet.',
+      'set -uo pipefail',
+      'ALLOW=(',
+      '  GO-2099-0001',
+      ')',
+      'OUT="$(mktemp)"',
+      "trap 'rm -f \"$OUT\"' EXIT",
+      '',
+      'govulncheck ./... > "$OUT" 2>&1',
+      'rc=$?',
+      'cat "$OUT"',
+      'if [[ $rc -eq 0 ]]; then',
+      '  echo "vuln-gate: clean."',
+      '  exit 0',
+      'fi',
+      'fail=0',
+      'for id in $(grep -oE "GO-[0-9]+-[0-9]+" "$OUT" | sort -u); do',
+      '  case " ${ALLOW[*]} " in',
+      '    *" $id "*) echo "vuln-gate: allowed $id" ;;',
+      '    *) echo "vuln-gate: $id is not allowlisted"; fail=1 ;;',
+      '  esac',
+      'done',
+      'exit "$fail"',
+      '',
+    ].join('\n'),
+    '.github/workflows/flutter.yml': wf([
+      'name: flutter',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: console',
+      'jobs:',
+      '  analyze:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: flutter analyze --fatal-infos',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: flutter test --platform chrome',
+    ]),
+    '.github/workflows/go-nightly.yml': wf([
+      'name: go nightly',
+      'on:',
+      '  schedule:',
+      "    - cron: '0 3 * * *'",
+      'defaults:',
+      '  run:',
+      '    working-directory: go',
+      'jobs:',
+      '  coverage:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go test -short -p 1 ./... -race -coverprofile=unit.out -timeout 35m',
+      '  dev-binary:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go build -tags dev -o /tmp/harbor-dev ./cmd/harbor-api',
+    ]),
+    '.github/workflows/go.yml': wf([
+      'name: go',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: go',
+      'jobs:',
+      '  lint:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go vet ./...',
+      '      # golangci-lint v2 reads go/.golangci.yml. The action runs at the repo root unless told',
+      '      # otherwise, so it gets the module dir explicitly.',
+      '      - uses: golangci/golangci-lint-action@9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c # v9.1.0',
+      '        with:',
+      '          version: v2.5.0',
+      '          install-mode: goinstall',
+      '          working-directory: go',
+      '          # pre-existing findings are tracked separately; only new ones fail a PR',
+      '          only-new-issues: true',
+      '  vuln-scan:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4',
+      '      # Gated rather than bare: advisories with no fix yet are allowlisted, and expire.',
+      '      - run: ../scripts/vuln-gate.sh',
+      '  unit-test:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go test -short ./... -race -coverprofile=coverage.out -timeout 5m',
+      '  build:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go build ./cmd/harbor-api',
+    ]),
+    '.github/workflows/site.yml': wf([
+      'name: site',
+      'on: [pull_request]',
+      'jobs:',
+      '  analyze:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: site',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: flutter analyze --fatal-infos',
+    ]),
+  }, { modes: { 'scripts/vuln-gate.sh': 0o755 } });
+}
+
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
 
 const REALSHAPE = Object.freeze({
@@ -1415,10 +1650,53 @@ const REALSHAPE = Object.freeze({
     noEvidence: [],
     noteStatuses: { present: ['env_teardown', 'env_reset'], absent: [] },
   },
+  declaredDefaultTargetShape: {
+    build: declaredDefaultTargetShape,
+    tools: tools(),
+    expect: {
+      extends: 'go',
+      components: [],
+      commands: {
+        build: { run: 'make build-release' },
+        test: { run: 'make test' },
+        lint: { run: 'make lint' },
+        format: { run: 'test -z "$(gofmt -l .)"', apply: 'make fmt' },
+      },
+    },
+    absent: [],
+    extraAllowed: [],
+    noEvidence: [],
+  },
+  ciVariantComponentShape: {
+    build: ciVariantComponentShape,
+    tools: tools('bash'),
+    expect: {
+      extends: 'general',
+      components: [
+        { path: 'console/', profile: 'flutter' },
+        { path: 'go/', profile: 'go' },
+        { path: 'sandbox/edge/', profile: 'go' },
+        { path: 'site/', profile: 'flutter' },
+      ],
+      commands: {
+        codegen: { run: 'go generate ./internal/spec/...', cwd: 'go' },
+        lint: { run: 'golangci-lint run ./...', cwd: 'go' },
+        audit: { run: 'govulncheck ./...', cwd: 'go' },
+      },
+    },
+    absent: [],
+    // build, test: CI variants (a nightly dev-tagged build, a 35m coverage run), closed by 43-13, which adds
+    // their expectations here. lint: the golangci action becomes a candidate in task 2 of 43-12.
+    extraAllowed: ['build', 'test', 'lint'],
+    noEvidence: [],
+    noteStatuses: { present: ['wrapper'], absent: [] },
+  },
 });
 
 module.exports = {
   REALSHAPE,
+  declaredDefaultTargetShape,
+  ciVariantComponentShape,
   mixedAggregateCodegenShape,
   bootstrapTaskShape,
   partialDriftCheckShape,

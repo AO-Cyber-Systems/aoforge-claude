@@ -1688,3 +1688,108 @@ describe('assembleDraft environment teardown and reset (T1-T5, TRD 43-11 test 7)
     assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-down' });
   });
 });
+
+// TRD 43-12 (aoedge.lint row): a task-runner target NAMED FOR THE KEY is the repo's declared entry point. It
+// fills the key even when its body is exactly the tier default, instead of making the key inherited. A raw
+// CI line equal to the default, and a runner target with another name, still inherit (42-07, D15/D15b).
+describe('assembleDraft declared targets equal to the tier default (DT1-DT4, TRD 43-12 test 6)', () => {
+  const tgt = (name, order = 0) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [] });
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('DT1: `make lint` whose body IS the tier default fills lint; the CI line equal to it does not make the key inherited', () => {
+    const d = run([
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint'), bodyInvocations: ['go vet ./...'] }),
+      ev('lint', 'go vet ./...', { tool: 'go' }),
+    ]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'make lint' });
+    assert.equal(d.inheritedKeys.includes('lint'), false);
+  });
+
+  test('DT2: a raw CI line equal to the default still inherits; so does a runner target with another name', () => {
+    const raw = run([ev('lint', 'go vet ./...', { tool: 'go' })]);
+    assert.equal('lint' in raw.commands, false);
+    assert.ok(raw.inheritedKeys.includes('lint'));
+    const vet = run([
+      ev('lint', 'make vet', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('vet'), bodyInvocations: ['go vet ./...'] }),
+    ]);
+    assert.equal('lint' in vet.commands, false, JSON.stringify(vet.commands));
+  });
+
+  test('DT3: behind a runner the tier scoped form is not copied (sameTool is false)', () => {
+    const d = run([
+      ev('test', 'make test', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go test -race ./...', target: tgt('test'), bodyInvocations: ['go test -race ./...'] }),
+    ]);
+    assert.deepStrictEqual(d.commands.test, { run: 'make test' });
+  });
+
+  test('DT4: an unresolved declared target does not stop the walk: the default-equal CI line then inherits', () => {
+    const d = assembleDraft({
+      areas: ROOT_GO,
+      evidence: [
+        ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint'), bodyInvocations: ['go vet ./...'] }),
+        ev('lint', 'go vet ./...', { tool: 'go' }),
+      ],
+      tierCommands: TIERS,
+      verify: (cmd) => (cmd === 'make lint' ? { status: 'binary_missing', detail: 'make is not installed' } : { status: 'resolved' }),
+    });
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.notes.some((n) => n.key === 'lint' && n.candidate === 'make lint' && n.status === 'binary_missing'));
+  });
+});
+
+// TRD 43-12 (aocore.audit row): a SCRIPT not named for the key whose body runs the governing tier's default
+// for the key is a wrapper around that default. The key takes the default and the wrapper is a `wrapper`
+// note: in a general root's primary component the tier default with the component cwd, at a tier root the
+// key stays inherited. A key-named script (`audit.sh`) is the repo's own entry point and is never reduced.
+describe('assembleDraft wrapper scripts reduce to the tier default (W1-W5, TRD 43-12 test 6)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  const svc = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+  ];
+  const script = (command, invokedName, body, extra = {}) => ev('audit', command, {
+    runner: 'script', tool: 'govulncheck', invokedName, resolvesTo: body[0], bodyInvocations: body, ...extra,
+  });
+  const GATE_BODY = ['ALLOW=( GO-2099-0001 )', 'govulncheck ./... > "$OUT" 2>&1', 'cat "$OUT"', 'grep -oE "GO-[0-9]+-[0-9]+" "$OUT"'];
+  const run = (evidence, areas) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('W1: in the primary component the wrapper gives the tier default with the component cwd, and a wrapper note', () => {
+    const d = run([...svc(), script('../scripts/vuln-gate.sh', 'vuln-gate', GATE_BODY, { cwd: 'svc', area: 'svc/' })], AREAS);
+    assert.deepStrictEqual(d.commands.audit, { run: 'govulncheck ./...', when: 'deps_changed', cwd: 'svc' });
+    const n = d.notes.find((x) => x.status === 'wrapper');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.key, 'audit');
+    assert.equal(n.candidate, '../scripts/vuln-gate.sh');
+    assert.match(n.detail, /wraps `govulncheck \.\/\.\.\.`/);
+  });
+
+  test('W2: at a tier root the wrapper leaves the key inherited, with the note', () => {
+    const d = run([script('./scripts/vuln-gate.sh', 'vuln-gate', GATE_BODY)], ROOT_GO);
+    assert.equal('audit' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('audit'));
+    assert.ok(d.notes.some((x) => x.status === 'wrapper' && x.candidate === './scripts/vuln-gate.sh'));
+  });
+
+  test('W3: a script named for the key is the repo\'s entry point and is never reduced', () => {
+    const d = run([script('./scripts/audit.sh', 'audit', GATE_BODY)], ROOT_GO);
+    assert.deepStrictEqual(d.commands.audit, { run: './scripts/audit.sh' });
+    assert.equal(d.notes.filter((x) => x.status === 'wrapper').length, 0);
+  });
+
+  test('W4: a script whose body runs something other than the default (other flags) is kept as written', () => {
+    const d = run([script('./scripts/vuln-gate.sh', 'vuln-gate', ['govulncheck -format json ./... >"$TMP"', 'jq . "$TMP"'])], ROOT_GO);
+    assert.deepStrictEqual(d.commands.audit, { run: './scripts/vuln-gate.sh' });
+    assert.equal(d.notes.filter((x) => x.status === 'wrapper').length, 0);
+  });
+
+  test('W5: only a script is a wrapper: a runner target or a raw line with another name is not reduced', () => {
+    const d = run([
+      ev('audit', 'make vulns', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'govulncheck', target: { name: 'vulns', deps: [], order: 0, legs: [] }, bodyInvocations: ['govulncheck ./... > report.txt'] }),
+    ], ROOT_GO);
+    assert.deepStrictEqual(d.commands.audit, { run: 'make vulns' });
+    assert.equal(d.notes.filter((x) => x.status === 'wrapper').length, 0);
+  });
+});

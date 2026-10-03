@@ -54,13 +54,15 @@ const ACCEPTED = {
 // 43-11 removed justinforme.codegen and smartWellness.codegen (a mixed aggregate never fills a key a pure
 // candidate fills) and eden-biz.codegen (a drift check of one leg of the generator is a partial_check), and
 // re-tagged ao-terminal.deps as a flag-only residual for the 43-15 decision.
+// 43-12 removed aoedge.lint (a task-runner target named for the key is the declared entry point, even when
+// its body is the tier default) and aocore.audit (a script not named for the key that runs the tier
+// default reduces to that default).
 const KNOWN_DRIFT = {
   aocore: [
     {
-      keys: ['lint', 'audit'],
+      keys: ['lint'],
       closes: '43-12',
-      reason: 'lint: draft `go vet ./... (cwd go)` vs committed `golangci-lint run ./... (cwd go)`; '
-        + 'audit: draft `../scripts/govulncheck-gate.sh (cwd go)` vs committed `govulncheck ./... (cwd go)`',
+      reason: 'lint: draft `go vet ./... (cwd go)` vs committed `golangci-lint run ./... (cwd go)`',
     },
     {
       keys: ['build', 'test'],
@@ -77,13 +79,6 @@ const KNOWN_DRIFT = {
       residual: 'flag-only: CI adds --no-audit --no-fund; the reviewed value dropped them by hand',
       reason: 'deps: draft `npm ci --no-audit --no-fund` vs committed `npm ci` (seeded as `task init`; 43-11 made the '
         + 'one-shot bootstrap a mixed_aggregate note, so the CI install line fills deps, verbatim)',
-    },
-  ],
-  aoedge: [
-    {
-      keys: ['lint'],
-      closes: '43-12',
-      reason: 'lint: draft `go vet ./...` vs committed `make lint`',
     },
   ],
   aoinference: [
