@@ -102,7 +102,7 @@ jobs:
           permission-contents: read
 
       - name: Check out the DevFlow check runner
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.devflow-repo }}
           ref: ${{ inputs.devflow-ref }}
@@ -162,7 +162,7 @@ jobs:
           permission-contents: read
 
       - name: Check out the DevFlow check runner
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.devflow-repo }}
           ref: ${{ inputs.devflow-ref }}
@@ -222,7 +222,7 @@ jobs:
           permission-contents: read
 
       - name: Check out the DevFlow check runner
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.devflow-repo }}
           ref: ${{ inputs.devflow-ref }}
