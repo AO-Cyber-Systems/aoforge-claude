@@ -457,19 +457,21 @@ describe('assembleDraft tiered root/primary placement (B2, TRD 43-10)', () => {
   ];
   const t1 = (extra = {}) => ev('build', 'make build-all', { source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'build', tool: 'go', effectiveArea: '', ...extra });
   const t2 = (extra = {}) => ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', form: 'build', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/', ...extra });
-  const t3 = (extra = {}) => ev('build', './ci/build.sh', { source: 'ci', form: 'build', tool: null, bodyStacks: [], effectiveArea: '', ...extra });
+  // A root CI build that runs the primary's own stack, so the root is not a product (a root build in a stack
+  // no component has would make the components sidecars and leave no primary).
+  const t3 = (extra = {}) => ev('build', 'go build -o bin/tool ./cmd/tool', { source: 'ci', form: 'build', tool: 'go', bodyStacks: ['go'], effectiveArea: '', ...extra });
   const t4 = (extra = {}) => ev('build', 'go build ./...', { source: 'ci', form: 'build', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/', ...extra });
   const draft = (evidence, verify = resolvedAll) => assembleDraft({ areas: AREAS, evidence: [...evidence, ...primaryEvidence()], tierCommands: TIERS, verify });
 
   test('B2a: each tier wins over the next: root runner, primary runner, root CI, primary CI', () => {
     assert.deepStrictEqual(draft([t4(), t3(), t2(), t1()]).commands.build, { run: 'make build-all' }, 'tier 1: no cwd');
     assert.deepStrictEqual(draft([t4(), t3(), t2()]).commands.build, { run: 'make build', cwd: 'svc' }, 'tier 2 beats the root CI step');
-    assert.deepStrictEqual(draft([t4(), t3()]).commands.build, { run: './ci/build.sh' }, 'tier 3 beats the primary CI step');
+    assert.deepStrictEqual(draft([t4(), t3()]).commands.build, { run: 'go build -o bin/tool ./cmd/tool' }, 'tier 3 beats the primary CI step');
     assert.deepStrictEqual(draft([t4()]).commands.build, { run: 'go build ./...', cwd: 'svc' }, 'tier 4 alone');
   });
 
   test('B2b: a tier none of whose candidates verify falls through to the next; every tier spent ends as discover', () => {
-    const verify = (cmd) => (cmd === 'make build-all' || cmd === './ci/build.sh'
+    const verify = (cmd) => (cmd === 'make build-all' || cmd === 'go build -o bin/tool ./cmd/tool'
       ? { status: 'binary_missing', detail: 'stub: not on PATH' }
       : { status: 'resolved', detail: 'stub' });
     const d = draft([t1(), t2(), t3()], verify);
@@ -503,7 +505,7 @@ describe('assembleDraft tiered root/primary placement (B2, TRD 43-10)', () => {
 
   test('B2e: a non-image root candidate that loses is a shadowed note without the image_build detail', () => {
     const d = draft([t3(), t2()]);
-    const n = d.notes.find((x) => x.candidate === './ci/build.sh');
+    const n = d.notes.find((x) => x.candidate === 'go build -o bin/tool ./cmd/tool');
     assert.ok(n && n.status === 'shadowed', JSON.stringify(d.notes));
     assert.doesNotMatch(n.detail, /image_build/);
   });

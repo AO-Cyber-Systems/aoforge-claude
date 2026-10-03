@@ -271,6 +271,11 @@ const depthOf = (p) => String(p).split('/').filter(Boolean).length;
 /** Task runners whose TARGETS a CI step can call (stack-verify describeInvocation `runner`); a script file is not one. */
 const TASK_RUNNERS = new Set(['make', 'task', 'just', 'npm']);
 
+/** An evidence item that is a target or recipe of a task-runner file (not a CI step, a doc or a script). */
+const isRunnerItem = (e) => e.source === 'runner' && TASK_RUNNERS.has(e.runner);
+/** The item's runner file sits at the repository root (`Makefile`, `justfile`, `Taskfile.yml`). */
+const atRepoRoot = (e) => typeof e.sourceFile === 'string' && e.sourceFile !== '' && !e.sourceFile.includes('/');
+
 /**
  * pickPrimaryComponent(components, items) -> { path, profile, score, canonical, viaRunner } | null
  *
@@ -467,34 +472,44 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     });
   }
   const rootAreas = new Set(['']);
-  const rootByKey = new Map();
-  const primaryByKey = new Map(); // primary component: key -> items (each keeps its own cwd)
+  // The candidates of a root key, by tier (index 0..3 = tiers 1..4, see the header): a root task-runner
+  // recipe, a runner target of the primary component, the other root-area candidates, the primary's
+  // other candidates. Tiers 1, 2 and 4 exist only with a primary component; without one every
+  // root-area candidate is tier 3, which is the old single root list.
+  const tierByKey = new Map();
   const elsewhere = new Map(); // component (area, key) -> items
   const subArea = new Map(); // unsupported sub-area (area, key) -> items
-  const rootKeyOrder = []; // the keys of rootByKey / primaryByKey in first-seen evidence order
+  const rootKeyOrder = []; // the keys of tierByKey in first-seen evidence order
   const bucket = (map, k, e) => {
     if (!map.has(k)) map.set(k, []);
     map.get(k).push(e);
   };
-  const seeKey = (k) => {
-    if (!rootKeyOrder.includes(k)) rootKeyOrder.push(k);
+  const place = (item, tier) => {
+    if (!tierByKey.has(item.key)) {
+      tierByKey.set(item.key, [[], [], [], []]);
+      rootKeyOrder.push(item.key);
+    }
+    tierByKey.get(item.key)[tier - 1].push(item);
   };
   for (const item of items) {
     const eff = effectiveAreaOf(item);
-    if (primary && eff === primary.path) {
-      seeKey(item.key);
-      bucket(primaryByKey, item.key, item.area !== eff ? { ...item, area: eff } : item);
+    if (primary && item.source === 'declared' && (eff === primary.path || rootAreas.has(eff))) {
+      place(item, 1); // the user's own row outranks every tier, as it outranks every source
+    } else if (primary && isRunnerItem(item) && atRepoRoot(item)) {
+      place(item, 1); // a recipe of the root task runner is the repo's interface wherever its body runs
+    } else if (primary && isRunnerItem(item) && item.area === primary.path) {
+      place(item, 2); // a target of the primary component's runner file keeps its own cwd
+    } else if (primary && eff === primary.path) {
+      place(item.area !== eff ? { ...item, area: eff } : item, 4);
     } else if (componentDirs.has(eff) && !item.cwd && ATTACHABLE_KEYS.has(item.key)) {
       // TRD 43-06: a repo-level check run FROM the root (e2e, chart lint, Dockerfile lint) is a root
       // candidate wherever its script lives (`./wopi-host/scripts/wopi-e2e.sh` exercises the whole repo).
-      seeKey(item.key);
-      bucket(rootByKey, item.key, item);
+      place(item, 3);
     } else if (componentDirs.has(eff)) {
       const e = item.area !== eff ? { ...item, area: eff } : item;
       bucket(elsewhere, `${eff}\u0000${e.key}`, e);
     } else if (rootAreas.has(eff)) {
-      seeKey(item.key);
-      bucket(rootByKey, item.key, item);
+      place(item, 3);
     } else {
       bucket(subArea, `${eff}\u0000${item.key}`, item);
     }
@@ -530,31 +545,11 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       }
     }
   }
-  for (const key of rootKeyOrder) {
-    // Root-area candidates first. A key none of them fills takes the primary component's candidates;
-    // when a root candidate exists the primary ones are component notes.
-    let list = rootByKey.get(key) || [];
-    if (primary && stackOwner.size) {
-      const offPrimarySeen = new Set();
-      list = list.filter((c) => {
-        const stacks = unique(scopesOf(c).map((sc) => sc.stack));
-        if (!stacks.length || !stacks.every((st) => stackOwner.has(st))) return true;
-        if (!offPrimarySeen.has(c.command)) {
-          offPrimarySeen.add(c.command);
-          const owners = unique(stacks.map((st) => stackOwner.get(st)));
-          notes.push(note(c, key, 'off_primary', `tool stack ${stacks.join('+')} belongs to component ${owners.join(', ')}, not the primary component ${primary.path}`));
-        }
-        return false;
-      });
-    }
-    let fromPrimary = false;
-    const primaryList = primaryByKey.get(key) || [];
-    if (primaryList.length && !list.length) {
-      list = primaryList;
-      fromPrimary = true;
-    } else if (primaryList.length) {
-      for (const e of primaryList) bucket(elsewhere, `${primary.path}\u0000${key}`, e);
-    }
+  // evaluateKey(key, list, fromPrimary) -> { entry, supplies, via }: the per-key pipeline (D3 gate, e2e_env
+  // eligibility, rank, the repo-wide test, the verify walk, apply) over ONE tier's candidates. `supplies`
+  // is true when the tier fills the key or leaves it inherited from the tier default; a tier that does
+  // not (every candidate failed, or none was broad) leaves its notes and the next tier is tried.
+  const evaluateKey = (key, list, fromPrimary) => {
     const parentEntry = parent[key] && typeof parent[key] === 'object' ? parent[key] : null;
     const parentRun = parentEntry ? parentEntry.run : undefined;
     // A primary candidate that runs the SAME tool as the component tier's default keeps that tier's
@@ -687,6 +682,66 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     } else if (apply) {
       entry = runnable(parentRun) ? { ...parentEntry, apply: apply.command } : withWhen({ run: 'discover', apply: apply.command });
       if (apply.cwd) entry.cwd = apply.cwd;
+    }
+    const supplies = chosen !== null || inheritedAt !== undefined;
+    return { entry, supplies, via: chosen ? chosen.command : (supplies ? `the ${extendsId} default` : null) };
+  };
+
+  const TIER_NAMES = ['a root task-runner recipe', "the primary component's task-runner target", 'a root CI, docs or manifest candidate', "the primary component's CI or docs candidate"];
+  for (const key of rootKeyOrder) {
+    // The first tier that supplies the key wins; a tier that supplies nothing falls through to the next,
+    // and only with every tier spent does a key that had candidates end as `discover`.
+    let lists = tierByKey.get(key);
+    // off_primary (TRD 43-05, D6): a root-area or runner candidate whose tool stack belongs ONLY to a
+    // non-primary component is a note, whichever tier it is in. The primary's own candidates (tier 4)
+    // are never filtered.
+    if (primary && stackOwner.size) {
+      const offPrimarySeen = new Set();
+      lists = lists.map((list, idx) => (idx === 3 ? list : list.filter((c) => {
+        const stacks = unique(scopesOf(c).map((sc) => sc.stack));
+        if (!stacks.length || !stacks.every((st) => stackOwner.has(st))) return true;
+        if (!offPrimarySeen.has(c.command)) {
+          offPrimarySeen.add(c.command);
+          const owners = unique(stacks.map((st) => stackOwner.get(st)));
+          notes.push(note(c, key, 'off_primary', `tool stack ${stacks.join('+')} belongs to component ${owners.join(', ')}, not the primary component ${primary.path}`));
+        }
+        return false;
+      })));
+    }
+    const outcomes = [];
+    let winner = -1;
+    for (let idx = 0; idx < 4 && winner === -1; idx++) {
+      if (!lists[idx].length) continue;
+      const o = evaluateKey(key, lists[idx], idx === 1 || idx === 3);
+      outcomes.push(o);
+      if (o.supplies) winner = idx;
+    }
+    // The candidates of the tiers after the winner: the primary's own become component notes when a ROOT
+    // tier wins (as before); a root CI, docs or manifest candidate that the primary's runner shadows is
+    // a note of its own, which says so for a container image build (it packages what the repo builds).
+    if (winner !== -1) {
+      if (winner === 0 || winner === 2) {
+        for (const idx of [1, 3]) {
+          if (idx <= winner) continue;
+          for (const e of lists[idx]) bucket(elsewhere, `${primary.path}\u0000${key}`, e);
+        }
+      }
+      if (winner === 1 && lists[2].length) {
+        const ordered = rank(lists[2], key);
+        const best = ordered.find((e) => RUN_FORMS.has(e.form)) || ordered[0];
+        const via = outcomes[outcomes.length - 1].via;
+        const detail = key === 'build' && imageBuildOnly(best)
+          ? `image_build: a container image build packages what the repo builds and is not the build; ${key} is ${via}, from ${TIER_NAMES[1]} of ${primary.path}`
+          : `shadowed: ${key} is ${via}, from ${TIER_NAMES[1]} of ${primary.path}; this root candidate is not used`;
+        notes.push(note(best, key, 'shadowed', detail));
+      }
+    }
+    let entry = null;
+    if (winner !== -1) {
+      entry = outcomes[outcomes.length - 1].entry;
+    } else {
+      const entries = outcomes.map((o) => o.entry).filter(Boolean);
+      entry = entries.find((e) => e.run === 'discover') || entries[0] || null;
     }
     if (entry) commands[key] = entry;
   }
