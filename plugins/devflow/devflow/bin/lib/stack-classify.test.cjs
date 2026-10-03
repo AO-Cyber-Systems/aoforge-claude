@@ -902,6 +902,52 @@ describe('K25 hint forms from check / apply suffixes; drift checks (TRD 43-06)',
   });
 });
 
+// TRD 43-09 (devflowops.format / devflowops.tidy / aodex.codegen rows): the drift checks real recipes
+// write. A captured `$(git diff …)` tested non-empty, and a `diff -q` of a mktemp/snapshot copy against
+// the regenerated file, each followed by a failing exit. Read from the raw recipe TEXT (`$$` or `$`):
+// both shapes normalise to nothing a table row could see. driftCheckAt gives where the check statement
+// starts, so stack-evidence can look for the writer before it.
+describe('K27 drift checks as real recipes write them (TRD 43-09)', () => {
+  const { isDriftCheck, driftCheckAt } = require('./stack-classify.cjs');
+  const CAPTURED_MAKE = 'out=$$(git diff --color=never cmd views); if [ -n "$$out" ]; then echo "run make fmt"; echo "$${out}"; exit 1; fi';
+  const CAPTURED_SH = 'changes="$(git diff --name-only -- go.mod go.sum)"\nif [ -n "$changes" ]; then\n  echo "$changes"\n  exit 1\nfi';
+
+  test('K27a: a captured `git diff` tested non-empty and failing is a drift check ($$ and $ spellings)', () => {
+    assert.equal(isDriftCheck(CAPTURED_MAKE), true, 'Makefile $$ spelling');
+    assert.equal(isDriftCheck(CAPTURED_SH), true, 'shell $ spelling');
+    assert.equal(isDriftCheck('d=`git -C api diff`; [ -z "$d" ] || exit 1'), true, 'backticks, -z, || exit');
+    assert.equal(isDriftCheck('if [ -n "$(git diff)" ]; then false; fi'), true, 'inline capture, `false`');
+    assert.equal(isDriftCheck('rc=1; d=$(git diff); if [ -n "$d" ]; then exit $rc; fi'), true, '`exit $rc`');
+  });
+
+  test('K27b: a snapshot `diff`/`cmp` against the in-tree file, then a failing exit, is a drift check', () => {
+    assert.equal(isDriftCheck('diff -q $$tmp/f.go f.go || exit 1'), true, '`|| exit 1`');
+    assert.equal(isDriftCheck('snap=$$(mktemp -d) && cp a.gen.go $$snap/ && go generate ./... && if ! diff -q $$snap/a.gen.go a.gen.go >/dev/null; then cp $$snap/a.gen.go .; exit 1; fi'), true, '`if ! diff -q … then … exit 1`');
+    assert.equal(isDriftCheck('keep=$(mktemp -d)\ncp out.json "$keep/"\n./gen.sh\ncmp "$keep/out.json" out.json || exit 1'), true, 'cmp, quoted, mktemp-assigned');
+    assert.equal(isDriftCheck('diff -u .snapshots/api.txt api.txt || { echo stale; exit 1; }'), true, 'a snapshot directory');
+    assert.equal(isDriftCheck('diff $TMPDIR/x.pb.go x.pb.go || exit 1'), true, 'no flag');
+  });
+
+  test('K27c: a diff that is only shown, or not of a snapshot, is not a drift check', () => {
+    assert.equal(isDriftCheck('d=$$(git diff); echo "$$d"'), false, 'captured and echoed only');
+    assert.equal(isDriftCheck('d=$(git diff); if [ -n "$d" ]; then echo "$d"; fi'), false, 'tested but never failing');
+    assert.equal(isDriftCheck('git diff --stat'), false);
+    assert.equal(isDriftCheck('diff -u $$tmp/a a | head -30 || true'), false, '`|| true` is not a failing exit');
+    assert.equal(isDriftCheck('diff -u expected.txt actual.txt || exit 1'), false, 'neither side is a snapshot');
+    assert.equal(isDriftCheck('d=$(git log -1); [ -n "$d" ] || exit 1'), false, 'not a git diff');
+    assert.equal(isDriftCheck('exit 0'), false);
+  });
+
+  test('K27d: driftCheckAt points at the start of the check statement, -1 when there is none', () => {
+    const text = 'go generate ./api/... >/dev/null 2>&1 && if ! diff -q $$tmp/a.go a.go; then exit 1; fi';
+    const at = driftCheckAt(text);
+    assert.equal(text.slice(0, at).trim(), 'go generate ./api/... >/dev/null 2>&1 &&');
+    assert.equal(driftCheckAt(CAPTURED_MAKE), 0);
+    assert.equal(driftCheckAt('gofmt -w .'), -1);
+    assert.equal(driftCheckAt(''), -1);
+  });
+});
+
 // TRD 43-06 (devcluster golden): shellcheck is the repo-wide linter of a shell repo, and a `selftest`
 // is a test entry point (an offline self-test), so both classify without a runner around them.
 describe('K26 shellcheck and selftest (TRD 43-06)', () => {

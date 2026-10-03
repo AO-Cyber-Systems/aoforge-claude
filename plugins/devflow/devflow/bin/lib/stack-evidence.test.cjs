@@ -1209,3 +1209,85 @@ describe('smoke scripts are single-purpose (E21, TRD 43-06)', () => {
     }
   });
 });
+
+// TRD 43-09 (devflowops.format / devflowops.tidy / aodex.codegen rows): drift checks as real recipes
+// write them, and the check suffix on a body-classified writer.
+// - E22a a `-verify` / `-check` target whose BODY writes codegen (`go generate`) is codegen's check
+//   form, high confidence (the body says what it runs; the suffix says which form).
+// - E22b a `-check` target whose recipe captures `git diff`, tests it non-empty and exits 1 (it
+//   normalises to nothing) after a prerequisite that writes format (known only by its name) is
+//   format/check, high. The same with a tidy writer.
+// - E22c a recipe that snapshots into mktemp, regenerates and fails on `diff -q` is the generator's
+//   check form, whatever the target is called.
+// - E22d unchanged: a `-verify` target whose body writes nothing (`go build`, an unknown script), and a
+//   target that only SHOWS a captured diff (no failing exit), which is not evidence.
+describe('real drift-check shapes and check suffixes (E22, TRD 43-09)', () => {
+  const MAKEFILE = [
+    'fmt:',
+    "\tgo run tools/fmtbatch/main.go -w '{file-list}'",
+    '\tsed -i -e "s/ *$$//" views/a.tmpl',
+    '',
+    'fmt-check: fmt',
+    '\t@out=$$(git diff --color=never cmd views); \\',
+    '\tif [ -n "$$out" ]; then \\',
+    '\t  echo "run make fmt"; \\',
+    '\t  exit 1; \\',
+    '\tfi',
+    '',
+    'tidy:',
+    '\tgo mod tidy -compat=1.22',
+    '',
+    'tidy-check: tidy',
+    '\t@out=$$(git diff go.mod go.sum); if [ -n "$$out" ]; then echo "$$out"; exit 1; fi',
+    '',
+    'fmt-show: fmt',
+    '\t@out=$$(git diff); echo "$$out"',
+    '',
+    'models-verify:',
+    '\tgo generate ./models/...',
+    '',
+    'api-guard:',
+    '\t@snap=$$(mktemp -d) && cp api/a.gen.go $$snap/ && go generate ./api/... && \\',
+    '\tif ! diff -q $$snap/a.gen.go api/a.gen.go >/dev/null; then cp $$snap/a.gen.go api/; exit 1; fi',
+    '',
+    'build-verify:',
+    '\tgo build ./...',
+    '',
+    'docs-verify:',
+    '\t./tools/docs-lint.sh',
+    '',
+  ].join('\n');
+
+  function items() {
+    const root = makeRepo({ 'go.mod': 'module example.invalid/shapes\n\ngo 1.23\n', Makefile: MAKEFILE });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd) => list.find((e) => e.command === cmd) || null;
+  const pick = (e) => (e ? { key: e.key, form: e.form, confidence: e.confidence } : null);
+
+  test('E22a: a check-suffixed target whose body writes codegen is codegen/check, high', () => {
+    assert.deepEqual(pick(byCmd(items(), 'make models-verify')), { key: 'codegen', form: 'check', confidence: 'high' });
+  });
+
+  test('E22b: a captured-diff check after a writing prerequisite is that key\'s check form, high', () => {
+    const list = items();
+    assert.deepEqual(pick(byCmd(list, 'make fmt-check')), { key: 'format', form: 'check', confidence: 'high' });
+    assert.deepEqual(pick(byCmd(list, 'make tidy-check')), { key: 'tidy', form: 'check', confidence: 'high' });
+    assert.equal(byCmd(list, 'make fmt').form, 'apply', 'the writer keeps its form');
+  });
+
+  test('E22c: a mktemp snapshot + regenerate + `diff -q` + exit 1 recipe is codegen/check, high', () => {
+    assert.deepEqual(pick(byCmd(items(), 'make api-guard')), { key: 'codegen', form: 'check', confidence: 'high' });
+  });
+
+  test('E22d: unchanged — a -verify target that writes nothing, and a diff that is only shown', () => {
+    const list = items();
+    assert.deepEqual(pick(byCmd(list, 'make build-verify')), { key: 'build', form: 'build', confidence: 'high' });
+    assert.equal(byCmd(list, 'make docs-verify'), null, 'an unknown script under a -verify name is not evidence');
+    assert.equal(byCmd(list, 'make fmt-show'), null, 'a captured diff that never fails is not a check');
+  });
+});
