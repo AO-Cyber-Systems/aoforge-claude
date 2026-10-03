@@ -841,6 +841,96 @@ function scenarioWrapperShape() {
   }, { modes: { 'docsvc/scripts/docs-e2e.sh': 0o755, 'docsvc/scripts/scenario.sh': 0o755 } });
 }
 
+/**
+ * manifestlessShellShape() — TRD 43-05 D3, devcluster-shaped: a shell repo with NO root manifest and
+ * one Go tool under `tools/proxy/`. Invented names (`opsrepo`, `opsproxy`). The root Makefile's `lint`
+ * runs shellcheck over the scripts and its `test` runs the offline conformance self-test, both at the
+ * root and neither with a stack the drafter could gate on. (stack-classify has no row for `shellcheck`
+ * and no hint for `selftest`, so they reach the drafter as Makefile targets, not as raw CI lines.)
+ * Expected: extends general, components [tools/proxy/ go]; lint is `make lint` and test `make test`
+ * (root candidates), build is the single-component fallback `go build ./...` from `tools/proxy`.
+ */
+function manifestlessShellShape() {
+  return makeWhole({
+    'README.md': '# opsrepo\n',
+    'bin/build.sh': '#!/bin/sh\nset -eu\necho "build an image"\n',
+    'bin/test.sh': '#!/bin/sh\nset -eu\necho "live cluster check"\n',
+    'lib/common.sh': '#!/bin/sh\nset -eu\nlog() { echo "$*"; }\n',
+    't0-conformance/selftest.sh': '#!/bin/sh\nset -eu\necho "offline selftest"\n',
+    'tools/proxy/go.mod': goMod('opsproxy'),
+    'tools/proxy/main.go': GO_MAIN,
+    Makefile: [
+      '.PHONY: lint test',
+      'lint:',
+      '\tshellcheck bin/*.sh lib/*.sh t0-conformance/*.sh',
+      '',
+      'test:',
+      '\tbash t0-conformance/selftest.sh',
+      '',
+    ].join('\n'),
+  });
+}
+
+/**
+ * recipeWrapsComponentShape() — TRD 43-05 D6, navigators-shaped: a Flutter app in `app/`, a Go API
+ * in `api/`, and a root justfile whose `test-go` recipe does the `cd api` itself. Invented names
+ * (`mapsrepo`). Expected: extends general; root test is `just test-go` with NO cwd (the recipe does
+ * the cd), and a `primary_component` note names `api/`.
+ */
+function recipeWrapsComponentShape() {
+  return makeWhole({
+    'README.md': '# mapsrepo\n',
+    'app/pubspec.yaml': flutterPubspec('maps_app'),
+    'app/lib/main.dart': DART_MAIN,
+    'api/go.mod': goMod('mapsapi'),
+    'api/main.go': GO_MAIN,
+    justfile: [
+      'test-go:',
+      '    cd api && go test ./...',
+      '',
+    ].join('\n'),
+  });
+}
+
+/**
+ * componentMakefileShape() — TRD 43-05 D6 + D2, aodex/politihub-shaped: the Go server's Makefile in
+ * `go/` (build and test only), a Flutter client in `flutter/`, and a tile-build script run in CI from
+ * `infra/tiles` (in no language area). Invented names (`geosvc`).
+ * Expected: extends general; root build is `make build` and test `make test`, both cwd `go`; nothing
+ * from `infra/tiles` is a root key (a `sub_area` note instead); there is no lint key.
+ */
+function componentMakefileShape() {
+  return makeWhole({
+    'README.md': '# geosvc\n',
+    'go/go.mod': goMod('geosvc'),
+    'go/main.go': GO_MAIN,
+    'go/Makefile': [
+      '.PHONY: build test',
+      'build:',
+      '\tgo build -o bin/server ./...',
+      '',
+      'test:',
+      '\tgo test ./...',
+      '',
+    ].join('\n'),
+    'flutter/pubspec.yaml': flutterPubspec('geosvc_app'),
+    'flutter/lib/main.dart': DART_MAIN,
+    'infra/tiles/build.sh': '#!/bin/sh\nset -eu\n./gen-tiles\n',
+    '.github/workflows/tiles.yml': wf([
+      'name: tiles',
+      'on: [push]',
+      'jobs:',
+      '  tiles:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - name: tiles',
+      '        working-directory: infra/tiles',
+      '        run: ./build.sh',
+    ]),
+  }, { modes: { 'infra/tiles/build.sh': 0o755 } });
+}
+
 /** Every e2e shape, by name, for "for each fixture" assertions. */
 const SHAPES = Object.freeze({
   multiAreaCiShape,
@@ -854,6 +944,9 @@ const SHAPES = Object.freeze({
   docsOnlyShape,
   gosecOnlyShape,
   missingBinaryShape,
+  manifestlessShellShape,
+  recipeWrapsComponentShape,
+  componentMakefileShape,
 });
 
 module.exports = {
@@ -884,6 +977,9 @@ module.exports = {
   internalTaskShape,
   envBringUpShape,
   scenarioWrapperShape,
+  manifestlessShellShape,
+  recipeWrapsComponentShape,
+  componentMakefileShape,
   gitOnlyBin,
   hasGit: detectFx.hasGit,
   SHAPES,

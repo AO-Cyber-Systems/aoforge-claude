@@ -479,3 +479,68 @@ describe('stack init gives environment and scenario targets their own key end to
     assertNoFragments(fm.commands);
   }));
 });
+
+// ─── TRD 43-05: manifest-less roots and the primary component (D3, D6, D2) ──────────────────────────
+//
+//  22  manifest-less shell repo (devcluster)   general + the one go tool as a component; root lint/test
+//                                              are the shell Makefile recipes (no gate drops them); build
+//                                              is the single-component fallback with cwd
+//  23  recipe wraps a component (navigators)   root test `just test-go` with no cwd; primary_component
+//                                              note names `api/`
+//  24  component Makefile (aodex, politihub)   root build/test `make X` with cwd `go`; the `infra/tiles`
+//                                              script is a sub_area note, never a root key; no lint
+
+describe('stack init places commands through the primary component end to end (TRD 43-05)', () => {
+  const TOOLS = [...fx.DEFAULT_TOOLCHAIN, 'shellcheck', 'bash'];
+
+  test('22: manifest-less shell repo — general + the Go tool as the one component (devcluster-shaped)', () => withShape(fx.manifestlessShellShape, (repo) => {
+    const r = stackInit(repo, { tools: TOOLS });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal(fm.extends, 'general', detail);
+    assert.deepStrictEqual(fm.components, [{ path: 'tools/proxy/', profile: 'go' }], detail);
+    // The shell recipes are root candidates: no stack gate drops them, and they beat the go fallback.
+    assert.deepStrictEqual(fm.commands.lint, { run: 'make lint' }, detail);
+    assert.deepStrictEqual(fm.commands.test, { run: 'make test' }, detail);
+    assert.deepStrictEqual(fm.commands.build, { run: 'go build ./...', cwd: 'tools/proxy' }, detail);
+    for (const key of ['format', 'fix', 'audit', 'codegen', 'tidy']) assert.equal(key in fm.commands, false, `${key}: ${detail}`);
+    const primary = json.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary && primary.area === 'tools/proxy/', detail);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('23: a root recipe that wraps a component keeps no cwd; the primary component is named (navigators-shaped)', () => withShape(fx.recipeWrapsComponentShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal(fm.extends, 'general', detail);
+    assert.deepStrictEqual(fm.components, [{ path: 'api/', profile: 'go' }, { path: 'app/', profile: 'flutter' }], detail);
+    assert.deepStrictEqual(fm.commands.test, { run: 'just test-go' }, detail);
+    const primary = json.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary, detail);
+    assert.match(primary.detail, /primary component api\/ \(go\)/);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('24: a component Makefile supplies root build/test with cwd; a sub-dir script is a sub_area note (aodex/politihub-shaped)', () => withShape(fx.componentMakefileShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal(fm.extends, 'general', detail);
+    assert.deepStrictEqual(fm.components, [{ path: 'flutter/', profile: 'flutter' }, { path: 'go/', profile: 'go' }], detail);
+    assert.deepStrictEqual(fm.commands.build, { run: 'make build', cwd: 'go' }, detail);
+    assert.deepStrictEqual(fm.commands.test, { run: 'make test', cwd: 'go' }, detail);
+    assert.equal('lint' in fm.commands, false, `two components: no tier-default fallback: ${detail}`);
+    assert.ok(!allRuns(fm.commands).some((v) => /tiles|gen-tiles/.test(v)) && !cwdsOf(fm.commands).some((c) => /tiles/.test(c)), detail);
+    const sub = json.notes.find((n) => n.status === 'sub_area' && n.candidate === './build.sh');
+    assert.ok(sub, detail);
+    assert.match(sub.detail, /infra\/tiles\//);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+});

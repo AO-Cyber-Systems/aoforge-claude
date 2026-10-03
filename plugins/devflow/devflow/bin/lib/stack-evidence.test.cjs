@@ -939,3 +939,109 @@ describe('stack-evidence scenarioNamed (E17, TRD 43-04)', () => {
     }
   });
 });
+
+// ─── TRD 43-05 tests 14-15: where a body RUNS, for dirs that are in no language area (D2) ───────────
+//
+// (a) A unit whose cwd is non-root and in NO language area is its own pseudo-area (`infra/tiles/`), so
+// stack-draft files it as a `sub_area` note, never a root key. (b) A script invoked from the root with
+// no `cd` takes the language area of the script's own directory (`bash portal/build.sh` runs in the
+// flutter component `portal/`). A script in a root-level helper dir that is in no language area keeps
+// '' (EdenDocs `./scripts/eden/build.sh`, devcluster `bash t0-conformance/selftest.sh` are root keys).
+
+describe('stack-evidence pseudo-area and script-dir area (E18, TRD 43-05 tests 14-15)', () => {
+  const ciSteps = (...steps) => ['jobs:', '  j:', '    steps:', ...steps].join('\n');
+  const run = (cmd) => `      - run: ${cmd}`;
+  const AREAS = [
+    { dir: '', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'portal/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+  ];
+  const find = (evidence, command, source) => evidence.find((e) => e.command === command && (!source || e.source === source));
+
+  test('E18a (test 14): a CI step in `infra/tiles` (no language area) has the pseudo-area `infra/tiles/`', () => {
+    const root = makeRepo({
+      'infra/tiles/build.sh': '#!/bin/sh\nset -eu\n./gen-tiles\n',
+      '.github/workflows/tiles.yml': ciSteps('      - name: tiles', '        working-directory: infra/tiles', '        run: ./build.sh'),
+    });
+    try {
+      const item = find(collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }), './build.sh', 'ci');
+      assert.ok(item);
+      assert.equal(item.cwd, 'infra/tiles');
+      assert.equal(item.area, '', 'the item area is the language area of the cwd: none');
+      assert.equal(item.effectiveArea, 'infra/tiles/');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18b: a sub-dir Makefile target (`make -C docs`) runs in the pseudo-area `docs/`; a root target stays at the root', () => {
+    const root = makeRepo({
+      Makefile: 'build:\n\tgo build ./...\n',
+      'docs/Makefile': 'build:\n\tmkdocs build\n',
+      '.github/workflows/ci.yml': ciSteps(run('make -C docs build'), run('go test ./...')),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' });
+      const docs = evidence.find((e) => e.source === 'runner' && e.cwd === 'docs' && e.key === 'build');
+      assert.ok(docs, JSON.stringify(evidence.map((e) => [e.source, e.command, e.cwd])));
+      assert.equal(docs.effectiveArea, 'docs/');
+      const rootMake = evidence.find((e) => e.source === 'runner' && e.command === 'make build' && !e.cwd);
+      assert.ok(rootMake);
+      assert.equal(rootMake.effectiveArea, '');
+      assert.equal(find(evidence, 'go test ./...', 'ci').effectiveArea, '');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18c (test 15): `bash portal/build.sh` from the root runs in the language area `portal/`, whether the script is readable or not', () => {
+    const readable = makeRepo({
+      'portal/build.sh': '#!/bin/sh\nflutter pub get\nflutter pub run build_runner build\n',
+      '.github/workflows/ci.yml': ciSteps(run('bash portal/build.sh')),
+    });
+    const missing = makeRepo({ '.github/workflows/ci.yml': ciSteps(run('bash portal/build.sh')) });
+    try {
+      for (const root of [readable, missing]) {
+        const item = find(collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }), 'bash portal/build.sh', 'ci');
+        assert.ok(item, root);
+        assert.equal(item.area, '', 'invoked from the root');
+        assert.equal(item.effectiveArea, 'portal/');
+      }
+    } finally {
+      cleanup(readable);
+      cleanup(missing);
+    }
+  });
+
+  test('E18d (test 15): a script in a root-level helper dir that is no language area, or at the root, keeps the root', () => {
+    const root = makeRepo({
+      'scripts/build.sh': '#!/bin/sh\ngo build ./...\n',
+      'build.sh': '#!/bin/sh\ngo build ./...\n',
+      'scripts/eden/build.sh': '#!/bin/sh\n./run-build\n',
+      '.github/workflows/ci.yml': ciSteps(run('./scripts/build.sh'), run('./build.sh'), run('./scripts/eden/build.sh')),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' });
+      for (const cmd of ['./scripts/build.sh', './build.sh', './scripts/eden/build.sh']) {
+        const item = find(evidence, cmd, 'ci');
+        assert.ok(item, cmd);
+        assert.equal(item.effectiveArea, '', `${cmd}: a helper dir that is no language area runs root commands`);
+      }
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18e: a `cd` before the script wins: `cd portal && ./build.sh` is portal/, `cd infra/tiles && ./build.sh` is the pseudo-area', () => {
+    const root = makeRepo({
+      'portal/build.sh': '#!/bin/sh\nflutter pub get\n',
+      'infra/tiles/build.sh': '#!/bin/sh\n./gen-tiles\n',
+      '.github/workflows/ci.yml': ciSteps(run('cd portal && ./build.sh'), run('cd infra/tiles && ./build.sh')),
+    });
+    try {
+      const builds = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }).filter((e) => e.source === 'ci' && e.key === 'build');
+      assert.deepStrictEqual(builds.map((e) => e.effectiveArea).sort(), ['infra/tiles/', 'portal/']);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
