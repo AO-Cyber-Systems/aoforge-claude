@@ -63,7 +63,10 @@
 // Per key, candidates are ranked, first difference wins (the tie-break rule, stable otherwise):
 //   1. source      declared > runner > ci > manifest > docs > detected
 //   2. confidence  high > low
-//   3. weak        non-weak > weak
+//   3. runtime var a plain command > one expanding a variable its CI step assigns at run time
+//                  (stack-evidence `runtimeVar`: `-skip "${SKIP}"` after `SKIP="$(…)"`; TRD 43-13). Alone it
+//                  is still chosen; when a plain pick displaces it, it is a `runtime_var` note
+//   4. weak        non-weak > weak
 // For `e2e_env` alone, a scenario-named target (stack-evidence `scenarioNamed`) ranks right after the
 // source, ahead of confidence: `make e2e-stack-up` beats a generic `make infra-up` (TRD 43-04).
 // Only check/build/mutate forms fill `run`; an apply form fills `apply`. Walking the ranked run
@@ -259,8 +262,15 @@ function rankOf(item, key, defaultTool = null) {
     linterOf(item, key, defaultTool),
     ...canonicalRest,
     item.confidence === 'low' ? 1 : 0,
+    item.runtimeVar === true ? 1 : 0,
     item.weak && item.weak.length ? 1 : 0,
   ];
+}
+
+/** Lexicographic comparison of two rank tuples (rankOf). */
+function compareRank(a, b) {
+  for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return a[k] - b[k];
+  return 0;
 }
 
 /** Two targets of the same runner file compare by their position in it; anything else ties. */
@@ -276,10 +286,7 @@ function sourceOrder(a, b) {
 function rank(items, key, defaultTool = null) {
   return items
     .map((item, i) => ({ item, i, r: rankOf(item, key, defaultTool) }))
-    .sort((a, b) => {
-      for (let k = 0; k < a.r.length; k++) if (a.r[k] !== b.r[k]) return a.r[k] - b.r[k];
-      return sourceOrder(a.item, b.item) || a.i - b.i;
-    })
+    .sort((a, b) => compareRank(a.r, b.r) || sourceOrder(a.item, b.item) || a.i - b.i)
     .map((x) => x.item);
 }
 
@@ -984,6 +991,18 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         if (c.tool !== formTool || alternates.has(squash(c.command))) continue;
         alternates.add(squash(c.command));
         notes.push(note(c, key, 'alternate', `dedicated linter pick: ${chosen.command}; this runs the ${tier} default linter (${formTool})`));
+      }
+    }
+    // A runtime-var candidate the plain pick displaced (TRD 43-13): ranked as if it were plain, it would have
+    // tied or beaten the pick, so the run-time variable alone put it behind. It is a `runtime_var` note.
+    if (chosen && chosen.runtimeVar !== true) {
+      const pickRank = rankOf(chosen, key, formTool);
+      const seenRt = new Set();
+      for (const c of runCands.slice(chosenAt + 1)) {
+        if (c.runtimeVar !== true || seenRt.has(squash(c.command)) || squash(c.command) === squash(chosen.command)) continue;
+        if (compareRank(rankOf({ ...c, runtimeVar: false }, key, formTool), pickRank) > 0) continue;
+        seenRt.add(squash(c.command));
+        notes.push(note(c, key, 'runtime_var', `expands a variable its CI step assigns at run time; the plain \`${chosen.command}\` is the pick`));
       }
     }
     if (chosen && key === 'test' && breadthOf(chosen).breadth === 'unknown') {

@@ -59,8 +59,20 @@ const ACCEPTED = {
 // default reduces to that default) and aocore.lint (a lint action with a fixed CLI equivalent is a
 // candidate, and a dedicated linter outranks the default within a source).
 // 43-13 removed aocore.build (single-binary CI build variants of several packages are narrow; the tier default
-// applies with the primary component's cwd).
+// applies with the primary component's cwd) and re-tagged aocore.test as a flag-only residual for the 43-15
+// decision (a lane expanding a variable its step assigns at run time ranks after a plain one, so the light CI
+// lane fills test, verbatim).
 const KNOWN_DRIFT = {
+  aocore: [
+    {
+      keys: ['test'],
+      closes: '43-15',
+      residual: 'flag-only: flag order and -coverprofile differ from the CI lane; no general rule derives the hand-edited value',
+      reason: 'test: draft `go test -short ./... -race -coverprofile=coverage.out -timeout 5m (cwd go)` vs committed '
+        + '`go test -short -race ./... -timeout 5m (cwd go)` (seeded as the heavy `-p 1 … -skip "${SKIP}" …` lane; 43-13 '
+        + 'ranked the runtime-parameterised lane after the plain one)',
+    },
+  ],
   'ao-terminal': [
     {
       keys: ['deps'],

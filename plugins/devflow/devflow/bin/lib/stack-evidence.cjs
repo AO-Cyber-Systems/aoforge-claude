@@ -74,7 +74,7 @@ const fs = require('fs');
 const path = require('path');
 const { normalizeScript } = require('./stack-shell.cjs');
 const { classifyInvocation, classifyHint, toolStack, isDriftCheck, driftCheckAt, checkFormByName, lookupUsesCli } = require('./stack-classify.cjs');
-const { parseWorkflows } = require('./stack-ci.cjs');
+const { parseWorkflows, expandsAny } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
 const { describeInvocation } = require('./stack-verify.cjs');
@@ -729,6 +729,8 @@ function readCi(projectRoot, index, push, ctx) {
         bodyInvocations,
         external: inv.external === true || step.external === true,
         units: expandUnits([inv], ctx),
+        // TRD 43-13: it expands a name its own step assigns at run time (stack-ci step.runtimeVars).
+        runtimeVar: expandsAny(inv.text, step.runtimeVars),
       });
     }
   }
@@ -817,6 +819,7 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
     if (raw.resolvesTo) out.resolvesTo = raw.resolvesTo;
     if (raw.driftWriter) out.driftWriter = { ...raw.driftWriter };
     if (raw.target) out.target = raw.target;
+    if (raw.runtimeVar === true) out.runtimeVar = true;
     if (isSinglePurposeScript(raw.command, cwd)) out.singlePurpose = true;
     // TRD 43-06: the runner target or script an item without its own `target` goes through, so the
     // drafter can rank `./scripts/eden/build.sh` (named `build`) above `build-deps.sh`.

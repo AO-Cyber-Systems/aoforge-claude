@@ -256,6 +256,80 @@ function assignedNames(text) {
   return out;
 }
 
+// ─── runtime-assigned names (TRD 43-13) ───────────────────────────────────────
+//
+// step.runtimeVars: the names a run block assigns a value that is only known when it runs, so a command
+// expanding one (`go test ./... -skip "${SKIP}"` after `SKIP="$(./scripts/print-skips.sh)"`) is parameterised
+// at run time. A command substitution anywhere in the value (`X=$(…)`, `X="$(…)"`, `` X=`…` ``), an
+// `export X=…`, a `read [-r] X` and a `for X in` loop variable are runtime, and so is a name assigned from one
+// of those (`PKG="${line%%=*}"` inside `while read -r line`). A plain literal (`OUT=dist`, `IFS=`), a
+// `${{ }}` value (GitHub fills it before the shell runs) and an `env:` name substituted into the line are not.
+
+/** The text with every single-quoted span removed: nothing inside single quotes expands. */
+const unquoteSingle = (s) => String(s).replace(/'[^']*'/g, "''");
+
+/** The shell word starting at `i` (quotes, backticks and `$( )` nesting respected). */
+function wordAt(text, i) {
+  let single = false;
+  let double = false;
+  let tick = false;
+  let depth = 0;
+  let j = i;
+  for (; j < text.length; j++) {
+    const ch = text[j];
+    if (single) {
+      if (ch === "'") single = false;
+      continue;
+    }
+    if (ch === '\\') {
+      j += 1;
+      continue;
+    }
+    if (ch === '`') tick = !tick;
+    else if (ch === '$' && text[j + 1] === '(') {
+      depth += 1;
+      j += 1;
+    } else if (ch === ')' && depth > 0) depth -= 1;
+    else if (ch === '"') double = !double;
+    else if (ch === "'" && !double) single = true;
+    else if (!double && !tick && depth === 0 && /[\s;&|]/.test(ch)) break;
+  }
+  return text.slice(i, j);
+}
+
+/** True when `text` expands `$NAME` / `${NAME…}` for one of `names` outside single quotes. */
+function expandsAny(text, names) {
+  if (!names || !names.length) return false;
+  const t = unquoteSingle(text);
+  return names.some((n) => new RegExp(`\\$(?:\\{${n}(?![A-Za-z0-9_])|${n}(?![A-Za-z0-9_]))`).test(t));
+}
+
+/** runtimeVarsOf(text) -> the run block's runtime-assigned names, in first-seen order (see the section header). */
+function runtimeVarsOf(text) {
+  const src = String(text || '');
+  const out = [];
+  const add = (n) => { if (!out.includes(n)) out.push(n); };
+  let m;
+  const loop = /\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/g;
+  while ((m = loop.exec(src)) !== null) add(m[1]);
+  const read = /\bread\s+(?:-\w+\s+)*([A-Za-z_][A-Za-z0-9_]*(?:[ \t]+[A-Za-z_][A-Za-z0-9_]*)*)/g;
+  while ((m = read.exec(src)) !== null) for (const n of m[1].split(/[ \t]+/)) add(n);
+  const assigns = [];
+  const assign = /(?:^|[\s;&|(])((?:export|declare\s+-x)\s+(?:-\w+\s+)*)?([A-Za-z_][A-Za-z0-9_]*)=/gm;
+  while ((m = assign.exec(src)) !== null) {
+    assigns.push({ name: m[2], exported: !!m[1], value: wordAt(src, m.index + m[0].length) });
+  }
+  // Two passes, so a name derived from one assigned later in the text (a loop body) is still caught.
+  for (let pass = 0; pass < 2; pass++) {
+    for (const a of assigns) {
+      if (out.includes(a.name)) continue;
+      const v = unquoteSingle(a.value);
+      if (a.exported || v.includes('$(') || v.includes('`') || expandsAny(a.value, out)) add(a.name);
+    }
+  }
+  return out;
+}
+
 /** Names a run text writes to $GITHUB_ENV (`echo "X=…" >> "$GITHUB_ENV"`, `X<<EOF`): runtime for later steps. */
 function githubEnvNames(text) {
   const out = new Set();
@@ -494,8 +568,14 @@ function parseDoc(doc, file, { root = null, repoName = null } = {}) {
     const continueOnError = s.coe !== null ? s.coe : jobCoe.get(s.job) === true;
     let invocations = [];
     let envSubstituted = [];
+    let runtimeVars = [];
     if (s.runLines) {
       let runLines = s.runLines;
+      try {
+        runtimeVars = runtimeVarsOf(s.runLines.join('\n'));
+      } catch (_) {
+        runtimeVars = [];
+      }
       try {
         const runText = runLines.join('\n');
         if (!exported.has(s.job)) exported.set(s.job, new Set());
@@ -528,7 +608,7 @@ function parseDoc(doc, file, { root = null, repoName = null } = {}) {
       inv.external = n.external;
     }
     const { cwd, external } = normaliseWorkingDirectory(rawCwd, ctx);
-    const step = { file, job: s.job, name: s.name, uses: s.uses, cwd, external, checkouts, continueOnError, scheduled, invocations, envSubstituted };
+    const step = { file, job: s.job, name: s.name, uses: s.uses, cwd, external, checkouts, continueOnError, scheduled, invocations, envSubstituted, runtimeVars };
     // An action's own `with: working-directory` (TRD 43-12), normalised like a step cwd; null is the repo root.
     if (typeof s.withCwd === 'string' && s.withCwd.trim() !== '') {
       const w = normaliseWorkingDirectory(s.withCwd, ctx);
@@ -601,4 +681,4 @@ function parseWorkflows(root) {
   return out;
 }
 
-module.exports = { parseWorkflows, _parseWorkflowText, normaliseWorkingDirectory };
+module.exports = { parseWorkflows, _parseWorkflowText, normaliseWorkingDirectory, expandsAny };
