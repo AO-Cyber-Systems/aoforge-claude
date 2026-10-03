@@ -244,6 +244,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 | 24 | Objective 44 follow-ups: job-index reads files_modified; commit_docs/gitignore gates skip only .planning paths; stale-REBASE_HEAD fixture comment (security-audit report-file follow-up closed by live harness test: not blocked) | 2026-09-29 | b7057a3 | — | [24-objective-44-follow-ups](./quick/24-objective-44-follow-ups/) |
 | 25 | Move no-progress guard state out of the repo: per-session files under ~/.claude/devflow/state/progress-guard/; telemetry reads them; stops per-call file-watcher dumps | 2026-09-30 | 2b673aa | — | [25-move-progress-guard-state-out-of-project](./quick/25-move-progress-guard-state-out-of-project/) |
 | 26 | validate health W007 reads archived milestone roadmaps and ROADMAP.md checklist lines (no false positives for archived objectives) | 2026-09-30 | 13be101 | — | [26-validate-health-w007-reads-archived-mile](./quick/26-validate-health-w007-reads-archived-mile/) |
+| 27 | bump actions/checkout to v7 in devflow-checks workflow | 2026-10-03 | 380954d3 | devflow-claude | Atomic |
 
 ## Accumulated Context
 
