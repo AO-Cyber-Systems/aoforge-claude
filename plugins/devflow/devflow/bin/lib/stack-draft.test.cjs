@@ -984,3 +984,81 @@ describe('assembleDraft e2e_env prefers the scenario-named target (D34, TRD 43-0
     assert.equal(d.commands.e2e.run, 'npx playwright test');
   });
 });
+
+// TRD 43-06 (devflowops / EdenDocs / aodex goldens).
+// - D35 the canonical NAME ranks for every key, not only build/test/lint: a target (or a script / target
+//   a CI step goes through, stack-evidence `invokedName`) named for the key — the key itself, its
+//   conventional spelling (`fmt` for format, `generate` / `gen` for codegen), optionally with a form
+//   suffix (`lint-fix`, `fmt-check`) — beats a nameless candidate, which beats a qualified name
+//   (`deps-frontend`, `build-deps.sh`). It ranks right after the source, ahead of confidence.
+// - D36 a codegen drift check (check form) is the codegen gate; the generator it re-runs (mutate) is
+//   its apply, not a competing run.
+describe('assembleDraft canonical names for every key (D35, TRD 43-06)', () => {
+  const tgt = (name, order = 0, extra = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order, ...extra });
+  const runner = (key, name, form, confidence, order, extra = {}) => ev(key, `make ${name}`, {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form, confidence, tool: confidence === 'high' ? 'go' : null,
+    target: tgt(name, order), ...extra,
+  });
+
+  test('D35a: deps — the bare `make deps` (low, prerequisites only) beats a high-confidence leg', () => {
+    const evidence = [
+      runner('deps', 'deps-frontend', 'mutate', 'high', 1, { tool: 'npm' }),
+      runner('deps', 'deps', 'mutate', 'low', 0),
+      runner('deps', 'deps-backend', 'mutate', 'high', 2),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.deps.run, 'make deps', JSON.stringify(d.commands));
+  });
+
+  test('D35b: codegen — `make generate` (the conventional name) beats `make generate-backend`', () => {
+    const evidence = [runner('codegen', 'generate-backend', 'mutate', 'high', 0), runner('codegen', 'generate', 'mutate', 'low', 1)];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make generate', JSON.stringify(d.commands));
+  });
+
+  test('D35c: apply — `make lint-fix` (key + apply suffix) beats `make lint-backend-fix`', () => {
+    const evidence = [
+      runner('lint', 'lint', 'check', 'low', 0),
+      runner('lint', 'lint-backend-fix', 'apply', 'high', 1, { tool: 'golangci-lint' }),
+      runner('lint', 'lint-fix', 'apply', 'low', 2),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepEqual({ run: d.commands.lint.run, apply: d.commands.lint.apply }, { run: 'make lint', apply: 'make lint-fix' });
+  });
+
+  test('D35d: CI scripts — `build.sh` beats an earlier `build-deps.sh` and a nameless high-confidence image build', () => {
+    const evidence = [
+      ev('build', './scripts/x/build-deps.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build-deps' }),
+      ev('build', 'docker build -t x .', { form: 'build', tool: 'docker' }),
+      ev('build', './scripts/x/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.build.run, './scripts/x/build.sh', JSON.stringify(d.commands));
+  });
+
+  test('D35e: a nameless candidate still beats a qualified name in the same source', () => {
+    const evidence = [
+      ev('lint', 'make lint-docs', { runner: 'make', tool: null, confidence: 'low', invokedName: 'lint-docs' }),
+      ev('lint', 'golangci-lint run', { tool: 'golangci-lint' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.lint.run, 'golangci-lint run', JSON.stringify(d.commands));
+  });
+
+  test('D36: codegen drift check is the run, the generator it re-runs is the apply (same cwd)', () => {
+    const evidence = [
+      runner('codegen', 'openapi-regen', 'mutate', 'high', 0, { cwd: 'go' }),
+      runner('codegen', 'openapi-verify', 'check', 'high', 1, { cwd: 'go' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make openapi-verify', JSON.stringify(d.commands));
+    assert.equal(d.commands.codegen.apply, 'make openapi-regen');
+    assert.equal(d.commands.codegen.cwd, 'go');
+  });
+
+  test('D36b: with no check form a generator is still the codegen run, with no apply', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [runner('codegen', 'generate', 'mutate', 'high', 0)], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make generate');
+    assert.equal(d.commands.codegen.apply, undefined);
+  });
+});

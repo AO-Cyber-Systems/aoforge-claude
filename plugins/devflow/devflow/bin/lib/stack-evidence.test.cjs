@@ -1155,3 +1155,33 @@ describe('check / apply target pairs (E19, TRD 43-06)', () => {
     assert.equal(it.form, 'apply');
   });
 });
+
+// TRD 43-06 (EdenDocs golden): an item that goes through a runner target or a script FILE carries the
+// name it goes through (`invokedName`), so stack-draft can rank a step named exactly the key (`build.sh`)
+// above a qualified one (`build-deps.sh`). Runner items keep `target.name`; a raw command has none.
+describe('invokedName (E20, TRD 43-06)', () => {
+  test('E20: CI steps through a script or a runner target carry the name; raw commands do not', () => {
+    const steps = ['jobs:', '  j:', '    steps:', ...[
+      './scripts/eden/build.sh',
+      'bash tools/smoke-test.sh',
+      'make lint-backend',
+      'go test ./...',
+    ].map((c) => `      - run: ${c}`)].join('\n');
+    const root = makeRepo({
+      'scripts/eden/build.sh': '#!/bin/sh\nmake -j4\n',
+      'tools/smoke-test.sh': '#!/bin/sh\ncurl -fsS http://127.0.0.1:8091/\n',
+      Makefile: 'lint-backend:\n\tgolangci-lint run\n',
+      '.github/workflows/ci.yml': steps,
+    });
+    try {
+      const ci = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).filter((e) => e.source === 'ci');
+      const nameOf = (cmd) => (ci.find((e) => e.command === cmd) || {}).invokedName;
+      assert.equal(nameOf('./scripts/eden/build.sh'), 'build');
+      assert.equal(nameOf('bash tools/smoke-test.sh'), 'smoke-test');
+      assert.equal(nameOf('make lint-backend'), 'lint-backend');
+      assert.equal(nameOf('go test ./...'), undefined);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
