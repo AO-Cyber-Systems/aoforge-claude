@@ -20,8 +20,9 @@
 // profile file, so a command that belongs to a NON-primary component is a NOTE, not a root command.
 //
 // Primary component (TRD 43-05, D6). A `general` root with 1+ components picks one primary component
-// (`pickPrimaryComponent`): the one holding the most runner + CI evidence, ties broken go > flutter >
-// dart > other, then the shallower path, then the lexical one. It is recorded in an info note tagged
+// (`pickPrimaryComponent`): a component whose CI steps go through its task runner first (TRD 43-06),
+// then the one holding the most runner + CI evidence, ties broken go > flutter > dart > other, then
+// the shallower path, then the lexical one. It is recorded in an info note tagged
 // `primary_component`. A tier root has no primary component and behaves exactly as before.
 //
 // Which items may fill a ROOT key (TRD 42-15, D3; TRD 43-05, D6): items whose body RUNS (stack-evidence
@@ -254,12 +255,19 @@ const PRIMARY_ORDER = Object.freeze(['go', 'flutter', 'dart']);
 
 const depthOf = (p) => String(p).split('/').filter(Boolean).length;
 
+/** Task runners whose TARGETS a CI step can call (stack-verify describeInvocation `runner`); a script file is not one. */
+const TASK_RUNNERS = new Set(['make', 'task', 'just', 'npm']);
+
 /**
- * pickPrimaryComponent(components, items) -> { path, profile, score } | null
+ * pickPrimaryComponent(components, items) -> { path, profile, score, viaRunner } | null
  *
- * score = the runner and CI evidence items whose effectiveArea is the component dir. Sorted by score
- * (most first), then PRIMARY_ORDER (others last), then a shallower path, then the lexical path. With
- * zero evidence everywhere this is the go component if any, else the first by path.
+ * viaRunner = the CI items whose effectiveArea is the component dir AND that go through a task runner
+ * (`make build` run in `go/`): CI driving the component's runner targets says that runner is the repo's
+ * declared build interface, where a component whose CI only runs its tier's tool directly (`flutter build
+ * web` in several workflows) is built by its tier defaults (TRD 43-06). score = the runner and CI
+ * evidence items whose effectiveArea is the component dir. Sorted: a component with viaRunner > 0 first,
+ * then score (most first), then PRIMARY_ORDER (others last), then a shallower path, then the lexical
+ * path. With zero evidence everywhere this is the go component if any, else the first by path.
  */
 function pickPrimaryComponent(components, items = []) {
   const list = (Array.isArray(components) ? components : []).filter((c) => c && typeof c.path === 'string');
@@ -270,8 +278,13 @@ function pickPrimaryComponent(components, items = []) {
     return i === -1 ? PRIMARY_ORDER.length : i;
   };
   return list
-    .map((c) => ({ path: c.path, profile: c.profile, score: evidence.filter((e) => effectiveAreaOf(e) === c.path).length }))
-    .sort((a, b) => b.score - a.score
+    .map((c) => {
+      const own = evidence.filter((e) => effectiveAreaOf(e) === c.path);
+      const viaRunner = own.filter((e) => e.source === 'ci' && TASK_RUNNERS.has(e.runner)).length;
+      return { path: c.path, profile: c.profile, score: own.length, viaRunner };
+    })
+    .sort((a, b) => (b.viaRunner > 0) - (a.viaRunner > 0)
+      || b.score - a.score
       || orderOf(a) - orderOf(b)
       || depthOf(a.path) - depthOf(b.path)
       || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))[0];
@@ -406,7 +419,7 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       key: null,
       candidate: null,
       status: 'info',
-      detail: `primary component ${primary.path} (${primary.profile}): ${primary.score} evidence items`,
+      detail: `primary component ${primary.path} (${primary.profile}): ${primary.score} evidence items${primary.viaRunner ? `, ${primary.viaRunner} CI steps through its task runner` : ''}`,
       source: null,
       tag: 'primary_component',
     });
