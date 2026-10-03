@@ -935,6 +935,7 @@ describe('K27 drift checks as real recipes write them (TRD 43-09)', () => {
     assert.equal(isDriftCheck('diff -u $$tmp/a a | head -30 || true'), false, '`|| true` is not a failing exit');
     assert.equal(isDriftCheck('diff -u expected.txt actual.txt || exit 1'), false, 'neither side is a snapshot');
     assert.equal(isDriftCheck('d=$(git log -1); [ -n "$d" ] || exit 1'), false, 'not a git diff');
+    assert.equal(isDriftCheck('d=$(git diff); echo "$d"; [ -n "$KEY" ] || exit 1'), false, 'the test reads another variable');
     assert.equal(isDriftCheck('exit 0'), false);
   });
 

@@ -381,8 +381,8 @@ function checkFormByName(key, form, name) {
 // table row could read (an assignment, an `if`, an `exit`; a bare `diff`), so they are read from the
 // RAW recipe or script text. A Makefile recipe carries `$$` where the shell sees `$`: every pattern
 // accepts both.
-//   captured  `X=$(git diff …)` (or backticks, or inline in the test), tested with `-n` / `-z`, then
-//             a failing exit
+//   captured  `X=$(git diff …)` (or backticks) whose variable a `-n` / `-z` test reads, or the capture
+//             inline in that test, then a failing exit
 //   snapshot  `diff` / `cmp` (flags -q -u -s -r or none) of a copy under a mktemp or snapshot dir
 //             against the in-tree file, then a failing exit
 // A failing exit is `exit <non-zero>`, `exit $rc`, or the `false` command. Without one, the recipe only
@@ -391,7 +391,16 @@ function checkFormByName(key, form, name) {
 const DOLLAR = '\\$\\$?';
 const GIT_DIFF = 'git(?:\\s+(?:-[Cc]\\s+\\S+|--?[A-Za-z][\\w-]*(?:=\\S+)?))*\\s+diff\\b';
 const CAPTURED_GIT_DIFF = new RegExp(`${DOLLAR}\\(\\s*${GIT_DIFF}|\`\\s*${GIT_DIFF}`, 'g');
-const NONEMPTY_TEST = /(?:\[\[?|\btest)\s+!?\s*-[nz]\s/;
+const EMPTINESS_TEST = '(?:\\[\\[?|\\btest)\\s+!?\\s*-[nz]\\s+["\']?';
+// The capture is tested: `X=$(git diff …)` then `[ -n "$X" ]`, or inline `[ -n "$(git diff …)" ]`.
+const CAPTURE_TARGET = /([A-Za-z_][A-Za-z0-9_]*)=["']?$/;
+const INLINE_TESTED = new RegExp(`${EMPTINESS_TEST}$`);
+function captureIsTested(text, at) {
+  const before = text.slice(0, at);
+  const name = CAPTURE_TARGET.exec(before);
+  if (!name) return INLINE_TESTED.test(before);
+  return new RegExp(`${EMPTINESS_TEST}${DOLLAR}\\{?${name[1]}\\}?(?![A-Za-z0-9_])`).test(text.slice(at));
+}
 const FAILING_EXIT = new RegExp(
   `\\bexit\\s+(?:0*[1-9]\\d*|${DOLLAR}\\{?[A-Za-z_?][A-Za-z0-9_]*\\}?)|(?:^|[;&|{(]|\\bthen|\\belse|\\bdo)\\s*false\\b`,
   'm',
@@ -447,7 +456,7 @@ function driftCheckAt(text) {
   CAPTURED_GIT_DIFF.lastIndex = 0;
   let m;
   while ((m = CAPTURED_GIT_DIFF.exec(t)) !== null) {
-    if (NONEMPTY_TEST.test(t) && failsAfter(m.index)) {
+    if (captureIsTested(t, m.index) && failsAfter(m.index)) {
       best = m.index;
       break;
     }
@@ -571,9 +580,27 @@ function classifyWrapped(text) {
   return { ...found, weak: found.weak.filter((w) => w !== 'never-fails') };
 }
 
+// A version or presence probe (TRD 43-09): `<tool> -v`, `<tool> --version`, `<tool> version` with no
+// further operand, `<tool> version --short|--client`. An install step that ends with `kubeconform -v`
+// shows the tool is there; it gates nothing. For the runners whose bare invocation runs the suite,
+// `-v` is verbose, not version.
+const VERBOSE_V_TOOLS = new Set(['pytest', 'py.test', 'ginkgo', 'mypy']);
+const VERSION_SUBCOMMAND_FLAGS = new Set(['--short', '--client']);
+
+function isVersionProbe(stage) {
+  const a = Array.isArray(stage) ? stage : [];
+  if (a.length < 2) return false;
+  const tool = basename(a[0]);
+  if (a.length === 2 && a[1] === '--version') return true;
+  if (a.length === 2 && a[1] === '-v') return !VERBOSE_V_TOOLS.has(tool);
+  if (a[1] !== 'version') return false;
+  return a.slice(2).every((x) => VERSION_SUBCOMMAND_FLAGS.has(x));
+}
+
 function classifyOne({ text, argv }, hint) {
   const tool = argv[0];
   if (tool === 'test' || tool === '[' || tool === '[[') return classifyWrapped(text);
+  if (isVersionProbe(unwrap(firstStage(argv)))) return null; // before the table: no row may claim it
   const hit = classifyArgv(argv, text);
   if (hit) return hit;
   if (hint && isOpaque(unwrap(firstStage(argv)))) return classifyHint(hint);
