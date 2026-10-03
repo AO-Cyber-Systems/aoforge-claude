@@ -490,6 +490,11 @@
       "objective": "43",
       "summary": "43-08: KNOWN_DRIFT is a per-repo list of entries (keys, closes, reason); a committed run none against a draft command is a conflict; table guards run even when the fleet harness is skipped",
       "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-09: drift checks are also read from raw recipe text (a captured git diff whose -n/-z test reads the capture, or a mktemp/snapshot diff -q, then a failing exit); a check-suffixed name turns a body-classified writer into its check form; workflow/job/step env literals are substituted into run lines (runtime values never); version probes are never gates; a ; after an unescaped # on a Make rule line is comment text",
+      "rationale": null
     }
   ],
   "blockers": [],
