@@ -81,6 +81,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 25-fleet-audit-fixes]: TRD 04 complete: global ~/.claude/CLAUDE.md routing table fixed (status/micro/4 adoption skills) + '## TDD & Quality' by-kind playbook section added; deriveOverrides yields only {_playbookDetected:true}; devflow-claude resolver config unchanged (strict->strict no-op)
 - [Objective 39-telemetry-audit-cli]: TRD 39-02 complete: wired df-tools transcript-export and df-tools override (--gate/--reason, --list) into lib/audit-cli.cjs. 19 new tests, strict TDD, no regressions.
 - [Objective 39-telemetry-audit-cli]: TRD 39-04 complete: dispatch-completeness gate (lib/dispatch-completeness.test.cjs spawns all 71 COMMANDS + pins CLAUDE.md/context-discipline.md prose to a 15-name FLOOR with justified EXEMPT). CLAUDE.md flips context/session-audit/transcript-export/override to live. 7 new tests, strict TDD, no regressions.
+- [Objective 43]: 43-06: primary component — a component whose CI goes through its task runner ranks first (resolves politihub's go/ primary; P1-P6 unchanged)
+- [Objective 43]: 43-06: a general root that builds itself in a stack no component has is a product (sidecar components, no primary); e2e_env needs a scenario name; the name rank covers every key. HAND_ONLY +10 author-named keys pending 43-07 acceptance
 
 ## Performance Metrics
 
@@ -107,4 +109,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 39-telemetry-audit-cli P39-04 | 30min | 2 tasks | 2 files |
 | Objective 45 P09 | 10min | 3 tasks | 7 files |
 | Objective 43 P05 | 18min | 3 tasks | 7 files |
+| Objective 43 P06 | 65 min | 3 tasks | 10 files |
 

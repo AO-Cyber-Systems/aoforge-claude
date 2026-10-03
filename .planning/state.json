@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 97,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-03",
   "metrics": {
@@ -469,6 +469,16 @@
     {
       "objective": "39-telemetry-audit-cli",
       "summary": "TRD 39-04 complete: dispatch-completeness gate (lib/dispatch-completeness.test.cjs spawns all 71 COMMANDS + pins CLAUDE.md/context-discipline.md prose to a 15-name FLOOR with justified EXEMPT). CLAUDE.md flips context/session-audit/transcript-export/override to live. 7 new tests, strict TDD, no regressions.",
+      "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-06: primary component — a component whose CI goes through its task runner ranks first (resolves politihub's go/ primary; P1-P6 unchanged)",
+      "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-06: a general root that builds itself in a stack no component has is a product (sidecar components, no primary); e2e_env needs a scenario name; the name rank covers every key. HAND_ONLY +10 author-named keys pending 43-07 acceptance",
       "rationale": null
     }
   ],
