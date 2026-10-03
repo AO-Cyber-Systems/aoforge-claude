@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 98,
+  "progress_pct": 96,
   "status": "ready_for_verification",
   "last_activity": "2026-10-03",
   "metrics": {
@@ -484,6 +484,11 @@
     {
       "objective": "43",
       "summary": "43-07: dry-run drift is measured in the 43-06 golden scope and split into conflicts (hand-fix needed) and more-specific; devcluster is reported as drift pending a CI workflow (remedy (a)); a repo whose HEAD moved after pinning is skipped, not re-pinned",
+      "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-08: KNOWN_DRIFT is a per-repo list of entries (keys, closes, reason); a committed run none against a draft command is a conflict; table guards run even when the fleet harness is skipped",
       "rationale": null
     }
   ],
