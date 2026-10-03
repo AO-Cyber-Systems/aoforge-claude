@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 97,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-03",
   "metrics": {
@@ -519,6 +519,16 @@
     {
       "objective": "43",
       "summary": "43-12: a lint tool is dedicated when stack-classify gives it lint and no build/test row (golangci-lint, staticcheck, eslint, ruff, shellcheck); toolchain drivers (go vet, dart analyze) never win the lint preference",
+      "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-13: single-binary build variants (buildBreadth narrow, non-runner) are filtered only when the candidates build 2+ different packages or a broad build stands beside them; one package that is the only build is the product and is kept (fleet narrowing)",
+      "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-13: a CI command expanding a variable its own step assigns at run time (command substitution, export, read/for, or derived from one) ranks after confidence, behind a plain one; aocore.test is a flag-only residual for 43-15",
       "rationale": null
     }
   ],

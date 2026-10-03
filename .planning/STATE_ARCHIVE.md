@@ -91,6 +91,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 43]: 43-11: ao-terminal.deps stays in KNOWN_DRIFT as a flag-only residual (draft npm ci --no-audit --no-fund vs reviewed npm ci), closes 43-15; the drafter never strips flags
 - [Objective 43]: 43-12: a key-named task-runner target equal to the tier default is kept only when its WHOLE body is the default and its name does not restate the default's command word (fleet narrowing: eden-press build, aoid build, dfip/justinforme/smartWellness lint stay inherited)
 - [Objective 43]: 43-12: a lint tool is dedicated when stack-classify gives it lint and no build/test row (golangci-lint, staticcheck, eslint, ruff, shellcheck); toolchain drivers (go vet, dart analyze) never win the lint preference
+- [Objective 43]: 43-13: single-binary build variants (buildBreadth narrow, non-runner) are filtered only when the candidates build 2+ different packages or a broad build stands beside them; one package that is the only build is the product and is kept (fleet narrowing)
+- [Objective 43]: 43-13: a CI command expanding a variable its own step assigns at run time (command substitution, export, read/for, or derived from one) ranks after confidence, behind a plain one; aocore.test is a flag-only residual for 43-15
 
 ## Performance Metrics
 
@@ -124,4 +126,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 43 P10 | 21min | 3 tasks | 8 files |
 | Objective 43 P11 | 22min | 2 tasks | 10 files |
 | Objective 43 P12 | 48min | 2 tasks | 11 files |
+| Objective 43 P13 | 53min | 2 tasks | 10 files |
 
