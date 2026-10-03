@@ -10,8 +10,8 @@ tags: [stack, rollout, gap-closure, checkpoint]
 
 ## Progress
 - [x] Task 1: Preflight and preview (read-only) — 4ebc3a49
-- [x] Task 2: Human approves each repo's refreshed STACK.md before any write — (this commit; reply "approved" recorded verbatim under ### Approval in 43-ROLLOUT.md)
-- [ ] Task 3: Write, verify, report and commit (approved repos only); clear KNOWN_DRIFT — next step: re-check HEAD and the staged index in aoinference, snapshot P0, then run `stack init --write --force` with the checkout df-tools
+- [x] Task 2: Human approves each repo's refreshed STACK.md before any write — 3cdee2af (reply "approved" recorded verbatim under ### Approval in 43-ROLLOUT.md)
+- [x] Task 3: Write, verify, report and commit (approved repos only); clear KNOWN_DRIFT — (this commit; aoinference 87ea0e1, opsCluster 9f22c0d)
 
 ## Checkpoint state
 

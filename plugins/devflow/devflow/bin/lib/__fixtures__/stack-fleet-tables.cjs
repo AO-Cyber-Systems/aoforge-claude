@@ -62,6 +62,9 @@ const ACCEPTED = {
 // applies with the primary component's cwd) and re-tagged aocore.test as a flag-only residual for the 43-15
 // decision (a lane expanding a variable its step assigns at run time ranks after a plain one, so the light CI
 // lane fills test, verbatim).
+// 43-14 removed aoinference and opsCluster after the human approved a refresh of their stale committed files
+// (a Go module under control-plane/ is `extends: general` plus a component; aoinference 87ea0e1, opsCluster
+// 9f22c0d). It was a stale file, not a drafter defect, so no drafter rule changed.
 const KNOWN_DRIFT = {
   aocore: [
     {
@@ -80,26 +83,6 @@ const KNOWN_DRIFT = {
       residual: 'flag-only: CI adds --no-audit --no-fund; the reviewed value dropped them by hand',
       reason: 'deps: draft `npm ci --no-audit --no-fund` vs committed `npm ci` (seeded as `task init`; 43-11 made the '
         + 'one-shot bootstrap a mixed_aggregate note, so the CI install line fills deps, verbatim)',
-    },
-  ],
-  aoinference: [
-    {
-      keys: ['extends', 'components', 'audit', 'build', 'codegen', 'fix', 'format', 'tidy'],
-      closes: '43-14',
-      reason: 'stale committed file (go root under control-plane/): extends: draft `general` vs committed `go`; '
-        + 'components: draft `control-plane/|go` vs committed none; audit, fix, format: draft `discover`; '
-        + 'build: draft `make build (cwd control-plane)` vs committed `go build ./... (cwd control-plane)`; '
-        + 'codegen: draft `make drift-check (apply: make generate) (cwd control-plane)` vs committed `go generate ./... (cwd control-plane)`; '
-        + 'tidy: draft has none vs committed `go mod tidy -diff (apply: go mod tidy) (cwd control-plane)`',
-    },
-  ],
-  opsCluster: [
-    {
-      keys: ['extends', 'components', 'audit', 'codegen', 'fix', 'format', 'tidy'],
-      closes: '43-14',
-      reason: 'stale committed file (go root under control-plane/): extends: draft `general` vs committed `go`; '
-        + 'components: draft `control-plane/|go` vs committed none; audit, codegen, fix, format: draft `discover`; '
-        + 'tidy: draft has none vs committed `go mod tidy -diff (apply: go mod tidy) (cwd control-plane)`',
     },
   ],
 };

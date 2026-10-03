@@ -478,3 +478,41 @@ The checkout df-tools: `DF=/Users/justin/dev/devflow-claude/plugins/devflow/devf
 Human reply, 2026-10-03, in chat, recorded verbatim before the first write in either repo. It covers BOTH repos (aoinference and opsCluster):
 
 > approved
+
+The approval record was committed in devflow-claude (`3cdee2af`) before the first write in either repo.
+
+### Results
+
+Task 3 ran on 2026-10-03 with the checkout df-tools. Before each write the HEAD and the staged index were re-checked against the Task 1 pins (both unchanged, index empty) and a snapshot P0 was taken (porcelain lines plus `git hash-object`, no `-w`, of every listed path). opsCluster's P0 was retaken immediately before its write and was identical to the first one.
+
+| Check | aoinference | opsCluster |
+|---|---|---|
+| branch | `fix/obj31-oci-source-label` | `main` |
+| HEAD before | `c9f1bdccc2da9747fbdd9d45a7c8f98d04e4f2a1` (equals pin) | `a547076a0daeaec58675ca2848c2ad1fd85d2d25` (equals pin) |
+| staged before | none | none |
+| `stack init --write --force` | written, matches the preview | written, matches the preview |
+| `stack validate` | ok, 0 errors, 0 warnings | ok, 0 errors, 0 warnings |
+| `stack verify` (static, no `--run`) | resolved 12, missing 0, unverifiable 0, discover 4, ran 0 | resolved 12, missing 0, unverifiable 0, discover 5, ran 0 |
+| `stack report --write` | written, `profile_source: file`, gap 5 / weak 2 / info 9 | written, `profile_source: file`, gap 3 / weak 1 / info 9 |
+| delta check vs P0 | none outside the two stack files | none outside the two stack files |
+| commit | `87ea0e1a2ff274e219cd48339c8593ab5669b020` | `9f22c0d62849566e6bc6efa7b443e734b4d34bf5` |
+| files in the commit (`show --name-only`) | `.planning/STACK-REPORT.md`, `.planning/STACK.md` | `.planning/STACK-REPORT.md`, `.planning/STACK.md` |
+| user work tree after commit vs P0 | identical (only the `head` field differs) | identical (only the `head` field differs) |
+| porcelain lines after commit | 3 (as before) | 8 (as before) |
+| pushed | no | no |
+| fleet harness row | matches | matches |
+
+The delta check compared porcelain status and content hash for every path in P0 and P1. In both repos the only paths that changed between P0 and the write were `.planning/STACK.md` and `.planning/STACK-REPORT.md`; the dirty user paths (listed in the Preflight table) kept the same status and hash. `git status -sb` after the commits shows aoinference `ahead 6` of its remote (5 before this commit). opsCluster shows `ahead 207, behind 1` against `origin/main`; that gap existed before this commit (local `main` was already far ahead), and nothing was pushed.
+
+Static `stack verify` records only that each command resolves on this host (a make target exists, `go`, `gofmt` and `govulncheck` are on PATH); it did not run any gate.
+
+Fleet harness: `node --test plugins/devflow/devflow/bin/lib/stack-drafter-fleet.test.cjs` after removing both repos from KNOWN_DRIFT: 36 tests, 36 pass, 0 fail. aoinference and opsCluster both report "draft has no unaccepted conflict with the committed STACK.md", and the ratchet does not flag them.
+
+KNOWN_DRIFT after this TRD (both residual, both closed by 43-15):
+
+| Repo | Keys | Closes | Why it remains |
+|---|---|---|---|
+| aocore | `test` | 43-15 | flag-only residual: flag order and `-coverprofile` differ from the CI lane |
+| ao-terminal | `deps` | 43-15 | flag-only residual: CI adds `--no-audit --no-fund`, the reviewed value dropped them |
+
+ACCEPTED is unchanged (devcluster `lint`, `test`).
