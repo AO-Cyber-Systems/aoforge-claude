@@ -16,9 +16,9 @@ status: checkpoint
 Run plan written and committed. No gate has run in any repo. The TRD is paused at the Task 2 decision.
 
 ## Progress
-- [x] Task 1: Sync the runtime mirror and draft the run plan (no gates run) — (this commit)
-- [ ] Task 2: Human approves the repo list, the --include set and HAND_ONLY additions — next step: record the human's reply verbatim under `## Approval` in `.planning/objectives/43-stack-drafter-rules/43-ROLLOUT.md` with `df-tools doc put`, then `df-tools commit "docs(43-07): record rollout approval"`; on `abort` write "deferred" there and skip Task 3
-- [ ] Task 3: Run the approved gates read-only and record results; dry-run drift table — blocked on the Task 2 reply
+- [x] Task 1: Sync the runtime mirror and draft the run plan (no gates run) — eeaebfba
+- [x] Task 2: Human approves the repo list, the --include set and HAND_ONLY additions — (this commit)
+- [ ] Task 3: Run the approved gates read-only and record results; dry-run drift table — next step: for each repo in the effective run list in `## Approval` of 43-ROLLOUT.md, check HEAD against the pinned prefix, snapshot, run `stack verify --run` through the mirror, snapshot again, run the `stack init` dry run, then write `## Results`, `## Dry-run drift` and `## Summary` with `df-tools doc put`
 
 ## What Task 1 produced
 
@@ -37,6 +37,12 @@ Run plan written and committed. No gate has run in any repo. The TRD is paused a
 - **Survey run as a script, not ~100 Bash calls.** The TRD asks for one plain command per Bash call and one repo per call. The 33-repo read-only survey ran as a single `node <scratchpad>/survey.cjs` call that issues only `git rev-parse`, `git status` and `git hash-object` (no `-w`, `GIT_OPTIONAL_LOCKS=0`) plus the static `stack verify` through the mirror's df-tools. No gate command was spawned. The script and its JSON live in the session scratchpad and are not committed; the committed run plan carries the data that matters (branch, 12-char HEAD, dirty count, commands, cwd).
 - **Additions beyond the TRD (read-only):** a policy preview (the mirror's `verifyStack({ run: true })` with a no-op `spawn`, so the table shows what `--run` would really run or refuse), a text scan of test sources for the string 8080, and a note of what 42 recorded for ao-terminal, aodex, aoedge, aocore, aofamily and aoid.
 
+## Task 2 outcome
+
+The user chose `approve-edited` on 2026-10-03. The reply is recorded verbatim under `## Approval` in 43-ROLLOUT.md, with the effective run list derived from it. All ten HAND_ONLY additions are accepted. The devcluster modelling assumption is rejected, so devcluster is reported as drift in Task 3.
+
+The runtime mirror had been re-mirrored with an older bundle (no effect guard) since Task 1. The TRD's own sync command was re-run before the approval commit. The digest is again `sha256:f6a61ba4...` and `cmp` exits 0 for five files. Details are in 43-ROLLOUT.md under `## Approval`.
+
 ## Next
 
-Task 2 is a `checkpoint:decision`. Task 3 must not start until a reply is recorded under `## Approval`. A fresh executor continues from Task 2 using the table in 43-ROLLOUT.md (HEAD prefixes there are what Task 3 checks).
+Task 3 runs the approved gates. HEAD prefixes in the Run plan table are what it checks.

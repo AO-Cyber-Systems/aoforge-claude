@@ -112,4 +112,47 @@ Live cross-check from this survey: devcluster's committed STACK.md currently res
 
 ## Approval
 
-Pending. The Task 2 reply is recorded here verbatim before any gate runs.
+Recorded before any gate ran. The user approved this decision in chat on 2026-10-03. The reply, verbatim:
+
+> Option: approve-edited
+> - Every repo in the run plan runs default keys only (format, lint, typecheck, build).
+> - These two repos are limited to `--keys lint,format`:
+>   - videoArchive, to avoid the full iOS release build
+>   - eden-libs, to avoid the manifest-emitting `flutter build web`
+> - `--include test` only for: dfip, eden-circle, EdenDocs (wopi-host), qrCodeBuilder, smartWellness, trades. These have no 8080 in their test sources. Every other repo gets no `--include`.
+> - No audit runs, and no e2e runs anywhere.
+>
+> HAND_ONLY: accept all 10 additions:
+> - ao-terminal.test_frontend
+> - ao-terminal.bootstrap
+> - aodex.guards
+> - aoedge.acceptance
+> - devcluster.cluster_test
+> - EdenDocs.smoke
+> - EdenDocs.branding
+> - navigators.sqlc
+> - quanta-local.preflight
+> - quanta-local.verify
+>
+> devcluster modelling assumption: REJECTED as stated. A read-only check found that the real devcluster has no `.github/workflows`. `shellcheck` appears there only as `# shellcheck` directives, and `selftest.sh` appears only in README/DEVELOPING prose. A real-repo `stack init` today drafts `build: ./bin/build.sh` and `test: ./bin/test.sh`, the live-cluster script, and no `lint`.
+>
+> The user chose remedy (a): add an offline CI workflow to devcluster that runs shellcheck and the selftest. The orchestrator does this AFTER Task 3, because Task 3 pins HEADs. In Task 3's `## Dry-run drift` table, report devcluster honestly as drift: test and lint differ, so it needs a hand-fix today. Note the reason "pending remedy (a): devcluster CI workflow, follow-up after 43-07". Do not count it as a match.
+
+### Effective run list (derived from the reply, applied in plan order)
+
+| Group | Repos | Invocation |
+|---|---|---|
+| `--keys lint,format` | videoArchive, eden-libs | `stack verify --run --keys lint,format --raw` |
+| default keys plus `--include test` | dfip, eden-circle, EdenDocs, qrCodeBuilder, smartWellness, trades | `stack verify --run --include test --raw` |
+| default keys only | every other repo in the plan with a gate that would run (ao-terminal, aocore, aodex, aoedge, aofamily, aoid, aoinference, devcluster, devflow, devflowops, eden-biz, eden-platform-go, eden-press, eden-ui-flutter, justinforme, navigators, opsCluster, politihub, quanta-local, recycling-oracle, torrentConsole) | `stack verify --run --raw` |
+| nothing to run, dry-run drift only | AOSignal, aostudio, devflow-test, github-enterprise-migration | static `stack verify`, `stack init` dry run |
+
+Never run, whatever the list: audit, e2e, e2e_env, codegen, deps, `*.apply` forms, deploy, push, release, port 8080. Each gate is capped at 300 s.
+
+### HAND_ONLY outcome
+
+All 10 additions accepted. The `devcluster` modelling assumption in 43-06 deviation 5 is rejected, so a devcluster row is never counted as a `match` for `test` or `lint` (see the drift table).
+
+### Mirror state at approval (deviation from the Task 1 record)
+
+When this continuation started, the runtime mirror no longer matched the checkout: `~/.claude/devflow/.plugin-digest` read `sha256:eee82d8c94188cde89adfd492d3a46903dd72497c9ff54a5c655c1e1ffcc525f` (not the `f6a61ba4...` Task 1 recorded), `cmp` differed for `stack-verify.cjs`, `stack-draft.cjs`, `stack-evidence.cjs`, `stack-runners.cjs` and `df-tools.cjs`, and the mirror's `stack-verify.cjs` had **no effect guard** (0 occurrences of `restored`, 18 in the checkout). Something re-mirrored an older bundle after Task 1; the cause was not investigated. No gate was run on that mirror. The TRD's own Task 1 sync command was re-run (`CLAUDE_PLUGIN_ROOT=<checkout>/plugins/devflow DEVFLOW_SKIP_GLOBAL_UPGRADE=1 node <checkout>/plugins/devflow/hooks/sync-runtime.js`), after which `cmp` exits 0 for all five files and the digest is `sha256:f6a61ba45d32e3ea167cdd198201d8d75c57161f9096329a849e98d01d449981`, equal to the Task 1 record. Task 3 re-checks the mirror against the checkout before every repo and stops if it drifts again.
