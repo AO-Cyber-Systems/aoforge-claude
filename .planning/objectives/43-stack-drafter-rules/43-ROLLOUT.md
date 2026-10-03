@@ -631,3 +631,25 @@ What `accept-all` disposes, row by row (the consequence of the reply, not part o
 | dfip.lint, justinforme.lint, smartWellness.lint | accept | none: the harness sees no drift on them, so they are not representable as table entries; they go in the SUMMARY accepted list |
 
 Follow-ups the acceptance does not close (recorded in the 43-15 SUMMARY for the verifier): aodex.audit (the draft takes the `--self-test` step, a possible general drafter rule) and the `buf lint` coverage of justinforme and smartWellness `make lint` (a possible rule or a committed-file refresh). They are accepted as the current state and remain known drafter limitations.
+
+### Applied
+
+After the decision above was committed (4daf6232), `stack-fleet-tables.cjs` was changed. KNOWN_DRIFT is deleted; the module exports exactly `FLEET`, `ACCEPTED` and `OPEN`, and the harness asserts that. `OPEN` is empty (accept-all), so nothing is left open for the verifier from the table.
+
+ACCEPTED now holds 13 rows, each `by: 'user'`, `decided: '2026-10-03'`, with a `kind` (the row is tolerated only as the kind that was accepted, so an accepted more-specific row cannot hide a later conflict on its key):
+
+| repo.key | kind | reason (short) |
+|---|---|---|
+| devcluster.lint, devcluster.test | conflict | no CI workflow; selftest needs yq and a gitops checkout (user decision, remedy (c)) |
+| ao-terminal.deps | conflict | hand-edited flags; drafter stays verbatim |
+| aocore.test | conflict | hand-edited flags; drafter stays verbatim |
+| aodex.audit | more_specific | the draft picks the govulncheck `--self-test` step, not the gate; known drafter limitation |
+| aodex.lint | more_specific | CI golangci action with `working-directory: go` |
+| aofamily.build, aofamily.deps, aofamily.lint | more_specific | primary component `ai/go/` of a four-module repo |
+| eden-biz.e2e, EdenDocs.deps | more_specific | draft-only `discover`, carries no command |
+| justinforme.e2e | more_specific | `make smoke-canvass`, a stub until Obj 9 ships |
+| politihub.lint | more_specific | `go vet ./...` against a committed `discover` |
+
+Not in a table, because the harness sees no drift on them: dfip.lint, justinforme.lint and smartWellness.lint (D above). They are accepted in the 43-15 SUMMARY, with the `buf lint` coverage of justinforme and smartWellness and aodex.audit recorded there as follow-ups.
+
+Harness: `node --test plugins/devflow/devflow/bin/lib/stack-drafter-fleet.test.cjs` is green (42 of 42, with 33 repo tests, the table guards and the `assess` tests on synthetic tables). Every fleet repo's HEAD and work tree are unchanged by the run.

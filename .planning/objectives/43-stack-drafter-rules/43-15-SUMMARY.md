@@ -10,8 +10,9 @@ Checkpoint, not complete. Task 1 is done and committed. The run stops at Task 2 
 
 ## Progress
 - [x] Task 1: Read-only fleet dry run and residual list — ea95cf8c
-- [x] Task 2: Human decides each residual row — (this commit; reply `accept-all`, recorded verbatim under `### Decision` in 43-ROLLOUT.md)
-- [ ] Task 3: Apply the decision, retire KNOWN_DRIFT, CHANGELOG and the full suite — next step: edit `plugins/devflow/devflow/bin/lib/__fixtures__/stack-fleet-tables.cjs` (ACCEPTED rows, empty OPEN, delete KNOWN_DRIFT), then `stack-drafter-fleet.test.cjs`
+- [x] Task 2: Human decides each residual row — 4daf6232 (reply `accept-all`, recorded verbatim under `### Decision` in 43-ROLLOUT.md)
+- [x] Task 3: Apply the decision, retire KNOWN_DRIFT, CHANGELOG and the full suite — (this commit)
+- [ ] Wrap-up: write the final SUMMARY with `## Self-Check`, then `state` updates, `roadmap update-job-progress 43` and the closing docs commit — next step: `node plugins/devflow/devflow/bin/df-tools.cjs summary post 43-15 --from <scratchpad file>`
 
 ## Task 1 result
 

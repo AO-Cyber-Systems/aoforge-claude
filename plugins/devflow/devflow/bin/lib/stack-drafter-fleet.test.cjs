@@ -1,6 +1,6 @@
 'use strict';
 
-// stack-drafter-fleet.test.cjs — the real-fleet drift harness (TRD 43-08, gap closure cycle 1).
+// stack-drafter-fleet.test.cjs — the real-fleet drift harness (TRD 43-08, final tables in 43-15).
 //
 // The 43-06 goldens pass on invented fixtures built to fit the rules; the real fleet still drifted
 // (43-VERIFICATION.md). This is the outermost test: it redrafts each fleet repo with the CHECKOUT's
@@ -8,12 +8,17 @@
 // committed `.planning/STACK.md`, read from HEAD and never from the work tree, in exactly the 43-07
 // dry-run scope (stack-drift-compare.cjs).
 //
-//  12  per repo      no CONFLICT outside ACCEPTED and KNOWN_DRIFT; more-specific rows are reported
-//                    with t.diagnostic and never fail
-//  13  ratchet       every KNOWN_DRIFT key still conflicts; a closed one fails with "remove it"
+//  12  per repo      no CONFLICT outside ACCEPTED (as a conflict); more-specific rows, ACCEPTED rows and
+//                    OPEN rows are reported with t.diagnostic and never fail
+//  13  ratchet       every OPEN key still drifts (conflict or more-specific); a closed one fails with
+//                    "remove it". An ACCEPTED row that no longer drifts is reported, not failed
 //  14  read-only     HEAD and `git status --porcelain=v1 -uall` equal before and after, per repo
-//  15  table guards  ACCEPTED is exactly { devcluster: lint, test } (the accepted HAND_ONLY keys are
-//                    imported, not copied); every KNOWN_DRIFT entry has keys, closes and reason
+//  15  table guards  the module exports exactly FLEET, ACCEPTED and OPEN (no KNOWN_DRIFT, no third table);
+//                    ACCEPTED is exactly the user-accepted rows, each with kind, reason, date and
+//                    by: 'user' (the accepted HAND_ONLY keys are imported, not copied); OPEN entries
+//                    have keys and a reason
+//  16  assess        the classification (`assess`) is checked on synthetic tables, because OPEN is empty
+//                    today and its ratchet would otherwise never run
 //
 // Real environment on purpose: process.env (the real PATH and HOME) reaches `stack init` and the tier
 // resolution, as in the 43-07 dry run. The golden and realshape suites use stubs; this one does not.
@@ -31,7 +36,8 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const golden = require('./__fixtures__/stack-golden-fixtures.cjs');
-const { FLEET, ACCEPTED, KNOWN_DRIFT } = require('./__fixtures__/stack-fleet-tables.cjs');
+const tables = require('./__fixtures__/stack-fleet-tables.cjs');
+const { FLEET, ACCEPTED, OPEN } = tables;
 const { compareDrift, formatRow } = require('./__fixtures__/stack-drift-compare.cjs');
 const { parseProfile, resolveFromParsed } = require('./stack-profile.cjs');
 
@@ -101,8 +107,49 @@ function tierCommands(extendsId, repo) {
   return (resolved.frontmatter && resolved.frontmatter.commands) || {};
 }
 
-/** knownKeys(repo) -> every key a KNOWN_DRIFT entry of the repo covers. */
-const knownKeys = (repo) => (KNOWN_DRIFT[repo] || []).flatMap((entry) => entry.keys);
+/**
+ * assess(repo, rows, { accepted, open }) -> { problems, notes }
+ *
+ * Classifies the rows of one repo's compareDrift against the tables. A row is
+ *   - ACCEPTED when an accepted entry lists its key with the row's kind (a conflict accepted as a
+ *     more-specific row, or the reverse, is not accepted);
+ *   - OPEN when an open entry lists its key (any drift kind);
+ *   - otherwise a problem if it is a conflict, and a note if it is more-specific.
+ * An OPEN key with no row has been closed: a problem ("remove it"). An ACCEPTED entry with no matching
+ * row is a note only, because accepting is the user's call and a closed row does no harm.
+ */
+function assess(repo, rows, { accepted = {}, open = {} } = {}) {
+  const acceptedEntries = accepted[repo] || [];
+  const openEntries = open[repo] || [];
+  const problems = [];
+  const notes = [];
+
+  for (const row of rows) {
+    const acc = acceptedEntries.find((entry) => entry.kind === row.kind && entry.keys.includes(row.key));
+    if (acc) {
+      notes.push(`${repo}: accepted by ${acc.by} ${acc.decided} (${row.kind}): ${formatRow(row)}`);
+    } else if (openEntries.some((entry) => entry.keys.includes(row.key))) {
+      notes.push(`${repo}: OPEN (${row.kind}): ${formatRow(row)}`);
+    } else if (row.kind === 'conflict') {
+      problems.push(`new conflict: ${formatRow(row)}`);
+    } else {
+      notes.push(`${repo}: more specific: ${formatRow(row)}`);
+    }
+  }
+
+  const drifting = new Set(rows.map((row) => row.key));
+  for (const key of openEntries.flatMap((entry) => entry.keys)) {
+    if (!drifting.has(key)) problems.push(`${repo}.${key} no longer drifts: remove it from OPEN`);
+  }
+  for (const entry of acceptedEntries) {
+    for (const key of entry.keys) {
+      if (!rows.some((row) => row.key === key && row.kind === entry.kind)) {
+        notes.push(`${repo}.${key} is ACCEPTED as ${entry.kind} but no longer drifts that way: consider removing it`);
+      }
+    }
+  }
+  return { problems, notes };
+}
 
 const presentRepos = FLEET.filter((repo) => fs.existsSync(path.join(FLEET_ROOT, repo)));
 
@@ -147,25 +194,11 @@ describe('stack init against the real fleet (TRD 43-08)', { skip: fleetSkipReaso
         keyAliases: KEY_ALIASES,
       });
 
-      const conflicts = rows.filter((row) => row.kind === 'conflict');
-      const moreSpecific = rows.filter((row) => row.kind === 'more_specific');
       if (skipped.length) t.diagnostic(`${repo}: HAND_ONLY keys skipped: ${skipped.join(', ')}`);
-      for (const row of moreSpecific) t.diagnostic(`${repo}: more specific: ${formatRow(row)}`);
 
-      const allowed = new Set([...((ACCEPTED[repo] && ACCEPTED[repo].keys) || []), ...knownKeys(repo)]);
-      const problems = [];
-
-      // 12: a conflict outside ACCEPTED and KNOWN_DRIFT is new drift.
-      const unaccepted = conflicts.filter((row) => !allowed.has(row.key));
-      for (const row of unaccepted) problems.push(`new conflict: ${formatRow(row)}`);
-
-      // 13: the ratchet. A KNOWN_DRIFT key that is no longer a conflict has been closed.
-      const conflictKeys = new Set(conflicts.map((row) => row.key));
-      for (const key of knownKeys(repo)) {
-        if (conflictKeys.has(key)) continue;
-        const now = moreSpecific.find((row) => row.key === key);
-        problems.push(`${repo}.${key} no longer drifts${now ? ' (now more_specific)' : ''}: remove it from KNOWN_DRIFT`);
-      }
+      // 12 and 13: a conflict outside ACCEPTED is new drift; an OPEN key that no longer drifts is closed.
+      const { problems, notes } = assess(repo, rows, { accepted: ACCEPTED, open: OPEN });
+      for (const note of notes) t.diagnostic(note);
 
       assert.equal(problems.length, 0, `${repo}:\n  ${problems.join('\n  ')}`);
     });
@@ -178,33 +211,112 @@ describe('fleet tables (TRD 43-08 guards)', () => {
     assert.equal(new Set(FLEET).size, 33);
   });
 
-  test('ACCEPTED is exactly devcluster lint and test; HAND_ONLY keys are imported, not copied', () => {
-    assert.deepEqual(Object.keys(ACCEPTED), ['devcluster']);
-    assert.deepEqual([...ACCEPTED.devcluster.keys], ['lint', 'test']);
-    assert.ok(typeof ACCEPTED.devcluster.reason === 'string' && ACCEPTED.devcluster.reason.length > 0, 'ACCEPTED.devcluster needs a reason');
-    // The tables name only repos of the fleet, and the shape names of HAND_ONLY are repo names.
+  test('the module exports exactly FLEET, ACCEPTED and OPEN: KNOWN_DRIFT is gone and there is no third table', () => {
+    assert.deepEqual(Object.keys(tables).sort(), ['ACCEPTED', 'FLEET', 'OPEN']);
+    assert.equal(tables.KNOWN_DRIFT, undefined, 'KNOWN_DRIFT was retired by TRD 43-15');
+  });
+
+  // The user-accepted rows, pinned: ACCEPTED grows only by a user decision, and this list is where that shows.
+  // 43-15 (`accept-all`, 2026-10-03) added every row after devcluster's two.
+  const ACCEPTED_ROWS = [
+    'EdenDocs.deps', 'ao-terminal.deps', 'aocore.test', 'aodex.audit', 'aodex.lint', 'aofamily.build', 'aofamily.deps',
+    'aofamily.lint', 'devcluster.lint', 'devcluster.test', 'eden-biz.e2e', 'justinforme.e2e', 'politihub.lint',
+  ];
+
+  test('ACCEPTED is exactly the user-accepted rows, each with kind, reason, date and by: user; HAND_ONLY keys are imported, not copied', () => {
+    const rows = [];
+    for (const [repo, entries] of Object.entries(ACCEPTED)) {
+      assert.ok(FLEET.includes(repo), `ACCEPTED.${repo} is not a FLEET repo`);
+      assert.ok(Array.isArray(entries) && entries.length > 0, `ACCEPTED.${repo} must be a non-empty list of entries`);
+      const seen = new Set();
+      for (const entry of entries) {
+        const id = `ACCEPTED.${repo} [${(entry.keys || []).join(', ')}]`;
+        assert.ok(Array.isArray(entry.keys) && entry.keys.length > 0 && entry.keys.every((k) => typeof k === 'string' && k), `${id}: keys`);
+        assert.ok(entry.kind === 'conflict' || entry.kind === 'more_specific', `${id}: kind must be conflict or more_specific`);
+        assert.ok(typeof entry.reason === 'string' && entry.reason.length > 0, `${id}: reason`);
+        assert.ok(typeof entry.decided === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.decided), `${id}: decided must be YYYY-MM-DD`);
+        assert.equal(entry.by, 'user', `${id}: every ACCEPTED entry is a user decision (by: 'user')`);
+        for (const key of entry.keys) {
+          assert.ok(!seen.has(`${key}/${entry.kind}`), `${id}: ${key} is listed twice as ${entry.kind} for ${repo}`);
+          seen.add(`${key}/${entry.kind}`);
+          assert.ok(!(HAND_ONLY[repo] || []).includes(key), `${id}: ${key} is already HAND_ONLY`);
+          rows.push(`${repo}.${key}`);
+        }
+      }
+    }
+    assert.deepEqual([...new Set(rows)].sort(), [...ACCEPTED_ROWS].sort());
+    // The shape names of HAND_ONLY are repo names.
     for (const repo of Object.keys(HAND_ONLY)) assert.ok(FLEET.includes(repo), `HAND_ONLY.${repo} is not a FLEET repo`);
   });
 
-  test('every KNOWN_DRIFT entry has keys, closes and reason, and names a FLEET repo', () => {
-    for (const [repo, entries] of Object.entries(KNOWN_DRIFT)) {
-      assert.ok(FLEET.includes(repo), `KNOWN_DRIFT.${repo} is not a FLEET repo`);
-      assert.ok(Array.isArray(entries) && entries.length > 0, `KNOWN_DRIFT.${repo} must be a non-empty list of entries`);
+  test('every OPEN entry has keys and a reason, names a FLEET repo, and is neither ACCEPTED nor HAND_ONLY', (t) => {
+    let count = 0;
+    for (const [repo, entries] of Object.entries(OPEN)) {
+      assert.ok(FLEET.includes(repo), `OPEN.${repo} is not a FLEET repo`);
+      assert.ok(Array.isArray(entries) && entries.length > 0, `OPEN.${repo} must be a non-empty list of entries`);
       const seen = new Set();
       for (const entry of entries) {
-        const id = `KNOWN_DRIFT.${repo} [${(entry.keys || []).join(', ')}]`;
+        const id = `OPEN.${repo} [${(entry.keys || []).join(', ')}]`;
         assert.ok(Array.isArray(entry.keys) && entry.keys.length > 0 && entry.keys.every((k) => typeof k === 'string' && k), `${id}: keys`);
-        assert.ok(typeof entry.closes === 'string' && /^(43-\d\d|out-of-scope)$/.test(entry.closes), `${id}: closes must be 43-NN or out-of-scope`);
         assert.ok(typeof entry.reason === 'string' && entry.reason.length > 0, `${id}: reason`);
-        if (entry.residual !== undefined) assert.ok(typeof entry.residual === 'string' && entry.residual.length > 0, `${id}: residual needs its why`);
         for (const key of entry.keys) {
+          count += 1;
           assert.ok(!seen.has(key), `${id}: ${key} is listed twice for ${repo}`);
           seen.add(key);
-          const accepted = (ACCEPTED[repo] && ACCEPTED[repo].keys) || [];
+          const accepted = (ACCEPTED[repo] || []).flatMap((a) => a.keys);
           assert.ok(!accepted.includes(key), `${id}: ${key} is already ACCEPTED`);
           assert.ok(!(HAND_ONLY[repo] || []).includes(key), `${id}: ${key} is already HAND_ONLY`);
         }
       }
     }
+    t.diagnostic(`OPEN rows for the verifier: ${count}${count ? ` (${Object.keys(OPEN).join(', ')})` : ''}`);
+  });
+});
+
+describe('assess: the harness classification, on synthetic tables (TRD 43-15)', () => {
+  const conflict = (key) => ({ key, kind: 'conflict', committed: 'a', draft: 'b' });
+  const specific = (key) => ({ key, kind: 'more_specific', committed: 'discover', draft: 'b' });
+  const acc = (kind, keys) => ({ r: [{ keys, kind, reason: 'why', decided: '2026-10-03', by: 'user' }] });
+
+  test('a conflict outside ACCEPTED and OPEN is a problem; a more-specific row is only a note', () => {
+    const { problems, notes } = assess('r', [conflict('test'), specific('lint')], {});
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /^new conflict: test/);
+    assert.equal(notes.length, 1);
+    assert.match(notes[0], /more specific: lint/);
+  });
+
+  test('an ACCEPTED row is tolerated only as the kind that was accepted', () => {
+    const accepted = acc('more_specific', ['lint']);
+    assert.deepEqual(assess('r', [specific('lint')], { accepted }).problems, []);
+    // The accepted more-specific row turning into a conflict is new drift.
+    const turned = assess('r', [conflict('lint')], { accepted });
+    assert.equal(turned.problems.length, 1);
+    assert.match(turned.problems[0], /^new conflict: lint/);
+    // An accepted conflict is tolerated, and an accepted conflict that became more-specific is merely noted.
+    const acceptedConflict = acc('conflict', ['test']);
+    assert.deepEqual(assess('r', [conflict('test')], { accepted: acceptedConflict }).problems, []);
+    const closed = assess('r', [specific('test')], { accepted: acceptedConflict });
+    assert.deepEqual(closed.problems, []);
+    assert.ok(closed.notes.some((n) => /ACCEPTED as conflict but no longer drifts that way/.test(n)));
+  });
+
+  test('an OPEN key is reported, not failed, while it drifts in either kind', () => {
+    const open = { r: [{ keys: ['test', 'lint'], reason: 'no rule yet' }] };
+    const { problems, notes } = assess('r', [conflict('test'), specific('lint')], { open });
+    assert.deepEqual(problems, []);
+    assert.equal(notes.filter((n) => /OPEN/.test(n)).length, 2);
+  });
+
+  test('the OPEN ratchet: a key that no longer drifts fails with "remove it"', () => {
+    const open = { r: [{ keys: ['test'], reason: 'no rule yet' }] };
+    const { problems } = assess('r', [], { open });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /r\.test no longer drifts: remove it from OPEN/);
+  });
+
+  test('tables of other repos do not leak into this repo', () => {
+    const accepted = { other: [{ keys: ['test'], kind: 'conflict', reason: 'why', decided: '2026-10-03', by: 'user' }] };
+    assert.equal(assess('r', [conflict('test')], { accepted }).problems.length, 1);
   });
 });

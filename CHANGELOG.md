@@ -165,6 +165,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `~/.claude/devflow/state/gh-project/` (override `DEVFLOW_GH_CACHE_DIR`).
 - `df-tools-deprecations.repo.test.cjs`: CI fails when live prose names a deprecated df-tools
   subcommand without saying it is deprecated.
+- **Real-fleet drift harness (objective 43, SDR-08).** `stack-drafter-fleet.test.cjs` redrafts each of
+  the 33 fleet repos (`df-tools --cwd <repo> stack init`, no `--write`, no `--run`) and compares the
+  draft with the committed `.planning/STACK.md` read from HEAD, with the same `compareDrift` the
+  rollout table uses (`__fixtures__/stack-drift-compare.cjs`). A conflict outside `ACCEPTED` fails,
+  and each repo's HEAD and work tree must be unchanged by the draft. The module
+  `__fixtures__/stack-fleet-tables.cjs` exports exactly `FLEET`, `ACCEPTED` (user decisions only, each
+  dated and `by: 'user'`) and `OPEN` (reported with a diagnostic; a key that stops drifting fails with
+  "remove it"). The harness skips when `DEVFLOW_SKIP_FLEET_HARNESS=1` or the fleet root
+  (`DEVFLOW_FLEET_ROOT`, default `~/dev`) holds fewer than half the fleet.
 
 ### Changed
 - **`stack verify --run` is effect-based (objective 43, SDR-03).** A gate was judged safe by its key, yet
@@ -261,6 +270,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Check and apply targets pair up (`lint` / `lint-fix`, `fmt-check: fmt` then `git diff --exit-code`,
     `openapi-verify` / `openapi-regen`), the target named for a key ranks first for every key, and
     `shellcheck` is a lint.
+- **Stack drafter rules, gap cycle 1 (objective 43).** A dry run against the 33 real fleet repos still
+  drifted from their committed `.planning/STACK.md` after the golden suite passed on invented fixtures.
+  These rules close the drift from the evidence shapes of the real repos; none names a repo. Conflict
+  repos fell from 12 to 3, matches rose from 18 to 24, and politihub is now evaluated.
+  - A `;` after an unescaped `#` on a Makefile rule line is comment text, not an inline recipe (43-09).
+  - A captured `$(git diff ...)` test and a mktemp-snapshot `diff -q` are drift checks, and a generator
+    target under a check-suffixed name is the key's check form (43-09).
+  - Workflow, job and step `env:` literals are substituted into CI run lines; a runtime value, a
+    variable the run block assigns, or one exported to `$GITHUB_ENV` is never substituted (43-09).
+  - A version or presence probe (`<tool> -v`, `--version`, `version`) is never gate evidence; `-v` stays
+    verbose for pytest, ginkgo and mypy (43-09).
+  - The primary component is chosen on build, test and lint evidence (a CI step through a runner counts
+    only for one of those keys), and go-first only breaks a tie (43-10).
+  - Root and primary candidates are placed in tiers: root task-runner recipes first, the primary's own
+    runner targets with their own `cwd`, other root-area candidates, then the primary's others. A root
+    candidate the primary's runner supersedes is a `shadowed` note (43-10).
+  - A root runner with a build, test or lint recipe running in two or more areas is a workspace root:
+    no primary component, no off-primary gate (43-10).
+  - A candidate that runs the key plus other keys (a mixed aggregate) never fills the key while a pure
+    candidate exists. A drift check of one leg of a generator is a `partial_check`: it neither fills
+    `run` nor turns the generator into `apply` (43-11).
+  - A teardown or reset name (`down`, `stop`, `teardown`, `destroy`, `reset`) fills neither `e2e_env`
+    nor `e2e` (43-11).
+  - A task-runner target named for the key whose whole body is the tier default is the declared entry
+    point and is kept; a script not named for the key that runs the governing default reduces to that
+    default, with a `wrapper` note (43-12).
+  - A CI action with a fixed CLI equivalent (`golangci-lint-action`, `govulncheck-action`) is a
+    candidate, with its `working-directory`; a dedicated linter outranks the default within a source
+    (43-12).
+  - A build whose invocations all name one package or output is narrow. When the tier has several such
+    builds, or a broad build stands beside one, the governing default applies instead, with a
+    `narrow_fallback` note (43-13).
+  - A CI lane that expands a variable its step assigns at run time ranks after a plain lane, and the
+    lane it displaced is a `runtime_var` note (43-13).
+  - The drafter stays verbatim on CI commands, so flag-only hand edits are not derived. Thirteen fleet
+    rows are user-accepted in the harness (43-15), among them `ao-terminal` `deps` and `aocore` `test`.
+    `aodex` `audit` (the draft takes the govulncheck `--self-test` step) and the dropped `buf lint` in
+    `justinforme` and `smartWellness` are known limitations, left for a future rule.
 - A successful `planning import` printed `planning import: nothing to do ().` It now prints the counts,
   the estimate, the history line and the will-stay-local table (objective 51).
 - The flow skill's ship-and-release chain called `/devflow:gh-sync sync-release`, a mode that does not

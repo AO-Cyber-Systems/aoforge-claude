@@ -1,26 +1,33 @@
 'use strict';
 
-// stack-fleet-tables.cjs — the tables behind the real-fleet drift harness (TRD 43-08).
+// stack-fleet-tables.cjs — the tables behind the real-fleet drift harness (TRD 43-08, final in 43-15).
 //
 // stack-drafter-fleet.test.cjs redrafts every fleet repo (`df-tools --cwd <repo> stack init`, no
 // --write) and compares the draft with the repo's committed `.planning/STACK.md` in the 43-07 scope
-// (stack-drift-compare.cjs). Three tables decide what that comparison may tolerate:
+// (stack-drift-compare.cjs). Two tables decide what that comparison may tolerate. There is no third:
+// the harness asserts that this module exports exactly FLEET, ACCEPTED and OPEN.
 //
-//   FLEET        the 33 repos of the 43-07 run plan, all under the fleet root (default ~/dev).
-//   ACCEPTED     differences a USER accepted. It grows only by user decision (the 43-15 checkpoint)
-//                and is never widened to make the harness green. The accepted HAND_ONLY keys are not
-//                listed here: the harness imports them from stack-golden-fixtures.cjs (HAND_ONLY).
-//   KNOWN_DRIFT  today's conflict rows, a RATCHET. The harness fails on any conflict outside ACCEPTED
-//                and KNOWN_DRIFT, and fails when a KNOWN_DRIFT key no longer conflicts ("remove it").
-//                It only shrinks: the TRD named in `closes` removes the rows it closes. The one
-//                exception is a TRD that re-tags an entry as a residual (`residual: '<why no general
-//                rule closes it>'`) and records the new draft value in `reason`.
+//   FLEET     the 33 repos of the 43-07 run plan, all under the fleet root (default ~/dev).
+//   ACCEPTED  differences a USER accepted. It grows only by user decision and is never widened to make
+//             the harness green. The accepted HAND_ONLY keys are not listed here: the harness imports
+//             them from stack-golden-fixtures.cjs (HAND_ONLY).
+//   OPEN      differences nobody has accepted and no drafter rule closes yet. The harness reports each
+//             with t.diagnostic and does not fail on it, but it is a RATCHET: an OPEN key that no longer
+//             drifts fails with "remove it". OPEN rows keep the objective at gaps_found for the verifier.
 //
-// KNOWN_DRIFT is { <repo>: [ { keys, closes, reason, residual? } ] }: one entry per (repo, TRD that
-// closes it), so a repo whose rows are closed by different TRDs has several entries.
-//   keys      the conflict row keys (`extends`, `components` and command keys, in the draft's spelling)
-//   closes    '43-NN' (the TRD expected to remove it) or 'out-of-scope' (recorded, not targeted)
-//   reason    what the draft says against what the committed file says, as seeded on 2026-10-03
+// Both are { <repo>: [ entry, ... ] }, one entry per (repo, reason):
+//   keys     the row keys (`extends`, `components` and command keys, in the draft's spelling)
+//   kind     ACCEPTED only: 'conflict' (committed and draft both carry a command and differ) or
+//            'more_specific' (the draft only adds a key or resolves a committed `discover`). A row is
+//            tolerated only as the kind that was accepted, so an accepted more-specific row cannot
+//            hide a later conflict on the same key.
+//   reason   what the draft says against what the committed file says, and why it stays
+//   decided  ACCEPTED only: the date of the user decision (YYYY-MM-DD)
+//   by       ACCEPTED only: 'user'
+//
+// KNOWN_DRIFT (the 43-08 ratchet of today's conflicts) is gone. Its rows were closed by 43-09..43-14
+// drafter rules and refreshes, or decided by the user at the 43-15 checkpoint (`accept-all`, 2026-10-03,
+// recorded verbatim in 43-ROLLOUT.md `## Gap closure cycle 1`).
 //
 // No fleet repo's file body is stored here beyond the one-line command values in `reason`.
 
@@ -32,59 +39,110 @@ const FLEET = [
   'recycling-oracle', 'smartWellness', 'torrentConsole', 'trades', 'videoArchive',
 ];
 
-const ACCEPTED = {
-  devcluster: {
-    keys: ['lint', 'test'],
-    reason: 'user decision 2026-10-03, remedy (c): no CI workflow; selftest needs yq and a gitops checkout',
-  },
-};
+const DECIDED = '2026-10-03';
 
-// Seeded 2026-10-03 from a real run of the harness (HEADs as of that run), then compared with the 12
-// conflict repos of 43-ROLLOUT.md `## Dry-run drift` (see the 43-08 SUMMARY). Each reason reads
-// "key: draft `X` vs committed `Y`".
-//
-// 43-09 removed devflowops.format, devflowops.tidy, aodex.codegen and aocore.lint_helm (captured and
-// snapshot drift checks, workflow env literals, version probes).
-// 43-10 removed eden-biz.build, eden-biz.test (the primary component is chosen on build/test/lint
-// evidence), aodex.build, eden-libs.test, eden-libs.codegen, eden-libs.format (tiered placement), eden-libs.build
-// (workspace root) and, out
-// of scope but closed by the same rules, politihub.test and politihub.build. The tiered placement also
-// closed eden-biz.e2e_env, which 43-11 had claimed (root runner recipes are root candidates wherever
-// their body runs).
-// 43-11 removed justinforme.codegen and smartWellness.codegen (a mixed aggregate never fills a key a pure
-// candidate fills) and eden-biz.codegen (a drift check of one leg of the generator is a partial_check), and
-// re-tagged ao-terminal.deps as a flag-only residual for the 43-15 decision.
-// 43-12 removed aoedge.lint (a task-runner target named for the key is the declared entry point, even when
-// its body is the tier default), aocore.audit (a script not named for the key that runs the tier
-// default reduces to that default) and aocore.lint (a lint action with a fixed CLI equivalent is a
-// candidate, and a dedicated linter outranks the default within a source).
-// 43-13 removed aocore.build (single-binary CI build variants of several packages are narrow; the tier default
-// applies with the primary component's cwd) and re-tagged aocore.test as a flag-only residual for the 43-15
-// decision (a lane expanding a variable its step assigns at run time ranks after a plain one, so the light CI
-// lane fills test, verbatim).
-// 43-14 removed aoinference and opsCluster after the human approved a refresh of their stale committed files
-// (a Go module under control-plane/ is `extends: general` plus a component; aoinference 87ea0e1, opsCluster
-// 9f22c0d). It was a stale file, not a drafter defect, so no drafter rule changed.
-const KNOWN_DRIFT = {
-  aocore: [
+const ACCEPTED = {
+  devcluster: [
     {
-      keys: ['test'],
-      closes: '43-15',
-      residual: 'flag-only: flag order and -coverprofile differ from the CI lane; no general rule derives the hand-edited value',
-      reason: 'test: draft `go test -short ./... -race -coverprofile=coverage.out -timeout 5m (cwd go)` vs committed '
-        + '`go test -short -race ./... -timeout 5m (cwd go)` (seeded as the heavy `-p 1 … -skip "${SKIP}" …` lane; 43-13 '
-        + 'ranked the runtime-parameterised lane after the plain one)',
+      keys: ['lint', 'test'],
+      kind: 'conflict',
+      reason: 'user decision 2026-10-03, remedy (c): no CI workflow; selftest needs yq and a gitops checkout',
+      decided: DECIDED,
+      by: 'user',
     },
   ],
+
+  // The two flag-only residuals of the 43-15 dry run. The drafter emits CI commands verbatim (42-07), so a
+  // reviewed value that was hand-edited cannot be derived by a general rule.
   'ao-terminal': [
     {
       keys: ['deps'],
-      closes: '43-15',
-      residual: 'flag-only: CI adds --no-audit --no-fund; the reviewed value dropped them by hand',
-      reason: 'deps: draft `npm ci --no-audit --no-fund` vs committed `npm ci` (seeded as `task init`; 43-11 made the '
-        + 'one-shot bootstrap a mixed_aggregate note, so the CI install line fills deps, verbatim)',
+      kind: 'conflict',
+      reason: 'hand-edited flags; drafter stays verbatim: draft `npm ci --no-audit --no-fund` (the only form CI runs) vs committed `npm ci`',
+      decided: DECIDED,
+      by: 'user',
+    },
+  ],
+  aocore: [
+    {
+      keys: ['test'],
+      kind: 'conflict',
+      reason: 'hand-edited flags; drafter stays verbatim: draft `go test -short ./... -race -coverprofile=coverage.out -timeout 5m` '
+        + '(cwd go, the verbatim light CI lane) vs committed `go test -short -race ./... -timeout 5m` (cwd go)',
+      decided: DECIDED,
+      by: 'user',
+    },
+  ],
+
+  // The more-specific rows: the draft carries a command where the committed file says `discover` (or has no
+  // key). Nothing needs fixing to use the draft; the user accepted each as the current state.
+  aodex: [
+    {
+      keys: ['audit'],
+      kind: 'more_specific',
+      reason: 'the draft picks the govulncheck self-test step, not the gate: `bash scripts/check-govulncheck.sh --self-test` (cwd go) '
+        + 'vs committed `discover`. A self-test scans nothing. Known drafter limitation, a follow-up for a future rule',
+      decided: DECIDED,
+      by: 'user',
+    },
+    {
+      keys: ['lint'],
+      kind: 'more_specific',
+      reason: 'draft `golangci-lint run ./...` (cwd go), from the CI golangci action with working-directory go, vs committed `discover`',
+      decided: DECIDED,
+      by: 'user',
+    },
+  ],
+  aofamily: [
+    {
+      keys: ['build', 'deps', 'lint'],
+      kind: 'more_specific',
+      reason: 'the draft takes the primary component ai/go/ (3 of 4 evidence items) of a repo with four Go modules: '
+        + '`go build ./...`, `go mod download`, `go vet ./...` (cwd ai/go) vs committed `discover` (build, lint) and no deps; covers one module',
+      decided: DECIDED,
+      by: 'user',
+    },
+  ],
+  'eden-biz': [
+    {
+      keys: ['e2e'],
+      kind: 'more_specific',
+      reason: 'draft-only `discover` (no committed e2e): the draft carries no command',
+      decided: DECIDED,
+      by: 'user',
+    },
+  ],
+  EdenDocs: [
+    {
+      keys: ['deps'],
+      kind: 'more_specific',
+      reason: 'draft-only `discover` (no committed deps): the draft carries no command',
+      decided: DECIDED,
+      by: 'user',
+    },
+  ],
+  justinforme: [
+    {
+      keys: ['e2e'],
+      kind: 'more_specific',
+      reason: 'draft `make smoke-canvass` vs no committed e2e; real but weak: the target is a stub until Obj 9 ships and needs a live stack and Flutter',
+      decided: DECIDED,
+      by: 'user',
+    },
+  ],
+  politihub: [
+    {
+      keys: ['lint'],
+      kind: 'more_specific',
+      reason: 'draft `go vet ./...` (cwd go) vs committed `discover`',
+      decided: DECIDED,
+      by: 'user',
     },
   ],
 };
 
-module.exports = { FLEET, ACCEPTED, KNOWN_DRIFT };
+// Nothing is OPEN: the 43-15 decision was accept-all. The table stays so that a future gap has a place to
+// be recorded without a new mechanism: { <repo>: [ { keys: ['<key>'], reason: '<why no rule closes it yet>' } ] }.
+const OPEN = {};
+
+module.exports = { FLEET, ACCEPTED, OPEN };
