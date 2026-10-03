@@ -134,7 +134,16 @@ TRDs:
 **Goal:** Fix the drafter defects objective 42's rollout hand-fixed (aggregate targets, multi-stack roots, manifest-less roots, environment targets, internal Taskfile tasks, wrapped component recipes, commit gitignore check) so re-drafting matches the 11 override files.
 **Requirements:** SDR-08 (confirm each proposed command runs), SDR-03 hardening (`stack verify --run` side-effect safe); defects in `.planning/objectives/43-stack-drafter-rules/OBJECTIVE.md`
 **Gap Closure:** Closes the v1.4 audit gap (`milestones/v1.4-MILESTONE-AUDIT.md`): SDR-08 partial and objective 42's "drafts correct without hand edits" truth
-**Plans:** TBD
+**Plans:** 7 TRDs in 5 waves
+
+TRDs:
+- [ ] 43-01-TRD.md — (W1, tdd) Make variable expansion for aggregate targets (D1); internal Taskfile tasks not invocable (D5)
+- [ ] 43-02-TRD.md — (W1, tdd) effect-based `stack verify --run` guard: snapshot/restore, halt, `flutter --no-pub`, stub-flutter regression (D8, SDR-03)
+- [ ] 43-03-TRD.md — (W1, tdd) must_haves 2-space parsing (D11); mixed Flutter/Dart MCP (D9); commit ignore probe residual (D7)
+- [ ] 43-04-TRD.md — (W2, tdd) `e2e_env` and scenario classification; single-purpose scripts narrow (D4)
+- [ ] 43-05-TRD.md — (W3, tdd) literal manifest-less rule + primary component (go-first) placement; sub-area facts (D3, D6, D2)
+- [ ] 43-06-TRD.md — (W4, tdd) golden equivalence for all 11 overrides; CHANGELOG [Unreleased], CLAUDE.md; full `npm test`
+- [ ] 43-07-TRD.md — (W5, checkpoint) mirror sync + approved fleet `stack verify --run`, results in 43-ROLLOUT.md only (D10, SDR-08)
 
 ### Objective 45: DevFlow doctor + runtime hygiene
 
