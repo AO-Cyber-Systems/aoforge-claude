@@ -480,6 +480,11 @@
       "objective": "43",
       "summary": "43-06: a general root that builds itself in a stack no component has is a product (sidecar components, no primary); e2e_env needs a scenario name; the name rank covers every key. HAND_ONLY +10 author-named keys pending 43-07 acceptance",
       "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-07: dry-run drift is measured in the 43-06 golden scope and split into conflicts (hand-fix needed) and more-specific; devcluster is reported as drift pending a CI workflow (remedy (a)); a repo whose HEAD moved after pinning is skipped, not re-pinned",
+      "rationale": null
     }
   ],
   "blockers": [],
