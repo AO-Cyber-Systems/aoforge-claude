@@ -653,3 +653,11 @@ ACCEPTED now holds 13 rows, each `by: 'user'`, `decided: '2026-10-03'`, with a `
 Not in a table, because the harness sees no drift on them: dfip.lint, justinforme.lint and smartWellness.lint (D above). They are accepted in the 43-15 SUMMARY, with the `buf lint` coverage of justinforme and smartWellness and aodex.audit recorded there as follow-ups.
 
 Harness: `node --test plugins/devflow/devflow/bin/lib/stack-drafter-fleet.test.cjs` is green (42 of 42, with 33 repo tests, the table guards and the `assess` tests on synthetic tables). Every fleet repo's HEAD and work tree are unchanged by the run.
+
+## Re-verification decisions (2026-10-03)
+
+The 43-VERIFICATION.md re-verification returned human_needed at 35/36. The user answered both items:
+
+- **SDR-08: "Follow-up run now".** Objective 43 stays open. The follow-up `stack verify --run` covers politihub, which never ran under `--run`, and the 19 host-inconclusive gates. It needs a fresh per-run approval and a host fix first.
+  - **Host cause, diagnosed 2026-10-03.** The Command Line Tools updated on 2026-10-02 to the macOS 27.0 SDK. `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk` now points to `MacOSX27.0.sdk`. `xcode-select` points at Xcode.app, and its clang 21.0.0 (2100.1.1.101) linker rejects the 27 SDK's `arm64e.x1` tbd architectures with "unknown architecture". A minimal cgo build fails under the default setup and passes with `DEVELOPER_DIR=/Library/Developer/CommandLineTools`.
+- **Limitations: "Acknowledge + todo".** The accept-all limitations are acknowledged: aodex.audit is a self-test step, justinforme and smartWellness lint lack `buf lint`, and ao-terminal.deps and aocore.test carry hand-edited flags. They are captured in `.planning/todos/pending/2026-10-03-stack-drafter-self-test-and-buf-lint.md`.
