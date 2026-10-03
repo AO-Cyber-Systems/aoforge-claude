@@ -18,6 +18,9 @@
 //  9. Depth limit (default 1) and skip-dirs.
 // 10. Exec enrichment through an injected exec; ENOENT leaves the static result unchanged.
 // 11. Empty repo -> [] and no throw.
+// 12. (TRD 43-01 D1) Makefile `$(VAR)` / `${VAR}` expansion from `?=` `:=` `::=` `=`, depth <= 3.
+// 13. (TRD 43-01 D5) Taskfile `internal: true` is flagged, not invocable (hasTarget false), and
+//     stays in the parsed index.
 //
 // Fixtures are hand-built (`__fixtures__/stack-runner-fixtures.cjs`), never generated.
 
@@ -34,6 +37,8 @@ const {
   _parseTaskfile,
   _parseJustfile,
 } = require('./stack-runners.cjs');
+// Read-only: the TRD 43-01 D5 test asserts what `stack verify` makes of an internal task.
+const { verifyCommand } = require('./stack-verify.cjs');
 
 const roots = [];
 function track(root) { roots.push(root); return root; }
@@ -157,6 +162,76 @@ describe('readRunners — Makefile (root and one level down)', () => {
     assert.equal(_parseMakefile('-include a.mk\nx:\n').hasInclude, true);
     assert.equal(_parseMakefile('sinclude a.mk\nx:\n').hasInclude, true);
     assert.equal(_parseMakefile('x:\n\techo include y\n').hasInclude, false);
+  });
+
+  // ─── TRD 43-01 D1: simple variable references in recipe lines ────────────────
+
+  const bodyOf = (text, name) => _parseMakefile(text).targets.find((t) => t.name === name).body;
+
+  test('2g. `GO ?= go` expands $(GO) in a recipe line, through readRunners too', () => {
+    assert.deepEqual(bodyOf('GO ?= go\nbuild:\n\t$(GO) build ./...\n', 'build'), ['go build ./...']);
+    const root = track(fx.makeRepo({ Makefile: 'GO ?= go\nbuild:\n\t$(GO) build ./...\n' }));
+    assert.deepEqual(find(readRunners(root), 'make', '', 'build').body, ['go build ./...']);
+  });
+
+  test('2h. the brace form ${GO}, `export`, `override`, an inline `; recipe` and a trailing comment expand too', () => {
+    assert.deepEqual(bodyOf('GO := go\nbuild:\n\t${GO} build ./...\n', 'build'), ['go build ./...']);
+    assert.deepEqual(bodyOf('export GO ::= go # the toolchain\nbuild:\n\t$(GO) vet ./...\n', 'build'), ['go vet ./...']);
+    assert.deepEqual(bodyOf('override GO = go\nbuild: ; $(GO) build\n', 'build'), ['go build']);
+  });
+
+  test('2i. `?=` keeps the first definition; `:=` and `=` override; `+=` defines nothing', () => {
+    assert.deepEqual(bodyOf('GO ?= go\nGO ?= gccgo\nb:\n\t$(GO) x\n', 'b'), ['go x']);
+    assert.deepEqual(bodyOf('GO := go\nGO ?= gccgo\nb:\n\t$(GO) x\n', 'b'), ['go x']);
+    assert.deepEqual(bodyOf('GO ?= go\nGO := gccgo\nb:\n\t$(GO) x\n', 'b'), ['gccgo x']);
+    assert.deepEqual(bodyOf('GO = go\nGO = gccgo\nb:\n\t$(GO) x\n', 'b'), ['gccgo x']);
+    assert.deepEqual(bodyOf('GO += go\nb:\n\t$(GO) x\n', 'b'), ['$(GO) x'], '+= is not a definition');
+  });
+
+  test('2j. a variable defined BELOW the rule still applies (make expands recipes lazily)', () => {
+    assert.deepEqual(bodyOf('build:\n\t$(GO) build\nGO ?= go\n', 'build'), ['go build']);
+  });
+
+  test('2k. chains resolve through depth 3; a longer chain and a self-reference stay verbatim', () => {
+    const chain = 'A := go\nB := $(A)\nC := $(B)\nD := $(C)\nb:\n\t$(C) x\nc:\n\t$(D) x\n';
+    assert.deepEqual(bodyOf(chain, 'b'), ['go x'], 'three levels deep');
+    assert.deepEqual(bodyOf(chain, 'c'), ['$(D) x'], 'four levels is past the bound');
+    assert.deepEqual(bodyOf('A = $(A) x\nb:\n\t$(A) go\n', 'b'), ['$(A) go'], 'no infinite loop');
+    assert.deepEqual(bodyOf('A = $(B)\nB = $(A)\nb:\n\t$(A) go\n', 'b'), ['$(A) go'], 'mutual recursion');
+  });
+
+  test('2l. `$(shell ...)`, function calls and undefined variables stay verbatim', () => {
+    const text = 'GO ?= go\nb:\n\techo $(shell go env GOPATH) $(call f,x) $(FOO) $(GO:go=x) $(wildcard *.go)\n';
+    assert.deepEqual(
+      bodyOf(text, 'b'),
+      ['echo $(shell go env GOPATH) $(call f,x) $(FOO) $(GO:go=x) $(wildcard *.go)'],
+    );
+  });
+
+  test('2m. a make-escaped dollar ($$HOME, $$(GO)) is not expanded; `$$$(GO)` is `$$` plus a reference', () => {
+    assert.deepEqual(bodyOf('GO := go\nb:\n\techo $$HOME $$(GO) $${GO}\n', 'b'), ['echo $$HOME $$(GO) $${GO}']);
+    assert.deepEqual(bodyOf('GO := go\nb:\n\techo $$$(GO)\n', 'b'), ['echo $$go']);
+  });
+
+  test('2n. assignments inside define ... endef are ignored', () => {
+    const text = [
+      'define BLOCK',
+      'GO := gccgo',
+      'X := y',
+      'endef',
+      'GO ?= go',
+      'b:',
+      '\techo $(GO) $(X)',
+      '',
+    ].join('\n');
+    assert.deepEqual(bodyOf(text, 'b'), ['echo go $(X)']);
+  });
+
+  test('2o. an assignment is never a rule, and the return shape is unchanged', () => {
+    const parsed = _parseMakefile('GO := go\nGOFLAGS ::= -v\nOUT=bin/x\nb:\n\t$(GO) x\n');
+    assert.deepEqual(Object.keys(parsed).sort(), ['defaultGoal', 'deps', 'hasInclude', 'targets']);
+    assert.deepEqual(parsed.targets.map((t) => t.name), ['b']);
+    assert.deepEqual(parsed.deps, { b: [] });
   });
 });
 
@@ -348,6 +423,85 @@ describe('readRunners — Taskfile', () => {
     assert.equal(find(targets, 'task', '', 'a').cwd, 'go');
     assert.equal(find(targets, 'task', '', 'b').cwd, undefined);
     assert.equal(find(targets, 'task', '', 'c').cwd, undefined);
+  });
+
+  // ─── TRD 43-01 D5: `internal: true` tasks cannot be run from the CLI ─────────
+
+  test('5g. `internal: true` flags the parsed task; false, absent, templated and shorthand do not', () => {
+    const text = [
+      'tasks:',
+      '  a:',
+      '    internal: true',
+      '    cmd: x',
+      '  b:',
+      '    internal: false',
+      '    cmd: x',
+      '  c:',
+      '    cmd: x',
+      '  d:',
+      '    internal: "true"   # a quoted boolean is still true',
+      '    cmd: x',
+      '  e:',
+      '    internal: "{{.HIDE}}"',
+      '    cmd: x',
+      '  f: go build ./...',
+      '',
+    ].join('\n');
+    const byName = Object.fromEntries(_parseTaskfile(text).tasks.map((t) => [t.name, t.internal]));
+    assert.deepEqual(byName, { a: true, b: false, c: false, d: true, e: false, f: false });
+  });
+
+  test('5h. internal tasks stay in the parsed index and on the runner targets, flagged', () => {
+    const root = track(fx.taskfileInternalShape());
+    const targets = readRunners(root);
+    const tidy = find(targets, 'task', '', 'go:mod:tidy');
+    assert.ok(tidy, 'an internal task is still a runner target (its body is needed to expand a caller)');
+    assert.equal(tidy.internal, true);
+    assert.deepEqual(tidy.body, ['go mod tidy']);
+    assert.equal(find(targets, 'task', '', 'build').internal, false, 'internal: false');
+    assert.equal(find(targets, 'task', '', 'test').internal, false, 'absent');
+    const init = find(targets, 'task', '', 'init');
+    assert.deepEqual(init.deps, ['npm:install'], 'a public task still lists its internal dep');
+    assert.deepEqual(init.body, ['task go:mod:tidy'], 'and still calls its internal task');
+  });
+
+  test('5i. hasTarget is false for an internal task and its alias, true for a public one', () => {
+    const root = track(fx.taskfileInternalShape());
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'go:mod:tidy' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'npm:install' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'lint' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'l' }), false, 'an alias of an internal task');
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'init' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'build' }), true, 'internal: false');
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'test' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'nope' }), false);
+  });
+
+  test('5j. an internal task is false even when the Taskfile `includes:` others (it was found)', () => {
+    const root = track(fx.makeRepo({
+      'Taskfile.yml': [
+        "version: '3'",
+        'includes:',
+        '  web: ./web/Taskfile.yml',
+        'tasks:',
+        '  prep:',
+        '    internal: true',
+        '    cmd: go generate ./...',
+        '',
+      ].join('\n'),
+    }));
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'prep' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'web:build' }), 'unknown', 'an unmatched name is still unknown');
+  });
+
+  test('5k. verify (read-only): `task go:mod:tidy` is target_missing, `task init` resolves', () => {
+    const root = track(fx.taskfileInternalShape());
+    const which = (name) => (name === 'task' ? '/usr/local/bin/task' : null);
+    const r = verifyCommand('task go:mod:tidy', { root, which });
+    assert.equal(r.status, 'target_missing', JSON.stringify(r));
+    assert.match(r.detail, /task/);
+    assert.equal(verifyCommand('task npm:install', { root, which }).status, 'target_missing');
+    assert.equal(verifyCommand('task init', { root, which }).status, 'resolved');
   });
 });
 

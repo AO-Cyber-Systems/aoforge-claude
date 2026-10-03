@@ -699,6 +699,80 @@ function trackedPlanningIgnoredShape() {
   }, { track: ['.planning/config.json'] });
 }
 
+/**
+ * aggregateMakeShape() — TRD 43-01 D1, a monorepo with a root Go module and a `web/` node package
+ * whose Makefile aggregates by prerequisite (`build: frontend backend`) and calls Go through a
+ * variable (`GO ?= go`, `$(GO) build`). Invented names throughout (`webapp`, `app_no_gcc`).
+ * Expected: build, test and lint are `make build` / `make test` / `make lint`; the Go leg must not
+ * be dropped as off_stack or replaced by a variant name or a single leg.
+ */
+function aggregateMakeShape() {
+  return makeWhole({
+    'go.mod': goMod('webapp'),
+    'main.go': GO_MAIN,
+    'cmd/app/main.go': GO_MAIN,
+    'web/package.json': JSON.stringify({ name: 'webapp-web', private: true, scripts: { build: 'vite build' } }, null, 2),
+    Makefile: [
+      'GO ?= go',
+      '',
+      '.PHONY: build frontend backend test test-backend lint lint-go lint-spell',
+      '',
+      'build: frontend backend',
+      '',
+      'backend:',
+      '\t$(GO) build -o app_no_gcc ./cmd/app',
+      '',
+      'frontend:',
+      '\tnpm --prefix web run build',
+      '',
+      'test: test-backend',
+      '',
+      'test-backend:',
+      '\t$(GO) test ./...',
+      '',
+      'lint: lint-go lint-spell',
+      '',
+      'lint-go:',
+      '\tgolangci-lint run',
+      '',
+      'lint-spell:',
+      '\tmisspell .',
+      '',
+    ].join('\n'),
+  });
+}
+
+/**
+ * internalTaskShape() — TRD 43-01 D5, a Go module whose Taskfile marks its helper tasks
+ * `internal: true` (they cannot be run from the CLI): `go:mod:tidy` and `npm:install`, called by the
+ * public `init`. Invented names (`svcapp`). Expected: `task go:mod:tidy` / `task npm:install` appear
+ * in no command, candidate or note, so `tidy` stays the go tier's `go mod tidy -diff`.
+ */
+function internalTaskShape() {
+  return makeWhole({
+    'go.mod': goMod('svcapp'),
+    'main.go': GO_MAIN,
+    'Taskfile.yml': [
+      "version: '3'",
+      '',
+      'tasks:',
+      '  go:mod:tidy:',
+      '    internal: true',
+      '    cmds: [go mod tidy]',
+      '',
+      '  npm:install:',
+      '    internal: true',
+      '    cmd: npm install',
+      '',
+      '  init:',
+      '    deps: [npm:install]',
+      '    cmds:',
+      '      - task: go:mod:tidy',
+      '',
+    ].join('\n'),
+  });
+}
+
 /** Every e2e shape, by name, for "for each fixture" assertions. */
 const SHAPES = Object.freeze({
   multiAreaCiShape,
@@ -738,6 +812,8 @@ module.exports = {
   ignoredBaselineShape,
   nestedRepoShape,
   trackedPlanningIgnoredShape,
+  aggregateMakeShape,
+  internalTaskShape,
   gitOnlyBin,
   hasGit: detectFx.hasGit,
   SHAPES,
