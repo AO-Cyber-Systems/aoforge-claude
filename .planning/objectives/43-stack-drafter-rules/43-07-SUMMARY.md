@@ -17,8 +17,9 @@ Run plan written and committed. No gate has run in any repo. The TRD is paused a
 
 ## Progress
 - [x] Task 1: Sync the runtime mirror and draft the run plan (no gates run) — eeaebfba
-- [x] Task 2: Human approves the repo list, the --include set and HAND_ONLY additions — (this commit)
-- [ ] Task 3: Run the approved gates read-only and record results; dry-run drift table — next step: for each repo in the effective run list in `## Approval` of 43-ROLLOUT.md, check HEAD against the pinned prefix, snapshot, run `stack verify --run` through the mirror, snapshot again, run the `stack init` dry run, then write `## Results`, `## Dry-run drift` and `## Summary` with `df-tools doc put`
+- [x] Task 2: Human approves the repo list, the --include set and HAND_ONLY additions — f40af070
+- [x] Task 3: Run the approved gates read-only and record results; dry-run drift table — (this commit)
+- [ ] Final: write the SUMMARY with `summary post 43-07 --from <file>` (including `## Self-Check`), update STATE and ROADMAP, make the docs commit — next step: `df-tools summary post 43-07 --from <scratchpad>/43-07-SUMMARY-final.md`
 
 ## What Task 1 produced
 
