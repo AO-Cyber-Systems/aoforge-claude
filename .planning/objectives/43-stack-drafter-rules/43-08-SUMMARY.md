@@ -2,5 +2,6 @@
 
 ## Progress
 - [x] Task 1 RED: helper tests (items 1-11) — a1f8cb37
-- [x] Task 1 GREEN: compareDrift and formatRow in __fixtures__/stack-drift-compare.cjs — (this commit)
-- [ ] Task 2: fleet tables and the real-fleet harness — next step: create plugins/devflow/devflow/bin/lib/__fixtures__/stack-fleet-tables.cjs (FLEET, ACCEPTED, empty KNOWN_DRIFT) and stack-drafter-fleet.test.cjs, run once to seed KNOWN_DRIFT from the real conflict rows
+- [x] Task 1 GREEN: compareDrift and formatRow in __fixtures__/stack-drift-compare.cjs — 686c110b
+- [x] Task 2: fleet tables and the real-fleet harness with the seeded KNOWN_DRIFT ratchet — (this commit)
+- [ ] Final: write the full SUMMARY with `summary post 43-08`, then state, roadmap and requirements updates — next step: write the SUMMARY body (seeded table, differences from 43-07, politihub row, run time, test counts) to the scratchpad and post it
