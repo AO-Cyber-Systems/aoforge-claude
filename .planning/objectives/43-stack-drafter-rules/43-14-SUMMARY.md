@@ -9,9 +9,9 @@ tags: [stack, rollout, gap-closure, checkpoint]
 # Objective 43 TRD 14: Refresh stale committed STACK.md in aoinference and opsCluster (checkpoint)
 
 ## Progress
-- [x] Task 1: Preflight and preview (read-only) — (this commit)
-- [ ] Task 2: Human approves each repo's refreshed STACK.md before any write — next step: present the 43-ROLLOUT.md "Gap closure: stale STACK.md refresh" preview to the human and wait for "approved", "approved: aoinference", "approved: opsCluster" or a change request
-- [ ] Task 3: Write, verify, report and commit (approved repos only); clear KNOWN_DRIFT
+- [x] Task 1: Preflight and preview (read-only) — 4ebc3a49
+- [x] Task 2: Human approves each repo's refreshed STACK.md before any write — (this commit; reply "approved" recorded verbatim under ### Approval in 43-ROLLOUT.md)
+- [ ] Task 3: Write, verify, report and commit (approved repos only); clear KNOWN_DRIFT — next step: re-check HEAD and the staged index in aoinference, snapshot P0, then run `stack init --write --force` with the checkout df-tools
 
 ## Checkpoint state
 
