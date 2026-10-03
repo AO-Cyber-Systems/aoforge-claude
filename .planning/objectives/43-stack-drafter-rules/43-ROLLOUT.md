@@ -290,3 +290,189 @@ devcluster is reported as drift on `lint` and `test` and is not counted as a mat
 - 19 of the 98 red gates (15 host toolchain, 4 deps not installed) say nothing about the repository, so the gate evidence for those is inconclusive. The cgo link failure alone hides the `build` result for 9 repos and the `test` result for 2 (dfip, eden-circle).
 
 **Follow-ups this TRD does not do** (each needs the human or a new TRD): re-run politihub at its new HEAD if wanted; add the offline CI workflow to devcluster (remedy (a)); fix the host linker (Command Line Tools versus the macOS 27 SDK) and install trades' `node_modules`, then re-run the host-blocked rows; decide what to do about the 12 conflict rows (drafter rules, or accept the hand-fixes as the permanent answer); then `/devflow:milestone audit` to re-audit v1.4.
+
+## Gap closure: stale STACK.md refresh (TRD 43-14)
+
+Read-only preview taken 2026-10-03 with the checkout drafter at devflow-claude HEAD `f6d6af79` (`node plugins/devflow/devflow/bin/df-tools.cjs --cwd <repo> stack init`, no `--write`). Nothing was written, staged or committed in aoinference or opsCluster. Both repos carry objective 42's committed shape (`extends: go`, no components) for a Go module under `control-plane/`. The final drafter drafts `extends: general` plus a `control-plane/` component (43-05 D3).
+
+### Preflight
+
+All git calls used `GIT_OPTIONAL_LOCKS=0`.
+
+| Check | aoinference | opsCluster |
+|---|---|---|
+| branch | `fix/obj31-oci-source-label` | `main` |
+| HEAD | `c9f1bdccc2da9747fbdd9d45a7c8f98d04e4f2a1` | `a547076a0daeaec58675ca2848c2ad1fd85d2d25` |
+| detached | no | no |
+| rebase / merge / cherry-pick in progress | none (`rebase-merge`, `rebase-apply`, `MERGE_HEAD`, `CHERRY_PICK_HEAD` absent) | none |
+| staged (`diff --cached --name-only`) | empty | empty |
+| unmerged paths | none | none |
+| dirty (`status --porcelain=v1 -uall`) | 3 lines: `?? .claude/settings.json`, `?? .planning/.dup-detect-log.jsonl`, `?? docs/MODEL-SELECTION-2026-09.md` | 8 lines: ` M .claude/agent-memory/devflow-verifier/MEMORY.md`, ` M .planning/.progress-guard.json`, ` M control-plane/.planning/.progress-guard.json`, `?? .claude/agent-memory/devflow-verifier/obj64-eden-dataroom-artifact-verified.md`, `?? .claude/agent-memory/devflow-verifier/obj67-ghscim-verified.md`, `?? .claude/settings.json`, `?? .planning/objectives/67-github-emu-scim-sync-from-google-workspace-keyless-wif-cronj/.gitkeep`, `?? dataroom-login.png` |
+| stack files tracked | both | both |
+| stack files dirty | no (neither listed in porcelain) | no |
+| stack files gitignored (`check-ignore --no-index`, exit 1 expected) | exit 1, not ignored | exit 1, not ignored |
+| `commit_docs` | true | true (via `planning.commit_docs`) |
+| `github.store` | false (key unset) | false |
+| verdict | ok | ok |
+
+### Preview: aoinference `.planning/STACK.md` (committed vs draft)
+
+In both STACK.md diffs the long `<!-- Drafted by ... -->` comment line is shortened to `...` after the word `diverges from`; the real line continues with the same fixed text in the old and new file, and only the profile name differs.
+
+```diff
+--- a/.planning/STACK.md
++++ b/.planning/STACK.md
+@@ -1,27 +1,25 @@
+ ---
+ schema: 1
+ id: "aoinference"
+-extends: "go"
++extends: "general"
++components: [{ path: "control-plane/", profile: "go" }]
+ commands:
+-  build: { run: "go build ./...", cwd: "control-plane" }
++  build: { run: "make build", cwd: "control-plane" }
++  codegen: { run: "make drift-check", apply: "make generate", when: "sources_changed", cwd: "control-plane" }
+   lint: { run: "make lint", cwd: "control-plane" }
+   test: { run: "make test", cwd: "control-plane" }
+-  format: { run: "test -z \"$(gofmt -l .)\"", apply: "gofmt -w {files}", cwd: "control-plane" }
+-  fix: { run: "go fix -diff ./...", apply: "go fix ./...", cwd: "control-plane" }
+-  audit: { run: "govulncheck ./...", when: "deps_changed", cwd: "control-plane" }
+-  codegen: { run: "go generate ./...", when: "sources_changed", cwd: "control-plane" }
+-  tidy: { run: "go mod tidy -diff", apply: "go mod tidy", when: "deps_changed", cwd: "control-plane" }
++loop: ["lint", "test"]
+ provenance:
+-  reviewed: "2026-09-29"
++  reviewed: "2026-10-03"
+   sources: ["control-plane/Makefile"]
+ ---
+ 
+ # Stack Profile: aoinference
+ 
+-<!-- Drafted by `df-tools stack init`. Add no `## ` heading below unless this project genuinely diverges from `go`: ... -->
++<!-- Drafted by `df-tools stack init`. Add no `## ` heading below unless this project genuinely diverges from `general`: ... -->
+ 
+ <!-- stack init notes (see .planning/STACK-REPORT.md):
+ - load-test/ stack — info (unsupported area (python): no tier-2 profile, so it is not a component; only its own commands are noted)
+-- control-plane/ codegen: make generate-all — off_stack (tool stack unknown does not match extends go)
++- control-plane/ stack — info (primary component control-plane/ (go): 4 build/test/lint evidence items of 7)
+ - control-plane/ lint: make vet — alternate (canonical pick: make lint)
+ -->
+```
+
+Draft validation: ok, 0 errors, 0 warnings. Resolved keys: build, codegen, lint, test. `audit`, `fix`, `format` and `tidy` leave the file: with `extends: general` they are inherited as `discover`, and `tidy` has no general default.
+
+### Preview: opsCluster `.planning/STACK.md` (committed vs draft)
+
+```diff
+--- a/.planning/STACK.md
++++ b/.planning/STACK.md
+@@ -1,22 +1,23 @@
+ ---
+ schema: 1
+ id: "opscluster"
+-extends: "go"
++extends: "general"
++components: [{ path: "control-plane/", profile: "go" }]
+ commands:
+   deps: { run: "go mod download all", when: "deps_changed", cwd: "control-plane" }
+   lint: { run: "go vet ./...", cwd: "control-plane" }
+   test: { run: "go test -p 1 ./... -race", scoped: "go test -race {packages}", cwd: "control-plane" }
+   build: { run: "go build ./...", cwd: "control-plane" }
+-  format: { run: "test -z \"$(gofmt -l .)\"", apply: "gofmt -w {files}", cwd: "control-plane" }
+-  fix: { run: "go fix -diff ./...", apply: "go fix ./...", cwd: "control-plane" }
+-  audit: { run: "govulncheck ./...", when: "deps_changed", cwd: "control-plane" }
+-  codegen: { run: "go generate ./...", when: "sources_changed", cwd: "control-plane" }
+-  tidy: { run: "go mod tidy -diff", apply: "go mod tidy", when: "deps_changed", cwd: "control-plane" }
++loop: ["lint", "test"]
+ provenance:
+-  reviewed: "2026-09-29"
++  reviewed: "2026-10-03"
+   sources: [".github/workflows/go.yml"]
+ ---
+ 
+ # Stack Profile: opscluster
+ 
+-<!-- Drafted by `df-tools stack init`. Add no `## ` heading below unless this project genuinely diverges from `go`: ... -->
++<!-- Drafted by `df-tools stack init`. Add no `## ` heading below unless this project genuinely diverges from `general`: ... -->
++
++<!-- stack init notes (see .planning/STACK-REPORT.md):
++- control-plane/ stack — info (primary component control-plane/ (go): 2 build/test/lint evidence items of 3)
++-->
+```
+
+Draft validation: ok, 0 errors, 0 warnings. Resolved keys: deps, lint, test, build. `format`, `fix`, `audit`, `codegen` and `tidy` leave the file.
+
+### Preview: `.planning/STACK-REPORT.md` (committed vs `stack report --draft`)
+
+`stack report --write` runs after the STACK.md write, so the real report says `profile_source: file`, not `draft`. The `generated` date is the day of the write.
+
+aoinference:
+
+```diff
+--- a/.planning/STACK-REPORT.md
++++ b/.planning/STACK-REPORT.md
+@@ -1,8 +1,8 @@
+ ---
+-generated: "2026-09-29"
+-profile: "go"
+-profile_source: file
+-components: []
++generated: "2026-10-03"
++profile: "general"
++profile_source: draft
++components: ["control-plane/"]
+ unsupported_areas: ["load-test/"]
+ counts: { gap: 5, weak: 2, info: 9 }
+ ---
+@@ -43,6 +43,6 @@
+ 
+ | Key | Candidate | Status | Source |
+ |---|---|---|---|
+-| codegen | `make generate-all` | off_stack | runner |
++| — | — | info | — |
+ | lint | `make vet` | alternate | runner |
+ | — | — | info | — |
+```
+
+opsCluster:
+
+```diff
+--- a/.planning/STACK-REPORT.md
++++ b/.planning/STACK-REPORT.md
+@@ -1,9 +1,9 @@
+ ---
+-generated: "2026-09-29"
+-profile: "go"
+-profile_source: file
+-components: []
+-counts: { gap: 3, weak: 1, info: 8 }
++generated: "2026-10-03"
++profile: "general"
++profile_source: draft
++components: ["control-plane/"]
++counts: { gap: 3, weak: 1, info: 9 }
+ ---
+ 
+ # Stack Report: opscluster
+@@ -41,3 +41,4 @@
+ 
+ | Key | Candidate | Status | Source |
+ |---|---|---|---|
++| — | — | info | — |
+```
+
+### Task 3 plan (runs only after approval, per approved repo)
+
+The checkout df-tools: `DF=/Users/justin/dev/devflow-claude/plugins/devflow/devflow/bin/df-tools.cjs`. One plain command per call.
+
+1. Re-check HEAD against the value above (a moved HEAD skips the repo) and `diff --cached --name-only` (non-empty stops the repo).
+2. Snapshot P0 (porcelain plus `git hash-object` of every listed path) to the scratchpad.
+3. `node $DF --cwd /Users/justin/dev/<repo> stack init --write --force`, then `stack validate`, `stack verify` (static, no `--run`), `stack report --write`.
+4. Delta check against P0: only `.planning/STACK.md` and `.planning/STACK-REPORT.md` may differ.
+5. `node $DF --cwd /Users/justin/dev/<repo> commit "docs(stack): refresh STACK.md to the objective 43 drafter (general + control-plane component)" --files .planning/STACK.md .planning/STACK-REPORT.md`, on the current branch (aoinference `fix/obj31-oci-source-label`, opsCluster `main`). Nothing is pushed.
+6. Here: remove aoinference and opsCluster from KNOWN_DRIFT, run `node --test plugins/devflow/devflow/bin/lib/stack-drafter-fleet.test.cjs`, add a Results table, commit.
+
+### Approval
+
+Pending. The human reply is recorded here verbatim before the first write.
