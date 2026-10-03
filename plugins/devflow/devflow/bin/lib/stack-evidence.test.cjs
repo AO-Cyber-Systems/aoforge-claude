@@ -1597,3 +1597,69 @@ describe('stack-evidence driftWriter (E24, TRD 43-11)', () => {
     }
   });
 });
+
+// TRD 43-13 test 5: a CI item whose command expands a name its OWN step assigns at run time (stack-ci
+// step.runtimeVars: `$NAME` or `${NAME}`, quoted or not) carries `runtimeVar: true`. One that expands nothing
+// of the kind, an env-substituted literal, or a name another step assigns carries no flag.
+describe('stack-evidence runtimeVar (E25, TRD 43-13 test 5)', () => {
+  const WORKFLOW = [
+    'name: tests',
+    'on: [push]',
+    'env:',
+    '  FLOOR_PKG: ./internal/store',
+    'jobs:',
+    '  heavy:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - name: coverage',
+    '        run: |',
+    '          SKIP="$(./scripts/print-skips.sh --class slow)"',
+    '          go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out',
+    '      - name: per-package',
+    '        run: |',
+    '          for p in store tenant; do',
+    '            go test -short ./internal/$p/...',
+    '          done',
+    '      - name: other-step',
+    '        run: go test -count=1 ./... -skip "$SKIP"',
+    '  light:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: go test -short -race ./...',
+    '      - run: go test -cover $FLOOR_PKG',
+    '',
+  ].join('\n');
+  function items() {
+    const root = makeRepo({
+      'go.mod': 'module example.invalid/lanes\n\ngo 1.23\n',
+      'scripts/print-skips.sh': '#!/bin/sh\necho "TestSlow"\n',
+      '.github/workflows/tests.yml': WORKFLOW,
+    });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd) => list.find((e) => e.command === cmd && e.source === 'ci') || null;
+
+  test('E25a: a command expanding a name its step assigns at run time is flagged', () => {
+    const list = items();
+    for (const cmd of ['go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out', 'go test -short ./internal/$p/...']) {
+      const item = byCmd(list, cmd);
+      assert.ok(item, `${cmd}: ${JSON.stringify(list.map((e) => e.command))}`);
+      assert.equal(item.runtimeVar, true, cmd);
+    }
+  });
+
+  test('E25b: a plain command, an env-substituted literal and a name another step assigns are not flagged', () => {
+    const list = items();
+    for (const cmd of ['go test -short -race ./...', 'go test -cover ./internal/store', 'go test -count=1 ./... -skip "$SKIP"']) {
+      const item = byCmd(list, cmd);
+      assert.ok(item, `${cmd}: ${JSON.stringify(list.map((e) => e.command))}`);
+      assert.equal(item.runtimeVar, undefined, cmd);
+    }
+  });
+});

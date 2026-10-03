@@ -1957,3 +1957,51 @@ describe('assembleDraft narrow builds fall back to the tier default (NB1-NB7, TR
     assert.equal(d.notes.some((x) => x.status === 'narrow' && x.key === 'build'), false);
   });
 });
+
+// TRD 43-13 (aocore.test row): a candidate that expands a variable its CI step assigns at run time
+// (stack-evidence `runtimeVar`: `-skip "${SKIP}"` after `SKIP="$(…)"`) ranks right after confidence, behind a
+// candidate that does not. Source and name still come first, and alone it is still chosen. A runtime-var
+// candidate the plain pick displaced is a `runtime_var` note.
+describe('assembleDraft runtime-assigned variables rank after plain commands (RT1-RT4, TRD 43-13 test 6)', () => {
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+  const HEAVY = 'go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out -timeout 35m';
+  const LIGHT = 'go test -short ./... -race -coverprofile=coverage.out -timeout 5m';
+
+  test('RT1: a same-source plain lane listed after the runtime-var lane wins; the runtime-var lane is a runtime_var note', () => {
+    const d = run([
+      ev('test', HEAVY, { tool: 'go', sourceFile: '.github/workflows/go-heavy.yml', runtimeVar: true }),
+      ev('test', LIGHT, { tool: 'go', sourceFile: '.github/workflows/go.yml' }),
+    ]);
+    assert.equal(d.commands.test.run, LIGHT);
+    const n = d.notes.find((x) => x.candidate === HEAVY);
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.status, 'runtime_var');
+    assert.equal(n.key, 'test');
+  });
+
+  test('RT2: alone, a runtime-var candidate is still chosen', () => {
+    const d = run([ev('test', HEAVY, { tool: 'go', runtimeVar: true })]);
+    assert.equal(d.commands.test.run, HEAVY);
+    assert.equal(d.notes.some((x) => x.status === 'runtime_var'), false);
+  });
+
+  test('RT3: the source ranks first: a CI runtime-var lane beats a plain docs line', () => {
+    const d = run([
+      ev('test', 'go test -short ./... -count=1', { tool: 'go', source: 'docs', sourceFile: '.planning/codebase/TESTING.md' }),
+      ev('test', HEAVY, { tool: 'go', runtimeVar: true }),
+    ]);
+    assert.equal(d.commands.test.run, HEAVY);
+  });
+
+  test('RT4: in the primary component the plain lane is the key with its cwd', () => {
+    const areas = [
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+      { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+    ];
+    const d = run([
+      ev('test', HEAVY, { tool: 'go', cwd: 'svc', area: 'svc/', runtimeVar: true }),
+      ev('test', LIGHT, { tool: 'go', cwd: 'svc', area: 'svc/' }),
+    ], areas);
+    assert.deepStrictEqual(d.commands.test, { run: LIGHT, scoped: 'go test -race {packages}', cwd: 'svc' });
+  });
+});

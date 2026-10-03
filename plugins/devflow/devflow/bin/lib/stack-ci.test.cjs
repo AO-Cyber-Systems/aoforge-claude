@@ -410,12 +410,14 @@ describe('C11 reader robustness', () => {
 
   test('step records carry exactly the contracted fields', () => {
     const [step] = _parseWorkflowText('on: [push]\njobs:\n  j:\n    steps:\n      - name: n\n        run: go vet ./...\n', 'wf.yml');
-    // `checkouts` and `external` joined the contract in TRD 42-14 (D1); `envSubstituted` in TRD 43-09.
-    assert.deepEqual(Object.keys(step).sort(), ['checkouts', 'continueOnError', 'cwd', 'envSubstituted', 'external', 'file', 'invocations', 'job', 'name', 'scheduled', 'uses']);
+    // `checkouts` and `external` joined the contract in TRD 42-14 (D1); `envSubstituted` in TRD 43-09;
+    // `runtimeVars` in TRD 43-13 (re-baselined: the names a run block assigns at run time).
+    assert.deepEqual(Object.keys(step).sort(), ['checkouts', 'continueOnError', 'cwd', 'envSubstituted', 'external', 'file', 'invocations', 'job', 'name', 'runtimeVars', 'scheduled', 'uses']);
     assert.equal(step.file, 'wf.yml');
     assert.deepEqual(step.checkouts, []);
     assert.equal(step.external, false);
     assert.deepEqual(step.envSubstituted, []);
+    assert.deepEqual(step.runtimeVars, []);
   });
 });
 
@@ -684,5 +686,48 @@ describe('C15 an action\'s `with: working-directory` (TRD 43-12 test 5)', () => 
   test('C15d: `working-directory: .` is the repo root (null), and it is still recorded', () => {
     const [step] = _parseWorkflowText(yml(['        with:', '          working-directory: .']), 'x.yml');
     assert.deepStrictEqual(step.with, { 'working-directory': null });
+  });
+});
+
+// ─── TRD 43-13: names a run block assigns at run time ─────────────────────────
+//
+// 4. step.runtimeVars lists the names the run block itself assigns a value only known when it runs: a
+//    command substitution (`X="$(cmd)"`, `X=$(cmd)`, `` X=`cmd` ``), an `export X=…`, a `read [-r] X`, a
+//    `for X in` loop variable, and a name assigned from one of those (`PKG="${line%%=*}"`). A plain literal
+//    (`X=dist`), a `${{ }}` value and a workflow/job/step `env:` name substituted into the line are not.
+describe('C16 step.runtimeVars (TRD 43-13 test 4)', () => {
+  const runtimeOf = (lines, extra = []) => {
+    const doc = ['on: [push]', 'jobs:', '  j:', '    steps:', ...extra, '      - name: s', '        run: |', ...lines.map((l) => `          ${l}`), ''].join('\n');
+    const step = byName(_parseWorkflowText(doc, 'x.yml'), 's');
+    return step.runtimeVars;
+  };
+
+  test('C16a: command substitution, quoted or not, in either spelling', () => {
+    assert.deepEqual(runtimeOf(['SKIP="$(./scripts/print-skips.sh --class slow)"', 'go test ./... -skip "${SKIP}"']), ['SKIP']);
+    assert.deepEqual(runtimeOf(['SKIP=$(./scripts/print-skips.sh)', 'go test ./... -skip "$SKIP"']), ['SKIP']);
+    assert.deepEqual(runtimeOf(['REV=`git rev-parse HEAD`', 'go build -ldflags "-X main.rev=$REV" ./...']), ['REV']);
+    assert.deepEqual(runtimeOf(['PROF="/tmp/cov-$(date +%s).out"', 'go test -coverprofile="$PROF" ./...']), ['PROF']);
+  });
+
+  test('C16b: export, a read variable and a for-loop variable; a name derived from one of them', () => {
+    assert.deepEqual(runtimeOf(['export GOFLAGS=-mod=mod', 'go test ./...']), ['GOFLAGS']);
+    assert.deepEqual(runtimeOf(['while read -r line; do', '  PKG="${line%%=*}"', '  go test "./${PKG}/..."', 'done < floors.txt']).sort(), ['PKG', 'line']);
+    assert.deepEqual(runtimeOf(['for p in api worker; do go build "./cmd/$p"; done']), ['p']);
+  });
+
+  test('C16c: a plain literal, a `${{ }}` value and an env-substituted name are not runtime', () => {
+    assert.deepEqual(runtimeOf(['OUT=dist', 'go build -o "$OUT/app" ./...']), []);
+    assert.deepEqual(runtimeOf(['PKG=${{ matrix.pkg }}', 'go test "./${PKG}/..."']), []);
+    const fromEnv = runtimeOf(['go test $PKG'], ['      - name: other', '        run: echo hi']);
+    assert.deepEqual(fromEnv, []);
+    const doc = ['on: [push]', 'env:', '  PKG: ./internal/store', 'jobs:', '  j:', '    steps:', '      - name: s', '        run: go test $PKG', ''].join('\n');
+    const step = byName(_parseWorkflowText(doc, 'x.yml'), 's');
+    assert.deepEqual(step.runtimeVars, []);
+    assert.deepEqual(step.invocations.map((i) => i.text), ['go test ./internal/store']);
+  });
+
+  test('C16d: a uses-only step has no runtime names', () => {
+    const doc = ['on: [push]', 'jobs:', '  j:', '    steps:', '      - name: s', '        uses: actions/checkout@v4', ''].join('\n');
+    assert.deepEqual(byName(_parseWorkflowText(doc, 'x.yml'), 's').runtimeVars, []);
   });
 });

@@ -1308,12 +1308,15 @@ function declaredDefaultTargetShape() {
  *   - unit-test and build jobs; the build job builds one binary (`go build ./cmd/harbor-api`);
  *   - a db-tests job running `./scripts/db-backed-tests.sh` (in go/), whose body builds two more single
  *     binaries to /tmp (`cmd/migrate`, `cmd/seed`), probes docker and runs `-run`-scoped tests.
- * flutter.yml's e2e job (step cwd `go`) builds the api to /tmp to serve the browser tests, and go-nightly.yml
- * runs a dev-tagged variant build and the heavy coverage lane (43-13). Every CI build is a single binary.
+ * flutter.yml's e2e job (step cwd `go`) builds the api to /tmp to serve the browser tests. go-nightly.yml,
+ * which sorts before go.yml, runs a dev-tagged variant build, e2e and `-run` lanes, fuzz lanes, a per-package
+ * coverage loop, and the heavy coverage lane, whose step first assigns `SKIP="$(../scripts/print-skips.sh …)"`
+ * and then runs `go test -short -p 1 ./... -race -skip "${SKIP}" …` (43-13). Every CI build is a single binary.
  *
  * Reviewed: lint `golangci-lint run ./...` and audit `govulncheck ./...`, both cwd `go`; codegen the CI
- * generate line; build the go tier default `go build ./...` (cwd go). 43-12 asserts lint and audit; 43-13
- * adds build (the single-binary variants are narrow notes) and test.
+ * generate line; build the go tier default `go build ./...`; test the light unit-test lane of go.yml,
+ * verbatim (all cwd go). 43-12 asserts lint and audit; 43-13 adds build (the single-binary variants are
+ * narrow notes) and test (the heavy lane is a runtime_var note).
  */
 function ciVariantComponentShape() {
   const setup = [
@@ -1355,6 +1358,22 @@ function ciVariantComponentShape() {
       '',
     ].join('\n'),
     'go/scripts/db-targets.txt': './internal/store TestStore\n./internal/tenant TestProvision\n',
+    'go/coverage-floors.txt': 'internal/store=70\ninternal/tenant=60\n',
+    'scripts/print-skips.sh': [
+      '#!/bin/sh',
+      '# Prints a -skip regex for the named test classes (one class per --class).',
+      'classes=""',
+      'while [ $# -gt 0 ]; do classes="$classes $2"; shift 2; done',
+      'out=""',
+      'for c in $classes; do',
+      '  case "$c" in',
+      '    shared-db) out="${out}|TestTenantIsolation|TestAuditTrail" ;;',
+      '    wall-clock) out="${out}|TestRollupWindow" ;;',
+      '  esac',
+      'done',
+      'printf "%s\\n" "^(${out#|})$"',
+      '',
+    ].join('\n'),
     'go/internal/spec/spec.go': 'package spec\n\n//go:generate go run ./gen\n',
     'go/.golangci.yml': 'version: "2"\nlinters:\n  default: standard\n',
     'sandbox/edge/go.mod': goMod('harborline-edge'),
@@ -1430,11 +1449,36 @@ function ciVariantComponentShape() {
       '  run:',
       '    working-directory: go',
       'jobs:',
+      '  e2e:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go test ./internal/e2e/... -v -race -timeout 30m',
+      "      - run: go test . -v -timeout 12m -run 'TestRoundTrip'",
+      '  fuzz:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      ...setup,
+      '      - run: go test -fuzz=FuzzParseRoute -fuzztime=60s ./internal/route/',
+      '      - run: go test -fuzz=FuzzDecode -fuzztime=60s ./pkg/codec/',
       '  coverage:',
       '    runs-on: ubuntu-latest',
       '    steps:',
       ...setup,
-      '      - run: go test -short -p 1 ./... -race -coverprofile=unit.out -timeout 35m',
+      '      - name: Unit coverage (full tree, -short)',
+      '        run: |',
+      '          # Tests that cannot share one database are skipped here; the db-tests lane runs them alone.',
+      '          SKIP="$(../scripts/print-skips.sh --class shared-db --class wall-clock)"',
+      '          echo "skipping: ${SKIP}"',
+      '          # -p 1: the packages share one database, so they run one at a time.',
+      '          go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out -timeout 35m',
+      '      - name: Per-package coverage floors',
+      '        run: |',
+      '          while read -r line; do',
+      '            PKG="${line%%=*}"',
+      '            PROF="/tmp/cov-$(echo "$PKG" | tr \'/\' \'_\').out"',
+      '            go test -short -coverprofile="$PROF" "./${PKG}/..." >/dev/null 2>&1 || true',
+      '          done < coverage-floors.txt',
       '  dev-binary:',
       '    runs-on: ubuntu-latest',
       '    steps:',
@@ -1474,6 +1518,7 @@ function ciVariantComponentShape() {
       '    steps:',
       ...setup,
       '      - run: go test -short ./... -race -coverprofile=coverage.out -timeout 5m',
+      '      - run: go test -run=Fuzz ./internal/route/... ./pkg/codec/... -timeout 3m',
       '  db-tests:',
       '    runs-on: ubuntu-latest',
       '    steps:',
@@ -1501,7 +1546,7 @@ function ciVariantComponentShape() {
       '      - run: flutter pub get',
       '      - run: flutter analyze --fatal-infos',
     ]),
-  }, { modes: { 'scripts/vuln-gate.sh': 0o755, 'go/scripts/db-backed-tests.sh': 0o755 } });
+  }, { modes: { 'scripts/vuln-gate.sh': 0o755, 'go/scripts/db-backed-tests.sh': 0o755, 'scripts/print-skips.sh': 0o755 } });
 }
 
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
@@ -1729,15 +1774,15 @@ const REALSHAPE = Object.freeze({
         lint: { run: 'golangci-lint run ./...', cwd: 'go' },
         audit: { run: 'govulncheck ./...', cwd: 'go' },
         build: { run: 'go build ./...', cwd: 'go' },
+        test: { run: 'go test -short ./... -race -coverprofile=coverage.out -timeout 5m', cwd: 'go' },
       },
     },
     absent: [],
-    // test: the heavy coverage lane (a 35m nightly run), closed by 43-13 Task 2, which adds its expectation.
-    extraAllowed: ['test'],
+    extraAllowed: [],
     noEvidence: [],
     // wrapper: the vuln-gate script; alternate: the `go vet ./...` line the dedicated linter displaces;
-    // narrow: the single-binary CI builds (and the narrow test lanes).
-    noteStatuses: { present: ['wrapper', 'alternate', 'narrow'], absent: [] },
+    // narrow: the single-binary CI builds and the e2e, -run and fuzz test lanes; runtime_var: the heavy lane.
+    noteStatuses: { present: ['wrapper', 'alternate', 'narrow', 'runtime_var'], absent: [] },
     // narrow_fallback: every CI build is a single binary, so build is the go tier default (43-13).
     noteTags: { present: ['narrow_fallback'], absent: [] },
   },

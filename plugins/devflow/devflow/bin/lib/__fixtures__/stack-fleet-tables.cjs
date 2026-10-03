@@ -61,14 +61,6 @@ const ACCEPTED = {
 // 43-13 removed aocore.build (single-binary CI build variants of several packages are narrow; the tier default
 // applies with the primary component's cwd).
 const KNOWN_DRIFT = {
-  aocore: [
-    {
-      keys: ['test'],
-      closes: '43-13',
-      reason: 'test: draft `go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out -timeout 35m (cwd go)` '
-        + 'vs committed `go test -short -race ./... -timeout 5m (cwd go)`',
-    },
-  ],
   'ao-terminal': [
     {
       keys: ['deps'],
