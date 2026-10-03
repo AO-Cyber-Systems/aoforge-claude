@@ -586,6 +586,134 @@ describe('commitMicro: atomic STATE.md (F1)', () => {
   });
 });
 
+// ─── commitMicro: --files scopes the commit (#120) ───────────────────────────
+//
+// `micro commit --files <paths>` once staged the named paths and then ran a
+// whole-index `git commit`, so anything the user had already staged rode along
+// into the micro's commit (and into the STATE.md follow-up commit). With an
+// explicit list, both commits must be pathspec-limited to exactly those paths.
+
+describe('commitMicro: --files scopes the commit (#120)', () => {
+  let env;
+  const git = (root, ...args) => spawnSync('git', args, {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' },
+  });
+  // No .trim() before splitting: it would eat the leading space of ` D` / ` M` lines.
+  const lines = (s) => s.split('\n').filter(Boolean);
+
+  // Both files tracked and committed, so a later edit to either is a tracked modification.
+  function seed(e) {
+    fs.writeFileSync(path.join(e.root, 'a.md'), 'a\n');
+    fs.writeFileSync(path.join(e.root, 'b.md'), 'b\n');
+    git(e.root, 'add', 'a.md', 'b.md');
+    git(e.root, 'commit', '-m', 'chore: seed');
+  }
+
+  beforeEach(() => {
+    env = mkGitAmbient();
+    process.env.DEVFLOW_ALLOW_RAW_COMMIT = '1';
+  });
+  afterEach(() => {
+    fs.rmSync(env.root, { recursive: true, force: true });
+    delete process.env.DEVFLOW_ALLOW_RAW_COMMIT;
+    _resetMocks();
+  });
+
+  test('FS-1: --files b.md leaves an unrelated staged a.md staged and out of both commits', () => {
+    seed(env);
+    startMicro({ planningDir: env.planningDir, description: 'edit b', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'a.md'), 'a staged\n');
+    git(env.root, 'add', 'a.md');
+    fs.writeFileSync(path.join(env.root, 'b.md'), 'b changed\n');
+
+    const result = commitMicro({
+      planningDir: env.planningDir, description: 'edit b', files: ['b.md'],
+      now: '2026-05-06T00:01:00Z', gitRunner: null,
+    });
+    assert.equal(result.ok, true, `expected ok:true, got: ${JSON.stringify(result)}`);
+
+    assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD~1').stdout), ['b.md'],
+      'the source commit holds exactly the named path');
+    assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD').stdout), ['.planning/STATE.md'],
+      'the STATE.md follow-up commit holds only STATE.md');
+    assert.deepEqual(lines(git(env.root, 'diff', '--cached', '--name-only').stdout), ['a.md'],
+      'the unrelated staged file is still staged');
+    assert.equal(git(env.root, 'show', ':a.md').stdout, 'a staged\n',
+      'its staged content is untouched');
+  });
+
+  test('FS-2: --files new.txt commits a path that was untracked until the runner staged it', () => {
+    seed(env);
+    startMicro({ planningDir: env.planningDir, description: 'add new', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'a.md'), 'a staged\n');
+    git(env.root, 'add', 'a.md');
+    fs.writeFileSync(path.join(env.root, 'new.txt'), 'new\n');
+
+    const result = commitMicro({
+      planningDir: env.planningDir, description: 'add new', files: ['new.txt'],
+      now: '2026-05-06T00:01:00Z', gitRunner: null,
+    });
+    assert.equal(result.ok, true, `expected ok:true, got: ${JSON.stringify(result)}`);
+
+    assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD~1').stdout), ['new.txt']);
+    assert.deepEqual(lines(git(env.root, 'diff', '--cached', '--name-only').stdout), ['a.md'],
+      'a.md is still the only staged path');
+  });
+
+  test('FS-3: a tracked .skill-active deleted by endSkill is recorded in the STATE.md commit, a.md stays staged', () => {
+    seed(env);
+    startMicro({ planningDir: env.planningDir, description: 'edit b', pid: 1, now: '2026-05-06T00:00:00Z' });
+    git(env.root, 'add', '.planning/.skill-active');
+    git(env.root, 'commit', '-m', 'chore: track marker');
+    fs.writeFileSync(path.join(env.root, 'a.md'), 'a staged\n');
+    git(env.root, 'add', 'a.md');
+    fs.writeFileSync(path.join(env.root, 'b.md'), 'b changed\n');
+
+    const result = commitMicro({
+      planningDir: env.planningDir, description: 'edit b', files: ['b.md'],
+      now: '2026-05-06T00:01:00Z', gitRunner: null,
+    });
+    assert.equal(result.ok, true, `expected ok:true, got: ${JSON.stringify(result)}`);
+
+    assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD~1').stdout), ['b.md']);
+    const stateCommit = lines(git(env.root, 'show', '--name-status', '--format=', 'HEAD').stdout);
+    assert.ok(stateCommit.includes('D\t.planning/.skill-active'),
+      `the marker deletion must be in the STATE.md commit; got: ${JSON.stringify(stateCommit)}`);
+    assert.ok(stateCommit.some((l) => l.endsWith('\t.planning/STATE.md')),
+      `STATE.md must be in the STATE.md commit; got: ${JSON.stringify(stateCommit)}`);
+    assert.ok(!stateCommit.some((l) => l.endsWith('\ta.md')),
+      `a.md must not be in the STATE.md commit; got: ${JSON.stringify(stateCommit)}`);
+
+    const status = lines(git(env.root, 'status', '--porcelain').stdout);
+    assert.ok(!status.some((l) => l.includes('.skill-active')),
+      `no .skill-active line may linger in the tree; got: ${JSON.stringify(status)}`);
+    assert.ok(status.includes('M  a.md'),
+      `a.md must still be staged and uncommitted; got: ${JSON.stringify(status)}`);
+  });
+
+  test('FS-4: a --files path with no changes fails instead of committing whatever else was staged', () => {
+    seed(env);
+    startMicro({ planningDir: env.planningDir, description: 'edit b', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'a.md'), 'a staged\n');
+    git(env.root, 'add', 'a.md');
+    const headBefore = git(env.root, 'rev-parse', 'HEAD').stdout.trim();
+
+    const result = commitMicro({
+      planningDir: env.planningDir, description: 'edit b', files: ['b.md'],
+      now: '2026-05-06T00:01:00Z', gitRunner: null,
+    });
+    assert.equal(result.ok, false, 'b.md is unchanged: nothing may be committed');
+    assert.equal(result.reason, 'commit-failed');
+    assert.equal(git(env.root, 'rev-parse', 'HEAD').stdout.trim(), headBefore, 'HEAD must not move');
+    assert.deepEqual(lines(git(env.root, 'diff', '--cached', '--name-only').stdout), ['a.md'],
+      'a.md must still be staged');
+    assert.ok(fs.existsSync(path.join(env.planningDir, '.skill-active')),
+      'the commit-failed path returns before endSkill, so the marker stays');
+  });
+});
+
 // ─── abortMicro ──────────────────────────────────────────────────────────────
 
 describe('abortMicro', () => {
