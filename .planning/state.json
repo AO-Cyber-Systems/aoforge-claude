@@ -510,6 +510,16 @@
       "objective": "43",
       "summary": "43-11: ao-terminal.deps stays in KNOWN_DRIFT as a flag-only residual (draft npm ci --no-audit --no-fund vs reviewed npm ci), closes 43-15; the drafter never strips flags",
       "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-12: a key-named task-runner target equal to the tier default is kept only when its WHOLE body is the default and its name does not restate the default's command word (fleet narrowing: eden-press build, aoid build, dfip/justinforme/smartWellness lint stay inherited)",
+      "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-12: a lint tool is dedicated when stack-classify gives it lint and no build/test row (golangci-lint, staticcheck, eslint, ruff, shellcheck); toolchain drivers (go vet, dart analyze) never win the lint preference",
+      "rationale": null
     }
   ],
   "blockers": [],

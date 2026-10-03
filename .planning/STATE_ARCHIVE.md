@@ -89,6 +89,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 43]: 43-10: the primary component is chosen on build/test/lint evidence (a CI step through a runner lifts it only for those keys); a general root's key candidates are tiered (root runner recipes, the primary's runner targets with their own cwd, other root candidates, the primary's other candidates) and an unresolved tier falls through before discover; a root runner recipe running in 2+ areas makes a workspace root with no primary; evidence items carry unitAreas
 - [Objective 43]: 43-11: the mixed-aggregate rule judges single-purpose keys only; build/test/lint entry points and the e2e/e2e_env scenario keys are exempt (narrowed after the literal rule regressed 7 fleet rows)
 - [Objective 43]: 43-11: ao-terminal.deps stays in KNOWN_DRIFT as a flag-only residual (draft npm ci --no-audit --no-fund vs reviewed npm ci), closes 43-15; the drafter never strips flags
+- [Objective 43]: 43-12: a key-named task-runner target equal to the tier default is kept only when its WHOLE body is the default and its name does not restate the default's command word (fleet narrowing: eden-press build, aoid build, dfip/justinforme/smartWellness lint stay inherited)
+- [Objective 43]: 43-12: a lint tool is dedicated when stack-classify gives it lint and no build/test row (golangci-lint, staticcheck, eslint, ruff, shellcheck); toolchain drivers (go vet, dart analyze) never win the lint preference
 
 ## Performance Metrics
 
@@ -121,4 +123,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 43 P09 | 25min | 3 tasks | 11 files |
 | Objective 43 P10 | 21min | 3 tasks | 8 files |
 | Objective 43 P11 | 22min | 2 tasks | 10 files |
+| Objective 43 P12 | 48min | 2 tasks | 11 files |
 
