@@ -251,6 +251,86 @@ describe('stack mcp (CLI)', () => {
 const view = (mcpList) => ({ frontmatter: { agent_tooling: { mcp: mcpList } } });
 const whichOf = (...present) => (name) => (present.includes(name) ? `/fake/bin/${name}` : null);
 
+// ─── 5c: a name conflict keeps the server that enables more (TRD 43-03, D9) ───
+//
+// The flutter and dart profiles both declare the server `dart`, with different args:
+//   flutter  mcp-server --enable cli --disable pub_dev_search                 (hot_reload etc. ON)
+//   dart     mcp-server --disable flutter --enable cli --disable pub_dev_search (Flutter tools OFF)
+// "Later view wins" let a pure-Dart package listed after a Flutter app switch the Flutter
+// tools off for the whole repo.
+
+describe('5c mixed flutter + pure-dart components', () => {
+  const FLUTTER_ARGS = ['mcp-server', '--enable', 'cli', '--disable', 'pub_dev_search'];
+  const COMPONENTS = {
+    app: '  - { path: "app/", profile: flutter }',
+    svc: '  - { path: "svc/", profile: go }',
+    core: '  - { path: "packages/core/", profile: dart }',
+  };
+  const disablesFlutter = (args) => args.some((a, i) => (a === '--disable' && args[i + 1] === 'flutter') || a === '--disable=flutter');
+
+  function dartArgsFor(order) {
+    const repo = project(['schema: 1', 'extends: general', 'components:', ...order.map((k) => COMPONENTS[k])]);
+    const bin = track(verifyFx.fakeBin(['gopls', 'dart']));
+    const r = runMcp(repo, [], { bin, home: emptyHome() });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(r.json.servers.dart, `dart server present for order ${order.join(',')}: ${r.stdout}`);
+    return r.json.servers.dart.args;
+  }
+
+  test('8. root general + app/ flutter + svc/ go + packages/core/ dart: flutter tools stay enabled', () => {
+    const args = dartArgsFor(['app', 'svc', 'core']);
+    assert.equal(disablesFlutter(args), false, `args were ${JSON.stringify(args)}`);
+    assert.deepEqual(args, FLUTTER_ARGS);
+  });
+
+  test('9. the same holds in every component order (dart before and after flutter)', () => {
+    const orders = [['app', 'svc', 'core'], ['app', 'core', 'svc'], ['core', 'app', 'svc'],
+      ['core', 'svc', 'app'], ['svc', 'core', 'app'], ['svc', 'app', 'core']];
+    for (const order of orders) {
+      const args = dartArgsFor(order);
+      assert.equal(disablesFlutter(args), false, `order ${order.join(',')}: args were ${JSON.stringify(args)}`);
+      assert.deepEqual(args, FLUTTER_ARGS, `order ${order.join(',')}`);
+    }
+  });
+
+  test('a repo with only a pure-dart component still disables the Flutter tools', () => {
+    const args = dartArgsFor(['svc', 'core']);
+    assert.equal(disablesFlutter(args), true, `args were ${JSON.stringify(args)}`);
+  });
+
+  test('11. incomparable disabled sets: the last one still wins', () => {
+    const { servers } = mcp().buildServers([
+      view([{ name: 'dart', command: 'dart', args: ['mcp-server', '--disable', 'x'] }]),
+      view([{ name: 'dart', command: 'dart', args: ['mcp-server', '--disable', 'y'] }]),
+    ], { which: whichOf('dart'), userHome: emptyHome() });
+    assert.deepEqual(servers.dart.args, ['mcp-server', '--disable', 'y']);
+  });
+
+  test('a strict subset of the later entry keeps the earlier one, whatever the stack is called', () => {
+    const wide = { name: 'srv', command: 'srv', args: ['--enable', 'cli', '--disable', 'b'] };
+    const narrow = { name: 'srv', command: 'srv', args: ['--disable', 'a', '--disable', 'b'] };
+    const opts = { which: whichOf('srv'), userHome: emptyHome() };
+    assert.deepEqual(mcp().buildServers([view([wide]), view([narrow])], opts).servers.srv.args, wide.args);
+    // The reverse order: the earlier entry disables MORE, so it is not a subset; later wins.
+    assert.deepEqual(mcp().buildServers([view([narrow]), view([wide])], opts).servers.srv.args, wide.args);
+  });
+
+  test('--disable=value is read like --disable value', () => {
+    const wide = { name: 'srv', command: 'srv', args: ['--disable=b'] };
+    const narrow = { name: 'srv', command: 'srv', args: ['--disable', 'a', '--disable=b'] };
+    const { servers } = mcp().buildServers([view([wide]), view([narrow])], { which: whichOf('srv'), userHome: emptyHome() });
+    assert.deepEqual(servers.srv.args, wide.args);
+  });
+
+  test('10. equal disabled sets: the later view still wins', () => {
+    const { servers } = mcp().buildServers([
+      view([{ name: 'dart', command: 'dart', args: ['a', '--disable', 'x'] }]),
+      view([{ name: 'dart', command: 'dart', args: ['b', '--disable', 'x'] }]),
+    ], { which: whichOf('dart'), userHome: emptyHome() });
+    assert.deepEqual(servers.dart.args, ['b', '--disable', 'x']);
+  });
+});
+
 describe('buildServers', () => {
   test('8. env is exactly { DEVFLOW_MANAGED: "stack" } even when the profile entry carries env', () => {
     const { servers } = mcp().buildServers([

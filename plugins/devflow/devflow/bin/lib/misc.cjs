@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, normalizeObjectiveName, generateSlugInternal, isGitIgnored } = require('./helpers.cjs');
+const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, normalizeObjectiveName, generateSlugInternal } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getArchivedObjectiveDirs, findObjectiveInternal } = require('./objective.cjs');
@@ -531,7 +531,8 @@ function coversPath(rel, entry) {
 /**
  * ignoredPaths(cwd, paths) -> Set of the `paths` arguments (verbatim) that `git add` would refuse as ignored
  * (TRD 48-10, D-20). Store mode ignores `.planning/*` except config.json and STACK.md (U-1), so the whole-dir
- * probe (`isGitIgnored(cwd, '.planning')`) no longer answers for a single path.
+ * probe no longer answers for a single path. TRD 43-03 (D7): it now answers for every requested path, and for the
+ * whole-dir question too (`ignoredPaths(cwd, ['.planning'])`), so cmdCommit no longer calls helpers.isGitIgnored.
  *
  * One `git check-ignore --no-index --stdin -z -v -n` call: verbose + non-matching give one record per input, in
  * input order, so a path is matched back by position (no reliance on how git echoes it), and a path matched only
@@ -590,28 +591,43 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // knows nothing about is dropped into skipped_planning; config.json, STACK.md, tracked files,
   // staged removals and code still commit. With no ignore rule under `.planning/` (local mode)
   // nothing is dropped and the result is exactly today's.
+  //
+  // TRD 43-03 (D7): the per-path probe covers EVERY requested path, not just planning ones. A code
+  // path the repo ignores and git knows nothing about (`build/out.txt`) used to reach `git add`
+  // (refused) and then the pathspec commit ("did not match any file(s) known to git"), which
+  // failed the whole commit as `commit_failed` and took the tracked files named beside it down too.
+  // It now goes to `skipped_ignored` (planning paths keep `skipped_planning`), and the whole-dir
+  // question is asked of `ignoredPaths` too, so it is index- AND HEAD-aware like every per-path
+  // answer: a tracked file, or a staged removal still in HEAD, keeps `.planning` from reading as
+  // "wholly ignored". Both skipped lists appear in the result only when non-empty.
   const blocked = !config.commit_docs ? 'skipped_commit_docs_false'
-    : isGitIgnored(cwd, '.planning') ? 'skipped_gitignored' : null;
+    : ignoredPaths(cwd, ['.planning']).has('.planning') ? 'skipped_gitignored' : null;
   let filesToStage = requested;
   let skippedPlanning = [];
+  let skippedIgnored = [];
   let dropReason = blocked;
   if (blocked) {
     skippedPlanning = requested.filter((f) => isPlanningPath(cwd, f));
     filesToStage = requested.filter((f) => !isPlanningPath(cwd, f));
-  } else {
-    const ignored = ignoredPaths(cwd, requested.filter((f) => isPlanningPath(cwd, f)));
-    if (ignored.size) {
-      skippedPlanning = requested.filter((f) => ignored.has(f));
-      filesToStage = requested.filter((f) => !ignored.has(f));
-      dropReason = 'skipped_gitignored';
+  }
+  const ignored = ignoredPaths(cwd, filesToStage);
+  if (ignored.size) {
+    for (const f of filesToStage) {
+      if (!ignored.has(f)) continue;
+      (isPlanningPath(cwd, f) ? skippedPlanning : skippedIgnored).push(f);
     }
+    filesToStage = filesToStage.filter((f) => !ignored.has(f));
+    dropReason = dropReason || 'skipped_gitignored';
   }
   if (dropReason && filesToStage.length === 0) {
     const result = { committed: false, hash: null, reason: dropReason };
     output(result, raw, 'skipped');
     return;
   }
-  const skippedField = skippedPlanning.length ? { skipped_planning: skippedPlanning } : {};
+  const skippedField = {
+    ...(skippedPlanning.length ? { skipped_planning: skippedPlanning } : {}),
+    ...(skippedIgnored.length ? { skipped_ignored: skippedIgnored } : {}),
+  };
 
   // TRD 50-06 (GEN-01): in store mode a commit lands only on an objective's linked branch (or on a `df/exec-*` worktree
   // of it), never on the default branch or an unlinked one. The decision is gh-gate.cjs's (50-02, offline); it runs here —

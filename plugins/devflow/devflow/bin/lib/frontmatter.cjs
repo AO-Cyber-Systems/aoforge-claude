@@ -241,62 +241,117 @@ function parseMustHavesBlock(content, blockName) {
   const fmMatch = content.match(/^---\n([\s\S]+?)\n---/);
   if (!fmMatch) return [];
 
-  const yaml = fmMatch[1];
-  // Find the block (e.g., "truths:", "artifacts:", "key_links:")
-  const blockPattern = new RegExp(`^\\s{4}${blockName}:\\s*$`, 'm');
-  const blockStart = yaml.search(blockPattern);
-  if (blockStart === -1) return [];
+  const lines = fmMatch[1].split('\n');
+  const indentOf = (line) => line.match(/^( *)/)[1].length;
 
-  const afterBlock = yaml.slice(blockStart);
-  const blockLines = afterBlock.split('\n').slice(1); // skip the header line
+  // The child indent C of `must_haves:` is taken from the file, not assumed: the template
+  // and every real TRD use 2 (items at 4, keys at 6); the legacy layout used 4 (6, 8).
+  // Everything below is relative to C. `must_haves:` at column 0 is searched only inside
+  // its own block, so a same-named key elsewhere in the frontmatter cannot be picked up.
+  let childIndent = 4;
+  let from = 0;
+  let to = lines.length;
+  const mustHavesAt = lines.findIndex((l) => /^must_haves:\s*$/.test(l));
+  if (mustHavesAt !== -1) {
+    to = mustHavesAt + 1;
+    while (to < lines.length && (lines[to].trim() === '' || indentOf(lines[to]) > 0)) to++;
+    const firstChild = lines.slice(mustHavesAt + 1, to).find((l) => l.trim() !== '');
+    if (firstChild) {
+      childIndent = indentOf(firstChild);
+      from = mustHavesAt + 1;
+    } else {
+      to = lines.length; // empty must_haves: fall through to the legacy search
+    }
+  }
+
+  // Find the block header (e.g. "truths:", "artifacts:", "key_links:") at the child indent.
+  // With no column-0 `must_haves:` (a fixture that indents it), the old 4-space search stands.
+  const header = new RegExp(`^ {${childIndent}}${blockName}:\\s*$`);
+  let headerAt = -1;
+  for (let i = from; i < to; i++) {
+    if (header.test(lines[i])) { headerAt = i; break; }
+  }
+  if (headerAt === -1) return [];
+
+  const unquote = (raw) => {
+    const v = raw.trim();
+    // Strip ONE pair of surrounding quotes, and only when the value both starts and ends
+    // with one, so `provides: "has \"x\" key"` keeps its inner quotes.
+    if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1).replace(/\\"/g, '"');
+    if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
+    return v;
+  };
+  // `[a, "b, c"]` -> ['a', 'b, c']: split on commas that sit outside quotes.
+  const flowItems = (inner) => {
+    const out = [];
+    let cur = '';
+    let quote = null;
+    for (const ch of inner) {
+      if (quote) {
+        if (ch === quote) quote = null;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === ',') {
+        out.push(cur);
+        cur = '';
+        continue;
+      }
+      cur += ch;
+    }
+    if (cur.trim() !== '') out.push(cur);
+    return out.map(unquote);
+  };
+  const scalar = (raw) => {
+    const v = raw.trim();
+    if (v.startsWith('[') && v.endsWith(']')) return flowItems(v.slice(1, -1));
+    const val = unquote(v);
+    return /^\d+$/.test(val) ? parseInt(val, 10) : val;
+  };
 
   const items = [];
   let current = null;
+  let lastKey = null;
+  let itemIndent = -1;
 
-  for (const line of blockLines) {
-    // Stop at same or lower indent level (non-continuation)
+  for (let i = headerAt + 1; i < to; i++) {
+    const line = lines[i];
     if (line.trim() === '') continue;
-    const indent = line.match(/^(\s*)/)[1].length;
-    if (indent <= 4 && line.trim() !== '') break; // back to must_haves level or higher
+    const indent = indentOf(line);
+    if (indent <= childIndent) break; // next sibling key (or a lower level): the block is over
 
-    if (line.match(/^\s{6}-\s+/)) {
-      // New list item at 6-space indent
-      if (current) items.push(current);
-      current = {};
-      // Check if it's a simple string item
-      const simpleMatch = line.match(/^\s{6}-\s+"?([^"]+)"?\s*$/);
-      if (simpleMatch && !line.includes(':')) {
-        current = simpleMatch[1];
+    const text = line.slice(indent);
+    if (itemIndent === -1 && text.startsWith('- ')) itemIndent = indent; // C + 2 in practice
+
+    if (indent === itemIndent && text.startsWith('- ')) {
+      // New list item, either a plain string or "- key: value" opening an object.
+      if (current !== null) items.push(current);
+      const rest = text.slice(2).trim();
+      const kv = rest.match(/^(\w+):(?:\s+(.*))?$/);
+      if (kv) {
+        current = { [kv[1]]: scalar(kv[2] || '') };
+        lastKey = kv[1];
       } else {
-        // Key-value on same line as dash: "- path: value"
-        const kvMatch = line.match(/^\s{6}-\s+(\w+):\s*"?([^"]*)"?\s*$/);
-        if (kvMatch) {
-          current = {};
-          current[kvMatch[1]] = kvMatch[2];
-        }
+        current = unquote(rest);
+        lastKey = null;
       }
-    } else if (current && typeof current === 'object') {
-      // Continuation key-value at 8+ space indent
-      const kvMatch = line.match(/^\s{8,}(\w+):\s*"?([^"]*)"?\s*$/);
-      if (kvMatch) {
-        const val = kvMatch[2];
-        // Try to parse as number
-        current[kvMatch[1]] = /^\d+$/.test(val) ? parseInt(val, 10) : val;
-      }
-      // Array items under a key
-      const arrMatch = line.match(/^\s{10,}-\s+"?([^"]+)"?\s*$/);
-      if (arrMatch) {
-        // Find the last key added and convert to array
-        const keys = Object.keys(current);
-        const lastKey = keys[keys.length - 1];
-        if (lastKey && !Array.isArray(current[lastKey])) {
-          current[lastKey] = current[lastKey] ? [current[lastKey]] : [];
+    } else if (current !== null && typeof current === 'object') {
+      if (text.startsWith('- ')) {
+        // Array item under the last key; the key becomes an array on its first item.
+        if (lastKey) {
+          if (!Array.isArray(current[lastKey])) current[lastKey] = current[lastKey] ? [current[lastKey]] : [];
+          current[lastKey].push(unquote(text.slice(2)));
         }
-        if (lastKey) current[lastKey].push(arrMatch[1]);
+      } else {
+        // Continuation key-value belonging to the current object.
+        const kv = text.match(/^(\w+):(?:\s+(.*))?$/);
+        if (kv) {
+          current[kv[1]] = scalar(kv[2] || '');
+          lastKey = kv[1];
+        }
       }
     }
   }
-  if (current) items.push(current);
+  if (current !== null) items.push(current);
 
   return items;
 }

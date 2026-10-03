@@ -353,7 +353,17 @@ function cmdVerifyKeyLinks(cwd, jobFilePath, raw) {
 
   const results = [];
   for (const link of keyLinks) {
-    if (typeof link === 'string') continue;
+    if (typeof link === 'string') {
+      // A free-text key_link has no from/to to test. List it rather than skip it silently,
+      // but keep it out of the pass/fail arithmetic: it cannot fail, and it did not pass.
+      results.push({
+        link,
+        verified: false,
+        status: 'not machine-checkable',
+        detail: 'string key_link; use {from,to,via} to make it checkable',
+      });
+      continue;
+    }
     const check = { from: link.from, to: link.to, via: link.via || '', verified: false, detail: '' };
 
     const sourceContent = safeReadFile(path.join(cwd, link.from || ''));
@@ -390,13 +400,15 @@ function cmdVerifyKeyLinks(cwd, jobFilePath, raw) {
     results.push(check);
   }
 
-  const verified = results.filter(r => r.verified).length;
+  const checkable = results.filter(r => r.status !== 'not machine-checkable');
+  const verified = checkable.filter(r => r.verified).length;
   output({
-    all_verified: verified === results.length,
+    all_verified: verified === checkable.length,
     verified,
-    total: results.length,
+    total: checkable.length,
+    unchecked: results.length - checkable.length,
     links: results,
-  }, raw, verified === results.length ? 'valid' : 'invalid');
+  }, raw, verified === checkable.length ? 'valid' : 'invalid');
 }
 
 module.exports = {

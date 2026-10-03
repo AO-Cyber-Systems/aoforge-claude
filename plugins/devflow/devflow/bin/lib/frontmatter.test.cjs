@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { extractFrontmatter, reconstructFrontmatter, spliceFrontmatter, setFrontmatterField, FRONTMATTER_SCHEMAS } = require('./frontmatter.cjs');
+const { extractFrontmatter, reconstructFrontmatter, spliceFrontmatter, setFrontmatterField, parseMustHavesBlock, FRONTMATTER_SCHEMAS } = require('./frontmatter.cjs');
 
 test('extractFrontmatter — baseline parse (existing fields unchanged)', () => {
   const c = `---\nkind: api\ndefault_work: feature\n---\n\n# Test`;
@@ -528,5 +528,248 @@ test('48-14 store 7b: frontmatter get and validate still read cache files in sto
     const r = p.run(['frontmatter', 'get', `.planning/${FM_OBJ_REL}`, '--field', 'status']);
     strict.equal(r.status, 0, r.stderr);
     strict.deepEqual(JSON.parse(r.stdout), { status: 'planned' });
+  });
+});
+
+// ─── TRD 43-03 (D11): parseMustHavesBlock follows the real must_haves indent ──
+//
+// `must_haves:` children sit at 2 spaces (items at 4, keys at 6) in the template and
+// in every real TRD. The parser used to hardcode 4/6/8, so `verify artifacts` printed
+// "No must_haves.artifacts found" for all of them. These fixtures are hand-built.
+
+const { spawnSync } = require('child_process');
+
+const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
+
+/** A TRD in the template layout: must_haves children at 2, items at 4, keys at 6. */
+const MH_2_4 = [
+  '---',
+  'objective: 43-test',
+  'trd: "01"',
+  'must_haves:',
+  '  truths:',
+  '    - "first truth"',
+  '    - second truth',
+  '  artifacts:',
+  '    - path: lib/a.js',
+  '      provides: "the a module"',
+  '    - path: lib/b.js',
+  '      provides: "the b module"',
+  '      min_lines: 3',
+  '  key_links:',
+  '    - "lib/a.js -> lib/b.js -> require"',
+  '---',
+  '# body',
+  '',
+].join('\n');
+
+/** The legacy layout: must_haves children at 4, items at 6, keys at 8. */
+const MH_4_6 = [
+  '---',
+  'objective: 43-test',
+  'must_haves:',
+  '    truths:',
+  '      - "legacy truth"',
+  '    artifacts:',
+  '      - path: lib/a.js',
+  '        provides: "legacy a"',
+  '        min_lines: 2',
+  '      - path: lib/b.js',
+  '        provides: "legacy b"',
+  '    key_links:',
+  '      - from: lib/a.js',
+  '        to: lib/b.js',
+  '        via: "require"',
+  '---',
+  '# body',
+  '',
+].join('\n');
+
+/** The oldest shape: `must_haves:` itself indented, its blocks at 4. */
+const MH_NESTED = [
+  '---',
+  'objective: 43-test',
+  'wrap:',
+  '  must_haves:',
+  '    artifacts:',
+  '      - path: lib/c.js',
+  '        provides: "nested c"',
+  '---',
+  '# body',
+  '',
+].join('\n');
+
+function withMhDir(trdText, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-mh-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'lib'));
+    fs.writeFileSync(path.join(dir, 'lib', 'a.js'), "// a\nrequire('lib/b.js');\n// a end\n");
+    fs.writeFileSync(path.join(dir, 'lib', 'b.js'), '// b\n// b2\n// b3\n');
+    const trd = path.join(dir, 'TEST-TRD.md');
+    fs.writeFileSync(trd, trdText);
+    return fn({ dir, trd });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function runVerify(dir, sub, trd) {
+  const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', dir, 'verify', sub, trd], { encoding: 'utf-8' });
+  return { status: r.status, stderr: r.stderr, json: r.stdout ? JSON.parse(r.stdout) : null };
+}
+
+test('43-03 D11 #1: `verify artifacts` lists both artifacts of a 2/4-layout TRD', () => {
+  withMhDir(MH_2_4, ({ dir, trd }) => {
+    const r = runVerify(dir, 'artifacts', trd);
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.strictEqual(r.json.error, undefined, 'must not report "No must_haves.artifacts found"');
+    assert.strictEqual(r.json.total, 2);
+    assert.deepStrictEqual(r.json.artifacts.map((a) => a.path), ['lib/a.js', 'lib/b.js']);
+    assert.strictEqual(r.json.all_passed, true);
+  });
+});
+
+test('43-03 D11 #2: every objective-42 TRD yields a non-empty artifact list', (t) => {
+  const dir = path.join(REPO_ROOT, '.planning', 'objectives', '42-codebase-aware-stack-drafter');
+  if (!fs.existsSync(dir)) return t.skip('objective 42 planning files not present');
+  const trds = fs.readdirSync(dir).filter((f) => /^42-\d+-TRD\.md$/.test(f)).sort();
+  assert.ok(trds.length >= 15, `expected 15 TRDs, found ${trds.length}`);
+  for (const f of trds) {
+    const items = parseMustHavesBlock(fs.readFileSync(path.join(dir, f), 'utf-8'), 'artifacts');
+    assert.ok(items.length > 0, `${f}: artifacts must be non-empty`);
+    assert.ok(items.every((a) => a && typeof a === 'object' && typeof a.path === 'string' && a.path !== ''), `${f}: every artifact has a path`);
+  }
+});
+
+test('43-03 D11 #3: 2/4 layout gives {path, provides} artifacts and string truths', () => {
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'artifacts'), [
+    { path: 'lib/a.js', provides: 'the a module' },
+    { path: 'lib/b.js', provides: 'the b module', min_lines: 3 },
+  ]);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'truths'), ['first truth', 'second truth']);
+});
+
+test('43-03 D11 #4: the legacy 4/6/8 layout still parses, whether must_haves is at column 0 or indented', () => {
+  assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'artifacts'), [
+    { path: 'lib/a.js', provides: 'legacy a', min_lines: 2 },
+    { path: 'lib/b.js', provides: 'legacy b' },
+  ]);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'truths'), ['legacy truth']);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'key_links'), [
+    { from: 'lib/a.js', to: 'lib/b.js', via: 'require' },
+  ]);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_NESTED, 'artifacts'), [
+    { path: 'lib/c.js', provides: 'nested c' },
+  ]);
+});
+
+test('43-03 D11 #5: a quoted value with inner quotes keeps its full text', () => {
+  const text = [
+    '---',
+    'must_haves:',
+    '  artifacts:',
+    '    - path: lib/a.js',
+    '      provides: "has \\"x\\" key"',
+    '  truths:',
+    '    - "a \\"quoted\\" truth"',
+    '---',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(parseMustHavesBlock(text, 'artifacts'), [{ path: 'lib/a.js', provides: 'has "x" key' }]);
+  assert.deepStrictEqual(parseMustHavesBlock(text, 'truths'), ['a "quoted" truth']);
+});
+
+test('43-03 D11 #6a: string key_links are reported as not machine-checkable, not skipped', () => {
+  withMhDir(MH_2_4, ({ dir, trd }) => {
+    const r = runVerify(dir, 'key-links', trd);
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.strictEqual(r.json.error, undefined);
+    assert.strictEqual(r.json.links.length, 1, 'the string link is listed');
+    assert.deepStrictEqual(
+      { link: r.json.links[0].link, status: r.json.links[0].status, verified: r.json.links[0].verified },
+      { link: 'lib/a.js -> lib/b.js -> require', status: 'not machine-checkable', verified: false },
+    );
+    assert.strictEqual(r.json.unchecked, 1);
+    assert.strictEqual(r.json.total, 0, 'unchecked strings are not counted as checkable links');
+    assert.strictEqual(r.json.all_verified, true, 'strings must not make a plan fail verification');
+  });
+});
+
+test('43-03 D11 #6b: object-form key_links are checked as before, beside string ones', () => {
+  const mixed = [
+    '---',
+    'must_haves:',
+    '  key_links:',
+    '    - from: lib/a.js',
+    '      to: lib/b.js',
+    '      via: "require"',
+    '    - from: lib/a.js',
+    '      to: lib/missing.js',
+    '    - "free text link"',
+    '---',
+    '',
+  ].join('\n');
+  withMhDir(mixed, ({ dir, trd }) => {
+    const r = runVerify(dir, 'key-links', trd);
+    assert.strictEqual(r.status, 0, r.stderr);
+    const checked = r.json.links.filter((l) => l.status !== 'not machine-checkable');
+    assert.deepStrictEqual(checked.map((l) => [l.to, l.verified]), [['lib/b.js', true], ['lib/missing.js', false]]);
+    assert.strictEqual(r.json.total, 2);
+    assert.strictEqual(r.json.verified, 1);
+    assert.strictEqual(r.json.unchecked, 1);
+    assert.strictEqual(r.json.all_verified, false, 'a real unverified link still fails');
+  });
+});
+
+test('43-03 D11 #7: a block ends at the next sibling key, in both layouts', () => {
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'artifacts').map((a) => a.path), ['lib/a.js', 'lib/b.js']);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'truths'), ['first truth', 'second truth']);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'key_links'), ['lib/a.js -> lib/b.js -> require']);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'artifacts').map((a) => a.path), ['lib/a.js', 'lib/b.js']);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'truths'), ['legacy truth']);
+});
+
+test('43-03 D11 #8: inline-array and single-quoted values parse as `verify artifacts` needs them', () => {
+  // 76 real TRDs write `exports: ["a", "b"]` and 7 write `contains: 'subagent_type="x"'`.
+  // Left as raw text, `verify artifacts` would report "Missing export: [...]" for files
+  // that are fine, the moment the layout fix lets it read those TRDs at all.
+  const text = [
+    '---',
+    'must_haves:',
+    '  artifacts:',
+    '    - path: lib/a.js',
+    '      exports: ["alpha", "beta, with comma", gamma]',
+    '      states: []',
+    "      contains: 'subagent_type=\"planner\"'",
+    "      provides: 'it''s here'",
+    '---',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(parseMustHavesBlock(text, 'artifacts'), [{
+    path: 'lib/a.js',
+    exports: ['alpha', 'beta, with comma', 'gamma'],
+    states: [],
+    contains: 'subagent_type="planner"',
+    provides: "it's here",
+  }]);
+});
+
+test('43-03 D11 #8b: `verify artifacts` checks each inline-array export on its own', () => {
+  const trd = [
+    '---',
+    'must_haves:',
+    '  artifacts:',
+    '    - path: lib/b.js',
+    '      exports: ["// b", "// b3"]',
+    '    - path: lib/b.js',
+    '      exports: ["// b", "// nope"]',
+    '---',
+    '',
+  ].join('\n');
+  withMhDir(trd, ({ dir, trd: trdPath }) => {
+    const r = runVerify(dir, 'artifacts', trdPath);
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(r.json.artifacts.map((a) => a.issues), [[], ['Missing export: // nope']]);
   });
 });
