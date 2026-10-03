@@ -146,12 +146,37 @@ describe('stack init re-drafts the 11 override shapes (TRD 43-06 golden equivale
   test('HAND_ONLY, KEY_ALIASES and EXTRA_ALLOWED equal the documented tables exactly', () => {
     // Each entry's reason lives beside it in __fixtures__/stack-golden-fixtures.cjs. Growing any of
     // these tables is a governed change (TRD 43-06): it needs a reason and user acceptance at 43-07.
-    //   devcluster.build        user-confirmed: bin/build.sh <app> builds other apps' images; build is `none`
-    //   aocore.portal_codegen   user-confirmed: a hand-named key for a component script run from the root
+    //   devcluster.build          user-confirmed: bin/build.sh <app> builds other apps' images; build is `none`
+    //   aocore.portal_codegen     user-confirmed: a hand-named key for a component script run from the root
+    // Added in TRD 43-06, pending user acceptance at the 43-07 checkpoint (author-named, non-canonical):
+    //   devcluster.cluster_test   ./bin/test.sh asserts a live cluster: an env_unnamed note, never `test`
+    //   ao-terminal.test_frontend the root node frontend's suite; the drafter emits one `test` (tier stack's)
+    //   ao-terminal.bootstrap     `task init` only calls internal tasks: no readable gate
+    //   aodex.guards              several boundary-check targets in one step: the grouping is the author's
+    //   aoedge.acceptance         scenario suites against a live edge: an alternate test note
+    //   EdenDocs.smoke            single-purpose smoke test: a narrow note under test
+    //   EdenDocs.branding         verify-branding.sh runs no readable gate
+    //   navigators.sqlc           a second codegen recipe; the drafter emits one `codegen`
+    //   quanta-local.preflight    host checks no classifier reads; key = target name
+    //   quanta-local.verify       needs the environment up: noted, never `test`; key = target name
     assert.deepEqual(JSON.parse(JSON.stringify(HAND_ONLY)), {
-      devcluster: ['build'],
+      devcluster: ['build', 'cluster_test'],
       aocore: ['portal_codegen'],
+      'ao-terminal': ['test_frontend', 'bootstrap'],
+      aodex: ['guards'],
+      aoedge: ['acceptance'],
+      EdenDocs: ['smoke', 'branding'],
+      navigators: ['sqlc'],
+      'quanta-local': ['preflight', 'verify'],
     });
+    // HAND_ONLY never covers a canonical key beyond the user-confirmed devcluster build.
+    const CANONICAL = ['build', 'test', 'lint', 'format', 'tidy', 'codegen', 'audit', 'deps', 'e2e'];
+    for (const [shape, keys] of Object.entries(HAND_ONLY)) {
+      for (const key of keys) {
+        if (shape === 'devcluster' && key === 'build') continue;
+        assert.ok(!CANONICAL.includes(key), `HAND_ONLY ${shape}.${key} is a canonical key`);
+      }
+    }
     assert.deepEqual({ ...KEY_ALIASES }, { helm_lint: 'lint_helm' });
     assert.deepEqual(JSON.parse(JSON.stringify(EXTRA_ALLOWED)), {});
     for (const [shape, keys] of Object.entries(HAND_ONLY)) {

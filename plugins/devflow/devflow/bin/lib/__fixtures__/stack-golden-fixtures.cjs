@@ -1445,10 +1445,38 @@ const GOLDEN_SHAPES = Object.freeze({
  *   devcluster.build          user-confirmed: `bin/build.sh <app>` builds other apps' images, so a human
  *                             judged the repo's own build to be `none`.
  *   aocore.portal_codegen     user-confirmed: a hand-named key for a component script run from the root.
+ *
+ * Added in TRD 43-06 — NEED USER ACCEPTANCE at the 43-07 checkpoint. All are non-canonical key names
+ * the author chose; the drafter emits the canonical keys and notes these commands (or finds no gate):
+ *   ao-terminal.test_frontend the root node frontend's suite beside the Go root's `test`: the drafter emits
+ *                             one `test` (the tier stack's) and notes the off-stack one; the key name is the
+ *                             author's split.
+ *   ao-terminal.bootstrap     `task init`, a one-shot developer setup that only calls internal tasks: no
+ *                             gate a classifier can read; the key name is the author's.
+ *   aodex.guards              one CI step running several boundary-check targets together: the grouping and
+ *                             the key name are the author's.
+ *   aoedge.acceptance         `make acceptance`, scenario suites against a live edge: a non-repo-wide test
+ *                             (an alternate note); the key is named after the target.
+ *   devcluster.cluster_test   `./bin/test.sh` asserts a LIVE cluster: an env_unnamed note, never `test`;
+ *                             the key name is the author's.
+ *   EdenDocs.smoke            the smoke test is single-purpose (a narrow note under test); the key is the
+ *                             author's.
+ *   EdenDocs.branding         `verify-branding.sh` runs no gate a classifier reads; the key is the author's.
+ *   navigators.sqlc           a second codegen recipe: the drafter emits one `codegen` (`just generate`);
+ *                             a key per generator is the author's split.
+ *   quanta-local.preflight    `make preflight`, host checks no classifier reads; key = the target name.
+ *   quanta-local.verify       `make verify` needs the environment up (a compose run): noted, never `test`;
+ *                             key = the target name.
  */
 const HAND_ONLY = Object.freeze({
-  devcluster: Object.freeze(['build']),
+  devcluster: Object.freeze(['build', 'cluster_test']),
   aocore: Object.freeze(['portal_codegen']),
+  'ao-terminal': Object.freeze(['test_frontend', 'bootstrap']),
+  aodex: Object.freeze(['guards']),
+  aoedge: Object.freeze(['acceptance']),
+  EdenDocs: Object.freeze(['smoke', 'branding']),
+  navigators: Object.freeze(['sqlc']),
+  'quanta-local': Object.freeze(['preflight', 'verify']),
 });
 
 /** KEY_ALIASES: golden key -> the drafter's canonical key, where the hand file spelled it differently. */
