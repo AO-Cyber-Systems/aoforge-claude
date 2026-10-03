@@ -993,6 +993,21 @@ describe('stack-evidence pseudo-area and script-dir area (E18, TRD 43-05 tests 1
     }
   });
 
+  test('E18b2: a sub-dir target with NO recipe of its own (prerequisites only) still runs in that dir: the item cwd is the pseudo-area', () => {
+    const root = makeRepo({
+      'engine/plugins/Makefile': 'all: build\nbuild: plugins\n',
+      '.github/workflows/ci.yml': ciSteps(run('go test ./...')),
+    });
+    try {
+      const item = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }).find((e) => e.source === 'runner' && e.cwd === 'engine/plugins');
+      assert.ok(item);
+      assert.deepStrictEqual(item.bodyScopes, [], 'no unit, so no stack');
+      assert.equal(item.effectiveArea, 'engine/plugins/');
+    } finally {
+      cleanup(root);
+    }
+  });
+
   test('E18c (test 15): `bash portal/build.sh` from the root runs in the language area `portal/`, whether the script is readable or not', () => {
     const readable = makeRepo({
       'portal/build.sh': '#!/bin/sh\nflutter pub get\nflutter pub run build_runner build\n',
@@ -1031,9 +1046,23 @@ describe('stack-evidence pseudo-area and script-dir area (E18, TRD 43-05 tests 1
     }
   });
 
+  test('E18f: a cwd that does not exist is no pseudo-area: the item keeps its own area and stays a cwd_missing candidate', () => {
+    const root = makeRepo({
+      '.github/workflows/ci.yml': ciSteps('      - name: gone', '        working-directory: nope/gone', '        run: go test ./...'),
+    });
+    try {
+      const item = find(collectEvidence(root, { areas: AREAS }), 'go test ./...', 'ci');
+      assert.ok(item);
+      assert.equal(item.cwdStatus, 'missing');
+      assert.equal(item.effectiveArea, '');
+    } finally {
+      cleanup(root);
+    }
+  });
+
   test('E18e: a `cd` before the script wins: `cd portal && ./build.sh` is portal/, `cd infra/tiles && ./build.sh` is the pseudo-area', () => {
     const root = makeRepo({
-      'portal/build.sh': '#!/bin/sh\nflutter pub get\n',
+      'portal/build.sh': '#!/bin/sh\nflutter build web\n',
       'infra/tiles/build.sh': '#!/bin/sh\n./gen-tiles\n',
       '.github/workflows/ci.yml': ciSteps(run('cd portal && ./build.sh'), run('cd infra/tiles && ./build.sh')),
     });

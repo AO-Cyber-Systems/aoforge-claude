@@ -32,6 +32,10 @@
 //   effectiveArea  the area the body really runs in: from a `cd x &&`, a Taskfile `dir:`, `make -C`
 //               / `npm --prefix`, a CI working-directory or a script's cwd; else `area`. stack-draft
 //               never places an item whose effectiveArea is an unsupported sub-area at the root.
+//               A non-root cwd that is in NO language area is its own pseudo-area (`infra/tiles/`), so
+//               the drafter files it as a `sub_area` note. A script run from the root with no `cd`
+//               takes the language area of its own directory (`bash portal/build.sh` -> `portal/`);
+//               one in a root-level helper dir that is no language area keeps '' (TRD 43-05, D2).
 //   scenarioNamed  true (only then present) when the item's key (e2e or e2e_env) was carried by the NAME
 //               of its target or script (`make e2e-stack-up`, `docs-e2e.sh`), not only by its body.
 //               stack-draft ranks a scenario-named e2e_env above a body-only one (TRD 43-04, D4).
@@ -323,6 +327,20 @@ function classifyStep(inv, index, projectRoot) {
 
 const MAX_EXPAND_DEPTH = 6;
 
+/** The dir of a repo-relative script file; null for a root-level script or one outside the repo. */
+function scriptDirOfFile(fileRel) {
+  if (!fileRel || path.posix.isAbsolute(fileRel) || fileRel === '..' || fileRel.startsWith('../')) return null;
+  const dir = path.posix.dirname(fileRel);
+  return dir === '.' ? null : dir;
+}
+
+/** The dir the script file of a leaf invocation (`bash x/y.sh`, `./x/y.sh`) lives in, or null. */
+function scriptDirOf(inv) {
+  const d = safeDescribe(inv);
+  if (d.kind !== 'script' || !d.file) return null;
+  return scriptDirOfFile(joinDir(d.cwd, d.file));
+}
+
 /** The dir a leaf invocation runs in: a runner's `-C` / `--prefix` / `-d` dir, else its own cwd. */
 function unitCwd(inv) {
   const d = safeDescribe(inv);
@@ -365,7 +383,11 @@ function expandCall(inv, ctx, depth, seen) {
     const text = readSmall(path.join(ctx.root, fileRel));
     if (text === null) return null;
     seen.add(mark);
-    return expandUnits(safeNormalize(text, normDir(inv.cwd)), ctx, depth + 1, seen);
+    // Each line the script runs remembers the script's own dir (the innermost script wins), so a body
+    // that lives in `portal/` is judged as running in `portal/` (TRD 43-05, D2).
+    const dir = scriptDirOfFile(fileRel);
+    return expandUnits(safeNormalize(text, normDir(inv.cwd)), ctx, depth + 1, seen)
+      .map((u) => (u.scriptDir === undefined ? { ...u, scriptDir: dir } : u));
   }
   return null;
 }
@@ -382,7 +404,24 @@ function expandUnits(invs, ctx, depth = 0, seen = new Set()) {
 }
 
 /**
- * scopeOf(units, key, itemArea, areaDirs) -> { bodyStacks, bodyScopes, effectiveArea }
+ * unitArea(unit, areaDirs) -> the area a leaf unit RUNS in (TRD 43-05, D2).
+ *   - the longest language area containing its cwd, when there is one;
+ *   - else, for a non-root cwd inside the repo, the cwd itself as a PSEUDO-area (`infra/tiles/`): it is
+ *     in no language area, so it is never a root command, and stack-draft files it as a `sub_area` note;
+ *   - else (cwd is the root), when the unit runs a script file with no `cd` before it, the language
+ *     area of the script's own directory (`bash portal/build.sh` runs in the component `portal/`). A
+ *     script at the root or in a helper dir that is no language area keeps '' (a root command).
+ */
+function unitArea(u, areaDirs) {
+  const own = areaFor(u.cwd, areaDirs);
+  if (own) return own;
+  if (u.cwd) return path.posix.isAbsolute(u.cwd) || u.cwd === '..' || u.cwd.startsWith('../') ? '' : `${u.cwd}/`;
+  const dir = u.scriptDir !== undefined ? u.scriptDir : (u.inv ? scriptDirOf(u.inv) : null);
+  return dir ? areaFor(dir, areaDirs) : '';
+}
+
+/**
+ * scopeOf(units, key, itemArea, areaDirs, itemCwd) -> { bodyStacks, bodyScopes, effectiveArea }
  *
  * Judged over the units that classify to `key`; with none (a name-only classification, a body
  * of unknown tools) over every unit — the tools alone (TRD 42-15 recovery). `bodyStacks` are the
@@ -390,7 +429,9 @@ function expandUnits(invs, ctx, depth = 0, seen = new Set()) {
  * area those units run in; when they disagree, the item's own area if any unit runs there, else
  * the first unit's area; with no unit at all, the item's own area.
  */
-function scopeOf(units, key, itemArea, areaDirs) {
+function scopeOf(units, key, itemAreaOwn, areaDirs, itemCwd = null) {
+  // The item's own area: the language area of its cwd, else (a non-root cwd in no area) the pseudo-area.
+  const itemArea = itemAreaOwn || unitArea({ cwd: itemCwd }, areaDirs);
   const keyed = units.filter((u) => {
     const c = classifyInvocation(u.inv);
     return !!c && c.key === key;
@@ -400,7 +441,7 @@ function scopeOf(units, key, itemArea, areaDirs) {
   const bodyScopes = [];
   const areas = [];
   for (const u of basis) {
-    const area = areaFor(u.cwd, areaDirs);
+    const area = unitArea(u, areaDirs);
     if (!areas.includes(area)) areas.push(area);
     const stack = toolStack(u.inv);
     if (!stack) continue;
@@ -631,7 +672,7 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
       : [raw.command];
     // TRD 42-15: the stacks the body runs and the area it runs in (stack-draft's D3 gate).
     const units = Array.isArray(raw.units) ? raw.units : expandUnits(safeNormalize(raw.command, cwd), ctx);
-    Object.assign(out, scopeOf(units, out.key, out.area, areaDirs));
+    Object.assign(out, scopeOf(units, out.key, out.area, areaDirs, cwd));
     if (raw.external === true) externalItems.add(out);
     (buckets[raw.source] || buckets.docs).push(out);
   };
@@ -678,6 +719,9 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
       }
       item.cwdStatus = s;
     }
+    // A cwd that does not exist is no pseudo-area: it stays a candidate that stack-draft reports as
+    // cwd_missing (TRD 42-14), not a sub_area note.
+    if (item.cwdStatus === 'missing' && item.cwd && item.effectiveArea === `${item.cwd}/`) item.effectiveArea = item.area;
   }
   return all;
 }

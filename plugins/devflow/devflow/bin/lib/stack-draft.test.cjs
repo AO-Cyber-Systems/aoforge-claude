@@ -684,9 +684,12 @@ describe('assembleDraft command cwd hygiene (D26-D28, TRD 42-14)', () => {
   test('D26: a self-checkout cwd is placed normalised; a sibling-checkout cwd is a cwd_external note', () => {
     const root = ciFx.selfCheckoutPathShape();
     try {
-      const evidence = collectEvidence(root, { areas: [] });
-      const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
-      assert.deepStrictEqual(d.commands.test, { run: 'go test ./...', cwd: 'go' }, JSON.stringify(d.commands));
+      // TRD 43-05 (D2/D3): `go/` is the repo's go module, so it is a language area (a cwd in NO area is
+      // now a sub_area pseudo-area); the draft is general + the component go/, whose test is the root test.
+      const areas = [{ dir: 'go/', kinds: ['go'], tier: 'go', flags: [] }];
+      const evidence = collectEvidence(root, { areas });
+      const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+      assert.deepStrictEqual(d.commands.test, { run: 'go test ./...', scoped: 'go test -race {packages}', cwd: 'go' }, JSON.stringify(d.commands));
       for (const [key, entry] of Object.entries(d.commands)) {
         assert.notEqual(entry.run, 'flutter analyze', `${key}: an external command was placed`);
         assert.ok(!entry.cwd || !entry.cwd.startsWith('svcrepo') && !entry.cwd.startsWith('libs/'), `${key}: ${JSON.stringify(entry)}`);
