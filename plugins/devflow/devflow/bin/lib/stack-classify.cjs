@@ -363,8 +363,118 @@ function hintForm(key, form, tokens) {
 }
 
 /**
+ * checkFormByName(key, form, name) -> form (TRD 43-09). hintForm for a key the BODY decided: a writer
+ * (apply / mutate) under a name carrying a check suffix (`schema-verify` running `go generate`) is the
+ * key's check form when the key has one (format, tidy, codegen, fix). Any other form, or a name with
+ * no check suffix, is returned unchanged.
+ */
+function checkFormByName(key, form, name) {
+  if (form !== 'apply' && form !== 'mutate') return form;
+  const tokens = String(name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (!tokens.some((t) => CHECK_SUFFIX_TOKENS.includes(t))) return form;
+  return hintForm(key, form, tokens);
+}
+
+// ─── drift checks as real recipes write them (TRD 43-09) ─────────────────────
+//
+// Two shapes fail on drift without `git diff --exit-code`, and neither normalises to an invocation a
+// table row could read (an assignment, an `if`, an `exit`; a bare `diff`), so they are read from the
+// RAW recipe or script text. A Makefile recipe carries `$$` where the shell sees `$`: every pattern
+// accepts both.
+//   captured  `X=$(git diff …)` (or backticks, or inline in the test), tested with `-n` / `-z`, then
+//             a failing exit
+//   snapshot  `diff` / `cmp` (flags -q -u -s -r or none) of a copy under a mktemp or snapshot dir
+//             against the in-tree file, then a failing exit
+// A failing exit is `exit <non-zero>`, `exit $rc`, or the `false` command. Without one, the recipe only
+// SHOWS a diff (`… || true`, an echo) and is not a check.
+
+const DOLLAR = '\\$\\$?';
+const GIT_DIFF = 'git(?:\\s+(?:-[Cc]\\s+\\S+|--?[A-Za-z][\\w-]*(?:=\\S+)?))*\\s+diff\\b';
+const CAPTURED_GIT_DIFF = new RegExp(`${DOLLAR}\\(\\s*${GIT_DIFF}|\`\\s*${GIT_DIFF}`, 'g');
+const NONEMPTY_TEST = /(?:\[\[?|\btest)\s+!?\s*-[nz]\s/;
+const FAILING_EXIT = new RegExp(
+  `\\bexit\\s+(?:0*[1-9]\\d*|${DOLLAR}\\{?[A-Za-z_?][A-Za-z0-9_]*\\}?)|(?:^|[;&|{(]|\\bthen|\\belse|\\bdo)\\s*false\\b`,
+  'm',
+);
+const MKTEMP_VAR = new RegExp(`\\b([A-Za-z_][A-Za-z0-9_]*)=["']?(?:${DOLLAR}\\(\\s*mktemp\\b|\`\\s*mktemp\\b)`, 'g');
+const SNAPSHOT_VAR_NAME = /^(?:tmp|temp|tmpdir|tempdir|tmp_dir|temp_dir|snap|snapdir|snap_dir|snapshot|snapshots|snapshot_dir|scratch)$/i;
+const SNAPSHOT_SEGMENT = /^\.?snap(?:shot)?s?$/i;
+const DIFF_OPERAND = '("[^"]*"|\'[^\']*\'|[^\\s;&|<>()]+)';
+const SNAPSHOT_DIFF = new RegExp(
+  `(?:^|[\\s;&|(!{])((?:diff|cmp)(?:\\s+(?:-[qusr]+|--(?:brief|quiet|silent|recursive|unified(?:=\\d+)?)))*)\\s+${DIFF_OPERAND}\\s+${DIFF_OPERAND}`,
+  'g',
+);
+// Where a statement starts: just after the last separator before a position (`;`, `&&`, `||`, `|`,
+// a newline). Quote-unaware on purpose: it only decides how much text precedes the check.
+const SEPARATOR = /;|&&|\|\||\||\n/g;
+
+function statementStart(text, at) {
+  let start = 0;
+  SEPARATOR.lastIndex = 0;
+  let m;
+  while ((m = SEPARATOR.exec(text)) !== null && m.index < at) start = m.index + m[0].length;
+  return start;
+}
+
+const unquote = (w) => (/^(["']).*\1$/.test(w) ? w.slice(1, -1) : w);
+
+/** `$snap/x`, `$$tmp/x`, `${TMPDIR}/x`, `/tmp/x` or `…/.snapshots/x`, given the mktemp-assigned names. */
+function isSnapshotPath(word, mktempVars) {
+  const p = unquote(word);
+  const v = new RegExp(`^${DOLLAR}\\{?([A-Za-z_][A-Za-z0-9_]*)\\}?/`).exec(p);
+  if (v) return mktempVars.has(v[1]) || SNAPSHOT_VAR_NAME.test(v[1]);
+  if (/^\/tmp\//.test(p)) return true;
+  return p.split('/').slice(0, -1).some((seg) => SNAPSHOT_SEGMENT.test(seg));
+}
+
+const isInTreePath = (word) => {
+  const p = unquote(word);
+  return p !== '-' && !p.startsWith('$') && !p.startsWith('/') && !p.startsWith('-');
+};
+
+/**
+ * driftCheckAt(text) -> the offset where the drift-check STATEMENT starts in a raw recipe or script
+ * text, or -1 (TRD 43-09). Recognises the captured-`git diff` and snapshot-`diff` shapes above; the
+ * caller reads what runs before that offset for the writer. `git diff --exit-code` is isDriftCheck's
+ * job on normalised invocations and is not repeated here.
+ */
+function driftCheckAt(text) {
+  const t = typeof text === 'string' ? text : '';
+  if (!t.trim()) return -1;
+  const failsAfter = (pos) => FAILING_EXIT.test(t.slice(pos));
+
+  let best = -1;
+  CAPTURED_GIT_DIFF.lastIndex = 0;
+  let m;
+  while ((m = CAPTURED_GIT_DIFF.exec(t)) !== null) {
+    if (NONEMPTY_TEST.test(t) && failsAfter(m.index)) {
+      best = m.index;
+      break;
+    }
+  }
+
+  const mktempVars = new Set();
+  MKTEMP_VAR.lastIndex = 0;
+  while ((m = MKTEMP_VAR.exec(t)) !== null) mktempVars.add(m[1]);
+  SNAPSHOT_DIFF.lastIndex = 0;
+  while ((m = SNAPSHOT_DIFF.exec(t)) !== null) {
+    const at = m.index + m[0].indexOf(m[1]);
+    if (best !== -1 && at >= best) break;
+    const [a, b] = [m[2], m[3]];
+    const oneSnapshot = (isSnapshotPath(a, mktempVars) && isInTreePath(b)) || (isSnapshotPath(b, mktempVars) && isInTreePath(a));
+    if (oneSnapshot && failsAfter(at)) {
+      best = at;
+      break;
+    }
+  }
+  return best === -1 ? -1 : statementStart(t, best);
+}
+
+/**
  * isDriftCheck(inv) -> true for `git diff --exit-code` / `git diff --quiet` (any paths after): the
  * command a `<x>-check` target runs after regenerating, failing when the tree changed (TRD 43-06).
+ * A raw TEXT (a string) is also a drift check when it holds a captured or snapshot diff that fails
+ * (driftCheckAt, TRD 43-09).
  */
 function isDriftCheck(inv) {
   for (const c of toInvocations(inv)) {
@@ -374,7 +484,7 @@ function isDriftCheck(inv) {
     while (a.length && a[0].startsWith('-')) a = a.slice(1); // `git --no-pager diff`
     if (a[0] === 'diff' && a.some((x) => x === '--exit-code' || x === '--quiet')) return true;
   }
-  return false;
+  return typeof inv === 'string' && driftCheckAt(inv) !== -1;
 }
 
 /** What a target / script NAME says the command does. Always low confidence; null when it says nothing. */
@@ -875,6 +985,8 @@ module.exports = {
   classifyInvocation,
   classifyHint,
   isDriftCheck,
+  driftCheckAt,
+  checkFormByName,
   classifyUses,
   lookupUses,
   testBreadth,

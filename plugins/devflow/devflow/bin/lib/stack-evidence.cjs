@@ -60,7 +60,7 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizeScript } = require('./stack-shell.cjs');
-const { classifyInvocation, classifyHint, toolStack, isDriftCheck } = require('./stack-classify.cjs');
+const { classifyInvocation, classifyHint, toolStack, isDriftCheck, driftCheckAt, checkFormByName } = require('./stack-classify.cjs');
 const { parseWorkflows } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
@@ -212,20 +212,44 @@ function keyFromName(name, hit) {
 
 const writes = (r) => !!r && (r.form === 'apply' || r.form === 'mutate');
 
+// What precedes a drift-check statement, with the dangling connective and control words removed so
+// it normalises on its own (`go generate … && if !` -> `go generate …`).
+const TRAILING_CONNECTIVE = /(?:\s|&&|\|\||[;|!{(]|\b(?:if|then|elif|else|while|until|do)\b)+$/;
+
 /**
- * driftCheckOf(target, invs, index) -> classification | null (TRD 43-06).
- *
- * A target that WRITES key K and then fails on a `git diff --exit-code` / `--quiet` (stack-classify
- * isDriftCheck) is K's CHECK form: `fmt-check: fmt` + `git diff --exit-code`, `tidy-check: tidy`,
- * `openapi-verify: openapi-regen`, or `buf generate` then `git diff --quiet` in one recipe. The writer
- * is an earlier recipe line, else a prerequisite target of the same runner file (`index`, when given).
- * The body says what it does, so the result is high confidence. A drift check with no writer is null.
+ * rawDriftCheck(body, cwd) -> the invocations that run BEFORE a raw-text drift check, or null when the
+ * body has none (stack-classify driftCheckAt, TRD 43-09). Read per recipe line: the earlier lines, then
+ * the part of the check's own line before its statement.
  */
-function driftCheckOf(t, invs, index) {
+function rawDriftCheck(body, cwd) {
+  for (let i = 0; i < body.length; i++) {
+    const at = driftCheckAt(String(body[i]));
+    if (at === -1) continue;
+    const prefix = String(body[i]).slice(0, at).replace(TRAILING_CONNECTIVE, '');
+    return [...safeNormalize(body.slice(0, i).join('\n'), cwd), ...(prefix ? safeNormalize(prefix, cwd) : [])];
+  }
+  return null;
+}
+
+/**
+ * driftCheckOf(target, body, cwd, index) -> classification | null (TRD 43-06, widened by 43-09).
+ *
+ * A target that WRITES key K and then fails on drift is K's CHECK form. The drift check is a
+ * `git diff --exit-code` / `--quiet` invocation (stack-classify isDriftCheck): `fmt-check: fmt` +
+ * `git diff --exit-code`, `tidy-check: tidy`, or `buf generate` then `git diff --quiet` in one recipe.
+ * Since 43-09 it may also be a raw-text shape that normalises to nothing: a captured `$(git diff …)`
+ * tested non-empty then `exit 1`, or a mktemp snapshot compared with `diff -q` then `exit 1`
+ * (driftCheckAt). The writer is an earlier recipe statement, else a prerequisite target of the same
+ * runner file (`index`, when given). The body says what it does, so the result is high confidence. A
+ * drift check with no writer is null.
+ */
+function driftCheckOf(t, body, cwd, index) {
+  const invs = safeNormalize(body.join('\n'), cwd);
   const at = invs.findIndex((inv) => isDriftCheck(inv));
-  if (at === -1) return null;
+  const before = at !== -1 ? invs.slice(0, at) : rawDriftCheck(body, cwd);
+  if (before === null) return null;
   const asCheck = (r) => ({ key: r.key, form: 'check', tool: r.tool, weak: [...(r.weak || [])], confidence: 'high' });
-  for (const inv of invs.slice(0, at)) {
+  for (const inv of before) {
     const r = classifyInvocation(inv);
     if (writes(r)) return asCheck(r);
   }
@@ -264,15 +288,21 @@ function hintFor(t) {
  * name is a low-confidence tiebreaker only when the body is empty (prerequisites only) or runs
  * nothing the classifier recognises. A body that normalises to nothing (`@echo done`) is not a gate.
  * One exception (TRD 43-04): a name that carries a scenario-class key (`e2e`, `e2e_env`) keeps it
- * over the body's first classified line (see keyFromName).
+ * over the body's first classified line (see keyFromName). The drift check runs first, so a check
+ * recipe that normalises to nothing is still read (TRD 43-09). A body that WRITES key K under a name
+ * with a check suffix (`schema-verify` running `go generate`) is K's check form (checkFormByName).
  */
 function classifyTarget(t, index = null) {
   const cwd = normDir(t.cwd) || normDir(t.dir);
   const body = Array.isArray(t.body) ? t.body : [];
-  const drift = driftCheckOf(t, safeNormalize(body.join('\n'), cwd), index);
+  const drift = driftCheckOf(t, body, cwd, index);
   if (drift) return drift;
   const b = classifyBody(body.join('\n'), cwd);
-  if (b.result) return keyFromName(hintFor(t), b);
+  if (b.result) {
+    const r = keyFromName(hintFor(t), b);
+    const form = checkFormByName(r.key, r.form, hintFor(t));
+    return form === r.form ? r : { ...r, form };
+  }
   if (body.length && b.empty) return null;
   return classifyInvocation(localInvocation(t), { hint: hintFor(t) });
 }
