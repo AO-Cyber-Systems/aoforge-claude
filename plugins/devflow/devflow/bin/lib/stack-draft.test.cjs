@@ -1692,7 +1692,7 @@ describe('assembleDraft environment teardown and reset (T1-T5, TRD 43-11 test 7)
 // TRD 43-12 (aoedge.lint row): a task-runner target NAMED FOR THE KEY is the repo's declared entry point. It
 // fills the key even when its body is exactly the tier default, instead of making the key inherited. A raw
 // CI line equal to the default, and a runner target with another name, still inherit (42-07, D15/D15b).
-describe('assembleDraft declared targets equal to the tier default (DT1-DT4, TRD 43-12 test 6)', () => {
+describe('assembleDraft declared targets equal to the tier default (DT1-DT5, TRD 43-12 test 6)', () => {
   const tgt = (name, order = 0) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [] });
   const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
 
@@ -1715,11 +1715,30 @@ describe('assembleDraft declared targets equal to the tier default (DT1-DT4, TRD
     assert.equal('lint' in vet.commands, false, JSON.stringify(vet.commands));
   });
 
-  test('DT3: behind a runner the tier scoped form is not copied (sameTool is false)', () => {
+  // Re-baselined in the 43-12 GREEN step (fleet narrowing 2): this test first expected `{ run: 'make test' }`.
+  // A target whose name restates the default's own command word is a shorthand for that command, and the
+  // reviewed fleet files inherit it (`build:` running `go build ./...`).
+  test('DT3: a target whose name restates the default\'s command word (`test:` -> `go test …`, `build:` -> `go build …`) stays inherited', () => {
     const d = run([
       ev('test', 'make test', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go test -race ./...', target: tgt('test'), bodyInvocations: ['go test -race ./...'] }),
+      ev('build', 'make build', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', form: 'build', resolvesTo: 'go build ./...', target: tgt('build', 1), bodyInvocations: ['go build ./...'] }),
+      ev('build', 'go build ./...', { tool: 'go', form: 'build' }),
     ]);
-    assert.deepStrictEqual(d.commands.test, { run: 'make test' });
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal('build' in d.commands, false, JSON.stringify(d.commands));
+  });
+
+  // Fleet narrowing 1 (43-12 GREEN): "body equals the default" is the WHOLE body. A target that runs the default
+  // and more, or has a prerequisite, keeps 42-07's first-invocation judgement (the reviewed files inherit it).
+  test('DT5: a key-named target that runs the default AND more, or has a prerequisite, is inherited as before (42-07)', () => {
+    const more = run([
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint'), bodyInvocations: ['go vet ./...', 'buf lint'] }),
+    ]);
+    assert.equal('lint' in more.commands, false, JSON.stringify(more.commands));
+    const prereq = run([
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: { ...tgt('lint'), deps: ['generate'] }, bodyInvocations: ['go vet ./...'] }),
+    ]);
+    assert.equal('lint' in prereq.commands, false, JSON.stringify(prereq.commands));
   });
 
   test('DT4: an unresolved declared target does not stop the walk: the default-equal CI line then inherits', () => {

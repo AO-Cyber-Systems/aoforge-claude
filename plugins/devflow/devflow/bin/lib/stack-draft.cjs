@@ -68,9 +68,22 @@
 // source, ahead of confidence: `make e2e-stack-up` beats a generic `make infra-up` (TRD 43-04).
 // Only check/build/mutate forms fill `run`; an apply form fills `apply`. Walking the ranked run
 // candidates: one EQUAL to the tier default's run (or whose runner body is) stops the walk and
-// the key stays inherited; otherwise the first candidate `verify` calls `resolved` is the run.
+// the key stays inherited, unless it is a task-runner target named for the key (TRD 43-12: `make lint`
+// running exactly `go vet ./...` is the repo's declared entry point, so it is verified and kept like any
+// other candidate). Narrowed on the fleet (declaredTarget): its WHOLE body must be the default (no
+// prerequisite, no further invocation) and its name must not restate the default's own command word
+// (`build:` running `go build ./...` is a shorthand and stays inherited). Otherwise the first candidate
+// `verify` calls `resolved` is the run.
 // Candidates that failed before it are notes. None resolved but candidates existed ->
 // `run: discover`. A `${{ }}` command is `unverifiable` without asking `verify`.
+//
+// Wrapper scripts (TRD 43-12). The GOVERNING tier entry is the primary component's tier for a primary
+// candidate and the root's extends tier for a root one. A script candidate (runner `script`) whose name
+// is NOT the key's (canonicalName) and whose body runs the governing default's run, redirections aside
+// (`govulncheck ./... > "$OUT" 2>&1` inside `govulncheck-gate.sh`), is a wrapper around that default: it
+// stops the walk like an equal candidate and is a `wrapper` note. In the primary component the key takes
+// the tier default with the script's cwd; at the root the key stays inherited. A key-named script
+// (`audit.sh`) is the repo's own entry point and is never reduced.
 //
 // Special keys: gosec (`sast`) collapses into `audit` when no audit candidate exists anywhere.
 // A `maestro` e2e candidate survives only when some area carries the `maestro` flag (a .maestro/
@@ -266,7 +279,24 @@ function nameOf(item) {
 
 // A shell redirection word (`>/dev/null`, `2>&1`, `&>log`, `<in`): it changes where output goes, not what runs.
 const REDIRECTION = /^(?:\d*|&)(?:>>?|<)/;
-const bare = (s) => squash(s).split(' ').filter((w) => w && !REDIRECTION.test(w)).join(' ');
+// A redirection operator written apart from its target (`> "$OUT"`): the next word is that target (TRD 43-12).
+const REDIRECTION_OPERATOR = /^(?:\d*|&)(?:>>?|<)$/;
+
+/** bare(s) -> the invocation with every redirection (and a detached redirection target) removed, squashed. */
+function bare(s) {
+  const words = squash(s).split(' ');
+  const out = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (!w) continue;
+    if (REDIRECTION.test(w)) {
+      if (REDIRECTION_OPERATOR.test(w)) i += 1;
+      continue;
+    }
+    out.push(w);
+  }
+  return out.join(' ');
+}
 
 /**
  * writesAs(writer, item) -> true when a drift check's writer (stack-evidence `driftWriter`) IS `item`: the
@@ -280,6 +310,55 @@ function writesAs(writer, item) {
   const body = Array.isArray(item.bodyInvocations) && item.bodyInvocations.length
     ? item.bodyInvocations
     : [item.command, item.resolvesTo].filter(Boolean);
+  return body.some((b) => bare(b) === want);
+}
+
+/**
+ * restatesCommand(name, run) -> true when a target's name (form suffix aside) is the default run's own
+ * tool or subcommand word: `build:` running `go build ./...`, `test:` running `flutter test`. Such a target
+ * is a shorthand for that command, not an interface over it (TRD 43-12, fleet narrowing).
+ */
+function restatesCommand(name, run) {
+  const words = bare(run).split(' ');
+  const tool = words[0] ? words[0].split('/').pop() : '';
+  const sub = words[1] && /^[A-Za-z][A-Za-z0-9_-]*$/.test(words[1]) ? words[1] : '';
+  const core = nameTokens(name).filter((t) => !FORM_SUFFIX_TOKENS.has(t)).join('-');
+  return [tool, sub].filter(Boolean).some((w) => nameTokens(w).join('-') === core);
+}
+
+/**
+ * declaredTarget(item, key, defaultRun) -> true for the repo's declared entry point of `key`, kept even
+ * though it equals the tier default (TRD 43-12): a task-runner target named for the key (`make lint`)
+ *   - whose WHOLE body is the default: no prerequisite, every invocation the default run, redirections
+ *     aside. A target that runs the default AND more (`go vet ./...` then `buf lint`, or a `portal-build`
+ *     prerequisite) is still judged by its first invocation (42-07's resolvesTo) and stays inherited;
+ *   - whose name does not restate the default's own command word (restatesCommand: `build:` running
+ *     `go build ./...` is a shorthand for that command). `lint:` running `go vet ./...` names an interface
+ *     the repo owns, where a stronger linter is added later.
+ * Both narrowings were made on the fleet: the reviewed files inherit in each case they exclude.
+ */
+function declaredTarget(item, key, defaultRun) {
+  const t = item.target;
+  if (!t || typeof t.name !== 'string' || !TASK_RUNNERS.has(item.runner) || !canonicalName(t.name, key)) return false;
+  if (!runnable(defaultRun) || (Array.isArray(t.deps) && t.deps.length)) return false;
+  const want = bare(defaultRun);
+  const body = Array.isArray(item.bodyInvocations) && item.bodyInvocations.length
+    ? item.bodyInvocations
+    : [item.resolvesTo].filter(Boolean);
+  if (!body.length || !body.every((b) => bare(b) === want)) return false;
+  return !restatesCommand(t.name, defaultRun);
+}
+
+/**
+ * wraps(item, key, defaultRun) -> true when `item` is a script NOT named for `key` whose body runs
+ * `defaultRun`, redirections aside: a wrapper around the tier default, not a command of its own (TRD 43-12).
+ */
+function wraps(item, key, defaultRun) {
+  if (!runnable(defaultRun) || item.runner !== 'script') return false;
+  const name = nameOf(item);
+  if (name && canonicalName(name, key)) return false;
+  const want = bare(defaultRun);
+  const body = Array.isArray(item.bodyInvocations) ? item.bodyInvocations : [];
   return body.some((b) => bare(b) === want);
 }
 
@@ -742,11 +821,23 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     let chosen = null;
     let chosenAt = -1;
     let inheritedAt = undefined; // null = inherited as-is; a string = inherited but needs that cwd
+    let wrapper = null; // a primary-component script that wraps the governing default (TRD 43-12)
     for (let i = 0; i < runCands.length; i++) {
       const c = runCands[i];
       // A candidate at a missing cwd never makes the key inherited THERE (it would carry that cwd).
-      if (c.cwdStatus !== 'missing' && equivalent(c, parentRun)) {
+      // A task-runner target named for the key is the declared entry point even when it equals the
+      // default (TRD 43-12): it is verified and chosen like any other candidate.
+      if (c.cwdStatus !== 'missing' && equivalent(c, parentRun) && !declaredTarget(c, key, parentRun)) {
         inheritedAt = c.cwd || null;
+        break;
+      }
+      // A script not named for the key that runs the governing default (formEntry) is that default.
+      if (c.cwdStatus !== 'missing' && wraps(c, key, formRun)) {
+        notes.push(note(c, key, 'wrapper', fromPrimary
+          ? `wraps \`${formRun}\`; ${key} is that ${primary.profile} default, run from ${c.cwd || 'the repo root'}`
+          : `wraps \`${formRun}\`; ${key} stays the inherited ${extendsId} default`));
+        if (fromPrimary) wrapper = c;
+        else inheritedAt = c.cwd || null;
         break;
       }
       const v = check(c);
@@ -797,6 +888,12 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         if (apply && squash(apply.command) !== squash(parentEntry.apply)) entry.apply = apply.command;
         if (needsCwd) entry.cwd = inheritedAt;
       }
+    } else if (wrapper) {
+      // The primary tier's default, run where the wrapper ran (TRD 43-12).
+      entry = { ...formEntry };
+      if (apply && (apply.cwd || null) === (wrapper.cwd || null)) entry.apply = apply.command;
+      withWhen(entry);
+      if (wrapper.cwd) entry.cwd = wrapper.cwd;
     } else if (chosen) {
       entry = { run: chosen.command };
       if (sameTool(chosen, key, formRun)) {
@@ -821,8 +918,9 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       entry = runnable(parentRun) ? { ...parentEntry, apply: apply.command } : withWhen({ run: 'discover', apply: apply.command });
       if (apply.cwd) entry.cwd = apply.cwd;
     }
-    const supplies = chosen !== null || inheritedAt !== undefined;
-    return { entry, supplies, via: chosen ? chosen.command : (supplies ? `the ${extendsId} default` : null) };
+    const supplies = chosen !== null || inheritedAt !== undefined || wrapper !== null;
+    const via = chosen ? chosen.command : wrapper ? formRun : (supplies ? `the ${extendsId} default` : null);
+    return { entry, supplies, via };
   };
 
   const TIER_NAMES = ['a root task-runner recipe', "the primary component's task-runner target", 'a root CI, docs or manifest candidate', "the primary component's CI or docs candidate"];
