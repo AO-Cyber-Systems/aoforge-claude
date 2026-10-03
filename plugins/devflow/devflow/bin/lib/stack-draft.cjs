@@ -20,9 +20,10 @@
 // profile file, so a command that belongs to a NON-primary component is a NOTE, not a root command.
 //
 // Primary component (TRD 43-05, D6). A `general` root with 1+ components picks one primary component
-// (`pickPrimaryComponent`): a component whose CI steps go through its task runner first (TRD 43-06),
-// then the one holding the most runner + CI evidence, ties broken go > flutter > dart > other, then
-// the shallower path, then the lexical one. A `general` root that builds itself in a stack no component
+// (`pickPrimaryComponent`): a component whose CI steps go through its task runner to serve build, test
+// or lint first (TRD 43-06, 43-10), then the one holding the most build/test/lint evidence, then the
+// most runner + CI evidence of any key, ties broken go > flutter > dart > other, then the shallower
+// path, then the lexical one. A `general` root that builds itself in a stack no component
 // has (a root build that is not only an image build) is a product: its components are sidecars and there
 // is no primary (tag `root_product`, TRD 43-06). A root-invoked attachable key (e2e, lint_helm,
 // lint_docker) is a root candidate wherever its script lives. It is recorded in an info note tagged
@@ -271,15 +272,21 @@ const depthOf = (p) => String(p).split('/').filter(Boolean).length;
 const TASK_RUNNERS = new Set(['make', 'task', 'just', 'npm']);
 
 /**
- * pickPrimaryComponent(components, items) -> { path, profile, score, viaRunner } | null
+ * pickPrimaryComponent(components, items) -> { path, profile, score, canonical, viaRunner } | null
  *
- * viaRunner = the CI items whose effectiveArea is the component dir AND that go through a task runner
- * (`make build` run in `go/`): CI driving the component's runner targets says that runner is the repo's
- * declared build interface, where a component whose CI only runs its tier's tool directly (`flutter build
- * web` in several workflows) is built by its tier defaults (TRD 43-06). score = the runner and CI
- * evidence items whose effectiveArea is the component dir. Sorted: a component with viaRunner > 0 first,
- * then score (most first), then PRIMARY_ORDER (others last), then a shallower path, then the lexical
- * path. With zero evidence everywhere this is the go component if any, else the first by path.
+ * The evidence that names a repository's build interface is its build, test and lint evidence
+ * (CANONICAL_KEYS), so those decide (TRD 43-10, B1). Over the runner and CI items whose effectiveArea
+ * is the component dir:
+ *   viaRunner = the CI items through a task runner (`make build` in `go/`) that serve a canonical key.
+ *               CI driving a component's runner targets for build/test/lint says that runner is the repo's
+ *               declared build interface (TRD 43-06); a component whose CI only runs its tier's tool
+ *               directly is built by its tier defaults. A step through a runner that serves another key
+ *               (`make bundle-e2e`) says nothing about the build and lifts nothing.
+ *   canonical = those items whose key is build, test or lint.
+ *   score     = all of them.
+ * Sorted: a component with viaRunner > 0 first, then canonical, then score (most first), then
+ * PRIMARY_ORDER (others last), then a shallower path, then the lexical path. With zero evidence
+ * everywhere this is the go component if any, else the first by path.
  */
 function pickPrimaryComponent(components, items = []) {
   const list = (Array.isArray(components) ? components : []).filter((c) => c && typeof c.path === 'string');
@@ -292,10 +299,12 @@ function pickPrimaryComponent(components, items = []) {
   return list
     .map((c) => {
       const own = evidence.filter((e) => effectiveAreaOf(e) === c.path);
-      const viaRunner = own.filter((e) => e.source === 'ci' && TASK_RUNNERS.has(e.runner)).length;
-      return { path: c.path, profile: c.profile, score: own.length, viaRunner };
+      const canonical = own.filter((e) => CANONICAL_KEYS.has(e.key));
+      const viaRunner = canonical.filter((e) => e.source === 'ci' && TASK_RUNNERS.has(e.runner)).length;
+      return { path: c.path, profile: c.profile, score: own.length, canonical: canonical.length, viaRunner };
     })
     .sort((a, b) => (b.viaRunner > 0) - (a.viaRunner > 0)
+      || b.canonical - a.canonical
       || b.score - a.score
       || orderOf(a) - orderOf(b)
       || depthOf(a.path) - depthOf(b.path)
@@ -452,7 +461,7 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       key: null,
       candidate: null,
       status: 'info',
-      detail: `primary component ${primary.path} (${primary.profile}): ${primary.score} evidence items${primary.viaRunner ? `, ${primary.viaRunner} CI steps through its task runner` : ''}`,
+      detail: `primary component ${primary.path} (${primary.profile}): ${primary.canonical} build/test/lint evidence items of ${primary.score}${primary.viaRunner ? `, ${primary.viaRunner} CI steps through its task runner serving them` : ''}`,
       source: null,
       tag: 'primary_component',
     });

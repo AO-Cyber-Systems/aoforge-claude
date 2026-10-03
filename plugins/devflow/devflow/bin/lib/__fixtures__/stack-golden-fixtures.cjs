@@ -764,6 +764,11 @@ function goldenFlowopsShape() {
  * a web e2e package and maestro flows under flutter/), a pure Dart package `api-dart/`. The root
  * Makefile only brings the e2e environment up and down. CI runs a single-purpose migrations check.
  * Sources: three Makefiles, many workflows, flutter/web_e2e/package.json, flutter/.maestro/.
+ *
+ * TRD 43-10 re-baseline: the Go and Flutter workflows run their tools DIRECTLY (`go test`, `go build`,
+ * `flutter analyze`), as the surveyed repository's do, with several Go builds across workflows. They used
+ * to call `make test` / `make build`, which lifted both components through their runner and hid that
+ * the primary is now chosen on build/test/lint evidence. The frozen expectation is unchanged.
  */
 function goldenBizShape() {
   return makeWhole({
@@ -833,8 +838,8 @@ function goldenBizShape() {
       '    steps:',
       '      - uses: actions/checkout@v4',
       '      - uses: actions/setup-go@v5',
-      '      - run: make test',
-      '      - run: make build',
+      '      - run: go test ./... -count=1 -timeout 30m',
+      '      - run: go build ./...',
       '      - name: migrations',
       '        run: ./scripts/check-migrations_test.sh',
     ]),
@@ -863,8 +868,8 @@ function goldenBizShape() {
       '    runs-on: ubuntu-latest',
       '    steps:',
       '      - uses: subosito/flutter-action@v2',
-      '      - run: make analyze',
-      '      - run: make test',
+      '      - run: flutter analyze',
+      '      - run: flutter test',
     ]),
     '.github/workflows/build-app.yml': wf([
       'name: build-app',
@@ -876,7 +881,7 @@ function goldenBizShape() {
       '      - uses: subosito/flutter-action@v2',
       '      - name: bundle',
       '        working-directory: flutter',
-      '        run: make build-web',
+      '        run: flutter build web --release',
     ]),
     '.github/workflows/mobile.yml': wf([
       'name: mobile',
@@ -906,6 +911,34 @@ function goldenBizShape() {
       '      - run: flutter analyze',
       '      - run: flutter test',
     ]),
+    '.github/workflows/spec-validate.yml': wf([
+      'name: spec-validate',
+      'on: [pull_request]',
+      'jobs:',
+      '  validate:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: go',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go build ./cmd/specvalidate/...',
+    ]),
+    '.github/workflows/seed.yml': wf([
+      'name: seed',
+      'on: [workflow_dispatch]',
+      'jobs:',
+      '  seed:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: go',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go build -tags dev -o /tmp/ledger-api ./cmd/api',
+    ]),
     '.github/workflows/web-e2e.yml': wf([
       'name: web-e2e',
       'on: [pull_request]',
@@ -915,6 +948,9 @@ function goldenBizShape() {
       '    steps:',
       '      - uses: actions/checkout@v4',
       '      - run: make e2e-stack-up',
+      '      - name: api binary',
+      '        working-directory: go',
+      '        run: go build -o /tmp/ledger-api ./cmd/api',
       '      - name: playwright',
       '        working-directory: flutter/web_e2e',
       '        run: npx playwright test',

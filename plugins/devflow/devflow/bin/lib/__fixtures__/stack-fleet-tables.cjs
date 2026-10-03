@@ -45,6 +45,8 @@ const ACCEPTED = {
 //
 // 43-09 removed devflowops.format, devflowops.tidy, aodex.codegen and aocore.lint_helm (captured and
 // snapshot drift checks, workflow env literals, version probes).
+// 43-10 removed eden-biz.build, eden-biz.test (the primary component is chosen on build/test/lint
+// evidence) and, out of scope but closed by the same rule, politihub.test.
 const KNOWN_DRIFT = {
   aodex: [
     {
@@ -136,11 +138,11 @@ const KNOWN_DRIFT = {
   ],
   politihub: [
     {
-      keys: ['build', 'test'],
+      keys: ['build'],
       closes: 'out-of-scope',
       reason: 'first evaluated by 43-08 (43-07 skipped it: HEAD moved to 30be797fb85b). '
-        + 'build: draft `discover` vs committed `make build (cwd go)`; '
-        + 'test: draft `flutter test (cwd flutter-navigators)` vs committed `make test (cwd go)`. Recorded, not targeted',
+        + 'build: draft `discover` vs committed `make build (cwd go)`. Recorded, not targeted; '
+        + '43-10 closed its test row with the build/test/lint primary choice',
     },
   ],
 };

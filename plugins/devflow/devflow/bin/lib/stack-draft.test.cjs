@@ -190,7 +190,8 @@ describe('assembleDraft tier defaults and cwd (D15)', () => {
     }
     const primary = d.notes.find((n) => n.tag === 'primary_component');
     assert.ok(primary, JSON.stringify(d.notes));
-    assert.match(primary.detail, /primary component svc\/ \(go\): 2 evidence items/);
+    // TRD 43-10 re-baseline: the note names the build/test/lint count (the deciding evidence) and the total.
+    assert.match(primary.detail, /primary component svc\/ \(go\): 2 build\/test\/lint evidence items of 2/);
   });
 
   test('D15d: a re-emitted command from the same tool as the tier default keeps the tier scoped form', () => {
