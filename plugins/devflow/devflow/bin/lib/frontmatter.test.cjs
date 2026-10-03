@@ -729,3 +729,47 @@ test('43-03 D11 #7: a block ends at the next sibling key, in both layouts', () =
   assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'artifacts').map((a) => a.path), ['lib/a.js', 'lib/b.js']);
   assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'truths'), ['legacy truth']);
 });
+
+test('43-03 D11 #8: inline-array and single-quoted values parse as `verify artifacts` needs them', () => {
+  // 76 real TRDs write `exports: ["a", "b"]` and 7 write `contains: 'subagent_type="x"'`.
+  // Left as raw text, `verify artifacts` would report "Missing export: [...]" for files
+  // that are fine, the moment the layout fix lets it read those TRDs at all.
+  const text = [
+    '---',
+    'must_haves:',
+    '  artifacts:',
+    '    - path: lib/a.js',
+    '      exports: ["alpha", "beta, with comma", gamma]',
+    '      states: []',
+    "      contains: 'subagent_type=\"planner\"'",
+    "      provides: 'it''s here'",
+    '---',
+    '',
+  ].join('\n');
+  assert.deepStrictEqual(parseMustHavesBlock(text, 'artifacts'), [{
+    path: 'lib/a.js',
+    exports: ['alpha', 'beta, with comma', 'gamma'],
+    states: [],
+    contains: 'subagent_type="planner"',
+    provides: "it's here",
+  }]);
+});
+
+test('43-03 D11 #8b: `verify artifacts` checks each inline-array export on its own', () => {
+  const trd = [
+    '---',
+    'must_haves:',
+    '  artifacts:',
+    '    - path: lib/b.js',
+    '      exports: ["// b", "// b3"]',
+    '    - path: lib/b.js',
+    '      exports: ["// b", "// nope"]',
+    '---',
+    '',
+  ].join('\n');
+  withMhDir(trd, ({ dir, trd: trdPath }) => {
+    const r = runVerify(dir, 'artifacts', trdPath);
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(r.json.artifacts.map((a) => a.issues), [[], ['Missing export: // nope']]);
+  });
+});
