@@ -276,6 +276,145 @@ describe('df-tools commit: store-off parity (test 7)', () => {
   });
 });
 
+// ─── TRD 43-03 (D7, residual): a gitignored NON-planning path in --files ─────────────────────────────────────────────
+//
+// 48-10 probes planning paths one by one. A code path (`build/out.txt`) that the repo ignores and git knows nothing about
+// was never probed: `git add` refused it, and the pathspec commit then failed as `commit_failed`, taking the tracked files
+// named beside it down too. All requested paths are now probed. Ignored ones go to `skipped_ignored` (planning ones keep
+// `skipped_planning`), and tracked files and staged removals under an ignored dir still commit.
+//
+//   12   ignored untracked code path + tracked edit  -> commits the edit, skipped_ignored names the rest
+//   13   tracked child of an ignored dir             -> commits; an untracked sibling is skipped
+//   13b  staged removal of a now-ignored code path   -> still recorded (the 44-06 shape, outside .planning)
+//   14   `.planning/` rule, tracked config.json + untracked STACK.md -> 48-10 behaviour unchanged
+//   15   only ignored code paths                     -> {committed:false, reason:skipped_gitignored}, HEAD unchanged
+//   15b  U-1 block + ignored TRD + ignored code      -> skipped_planning and skipped_ignored stay separate
+
+describe('df-tools commit: gitignored non-planning paths (43-03 tests 12-15)', () => {
+  test('12. ignored untracked build/out.txt beside a tracked src/a.js edit → the edit commits, skipped_ignored names build/out.txt', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = repo({ files: { 'src/a.js': 'v1\n' }, gitignore: 'build/\n' });
+    write(p.root, 'src/a.js', 'v2\n');
+    write(p.root, 'build/out.txt', 'artifact\n');
+
+    const r = dfCommit(p, 'fix: a', ['src/a.js', 'build/out.txt']);
+    assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
+    assert.equal(r.json.committed, true, r.out);
+    assert.equal(r.json.reason, 'committed');
+    assert.notEqual(r.json.reason, 'commit_failed');
+    assert.deepEqual(r.json.skipped_ignored, ['build/out.txt']);
+    assert.ok(!('skipped_planning' in r.json), 'a code path is never reported as skipped_planning');
+    assert.deepEqual(lastCommitFiles(p), ['src/a.js']);
+    assert.equal(git(p, 'ls-files', '--', 'build/out.txt'), '', 'the ignored file was never staged');
+    assert.ok(fs.existsSync(path.join(p.root, 'build/out.txt')), 'working file untouched');
+  });
+
+  test('13. a tracked child of an ignored dir still commits; an untracked sibling is skipped_ignored', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = repo({ files: { 'vendor/keep.txt': 'v1\n' } });
+    write(p.root, '.gitignore', 'vendor/\n');
+    write(p.root, 'vendor/keep.txt', 'v2\n');
+
+    const alone = dfCommit(p, 'chore: keep', ['vendor/keep.txt']);
+    assert.equal(alone.status, 0, `exit 0 (out: ${alone.out} err: ${alone.err})`);
+    assert.deepEqual(Object.keys(alone.json).sort(), ['committed', 'hash', 'reason'], 'nothing skipped, so no extra keys');
+    assert.deepEqual(lastCommitFiles(p), ['vendor/keep.txt']);
+
+    write(p.root, 'vendor/keep.txt', 'v3\n');
+    write(p.root, 'vendor/new.txt', 'new\n');
+    const both = dfCommit(p, 'chore: keep again', ['vendor/keep.txt', 'vendor/new.txt']);
+    assert.equal(both.status, 0, `exit 0 (out: ${both.out} err: ${both.err})`);
+    assert.equal(both.json.committed, true, both.out);
+    assert.deepEqual(both.json.skipped_ignored, ['vendor/new.txt']);
+    assert.deepEqual(lastCommitFiles(p), ['vendor/keep.txt']);
+  });
+
+  test('13b. staged removal of a tracked path that is now ignored is still recorded, and the file is kept', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = repo({ files: { 'dist/out.js': 'built\n' } });
+    write(p.root, '.gitignore', 'dist/\n');
+    git(p, 'rm', '--cached', '--quiet', '--', 'dist/out.js');
+
+    const r = dfCommit(p, 'chore: untrack dist', ['.gitignore', 'dist/out.js']);
+    assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
+    assert.equal(r.json.committed, true, r.out);
+    assert.ok(!('skipped_ignored' in r.json), 'a known-to-git path is never skipped');
+    assert.deepEqual(lastCommitFiles(p), ['.gitignore', 'dist/out.js']);
+    assert.ok(!headFiles(p).includes('dist/out.js'));
+    assert.equal(fs.readFileSync(path.join(p.root, 'dist/out.js'), 'utf-8'), 'built\n');
+  });
+
+  test('14. `.planning/` rule + tracked config.json + untracked STACK.md → config commits; STACK.md is skipped_planning, then skipped_gitignored alone', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = repo();
+    write(p.root, '.gitignore', '.planning/\n');
+    write(p.root, '.planning/config.json', '{"commit_docs":true,"note":"edited"}\n');
+    write(p.root, '.planning/STACK.md', '# Stack\n');
+
+    const r = dfCommit(p, 'docs: config', ['.planning/config.json', '.planning/STACK.md']);
+    assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
+    assert.equal(r.json.committed, true, r.out);
+    assert.deepEqual(r.json.skipped_planning, ['.planning/STACK.md']);
+    assert.ok(!('skipped_ignored' in r.json), 'planning paths stay in skipped_planning');
+    assert.deepEqual(lastCommitFiles(p), ['.planning/config.json']);
+
+    const before = head(p);
+    const alone = dfCommit(p, 'docs: stack', ['.planning/STACK.md']);
+    assert.equal(alone.status, 0, `exit 0 (out: ${alone.out} err: ${alone.err})`);
+    assert.deepEqual(alone.json, { committed: false, hash: null, reason: 'skipped_gitignored' });
+    assert.equal(head(p), before);
+  });
+
+  test('14b. `.planning/` rule + a staged removal of the only tracked planning file → the removal is committed, not dropped as "ignored dir"', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    // The index holds nothing under .planning once the removal is staged, so a probe that only reads the index calls the
+    // whole directory ignored and drops the removal. HEAD still knows the file: it must reach the commit (TRD 44-06 shape).
+    const p = repo({ commitDocs: null, files: { [TRD]: '# TRD\n' } });
+    write(p.root, '.gitignore', '.planning/\n');
+    git(p, 'rm', '--cached', '--quiet', '--', TRD);
+
+    const r = dfCommit(p, 'chore: untrack planning', ['.gitignore', TRD]);
+    assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
+    assert.equal(r.json.committed, true, r.out);
+    assert.ok(!('skipped_planning' in r.json), 'a path HEAD knows is never skipped');
+    assert.deepEqual(lastCommitFiles(p), ['.gitignore', TRD].sort());
+    assert.ok(!headFiles(p).includes(TRD));
+    assert.equal(fs.readFileSync(path.join(p.root, TRD), 'utf-8'), '# TRD\n', 'working copy kept');
+    assert.equal(git(p, 'diff', '--cached', '--name-only'), '', 'nothing left staged');
+  });
+
+  test('15. only ignored code paths → {committed:false, hash:null, reason:skipped_gitignored}, HEAD unchanged, nothing staged', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = repo({ gitignore: 'build/\n' });
+    write(p.root, 'build/out.txt', 'artifact\n');
+    write(p.root, 'build/more.txt', 'artifact\n');
+    const before = head(p);
+
+    const r = dfCommit(p, 'chore: x', ['build/out.txt', 'build/more.txt']);
+    assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
+    assert.equal(r.json.committed, false, r.out);
+    assert.equal(r.json.hash, null);
+    assert.equal(r.json.reason, 'skipped_gitignored');
+    assert.equal(head(p), before);
+    assert.equal(git(p, 'diff', '--cached', '--name-only'), '', 'nothing staged');
+  });
+
+  test('15b. U-1 block + ignored TRD + ignored build file + tracked edit → skipped_planning and skipped_ignored stay separate', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = repo({ files: { 'src/a.js': 'v1\n' }, gitignore: `${U1_BLOCK}build/\n` });
+    write(p.root, 'src/a.js', 'v2\n');
+    write(p.root, TRD, '# TRD\n');
+    write(p.root, 'build/out.txt', 'artifact\n');
+
+    const r = dfCommit(p, 'docs: x', [TRD, 'build/out.txt', 'src/a.js']);
+    assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
+    assert.equal(r.json.committed, true, r.out);
+    assert.deepEqual(r.json.skipped_planning, [TRD]);
+    assert.deepEqual(r.json.skipped_ignored, ['build/out.txt']);
+    assert.deepEqual(lastCommitFiles(p), ['src/a.js']);
+  });
+});
+
 // ─── TRD 49-07 (GPR-02): the `Refs #N` trailer, store mode only ──────────────────────────────────────────────────────
 //
 //   4  store mode: `feat(49-02): x` is recorded with a final `Refs #<TRD issue>` paragraph; `docs(49): x` gets the objective's
