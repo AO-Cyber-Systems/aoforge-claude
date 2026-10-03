@@ -24,7 +24,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const { assembleDraft } = require('./stack-draft.cjs');
+const { assembleDraft, pickPrimaryComponent } = require('./stack-draft.cjs');
 
 const GENERAL = {
   build: { run: 'discover' },
@@ -172,19 +172,24 @@ describe('assembleDraft tier defaults and cwd (D15)', () => {
     assert.equal('lint' in d.commands, false);
   });
 
-  test('D15c: a single non-root area extends its tier and re-emits with cwd (tier keys keep scoped)', () => {
+  test('D15c (43-05, D3): a lone non-root area is the one component of a general root; build/test/lint fall back to its tier with cwd', () => {
     const areas = [{ dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] }];
     const evidence = [
       ev('lint', 'make lint', { source: 'runner', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'golangci-lint' }),
       ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
     ];
     const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
-    assert.equal(d.extendsId, 'go');
-    assert.deepStrictEqual(d.components, []);
+    assert.equal(d.extendsId, 'general', 'a lone sub-area is never promoted to the root extends');
+    assert.deepStrictEqual(d.components, [{ path: 'svc/', profile: 'go' }]);
     assert.deepStrictEqual(d.commands.lint, { run: 'make lint', cwd: 'svc' });
     assert.deepStrictEqual(d.commands.test, { run: 'go test -race ./...', scoped: 'go test -race {packages}', cwd: 'svc' });
-    assert.equal(d.commands.codegen.when, 'sources_changed');
-    assert.equal(d.commands.codegen.cwd, 'svc');
+    assert.deepStrictEqual(d.commands.build, { run: 'go build ./...', cwd: 'svc' });
+    for (const key of ['format', 'fix', 'audit', 'codegen', 'typecheck']) {
+      assert.equal(key in d.commands, false, `${key} is not a root key: the component inherits it from its tier`);
+    }
+    const primary = d.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary, JSON.stringify(d.notes));
+    assert.match(primary.detail, /primary component svc\/ \(go\): 2 evidence items/);
   });
 
   test('D15d: a re-emitted command from the same tool as the tier default keeps the tier scoped form', () => {
@@ -247,7 +252,7 @@ describe('assembleDraft extends and components (D17)', () => {
     assert.equal(d.loop, undefined);
   });
 
-  test('D17b: 2+ areas -> general root, components by tier id; component-only commands become notes', () => {
+  test('D17b (43-05, D6): 2+ areas -> general root; primary-component candidates become root keys with cwd, the rest stay notes', () => {
     const areas = [
       { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
       { dir: 'portal/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
@@ -257,20 +262,69 @@ describe('assembleDraft extends and components (D17)', () => {
       ev('test', 'go test -race -count=1 ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
       ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
       ev('lint_helm', 'helm lint chart/', { tool: 'helm' }),
+      ev('test', 'flutter test --coverage', { cwd: 'app', area: 'app/', tool: 'flutter' }),
     ];
     const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
     assert.equal(d.extendsId, 'general');
     assert.deepStrictEqual(d.components, [{ path: 'app/', profile: 'flutter' }, { path: 'svc/', profile: 'go' }]);
     assert.deepStrictEqual(d.commands.lint_helm, { run: 'helm lint chart/' });
-    assert.equal('test' in d.commands, false, 'a component command is not a root command');
-    assert.ok(d.notes.some((n) => n.area === 'svc/' && n.key === 'test' && n.candidate.includes('-count=1')));
-    assert.ok(!d.notes.some((n) => n.area === 'svc/' && n.key === 'lint'), 'equal to the tier default: nothing to note');
+    assert.deepStrictEqual(d.commands.test, { run: 'go test -race -count=1 ./...', cwd: 'svc' }, 'the primary component supplies the root test, with its cwd');
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' }, 'equal to the tier default, but it is the root command now');
+    assert.ok(d.notes.some((n) => n.area === 'app/' && n.key === 'test' && /flutter test --coverage/.test(n.candidate)), 'a non-primary component candidate stays a note');
     assert.ok(d.notes.some((n) => n.area === 'portal/' && n.status === 'info'), 'an unsupported area is noted');
+    const primary = d.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary && primary.area === 'svc/', JSON.stringify(d.notes));
   });
 
   test('D17c: an explicit extends wins for the root', () => {
     const d = assembleDraft({ areas: ROOT_GO, evidence: [], tierCommands: { ...TIERS, golike: GENERAL }, verify: resolvedAll, extendsId: 'golike' });
     assert.equal(d.extendsId, 'golike');
+  });
+});
+
+describe('pickPrimaryComponent (43-05, D6)', () => {
+  const comp = (p, profile) => ({ path: p, profile });
+  const at = (dir, source = 'ci', n = 1) => Array.from({ length: n }, (_, i) => ev('test', `cmd-${dir}-${source}-${i}`, { source, effectiveArea: dir, area: dir }));
+
+  test('P1: the component with the most runner + CI evidence wins, even over go', () => {
+    const items = [...at('app/', 'ci', 3), ...at('svc/', 'runner', 1)];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'app/');
+    assert.equal(p.score, 3);
+  });
+
+  test('P2: on a tie go beats flutter and dart (the go-first heuristic, user decision 2026-10-02)', () => {
+    const items = [...at('app/', 'ci', 2), ...at('lib/', 'ci', 2), ...at('svc/', 'ci', 2)];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('lib/', 'dart'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/');
+    assert.equal(pickPrimaryComponent([comp('lib/', 'dart'), comp('app/', 'flutter')], []).path, 'app/', 'flutter before dart');
+  });
+
+  test('P3: two go components tie -> the shallower path, then the lexical one', () => {
+    assert.equal(pickPrimaryComponent([comp('dev/edge/', 'go'), comp('go/', 'go')], []).path, 'go/');
+    assert.equal(pickPrimaryComponent([comp('b/', 'go'), comp('a/', 'go')], []).path, 'a/');
+  });
+
+  test('P4: zero evidence -> the go component if any, else the first by path', () => {
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], []).path, 'svc/');
+    assert.equal(pickPrimaryComponent([comp('b/', 'rust'), comp('a/', 'rust')], []).path, 'a/');
+    assert.equal(pickPrimaryComponent([], []), null);
+  });
+
+  test('P5: only runner and CI items count; declared, manifest and docs items and other areas do not', () => {
+    const items = [...at('app/', 'manifest', 4), ...at('app/', 'docs', 4), ...at('app/', 'declared', 4), ...at('svc/', 'ci', 1), ...at('', 'ci', 9)];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/');
+    assert.equal(p.score, 1);
+  });
+
+  test('P6: a tier root has no primary component: its behaviour is unchanged (devflowops: go root + flutter component)', () => {
+    const areas = [...ROOT_GO, { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }];
+    const evidence = [ev('test', 'flutter test --coverage', { cwd: 'app', area: 'app/', tool: 'flutter' })];
+    const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.extendsId, 'go');
+    assert.equal('test' in d.commands, false);
+    assert.ok(!d.notes.some((n) => n.tag === 'primary_component'));
   });
 });
 
