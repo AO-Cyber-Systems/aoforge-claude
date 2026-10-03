@@ -57,7 +57,7 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizeScript } = require('./stack-shell.cjs');
-const { classifyInvocation, classifyHint, toolStack } = require('./stack-classify.cjs');
+const { classifyInvocation, classifyHint, toolStack, isDriftCheck } = require('./stack-classify.cjs');
 const { parseWorkflows } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
@@ -207,6 +207,34 @@ function keyFromName(name, hit) {
   return { key: named.key, form: named.form, tool: hit.result.tool, weak: hit.result.weak, confidence: named.confidence };
 }
 
+const writes = (r) => !!r && (r.form === 'apply' || r.form === 'mutate');
+
+/**
+ * driftCheckOf(target, invs, index) -> classification | null (TRD 43-06).
+ *
+ * A target that WRITES key K and then fails on a `git diff --exit-code` / `--quiet` (stack-classify
+ * isDriftCheck) is K's CHECK form: `fmt-check: fmt` + `git diff --exit-code`, `tidy-check: tidy`,
+ * `openapi-verify: openapi-regen`, or `buf generate` then `git diff --quiet` in one recipe. The writer
+ * is an earlier recipe line, else a prerequisite target of the same runner file (`index`, when given).
+ * The body says what it does, so the result is high confidence. A drift check with no writer is null.
+ */
+function driftCheckOf(t, invs, index) {
+  const at = invs.findIndex((inv) => isDriftCheck(inv));
+  if (at === -1) return null;
+  const asCheck = (r) => ({ key: r.key, form: 'check', tool: r.tool, weak: [...(r.weak || [])], confidence: 'high' });
+  for (const inv of invs.slice(0, at)) {
+    const r = classifyInvocation(inv);
+    if (writes(r)) return asCheck(r);
+  }
+  if (!index) return null;
+  for (const dep of Array.isArray(t.deps) ? t.deps : []) {
+    const dt = index.get(`${t.runner}|${normDir(t.dir) || ''}|${dep}`);
+    const r = dt && dt !== t ? classifyTarget(dt) : null;
+    if (writes(r)) return asCheck(r);
+  }
+  return null;
+}
+
 /** How a runner target is invoked from ITS OWN directory (`make test`, `pnpm run lint`, `./bin/test.sh`). */
 function localInvocation(t) {
   const q = shq(t.name);
@@ -235,9 +263,11 @@ function hintFor(t) {
  * One exception (TRD 43-04): a name that carries a scenario-class key (`e2e`, `e2e_env`) keeps it
  * over the body's first classified line (see keyFromName).
  */
-function classifyTarget(t) {
+function classifyTarget(t, index = null) {
   const cwd = normDir(t.cwd) || normDir(t.dir);
   const body = Array.isArray(t.body) ? t.body : [];
+  const drift = driftCheckOf(t, safeNormalize(body.join('\n'), cwd), index);
+  if (drift) return drift;
   const b = classifyBody(body.join('\n'), cwd);
   if (b.result) return keyFromName(hintFor(t), b);
   if (body.length && b.empty) return null;
@@ -299,7 +329,7 @@ function classifyStep(inv, index, projectRoot) {
   if (d.kind === 'runner') {
     const name = Array.isArray(d.names) && d.names.length === 1 ? d.names[0] : null;
     const target = name && !d.unresolvable ? index.get(`${d.runner}|${normDir(d.dir) || ''}|${name}`) : null;
-    if (target) return { cls: classifyTarget(target), runner: d.runner, bodyInvocations: targetInvocations(target) };
+    if (target) return { cls: classifyTarget(target, index), runner: d.runner, bodyInvocations: targetInvocations(target) };
     const direct = classifyInvocation(inv, { hint: name || undefined });
     return { cls: direct, runner: d.runner };
   }
@@ -353,14 +383,17 @@ function targetUnits(t, ctx, depth, seen) {
   const cwd = normDir(t.cwd) || normDir(t.dir);
   const body = Array.isArray(t.body) ? t.body : [];
   const invs = safeNormalize(body.join('\n'), cwd);
-  const units = expandUnits(invs, ctx, depth, seen);
-  if (!invs.length && depth < MAX_EXPAND_DEPTH) {
-    // A prerequisites-only target (`build:agent: deps: [build:agent:internal]`) runs its deps.
+  const units = [];
+  if (depth < MAX_EXPAND_DEPTH) {
+    // A target's prerequisites run BEFORE its recipe (make prerequisites, Taskfile / just deps), so
+    // they are part of what it runs: a prerequisites-only `build:agent` runs its deps, and a
+    // `fmt-check: fmt` that only diffs runs gofmt (TRD 43-06; before, only the first case expanded).
     for (const dep of Array.isArray(t.deps) ? t.deps : []) {
       const dt = ctx.index.get(`${t.runner}|${normDir(t.dir) || ''}|${dep}`);
       if (dt && !seen.has(dt)) units.push(...targetUnits(dt, ctx, depth + 1, seen));
     }
   }
+  units.push(...expandUnits(invs, ctx, depth, seen));
   return units;
 }
 
@@ -531,7 +564,7 @@ function readRunnerTargets(targets, push, ctx) {
     // candidate. It stays in ctx.index / `depended` (built from every target) so a public task that
     // depends on or calls it still expands its body.
     if (t.internal === true) continue;
-    const cls = classifyTarget(t);
+    const cls = classifyTarget(t, ctx.index);
     if (!cls) continue;
     push({
       key: cls.key,

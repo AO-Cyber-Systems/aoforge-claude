@@ -344,6 +344,37 @@ const HINT_TOKENS = [
 const ENV_TOKENS = Object.freeze(['up', 'down', 'stack', 'env', 'seed', 'infra', 'cluster', 'compose', 'start', 'stop']);
 const SCENARIO_TOKENS = Object.freeze(['e2e', 'integration', 'scenario']);
 
+// A check or apply SUFFIX in a name names the form of the key the rest of the name carries (TRD 43-06):
+// `fmt-check`, `tidy-check`, `generate-check` are check forms; `lint-fix`, `lint:fix` is lint's apply.
+// Only keys that HAVE that form take it: `build-check` is still a build, `test-fix` still a test.
+const CHECK_SUFFIX_TOKENS = Object.freeze(['check', 'verify', 'diff']);
+const APPLY_SUFFIX_TOKENS = Object.freeze(['fix', 'write', 'apply']);
+const KEYS_WITH_CHECK_FORM = new Set(['format', 'tidy', 'codegen', 'fix']);
+const KEYS_WITH_APPLY_FORM = new Set(['lint', 'format', 'tidy', 'fix']);
+
+function hintForm(key, form, tokens) {
+  // `fmt-lint` has always meant the checking format target.
+  if (key === 'format' && tokens.includes('lint')) return 'check';
+  if (KEYS_WITH_CHECK_FORM.has(key) && tokens.some((t) => CHECK_SUFFIX_TOKENS.includes(t))) return 'check';
+  if (key !== 'fix' && KEYS_WITH_APPLY_FORM.has(key) && tokens.some((t) => APPLY_SUFFIX_TOKENS.includes(t))) return 'apply';
+  return form;
+}
+
+/**
+ * isDriftCheck(inv) -> true for `git diff --exit-code` / `git diff --quiet` (any paths after): the
+ * command a `<x>-check` target runs after regenerating, failing when the tree changed (TRD 43-06).
+ */
+function isDriftCheck(inv) {
+  for (const c of toInvocations(inv)) {
+    let a = firstStage(c.argv);
+    if (a[0] !== 'git') continue;
+    a = a.slice(1);
+    while (a.length && a[0].startsWith('-')) a = a.slice(1); // `git --no-pager diff`
+    if (a[0] === 'diff' && a.some((x) => x === '--exit-code' || x === '--quiet')) return true;
+  }
+  return false;
+}
+
 /** What a target / script NAME says the command does. Always low confidence; null when it says nothing. */
 function classifyHint(hint) {
   const h = typeof hint === 'string' ? hint.trim() : '';
@@ -357,9 +388,8 @@ function classifyHint(hint) {
   }
   for (const [key, form, names] of HINT_TOKENS) {
     if (tokens.some((t) => names.includes(t))) {
-      // `fmt-check` / `format-verify` describe the checking form.
-      const checking = key === 'format' && tokens.some((t) => t === 'check' || t === 'verify' || t === 'lint');
-      return { key, form: checking ? 'check' : form, tool: null, weak: [], confidence: 'low' };
+      // `fmt-check` / `tidy-verify` describe the checking form, `lint-fix` the applying one.
+      return { key, form: hintForm(key, form, tokens), tool: null, weak: [], confidence: 'low' };
     }
   }
   return null;
@@ -842,6 +872,7 @@ module.exports = {
   toolStack,
   classifyInvocation,
   classifyHint,
+  isDriftCheck,
   classifyUses,
   lookupUses,
   testBreadth,
