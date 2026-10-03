@@ -22,13 +22,14 @@
 //   absent        keys that must NOT be among the draft's own commands
 //   extraAllowed  keys whose conflict or more_specific row is tolerated (each with its reason inline)
 //   noEvidence    commands that must not appear as any evidence item (any key)
+//   noteTags      optional { present, absent }: note `tag`s the draft must (not) carry (TRD 43-10)
 //
 // Makefile recipe lines need a literal tab, hence `\t`.
 
 const detectFx = require('./stack-detect-fixtures.cjs');
 const drafterFx = require('./stack-drafter-fixtures.cjs');
 
-const { goMod, flutterPubspec } = detectFx;
+const { goMod, flutterPubspec, dartPubspec } = detectFx;
 const { makeWhole, DEFAULT_TOOLCHAIN } = drafterFx;
 
 const GO_MAIN = 'package main\n\nfunc main() {}\n';
@@ -636,6 +637,158 @@ function imageBuildRootShape() {
   });
 }
 
+// ─── workspace root runner (eden-libs rows, TRD 43-10) ────────────────────────
+
+/**
+ * workspaceRunnerShape() — a workspace of sibling packages under a `general` root with no manifest of its
+ * own: two Dart packages, a Flutter package with a nested example app, two Go modules (one holds an `e2e/`
+ * node package), and `gateway/`, a Go checkout with its own `.git` that is NOT a component. The ONLY
+ * interface is the root `justfile`, whose recipes FAN OUT: `setup` runs `pub get` in four dirs, `fmt`,
+ * `test` and `lint` run their tool in five, `generate` runs one tool in the nested checkout (one leg),
+ * `bundle-gallery` runs two commands in the Flutter package, `build-site` and `smoke-gallery` depend on it,
+ * `a11y-gate` depends on `build-wasm`, `check` aggregates four recipes, and `package-site` is a
+ * `#!/usr/bin/env bash` recipe at the root that depends on `build-site` and ends in `docker build`. Package
+ * CI runs `dart` / `go` per package with a working-directory, never `just`.
+ *
+ * Today the first Dart package is the primary component: `just test` is filed as a note under the nested
+ * checkout it enters first, so `test` is that package's CI `dart test`, `generate` is lost, `fmt` is lost,
+ * and `build` is the packaging recipe (the only recipe that runs at the root). The primary-less workspace
+ * takes every root recipe, wherever its body runs.
+ *
+ * Reviewed: lint `just lint`; test `just test`; build `just bundle-gallery` (a depended-on, high
+ * confidence recipe; not the packaging recipe); deps `just setup`; codegen `just generate`; format
+ * `discover` with apply `just fmt`.
+ */
+function workspaceRunnerShape() {
+  return detectFx.makeGitTree({
+    'README.md': '# gridworks\n',
+    justfile: [
+      'set shell := ["zsh", "-lc"]',
+      '',
+      'setup:',
+      '  (cd api-dart && dart pub get)',
+      '  (cd ui-kit && flutter pub get)',
+      '  (cd ui-kit/example && flutter pub get)',
+      '  (cd doc-model && dart pub get)',
+      '',
+      'generate:',
+      '  (cd gateway && ~/bin/buf generate)',
+      '',
+      'fmt:',
+      '  (cd web-kit && gofmt -w .)',
+      '  (cd api-dart && dart format .)',
+      '  (cd ui-kit && dart format .)',
+      '  (cd doc-model && dart format .)',
+      '  (cd docs-site && gofmt -w .)',
+      '',
+      'test:',
+      '  (cd gateway && go test ./...)',
+      '  (cd ui-kit && flutter test)',
+      '  (cd web-kit && go test ./...)',
+      '  (cd docs-site && go test ./...)',
+      '  (cd doc-model && dart test)',
+      '',
+      'lint:',
+      '  (cd api-dart && dart analyze)',
+      '  (cd ui-kit && flutter analyze)',
+      '  (cd web-kit && go vet ./...)',
+      '  (cd docs-site && go vet ./...)',
+      '  (cd doc-model && dart analyze --fatal-warnings)',
+      '',
+      '# serve-docs serves the docs site preview on PORT 8091 ONLY.',
+      'serve-docs:',
+      '  (cd docs-site && go run ./cmd/docsite serve --port 8091)',
+      '',
+      '# bundle-gallery builds the component gallery into a static web bundle and emits its slice of the',
+      '# search index. The base href is mandatory: the docs site serves the bundle under /gallery/.',
+      'bundle-gallery:',
+      '  (cd ui-kit && flutter build web --base-href /gallery/)',
+      '  (cd ui-kit && flutter test tool/emit_index.dart)',
+      '',
+      '# build-site builds the whole docs site into docs-site/out, wiring in the gallery bundle.',
+      'build-site: bundle-gallery',
+      '  (cd docs-site && go run ./cmd/docsite build -o out --gallery-bundle ../ui-kit/build/web)',
+      '',
+      '# smoke-gallery runs the build-smoke assertions against the produced bundle.',
+      'smoke-gallery: bundle-gallery',
+      '  (cd ui-kit && flutter test test/gallery_smoke_test.dart)',
+      '',
+      'check: generate fmt lint test',
+      '',
+      'down:',
+      '  docker compose -f compose.yaml down -v',
+      '',
+      '# build-wasm compiles the render binary and vendors the toolchain-paired shim.',
+      'build-wasm:',
+      '  (cd web-kit && GOOS=js GOARCH=wasm go build -o ../docs-site/static/js/render.wasm ./cmd/wasm-render/)',
+      '  cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" docs-site/static/js/wasm_exec.js',
+      '',
+      '# a11y-gate builds the render binary, then audits the site in a browser on PORT 8091 ONLY.',
+      'a11y-gate: build-wasm',
+      '  (cd docs-site/e2e && npm ci && npx playwright test a11y.spec.ts)',
+      '',
+      '# package-site turns the built site into one reproducible tarball and a container image.',
+      'package-site: build-site',
+      '  #!/usr/bin/env bash',
+      '  set -euo pipefail',
+      '  GTAR="$(command -v gtar || true)"',
+      '  [ -n "$GTAR" ] || { echo "GNU tar is required: brew install gnu-tar"; exit 1; }',
+      '  mkdir -p docs-site/dist',
+      '  "$GTAR" --sort=name --mtime=\'1970-01-01 00:00:00Z\' --owner=0 --group=0 --numeric-owner -cf docs-site/dist/site.tar -C docs-site/out .',
+      '  gzip -n -9 -c docs-site/dist/site.tar > docs-site/dist/site.tar.gz',
+      '  docker build -t site:local docs-site',
+      '',
+    ].join('\n'),
+    'api-dart/pubspec.yaml': dartPubspec('gridworks_api'),
+    'api-dart/lib/gridworks_api.dart': 'library gridworks_api;\n',
+    'doc-model/pubspec.yaml': dartPubspec('gridworks_doc_model'),
+    'doc-model/lib/gridworks_doc_model.dart': 'library gridworks_doc_model;\n',
+    'ui-kit/pubspec.yaml': flutterPubspec('gridworks_ui'),
+    'ui-kit/lib/main.dart': DART_MAIN,
+    'ui-kit/example/pubspec.yaml': flutterPubspec('gridworks_ui_example'),
+    'ui-kit/example/lib/main.dart': DART_MAIN,
+    'web-kit/go.mod': goMod('gridworks-web'),
+    'web-kit/main.go': GO_MAIN,
+    'docs-site/go.mod': goMod('gridworks-docs'),
+    'docs-site/main.go': GO_MAIN,
+    'docs-site/e2e/package.json': JSON.stringify({ name: 'gridworks-docs-e2e', private: true, scripts: { test: 'playwright test' } }),
+    'gateway/go.mod': goMod('gridworks-gateway'),
+    'gateway/main.go': GO_MAIN,
+    'gateway/.git/HEAD': 'ref: refs/heads/main\n',
+    '.github/workflows/api-dart.yml': wf([
+      'name: api-dart',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: api-dart',
+      'jobs:',
+      '  checks:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: dart-lang/setup-dart@v1',
+      '      - run: dart pub get',
+      '      - run: dart analyze',
+      '      - run: dart test',
+    ]),
+    '.github/workflows/web-kit.yml': wf([
+      'name: web-kit',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: web-kit',
+      'jobs:',
+      '  checks:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go vet ./...',
+      '      - run: go test ./...',
+    ]),
+  });
+}
+
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
 
 const REALSHAPE = Object.freeze({
@@ -686,6 +839,32 @@ const REALSHAPE = Object.freeze({
     absent: [],
     extraAllowed: [],
     noEvidence: [],
+  },
+  workspaceRunnerShape: {
+    build: workspaceRunnerShape,
+    tools: tools(),
+    expect: {
+      extends: 'general',
+      components: [
+        { path: 'api-dart/', profile: 'dart' },
+        { path: 'doc-model/', profile: 'dart' },
+        { path: 'docs-site/', profile: 'go' },
+        { path: 'ui-kit/', profile: 'flutter' },
+        { path: 'web-kit/', profile: 'go' },
+      ],
+      commands: {
+        lint: { run: 'just lint' },
+        test: { run: 'just test' },
+        build: { run: 'just bundle-gallery' },
+        deps: { run: 'just setup' },
+        codegen: { run: 'just generate' },
+        format: { run: 'discover', apply: 'just fmt' },
+      },
+    },
+    absent: [],
+    extraAllowed: [],
+    noEvidence: [],
+    noteTags: { present: ['root_workspace'], absent: ['primary_component'] },
   },
   captureDiffCheckShape: {
     build: captureDiffCheckShape,
@@ -742,4 +921,5 @@ module.exports = {
   crossStackPrimaryShape,
   toolDirectPrimaryShape,
   imageBuildRootShape,
+  workspaceRunnerShape,
 };

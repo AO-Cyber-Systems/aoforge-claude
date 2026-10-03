@@ -1291,3 +1291,108 @@ describe('real drift-check shapes and check suffixes (E22, TRD 43-09)', () => {
     assert.equal(byCmd(list, 'make fmt-show'), null, 'a captured diff that never fails is not a check');
   });
 });
+
+// ─── TRD 43-10 test 8: unitAreas, the distinct areas an item's units run in ────────────────────────
+//
+// scopeOf already says where the KEYED units run (bodyScopes, effectiveArea). unitAreas says where ALL of an
+// item's units run, in first-seen order, so stack-draft can tell a recipe that fans out across areas (the
+// workspace interface) from one that runs in a single area. effectiveArea is unchanged by it. With no unit
+// at all it is the item's own area.
+
+describe('stack-evidence unitAreas (E19, TRD 43-10 test 8)', () => {
+  const UNIT_AREAS = [
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'lib/', kinds: ['dart'], tier: 'dart', flags: [] },
+    { dir: 'ui/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
+  ];
+  const TASKFILE = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  test:',
+    '    cmds:',
+    '      - cd svc && go test ./...',
+    '      - cd ui && npm test',
+    '      - cd lib && dart test',
+    '',
+    '  lint:',
+    '    cmds:',
+    '      - go vet ./...',
+    '',
+    '  prep:',
+    '    cmds:',
+    '      - cd svc && go test ./...',
+    '      - cd tools && ./gen.sh',
+    '',
+  ].join('\n');
+  const repo = () => makeRepo({
+    'go.mod': 'module example.com/unitareas\n',
+    'Taskfile.yml': TASKFILE,
+    'svc/go.mod': 'module example.com/unitareas/svc\n',
+    'lib/pubspec.yaml': 'name: unit_lib\nenvironment:\n  sdk: ^3.5.0\n',
+    'ui/package.json': JSON.stringify({ name: 'ui', private: true, scripts: { test: 'vitest run' } }),
+    'tools/gen.sh': '#!/bin/sh\n./gen\n',
+    'engine/plugins/Makefile': 'all: build\nbuild: plugins\n',
+  });
+  const find = (evidence, command) => evidence.find((e) => e.command === command);
+
+  test('E19a: a recipe that runs in three dirs lists all three, in first-seen order', () => {
+    const root = repo();
+    try {
+      const evidence = collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' });
+      const test = find(evidence, 'task test');
+      assert.ok(test, JSON.stringify(evidence.map((e) => e.command)));
+      assert.deepStrictEqual(test.unitAreas, ['svc/', 'ui/', 'lib/']);
+      assert.equal(test.effectiveArea, 'svc/', 'effectiveArea is unchanged: the first unit area');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19b: a recipe that runs in one area lists that one', () => {
+    const root = repo();
+    try {
+      const lint = find(collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' }), 'task lint');
+      assert.ok(lint);
+      assert.deepStrictEqual(lint.unitAreas, ['']);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19c: it covers ALL units, not only the ones that classify to the key', () => {
+    const root = repo();
+    try {
+      const prep = find(collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' }), 'task prep');
+      assert.ok(prep);
+      assert.deepStrictEqual(prep.bodyScopes.map((s) => s.area), ['svc/'], 'only the go test classifies to the key');
+      assert.deepStrictEqual(prep.unitAreas, ['svc/', 'tools/'], 'the generator script runs in `tools/` too');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19d: an item with no units gets its own area', () => {
+    const root = repo();
+    try {
+      const item = collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' }).find((e) => e.source === 'runner' && e.cwd === 'engine/plugins');
+      assert.ok(item);
+      assert.deepStrictEqual(item.bodyScopes, []);
+      assert.deepStrictEqual(item.unitAreas, ['engine/plugins/']);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19e: every item carries a non-empty list of strings', () => {
+    const root = repo();
+    try {
+      for (const item of collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' })) {
+        assert.ok(Array.isArray(item.unitAreas) && item.unitAreas.length > 0, JSON.stringify(item.command));
+        assert.ok(item.unitAreas.every((a) => typeof a === 'string'));
+      }
+    } finally {
+      cleanup(root);
+    }
+  });
+});

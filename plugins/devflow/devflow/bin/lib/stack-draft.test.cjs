@@ -537,6 +537,134 @@ describe('assembleDraft tiered root/primary placement (B2, TRD 43-10)', () => {
   });
 });
 
+// TRD 43-10 (B3; eden-libs rows). A `general` root whose root task runner has a build/test/lint recipe that
+// FANS OUT across two or more areas (stack-evidence `unitAreas`) is a workspace: the runner is the repo's
+// interface and no component is primary. There is no primary_component note (a `root_workspace` info note
+// instead), no off_primary gate and no single-component fallback, and every root-runner recipe is a root
+// candidate wherever its body runs. A recipe that runs in one area (`just test-go`) is no workspace.
+describe('assembleDraft workspace root (B3, TRD 43-10)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  const recipe = (key, command, extra = {}) => ev(key, command, {
+    source: 'runner', sourceFile: 'justfile', runner: 'just', tool: null, bodyStacks: ['go', 'flutter'],
+    effectiveArea: 'svc/', unitAreas: ['svc/', 'app/'], ...extra,
+  });
+  const svcCi = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', unitAreas: ['svc/'], tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', unitAreas: ['svc/'], tool: 'go' }),
+  ];
+  const draft = (evidence, areas = AREAS) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('B3a: a root recipe that fans out makes a workspace: no primary, a root_workspace note, root recipes are the keys', () => {
+    const evidence = [
+      recipe('test', 'just test'),
+      recipe('lint', 'just lint', { effectiveArea: 'app/', unitAreas: ['app/', 'svc/'] }),
+      recipe('build', 'just bundle', { form: 'build', effectiveArea: 'app/', unitAreas: ['app/'], bodyStacks: ['flutter'], tool: 'flutter' }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(!d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    const ws = d.notes.find((n) => n.tag === 'root_workspace');
+    assert.ok(ws, JSON.stringify(d.notes));
+    assert.equal(ws.status, 'info');
+    assert.match(ws.detail, /just (test|lint)/);
+    assert.match(ws.detail, /svc\/.*app\/|app\/.*svc\//, 'the note names the areas the recipe runs in');
+    assert.deepStrictEqual(d.commands.test, { run: 'just test' });
+    assert.deepStrictEqual(d.commands.lint, { run: 'just lint' });
+    assert.deepStrictEqual(d.commands.build, { run: 'just bundle' }, 'a recipe that builds the Flutter package is no off_primary note without a primary');
+    assert.ok(!d.notes.some((n) => n.status === 'off_primary'), JSON.stringify(d.notes));
+  });
+
+  test('B3b: a recipe that runs in ONE area is no workspace: the primary component rules apply', () => {
+    const evidence = [
+      recipe('test', 'just test-go', { unitAreas: ['svc/'], bodyStacks: ['go'] }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(!d.notes.some((n) => n.tag === 'root_workspace'));
+    assert.deepStrictEqual(d.commands.test, { run: 'just test-go' });
+  });
+
+  test('B3c: only a build, test or lint recipe makes a workspace (a fan-out `setup` or `fmt` does not)', () => {
+    const evidence = [
+      recipe('deps', 'just setup', { form: 'mutate' }),
+      recipe('format', 'just fmt', { form: 'apply' }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(!d.notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3d: only a recipe of a task-runner file at the repo root makes a workspace: not a CI step, not a sub-dir runner', () => {
+    const evidence = [
+      ev('test', 'make test-everything', { source: 'ci', runner: 'make', unitAreas: ['svc/', 'app/'], effectiveArea: 'svc/' }),
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', unitAreas: ['svc/', 'app/'], tool: 'go' }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(!d.notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3e: an item without unitAreas (a caller that predates it) never makes a workspace', () => {
+    const evidence = [recipe('test', 'just test', { unitAreas: undefined }), ...svcCi()];
+    assert.ok(!draft(evidence).notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3f: a root product, a tier root and a root with no component are no workspace', () => {
+    const product = draft([
+      ev('build', './scripts/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build', bodyStacks: [], effectiveArea: '' }),
+      recipe('test', 'just test'),
+    ]);
+    assert.ok(product.notes.some((n) => n.tag === 'root_product'));
+    assert.ok(!product.notes.some((n) => n.tag === 'root_workspace'));
+
+    const tierRoot = draft([recipe('test', 'just test')], [{ dir: '', kinds: ['go'], tier: 'go', flags: [], evidence: ['go.mod'] }, ...AREAS]);
+    assert.equal(tierRoot.extendsId, 'go');
+    assert.ok(!tierRoot.notes.some((n) => n.tag === 'root_workspace'));
+
+    const noComponent = draft([recipe('test', 'just test')], []);
+    assert.ok(!noComponent.notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3g: a workspace has no single-component fallback: a key no recipe supplies stays absent', () => {
+    const one = [{ dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] }];
+    const d = draft([recipe('test', 'just test', { effectiveArea: 'svc/', unitAreas: ['svc/', 'tools/'] })], one);
+    assert.ok(d.notes.some((n) => n.tag === 'root_workspace'), JSON.stringify(d.notes));
+    assert.deepStrictEqual(d.commands.test, { run: 'just test' });
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal('build' in d.commands, false);
+  });
+
+  test('B3h: non-runner items keep the placement by where they run: a component CI step is a note, a root one a candidate', () => {
+    const evidence = [
+      recipe('test', 'just test'),
+      ev('test', 'flutter test --coverage', { cwd: 'app', area: 'app/', effectiveArea: 'app/', unitAreas: ['app/'], tool: 'flutter' }),
+      ev('lint', 'shellcheck bin/*.sh', { tool: 'shellcheck', bodyStacks: [], effectiveArea: '', unitAreas: [''] }),
+    ];
+    const d = draft(evidence);
+    assert.deepStrictEqual(d.commands.test, { run: 'just test' });
+    assert.ok(d.notes.some((n) => n.area === 'app/' && n.key === 'test' && /flutter test --coverage/.test(n.candidate)), JSON.stringify(d.notes));
+    assert.deepStrictEqual(d.commands.lint, { run: 'shellcheck bin/*.sh' });
+  });
+
+  test('B3i: the depended-on, high-confidence recipe is the build, not the packaging recipe', () => {
+    const target = (name, over = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order: 0, ...over });
+    const evidence = [
+      recipe('build', 'just bundle', { form: 'build', confidence: 'high', tool: 'flutter', effectiveArea: 'app/', unitAreas: ['app/'], target: target('bundle', { dependedOn: true, order: 4 }) }),
+      recipe('build', 'just docs', { form: 'build', confidence: 'low', tool: null, effectiveArea: 'app/', unitAreas: ['app/'], target: target('docs', { deps: ['bundle'], dependedOn: true, order: 3 }) }),
+      recipe('build', 'just package', { form: 'build', confidence: 'high', tool: 'docker', effectiveArea: '', unitAreas: ['app/', ''], target: target('package', { deps: ['docs'], order: 7 }) }),
+      recipe('test', 'just test'),
+    ];
+    const d = draft(evidence);
+    assert.deepStrictEqual(d.commands.build, { run: 'just bundle' }, JSON.stringify(d.commands.build));
+  });
+});
+
 describe('assembleDraft e2e (D18)', () => {
   test('D18: a .maestro/ flag adds `maestro test .maestro`; without it a maestro candidate is dropped', () => {
     const areas = [{ dir: '', kinds: ['dart', 'flutter'], tier: 'flutter', flags: ['maestro'] }];

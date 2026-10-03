@@ -46,7 +46,8 @@ const ACCEPTED = {
 // 43-09 removed devflowops.format, devflowops.tidy, aodex.codegen and aocore.lint_helm (captured and
 // snapshot drift checks, workflow env literals, version probes).
 // 43-10 removed eden-biz.build, eden-biz.test (the primary component is chosen on build/test/lint
-// evidence), aodex.build, eden-libs.test, eden-libs.codegen, eden-libs.format (tiered placement) and, out
+// evidence), aodex.build, eden-libs.test, eden-libs.codegen, eden-libs.format (tiered placement), eden-libs.build
+// (workspace root) and, out
 // of scope but closed by the same rules, politihub.test and politihub.build. The tiered placement also
 // closed eden-biz.e2e_env, which 43-11 had claimed (root runner recipes are root candidates wherever
 // their body runs).
@@ -72,14 +73,6 @@ const KNOWN_DRIFT = {
       closes: '43-11',
       reason: 'codegen: draft `make templ-check (apply: make generate) (cwd go)` vs committed `make generate (cwd go)`; '
         + '(seeded as `make buf-generate (cwd go)`; 43-10 moved the go component\'s runner targets into tier 2)',
-    },
-  ],
-  'eden-libs': [
-    {
-      keys: ['build'],
-      closes: '43-10',
-      reason: 'build: draft `just package-docs` vs committed `just build-flutter-explorer`; '
-        + '(test, codegen and format were closed by the tiered placement of 43-10 Task 2)',
     },
   ],
   justinforme: [
