@@ -140,7 +140,7 @@ TRDs:
 - [x] 43-01-TRD.md — (W1, tdd) Make variable expansion for aggregate targets (D1); internal Taskfile tasks not invocable (D5)
 - [x] 43-02-TRD.md — (W1, tdd) effect-based `stack verify --run` guard: snapshot/restore, halt, `flutter --no-pub`, stub-flutter regression (D8, SDR-03)
 - [x] 43-03-TRD.md — (W1, tdd) must_haves 2-space parsing (D11); mixed Flutter/Dart MCP (D9); commit ignore probe residual (D7)
-- [ ] 43-04-TRD.md — (W2, tdd) `e2e_env` and scenario classification; single-purpose scripts narrow (D4)
+- [x] 43-04-TRD.md — (W2, tdd) `e2e_env` and scenario classification; single-purpose scripts narrow (D4)
 - [ ] 43-05-TRD.md — (W3, tdd) literal manifest-less rule + primary component (go-first) placement; sub-area facts (D3, D6, D2)
 - [ ] 43-06-TRD.md — (W4, tdd) golden equivalence for all 11 overrides; CHANGELOG [Unreleased], CLAUDE.md; full `npm test`
 - [ ] 43-07-TRD.md — (W5, checkpoint) mirror sync + approved fleet `stack verify --run`, results in 43-ROLLOUT.md only (D10, SDR-08)
@@ -378,7 +378,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
-| 43. Stack drafter rules | v1.4 | 3/7 | In Progress | — |
+| 43. Stack drafter rules | v1.4 | 4/7 | In Progress | — |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Cancelled (killed by user decision 2026-10-01; GMD-04) | 2026-10-01 |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
