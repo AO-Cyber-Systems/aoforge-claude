@@ -6,5 +6,6 @@
 - [x] Task 2 RED: K27 (isDriftCheck raw shapes, driftCheckAt) and E22 (check suffix on writer bodies, captured and snapshot checks) — a625034b
 - [x] Task 2 GREEN: captured and snapshot drift checks are the check form; body-key check suffix — cddc1cc3
 - [x] Task 3 RED: C14 env substitution, K28 version probes, contract test re-baselined for `envSubstituted` — 8163ec76
-- [x] Task 3 GREEN: workflow env literals substituted; version probes are not gates — (this commit)
-- [ ] Final: SUMMARY via `summary post`, STATE and ROADMAP — next step: run `roadmap update-job-progress 43`, then `npm test`, then write the full SUMMARY with Self-Check and post it
+- [x] Task 3 GREEN: workflow env literals substituted; version probes are not gates — 741e9ae1
+- [x] Fixture text: realshape lines that echoed fleet text rewritten with invented content (shape kept; RED at the wave base re-proved) — (this commit)
+- [ ] Final: SUMMARY via `summary post`, STATE and ROADMAP — next step: wait for the background `npm test`, then post the full SUMMARY with Self-Check and run the state updates
