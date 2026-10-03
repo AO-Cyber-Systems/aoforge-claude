@@ -433,6 +433,10 @@ function readCommandsTable(projectRoot, from, push, ctx) {
 function readRunnerTargets(targets, push, ctx) {
   const depended = dependedOnIndex(targets);
   for (const t of targets) {
+    // TRD 43-01 D5: an `internal: true` Taskfile task cannot be run from the CLI, so it is never a
+    // candidate. It stays in ctx.index / `depended` (built from every target) so a public task that
+    // depends on or calls it still expands its body.
+    if (t.internal === true) continue;
     const cls = classifyTarget(t);
     if (!cls) continue;
     push({

@@ -530,7 +530,7 @@ function taskDeps(entry) {
 
 /** One task's properties from its header value and the rows under it. */
 function readTaskProps(value, rows) {
-  const task = { body: [], aliases: [], dir: null, deps: [] };
+  const task = { body: [], aliases: [], dir: null, deps: [], internal: false };
   const v = cleanValue(value);
   if (v !== '') { // shorthand: `name: go build ./...`, `name: [a, b]`, `name: |`
     task.body = valueLines(v, rows);
@@ -549,15 +549,20 @@ function readTaskProps(value, rows) {
     else if (e.key === 'dir') {
       const d = yamlScalar(e.value);
       if (d !== '') task.dir = d;
+    } else if (e.key === 'internal') {
+      // `true` or `"true"` only: a templated or any other value is not provably internal.
+      task.internal = yamlScalar(e.value) === 'true';
     }
   }
   return task;
 }
 
 /**
- * Parse Taskfile text -> `{ tasks: [{ name, aliases, body, dir, deps }], hasIncludes }`.
- * `dir` is the task's own `dir:` verbatim; `deps` the task names its `deps:` lists; `hasIncludes`
- * is true when a top-level `includes:` brings in tasks this reader cannot see.
+ * Parse Taskfile text -> `{ tasks: [{ name, aliases, body, dir, deps, internal }], hasIncludes }`.
+ * `dir` is the task's own `dir:` verbatim; `deps` the task names its `deps:` lists; `internal` is
+ * true for `internal: true` (a task `task <name>` cannot run from the CLI; it stays in this list
+ * because a public task that depends on or calls it still runs its body); `hasIncludes` is true
+ * when a top-level `includes:` brings in tasks this reader cannot see.
  */
 function parseTaskfile(text) {
   const rows = yamlRows(text);
@@ -577,7 +582,7 @@ function parseTaskfile(text) {
     if (first) {
       for (const e of mapEntries(section, first.indent, matchTaskName)) {
         const p = readTaskProps(e.value, e.rows);
-        tasks.push({ name: e.key, aliases: p.aliases, body: p.body, dir: p.dir, deps: p.deps });
+        tasks.push({ name: e.key, aliases: p.aliases, body: p.body, dir: p.dir, deps: p.deps, internal: p.internal });
       }
     }
     i = end - 1;
@@ -698,6 +703,7 @@ function collectTask(d, targets, exec) {
       body: t.body,
       invocation: taskInvocation(d.rel, t.name),
       deps: t.deps,
+      internal: t.internal === true,
       isDefault: t.name === 'default', // a bare `task` runs the task named `default`
       order,
     };
@@ -1033,7 +1039,9 @@ function hasTarget(root, { runner, dir = '', name } = {}) {
       const text = file ? readText(path.join(abs, file)) : null;
       if (text === null) return false;
       const parsed = parseTaskfile(text);
-      if (parsed.tasks.some((t) => t.name === name || t.aliases.includes(name))) return true;
+      const task = parsed.tasks.find((t) => t.name === name || t.aliases.includes(name));
+      // An internal task was found but cannot be invoked from the CLI: false, never 'unknown'.
+      if (task) return !task.internal;
       return parsed.hasIncludes ? 'unknown' : false;
     }
     case 'just': {

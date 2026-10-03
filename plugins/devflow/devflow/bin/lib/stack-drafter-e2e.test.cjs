@@ -422,7 +422,7 @@ describe('stack init closes the runner-reader defects end to end (TRD 43-01)', (
     assert.ok(!json.notes.some((n) => hidden.test(String(n.candidate || ''))), `notes: ${JSON.stringify(json.notes)}`);
     // With no override, `tidy` is whatever the bundled go profile says.
     assert.equal('tidy' in fm.commands, false, `tidy inherits the go tier, not ${JSON.stringify(fm.commands.tidy)}`);
-    const goTier = parseProfile(fs.readFileSync(path.join(__dirname, '..', 'stack-profiles', 'go.md'), 'utf-8')).frontmatter;
+    const goTier = parseProfile(fs.readFileSync(path.join(__dirname, '..', '..', 'stack-profiles', 'go.md'), 'utf-8')).frontmatter;
     assert.equal(goTier.commands.tidy.run, 'go mod tidy -diff');
     assert.equal(goTier.commands.tidy.apply, 'go mod tidy');
     assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
