@@ -385,8 +385,8 @@ describe('RUN_POLICY shape', () => {
     assert.ok(RUN_POLICY.skip.some((s) => s.reason === 'container-build'));
   });
 
-  test('the effect guard reasons are listed, and the policy stays frozen', () => {
-    assert.deepEqual(RUN_POLICY.effectReasons, ['side-effect-unsafe', 'side-effect-unproven']);
+  test('the effect guard reasons are listed, and the policy stays frozen (43-02 test 10)', () => {
+    assert.deepEqual(RUN_POLICY.effectReasons, ['side-effect-unsafe', 'side-effect-unproven', 'needs-pub-get']);
     assert.ok(Object.isFrozen(RUN_POLICY));
     assert.ok(Object.isFrozen(RUN_POLICY.effectReasons));
   });
@@ -829,6 +829,118 @@ describe('runCommands: effect guard outside a git work tree (43-02 test 9)', () 
     assert.equal(r.run.exit_code, 0);
     assert.equal(spawn.calls.length, 1);
     assert.deepEqual(spawn.calls[0].args, ['-c', 'go vet ./...']);
+  });
+});
+
+// ─── 43-02 tests 7 and 8: `--no-pub` prevention and `needs-pub-get` ───────────────────────────────
+
+const NO_GIT = fx.gitAvailable() ? false : 'git is not on PATH';
+
+describe('runCommands: --no-pub prevention (43-02 test 7)', { skip: NO_GIT }, () => {
+  // The command runs through a FAKE spawn (so only its text is observed), inside a real git work tree
+  // (so the effect guard lets a Dart/Flutter gate through).
+  function run(command, { files = {}, cwd = '' } = {}) {
+    const root = track(fx.gitDartRepo({ files }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item(command, 'lint', { cwd })], { root, spawn });
+    return { r, spawn, text: spawn.calls.length ? spawn.calls[0].args[1] : null };
+  }
+
+  test('flutter analyze and flutter test get --no-pub appended; the stored command is untouched', () => {
+    for (const [command, expected] of [
+      ['flutter analyze --fatal-infos', 'flutter analyze --fatal-infos --no-pub'],
+      ['flutter test', 'flutter test --no-pub'],
+      ['flutter analyze', 'flutter analyze --no-pub'],
+      ['FOO=1 flutter test test/a_test.dart', 'FOO=1 flutter test test/a_test.dart --no-pub'],
+    ]) {
+      const { r, text } = run(command);
+      assert.equal(text, expected, command);
+      assert.equal(r.run.rewritten, expected, command);
+      assert.equal(r.command, command, 'it.command is never modified');
+    }
+  });
+
+  test('a command that already carries --pub or --no-pub is unchanged', () => {
+    for (const command of ['flutter analyze --no-pub', 'flutter analyze --pub', 'flutter test --no-pub --coverage', 'flutter test --pub']) {
+      const { r, text } = run(command);
+      assert.equal(text, command);
+      assert.equal('rewritten' in r.run, false, command);
+    }
+  });
+
+  test('anything but a single direct `flutter analyze|test` is not rewritten', () => {
+    for (const command of [
+      'dart analyze',
+      'dart test',
+      'flutter pub get',
+      'flutter build apk',
+      'cd . && flutter analyze',
+      'flutter analyze && echo done',
+      'flutter analyze; echo done',
+      'flutter analyze | tee out.txt',
+      'flutter test # all of them',
+      'fvm flutter analyze',
+      'timeout 60 flutter analyze',
+      '( flutter analyze )',
+      "sh -c 'flutter analyze'",
+    ]) {
+      const { r, text } = run(command);
+      assert.equal(text, command, command);
+      assert.equal('rewritten' in r.run, false, command);
+    }
+  });
+
+  test('`make lint` whose body runs flutter is unchanged: only direct invocations are rewritten', () => {
+    const { r, text } = run('make lint', { files: { Makefile: 'lint:\n\tflutter analyze\n' } });
+    assert.equal(text, 'make lint');
+    assert.equal('rewritten' in r.run, false);
+  });
+});
+
+describe('runCommands: needs-pub-get (43-02 test 8)', () => {
+  const PKG_CONFIG = '{"configVersion":2,"packages":[]}\n';
+
+  test('flutter analyze|test without .dart_tool/package_config.json is skipped needs-pub-get and never spawned', () => {
+    for (const command of ['flutter analyze', 'flutter test', 'flutter analyze --fatal-infos']) {
+      const root = track(fx.makeRepo({ 'pubspec.yaml': 'name: no_config\n' }));
+      const spawn = spySpawn();
+      const [r] = runCommands([item(command, 'lint')], { root, spawn });
+      assert.equal(r.skipped, 'needs-pub-get', command);
+      assert.equal(r.run.skipped, 'needs-pub-get', command);
+      assert.match(r.run.detail, /pub get/, command);
+      assert.equal(spawn.calls.length, 0, command);
+    }
+  });
+
+  test('the config is looked for next to the command cwd, not only at the root', () => {
+    const root = track(fx.makeRepo({
+      'pubspec.yaml': 'name: root_pkg\n',
+      '.dart_tool/package_config.json': PKG_CONFIG,
+      'app/pubspec.yaml': 'name: app\n',
+    }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('flutter analyze', 'lint', { cwd: 'app' })], { root, spawn });
+    assert.equal(r.skipped, 'needs-pub-get');
+    assert.equal(spawn.calls.length, 0);
+  });
+
+  test('a pub workspace member resolves through the workspace root config', { skip: NO_GIT }, () => {
+    const root = track(fx.gitDartRepo({
+      files: { 'app/pubspec.yaml': 'name: app\nresolution: workspace\n' },
+    }));
+    const spawn = spySpawn();
+    const [r] = runCommands([item('flutter analyze', 'lint', { cwd: 'app' })], { root, spawn });
+    assert.equal(r.skipped, undefined);
+    assert.equal(r.run.rewritten, 'flutter analyze --no-pub');
+    assert.equal(spawn.calls.length, 1);
+  });
+
+  test('a command that is not rewritten is never needs-pub-get (dart analyze, or its own --pub flag)', () => {
+    for (const command of ['dart analyze', 'flutter analyze --pub', 'flutter analyze --no-pub']) {
+      const root = track(fx.makeRepo({ 'pubspec.yaml': 'name: no_config\n' }));
+      const [r] = runCommands([item(command, 'lint')], { root, spawn: spySpawn() });
+      assert.notEqual(r.skipped, 'needs-pub-get', command);
+    }
   });
 });
 

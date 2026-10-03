@@ -95,6 +95,30 @@ describe('--run effect guard: real spawn, stub flutter, scratch git repo', { ski
     assert.equal(fx.stubCalls(bin, 'flutter').length, 1, 'the stub ran once, not twice');
   });
 
+  test('1b. `--no-pub` is appended to the executed text only, and recorded as run.rewritten', () => {
+    const { bin, opts } = setup({ body: ':' });
+    const out = runCommands([item('lint', 'flutter analyze --fatal-infos')], opts);
+    assert.equal(out[0].run.rewritten, 'flutter analyze --fatal-infos --no-pub');
+    assert.equal(out[0].command, 'flutter analyze --fatal-infos', 'the stored command is never rewritten');
+    assert.deepEqual(fx.stubCalls(bin, 'flutter'), ['analyze --fatal-infos --no-pub']);
+  });
+
+  test('1c. `make lint` is not rewritten, and the guard still catches what its flutter body does', () => {
+    const root = track(fx.gitDartRepo({ files: { Makefile: 'lint:\n\tflutter analyze\n' } }));
+    // The stub `make` stands in for the target body: it does what `flutter analyze` did in objective 42.
+    const bin = track(fx.mutatingToolBin('make', ANALYZE_MUTATION));
+    const lockBefore = read(root, 'pubspec.lock');
+    const [r] = runCommands([item('lint', 'make lint')], { root, spawn: spawnSync, env: envWith(bin) });
+    assert.equal('rewritten' in r.run, false);
+    assert.deepEqual(fx.stubCalls(bin, 'make'), ['lint']);
+    assert.deepEqual([...r.run.mutated].sort(byPath), [
+      { path: 'analysis_options.yaml', change: 'modified' },
+      { path: 'pubspec.lock', change: 'modified' },
+    ]);
+    assert.equal(r.run.restored, true);
+    assert.ok(read(root, 'pubspec.lock').equals(lockBefore));
+  });
+
   test('2. a command that creates an untracked file: reported `added`, the file is removed', () => {
     const { root, opts } = setup({ body: 'mkdir -p lib\nprintf "// generated\\n" > lib/generated.g.dart' });
     const statusBefore = porcelain(root);
