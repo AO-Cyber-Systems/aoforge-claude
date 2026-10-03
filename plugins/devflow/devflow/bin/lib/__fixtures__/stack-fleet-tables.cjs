@@ -42,21 +42,11 @@ const ACCEPTED = {
 // Seeded 2026-10-03 from a real run of the harness (HEADs as of that run), then compared with the 12
 // conflict repos of 43-ROLLOUT.md `## Dry-run drift` (see the 43-08 SUMMARY). Each reason reads
 // "key: draft `X` vs committed `Y`".
+//
+// 43-09 removed devflowops.format, devflowops.tidy, aodex.codegen and aocore.lint_helm (captured and
+// snapshot drift checks, workflow env literals, version probes).
 const KNOWN_DRIFT = {
-  devflowops: [
-    {
-      keys: ['format', 'tidy'],
-      closes: '43-09',
-      reason: 'format: draft `test -z "$(gofmt -l .)" (apply: make fmt)` vs committed `make fmt-check (apply: make fmt)`; '
-        + 'tidy: draft `go mod tidy -diff (apply: make tidy)` vs committed `make tidy-check (apply: make tidy)`',
-    },
-  ],
   aodex: [
-    {
-      keys: ['codegen'],
-      closes: '43-09',
-      reason: 'codegen: draft `make openapi-regen (cwd go)` vs committed `make openapi-verify (apply: make openapi-regen) (cwd go)`',
-    },
     {
       keys: ['build'],
       closes: '43-10',
@@ -64,11 +54,6 @@ const KNOWN_DRIFT = {
     },
   ],
   aocore: [
-    {
-      keys: ['lint_helm'],
-      closes: '43-09',
-      reason: 'lint_helm: draft `kubeconform -v` vs committed `helm lint helm/aocore-gateway/`',
-    },
     {
       keys: ['lint', 'audit'],
       closes: '43-12',
