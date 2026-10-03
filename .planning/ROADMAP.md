@@ -134,7 +134,7 @@ TRDs:
 **Goal:** Fix the drafter defects objective 42's rollout hand-fixed (aggregate targets, multi-stack roots, manifest-less roots, environment targets, internal Taskfile tasks, wrapped component recipes, commit gitignore check) so re-drafting matches the 11 override files.
 **Requirements:** SDR-08 (confirm each proposed command runs), SDR-03 hardening (`stack verify --run` side-effect safe); defects in `.planning/objectives/43-stack-drafter-rules/OBJECTIVE.md`
 **Gap Closure:** Closes the v1.4 audit gap (`milestones/v1.4-MILESTONE-AUDIT.md`): SDR-08 partial and objective 42's "drafts correct without hand edits" truth
-**Plans:** 7 TRDs in 5 waves
+**Plans:** 15 TRDs in 13 waves (gap closure cycle 1: 43-08..43-15, W6-W13, from 43-VERIFICATION gaps_found 34/36)
 
 TRDs:
 - [x] 43-01-TRD.md — (W1, tdd) Make variable expansion for aggregate targets (D1); internal Taskfile tasks not invocable (D5)
@@ -144,6 +144,14 @@ TRDs:
 - [x] 43-05-TRD.md — (W3, tdd) literal manifest-less rule + primary component (go-first) placement; sub-area facts (D3, D6, D2)
 - [x] 43-06-TRD.md — (W4, tdd) golden equivalence for all 11 overrides; CHANGELOG [Unreleased], CLAUDE.md; full `npm test`
 - [x] 43-07-TRD.md — (W5, checkpoint) mirror sync + approved fleet `stack verify --run`, results in 43-ROLLOUT.md only (D10, SDR-08)
+- [ ] 43-08-TRD.md — (W6, tdd, gap closure) drift comparison helper + real-fleet regression harness with KNOWN_DRIFT ratchet (SDR-08)
+- [ ] 43-09-TRD.md — (W7, tdd, gap closure) evidence shapes: Makefile `##` comment `;`, captured/snapshot drift checks, workflow env literals, version probes
+- [ ] 43-10-TRD.md — (W8, tdd, gap closure) multi-stack scope: canonical-key primary, tiered root/primary placement, workspace root
+- [ ] 43-11-TRD.md — (W9, tdd, gap closure) mixed aggregates (codegen, bootstrap), partial drift checks, env teardown/reset
+- [ ] 43-12-TRD.md — (W10, tdd, gap closure) declared key targets, wrapper reduction, lint actions with a CLI equivalent
+- [ ] 43-13-TRD.md — (W11, tdd, gap closure) narrow CI builds fall back to the tier default; runtime-variable commands rank last
+- [ ] 43-14-TRD.md — (W12, checkpoint, gap closure) refresh stale committed STACK.md in aoinference and opsCluster (two-file commits, no push)
+- [ ] 43-15-TRD.md — (W13, checkpoint, gap closure) read-only fleet dry run, residual-row decision, KNOWN_DRIFT retired, CHANGELOG, full `npm test`
 
 ### Objective 45: DevFlow doctor + runtime hygiene
 
