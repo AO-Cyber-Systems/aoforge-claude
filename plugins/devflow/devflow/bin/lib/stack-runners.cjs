@@ -151,6 +151,42 @@ function cleanRecipeText(text) {
 // `.DEFAULT_GOAL := all` (any assignment operator) names the target a bare `make` runs.
 const MAKE_DEFAULT_GOAL = /^\.DEFAULT_GOAL\s*(?:::=|:=|\?=|\+=|!=|=)\s*([^\s#]+)/;
 
+// `[export|override] NAME op value` with op `?=`, `::=`, `:=` or `=` (TRD 43-01). `+=` (append) and
+// `!=` (shell) are deliberately not definitions: their value is not a literal this reader can use.
+const MAKE_ASSIGN = /^(?:(?:export|override)\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*(\?=|::=|:=|=)\s*(.*)$/;
+
+// A reference this reader may expand: `$$` (an escaped dollar, kept as written, and consumed here so
+// `$$(GO)` is never read as `$(GO)`), `$(NAME)` or `${NAME}` where NAME is a plain identifier.
+// `$(shell ...)`, `$(call f,x)`, `$(V:a=b)` and anything else with a space, comma or colon never match.
+const MAKE_REF = /\$\$|\$\(([A-Za-z_][A-Za-z0-9_]*)\)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+// How many variables deep one reference may chain (`A -> B -> C` is three).
+const MAKE_VAR_DEPTH = 3;
+
+/**
+ * Literal substitution of simple variable references from `vars` (name -> value text). Bounded
+ * literal substitution only: no `$(shell ...)`, functions, conditionals or target-specific values.
+ * An unknown name stays verbatim. A reference that cycles, or chains past MAKE_VAR_DEPTH, stays
+ * verbatim as a whole, so `A = $(A) x` is never half-expanded and nothing recurses forever.
+ * Nested calls return null when anything inside them was blocked; the top-level call never does.
+ */
+function expandMakeVars(text, vars, depth = 0, trail = []) {
+  let blocked = false;
+  const out = String(text).replace(MAKE_REF, (ref, paren, brace) => {
+    const name = paren || brace;
+    if (name === undefined || !vars.has(name)) return ref;
+    const inner = depth >= MAKE_VAR_DEPTH || trail.includes(name)
+      ? null
+      : expandMakeVars(vars.get(name), vars, depth + 1, [...trail, name]);
+    if (inner === null) {
+      blocked = true;
+      return ref;
+    }
+    return inner;
+  });
+  return blocked && depth > 0 ? null : out;
+}
+
 /**
  * Prerequisite names from the text after a rule's colon: everything before a `;` inline recipe,
  * order-only prerequisites (after `|`) included. A target-specific variable line
@@ -171,6 +207,9 @@ function makePrereqs(rest) {
  * targets, pattern rules (`%`) and targets containing `$(...)` are not targets. `define` blocks
  * are skipped. A target defined twice accumulates its recipes and its prerequisites. `deps` maps
  * every target to its prerequisite names; `defaultGoal` is the `.DEFAULT_GOAL` value or null.
+ *
+ * Simple variable references in recipe lines (`$(GO)`, `${GO}`) are expanded from the Makefile's own
+ * `?=` / `:=` / `::=` / `=` assignments, bounded at three levels (see `expandMakeVars`).
  */
 function parseMakefile(text) {
   const byName = new Map();
@@ -179,6 +218,7 @@ function parseMakefile(text) {
   let defaultGoal = null;
   let current = []; // entries receiving recipe lines
   let defineDepth = 0;
+  const vars = new Map(); // simple assignments, name -> literal value (TRD 43-01)
 
   for (const line of logicalLines(text)) {
     if (defineDepth > 0) {
@@ -213,6 +253,16 @@ function parseMakefile(text) {
       current = [];
       continue;
     }
+    // Checked BEFORE MAKE_RULE so `GO := go` is never read as a rule: `?=` keeps the first
+    // definition, `:=` / `::=` / `=` always take the later one (make's last-wins for those).
+    const assign = MAKE_ASSIGN.exec(line);
+    if (assign) {
+      current = [];
+      if (assign[2] !== '?=' || !vars.has(assign[1])) {
+        vars.set(assign[1], assign[3].replace(/(?<!\\)#.*$/, '').trim());
+      }
+      continue;
+    }
 
     const rule = MAKE_RULE.exec(line);
     current = [];
@@ -237,7 +287,14 @@ function parseMakefile(text) {
       current.push(entry);
     }
   }
-  return { targets: [...byName.values()], hasInclude, deps: Object.fromEntries(depsOf), defaultGoal };
+  // Expanded after the whole scan: make expands a recipe lazily, so a variable defined below the
+  // rule still applies, and the parser (not the classifier) owns it so `hasTarget`, bodies and
+  // dependency expansion all see the same text.
+  const targets = [...byName.values()];
+  if (vars.size > 0) {
+    for (const entry of targets) entry.body = entry.body.map((cmd) => expandMakeVars(cmd, vars));
+  }
+  return { targets, hasInclude, deps: Object.fromEntries(depsOf), defaultGoal };
 }
 
 function makeInvocation(dir, name) {
