@@ -278,10 +278,33 @@ function parseMustHavesBlock(content, blockName) {
     // Strip ONE pair of surrounding quotes, and only when the value both starts and ends
     // with one, so `provides: "has \"x\" key"` keeps its inner quotes.
     if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1).replace(/\\"/g, '"');
+    if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
     return v;
   };
+  // `[a, "b, c"]` -> ['a', 'b, c']: split on commas that sit outside quotes.
+  const flowItems = (inner) => {
+    const out = [];
+    let cur = '';
+    let quote = null;
+    for (const ch of inner) {
+      if (quote) {
+        if (ch === quote) quote = null;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === ',') {
+        out.push(cur);
+        cur = '';
+        continue;
+      }
+      cur += ch;
+    }
+    if (cur.trim() !== '') out.push(cur);
+    return out.map(unquote);
+  };
   const scalar = (raw) => {
-    const val = unquote(raw);
+    const v = raw.trim();
+    if (v.startsWith('[') && v.endsWith(']')) return flowItems(v.slice(1, -1));
+    const val = unquote(v);
     return /^\d+$/.test(val) ? parseInt(val, 10) : val;
   };
 
