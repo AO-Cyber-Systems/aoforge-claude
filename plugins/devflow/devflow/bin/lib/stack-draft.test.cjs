@@ -333,6 +333,106 @@ describe('pickPrimaryComponent (43-05, D6)', () => {
   });
 });
 
+describe('assembleDraft primary-component placement (43-05, D6)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  // Two svc/ CI items make `svc/` the primary component (app/ holds none).
+  const primaryEvidence = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+  ];
+
+  test('D17d (test 10): a root-area candidate for a key beats a primary-component candidate for it; the loser is a component note', () => {
+    const evidence = [
+      ev('test', './ci/test.sh', { source: 'ci', tool: null, bodyStacks: [], effectiveArea: '' }),
+      ev('test', 'make test', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, './ci/test.sh', JSON.stringify(d.commands.test));
+    assert.equal('cwd' in d.commands.test, false, 'a root candidate has no cwd');
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' }, 'a key with no root candidate still takes the primary one');
+    assert.ok(d.notes.some((n) => n.key === 'test' && n.candidate === 'make test' && n.area === 'svc/'), JSON.stringify(d.notes));
+  });
+
+  test('D17e: a primary candidate keeps its OWN cwd; a recipe that does the cd itself keeps none (just test-go)', () => {
+    const evidence = [
+      ev('test', 'just test-go', { source: 'runner', sourceFile: 'justfile', runner: 'just', cwd: null, area: '', tool: 'go', effectiveArea: 'svc/' }),
+      ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'just test-go' });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' });
+  });
+
+  test('D17f: with 2+ components there is NO tier-default fallback (a key nothing supplies stays absent)', () => {
+    const d = assembleDraft({ areas: AREAS, evidence: [ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' })], tierCommands: TIERS, verify: resolvedAll });
+    assert.ok(d.commands.test);
+    assert.equal('build' in d.commands, false);
+    assert.equal('lint' in d.commands, false);
+  });
+
+  test('D17g: the single-component fallback is build/test/lint only, and a root candidate wins over it', () => {
+    const areas = [{ dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] }];
+    const d = assembleDraft({ areas, evidence: [ev('build', 'make build', { source: 'runner', runner: 'make', tool: 'go', effectiveArea: '' })], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build' }, 'the root candidate has no cwd and wins over the fallback');
+    assert.deepStrictEqual(d.commands.test, { run: 'go test -race ./...', scoped: 'go test -race {packages}', cwd: 'svc' });
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' });
+    assert.equal(Object.keys(d.commands).length, 3);
+    // A component tier whose build is `discover` supplies no build fallback.
+    const flutterOnly = assembleDraft({ areas: [{ dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }], evidence: [], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(Object.keys(flutterOnly.commands), ['test', 'lint']);
+    assert.equal(flutterOnly.commands.test.cwd, 'app');
+  });
+
+  test('D17h (test 11): a root candidate whose tool stack is only a NON-primary component stack is an off_primary note; shell stays', () => {
+    const evidence = [
+      ev('build', 'flutter build web', { tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: '' }),
+      ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('lint', 'shellcheck bin/*.sh', { tool: 'shellcheck', bodyStacks: [], effectiveArea: '' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' }, JSON.stringify(d.commands.build));
+    const off = d.notes.find((n) => n.status === 'off_primary');
+    assert.ok(off, JSON.stringify(d.notes));
+    assert.equal(off.key, 'build');
+    assert.equal(off.candidate, 'flutter build web');
+    assert.match(off.detail, /tool stack flutter belongs to component app\/, not the primary component/);
+    assert.deepStrictEqual(d.commands.lint, { run: 'shellcheck bin/*.sh' }, 'a shell candidate is a root key (devcluster)');
+    assert.ok(!d.notes.some((n) => n.status === 'off_primary' && n.candidate === 'shellcheck bin/*.sh'));
+  });
+
+  test('D17i: a mixed, unknown or neutral tool stack is never off_primary; the primary\'s own stack is never off_primary', () => {
+    const evidence = [
+      ev('test', 'task ci', { source: 'runner', runner: 'task', tool: null, bodyStacks: ['go', 'flutter'], effectiveArea: '' }),
+      ev('codegen', 'buf generate', { form: 'mutate', tool: 'buf', bodyStacks: ['neutral'], effectiveArea: '' }),
+      ev('deps', 'npm ci', { form: 'mutate', tool: 'npm', bodyStacks: ['node'], effectiveArea: '' }),
+      ev('typecheck', 'go vet ./...', { tool: 'go', bodyStacks: ['go'], effectiveArea: '' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.ok(!d.notes.some((n) => n.status === 'off_primary'), JSON.stringify(d.notes));
+    for (const key of ['test', 'codegen', 'deps', 'typecheck']) assert.ok(d.commands[key], `${key}: ${JSON.stringify(d.commands)}`);
+  });
+
+  test('D31c (test 12): an effectiveArea equal to a NON-primary component is still noted against that component', () => {
+    const evidence = [
+      ev('test', 'task app:test', { source: 'runner', runner: 'task', tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: 'app/' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.notes.find((n) => n.tag === 'primary_component').area, 'svc/');
+    assert.equal(d.commands.test.run, 'go test ./...', 'the flutter component never supplies the root test');
+    const n = d.notes.find((x) => x.candidate === 'task app:test');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.area, 'app/');
+    assert.match(n.detail, /component app\/ uses tier flutter/);
+  });
+});
+
 describe('assembleDraft e2e (D18)', () => {
   test('D18: a .maestro/ flag adds `maestro test .maestro`; without it a maestro candidate is dropped', () => {
     const areas = [{ dir: '', kinds: ['dart', 'flutter'], tier: 'flutter', flags: ['maestro'] }];
