@@ -742,6 +742,37 @@ function aggregateMakeShape() {
   });
 }
 
+/**
+ * internalTaskShape() — TRD 43-01 D5, a Go module whose Taskfile marks its helper tasks
+ * `internal: true` (they cannot be run from the CLI): `go:mod:tidy` and `npm:install`, called by the
+ * public `init`. Invented names (`svcapp`). Expected: `task go:mod:tidy` / `task npm:install` appear
+ * in no command, candidate or note, so `tidy` stays the go tier's `go mod tidy -diff`.
+ */
+function internalTaskShape() {
+  return makeWhole({
+    'go.mod': goMod('svcapp'),
+    'main.go': GO_MAIN,
+    'Taskfile.yml': [
+      "version: '3'",
+      '',
+      'tasks:',
+      '  go:mod:tidy:',
+      '    internal: true',
+      '    cmds: [go mod tidy]',
+      '',
+      '  npm:install:',
+      '    internal: true',
+      '    cmd: npm install',
+      '',
+      '  init:',
+      '    deps: [npm:install]',
+      '    cmds:',
+      '      - task: go:mod:tidy',
+      '',
+    ].join('\n'),
+  });
+}
+
 /** Every e2e shape, by name, for "for each fixture" assertions. */
 const SHAPES = Object.freeze({
   multiAreaCiShape,
@@ -782,6 +813,7 @@ module.exports = {
   nestedRepoShape,
   trackedPlanningIgnoredShape,
   aggregateMakeShape,
+  internalTaskShape,
   gitOnlyBin,
   hasGit: detectFx.hasGit,
   SHAPES,

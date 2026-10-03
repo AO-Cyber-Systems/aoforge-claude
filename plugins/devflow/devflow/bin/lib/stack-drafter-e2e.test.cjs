@@ -254,7 +254,10 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     const subtree = json.notes.find((n) => n.status === 'narrow' && n.candidate === 'go test ./pkg/guardnet/...');
     assert.ok(subtree, `a package sub-tree is not repo-wide: ${JSON.stringify(json.notes)}`);
     assert.match(subtree.detail, /single-path/);
-    assert.ok(json.notes.some((n) => n.status === 'alternate' && n.key === 'build' && n.candidate === 'task build:agent:internal'), JSON.stringify(json.notes));
+    // TRD 43-01 D5: `build:agent:internal` is `internal: true`, so it cannot be run from the CLI and
+    // is never offered, not even as an alternate. A public variant still is.
+    assert.ok(!json.notes.some((n) => /build:agent:internal/.test(String(n.candidate || ''))), JSON.stringify(json.notes));
+    assert.ok(json.notes.some((n) => n.status === 'alternate' && n.key === 'build' && n.candidate === 'task build:agent:quickdev'), JSON.stringify(json.notes));
     assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
     assertNoFragments(fm.commands);
 
@@ -389,6 +392,7 @@ describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
 //
 //  18  D1 aggregate Make    `build: frontend backend` with a `$(GO) build` leg drafts make build/test/lint
 //  19  D5 internal tasks    `internal: true` Taskfile tasks are never a command or a candidate
+//      (and e2e 11 no longer expects an `alternate` note for its internal build task)
 
 describe('stack init closes the runner-reader defects end to end (TRD 43-01)', () => {
   test('18: D1 aggregate Make — `$(GO)` expands, so `make build/test/lint` win (devflowops-shaped)', () => withShape(fx.aggregateMakeShape, (repo) => {
@@ -403,6 +407,24 @@ describe('stack init closes the runner-reader defects end to end (TRD 43-01)', (
       `make build is not off_stack: ${JSON.stringify(json.notes)}`,
     );
     assert.ok(!JSON.stringify(fm.commands).includes('app_no_gcc'), `no variant name in commands: ${JSON.stringify(fm.commands)}`);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('19: D5 internal tasks — never a command, candidate or note; tidy stays the go tier default (ao-terminal-shaped)', () => withShape(fx.internalTaskShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    assert.equal(fm.extends, 'go');
+    const hidden = /\btask (go:mod:tidy|npm:install)\b/;
+    assert.ok(!allRuns(fm.commands).some((v) => hidden.test(v)), `commands: ${JSON.stringify(fm.commands)}`);
+    assert.ok(!json.evidence.some((e) => hidden.test(String(e.command))), `candidates: ${JSON.stringify(json.evidence)}`);
+    assert.ok(!json.notes.some((n) => hidden.test(String(n.candidate || ''))), `notes: ${JSON.stringify(json.notes)}`);
+    // With no override, `tidy` is whatever the bundled go profile says.
+    assert.equal('tidy' in fm.commands, false, `tidy inherits the go tier, not ${JSON.stringify(fm.commands.tidy)}`);
+    const goTier = parseProfile(fs.readFileSync(path.join(__dirname, '..', 'stack-profiles', 'go.md'), 'utf-8')).frontmatter;
+    assert.equal(goTier.commands.tidy.run, 'go mod tidy -diff');
+    assert.equal(goTier.commands.tidy.apply, 'go mod tidy');
     assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
     assertNoFragments(fm.commands);
   }));

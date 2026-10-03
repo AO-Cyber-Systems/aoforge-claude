@@ -37,6 +37,8 @@ const {
   _parseTaskfile,
   _parseJustfile,
 } = require('./stack-runners.cjs');
+// Read-only: the TRD 43-01 D5 test asserts what `stack verify` makes of an internal task.
+const { verifyCommand } = require('./stack-verify.cjs');
 
 const roots = [];
 function track(root) { roots.push(root); return root; }
@@ -421,6 +423,85 @@ describe('readRunners — Taskfile', () => {
     assert.equal(find(targets, 'task', '', 'a').cwd, 'go');
     assert.equal(find(targets, 'task', '', 'b').cwd, undefined);
     assert.equal(find(targets, 'task', '', 'c').cwd, undefined);
+  });
+
+  // ─── TRD 43-01 D5: `internal: true` tasks cannot be run from the CLI ─────────
+
+  test('5g. `internal: true` flags the parsed task; false, absent, templated and shorthand do not', () => {
+    const text = [
+      'tasks:',
+      '  a:',
+      '    internal: true',
+      '    cmd: x',
+      '  b:',
+      '    internal: false',
+      '    cmd: x',
+      '  c:',
+      '    cmd: x',
+      '  d:',
+      '    internal: "true"   # a quoted boolean is still true',
+      '    cmd: x',
+      '  e:',
+      '    internal: "{{.HIDE}}"',
+      '    cmd: x',
+      '  f: go build ./...',
+      '',
+    ].join('\n');
+    const byName = Object.fromEntries(_parseTaskfile(text).tasks.map((t) => [t.name, t.internal]));
+    assert.deepEqual(byName, { a: true, b: false, c: false, d: true, e: false, f: false });
+  });
+
+  test('5h. internal tasks stay in the parsed index and on the runner targets, flagged', () => {
+    const root = track(fx.taskfileInternalShape());
+    const targets = readRunners(root);
+    const tidy = find(targets, 'task', '', 'go:mod:tidy');
+    assert.ok(tidy, 'an internal task is still a runner target (its body is needed to expand a caller)');
+    assert.equal(tidy.internal, true);
+    assert.deepEqual(tidy.body, ['go mod tidy']);
+    assert.equal(find(targets, 'task', '', 'build').internal, false, 'internal: false');
+    assert.equal(find(targets, 'task', '', 'test').internal, false, 'absent');
+    const init = find(targets, 'task', '', 'init');
+    assert.deepEqual(init.deps, ['npm:install'], 'a public task still lists its internal dep');
+    assert.deepEqual(init.body, ['task go:mod:tidy'], 'and still calls its internal task');
+  });
+
+  test('5i. hasTarget is false for an internal task and its alias, true for a public one', () => {
+    const root = track(fx.taskfileInternalShape());
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'go:mod:tidy' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'npm:install' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'lint' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'l' }), false, 'an alias of an internal task');
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'init' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'build' }), true, 'internal: false');
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'test' }), true);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'nope' }), false);
+  });
+
+  test('5j. an internal task is false even when the Taskfile `includes:` others (it was found)', () => {
+    const root = track(fx.makeRepo({
+      'Taskfile.yml': [
+        "version: '3'",
+        'includes:',
+        '  web: ./web/Taskfile.yml',
+        'tasks:',
+        '  prep:',
+        '    internal: true',
+        '    cmd: go generate ./...',
+        '',
+      ].join('\n'),
+    }));
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'prep' }), false);
+    assert.equal(hasTarget(root, { runner: 'task', dir: '', name: 'web:build' }), 'unknown', 'an unmatched name is still unknown');
+  });
+
+  test('5k. verify (read-only): `task go:mod:tidy` is target_missing, `task init` resolves', () => {
+    const root = track(fx.taskfileInternalShape());
+    const which = (name) => (name === 'task' ? '/usr/local/bin/task' : null);
+    const r = verifyCommand('task go:mod:tidy', { root, which });
+    assert.equal(r.status, 'target_missing', JSON.stringify(r));
+    assert.match(r.detail, /task/);
+    assert.equal(verifyCommand('task npm:install', { root, which }).status, 'target_missing');
+    assert.equal(verifyCommand('task init', { root, which }).status, 'resolved');
   });
 });
 

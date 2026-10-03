@@ -415,16 +415,22 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
       );
       assert.deepStrictEqual(bundle.bodyInvocations, ['task build:daemon', 'task build:relay:internal']);
 
-      const internal = runner('build:relay:internal');
-      assert.ok(internal, JSON.stringify(evidence));
-      assert.equal(internal.target.dependedOn, false, 'called from cmds, not listed in any deps');
-      assert.deepStrictEqual(internal.bodyInvocations, ['go build -trimpath -o out/relay ./cmd/relay']);
+      // TRD 43-01 D5: `build:relay:internal` is `internal: true` in this fixture, so `task
+      // build:relay:internal` is not invocable and was never a candidate worth proposing. This
+      // test used it as the "called from cmds, not listed in deps" leaf; `build:relay:quickdev`
+      // is that same leaf shape without the internal flag.
+      assert.equal(runner('build:relay:internal'), undefined, 'an internal task is never a candidate');
+      const leaf = runner('build:relay:quickdev');
+      assert.ok(leaf, JSON.stringify(evidence));
+      assert.equal(leaf.target.dependedOn, false, 'not listed in any deps');
+      assert.deepStrictEqual(leaf.bodyInvocations, ['go build -o out/relay ./cmd/relay']);
 
       const gen = runner('gen');
       assert.ok(gen, JSON.stringify(evidence));
       assert.equal(gen.target.dependedOn, true);
       assert.equal(gen.target.isDefault, false);
-      assert.ok(bundle.target.order < internal.target.order, 'file order survives the sorted target list');
+      // quickdev is listed BEFORE build:bundle in the file but sorts AFTER it by name.
+      assert.ok(leaf.target.order < bundle.target.order, 'file order survives the sorted target list');
 
       // A direct CI command carries itself as its one body invocation, and no target.
       const guard = evidence.find((e) => e.source === 'ci' && e.key === 'test');
@@ -459,6 +465,56 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
       assert.deepStrictEqual(test_.bodyInvocations, ['vitest run']);
       assert.equal(test_.target.name, 'test');
       assert.equal(test_.target.isDefault, false);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// ─── TRD 43-01 test 13: internal Taskfile tasks are never candidates ────────────
+
+describe('stack-evidence internal Taskfile tasks (E13c, TRD 43-01 D5)', () => {
+  test('E13c: no candidate for an `internal: true` task, but a public caller still expands its body', () => {
+    const root = runnerFx.taskfileInternalShape();
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
+      const commands = evidence.map((e) => e.command);
+      for (const hidden of ['task lint', 'task l', 'task go:mod:tidy', 'task npm:install']) {
+        assert.ok(!commands.includes(hidden), `${hidden} is internal, so never proposed: ${JSON.stringify(commands)}`);
+      }
+      // The public tasks remain candidates.
+      assert.ok(commands.includes('task check'), JSON.stringify(commands));
+      assert.ok(commands.includes('task test'), JSON.stringify(commands));
+      assert.ok(commands.includes('task build'), JSON.stringify(commands));
+      // `check` runs `task: lint` (internal, `eslint .`) then `go vet ./...`: the internal task's
+      // body is still in the index, so it expands and the node stack shows up in the body.
+      const check = evidence.find((e) => e.command === 'task check');
+      assert.ok(check.bodyStacks.includes('node'), `the internal body was expanded: ${JSON.stringify(check)}`);
+      assert.ok(check.bodyStacks.includes('go'), JSON.stringify(check));
+    } finally {
+      runnerFx.cleanup(root);
+    }
+  });
+
+  test('E13d: a public task that only DEPENDS on an internal one still runs its body', () => {
+    const root = makeRepo({
+      'Taskfile.yml': [
+        "version: '3'",
+        'tasks:',
+        '  prep:',
+        '    internal: true',
+        '    cmd: eslint .',
+        '  lint:',
+        '    deps: [prep]',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
+      assert.ok(!evidence.some((e) => e.command === 'task prep'), JSON.stringify(evidence));
+      const lint = evidence.find((e) => e.command === 'task lint');
+      assert.ok(lint, JSON.stringify(evidence));
+      assert.deepStrictEqual(lint.bodyStacks, ['node'], 'a prerequisites-only target runs its internal dep');
     } finally {
       cleanup(root);
     }
