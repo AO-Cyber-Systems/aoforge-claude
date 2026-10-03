@@ -1118,6 +1118,69 @@ describe('pickPrimaryComponent: CI through a task runner first (P7, TRD 43-06)',
   });
 });
 
+// TRD 43-10 (B1; eden-biz and politihub rows). The primary component is chosen on the evidence that
+// names the repository's build interface: build, test and lint. A CI step through a task runner lifts a
+// component only when it serves one of those keys (`make bundle-e2e` serves e2e and says nothing about the
+// build); then the count of build/test/lint evidence decides, then ALL evidence, then go-first.
+describe('pickPrimaryComponent: build/test/lint evidence decides (B1, TRD 43-10)', () => {
+  const comp = (p, profile) => ({ path: p, profile });
+  let n = 0;
+  const many = (key, dir, count, extra = {}) => Array.from({ length: count }, () => {
+    n += 1;
+    return ev(key, `cmd-${key}-${dir}-${n}`, { source: 'ci', runner: null, effectiveArea: dir, area: dir, ...extra });
+  });
+
+  test('B1a: one CI step through a runner serving e2e does not lift a component', () => {
+    const items = [
+      ...many('build', 'svc/', 3), ...many('test', 'svc/', 3),
+      ...many('deps', 'app/', 5), ...many('build', 'app/', 2), ...many('test', 'app/', 2),
+      ...many('e2e', 'app/', 1, { runner: 'make' }),
+    ];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/', JSON.stringify(p));
+    assert.equal(p.viaRunner, 0);
+    assert.equal(p.canonical, 6);
+    assert.equal(p.score, 6);
+  });
+
+  test('B1b: a CI step through a runner serving build, test or lint still lifts its component', () => {
+    for (const key of ['build', 'test', 'lint']) {
+      const items = [...many('test', 'svc/', 6), ...many(key, 'app/', 1, { runner: 'make' })];
+      const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+      assert.equal(p.path, 'app/', `${key}: ${JSON.stringify(p)}`);
+      assert.equal(p.viaRunner, 1);
+    }
+  });
+
+  test('B1c: without a runner step, the build/test/lint count decides before the total', () => {
+    const items = [
+      ...many('test', 'svc/', 4), ...many('build', 'svc/', 1),
+      ...many('deps', 'app/', 9), ...many('codegen', 'app/', 4), ...many('test', 'app/', 2),
+    ];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/', JSON.stringify(p));
+    assert.equal(p.canonical, 5);
+    assert.equal(p.score, 5);
+  });
+
+  test('B1d: equal build/test/lint counts: the total decides, then go-first', () => {
+    const more = [...many('test', 'app/', 2), ...many('deps', 'app/', 3), ...many('test', 'svc/', 2)];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], more).path, 'app/', 'the total decides');
+    const tie = [...many('test', 'app/', 2), ...many('test', 'svc/', 2)];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], tie).path, 'svc/', 'go-first');
+  });
+
+  test('B1e: runner items count as evidence; only runner and CI items count at all', () => {
+    const items = [
+      ...many('build', 'svc/', 1, { source: 'runner', runner: 'make' }), ...many('test', 'svc/', 1, { source: 'runner', runner: 'make' }),
+      ...many('test', 'app/', 1), ...many('test', 'app/', 5, { source: 'manifest' }),
+    ];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/', JSON.stringify(p));
+    assert.equal(p.viaRunner, 0, 'a runner ITEM is not a CI step through a runner');
+  });
+});
+
 // TRD 43-06 (EdenDocs golden). A `general` root that BUILDS ITSELF (a root build candidate that is not
 // only a container image build) is a product of its own: its components are sidecars, so no component is
 // primary, none fills the root's keys and the single-component fallback does not apply. A repo-level

@@ -70,12 +70,6 @@ const KNOWN_DRIFT = {
   ],
   'eden-biz': [
     {
-      keys: ['build', 'test'],
-      closes: '43-10',
-      reason: 'build: draft `make build-web (cwd flutter)` vs committed `make build (cwd go)`; '
-        + 'test: draft `make test (cwd flutter)` vs committed `make test (cwd go)`',
-    },
-    {
       keys: ['codegen', 'e2e_env'],
       closes: '43-11',
       reason: 'codegen: draft `make buf-generate (cwd go)` vs committed `make generate (cwd go)`; '

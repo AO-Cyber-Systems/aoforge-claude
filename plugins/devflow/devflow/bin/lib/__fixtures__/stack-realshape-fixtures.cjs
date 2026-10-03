@@ -299,9 +299,298 @@ function workflowEnvChartShape() {
   });
 }
 
+// ─── cross-stack primary (eden-biz.build and eden-biz.test rows, TRD 43-10) ───
+
+/**
+ * crossStackPrimaryShape() — a `general` root with a Go service in `server/` and a Flutter client in
+ * `client/`. There is no root manifest and no root build or test. The client holds MORE evidence items
+ * in total (its Makefile has two builds, a test, an analyze and a bundle target named for the e2e
+ * scenario; three workflows), and ONE of its CI steps goes through its Makefile, serving that e2e
+ * target. The service holds more build/test/lint items: its Makefile has build, test and an image build,
+ * and its CI runs the Go tools DIRECTLY (`go vet`, `go build`, `go test`) across three workflows, never
+ * `make`. The drafter must pick the service as the primary component, because the evidence that
+ * decides is the build/test/lint evidence, and one CI step through a runner for an e2e target says
+ * nothing about the repository's build interface.
+ *
+ * Per-area counts (runner + CI items, canonical build/test/lint ones): server 9 and 9, client 11 and 7.
+ * Reviewed: build `make build` and test `make test` with cwd `server`; lint `go vet ./...` with cwd
+ * `server` (the service's CI step); no deps, which only the client's CI supplies.
+ */
+function crossStackPrimaryShape() {
+  return makeWhole({
+    'README.md': '# tallyhall\n',
+    'server/go.mod': goMod('tallyhall'),
+    'server/main.go': GO_MAIN,
+    'server/cmd/tallyd/main.go': GO_MAIN,
+    'server/Makefile': mk([
+      '.PHONY: build test image-build',
+      '',
+      'build: ## Build the server binary',
+      '\tgo build -o bin/tallyd ./cmd/tallyd',
+      '',
+      'test: ## Run the unit tests',
+      '\tgo test ./...',
+      '',
+      'image-build: ## Build the container image',
+      '\tdocker build -t tallyd:local .',
+    ]),
+    'client/pubspec.yaml': flutterPubspec('tallyhall_client'),
+    'client/lib/main.dart': DART_MAIN,
+    'client/Makefile': mk([
+      '.PHONY: build-web build-desktop test analyze bundle-e2e',
+      '',
+      'build-web: ## Release build for the web',
+      '\tflutter build web --release',
+      '',
+      'build-desktop: ## Release build for the desktop shell',
+      '\tflutter build macos --release',
+      '',
+      'test: ## Run unit and widget tests',
+      '\tflutter test',
+      '',
+      'analyze: ## Static analysis',
+      '\tflutter analyze',
+      '',
+      'bundle-e2e: ## Web bundle with the e2e entry point',
+      '\tflutter build web --release -t lib/main_e2e.dart',
+    ]),
+    '.github/workflows/server.yml': wf([
+      'name: server',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: server',
+      'jobs:',
+      '  unit:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go vet ./...',
+      '      - run: go build ./...',
+      '      - run: go test ./... -count=1 -timeout 20m',
+    ]),
+    '.github/workflows/smoke.yml': wf([
+      'name: smoke',
+      'on: [pull_request]',
+      'jobs:',
+      '  boot:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - name: Build the dev binary',
+      '        working-directory: server',
+      '        run: go build -tags dev -o /tmp/tallyd ./cmd/tallyd',
+    ]),
+    '.github/workflows/store.yml': wf([
+      'name: store',
+      'on: [pull_request]',
+      'jobs:',
+      '  migrate:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: server',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go build -o /tmp/tallyd ./cmd/tallyd',
+      '      - run: go test ./internal/store/... -count=1',
+    ]),
+    '.github/workflows/client.yml': wf([
+      'name: client',
+      'on: [pull_request]',
+      'jobs:',
+      '  unit:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: client',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: flutter analyze',
+      '      - run: flutter test',
+    ]),
+    '.github/workflows/client-release.yml': wf([
+      'name: client-release',
+      'on: [push]',
+      'jobs:',
+      '  web:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: client',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter build web --release',
+    ]),
+    '.github/workflows/client-journeys.yml': wf([
+      'name: client-journeys',
+      'on: [pull_request]',
+      'jobs:',
+      '  journeys:',
+      '    runs-on: ubuntu-latest',
+      '    defaults:',
+      '      run:',
+      '        working-directory: client',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - name: Build the journeys bundle',
+      '        run: make bundle-e2e',
+    ]),
+  });
+}
+
+// ─── primary component whose CI runs tools directly (politihub row, TRD 43-10) ─
+
+/**
+ * toolDirectPrimaryShape() — a `general` root with a Go service in `core/` and a Flutter app in
+ * `navigator/`. The service's Makefile has build, test and an image build with a prerequisite; its
+ * only workflow runs the Go tools DIRECTLY (`go vet`, `go build`, `go test`), never `make`. The app has
+ * the most CI items in the repository, spread across THREE workflows (pub get, build_runner, analyze,
+ * tests, three release builds), all raw `flutter` / `dart`, and no task runner.
+ *
+ * Per-area counts (runner + CI items, canonical build/test/lint ones): core 8 and 7, navigator 12 and 6.
+ * Reviewed: build `make build` and test `make test` with cwd `core`; lint `go vet ./...` with cwd `core`.
+ */
+function toolDirectPrimaryShape() {
+  return makeWhole({
+    'README.md': '# civicdesk\n',
+    'core/go.mod': goMod('civicdesk'),
+    'core/main.go': GO_MAIN,
+    'core/Makefile': mk([
+      '.PHONY: build test vendor-shared image-build',
+      '',
+      'build:',
+      '\tgo build -o bin/civicd .',
+      '',
+      'test:',
+      '\tgo test ./...',
+      '',
+      'vendor-shared:',
+      '\tgo mod vendor',
+      '',
+      'image-build: vendor-shared',
+      '\tdocker build -t civicd:local .',
+    ]),
+    'navigator/pubspec.yaml': flutterPubspec('civicdesk_navigator', { buildRunner: true }),
+    'navigator/lib/main.dart': DART_MAIN,
+    '.github/workflows/core.yml': wf([
+      'name: core',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: core',
+      'jobs:',
+      '  checks:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - run: go vet ./...',
+      '      - run: go vet -tags integration ./...',
+      '      - run: go build ./...',
+      '      - run: go test ./... -race -tags integration -p 1',
+    ]),
+    '.github/workflows/navigator.yml': wf([
+      'name: navigator',
+      'on: [pull_request]',
+      'defaults:',
+      '  run:',
+      '    working-directory: navigator',
+      'jobs:',
+      '  checks:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: dart run build_runner build --delete-conflicting-outputs',
+      '      - run: flutter analyze',
+      '      - run: flutter test',
+      '      - run: flutter test --platform chrome test/core/web_store_test.dart',
+      '      - run: flutter build web --release',
+    ]),
+    '.github/workflows/navigator-release.yml': wf([
+      'name: navigator-release',
+      'on:',
+      '  push:',
+      '    tags: ["v*"]',
+      'defaults:',
+      '  run:',
+      '    working-directory: navigator',
+      'jobs:',
+      '  mobile:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: dart run build_runner build --delete-conflicting-outputs',
+      '      - run: flutter build ios --release --no-codesign --build-name="${{ github.ref_name }}"',
+      '      - run: flutter build appbundle --release --build-name="${{ github.ref_name }}"',
+    ]),
+    '.github/workflows/navigator-pages.yml': wf([
+      'name: navigator-pages',
+      'on:',
+      '  push:',
+      '    branches: [main]',
+      'defaults:',
+      '  run:',
+      '    working-directory: navigator',
+      'jobs:',
+      '  deploy:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: subosito/flutter-action@v2',
+      '      - run: flutter pub get',
+      '      - run: dart run build_runner build --delete-conflicting-outputs',
+    ]),
+  });
+}
+
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
 
 const REALSHAPE = Object.freeze({
+  crossStackPrimaryShape: {
+    build: crossStackPrimaryShape,
+    tools: tools(),
+    expect: {
+      extends: 'general',
+      components: [{ path: 'client/', profile: 'flutter' }, { path: 'server/', profile: 'go' }],
+      commands: {
+        build: { run: 'make build', cwd: 'server' },
+        test: { run: 'make test', cwd: 'server' },
+        lint: { run: 'go vet ./...', cwd: 'server' },
+      },
+    },
+    absent: ['deps', 'e2e'],
+    extraAllowed: [],
+    noEvidence: [],
+  },
+  toolDirectPrimaryShape: {
+    build: toolDirectPrimaryShape,
+    tools: tools(),
+    expect: {
+      extends: 'general',
+      components: [{ path: 'core/', profile: 'go' }, { path: 'navigator/', profile: 'flutter' }],
+      commands: {
+        build: { run: 'make build', cwd: 'core' },
+        test: { run: 'make test', cwd: 'core' },
+        lint: { run: 'go vet ./...', cwd: 'core' },
+      },
+    },
+    absent: ['deps', 'codegen'],
+    extraAllowed: [],
+    noEvidence: [],
+  },
   captureDiffCheckShape: {
     build: captureDiffCheckShape,
     tools: tools(),
@@ -354,4 +643,6 @@ module.exports = {
   captureDiffCheckShape,
   snapshotVerifyShape,
   workflowEnvChartShape,
+  crossStackPrimaryShape,
+  toolDirectPrimaryShape,
 };
