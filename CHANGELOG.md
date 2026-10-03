@@ -261,6 +261,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `github.enabled: false` was ignored by `sync`, `pull` and `resolve`, and the legacy commands exited
   0 on failure. Every command now reports `skipped` with exit 0 and makes no `gh` call when
   disabled; an enabled project that cannot reach GitHub exits 1.
+- **`df-tools micro commit --files` commits only the named paths** (#120). It staged the named
+  files and then ran a whole-index `git commit`, so anything already staged went into the micro's
+  commit, and the STATE.md follow-up commit could sweep it in the same way. Both commits now pass
+  the paths as a pathspec (`git commit -- <files>`), and unrelated staged changes stay staged. A
+  `--files` path with no changes now fails instead of committing whatever else was staged. Without
+  `--files` nothing changes.
 
 ### Deprecated
 - `git.branching_strategy` (objective 49). In store mode it is ignored and `init` reports it as

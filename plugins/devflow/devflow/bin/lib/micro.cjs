@@ -158,7 +158,9 @@ function _appendQuickTaskRow(stateMdPath, row) {
 function _defaultGitRunner(cwd, opts) {
   const safeEnv = { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' };
 
-  // Stage files. With an explicit list, stage exactly that. Without one, NEVER
+  // Stage files. With an explicit list, stage exactly that and commit exactly
+  // that, by pathspec, so any other changes the user has staged stay staged and
+  // out of the commit (#120). Without one, NEVER
   // stage untracked files: the old `git add .` fallback swept a user's unrelated
   // drafts into a micro commit and onto a pushed branch. Instead commit what the
   // caller already staged, or — if nothing is — tracked modifications only.
@@ -188,7 +190,12 @@ function _defaultGitRunner(cwd, opts) {
   }
 
   // Commit
-  const commitResult = spawnSync('git', ['commit', '-m', opts.message], {
+  const commitArgs = ['commit', '-m', opts.message];
+  // Pathspec-limit an explicit list: a whole-index commit swept the user's
+  // unrelated staged changes into the micro (#120). `--` keeps paths from
+  // being read as options; a staged deletion of a listed path is still recorded.
+  if (opts.files && opts.files.length > 0) commitArgs.push('--', ...opts.files);
+  const commitResult = spawnSync('git', commitArgs, {
     cwd,
     encoding: 'utf8',
     env: safeEnv,
@@ -282,7 +289,7 @@ function startMicro({ planningDir, description, pid, now }) {
  * @param {object} opts
  * @param {string|null} opts.planningDir - absolute path to .planning/
  * @param {string} opts.description - task description (used in commit message)
- * @param {string[]|null} opts.files - files to stage (null = what is already staged, else tracked modifications; never untracked files)
+ * @param {string[]|null} opts.files - files to stage and commit (pathspec-limited; unrelated staged changes stay staged); null = what is already staged, else tracked modifications; never untracked files
  * @param {string} opts.now - ISO8601 timestamp (for STATE.md date)
  * @param {Function|null} opts.gitRunner - injection for tests; null = real git
  * @returns {{ ok: boolean, commit_hash?: string, removed_marker?: boolean, reason?: string, message?: string, stderr?: string }}
@@ -412,11 +419,10 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // Mirrors /devflow:quick's 2-commit pattern. Only attempt if the row was
   // successfully appended — otherwise nothing to commit.
   //
-  // Also stage `.planning/.skill-active` IF it was tracked in commit 1 (i.e.,
-  // the first commit used `git add .` from a null `files` arg). After endSkill,
-  // the marker is deleted on disk; if it was tracked, this shows as `D` in the
-  // working tree and must be captured in commit 2 to keep the tree clean.
-  // If the marker was never tracked (explicit `files` list), skip staging it —
+  // Also stage `.planning/.skill-active` IF it is already tracked in the
+  // repository. After endSkill, the marker is deleted on disk; if it was tracked,
+  // this shows as `D` in the working tree and must be captured in commit 2 to
+  // keep the tree clean. If the marker was never tracked, list nothing for it —
   // `git add` on an untracked, now-deleted path errors with "did not match".
   const stateFiles = ['.planning/STATE.md'];
   const lsResult = spawnSync('git', ['ls-files', '--error-unmatch', '.planning/.skill-active'], {
