@@ -21,7 +21,7 @@ key-files:
     - .planning/objectives/43-stack-drafter-rules/43-ROLLOUT.md
 key-decisions:
   - "Dry-run drift is measured in the 43-06 golden scope (extends, components set, per key effective run/apply/cwd), skipping the accepted HAND_ONLY keys, and split into conflicts (hand-fix needed) and more-specific (draft adds a key or resolves a `discover`)"
-  - "devcluster is reported as drift on lint and test, not a match: pending remedy (a), a devcluster CI workflow, follow-up after 43-07"
+  - "devcluster is reported as drift on lint and test, not a match: known hand-fix row (remedy (c), user decision 2026-10-03)"
   - "A repo whose HEAD moved after the plan was pinned is skipped and recorded, not re-pinned (politihub)"
 requirements-completed: [SDR-03]
 requirements-partial: [SDR-08]

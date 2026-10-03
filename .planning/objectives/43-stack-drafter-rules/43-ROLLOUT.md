@@ -138,6 +138,9 @@ Recorded before any gate ran. The user approved this decision in chat on 2026-10
 >
 > The user chose remedy (a): add an offline CI workflow to devcluster that runs shellcheck and the selftest. The orchestrator does this AFTER Task 3, because Task 3 pins HEADs. In Task 3's `## Dry-run drift` table, report devcluster honestly as drift: test and lint differ, so it needs a hand-fix today. Note the reason "pending remedy (a): devcluster CI workflow, follow-up after 43-07". Do not count it as a match.
 
+
+**Revised 2026-10-03, after Task 3 (user reply: "c").** Remedy (a) was withdrawn before anything was written to devcluster, for two reasons. First, `t0-conformance/selftest.sh` copies manifests out of a separate gitops checkout (`config/apps.yaml` -> `.gitops.path`) and needs `yq`, so a CI runner cannot run it offline. Second, devcluster has staged work in progress on `main`. The user chose remedy (c): devcluster stays a known hand-fix row (`lint`, `test`), and no change is made to the repo.
+
 ### Effective run list (derived from the reply, applied in plan order)
 
 | Group | Repos | Invocation |
@@ -243,7 +246,7 @@ A drift row falls into one of two kinds. A **conflict** is a different concrete 
 | aoinference | drift | extends committed=go draft=general<br>components committed-only=[] draft-only=[control-plane\|go]<br>audit: committed `govulncheck ./... (cwd control-plane)` vs draft `discover`<br>build: committed `go build ./... (cwd control-plane)` vs draft `make build (cwd control-plane)`<br>codegen: committed `go generate ./... (cwd control-plane)` vs draft `make drift-check (apply: make generate) (cwd control-plane)`<br>fix: committed `go fix -diff ./... (apply: go fix ./...) (cwd control-plane)` vs draft `discover`<br>format: committed `test -z "$(gofmt -l .)" (apply: gofmt -w {files}) (cwd control-plane)` vs draft `discover`<br>tidy: committed only `go mod tidy -diff (apply: go mod tidy) (cwd control-plane)` | yes: extends/components, audit, build, codegen, fix, format, tidy |
 | AOSignal | match | none | no |
 | aostudio | match | none | no |
-| devcluster | drift | lint: committed `shellcheck bin/*.sh lib/*.sh t0-conformance/*.sh` vs draft `discover`<br>test: committed `bash t0-conformance/selftest.sh` vs draft `./bin/test.sh`<br>(HAND_ONLY skipped: build, cluster_test)<br>Reason: pending remedy (a): devcluster CI workflow, follow-up after 43-07 | yes: lint, test (pending remedy (a): devcluster CI workflow, follow-up after 43-07) |
+| devcluster | drift | lint: committed `shellcheck bin/*.sh lib/*.sh t0-conformance/*.sh` vs draft `discover`<br>test: committed `bash t0-conformance/selftest.sh` vs draft `./bin/test.sh`<br>(HAND_ONLY skipped: build, cluster_test)<br>Reason: known hand-fix row (user decision 2026-10-03, remedy (c)) | yes: lint, test (known hand-fix row (user decision 2026-10-03, remedy (c))) |
 | devflow | match | none | no |
 | devflow-test | match | none | no |
 | devflowops | drift | format: committed `make fmt-check (apply: make fmt)` vs draft `test -z "$(gofmt -l .)" (apply: make fmt)`<br>tidy: committed `make tidy-check (apply: make tidy)` vs draft `go mod tidy -diff (apply: make tidy)` | yes: format, tidy |
@@ -268,7 +271,7 @@ A drift row falls into one of two kinds. A **conflict** is a different concrete 
 | trades | match | none | no |
 | videoArchive | match | none | no |
 
-devcluster is reported as drift on `lint` and `test` and is not counted as a match, as the user ruled: pending remedy (a): devcluster CI workflow, follow-up after 43-07. It stays out of the match count even after that follow-up lands until a fresh dry run says otherwise.
+devcluster is reported as drift on `lint` and `test` and is not counted as a match, as the user ruled: known hand-fix row (user decision 2026-10-03, remedy (c)). It stays out of the match count even after that follow-up lands until a fresh dry run says otherwise.
 
 ## Summary
 
