@@ -97,6 +97,14 @@
 // sqlc gen-sdk`, which also runs `dart pub get` and `dart analyze`, loses codegen to `make proto`; a one-shot
 // `task init` that also tidies loses deps to the CI install line. With no pure candidate nothing changes.
 //
+// Partial drift checks (TRD 43-11). R5 above holds only for a check of the GENERATOR: G = the best-ranked
+// codegen generator, and a check whose writer (stack-evidence `driftWriter`) is one of G's legs (`target.legs`)
+// rather than G itself is a `partial_check` note; it neither fills run nor turns G into apply.
+//
+// Environment teardown and reset (TRD 43-11). For e2e_env and e2e, a candidate whose target or invoked name
+// tears the scenario environment down or resets it (stack-classify envRole: `e2e-stack-down`, `e2e-db-reset`)
+// is an `env_teardown` / `env_reset` note, before the env_unnamed rule. A declared row is the user's own.
+//
 // Repo-wide test (TRD 42-13). For `test`, a candidate is NARROW when some invocation it runs
 // (`bodyInvocations`) is narrow by stack-classify.testBreadth and none is broad. Narrow candidates
 // never fill `test`: each becomes a `narrow` note under the key it fits (test / integration / e2e;
@@ -109,7 +117,7 @@
 // that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
 // other unresolved candidate. Items without a cwdStatus are treated as ok.
 
-const { classifyInvocation, testBreadth, toolStack, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
+const { classifyInvocation, testBreadth, toolStack, envRole, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
 const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
@@ -248,6 +256,31 @@ function equivalent(item, parentRun) {
   if (!runnable(parentRun)) return false;
   const p = squash(parentRun);
   return squash(item.command) === p || (item.resolvesTo != null && squash(item.resolvesTo) === p);
+}
+
+/** The runner target or script a candidate goes through (`target.name`, else stack-evidence `invokedName`), or null. */
+function nameOf(item) {
+  if (item.target && typeof item.target.name === 'string') return item.target.name;
+  return typeof item.invokedName === 'string' && item.invokedName ? item.invokedName : null;
+}
+
+// A shell redirection word (`>/dev/null`, `2>&1`, `&>log`, `<in`): it changes where output goes, not what runs.
+const REDIRECTION = /^(?:\d*|&)(?:>>?|<)/;
+const bare = (s) => squash(s).split(' ').filter((w) => w && !REDIRECTION.test(w)).join(' ');
+
+/**
+ * writesAs(writer, item) -> true when a drift check's writer (stack-evidence `driftWriter`) IS `item`: the
+ * writer is item's target, or the writer invocation is one its body runs, redirections aside (TRD 43-11).
+ */
+function writesAs(writer, item) {
+  if (!writer || !item) return false;
+  if (writer.target) return !!item.target && item.target.name === writer.target;
+  if (!writer.invocation) return false;
+  const want = bare(writer.invocation);
+  const body = Array.isArray(item.bodyInvocations) && item.bodyInvocations.length
+    ? item.bodyInvocations
+    : [item.command, item.resolvesTo].filter(Boolean);
+  return body.some((b) => bare(b) === want);
 }
 
 /** Same key and same tool as the tier default's run, and not behind a task runner. */
@@ -619,16 +652,30 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         return false;
       })
       : list;
+    // A scenario name that tears the environment down (`make e2e-stack-down`) or resets it (`make e2e-db-reset`)
+    // (stack-classify envRole) is neither the environment nor the suite: an `env_teardown` / `env_reset` note
+    // for e2e_env and e2e alike (TRD 43-11). A declared row is the user's own.
+    const roleFree = key === 'e2e_env' || key === 'e2e'
+      ? onStack.filter((c) => {
+        if (c.source === 'declared') return true;
+        const role = envRole(nameOf(c));
+        if (!role) return true;
+        notes.push(note(c, key, `env_${role}`, role === 'teardown'
+          ? 'tears the scenario environment down; never the e2e environment or suite'
+          : 'resets the scenario environment between runs; never the e2e environment or suite'));
+        return false;
+      })
+      : onStack;
     // e2e_env is the environment the e2e scenarios run against, and only a NAME says that (stack-evidence
     // `scenarioNamed`: `make e2e-stack-up`). A body-only bring-up (`make up`, `just infra`, a live-cluster
     // script) is some environment: an `env_unnamed` note, never the key. A declared row counts (TRD 43-06).
     const eligible = key === 'e2e_env'
-      ? onStack.filter((c) => {
+      ? roleFree.filter((c) => {
         if (c.scenarioNamed === true || c.source === 'declared') return true;
         notes.push(note(c, key, 'env_unnamed', 'brings an environment up, but no target or script name says it is the e2e environment; never a root key'));
         return false;
       })
-      : onStack;
+      : roleFree;
     // A mixed aggregate (TRD 43-11): a candidate whose body runs K AND other keys (stack-evidence `unitKeys`;
     // `generate: proto sqlc gen-sdk` also pulls deps and lint through gen-sdk) never fills K while a pure
     // candidate (unitKeys exactly [K]; none at all counts as pure, so a raw CI line is unaffected) exists.
@@ -652,10 +699,31 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         return false;
       });
     }
-    const ranked = rank(pool, key);
+    let ranked = rank(pool, key);
     // A codegen drift check (check form: regenerate, then fail on a diff) is the codegen gate; the
-    // generator it re-runs (mutate) is then its apply, not a competing run (TRD 43-06).
-    const generatorIsApply = key === 'codegen' && ranked.some((e) => e.form === 'check');
+    // generator it re-runs (mutate) is then its apply, not a competing run (TRD 43-06, R5). TRD 43-11: the
+    // check must check the GENERATOR. Take G = the best-ranked generator. A check whose writer (stack-evidence
+    // `driftWriter`) is G's target, or the same invocation G's body runs, is G's check: R5. A check whose
+    // writer is one of G's LEGS (`views-check: views` under `generate: views styles buf-generate`) covers that
+    // leg only: a `partial_check` note that neither fills run nor makes G its apply. Any other check keeps R5.
+    let generatorIsApply = false;
+    if (key === 'codegen' && ranked.some((e) => e.form === 'check')) {
+      const g = ranked.find((e) => e.form === 'mutate') || null;
+      const legs = g && g.target && Array.isArray(g.target.legs) ? g.target.legs : [];
+      const legItems = ranked.filter((e) => e !== g && e.target && legs.includes(e.target.name));
+      const partial = new Set();
+      for (const c of ranked.filter((e) => e.form === 'check')) {
+        const w = c.driftWriter;
+        const ofLeg = !!g && !!w && !writesAs(w, g) && (w.target ? legs.includes(w.target) : legItems.some((l) => writesAs(w, l)));
+        if (!ofLeg) {
+          generatorIsApply = true;
+          continue;
+        }
+        partial.add(c);
+        notes.push(note(c, key, 'partial_check', `checks drift of \`${w.target || w.invocation}\` only, one leg of the generator \`${g.command}\`; it neither fills run nor turns that generator into its apply`));
+      }
+      if (partial.size) ranked = ranked.filter((e) => !partial.has(e));
+    }
     let runCands = ranked.filter((e) => RUN_FORMS.has(e.form) && !(generatorIsApply && e.form === 'mutate'));
     const applyCands = ranked.filter((e) => e.form === 'apply' || (generatorIsApply && e.form === 'mutate'));
 

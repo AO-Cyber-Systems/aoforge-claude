@@ -346,6 +346,20 @@ const HINT_TOKENS = [
 const ENV_TOKENS = Object.freeze(['up', 'down', 'stack', 'env', 'seed', 'infra', 'cluster', 'compose', 'start', 'stop']);
 const SCENARIO_TOKENS = Object.freeze(['e2e', 'integration', 'scenario']);
 
+// What a scenario-environment name says the target does TO the environment (TRD 43-11): it tears it down
+// (`e2e-stack-down`, `e2e-teardown`, `integration-env-stop`) or resets it (`e2e-db-reset`). Whole tokens only.
+// `seed`, `up` and `start` are bring-ups and carry no role (43-04 keeps `e2e:seed` an e2e_env).
+const TEARDOWN_TOKENS = Object.freeze(['down', 'stop', 'teardown', 'destroy']);
+const RESET_TOKENS = Object.freeze(['reset']);
+
+/** envRole(name) -> 'teardown' | 'reset' | null (see above). The drafter reads it; classifyHint is unchanged. */
+function envRole(name) {
+  const tokens = String(name == null ? '' : name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.some((t) => TEARDOWN_TOKENS.includes(t))) return 'teardown';
+  if (tokens.some((t) => RESET_TOKENS.includes(t))) return 'reset';
+  return null;
+}
+
 // A check or apply SUFFIX in a name names the form of the key the rest of the name carries (TRD 43-06):
 // `fmt-check`, `tidy-check`, `generate-check` are check forms; `lint-fix`, `lint:fix` is lint's apply.
 // Only keys that HAVE that form take it: `build-check` is still a build, `test-fix` still a test.
@@ -1011,6 +1025,7 @@ module.exports = {
   toolStack,
   classifyInvocation,
   classifyHint,
+  envRole,
   isDriftCheck,
   driftCheckAt,
   checkFormByName,

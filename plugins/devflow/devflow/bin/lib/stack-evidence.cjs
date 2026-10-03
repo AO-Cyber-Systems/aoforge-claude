@@ -50,6 +50,8 @@
 //               order is its position in that file. stack-draft's canonical ranking reads it. legs are the
 //               targets of the same file it runs directly: its prerequisites, then the targets its recipe
 //               calls (TRD 43-11).
+//   driftWriter  drift-check items only (check form from driftCheckOf): what the check regenerates through,
+//               { target: '<prerequisite>' } or { invocation: '<earlier statement of its recipe>' } (TRD 43-11).
 //   unitKeys    the distinct keys ALL of the item's units classify to (recipe lines, prerequisites
 //               transitively, called targets, internal tasks), first-seen order; unclassified units add
 //               nothing. stack-draft reads it to tell a mixed aggregate from a pure candidate (TRD 43-11).
@@ -257,16 +259,18 @@ function driftCheckOf(t, body, cwd, index) {
   const at = invs.findIndex((inv) => isDriftCheck(inv));
   const before = at !== -1 ? invs.slice(0, at) : rawDriftCheck(body, cwd);
   if (before === null) return null;
-  const asCheck = (r) => ({ key: r.key, form: 'check', tool: r.tool, weak: [...(r.weak || [])], confidence: 'high' });
+  // The writer it regenerates through rides along as `driftWriter` (TRD 43-11): the earlier statement's
+  // invocation text, or the prerequisite target's name. stack-draft compares it with the codegen generator.
+  const asCheck = (r, driftWriter) => ({ key: r.key, form: 'check', tool: r.tool, weak: [...(r.weak || [])], confidence: 'high', driftWriter });
   for (const inv of before) {
     const r = classifyInvocation(inv);
-    if (writes(r)) return asCheck(r);
+    if (writes(r)) return asCheck(r, { invocation: inv.text });
   }
   if (!index) return null;
   for (const dep of Array.isArray(t.deps) ? t.deps : []) {
     const dt = index.get(`${t.runner}|${normDir(t.dir) || ''}|${dep}`);
     const r = dt && dt !== t ? classifyTarget(dt) : null;
-    if (writes(r)) return asCheck(r);
+    if (writes(r)) return asCheck(r, { target: dep });
   }
   return null;
 }
@@ -671,6 +675,7 @@ function readRunnerTargets(targets, push, ctx) {
       weak: cls.weak,
       tool: cls.tool,
       resolvesTo: cls.resolvesTo,
+      driftWriter: cls.driftWriter,
       target: targetMeta(t, depended, ctx.index),
       bodyInvocations: targetInvocations(t),
       units: targetUnits(t, ctx, 0, new Set()),
@@ -698,6 +703,7 @@ function readCi(projectRoot, index, push, ctx) {
         weak,
         tool: cls.tool,
         resolvesTo: cls.resolvesTo,
+        driftWriter: cls.driftWriter,
         bodyInvocations,
         external: inv.external === true || step.external === true,
         units: expandUnits([inv], ctx),
@@ -747,6 +753,7 @@ function readTestingMd(projectRoot, index, push, ctx) {
         confidence: cls.confidence,
         weak: cls.weak,
         tool: cls.tool,
+        driftWriter: cls.driftWriter,
         bodyInvocations,
         units: expandUnits([inv], ctx),
       });
@@ -786,6 +793,7 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
       tool: raw.tool || null,
     };
     if (raw.resolvesTo) out.resolvesTo = raw.resolvesTo;
+    if (raw.driftWriter) out.driftWriter = { ...raw.driftWriter };
     if (raw.target) out.target = raw.target;
     if (isSinglePurposeScript(raw.command, cwd)) out.singlePurpose = true;
     // TRD 43-06: the runner target or script an item without its own `target` goes through, so the
