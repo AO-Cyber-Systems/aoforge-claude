@@ -901,3 +901,18 @@ describe('K25 hint forms from check / apply suffixes; drift checks (TRD 43-06)',
     }
   });
 });
+
+// TRD 43-06 (devcluster golden): shellcheck is the repo-wide linter of a shell repo, and a `selftest`
+// is a test entry point (an offline self-test), so both classify without a runner around them.
+describe('K26 shellcheck and selftest (TRD 43-06)', () => {
+  const { classifyHint } = require('./stack-classify.cjs');
+  test('K26a: `shellcheck <files>` is lint, check form, high confidence', () => {
+    const got = classifyInvocation('shellcheck bin/*.sh lib/*.sh t0-conformance/*.sh');
+    assert.ok(got);
+    assert.deepEqual({ key: got.key, form: got.form, tool: got.tool, confidence: got.confidence }, { key: 'lint', form: 'check', tool: 'shellcheck', confidence: 'high' });
+  });
+  test('K26b: a `selftest` / `selftests` name is test; `self-test` already was', () => {
+    for (const name of ['selftest', 'selftests', 'run-selftest', 'self-test']) assert.equal((classifyHint(name) || {}).key, 'test', name);
+    assert.equal(classifyInvocation('bash t0-conformance/selftest.sh', { hint: 'selftest' }).key, 'test');
+  });
+});

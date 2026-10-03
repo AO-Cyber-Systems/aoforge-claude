@@ -1182,3 +1182,31 @@ describe('assembleDraft root product and root-invoked attachable keys (D37, TRD 
     assert.equal('codegen' in d.commands, false, JSON.stringify(d.commands));
   });
 });
+
+// TRD 43-06 (devcluster / navigators / quanta-local goldens): `e2e_env` is the environment the e2e
+// scenarios run against, and only a NAME says that (`make e2e-stack-up`, stack-evidence scenarioNamed).
+// A body-only bring-up (`just infra`, `make up`, a live-cluster script running kubectl) is some
+// environment, not the e2e one: an `env_unnamed` note, never a root key. A declared row still counts.
+describe('assembleDraft e2e_env needs a scenario name (D38, TRD 43-06)', () => {
+  const bodyOnly = (cmd = 'make up') => ev('e2e_env', cmd, { source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'mutate', tool: 'docker', confidence: 'high' });
+  const named = () => ev('e2e_env', 'make e2e-stack-up', { source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'check', tool: null, confidence: 'low', scenarioNamed: true });
+
+  test('D38a: body-only bring-ups are notes, never the e2e_env key', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [bodyOnly('make up'), bodyOnly('just infra')], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('e2e_env' in d.commands, false, JSON.stringify(d.commands));
+    const n = d.notes.filter((x) => x.status === 'env_unnamed');
+    assert.deepEqual(n.map((x) => x.candidate).sort(), ['just infra', 'make up']);
+  });
+
+  test('D38b: with a scenario-named candidate it is the key; the body-only one is a note', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [bodyOnly(), named()], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-up' });
+    assert.ok(d.notes.some((x) => x.status === 'env_unnamed' && x.candidate === 'make up'));
+  });
+
+  test('D38c: a declared body-only row is the user\'s own choice and stays the key', () => {
+    const declared = ev('e2e_env', 'make up', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', form: 'mutate', tool: 'docker' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [declared], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make up' });
+  });
+});
