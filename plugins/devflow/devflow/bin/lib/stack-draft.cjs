@@ -34,6 +34,8 @@
 //   1. source      declared > runner > ci > manifest > docs > detected
 //   2. confidence  high > low
 //   3. weak        non-weak > weak
+// For `e2e_env` alone, a scenario-named target (stack-evidence `scenarioNamed`) ranks right after the
+// source, ahead of confidence: `make e2e-stack-up` beats a generic `make infra-up` (TRD 43-04).
 // Only check/build/mutate forms fill `run`; an apply form fills `apply`. Walking the ranked run
 // candidates: one EQUAL to the tier default's run (or whose runner body is) stops the walk and
 // the key stays inherited; otherwise the first candidate `verify` calls `resolved` is the run.
@@ -115,10 +117,19 @@ function canonicalOf(item, key) {
   ];
 }
 
+/**
+ * For e2e_env only (TRD 43-04, D4): a target whose NAME carries the scenario and environment tokens
+ * (stack-evidence `scenarioNamed`, `make e2e-stack-up`) is that scenario's environment; a target with
+ * only a bring-up body (`make infra-up` running `docker compose up`) is some environment. The name
+ * outranks the body here, though a name alone is low confidence. Neutral for every other key.
+ */
+const scenarioNamedOf = (item, key) => (key === 'e2e_env' && item.scenarioNamed !== true ? 1 : 0);
+
 function rankOf(item, key) {
   const s = SOURCE_RANK[item.source];
   return [
     s === undefined ? 9 : s,
+    scenarioNamedOf(item, key),
     ...canonicalOf(item, key),
     item.confidence === 'low' ? 1 : 0,
     item.weak && item.weak.length ? 1 : 0,

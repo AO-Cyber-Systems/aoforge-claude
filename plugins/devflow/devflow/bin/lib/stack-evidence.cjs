@@ -32,6 +32,9 @@
 //   effectiveArea  the area the body really runs in: from a `cd x &&`, a Taskfile `dir:`, `make -C`
 //               / `npm --prefix`, a CI working-directory or a script's cwd; else `area`. stack-draft
 //               never places an item whose effectiveArea is an unsupported sub-area at the root.
+//   scenarioNamed  true (only then present) when the item's key (e2e or e2e_env) was carried by the NAME
+//               of its target or script (`make e2e-stack-up`, `docs-e2e.sh`), not only by its body.
+//               stack-draft ranks a scenario-named e2e_env above a body-only one (TRD 43-04, D4).
 //   singlePurpose  true (only then present) when the item runs a script named `check-*`, `verify-*` or
 //               `*_test.sh`: one check, not the repo's suite. stack-draft reads it (TRD 43-04, D4).
 //   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
@@ -410,6 +413,16 @@ function scopeOf(units, key, itemArea, areaDirs) {
   return { bodyStacks, bodyScopes, effectiveArea };
 }
 
+/** The target or script name an invocation goes through (`make x` -> x, `./s/docs-e2e.sh` -> docs-e2e), or null. */
+function invocationName(command, cwd) {
+  const first = safeNormalize(command, cwd)[0];
+  if (!first) return null;
+  const d = safeDescribe(first);
+  if (d.kind === 'runner') return Array.isArray(d.names) && d.names.length === 1 ? d.names[0] : null;
+  if (d.kind === 'script' && d.file) return path.posix.basename(String(d.file)).replace(/\.[^.]+$/, '');
+  return null;
+}
+
 // ─── single-purpose scripts (TRD 43-04, D4) ───────────────────────────────────
 
 // `check-migrations.sh`, `verify_schema.sh`, `api_test.sh`: one check, not the repo's suite. A script
@@ -608,6 +621,11 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
     if (raw.resolvesTo) out.resolvesTo = raw.resolvesTo;
     if (raw.target) out.target = raw.target;
     if (isSinglePurposeScript(raw.command, cwd)) out.singlePurpose = true;
+    if (SCENARIO_KEYS.has(out.key)) {
+      const name = invocationName(raw.command, cwd);
+      const named = name ? classifyHint(name) : null;
+      if (named && named.key === out.key) out.scenarioNamed = true;
+    }
     out.bodyInvocations = Array.isArray(raw.bodyInvocations) && raw.bodyInvocations.length
       ? [...raw.bodyInvocations]
       : [raw.command];
