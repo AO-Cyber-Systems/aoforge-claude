@@ -57,13 +57,18 @@
 // re-emitted command run by the SAME tool as the tier default keeps the tier's scoped/apply forms.
 
 //
-// Canonical runner targets (TRD 42-13). For build/test/lint only, items carrying stack-evidence's
-// `target` metadata (runner and manifest items) are ordered, right after the source rank, by:
-//   bare key name (`build`) > the runner's default target > a target others depend on
-//   > fewer `:` segments > no VARIANT_TOKENS token
-// then confidence and weak as above, then source order within the same runner file (never the
-// alphabet). When a runner target wins, every other resolved runner candidate for the key is an
-// `alternate` note.
+// Canonical runner targets (TRD 42-13, widened in 43-06). Right after the source rank, for EVERY key,
+// the name rank: a target or script named for the key (`build`, `fmt` for format, `generate` for
+// codegen, with any form suffix: `lint-fix`, `fmt-check`) > a raw command with no name > any other name
+// (`deps-frontend`, `build-deps.sh`). The name is a runner item's `target.name`, else the target or
+// script a CI / docs step goes through (`invokedName`). For build/test/lint runner targets the order
+// then continues: the runner's default target > a target others depend on > fewer `:` segments > no
+// VARIANT_TOKENS token; then confidence and weak as above, then source order within the same runner
+// file (never the alphabet). When a runner target wins build/test/lint, every other resolved runner
+// candidate for the key is an `alternate` note.
+//
+// codegen (TRD 43-06): when a codegen candidate is a drift check (check form), the generators (mutate)
+// are its apply, so `make openapi-verify` is the run and `make openapi-regen` the apply.
 //
 // Repo-wide test (TRD 42-13). For `test`, a candidate is NARROW when some invocation it runs
 // (`bodyInvocations`) is narrow by stack-classify.testBreadth and none is broad. Narrow candidates
@@ -110,15 +115,38 @@ function unique(list) {
   return out;
 }
 
-const NEUTRAL = Object.freeze([0, 0, 0, 0, 0]);
+/**
+ * The names a target or script carries when it IS the key's entry point (TRD 43-06): the key itself,
+ * else its conventional spelling. A form suffix is ignored (`lint-fix`, `fmt-check`, `tidy-check`), so
+ * the check and apply halves of a pair are both canonical for their form.
+ */
+const KEY_NAMES = Object.freeze({ format: ['format', 'fmt'], codegen: ['codegen', 'generate', 'gen'] });
+const FORM_SUFFIX_TOKENS = new Set(['check', 'verify', 'diff', 'fix', 'write', 'apply']);
+const nameTokens = (s) => String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
-/** A runner target's canonical tuple for `key` (see the header); neutral for other keys and items. */
+function canonicalName(name, key) {
+  const tokens = nameTokens(name);
+  const core = tokens.filter((t) => !FORM_SUFFIX_TOKENS.has(t));
+  const joined = (core.length ? core : tokens).join('-');
+  return (KEY_NAMES[key] || [key]).some((n) => nameTokens(n).join('-') === joined);
+}
+
+/**
+ * canonicalOf(item, key) -> the canonical tuple (see the header). Element 0 is the NAME rank, for every
+ * key (TRD 43-06): a name that is the key's (canonicalName) 0, no name at all (a raw command) 1, any
+ * other name (`deps-frontend`, `build-deps.sh`) 2. The name is the runner target's, else the target or
+ * script a CI / docs step goes through (stack-evidence `invokedName`). For build/test/lint runner
+ * targets the rest of the TRD 42-13 tuple follows; elsewhere it is neutral.
+ */
 function canonicalOf(item, key) {
-  const t = item.target;
-  if (!CANONICAL_KEYS.has(key) || !t || typeof t.name !== 'string') return NEUTRAL;
-  const tokens = t.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const t = item.target && typeof item.target.name === 'string' ? item.target : null;
+  const name = t ? t.name : (typeof item.invokedName === 'string' && item.invokedName ? item.invokedName : null);
+  if (!name) return [1, 0, 0, 0, 0];
+  const nameRank = canonicalName(name, key) ? 0 : 2;
+  if (!t || !CANONICAL_KEYS.has(key)) return [nameRank, 0, 0, 0, 0];
+  const tokens = nameTokens(t.name);
   return [
-    t.name === key ? 0 : 1,
+    nameRank,
     t.isDefault === true && item.key === key ? 0 : 1,
     t.dependedOn === true ? 0 : 1,
     t.name.split(':').filter(Boolean).length,
@@ -490,8 +518,11 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
       })
       : list;
     const ranked = rank(onStack, key);
-    let runCands = ranked.filter((e) => RUN_FORMS.has(e.form));
-    const applyCands = ranked.filter((e) => e.form === 'apply');
+    // A codegen drift check (check form: regenerate, then fail on a diff) is the codegen gate; the
+    // generator it re-runs (mutate) is then its apply, not a competing run (TRD 43-06).
+    const generatorIsApply = key === 'codegen' && ranked.some((e) => e.form === 'check');
+    let runCands = ranked.filter((e) => RUN_FORMS.has(e.form) && !(generatorIsApply && e.form === 'mutate'));
+    const applyCands = ranked.filter((e) => e.form === 'apply' || (generatorIsApply && e.form === 'mutate'));
 
     // The repo-wide test must be broad: narrow candidates are notes under the key they fit.
     let narrowed = 0;

@@ -1169,7 +1169,7 @@ describe('invokedName (E20, TRD 43-06)', () => {
     ].map((c) => `      - run: ${c}`)].join('\n');
     const root = makeRepo({
       'scripts/eden/build.sh': '#!/bin/sh\nmake -j4\n',
-      'tools/smoke-test.sh': '#!/bin/sh\ncurl -fsS http://127.0.0.1:8091/\n',
+      'tools/smoke-test.sh': '#!/bin/sh\n./bin/server --selftest\n',
       Makefile: 'lint-backend:\n\tgolangci-lint run\n',
       '.github/workflows/ci.yml': steps,
     });

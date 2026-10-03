@@ -44,6 +44,9 @@
 //   target      runner and manifest items only: { name, deps, isDefault, dependedOn, order } —
 //               dependedOn is true when another target in the same file lists it in its deps;
 //               order is its position in that file. stack-draft's canonical ranking reads it.
+//   invokedName  items WITHOUT a `target` only (CI, docs, declared): the runner target or script name the
+//               command goes through (`make lint-backend` -> lint-backend, `./scripts/eden/build.sh` ->
+//               build); absent for a raw command. stack-draft's canonical ranking reads it (TRD 43-06).
 //
 // It composes the 42-03..05 readers instead of scraping lines: `.planning/<from>/STACK.md`
 // Commands rows (declared), stack-runners targets whose BODY is normalised and classified
@@ -695,6 +698,12 @@ function collectEvidence(projectRoot, { from = 'codebase', areas = null, hygiene
     if (raw.resolvesTo) out.resolvesTo = raw.resolvesTo;
     if (raw.target) out.target = raw.target;
     if (isSinglePurposeScript(raw.command, cwd)) out.singlePurpose = true;
+    // TRD 43-06: the runner target or script an item without its own `target` goes through, so the
+    // drafter can rank `./scripts/eden/build.sh` (named `build`) above `build-deps.sh`.
+    if (!raw.target) {
+      const invoked = invocationName(raw.command, cwd);
+      if (invoked) out.invokedName = invoked;
+    }
     if (SCENARIO_KEYS.has(out.key)) {
       const name = invocationName(raw.command, cwd);
       const named = name ? classifyHint(name) : null;

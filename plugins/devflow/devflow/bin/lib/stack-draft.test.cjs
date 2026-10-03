@@ -649,10 +649,24 @@ describe('assembleDraft canonical runner targets (D25, TRD 42-13 test 7)', () =>
     assert.ok(!d.notes.some((n) => n.status === 'alternate'), JSON.stringify(d.notes));
   });
 
-  test('D25i: canonical ranking is gated to build/test/lint; other keys keep evidence order and add no alternates', () => {
+  // Re-baselined in TRD 43-06: the NAME rank now applies to every key (the devflowops golden needs
+  // `make generate` over `make generate-backend`, `make deps` over `make deps-frontend`), so `gen` (the
+  // conventional codegen name) wins here. The rest of the 42-13 tuple (default target, depended-on,
+  // segments, variant tokens) and the alternate notes stay gated to build/test/lint: D25i2 guards that.
+  test('D25i: the name rank covers every key (43-06); other keys still add no alternates', () => {
     const evidence = [
       rt('codegen', 'gen:proto:internal', { order: 0 }),
       rt('codegen', 'gen', { order: 1, isDefault: true, dependedOn: true }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'task gen');
+    assert.ok(!d.notes.some((n) => n.status === 'alternate'));
+  });
+
+  test('D25i2: beyond the name rank, other keys keep evidence order (no default / depended-on / segment ranking)', () => {
+    const evidence = [
+      rt('codegen', 'gen:proto:internal', { order: 0 }),
+      rt('codegen', 'gen:api', { order: 1, isDefault: true, dependedOn: true }),
     ];
     const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
     assert.equal(d.commands.codegen.run, 'task gen:proto:internal');
