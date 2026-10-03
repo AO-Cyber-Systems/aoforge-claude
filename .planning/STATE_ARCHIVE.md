@@ -93,6 +93,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 43]: 43-12: a lint tool is dedicated when stack-classify gives it lint and no build/test row (golangci-lint, staticcheck, eslint, ruff, shellcheck); toolchain drivers (go vet, dart analyze) never win the lint preference
 - [Objective 43]: 43-13: single-binary build variants (buildBreadth narrow, non-runner) are filtered only when the candidates build 2+ different packages or a broad build stands beside them; one package that is the only build is the product and is kept (fleet narrowing)
 - [Objective 43]: 43-13: a CI command expanding a variable its own step assigns at run time (command substitution, export, read/for, or derived from one) ranks after confidence, behind a plain one; aocore.test is a flag-only residual for 43-15
+- [Objective 43]: 43-14: refresh accepts the drafter output as is (extends general plus a control-plane component); SDR-08 stays partial pending politihub and the 43-15 residuals
 
 ## Performance Metrics
 
@@ -127,4 +128,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 43 P11 | 22min | 2 tasks | 10 files |
 | Objective 43 P12 | 48min | 2 tasks | 11 files |
 | Objective 43 P13 | 53min | 2 tasks | 10 files |
+| Objective 43 P14 | 3min | 3 tasks | 6 files |
 

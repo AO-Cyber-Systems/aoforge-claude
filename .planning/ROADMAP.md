@@ -150,7 +150,7 @@ TRDs:
 - [x] 43-11-TRD.md — (W9, tdd, gap closure) mixed aggregates (codegen, bootstrap), partial drift checks, env teardown/reset
 - [x] 43-12-TRD.md — (W10, tdd, gap closure) declared key targets, wrapper reduction, lint actions with a CLI equivalent
 - [x] 43-13-TRD.md — (W11, tdd, gap closure) narrow CI builds fall back to the tier default; runtime-variable commands rank last
-- [ ] 43-14-TRD.md — (W12, checkpoint, gap closure) refresh stale committed STACK.md in aoinference and opsCluster (two-file commits, no push)
+- [x] 43-14-TRD.md — (W12, checkpoint, gap closure) refresh stale committed STACK.md in aoinference and opsCluster (two-file commits, no push)
 - [ ] 43-15-TRD.md — (W13, checkpoint, gap closure) read-only fleet dry run, residual-row decision, KNOWN_DRIFT retired, CHANGELOG, full `npm test`
 
 ### Objective 45: DevFlow doctor + runtime hygiene
@@ -386,7 +386,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
-| 43. Stack drafter rules | v1.4 | 13/15 | In Progress | 2026-10-03 |
+| 43. Stack drafter rules | v1.4 | 14/15 | In Progress | 2026-10-03 |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Cancelled (killed by user decision 2026-10-01; GMD-04) | 2026-10-01 |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |

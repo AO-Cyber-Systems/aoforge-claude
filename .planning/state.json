@@ -530,6 +530,11 @@
       "objective": "43",
       "summary": "43-13: a CI command expanding a variable its own step assigns at run time (command substitution, export, read/for, or derived from one) ranks after confidence, behind a plain one; aocore.test is a flag-only residual for 43-15",
       "rationale": null
+    },
+    {
+      "objective": "43",
+      "summary": "43-14: refresh accepts the drafter output as is (extends general plus a control-plane component); SDR-08 stays partial pending politihub and the 43-15 residuals",
+      "rationale": null
     }
   ],
   "blockers": [],
