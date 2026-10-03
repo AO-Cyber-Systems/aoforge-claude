@@ -428,10 +428,37 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
     const entry = primaryTier[key];
     return entry && typeof entry === 'object' && runnable(entry.run) ? { ...entry, cwd: trimDir(primary.path) } : null;
   };
+  // off_primary (TRD 43-05, D6): stacks that belong ONLY to a non-primary component's tier family
+  // (TIER_STACKS) -> that component. Neutral generators, shell, unknown tools and the primary's own
+  // stack are never in it, so a root `shellcheck` or `buf generate` is never gated.
+  const stackOwner = new Map();
+  if (primary) {
+    const familyOf = (profile) => (Object.prototype.hasOwnProperty.call(TIER_STACKS, profile) ? TIER_STACKS[profile] : []);
+    const own = familyOf(primary.profile);
+    for (const c of components) {
+      if (c.path === primary.path) continue;
+      for (const st of familyOf(c.profile)) {
+        if (st !== NEUTRAL_STACK && !own.includes(st) && !stackOwner.has(st)) stackOwner.set(st, c.path);
+      }
+    }
+  }
   for (const key of rootKeyOrder) {
     // Root-area candidates first. A key none of them fills takes the primary component's candidates;
     // when a root candidate exists the primary ones are component notes.
     let list = rootByKey.get(key) || [];
+    if (primary && stackOwner.size) {
+      const offPrimarySeen = new Set();
+      list = list.filter((c) => {
+        const stacks = unique(scopesOf(c).map((sc) => sc.stack));
+        if (!stacks.length || !stacks.every((st) => stackOwner.has(st))) return true;
+        if (!offPrimarySeen.has(c.command)) {
+          offPrimarySeen.add(c.command);
+          const owners = unique(stacks.map((st) => stackOwner.get(st)));
+          notes.push(note(c, key, 'off_primary', `tool stack ${stacks.join('+')} belongs to component ${owners.join(', ')}, not the primary component ${primary.path}`));
+        }
+        return false;
+      });
+    }
     let fromPrimary = false;
     const primaryList = primaryByKey.get(key) || [];
     if (primaryList.length && !list.length) {
