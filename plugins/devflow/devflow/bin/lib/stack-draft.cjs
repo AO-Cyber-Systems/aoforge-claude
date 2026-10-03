@@ -29,15 +29,31 @@
 // lint_docker) is a root candidate wherever its script lives. It is recorded in an info note tagged
 // `primary_component`. A tier root has no primary component and behaves exactly as before.
 //
-// Which items may fill a ROOT key (TRD 42-15, D3; TRD 43-05, D6): items whose body RUNS (stack-evidence
-// `effectiveArea`) at the root, then, for a key with no root candidate, in the primary component (the
-// candidate keeps its own `cwd`: `make build` in `go/` is `{ run: make build, cwd: go }`; a root `just
-// test-go` whose recipe does the `cd` itself keeps no cwd). A root candidate whose tool stack belongs
-// ONLY to a non-primary component (`flutter build` beside a go primary) is an `off_primary` note.
-// With exactly ONE component, root build/test/lint also fall back to that component's tier defaults
-// with `cwd` = the component dir when nothing else supplied them. One running in another component is
-// summarised per (area, key) as a component note unless it equals the tier default; one running
-// in an unsupported sub-area is a `sub_area` note per (area, key), for every key.
+// Which items may fill a ROOT key (TRD 42-15, D3; TRD 43-05, D6; TRD 43-10). In a `general` root with a
+// primary component a key's candidates are taken by TIER, the first tier that supplies the key winning:
+//   (1) recipes of a task-runner file at the repo root (a declared row too), wherever their body runs;
+//   (2) targets of the primary component's own runner file, each keeping its own `cwd` whatever its body
+//       does (`make build` in `go/` is `{ run: make build, cwd: go }`; a `cd .. && buf generate` target
+//       keeps cwd `go`);
+//   (3) the other candidates whose body RUNS (stack-evidence `effectiveArea`) at the root: CI, docs,
+//       manifest, and a root-invoked attachable key;
+//   (4) the primary component's other candidates (its CI and docs steps).
+// A tier none of whose candidates resolves falls through to the next, and only when every tier is spent
+// does a key that had candidates end as `discover`. A root CI candidate that the primary's runner target
+// shadows is a `shadowed` note, with an `image_build` detail when it is only a container image build. A
+// root runner recipe that runs in a primary-less workspace, and a root without a primary, are the next
+// paragraph and the rule above. A root or runner candidate whose tool stack belongs ONLY to a non-primary
+// component (`flutter build` beside a go primary) is an `off_primary` note, whatever its tier. With
+// exactly ONE component, root build/test/lint also fall back to that component's tier defaults with `cwd`
+// = the component dir when nothing else supplied them. One running in another component is summarised
+// per (area, key) as a component note unless it equals the tier default; one running in an unsupported
+// sub-area is a `sub_area` note per (area, key), for every key.
+//
+// Workspace root (TRD 43-10). A `general` root whose ROOT task runner has a build/test/lint recipe that
+// runs in two or more areas (stack-evidence `unitAreas`) is a workspace: the runner is the repo's
+// interface, so there is no primary component (an info note tagged `root_workspace`), no off_primary
+// gate and no single-component fallback, and every root-runner recipe (tier 1), then the other root
+// candidates (tier 3), supply the root keys. Component and sub-area notes still apply to everything else.
 // Root-override policy: for a key the extends profile supplies with a runnable run, only a root
 // candidate whose body runs a tool of the tier's stack family (stack-classify.TIER_STACKS, via
 // `bodyScopes` / `bodyStacks`) at the root may override it; others are `off_stack` notes and the
@@ -448,7 +464,26 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   const rootProduct = extendsId === 'general' && components.length
     ? items.find((e) => e.key === 'build' && RUN_FORMS.has(e.form) && effectiveAreaOf(e) === '' && buildsOwnStack(e)) || null
     : null;
-  const primary = extendsId === 'general' && !rootProduct ? pickPrimaryComponent(components, items) : null;
+  // TRD 43-10 (workspace root): a `general` root whose ROOT task runner has a build/test/lint recipe that
+  // runs in two or more areas (stack-evidence `unitAreas`) is a workspace. Its runner is the repo's
+  // interface and no component is primary: there is no off_primary gate, no single-component fallback,
+  // and every root-runner recipe is a root candidate wherever its body runs (tier 1). A recipe that
+  // runs in one area (`just test-go`) fans out nowhere, and a CI step or a sub-dir runner is not the root's.
+  const fansOut = (e) => isRunnerItem(e) && atRepoRoot(e) && CANONICAL_KEYS.has(e.key)
+    && Array.isArray(e.unitAreas) && unique(e.unitAreas).length >= 2;
+  const workspaceItem = extendsId === 'general' && components.length && !rootProduct ? items.find(fansOut) || null : null;
+  const primary = extendsId === 'general' && !rootProduct && !workspaceItem ? pickPrimaryComponent(components, items) : null;
+  if (workspaceItem) {
+    notes.push({
+      area: '',
+      key: null,
+      candidate: workspaceItem.command,
+      status: 'info',
+      detail: `root workspace: the root task runner's \`${workspaceItem.command}\` runs in ${unique(workspaceItem.unitAreas).map((a) => a || 'the root').join(', ')}; the runner is the interface, so no component is primary and every root recipe is a root candidate wherever its body runs`,
+      source: workspaceItem.source,
+      tag: 'root_workspace',
+    });
+  }
   if (rootProduct) {
     notes.push({
       area: '',
@@ -493,9 +528,9 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
   };
   for (const item of items) {
     const eff = effectiveAreaOf(item);
-    if (primary && item.source === 'declared' && (eff === primary.path || rootAreas.has(eff))) {
+    if ((primary || workspaceItem) && item.source === 'declared' && (rootAreas.has(eff) || (primary && eff === primary.path))) {
       place(item, 1); // the user's own row outranks every tier, as it outranks every source
-    } else if (primary && isRunnerItem(item) && atRepoRoot(item)) {
+    } else if ((primary || workspaceItem) && isRunnerItem(item) && atRepoRoot(item)) {
       place(item, 1); // a recipe of the root task runner is the repo's interface wherever its body runs
     } else if (primary && isRunnerItem(item) && item.area === primary.path) {
       place(item, 2); // a target of the primary component's runner file keeps its own cwd

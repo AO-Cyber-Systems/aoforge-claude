@@ -36,6 +36,10 @@
 //               the drafter files it as a `sub_area` note. A script run from the root with no `cd`
 //               takes the language area of its own directory (`bash portal/build.sh` -> `portal/`);
 //               one in a root-level helper dir that is no language area keeps '' (TRD 43-05, D2).
+//   unitAreas   the distinct areas ALL of the item's units run in (not only the keyed ones), in first-seen
+//               order; [the item's own area] when it has no unit. effectiveArea is unchanged by it.
+//               stack-draft reads it to tell a recipe that fans out across areas from one that does not
+//               (the workspace root, TRD 43-10).
 //   scenarioNamed  true (only then present) when the item's key (e2e or e2e_env) was carried by the NAME
 //               of its target or script (`make e2e-stack-up`, `docs-e2e.sh`), not only by its body.
 //               stack-draft ranks a scenario-named e2e_env above a body-only one (TRD 43-04, D4).
@@ -487,13 +491,15 @@ function unitArea(u, areaDirs) {
 }
 
 /**
- * scopeOf(units, key, itemArea, areaDirs, itemCwd) -> { bodyStacks, bodyScopes, effectiveArea }
+ * scopeOf(units, key, itemArea, areaDirs, itemCwd) -> { bodyStacks, bodyScopes, effectiveArea, unitAreas }
  *
  * Judged over the units that classify to `key`; with none (a name-only classification, a body
  * of unknown tools) over every unit — the tools alone (TRD 42-15 recovery). `bodyStacks` are the
  * non-null toolStacks; `bodyScopes` pair each with the area it runs in. `effectiveArea` is the one
  * area those units run in; when they disagree, the item's own area if any unit runs there, else
- * the first unit's area; with no unit at all, the item's own area.
+ * the first unit's area; with no unit at all, the item's own area. `unitAreas` are the distinct areas of
+ * EVERY unit, keyed or not, in first-seen order (the item's own area when there is none): where the whole
+ * body runs, which says whether a recipe fans out (TRD 43-10).
  */
 function scopeOf(units, key, itemAreaOwn, areaDirs, itemCwd = null) {
   // The item's own area: the language area of its cwd, else (a non-root cwd in no area) the pseudo-area.
@@ -517,7 +523,13 @@ function scopeOf(units, key, itemAreaOwn, areaDirs, itemCwd = null) {
   let effectiveArea = itemArea;
   if (areas.length === 1) effectiveArea = areas[0];
   else if (areas.length > 1 && !areas.includes(itemArea)) effectiveArea = areas[0];
-  return { bodyStacks, bodyScopes, effectiveArea };
+  const unitAreas = [];
+  for (const u of units) {
+    const area = unitArea(u, areaDirs);
+    if (!unitAreas.includes(area)) unitAreas.push(area);
+  }
+  if (!unitAreas.length) unitAreas.push(itemArea);
+  return { bodyStacks, bodyScopes, effectiveArea, unitAreas };
 }
 
 /** The target or script name an invocation goes through (`make x` -> x, `./s/docs-e2e.sh` -> docs-e2e), or null. */

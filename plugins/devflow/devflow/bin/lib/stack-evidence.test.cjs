@@ -1311,9 +1311,9 @@ describe('stack-evidence unitAreas (E19, TRD 43-10 test 8)', () => {
     'tasks:',
     '  test:',
     '    cmds:',
-    '      - cd svc && go test ./...',
-    '      - cd ui && npm test',
-    '      - cd lib && dart test',
+    '      - (cd svc && go test ./...)',
+    '      - (cd ui && npm test)',
+    '      - (cd lib && dart test)',
     '',
     '  lint:',
     '    cmds:',
@@ -1321,8 +1321,8 @@ describe('stack-evidence unitAreas (E19, TRD 43-10 test 8)', () => {
     '',
     '  prep:',
     '    cmds:',
-    '      - cd svc && go test ./...',
-    '      - cd tools && ./gen.sh',
+    '      - (cd svc && go test ./...)',
+    '      - (cd tools && ./gen.sh)',
     '',
   ].join('\n');
   const repo = () => makeRepo({
