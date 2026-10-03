@@ -490,6 +490,7 @@ const toolVerb = (tool, verbs) => new RegExp(`\\b(?:${tool})\\b[^|;&\\n]*?\\b(?:
 const EFFECT_REASONS = Object.freeze({
   unsafe: 'side-effect-unsafe',     // an earlier command in this root changed files: no more Dart/Flutter gates
   unproven: 'side-effect-unproven', // not a git work tree, so a Dart/Flutter gate's effect cannot be undone
+  needsPubGet: 'needs-pub-get',     // `flutter --no-pub` has no resolved package config, and we never run pub get
 });
 
 const RUN_POLICY = Object.freeze({
@@ -1098,6 +1099,49 @@ function isDartFlutter(command) {
   return false;
 }
 
+// A single direct `flutter analyze|test`, optionally behind `VAR=value ` assignments and a path to the binary.
+const DIRECT_FLUTTER_GATE = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*\/)?flutter\s+(?:analyze|test)(?:\s|$)/;
+const SHELL_CONTROL_WORD = /^(?:\|\|?|&&?|;)$/;
+
+/**
+ * noPubRewrite(command) -> the command with ` --no-pub` appended, or null when it must run as written.
+ *
+ * Prevention, ahead of the effect guard: `flutter analyze|test` runs an implicit `pub get` that bumps
+ * pubspec.lock (objective 42's rollout). `--no-pub` stops it. Only a SINGLE DIRECT invocation is rewritten:
+ * `flutter analyze` or `flutter test`, optional leading env assignments, no `&&` `;` `|` `&`, no subshell or
+ * comment, and no `--pub` / `--no-pub` already (the author's choice stands). A wrapper (`make lint`,
+ * `fvm flutter analyze`, `sh -c`) is not rewritten: appending a flag to the wrapper would not reach flutter.
+ * The effect guard still applies to every one of them. `dart analyze|test|format` have no pub flag.
+ */
+function noPubRewrite(command) {
+  const text = String(command).trim();
+  if (/\n/.test(text) || /(?:^|\s)#/.test(text) || /\\$/.test(text)) return null;
+  if (!DIRECT_FLUTTER_GATE.test(text) || splitTopLevel(text).length !== 1) return null;
+  const invocations = normalizeScript(text);
+  if (invocations.length !== 1) return null;
+  const { argv } = invocations[0];
+  if (argv.some((w) => w === '--pub' || w === '--no-pub' || w === '--' || SHELL_CONTROL_WORD.test(w))) return null;
+  return `${text} --no-pub`;
+}
+
+/**
+ * Is there a resolved package config for a command run in `cwdAbs`? `--no-pub` needs one, and this module
+ * never runs `pub get`. It sits next to the package's pubspec; a pub-workspace member (`resolution:
+ * workspace`, Dart 3.6+) resolves through the workspace root's, so those climb to the repo root.
+ */
+function packageConfigPresent(ctx, cwdAbs) {
+  const has = (dir) => ctx.fs.existsSync(path.join(dir, '.dart_tool', 'package_config.json'));
+  if (has(cwdAbs)) return true;
+  let member = false;
+  try { member = /^resolution:\s*workspace\b/m.test(ctx.fs.readFileSync(path.join(cwdAbs, 'pubspec.yaml'), 'utf-8')); } catch (_) { /* no pubspec: not a member */ }
+  if (!member) return false;
+  for (let dir = cwdAbs; dir !== ctx.root && dir !== path.dirname(dir);) {
+    dir = path.dirname(dir);
+    if (has(dir)) return true;
+  }
+  return false;
+}
+
 const haltedDetail = (halted) => (halted.path
   ? `an earlier command in this root changed tracked or untracked files: ${halted.path}`
   : 'an earlier command in this root left the work tree in an unverifiable state');
@@ -1123,6 +1167,15 @@ function runOne(it, ctx, opts) {
   // are what those tools rewrite); every other tool is merely bracketed and restored.
   const dartFlutter = isDartFlutter(it.command);
   if (dartFlutter && ctx.halted) return withSkip(it, EFFECT_REASONS.unsafe, haltedDetail(ctx.halted));
+
+  // Prevention: run `flutter analyze|test` with --no-pub (only the executed text; it.command is never
+  // modified). That needs a resolved package config, and we never run `pub get` to make one.
+  const rewritten = noPubRewrite(it.command);
+  if (rewritten !== null && !packageConfigPresent(ctx, cwdAbs)) {
+    return withSkip(it, EFFECT_REASONS.needsPubGet, 'flutter --no-pub needs a resolved package config (.dart_tool/package_config.json); run pub get yourself first');
+  }
+  const commandToRun = rewritten !== null ? rewritten : it.command;
+
   const before = snapshotTree(ctx.root, { fs: ctx.fs, git: opts.git, withBytes: true });
   if (before === null && dartFlutter) {
     return withSkip(it, EFFECT_REASONS.unproven, 'not a git work tree (or git is unavailable), so a change this command makes could not be detected and undone');
@@ -1130,7 +1183,7 @@ function runOne(it, ctx, opts) {
 
   const seconds = opts.timeoutS != null ? opts.timeoutS : (it.timeout_s != null ? it.timeout_s : DEFAULT_TIMEOUT_S);
   const started = Date.now();
-  const r = opts.spawn('sh', ['-c', it.command], {
+  const r = opts.spawn('sh', ['-c', commandToRun], {
     cwd: cwdAbs,
     timeout: seconds * 1000,
     killSignal: 'SIGKILL',
@@ -1147,6 +1200,7 @@ function runOne(it, ctx, opts) {
     tail: tailOf(r),
   };
   if (r.error && !timedOut) run.error = String(r.error.message || r.error);
+  if (rewritten !== null) run.rewritten = rewritten;
   if (before !== null) guardEffects(it, ctx, opts, before, run);
   return { ...it, run };
 }
