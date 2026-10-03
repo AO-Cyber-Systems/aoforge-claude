@@ -17,6 +17,7 @@
 // STACK_EXTENSIONS dispatch in stack-profile.cjs (42-01), which requires this module lazily — so
 // the stack-profile / stack-render requires below happen inside `cli`, never at load time.
 
+const crypto = require('crypto');
 const nodeFs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -484,10 +485,18 @@ function verifyCommand(command, { root, cwd = '', env = process.env, home = os.h
 /** `<tool> ... <verb>` on one shell line: stops at a pipe, `;`, `&` or newline. */
 const toolVerb = (tool, verbs) => new RegExp(`\\b(?:${tool})\\b[^|;&\\n]*?\\b(?:${verbs})\\b`);
 
+// The refusals the EFFECT guard adds on top of the key policy (TRD 43-02). The key allow list says which
+// gates may run; these say a gate may NOT run because its effect on the work tree cannot be contained.
+const EFFECT_REASONS = Object.freeze({
+  unsafe: 'side-effect-unsafe',     // an earlier command in this root changed files: no more Dart/Flutter gates
+  unproven: 'side-effect-unproven', // not a git work tree, so a Dart/Flutter gate's effect cannot be undone
+});
+
 const RUN_POLICY = Object.freeze({
   defaultKeys: Object.freeze(['format', 'lint', 'typecheck', 'build']),
   optInKeys: Object.freeze(['test', 'e2e', 'audit', 'sast', 'lint_helm', 'lint_docker']),
   neverKeys: Object.freeze(['codegen', 'deps']),
+  effectReasons: Object.freeze(Object.values(EFFECT_REASONS)),
   // Order matters: the first regex that matches a line names the refusal.
   deny: Object.freeze([
     { re: /\b8080\b/, reason: 'port-8080-forbidden' },
@@ -837,6 +846,262 @@ function withSkip(it, reason, detail) {
   return { ...it, skipped: reason, run: { skipped: reason, detail } };
 }
 
+// ─── The effect guard (TRD 43-02, SDR-03) ─────────────────────────────────────
+//
+// The key allow list above is POLICY: it says which gates may run. It cannot see what a command DOES.
+// In objective 42's rollout the "safe" lint key ran `flutter analyze --fatal-infos`, which rewrote
+// analysis_options.yaml and ran an implicit `pub get` that bumped pubspec.lock. So every spawned command
+// is bracketed by a snapshot of the git work tree, and whatever it changed is reported and put back.
+// THE GUARD IS AUTHORITATIVE; the key list and `--no-pub` only make it fire less often.
+//
+//   * Compare CONTENT, not status codes. aocore and aodex were already dirty on exactly the files flutter
+//     touches, so ` M` before and ` M` after would hide a second modification. Every listed path is hashed.
+//   * A path that was clean before and is listed after has HEAD as its before-state, so git restores it.
+//   * A path that was dirty before is restored from the bytes saved before the run (up to 1 MB). Larger
+//     files cannot be held, so they are reported `restored: false` with the path listed.
+//   * Git runs through the REAL spawnSync (or `opts.git`), never through `opts.spawn`: the injected spawn
+//     of the existing tests would otherwise receive git calls.
+//   * The index is not restored for a path that was dirty before: a command that stages a user's
+//     uncommitted edit changes the index, not the content the guard compares.
+
+const MAX_RESTORE_BYTES = 1024 * 1024;
+const GIT_TIMEOUT_MS = 120 * 1000;
+const GIT_MAX_BUFFER = 256 * 1024 * 1024;
+
+// Variables git reads that would point it at some other repository (they are set inside a git hook).
+const GIT_ENV_DROP = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_PREFIX', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'];
+
+/** `git` must not take the index lock (a concurrent writer would fail) and must not start a daemon. */
+function gitEnv() {
+  const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  for (const k of GIT_ENV_DROP) delete env[k];
+  return env;
+}
+
+/** The completed git result, or null when git is absent, failed or timed out. */
+function runGit(git, cwd, args, input) {
+  const r = git('git', ['-c', 'core.fsmonitor=false', '-C', cwd, ...args], {
+    encoding: 'utf-8',
+    env: gitEnv(),
+    input,
+    timeout: GIT_TIMEOUT_MS,
+    maxBuffer: GIT_MAX_BUFFER,
+  });
+  return r && !r.error && r.status === 0 ? r : null;
+}
+
+/** `status --porcelain=v1 -z` -> Map(path -> XY). A rename names its source too (a deletion); a copy keeps it. */
+function parseStatusZ(text) {
+  const codes = new Map();
+  const records = String(text).split('\0');
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
+    if (rec.length < 4) continue;
+    const code = rec.slice(0, 2);
+    codes.set(rec.slice(3), code);
+    if (/[RC]/.test(code)) {
+      const from = records[++i];
+      if (from && !code.includes('C')) codes.set(from, code[0] === 'R' ? 'D ' : ' D');
+    }
+  }
+  return codes;
+}
+
+/** A path HEAD does not have (untracked, added, copied or renamed to). Its before-state is "absent". */
+const isNewToHead = (entry) => /^(?:\?\?|[ACR]|.A)/.test(entry.code);
+
+/** git's own blob id for a file's bytes: the fallback when `hash-object` cannot be used (a path with a newline). */
+function blobSha1(abs, fs) {
+  let data;
+  try { data = fs.readFileSync(abs); } catch (_) { return 'unreadable'; }
+  return crypto.createHash('sha1').update(`blob ${data.length}\0`).update(data).digest('hex');
+}
+
+/** One `git hash-object --stdin-paths` call for every regular file (no filters, so CRLF is not normalised). */
+function hashFiles(top, rels, { git, fs }) {
+  const hashes = new Map();
+  const viaGit = rels.filter((rel) => !/[\r\n]/.test(rel));
+  if (viaGit.length) {
+    const r = runGit(git, top, ['hash-object', '--no-filters', '--stdin-paths'], `${viaGit.join('\n')}\n`);
+    const lines = r ? String(r.stdout).split('\n').filter((l) => l !== '') : [];
+    if (lines.length === viaGit.length) viaGit.forEach((rel, i) => hashes.set(rel, lines[i]));
+  }
+  for (const rel of rels) if (!hashes.has(rel)) hashes.set(rel, blobSha1(path.join(top, rel), fs));
+  return hashes;
+}
+
+/** What is on disk at `rel` now: existence, kind, permission bits, size and (links) target. Files are hashed later. */
+function describePath(top, rel, fs) {
+  const abs = path.join(top, rel);
+  let st;
+  try { st = fs.lstatSync(abs); } catch (_) { return { exists: false, kind: 'none', hash: null, mode: 0, size: 0 }; }
+  const mode = st.mode & 0o777;
+  if (st.isSymbolicLink()) {
+    let target = '';
+    try { target = fs.readlinkSync(abs); } catch (_) { /* a dangling read is still a link */ }
+    return { exists: true, kind: 'link', hash: `link:${target}`, mode, size: st.size, target };
+  }
+  if (st.isDirectory()) return { exists: true, kind: 'dir', hash: 'dir', mode, size: 0 };
+  if (!st.isFile()) return { exists: true, kind: 'other', hash: `other:${st.mode}`, mode, size: st.size };
+  return { exists: true, kind: 'file', hash: null, mode, size: st.size };
+}
+
+/**
+ * snapshotTree(root, { fs, git, also, withBytes }) -> { top, files: Map(path -> entry) } | null
+ *
+ * `files` holds every path `git status --porcelain=v1 -z -uall` lists (ignored paths are never listed),
+ * each as `{ listed, code, exists, kind, hash, mode, size, bytes? }`; paths are relative to `top`, the
+ * work tree's top level. A path NOT in `files` was clean: its content is HEAD's. `also` names extra paths
+ * to describe even when clean (the paths that were dirty BEFORE the run, so the after-snapshot can still
+ * compare them once the command has made them clean). `withBytes` keeps the bytes of files up to 1 MB,
+ * which is what a restore writes back. Returns null when `root` is not a git work tree or git failed.
+ */
+function snapshotTree(root, { fs = nodeFs, git = spawnSync, also = [], withBytes = false } = {}) {
+  const topResult = runGit(git, root, ['rev-parse', '--show-toplevel']);
+  if (!topResult) return null;
+  const top = String(topResult.stdout).replace(/\r?\n$/, '');
+  if (!top) return null;
+  const status = runGit(git, top, ['status', '--porcelain=v1', '-z', '-uall', '--ignored=no']);
+  if (!status) return null;
+
+  const wanted = parseStatusZ(status.stdout);
+  for (const rel of also) if (!wanted.has(rel)) wanted.set(rel, null);
+
+  const files = new Map();
+  const toHash = [];
+  for (const [rel, code] of wanted) {
+    const entry = { listed: code !== null, code: code === null ? '' : code, ...describePath(top, rel, fs) };
+    if (entry.kind === 'file') toHash.push(rel);
+    files.set(rel, entry);
+  }
+  const hashes = hashFiles(top, toHash, { git, fs });
+  for (const rel of toHash) {
+    const entry = files.get(rel);
+    entry.hash = hashes.get(rel);
+    if (withBytes && entry.size <= MAX_RESTORE_BYTES) {
+      try { entry.bytes = fs.readFileSync(path.join(top, rel)); } catch (_) { /* restored:false later */ }
+    }
+  }
+  return { top, files };
+}
+
+const sameEntry = (b, a) => b.exists === a.exists && b.kind === a.kind && b.hash === a.hash && b.mode === a.mode;
+
+/**
+ * diffTree(before, after) -> [{ path, change: 'added'|'deleted'|'modified' }], sorted by path.
+ *
+ * Compares the union of both snapshots. A path clean before and listed after changed (its before-state
+ * is HEAD). A path dirty before is compared by existence, kind, content hash and permission bits against
+ * its description in `after` (which `also` guarantees). A path listed in neither was clean both times.
+ */
+function diffTree(before, after) {
+  const delta = [];
+  const paths = [...new Set([...before.files.keys(), ...after.files.keys()])].sort();
+  for (const rel of paths) {
+    const b = before.files.get(rel);
+    const a = after.files.get(rel);
+    if (!b) {
+      if (!a || !a.listed) continue;
+      delta.push({ path: rel, change: isNewToHead(a) ? 'added' : (a.exists ? 'modified' : 'deleted') });
+    } else if (a && !sameEntry(b, a)) {
+      delta.push({ path: rel, change: !b.exists ? 'added' : (!a.exists ? 'deleted' : 'modified') });
+    }
+  }
+  return delta;
+}
+
+/** Remove a file or symlink; refuses (false) to remove a directory, which may hold the user's files. */
+function removeNonDir(fs, abs) {
+  let st;
+  try { st = fs.lstatSync(abs); } catch (_) { return true; }
+  if (st.isDirectory()) return false;
+  fs.unlinkSync(abs);
+  return true;
+}
+
+function restorePath(before, after, rel, { fs, git }) {
+  const top = before.top;
+  const abs = path.join(top, rel);
+  const b = before.files.get(rel);
+  const a = after.files.get(rel);
+  try {
+    if (!b) {
+      // Clean before: HEAD (index and work tree) is the before-state.
+      if (isNewToHead(a)) {
+        // Staged by the command: drop it from the index, then from disk.
+        if (/^(?:[ACR]|.A)/.test(a.code) && runGit(git, top, ['rm', '--cached', '-q', '-f', '--', rel]) === null) return false;
+        return removeNonDir(fs, abs);
+      }
+      return runGit(git, top, ['checkout', 'HEAD', '--', rel]) !== null;
+    }
+    if (!b.exists) return removeNonDir(fs, abs);
+    if (b.kind === 'file' && b.bytes !== undefined) {
+      let cur = null;
+      try { cur = fs.lstatSync(abs); } catch (_) { /* gone: written fresh below */ }
+      if (cur && cur.isDirectory()) return false;
+      if (cur && cur.isSymbolicLink()) fs.unlinkSync(abs); // never write THROUGH a link the command left
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, b.bytes);
+      fs.chmodSync(abs, b.mode);
+      return true;
+    }
+    if (b.kind === 'link') {
+      if (!removeNonDir(fs, abs)) return false;
+      fs.symlinkSync(b.target, abs);
+      return true;
+    }
+    return false; // over 1 MB, a directory, or something that is not a plain file
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * restoreTree(before, delta, after, { fs, git }) -> { restored, unrestored: [path] }
+ *
+ * Puts every changed path back: an untracked or newly added path is removed (and unstaged); a path that
+ * was clean before is checked out from HEAD; a path that was dirty before is rewritten from its saved bytes
+ * with its permission bits. `restored` is true only when every path was put back.
+ */
+function restoreTree(before, delta, after, { fs = nodeFs, git = spawnSync } = {}) {
+  const unrestored = [];
+  for (const d of delta) {
+    if (!restorePath(before, after, d.path, { fs, git })) unrestored.push(d.path);
+  }
+  return { restored: unrestored.length === 0, unrestored };
+}
+
+// Tools whose gates rewrite the work tree behind the command's back (`pub get`, lockfiles, analyzer
+// options). fvm/puro/melos/very_good/dcm are launchers or Dart-ecosystem drivers for the same tools.
+const DART_TOOLS = new Set(['dart', 'flutter', 'fvm', 'puro', 'melos', 'very_good', 'dcm']);
+
+/** Every tool a command invokes directly: past env/sudo/time prefixes, `cd x &&` chains, launchers and `sh -c "..."`. */
+function directTools(command, depth = 0, into = new Set()) {
+  if (depth > 4) return into;
+  for (const inv of normalizeScript(String(command))) {
+    let cur = inv;
+    for (let i = 0; cur && i < 4; i++) {
+      const name = path.posix.basename(cur.tool);
+      into.add(name);
+      if (SHELL_INTERPRETERS.has(name)) {
+        const at = cur.argv.findIndex((w, k) => k > 0 && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(w));
+        if (at !== -1 && cur.argv[at + 1] !== undefined) directTools(cur.argv[at + 1], depth + 1, into);
+      }
+      cur = unwrapInvocation(cur);
+    }
+  }
+  return into;
+}
+
+function isDartFlutter(command) {
+  for (const tool of directTools(command)) if (DART_TOOLS.has(tool)) return true;
+  return false;
+}
+
+const haltedDetail = (halted) => (halted.path
+  ? `an earlier command in this root changed tracked or untracked files: ${halted.path}`
+  : 'an earlier command in this root left the work tree in an unverifiable state');
+
 function runOne(it, ctx, opts) {
   if (!it || typeof it.command !== 'string' || it.command === '') {
     return withSkip(it, 'no-command', `no command to run (${(it && it.resolve && it.resolve.status) || 'none'})`);
@@ -853,6 +1118,15 @@ function runOne(it, ctx, opts) {
   }
   const finding = pickFinding(analyzeText(it.command, it.cwd || '', ctx, { mode: 'command', label: 'command' }));
   if (finding) return withSkip(it, finding.reason, finding.detail);
+
+  // The effect guard. Only a Dart/Flutter gate is refused by it (`pub get`, lockfiles and analyzer options
+  // are what those tools rewrite); every other tool is merely bracketed and restored.
+  const dartFlutter = isDartFlutter(it.command);
+  if (dartFlutter && ctx.halted) return withSkip(it, EFFECT_REASONS.unsafe, haltedDetail(ctx.halted));
+  const before = snapshotTree(ctx.root, { fs: ctx.fs, git: opts.git, withBytes: true });
+  if (before === null && dartFlutter) {
+    return withSkip(it, EFFECT_REASONS.unproven, 'not a git work tree (or git is unavailable), so a change this command makes could not be detected and undone');
+  }
 
   const seconds = opts.timeoutS != null ? opts.timeoutS : (it.timeout_s != null ? it.timeout_s : DEFAULT_TIMEOUT_S);
   const started = Date.now();
@@ -873,7 +1147,36 @@ function runOne(it, ctx, opts) {
     tail: tailOf(r),
   };
   if (r.error && !timedOut) run.error = String(r.error.message || r.error);
+  if (before !== null) guardEffects(it, ctx, opts, before, run);
   return { ...it, run };
+}
+
+/**
+ * Diff the work tree against `before`, restore whatever the command changed, and record it on `run`:
+ * `mutated: [{path, change}]`, `restored` (true only if EVERY path was put back and a third snapshot
+ * agrees), `unrestored: [path]` when not. An after-snapshot that cannot be taken (git failed mid-run) is
+ * `mutated_unknown`. Either way the root is halted for the remaining Dart/Flutter gates.
+ */
+function guardEffects(it, ctx, opts, before, run) {
+  const deps = { fs: ctx.fs, git: opts.git };
+  const also = [...before.files.keys()];
+  const after = snapshotTree(ctx.root, { ...deps, also });
+  if (after === null) {
+    run.mutated_unknown = true;
+    ctx.halted = { key: it.key, path: null };
+    return;
+  }
+  const delta = diffTree(before, after);
+  if (delta.length === 0) return;
+
+  const result = restoreTree(before, delta, after, deps);
+  const again = snapshotTree(ctx.root, { ...deps, also });
+  const left = again === null ? null : diffTree(before, again).map((d) => d.path);
+  const unrestored = [...new Set([...result.unrestored, ...(left || [])])].sort();
+  run.mutated = delta;
+  run.restored = result.restored && left !== null && left.length === 0;
+  if (unrestored.length) run.unrestored = unrestored;
+  ctx.halted = { key: it.key, path: delta[0].path };
 }
 
 /**
@@ -884,10 +1187,16 @@ function runOne(it, ctx, opts) {
  * a skipped item, and a skipped item also carries a top-level `skipped` reason (42-11 counts them).
  * The timeout is `timeoutS` when given, else the item's own `timeout_s`, else 300s. A slow or failing
  * command never aborts the batch. The input array and its items are not mutated.
+ *
+ * Effect guard (43-02): each spawned command is bracketed by a snapshot of the git work tree. What it
+ * changed is restored and reported as `run.mutated` / `run.restored`; after one change the remaining
+ * Dart/Flutter items for this root are skipped `side-effect-unsafe`. Outside a git work tree a
+ * Dart/Flutter item is refused `side-effect-unproven`. `git` (default spawnSync) runs the snapshots and is
+ * separate from `spawn`, which only ever runs the gate commands.
  */
-function runCommands(items, { root, include = [], keys = null, timeoutS = null, spawn = spawnSync, env = process.env, fs = nodeFs } = {}) {
-  const ctx = { root: path.resolve(String(root)), fs, runnerList: null };
-  const opts = { include: include || [], keys: keys && keys.length ? keys : null, timeoutS, spawn, env };
+function runCommands(items, { root, include = [], keys = null, timeoutS = null, spawn = spawnSync, git = spawnSync, env = process.env, fs = nodeFs } = {}) {
+  const ctx = { root: path.resolve(String(root)), fs, runnerList: null, halted: null };
+  const opts = { include: include || [], keys: keys && keys.length ? keys : null, timeoutS, spawn, git, env };
   return items.map((it) => runOne(it, ctx, opts));
 }
 

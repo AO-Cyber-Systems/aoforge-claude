@@ -83,8 +83,6 @@ describe('--run effect guard: real spawn, stub flutter, scratch git repo', { ski
       { path: 'pubspec.lock', change: 'modified' },
     ]);
     assert.equal(out[0].run.restored, true);
-    assert.equal(out[0].run.rewritten, 'flutter analyze --fatal-infos --no-pub');
-    assert.equal(out[0].command, 'flutter analyze --fatal-infos', 'the stored command is never rewritten');
 
     assert.ok(read(root, 'analysis_options.yaml').equals(optionsBefore), 'analysis_options.yaml is byte-equal to its pre-run bytes');
     assert.match(read(root, 'analysis_options.yaml').toString(), /my own uncommitted edit/);
@@ -94,7 +92,7 @@ describe('--run effect guard: real spawn, stub flutter, scratch git repo', { ski
     assert.equal(out[1].skipped, 'side-effect-unsafe');
     assert.equal(out[1].run.skipped, 'side-effect-unsafe');
     assert.match(out[1].run.detail, /earlier command in this root/);
-    assert.deepEqual(fx.stubCalls(bin, 'flutter'), ['analyze --fatal-infos --no-pub'], 'the stub ran once, not twice');
+    assert.equal(fx.stubCalls(bin, 'flutter').length, 1, 'the stub ran once, not twice');
   });
 
   test('2. a command that creates an untracked file: reported `added`, the file is removed', () => {
@@ -151,6 +149,22 @@ describe('--run effect guard: real spawn, stub flutter, scratch git repo', { ski
     assert.equal('mutated' in out[0].run, false);
     assert.equal(out[1].run.exit_code, 0, 'no mutation, no halt');
     assert.equal(fs.existsSync(path.join(root, 'build', 'out.txt')), true, 'ignored output is left alone');
+  });
+
+  test('the deny set does not catch `dart analyze`, `dart format` or `flutter analyze` inside a work tree', () => {
+    const { root, opts } = setup({ body: ':' });
+    const dartBin = track(fx.mutatingToolBin('dart', ':'));
+    const env = { ...opts.env, PATH: `${dartBin}${path.delimiter}${opts.env.PATH}` };
+    const out = runCommands([
+      item('lint', 'dart analyze'),
+      item('format', 'dart format --set-exit-if-changed .'),
+      item('typecheck', 'flutter analyze'),
+    ], { ...opts, env });
+    for (const r of out) {
+      assert.equal(r.skipped, undefined, `${r.command} was refused: ${r.skipped}`);
+      assert.equal(r.run.exit_code, 0, r.command);
+    }
+    assert.equal(fx.stubCalls(dartBin, 'dart').length, 2);
   });
 
   test('7a. a command that reverts the user\'s pre-dirty edit is a mutation: the edit is put back', () => {

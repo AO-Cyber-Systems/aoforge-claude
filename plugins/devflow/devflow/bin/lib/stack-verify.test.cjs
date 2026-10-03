@@ -384,6 +384,12 @@ describe('RUN_POLICY shape', () => {
     }
     assert.ok(RUN_POLICY.skip.some((s) => s.reason === 'container-build'));
   });
+
+  test('the effect guard reasons are listed, and the policy stays frozen', () => {
+    assert.deepEqual(RUN_POLICY.effectReasons, ['side-effect-unsafe', 'side-effect-unproven']);
+    assert.ok(Object.isFrozen(RUN_POLICY));
+    assert.ok(Object.isFrozen(RUN_POLICY.effectReasons));
+  });
 });
 
 describe('runCommands: deny policy on the command (test 5)', () => {
@@ -452,7 +458,10 @@ describe('runCommands: deny policy on the command (test 5)', () => {
 
   test('safe commands are not caught by the deny set', () => {
     const root = track(fx.makeRepo({}));
-    for (const command of ['go build ./...', 'golangci-lint run ./...', 'tsc --noEmit', 'gofmt -l .', 'cargo clippy', 'helm lint chart/', 'kubectl version --client', 'terraform validate', 'git diff --exit-code', 'dart analyze', 'flutter analyze', 'go vet ./...']) {
+    // `dart analyze` and `flutter analyze` are not here: since 43-02 a Dart/Flutter gate needs a git work
+    // tree (this root is a plain temp dir), so they are proved not-denied inside one, in
+    // stack-verify-run-guard.test.cjs, and refused outside one in the 43-02 test 9 block below.
+    for (const command of ['go build ./...', 'golangci-lint run ./...', 'tsc --noEmit', 'gofmt -l .', 'cargo clippy', 'helm lint chart/', 'kubectl version --client', 'terraform validate', 'git diff --exit-code', 'go vet ./...']) {
       const spawn = spySpawn();
       const [r] = runCommands([item(command)], { root, spawn });
       assert.equal(r.run.skipped, undefined, `${command} was wrongly refused: ${r.run.skipped}`);
