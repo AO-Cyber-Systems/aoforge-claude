@@ -9,9 +9,9 @@ status: checkpoint
 Checkpoint, not complete. Task 1 is done and committed. The run stops at Task 2 (`checkpoint:decision`) until the human replies.
 
 ## Progress
-- [x] Task 1: Read-only fleet dry run and residual list — (this commit)
-- [ ] Task 2: Human decides each residual row — next step: present the `### Residual rows (need a decision)` list in `.planning/objectives/43-stack-drafter-rules/43-ROLLOUT.md` and wait for a reply (`accept-all`, `per-row`, `none`, or `<repo>.<key>: accept|open|refresh-later` per row)
-- [ ] Task 3: Apply the decision, retire KNOWN_DRIFT, CHANGELOG and the full suite — next step: record the reply verbatim under `### Decision` in the 43-15 ROLLOUT section, then edit `plugins/devflow/devflow/bin/lib/__fixtures__/stack-fleet-tables.cjs` (ACCEPTED/OPEN, delete KNOWN_DRIFT)
+- [x] Task 1: Read-only fleet dry run and residual list — ea95cf8c
+- [x] Task 2: Human decides each residual row — (this commit; reply `accept-all`, recorded verbatim under `### Decision` in 43-ROLLOUT.md)
+- [ ] Task 3: Apply the decision, retire KNOWN_DRIFT, CHANGELOG and the full suite — next step: edit `plugins/devflow/devflow/bin/lib/__fixtures__/stack-fleet-tables.cjs` (ACCEPTED rows, empty OPEN, delete KNOWN_DRIFT), then `stack-drafter-fleet.test.cjs`
 
 ## Task 1 result
 

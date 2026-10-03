@@ -613,3 +613,21 @@ Options for each row, from the TRD:
 **E. politihub.** Evaluated by the harness since 43-08 (HEAD `30be797fb85b`). It has no conflict (43-10's rules closed its `build` and `test` conflicts), only the more-specific `lint` row above, so it is counted and not out of scope. No decision is needed beyond that row.
 
 Reply with an option id (`accept-all`, `per-row`, `none`). For `per-row`, reply `<repo>.<key>: accept|open|refresh-later` per row. Recommended per-row reply: `ao-terminal.deps: accept`, `aocore.test: accept`, `aodex.audit: open`, `justinforme.lint: open`, `smartWellness.lint: open`, `dfip.lint: accept`; every other more-specific row accept.
+
+### Decision
+
+Recorded 2026-10-03, before any table changed. The user's reply in chat, verbatim:
+
+> accept-all
+
+What `accept-all` disposes, row by row (the consequence of the reply, not part of it):
+
+| row | disposition | table entry |
+|---|---|---|
+| ao-terminal.deps | accept | ACCEPTED, reason "hand-edited flags; drafter stays verbatim" |
+| aocore.test | accept | ACCEPTED, reason "hand-edited flags; drafter stays verbatim" |
+| aodex.audit | accept | ACCEPTED, row-specific reason: the draft picks the govulncheck self-test step, not the gate |
+| aodex.lint, aofamily.build/deps/lint, eden-biz.e2e, EdenDocs.deps, justinforme.e2e, politihub.lint | accept | ACCEPTED, one row-specific reason each |
+| dfip.lint, justinforme.lint, smartWellness.lint | accept | none: the harness sees no drift on them, so they are not representable as table entries; they go in the SUMMARY accepted list |
+
+Follow-ups the acceptance does not close (recorded in the 43-15 SUMMARY for the verifier): aodex.audit (the draft takes the `--self-test` step, a possible general drafter rule) and the `buf lint` coverage of justinforme and smartWellness `make lint` (a possible rule or a committed-file refresh). They are accepted as the current state and remain known drafter limitations.
