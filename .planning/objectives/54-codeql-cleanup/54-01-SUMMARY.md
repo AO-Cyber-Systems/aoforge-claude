@@ -8,5 +8,6 @@ status: in-progress
 # Objective 54 TRD 01: Shared text-escape module Summary (checkpoint)
 
 ## Progress
-- [x] Task 1: Create lib/text-escape.cjs with escapeRegExp, objectiveNumPattern and mdCell — RED 86c32ae0, GREEN (this commit)
-- [ ] Task 2: Replace the duplicate escape helpers with imports from text-escape.cjs — next step: in roadmap-progress.cjs (lines ~18-28) delete the local escapeRegExp and add `const { escapeRegExp } = require('./text-escape.cjs');`, then repeat for gh-wiki.cjs, watcher-shell.cjs, migrations/0011-github-store-backfill.cjs and planning-verbs-cli.cjs, running each module's existing test after its edit
+- [x] Task 1: Create lib/text-escape.cjs with escapeRegExp, objectiveNumPattern and mdCell — RED 86c32ae0, GREEN d3aca38d
+- [x] Task 2: Replace the duplicate escape helpers with imports from text-escape.cjs — (this commit)
+- [ ] Finalize: next step: write the final SUMMARY with `df-tools summary post 54-01` (evidence tables, deviations, ## Self-Check), then run state advance-job, update-progress, record-metric, roadmap update-job-progress and requirements mark-complete 54-A 54-B

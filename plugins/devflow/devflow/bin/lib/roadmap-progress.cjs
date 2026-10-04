@@ -17,15 +17,9 @@
 // reads the header row to find each column by name, with a positional
 // fallback (by column count) when header wording varies.
 
-// js/regex-injection: `objectiveNum` is interpolated into `new RegExp(...)` at both call sites
-// below. `.replace('.', '\\.')` (the prior escaping) only ever handled the literal dot, and only
-// its first occurrence — every other regex metacharacter (`+ ( ) * ? ^ $ { } | [ ] \`) reached
-// the constructor unescaped, either matching the wrong objective's row/header (an unescaped `+`
-// in "1+" greedily matches "1" or "11") or throwing on an unbalanced construct like "(".
-// Mirrors objective.cjs's own escapeRegExp (same TRD-locked pattern).
-function escapeRegExp(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+// js/regex-injection: `objectiveNum` is interpolated into `new RegExp(...)` at both call sites below, so it
+// goes through the shared escape (text-escape.cjs) rather than a hand-rolled `.replace('.', '\\.')`.
+const { escapeRegExp } = require('./text-escape.cjs');
 
 function splitTableRow(line) {
   const trimmed = line.trim();

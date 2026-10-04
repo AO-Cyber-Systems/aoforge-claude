@@ -45,6 +45,7 @@ const planningImport = require('./planning-import.cjs');
 const backfill = require('./gh-backfill.cjs');
 const planningMode = require('./planning-mode.cjs');
 const { EXIT } = require('./gh-store-cli.cjs');
+const { mdCell } = require('./text-escape.cjs');
 
 // ─── Arguments ───────────────────────────────────────────────────────────────
 
@@ -375,9 +376,6 @@ const describeItem = (x) => {
   return JSON.stringify(x);
 };
 
-// Backslash before pipe: escaping it after the pipe would double the one the pipe just gained (js/incomplete-sanitization).
-const tableCell = (s) => String(s).replace(/\r?\n/g, ' ').replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
-
 /** The `will stay local:` table (51-05, OQ5): every refused TRD and every kept-local file, one row each. */
 function stayLocalTable(res) {
   const rows = [];
@@ -387,7 +385,7 @@ function stayLocalTable(res) {
   }
   for (const x of Array.isArray(res.kept_local) ? res.kept_local : []) rows.push([x.rel, x.reason || '']);
   if (rows.length === 0) return ['will stay local: nothing.'];
-  return ['will stay local:', '  | file | why |', '  |---|---|', ...rows.map(([rel, why]) => `  | ${tableCell(rel)} | ${tableCell(why)} |`)];
+  return ['will stay local:', '  | file | why |', '  |---|---|', ...rows.map(([rel, why]) => `  | ${mdCell(rel)} | ${mdCell(why)} |`)];
 }
 
 /**

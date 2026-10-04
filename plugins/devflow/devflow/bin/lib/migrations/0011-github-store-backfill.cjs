@@ -52,6 +52,7 @@ const client = require('../gh-client.cjs');
 const ghCapability = require('../gh-capability.cjs');
 const { TRD_MAX_CHARS } = require('../gh-trd.cjs');
 const upgrade = require('../upgrade.cjs');
+const { mdCell } = require('../text-escape.cjs');
 
 const LEGACY_TRD_RE = /^objectives\/[^/]+\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
 const GIT_REDIRECT_VARS = [
@@ -98,8 +99,6 @@ const SHORT_WAIT_MS = 60 * 1000;
 const ISSUE_FILE_RE = /^objectives\/[^/]+\/[^/]+-TRD\.md$/;
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-// Backslash first: escaping it after the pipe would double the one the pipe just gained (js/incomplete-sanitization).
-const cell = (s) => String(s === undefined || s === null ? '' : s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 
 /** The MAIN checkout: the journal, the cache index and config.json all belong to it (D-14). */
 function mainOf(ctx) {
@@ -196,7 +195,7 @@ function planText(plan, blockers = []) {
   }
   const rows = stayLocalRows(plan);
   if (rows.length === 0) lines.push('will stay local: nothing.');
-  else lines.push('will stay local:', '  | file | why |', '  |---|---|', ...rows.map(([rel, why]) => `  | ${cell(rel)} | ${cell(why)} |`));
+  else lines.push('will stay local:', '  | file | why |', '  |---|---|', ...rows.map(([rel, why]) => `  | ${mdCell(rel)} | ${mdCell(why)} |`));
   if (blockers.length) lines.push(`apply would refuse now (${plural(blockers.length, 'blocker')}):`, ...blockers.map((b) => `  - ${b}`));
   lines.push(`full plan: ${DRY_RUN_COMMAND}; apply: ${APPLY_COMMAND}`);
   return lines.join('\n');
@@ -918,7 +917,7 @@ function migrate(ctx) {
   if (!q.ok) return stop('preflight', [`planning import failed: ${q.error}`, ...switched], { changed });
   const stayLocal = q.report ? stayLocalRows(q.report) : [];
   const notes = stayLocal.length
-    ? ['will stay local:', '  | file | why |', '  |---|---|', ...stayLocal.map(([rel, why]) => `  | ${cell(rel)} | ${cell(why)} |`)]
+    ? ['will stay local:', '  | file | why |', '  |---|---|', ...stayLocal.map(([rel, why]) => `  | ${mdCell(rel)} | ${mdCell(why)} |`)]
     : [];
 
   // Phase 3b (a resume only): re-adopt by marker whatever the mapping lost since the queue phase.
