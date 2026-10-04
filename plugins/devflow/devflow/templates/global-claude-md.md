@@ -1,6 +1,6 @@
 ---
 template: global-claude-md
-template_version: "2"
+template_version: "3"
 ---
 # DevFlow Routing
 
@@ -17,6 +17,7 @@ invoke the matching skill via the Skill tool instead of editing files directly.
 - New project setup → `/devflow:new-project`
 - Adopt an existing repo (unattended, one commit on devflow/adopt) → `/devflow:adopt`
 - Resume / status / progress / health → `/devflow:status` (`status resume`, `status pause`, `status check`)
+- Diagnose and safely repair the install and project state → `/devflow:doctor` (`doctor --fix`)
 - Milestones → `/devflow:milestone <sub>`
 - Todos → `/devflow:todo add`, `/devflow:todo list`
 - GitHub store (migrate, status, flush, setup, release) → `/devflow:gh-sync`
