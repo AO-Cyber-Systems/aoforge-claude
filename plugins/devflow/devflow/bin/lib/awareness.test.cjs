@@ -12,7 +12,6 @@ const {
   DEFAULT_TTL_MINUTES,
   DEFAULT_STALE_DAYS,
   DEFAULT_BRANCH_PATTERNS,
-  AWARENESS_CACHE_REL,
 } = require('./awareness.cjs');
 const {
   buildStateMd,
@@ -541,12 +540,9 @@ test('readCache C7: a legacy in-tree file with no store file reads as null (no f
   } finally { t.cleanup(); }
 });
 
-test('AWARENESS_CACHE_REL is kept only as the legacy in-tree path', () => {
-  assert.strictEqual(AWARENESS_CACHE_REL, path.join('.planning', '.awareness-cache.json'));
-  assert.strictEqual(
-    AWARENESS_CACHE_REL.split(path.sep).join('/'),
-    store.LEGACY_CACHE_REL
-  );
+test('AWARENESS_CACHE_REL is gone; the legacy in-tree path survives only as awareness-store LEGACY_CACHE_REL (TRD 53-05)', () => {
+  assert.strictEqual(require('./awareness.cjs').AWARENESS_CACHE_REL, undefined);
+  assert.strictEqual(require('./awareness-store.cjs').LEGACY_CACHE_REL, '.planning/.awareness-cache.json');
 });
 
 // ─── Group W: writeCache merge semantics (through the store) ─────────────────
@@ -1826,11 +1822,11 @@ const cassetteRel = path.join(
 
 // ─── Group L: Library surface lock ───────────────────────────────────────────
 
-test('L1 (02-07): awareness.cjs exports exactly 14 expected entries', () => {
+test('L1 (02-07, 53-05): awareness.cjs exports exactly 13 expected entries', () => {
   const aw = require('./awareness.cjs');
   const exported = Object.keys(aw).sort();
   const expected = [
-    'AWARENESS_CACHE_REL', 'DEFAULT_BRANCH_PATTERNS', 'DEFAULT_STALE_DAYS', 'DEFAULT_TTL_MINUTES',
+    'DEFAULT_BRANCH_PATTERNS', 'DEFAULT_STALE_DAYS', 'DEFAULT_TTL_MINUTES',
     '_resetGitMock', '_setRunGit',
     'aggregateOrgByProductQuarter', 'isStale', 'parseStateMd', 'parseTaskListFallback',
     'readCache', 'scanOrg', 'scanPeer', 'writeCache',
@@ -1855,7 +1851,6 @@ test('L2 (02-07): each export has the expected type', () => {
   assert.strictEqual(typeof aw.DEFAULT_TTL_MINUTES, 'number', 'DEFAULT_TTL_MINUTES should be number');
   assert.strictEqual(typeof aw.DEFAULT_STALE_DAYS, 'number', 'DEFAULT_STALE_DAYS should be number');
   assert.ok(Array.isArray(aw.DEFAULT_BRANCH_PATTERNS), 'DEFAULT_BRANCH_PATTERNS should be array');
-  assert.strictEqual(typeof aw.AWARENESS_CACHE_REL, 'string', 'AWARENESS_CACHE_REL should be string');
 });
 
 // ─── Group CT: Cache round-trip integration ───────────────────────────────────

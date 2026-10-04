@@ -24,8 +24,8 @@ const PLUGIN_VERSION = JSON.parse(fs.readFileSync(PLUGIN_JSON, 'utf-8')).version
 // /devflow: or /df: token, so 0007 detects applies:false on the v1 fixture and is left out of
 // AUTO_IDS — it is reported under `skipped`, never `pending` or `applied`. See test 12 below.
 const AUTO_IDS = ['0001', '0002', '0003', '0004', '0005'];
-// v=2 as of TRD 37-10 (global-claude-md template bumped to add /devflow:adopt).
-const MANAGED_START = '<!-- DEVFLOW:START v=2 src=global-claude-md -->';
+// v=3 as of TRD 53-05 (v=2 was TRD 37-10, /devflow:adopt; v=3 adds /devflow:doctor).
+const MANAGED_START = '<!-- DEVFLOW:START v=3 src=global-claude-md -->';
 
 const cleanup = [];
 afterEach(() => {
