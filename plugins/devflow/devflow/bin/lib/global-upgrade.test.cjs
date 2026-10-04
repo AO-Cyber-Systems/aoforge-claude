@@ -142,7 +142,7 @@ test('4: first run over a hand-written DevFlow Routing section writes nothing an
   assert.match(pending[0].message, /df-tools upgrade --global --confirm/);
   assert.ok(pending[0].detail.includes('- # DevFlow Routing'), 'detail lacks the removed heading line');
   assert.ok(
-    pending[0].detail.includes('+ <!-- DEVFLOW:START v=2 src=global-claude-md -->'),
+    pending[0].detail.includes('+ <!-- DEVFLOW:START v=3 src=global-claude-md -->'),
     'detail lacks the added START marker line',
   );
   assert.ok(!pending[0].detail.includes('- ## TDD & Quality'), 'the next heading must not be proposed for removal');
@@ -282,10 +282,10 @@ test('12: dryRun reports the plan and writes nothing under the fake home', (t) =
 });
 
 // 13
-test('13: the real global template is version 2 and routes to /devflow: skills only (TRD 37-10: adopt added)', () => {
+test('13: the real global template is version 3 and routes to /devflow: skills only (TRD 37-10: adopt added; TRD 53-05: doctor added)', () => {
   const tpl = gu().loadGlobalTemplate(REAL_TEMPLATE);
-  assert.equal(tpl.version, '2');
-  for (const cmd of ['/devflow:build', '/devflow:plan-objective', '/devflow:status', '/devflow:adopt']) {
+  assert.equal(tpl.version, '3');
+  for (const cmd of ['/devflow:build', '/devflow:plan-objective', '/devflow:status', '/devflow:adopt', '/devflow:doctor']) {
     assert.ok(tpl.body.includes(cmd), `template body lacks ${cmd}`);
   }
   assert.ok(!tpl.body.includes('/df:'), 'template body still references /df: commands');

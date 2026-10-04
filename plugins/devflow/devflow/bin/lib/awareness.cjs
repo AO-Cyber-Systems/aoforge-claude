@@ -30,10 +30,6 @@ const store = require('./awareness-store.cjs');
 const DEFAULT_TTL_MINUTES = 10;
 const DEFAULT_STALE_DAYS = 30;
 const DEFAULT_BRANCH_PATTERNS = ['feature/*', 'df/*', 'fix/*', 'proposal/*'];
-// LEGACY (TRD 45-01): the pre-45 in-tree cache path. Nothing reads or writes it any more —
-// readCache/writeCache use awareness-store. The export name is kept for migration/doctor,
-// which need to recognise the dead file; it is not a live path.
-const AWARENESS_CACHE_REL = path.join('.planning', '.awareness-cache.json');
 
 // ─── TRD 02-01: parseStateMd ──────────────────────────────────────────────────
 
@@ -556,5 +552,4 @@ module.exports = {
   DEFAULT_TTL_MINUTES,
   DEFAULT_STALE_DAYS,
   DEFAULT_BRANCH_PATTERNS,
-  AWARENESS_CACHE_REL,
 };
