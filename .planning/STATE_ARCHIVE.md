@@ -106,6 +106,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 53]: 53-01: in local mode summary post|checkpoint write the checkout that holds the caller (planning-mode.resolveCheckoutRoot, fs-only), so an executor worktree commits its own SUMMARY and the wave merge delivers it; store mode keeps the MAIN checkout (D-14). Executor and orchestrator prose now say so; 5c reads a parallel plan's SUMMARY state from its worktree
 - [Objective 53]: 53-03: micro commits through df-tools commit by spawning the CLI; the store-mode gate, override log and Refs trailer keep one owner (cmdCommit), and gh-gate refusals map to gate-refused with the message verbatim
 - [Objective 53]: 53-04: gate-commits keeps denying a merge chained with a raw git commit; only the deny reason gains a hint, and a squash completion uses the inline DEVFLOW_ALLOW_RAW_COMMIT=1 prefix rather than SQUASH_MSG detection
+- [Objective 54]: text-escape.cjs is the single dependency-free home for escapeRegExp, objectiveNumPattern and mdCell; it must never require helpers.cjs (hooks load it per call) — Hooks (changelog-on-tag.js, TRD 54-07) require it on every PreToolUse(Bash); helpers.cjs loads model-profiles JSON at require time
 
 ## Performance Metrics
 
@@ -155,4 +156,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 53 P06 | 28min | 2 tasks | 5 files |
 | Objective 53 P04 | 9min | 3 tasks | 6 files |
 | Objective 53 P07 | 6min | 2 tasks | 3 files |
+| Objective 54 P01 | 4min | 2 tasks | 7 files |
 
