@@ -371,6 +371,13 @@ TRDs:
 - [x] 53-06-decision-repair-TRD.md — (W1) item 53-8: doctor check 33 `decision-resolution` detects and repairs (backed up, verified) pre-52 flattened resolutions; reports the unrecoverable
 - [x] 53-07-docs-and-full-suite-TRD.md — (W3) CHANGELOG, USER-GUIDE, CLAUDE.md; item 53-6 closed by 43-03 with evidence; full `npm test`
 
+### Objective 54: CodeQL cleanup
+
+**Goal:** Clear the open CodeQL alerts on `main` (56 at 2.13.0): one shared regex escape for objective/version patterns, one markdown-cell escape, the HTML-comment filter, a prototype-pollution guard in `config-set`, workflow token permissions, `execFileSync` in tests, and two test leftovers; dismiss the intended `handoff.cjs` `prompt_match` regex with a reason.
+**Requirements:** none (security/correctness tech debt; see `.planning/objectives/54-codeql-cleanup/OBJECTIVE.md`)
+**Depends on:** Objective 53
+**Plans:** TBD
+
 ### Other v1.4 candidates
 
 - **Objective 26: GitHub issue auto-build monitor** — **KILLED 2026-10-01** (user decision, GMD-04; see its OBJECTIVE.md Disposition). Moved out of v1.3 on 2026-09-28 by user decision. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
@@ -422,3 +429,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
 | 52. Store-mode polish | v1.4 | 6/6 | Complete | 2026-10-04 |
 | 53. Worktree and health hygiene | v1.4 | 7/7 | Complete | 2026-10-04 |
+| 54. CodeQL cleanup | v1.4 | 0/— | Registered | — |
