@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 100,
+  "progress_pct": 97,
   "status": "ready_for_verification",
   "last_activity": "2026-10-04",
   "metrics": {
@@ -595,6 +595,11 @@
       "objective": "53",
       "summary": "53-04: gate-commits keeps denying a merge chained with a raw git commit; only the deny reason gains a hint, and a squash completion uses the inline DEVFLOW_ALLOW_RAW_COMMIT=1 prefix rather than SQUASH_MSG detection",
       "rationale": null
+    },
+    {
+      "objective": "54",
+      "summary": "text-escape.cjs is the single dependency-free home for escapeRegExp, objectiveNumPattern and mdCell; it must never require helpers.cjs (hooks load it per call)",
+      "rationale": "Hooks (changelog-on-tag.js, TRD 54-07) require it on every PreToolUse(Bash); helpers.cjs loads model-profiles JSON at require time"
     }
   ],
   "blockers": [],

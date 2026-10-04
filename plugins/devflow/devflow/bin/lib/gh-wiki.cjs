@@ -29,6 +29,7 @@ const { spawnSync } = require('child_process');
 const { toObjectiveId } = require('./gh-mapping.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
 const { readConfig, resolveRepo } = require('./gh-client.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const WIKI_DIR_REL = '.planning/wiki';
 const DOCS_DIR_REL = 'docs/devflow';
@@ -105,11 +106,7 @@ const titleKind = (kind) => kind.split('-').map((p) => p[0] + p.slice(1).toLower
 const versionToPage = (v) => v.replace(/\./g, '_');
 const versionFromPage = (v) => v.replace(/_/g, '.');
 
-// js/regex-injection (CodeQL alert 145): `kind` is an in-code constant, so escaping it is defensive only.
-// Mirrors objective.cjs's own escapeRegExp (same TRD-locked pattern).
-function escapeRegExp(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+// js/regex-injection (CodeQL alert 145): `kind` is an in-code constant, so escaping it (text-escape.cjs) is defensive only.
 
 /** Rule for `objectives/<dir>/[<NN>-]<KIND>.md` -> `<ObjectivePage>-<Suffix>`. */
 function objectiveDocRule(kind, suffix) {
