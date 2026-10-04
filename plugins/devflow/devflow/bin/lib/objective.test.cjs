@@ -861,3 +861,43 @@ describe('48-14 store mode: objective ops route through the planning verbs', () 
     });
   });
 });
+
+// ─── TRD 53-02: incomplete_jobs pairs on the NN-MM key ───────────────────────
+
+describe('53-02: findObjectiveInternal incomplete_jobs pairs a named TRD with either summary name', () => {
+  const { findObjectiveInternal } = require('./objective.cjs');
+
+  function projectWith(files) {
+    const root = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-objective-pairing-')));
+    const dir = path.join(root, '.planning', 'objectives', '07-demo');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const name of files) fs.writeFileSync(path.join(dir, name), '# x\n');
+    return root;
+  }
+
+  test('a named TRD with a short-name summary is not in incomplete_jobs', () => {
+    const root = projectWith(['07-01-alpha-TRD.md', '07-01-SUMMARY.md']);
+    assert.deepEqual(findObjectiveInternal(root, '07').incomplete_jobs, []);
+  });
+
+  test('a named TRD with a long-name summary is not in incomplete_jobs', () => {
+    const root = projectWith(['07-02-beta-TRD.md', '07-02-beta-SUMMARY.md']);
+    assert.deepEqual(findObjectiveInternal(root, '07').incomplete_jobs, []);
+  });
+
+  test('a named TRD with no summary stays in incomplete_jobs, by file name', () => {
+    const root = projectWith(['07-03-gamma-TRD.md', '07-01-alpha-TRD.md', '07-01-SUMMARY.md']);
+    assert.deepEqual(findObjectiveInternal(root, '07').incomplete_jobs, ['07-03-gamma-TRD.md']);
+  });
+
+  test('07-1 and 07-10 do not pair: another TRD\'s summary does not complete the TRD', () => {
+    const root = projectWith(['07-1-x-TRD.md', '07-10-SUMMARY.md']);
+    assert.deepEqual(findObjectiveInternal(root, '07').incomplete_jobs, ['07-1-x-TRD.md']);
+  });
+
+  test('legacy shapes still pair: NN-MM-TRD / NN-MM-JOB / bare TRD.md', () => {
+    assert.deepEqual(findObjectiveInternal(projectWith(['07-01-TRD.md', '07-01-SUMMARY.md']), '07').incomplete_jobs, []);
+    assert.deepEqual(findObjectiveInternal(projectWith(['07-01-JOB.md', '07-01-SUMMARY.md']), '07').incomplete_jobs, []);
+    assert.deepEqual(findObjectiveInternal(projectWith(['TRD.md', 'SUMMARY.md']), '07').incomplete_jobs, []);
+  });
+});

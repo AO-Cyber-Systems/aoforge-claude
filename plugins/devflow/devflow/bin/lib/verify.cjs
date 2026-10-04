@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix } = require('./helpers.cjs');
+const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey } = require('./helpers.cjs');
 const { extractFrontmatter, parseMustHavesBlock } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 
@@ -189,18 +189,24 @@ function cmdVerifyObjectiveCompleteness(cwd, objective, raw) {
   const plans = files.filter(f => f.match(/-(TRD|JOB)\.md$/i));
   const summaries = files.filter(f => f.match(/-SUMMARY\.md$/i));
 
-  // Extract plan IDs (everything before -TRD.md or -JOB.md)
-  const jobIds = new Set(plans.map(p => stripPlanSuffix(p)));
-  const summaryIds = new Set(summaries.map(s => s.replace(/-SUMMARY\.md$/i, '')));
+  // Pair on the NN-MM key (TRD 53-02): a named TRD is complete under `NN-MM-SUMMARY.md` or
+  // `NN-MM-<slug>-SUMMARY.md`. The reported ids keep their shape: a plan's id is its name
+  // minus -TRD.md/-JOB.md, a summary's id is its name minus -SUMMARY.md.
+  const jobKeys = new Set(plans.map(p => trdKey(p)));
+  const summaryKeys = new Set(summaries.map(s => trdKey(s)));
 
   // Plans without summaries
-  const incompleteJobs = [...jobIds].filter(id => !summaryIds.has(id));
+  const incompleteJobs = [...new Set(
+    plans.filter(p => !summaryKeys.has(trdKey(p))).map(p => stripPlanSuffix(p))
+  )];
   if (incompleteJobs.length > 0) {
     errors.push(`Plans without summaries: ${incompleteJobs.join(', ')}`);
   }
 
   // Summaries without plans (orphans)
-  const orphanSummaries = [...summaryIds].filter(id => !jobIds.has(id));
+  const orphanSummaries = [...new Set(
+    summaries.filter(s => !jobKeys.has(trdKey(s))).map(s => s.replace(/-SUMMARY\.md$/i, ''))
+  )];
   if (orphanSummaries.length > 0) {
     warnings.push(`Summaries without plans: ${orphanSummaries.join(', ')}`);
   }

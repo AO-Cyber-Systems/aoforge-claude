@@ -277,9 +277,16 @@ function candidateRoots({ cwd, repoRoot = null, gitWorktrees = () => [], fsImpl 
 }
 
 /**
- * True when any `<root>/.planning/objectives/<dir>/<id>-SUMMARY.md` exists.
+ * True when any `<root>/.planning/objectives/<dir>/<id>-SUMMARY.md` or
+ * `<id>-<slug>-SUMMARY.md` exists (TRD 53-02: the same pairing rule as
+ * roadmap-reconcile and the df-tools readers; `<id>-SUMMARY.md` stays the name
+ * the executor is told to write). The id is matched whole: `07-010-SUMMARY.md`
+ * and `07-01x-SUMMARY.md` do not count for `07-01`.
  * A root without (or with an unreadable) `.planning/objectives` is skipped.
  * Content is NOT inspected: a `## Progress`-only checkpoint counts as present.
+ *
+ * Self-contained on purpose (fast hook, no df-tools lib require): the pairing
+ * regex is inlined rather than shared with `helpers.trdKey`.
  *
  * @param {string} id
  * @param {string[]} roots
@@ -289,15 +296,23 @@ function candidateRoots({ cwd, repoRoot = null, gitWorktrees = () => [], fsImpl 
 function summaryExists(id, roots, fsImpl = fs) {
   if (!id || !Array.isArray(roots)) return false;
   const file = `${id}-SUMMARY.md`;
+  // The id is escaped so a decimal id's dot is literal.
+  const paired = new RegExp(`^${String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:-.+)?-SUMMARY\\.md$`);
   for (const root of roots) {
     if (typeof root !== 'string' || !root) continue;
     const objectivesDir = path.join(root, '.planning', 'objectives');
     let entries;
     try { entries = fsImpl.readdirSync(objectivesDir); } catch { continue; }
     for (const entry of entries) {
+      const dir = path.join(objectivesDir, String(entry));
+      // Exact-name fast path first: it needs no directory listing, so a fsImpl
+      // seam without readdirSync on objective dirs keeps working.
       try {
-        if (fsImpl.existsSync(path.join(objectivesDir, String(entry), file))) return true;
-      } catch { /* skip entry */ }
+        if (fsImpl.existsSync(path.join(dir, file))) return true;
+      } catch { /* fall through to the listing */ }
+      try {
+        if (fsImpl.readdirSync(dir).some((f) => paired.test(String(f)))) return true;
+      } catch { /* not a directory, or unreadable: skip entry */ }
     }
   }
   return false;

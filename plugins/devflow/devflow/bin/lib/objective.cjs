@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, stripPlanSuffix } = require('./helpers.cjs');
+const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const planningMode = require('./planning-mode.cjs');
 
@@ -27,13 +27,10 @@ function searchObjectiveInDir(baseDir, relBase, normalized) {
     const hasContext = objectiveFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
     const hasVerification = objectiveFiles.some(f => f.endsWith('-VERIFICATION.md') || f === 'VERIFICATION.md');
 
-    const completedJobIds = new Set(
-      summaries.map(s => s.replace('-SUMMARY.md', '').replace('SUMMARY.md', ''))
-    );
-    const incompleteJobs = plans.filter(p => {
-      const jobId = stripPlanSuffix(p);
-      return !completedJobIds.has(jobId);
-    });
+    // Pair on the NN-MM key (TRD 53-02): a named TRD is complete under `NN-MM-SUMMARY.md`
+    // or `NN-MM-<slug>-SUMMARY.md`.
+    const completedJobKeys = new Set(summaries.map(s => trdKey(s)));
+    const incompleteJobs = plans.filter(p => !completedJobKeys.has(trdKey(p)));
 
     return {
       found: true,
