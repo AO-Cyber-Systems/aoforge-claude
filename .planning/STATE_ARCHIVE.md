@@ -95,6 +95,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 43]: 43-13: a CI command expanding a variable its own step assigns at run time (command substitution, export, read/for, or derived from one) ranks after confidence, behind a plain one; aocore.test is a flag-only residual for 43-15
 - [Objective 43]: 43-14: refresh accepts the drafter output as is (extends general plus a control-plane component); SDR-08 stays partial pending politihub and the 43-15 residuals
 - [Objective 43]: 43-15: user accept-all on every residual row; KNOWN_DRIFT retired, ACCEPTED holds 13 user rows (each with kind, date, by user), OPEN empty; aodex.audit and the buf-lint coverage of justinforme and smartWellness stay known drafter limitations; SDR-08 stays partial pending a fleet stack verify --run
+- [Objective 52]: 52-05: multi-line frontmatter strings are written as |- block scalars in the shared serializer (strip exactly keyIndent+2 on read; > read literally); single-line output unchanged
 
 ## Performance Metrics
 
@@ -131,4 +132,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 43 P13 | 53min | 2 tasks | 10 files |
 | Objective 43 P14 | 3min | 3 tasks | 6 files |
 | Objective 43 P15 | 20min | 3 tasks | 4 files |
+| Objective 52 P05 | 13min | 3 tasks | 6 files |
 
