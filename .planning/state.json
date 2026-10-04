@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 98,
+  "progress_pct": 97,
   "status": "ready_for_verification",
   "last_activity": "2026-10-04",
   "metrics": {
@@ -579,6 +579,11 @@
     {
       "objective": "52",
       "summary": "52-06: the doctor skill runs the switch and escape lines for store-mode check 20/21 notes and shows the gh pr start line to the user; it does not inspect git state to pick a route",
+      "rationale": null
+    },
+    {
+      "objective": "53",
+      "summary": "53-03: micro commits through df-tools commit by spawning the CLI; the store-mode gate, override log and Refs trailer keep one owner (cmdCommit), and gh-gate refusals map to gate-refused with the message verbatim",
       "rationale": null
     }
   ],
