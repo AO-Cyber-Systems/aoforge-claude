@@ -92,7 +92,7 @@ test('Case B6 — detectDrift mixed: match + DRIFTED + MISSING in one call', () 
 
 // --- df-tools verify api-contract integration ---
 
-const { execSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
@@ -122,7 +122,7 @@ test('Case C1 — df-tools verify api-contract --raw outputs JSON with {drift, o
   - path: ${STABLE_PATH}
     sha: ${SHA_HELLO_NEWLINE}
 `);
-  const out = execSync(`node ${DF_TOOLS} verify api-contract ${trdPath} --raw`, { encoding: 'utf-8' });
+  const out = execFileSync(process.execPath, [DF_TOOLS, 'verify', 'api-contract', trdPath, '--raw'], { encoding: 'utf-8' });
   const parsed = JSON.parse(out);
   assert.strictEqual(parsed.ok, true);
   assert.deepStrictEqual(parsed.drift, []);
@@ -135,8 +135,8 @@ test('Case C2 — df-tools verify api-contract exits 0 even on drift (advisory)'
   - path: ${STABLE_PATH}
     sha: ${SHA_DEADBEEF}
 `);
-  // execSync throws on non-zero exit. If this doesn't throw, exit was 0.
-  const out = execSync(`node ${DF_TOOLS} verify api-contract ${trdPath} --raw`, { encoding: 'utf-8' });
+  // execFileSync throws on non-zero exit. If this doesn't throw, exit was 0.
+  const out = execFileSync(process.execPath, [DF_TOOLS, 'verify', 'api-contract', trdPath, '--raw'], { encoding: 'utf-8' });
   const parsed = JSON.parse(out);
   assert.strictEqual(parsed.ok, false);
   assert.strictEqual(parsed.drift.length, 1);
@@ -145,7 +145,7 @@ test('Case C2 — df-tools verify api-contract exits 0 even on drift (advisory)'
 
 test('Case C3 — df-tools verify api-contract on TRD with no api_contract block returns ok:true', () => {
   const { trdPath } = makeTempTrd('');
-  const out = execSync(`node ${DF_TOOLS} verify api-contract ${trdPath} --raw`, { encoding: 'utf-8' });
+  const out = execFileSync(process.execPath, [DF_TOOLS, 'verify', 'api-contract', trdPath, '--raw'], { encoding: 'utf-8' });
   const parsed = JSON.parse(out);
   assert.strictEqual(parsed.ok, true);
   assert.deepStrictEqual(parsed.drift, []);
