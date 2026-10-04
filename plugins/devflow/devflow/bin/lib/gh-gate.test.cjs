@@ -5,6 +5,7 @@
  *
  *   1-9   evaluateGate   a pure function over branch names and the mapping's `prs` pairs
  *   10    readGateInputs  the offline reader, from a `git worktree add` checkout (added by Task 2)
+ *   52-02 every refusal shape names both remedies: `gh pr start <objective>` and the logged, inline escape
  *
  * no_llm_test_data: plain inputs for the pure half; temp git repos only for the reader. No gh, no network.
  */
@@ -182,6 +183,49 @@ describe('50-02 evaluateGate (tests 1-9)', () => {
     for (const r of [gate({ branch: 'main', mainBranch: 'main' }), gate(), gate({ branch: null })]) {
       assert.equal(typeof r.message, 'string');
       assert.ok(r.message.length > 0);
+    }
+  });
+});
+
+describe('52-02 every refusal names both remedies', () => {
+  // The five refusal shapes. Each must tell the user both ways forward: start the objective's linked branch, or escape
+  // (logged) with an inline prefix whose reason variable records why.
+  const SHAPES = [
+    { name: 'the default branch', reason: 'default_branch', input: { branch: 'main', mainBranch: 'main' } },
+    { name: 'a never-linked branch', reason: 'unlinked_branch', input: { branch: 'feat/x', mainBranch: 'feat/x' } },
+    {
+      name: 'a merged objective branch',
+      reason: 'unlinked_branch',
+      input: {
+        branch: '50-enforce',
+        mainBranch: '50-enforce',
+        prs: [['50', { branch: '50-enforce', merged_at: '2026-09-30T12:00:00Z' }]],
+      },
+    },
+    { name: 'a detached HEAD', reason: 'detached_head', input: { branch: null, mainBranch: null } },
+    {
+      name: 'an executor branch whose main checkout is unlinked',
+      reason: 'unlinked_branch',
+      input: { branch: 'df/exec-1', mainBranch: 'main', prs: prsWith() },
+    },
+  ];
+
+  for (const shape of SHAPES) {
+    test(`${shape.name} (${shape.reason}) names gh pr start, the escape and its reason variable`, () => {
+      const r = gate(shape.input);
+      assert.equal(r.allow, false);
+      assert.equal(r.reason, shape.reason);
+      assert.match(r.message, /gh pr start <objective>/);
+      assert.match(r.message, /DEVFLOW_SKIP_GH_GATE=1/);
+      assert.match(r.message, /DEVFLOW_SKIP_GH_GATE_REASON/);
+      assert.match(r.message, /prefix the commit with DEVFLOW_SKIP_GH_GATE=1/, 'the escape is shown as an inline prefix');
+      assert.doesNotMatch(r.message, /export DEVFLOW_SKIP_GH_GATE/);
+    });
+  }
+
+  test('the refusal result keys are unchanged: allow, reason, message', () => {
+    for (const shape of SHAPES) {
+      assert.deepEqual(Object.keys(gate(shape.input)).sort(), ['allow', 'message', 'reason'], shape.name);
     }
   });
 });

@@ -15,6 +15,10 @@
  *   8    every requested path ignored → still `skipped_gitignored`, exit 0 (the gate is not reached)
  *   9    a merge or rebase in progress skips the gate (the `merge_in_progress` refusal owns that case)
  *
+ * TRD 52-02 extends 1-2: a `--raw` refusal keeps the bare reason code on stdout and writes the full message, naming both
+ * `gh pr start` and the DEVFLOW_SKIP_GH_GATE=1 escape, to stderr (1b, 2c); a JSON refusal keeps its keys and its
+ * `error` names both remedies (1d).
+ *
  * no_llm_test_data: every repo is a disposable `git init -b main` under the OS temp dir with a fake HOME (gitEnv). The
  * default branch resolves through the `main` fallback, so no remote exists. A `gh` shim first on PATH records every call
  * and fails; no test may leave a line in it. df-tools runs as a child process with `--cwd`, and DEVFLOW_ALLOW_RAW_COMMIT,
@@ -182,6 +186,12 @@ function assertRefused(p, r, before, reason) {
   assert.equal(git(p, 'diff', '--name-only', '--', SRC), SRC, 'the change is still an unstaged edit');
 }
 
+/** TRD 52-02: a refusal text names both ways forward, the linked branch and the logged escape. */
+function assertNamesBothRemedies(text, label) {
+  assert.match(text, /gh pr start/, `${label} names gh pr start: ${text}`);
+  assert.match(text, /DEVFLOW_SKIP_GH_GATE=1/, `${label} names the escape: ${text}`);
+}
+
 describe('50-06 the default and unlinked branches (tests 1-3)', () => {
   test('1a. store mode on the default branch → exit 1, default_branch, nothing staged, HEAD unchanged', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
@@ -196,15 +206,29 @@ describe('50-06 the default and unlinked branches (tests 1-3)', () => {
     assert.deepEqual(ghCalls(p), [], 'the gate is offline');
   });
 
-  test('1b. --raw prints the reason and still exits 1', (t) => {
+  test('1b. --raw prints the reason and still exits 1; stderr carries the message naming both remedies', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = storeRepo();
     write(p.root, SRC, 'module.exports = 2;\n');
 
     const r = dfRun(p, ['feat(50-02): x', '--files', SRC, '--raw']);
     assert.equal(r.status, 1);
-    assert.equal(r.out, 'default_branch');
+    assert.equal(r.out, 'default_branch', 'stdout stays the bare reason code');
+    assertNamesBothRemedies(r.err, 'raw stderr');
+    assert.match(r.err, /default branch/);
     assert.equal(staged(p), '');
+  });
+
+  test('1d. a JSON refusal keeps its keys, and its error names both remedies', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = storeRepo();
+    write(p.root, SRC, 'module.exports = 21;\n');
+    const before = head(p);
+
+    const r = dfCommit(p, 'feat(50-02): x', [SRC]);
+    assertRefused(p, r, before, 'default_branch');
+    assert.deepEqual(Object.keys(r.json).sort(), ['branch', 'committed', 'error', 'hash', 'reason']);
+    assertNamesBothRemedies(r.json.error, 'JSON error');
   });
 
   test('1c. --amend is gated like any commit', (t) => {
@@ -229,6 +253,22 @@ describe('50-06 the default and unlinked branches (tests 1-3)', () => {
     assertRefused(p, r, before, 'unlinked_branch');
     assert.equal(r.json.branch, 'feat/x');
     assert.match(r.json.error, /gh pr start/);
+  });
+
+  test('2c. --raw on an unlinked branch prints unlinked_branch; stderr names both remedies', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = storeRepo();
+    git(p, 'checkout', '-q', '-b', 'feat/x');
+    write(p.root, SRC, 'module.exports = 41;\n');
+    const before = head(p);
+
+    const r = dfRun(p, ['feat(50-02): x', '--files', SRC, '--raw']);
+    assert.equal(r.status, 1);
+    assert.equal(r.out, 'unlinked_branch', 'stdout stays the bare reason code');
+    assertNamesBothRemedies(r.err, 'raw stderr');
+    assert.match(r.err, /feat\/x/);
+    assert.equal(staged(p), '');
+    assert.equal(head(p), before);
   });
 
   test('2b. a detached HEAD → detached_head with a null branch', (t) => {
