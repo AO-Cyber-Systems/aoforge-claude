@@ -37,6 +37,7 @@ const { parseWorkflows } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas } = require('./stack-detect.cjs');
 const { describeInvocation } = require('./stack-verify.cjs');
+const { mdCell } = require('./text-escape.cjs');
 
 const RUNNER_MAX_DEPTH = 2;
 const MAX_EXPAND_DEPTH = 2;
@@ -1100,8 +1101,7 @@ function computeFindings({ areas = [], records = [], notes = [], root = null, ch
 const REPORT_REL = '.planning/STACK-REPORT.md';
 
 function cell(value) {
-  const s = value === null || value === undefined || value === '' ? '—' : String(value);
-  return s.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+  return value === null || value === undefined || value === '' ? '—' : mdCell(value);
 }
 
 function countsOf(findings) {
