@@ -46,7 +46,11 @@ function validateInputsSchema(inputs) {
       return { ok: false, reason: `inputs.secrets[${i}].prompt_match required (non-empty string)` };
     }
     try {
-      // Compile-test the regex; new RegExp() throws SyntaxError on malformed pattern.
+      // prompt_match IS a regex by contract: the handoff manifest author declares the pattern that
+      // recognises their own secret prompt, and watcher-daemon.cjs compiles the same value to match it.
+      // Compiling user-declared input as a RegExp is the feature, not injection. CodeQL
+      // js/regex-injection (alert 95) is dismissed as "won't fix" for this reason (objective 54).
+      // Here we only compile-test it: new RegExp() throws SyntaxError on a malformed pattern.
       new RegExp(s.prompt_match);
     } catch (e) {
       return {
