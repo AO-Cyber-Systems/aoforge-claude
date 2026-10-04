@@ -1,75 +1,54 @@
 ---
 objective: 43-stack-drafter-rules
-verified: 2026-10-03T23:00:00Z
-status: human_needed
-score: 35/36 must-haves verified
+verified: 2026-10-04T15:00:00Z
+status: passed
+score: 36/36 must-haves verified
 re_verification:
-  previous_status: gaps_found
-  previous_score: 34/36
+  previous_status: human_needed
+  previous_score: 35/36
   gaps_closed:
-    - "Success line: re-drafting the 11 override repos' shapes matches the override files; no fleet row needs a hand-fix (user-accepted rows count as decided)"
-  gaps_remaining:
-    - "SDR-08 partial: politihub never run under --run; 19 gates inconclusive (host cgo linker, deps not installed)"
+    - "SDR-08: confirm each proposed command runs (follow-up run 2026-10-04: politihub ran, cgo linker fixed, 104 of 105 gates pass or fail on repo state)"
+  gaps_remaining: []
   regressions: []
-human_verification:
-  - test: "Decide whether SDR-08 may close as partial (32/33 repos with a real stack verify --run result, 0 harness deltas) or needs a follow-up run"
-    expected: "Either accept 32/33 plus the 19 inconclusive gates as the objective's final state, or approve a fresh run for politihub (HEAD 30be797fb85b now; 43-07 pinned 686cb0b82a9f, saw bede7bd6f3a9) and the host-blocked rows after the linker fix and trades npm install"
-    why_human: "Running gates in a fleet repo needs a fresh per-run approval, and the host linker (CLT vs macOS 27 SDK) is an environment fix outside the code"
-  - test: "Acknowledge the known drafter limitations accepted under accept-all"
-    expected: "aodex.audit drafts the govulncheck --self-test step (scans nothing); justinforme and smartWellness `make lint` also run `buf lint`, which neither draft nor committed file carry; ao-terminal.deps and aocore.test remain hand-edited flag differences"
-    why_human: "These are user-decided (accept-all, 2026-10-03) but remain real limitations; whether a later drafter TRD should take them is a product call"
+follow_ups:
+  - "Run policy: the trades test suite ran once against whatever listens on 127.0.0.1:5432. The effect guard watches the work tree only and cannot see a database write. Add a policy for service-backed gates (require a dedicated TEST_DATABASE_URL or skip), and look at the local database."
+  - "Environment: trades `test` needs a dedicated test database before it says anything about the repo."
+  - "Drafter-adjacent: a `build` that leaves an un-ignored artifact (eden-circle bin/circle-api) halts the later Flutter gates in the same root."
+  - "Known drafter limitations (user-acknowledged 2026-10-03): .planning/todos/pending/2026-10-03-stack-drafter-self-test-and-buf-lint.md"
+  - "qrCodeBuilder and eden-circle/client: pub get bumped pubspec.lock; the user decides whether to commit the bumps."
 ---
 
-# Objective 43: Stack drafter rules Re-Verification Report
+# Objective 43: Stack drafter rules Final Verification Report
 
 **Goal:** Fix the drafter defects objective 42's rollout hand-fixed so re-drafting matches the 11 override files.
-**Status:** human_needed. The Success line is met. SDR-08 stays partial.
-**Re-verification:** Yes, after gap closure cycle 1 (TRDs 43-08..43-15).
+**Status:** passed. 36/36.
+**Re-verification:** Yes, final pass after the 2026-10-03 decisions and the 2026-10-04 SDR-08 follow-up run.
 
-## Success line
+## Carried forward (regression-checked)
 
-"Re-drafting each of the 11 override repos' shapes from fixtures yields commands equivalent to the override files; the full fleet dry run shows no row needing a hand-fix."
+- Success line (re-draft matches the 11 override files; no fleet row needs a hand-fix, user-accepted rows count as decided): still VERIFIED. `stack-drafter-fleet.test.cjs` 42/42.
+- Golden and realshape suites: 28/28.
+- TRD 43-08..43-15 must-haves and D20 purity: unchanged since the last pass; the suites above cover them.
+- `npm test`: 8789 tests, 8756 pass, 1 fail, 32 skipped. The one failure is MA-7 (doctl PTY), the known environmental failure. No regression.
 
-VERIFIED, treating user-accepted rows as decided.
+## SDR-08: SATISFIED
 
-- I ran `node --test plugins/devflow/devflow/bin/lib/stack-drafter-fleet.test.cjs`: 42/42 pass. 28/28 pass for the golden and realshape suites.
-- The 33-repo dry run went from 12 conflict repos to 3 (24 match, 6 more-specific). Nine of the twelve closed through general drafter rules (43-09..43-13) and the refresh of two stale committed files (43-14).
-- `stack-fleet-tables.cjs` exports exactly FLEET, ACCEPTED and OPEN. KNOWN_DRIFT is deleted. OPEN is empty. ACCEPTED holds 13 entries, each `by: 'user'`, with a `kind` so an accepted more-specific row cannot hide a later conflict.
-- Each accepted row traces to a verbatim user decision recorded in 43-ROLLOUT.md:
-  - devcluster.lint and devcluster.test: remedy (c), the 43-07 decision.
-  - ao-terminal.deps and aocore.test (the two flag-only conflicts): `accept-all`, `### Decision`, committed in 4daf6232 before the table edit in c6379a8a.
-  - The 9 more-specific rows: `accept-all`, same commit.
-  - 43-14: `approved` for aoinference and opsCluster. The refresh was committed locally (87ea0e1a, 9f22c0d6), not pushed, with the user work tree identical to P0.
-- Caveat, stated plainly: three accepted rows are real hand-edits or limitations, not matches. These are ao-terminal.deps, aocore.test and aodex.audit (the draft picks the `--self-test` step, so it scans nothing). They are decided, not fixed. Three further `make lint` coverage gaps (dfip, justinforme and smartWellness; the last two drop `buf lint`) are accepted but are not table rows, because the harness sees no drift on them.
+Verdict: satisfied. The requirement is that each proposed command is confirmed to run. It is not that every command exits 0.
 
-## TRD 43-08..43-15 must-haves
+Evidence (43-ROLLOUT.md, `## SDR-08 follow-up run` and its targeted re-run):
+- 105 gates ran across 15 repos, including politihub, which had never run under `--run`. 104 of 105 pass or fail on the repo's own state (unformatted files, analyzer and shellcheck findings, dfip's own spec). None hit a wrong tool, wrong cwd or command-not-found.
+- The cgo linker cause is fixed (`xcode-select -s /Library/Developer/CommandLineTools`): 11 of 12 link failures now pass and the twelfth (dfip) runs and fails on its own tests.
+- The three other host blockers cleared: aocore lint (golangci-lint v2) exits 0; qrCodeBuilder test (`flutter pub get`) exits 0; eden-circle `test@client/` now runs and fails on repo state (pinned `livekit_client 2.6.1` does not compile on the installed Flutter).
+- The one environment-blocked gate is trades `test`. The command ran: the suite loaded and executed (the 43-07 failure `ERR_MODULE_NOT_FOUND` is gone). It fails on HTTP 500 from DB-backed routes because no test database exists. That says nothing about the drafter, and the proposed command `npx vitest --run` is the repo's own. I count that as "runs", with a named environment exception.
+- Safety: 0 effect-guard survivors, 0 harness deltas, 0 HEAD moves, 0 timeouts, 0 fleet writes. 1 mutation caught and restored (eden-circle `bin/circle-api`).
+- Independent spot check today (read-only): HEADs of trades, politihub, qrCodeBuilder, eden-circle and aocore equal the recorded pins. The work-tree dirty counts for politihub (9 to 8), qrCodeBuilder (4 to 2) and aocore (137 to 22) differ from the recorded values. HEAD did not move and I did not touch these repos, so I attribute it to the user's own work after the run. The pinned-HEAD run records stand. It is noted, not a gap.
 
-All spot-checked against code, not SUMMARYs.
+## Safety finding (follow-up, not a blocker)
 
-- `df-tools verify artifacts` passes for every TRD: 8/8 TRDs, all artifacts exist and are substantive.
-- Key-link `via` strings are prose, so the tool cannot verify them. I checked them manually. `buildBreadth`, `unitAreas`, `unitKeys`, `lookupUsesCli`, `isDriftCheck` and `USES_CLI` are present and wired across `stack-classify`, `stack-evidence` and `stack-draft`.
-- The harness reads committed STACK.md from HEAD and uses the same `compareDrift` as the ROLLOUT table.
-- No drafter rule names a repo. A grep of every non-test `stack-*.cjs` found fleet repo names only in two comments (`stack-draft.cjs:475`, `stack-verify.cjs:858`). No code branch is keyed on a repo.
-- D20 purity holds. `stack-draft.cjs` requires only `stack-classify.cjs`, and the D20 test (`stack-draft.test.cjs:700`) passes in the full suite.
-- Fleet read-only proof for 43-15: 33/33 signatures identical, two passes. Today politihub HEAD is `30be797fb85b`, equal to the 43-15 record.
+The trades suite ran once against a local service on 127.0.0.1:5432. The effect guard watches the work tree only, so a database write is invisible to it, and the kept output cannot show whether any test connected. The 500 responses suggest the DB-backed routes did not get a usable database. I judge this a run-policy gap rather than a defect in the objective: the user approved the `--include test` run, the objective's deliverable is the drafter rules, and no fleet repo changed. Recommended: gate service-backed `test` runs on a dedicated `TEST_DATABASE_URL`, and have the user inspect the local database.
 
-## SDR-08: PARTIAL
+## Remaining items (none block the objective)
 
-- Gain over objective 42: real `stack verify --run` results now exist for 32 of 33 repos (previously 3 of 33). Safety is proven: 0 effect-guard mutations, 0 harness deltas, 0 HEAD moves, 161 gates run, 0 fleet writes.
-- Still missing: politihub was skipped by the head-changed rule and was not re-run. Of the 98 red gates, 19 are inconclusive (15 host toolchain, 4 deps not installed). 12 are the cgo link failure on this machine's macOS 27 SDK stubs, so they say nothing about the repos.
-- Gap cycle 1 deliberately did not touch this. A re-run needs a fresh per-run fleet approval and a host linker fix.
-- Verdict: partial. Every repo that could run was run, safely, and the red results are recorded with causes. The remaining 1/33 plus the inconclusive rows are not a code defect. They are an approval-and-environment item for the user (see human_verification).
-
-## Tests
-
-- `npm test`: 8789 tests, 8756 pass, 1 fail, 32 skipped. The single failure is MA-7 doctl PTY, the known environmental failure. No regression.
-
-## Anti-patterns
-
-None blocking. `stack-draft.cjs` and `stack-classify.cjs` do no fs, env or spawn access.
-
-## Functional and deployment verification
-
-Skipped for functional (CLI objective; the fleet dry run is the runtime evidence). Deployment verification: not_available.
+See `follow_ups` in the frontmatter.
 
 _Verifier: Claude (verifier)_
