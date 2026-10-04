@@ -175,10 +175,26 @@ This project is behind DevFlow. Run: /devflow:status check --migrate
      ```
 
      (Omit `--default-work <work>` if the user declines to pick one.)
+   - **0011** (GitHub store backfill): describe the backfill from its `reason` (the
+     objective and TRD counts, the history closes and the GitHub request estimate),
+     then ask with three options: **Migrate now** / **Not now** / **Keep mirror mode**
+     ("don't ask again"). Never apply 0011 inline here.
+     - **Migrate now:** hand off to `/devflow:gh-sync migrate`, which shows the full
+       plan, asks for approval, applies, drains and prints the commit steps.
+     - **Not now:** leave it pending.
+     - **Keep mirror mode:** record the decision in the tracked config, then include
+       `.planning/config.json` in step 5's commit:
+
+       ```bash
+       node ~/.claude/devflow/bin/df-tools.cjs config-set github.mirror_only true
+       ```
+
+       0011 is then skipped while the store is off, so W040 stops reporting it.
    - **Any other id:** describe it using its `title` and `reason`, ask, and on yes run
      `node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only <id>`.
 
-   Declined migrations stay pending; W040 will keep reporting them.
+   Declined migrations stay pending; W040 will keep reporting them, except 0011 when
+   mirror mode is kept.
 
 5. **Commit.** Collect the union of `changed_files` from every apply run above and
    commit exactly those paths:
@@ -191,6 +207,21 @@ This project is behind DevFlow. Run: /devflow:status check --migrate
    re-run `node ~/.claude/devflow/bin/df-tools.cjs validate health` so `offer_repair`
    works from the upgraded project (the migrations already did what W008/W009/W003
    repairs would).
+
+   **Store mode.** If `node ~/.claude/devflow/bin/df-tools.cjs planning mode` prints
+   `store` and the commit is refused (`default_branch` or `unlinked_branch`), commit
+   through a pull request: create a branch, commit with the logged escape (it is
+   recorded as gate gh), push it and open a pull request:
+
+   ```bash
+   git switch -c devflow-upgrade
+   DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="DevFlow upgrade" node ~/.claude/devflow/bin/df-tools.cjs commit "chore(devflow): upgrade project to v<to>" --files <changed_files…>
+   git push -u origin devflow-upgrade
+   ```
+
+   Then open a pull request for `devflow-upgrade`. Or, on an objective's linked branch
+   (from `node ~/.claude/devflow/bin/df-tools.cjs gh pr start <objective>`), run the
+   plain commit there. This is the same sequence doctor check 21 prints.
 
 6. **Stack profile.** Continue to `offer_repair`, which makes the existing
    stack-profile offer whenever `--migrate` is passed.
