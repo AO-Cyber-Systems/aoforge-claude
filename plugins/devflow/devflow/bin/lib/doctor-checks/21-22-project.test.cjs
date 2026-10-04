@@ -1,6 +1,7 @@
 'use strict';
 
 // Tests for doctor checks 21-pending-migrations and 22-validate-health (TRD 45-06, tests 10-14).
+// TRD 52-01 test 9: the fix's commit follow-up in store mode (the commit-steps builder) vs local mode.
 //
 // no_llm_test_data: every project is a hand-built fixture under the OS temp dir. `userHome` is a
 // fake home, so upgrade backups land under <fake home>/.claude/devflow/backups, and the spawned
@@ -19,6 +20,7 @@ const legacy = require('./20-legacy-runtime-state.cjs');
 const doctor = require('../doctor.cjs');
 const upgrade = require('../upgrade.cjs');
 const helpers = require('../helpers.cjs');
+const steps = require('../commit-steps.cjs');
 const { makeDoctorProject, makeDoctorHome } = require('../__fixtures__/doctor-fixtures.cjs');
 const {
   gitEnv, makeTrackedRuntimeStateProject, snapshot, diffSnapshots,
@@ -236,6 +238,64 @@ describe('pending-migrations: worktree guard (test 12)', () => {
   });
 });
 
+describe('pending-migrations: the commit follow-up by planning mode (TRD 52-01 test 9)', () => {
+  const upgradeMessage = (version) => `chore: upgrade DevFlow project to v${version}`;
+  const localNote = (version, files) =>
+    `commit with: node ~/.claude/devflow/bin/df-tools.cjs commit "${upgradeMessage(version)}" --files ${files.join(' ')}`;
+  const storeNote = (version, files) => steps.branchCommitSteps({
+    branch: 'devflow-upgrade', reason: 'DevFlow upgrade', command: steps.commitCommand(upgradeMessage(version), files),
+  });
+
+  /** GitHub store mode on in config.json (no repo, so nothing reaches GitHub), committed so the worktree guard passes. */
+  function storeOn(root, home) {
+    const file = path.join(root, '.planning', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    cfg.github = { ...(cfg.github || {}), enabled: true, store: true };
+    fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf-8');
+    commitAll(root, home, 'store mode on');
+  }
+
+  test('9a. local mode → the commit with: note is byte-identical to before 52-01, appended last', () => {
+    const { root, home } = behindWithAutoMigration();
+    const ctx = ctxFor(root, home);
+    const res = pending.fix(ctx, pending.run(ctx));
+    assert.equal(res.applied, true, JSON.stringify(res));
+    assert.ok(res.changed.length > 0, JSON.stringify(res.changed));
+    assert.ok(res.notes.endsWith(`; ${localNote(ctx.pluginVersion, res.changed)}`), res.notes);
+    assert.doesNotMatch(res.notes, /DEVFLOW_SKIP_GH_GATE|git switch -c|gh pr start/);
+  });
+
+  test('9b. store mode → the builder\'s store form for branch devflow-upgrade, appended last; no bare commit with:', () => {
+    const { root, home } = behindWithAutoMigration();
+    storeOn(root, home);
+    const ctx = ctxFor(root, home);
+    const r = pending.run(ctx);
+    assert.equal(r.fixable, true, r.finding);
+    const res = pending.fix(ctx, r);
+    assert.equal(res.applied, true, JSON.stringify(res));
+    assert.ok(res.changed.length > 0, JSON.stringify(res.changed));
+    assert.ok(res.notes.endsWith(`; ${storeNote(ctx.pluginVersion, res.changed)}`), res.notes);
+    assert.doesNotMatch(res.notes, /commit with: /, 'the bare command store mode refuses is gone');
+    assert.match(res.notes, /DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="DevFlow upgrade" /);
+    assert.match(res.notes, /df-tools gh pr start <objective>/);
+  });
+
+  test('9c. commitNote(root, version, files) is exported: local text in local mode, the store form in store mode', () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor21-local-'));
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor21-store-'));
+    try {
+      write(local, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
+      write(store, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: true } })}\n`);
+      const files = ['.planning/config.json', 'CLAUDE.md'];
+      assert.equal(pending.commitNote(local, '9.9.9', files), localNote('9.9.9', files));
+      assert.equal(pending.commitNote(store, '9.9.9', files), storeNote('9.9.9', files));
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+      fs.rmSync(store, { recursive: true, force: true });
+    }
+  });
+});
+
 // ─── validate-health ─────────────────────────────────────────────────────────
 
 function healthJson(overrides = {}) {
@@ -256,7 +316,8 @@ describe('validate-health: contract', () => {
     assert.equal(health.id, 'validate-health');
     assert.equal(health.scope, 'project');
     assert.deepEqual(doctor.contractIssues(health), []);
-    assert.deepEqual(health.DEFERRED, ['E020', 'I022', 'W040']);
+    // W057-W061 belong to 25-gh-store-sync (TRD 50-07), so the validate-health check defers them.
+    assert.deepEqual(health.DEFERRED, ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061']);
   });
 });
 

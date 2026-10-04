@@ -469,6 +469,7 @@ describe('export-lock', () => {
     const keys = Object.keys(mod).sort();
     const expected = [
       'DEPRECATION_MAP',
+      'DF_TOOLS_DEPRECATIONS',
       'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
@@ -492,7 +493,7 @@ describe('export-lock', () => {
   test('EX3: module.exports still exactly 9 entries after milestone extension (no new exports added)', () => {
     const mod = require('./skill-route.cjs');
     const keys = Object.keys(mod);
-    assert.strictEqual(keys.length, 9, `Expected exactly 9 exports, got ${keys.length}: ${keys.join(', ')}`);
+    assert.strictEqual(keys.length, 10, `Expected exactly 10 exports, got ${keys.length}: ${keys.join(', ')}`);
   });
 
   test('EX4: module.exports still exactly 9 entries after todo+status extension (_normalizeStatusSubcommand NOT exported)', () => {
@@ -500,6 +501,7 @@ describe('export-lock', () => {
     const keys = Object.keys(mod).sort();
     const expected = [
       'DEPRECATION_MAP',
+      'DF_TOOLS_DEPRECATIONS',
       'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
@@ -788,6 +790,7 @@ describe('export-lock unchanged after workstreams extension', () => {
     const keys = Object.keys(mod).sort();
     const expected = [
       'DEPRECATION_MAP',
+      'DF_TOOLS_DEPRECATIONS',
       'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
@@ -837,5 +840,16 @@ describe('REMOVED_COMMANDS', () => {
     for (const cmd of REMOVED_COMMANDS) {
       assert.ok(!(cmd in DEPRECATION_MAP), `${cmd} must not also be a DEPRECATION_MAP key`);
     }
+  });
+});
+
+// ─── TRD 46-08: df-tools subcommand renames ──────────────────────────────────
+
+describe('DF_TOOLS_DEPRECATIONS', () => {
+  test('5: gh sync-objectives is registered as a rename of gh sync --all, beside DEPRECATION_MAP', () => {
+    const { DF_TOOLS_DEPRECATIONS, DEPRECATION_MAP } = require('./skill-route.cjs');
+    assert.strictEqual(DF_TOOLS_DEPRECATIONS['gh sync-objectives'], 'gh sync --all');
+    assert.ok(!('gh sync-objectives' in DEPRECATION_MAP), 'slash-command map must not carry df-tools renames');
+    assert.ok(!('sync-objectives' in DEPRECATION_MAP), 'doc-refs would read it as /devflow:sync-objectives');
   });
 });

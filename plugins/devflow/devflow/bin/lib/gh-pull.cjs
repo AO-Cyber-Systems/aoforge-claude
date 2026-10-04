@@ -15,12 +15,21 @@
 //
 // Authoritative-from-disk fields (NOT pulled): kind, work, parent_issue,
 //   org_initiative, org_project, goal, requirements, success_criteria.
+//
+// TRD 46-06 — one objective id end to end:
+//   - `pull 2`, `pull 02-a` and `pull 002` resolve (gh-mapping.resolveObjective) to the same id + directory,
+//     so they find the same v3 mapping entry and the same sync-state baseline that push recorded.
+//   - `github.enabled` gates the command (zero gh calls when off); the repo comes from gh-client.resolveRepo
+//     (config `github.repo`, then PROJECT.md `github_repo`).
+//   - gh is reached only through gh-client; frontmatter is written through setFrontmatterField, which keeps
+//     comments and key order. The mapping is read-only here (a v1/v2 file converts in memory).
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
-const { extractFrontmatter } = require('./frontmatter.cjs');
-const { readSyncState, recordSync, hashFrontmatter, getLastSync } = require('./sync-state.cjs');
+const { extractFrontmatter, setFrontmatterField } = require('./frontmatter.cjs');
+const { recordSync, hashFrontmatter, getLastSync } = require('./sync-state.cjs');
+const ghClient = require('./gh-client.cjs');
+const { resolveObjective, readMappingV3WithReport, getEntry } = require('./gh-mapping.cjs');
 const conflictMod = require('./conflict.cjs');
 
 // Local emitter — bypasses helpers.output() because that helper always exits 0
@@ -35,19 +44,11 @@ function _emit(payload, prose, raw, exitCode) {
   if (exitCode !== 0) process.exit(exitCode);
 }
 
-// ─── Test injection seam (mirrors lib/gh.cjs pattern) ────────────────────────
+// ─── Test injection seam ─────────────────────────────────────────────────────
 
-function _defaultRunGh(args) {
-  const r = spawnSync('gh', args, { encoding: 'utf-8', timeout: 30000 });
-  return {
-    ok: r.status === 0,
-    status: r.status,
-    stdout: (r.stdout || '').trim(),
-    stderr: (r.stderr || '').trim(),
-  };
-}
-let _runGh = _defaultRunGh;
-function _setRunGh(fn) { _runGh = (fn != null) ? fn : _defaultRunGh; }
+// gh-pull owns no spawn site: the seam IS gh-client's. `_setRunGh(fn)` installs `fn` there (null restores the
+// default), so a fake reaches `ghRead` here and, through the auth bridge in cmdGhPull, lib/gh.cjs too.
+function _setRunGh(fn) { ghClient._setRunGh(fn); }
 
 // Tracked fields — v1.2 scope only
 const TRACKED_FIELDS = ['status', 'labels', 'assignees', 'milestone'];
@@ -68,7 +69,7 @@ function fetchGhIssue(issueRef) {
   if (!m) return null;
   const [, owner, repo, num] = m;
 
-  const r = _runGh(['issue', 'view', String(num), '--repo', `${owner}/${repo}`, '--json', 'state,labels,assignees,milestone,updatedAt']);
+  const r = ghClient.ghRead(['issue', 'view', String(num), '--repo', `${owner}/${repo}`, '--json', 'state,labels,assignees,milestone,updatedAt']);
 
   if (!r.ok) {
     if (/Could not resolve to an Issue/i.test(r.stderr)) return null;
@@ -192,12 +193,12 @@ function shallowEqual(a, b) {
  *
  * Writes drifted fields into OBJECTIVE.md frontmatter. Refuses if conflict_suspected
  * or if there's no last_sync baseline and not a first-time sync.
+ * `objectiveId` here is the objective DIRECTORY name (it builds the file path).
  *
  * Returns { ok, applied?, error? }
  *
- * Frontmatter rewrite is line-based: locates `<field>: ...` lines and replaces
- * them in place. New fields (absent from disk) are appended. Other lines stay
- * untouched, preserving order/comments.
+ * Each field goes through frontmatter.setFrontmatterField: the `<field>: ...` line is replaced in place (a new
+ * field is appended), and every other byte, including `# OPTIONAL` comments and key order, is untouched.
  */
 function applyDrift({ projectRoot, objectiveId, drift, ghIssue, hasLastSync = true }) {
   if (drift.conflict_suspected) {
@@ -218,29 +219,18 @@ function applyDrift({ projectRoot, objectiveId, drift, ghIssue, hasLastSync = tr
     return { ok: false, error: `OBJECTIVE.md not found: ${objPath}` };
   }
 
-  const content = fs.readFileSync(objPath, 'utf-8');
   const ghNorm = normalizeGhIssue(ghIssue);
-
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!fmMatch) return { ok: false, error: 'OBJECTIVE.md missing frontmatter block' };
-
-  let yamlBlock = fmMatch[1];
   const applied = {};
 
   for (const field of Object.keys(drift.fields)) {
     const ghVal = ghNorm[field];
-    const serialized = serializeYamlValue(ghVal);
-    const lineRe = new RegExp(`^${field}:.*$`, 'm');
-    if (lineRe.test(yamlBlock)) {
-      yamlBlock = yamlBlock.replace(lineRe, `${field}: ${serialized}`);
-    } else {
-      yamlBlock = yamlBlock + `\n${field}: ${serialized}`;
-    }
+    const r = setFrontmatterField(objPath, field, serializeYamlValue(ghVal));
+    if (!r.ok) return { ok: false, error: r.error };
+    // No frontmatter block: the setter leaves the file alone and warns. Nothing has been written yet.
+    if (r.warning) return { ok: false, error: 'OBJECTIVE.md missing frontmatter block' };
     applied[field] = ghVal;
   }
 
-  const newContent = content.replace(fmMatch[0], `---\n${yamlBlock}\n---\n`);
-  fs.writeFileSync(objPath, newContent, 'utf-8');
   return { ok: true, applied };
 }
 
@@ -251,20 +241,57 @@ function serializeYamlValue(v) {
   return String(v);
 }
 
+// ─── cmdGhPullAll (TRD 47-10) ────────────────────────────────────────────────
+
+function pullAllProse(r) {
+  const lines = [`Pulled from GitHub: ${r.written.length} written, ${r.skipped.length} unchanged.`];
+  if (r.written.length > 0) lines.push(`Written: ${r.written.join(', ')}`);
+  if (r.attention.length > 0) {
+    lines.push('Needs a look:');
+    for (const a of r.attention) lines.push(`  - ${a}`);
+  }
+  for (const n of r.notes) lines.push(`Note: ${n}`);
+  for (const e of r.errors) lines.push(`Error: ${e}`);
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * `gh pull --all [--force]` — exit 0 when the cache matches GitHub, 1 on error, 2 when it was rebuilt but a
+ * human should look (locally modified or hand-kept files left alone, orphans, pages skipped, rejected items).
+ * github.enabled gates it: zero gh calls when it is off.
+ */
+function cmdGhPullAll(cwd, args, raw) {
+  const gate = ghClient.requireEnabled(cwd);
+  if (gate.skipped) {
+    _emit({ ok: false, skipped: true, reason: gate.reason }, gate.reason + '\n', raw, 0);
+    return;
+  }
+  const result = require('./gh-cache.cjs').pullAll(cwd, { force: args.includes('--force') });
+  if (!result.ok) {
+    const msg = result.error || 'gh pull --all failed';
+    _emit(result, msg + '\n', raw, result.skipped ? 0 : 1);
+    return;
+  }
+  _emit(result, pullAllProse(result), raw, result.attention.length > 0 || result.errors.length > 0 ? 2 : 0);
+}
+
 // ─── cmdGhPull (CLI orchestrator) ────────────────────────────────────────────
 
 /**
  * cmdGhPull(cwd, args, raw) — CLI entry point.
- * Usage: df-tools gh pull <objective> [--apply] [--raw]
+ * Usage: df-tools gh pull <objective> [--apply] [--resolve=disk|gh|merge] [--resolved] | --all [--force]
+ *
+ * `--all` (TRD 47-10) rebuilds the whole `.planning/` cache from GitHub (gh-cache.pullAll); the
+ * per-objective drift pull below is unchanged.
  */
 function cmdGhPull(cwd, args, raw) {
-  const objectiveId = args.find((a) => !a.startsWith('--'));
+  const objectiveArg = args.find((a) => !a.startsWith('--'));
   const apply = args.includes('--apply');
 
   // TRD 21-03: --resolve flag handling
   const resolveFlag = args.find((a) => a.startsWith('--resolve='));
   const resolveValue = resolveFlag ? resolveFlag.split('=')[1] : null;
-  const resolved = args.includes('--resolved');
+  const resolvedFlag = args.includes('--resolved');
 
   if (resolveValue && !['disk', 'gh', 'merge'].includes(resolveValue)) {
     const msg = `Invalid --resolve value: ${resolveValue}. Use disk, gh, or merge.`;
@@ -278,17 +305,35 @@ function cmdGhPull(cwd, args, raw) {
     return;
   }
 
-  if (!objectiveId) {
-    process.stderr.write('Usage: df-tools gh pull <objective> [--apply] [--resolve=disk|gh|merge] [--resolved]\n');
+  if (args.includes('--all')) {
+    cmdGhPullAll(cwd, args, raw);
+    return;
+  }
+
+  if (!objectiveArg) {
+    process.stderr.write('Usage: df-tools gh pull <objective> [--apply] [--resolve=disk|gh|merge] [--resolved] | --all [--force]\n');
     process.exit(1);
     return;
   }
 
-  // Reuse auth from lib/gh.cjs
-  const { requireGhAuth, _setRunGh: ghSetRunGh } = require('./gh.cjs');
-  // Bridge the test injection: when gh-pull's _runGh is mocked, route gh.cjs through it too
-  const runGhBridge = _runGh;
-  ghSetRunGh(runGhBridge);
+  // TRD 46-06: github.enabled gates the whole command. Zero gh calls when it is off (not even auth).
+  const gate = ghClient.requireEnabled(cwd);
+  if (gate.skipped) {
+    _emit({ ok: false, skipped: true, reason: gate.reason }, gate.reason + '\n', raw, 0);
+    return;
+  }
+
+  // Any spelling ("2", "02-a", "002") -> one id (mapping + sync-state key) and one directory (file paths).
+  const objective = resolveObjective(cwd, objectiveArg);
+  if (!objective || !objective.dir) {
+    const msg = `objective not found: ${objectiveArg}`
+      + (objective ? ' (it is in the ROADMAP but has no directory under .planning/objectives/)' : '');
+    _emit({ ok: false, error: msg }, msg + '\n', raw, 1);
+    return;
+  }
+
+  // gh.cjs requireGhAuth runs on the gh-client seam (TRD 46-07), so no bridge is needed.
+  const { requireGhAuth } = require('./gh.cjs');
   try {
     requireGhAuth(['repo']);
   } catch (e) {
@@ -304,28 +349,23 @@ function cmdGhPull(cwd, args, raw) {
     throw e;
   }
 
-  // Read mapping (lib/gh.cjs reuses readMappingV2 in production; we use it here too)
-  const { readMappingV2 } = require('./gh.cjs');
-  const mapping = readMappingV2(cwd);
-  const entry = mapping.objectives[objectiveId];
+  // Mapping v3, read-only: a v1/v2 file converts in memory and is never written back from here.
+  const report = readMappingV3WithReport(cwd);
+  if (report.error) {
+    _emit({ ok: false, error: report.error }, report.error + '\n', raw, 1);
+    return;
+  }
+  const entry = getEntry(report.mapping, objective.id);
   if (!entry || !entry.issue_id) {
-    const msg = `Objective ${objectiveId} has no GitHub issue. Run \`df-tools gh sync-objectives\` to create one before pulling.`;
+    const msg = report.conflicts && report.conflicts[objective.id]
+      ? `Objective ${objective.id} maps to conflicting GitHub issues in .planning/.gh-mapping.json; resolve that before pulling.`
+      : `Objective ${objective.id} has no GitHub issue. Run \`df-tools gh sync ${objective.id}\` first to create one before pulling.`;
     _emit({ ok: false, error: msg }, msg + '\n', raw, 1);
     return;
   }
 
-  // Resolve issue ref: <repo>#<issue_id>
-  const projectFm = (() => {
-    const p = path.join(cwd, '.planning', 'PROJECT.md');
-    if (!fs.existsSync(p)) return {};
-    return extractFrontmatter(fs.readFileSync(p, 'utf-8')) || {};
-  })();
-  if (!projectFm.github_repo) {
-    const msg = 'PROJECT.md missing github_repo; cannot construct issue ref.';
-    _emit({ ok: false, error: msg }, msg + '\n', raw, 1);
-    return;
-  }
-  const issueRef = `${projectFm.github_repo}#${entry.issue_id}`;
+  // Issue ref: <repo>#<issue_id>, repo from config github.repo then PROJECT.md github_repo (requireEnabled)
+  const issueRef = `${gate.repo}#${entry.issue_id}`;
 
   const ghIssue = fetchGhIssue(issueRef);
   if (ghIssue === null) {
@@ -339,7 +379,7 @@ function cmdGhPull(cwd, args, raw) {
   }
 
   // Read disk frontmatter
-  const objPath = path.join(cwd, '.planning', 'objectives', objectiveId, 'OBJECTIVE.md');
+  const objPath = path.join(cwd, '.planning', 'objectives', objective.dir, 'OBJECTIVE.md');
   if (!fs.existsSync(objPath)) {
     const msg = `OBJECTIVE.md not found: ${objPath}`;
     _emit({ ok: false, error: msg }, msg + '\n', raw, 1);
@@ -348,14 +388,14 @@ function cmdGhPull(cwd, args, raw) {
   const disk_fm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
 
   // Read last sync state via sync-state.cjs (TRD 21-02)
-  const last_sync_state = getLastSync(cwd, objectiveId);
+  const last_sync_state = getLastSync(cwd, objective.id);
 
   // ── TRD 21-03: --resolve=merge --resolved continuation path ──
   // When user is completing a previously-surfaced conflict via merge, dispatch BEFORE
   // the conflict detector runs (their edits may have removed the conflict; we still
   // honor their resolution intent based on pending_resolution.disk_hash_at_conflict).
-  if (resolveValue === 'merge' && resolved && last_sync_state && last_sync_state.pending_resolution) {
-    const r = conflictMod.resolveMerge({ cwd, objectiveId, currentDiskFm: disk_fm });
+  if (resolveValue === 'merge' && resolvedFlag && last_sync_state && last_sync_state.pending_resolution) {
+    const r = conflictMod.resolveMerge({ cwd, objectiveId: objective.dir, currentDiskFm: disk_fm });
     if (!r.ok) { _emit({ ok: false, error: r.error }, r.error + '\n', raw, 1); return; }
     _emit(
       { ok: true, action: 'merged', resolution: 'merge', message: r.message },
@@ -384,19 +424,19 @@ function cmdGhPull(cwd, args, raw) {
         // Real per-field conflict on at least one field. Dispatch on --resolve flag.
 
         if (resolveValue === 'disk') {
-          const r = conflictMod.resolveDisk({ cwd, objectiveId, issueRef, ghIssue, currentDiskFm: disk_fm });
+          const r = conflictMod.resolveDisk({ cwd, objectiveId: objective.dir, issueRef, ghIssue, currentDiskFm: disk_fm });
           if (!r.ok) { _emit({ ok: false, error: r.error }, r.error + '\n', raw, 1); return; }
           _emit({ ok: true, action: 'pushed', resolution: 'disk' }, 'Pushed disk state to GitHub.\n', raw, 0);
           return;
         }
         if (resolveValue === 'gh') {
-          const r = conflictMod.resolveGh({ cwd, objectiveId, issueRef, ghIssue, currentDiskFm: disk_fm });
+          const r = conflictMod.resolveGh({ cwd, objectiveId: objective.dir, issueRef, ghIssue, currentDiskFm: disk_fm });
           if (!r.ok) { _emit({ ok: false, error: r.error }, r.error + '\n', raw, 1); return; }
           _emit({ ok: true, action: 'pulled', resolution: 'gh', applied: r.applied }, 'Applied GitHub state to disk.\n', raw, 0);
           return;
         }
-        if (resolveValue === 'merge' && resolved) {
-          const r = conflictMod.resolveMerge({ cwd, objectiveId, currentDiskFm: disk_fm });
+        if (resolveValue === 'merge' && resolvedFlag) {
+          const r = conflictMod.resolveMerge({ cwd, objectiveId: objective.dir, currentDiskFm: disk_fm });
           if (!r.ok) { _emit({ ok: false, error: r.error }, r.error + '\n', raw, 1); return; }
           _emit(
             { ok: true, action: 'merged', resolution: 'merge', message: r.message },
@@ -409,7 +449,7 @@ function cmdGhPull(cwd, args, raw) {
 
         // No --resolve flag (or --resolve=merge without --resolved):
         // record pending_resolution with the conflict-time disk hash, then surface diff + exit 1.
-        recordSync(cwd, objectiveId, {
+        recordSync(cwd, objective.id, {
           ...last_sync_state,
           pending_resolution: {
             disk_hash_at_conflict: currentDiskHash,
@@ -418,11 +458,11 @@ function cmdGhPull(cwd, args, raw) {
         });
 
         const diffStr = conflictMod.formatThreeWayDiff({
-          objectiveId,
+          objectiveId: objective.dir,
           issueRef,
           conflicting_fields: conflict.conflicting_fields,
         });
-        const isMergePending = (resolveValue === 'merge' && !resolved);
+        const isMergePending = (resolveValue === 'merge' && !resolvedFlag);
         const proseTail = isMergePending
           ? '\n\nNext: edit OBJECTIVE.md to merge changes, then re-run with --resolve=merge --resolved.\n'
           : '\n';
@@ -471,7 +511,7 @@ function cmdGhPull(cwd, args, raw) {
     }
     const applyResult = applyDrift({
       projectRoot: cwd,
-      objectiveId,
+      objectiveId: objective.dir,
       drift,
       ghIssue,
       hasLastSync: last_sync_state != null,
@@ -485,7 +525,7 @@ function cmdGhPull(cwd, args, raw) {
     // Hash MUST be computed AFTER applyDrift so disk_fm reflects the post-write state.
     const ghNorm = normalizeGhIssue(ghIssue);
     const updatedDiskFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
-    recordSync(cwd, objectiveId, {
+    recordSync(cwd, objective.id, {
       issue_ref: issueRef,
       etag: null,
       gh_updated_at: ghIssue.updatedAt,

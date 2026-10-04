@@ -465,17 +465,17 @@ function svcPlusNodeShape({ admin = false } = {}) {
 }
 
 describe('report components come from the profile (TRD 42-12 G2-G3)', () => {
-  test('G2: --draft --raw: components are the draft\'s ([] for one supported area); node areas are unsupported_areas', () => {
+  test('G2: --draft --raw: components are the draft\'s ([svc/] for one supported sub-area, TRD 43-05 D3); node areas are unsupported_areas', () => {
     withShape(() => svcPlusNodeShape(), (repo) => {
       const r = runCli(repo, ['--draft', '--raw']);
       assert.equal(r.status, 0, r.stderr);
       assert.equal(r.json.profile_source, 'draft');
-      assert.deepEqual(r.json.components, []);
+      assert.deepEqual(r.json.components, ['svc/']);
       assert.deepEqual(r.json.unsupported_areas, ['site/', 'ui/frontend/']);
 
       const md = runCli(repo, ['--draft']);
       assert.equal(md.status, 0, md.stderr);
-      assert.match(md.stdout, /\ncomponents: \[\]\nunsupported_areas: \["site\/", "ui\/frontend\/"\]\ncounts: /);
+      assert.match(md.stdout, /\ncomponents: \["svc\/"\]\nunsupported_areas: \["site\/", "ui\/frontend\/"\]\ncounts: /);
     });
   });
 

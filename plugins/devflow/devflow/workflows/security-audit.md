@@ -221,6 +221,8 @@ Continue to write_report.
 <step name="write_report">
 Write the final SECURITY-AUDIT.md to `{output_dir}`.
 
+This report is written directly in every mode. `.planning/SECURITY-AUDIT.md` (or the project root) is not an objective document: planning-paths classifies it as `runtime`, which no verb owns and which `doc put` refuses. When the audit is run for a specific objective, publish a copy as an objective document with `node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/<dir>/<NN>-SECURITY-AUDIT.md --from <report path>`. Local mode writes that file; store mode also queues its wiki page.
+
 **Report format:**
 
 ```markdown

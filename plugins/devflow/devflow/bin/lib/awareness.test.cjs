@@ -12,7 +12,6 @@ const {
   DEFAULT_TTL_MINUTES,
   DEFAULT_STALE_DAYS,
   DEFAULT_BRANCH_PATTERNS,
-  AWARENESS_CACHE_REL,
 } = require('./awareness.cjs');
 const {
   buildStateMd,
@@ -541,12 +540,9 @@ test('readCache C7: a legacy in-tree file with no store file reads as null (no f
   } finally { t.cleanup(); }
 });
 
-test('AWARENESS_CACHE_REL is kept only as the legacy in-tree path', () => {
-  assert.strictEqual(AWARENESS_CACHE_REL, path.join('.planning', '.awareness-cache.json'));
-  assert.strictEqual(
-    AWARENESS_CACHE_REL.split(path.sep).join('/'),
-    store.LEGACY_CACHE_REL
-  );
+test('AWARENESS_CACHE_REL is gone; the legacy in-tree path survives only as awareness-store LEGACY_CACHE_REL (TRD 53-05)', () => {
+  assert.strictEqual(require('./awareness.cjs').AWARENESS_CACHE_REL, undefined);
+  assert.strictEqual(require('./awareness-store.cjs').LEGACY_CACHE_REL, '.planning/.awareness-cache.json');
 });
 
 // ─── Group W: writeCache merge semantics (through the store) ─────────────────
@@ -1548,39 +1544,45 @@ test('O1 (02-03): scanOrg calls requireGhAuth FIRST (mock counter asserts orderi
   } finally { gh._setRunGh(null); }
 });
 
-test('O2 (02-03): scanOrg uses default project_id from PRODUCT_ROADMAP_FIELDS._project_id when opts.project_id undefined', () => {
+test('O2 (46-07, test 16): scanOrg defaults project_id from <cwd>/.planning/PROJECT.md org_project, never the cassette', () => {
   const authResp = { ok: true, status: 0, stdout: GH_AUTH_STATUS_OK, stderr: '' };
   const itemsResp = buildGhResponse_projectItemsList({ items: [], hasNextPage: false });
 
-  let usedProjectId = null;
+  let usedProjectIds = [];
   gh._setRunGh((args) => {
     const key = args.join(' ');
     if (key.startsWith('auth status')) return authResp;
     if (key.startsWith('api graphql')) {
-      // Extract projectId from args
-      const pidIdx = args.indexOf('-F');
-      while (pidIdx !== -1) {
-        for (let i = 0; i < args.length; i++) {
-          if (args[i] === '-F' && args[i+1] && args[i+1].startsWith('projectId=')) {
-            usedProjectId = args[i+1].replace('projectId=', '');
-          }
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '-F' && args[i + 1] && args[i + 1].startsWith('projectId=')) {
+          usedProjectIds.push(args[i + 1].replace('projectId=', ''));
         }
-        break;
       }
       return itemsResp;
     }
     return { ok: false, status: 1, stdout: '', stderr: `no mock for: ${key}` };
   });
 
+  const withProject = fs.mkdtempSync(path.join(os.tmpdir(), 'scanorg-o2-'));
+  fs.mkdirSync(path.join(withProject, '.planning'), { recursive: true });
+  fs.writeFileSync(path.join(withProject, '.planning', 'PROJECT.md'), '---\norg_project: PVT_from_project\n---\n\n# P\n');
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'scanorg-o2-bare-'));
+
   try {
-    scanOrg(); // No project_id — should use default
-    const expectedId = gh.PRODUCT_ROADMAP_FIELDS && gh.PRODUCT_ROADMAP_FIELDS._project_id;
-    if (expectedId) {
-      assert.strictEqual(usedProjectId, expectedId, 'O2: should use PRODUCT_ROADMAP_FIELDS._project_id as default');
-    } else {
-      // If cassette not loaded, result.warnings should note the missing default
-      assert.ok(true, 'O2: PRODUCT_ROADMAP_FIELDS._project_id not set (cassette missing) — acceptable');
-    }
+    const r1 = scanOrg({ cwd: withProject });
+    assert.strictEqual(r1.project_id, 'PVT_from_project');
+    assert.deepStrictEqual([...new Set(usedProjectIds)], ['PVT_from_project']);
+
+    usedProjectIds = [];
+    const r2 = scanOrg({ project_id: 'PVT_explicit', cwd: withProject });
+    assert.strictEqual(r2.project_id, 'PVT_explicit', 'opts.project_id wins over PROJECT.md');
+    assert.deepStrictEqual([...new Set(usedProjectIds)], ['PVT_explicit']);
+
+    usedProjectIds = [];
+    const r3 = scanOrg({ cwd: bare });
+    assert.strictEqual(r3.project_id, null, 'no PROJECT.md org_project -> no default (never the cassette)');
+    assert.deepStrictEqual(usedProjectIds, []);
+    assert.ok(r3.warnings.some((w) => /org_project/.test(w)), JSON.stringify(r3.warnings));
   } finally { gh._setRunGh(null); }
 });
 
@@ -1820,11 +1822,11 @@ const cassetteRel = path.join(
 
 // ─── Group L: Library surface lock ───────────────────────────────────────────
 
-test('L1 (02-07): awareness.cjs exports exactly 14 expected entries', () => {
+test('L1 (02-07, 53-05): awareness.cjs exports exactly 13 expected entries', () => {
   const aw = require('./awareness.cjs');
   const exported = Object.keys(aw).sort();
   const expected = [
-    'AWARENESS_CACHE_REL', 'DEFAULT_BRANCH_PATTERNS', 'DEFAULT_STALE_DAYS', 'DEFAULT_TTL_MINUTES',
+    'DEFAULT_BRANCH_PATTERNS', 'DEFAULT_STALE_DAYS', 'DEFAULT_TTL_MINUTES',
     '_resetGitMock', '_setRunGit',
     'aggregateOrgByProductQuarter', 'isStale', 'parseStateMd', 'parseTaskListFallback',
     'readCache', 'scanOrg', 'scanPeer', 'writeCache',
@@ -1849,7 +1851,6 @@ test('L2 (02-07): each export has the expected type', () => {
   assert.strictEqual(typeof aw.DEFAULT_TTL_MINUTES, 'number', 'DEFAULT_TTL_MINUTES should be number');
   assert.strictEqual(typeof aw.DEFAULT_STALE_DAYS, 'number', 'DEFAULT_STALE_DAYS should be number');
   assert.ok(Array.isArray(aw.DEFAULT_BRANCH_PATTERNS), 'DEFAULT_BRANCH_PATTERNS should be array');
-  assert.strictEqual(typeof aw.AWARENESS_CACHE_REL, 'string', 'AWARENESS_CACHE_REL should be string');
 });
 
 // ─── Group CT: Cache round-trip integration ───────────────────────────────────
@@ -1994,7 +1995,8 @@ test('CR3 (02-07): scanOrg with cassette replay → items with sub_issues_source
     return { ok: true, status: 0, stdout: cassetteContent, stderr: '' };
   });
   try {
-    const result = scanOrg();
+    // 46-07: the default project id no longer comes from the fixture; name the walked board explicitly.
+    const result = scanOrg({ project_id: 'PVT_cassette_board' });
     assert.ok(Array.isArray(result.items), 'CR3: result.items must be array');
     assert.ok(result.items.length > 0, 'CR3: result.items must have at least 1 entry');
     for (const item of result.items) {

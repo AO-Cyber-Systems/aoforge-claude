@@ -1,0 +1,14 @@
+{
+  "action": "edited",
+  "pull_request": {
+    "number": 124,
+    "body": "Tidy the docs. See also Refs #9 for background.",
+    "base": { "ref": "main" },
+    "head": { "sha": "2222222222222222222222222222222222222222" },
+    "merged": false
+  },
+  "repository": {
+    "full_name": "acme/widgets",
+    "default_branch": "main"
+  }
+}

@@ -11,7 +11,25 @@ github_repo: AO-Cyber-Systems/devflow-claude
 
 DevFlow is a meta-prompting, context engineering, and spec-driven development system for Claude Code. It ships as a Claude Code plugin (`devflow@aocyber`) installed via `/plugin` or the Claude Desktop plugin UI. Maintained by AO Cyber Systems.
 
-**Core value:** AI workflow orchestration for Claude Code sessions — skills, hooks, MCP integration, planning state, and program-aware coordination across the AO-Cyber-Systems org.
+## Core Value
+
+AI workflow orchestration for Claude Code sessions — skills, hooks, MCP integration, planning state, and program-aware coordination across the AO-Cyber-Systems org.
+
+## Requirements
+
+Requirement IDs live in each objective's `OBJECTIVE.md`; there is no `REQUIREMENTS.md`.
+
+### Validated
+
+The capability areas listed under `## Scope`: skills, subagents, hooks, `.planning/` templates and `df-tools.cjs`; the program-aware coordination layer (v1.1+); the project lifecycle (v1.3+); and self-measurement (v1.3+). v1.2 shipped 2026-07-22 and v1.3 completed 2026-09-28 (see `## Context`).
+
+### Active
+
+Milestone v1.4, objectives 42-53. The v1.4 audit (`.planning/milestones/v1.4-MILESTONE-AUDIT.md`) records 58 of 58 formal requirement IDs satisfied across the objectives it covers. Objective 53 (worktree and health hygiene) was registered on 2026-10-04 from that audit's tech-debt list.
+
+### Out of Scope
+
+See `## Out of Scope` below.
 
 ## Scope
 
@@ -128,7 +146,7 @@ Open decisions carried to v1.4:
 - the CI Anthropic secret for the live visual judge;
 - `main` branch protection.
 
-Objective 26 (GitHub issue auto-build monitor) moved to v1.4 as a kill candidate.
+Objective 26 (GitHub issue auto-build monitor) was killed on 2026-10-01 (resolved; GMD-04).
 
 ---
-*Last updated: 2026-09-28 after v1.3 milestone*
+*Last updated: 2026-10-04 after TRD 53-05 (Core Value and Requirements sections)*

@@ -64,8 +64,20 @@ function buildLastSyncState({
 /**
  * Build a temp project root with .planning/objectives/<id>/OBJECTIVE.md present.
  * Returns { root, objectiveId, cleanup }.
+ *
+ * TRD 46-06: `gh pull` honours `github.enabled` and resolves the repo through gh-client, so the project
+ * also gets a `.planning/config.json`:
+ *   githubEnabled  default true — `false` writes `github.enabled:false` (pull must skip with zero gh calls)
+ *   repo           default 'o/r' — the config `github.repo`; `null` omits it so PROJECT.md `github_repo` is the source
  */
-function buildTempProject({ objectiveId = '21-bidirectional-gh-sync', frontmatter = {}, mapping = null, projectFm = null } = {}) {
+function buildTempProject({
+  objectiveId = '21-bidirectional-gh-sync',
+  frontmatter = {},
+  mapping = null,
+  projectFm = null,
+  githubEnabled = true,
+  repo = 'o/r',
+} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-ghpull-'));
   const objDir = path.join(root, '.planning', 'objectives', objectiveId);
   fs.mkdirSync(objDir, { recursive: true });
@@ -89,6 +101,11 @@ function buildTempProject({ objectiveId = '21-bidirectional-gh-sync', frontmatte
     projLines.push('---', '', '# Test Project', '');
     fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'), projLines.join('\n'), 'utf-8');
   }
+
+  // .planning/config.json — the enabled gate and (optionally) the repo
+  const github = { enabled: githubEnabled };
+  if (repo !== null) github.repo = repo;
+  fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify({ github }, null, 2), 'utf-8');
 
   // Optionally write .gh-mapping.json
   if (mapping !== null) {

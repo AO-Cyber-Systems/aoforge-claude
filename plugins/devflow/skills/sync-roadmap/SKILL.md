@@ -16,6 +16,8 @@ Reconcile `.planning/ROADMAP.md` against on-disk reality:
 - TRD has `Self-Check: FAILED` in SUMMARY → mark `[ ]` and append `(failed)` annotation
 - TRD listed in ROADMAP but no TRD file on disk → leave alone, surface warning (never auto-delete)
 
+**Store mode** (`github.store: true`): ROADMAP.md is a generated view, so write and `--interactive` are no-ops that exit 0 — regenerate it with `node ~/.claude/devflow/bin/df-tools.cjs gh pull --all` instead. `--dry-run` still reports drift. Local mode behaves as described here.
+
 Plus objective-level rollup: when ALL TRDs in an objective are `[x]`, flip the objective's `**Status:**` line to `complete YYYY-MM-DD` (and update Progress table row if present).
 
 Default behavior: walk + write atomically (tmp + rename). `--dry-run` shows the diff without writing. `--interactive` prompts y/N per drift (TTY only; non-TTY falls back to write mode).
@@ -40,6 +42,7 @@ The CLI:
 2. Calls `reconcile({ projectRoot: cwd, mode })` from `lib/roadmap-reconcile.cjs`.
 3. For `--dry-run`: emits structured changes JSON + warnings; never writes.
 4. For default (write): atomically rewrites ROADMAP.md via tmp + rename when changes exist.
+   In store mode this is a no-op (exit 0) that points at `node ~/.claude/devflow/bin/df-tools.cjs gh pull --all`.
 5. For `--interactive`: dry-run first → prompt y/N per drift → write only accepted changes.
 6. Reports summary: N changes, N warnings, mode used.
 
@@ -61,13 +64,14 @@ Plus objective-level rollup (decision #3) when ALL TRDs are `[x]`.
 
 Limitations:
 - **Single ROADMAP only.** No multi-repo, no nested ROADMAPs.
-- **No GitHub side effects.** Use `df:gh-sync` for GH state sync.
+- **No GitHub side effects.** Use `/devflow:gh-sync` for GitHub (store status, flush, pull; the mirror with the store off).
 - **No auto-deletion.** Orphan TRDs surface as warnings only — user manually decides.
-- **Forward-only rollup.** Once an objective Status flips to `complete`, the reconciler doesn't auto-revert even if a TRD becomes `[ ] (failed)`. Edit manually.
+- **Forward-only rollup.** Once an objective Status flips to `complete`, the reconciler doesn't auto-revert even if a TRD becomes `[ ] (failed)`. Revert it with `df-tools objective set-status <id> reopened`; in local mode also correct the ROADMAP `**Status:**` line by hand (only the store regenerates it).
 
 Note: The skill takes effect on next session restart (sync-runtime hook mirrors it to `~/.claude/devflow/skills/sync-roadmap/SKILL.md`).
 
 ## Triggers
 
-Use when the user wants to update ROADMAP after a TRD ships, audit drift between ROADMAP claims and disk truth, or perform a one-off cleanup. Also fires on: "update roadmap checkboxes".
+Use when the user wants ROADMAP checkboxes reconciled after a TRD ships, audit drift between ROADMAP claims and disk truth, or perform a one-off cleanup.
+Also fires on the user phrase: "update roadmap checkboxes".
 </context>

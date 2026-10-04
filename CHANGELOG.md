@@ -6,6 +6,469 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-10-04
+
+### Added
+- **Migration onto the GitHub store (objective 51).** Migration 0011 `github-store-backfill` (confirm)
+  moves an existing project onto the store in place: a local and a remote preflight that list every
+  blocker with its fix, the `github.store` switch after a config backup, the whole backfill queued once,
+  a drain inside the 80/min and 450/h budgets, verification through `gh pull --all` and the orphan
+  report, then the hand-off to 0010. A stop on the hour budget, offline or on a long secondary rate limit
+  reports "not an error: N of M ops remain" with the resume time; the same command resumes without
+  re-importing, and on a resume a lost mapping is re-adopted by `devflow:id` marker. A completed run
+  records 0010 and 0011, and running it again changes nothing. Run it with
+  `df-tools upgrade --apply --only 0011 --confirm` or `/devflow:gh-sync migrate`. Modules:
+  `migrations/0011-github-store-backfill.cjs`, `gh-backfill.cjs`.
+  - Backfill estimate and preview: `planning import --dry-run` prints an upper-bound request estimate
+    (`estimate:`), the history closes and a `will stay local:` table. With the store off and
+    `github.enabled` true it previews the backfill; a real import still refuses until the store is on.
+  - History closes: a backfill, and any real `planning import`, closes shipped TRDs and objectives as
+    completed, a cancelled objective and its TRDs without a SUMMARY as not planned, and each shipped
+    MILESTONES.md milestone.
+  - Tests: a 20-objective backfill fixture with a fake clock, resume scenarios (op cap, offline, lost
+    mapping, secondary limits, a remote-edit halt) and a CLI end-to-end run through a `gh` shim.
+- **Enforcement and setup on GitHub (objective 50).** Store mode now enforces the planning model
+  locally and on the remote. With `github.store` off every item below is inert: `df-tools commit`
+  behaves as before and nothing makes a `gh` call.
+  - Commit gate: in store mode `df-tools commit` refuses the default branch, an unlinked branch and a
+    detached HEAD (exit 1, `reason` `default_branch`, `unlinked_branch` or `detached_head`, before
+    anything is staged). A branch is linked when an unmerged `prs` entry names it; a `df/exec-*`
+    worktree branch inherits the main checkout's linked branch; a merge or rebase in progress skips the
+    gate. A commit on a linked branch with no recognised scope now ends with `Refs #<objective issue>`.
+    Escape: `DEVFLOW_SKIP_GH_GATE=1` (optional `DEVFLOW_SKIP_GH_GATE_REASON`) lets the commit land with
+    `gate_escaped: true` and appends gate `gh` to the main checkout's `.planning/.override-log.jsonl`;
+    `df-tools override --gate gh --reason <why>` is accepted too. Modules: `gh-gate.cjs`, `misc.cjs`.
+  - `hooks/gh-flush.js` (PostToolUse on `df-tools commit`, and Stop): flushes the outbox, reports
+    pending and halted writes, and reports cache drift (W055) at Stop. It never blocks and fails open.
+    Escape: `DEVFLOW_SKIP_GH_FLUSH_HOOK=1`; flush timeout override `DEVFLOW_GH_FLUSH_TIMEOUT_MS`.
+  - `validate health` Check 16 and `doctor` check 25 (`gh-store-sync`, report-only) report W057
+    (unsynced writes, a halted outbox), W058 (missing links), W059 (orphans), W060 (frozen TRD body
+    drift) and W061 (the check could not run). Doctor check 22 defers these codes to check 25. Source:
+    `gh-health.cjs`.
+  - `gh setup [--apply] [--refresh] [--require-wiki]`: a dry-run that prints the exact requests, or with
+    `--apply` an idempotent setup of the `devflow: default branch` ruleset (pull request required, no
+    force-push or deletion, the two required statuses, a merge queue where the plan allows it), labels,
+    issue types (Objective, TRD, Decision, Debug, Quick) and issue fields (`work`, `kind`) on
+    organizations, `has_wiki` and `delete_branch_on_merge`, the managed `.github/workflows/devflow.yml`
+    and a managed `.github/pull_request_template.md` block. It degrades per action: a refused merge queue
+    is recorded and dropped, fields fall back to text, org-only writes are skipped, an unmanaged
+    workflow file is never overwritten. A second `--apply` makes no write. The written files are left
+    uncommitted; commit them through a pull request (see the USER-GUIDE).
+  - Required checks `devflow/linked-issue` and `devflow/planning-consistency`, posted as commit
+    statuses by `gh-check-cli.cjs <linked-issue|planning-consistency|reconcile>` on `pull_request` and
+    `merge_group`, with a merge-time `reconcile` that closes what a merged PR left open.
+    `planning-consistency` reads the GitHub issue graph, not `.planning/`.
+  - Reusable workflow `.github/workflows/devflow-checks.yml` (`workflow_call`) and the managed caller
+    template `templates/github/devflow.yml`; optional App token through the `DEVFLOW_APP_CLIENT_ID`
+    variable and the `DEVFLOW_APP_PRIVATE_KEY` secret.
+  - New config keys: `github.app_id` (pins the required checks to that App's integration id) and
+    `github.checks_workflow` (the caller's `uses:` target), both empty by default.
+  - Tests: `gh-enforcement.e2e.test.cjs` and `gh-enforcement-parity.test.cjs` (store-off parity);
+    `devflow-workflows.repo.test.cjs` pins the workflow and templates.
+- **Objective branch and pull request lifecycle (objective 49).** In store mode each objective runs on
+  one linked branch with one draft pull request, from `execute-objective` start to merge. With
+  `github.store` off every verb below prints `skipped`, exits 0 and makes no `gh` call.
+  - `gh pr start|sync|status|merge|reconcile <objective>`. `start` creates the branch (linked to the
+    objective issue), the start commit and a draft PR that carries `Closes #<obj>` plus each TRD and
+    the wiki revision it was planned against, and freezes every TRD; it needs connectivity (offline
+    it exits 1 and queues nothing). `sync` pushes the branch and refreshes the PR body once per wave.
+    `status` prints the PR, its `devflow/verification` status, the closing set and pending scopes.
+    `merge` refuses a draft, a PR with no passing `devflow/verification` on the current head and a
+    closed PR; it merges with `github.pr.merge_method` (default `squash`), or enqueues the PR where
+    the base branch has a merge queue, and exits 0 merged, 3 enqueued, 2 halted for a human, 1
+    refused. `reconcile` (exit 0 / 3 / 1) runs after the merge, by DevFlow or by a person on GitHub:
+    it verifies every issue the PR should close and closes stragglers, sets the Project fields,
+    deletes the branch, returns the checkout to the default branch and pulls the cache. It is
+    idempotent and exits 3 until a queued PR has landed.
+  - Scope gate: `gh trd start <trd>` marks a TRD in progress with `github.labels.in_progress` at spawn
+    (`summary post` removes it). A scope comment counts only when an objective assignee wrote it, the
+    DevFlow App (`github.app_login`) wrote it, DevFlow recorded it, or an assignee confirmed it with
+    `gh trd confirm-scope <trd> <n>`. Editing a scope after it was accepted makes it pending again.
+  - Every store-mode commit on the objective branch ends with a `Refs #N` paragraph (the TRD's issue
+    for a wave commit, the objective's for the start commit). It is a plain final paragraph, not a git
+    trailer, and matches `^Refs #\d+$`.
+  - The mapping gains a `prs` map (`branch`, `base`, PR `number` and `url`, `wiki_base_sha`, `merged_at`, `reconciled_at`).
+    `init execute-objective` reports `pr_lifecycle`, `objective_branch` and `pr_number`.
+  - Verification posts the commit status `devflow/verification` on the PR head, not a check run (only
+    a GitHub App can create a check run; the App is objective 50), marks the PR ready on a pass and
+    posts the wiki diff as a PR comment.
+  - New config keys: `github.pr.merge_method` (`squash` | `merge` | `rebase`, default `squash`; a merge
+    queue ignores it) and `github.app_login` (default empty).
+- **Planning verbs and the store-mode write path (objective 48).** Every planning write is now a
+  df-tools verb that takes its content with `--from <path|->`: `plan put-trd` / `plan push`,
+  `summary checkpoint` / `summary post`, `verification post`, `doc put`, `objective put` /
+  `objective set-status`, `todo add` / `todo complete`, `debug put` / `debug resolve`, `quick put` /
+  `quick summary`, `decision open` / `decision answer`, `milestone put` / `milestone complete`.
+  `planning mode` prints `local` or `store`, `planning draft <rel>` prints a temp copy to edit, and
+  `planning import [--dry-run]` queues existing local planning files to GitHub. With `github.store`
+  off (the default) every verb writes the same `.planning/` file, byte for byte, with zero `gh`
+  calls, and `.planning/` stays tracked.
+  - Store mode: a verb writes the cache, records it in an out-of-tree ledger, queues the GitHub
+    write and flushes. `summary checkpoint` writes runtime `.planning/.trd-progress/<trd>.md` and
+    never reaches GitHub; `summary post` is the one GitHub write per TRD.
+  - Todos, debug sessions and quick tasks are GitHub issues (`Debug` / `Quick` issue types, or
+    `devflow:type/<name>` labels where the org has none). Milestones are native GitHub milestones
+    with a `Milestone-vX_Y` wiki page (`gh-milestone-store.cjs`). Research notes and the remaining
+    objective docs are wiki pages. `gh pull --all` rebuilds all of them byte for byte.
+  - `verify trd-pre` reports `checks.trd_budget` (`trd-bulk.cjs`): a TRD over 40,000 encoded chars
+    warns, over 60,000 is refused, and inline bulk (a fenced block over 8,000 chars, or fenced
+    content over 40% of a 40,000+ char TRD) warns. The job-checker carries it as Dimension 8.
+  - `validate health` Check 15 reports W055 for a cache or generated `.planning/` file changed
+    outside a verb (naming the verb, or `gh pull --all --force`), and W056 when the check cannot run.
+  - Migration 0010 (confirm, store mode only): once the outbox is drained and every cache file is
+    on GitHub, it gitignores `.planning/*` except `config.json` and `STACK.md` and untracks the rest
+    from the index. Run `df-tools upgrade --apply --only 0010 --confirm`. Doctor check 24
+    (`store-cache-tracked`) reports a store-mode project that still tracks its cache.
+  - `planning-writes.repo.test.cjs` fails CI on any direct planning-write instruction in a skill,
+    non-legacy workflow, agent or template (the 48-04 ratchet, now at zero with no baseline).
+- **GitHub authoritative store (objective 47).** Opt-in with `github.store: true` in
+  `.planning/config.json`; the default is `false`, and with it off `gh sync` behaves exactly as in
+  objective 46. Skills and agents still read the planning files until objectives 48-51 move them
+  onto the store, so for now it is a push target plus a cache rebuildable from GitHub.
+  - Hierarchy: `gh sync` pushes milestone, Objective issue and TRD sub-issues (native sub-issues,
+    blocked-by edges from waves, issue types and project fields where the organisation has them).
+    The Roadmap wiki page is rendered from the issues.
+  - TRD codec and budget: a TRD body is the file verbatim behind `devflow:id` / `devflow:file`
+    markers and round-trips byte for byte. A TRD over 60,000 characters is refused before any
+    GitHub call; 40,000 and above warns. Scope changes are comments (`gh trd scope`) that are
+    replayed in order by `gh trd spec`, frozen by `gh trd freeze` and folded into the body by
+    `gh trd fold`.
+  - Comments: SUMMARY and VERIFICATION files travel as marked, multi-part comments.
+  - Outbox: writes are queued in a per-repo journal under `~/.claude/devflow/state/outbox/`
+    (`DEVFLOW_OUTBOX_DIR`) and flushed in order. `gh outbox status|flush|resolve` inspects and
+    drains it; `flush` exits 0 flushed/skipped/running, 1 error, 2 halted for a human, 3 pending.
+    A remote edit to a managed section or TRD body halts the queue until
+    `gh outbox resolve <seq> --accept-remote|--overwrite`.
+  - Wiki store: reference pages live in the repository wiki (clone at `.planning/wiki/`, excluded
+    through `info/exclude`; `github.wiki.remote` or `DEVFLOW_WIKI_REMOTE` overrides the remote).
+  - `gh pull --all [--force]` rebuilds `.planning/` from GitHub, writes only what changed, never
+    deletes, never overwrites a locally edited file without `--force` and never overwrites a
+    hand-maintained ROADMAP.md or STATE.md (exit 2 reports it). `gh orphans <objective>` lists TRD
+    issues with no local file and local TRDs with no issue.
+  - Degraded mode is detected per repository and cached (`<DEVFLOW_GH_CACHE_DIR>/capabilities/`):
+    without issue types or project fields, labels (`github.labels.trd|decision`) and a body
+    `meta` section carry them; without a wiki, pages go to `docs/devflow/`. A wiki with no first
+    page halts the queue and names the fix; it never falls back to `docs/`.
+  - Modules `gh-trd`, `gh-capability`, `gh-outbox`, `gh-outbox-flush`, `gh-hierarchy`,
+    `gh-comments`, `gh-wiki`, `gh-cache` and `gh-store-cli`, plus store extensions to `gh-body`
+    and `gh-mapping`. A repo test keeps the store modules behind the `gh-client` seam.
+  - Known limitation (open decision): `gh trd freeze|scope|fold` read GitHub first and need
+    connectivity; offline they exit 1 and queue nothing. Only `gh sync` and the outbox queue
+    offline.
+- **Upgrade migration 0009** (auto). Converts `.planning/.gh-mapping.json` from its v1 and v2 shapes
+  to v3 (keyed by canonical objective id, `{issue_id, state_comment_id, verified_at}` entries) and
+  re-keys `.planning/.gh-sync-state.json` by the same ids. Idempotent; backs up first.
+- **`lib/gh-client.cjs`, the one seam for every `gh` call.** Writes are at least 1 s apart, a
+  secondary rate limit is retried after `retry-after`, list calls read every page, and
+  `github.enabled` gates every command. The modules `gh-mapping`, `gh-body`, `gh-issue`,
+  `gh-project` and `gh-milestone` sit on it. A repo test fails if anything else spawns `gh`.
+- **Project field discovery.** Project v2 fields, options and iterations are read from GitHub and
+  cached for `github.project_cache_ttl_minutes` (default 360) under
+  `~/.claude/devflow/state/gh-project/` (override `DEVFLOW_GH_CACHE_DIR`).
+- `df-tools-deprecations.repo.test.cjs`: CI fails when live prose names a deprecated df-tools
+  subcommand without saying it is deprecated.
+- **Real-fleet drift harness (objective 43, SDR-08).** `stack-drafter-fleet.test.cjs` redrafts each of
+  the 33 fleet repos (`df-tools --cwd <repo> stack init`, no `--write`, no `--run`) and compares the
+  draft with the committed `.planning/STACK.md` read from HEAD, with the same `compareDrift` the
+  rollout table uses (`__fixtures__/stack-drift-compare.cjs`). A conflict outside `ACCEPTED` fails,
+  and each repo's HEAD and work tree must be unchanged by the draft. The module
+  `__fixtures__/stack-fleet-tables.cjs` exports exactly `FLEET`, `ACCEPTED` (user decisions only, each
+  dated and `by: 'user'`) and `OPEN` (reported with a diagnostic; a key that stops drifting fails with
+  "remove it"). The harness skips when `DEVFLOW_SKIP_FLEET_HARNESS=1` or the fleet root
+  (`DEVFLOW_FLEET_ROOT`, default `~/dev`) holds fewer than half the fleet.
+- **`github.mirror_only`: keep GitHub in mirror mode (objective 52).** A project that never wants the
+  store records `df-tools config-set github.mirror_only true` in its tracked `.planning/config.json`.
+  While `github.store` is off, migration 0011 then skips with "mirror mode kept (github.mirror_only:
+  true)", so it drops out of `pending_confirm`, `validate health` W040, doctor check 21 and the
+  SessionStart notice. Only boolean `true` counts. With the store on the key is ignored, so a pending
+  backfill still resumes. The template default is `false`, so `config-get github.mirror_only` prints
+  `false` on a project that never set it. The key applies to 0011 only; it is not a way to decline other
+  migrations. The store-off 0011 reason names the opt-out, and `/devflow:gh-sync migrate` and
+  `/devflow:status check --migrate` offer it as "Keep mirror mode".
+- **`doctor` check 33 `decision-resolution` repairs decisions mangled before objective 52 (objective 53).**
+  The pre-52 one-line writer flattened a multi-line `resolution` in
+  `.planning/decisions/resolved/DECISION-NNN.md`, so it read back as its first line. The raw file still
+  holds every byte of the answer, so the check recovers the text between `resolution:` and `resolved_at:`,
+  and reports each file as repairable or unrecoverable (warn). `doctor --fix` rewrites a repairable one as
+  a `|-` block scalar, after a backup, and only once the rebuilt file re-parses to the recovered answer, the
+  original `resolved_at` and an unchanged body. It edits the working tree and never stages or commits. A
+  decision whose answer already reads back whole is left alone. In store mode the check is report-only (hand
+  fix the GitHub copy, then `gh pull --all`). Modules: `decision-repair.cjs`,
+  `doctor-checks/33-decision-resolution.cjs`.
+
+### Changed
+- **`stack verify --run` is effect-based (objective 43, SDR-03).** A gate was judged safe by its key, yet
+  `flutter analyze` rewrote `analysis_options.yaml` and its implicit `pub get` bumped `pubspec.lock`. Now
+  the work tree is snapshotted before and after each gate and any path the gate changed is restored
+  byte-exact (a pre-existing edit included); after a mutation the remaining Dart/Flutter gates in that
+  root halt; `flutter analyze|test` run with `--no-pub`. New skip reasons: `side-effect-unsafe` (halted),
+  `side-effect-unproven` (no git work tree to observe) and `needs-pub-get` (no
+  `.dart_tool/package_config.json`).
+- **`/devflow:gh-sync` is the GitHub store operator (objective 51).** Its modes are `migrate [--dry-run]`,
+  `status`, `flush`, `pull`, `setup [--apply]`, `release <tag>`, and `<objective>|--all` as the store-off
+  mirror. `migrate` shows the plan and the request estimate, asks before applying, and shows the branch
+  plus logged-escape commit; it runs that commit only when asked. The skill no longer commits
+  `.planning/.gh-mapping.json`. The flow chains, the help reference and the README describe the store
+  model. The routing line in the managed `~/.claude/CLAUDE.md` template changed without a version bump;
+  objective 53 bumped the template to v3, so existing blocks pick it up at the next global upgrade.
+- **Migration 0010 defers during a backfill and prints the store-mode commit (objective 51).** While the
+  outbox holds only pending ops, 0010 skips with a reason that names `--only 0011`, so a bare
+  `upgrade --apply --confirm` reaches 0011; a direct apply still refuses. Its printed follow-up, and doctor
+  check 20's in store mode, is a new branch, a `df-tools commit` with `DEVFLOW_SKIP_GH_GATE=1` and a
+  reason, a push and a pull request. The wiki clone `.planning/wiki/` is no longer counted as an
+  un-synced cache file.
+- **Objective 26 (GitHub issue auto-build monitor) is killed (objective 51).** Its OBJECTIVE.md is
+  `status: cancelled` with a dated Disposition, and DECISION-002 records the decision. Nothing was
+  renumbered.
+- A GitHub-enabled project with the store off now sees migration 0011 as a pending confirm migration:
+  `validate health` reports W040 and doctor check 21 names it. There is no opt-out key yet.
+- **Store-mode commits need a linked branch (objective 50).** In store mode `df-tools commit` on the
+  default branch or an unlinked branch now exits 1 instead of committing. Run `gh pr start <objective>`
+  and commit on its branch, or take the logged escape `DEVFLOW_SKIP_GH_GATE=1`. This includes the
+  `upgrade-project.js` background commit: on a store-mode default branch the upgrade stays applied but
+  uncommitted and a notice names `default_branch`. Migration 0010 and doctor check 20 print a commit
+  sequence that takes the escape (objective 51). Local mode is unchanged.
+- **Required checks are commit statuses, not check runs (objective 50).** `devflow/linked-issue` and
+  `devflow/planning-consistency` are posted by the check runner as statuses, so no GitHub App is needed
+  to make them required; the App (`github.app_id`) is optional and only pins the required check to it.
+- **Objective branch and PR in store mode (objective 49).** `execute-objective` runs `gh pr start`,
+  syncs the PR once per wave and offers `gh pr merge` then `gh pr reconcile` at the end; it never
+  merges on its own. `complete-milestone` no longer creates or merges branches in store mode. An
+  auto-advance chain that skips the merge builds the next objective from the default branch, without
+  this objective's work.
+- **Edit gate in store mode.** With `github.enabled` and `github.store` both true, an Edit/Write of a
+  cache or generated `.planning/` file is denied for everyone, skill markers and `devflow:*` agents
+  included, and the reason names the verb to use. `config.json`, `STACK.md` and runtime files stay
+  editable. With store off the gate is unchanged. The deny needs an installed plugin at or above the
+  release carrying objective 48 (D-10); `df-tools doctor` reports a stale plugin cache (check 11).
+- Skills, workflows, agents and templates now publish planning files through the verbs: the planner
+  uses `planning draft` + `plan put-trd --no-push` + one `plan push`; the executor uses
+  `summary checkpoint` per task and one `summary post`; verify, bootstrap, milestone, todo, debug,
+  quick, decision and codebase-map flows use their verbs. In store mode `summary checkpoint|post` write
+  the main checkout; in local mode they write the checkout that runs them (objective 53).
+- In store mode the STATE.md mutators write the per-clone `state.json`; `roadmap
+  update-job-progress` and the writing `sync-roadmap` modes are no-ops that point at `gh pull
+  --all`; `objective add|complete` go through `objective put|set-status` and `objective remove` is
+  refused; `frontmatter set|merge` on a cache file names the owning verb. Local mode is unchanged.
+- `df-tools commit` skips ignored, untracked planning paths one path at a time.
+- **`gh sync [<objective>|--all]` is the one push command.** It finds or creates the objective's
+  issue, updates it, posts the sticky state comment, sets Project fields and writes `github_issue`
+  to OBJECTIVE.md. `--all` runs every objective through one run context, keeps going past a failure,
+  prints JSON on stdout and exits 1 if any objective failed.
+- **Managed body sections.** Issue bodies start with `<!-- devflow:id=N -->`; a sync rewrites only
+  the text between `devflow:begin` / `devflow:end` and keeps every human-written byte. An issue made
+  by an earlier DevFlow gets the sections appended below its old text once.
+- **`devflow:id` markers** on issue bodies and on the sticky, verification and close comments.
+  Issues are found again by marker when the mapping is lost. A legacy `<!-- df:state -->` comment is
+  adopted and rewritten.
+- `comment`, `close-issue`, `sync-release`, `resolve` and `status` use mapping v3, the markers and
+  the enabled gate. `gh comment` takes `--kind`; the verifier posts with `--kind verification`.
+- The post-execute step in `execute-objective` passes the objective directory and shows a failure
+  as a warning with the retry command instead of hiding it.
+- `initiatives` resolves its project from PROJECT.md `org_project`, then `awareness.org_project_id`.
+- Push records GitHub's own `updatedAt` as the sync-state baseline, so `gh pull` straight after a
+  push reports no drift.
+- **`gate-commits` explains a refused merge-then-commit chain (objective 53).** A merge-like git operation
+  (`merge`, `cherry-pick`, `revert`, `rebase`, `am`) chained before a raw `git commit` in one command is
+  still denied, because a no-op merge creates no `MERGE_HEAD` and the chain cannot be proven safe from the
+  command text. The deny reason now says to run them as separate calls and that `git commit --no-edit` is
+  allowed once `MERGE_HEAD` exists. Every allow path is unchanged, and so is the text for a plain commit.
+- **The global `~/.claude/CLAUDE.md` template is v3 and routes to `/devflow:doctor` (objective 53).** The
+  managed block gains "Diagnose and safely repair the install and project state". A block refreshes only
+  when `template_version` rises, so existing blocks pick up both this line and the `/devflow:gh-sync` line
+  at the next global upgrade (`df-tools upgrade --global`, or the SessionStart sync).
+
+### Fixed
+- **Stack drafter rules (objective 43).** `stack init` re-drafts the eleven fleet shapes hand-fixed in
+  objective 42 with no hand edit, apart from keys only a human names; a golden suite holds them in CI.
+  - D1: a Makefile's own `$(VAR)` / `${VAR}` assignments are expanded, so an aggregate target (`build:
+    frontend backend` running `$(GO) build`) drafts `make build` instead of being dropped as off-stack.
+  - D2/D3/D6: a root with no supported manifest is `extends: general` with every supported sub-area a
+    component. The primary component (a component whose CI runs its task runner first, then the most
+    evidence, go first on a tie) supplies root build/test/lint with its `cwd`; a root that builds itself in
+    a stack of its own has none. Sub-area scripts and non-area working directories are `sub_area` notes.
+  - D4: new key `e2e_env` for a scenario-named environment bring-up (`make e2e-stack-up`); a body-only
+    bring-up is a note. A scenario wrapper keeps its name's key; single-purpose and smoke scripts are never
+    the repo-wide `test`.
+  - D5: Taskfile `internal: true` tasks are `target_missing` in `stack verify` and never proposed.
+  - D7: `df-tools commit --files` reports a gitignored, untracked path under `skipped_ignored` and commits
+    the rest, instead of failing with `commit_failed`.
+  - D9: `stack mcp` keeps the Flutter tools when a pure-Dart component is listed after a Flutter one.
+  - D11: `verify artifacts` parses `must_haves` at the file's own indent (2-space TRDs); `verify
+    key-links` reports a string key_link as `not machine-checkable`, counted under `unchecked`.
+  - Check and apply targets pair up (`lint` / `lint-fix`, `fmt-check: fmt` then `git diff --exit-code`,
+    `openapi-verify` / `openapi-regen`), the target named for a key ranks first for every key, and
+    `shellcheck` is a lint.
+- **Stack drafter rules, gap cycle 1 (objective 43).** A dry run against the 33 real fleet repos still
+  drifted from their committed `.planning/STACK.md` after the golden suite passed on invented fixtures.
+  These rules close the drift from the evidence shapes of the real repos; none names a repo. Conflict
+  repos fell from 12 to 3, matches rose from 18 to 24, and politihub is now evaluated.
+  - A `;` after an unescaped `#` on a Makefile rule line is comment text, not an inline recipe (43-09).
+  - A captured `$(git diff ...)` test and a mktemp-snapshot `diff -q` are drift checks, and a generator
+    target under a check-suffixed name is the key's check form (43-09).
+  - Workflow, job and step `env:` literals are substituted into CI run lines; a runtime value, a
+    variable the run block assigns, or one exported to `$GITHUB_ENV` is never substituted (43-09).
+  - A version or presence probe (`<tool> -v`, `--version`, `version`) is never gate evidence; `-v` stays
+    verbose for pytest, ginkgo and mypy (43-09).
+  - The primary component is chosen on build, test and lint evidence (a CI step through a runner counts
+    only for one of those keys), and go-first only breaks a tie (43-10).
+  - Root and primary candidates are placed in tiers: root task-runner recipes first, the primary's own
+    runner targets with their own `cwd`, other root-area candidates, then the primary's others. A root
+    candidate the primary's runner supersedes is a `shadowed` note (43-10).
+  - A root runner with a build, test or lint recipe running in two or more areas is a workspace root:
+    no primary component, no off-primary gate (43-10).
+  - A candidate that runs the key plus other keys (a mixed aggregate) never fills the key while a pure
+    candidate exists. A drift check of one leg of a generator is a `partial_check`: it neither fills
+    `run` nor turns the generator into `apply` (43-11).
+  - A teardown or reset name (`down`, `stop`, `teardown`, `destroy`, `reset`) fills neither `e2e_env`
+    nor `e2e` (43-11).
+  - A task-runner target named for the key whose whole body is the tier default is the declared entry
+    point and is kept; a script not named for the key that runs the governing default reduces to that
+    default, with a `wrapper` note (43-12).
+  - A CI action with a fixed CLI equivalent (`golangci-lint-action`, `govulncheck-action`) is a
+    candidate, with its `working-directory`; a dedicated linter outranks the default within a source
+    (43-12).
+  - A build whose invocations all name one package or output is narrow. When the tier has several such
+    builds, or a broad build stands beside one, the governing default applies instead, with a
+    `narrow_fallback` note (43-13).
+  - A CI lane that expands a variable its step assigns at run time ranks after a plain lane, and the
+    lane it displaced is a `runtime_var` note (43-13).
+  - The drafter stays verbatim on CI commands, so flag-only hand edits are not derived. Thirteen fleet
+    rows are user-accepted in the harness (43-15), among them `ao-terminal` `deps` and `aocore` `test`.
+    `aodex` `audit` (the draft takes the govulncheck `--self-test` step) and the dropped `buf lint` in
+    `justinforme` and `smartWellness` are known limitations, left for a future rule.
+- A successful `planning import` printed `planning import: nothing to do ().` It now prints the counts,
+  the estimate, the history line and the will-stay-local table (objective 51).
+- The flow skill's ship-and-release chain called `/devflow:gh-sync sync-release`, a mode that does not
+  exist; it now calls `release` (objective 51).
+- Store mode closed the objective issue at verify-pass, before anything was merged (objective 49). It
+  now closes on merge, through the PR's `Closes #<obj>`, or by `gh pr reconcile` when GitHub's
+  closing-keyword limit skipped it. `objective complete` writes the status and warns while the PR is
+  unmerged.
+- check-todos completed a todo with a hand `mv` into `todos/done/`, a directory df-tools does not
+  use. It now runs `todo complete`, which moves the file to `todos/completed/`; add-todo no longer
+  creates `todos/done/`, and existing `todos/done/` files still read as closed.
+- Mapping shapes and keys. v1 (bare numbers) and v2 (objects) were read by different commands, so an
+  issue edit could receive `[object Object]`, and one objective had three key spellings (`2.1`,
+  `02.1-foo` run through `parseInt` to `2`, the directory name). There is one id now.
+- The post-execute sync passed the objective number, discarded stderr and skipped any objective
+  without a `github_issue`, so a failed or missing push was invisible.
+- `github_issue` is written back to OBJECTIVE.md on the first sync. A differing value you set is
+  kept and reported.
+- Milestone resolution no longer guesses: the objective's `milestone:`, else the ROADMAP
+  `## Milestones` current entry, else none.
+- A sync no longer overwrites human edits to an issue body.
+- Project fields no longer read a fixture at runtime; they are discovered from GitHub.
+- Sync had no rate limiting and read only the first page of comments, so the sticky comment on a
+  long-lived issue was not found.
+- `github.enabled: false` was ignored by `sync`, `pull` and `resolve`, and the legacy commands exited
+  0 on failure. Every command now reports `skipped` with exit 0 and makes no `gh` call when
+  disabled; an enabled project that cannot reach GitHub exits 1.
+- **`df-tools micro commit --files` commits only the named paths** (#120). It staged the named
+  files and then ran a whole-index `git commit`, so anything already staged went into the micro's
+  commit, and the STATE.md follow-up commit could sweep it in the same way. Both commits now pass
+  the paths as a pathspec (`git commit -- <files>`), and unrelated staged changes stay staged. A
+  `--files` path with no changes now fails instead of committing whatever else was staged. Without
+  `--files` nothing changes.
+- **Printed commit follow-ups run as printed in store mode (objective 52).** `gh setup --apply`, doctor
+  check 21, migration 0010 (and 0011 through it) and doctor check 20 printed `df-tools commit` lines
+  that the store-mode commit gate refused on the default branch. All four now come from one builder,
+  `lib/commit-steps.cjs`. In store mode it prints a new branch, the commit with the logged
+  `DEVFLOW_SKIP_GH_GATE=1` escape and a reason, the push and the pull request, then a last line for an
+  objective's linked branch (`df-tools gh pr start <objective>`), where the bare command is accepted.
+  The branches are `devflow-setup` (gh setup), `devflow-upgrade` (doctor 21), `devflow-store-cache`
+  (0010) and `devflow-untrack-runtime-state` (doctor 20). Outside store mode, `gh setup` prints the
+  same branch sequence without the escape, and doctor 20 and 21 still print `commit with: ...`. A
+  store-mode git fixture runs each emitter's real output, from the default branch and from a linked
+  branch.
+- **Commit-gate refusals name both remedies (objective 52).** Every store-mode refusal (default branch,
+  unlinked branch, a merged objective's branch, detached HEAD, an executor branch whose main checkout is
+  not linked) now says: run `df-tools gh pr start <objective>` and commit on its branch, or prefix the
+  commit with `DEVFLOW_SKIP_GH_GATE=1` (logged as gate gh; `DEVFLOW_SKIP_GH_GATE_REASON=<why>` records
+  why). Before, the escape was documented only in the user guide. `df-tools commit --raw` printed only
+  the reason code; stdout is unchanged and the full message now goes to stderr.
+- **`df-tools micro commit` leaves STATE.md alone in store mode (objective 52).** It appended a Quick
+  Tasks row to the generated STATE.md and committed it, which `validate health` reported as W055 drift.
+  In store mode it now makes one commit, the source change, and returns
+  `state_row: "skipped_store_mode"` with `state_commit_hash: null`. Local mode is unchanged.
+- **The debugger agent commits through `df-tools commit` (objective 52).** `agents/debugger.md` told the
+  agent to run `git add` and `git commit`, which gate-commits blocks. It now commits the fix with
+  `df-tools commit "fix: ..." --files ...`. `prompt-raw-commit.repo.test.cjs` fails CI when a raw
+  `git commit` line appears in a fenced block of an agent or skill prompt.
+- **A multi-line `decision answer` round-trips intact (objective 52).** The frontmatter writer stored a
+  multi-line string as a value the line-based reader truncated to its first line. The shared serializer
+  (`frontmatter.cjs`) now writes any string that contains a newline as a `|-` block scalar, and the
+  reader parses `|`, `|-` and `|+` blocks back to the exact text. Single-line frontmatter is
+  byte-identical. `decision answer` normalises CRLF and trailing whitespace first, so a one-line answer
+  read from a file still matches its declared option. `planning import` reads a block-scalar
+  `resolution` in full, so the 0011 backfill carries the whole answer to GitHub. Decisions answered
+  before this fix keep their mangled multi-line `resolution`, which still reads back as its first line;
+  `df-tools doctor --fix` repairs those whose answer is recoverable (objective 53, doctor check 33), and
+  the rest are fixed by hand (see `docs/USER-GUIDE.md`).
+- **Executor worktrees no longer leave a stray SUMMARY in the main checkout (objective 53).** In local mode
+  `summary checkpoint|post` wrote the main checkout even when run from an executor worktree, leaving an
+  untracked `NN-MM-SUMMARY.md` that blocked the wave merge (objective 52 hit it five times). They now write
+  the checkout that runs them, so a worktree executor commits its SUMMARY with its task commits and it
+  arrives through the wave merge. The file name is chosen from that checkout's objective directory, so a
+  committed `NN-MM-<slug>-SUMMARY.md` is reused rather than duplicated. A worktree with no `.planning/`
+  falls back to the main checkout, and store mode still writes the main checkout's cache, ledger and
+  outbox. `gate-executor-stop` needed no change (it scans every `git worktree list` entry).
+  `execute-objective` no longer commits a wave's SUMMARYs after the merge.
+  `planning-mode.resolveCheckoutRoot(cwd)` is the new resolver.
+- **A named TRD with a short SUMMARY, or the reverse, counts as summarised everywhere (objective 53).**
+  `NN-MM-<slug>-TRD.md` is paired with `NN-MM-SUMMARY.md` or `NN-MM-<slug>-SUMMARY.md` on the `NN-MM`
+  key (`helpers.trdKey`), never by string prefix (`07-1-x` and `07-10` stay distinct). `validate health`
+  I001 and the `validate consistency` orphan warning, `objective-job-index` `has_summary` (which
+  `execute-objective` uses to resume and to complete), `init execute-objective` `incomplete_jobs`,
+  `verify objective-completeness` and `gate-executor-stop` now agree with `sync-roadmap`. Before this,
+  health reported every named TRD in objectives 47-52 as missing a summary and `objective-job-index`
+  reported `has_summary: false` for each of them. A checkpoint-only SUMMARY (a `## Progress` section and no
+  `## Self-Check`) still does not count.
+- **`df-tools micro commit` goes through `df-tools commit` (objective 53).** It committed with a raw
+  `git commit` under `DEVFLOW_ALLOW_RAW_COMMIT=1`, so the store-mode GEN-01 branch gate never saw it. In
+  store mode it is now refused on the default branch, an unlinked branch or a detached HEAD with the normal
+  gate message (exit 1, JSON on stdout, the message on stderr), commits nothing and keeps the
+  `.micro-description` marker so the commit can be re-run after switching branch. The logged
+  `DEVFLOW_SKIP_GH_GATE=1` escape works and writes one `gate:gh` override entry. Local mode is unchanged,
+  with one exception: because `df-tools commit` honours `commit_docs`, a project with `commit_docs: false`
+  still gets the source commit but no second STATE.md row commit, and micro warns that it left STATE.md
+  dirty. `workflows/micro.md` names the path and the refusal.
+- **The documented wave-merge sequence passes `gate-commits` (objective 53).** `execute-objective`'s
+  branch-merge protocol, `complete-milestone` and `workstreams-merge` chained a merge with a commit in one
+  Bash call, which the gate denies because no `MERGE_HEAD` exists yet. Each merge step is now its own call.
+  A wave-merge conflict confined to STATE.md, ROADMAP.md and REQUIREMENTS.md is resolved by taking the
+  integration copy and finishing with `git commit --no-edit` (allowed once `MERGE_HEAD` exists); any other
+  conflicted path aborts the merge. A squash completion carries the inline `DEVFLOW_ALLOW_RAW_COMMIT=1`
+  prefix, because a squash leaves no `MERGE_HEAD`. The gate's allow and deny decisions did not change.
+  `gate-commits-merge-sequence.test.js` replays the sequence through the hook in a scratch repo.
+- **`PROJECT.md` and the archived UI-VISUAL-EVAL objectives (objective 53, this repo only).** `PROJECT.md`
+  gained `## Core Value` and `## Requirements` from its existing text (W001), and the three
+  `UI-VISUAL-EVAL-*` ad-hoc objective directories moved with `git mv` to
+  `.planning/milestones/v1.2-objectives/`, history intact (W005). `validate health` reports neither.
+- Eight CodeQL alerts new in PR #121 (138-145). Two ReDoS fixes (js/redos): the `stack-classify`
+  `GIT_DIFF` option parsing now reads a single-dash `-C`/`-c` followed by whitespace only as the
+  option-with-value, so a long run of `git -C -A …` is no longer exponential (the one shape dropped is
+  `git -C diff`, which is not a real diff), and the `stack-evidence` trailing-connective strip is now a
+  loop (`stripTrailingConnective`) instead of a `(?:…)+$` regex, with identical output. The 0011 backfill
+  and `planning import` stay-local table cells now escape a backslash before the pipe
+  (js/incomplete-sanitization), so a path holding `\|` can no longer break out of its cell. The gh-wiki
+  page-table rule method is renamed from `match` to `toPage` (js/regex-injection; mapping unchanged), and
+  its `objectiveDocRule` escapes `kind` before building a `RegExp`. Three test assertions in
+  `frontmatter.test.cjs` and `gh-setup.test.cjs` use substring checks instead of building a `RegExp` from
+  a string (js/incomplete-sanitization).
+
+### Deprecated
+- `git.branching_strategy` (objective 49). In store mode it is ignored and `init` reports it as
+  `branching_strategy_ignored`; the PR lifecycle replaces it. In local mode it still works and `init`
+  prints a deprecation notice for `objective` and `milestone`.
+- `gh sync-objectives`. It still works and prints a one-line notice; use `gh sync --all`. The rename
+  is recorded in `DF_TOOLS_DEPRECATIONS` (`lib/skill-route.cjs`).
+
+### Removed
+- The dead `AWARENESS_CACHE_REL` export of `lib/awareness.cjs` (objective 53). Nothing imported it. The legacy
+  path survives as `awareness-store.LEGACY_CACHE_REL` (`.planning/.awareness-cache.json`), which migration
+  0008 and doctor use.
+
 ## [2.12.0] - 2026-09-30
 
 ### Added

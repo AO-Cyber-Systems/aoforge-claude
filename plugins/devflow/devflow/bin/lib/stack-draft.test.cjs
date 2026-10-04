@@ -7,11 +7,12 @@
 // - D13 sast->audit collapse: gosec with no other audit candidate -> audit is gosec, no sast;
 //       gosec + govulncheck -> sast gosec, audit govulncheck.
 // - D14 a weak marker is kept verbatim (`--no-fatal-infos`) and recorded as a note.
-// - D15 a best candidate equal to the tier default is not re-emitted; a single non-root area
-//       re-emits with cwd (tier keys included, scoped kept).
+// - D15 a best candidate equal to the tier default is not re-emitted; a lone non-root area is the
+//       one component of a general root and build/test/lint fall back to its tier with cwd (43-05).
 // - D16 an unresolved candidate -> run: discover plus one note per candidate; `${{ }}` is never run.
-// - D17 extends/components: 0 areas -> general + info note; 2+ areas -> components by tier id,
-//       unsupported areas are notes; component commands that differ from the tier are notes.
+// - D17 extends/components: 0 areas -> general + info note; no supported root area -> general plus
+//       every supported area as a component (43-05, literal rule); the primary component's candidates
+//       are root keys with cwd, other components' commands that differ from the tier are notes.
 // - D18 e2e: maestro only with a .maestro/ flag; a maestro candidate without one is dropped.
 // - D19 loop for a general extends lists resolved format/lint/test; codegen/deps keep `when`.
 // - D20 purity: stack-draft.cjs requires neither stack-profile.cjs nor fs.
@@ -24,7 +25,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const { assembleDraft } = require('./stack-draft.cjs');
+const { assembleDraft, pickPrimaryComponent } = require('./stack-draft.cjs');
 
 const GENERAL = {
   build: { run: 'discover' },
@@ -172,19 +173,25 @@ describe('assembleDraft tier defaults and cwd (D15)', () => {
     assert.equal('lint' in d.commands, false);
   });
 
-  test('D15c: a single non-root area extends its tier and re-emits with cwd (tier keys keep scoped)', () => {
+  test('D15c (43-05, D3): a lone non-root area is the one component of a general root; build/test/lint fall back to its tier with cwd', () => {
     const areas = [{ dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] }];
     const evidence = [
       ev('lint', 'make lint', { source: 'runner', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'golangci-lint' }),
       ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
     ];
     const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
-    assert.equal(d.extendsId, 'go');
-    assert.deepStrictEqual(d.components, []);
+    assert.equal(d.extendsId, 'general', 'a lone sub-area is never promoted to the root extends');
+    assert.deepStrictEqual(d.components, [{ path: 'svc/', profile: 'go' }]);
     assert.deepStrictEqual(d.commands.lint, { run: 'make lint', cwd: 'svc' });
     assert.deepStrictEqual(d.commands.test, { run: 'go test -race ./...', scoped: 'go test -race {packages}', cwd: 'svc' });
-    assert.equal(d.commands.codegen.when, 'sources_changed');
-    assert.equal(d.commands.codegen.cwd, 'svc');
+    assert.deepStrictEqual(d.commands.build, { run: 'go build ./...', cwd: 'svc' });
+    for (const key of ['format', 'fix', 'audit', 'codegen', 'typecheck']) {
+      assert.equal(key in d.commands, false, `${key} is not a root key: the component inherits it from its tier`);
+    }
+    const primary = d.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary, JSON.stringify(d.notes));
+    // TRD 43-10 re-baseline: the note names the build/test/lint count (the deciding evidence) and the total.
+    assert.match(primary.detail, /primary component svc\/ \(go\): 2 build\/test\/lint evidence items of 2/);
   });
 
   test('D15d: a re-emitted command from the same tool as the tier default keeps the tier scoped form', () => {
@@ -247,7 +254,7 @@ describe('assembleDraft extends and components (D17)', () => {
     assert.equal(d.loop, undefined);
   });
 
-  test('D17b: 2+ areas -> general root, components by tier id; component-only commands become notes', () => {
+  test('D17b (43-05, D6): 2+ areas -> general root; primary-component candidates become root keys with cwd, the rest stay notes', () => {
     const areas = [
       { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
       { dir: 'portal/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
@@ -257,20 +264,404 @@ describe('assembleDraft extends and components (D17)', () => {
       ev('test', 'go test -race -count=1 ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
       ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
       ev('lint_helm', 'helm lint chart/', { tool: 'helm' }),
+      ev('test', 'flutter test --coverage', { cwd: 'app', area: 'app/', tool: 'flutter' }),
     ];
     const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
     assert.equal(d.extendsId, 'general');
     assert.deepStrictEqual(d.components, [{ path: 'app/', profile: 'flutter' }, { path: 'svc/', profile: 'go' }]);
     assert.deepStrictEqual(d.commands.lint_helm, { run: 'helm lint chart/' });
-    assert.equal('test' in d.commands, false, 'a component command is not a root command');
-    assert.ok(d.notes.some((n) => n.area === 'svc/' && n.key === 'test' && n.candidate.includes('-count=1')));
-    assert.ok(!d.notes.some((n) => n.area === 'svc/' && n.key === 'lint'), 'equal to the tier default: nothing to note');
+    assert.deepStrictEqual(
+      d.commands.test,
+      { run: 'go test -race -count=1 ./...', scoped: 'go test -race {packages}', cwd: 'svc' },
+      'the primary component supplies the root test, with its cwd; the same tool as its tier default keeps the tier scoped form',
+    );
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' }, 'equal to the tier default, but it is the root command now');
+    assert.ok(d.notes.some((n) => n.area === 'app/' && n.key === 'test' && /flutter test --coverage/.test(n.candidate)), 'a non-primary component candidate stays a note');
     assert.ok(d.notes.some((n) => n.area === 'portal/' && n.status === 'info'), 'an unsupported area is noted');
+    const primary = d.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary && primary.area === 'svc/', JSON.stringify(d.notes));
   });
 
   test('D17c: an explicit extends wins for the root', () => {
     const d = assembleDraft({ areas: ROOT_GO, evidence: [], tierCommands: { ...TIERS, golike: GENERAL }, verify: resolvedAll, extendsId: 'golike' });
     assert.equal(d.extendsId, 'golike');
+  });
+});
+
+describe('pickPrimaryComponent (43-05, D6)', () => {
+  const comp = (p, profile) => ({ path: p, profile });
+  const at = (dir, source = 'ci', n = 1) => Array.from({ length: n }, (_, i) => ev('test', `cmd-${dir}-${source}-${i}`, { source, effectiveArea: dir, area: dir }));
+
+  test('P1: the component with the most runner + CI evidence wins, even over go', () => {
+    const items = [...at('app/', 'ci', 3), ...at('svc/', 'runner', 1)];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'app/');
+    assert.equal(p.score, 3);
+  });
+
+  test('P2: on a tie go beats flutter and dart (the go-first heuristic, user decision 2026-10-02)', () => {
+    const items = [...at('app/', 'ci', 2), ...at('lib/', 'ci', 2), ...at('svc/', 'ci', 2)];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('lib/', 'dart'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/');
+    assert.equal(pickPrimaryComponent([comp('lib/', 'dart'), comp('app/', 'flutter')], []).path, 'app/', 'flutter before dart');
+  });
+
+  test('P3: two go components tie -> the shallower path, then the lexical one', () => {
+    assert.equal(pickPrimaryComponent([comp('dev/edge/', 'go'), comp('go/', 'go')], []).path, 'go/');
+    assert.equal(pickPrimaryComponent([comp('b/', 'go'), comp('a/', 'go')], []).path, 'a/');
+  });
+
+  test('P4: zero evidence -> the go component if any, else the first by path', () => {
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], []).path, 'svc/');
+    assert.equal(pickPrimaryComponent([comp('b/', 'rust'), comp('a/', 'rust')], []).path, 'a/');
+    assert.equal(pickPrimaryComponent([], []), null);
+  });
+
+  test('P5: only runner and CI items count; declared, manifest and docs items and other areas do not', () => {
+    const items = [...at('app/', 'manifest', 4), ...at('app/', 'docs', 4), ...at('app/', 'declared', 4), ...at('svc/', 'ci', 1), ...at('', 'ci', 9)];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/');
+    assert.equal(p.score, 1);
+  });
+
+  test('P6: a tier root has no primary component: its behaviour is unchanged (devflowops: go root + flutter component)', () => {
+    const areas = [...ROOT_GO, { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }];
+    const evidence = [ev('test', 'flutter test --coverage', { cwd: 'app', area: 'app/', tool: 'flutter' })];
+    const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.extendsId, 'go');
+    assert.equal('test' in d.commands, false);
+    assert.ok(!d.notes.some((n) => n.tag === 'primary_component'));
+  });
+});
+
+describe('assembleDraft primary-component placement (43-05, D6)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  // Two svc/ CI items make `svc/` the primary component (app/ holds none).
+  const primaryEvidence = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+  ];
+
+  // TRD 43-10 re-baseline (B2). D17d used to say a root-area candidate beats a primary-component one. The
+  // placement is now tiered by source: a task-runner target of the primary component (tier 2) beats the
+  // other root-area candidates (tier 3: CI, docs, manifest), so the primary's `make test` is the key and
+  // the root CI script is the shadowed note. A key with no root candidate still takes the primary one.
+  test('D17d (test 10, re-baselined by 43-10): the primary component\'s runner target (tier 2) beats a root CI script (tier 3); the loser is a note', () => {
+    const evidence = [
+      ev('test', './ci/test.sh', { source: 'ci', tool: null, bodyStacks: [], effectiveArea: '' }),
+      ev('test', 'make test', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'make test', cwd: 'svc' }, JSON.stringify(d.commands.test));
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' }, 'a key with no root candidate still takes the primary one');
+    assert.ok(d.notes.some((n) => n.key === 'test' && n.candidate === './ci/test.sh' && n.status === 'shadowed'), JSON.stringify(d.notes));
+  });
+
+  test('D17e: a primary candidate keeps its OWN cwd; a recipe that does the cd itself keeps none (just test-go)', () => {
+    const evidence = [
+      ev('test', 'just test-go', { source: 'runner', sourceFile: 'justfile', runner: 'just', cwd: null, area: '', tool: 'go', effectiveArea: 'svc/' }),
+      ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'just test-go' });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' });
+  });
+
+  test('D17f: with 2+ components there is NO tier-default fallback (a key nothing supplies stays absent)', () => {
+    const d = assembleDraft({ areas: AREAS, evidence: [ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' })], tierCommands: TIERS, verify: resolvedAll });
+    assert.ok(d.commands.test);
+    assert.equal('build' in d.commands, false);
+    assert.equal('lint' in d.commands, false);
+  });
+
+  test('D17g: the single-component fallback is build/test/lint only, and a root candidate wins over it', () => {
+    const areas = [{ dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] }];
+    const d = assembleDraft({ areas, evidence: [ev('build', 'make build', { source: 'runner', runner: 'make', tool: 'go', effectiveArea: '' })], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build' }, 'the root candidate has no cwd and wins over the fallback');
+    assert.deepStrictEqual(d.commands.test, { run: 'go test -race ./...', scoped: 'go test -race {packages}', cwd: 'svc' });
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'svc' });
+    assert.equal(Object.keys(d.commands).length, 3);
+    // A component tier whose build is `discover` supplies no build fallback.
+    const flutterOnly = assembleDraft({ areas: [{ dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }], evidence: [], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(Object.keys(flutterOnly.commands), ['test', 'lint']);
+    assert.equal(flutterOnly.commands.test.cwd, 'app');
+  });
+
+  test('D17h (test 11): a root candidate whose tool stack is only a NON-primary component stack is an off_primary note; shell stays', () => {
+    const evidence = [
+      ev('build', 'flutter build web', { tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: '' }),
+      ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('lint', 'shellcheck bin/*.sh', { tool: 'shellcheck', bodyStacks: [], effectiveArea: '' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' }, JSON.stringify(d.commands.build));
+    const off = d.notes.find((n) => n.status === 'off_primary');
+    assert.ok(off, JSON.stringify(d.notes));
+    assert.equal(off.key, 'build');
+    assert.equal(off.candidate, 'flutter build web');
+    assert.match(off.detail, /tool stack flutter belongs to component app\/, not the primary component/);
+    assert.deepStrictEqual(d.commands.lint, { run: 'shellcheck bin/*.sh' }, 'a shell candidate is a root key (devcluster)');
+    assert.ok(!d.notes.some((n) => n.status === 'off_primary' && n.candidate === 'shellcheck bin/*.sh'));
+  });
+
+  test('D17i: a mixed, unknown or neutral tool stack is never off_primary; the primary\'s own stack is never off_primary', () => {
+    const evidence = [
+      ev('test', 'task ci', { source: 'runner', runner: 'task', tool: null, bodyStacks: ['go', 'flutter'], effectiveArea: '' }),
+      ev('codegen', 'buf generate', { form: 'mutate', tool: 'buf', bodyStacks: ['neutral'], effectiveArea: '' }),
+      ev('deps', 'npm ci', { form: 'mutate', tool: 'npm', bodyStacks: ['node'], effectiveArea: '' }),
+      ev('typecheck', 'go vet ./...', { tool: 'go', bodyStacks: ['go'], effectiveArea: '' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.ok(!d.notes.some((n) => n.status === 'off_primary'), JSON.stringify(d.notes));
+    for (const key of ['test', 'codegen', 'deps', 'typecheck']) assert.ok(d.commands[key], `${key}: ${JSON.stringify(d.commands)}`);
+  });
+
+  test('D31c (test 12): an effectiveArea equal to a NON-primary component is still noted against that component', () => {
+    const evidence = [
+      ev('test', 'task app:test', { source: 'runner', runner: 'task', tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: 'app/' }),
+      ...primaryEvidence(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.notes.find((n) => n.tag === 'primary_component').area, 'svc/');
+    assert.equal(d.commands.test.run, 'go test ./...', 'the flutter component never supplies the root test');
+    const n = d.notes.find((x) => x.candidate === 'task app:test');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.area, 'app/');
+    assert.match(n.detail, /component app\/ uses tier flutter/);
+  });
+});
+
+// TRD 43-10 (B2; eden-biz, aodex and politihub rows). In a `general` root with a primary component a key's
+// candidates are taken by TIER, not "root list else primary list":
+//   (1) recipes of a task-runner file at the repo root, wherever their body runs;
+//   (2) targets of the primary component's own runner file, each keeping its own cwd;
+//   (3) the other root-area candidates (CI, docs, manifest);
+//   (4) the primary component's other candidates.
+// The first tier that supplies the key wins. A tier none of whose candidates verify falls through to the
+// next, and only when every tier is spent does the key end as `discover`.
+describe('assembleDraft tiered root/primary placement (B2, TRD 43-10)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  // Make `svc/` the primary component: it holds the lint and test evidence, `app/` holds none.
+  const primaryEvidence = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', tool: 'go' }),
+  ];
+  const t1 = (extra = {}) => ev('build', 'make build-all', { source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'build', tool: 'go', effectiveArea: '', ...extra });
+  const t2 = (extra = {}) => ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', form: 'build', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/', ...extra });
+  // A root CI build that runs the primary's own stack, so the root is not a product (a root build in a stack
+  // no component has would make the components sidecars and leave no primary).
+  const t3 = (extra = {}) => ev('build', 'go build -o bin/tool ./cmd/tool', { source: 'ci', form: 'build', tool: 'go', bodyStacks: ['go'], effectiveArea: '', ...extra });
+  const t4 = (extra = {}) => ev('build', 'go build ./...', { source: 'ci', form: 'build', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/', ...extra });
+  const draft = (evidence, verify = resolvedAll) => assembleDraft({ areas: AREAS, evidence: [...evidence, ...primaryEvidence()], tierCommands: TIERS, verify });
+
+  test('B2a: each tier wins over the next: root runner, primary runner, root CI, primary CI', () => {
+    assert.deepStrictEqual(draft([t4(), t3(), t2(), t1()]).commands.build, { run: 'make build-all' }, 'tier 1: no cwd');
+    assert.deepStrictEqual(draft([t4(), t3(), t2()]).commands.build, { run: 'make build', cwd: 'svc' }, 'tier 2 beats the root CI step');
+    assert.deepStrictEqual(draft([t4(), t3()]).commands.build, { run: 'go build -o bin/tool ./cmd/tool' }, 'tier 3 beats the primary CI step');
+    assert.deepStrictEqual(draft([t4()]).commands.build, { run: 'go build ./...', cwd: 'svc' }, 'tier 4 alone');
+  });
+
+  test('B2b: a tier none of whose candidates verify falls through to the next; every tier spent ends as discover', () => {
+    const verify = (cmd) => (cmd === 'make build-all' || cmd === 'go build -o bin/tool ./cmd/tool'
+      ? { status: 'binary_missing', detail: 'stub: not on PATH' }
+      : { status: 'resolved', detail: 'stub' });
+    const d = draft([t1(), t2(), t3()], verify);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' }, JSON.stringify(d.commands.build));
+    assert.ok(d.notes.some((n) => n.candidate === 'make build-all' && n.status === 'binary_missing'), 'the failed tier is noted');
+
+    const none = draft([t1(), t3(), t4()], () => ({ status: 'binary_missing', detail: 'stub' }));
+    assert.deepStrictEqual(none.commands.build, { run: 'discover' }, 'every tier spent with candidates: discover');
+  });
+
+  test('B2c: a tier-2 target keeps its own cwd even when its body leaves the dir (`cd .. && buf generate`)', () => {
+    const generate = ev('codegen', 'make generate', {
+      source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', form: 'mutate', cwd: 'svc', area: 'svc/', tool: 'buf', bodyStacks: ['neutral'], effectiveArea: '',
+    });
+    const rootCi = ev('codegen', 'buf generate', { source: 'ci', form: 'mutate', tool: 'buf', bodyStacks: ['neutral'], effectiveArea: '' });
+    const d = draft([generate, rootCi]);
+    assert.deepStrictEqual(d.commands.codegen, { run: 'make generate', when: 'sources_changed', cwd: 'svc' }, JSON.stringify(d.commands.codegen));
+  });
+
+  test('B2d: a root image build that loses to the primary runner is a shadowed note with an image_build detail (aodex)', () => {
+    const image = ev('build', 'docker build --target builder -t ui-builder --build-arg VERSION=${{ steps.ref.outputs.version }} -f ./ui/Dockerfile ./ui', {
+      source: 'ci', form: 'build', tool: 'docker', bodyStacks: ['docker'], effectiveArea: '',
+    });
+    const d = draft([image, t2()]);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' }, JSON.stringify(d.commands.build));
+    const n = d.notes.find((x) => x.key === 'build' && x.status === 'shadowed');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.match(n.detail, /image_build/);
+    assert.match(n.detail, /make build/);
+  });
+
+  test('B2e: a non-image root candidate that loses is a shadowed note without the image_build detail', () => {
+    const d = draft([t3(), t2()]);
+    const n = d.notes.find((x) => x.candidate === 'go build -o bin/tool ./cmd/tool');
+    assert.ok(n && n.status === 'shadowed', JSON.stringify(d.notes));
+    assert.doesNotMatch(n.detail, /image_build/);
+  });
+
+  test('B2f: off_primary still applies to tier 1 and tier 3 when a lower tier supplies the key', () => {
+    const flutterBuild = ev('build', 'flutter build web', { source: 'ci', form: 'build', tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: '' });
+    const rootRecipe = ev('build', 'just build-app', { source: 'runner', sourceFile: 'justfile', runner: 'just', form: 'build', tool: 'flutter', bodyStacks: ['flutter'], effectiveArea: 'app/' });
+    const d = draft([flutterBuild, rootRecipe, t2()]);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build', cwd: 'svc' });
+    const off = d.notes.filter((n) => n.status === 'off_primary' && n.key === 'build').map((n) => n.candidate).sort();
+    assert.deepStrictEqual(off, ['flutter build web', 'just build-app']);
+  });
+
+  test('B2g: the primary component\'s losing candidates are component notes when a root tier wins (as before)', () => {
+    const d = draft([t1(), t2()]);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build-all' });
+    assert.ok(d.notes.some((n) => n.area === 'svc/' && n.key === 'build' && n.candidate === 'make build'), JSON.stringify(d.notes));
+  });
+
+  test('B2h: a declared row still beats every tier', () => {
+    const declared = ev('build', './scripts/mine.sh', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', form: 'build', tool: null, bodyStacks: [], effectiveArea: '' });
+    assert.deepStrictEqual(draft([t2(), t1(), declared]).commands.build, { run: './scripts/mine.sh' });
+  });
+
+  test('B2i: a general root with no primary component (a root product, no components) is placed as before', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [t3(), t1()], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.build, { run: 'make build-all' }, 'rank by source, as before');
+    assert.ok(!d.notes.some((n) => n.status === 'shadowed'));
+  });
+});
+
+// TRD 43-10 (B3; eden-libs rows). A `general` root whose root task runner has a build/test/lint recipe that
+// FANS OUT across two or more areas (stack-evidence `unitAreas`) is a workspace: the runner is the repo's
+// interface and no component is primary. There is no primary_component note (a `root_workspace` info note
+// instead), no off_primary gate and no single-component fallback, and every root-runner recipe is a root
+// candidate wherever its body runs. A recipe that runs in one area (`just test-go`) is no workspace.
+describe('assembleDraft workspace root (B3, TRD 43-10)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  const recipe = (key, command, extra = {}) => ev(key, command, {
+    source: 'runner', sourceFile: 'justfile', runner: 'just', tool: null, bodyStacks: ['go', 'flutter'],
+    effectiveArea: 'svc/', unitAreas: ['svc/', 'app/'], ...extra,
+  });
+  const svcCi = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', unitAreas: ['svc/'], tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', unitAreas: ['svc/'], tool: 'go' }),
+  ];
+  const draft = (evidence, areas = AREAS) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('B3a: a root recipe that fans out makes a workspace: no primary, a root_workspace note, root recipes are the keys', () => {
+    const evidence = [
+      recipe('test', 'just test'),
+      recipe('lint', 'just lint', { effectiveArea: 'app/', unitAreas: ['app/', 'svc/'] }),
+      recipe('build', 'just bundle', { form: 'build', effectiveArea: 'app/', unitAreas: ['app/'], bodyStacks: ['flutter'], tool: 'flutter' }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(!d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    const ws = d.notes.find((n) => n.tag === 'root_workspace');
+    assert.ok(ws, JSON.stringify(d.notes));
+    assert.equal(ws.status, 'info');
+    assert.match(ws.detail, /just (test|lint)/);
+    assert.match(ws.detail, /svc\/.*app\/|app\/.*svc\//, 'the note names the areas the recipe runs in');
+    assert.deepStrictEqual(d.commands.test, { run: 'just test' });
+    assert.deepStrictEqual(d.commands.lint, { run: 'just lint' });
+    assert.deepStrictEqual(d.commands.build, { run: 'just bundle' }, 'a recipe that builds the Flutter package is no off_primary note without a primary');
+    assert.ok(!d.notes.some((n) => n.status === 'off_primary'), JSON.stringify(d.notes));
+  });
+
+  test('B3b: a recipe that runs in ONE area is no workspace: the primary component rules apply', () => {
+    const evidence = [
+      recipe('test', 'just test-go', { unitAreas: ['svc/'], bodyStacks: ['go'] }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(!d.notes.some((n) => n.tag === 'root_workspace'));
+    assert.deepStrictEqual(d.commands.test, { run: 'just test-go' });
+  });
+
+  test('B3c: only a build, test or lint recipe makes a workspace (a fan-out `setup` or `fmt` does not)', () => {
+    const evidence = [
+      recipe('deps', 'just setup', { form: 'mutate' }),
+      recipe('format', 'just fmt', { form: 'apply' }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(!d.notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3d: only a recipe of a task-runner file at the repo root makes a workspace: not a CI step, not a sub-dir runner', () => {
+    const evidence = [
+      ev('test', 'make test-everything', { source: 'ci', runner: 'make', unitAreas: ['svc/', 'app/'], effectiveArea: 'svc/' }),
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', effectiveArea: 'svc/', unitAreas: ['svc/', 'app/'], tool: 'go' }),
+      ...svcCi(),
+    ];
+    const d = draft(evidence);
+    assert.ok(d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(!d.notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3e: an item without unitAreas (a caller that predates it) never makes a workspace', () => {
+    const evidence = [recipe('test', 'just test', { unitAreas: undefined }), ...svcCi()];
+    assert.ok(!draft(evidence).notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3f: a root product, a tier root and a root with no component are no workspace', () => {
+    const product = draft([
+      ev('build', './scripts/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build', bodyStacks: [], effectiveArea: '' }),
+      recipe('test', 'just test'),
+    ]);
+    assert.ok(product.notes.some((n) => n.tag === 'root_product'));
+    assert.ok(!product.notes.some((n) => n.tag === 'root_workspace'));
+
+    const tierRoot = draft([recipe('test', 'just test')], [{ dir: '', kinds: ['go'], tier: 'go', flags: [], evidence: ['go.mod'] }, ...AREAS]);
+    assert.equal(tierRoot.extendsId, 'go');
+    assert.ok(!tierRoot.notes.some((n) => n.tag === 'root_workspace'));
+
+    const noComponent = draft([recipe('test', 'just test')], []);
+    assert.ok(!noComponent.notes.some((n) => n.tag === 'root_workspace'));
+  });
+
+  test('B3g: a workspace has no single-component fallback: a key no recipe supplies stays absent', () => {
+    const one = [{ dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] }];
+    const d = draft([recipe('test', 'just test', { effectiveArea: 'svc/', unitAreas: ['svc/', 'tools/'] })], one);
+    assert.ok(d.notes.some((n) => n.tag === 'root_workspace'), JSON.stringify(d.notes));
+    assert.deepStrictEqual(d.commands.test, { run: 'just test' });
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal('build' in d.commands, false);
+  });
+
+  test('B3h: non-runner items keep the placement by where they run: a component CI step is a note, a root one a candidate', () => {
+    const evidence = [
+      recipe('test', 'just test'),
+      ev('test', 'flutter test --coverage', { cwd: 'app', area: 'app/', effectiveArea: 'app/', unitAreas: ['app/'], tool: 'flutter' }),
+      ev('lint', 'shellcheck bin/*.sh', { tool: 'shellcheck', bodyStacks: [], effectiveArea: '', unitAreas: [''] }),
+    ];
+    const d = draft(evidence);
+    assert.deepStrictEqual(d.commands.test, { run: 'just test' });
+    assert.ok(d.notes.some((n) => n.area === 'app/' && n.key === 'test' && /flutter test --coverage/.test(n.candidate)), JSON.stringify(d.notes));
+    assert.deepStrictEqual(d.commands.lint, { run: 'shellcheck bin/*.sh' });
+  });
+
+  test('B3i: the depended-on, high-confidence recipe is the build, not the packaging recipe', () => {
+    const target = (name, over = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order: 0, ...over });
+    const evidence = [
+      recipe('build', 'just bundle', { form: 'build', confidence: 'high', tool: 'flutter', effectiveArea: 'app/', unitAreas: ['app/'], target: target('bundle', { dependedOn: true, order: 4 }) }),
+      recipe('build', 'just docs', { form: 'build', confidence: 'low', tool: null, effectiveArea: 'app/', unitAreas: ['app/'], target: target('docs', { deps: ['bundle'], dependedOn: true, order: 3 }) }),
+      recipe('build', 'just package', { form: 'build', confidence: 'high', tool: 'docker', effectiveArea: '', unitAreas: ['app/', ''], target: target('package', { deps: ['docs'], order: 7 }) }),
+      recipe('test', 'just test'),
+    ];
+    const d = draft(evidence);
+    assert.deepStrictEqual(d.commands.build, { run: 'just bundle' }, JSON.stringify(d.commands.build));
   });
 });
 
@@ -490,10 +881,24 @@ describe('assembleDraft canonical runner targets (D25, TRD 42-13 test 7)', () =>
     assert.ok(!d.notes.some((n) => n.status === 'alternate'), JSON.stringify(d.notes));
   });
 
-  test('D25i: canonical ranking is gated to build/test/lint; other keys keep evidence order and add no alternates', () => {
+  // Re-baselined in TRD 43-06: the NAME rank now applies to every key (the devflowops golden needs
+  // `make generate` over `make generate-backend`, `make deps` over `make deps-frontend`), so `gen` (the
+  // conventional codegen name) wins here. The rest of the 42-13 tuple (default target, depended-on,
+  // segments, variant tokens) and the alternate notes stay gated to build/test/lint: D25i2 guards that.
+  test('D25i: the name rank covers every key (43-06); other keys still add no alternates', () => {
     const evidence = [
       rt('codegen', 'gen:proto:internal', { order: 0 }),
       rt('codegen', 'gen', { order: 1, isDefault: true, dependedOn: true }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'task gen');
+    assert.ok(!d.notes.some((n) => n.status === 'alternate'));
+  });
+
+  test('D25i2: beyond the name rank, other keys keep evidence order (no default / depended-on / segment ranking)', () => {
+    const evidence = [
+      rt('codegen', 'gen:proto:internal', { order: 0 }),
+      rt('codegen', 'gen:api', { order: 1, isDefault: true, dependedOn: true }),
     ];
     const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
     assert.equal(d.commands.codegen.run, 'task gen:proto:internal');
@@ -525,9 +930,12 @@ describe('assembleDraft command cwd hygiene (D26-D28, TRD 42-14)', () => {
   test('D26: a self-checkout cwd is placed normalised; a sibling-checkout cwd is a cwd_external note', () => {
     const root = ciFx.selfCheckoutPathShape();
     try {
-      const evidence = collectEvidence(root, { areas: [] });
-      const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
-      assert.deepStrictEqual(d.commands.test, { run: 'go test ./...', cwd: 'go' }, JSON.stringify(d.commands));
+      // TRD 43-05 (D2/D3): `go/` is the repo's go module, so it is a language area (a cwd in NO area is
+      // now a sub_area pseudo-area); the draft is general + the component go/, whose test is the root test.
+      const areas = [{ dir: 'go/', kinds: ['go'], tier: 'go', flags: [] }];
+      const evidence = collectEvidence(root, { areas });
+      const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+      assert.deepStrictEqual(d.commands.test, { run: 'go test ./...', scoped: 'go test -race {packages}', cwd: 'go' }, JSON.stringify(d.commands));
       for (const [key, entry] of Object.entries(d.commands)) {
         assert.notEqual(entry.run, 'flutter analyze', `${key}: an external command was placed`);
         assert.ok(!entry.cwd || !entry.cwd.startsWith('svcrepo') && !entry.cwd.startsWith('libs/'), `${key}: ${JSON.stringify(entry)}`);
@@ -733,5 +1141,867 @@ describe('assembleDraft root-override policy: neutral generators (TRD 42-15 reco
     const d2 = assembleDraft({ areas: ROOT_GO, evidence: node, tierCommands: TIERS, verify: resolvedAll });
     assert.equal('codegen' in d2.commands, false);
     assert.ok(d2.notes.some((n) => n.status === 'off_stack' && n.candidate === 'npm run gen'));
+  });
+});
+
+// TRD 43-04 (D4, test 8): a single-purpose script (stack-evidence sets `singlePurpose`; this module
+// only reads the flag, so it stays pure) is narrow in breadthOf and can never become the repo-wide test.
+describe('assembleDraft single-purpose scripts are narrow (D33, TRD 43-04)', () => {
+  const script = (extra = {}) => ev('test', './go/scripts/check-migrations_test.sh', {
+    runner: 'script', tool: null, confidence: 'low', singlePurpose: true, bodyStacks: ['go'], ...extra,
+  });
+
+  test('D33: a singlePurpose script never fills test: one narrow note, the parent test is inherited', () => {
+    const d = assembleDraft({ areas: ROOT_GO, evidence: [script()], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('test'));
+    const n = d.notes.filter((x) => x.status === 'narrow');
+    assert.equal(n.length, 1, JSON.stringify(d.notes));
+    assert.equal(n[0].key, 'test');
+    assert.equal(n[0].candidate, './go/scripts/check-migrations_test.sh');
+    assert.match(n[0].detail, /single-purpose script/);
+  });
+
+  test('D33b: it is narrow even when its body reads as broad, and it beats nothing: a broad CI test is chosen', () => {
+    const evidence = [
+      script({ bodyInvocations: ['go test -race ./...'], confidence: 'high', source: 'runner' }),
+      ev('test', 'go test -count=1 ./...', { tool: 'go' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, 'go test -count=1 ./...');
+    assert.ok(d.notes.some((x) => x.status === 'narrow' && /single-purpose script/.test(x.detail)), JSON.stringify(d.notes));
+  });
+
+  test('D33c: with no parent test the only candidate being narrow gives test: discover and the note', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [script()], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'discover' });
+    assert.ok(d.notes.some((x) => x.status === 'narrow' && x.key === 'test'), JSON.stringify(d.notes));
+  });
+
+  test('D33d: the same script without the flag stays a candidate (no name guessing here: evidence owns the flag)', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [script({ singlePurpose: undefined })], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.test.run, './go/scripts/check-migrations_test.sh');
+    assert.ok(!d.notes.some((x) => x.status === 'narrow'));
+  });
+
+  test('D33e: the flag only judges the repo-wide test; another key is untouched', () => {
+    const evidence = [ev('lint', './scripts/check-style.sh', { runner: 'script', tool: null, confidence: 'low', singlePurpose: true })];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.lint.run, './scripts/check-style.sh');
+  });
+});
+
+// TRD 43-04 (D4, spot-check recovery): among e2e_env candidates the one whose NAME carries the
+// scenario and environment tokens (stack-evidence `scenarioNamed`) outranks one that only has a
+// bring-up body, though the body is high confidence and the name is low. (eden-biz: `make e2e-stack-up`
+// over the generic `make infra-up`.)
+describe('assembleDraft e2e_env prefers the scenario-named target (D34, TRD 43-04)', () => {
+  const bodyOnly = () => ev('e2e_env', 'make infra-up', {
+    source: 'runner', sourceFile: 'go/Makefile', runner: 'make', form: 'mutate', tool: 'docker', confidence: 'high',
+    target: { name: 'infra-up', deps: [], isDefault: false, dependedOn: false, order: 0 },
+  });
+  const named = (extra = {}) => ev('e2e_env', 'make e2e-stack-up', {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'check', tool: null, confidence: 'low', scenarioNamed: true,
+    target: { name: 'e2e-stack-up', deps: [], isDefault: false, dependedOn: false, order: 0 }, ...extra,
+  });
+
+  test('D34: a low-confidence scenario-named target beats a high-confidence body-only one, in either evidence order', () => {
+    for (const evidence of [[bodyOnly(), named()], [named(), bodyOnly()]]) {
+      const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+      assert.equal(d.commands.e2e_env.run, 'make e2e-stack-up', JSON.stringify(d.commands));
+    }
+  });
+
+  // Re-baselined in TRD 43-06 (D38): it asserted that with no scenario-named candidate the body-only
+  // `make infra-up` still became e2e_env. The devcluster, navigators and quanta-local goldens key no
+  // body-only bring-up, so without the flag there is no e2e_env key: both candidates are env_unnamed notes.
+  test('D34b: without the flag no candidate is the e2e environment: no e2e_env key, both noted (43-06)', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [named({ scenarioNamed: undefined }), bodyOnly()], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('e2e_env' in d.commands, false, JSON.stringify(d.commands));
+    assert.deepEqual(d.notes.filter((n) => n.status === 'env_unnamed').map((n) => n.candidate).sort(), ['make e2e-stack-up', 'make infra-up']);
+  });
+
+  test('D34c: source still outranks the flag: a declared body-only candidate beats a named runner target', () => {
+    const declared = ev('e2e_env', 'make infra-up', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', tool: 'docker' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [named(), declared], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.e2e_env.run, 'make infra-up');
+  });
+
+  test('D34d: the flag changes ranking for e2e_env only; a flagged e2e candidate ranks as before', () => {
+    const lowFlagged = ev('e2e', 'make e2e', { source: 'runner', runner: 'make', tool: null, confidence: 'low', scenarioNamed: true });
+    const highPlain = ev('e2e', 'npx playwright test', { source: 'runner', runner: 'make', tool: 'playwright', confidence: 'high' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [lowFlagged, highPlain], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.e2e.run, 'npx playwright test');
+  });
+});
+
+// TRD 43-06 (devflowops / EdenDocs / aodex goldens).
+// - D35 the canonical NAME ranks for every key, not only build/test/lint: a target (or a script / target
+//   a CI step goes through, stack-evidence `invokedName`) named for the key — the key itself, its
+//   conventional spelling (`fmt` for format, `generate` / `gen` for codegen), optionally with a form
+//   suffix (`lint-fix`, `fmt-check`) — beats a nameless candidate, which beats a qualified name
+//   (`deps-frontend`, `build-deps.sh`). It ranks right after the source, ahead of confidence.
+// - D36 a codegen drift check (check form) is the codegen gate; the generator it re-runs (mutate) is
+//   its apply, not a competing run.
+describe('assembleDraft canonical names for every key (D35, TRD 43-06)', () => {
+  const tgt = (name, order = 0, extra = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order, ...extra });
+  const runner = (key, name, form, confidence, order, extra = {}) => ev(key, `make ${name}`, {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form, confidence, tool: confidence === 'high' ? 'go' : null,
+    target: tgt(name, order), ...extra,
+  });
+
+  test('D35a: deps — the bare `make deps` (low, prerequisites only) beats a high-confidence leg', () => {
+    const evidence = [
+      runner('deps', 'deps-frontend', 'mutate', 'high', 1, { tool: 'npm' }),
+      runner('deps', 'deps', 'mutate', 'low', 0),
+      runner('deps', 'deps-backend', 'mutate', 'high', 2),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.deps.run, 'make deps', JSON.stringify(d.commands));
+  });
+
+  test('D35b: codegen — `make generate` (the conventional name) beats `make generate-backend`', () => {
+    const evidence = [runner('codegen', 'generate-backend', 'mutate', 'high', 0), runner('codegen', 'generate', 'mutate', 'low', 1)];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make generate', JSON.stringify(d.commands));
+  });
+
+  test('D35c: apply — `make lint-fix` (key + apply suffix) beats `make lint-backend-fix`', () => {
+    const evidence = [
+      runner('lint', 'lint', 'check', 'low', 0),
+      runner('lint', 'lint-backend-fix', 'apply', 'high', 1, { tool: 'golangci-lint' }),
+      runner('lint', 'lint-fix', 'apply', 'low', 2),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepEqual({ run: d.commands.lint.run, apply: d.commands.lint.apply }, { run: 'make lint', apply: 'make lint-fix' });
+  });
+
+  test('D35d: CI scripts — `build.sh` beats an earlier `build-deps.sh` and a nameless high-confidence image build', () => {
+    const evidence = [
+      ev('build', './scripts/x/build-deps.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build-deps' }),
+      ev('build', 'docker build -t x .', { form: 'build', tool: 'docker' }),
+      ev('build', './scripts/x/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.build.run, './scripts/x/build.sh', JSON.stringify(d.commands));
+  });
+
+  test('D35e: a nameless candidate still beats a qualified name in the same source', () => {
+    const evidence = [
+      ev('lint', 'make lint-docs', { runner: 'make', tool: null, confidence: 'low', invokedName: 'lint-docs' }),
+      ev('lint', 'golangci-lint run', { tool: 'golangci-lint' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.lint.run, 'golangci-lint run', JSON.stringify(d.commands));
+  });
+
+  test('D36: codegen drift check is the run, the generator it re-runs is the apply (same cwd)', () => {
+    const evidence = [
+      runner('codegen', 'openapi-regen', 'mutate', 'high', 0, { cwd: 'go' }),
+      runner('codegen', 'openapi-verify', 'check', 'high', 1, { cwd: 'go' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make openapi-verify', JSON.stringify(d.commands));
+    assert.equal(d.commands.codegen.apply, 'make openapi-regen');
+    assert.equal(d.commands.codegen.cwd, 'go');
+  });
+
+  test('D36b: with no check form a generator is still the codegen run, with no apply', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [runner('codegen', 'generate', 'mutate', 'high', 0)], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make generate');
+    assert.equal(d.commands.codegen.apply, undefined);
+  });
+});
+
+// TRD 43-06 (politihub / aodex goldens): CI steps that go through a component's TASK RUNNER (`make
+// build` in `go/`) say that component's runner is the repo's declared build interface; a component whose
+// CI only runs its tier's tools directly (`flutter build web` in three workflows) is built by its tier.
+// So a component with CI-through-runner evidence is the primary first; the evidence count decides among
+// the rest (P1-P5 unchanged: their items go through no runner).
+describe('pickPrimaryComponent: CI through a task runner first (P7, TRD 43-06)', () => {
+  const comp = (p, profile) => ({ path: p, profile });
+  const ci = (dir, n, runner = null) => Array.from({ length: n }, (_, i) => ev('build', `cmd-${dir}-${runner || 'raw'}-${i}`, {
+    source: 'ci', runner, effectiveArea: dir, area: dir,
+  }));
+  const rn = (dir, n) => Array.from({ length: n }, (_, i) => ev('build', `make t${i}`, { source: 'runner', runner: 'make', effectiveArea: dir, area: dir }));
+
+  test('P7a: a component whose CI runs its runner targets beats one with more direct CI steps', () => {
+    const items = [...ci('flutter-app/', 9), ...rn('go/', 2), ...ci('go/', 2, 'make')];
+    const p = pickPrimaryComponent([comp('flutter-app/', 'flutter'), comp('go/', 'go')], items);
+    assert.equal(p.path, 'go/');
+    assert.equal(p.score, 4);
+  });
+
+  test('P7b: a CI step running a script file is not through a task runner', () => {
+    const items = [...ci('portal/', 3, 'script'), ...ci('go/', 2)];
+    assert.equal(pickPrimaryComponent([comp('portal/', 'flutter'), comp('go/', 'go')], items).path, 'portal/', 'evidence count decides');
+  });
+
+  test('P7c: when several components have CI through a runner, the evidence count decides, then go-first', () => {
+    const items = [...ci('app/', 4, 'make'), ...ci('svc/', 2, 'just')];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items).path, 'app/');
+    const tie = [...ci('app/', 2, 'make'), ...ci('svc/', 2, 'task')];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], tie).path, 'svc/');
+  });
+
+  test('P7d: runner items alone (no CI calling them) do not lift a component over more CI evidence (P1 stands)', () => {
+    const items = [...ci('app/', 3), ...rn('svc/', 1)];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items).path, 'app/');
+  });
+});
+
+// TRD 43-10 (B1; eden-biz and politihub rows). The primary component is chosen on the evidence that
+// names the repository's build interface: build, test and lint. A CI step through a task runner lifts a
+// component only when it serves one of those keys (`make bundle-e2e` serves e2e and says nothing about the
+// build); then the count of build/test/lint evidence decides, then ALL evidence, then go-first.
+describe('pickPrimaryComponent: build/test/lint evidence decides (B1, TRD 43-10)', () => {
+  const comp = (p, profile) => ({ path: p, profile });
+  let n = 0;
+  const many = (key, dir, count, extra = {}) => Array.from({ length: count }, () => {
+    n += 1;
+    return ev(key, `cmd-${key}-${dir}-${n}`, { source: 'ci', runner: null, effectiveArea: dir, area: dir, ...extra });
+  });
+
+  test('B1a: one CI step through a runner serving e2e does not lift a component', () => {
+    const items = [
+      ...many('build', 'svc/', 3), ...many('test', 'svc/', 3),
+      ...many('deps', 'app/', 5), ...many('build', 'app/', 2), ...many('test', 'app/', 2),
+      ...many('e2e', 'app/', 1, { runner: 'make' }),
+    ];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/', JSON.stringify(p));
+    assert.equal(p.viaRunner, 0);
+    assert.equal(p.canonical, 6);
+    assert.equal(p.score, 6);
+  });
+
+  test('B1b: a CI step through a runner serving build, test or lint still lifts its component', () => {
+    for (const key of ['build', 'test', 'lint']) {
+      const items = [...many('test', 'svc/', 6), ...many(key, 'app/', 1, { runner: 'make' })];
+      const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+      assert.equal(p.path, 'app/', `${key}: ${JSON.stringify(p)}`);
+      assert.equal(p.viaRunner, 1);
+    }
+  });
+
+  test('B1c: without a runner step, the build/test/lint count decides before the total', () => {
+    const items = [
+      ...many('test', 'svc/', 4), ...many('build', 'svc/', 1),
+      ...many('deps', 'app/', 9), ...many('codegen', 'app/', 4), ...many('test', 'app/', 2),
+    ];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/', JSON.stringify(p));
+    assert.equal(p.canonical, 5);
+    assert.equal(p.score, 5);
+  });
+
+  test('B1d: equal build/test/lint counts: the total decides, then go-first', () => {
+    const more = [...many('test', 'app/', 2), ...many('deps', 'app/', 3), ...many('test', 'svc/', 2)];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], more).path, 'app/', 'the total decides');
+    const tie = [...many('test', 'app/', 2), ...many('test', 'svc/', 2)];
+    assert.equal(pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], tie).path, 'svc/', 'go-first');
+  });
+
+  test('B1e: runner items count as evidence; only runner and CI items count at all', () => {
+    const items = [
+      ...many('build', 'svc/', 1, { source: 'runner', runner: 'make' }), ...many('test', 'svc/', 1, { source: 'runner', runner: 'make' }),
+      ...many('test', 'app/', 1), ...many('test', 'app/', 5, { source: 'manifest' }),
+    ];
+    const p = pickPrimaryComponent([comp('app/', 'flutter'), comp('svc/', 'go')], items);
+    assert.equal(p.path, 'svc/', JSON.stringify(p));
+    assert.equal(p.viaRunner, 0, 'a runner ITEM is not a CI step through a runner');
+  });
+});
+
+// TRD 43-06 (EdenDocs golden). A `general` root that BUILDS ITSELF (a root build candidate that is not
+// only a container image build) is a product of its own: its components are sidecars, so no component is
+// primary, none fills the root's keys and the single-component fallback does not apply. A repo-level
+// check run FROM the root (an attachable key: e2e, lint_helm, lint_docker) stays a root key even when its
+// script lives in a component.
+describe('assembleDraft root product and root-invoked attachable keys (D37, TRD 43-06)', () => {
+  const AREAS = [{ dir: 'side/', kinds: ['go'], tier: 'go', flags: [], evidence: ['side/go.mod'] }];
+  const sideCi = () => [
+    ev('lint', 'go vet ./...', { cwd: 'side', area: 'side/', effectiveArea: 'side/', tool: 'go', bodyStacks: ['go'] }),
+    ev('test', 'go test ./...', { cwd: 'side', area: 'side/', effectiveArea: 'side/', tool: 'go', bodyStacks: ['go'] }),
+  ];
+  const e2e = () => ev('e2e', './side/scripts/e2e.sh', { runner: 'script', tool: null, confidence: 'low', invokedName: 'e2e', effectiveArea: 'side/', bodyStacks: [] });
+
+  test('D37a: a root that builds itself has no primary component: no root lint/test from the sidecar, no fallback', () => {
+    const evidence = [
+      ev('build', './scripts/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build', bodyStacks: [] }),
+      ...sideCi(),
+      e2e(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.extendsId, 'general');
+    assert.deepStrictEqual(d.components, [{ path: 'side/', profile: 'go' }]);
+    assert.deepStrictEqual(d.commands.build, { run: './scripts/build.sh' });
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands));
+    assert.deepStrictEqual(d.commands.e2e, { run: './side/scripts/e2e.sh' }, 'a root-invoked e2e stays a root key');
+    assert.ok(!d.notes.some((n) => n.tag === 'primary_component'), JSON.stringify(d.notes));
+    assert.ok(d.notes.some((n) => n.tag === 'root_product'), JSON.stringify(d.notes));
+  });
+
+  test('D37b: a narrow-only root test beside a root product is discover, never the sidecar tier test', () => {
+    const evidence = [
+      ev('build', './scripts/build.sh', { runner: 'script', tool: null, form: 'build', confidence: 'low', invokedName: 'build', bodyStacks: [] }),
+      ev('test', './scripts/smoke-test.sh', { runner: 'script', tool: null, confidence: 'low', invokedName: 'smoke-test', singlePurpose: true, bodyStacks: [] }),
+      ...sideCi(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.test, { run: 'discover' }, JSON.stringify(d.commands));
+  });
+
+  test('D37c: a root image build alone does not make the root a product: the component stays primary', () => {
+    const evidence = [
+      ev('build', 'docker build -t x .', { form: 'build', tool: 'docker', bodyStacks: ['docker'] }),
+      ...sideCi(),
+    ];
+    const d = assembleDraft({ areas: AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.notes.find((n) => n.tag === 'primary_component').area, 'side/');
+    assert.deepStrictEqual(d.commands.lint, { run: 'go vet ./...', cwd: 'side' });
+  });
+
+  test('D37d: with a primary, a root-invoked e2e from a NON-primary component is a root key; a root-invoked codegen there is a note', () => {
+    const areas = [
+      { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [], evidence: ['svc/go.mod'] },
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [], evidence: ['app/pubspec.yaml'] },
+    ];
+    const evidence = [
+      ev('build', 'make build', { source: 'runner', sourceFile: 'svc/Makefile', runner: 'make', cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go', effectiveArea: 'svc/' }),
+      ev('e2e', './app/scripts/e2e.sh', { runner: 'script', tool: null, confidence: 'low', invokedName: 'e2e', effectiveArea: 'app/', bodyStacks: [] }),
+      ev('codegen', 'bash app/build.sh', { form: 'mutate', runner: 'script', tool: null, invokedName: 'build', effectiveArea: 'app/', bodyStacks: [] }),
+    ];
+    const d = assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.notes.find((n) => n.tag === 'primary_component').area, 'svc/');
+    assert.deepStrictEqual(d.commands.e2e, { run: './app/scripts/e2e.sh' }, JSON.stringify(d.commands));
+    assert.equal('codegen' in d.commands, false, JSON.stringify(d.commands));
+  });
+});
+
+// TRD 43-06 (devcluster / navigators / quanta-local goldens): `e2e_env` is the environment the e2e
+// scenarios run against, and only a NAME says that (`make e2e-stack-up`, stack-evidence scenarioNamed).
+// A body-only bring-up (`just infra`, `make up`, a live-cluster script running kubectl) is some
+// environment, not the e2e one: an `env_unnamed` note, never a root key. A declared row still counts.
+describe('assembleDraft e2e_env needs a scenario name (D38, TRD 43-06)', () => {
+  const bodyOnly = (cmd = 'make up') => ev('e2e_env', cmd, { source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'mutate', tool: 'docker', confidence: 'high' });
+  const named = () => ev('e2e_env', 'make e2e-stack-up', { source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'check', tool: null, confidence: 'low', scenarioNamed: true });
+
+  test('D38a: body-only bring-ups are notes, never the e2e_env key', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [bodyOnly('make up'), bodyOnly('just infra')], tierCommands: TIERS, verify: resolvedAll });
+    assert.equal('e2e_env' in d.commands, false, JSON.stringify(d.commands));
+    const n = d.notes.filter((x) => x.status === 'env_unnamed');
+    assert.deepEqual(n.map((x) => x.candidate).sort(), ['just infra', 'make up']);
+  });
+
+  test('D38b: with a scenario-named candidate it is the key; the body-only one is a note', () => {
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [bodyOnly(), named()], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-up' });
+    assert.ok(d.notes.some((x) => x.status === 'env_unnamed' && x.candidate === 'make up'));
+  });
+
+  test('D38c: a declared body-only row is the user\'s own choice and stays the key', () => {
+    const declared = ev('e2e_env', 'make up', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', form: 'mutate', tool: 'docker' });
+    const d = assembleDraft({ areas: NO_AREAS, evidence: [declared], tierCommands: TIERS, verify: resolvedAll });
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make up' });
+  });
+});
+
+// TRD 43-11 (justinforme / smartWellness / ao-terminal rows): an aggregate whose units run key K AND other
+// keys (stack-evidence `unitKeys`) is a MIXED aggregate. While a PURE candidate for K exists (unitKeys exactly
+// [K]; an item without unitKeys counts as pure), the mixed one never fills K: it is a `mixed_aggregate` note.
+// With no pure candidate the ranking is unchanged.
+describe('assembleDraft mixed aggregates (M1-M4, TRD 43-11 test 7)', () => {
+  const tgt = (name, order, extra = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [], ...extra });
+  const make = (key, name, order, unitKeys, extra = {}) => ev(key, `make ${name}`, {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'mutate', tool: null, confidence: 'high',
+    target: tgt(name, order), unitKeys, ...extra,
+  });
+
+  test('M1: a pure leg fills codegen over the canonically named mixed aggregate, which is a note', () => {
+    const evidence = [
+      make('codegen', 'proto', 0, ['codegen'], { target: tgt('proto', 0, { isDefault: true }) }),
+      make('codegen', 'sqlc', 1, ['codegen']),
+      make('codegen', 'generate', 3, ['codegen', 'deps', 'lint'], { confidence: 'low', target: tgt('generate', 3, { legs: ['proto', 'sqlc', 'gen-sdk'] }) }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make proto', JSON.stringify(d.commands));
+    const n = d.notes.filter((x) => x.status === 'mixed_aggregate');
+    assert.deepEqual(n.map((x) => [x.key, x.candidate]), [['codegen', 'make generate']]);
+    assert.match(n[0].detail, /also runs deps, lint/);
+  });
+
+  test('M2: with no pure candidate the ranking is unchanged and nothing is noted', () => {
+    const evidence = [
+      make('deps', 'gen-sdk', 2, ['codegen', 'deps', 'lint']),
+      make('deps', 'acceptance', 5, ['deps', 'lint', 'test']),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.deps.run, 'make gen-sdk', JSON.stringify(d.commands));
+    assert.equal(d.notes.filter((x) => x.status === 'mixed_aggregate').length, 0);
+  });
+
+  test('M3: a raw CI line (no unitKeys) is pure, so a mixed bootstrap task does not fill deps', () => {
+    const evidence = [
+      ev('deps', 'task init', { source: 'runner', sourceFile: 'Taskfile.yml', runner: 'task', form: 'mutate', tool: 'npm', target: tgt('init', 0), unitKeys: ['deps', 'tidy'] }),
+      ev('deps', 'npm ci --no-audit --no-fund', { form: 'mutate', tool: 'npm' }),
+    ];
+    const d = assembleDraft({ areas: ROOT_GO, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.deps.run, 'npm ci --no-audit --no-fund', 'the CI line is kept verbatim');
+    assert.ok(d.notes.some((x) => x.status === 'mixed_aggregate' && x.candidate === 'task init' && /also runs tidy/.test(x.detail)));
+  });
+
+  test('M4: an empty unitKeys (name-only item) counts as pure', () => {
+    const evidence = [
+      make('codegen', 'gen-all', 0, ['codegen', 'lint']),
+      make('codegen', 'generate', 1, [], { confidence: 'low' }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.codegen.run, 'make generate', JSON.stringify(d.commands));
+    assert.ok(d.notes.some((x) => x.status === 'mixed_aggregate' && x.candidate === 'make gen-all'));
+  });
+
+  // Narrowed on fleet regression (eden-biz, ao-terminal, eden-libs build; aoid, devflowops test; devflowops
+  // lint; eden-biz e2e_env): an entry point of build/test/lint runs whatever its key needs, and a scenario key
+  // orchestrates, so neither is a mixed aggregate.
+  test('M5: build/test/lint and the scenario keys are never judged mixed', () => {
+    const evidence = [
+      make('build', 'build', 0, ['codegen', 'build'], { form: 'build', tool: 'go', target: tgt('build', 0, { deps: ['generate'], legs: ['generate'] }) }),
+      make('build', 'docker-build', 1, ['build'], { form: 'build', tool: 'docker' }),
+      make('e2e_env', 'e2e-stack-up', 2, ['e2e_env', 'build'], { form: 'check', scenarioNamed: true }),
+      make('e2e_env', 'e2e-env-boot', 3, ['e2e_env'], { form: 'check', scenarioNamed: true }),
+    ];
+    const d = assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+    assert.equal(d.commands.build.run, 'make build', JSON.stringify(d.commands));
+    assert.equal(d.commands.e2e_env.run, 'make e2e-stack-up', JSON.stringify(d.commands));
+    assert.equal(d.notes.filter((x) => x.status === 'mixed_aggregate').length, 0);
+  });
+});
+
+// TRD 43-11 (eden-biz codegen row): R5 (43-06) makes a codegen drift check the run and the generators its
+// apply. A check is the GENERATOR's check only when its writer (stack-evidence `driftWriter`) is the best
+// generator G itself: G's target, or the same invocation G's body runs (redirections aside). A check whose
+// writer is a strict LEG of G (`templ-check: templ` under `generate: templ tailwind buf-generate`) covers
+// one leg only: a `partial_check` note that neither fills run nor turns G into apply. Any other check keeps R5.
+describe('assembleDraft partial drift checks (P1-P5, TRD 43-11 test 7)', () => {
+  const tgt = (name, order, extra = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [], ...extra });
+  const make = (name, form, order, extra = {}) => ev('codegen', `make ${name}`, {
+    source: 'runner', sourceFile: 'go/Makefile', runner: 'make', form, tool: null, confidence: 'high', cwd: 'go',
+    target: tgt(name, order), unitKeys: ['codegen'], ...extra,
+  });
+  const run = (evidence) => assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('P1: a check of one leg is a partial_check note; the aggregate generator is the run, with no apply', () => {
+    const d = run([
+      make('templ', 'mutate', 0, { bodyInvocations: ['templ generate -f "$f"'] }),
+      make('templ-check', 'check', 1, { target: tgt('templ-check', 1, { deps: ['templ'], legs: ['templ'] }), driftWriter: { target: 'templ' } }),
+      make('buf-generate', 'mutate', 3, { bodyInvocations: ['buf generate'] }),
+      make('generate', 'mutate', 4, { confidence: 'low', target: tgt('generate', 4, { deps: ['templ', 'tailwind', 'buf-generate'], legs: ['templ', 'tailwind', 'buf-generate'] }) }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply, cwd: d.commands.codegen.cwd }, { run: 'make generate', apply: undefined, cwd: 'go' });
+    const n = d.notes.filter((x) => x.status === 'partial_check');
+    assert.deepEqual(n.map((x) => x.candidate), ['make templ-check']);
+    assert.match(n[0].detail, /templ/);
+  });
+
+  test('P2: a check whose writer IS the generator keeps R5 (the 43-06 aodex golden)', () => {
+    const d = run([
+      make('openapi-regen', 'mutate', 0, { bodyInvocations: ['go generate ./internal/api/...'] }),
+      make('openapi-verify', 'check', 1, { target: tgt('openapi-verify', 1, { deps: ['openapi-regen'], legs: ['openapi-regen'] }), driftWriter: { target: 'openapi-regen' } }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply }, { run: 'make openapi-verify', apply: 'make openapi-regen' });
+    assert.equal(d.notes.filter((x) => x.status === 'partial_check').length, 0);
+  });
+
+  test('P3: a check that re-runs the generator\'s own invocation (redirections aside) keeps R5', () => {
+    const d = run([
+      make('schema-regen', 'mutate', 0, { bodyInvocations: ['go generate ./wire/...'] }),
+      make('schema-verify', 'check', 1, { driftWriter: { invocation: 'go generate ./wire/... >/dev/null 2>&1' } }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply }, { run: 'make schema-verify', apply: 'make schema-regen' });
+  });
+
+  test('P4: a check that re-runs a LEG\'s invocation is partial', () => {
+    const d = run([
+      make('templ', 'mutate', 0, { bodyInvocations: ['templ generate'] }),
+      make('views-verify', 'check', 1, { driftWriter: { invocation: 'templ generate' } }),
+      make('generate', 'mutate', 2, { target: tgt('generate', 2, { legs: ['templ', 'buf-generate'] }) }),
+    ]);
+    assert.equal(d.commands.codegen.run, 'make generate', JSON.stringify(d.commands));
+    assert.equal(d.commands.codegen.apply, undefined);
+    assert.ok(d.notes.some((x) => x.status === 'partial_check' && x.candidate === 'make views-verify'));
+  });
+
+  test('P5: a check whose writer is neither the generator nor one of its legs keeps R5', () => {
+    const d = run([
+      make('docs-check', 'check', 0, { driftWriter: { target: 'docs-gen' } }),
+      make('generate', 'mutate', 1, { target: tgt('generate', 1, { legs: ['templ'] }) }),
+    ]);
+    assert.deepStrictEqual({ run: d.commands.codegen.run, apply: d.commands.codegen.apply }, { run: 'make docs-check', apply: 'make generate' });
+  });
+});
+
+// TRD 43-11 (eden-biz e2e rows): a scenario-environment name that tears the environment down
+// (stack-classify envRole `teardown`: `e2e-stack-down`) or resets it (`reset`: `e2e-db-reset`) fills neither
+// e2e_env nor e2e: an `env_teardown` / `env_reset` note. A bring-up (`up`, `seed`) is unaffected, and a
+// declared row is the user's own.
+describe('assembleDraft environment teardown and reset (T1-T5, TRD 43-11 test 7)', () => {
+  const tgt = (name, order) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [] });
+  const make = (key, name, order, extra = {}) => ev(key, `make ${name}`, {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', form: 'check', tool: null, confidence: 'low',
+    target: tgt(name, order), scenarioNamed: true, ...extra,
+  });
+  const run = (evidence) => assembleDraft({ areas: NO_AREAS, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('T1: the teardown never fills e2e_env, even listed first; the bring-up does', () => {
+    const d = run([make('e2e_env', 'e2e-stack-down', 0), make('e2e_env', 'e2e-stack-up', 1)]);
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-up' });
+    assert.ok(d.notes.some((x) => x.status === 'env_teardown' && x.candidate === 'make e2e-stack-down'));
+  });
+
+  test('T2: a reset is not the e2e suite: no e2e key, an env_reset note', () => {
+    const d = run([make('e2e', 'e2e-db-reset', 0)]);
+    assert.equal('e2e' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.notes.some((x) => x.status === 'env_reset' && x.key === 'e2e' && x.candidate === 'make e2e-db-reset'));
+  });
+
+  test('T3: a CI step through a teardown script is read by its invoked name', () => {
+    const d = run([
+      ev('e2e_env', './scripts/e2e-teardown.sh', { runner: 'script', tool: null, form: 'check', confidence: 'low', invokedName: 'e2e-teardown', scenarioNamed: true }),
+    ]);
+    assert.equal('e2e_env' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.notes.some((x) => x.status === 'env_teardown' && x.candidate === './scripts/e2e-teardown.sh'));
+  });
+
+  test('T4: `seed` stays a bring-up (43-04)', () => {
+    const d = run([make('e2e_env', 'e2e:seed', 0)]);
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e:seed' });
+    assert.equal(d.notes.filter((x) => x.status === 'env_teardown' || x.status === 'env_reset').length, 0);
+  });
+
+  test('T5: a declared row is the user\'s own choice and stays', () => {
+    const declared = ev('e2e_env', 'make e2e-stack-down', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', tool: null });
+    const d = run([declared]);
+    assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-down' });
+  });
+});
+
+// TRD 43-12 (aoedge.lint row): a task-runner target NAMED FOR THE KEY is the repo's declared entry point. It
+// fills the key even when its body is exactly the tier default, instead of making the key inherited. A raw
+// CI line equal to the default, and a runner target with another name, still inherit (42-07, D15/D15b).
+describe('assembleDraft declared targets equal to the tier default (DT1-DT5, TRD 43-12 test 6)', () => {
+  const tgt = (name, order = 0) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [] });
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('DT1: `make lint` whose body IS the tier default fills lint; the CI line equal to it does not make the key inherited', () => {
+    const d = run([
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint'), bodyInvocations: ['go vet ./...'] }),
+      ev('lint', 'go vet ./...', { tool: 'go' }),
+    ]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'make lint' });
+    assert.equal(d.inheritedKeys.includes('lint'), false);
+  });
+
+  test('DT2: a raw CI line equal to the default still inherits; so does a runner target with another name', () => {
+    const raw = run([ev('lint', 'go vet ./...', { tool: 'go' })]);
+    assert.equal('lint' in raw.commands, false);
+    assert.ok(raw.inheritedKeys.includes('lint'));
+    const vet = run([
+      ev('lint', 'make vet', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('vet'), bodyInvocations: ['go vet ./...'] }),
+    ]);
+    assert.equal('lint' in vet.commands, false, JSON.stringify(vet.commands));
+  });
+
+  // Re-baselined in the 43-12 GREEN step (fleet narrowing 2): this test first expected `{ run: 'make test' }`.
+  // A target whose name restates the default's own command word is a shorthand for that command, and the
+  // reviewed fleet files inherit it (`build:` running `go build ./...`).
+  test('DT3: a target whose name restates the default\'s command word (`test:` -> `go test …`, `build:` -> `go build …`) stays inherited', () => {
+    const d = run([
+      ev('test', 'make test', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go test -race ./...', target: tgt('test'), bodyInvocations: ['go test -race ./...'] }),
+      ev('build', 'make build', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', form: 'build', resolvesTo: 'go build ./...', target: tgt('build', 1), bodyInvocations: ['go build ./...'] }),
+      ev('build', 'go build ./...', { tool: 'go', form: 'build' }),
+    ]);
+    assert.equal('test' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal('build' in d.commands, false, JSON.stringify(d.commands));
+  });
+
+  // Fleet narrowing 1 (43-12 GREEN): "body equals the default" is the WHOLE body. A target that runs the default
+  // and more, or has a prerequisite, keeps 42-07's first-invocation judgement (the reviewed files inherit it).
+  test('DT5: a key-named target that runs the default AND more, or has a prerequisite, is inherited as before (42-07)', () => {
+    const more = run([
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint'), bodyInvocations: ['go vet ./...', 'buf lint'] }),
+    ]);
+    assert.equal('lint' in more.commands, false, JSON.stringify(more.commands));
+    const prereq = run([
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: { ...tgt('lint'), deps: ['generate'] }, bodyInvocations: ['go vet ./...'] }),
+    ]);
+    assert.equal('lint' in prereq.commands, false, JSON.stringify(prereq.commands));
+  });
+
+  test('DT4: an unresolved declared target does not stop the walk: the default-equal CI line then inherits', () => {
+    const d = assembleDraft({
+      areas: ROOT_GO,
+      evidence: [
+        ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint'), bodyInvocations: ['go vet ./...'] }),
+        ev('lint', 'go vet ./...', { tool: 'go' }),
+      ],
+      tierCommands: TIERS,
+      verify: (cmd) => (cmd === 'make lint' ? { status: 'binary_missing', detail: 'make is not installed' } : { status: 'resolved' }),
+    });
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.notes.some((n) => n.key === 'lint' && n.candidate === 'make lint' && n.status === 'binary_missing'));
+  });
+});
+
+// TRD 43-12 (aocore.audit row): a SCRIPT not named for the key whose body runs the governing tier's default
+// for the key is a wrapper around that default. The key takes the default and the wrapper is a `wrapper`
+// note: in a general root's primary component the tier default with the component cwd, at a tier root the
+// key stays inherited. A key-named script (`audit.sh`) is the repo's own entry point and is never reduced.
+describe('assembleDraft wrapper scripts reduce to the tier default (W1-W5, TRD 43-12 test 6)', () => {
+  const AREAS = [
+    { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+  ];
+  const svc = () => [
+    ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+    ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+  ];
+  const script = (command, invokedName, body, extra = {}) => ev('audit', command, {
+    runner: 'script', tool: 'govulncheck', invokedName, resolvesTo: body[0], bodyInvocations: body, ...extra,
+  });
+  const GATE_BODY = ['ALLOW=( GO-2099-0001 )', 'govulncheck ./... > "$OUT" 2>&1', 'cat "$OUT"', 'grep -oE "GO-[0-9]+-[0-9]+" "$OUT"'];
+  const run = (evidence, areas) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('W1: in the primary component the wrapper gives the tier default with the component cwd, and a wrapper note', () => {
+    const d = run([...svc(), script('../scripts/vuln-gate.sh', 'vuln-gate', GATE_BODY, { cwd: 'svc', area: 'svc/' })], AREAS);
+    assert.deepStrictEqual(d.commands.audit, { run: 'govulncheck ./...', when: 'deps_changed', cwd: 'svc' });
+    const n = d.notes.find((x) => x.status === 'wrapper');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.key, 'audit');
+    assert.equal(n.candidate, '../scripts/vuln-gate.sh');
+    assert.match(n.detail, /wraps `govulncheck \.\/\.\.\.`/);
+  });
+
+  test('W2: at a tier root the wrapper leaves the key inherited, with the note', () => {
+    const d = run([script('./scripts/vuln-gate.sh', 'vuln-gate', GATE_BODY)], ROOT_GO);
+    assert.equal('audit' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('audit'));
+    assert.ok(d.notes.some((x) => x.status === 'wrapper' && x.candidate === './scripts/vuln-gate.sh'));
+  });
+
+  test('W3: a script named for the key is the repo\'s entry point and is never reduced', () => {
+    const d = run([script('./scripts/audit.sh', 'audit', GATE_BODY)], ROOT_GO);
+    assert.deepStrictEqual(d.commands.audit, { run: './scripts/audit.sh' });
+    assert.equal(d.notes.filter((x) => x.status === 'wrapper').length, 0);
+  });
+
+  test('W4: a script whose body runs something other than the default (other flags) is kept as written', () => {
+    const d = run([script('./scripts/vuln-gate.sh', 'vuln-gate', ['govulncheck -format json ./... >"$TMP"', 'jq . "$TMP"'])], ROOT_GO);
+    assert.deepStrictEqual(d.commands.audit, { run: './scripts/vuln-gate.sh' });
+    assert.equal(d.notes.filter((x) => x.status === 'wrapper').length, 0);
+  });
+
+  test('W5: only a script is a wrapper: a runner target or a raw line with another name is not reduced', () => {
+    const d = run([
+      ev('audit', 'make vulns', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'govulncheck', target: { name: 'vulns', deps: [], order: 0, legs: [] }, bodyInvocations: ['govulncheck ./... > report.txt'] }),
+    ], ROOT_GO);
+    assert.deepStrictEqual(d.commands.audit, { run: 'make vulns' });
+    assert.equal(d.notes.filter((x) => x.status === 'wrapper').length, 0);
+  });
+});
+
+// TRD 43-12 (aocore.lint row): for `lint` only, right after the name rank, a candidate running a DEDICATED
+// linter (stack-classify isDedicatedLinter: golangci-lint, staticcheck, eslint, ruff, shellcheck) other than the
+// governing default's tool ranks ahead of a same-source candidate equal to that default. Source and name rank
+// still come first, so a runner target or a key-named script wins. The displaced default linter is an
+// `alternate` note. A toolchain driver (`dart analyze`) is no dedicated linter.
+describe('assembleDraft lint prefers a dedicated linter within a source (L1-L5, TRD 43-12 test 6)', () => {
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('L1: a CI golangci-lint line beats the CI `go vet` line equal to the default, listed first; the vet line is an alternate note', () => {
+    const d = run([ev('lint', 'go vet ./...', { tool: 'go' }), ev('lint', 'golangci-lint run ./...', { tool: 'golangci-lint' })]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'golangci-lint run ./...' });
+    const n = d.notes.find((x) => x.key === 'lint' && x.candidate === 'go vet ./...');
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.status, 'alternate');
+    assert.match(n.detail, /golangci-lint run/);
+  });
+
+  test('L2: a runner target still wins by source over a CI dedicated linter', () => {
+    const d = run([
+      ev('lint', 'golangci-lint run ./...', { tool: 'golangci-lint' }),
+      ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet -vettool=./bin/extra ./...', target: { name: 'lint', deps: [], order: 0, legs: [] }, bodyInvocations: ['go vet -vettool=./bin/extra ./...'] }),
+    ]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'make lint' });
+  });
+
+  test('L3: the name rank comes first: a key-named lint script beats a raw dedicated-linter line', () => {
+    const d = run([
+      ev('lint', 'golangci-lint run ./...', { tool: 'golangci-lint' }),
+      ev('lint', './scripts/lint.sh', { runner: 'script', tool: 'go', invokedName: 'lint', bodyInvocations: ['go vet ./...', 'staticcheck ./...'] }),
+    ]);
+    assert.deepStrictEqual(d.commands.lint, { run: './scripts/lint.sh' });
+  });
+
+  test('L4: a toolchain driver is no dedicated linter: `dart analyze` does not displace the flutter default', () => {
+    const areas = [{ dir: '', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }];
+    const d = run([ev('lint', 'flutter analyze --fatal-infos', { tool: 'flutter' }), ev('lint', 'dart analyze .', { tool: 'dart' })], areas);
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+  });
+
+  test('L5: in the primary component the dedicated linter is the key with its cwd (the governing default is the component tier)', () => {
+    const areas = [
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+      { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+    ];
+    const d = run([
+      ev('test', 'go test ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+      ev('lint', 'go vet ./...', { cwd: 'svc', area: 'svc/', tool: 'go' }),
+      ev('lint', 'golangci-lint run ./...', { cwd: 'svc', area: 'svc/', tool: 'golangci-lint' }),
+    ], areas);
+    assert.deepStrictEqual(d.commands.lint, { run: 'golangci-lint run ./...', cwd: 'svc' });
+    assert.ok(d.notes.some((x) => x.key === 'lint' && x.candidate === 'go vet ./...' && x.status === 'alternate'), JSON.stringify(d.notes));
+  });
+});
+
+// TRD 43-13 (aocore.build row): a build candidate that is NOT a task-runner target (a CI line, a script, a
+// docs step) and whose build invocations are all narrow (stack-classify buildBreadth: one package, or one -o
+// output) is a variant of the build, not the build, when the key's candidates build two or more different
+// packages or a broad build exists beside it. Each such variant is a `narrow` note under build. When that
+// leaves nothing, the governing tier default applies: the primary component's with its cwd in a general
+// root, inherited at a tier root, and a `narrow_fallback` info note names the variants. A runner target is
+// the repo's own interface and is never filtered; a single package that is the only build is kept.
+describe('assembleDraft narrow builds fall back to the tier default (NB1-NB7, TRD 43-13 test 6)', () => {
+  const AREAS = [
+    { dir: 'console/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+    { dir: 'go/', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'sandbox/edge/', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'site/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+  ];
+  const inGo = (key, command, extra = {}) => ev(key, command, { cwd: 'go', area: 'go/', tool: 'go', form: key === 'build' ? 'build' : 'check', ...extra });
+  const SCRIPT_BODY = ['docker info >/dev/null 2>&1', 'go build -o /tmp/bin-migrate ./cmd/migrate', 'go build -o /tmp/bin-seed ./cmd/seed', '/tmp/bin-migrate', 'go test "$pkg" -run "$expr" -count=1'];
+  const variants = () => [
+    inGo('build', 'go build -tags dev -o /tmp/api-dev ./cmd/api', { sourceFile: '.github/workflows/e2e.yml' }),
+    inGo('build', './scripts/db-backed-tests.sh', { runner: 'script', invokedName: 'db-backed-tests', resolvesTo: 'go build -o /tmp/bin-migrate ./cmd/migrate', bodyInvocations: SCRIPT_BODY }),
+    inGo('build', 'go build ./cmd/api'),
+  ];
+  const run = (evidence, areas) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+
+  test('NB1: general root, 4 components: CI variants of several packages give the primary tier default with its cwd', () => {
+    const d = run([inGo('test', 'go test ./...'), ...variants()], AREAS);
+    assert.deepStrictEqual(d.commands.build, { run: 'go build ./...', cwd: 'go' });
+    for (const c of ['go build -tags dev -o /tmp/api-dev ./cmd/api', './scripts/db-backed-tests.sh', 'go build ./cmd/api']) {
+      assert.ok(d.notes.some((x) => x.key === 'build' && x.status === 'narrow' && x.candidate === c), `${c} is a narrow build note: ${JSON.stringify(d.notes)}`);
+    }
+    const fb = d.notes.find((x) => x.tag === 'narrow_fallback');
+    assert.ok(fb, JSON.stringify(d.notes));
+    assert.equal(fb.status, 'info');
+    assert.equal(fb.key, 'build');
+    assert.match(fb.detail, /go build -tags dev -o \/tmp\/api-dev \.\/cmd\/api/);
+    assert.match(fb.detail, /go build \.\/\.\.\./);
+  });
+
+  test('NB2: at a tier root the same variants leave build inherited, with the narrow_fallback note', () => {
+    const atRoot = variants().map((e) => ({ ...e, cwd: null, area: '' }));
+    const d = run(atRoot, ROOT_GO);
+    assert.equal('build' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('build'));
+    assert.ok(d.notes.some((x) => x.tag === 'narrow_fallback' && x.key === 'build'), JSON.stringify(d.notes));
+  });
+
+  test('NB3: a task-runner target is never filtered, even when every build it runs is narrow', () => {
+    const d = run([
+      ev('build', 'make build-all', {
+        source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', form: 'build',
+        resolvesTo: 'go build -o bin/a ./cmd/a', target: { name: 'build-all', deps: [], order: 0, legs: [] },
+        bodyInvocations: ['go build -o bin/a ./cmd/a', 'go build -o bin/b ./cmd/b'],
+      }),
+      ev('build', 'go build -o /tmp/c ./cmd/c', { tool: 'go', form: 'build' }),
+    ], ROOT_GO);
+    assert.deepStrictEqual(d.commands.build, { run: 'make build-all' });
+    assert.equal(d.notes.some((x) => x.tag === 'narrow_fallback'), false, JSON.stringify(d.notes));
+  });
+
+  test('NB4: one package that is the only build is the repo\'s build and is kept', () => {
+    const d = run([ev('build', 'go build ./cmd/app', { tool: 'go', form: 'build' })], ROOT_GO);
+    assert.deepStrictEqual(d.commands.build, { run: 'go build ./cmd/app' });
+    assert.equal(d.notes.some((x) => x.status === 'narrow' && x.key === 'build'), false, JSON.stringify(d.notes));
+  });
+
+  test('NB5: a broad build beside a narrow variant listed first wins; the variant is a narrow note', () => {
+    const d = run([
+      ev('build', 'go build -o /tmp/x ./cmd/x', { tool: 'go', form: 'build' }),
+      ev('build', 'go build -tags extra ./...', { tool: 'go', form: 'build' }),
+    ], ROOT_GO);
+    assert.deepStrictEqual(d.commands.build, { run: 'go build -tags extra ./...' });
+    assert.ok(d.notes.some((x) => x.status === 'narrow' && x.key === 'build' && x.candidate === 'go build -o /tmp/x ./cmd/x'), JSON.stringify(d.notes));
+    assert.equal(d.notes.some((x) => x.tag === 'narrow_fallback'), false);
+  });
+
+  test('NB6: with no build candidate at all nothing changes: no build key, no narrow_fallback note', () => {
+    const d = run([inGo('test', 'go test ./...')], AREAS);
+    assert.equal('build' in d.commands, false, JSON.stringify(d.commands));
+    assert.equal(d.notes.some((x) => x.tag === 'narrow_fallback'), false);
+  });
+
+  test('NB7: a build whose breadth cannot be read (another tool) is never filtered', () => {
+    const areas = [{ dir: '', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] }];
+    const d = run([
+      ev('build', 'flutter build web --release', { tool: 'flutter', form: 'build' }),
+      ev('build', 'flutter build apk --debug', { tool: 'flutter', form: 'build' }),
+    ], areas);
+    assert.deepStrictEqual(d.commands.build, { run: 'flutter build web --release' });
+    assert.equal(d.notes.some((x) => x.status === 'narrow' && x.key === 'build'), false);
+  });
+});
+
+// TRD 43-13 (aocore.test row): a candidate that expands a variable its CI step assigns at run time
+// (stack-evidence `runtimeVar`: `-skip "${SKIP}"` after `SKIP="$(…)"`) ranks right after confidence, behind a
+// candidate that does not. Source and name still come first, and alone it is still chosen. A runtime-var
+// candidate the plain pick displaced is a `runtime_var` note.
+describe('assembleDraft runtime-assigned variables rank after plain commands (RT1-RT4, TRD 43-13 test 6)', () => {
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+  const HEAVY = 'go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out -timeout 35m';
+  const LIGHT = 'go test -short ./... -race -coverprofile=coverage.out -timeout 5m';
+
+  test('RT1: a same-source plain lane listed after the runtime-var lane wins; the runtime-var lane is a runtime_var note', () => {
+    const d = run([
+      ev('test', HEAVY, { tool: 'go', sourceFile: '.github/workflows/go-heavy.yml', runtimeVar: true }),
+      ev('test', LIGHT, { tool: 'go', sourceFile: '.github/workflows/go.yml' }),
+    ]);
+    assert.equal(d.commands.test.run, LIGHT);
+    const n = d.notes.find((x) => x.candidate === HEAVY);
+    assert.ok(n, JSON.stringify(d.notes));
+    assert.equal(n.status, 'runtime_var');
+    assert.equal(n.key, 'test');
+  });
+
+  test('RT2: alone, a runtime-var candidate is still chosen', () => {
+    const d = run([ev('test', HEAVY, { tool: 'go', runtimeVar: true })]);
+    assert.equal(d.commands.test.run, HEAVY);
+    assert.equal(d.notes.some((x) => x.status === 'runtime_var'), false);
+  });
+
+  test('RT3: the source ranks first: a CI runtime-var lane beats a plain docs line', () => {
+    const d = run([
+      ev('test', 'go test -short ./... -count=1', { tool: 'go', source: 'docs', sourceFile: '.planning/codebase/TESTING.md' }),
+      ev('test', HEAVY, { tool: 'go', runtimeVar: true }),
+    ]);
+    assert.equal(d.commands.test.run, HEAVY);
+  });
+
+  test('RT4: in the primary component the plain lane is the key with its cwd', () => {
+    const areas = [
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+      { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+    ];
+    const d = run([
+      ev('test', HEAVY, { tool: 'go', cwd: 'svc', area: 'svc/', runtimeVar: true }),
+      ev('test', LIGHT, { tool: 'go', cwd: 'svc', area: 'svc/' }),
+    ], areas);
+    assert.deepStrictEqual(d.commands.test, { run: LIGHT, scoped: 'go test -race {packages}', cwd: 'svc' });
   });
 });

@@ -1,0 +1,783 @@
+'use strict';
+
+// gh-mapping.cjs (TRD 46-02, GSF-01) — one objective identity, one mapping shape.
+//
+// Before this module the GitHub sync had two defects rooted in identity:
+//   1. `.planning/.gh-mapping.json` existed in two shapes (v1: bare issue numbers, v2: objects), and a
+//      reader of one fed the other's value into `gh issue edit` as "[object Object]".
+//   2. Three key spaces named the same objective three ways — the ROADMAP number ("2.1"), the directory
+//      prefix run through parseInt ("02.1-foo" -> 2, colliding with objective 2) and the directory name —
+//      so `pull` never found the entries `push` wrote.
+//
+// This module is the only place either is decided:
+//   - `toObjectiveId` / `resolveObjective` / `listObjectiveIndex`: the canonical objective id, which is the
+//     ROADMAP number with leading zeros stripped ("046" -> "46", "02.1-foo" -> "2.1", "00-x" -> "0").
+//   - `migrateMapping`: a PURE converter from any v1/v2/mixed mapping to the one v3 shape. Idempotent.
+//   - `readMappingV3` converts lazily in memory and never writes. `writeMappingV3` is atomic, sorts keys
+//     numerically, and refuses to touch a mapping (or a file on disk) whose version is above 3.
+//   - `normalizeSyncStateKeys`: the same id normalisation for `.gh-sync-state.json`, which keeps
+//     `version: 1` on disk and only changes its keys.
+//
+// v3 (write exactly this; `issue_id`/`state_comment_id` keep their v2 names so an older reader of the
+// same file still finds `objectives[k].issue_id`):
+//   { "version": 3, "repo": "owner/name", "milestones": { "v1.4": 7 },
+//     "objectives": { "46": { "issue_id": 123, "state_comment_id": 456, "verified_at": null } },
+//     "trds": { "46-02": { "issue_number": 12, "rest_id": 1000012, "role": "trd", "comment_ids": { "summary": [55] } } } }
+// plus a top-level `conflicts` block only when non-empty (see migrateMapping).
+//
+// Scope: `objectives` keys are OBJECTIVE ids. A TRD id such as "46-02" reads through `toObjectiveId` as
+// objective 46 with slug "02", so the `trds` map has its own accessors (objective 47): `toTrdId`, `getTrd`,
+// `setTrd`, `listTrds`. Keys are `<objective>-<NN>` for a TRD and `<objective>-<NN>-d<k>` for a Decision
+// (`role: "decision"`); both share the one map, so the file's shape did not change and v3 needs no migration.
+// `issue_number` is the number GitHub shows (#12); `rest_id` is the database id the REST sub-issues API
+// takes. They are different values that may coincide, and are never interchangeable.
+//
+// Entities (objective 48): todos, debug sessions and quick tasks are issues too, keyed `todo-<stem>`,
+// `debug-<stem>` and `quick-<N>` in a top-level `entities` map with the same entry shape as `trds`
+// (`toEntityId`, `getEntity`, `setEntity`, `listEntities`). `entities` is rendered after `trds` ONLY when it
+// has an entry, so a mapping without entities serialises exactly as it did in objective 47.
+//
+// Pull requests (objective 49): an objective's branch and PR live in a top-level `prs` map keyed by OBJECTIVE
+// id (`getPr`, `setPr`, `listPrs`). It is deliberately not a field of `objectives[id]`: `readLegacyEntry` and
+// `setEntry` normalise an objective entry to exactly three fields, so PR state put there would be dropped, and
+// a separate map keeps PR state independent of the objective issue. `prs` is rendered after `entities` ONLY when
+// it has an entry, so a mapping that never had a PR serialises exactly as it did in objective 48.
+//
+// Never `parseInt` a directory prefix anywhere else: `parseInt("02.1")` is 2. The one legitimate use is
+// the integer part inside `toObjectiveId`, plus numeric sorting.
+
+const fs = require('fs');
+const path = require('path');
+const { atomicWrite } = require('./sync-state.cjs');
+const { extractFrontmatter } = require('./frontmatter.cjs');
+// gh-trd requires nothing but `crypto`, so this is no cycle; one entity-id grammar for codec and mapping.
+const { ENTITY_ID_RE } = require('./gh-trd.cjs');
+
+const MAPPING_VERSION = 3;
+const MAPPING_REL = path.join('.planning', '.gh-mapping.json');
+
+// ─── Objective identity ───────────────────────────────────────────────────────
+
+const ID_RE = /^(\d+)(\.\d+)?(?:-.*)?$/;
+
+/**
+ * Canonical objective id for any spelling of an objective, or null for junk.
+ *   46 | "046" | "46-github-sync-foundations" -> "46"     "2.1" | "02.1-foo" -> "2.1"
+ *   "0" | "00-refine-defaults-table"          -> "0"      "abc" | "" | null   -> null
+ * The decimal part is kept verbatim ("02.10" -> "2.10"): 2.10 is the tenth insert, not 2.1.
+ */
+function toObjectiveId(arg) {
+  const m = String(arg ?? '').trim().match(ID_RE);
+  if (!m) return null;
+  // Integer part only: parseInt on "02" is exactly right here, and is what strips the padding.
+  return String(parseInt(m[1], 10)) + (m[2] || '');
+}
+
+/** Numeric compare of two canonical ids: integer part, then decimal part ("2" < "2.1" < "2.2" < "2.10"). */
+function compareIds(a, b) {
+  const pa = String(a).split('.');
+  const pb = String(b).split('.');
+  const ia = parseInt(pa[0], 10);
+  const ib = parseInt(pb[0], 10);
+  if (Number.isNaN(ia) || Number.isNaN(ib)) {
+    // Not a canonical id: sort after every real one, then by text, so ordering stays total and stable.
+    if (Number.isNaN(ia) && !Number.isNaN(ib)) return 1;
+    if (!Number.isNaN(ia) && Number.isNaN(ib)) return -1;
+    return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+  }
+  if (ia !== ib) return ia - ib;
+  const da = pa.length > 1 ? parseInt(pa[1], 10) : -1;
+  const db = pb.length > 1 ? parseInt(pb[1], 10) : -1;
+  return da - db;
+}
+
+/**
+ * Every objective the project knows about: the union of `.planning/objectives/<dir>` and the ROADMAP
+ * `### Objective N:` headers, deduped by id (the directory wins), sorted numerically.
+ *
+ *   [{ id, dir, roadmapNumber, github_issue }]
+ *
+ * `dir` is the directory NAME (null for a ROADMAP-only objective that has no directory yet).
+ * `roadmapNumber` is the number exactly as the ROADMAP header spells it, falling back to `id` (which is
+ * the ROADMAP number by definition) when the objective has a directory but no header.
+ * `github_issue` is the OBJECTIVE.md frontmatter value as written (e.g. "owner/repo#31"), or null.
+ */
+function listObjectiveIndex(cwd) {
+  const byId = new Map();
+
+  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  if (fs.existsSync(objectivesDir)) {
+    const names = fs.readdirSync(objectivesDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    for (const name of names) {
+      const id = toObjectiveId(name);
+      if (id === null || byId.has(id)) continue; // first directory (sorted) wins a duplicate id
+      byId.set(id, { id, dir: name, roadmapNumber: id, github_issue: readGithubIssue(path.join(objectivesDir, name)) });
+    }
+  }
+
+  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  if (fs.existsSync(roadmapPath)) {
+    const content = fs.readFileSync(roadmapPath, 'utf-8');
+    const headerRe = /^#{2,4}[ \t]*Objective[ \t]+([\d.]+):/gim;
+    let m;
+    while ((m = headerRe.exec(content)) !== null) {
+      const id = toObjectiveId(m[1]);
+      if (id === null) continue;
+      const existing = byId.get(id);
+      if (existing) {
+        existing.roadmapNumber = m[1];
+      } else {
+        byId.set(id, { id, dir: null, roadmapNumber: m[1], github_issue: null });
+      }
+    }
+  }
+
+  return [...byId.values()].sort((a, b) => compareIds(a.id, b.id));
+}
+
+// extractFrontmatter turns a bare `github_issue:` into {} — anything that is not a non-empty string is null.
+function readGithubIssue(objectiveDir) {
+  const file = path.join(objectiveDir, 'OBJECTIVE.md');
+  if (!fs.existsSync(file)) return null;
+  let fm;
+  try {
+    fm = extractFrontmatter(fs.readFileSync(file, 'utf-8'));
+  } catch (_) {
+    return null;
+  }
+  const v = fm.github_issue;
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+}
+
+/**
+ * Resolve ANY spelling of an objective ("46", "046", "46-github-sync-foundations", "02.1-foo") to
+ * `{ id, dir, roadmapNumber }`, or null when the objective is unknown. Use `.id` for the mapping and
+ * sync-state, `.dir` for file paths, `.roadmapNumber` for `roadmap get-objective`.
+ */
+function resolveObjective(cwd, arg) {
+  const id = toObjectiveId(arg);
+  if (id === null) return null;
+  const hit = listObjectiveIndex(cwd).find((e) => e.id === id);
+  return hit ? { id: hit.id, dir: hit.dir, roadmapNumber: hit.roadmapNumber } : null;
+}
+
+// ─── Mapping v3: pure conversion ──────────────────────────────────────────────
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+// Top-level fields this module owns. Anything else is carried through untouched (additive fields from a
+// later objective survive a read-modify-write); `milestone_id` is the legacy field and is dropped.
+const KNOWN_TOP_LEVEL = new Set(['version', 'repo', 'milestones', 'objectives', 'trds', 'entities', 'prs', 'conflicts', 'milestone_id']);
+
+/** An empty v3 mapping. */
+function emptyMapping() {
+  return { version: MAPPING_VERSION, milestones: {}, objectives: {}, trds: {} };
+}
+
+// Key-order-independent JSON, used only to decide whether a conversion changed anything.
+function canonicalJson(v) {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
+  if (isPlainObject(v)) {
+    const parts = Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`);
+    return `{${parts.join(',')}}`;
+  }
+  return JSON.stringify(v) ?? 'null';
+}
+
+// Positive integer from a number or a numeric string, else null. GitHub issue and comment ids.
+function coerceId(v) {
+  if (typeof v === 'number' && Number.isInteger(v) && v > 0) return v;
+  if (typeof v === 'string' && /^\d+$/.test(v.trim()) && Number(v.trim()) > 0) return Number(v.trim());
+  return null;
+}
+
+function readLegacyEntry(val) {
+  if (isPlainObject(val)) {
+    return {
+      issue_id: coerceId(val.issue_id),
+      state_comment_id: coerceId(val.state_comment_id),
+      verified_at: typeof val.verified_at === 'string' && val.verified_at !== '' ? val.verified_at : null,
+    };
+  }
+  return { issue_id: coerceId(val), state_comment_id: null, verified_at: null }; // v1: a bare issue number
+}
+
+// Does an OBJECTIVE.md `github_issue` value name issue #`issueId`? Accepts "owner/repo#31",
+// ".../issues/31" and a bare "31". When both the ref and the mapping name a repo and they differ, it is
+// somebody else's issue #31 and does not count.
+function claimsIssue(ref, issueId, repo) {
+  if (typeof ref !== 'string') return false;
+  const s = ref.trim();
+  let m = s.match(/^([\w.-]+\/[\w.-]+)#(\d+)$/);
+  if (m) return Number(m[2]) === issueId && (!repo || m[1].toLowerCase() === repo.toLowerCase());
+  m = s.match(/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)\s*$/);
+  if (m) return Number(m[2]) === issueId && (!repo || m[1].toLowerCase() === repo.toLowerCase());
+  m = s.match(/^#?(\d+)$/);
+  return m ? Number(m[1]) === issueId : false;
+}
+
+// The v2 writer keyed objectives by parseInt(dirPrefix), so objective 2.1 was stored under "2". Undo that
+// ONLY when a single decimal objective of the same integer part names this issue in its OBJECTIVE.md and
+// no objective with the key's own id does. Anything else keeps the key: the first-sync marker check is the
+// authority, this function never guesses.
+function repairCollapsedKey(id, issueId, index, repo) {
+  if (id.includes('.') || !index.length) return id; // a decimal id was never collapsed
+  const claimants = index.filter((e) => claimsIssue(e.github_issue, issueId, repo));
+  if (claimants.length === 0 || claimants.some((e) => e.id === id)) return id;
+  const candidates = claimants.filter((e) => e.id.startsWith(`${id}.`));
+  return candidates.length === 1 ? candidates[0].id : id;
+}
+
+const cmpText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Convert any v1 / v2 / mixed / v3 mapping into the one v3 shape. PURE: no I/O, input never mutated.
+ *
+ *   migrateMapping(raw, index = []) -> { mapping, changed, conflicts, notes, error? }
+ *
+ * `index` is `listObjectiveIndex(cwd)` (used only to repair parseInt-collapsed keys).
+ * - null/undefined `raw` -> an empty v3, changed false. `version > 3` -> `{ error, mapping: null }`.
+ * - Legacy `milestone_id` is dropped with a note: a bare number has no title to key it by, and the current
+ *   milestone is re-resolved by title on the next sync (GSF-05).
+ * - Each objective key goes through `toObjectiveId` (dir names, padded numbers), then the collapse repair.
+ * - Keys that land on one id: the same issue merges; different issues go to `conflicts[id]` and are
+ *   OMITTED from `objectives` — nobody picks a winner here.
+ * - Idempotent: a v3 input takes the same path, so migrate(migrate(x).mapping) equals migrate(x).mapping.
+ */
+function migrateMapping(raw, index = []) {
+  const notes = [];
+  if (raw === null || raw === undefined) return { mapping: emptyMapping(), changed: false, conflicts: {}, notes };
+  if (!isPlainObject(raw)) {
+    return { mapping: null, changed: false, conflicts: {}, notes, error: 'mapping must be a JSON object' };
+  }
+
+  const version = raw.version === undefined ? 0 : Number(raw.version);
+  if (!Number.isFinite(version)) {
+    return { mapping: null, changed: false, conflicts: {}, notes, error: `invalid mapping version ${JSON.stringify(raw.version)}` };
+  }
+  if (version > MAPPING_VERSION) {
+    return {
+      mapping: null, changed: false, conflicts: {}, notes,
+      error: `unsupported mapping version ${version} (this DevFlow reads up to ${MAPPING_VERSION}); refusing to convert`,
+    };
+  }
+
+  const repo = typeof raw.repo === 'string' && raw.repo.trim() !== '' ? raw.repo.trim() : null;
+  const out = { version: MAPPING_VERSION };
+  if (repo) out.repo = repo;
+  out.milestones = isPlainObject(raw.milestones) ? clone(raw.milestones) : {};
+  out.objectives = {};
+  out.trds = isPlainObject(raw.trds) ? clone(raw.trds) : {};
+  // `entities` (48) is present only when the input has it, so a 47 mapping converts to itself unchanged.
+  if (isPlainObject(raw.entities)) {
+    out.entities = clone(raw.entities);
+  } else if (raw.entities !== undefined && raw.entities !== null) {
+    notes.push(`dropped entities ${JSON.stringify(raw.entities)}: not an object of entity entries`);
+  }
+  // `prs` (49) likewise: present only when the input has it, so a pre-49 mapping converts to itself unchanged.
+  if (isPlainObject(raw.prs)) {
+    out.prs = clone(raw.prs);
+  } else if (raw.prs !== undefined && raw.prs !== null) {
+    notes.push(`dropped prs ${JSON.stringify(raw.prs)}: not an object of PR entries`);
+  }
+  for (const k of Object.keys(raw)) if (!KNOWN_TOP_LEVEL.has(k)) out[k] = clone(raw[k]);
+
+  if (raw.milestone_id !== undefined && raw.milestone_id !== null && raw.milestone_id !== '') {
+    notes.push(`dropped milestone_id ${JSON.stringify(raw.milestone_id)}: a bare number has no title to key it by (the current milestone is re-resolved by title on the next sync)`);
+  }
+
+  // Conflicts already recorded in a v3 mapping carry forward (keys normalised; entries de-duplicated).
+  const conflicts = {};
+  const addConflicts = (id, entries) => {
+    const list = conflicts[id] || (conflicts[id] = []);
+    for (const e of entries) {
+      if (!list.some((x) => x.legacy_key === e.legacy_key && x.issue_id === e.issue_id)) list.push(e);
+    }
+  };
+  if (isPlainObject(raw.conflicts)) {
+    for (const [k, list] of Object.entries(raw.conflicts)) {
+      if (Array.isArray(list)) addConflicts(toObjectiveId(k) ?? k, clone(list));
+    }
+  }
+
+  const groups = new Map(); // id -> [{ legacy_key, issue_id, state_comment_id, verified_at }]
+  const source = isPlainObject(raw.objectives) ? raw.objectives : {};
+  for (const [key, val] of Object.entries(source)) {
+    let id = toObjectiveId(key);
+    if (id === null) {
+      notes.push(`dropped objective key ${JSON.stringify(key)}: not an objective id`);
+      continue;
+    }
+    const entry = readLegacyEntry(val);
+    if (entry.issue_id === null) {
+      notes.push(`skipped objective ${JSON.stringify(key)}: no usable issue_id`);
+      continue;
+    }
+    const repaired = repairCollapsedKey(id, entry.issue_id, index, repo);
+    if (repaired !== id) {
+      notes.push(`re-keyed objective "${key}" -> "${repaired}": its OBJECTIVE.md github_issue names #${entry.issue_id}`);
+      id = repaired;
+    }
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push({ legacy_key: key, ...entry });
+  }
+
+  for (const [id, list] of groups) {
+    // Sorted so the result never depends on object enumeration order (integer-like keys enumerate first).
+    list.sort((a, b) => a.issue_id - b.issue_id || cmpText(a.legacy_key, b.legacy_key));
+    const issues = [...new Set(list.map((e) => e.issue_id))];
+    if (issues.length === 1) {
+      out.objectives[id] = {
+        issue_id: issues[0],
+        state_comment_id: list.map((e) => e.state_comment_id).find((v) => v !== null) ?? null,
+        verified_at: list.map((e) => e.verified_at).filter((v) => v !== null).sort().pop() ?? null,
+      };
+      if (list.length > 1) notes.push(`merged ${list.length} keys for objective ${id}: all name issue #${issues[0]}`);
+    } else {
+      addConflicts(id, list.map(({ legacy_key, issue_id, state_comment_id }) => ({ legacy_key, issue_id, state_comment_id })));
+      notes.push(`conflict: objective ${id} maps to issues ${issues.map((n) => `#${n}`).join(', ')}; no winner picked`);
+    }
+  }
+  if (Object.keys(conflicts).length) out.conflicts = conflicts;
+
+  return { mapping: out, changed: canonicalJson(raw) !== canonicalJson(out), conflicts, notes };
+}
+
+/**
+ * Normalise the keys of a `.gh-sync-state.json` payload to objective ids. The schema is unchanged
+ * (`version: 1`); only keys move. When two keys name one objective the record with the newest
+ * `last_synced_at` wins (a tie goes to the record already under the canonical spelling). A key that is not
+ * an objective id is left exactly as it is: this is a derived baseline, not something to delete from.
+ *
+ *   normalizeSyncStateKeys(state) -> { state: { version: 1, objectives }, changed }
+ */
+function normalizeSyncStateKeys(state) {
+  const source = isPlainObject(state) && isPlainObject(state.objectives) ? state.objectives : {};
+  const syncedAt = (rec) => {
+    const t = Date.parse(isPlainObject(rec) ? rec.last_synced_at : undefined);
+    return Number.isNaN(t) ? -Infinity : t;
+  };
+
+  const winners = new Map(); // target key -> { key, rec }
+  for (const [key, rec] of Object.entries(source)) {
+    const target = toObjectiveId(key) ?? key;
+    const incumbent = winners.get(target);
+    if (!incumbent) { winners.set(target, { key, rec }); continue; }
+    const a = syncedAt(rec);
+    const b = syncedAt(incumbent.rec);
+    if (a > b || (a === b && key === target && incumbent.key !== target)) winners.set(target, { key, rec });
+  }
+
+  const objectives = {};
+  for (const target of [...winners.keys()].sort(compareIds)) objectives[target] = clone(winners.get(target).rec);
+  return {
+    state: { version: 1, objectives },
+    changed: canonicalJson(source) !== canonicalJson(objectives),
+  };
+}
+
+// ─── Mapping v3: serialisation, reader, writer ────────────────────────────────
+
+const IND = '  ';
+const naturalCompare = (a, b) => a.localeCompare(b, 'en', { numeric: true });
+
+// JSON objects iterate integer-like keys first ("2","10") and everything else in insertion order ("2.1"),
+// so JSON.stringify cannot produce 2, 2.1, 3, 10. Objects are therefore assembled by hand.
+function renderObject(pairs, level) {
+  if (pairs.length === 0) return '{}';
+  const pad = IND.repeat(level + 1);
+  return `{\n${pairs.map(([k, v]) => `${pad}${JSON.stringify(k)}: ${v}`).join(',\n')}\n${IND.repeat(level)}}`;
+}
+
+// JSON.stringify output re-indented to sit at `level`.
+const renderJson = (value, level) => JSON.stringify(value, null, 2).replace(/\n/g, `\n${IND.repeat(level)}`);
+
+/**
+ * Byte-stable text for a v3 mapping: canonical top-level order (version, repo, milestones, objectives,
+ * trds, entities, prs, conflicts, extras), objectives, prs and conflicts sorted numerically by id, trds and
+ * entities natural-sorted, trailing newline. `entities`, `prs` and `conflicts` appear only when non-empty.
+ * The file is tracked in git, so stable output means stable diffs.
+ */
+function serializeMapping(mapping) {
+  const sorted = (obj, cmp, level) => Object.keys(obj || {}).sort(cmp).map((k) => [k, renderJson(obj[k], level + 1)]);
+  const top = [['version', String(MAPPING_VERSION)]];
+  if (typeof mapping.repo === 'string' && mapping.repo !== '') top.push(['repo', JSON.stringify(mapping.repo)]);
+  top.push(['milestones', renderObject(sorted(mapping.milestones, naturalCompare, 1), 1)]);
+  top.push(['objectives', renderObject(sorted(mapping.objectives, compareIds, 1), 1)]);
+  top.push(['trds', renderObject(sorted(mapping.trds, naturalCompare, 1), 1)]);
+  if (isPlainObject(mapping.entities) && Object.keys(mapping.entities).length) {
+    top.push(['entities', renderObject(sorted(mapping.entities, naturalCompare, 1), 1)]);
+  }
+  if (isPlainObject(mapping.prs) && Object.keys(mapping.prs).length) {
+    top.push(['prs', renderObject(sorted(mapping.prs, compareIds, 1), 1)]);
+  }
+  if (isPlainObject(mapping.conflicts) && Object.keys(mapping.conflicts).length) {
+    top.push(['conflicts', renderObject(sorted(mapping.conflicts, compareIds, 1), 1)]);
+  }
+  for (const k of Object.keys(mapping).sort()) {
+    if (!KNOWN_TOP_LEVEL.has(k) && mapping[k] !== undefined) top.push([k, renderJson(mapping[k], 1)]);
+  }
+  return `${renderObject(top, 0)}\n`;
+}
+
+/**
+ * Read `.planning/.gh-mapping.json` as v3, converting lazily IN MEMORY. Never writes.
+ *
+ *   -> { mapping, conflicts, notes, warnings, changed, exists, error? }
+ *
+ * Missing file -> empty v3. Unparseable -> empty v3 + a warning. A version above 3 -> empty v3 + `error`
+ * (callers must check it before writing; `writeMappingV3` also refuses on its own).
+ */
+function readMappingV3WithReport(cwd) {
+  const report = { mapping: emptyMapping(), conflicts: {}, notes: [], warnings: [], changed: false, exists: false };
+  const file = path.join(cwd, MAPPING_REL);
+  if (!fs.existsSync(file)) return report;
+  report.exists = true;
+
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (_) {
+    report.warnings.push('unparseable .gh-mapping.json');
+    return report;
+  }
+  const r = migrateMapping(raw, listObjectiveIndex(cwd));
+  if (r.error) {
+    report.error = r.error;
+    return report;
+  }
+  return { ...report, mapping: r.mapping, conflicts: r.conflicts, notes: r.notes, changed: r.changed };
+}
+
+/** The v3 mapping for `cwd` (see readMappingV3WithReport for warnings, conflicts and errors). */
+function readMappingV3(cwd) {
+  return readMappingV3WithReport(cwd).mapping;
+}
+
+/**
+ * Persist a mapping as v3, atomically (tmp + rename). Returns `{ ok: true, path, notes }` or
+ * `{ ok: false, error }`. Refuses — and leaves the disk alone — when the mapping is above version 3, when
+ * the file on disk is above version 3 (never a silent downgrade), or when the file on disk cannot be parsed
+ * (never overwrite what it cannot read). A legacy-shaped argument is converted first, so the file on disk is
+ * always the one shape.
+ */
+function writeMappingV3(cwd, mapping) {
+  if (isPlainObject(mapping) && Number(mapping.version) > MAPPING_VERSION) {
+    return { ok: false, error: `refusing to write mapping version ${mapping.version}: this DevFlow writes version ${MAPPING_VERSION}` };
+  }
+  const file = path.join(cwd, MAPPING_REL);
+  if (fs.existsSync(file)) {
+    const text = fs.readFileSync(file, 'utf-8');
+    if (text.trim() !== '') {
+      let onDisk;
+      try {
+        onDisk = JSON.parse(text);
+      } catch (_) {
+        return { ok: false, error: 'refusing to overwrite an unparseable .gh-mapping.json' };
+      }
+      if (isPlainObject(onDisk) && Number(onDisk.version) > MAPPING_VERSION) {
+        return { ok: false, error: `refusing to overwrite .gh-mapping.json: it is version ${onDisk.version}, newer than the ${MAPPING_VERSION} this DevFlow writes` };
+      }
+    }
+  }
+  const r = migrateMapping(mapping, []);
+  if (r.error) return { ok: false, error: r.error };
+  atomicWrite(file, serializeMapping(r.mapping));
+  return { ok: true, path: file, notes: r.notes };
+}
+
+/** The entry for any spelling of an objective ("046", "02.1-foo", 46), or null. */
+function getEntry(mapping, arg) {
+  const id = toObjectiveId(arg);
+  if (id === null || !isPlainObject(mapping) || !isPlainObject(mapping.objectives)) return null;
+  return hasOwn(mapping.objectives, id) ? mapping.objectives[id] : null;
+}
+
+/**
+ * Set fields on an objective's entry, in place, and return the mapping. The patch MERGES onto the existing
+ * entry (a field the patch names wins, including an explicit null) and the result always has the three v3
+ * fields. Throws on an unrecognised objective or when no issue_id results.
+ */
+function setEntry(mapping, arg, patch) {
+  const id = toObjectiveId(arg);
+  if (id === null) throw new TypeError(`setEntry: unrecognised objective ${JSON.stringify(arg)}`);
+  if (!isPlainObject(mapping.objectives)) mapping.objectives = {};
+  const existing = hasOwn(mapping.objectives, id) ? mapping.objectives[id] : {};
+  const p = isPlainObject(patch) ? patch : {};
+  const pick = (field, fallback) => (hasOwn(p, field) ? p[field] : (existing[field] ?? fallback));
+  const issueId = coerceId(pick('issue_id', null));
+  if (issueId === null) throw new TypeError(`setEntry: objective ${id} needs a positive integer issue_id`);
+  mapping.objectives[id] = {
+    issue_id: issueId,
+    state_comment_id: coerceId(pick('state_comment_id', null)),
+    verified_at: typeof pick('verified_at', null) === 'string' ? pick('verified_at', null) : null,
+  };
+  return mapping;
+}
+
+// ─── TRD / Decision entries (objective 47) ────────────────────────────────────
+
+// `<objective>-<NN>` or `<objective>-<NN>-d<k>`: group 1 objective integer part, 2 optional `.N`, 3 the `-NN`
+// TRD part, 4 the optional `-dK` Decision suffix. Strict on purpose: a trailing slug is not a TRD id.
+const TRD_ID_RE = /^(\d+)(\.\d+)?-(\d+)(-d\d+)?$/;
+const TRD_ROLES = ['trd', 'decision'];
+
+/**
+ * Canonical TRD (or Decision) id, or null. The objective part is normalised exactly like `toObjectiveId`
+ * and the `-NN` part is kept as written:
+ *   "047-01" -> "47-01"   "07-01-d2" -> "7-01-d2"   "2.1-03" -> "2.1-03"
+ *   "47" | "x" | "47-d1" | "47-01-store-demo" | null -> null
+ */
+function toTrdId(arg) {
+  const m = String(arg ?? '').trim().match(TRD_ID_RE);
+  if (!m) return null;
+  return `${parseInt(m[1], 10)}${m[2] || ''}-${m[3]}${m[4] || ''}`;
+}
+
+/** The entry for any spelling of a TRD or Decision id ("007-01", "47-01-d1"), or null. */
+function getTrd(mapping, id) {
+  const tid = toTrdId(id);
+  if (tid === null || !isPlainObject(mapping) || !isPlainObject(mapping.trds)) return null;
+  return hasOwn(mapping.trds, tid) ? mapping.trds[tid] : null;
+}
+
+// comment_ids: `{ <kind>: [commentId, ...] }`. Values coerce to positive integers; anything else throws.
+// `fn` names the caller in the error (setTrd or setEntity).
+function mergeCommentIds(tid, existing, patch, fn = 'setTrd') {
+  const base = isPlainObject(existing) ? existing : {};
+  const out = {};
+  for (const [kind, ids] of Object.entries(base)) out[kind] = clone(ids);
+  if (patch === null) return {};
+  if (!isPlainObject(patch)) throw new TypeError(`${fn}: ${tid} comment_ids must be an object of arrays`);
+  for (const [kind, ids] of Object.entries(patch)) {
+    if (ids === null) { delete out[kind]; continue; }
+    const coerced = Array.isArray(ids) ? ids.map(coerceId) : null;
+    if (coerced === null || coerced.some((n) => n === null)) {
+      throw new TypeError(`${fn}: ${tid} comment_ids.${kind} must be an array of positive integers`);
+    }
+    out[kind] = coerced;
+  }
+  return out;
+}
+
+/**
+ * Set fields on a TRD's or Decision's entry, in place, and return the mapping. The patch MERGES onto the
+ * existing entry (a field the patch names wins) and the result always carries the four fields, in this order:
+ *   { issue_number, rest_id, role: 'trd' | 'decision', comment_ids: { <kind>: [id, ...] } }
+ * `comment_ids` merges per kind (a kind the patch names is replaced whole; `null` removes it). `role` defaults
+ * from the id form and must agree with it. `issue_number` and `rest_id` must both resolve to positive
+ * integers; they are NOT required to differ (GitHub can issue equal values), the protection is the names.
+ * Throws TypeError, leaving the mapping untouched, for an unrecognised id or any invalid field.
+ */
+function setTrd(mapping, id, patch) {
+  const tid = toTrdId(id);
+  if (tid === null) throw new TypeError(`setTrd: unrecognised TRD id ${JSON.stringify(id)}`);
+  const existing = isPlainObject(mapping.trds) && hasOwn(mapping.trds, tid) ? mapping.trds[tid] : {};
+  const p = isPlainObject(patch) ? patch : {};
+  const pick = (field, fallback) => (hasOwn(p, field) ? p[field] : (existing[field] ?? fallback));
+
+  const issueNumber = coerceId(pick('issue_number', null));
+  if (issueNumber === null) throw new TypeError(`setTrd: ${tid} needs a positive integer issue_number`);
+  const restId = coerceId(pick('rest_id', null));
+  if (restId === null) throw new TypeError(`setTrd: ${tid} needs a positive integer rest_id`);
+
+  const idRole = /-d\d+$/.test(tid) ? 'decision' : 'trd';
+  const role = pick('role', idRole);
+  if (!TRD_ROLES.includes(role)) throw new TypeError(`setTrd: ${tid} role must be trd or decision`);
+  if (role !== idRole) throw new TypeError(`setTrd: ${tid} is a ${idRole} id but role is ${role}`);
+
+  const commentIds = mergeCommentIds(tid, existing.comment_ids, p.comment_ids === undefined ? {} : p.comment_ids);
+
+  if (!isPlainObject(mapping.trds)) mapping.trds = {};
+  mapping.trds[tid] = { issue_number: issueNumber, rest_id: restId, role, comment_ids: commentIds };
+  return mapping;
+}
+
+/**
+ * Ids in `mapping.trds` that belong to objective `objectiveArg` (any spelling), natural-sorted. TRDs only,
+ * unless `{ includeDecisions: true }`. Keys that are not TRD ids are skipped; the objective part must be
+ * equal, so objective 7 does not list "70-01" or "7.1-01".
+ */
+function listTrds(mapping, objectiveArg, { includeDecisions = false } = {}) {
+  const objective = toObjectiveId(objectiveArg);
+  if (objective === null || !isPlainObject(mapping) || !isPlainObject(mapping.trds)) return [];
+  return Object.keys(mapping.trds)
+    .filter((key) => {
+      const m = key.match(TRD_ID_RE);
+      if (!m || `${parseInt(m[1], 10)}${m[2] || ''}` !== objective) return false;
+      return includeDecisions || !m[4];
+    })
+    .sort(naturalCompare);
+}
+
+// ─── Entity entries (objective 48: todo, debug, quick) ───────────────────────
+
+const ENTITY_ROLE_NAMES = ['todo', 'debug', 'quick'];
+
+/**
+ * `{ id, role }` for an entity id, or null. The grammar is gh-trd's ENTITY_ID_RE. Entity ids have exactly
+ * one spelling, so, unlike toTrdId, nothing is trimmed or normalised: a key is an entity id or it is not.
+ *   "todo-2026-07-31-a" -> { id: "todo-2026-07-31-a", role: "todo" }   "quick-12" -> { id, role: "quick" }
+ *   "quick-x" | "47-01" | "todo-" | " todo-a" | null -> null
+ */
+function toEntityId(arg) {
+  if (typeof arg !== 'string' || !ENTITY_ID_RE.test(arg)) return null;
+  return { id: arg, role: arg.slice(0, arg.indexOf('-')) };
+}
+
+/** The entry for an entity id, or null. */
+function getEntity(mapping, id) {
+  const e = toEntityId(id);
+  if (e === null || !isPlainObject(mapping) || !isPlainObject(mapping.entities)) return null;
+  return hasOwn(mapping.entities, e.id) ? mapping.entities[e.id] : null;
+}
+
+/**
+ * Set fields on an entity's entry, in place, and return the mapping. Same rules as setTrd: the patch MERGES
+ * onto the existing entry and the result always carries the four fields, in this order:
+ *   { issue_number, rest_id, role: 'todo' | 'debug' | 'quick', comment_ids: { <kind>: [id, ...] } }
+ * `role` defaults from the id prefix and must agree with it. Throws TypeError, leaving the mapping
+ * untouched, for an unrecognised id or any invalid field.
+ */
+function setEntity(mapping, id, patch) {
+  const e = toEntityId(id);
+  if (e === null) throw new TypeError(`setEntity: unrecognised entity id ${JSON.stringify(id)}`);
+  const eid = e.id;
+  const existing = isPlainObject(mapping.entities) && hasOwn(mapping.entities, eid) ? mapping.entities[eid] : {};
+  const p = isPlainObject(patch) ? patch : {};
+  const pick = (field, fallback) => (hasOwn(p, field) ? p[field] : (existing[field] ?? fallback));
+
+  const issueNumber = coerceId(pick('issue_number', null));
+  if (issueNumber === null) throw new TypeError(`setEntity: ${eid} needs a positive integer issue_number`);
+  const restId = coerceId(pick('rest_id', null));
+  if (restId === null) throw new TypeError(`setEntity: ${eid} needs a positive integer rest_id`);
+
+  const role = pick('role', e.role);
+  if (!ENTITY_ROLE_NAMES.includes(role)) throw new TypeError(`setEntity: ${eid} role must be todo, debug or quick`);
+  if (role !== e.role) throw new TypeError(`setEntity: ${eid} is a ${e.role} id but role is ${role}`);
+
+  const commentIds = mergeCommentIds(eid, existing.comment_ids, p.comment_ids === undefined ? {} : p.comment_ids, 'setEntity');
+
+  if (!isPlainObject(mapping.entities)) mapping.entities = {};
+  mapping.entities[eid] = { issue_number: issueNumber, rest_id: restId, role, comment_ids: commentIds };
+  return mapping;
+}
+
+/**
+ * Entity ids in `mapping.entities` with role `role` (every entity id when `role` is omitted),
+ * natural-sorted (`quick-2` before `quick-10`). Keys that are not entity ids are skipped.
+ */
+function listEntities(mapping, role) {
+  if (!isPlainObject(mapping) || !isPlainObject(mapping.entities)) return [];
+  return Object.keys(mapping.entities)
+    .filter((key) => {
+      const e = toEntityId(key);
+      return e !== null && (role === undefined || e.role === role);
+    })
+    .sort(naturalCompare);
+}
+
+// ─── PR entries (objective 49: the objective branch and its pull request) ────
+
+// The fields of a `prs[<objective>]` entry, in the order they are stored and rendered. Only `branch` is
+// required; the rest appear as the lifecycle reaches them (start: base, wiki_base_sha; upsert-pr: number,
+// node_id, url; merge and reconcile: merged_at, reconciled_at). There is no `title`: it is create-only and the
+// remote title is authoritative afterwards.
+const PR_FIELDS = ['branch', 'base', 'number', 'node_id', 'url', 'wiki_base_sha', 'merged_at', 'reconciled_at'];
+
+/** The `prs` entry for any spelling of an objective ("049", "7.1-foo", 49), or null. */
+function getPr(mapping, arg) {
+  const id = toObjectiveId(arg);
+  if (id === null || !isPlainObject(mapping) || !isPlainObject(mapping.prs)) return null;
+  return hasOwn(mapping.prs, id) ? mapping.prs[id] : null;
+}
+
+/**
+ * Set fields on an objective's PR entry, in place, and return the mapping. The patch MERGES onto the existing
+ * entry: a field the patch names wins, `undefined` is not a patch, and an explicit `null` removes the field
+ * (every field but `branch` is optional, so absence is the empty value; an entry never stores a null).
+ * Stored fields are in PR_FIELDS order whatever order they arrive in; a field this module does not know that
+ * is already on disk (a later objective's) is kept after them. Throws TypeError, leaving the mapping
+ * untouched, for an unrecognised objective, a patch key that is not a PR field, an invalid value (`number`
+ * is a positive integer, every other field a non-empty string), or a result with no `branch`.
+ */
+function setPr(mapping, arg, patch) {
+  const id = toObjectiveId(arg);
+  if (id === null) throw new TypeError(`setPr: unrecognised objective ${JSON.stringify(arg)}`);
+  const p = isPlainObject(patch) ? patch : {};
+  const unknown = Object.keys(p).filter((k) => !PR_FIELDS.includes(k));
+  if (unknown.length) {
+    throw new TypeError(`setPr: objective ${id} has no field ${unknown.map((k) => JSON.stringify(k)).join(', ')} (fields: ${PR_FIELDS.join(', ')})`);
+  }
+
+  const existing = isPlainObject(mapping.prs) && hasOwn(mapping.prs, id) && isPlainObject(mapping.prs[id]) ? mapping.prs[id] : {};
+  const next = {};
+  for (const field of PR_FIELDS) {
+    const named = hasOwn(p, field) && p[field] !== undefined;
+    const value = named ? p[field] : existing[field];
+    if (value === undefined || value === null) continue;
+    if (!named) { next[field] = value; continue; } // already on disk: carried, not re-judged
+    if (field === 'number') {
+      const n = coerceId(value);
+      if (n === null) throw new TypeError(`setPr: objective ${id} number must be a positive integer, got ${JSON.stringify(value)}`);
+      next[field] = n;
+    } else {
+      if (typeof value !== 'string' || value === '') {
+        throw new TypeError(`setPr: objective ${id} ${field} must be a non-empty string, got ${JSON.stringify(value)}`);
+      }
+      next[field] = value;
+    }
+  }
+  if (next.branch === undefined) throw new TypeError(`setPr: objective ${id} needs a branch`);
+  for (const k of Object.keys(existing)) if (!PR_FIELDS.includes(k)) next[k] = existing[k];
+
+  if (!isPlainObject(mapping.prs)) mapping.prs = {};
+  mapping.prs[id] = next;
+  return mapping;
+}
+
+/**
+ * Every PR entry as `[objectiveId, entry]` pairs, sorted numerically by objective id (2, 2.1, 10). Keys whose
+ * value is not an object are skipped. `[]` when the mapping has no `prs`.
+ */
+function listPrs(mapping) {
+  if (!isPlainObject(mapping) || !isPlainObject(mapping.prs)) return [];
+  return Object.keys(mapping.prs)
+    .filter((key) => isPlainObject(mapping.prs[key]))
+    .sort(compareIds)
+    .map((key) => [key, mapping.prs[key]]);
+}
+
+module.exports = {
+  MAPPING_VERSION,
+  MAPPING_REL,
+  toObjectiveId,
+  toTrdId,
+  getTrd,
+  setTrd,
+  listTrds,
+  toEntityId,
+  getEntity,
+  setEntity,
+  listEntities,
+  getPr,
+  setPr,
+  listPrs,
+  compareIds,
+  listObjectiveIndex,
+  resolveObjective,
+  emptyMapping,
+  migrateMapping,
+  normalizeSyncStateKeys,
+  serializeMapping,
+  readMappingV3,
+  readMappingV3WithReport,
+  writeMappingV3,
+  getEntry,
+  setEntry,
+};

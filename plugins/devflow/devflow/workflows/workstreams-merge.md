@@ -108,9 +108,13 @@ The `--squash` strategy creates a single clean commit per workstream on main.
    git add .planning/
    ```
 
-4. **Commit the merge:**
+4. **Commit the merge** as its own call, never chained after the merge or the conflict resolution in step 3.
+A squash leaves no `MERGE_HEAD` (only `SQUASH_MSG`), so gate-commits cannot see a merge in progress and would
+deny a bare `git commit`. This one command carries the inline `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix, the
+sanctioned per-command escape; it has to be on the same command, since the gate cannot see a variable set in
+an earlier call:
 ```bash
-git commit -m "feat: merge {ws-name} (Objective {N}: {objective name})"
+DEVFLOW_ALLOW_RAW_COMMIT=1 git commit -m "feat: merge {ws-name} (Objective {N}: {objective name})"
 ```
 
 5. **Update workstream status in workstreams.json:**
@@ -129,12 +133,18 @@ RECONCILE=$(node ~/.claude/devflow/bin/df-tools.cjs workstreams reconcile)
 ```
 
 This command:
-- Updates ROADMAP.md progress from disk (counts actual JOB vs SUMMARY files)
+- Recounts ROADMAP.md progress from disk (actual TRD vs SUMMARY files)
 - Regenerates STATE.md pointing to the join objective
 - Merges accumulated context (decisions, blockers) from all workstream STATE.md files
-- Updates workstreams.json (moves active to completed_workstreams)
+- Moves the active entries in workstreams.json to completed_workstreams
 
 Parse the result for `next_objective` and `next_objective_name`.
+
+**Store mode** (`node ~/.claude/devflow/bin/df-tools.cjs planning mode` prints `store`): ROADMAP.md and
+STATE.md are generated views, so reconcile's local rewrite of them must not stand. Run
+`node ~/.claude/devflow/bin/df-tools.cjs gh pull --all` right after reconcile to regenerate both from the
+store, and carry any workstream decisions or blockers over with `df-tools state add-decision` /
+`state add-blocker`. In local mode, reconcile's output stands as is.
 
 </step>
 

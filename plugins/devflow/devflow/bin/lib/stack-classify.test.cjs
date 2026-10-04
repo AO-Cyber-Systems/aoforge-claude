@@ -33,6 +33,7 @@ const {
   STANDARD_KEYS_EXT,
   USES_MAP,
 } = require('./stack-classify.cjs');
+const classify = require('./stack-classify.cjs');
 const { STANDARD_KEYS } = require('./stack-evidence.cjs');
 
 const KEY_PATTERN = new RegExp(
@@ -749,4 +750,369 @@ describe('toolStack: language-neutral generators (TRD 42-15 recovery)', () => {
       assert.equal(toolStack(input), NEUTRAL_STACK);
     });
   }
+});
+
+// TRD 43-04 (D4): environment bring-up and scenario targets get their own key, `e2e_env`. A name that
+// pairs an environment token with a scenario token, or a body that brings an environment up, is never
+// build / test / e2e. Tokens are whole words from the existing splitter, never substrings.
+describe('K23 e2e_env: name and body classification (TRD 43-04, tests 3-5)', () => {
+  const { classifyHint } = require('./stack-classify.cjs');
+
+  for (const name of ['e2e-stack-up', 'integration-env-up', 'e2e:seed', 'scenario-cluster-start', 'e2e_compose_down', 'up-e2e']) {
+    test(`classifyHint(${JSON.stringify(name)}) is e2e_env, low confidence, check form`, () => {
+      const got = classifyHint(name);
+      assert.equal(got.key, 'e2e_env');
+      assert.equal(got.form, 'check');
+      assert.equal(got.confidence, 'low');
+    });
+    test(`an opaque wrapper hinted ${JSON.stringify(name)} is e2e_env`, () => {
+      assert.equal(classifyInvocation('make x', { hint: name }).key, 'e2e_env');
+      assert.equal(classifyInvocation('./scripts/x.sh', { hint: name }).key, 'e2e_env');
+    });
+  }
+
+  for (const name of ['e2e', 'test-e2e', 'playwright', 'e2e-tests', 'integration']) {
+    test(`classifyHint(${JSON.stringify(name)}) keeps its old key (no environment token)`, () => {
+      const got = classifyHint(name);
+      assert.ok(!got || got.key !== 'e2e_env');
+    });
+  }
+
+  test('a plain e2e hint stays e2e; test-e2e and playwright too', () => {
+    assert.equal(classifyHint('e2e').key, 'e2e');
+    assert.equal(classifyHint('test-e2e').key, 'e2e');
+    assert.equal(classifyHint('playwright').key, 'e2e');
+  });
+
+  test('tokens are whole words: setup is not up, restart is not start, upstream is not up', () => {
+    for (const name of ['e2e-setup', 'e2e-restart', 'integration-upstream', 'scenario-environment', 'e2e-stacked']) {
+      const got = classifyHint(name);
+      assert.ok(!got || got.key !== 'e2e_env', `${name} must not be e2e_env`);
+    }
+  });
+
+  test('an environment token without a scenario token is not e2e_env', () => {
+    for (const name of ['stack-up', 'docker-up', 'start', 'env-seed', 'cluster-down']) {
+      const got = classifyHint(name);
+      assert.ok(!got || got.key !== 'e2e_env', `${name} must not be e2e_env`);
+    }
+  });
+
+  test('the name rule outranks the test and build tokens: e2e-stack-up is never e2e, test or build', () => {
+    for (const name of ['e2e-stack-up', 'build-e2e-env', 'integration-test-env-up']) {
+      assert.equal(classifyHint(name).key, 'e2e_env', name);
+    }
+  });
+
+  const BODIES = [
+    'docker compose up -d',
+    'docker compose -f e2e/compose.yml up -d',
+    'docker compose -p shopsvc --profile e2e up -d --wait',
+    'docker compose run --rm tests',
+    'docker compose start db',
+    'docker-compose up -d',
+    'docker-compose run --rm tests',
+    'kind create cluster --name shopsvc',
+    'k3d cluster create shopsvc',
+    'kubectl apply -f k8s/',
+    'kubectl wait --for=condition=ready pod --all',
+    'helm install shopsvc ./chart',
+    'helm upgrade --install shopsvc ./chart',
+    'tilt up',
+  ];
+  for (const body of BODIES) {
+    test(`body ${JSON.stringify(body)} is e2e_env in mutate form`, () => {
+      const got = classifyInvocation(body);
+      assert.ok(got, 'classified');
+      assert.equal(got.key, 'e2e_env');
+      assert.equal(got.form, 'mutate');
+      assert.equal(got.confidence, 'high');
+    });
+  }
+
+  test('bodies that merely mention the tools are not e2e_env', () => {
+    for (const body of ['docker compose build', 'docker compose config', 'docker compose logs api', 'docker compose down', 'helm lint chart/', 'helm template x ./chart', 'kind version', 'echo kubectl apply']) {
+      const got = classifyInvocation(body);
+      assert.ok(!got || got.key !== 'e2e_env', `${body} must not be e2e_env`);
+    }
+  });
+
+  test('docker build is still build; helm lint is still lint_helm', () => {
+    assert.equal(classifyInvocation('docker build .').key, 'build');
+    assert.equal(classifyInvocation('helm lint chart/').key, 'lint_helm');
+  });
+
+  test('e2e_env is a known key: in STANDARD_KEYS_EXT right after e2e, and it satisfies the key pattern', () => {
+    const i = STANDARD_KEYS_EXT.indexOf('e2e');
+    assert.equal(STANDARD_KEYS_EXT[i + 1], 'e2e_env');
+    assert.ok(KEY_PATTERN.test('e2e_env'));
+  });
+
+  test('every e2e_env row sits after the last e2e row and before the first test row', () => {
+    const keys = CLASSIFY_TABLE.map((r) => r.key);
+    assert.ok(keys.includes('e2e_env'));
+    assert.ok(keys.indexOf('e2e_env') > keys.lastIndexOf('e2e'));
+    assert.ok(keys.lastIndexOf('e2e_env') < keys.indexOf('test'));
+  });
+});
+
+// TRD 43-06 (devflowops / aodex goldens): a check or apply SUFFIX in a target name names the form of the
+// key the rest of the name carries, for every key with that form, not only format. `lint-fix` is
+// lint's apply, `tidy-check` tidy's check. A drift check (`git diff --exit-code` / `--quiet`) is what a
+// `<x>-check` target runs after regenerating; stack-evidence reads it through isDriftCheck.
+describe('K25 hint forms from check / apply suffixes; drift checks (TRD 43-06)', () => {
+  const { classifyHint, isDriftCheck } = require('./stack-classify.cjs');
+  const pick = (r) => (r ? { key: r.key, form: r.form } : null);
+
+  test('K25a: `<key>-fix` (any separator) is the apply form of lint, format and tidy', () => {
+    for (const name of ['lint-fix', 'lint:fix', 'lint_fix', 'fix-lint']) {
+      assert.deepEqual(pick(classifyHint(name)), { key: 'lint', form: 'apply' }, name);
+    }
+    assert.deepEqual(pick(classifyHint('fmt-fix')), { key: 'format', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('tidy-fix')), { key: 'tidy', form: 'apply' });
+  });
+
+  test('K25b: `<key>-check` / `-verify` / `-diff` is the check form of format, tidy, codegen and fix', () => {
+    assert.deepEqual(pick(classifyHint('tidy-check')), { key: 'tidy', form: 'check' });
+    assert.deepEqual(pick(classifyHint('generate-check')), { key: 'codegen', form: 'check' });
+    assert.deepEqual(pick(classifyHint('codegen:verify')), { key: 'codegen', form: 'check' });
+    assert.deepEqual(pick(classifyHint('fmt-check')), { key: 'format', form: 'check' });
+    assert.deepEqual(pick(classifyHint('format-diff')), { key: 'format', form: 'check' });
+    assert.deepEqual(pick(classifyHint('fix-check')), { key: 'fix', form: 'check' });
+  });
+
+  test('K25c: without a suffix the conservative forms stand; a suffix never changes the key', () => {
+    assert.deepEqual(pick(classifyHint('fmt')), { key: 'format', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('tidy')), { key: 'tidy', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('generate')), { key: 'codegen', form: 'mutate' });
+    assert.deepEqual(pick(classifyHint('fix')), { key: 'fix', form: 'apply' });
+    assert.deepEqual(pick(classifyHint('lint')), { key: 'lint', form: 'check' });
+    assert.deepEqual(pick(classifyHint('build-check')), { key: 'build', form: 'build' }, 'build has no check form');
+    assert.deepEqual(pick(classifyHint('test-fix')), { key: 'test', form: 'check' }, 'test has no apply form');
+    assert.equal(classifyHint('check'), null);
+    assert.equal(classifyHint('verify'), null);
+  });
+
+  test('K25d: isDriftCheck is `git diff` with --exit-code or --quiet, nothing else', () => {
+    for (const cmd of ['git diff --exit-code', 'git diff --exit-code -- go.mod go.sum', 'git diff --quiet', 'git --no-pager diff --exit-code']) {
+      assert.equal(isDriftCheck(cmd), true, cmd);
+    }
+    for (const cmd of ['git diff', 'git diff --stat', 'git status --porcelain', 'go test ./...', 'diff -u a b', '']) {
+      assert.equal(isDriftCheck(cmd), false, cmd);
+    }
+  });
+});
+
+// TRD 43-09 (devflowops.format / devflowops.tidy / aodex.codegen rows): the drift checks real recipes
+// write. A captured `$(git diff …)` tested non-empty, and a `diff -q` of a mktemp/snapshot copy against
+// the regenerated file, each followed by a failing exit. Read from the raw recipe TEXT (`$$` or `$`):
+// both shapes normalise to nothing a table row could see. driftCheckAt gives where the check statement
+// starts, so stack-evidence can look for the writer before it.
+describe('K27 drift checks as real recipes write them (TRD 43-09)', () => {
+  const { isDriftCheck, driftCheckAt } = require('./stack-classify.cjs');
+  const CAPTURED_MAKE = 'out=$$(git diff --color=never cmd views); if [ -n "$$out" ]; then echo "run make fmt"; echo "$${out}"; exit 1; fi';
+  const CAPTURED_SH = 'changes="$(git diff --name-only -- go.mod go.sum)"\nif [ -n "$changes" ]; then\n  echo "$changes"\n  exit 1\nfi';
+
+  test('K27a: a captured `git diff` tested non-empty and failing is a drift check ($$ and $ spellings)', () => {
+    assert.equal(isDriftCheck(CAPTURED_MAKE), true, 'Makefile $$ spelling');
+    assert.equal(isDriftCheck(CAPTURED_SH), true, 'shell $ spelling');
+    assert.equal(isDriftCheck('d=`git -C api diff`; [ -z "$d" ] || exit 1'), true, 'backticks, -z, || exit');
+    assert.equal(isDriftCheck('if [ -n "$(git diff)" ]; then false; fi'), true, 'inline capture, `false`');
+    assert.equal(isDriftCheck('rc=1; d=$(git diff); if [ -n "$d" ]; then exit $rc; fi'), true, '`exit $rc`');
+  });
+
+  test('K27b: a snapshot `diff`/`cmp` against the in-tree file, then a failing exit, is a drift check', () => {
+    assert.equal(isDriftCheck('diff -q $$tmp/f.go f.go || exit 1'), true, '`|| exit 1`');
+    assert.equal(isDriftCheck('snap=$$(mktemp -d) && cp a.gen.go $$snap/ && go generate ./... && if ! diff -q $$snap/a.gen.go a.gen.go >/dev/null; then cp $$snap/a.gen.go .; exit 1; fi'), true, '`if ! diff -q … then … exit 1`');
+    assert.equal(isDriftCheck('keep=$(mktemp -d)\ncp out.json "$keep/"\n./gen.sh\ncmp "$keep/out.json" out.json || exit 1'), true, 'cmp, quoted, mktemp-assigned');
+    assert.equal(isDriftCheck('diff -u .snapshots/api.txt api.txt || { echo stale; exit 1; }'), true, 'a snapshot directory');
+    assert.equal(isDriftCheck('diff $TMPDIR/x.pb.go x.pb.go || exit 1'), true, 'no flag');
+  });
+
+  test('K27c: a diff that is only shown, or not of a snapshot, is not a drift check', () => {
+    assert.equal(isDriftCheck('d=$$(git diff); echo "$$d"'), false, 'captured and echoed only');
+    assert.equal(isDriftCheck('d=$(git diff); if [ -n "$d" ]; then echo "$d"; fi'), false, 'tested but never failing');
+    assert.equal(isDriftCheck('git diff --stat'), false);
+    assert.equal(isDriftCheck('diff -u $$tmp/a a | head -30 || true'), false, '`|| true` is not a failing exit');
+    assert.equal(isDriftCheck('diff -u expected.txt actual.txt || exit 1'), false, 'neither side is a snapshot');
+    assert.equal(isDriftCheck('d=$(git log -1); [ -n "$d" ] || exit 1'), false, 'not a git diff');
+    assert.equal(isDriftCheck('d=$(git diff); echo "$d"; [ -n "$KEY" ] || exit 1'), false, 'the test reads another variable');
+    assert.equal(isDriftCheck('exit 0'), false);
+  });
+
+  test('K27d: driftCheckAt points at the start of the check statement, -1 when there is none', () => {
+    const text = 'go generate ./api/... >/dev/null 2>&1 && if ! diff -q $$tmp/a.go a.go; then exit 1; fi';
+    const at = driftCheckAt(text);
+    assert.equal(text.slice(0, at).trim(), 'go generate ./api/... >/dev/null 2>&1 &&');
+    assert.equal(driftCheckAt(CAPTURED_MAKE), 0);
+    assert.equal(driftCheckAt('gofmt -w .'), -1);
+    assert.equal(driftCheckAt(''), -1);
+  });
+
+  // quick-29 (CodeQL js/redos, alert 138): GIT_DIFF's option alternatives overlapped (`-C` read as the
+  // option-with-value and as a bare flag; `\S+` could swallow the next `-A`), so a long run of `-C -A `
+  // had exponentially many parses. Hand-built adversarial input, timed.
+  test('K27e: driftCheckAt stays linear on a long run of git options (quick-29, alert 138)', () => {
+    const started = process.hrtime.bigint();
+    const at = driftCheckAt('$(git ' + '-C -A '.repeat(50000));
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(at, -1);
+    assert.ok(elapsedMs < 200, `took ${elapsedMs}ms`);
+  });
+
+  test('K27f: git options with and without a value are still read as a captured git diff (quick-29)', () => {
+    // driftCheckAt wants the whole drift shape: the capture, a non-empty test of it, then a failing exit.
+    const drift = (capture) => `out=${capture}; [ -n "$out" ] || exit 1`;
+    assert.equal(driftCheckAt(drift('$(git -Cfoo diff)')), 0, 'attached -C value');
+    assert.equal(driftCheckAt(drift('`git -C "$d" diff`')), 0, 'quoted -C value');
+    assert.equal(driftCheckAt(drift('$(git -C /repo diff --quiet)')), 0, '-C with a path');
+    assert.equal(driftCheckAt(drift('$$(git -c core.x=y --no-pager diff)')), 0, '-c k=v and a long flag');
+    assert.equal(driftCheckAt(drift('$(git --git-dir=.git diff)')), 0, 'long option with =value');
+    assert.equal(driftCheckAt(drift('$(git log)')), -1, 'not a diff');
+  });
+});
+
+// TRD 43-09 (aocore.lint_helm row): an install step that ends by printing the tool's version
+// (`kubeconform -v`) is a presence probe, never a gate for any key. Checked before the table, so no row
+// (a bare-tool row like kubeconform's, or kubectl's e2e_env row) can claim it. `-v` stays verbose for the
+// runners whose bare invocation runs the suite (pytest, ginkgo, mypy).
+describe('K28 version probes are never gates (TRD 43-09)', () => {
+  test('K28a: `<tool> -v`, `--version`, `version` and `version --short|--client` classify to null', () => {
+    for (const cmd of ['kubeconform -v', 'helm version', 'golangci-lint --version', 'go version', 'kubectl version --client', 'helm version --short', 'govulncheck --version', 'npx eslint -v']) {
+      assert.equal(classifyInvocation(cmd), null, cmd);
+      assert.equal(classifyInvocation(cmd, { hint: 'lint' }), null, `${cmd} with a hint`);
+    }
+  });
+
+  test('K28b: the gates themselves still classify; `-v` among other operands is a flag, not a probe', () => {
+    const pick = (r) => (r ? { key: r.key, form: r.form } : null);
+    assert.deepEqual(pick(classifyInvocation('kubeconform -strict -summary out.yaml')), { key: 'lint_helm', form: 'check' });
+    assert.deepEqual(pick(classifyInvocation('go test -v ./...')), { key: 'test', form: 'check' });
+    assert.deepEqual(pick(classifyInvocation('pytest -v')), { key: 'test', form: 'check' }, 'pytest -v runs the suite');
+    assert.deepEqual(pick(classifyInvocation('ginkgo -v')), { key: 'test', form: 'check' }, 'ginkgo -v runs the suite');
+    assert.deepEqual(pick(classifyInvocation('helm lint charts/a/')), { key: 'lint_helm', form: 'check' });
+    assert.deepEqual(pick(classifyInvocation('go version -m ./bin/x')), null, 'go version -m reads a binary: not a gate either');
+  });
+});
+
+// TRD 43-06 (devcluster golden): shellcheck is the repo-wide linter of a shell repo, and a `selftest`
+// is a test entry point (an offline self-test), so both classify without a runner around them.
+describe('K26 shellcheck and selftest (TRD 43-06)', () => {
+  const { classifyHint } = require('./stack-classify.cjs');
+  test('K26a: `shellcheck <files>` is lint, check form, high confidence', () => {
+    const got = classifyInvocation('shellcheck bin/*.sh lib/*.sh t0-conformance/*.sh');
+    assert.ok(got);
+    assert.deepEqual({ key: got.key, form: got.form, tool: got.tool, confidence: got.confidence }, { key: 'lint', form: 'check', tool: 'shellcheck', confidence: 'high' });
+  });
+  test('K26b: a `selftest` / `selftests` name is test; `self-test` already was', () => {
+    for (const name of ['selftest', 'selftests', 'run-selftest', 'self-test']) assert.equal((classifyHint(name) || {}).key, 'test', name);
+    assert.equal(classifyInvocation('bash t0-conformance/selftest.sh', { hint: 'selftest' }).key, 'test');
+  });
+});
+
+// TRD 43-11 (eden-biz e2e rows): a scenario-environment NAME can say the target tears the environment down
+// (`e2e-stack-down`, `e2e-teardown`, `integration-env-stop`) or resets it (`e2e-db-reset`). envRole reads
+// whole tokens only: `seed`, `up` and `start` stay bring-ups (43-04 keeps `e2e:seed` an e2e_env), and
+// `downstream` or `presets` say nothing.
+describe('K29 envRole: environment teardown and reset names (TRD 43-11 test 8)', () => {
+  const { envRole, classifyHint } = require('./stack-classify.cjs');
+  test('K29a: down / stop / teardown / destroy whole tokens are a teardown', () => {
+    for (const name of ['e2e-stack-down', 'e2e-teardown', 'integration-env-stop', 'e2e:destroy', 'scenario_down']) {
+      assert.equal(envRole(name), 'teardown', name);
+    }
+  });
+  test('K29b: a reset whole token is a reset', () => {
+    for (const name of ['e2e-db-reset', 'integration:reset', 'reset-e2e-env']) assert.equal(envRole(name), 'reset', name);
+  });
+  test('K29c: bring-ups, seeds and look-alike tokens carry no role', () => {
+    for (const name of ['e2e-stack-up', 'e2e:seed', 'integration-env-up', 'e2e-start', 'e2e-downstream', 'presets', 'e2e', '']) {
+      assert.equal(envRole(name), null, name);
+    }
+    assert.equal(envRole(null), null);
+    assert.equal(envRole(undefined), null);
+  });
+  test('K29d: classifyHint is unchanged — a teardown name still classifies as e2e_env (the drafter reads the role)', () => {
+    assert.equal((classifyHint('e2e-stack-down') || {}).key, 'e2e_env');
+    assert.equal((classifyHint('e2e:seed') || {}).key, 'e2e_env');
+  });
+});
+
+// TRD 43-12 (aocore.lint row): an action with a FIXED CLI equivalent is a candidate (USES_CLI), looked up with
+// lookupUses' prefix matching; every other action (gosec, codeql, buf, setup-*) stays existence-only. A lint
+// tool is dedicated when the table gives it lint and no build/test row (golangci-lint, not `go vet`).
+describe('K30 lookupUsesCli and dedicated linters (TRD 43-12 test 4)', () => {
+  const lookupUsesCli = (ref) => (typeof classify.lookupUsesCli === 'function' ? classify.lookupUsesCli(ref) : undefined);
+
+  test('K30a: an @ref, a pinned sha and a sub-path all find the entry; the command is the fixed CLI', () => {
+    const want = { key: 'lint', form: 'check', command: 'golangci-lint run ./...', tool: 'golangci-lint' };
+    assert.deepStrictEqual(lookupUsesCli('golangci/golangci-lint-action@v9'), want);
+    assert.deepStrictEqual(lookupUsesCli('golangci/golangci-lint-action@9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c'), want);
+    assert.deepStrictEqual(lookupUsesCli('golang/govulncheck-action/sub@v1'), { key: 'audit', form: 'check', command: 'govulncheck ./...', tool: 'govulncheck' });
+    assert.deepStrictEqual(lookupUsesCli('golang/govulncheck-action'), { key: 'audit', form: 'check', command: 'govulncheck ./...', tool: 'govulncheck' });
+  });
+
+  test('K30b: an action with no fixed CLI equivalent, a setup action, a look-alike and junk give null', () => {
+    for (const ref of ['securego/gosec@v2', 'github/codeql-action/analyze@v3', 'bufbuild/buf-action@v1', 'actions/setup-go@v5',
+      'golangci/golangci-lint-action-fork@v1', './.github/actions/lint', 'docker://golangci/golangci-lint:v2', '', null, 3]) {
+      assert.equal(lookupUsesCli(ref), null, JSON.stringify(ref));
+    }
+  });
+
+  test('K30c: every USES_CLI command classifies to its own key and tool, and its prefix is a USES_MAP entry of that key', () => {
+    assert.ok(Array.isArray(classify.USES_CLI) && classify.USES_CLI.length >= 2);
+    for (const e of classify.USES_CLI) {
+      const c = classifyInvocation(e.command);
+      assert.equal(c && c.key, e.key, e.command);
+      assert.equal(c && c.tool, e.tool, e.command);
+      assert.equal((lookupUses(e.prefix) || {}).key, e.key, e.prefix);
+    }
+  });
+
+  test('K30d: isDedicatedLinter — a lint tool with no build/test row; a toolchain driver is not one', () => {
+    const isDedicatedLinter = (t) => (typeof classify.isDedicatedLinter === 'function' ? classify.isDedicatedLinter(t) : undefined);
+    for (const t of ['golangci-lint', 'staticcheck', 'eslint', 'ruff', 'shellcheck']) assert.equal(isDedicatedLinter(t), true, t);
+    for (const t of ['go', 'dart', 'flutter', 'cargo', 'govulncheck', 'gofmt', null, '']) assert.equal(isDedicatedLinter(t), false, String(t));
+  });
+});
+
+// TRD 43-13 (aocore.build row): buildBreadth judges a `go build` the way testBreadth judges a test. A `./...`
+// pattern operand builds the module (broad), as does a bare `go build` with no `-o`. An explicit package
+// operand, or a single `-o` output with none, builds one binary (narrow). Any other tool is `unknown`.
+describe('K31 buildBreadth (TRD 43-13 test 3)', () => {
+  const buildBreadth = (inv) => (typeof classify.buildBreadth === 'function' ? classify.buildBreadth(inv) : undefined);
+  const breadth = (inv) => (buildBreadth(inv) || {}).breadth;
+
+  test('K31a: a `./...` pattern operand, or no operand and no -o, is broad', () => {
+    for (const inv of ['go build ./...', 'go build', 'go build ./cmd/...', 'go build -v -trimpath ./...', 'GOOS=linux go build ./...',
+      'go build -o bin/ ./...', 'go build ./cmd/a/... ./cmd/b/...']) {
+      assert.equal(breadth(inv), 'broad', inv);
+    }
+  });
+
+  test('K31b: an explicit package operand or a single -o output is narrow, with the packages it builds', () => {
+    const cases = [
+      ['go build ./cmd/x', ['./cmd/x']],
+      ['go build -o /tmp/x ./cmd/x', ['./cmd/x']],
+      ['go build -tags dev -o /tmp/x ./cmd/x', ['./cmd/x']],
+      ['go build -ldflags "-s -w" -o bin/app ./cmd/app', ['./cmd/app']],
+      ['go build -o /tmp/x', ['.']],
+      ['go build ./cmd/a ./cmd/b', ['./cmd/a', './cmd/b']],
+      // a redirection is never an operand (found on the fleet in GREEN: `2>&1` was read as a package)
+      ['go build -o /dev/null ./cmd/x 2>&1', ['./cmd/x']],
+      ['go build -o /tmp/x ./cmd/x > build.log', ['./cmd/x']],
+    ];
+    for (const [inv, packages] of cases) {
+      const b = buildBreadth(inv);
+      assert.equal(b && b.breadth, 'narrow', inv);
+      assert.deepStrictEqual(b.packages, packages, inv);
+      assert.ok(typeof b.reason === 'string' && b.reason, `${inv}: a narrow build says why`);
+    }
+  });
+
+  test('K31c: another tool, a non-build go command, a variable operand and junk are unknown', () => {
+    for (const inv of ['flutter build web', 'dart compile exe bin/main.dart', 'go test ./cmd/x', 'go vet ./...', 'make build',
+      'go build -o "out/${bin}" "./cmd/${bin}"', '', null]) {
+      assert.equal(breadth(inv), 'unknown', String(inv));
+    }
+  });
 });

@@ -4,9 +4,9 @@ status: active
 <purpose>
 Orchestrate parallel debug agents to investigate UAT gaps and find root causes.
 
-After UAT finds gaps, spawn one debug agent per gap. Each agent investigates autonomously with symptoms pre-filled from UAT. Collect root causes, update UAT.md gaps with diagnosis, then hand off to plan-objective --gaps with actual diagnoses.
+After UAT finds gaps, spawn one debug agent per gap. Each agent investigates autonomously with symptoms pre-filled from UAT. Collect root causes, record each diagnosis in the UAT.md gaps (draft + `df-tools doc put`), then hand off to plan-objective --gaps with actual diagnoses.
 
-Orchestrator stays lean: parse gaps, spawn agents, collect results, update UAT.
+Orchestrator stays lean: parse gaps, spawn agents, collect results, publish the diagnosed UAT.
 </purpose>
 
 <paths>
@@ -153,9 +153,17 @@ If agent returns `## INVESTIGATION INCONCLUSIVE`:
 </step>
 
 <step name="update_uat">
-**Update UAT.md gaps with diagnosis:**
+**Record the diagnosis in the UAT gaps:**
 
-For each gap in the Gaps section, add artifacts and missing fields:
+Open the UAT draft — the same working copy verify-work uses, seeded from the current file if no draft exists:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{phase_num}-UAT.md
+```
+
+Note the printed path (`$UAT_DRAFT` below) — shell variables do not survive between Bash calls.
+
+For each gap in the draft's Gaps section, add artifacts and missing fields:
 
 ```yaml
 - truth: "Comment appears immediately after submission"
@@ -173,10 +181,11 @@ For each gap in the Gaps section, add artifacts and missing fields:
   debug_session: .planning/debug/comment-not-refreshing.md
 ```
 
-Update status in frontmatter to "diagnosed".
+Set status in the draft's frontmatter to "diagnosed".
 
-Commit the updated UAT.md:
+Publish the draft (local mode writes the same UAT.md as before; store mode also queues its wiki page), then commit it (local mode; in store mode `commit` skips the gitignored cache path):
 ```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs({phase_num}): add root causes from diagnosis" --files ".planning/objectives/XX-name/{phase_num}-UAT.md"
 ```
 </step>

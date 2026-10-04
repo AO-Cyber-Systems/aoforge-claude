@@ -16,7 +16,7 @@ allowed-tools:
 <objective>
 Manage objectives in the current milestone roadmap. Routes by first argument:
 - `add <description>` — Add a new integer objective to the end of the milestone
-- `remove <number> [--force] [--confirm]` — Preview the removal + renumber plan.
+- `remove <number> [--force] [--confirm]` — Preview the removal + renumber plan. Store mode refuses deletes; close the objective with `df-tools objective set-status <id> cancelled` instead.
   Dry-run by default: without `--confirm` nothing is deleted or renamed.
   `--confirm` authorizes the destructive cascade (delete the objective, then
   renumber every subsequent objective's directory, the files inside it, and its

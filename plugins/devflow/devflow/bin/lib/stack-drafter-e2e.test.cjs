@@ -11,7 +11,8 @@
 //                                   the audit); no `-fmt` format; lint_helm; e2e is not test
 //  2  fragment build (eden-biz)     api-dart is dart; no `${{`; the build is noted, never a fragment
 //  3  comment test (devflow)        extends go; test is never a comment; lint inherited/go vet
-//  4  echo release (aoinference)    extends go; keys from control-plane/Makefile with cwd; no echo
+//  4  echo release (aoinference)    extends general + component control-plane/ (TRD 43-05); build/test/lint from its
+//                                   Makefile with cwd; no echo
 //  5  control fragment (eden-circle) no control fragment; test from the Makefile
 //  6  continuation + sed            the joined go test; sed never classified
 //  7  manifest-only Flutter         extends flutter; only e2e: maestro test .maestro; inherits mcp
@@ -152,12 +153,16 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     const r = stackInit(repo);
     assert.equal(r.status, 0, r.stderr);
     const { fm } = r;
-    assert.equal(fm.extends, 'go');
+    // TRD 43-05, D3 (literal rule): no root manifest -> general + the one go area as a component; the
+    // primary component supplies the root build/test/lint, each from `control-plane`.
+    assert.equal(fm.extends, 'general');
+    assert.deepStrictEqual(fm.components, [{ path: 'control-plane/', profile: 'go' }]);
     assert.deepStrictEqual(fm.commands.test, { run: 'make test', cwd: 'control-plane' });
     assert.deepStrictEqual(fm.commands.lint, { run: 'make lint', cwd: 'control-plane' });
     assert.deepStrictEqual(fm.commands.build, { run: 'make build', cwd: 'control-plane' });
     assert.ok(!allRuns(fm.commands).some((v) => /echo|Published/.test(v)));
-    // Inherited go commands would otherwise run at the root, where there is no go.mod.
+    // The component inherits format/fix/audit/codegen/tidy from its tier: none is a root key.
+    for (const key of ['tidy', 'format', 'fix', 'audit', 'codegen']) assert.equal(key in fm.commands, false, key);
     for (const entry of Object.values(fm.commands)) assert.equal(entry.cwd, 'control-plane');
     assertNoFragments(fm.commands);
   }));
@@ -254,7 +259,10 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     const subtree = json.notes.find((n) => n.status === 'narrow' && n.candidate === 'go test ./pkg/guardnet/...');
     assert.ok(subtree, `a package sub-tree is not repo-wide: ${JSON.stringify(json.notes)}`);
     assert.match(subtree.detail, /single-path/);
-    assert.ok(json.notes.some((n) => n.status === 'alternate' && n.key === 'build' && n.candidate === 'task build:agent:internal'), JSON.stringify(json.notes));
+    // TRD 43-01 D5: `build:agent:internal` is `internal: true`, so it cannot be run from the CLI and
+    // is never offered, not even as an alternate. A public variant still is.
+    assert.ok(!json.notes.some((n) => /build:agent:internal/.test(String(n.candidate || ''))), JSON.stringify(json.notes));
+    assert.ok(json.notes.some((n) => n.status === 'alternate' && n.key === 'build' && n.candidate === 'task build:agent:quickdev'), JSON.stringify(json.notes));
     assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
     assertNoFragments(fm.commands);
 
@@ -340,9 +348,12 @@ describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
     const r = stackInit(repo, { git: true });
     assert.equal(r.status, 0, r.stderr);
     const { fm, json } = r;
-    assert.equal(fm.extends, 'go');
+    // TRD 43-05, D3: general root + the one go area `go/` as a component (the checkout path is still never the cwd).
+    assert.equal(fm.extends, 'general');
+    assert.deepStrictEqual(fm.components, [{ path: 'go/', profile: 'go' }]);
     assert.deepStrictEqual(fm.commands.test, { run: 'go test -race -count=1 ./...', scoped: 'go test -race {packages}', cwd: 'go' });
     for (const cwd of cwdsOf(fm.commands)) assert.equal(cwd, 'go', JSON.stringify(fm.commands));
+    for (const key of ['build', 'lint']) assert.equal((fm.commands[key] || {}).cwd, 'go', `${key} falls back to the go tier from go/: ${JSON.stringify(fm.commands)}`);
     assert.ok(!json.evidence.some((e) => String(e.cwd || '').startsWith('svcrepo')), JSON.stringify(json.evidence.map((e) => e.cwd)));
     assert.ok(!JSON.stringify(json.notes).includes('svcrepo/'), JSON.stringify(json.notes));
   }));
@@ -382,5 +393,154 @@ describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
     assert.match(raw.stderr, /\.planning\/STACK\.md/);
     assert.match(raw.stderr, /\.planning\/STACK-REPORT\.md/);
     assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false, 'a preview writes nothing');
+  }));
+});
+
+// ─── TRD 43-01: runner readers (D1 Make variables, D5 internal Taskfile tasks) ────────────────
+//
+//  18  D1 aggregate Make    `build: frontend backend` with a `$(GO) build` leg drafts make build/test/lint
+//  19  D5 internal tasks    `internal: true` Taskfile tasks are never a command or a candidate
+//      (and e2e 11 no longer expects an `alternate` note for its internal build task)
+
+describe('stack init closes the runner-reader defects end to end (TRD 43-01)', () => {
+  test('18: D1 aggregate Make — `$(GO)` expands, so `make build/test/lint` win (devflowops-shaped)', () => withShape(fx.aggregateMakeShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    for (const key of ['build', 'test', 'lint']) {
+      assert.equal((fm.commands[key] || {}).run, `make ${key}`, `${key}: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`);
+    }
+    assert.ok(
+      !json.notes.some((n) => n.status === 'off_stack' && n.candidate === 'make build'),
+      `make build is not off_stack: ${JSON.stringify(json.notes)}`,
+    );
+    assert.ok(!JSON.stringify(fm.commands).includes('app_no_gcc'), `no variant name in commands: ${JSON.stringify(fm.commands)}`);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('19: D5 internal tasks — never a command, candidate or note; tidy stays the go tier default (ao-terminal-shaped)', () => withShape(fx.internalTaskShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    assert.equal(fm.extends, 'go');
+    const hidden = /\btask (go:mod:tidy|npm:install)\b/;
+    assert.ok(!allRuns(fm.commands).some((v) => hidden.test(v)), `commands: ${JSON.stringify(fm.commands)}`);
+    assert.ok(!json.evidence.some((e) => hidden.test(String(e.command))), `candidates: ${JSON.stringify(json.evidence)}`);
+    assert.ok(!json.notes.some((n) => hidden.test(String(n.candidate || ''))), `notes: ${JSON.stringify(json.notes)}`);
+    // With no override, `tidy` is whatever the bundled go profile says.
+    assert.equal('tidy' in fm.commands, false, `tidy inherits the go tier, not ${JSON.stringify(fm.commands.tidy)}`);
+    const goTier = parseProfile(fs.readFileSync(path.join(__dirname, '..', '..', 'stack-profiles', 'go.md'), 'utf-8')).frontmatter;
+    assert.equal(goTier.commands.tidy.run, 'go mod tidy -diff');
+    assert.equal(goTier.commands.tidy.apply, 'go mod tidy');
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+});
+
+// ─── TRD 43-04: environment and scenario targets get their own key (D4) ─────────────────────────
+//
+//  20  env bring-up (eden-biz)   `make e2e-stack-up` is e2e_env, never e2e; a single-purpose check
+//                                script is a narrow note, never the repo-wide test
+//  21  scenario wrapper (EdenDocs) a wrapper named *-e2e.sh is e2e, though its first body line is go build
+
+describe('stack init gives environment and scenario targets their own key end to end (TRD 43-04)', () => {
+  const TOOLS = [...fx.DEFAULT_TOOLCHAIN, 'docker', 'npx'];
+
+  test('20: env bring-up — `make e2e-stack-up` is e2e_env; the migrations check script is a narrow note (eden-biz-shaped)', () => withShape(fx.envBringUpShape, (repo) => {
+    const r = stackInit(repo, { tools: TOOLS });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal((fm.commands.e2e_env || {}).run, 'make e2e-stack-up', detail);
+    assert.notEqual((fm.commands.e2e_env || {}).run, 'make infra-up', `a generic compose target must not outrank the scenario-named one: ${detail}`);
+    assert.notEqual((fm.commands.e2e || {}).run, 'make e2e-stack-up', detail);
+    assert.equal((fm.commands.e2e || {}).run, 'make e2e', detail);
+    assert.ok(!allRuns(fm.commands).some((v) => /check-migrations/.test(v)), detail);
+    const n = json.notes.find((x) => x.status === 'narrow' && /check-migrations_test\.sh/.test(String(x.candidate)));
+    assert.ok(n, detail);
+    assert.match(n.detail, /single-purpose script/);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('21: scenario wrapper — `docs-e2e.sh` is e2e, never build, though its first body line is go build (EdenDocs-shaped)', () => withShape(fx.scenarioWrapperShape, (repo) => {
+    const r = stackInit(repo, { tools: TOOLS });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal((fm.commands.e2e || {}).run, './docsvc/scripts/docs-e2e.sh', detail);
+    for (const [key, entry] of Object.entries(fm.commands)) {
+      if (key === 'e2e') continue;
+      assert.ok(!allRuns({ [key]: entry }).some((v) => /docs-e2e/.test(v)), `${key} holds the scenario script: ${detail}`);
+    }
+    assert.ok(!json.notes.some((x) => x.key === 'build' && /docs-e2e/.test(String(x.candidate))), detail);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+});
+
+// ─── TRD 43-05: manifest-less roots and the primary component (D3, D6, D2) ──────────────────────────
+//
+//  22  manifest-less shell repo (devcluster)   general + the one go tool as a component; root lint/test
+//                                              are the shell Makefile recipes (no gate drops them); build
+//                                              is the single-component fallback with cwd
+//  23  recipe wraps a component (navigators)   root test `just test-go` with no cwd; primary_component
+//                                              note names `api/`
+//  24  component Makefile (aodex, politihub)   root build/test `make X` with cwd `go`; the `infra/tiles`
+//                                              script is a sub_area note, never a root key; no lint
+
+describe('stack init places commands through the primary component end to end (TRD 43-05)', () => {
+  const TOOLS = [...fx.DEFAULT_TOOLCHAIN, 'shellcheck', 'bash'];
+
+  test('22: manifest-less shell repo — general + the Go tool as the one component (devcluster-shaped)', () => withShape(fx.manifestlessShellShape, (repo) => {
+    const r = stackInit(repo, { tools: TOOLS });
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal(fm.extends, 'general', detail);
+    assert.deepStrictEqual(fm.components, [{ path: 'tools/proxy/', profile: 'go' }], detail);
+    // The shell recipes are root candidates: no stack gate drops them, and they beat the go fallback.
+    assert.deepStrictEqual(fm.commands.lint, { run: 'make lint' }, detail);
+    assert.deepStrictEqual(fm.commands.test, { run: 'make test' }, detail);
+    assert.deepStrictEqual(fm.commands.build, { run: 'go build ./...', cwd: 'tools/proxy' }, detail);
+    for (const key of ['format', 'fix', 'audit', 'codegen', 'tidy']) assert.equal(key in fm.commands, false, `${key}: ${detail}`);
+    const primary = json.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary && primary.area === 'tools/proxy/', detail);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('23: a root recipe that wraps a component keeps no cwd; the primary component is named (navigators-shaped)', () => withShape(fx.recipeWrapsComponentShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal(fm.extends, 'general', detail);
+    assert.deepStrictEqual(fm.components, [{ path: 'api/', profile: 'go' }, { path: 'app/', profile: 'flutter' }], detail);
+    assert.deepStrictEqual(fm.commands.test, { run: 'just test-go' }, detail);
+    const primary = json.notes.find((n) => n.tag === 'primary_component');
+    assert.ok(primary, detail);
+    assert.match(primary.detail, /primary component api\/ \(go\)/);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
+  }));
+
+  test('24: a component Makefile supplies root build/test with cwd; a sub-dir script is a sub_area note (aodex/politihub-shaped)', () => withShape(fx.componentMakefileShape, (repo) => {
+    const r = stackInit(repo);
+    assert.equal(r.status, 0, r.stderr);
+    const { fm, json } = r;
+    const detail = `commands: ${JSON.stringify(fm.commands)} notes: ${JSON.stringify(json.notes)}`;
+    assert.equal(fm.extends, 'general', detail);
+    assert.deepStrictEqual(fm.components, [{ path: 'flutter/', profile: 'flutter' }, { path: 'go/', profile: 'go' }], detail);
+    assert.deepStrictEqual(fm.commands.build, { run: 'make build', cwd: 'go' }, detail);
+    assert.deepStrictEqual(fm.commands.test, { run: 'make test', cwd: 'go' }, detail);
+    assert.equal('lint' in fm.commands, false, `two components: no tier-default fallback: ${detail}`);
+    assert.ok(!allRuns(fm.commands).some((v) => /tiles|gen-tiles/.test(v)) && !cwdsOf(fm.commands).some((c) => /tiles/.test(c)), detail);
+    const sub = json.notes.find((n) => n.status === 'sub_area' && n.candidate === './build.sh');
+    assert.ok(sub, detail);
+    assert.match(sub.detail, /infra\/tiles\//);
+    assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));
+    assertNoFragments(fm.commands);
   }));
 });

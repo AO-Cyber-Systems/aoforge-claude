@@ -193,7 +193,34 @@ function cmdTemplateFill(cwd, templateType, options, raw) {
 
   fs.writeFileSync(outPath, fullContent, 'utf-8');
   const relPath = path.relative(cwd, outPath);
+  if (require('./planning-mode.cjs').isStoreMode(cwd)) return storeRecordDraft(cwd, outPath, fullContent, relPath, templateType, raw);
   output({ created: true, path: relPath, template: templateType }, raw, relPath);
+}
+
+/**
+ * Store mode (objective 48, TRD 48-14, D-19): the draft is written into the cache path exactly as in local mode, then
+ * recorded in the verb-write ledger so W055 stays quiet until the flow ends in the verb named by `publish_with`
+ * (`summary post`, `verification post`, `plan put-trd`). GitHub does not hold the draft, so the entry carries the
+ * `(not queued)` mark (48-11): no flush ever baselines it, and the publishing verb clears the mark.
+ */
+function storeRecordDraft(cwd, outPath, text, relPath, templateType, raw) {
+  const planningMode = require('./planning-mode.cjs');
+  const planningPaths = require('./planning-paths.cjs');
+  const main = planningMode.resolveMainRoot(cwd);
+  const rel = (main && planningPaths.relToPlanning(outPath, path.join(main, '.planning')))
+    || planningPaths.relToPlanning(outPath, path.join(cwd, '.planning'));
+  const result = { created: true, path: relPath, template: templateType };
+  if (rel !== null) {
+    const c = planningPaths.classify(rel);
+    if (c.verb) result.publish_with = c.verb;
+    try {
+      const { UNQUEUED_MARK } = require('./gh-store-cli.cjs');
+      require('./planning-ledger.cjs').record(main, rel, text, { verb: `template fill${UNQUEUED_MARK}` });
+    } catch (e) {
+      result.warning = `ledger not updated for ${rel}: ${e.message}`;
+    }
+  }
+  output(result, raw, relPath);
 }
 
 module.exports = {

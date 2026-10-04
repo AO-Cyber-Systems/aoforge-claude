@@ -44,6 +44,20 @@ describe('recordOverride()', () => {
     assert.equal(readOverrides({ planningDir: pd() }).total, 1, 'still logged');
   });
 
+  test('gh is a known env-driven gate (50-02): logged, no marker armed', () => {
+    assert.equal(Object.prototype.hasOwnProperty.call(GATES, 'gh'), true, 'gh must be a known gate');
+    assert.equal(GATES.gh, null, 'env-driven (DEVFLOW_SKIP_GH_GATE): no marker');
+    const r = recordOverride({ planningDir: pd(), gate: 'gh', reason: 'release chore on main', now: '2026-10-01T00:00:00Z' });
+    assert.equal(r.ok, true);
+    assert.equal(r.gate, 'gh');
+    assert.equal(r.marker, null);
+    const lines = fs.readFileSync(path.join(pd(), '.override-log.jsonl'), 'utf8').trim().split('\n');
+    assert.equal(lines.length, 1);
+    assert.deepEqual(JSON.parse(lines[0]), { gate: 'gh', reason: 'release chore on main', at: '2026-10-01T00:00:00Z' });
+    const markers = fs.readdirSync(pd()).filter((f) => f !== '.override-log.jsonl');
+    assert.deepEqual(markers, [], 'no marker file is written');
+  });
+
   test('a reason is mandatory — this is the whole point', () => {
     for (const bad of [undefined, null, '', '   ']) {
       const r = recordOverride({ planningDir: pd(), gate: 'edits', reason: bad });

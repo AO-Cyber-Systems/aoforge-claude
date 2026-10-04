@@ -100,6 +100,7 @@ async function cmdInitiativesSync(cwd, args) {
     const result = await init.syncInitiatives({
       home: flags.home,
       project_id: flags['project-id'],
+      cwd,
       initiative: flags.initiative,
       force: flags.force === true,
     });

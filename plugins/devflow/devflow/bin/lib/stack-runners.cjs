@@ -151,14 +151,77 @@ function cleanRecipeText(text) {
 // `.DEFAULT_GOAL := all` (any assignment operator) names the target a bare `make` runs.
 const MAKE_DEFAULT_GOAL = /^\.DEFAULT_GOAL\s*(?:::=|:=|\?=|\+=|!=|=)\s*([^\s#]+)/;
 
+// `[export|override] NAME op value` with op `?=`, `::=`, `:=` or `=` (TRD 43-01). `+=` (append) and
+// `!=` (shell) are deliberately not definitions: their value is not a literal this reader can use.
+const MAKE_ASSIGN = /^(?:(?:export|override)\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*(\?=|::=|:=|=)\s*(.*)$/;
+
+// A reference this reader may expand: `$$` (an escaped dollar, kept as written, and consumed here so
+// `$$(GO)` is never read as `$(GO)`), `$(NAME)` or `${NAME}` where NAME is a plain identifier.
+// `$(shell ...)`, `$(call f,x)`, `$(V:a=b)` and anything else with a space, comma or colon never match.
+const MAKE_REF = /\$\$|\$\(([A-Za-z_][A-Za-z0-9_]*)\)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+// How many variables deep one reference may chain (`A -> B -> C` is three).
+const MAKE_VAR_DEPTH = 3;
+
+/**
+ * Literal substitution of simple variable references from `vars` (name -> value text). Bounded
+ * literal substitution only: no `$(shell ...)`, functions, conditionals or target-specific values.
+ * An unknown name stays verbatim. A reference that cycles, or chains past MAKE_VAR_DEPTH, stays
+ * verbatim as a whole, so `A = $(A) x` is never half-expanded and nothing recurses forever.
+ * Nested calls return null when anything inside them was blocked; the top-level call never does.
+ */
+function expandMakeVars(text, vars, depth = 0, trail = []) {
+  let blocked = false;
+  const out = String(text).replace(MAKE_REF, (ref, paren, brace) => {
+    const name = paren || brace;
+    if (name === undefined || !vars.has(name)) return ref;
+    const inner = depth >= MAKE_VAR_DEPTH || trail.includes(name)
+      ? null
+      : expandMakeVars(vars.get(name), vars, depth + 1, [...trail, name]);
+    if (inner === null) {
+      blocked = true;
+      return ref;
+    }
+    return inner;
+  });
+  return blocked && depth > 0 ? null : out;
+}
+
+/** The index of the first unescaped `#` in `text` (a `\#` is a literal hash), or -1. */
+function makeCommentAt(text) {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '#') continue;
+    let slashes = 0;
+    for (let k = i - 1; k >= 0 && text[k] === '\\'; k--) slashes++;
+    if (slashes % 2 === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * The index of the `;` that starts a rule line's inline recipe, or -1 (TRD 43-09). GNU make takes the
+ * inline recipe from "an unquoted ; that is not after an unquoted #": in `t: ## help; more`, the `;`
+ * is comment text, so `more` never becomes a recipe unit. A `#` AFTER the `;` belongs to the recipe
+ * (make passes it to the shell).
+ */
+function makeInlineSemi(rest) {
+  const semi = rest.indexOf(';');
+  if (semi < 0) return -1;
+  const hash = makeCommentAt(rest);
+  return hash >= 0 && hash < semi ? -1 : semi;
+}
+
 /**
  * Prerequisite names from the text after a rule's colon: everything before a `;` inline recipe,
  * order-only prerequisites (after `|`) included. A target-specific variable line
  * (`test: GOFLAGS += -v`) has no prerequisites; variable references and patterns are skipped.
  */
 function makePrereqs(rest) {
-  const semi = rest.indexOf(';');
-  const part = (semi >= 0 ? rest.slice(0, semi) : rest).replace(/#.*$/, '');
+  const semi = makeInlineSemi(rest);
+  let part = semi >= 0 ? rest.slice(0, semi) : rest;
+  const hash = makeCommentAt(part);
+  if (hash >= 0) part = part.slice(0, hash);
+  part = part.replace(/\\#/g, '#');
   if (part.includes('=')) return [];
   return part.trim().split(/\s+/).filter((n) => n && n !== '|' && !/[%$()]/.test(n));
 }
@@ -171,6 +234,9 @@ function makePrereqs(rest) {
  * targets, pattern rules (`%`) and targets containing `$(...)` are not targets. `define` blocks
  * are skipped. A target defined twice accumulates its recipes and its prerequisites. `deps` maps
  * every target to its prerequisite names; `defaultGoal` is the `.DEFAULT_GOAL` value or null.
+ *
+ * Simple variable references in recipe lines (`$(GO)`, `${GO}`) are expanded from the Makefile's own
+ * `?=` / `:=` / `::=` / `=` assignments, bounded at three levels (see `expandMakeVars`).
  */
 function parseMakefile(text) {
   const byName = new Map();
@@ -179,6 +245,7 @@ function parseMakefile(text) {
   let defaultGoal = null;
   let current = []; // entries receiving recipe lines
   let defineDepth = 0;
+  const vars = new Map(); // simple assignments, name -> literal value (TRD 43-01)
 
   for (const line of logicalLines(text)) {
     if (defineDepth > 0) {
@@ -213,6 +280,16 @@ function parseMakefile(text) {
       current = [];
       continue;
     }
+    // Checked BEFORE MAKE_RULE so `GO := go` is never read as a rule: `?=` keeps the first
+    // definition, `:=` / `::=` / `=` always take the later one (make's last-wins for those).
+    const assign = MAKE_ASSIGN.exec(line);
+    if (assign) {
+      current = [];
+      if (assign[2] !== '?=' || !vars.has(assign[1])) {
+        vars.set(assign[1], assign[3].replace(/(?<!\\)#.*$/, '').trim());
+      }
+      continue;
+    }
 
     const rule = MAKE_RULE.exec(line);
     current = [];
@@ -221,7 +298,7 @@ function parseMakefile(text) {
       .filter((n) => n && !MAKE_SPECIAL.test(n) && !/[%$()]/.test(n));
     if (names.length === 0) continue;
     const rest = rule[2];
-    const semi = rest.indexOf(';');
+    const semi = makeInlineSemi(rest);
     const inline = semi >= 0 ? cleanRecipeText(rest.slice(semi + 1)) : null;
     const prereqs = makePrereqs(rest);
     for (const name of names) {
@@ -237,7 +314,14 @@ function parseMakefile(text) {
       current.push(entry);
     }
   }
-  return { targets: [...byName.values()], hasInclude, deps: Object.fromEntries(depsOf), defaultGoal };
+  // Expanded after the whole scan: make expands a recipe lazily, so a variable defined below the
+  // rule still applies, and the parser (not the classifier) owns it so `hasTarget`, bodies and
+  // dependency expansion all see the same text.
+  const targets = [...byName.values()];
+  if (vars.size > 0) {
+    for (const entry of targets) entry.body = entry.body.map((cmd) => expandMakeVars(cmd, vars));
+  }
+  return { targets, hasInclude, deps: Object.fromEntries(depsOf), defaultGoal };
 }
 
 function makeInvocation(dir, name) {
@@ -473,7 +557,7 @@ function taskDeps(entry) {
 
 /** One task's properties from its header value and the rows under it. */
 function readTaskProps(value, rows) {
-  const task = { body: [], aliases: [], dir: null, deps: [] };
+  const task = { body: [], aliases: [], dir: null, deps: [], internal: false };
   const v = cleanValue(value);
   if (v !== '') { // shorthand: `name: go build ./...`, `name: [a, b]`, `name: |`
     task.body = valueLines(v, rows);
@@ -492,15 +576,20 @@ function readTaskProps(value, rows) {
     else if (e.key === 'dir') {
       const d = yamlScalar(e.value);
       if (d !== '') task.dir = d;
+    } else if (e.key === 'internal') {
+      // `true` or `"true"` only: a templated or any other value is not provably internal.
+      task.internal = yamlScalar(e.value) === 'true';
     }
   }
   return task;
 }
 
 /**
- * Parse Taskfile text -> `{ tasks: [{ name, aliases, body, dir, deps }], hasIncludes }`.
- * `dir` is the task's own `dir:` verbatim; `deps` the task names its `deps:` lists; `hasIncludes`
- * is true when a top-level `includes:` brings in tasks this reader cannot see.
+ * Parse Taskfile text -> `{ tasks: [{ name, aliases, body, dir, deps, internal }], hasIncludes }`.
+ * `dir` is the task's own `dir:` verbatim; `deps` the task names its `deps:` lists; `internal` is
+ * true for `internal: true` (a task `task <name>` cannot run from the CLI; it stays in this list
+ * because a public task that depends on or calls it still runs its body); `hasIncludes` is true
+ * when a top-level `includes:` brings in tasks this reader cannot see.
  */
 function parseTaskfile(text) {
   const rows = yamlRows(text);
@@ -520,7 +609,7 @@ function parseTaskfile(text) {
     if (first) {
       for (const e of mapEntries(section, first.indent, matchTaskName)) {
         const p = readTaskProps(e.value, e.rows);
-        tasks.push({ name: e.key, aliases: p.aliases, body: p.body, dir: p.dir, deps: p.deps });
+        tasks.push({ name: e.key, aliases: p.aliases, body: p.body, dir: p.dir, deps: p.deps, internal: p.internal });
       }
     }
     i = end - 1;
@@ -641,6 +730,7 @@ function collectTask(d, targets, exec) {
       body: t.body,
       invocation: taskInvocation(d.rel, t.name),
       deps: t.deps,
+      internal: t.internal === true,
       isDefault: t.name === 'default', // a bare `task` runs the task named `default`
       order,
     };
@@ -976,7 +1066,9 @@ function hasTarget(root, { runner, dir = '', name } = {}) {
       const text = file ? readText(path.join(abs, file)) : null;
       if (text === null) return false;
       const parsed = parseTaskfile(text);
-      if (parsed.tasks.some((t) => t.name === name || t.aliases.includes(name))) return true;
+      const task = parsed.tasks.find((t) => t.name === name || t.aliases.includes(name));
+      // An internal task was found but cannot be invoked from the CLI: false, never 'unknown'.
+      if (task) return !task.internal;
       return parsed.hasIncludes ? 'unknown' : false;
     }
     case 'just': {

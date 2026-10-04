@@ -212,11 +212,20 @@ If gaps_found:
 <step name="create_report">
 ```bash
 REPORT_PATH="$OBJECTIVE_DIR/${OBJECTIVE_NUM}-VERIFICATION.md"
+node ~/.claude/devflow/bin/df-tools.cjs planning draft "objectives/<objective-dir-name>/${OBJECTIVE_NUM}-VERIFICATION.md"
 ```
 
-Fill template sections: frontmatter (objective/timestamp/status/score), goal achievement, artifact table, wiring table, requirements coverage, anti-patterns, human verification, gaps summary, fix plans (if gaps_found), metadata.
+`planning draft` prints the draft path (seeded from a previous report if one exists); note it — shell variables do not survive between Bash calls.
+
+In the draft (Write tool, replacing any seeded content), fill the template sections: frontmatter (objective/timestamp/status/score), goal achievement, artifact table, wiring table, requirements coverage, anti-patterns, human verification, gaps summary, fix plans (if gaps_found), metadata.
 
 See ~/.claude/devflow/templates/verification-report.md for complete template.
+
+Publish once, at the end. Local mode writes `$REPORT_PATH`, the same file as before; store mode also queues the sticky `devflow:verification` comment on the objective issue:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs verification post "$OBJECTIVE_NUM" --from "<draft path>"
+```
 </step>
 
 <step name="return_to_orchestrator">
@@ -240,6 +249,6 @@ Orchestrator routes: `passed` → update_roadmap | `gaps_found` → create/execu
 - [ ] Human verification items identified
 - [ ] Overall status determined
 - [ ] Fix plans generated (if gaps_found)
-- [ ] VERIFICATION.md created with complete report
+- [ ] Complete report drafted and published with `verification post`
 - [ ] Results returned to orchestrator
 </success_criteria>

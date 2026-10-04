@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, normalizeObjectiveName, generateSlugInternal, isGitIgnored } = require('./helpers.cjs');
+const { spawnSync } = require('child_process');
+const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey, normalizeObjectiveName, generateSlugInternal } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getArchivedObjectiveDirs, findObjectiveInternal } = require('./objective.cjs');
@@ -259,11 +260,14 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
   const jobFiles = findPlanFiles(objectiveFiles).sort();
   const summaryFiles = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
 
-  // Build set of job IDs with a completed SUMMARY (a Progress-only checkpoint is not complete)
-  const completedJobIds = new Set(
+  // Build set of NN-MM keys with a completed SUMMARY (a Progress-only checkpoint is not complete).
+  // Pair on the key (TRD 53-02), so `NN-MM-<slug>-TRD.md` is complete under `NN-MM-SUMMARY.md`
+  // or `NN-MM-<slug>-SUMMARY.md`. The job `id` below stays `stripPlanSuffix(jobFile)`: that JSON
+  // shape is consumed by execute-objective.
+  const completedJobKeys = new Set(
     summaryFiles
       .filter(s => _summaryIsComplete(path.join(objectiveDir, s)))
-      .map(s => s.replace('-SUMMARY.md', '').replace('SUMMARY.md', ''))
+      .map(s => trdKey(s))
   );
 
   const plans = [];
@@ -299,7 +303,7 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
     const fmFiles = fm.files_modified ?? fm['files-modified'];
     if (fmFiles) filesModified = Array.isArray(fmFiles) ? fmFiles : [fmFiles];
 
-    const hasSummary = completedJobIds.has(jobId);
+    const hasSummary = completedJobKeys.has(trdKey(jobFile));
     if (!hasSummary) {
       incomplete.push(jobId);
     }
@@ -460,6 +464,18 @@ function mergeInProgress(cwd) {
   return execGit(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).exitCode === 0;
 }
 
+/**
+ * A merge or a rebase in progress in THIS checkout's own git dir (TRD 50-06). The same markers hooks/gate-commits.js reads:
+ * MERGE_HEAD, `rebase-merge/` and `rebase-apply/`. `--absolute-git-dir` is the per-worktree dir, which is where a linked
+ * worktree's rebase state lives. Any git failure reads as "nothing in progress".
+ */
+function mergeOrRebaseInProgress(cwd) {
+  if (mergeInProgress(cwd)) return true;
+  const gitDir = execGit(cwd, ['rev-parse', '--absolute-git-dir']);
+  if (gitDir.exitCode !== 0 || !gitDir.stdout) return false;
+  return ['rebase-merge', 'rebase-apply'].some((name) => fs.existsSync(path.join(gitDir.stdout, name)));
+}
+
 /** A --files argument as a repo-root-relative posix path ('' means the whole repo). */
 function repoPathOf(prefix, file) {
   const full = path.posix.normalize(prefix + String(file).replace(/\\/g, '/')).replace(/\/+$/, '');
@@ -504,6 +520,60 @@ function isPlanningPath(cwd, p) {
   return rel === '.planning' || rel.startsWith('.planning/');
 }
 
+/** Run git with stdin; never throws. */
+function gitInput(cwd, args, input) {
+  const r = spawnSync('git', args, { cwd, input, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  return { status: r.status, stdout: r.stdout || '', error: r.error };
+}
+
+/** True when the cwd-relative posix `entry` is `rel` or lies under it. */
+function coversPath(rel, entry) {
+  return rel === '' || entry === rel || entry.startsWith(rel + '/');
+}
+
+/**
+ * ignoredPaths(cwd, paths) -> Set of the `paths` arguments (verbatim) that `git add` would refuse as ignored
+ * (TRD 48-10, D-20). Store mode ignores `.planning/*` except config.json and STACK.md (U-1), so the whole-dir
+ * probe no longer answers for a single path. TRD 43-03 (D7): it now answers for every requested path, and for the
+ * whole-dir question too (`ignoredPaths(cwd, ['.planning'])`), so cmdCommit no longer calls helpers.isGitIgnored.
+ *
+ * One `git check-ignore --no-index --stdin -z -v -n` call: verbose + non-matching give one record per input, in
+ * input order, so a path is matched back by position (no reliance on how git echoes it), and a path matched only
+ * by a negation (`!.planning/config.json`) counts as NOT ignored.
+ *
+ * A path git already knows about (in the index, or in HEAD — e.g. a staged `rm --cached` removal) is never
+ * reported: `git add` stages a tracked file regardless of ignore rules, and a staged removal must reach the commit
+ * (TRD 44-06, migrations 0008 and 0010). So the set holds exactly the paths whose pathspec commit git would reject
+ * today ("did not match any file(s) known to git"). Any git failure → empty set (today's behaviour).
+ */
+function ignoredPaths(cwd, paths) {
+  if (!paths.length) return new Set();
+  const probe = gitInput(cwd, ['check-ignore', '--no-index', '--stdin', '-z', '-v', '-n'], paths.map((p) => `${p}\0`).join(''));
+  if (probe.error || (probe.status !== 0 && probe.status !== 1)) return new Set();
+  const fields = probe.stdout.split('\0');
+  const candidates = [];
+  paths.forEach((p, i) => {
+    const source = fields[i * 4];
+    const pattern = fields[i * 4 + 2] || '';
+    if (source && !pattern.startsWith('!')) candidates.push(p);
+  });
+  if (!candidates.length) return new Set();
+
+  const relOf = (p) => {
+    const rel = path.relative(cwd, path.resolve(cwd, String(p))).split(path.sep).join('/');
+    return rel === '.' ? '' : rel;
+  };
+  const known = [];
+  const index = gitInput(cwd, ['ls-files', '-z', '--', ...candidates], '');
+  if (index.status === 0) known.push(...index.stdout.split('\0').filter(Boolean));
+  const tree = gitInput(cwd, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...candidates], '');
+  if (tree.status === 0) known.push(...tree.stdout.split('\0').filter(Boolean));
+  return new Set(candidates.filter((p) => {
+    const rel = relOf(p);
+    return !known.some((entry) => coversPath(rel, entry));
+  }));
+}
+
 function cmdCommit(cwd, message, files, raw, amend) {
   if (!message && !amend) {
     error('commit message required');
@@ -517,20 +587,76 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // Order matters: commit_docs first, and only then the gitignore probe. The filter runs
   // BEFORE the TRD 44-06 removal detection below, so it and the foreign-index check see only
   // the filtered list — a staged planning path then counts as foreign and is never swept in.
+  //
+  // TRD 48-10 (D-20): the gitignore probe is two-stage. `.planning` wholly ignored → today's
+  // whole-dir drop, unchanged. Otherwise each requested planning path is probed on its own
+  // (store mode ignores `.planning/*` except config.json and STACK.md): an ignored path git
+  // knows nothing about is dropped into skipped_planning; config.json, STACK.md, tracked files,
+  // staged removals and code still commit. With no ignore rule under `.planning/` (local mode)
+  // nothing is dropped and the result is exactly today's.
+  //
+  // TRD 43-03 (D7): the per-path probe covers EVERY requested path, not just planning ones. A code
+  // path the repo ignores and git knows nothing about (`build/out.txt`) used to reach `git add`
+  // (refused) and then the pathspec commit ("did not match any file(s) known to git"), which
+  // failed the whole commit as `commit_failed` and took the tracked files named beside it down too.
+  // It now goes to `skipped_ignored` (planning paths keep `skipped_planning`), and the whole-dir
+  // question is asked of `ignoredPaths` too, so it is index- AND HEAD-aware like every per-path
+  // answer: a tracked file, or a staged removal still in HEAD, keeps `.planning` from reading as
+  // "wholly ignored". Both skipped lists appear in the result only when non-empty.
   const blocked = !config.commit_docs ? 'skipped_commit_docs_false'
-    : isGitIgnored(cwd, '.planning') ? 'skipped_gitignored' : null;
+    : ignoredPaths(cwd, ['.planning']).has('.planning') ? 'skipped_gitignored' : null;
   let filesToStage = requested;
   let skippedPlanning = [];
+  let skippedIgnored = [];
+  let dropReason = blocked;
   if (blocked) {
     skippedPlanning = requested.filter((f) => isPlanningPath(cwd, f));
     filesToStage = requested.filter((f) => !isPlanningPath(cwd, f));
-    if (filesToStage.length === 0) {
-      const result = { committed: false, hash: null, reason: blocked };
-      output(result, raw, 'skipped');
+  }
+  const ignored = ignoredPaths(cwd, filesToStage);
+  if (ignored.size) {
+    for (const f of filesToStage) {
+      if (!ignored.has(f)) continue;
+      (isPlanningPath(cwd, f) ? skippedPlanning : skippedIgnored).push(f);
+    }
+    filesToStage = filesToStage.filter((f) => !ignored.has(f));
+    dropReason = dropReason || 'skipped_gitignored';
+  }
+  if (dropReason && filesToStage.length === 0) {
+    const result = { committed: false, hash: null, reason: dropReason };
+    output(result, raw, 'skipped');
+    return;
+  }
+  const skippedField = {
+    ...(skippedPlanning.length ? { skipped_planning: skippedPlanning } : {}),
+    ...(skippedIgnored.length ? { skipped_ignored: skippedIgnored } : {}),
+  };
+
+  // TRD 50-06 (GEN-01): in store mode a commit lands only on an objective's linked branch (or on a `df/exec-*` worktree
+  // of it), never on the default branch or an unlinked one. The decision is gh-gate.cjs's (50-02, offline); it runs here —
+  // after the planning filter, so a commit that is wholly skipped stays `skipped` with exit 0, and BEFORE the `git add`
+  // loop below, so a refusal never touches the index. A merge or rebase in progress skips it: the `merge_in_progress`
+  // refusal and the raw-commit completion path own that case, and a rebase leaves HEAD detached. Amend is gated like any
+  // commit. DEVFLOW_SKIP_GH_GATE=1 lets the refused commit land; the override is logged once it has (see below), in the
+  // MAIN checkout's `.planning/`. Local mode never loads gh-gate.cjs, so its result keys and message bytes are unchanged.
+  const planningMode = require('./planning-mode.cjs');
+  const storeMode = planningMode.isStoreMode(cwd);
+  let gateObjective;
+  let gateEscape = null;
+  if (storeMode && !mergeOrRebaseInProgress(cwd)) {
+    const ghGate = require('./gh-gate.cjs');
+    const inputs = ghGate.readGateInputs(cwd);
+    const verdict = ghGate.evaluateGate({ ...inputs, env: process.env });
+    if (!verdict.allow) {
+      const result = { committed: false, hash: null, reason: verdict.reason, branch: inputs.branch, error: verdict.message };
+      // TRD 52-02: raw mode prints only the reason code, which would drop both remedies; the message goes to stderr.
+      if (raw) process.stderr.write(`${verdict.message}\n`);
+      output(result, raw, verdict.reason, 1);
       return;
     }
+    if (verdict.escaped) gateEscape = { verdict, branch: inputs.branch, env: ghGate.ESCAPE_ENV };
+    else gateObjective = verdict.objective;
   }
-  const skippedField = skippedPlanning.length ? { skipped_planning: skippedPlanning } : {};
 
   // TRD 44-06: staged removals whose working copy survives cannot go through the pathspec commit
   // below (it would re-add them from disk). Detect them first; `git add` must skip them too, or
@@ -557,13 +683,32 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // pathspec — git's `--only` pathspec mode re-stages listed paths from the working tree, which
   // would re-track the removed file. That is only safe when the index holds nothing outside
   // --files, so the foreign-index check below refuses otherwise (never sweep in other work).
+  //
+  // TRD 49-07 (GPR-02): in store mode a scoped commit names the issue it serves — `feat(49-02): x` gets a final
+  // `Refs #<TRD issue>` paragraph, `docs(49): x` the objective's. The issue comes from the mapping in the MAIN checkout
+  // (a worktree executor's own `.planning/` holds none). It never blocks: no scope, an unknown id or no mapping leaves
+  // the message untouched and the result carries `refs: null` with a reason. `--amend` keeps its message, so it is
+  // never touched. Local mode takes neither branch — the message bytes and result keys are exactly as before, and the
+  // trailer module (and so the mapping) is never even loaded.
+  //
+  // TRD 50-06: on a linked branch a message with no usable scope (`wip: notes`) references the linked objective's issue
+  // (the gate's `objective`), so every commit there carries a `Refs #`. A scoped message keeps the resolution above.
+  let commitMessage = message;
+  let refsField = {};
+  if (!amend && storeMode) {
+    const { refsFor, applyRefs } = require('./commit-trailer.cjs');
+    const refs = refsFor(planningMode.resolveMainRoot(cwd) || cwd, message, { objective: gateObjective });
+    commitMessage = applyRefs(message, refs.issue);
+    refsField = refs.issue === null ? { refs: null, refs_reason: refs.reason } : { refs: refs.issue };
+  }
+
   let commitArgs;
   if (amend) {
     commitArgs = ['commit', '--amend', '--no-edit'];
   } else if (removal) {
-    commitArgs = ['commit', '-m', message];
+    commitArgs = ['commit', '-m', commitMessage];
   } else {
-    commitArgs = ['commit', '-m', message, '--', ...filesToStage];
+    commitArgs = ['commit', '-m', commitMessage, '--', ...filesToStage];
   }
   // Issue #100 finding 5: a merge in progress makes the pathspec form above a
   // PARTIAL COMMIT, which git refuses outright. That refusal used to surface as
@@ -638,7 +783,24 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // Get short hash
   const hashResult = execGit(cwd, ['rev-parse', '--short', 'HEAD']);
   const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
-  const result = { committed: true, hash, reason: 'committed', ...skippedField };
+  // TRD 50-06: an escaped commit is logged only once it has landed — an override that overrode nothing (nothing to commit,
+  // a git failure) is not a signal worth keeping. The entry goes to the MAIN checkout's `.planning/` (a worktree's own is
+  // not where `df-tools override --list` reads). A log failure never undoes the commit: it is reported, not thrown.
+  let gateField = {};
+  if (gateEscape) {
+    const { verdict, branch, env } = gateEscape;
+    const reason = process.env.DEVFLOW_SKIP_GH_GATE_REASON ||
+      `env ${env}=1 (${verdict.reason} on ${branch || 'a detached HEAD'})`;
+    const mainRoot = planningMode.resolveMainRoot(cwd) || cwd;
+    let logged;
+    try {
+      logged = require('./override.cjs').recordOverride({ planningDir: path.join(mainRoot, '.planning'), gate: 'gh', reason });
+    } catch (e) {
+      logged = { ok: false, message: e.message };
+    }
+    gateField = logged.ok ? { gate_escaped: true } : { gate_escaped: true, gate_log_error: logged.message || logged.reason_code || 'override log failed' };
+  }
+  const result = { committed: true, hash, reason: 'committed', ...skippedField, ...refsField, ...gateField };
   output(result, raw, hash || 'committed');
 }
 
@@ -727,6 +889,29 @@ function cmdScaffold(cwd, type, options, raw) {
   output({ created: true, path: relPath }, raw, relPath);
 }
 
+/**
+ * Store mode `requirements mark-complete`: publish the edited REQUIREMENTS.md through `doc put` (cache write, ledger,
+ * wiki-push of its page, flush). Output is today's plus the verb result under `verb`; the exit code is the verb's
+ * (3 when the wiki-push is still pending, e.g. offline).
+ */
+function publishRequirements(root, text, { updated, notFound, reqIds }, raw) {
+  const r = require('./planning-verbs.cjs').docPut(root, {
+    rel: 'REQUIREMENTS.md',
+    text,
+    message: `requirements: mark ${updated.join(', ')} complete`,
+  });
+  const verb = { ok: r.ok === true, mode: r.mode, rel: r.rel, exit: r.exit, flush: r.flush ? r.flush.status : null, warnings: r.warnings || [] };
+  if (r.error) verb.error = r.error;
+  if (r.prose) verb.prose = r.prose;
+  output({
+    updated: true,
+    marked_complete: updated,
+    not_found: notFound,
+    total: reqIds.length,
+    verb,
+  }, raw, `${updated.length}/${reqIds.length} requirements marked complete`, r.exit);
+}
+
 function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
   if (!reqIdsRaw || reqIdsRaw.length === 0) {
     error('requirement IDs required. Usage: requirements mark-complete REQ-01,REQ-02 or REQ-01 REQ-02');
@@ -743,6 +928,11 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
   if (reqIds.length === 0) {
     error('no valid requirement IDs found');
   }
+
+  // Store mode (TRD 48-14, D-19): REQUIREMENTS.md is a GitHub-backed cache file (a wiki page). Read the MAIN
+  // checkout's copy (D-14), make today's edit in memory, and publish it with `doc put` instead of writing it directly.
+  const storeMode = require('./planning-mode.cjs').isStoreMode(cwd);
+  if (storeMode) cwd = require('./planning-mode.cjs').resolveMainRoot(cwd);
 
   const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
   if (!fs.existsSync(reqPath)) {
@@ -781,6 +971,8 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
       notFound.push(reqId);
     }
   }
+
+  if (updated.length > 0 && storeMode) return publishRequirements(cwd, reqContent, { updated, notFound, reqIds }, raw);
 
   if (updated.length > 0) {
     fs.writeFileSync(reqPath, reqContent, 'utf-8');

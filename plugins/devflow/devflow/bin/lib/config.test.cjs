@@ -415,3 +415,8 @@ describe('config-get documented defaults', () => {
   });
 
 });
+
+// TRD 46-08: the gh-project discovery cache TTL is a documented key.
+test('46-08: github.project_cache_ttl_minutes is documented with a default of 360', () => {
+  assert.deepStrictEqual(documentedDefault('github.project_cache_ttl_minutes'), { known: true, value: 360 });
+});

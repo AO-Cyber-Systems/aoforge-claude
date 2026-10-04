@@ -44,12 +44,26 @@
   },
   "github": {
     "enabled": false,
+    "store": false,
+    "mirror_only": false,
     "repo": "",
     "milestone_prefix": "v",
+    "project_cache_ttl_minutes": 360,
+    "app_login": "",
+    "app_id": "",
+    "checks_workflow": "",
     "labels": {
       "objective": "devflow:objective",
       "in_progress": "devflow:in-progress",
-      "gaps": "devflow:gaps"
+      "gaps": "devflow:gaps",
+      "trd": "devflow:trd",
+      "decision": "devflow:decision"
+    },
+    "wiki": {
+      "remote": ""
+    },
+    "pr": {
+      "merge_method": "squash"
     }
   },
   "awareness": {

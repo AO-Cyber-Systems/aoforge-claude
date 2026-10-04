@@ -61,7 +61,11 @@ Extract from result: `objective_number`, `padded`, `name`, `slug`, `directory`.
 </step>
 
 <step name="update_project_state">
-Update STATE.md to reflect the new objective:
+Check `node ~/.claude/devflow/bin/df-tools.cjs planning mode`.
+
+**Store:** `objective add` opened the objective's issue and created its directory. The issue is titled from the objective id, not the description, so give it the description and goal: draft OBJECTIVE.md at the path `node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/<dir>/OBJECTIVE.md` prints, then run `node ~/.claude/devflow/bin/df-tools.cjs objective put {N} --from "$DRAFT"`. STATE.md is generated — `node ~/.claude/devflow/bin/df-tools.cjs gh pull --all` refreshes it; no hand edit.
+
+**Local:** edit STATE.md as today to reflect the new objective:
 
 1. Read `.planning/STATE.md`
 2. Under "## Accumulated Context" → "### Roadmap Evolution" add entry:

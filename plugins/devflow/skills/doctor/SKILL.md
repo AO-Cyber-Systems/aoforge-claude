@@ -53,12 +53,20 @@ and does not read git state itself.
    - When `summary.fixable` is 0, or the user declines, do not run `--fix`.
    A bare invocation never applies a fix on its own.
 
-4. **Commit a legacy-runtime-state fix.** If the `--fix` report has a `fixes` entry for
-   `legacy-runtime-state` with `applied: true`, its `notes` contain a line
-   `commit with: node ~/.claude/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`. Run that
-   exact command with the Bash tool. Never use raw `git commit`. When the notes say
-   `nothing to commit (working files only)`, there is nothing to commit. When the entry has
-   `refused`, report the reason and the manual command; do not work around the guard.
+4. **Commit a legacy-runtime-state or pending-migrations fix.** Both fixes leave changed files and
+   print the commit for them. If the `--fix` report has a `fixes` entry for `legacy-runtime-state`
+   (check 20) or `pending-migrations` (check 21) with `applied: true`, handle each entry the same way:
+   - Local mode: its `notes` contain a line
+     `commit with: node ~/.claude/devflow/bin/df-tools.cjs commit "<msg>" --files <paths>`. Run that
+     exact command with the Bash tool.
+   - Store mode (`github.store: true`): the notes hold a multi-line sequence instead, because
+     `df-tools commit` refuses the default branch there. Its branch is `devflow-untrack-runtime-state`
+     for check 20 and `devflow-upgrade` for check 21. Run its `git switch -c` line and its
+     `DEVFLOW_SKIP_GH_GATE=1 ... commit` line, then show the user the push and pull-request steps
+     and the last line (`or, on an objective's linked branch ...`), the route that needs no escape.
+   Never use raw `git commit`. When the notes say `nothing to commit (working files only)`, there is
+   nothing to commit. When the entry has `refused`, report the reason and the manual command; do not
+   work around the guard.
 
 5. **Report the outcome.** Show the post-fix report (the `checks` in the `--fix` output are the
    post-fix results), list which fixes were applied or refused and any `backup` path, then list the

@@ -6,7 +6,7 @@ Execute small features with DevFlow guarantees (atomic commits, STATE.md trackin
 
 **Cutoff (advisory):** <5 files, <200 LOC, no new abstractions. For sub-30-LOC single-file changes, prefer `/devflow:micro` (~2k token floor). For multi-subsystem features, use `/devflow:build`.
 
-Quick mode spawns planner (quick mode) + executor(s), tracks tasks in `.planning/quick/`, and updates STATE.md's "Quick Tasks Completed" table.
+Quick mode spawns planner (quick mode) + executor(s). Each task's JOB and SUMMARY go through `df-tools quick put` / `quick summary` (local mode: `.planning/quick/<N>-<slug>/`; with `github.store` on: a Quick issue). In local mode the task also gets a row in STATE.md's "Quick Tasks Completed" table.
 
 With `--full` flag: enables job-checking (max 2 iterations) and post-execution verification for quality guarantees without full milestone ceremony.
 </purpose>
@@ -69,13 +69,19 @@ mkdir -p "${task_dir}"
 
 ---
 
-**Step 4: Create quick task directory**
-
-Create the directory for this quick task:
+**Step 4: Name the quick task and get its drafts**
 
 ```bash
 QUICK_DIR=".planning/quick/${next_num}-${slug}"
-mkdir -p "$QUICK_DIR"
+```
+
+The JOB and SUMMARY are never written under `.planning/` directly: agents write drafts, and `df-tools quick put` /
+`quick summary` save them. Get both draft paths now (each command prints one path; note them as literals `JOB_DRAFT` and
+`SUMMARY_DRAFT`, since shell variables do not survive between Bash calls):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft quick/${next_num}-${slug}/${next_num}-JOB.md
+node ~/.claude/devflow/bin/df-tools.cjs planning draft quick/${next_num}-${slug}/${next_num}-SUMMARY.md
 ```
 
 Report to user:
@@ -128,8 +134,8 @@ ${FULL_MODE ? '- Each task MUST have `files`, `action`, `verify`, `done` fields'
 </constraints>
 
 <output>
-Write plan to: ${QUICK_DIR}/${next_num}-JOB.md
-Return: ## PLANNING COMPLETE with plan path
+Put the plan in this draft file (outside .planning/; the orchestrator saves it): ${JOB_DRAFT}
+Return: ## PLANNING COMPLETE with the draft path
 </output>
 ",
   subagent_type="planner",
@@ -139,11 +145,14 @@ Return: ## PLANNING COMPLETE with plan path
 ```
 
 After planner returns:
-1. Verify plan exists at `${QUICK_DIR}/${next_num}-JOB.md`
+1. Save the plan from the draft. It writes `${QUICK_DIR}/${next_num}-JOB.md` (store mode: the Quick issue):
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs quick put ${next_num} ${slug} --from "${JOB_DRAFT}"
+   ```
 2. Extract job count (typically 1 for quick tasks)
-3. Report: "Plan created: ${QUICK_DIR}/${next_num}-JOB.md"
+3. Report: "Plan saved: ${QUICK_DIR}/${next_num}-JOB.md"
 
-If plan not found, error: "Planner failed to create ${next_num}-JOB.md"
+If the draft is empty or `quick put` exits non-zero, error: "Planner did not produce ${next_num}-JOB.md"
 
 ---
 
@@ -230,7 +239,7 @@ Revision prompt:
 </revision_context>
 
 <instructions>
-Make targeted updates to address checker issues.
+Make targeted changes to the draft at ${JOB_DRAFT} to address checker issues (outside .planning/; the orchestrator saves it).
 Do NOT replan from scratch unless issues are fundamental.
 Return what changed.
 </instructions>
@@ -245,7 +254,7 @@ Task(
 )
 ```
 
-After planner returns → spawn checker again, increment iteration_count.
+After planner returns → save the revision (`node ~/.claude/devflow/bin/df-tools.cjs quick put ${next_num} ${slug} --from "${JOB_DRAFT}"`), spawn checker again, increment iteration_count.
 
 **If iteration_count >= 2:**
 
@@ -294,8 +303,8 @@ output, and end your turn without writing anything.
 <constraints>
 - Execute all tasks in the job
 - Commit each task atomically
-- Create summary at: ${QUICK_DIR}/${next_num}-SUMMARY.md
-- Do NOT update ROADMAP.md (quick tasks are separate from planned objectives)
+- Put the summary in this draft file (outside .planning/; the orchestrator saves it with `quick summary`): ${SUMMARY_DRAFT}
+- Do NOT touch ROADMAP.md (quick tasks are separate from planned objectives)
 </constraints>
 ",
   subagent_type="executor",
@@ -305,13 +314,16 @@ output, and end your turn without writing anything.
 ```
 
 After executor returns:
-1. Verify summary exists at `${QUICK_DIR}/${next_num}-SUMMARY.md`
+1. Save the summary from the draft. It writes `${QUICK_DIR}/${next_num}-SUMMARY.md` (store mode: the summary comment on the Quick issue, which then closes):
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs quick summary ${next_num} --from "${SUMMARY_DRAFT}"
+   ```
 2. Extract commit hash from executor output
 3. Report completion status
 
-**Known Claude Code bug (classifyHandoffIfNeeded):** If executor reports "failed" with error `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Check if summary file exists and git log shows commits. If so, treat as successful.
+**Known Claude Code bug (classifyHandoffIfNeeded):** If executor reports "failed" with error `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Check whether the summary draft has content and git log shows commits. If so, treat as successful and save it as above.
 
-If summary not found, error: "Executor failed to create ${next_num}-SUMMARY.md"
+If the summary draft is empty, error: "Executor did not produce ${next_num}-SUMMARY.md"
 
 Note: For quick tasks producing multiple jobs (rare), spawn executors in parallel waves per execute-objective patterns.
 
@@ -336,6 +348,7 @@ Task(
 Task directory: ${QUICK_DIR}
 Task goal: ${DESCRIPTION}
 Job: @${QUICK_DIR}/${next_num}-JOB.md
+<!-- planning-audit: allow a quick task VERIFICATION.md is runtime-class in planning-paths: no verb owns it and it is a local file in both modes -->
 Check must_haves against actual codebase. Create VERIFICATION.md at ${QUICK_DIR}/${next_num}-VERIFICATION.md.",
   subagent_type="verifier",
   model="{verifier_model}",
@@ -358,9 +371,13 @@ Store as `$VERIFICATION_STATUS`.
 
 ---
 
-**Step 7: Update STATE.md**
+**Step 7: Record the task in STATE.md (local mode only)**
 
-Update STATE.md with quick task completion record.
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning mode
+```
+**`store`:** skip Step 7. STATE.md is a generated view there (`df-tools gh pull --all` rebuilds it), and the closed Quick issue is the record.
+**`local`:** update STATE.md with the quick task completion record, as below.
 
 **7a. Check if "Quick Tasks Completed" section exists:**
 
@@ -480,11 +497,10 @@ Ready for next task: /devflow:quick
 - [ ] `--full` flag parsed from arguments when present
 - [ ] Slug generated (lowercase, hyphens, max 40 chars)
 - [ ] Next number calculated (001, 002, 003...)
-- [ ] Directory created at `.planning/quick/NNN-slug/`
-- [ ] `${next_num}-JOB.md` created by planner
+- [ ] `${next_num}-JOB.md` saved with `quick put` from the planner's draft (it makes `.planning/quick/NNN-slug/`)
 - [ ] (--full) Job checker validates plan, revision loop capped at 2
-- [ ] `${next_num}-SUMMARY.md` created by executor
-- [ ] (--full) `${next_num}-VERIFICATION.md` created by verifier
-- [ ] STATE.md updated with quick task row (Status column when --full)
+- [ ] `${next_num}-SUMMARY.md` saved with `quick summary` from the executor's draft
+- [ ] (--full) `${next_num}-VERIFICATION.md` produced by verifier
+- [ ] (local mode) STATE.md has the quick task row (Status column when --full)
 - [ ] Artifacts committed
 </success_criteria>

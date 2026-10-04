@@ -189,7 +189,7 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
 | `/devflow:status check [--migrate]` | Validate `.planning/` integrity and fix issues; `--migrate` upgrades the project in place (runs `df-tools upgrade`) | Planning files feel stale or corrupt, after a DevFlow update, or when `validate health` reports W040 |
-| `/devflow:doctor [--fix] [--global] [path]` | Diagnose the DevFlow environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale markers and backups); read-only unless `--fix`, which applies only safe, reversible repairs | DevFlow behaves oddly, after a plugin update, or a repo shows `.planning` runtime files changing |
+| `/devflow:doctor [--fix] [--global] [path]` | Diagnose the DevFlow environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale markers and backups, resolved decisions whose multi-line answer a pre-52 writer flattened (check 33)); read-only unless `--fix`, which applies only safe, reversible repairs | DevFlow behaves oddly, after a plugin update, or a repo shows `.planning` runtime files changing |
 
 ### Adopting an Existing Repo (`/devflow:adopt`)
 
@@ -242,18 +242,23 @@ node ~/.claude/devflow/bin/df-tools.cjs upgrade --global --confirm   # adopt the
   | 0004 | Backfill `OBJECTIVE.md` for NN-named objective dirs | auto |
   | 0005 | Refresh an existing CLAUDE.md DevFlow block (never adds one) | auto |
   | 0006 | Set PROJECT.md `kind` / `default_work` | confirm |
+  | 0007 | Rewrite stale DevFlow command references in the CLAUDE.md DevFlow block and STATE.md | auto |
+  | 0008 | Gitignore and untrack runtime state (`.planning/.progress-guard.json`, `.awareness-cache.json`, nested `**/.planning/` too); the working copies stay | auto |
+  | 0009 | Convert `.planning/.gh-mapping.json` to v3 and key `.gh-sync-state.json` by objective id | auto |
+  | 0010 | Gitignore and untrack the planning cache (store mode only); skips while a GitHub backfill is still pending | confirm |
+  | 0011 | Backfill the planning history onto GitHub and turn store mode on, then hand off to 0010; resumable (see **Migrating an existing project**) | confirm |
 
-  `confirm` migrations run only when you name them with `--only <id>` or pass `--apply --confirm`.
+  `confirm` migrations run only when you name them with `--only <id>` or pass `--apply --confirm`. `--confirm` selects every applicable confirm migration, including ones `--only` does not name; `--only <id>` alone runs just that one.
 - **Stamp.** `.planning/config.json` records `devflow{version, migrations_applied, upgraded_at}`. `validate health` reports **W040** when the project is behind.
 - **Backups** go outside the repo, to `~/.claude/devflow/backups/<repo>-<hash>/<timestamp>/`, before anything is written.
-- **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- DEVFLOW:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. If you already have a hand-written DevFlow section, you get a notice and nothing changes until you run `upgrade --global --confirm`.
+- **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- DEVFLOW:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. A block refreshes only when the template version rises: version 3 adds the `/devflow:doctor` routing line (and carries the `/devflow:gh-sync` line), so an existing block picks up both at the next global upgrade. If you already have a hand-written DevFlow section, you get a notice and nothing changes until you run `upgrade --global --confirm`.
 - **Backup pruning.** DevFlow installs no scheduler of its own -- pruning runs from the `upgrade-project.js` SessionStart path, throttled to once per 24 hours by a last-prune timestamp. The default policy keeps backups younger than 14 days, and always keeps the newest 5 per repo. It's configurable in `~/.claude/devflow/global-config.json`: `backups.retain_days` and `backups.keep_min`. Run it by hand (or preview it) with `node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune [--dry-run]`; register a repo for pruning without a full upgrade with `upgrade --register`. Both `/devflow:adopt` and `/devflow:new-project` register the repo automatically. Skip pruning entirely with `DEVFLOW_SKIP_PRUNE=1`. If you want an OS-level schedule instead of the once-per-session throttle, add your own cron line, e.g. `0 3 * * * node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune` -- this is opt-in and entirely user-owned; DevFlow never installs it for you.
 
 ### Integration & Release (1.28+)
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/devflow:gh-sync [objectives\|release <tag>\|status]` | Mirror planning state to GitHub issues/releases | After `new-project`, or manually when GH drifts |
+| `/devflow:gh-sync [migrate\|status\|flush\|pull\|setup\|release <tag>\|<objective>\|--all]` | Operate the GitHub store: migrate a project onto it, status, flush the outbox, rebuild the cache, set the repository up, release notes. With the store off, mirror objectives to issues | To move a project onto GitHub, or when GitHub drifts |
 | `/devflow:workstreams [analyze\|provision\|reconcile]` | Parallel git worktrees for independent objectives | Multi-objective parallelism across worktrees |
 | `df-tools stack init\|validate\|resolve\|context\|command` | Declare and check the project stack profile (`.planning/STACK.md`) | After map-codebase, or when CI commands change |
 
@@ -396,7 +401,7 @@ Parallel git worktrees for working on multiple objectives simultaneously. See `/
 
 ### GitHub Integration (1.29+)
 
-Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub integration** section below for the full flow.
+Opt-in. With `github.store: true` GitHub is the system of record; with it off, DevFlow mirrors planning state to GitHub issues and releases. See the **GitHub integration** section below for both modes and the migration.
 
 | Setting | Default | What it Controls |
 |---|---|---|
@@ -406,6 +411,14 @@ Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub in
 | `github.labels.objective` | `"devflow:objective"` | Label applied to synced issues |
 | `github.labels.in_progress` | `"devflow:in-progress"` | Label during execution |
 | `github.labels.gaps` | `"devflow:gaps"` | Label when verifier finds gaps |
+| `github.project_cache_ttl_minutes` | `360` | How long discovered Project v2 fields and options are cached (under `~/.claude/devflow/state/gh-project/`, override `DEVFLOW_GH_CACHE_DIR`) |
+| `github.store` | `false` | Store mode, where GitHub is the system of record (strict boolean: only `true` turns it on). On an existing project let migration 0011 set it. See **GitHub is the system of record (store mode)** below |
+| `github.labels.trd` / `github.labels.decision` | `"devflow:trd"` / `"devflow:decision"` | Labels for TRD and Decision issues; also how a repository without issue types tells them apart |
+| `github.wiki.remote` | `""` | Wiki remote override; empty means `https://github.com/<repo>.wiki.git` (env override `DEVFLOW_WIKI_REMOTE`) |
+| `github.pr.merge_method` | `"squash"` | How `gh pr merge` merges the objective PR: `squash`, `merge` or `rebase`. A merge queue ignores it |
+| `github.app_login` | `""` | Login of the DevFlow GitHub App; a scope comment it wrote counts as accepted (store mode) |
+| `github.app_id` | `""` | Numeric id of the DevFlow GitHub App. When set, `gh setup` pins the two required checks to that App (`integration_id`); leave empty to accept the checks from any source. See **Enforcement and setup** |
+| `github.checks_workflow` | `""` | `owner/repo/.github/workflows/devflow-checks.yml@ref` that the managed caller workflow runs. Empty means `AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml@v<installed version>` |
 
 ### Git Branching
 
@@ -422,6 +435,8 @@ Opt-in mirror of planning state to GitHub issues + releases. See the **GitHub in
 | `none` | Never | N/A | Solo development, simple projects |
 | `objective` | At each `execute-objective` | One objective per branch | Code review per objective, granular rollback |
 | `milestone` | At first `execute-objective` | All objectives share one branch | Release branches, PR per version |
+
+`git.branching_strategy` is deprecated. In store mode (`github.store: true`) it no longer applies: each objective gets one linked branch and one pull request (see **One branch and one pull request per objective** under **GitHub is the system of record (store mode)**), and `init` reports a configured strategy as `branching_strategy_ignored`. In local mode it behaves as above and `init` prints a deprecation notice for `objective` and `milestone`.
 
 **Template variables:** `{objective}` = zero-padded number (e.g., "03"), `{slug}` = lowercase hyphenated name, `{milestone}` = version (e.g., "v1.0").
 
@@ -580,6 +595,7 @@ A known workaround exists for a Claude Code classification bug. DevFlow's orches
 | Milestone audit found gaps | `/devflow:milestone gaps` |
 | Something broke | `/devflow:debug "description"` |
 | DevFlow itself misbehaves, or runtime files keep dirtying a repo | `/devflow:doctor` (add `--fix` to apply the safe repairs) |
+| GitHub backfill stopped part-way | Run `df-tools upgrade --apply --only 0011 --confirm` again (see **GitHub integration** > **Troubleshooting**) |
 | Quick targeted fix | `/devflow:quick` |
 | Plan doesn't match your vision | `/devflow:discuss-objective [N]` then re-plan |
 | Costs running high | `/devflow:set-profile budget` and `/devflow:settings` to toggle agents off |
@@ -613,6 +629,8 @@ For reference, here is what DevFlow creates in your project:
       RESEARCH.md         # Ecosystem research findings
       VERIFICATION.md     # Post-execution verification results
 ```
+
+In store mode (`github.store: true`) GitHub holds these files. Git tracks only `config.json` and `STACK.md`; the rest of `.planning/` is a cache that `gh pull --all` rebuilds, plus runtime files and the wiki clone in `.planning/wiki/`. See **GitHub integration**.
 
 ---
 
@@ -656,9 +674,353 @@ To turn off a hook entirely, edit `~/.claude/settings.json` and remove its entry
 
 ## GitHub integration
 
-Opt-in mirroring of `.planning/` to GitHub issues, milestones, and releases. Planning files remain the source of truth — GitHub is derivative. Every operation is a no-op when integration is disabled, `gh` is missing, or auth has expired; failures never block your workflow.
+DevFlow works with GitHub in one of two modes, chosen by `github.store` in `.planning/config.json`:
 
-### Enable
+- **Store mode** (`github.store: true`): GitHub is the system of record. Issues, TRD sub-issues, comments and wiki pages hold the planning state; `.planning/` is a cache that `gh pull --all` rebuilds, and every planning verb queues its GitHub write. An existing project moves onto it with migration 0011 (see **Migrating an existing project**).
+- **Mirror mode** (store off, the default): DevFlow pushes objectives to GitHub issues, milestones and releases one way, and skills and agents read the planning files (see **Mirror mode (store off)**).
+
+Both modes need `github.enabled: true` and `github.repo`. With `github.enabled` false every GitHub command reports `skipped` and exits 0 without calling `gh`. With it true, a command that cannot reach GitHub (no `gh`, expired auth, a failed call) exits 1 and says why. The workflow steps that run a sync after planning and after execution show that failure as a warning and carry on, so your workflow is never blocked.
+
+### GitHub is the system of record (store mode)
+
+In store mode GitHub holds the whole planning hierarchy. It is on only when `github.store` is exactly `true`. Skills and agents publish planning files through df-tools verbs, each verb queues its GitHub write in the outbox, and `.planning/` is a cache you can rebuild from GitHub (see **The planning write path**). Each objective runs on one linked branch and one pull request (see **One branch and one pull request per objective**), and the repository enforces the model (see **Enforcement and setup**). With the store off, every planning verb writes the same `.planning/` file it always did and **Mirror mode (store off)** applies.
+
+#### Migrating an existing project
+
+Migration 0011 moves an existing project onto the store in place: it puts the planning history on GitHub, closes what already shipped, turns `github.store` on and then untracks the cache. It is a `confirm` migration, so it never runs from a bare `upgrade --apply` or from the SessionStart hook. `/devflow:gh-sync migrate` walks you through it (plan, approval, apply, commit); the steps below are what it runs.
+
+**1. Prepare.** Set `github.enabled: true` and `github.repo: "owner/name"` (the full block is under **Enable** in **Mirror mode**). Leave `github.store` alone: the migration turns it on after a backup. Authenticate `gh` with the `repo` scope, turn the repository wiki on (Settings > General > Features > Wikis) and create its first page once in the GitHub web UI.
+
+**2. Read the plan.** Neither command writes anything or calls GitHub:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning import --dry-run
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --check --only 0011
+```
+
+With the store off and `github.enabled` true, `planning import --dry-run` previews the backfill (a real `planning import` still refuses until the store is on):
+
+```
+preview (store is off): this is what the GitHub backfill would queue.
+planning import (dry run): queued <count> <kind>, ...
+estimate: ~<writes> writes (upper bound) in <ops> ops; at 80/min and 450/h at least <h> h of hourly-budget waits
+history: <n> closed (completed), <m> closed (not planned)
+will stay local:
+  | file | why |
+```
+
+- **estimate** is an upper bound on GitHub writes. On the 20-objective test fixture it is 770 writes and a real backfill made 639. Writes are paced at 80 a minute and 450 an hour, so a backfill over 450 writes spans more than one hour; a repository with a few hundred TRDs needs about 2,000 writes, about 4.5 hours.
+- **history**: shipped work is created and then closed as completed. That is every TRD with a SUMMARY, and every objective whose OBJECTIVE.md says `status: complete` or whose ROADMAP `## Progress` row says Complete. A cancelled objective closes as not planned, together with its TRDs that have no SUMMARY. Open work stays open. Each shipped milestone in MILESTONES.md is closed.
+- **will stay local** lists each file the backfill does not put on GitHub and why: a refused TRD (over 60,000 characters; split it first) or a kept-local file such as a decision with no `trd:`. Kept-local files block nothing; after the backfill they stay on disk and the notes name them.
+- `upgrade --check --only 0011` prints JSON. Before the migration, 0011 is under `pending_confirm` with the plan in one sentence as its `reason`; once it is done, 0011 is under `skipped` with `already on GitHub (backfill complete)`.
+
+**3. Apply.**
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0011 --confirm
+```
+
+In order, the apply:
+
+1. checks the local state and refuses on every blocker at once, each with its fix: not a git work tree; a merge, rebase, cherry-pick or revert in progress; a halted, blocked or unreadable outbox journal; legacy-named TRDs (`NN-MM-TRD-<slug>.md`, with the rename); TRDs over 60,000 characters;
+2. checks GitHub, reading only: `gh` authenticated with the `repo` scope, a token that can write, and a wiki that is enabled and has a first page;
+3. backs up `.planning/config.json` and sets `github.store: true`. The notes name the backup; to roll back, set `github.store` to false;
+4. queues the whole backfill once, history closes included. A re-run while ops are still queued skips this step, so nothing is imported twice, and on such a resume a lost `.planning/.gh-mapping.json` is rebuilt from the `devflow:id` markers on GitHub;
+5. drains the outbox within the budgets;
+6. verifies GitHub with `gh pull --all` and the orphan report: every TRD file has an issue linked under its objective, and every TRD issue has a file;
+7. runs migration 0010, which gitignores and untracks the cache, and records both 0010 and 0011 in the stamp.
+
+From step 3 until the end the project is in store mode: the edit gate denies edits to cache files, and `df-tools commit` refuses the default branch. A project with nothing to import still has the store turned on.
+
+**4. Resume after the hourly budget.** A large backfill stops when the hour budget runs out. The apply reports 0011 under `failed` and exits 1, and the message starts with "not an error":
+
+```
+not an error: <N> of <M> ops remain (GitHub's hourly write budget (450/h) is spent); <K> ops written to GitHub by this apply
+resume at <time> (in ~<minutes> min): run `df-tools upgrade --apply --only 0011 --confirm` again then, or keep working and let the gh-flush hook drain it; `df-tools gh outbox status` shows the queue
+```
+
+Nothing is lost. Run the same command after the resume time; it skips the import and drains what is left. Being offline, a long secondary rate limit and this run's own write cap stop the apply the same way, each with its reason. Or keep working: in store mode the `gh-flush` hook flushes the queue after each `df-tools commit` and at Stop. The hook only drains the queue, so run the apply once more when `gh outbox status` shows it empty, to verify and untrack the cache. While ops are pending, migration 0010 skips with a reason that names `--only 0011`, so a bare `upgrade --apply --confirm` reaches 0011 too.
+
+A message that starts `the outbox halted at op <seq>` means someone edited a DevFlow-managed section of an issue on GitHub between runs. Run `gh outbox status`, choose `gh outbox resolve <seq> --accept-remote` (keep GitHub's edit) or `--overwrite` (keep the local write), then apply again. Any other stop (`preflight`, `verify`, `handoff`) lists each blocker with its fix; fix them and apply again.
+
+**5. Commit the switch.** When the apply completes, its notes end with these steps:
+
+```
+commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked branches), then merge it through a pull request:
+  git switch -c devflow-store-cache
+  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration" node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
+  git push -u origin devflow-store-cache
+  then open a pull request for that branch
+  or, on an objective's linked branch (`df-tools gh pr start <objective>`), commit there with: node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
+```
+
+Store mode refuses `df-tools commit` on the default branch and on a branch that no objective pull request names, so the first route takes the logged escape (gate `gh` in `.planning/.override-log.jsonl`; `df-tools override --list` shows it). The last line is the other route: on a branch that `gh pr start` linked to an objective, the bare command is accepted and needs no escape. Each line runs as printed. `/devflow:gh-sync migrate` shows the steps and runs them only when you ask.
+
+**6. Then `gh setup`.** It is not part of the migration. Merge the migration's pull request first. Then run `gh setup` (a dry run) and `gh setup --apply`, merge its workflow pull request with a one-time admin bypass (the required checks exist only once the workflow is on the default branch), and only then require the checks. See **Enforcement and setup**.
+
+**Running it again.** After it completes, `upgrade --check` lists 0011 and 0010 under `skipped`, and another apply makes no GitHub write and changes no file.
+
+**Known behaviour.**
+
+- A project that enables GitHub for mirror mode keeps 0011 as a pending confirm migration: `validate health` reports W040 ("1 need confirmation") and `doctor` check 21 names 0011. Nothing applies 0011 without your confirmation. To keep mirror mode and stop the prompt, record the opt-out in the tracked config and commit `.planning/config.json`:
+
+  ```bash
+  node ~/.claude/devflow/bin/df-tools.cjs config-set github.mirror_only true
+  ```
+
+  While `github.store` is off, 0011 then skips with "mirror mode kept (github.mirror_only: true)", so W040, doctor check 21 and the SessionStart notice no longer count it, and `upgrade --apply --confirm` passes it over. Only boolean `true` counts. With the store on the key is ignored, so a pending backfill still resumes. It applies to 0011 alone and declines no other migration. `/devflow:gh-sync migrate` and `/devflow:status check --migrate` offer it as **Keep mirror mode**. To migrate later, run `df-tools config-set github.mirror_only false`, then `df-tools upgrade --apply --only 0011 --confirm`.
+- `--confirm` selects every applicable confirm migration, not only the one `--only` names: 0006 on a project with no `kind`, and 0010 on a store-mode project. `--only 0011` without `--confirm` runs 0011 alone. On a halted journal, `--only 0011 --confirm` therefore fails on 0010 first ("outbox: halted (remote-edit)"), and 0010's message points at `planning import` and `gh outbox flush`. The fix is the `gh outbox resolve` step above; nothing was written.
+- While a backfill drains, `doctor` check 24 reports `ok` with "nothing to untrack: GitHub backfill in progress". The untrack waits for the drain and the hand-off to 0010.
+- The backfill is tested against a model of GitHub and, through the CLI, against a `gh` shim, not against a live repository. Run your first real backfill against a throwaway repository (a manual UAT step, not part of CI) before you migrate a repository you care about.
+
+#### What the store holds
+
+With `github.store: true`, `df-tools gh sync <objective>` also pushes:
+
+- the hierarchy: milestone, Objective issue, one TRD sub-issue per TRD (native sub-issues, blocked-by edges derived from waves);
+- SUMMARY.md and VERIFICATION.md as marked comments (long files are split into numbered parts and rejoined on pull);
+- reference pages (OBJECTIVE, CONTEXT, RESEARCH, PROJECT, REQUIREMENTS, codebase docs) to the repository wiki, plus a `Roadmap` page rendered from the issues.
+
+A TRD body is the TRD file verbatim behind `devflow:id` and `devflow:file` markers. A TRD of 40,000 characters or more warns; over 60,000 the sync is refused before any GitHub call (zero `gh` calls) and names the TRD. Split it.
+
+#### The outbox
+
+Every store write is queued in a per-repo journal at `~/.claude/devflow/state/outbox/` (override `DEVFLOW_OUTBOX_DIR`) and flushed in order, so a dropped connection loses nothing. Offline, `gh sync` of an objective that already has an issue queues its changes and reports `pending`; an objective with no issue yet cannot be created offline (that sync fails and queues nothing).
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox status
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox flush [--no-wait]
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox resolve <seq> --accept-remote|--overwrite
+```
+
+`flush` exit codes (the `gh trd` verbs that flush use the same ones):
+
+| Exit | Meaning | What to do |
+|---|---|---|
+| 0 | flushed, skipped (GitHub integration off) or running (another flush holds the lock) | nothing |
+| 1 | error (bad config, no repo, a failed flush) | read the message |
+| 2 | halted: a human must look | see below |
+| 3 | pending: offline or rate limited, nothing lost | run `flush` again later |
+
+`--no-wait` is hook mode: a rate-limited write is left queued instead of waited out. `gh outbox status` makes no GitHub calls; it reports the counts, the journal path, any halt and one sentence per degraded capability.
+
+**Resolving a halt.** Before overwriting an issue the flusher compares it with what it last saw. If a person edited a managed section or a TRD body on GitHub, the queue halts at that op and everything behind it waits; edits to human-written text outside the managed sections are merged without a halt. `gh outbox status` names the issue (`#N`) and prints both commands for the halted `<seq>`:
+
+- `gh outbox resolve <seq> --accept-remote` drops the local write and keeps what is on GitHub (then run `gh pull --all` to bring it down);
+- `gh outbox resolve <seq> --overwrite` keeps the local write and replaces GitHub's version.
+
+After either, the queue behind the halt drains on the next `flush` (or sync). A wiki with no first page also halts (`reason: blocked`): create the first wiki page once in the GitHub web UI, then `flush`. DevFlow never falls back to `docs/` for that.
+
+#### TRD verbs
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh trd spec <trd>
+node ~/.claude/devflow/bin/df-tools.cjs gh trd freeze <trd>
+node ~/.claude/devflow/bin/df-tools.cjs gh trd scope <trd> <body|@file:path> [--n K]
+node ~/.claude/devflow/bin/df-tools.cjs gh trd fold <trd> [--force]
+```
+
+`spec` prints the effective spec: the issue body plus its scope comments applied in `n` order. `scope` adds a scope comment; one that would push the effective spec past 60,000 characters (or that is itself too large) exits 1 with "becomes a new TRD", because that change belongs in a new TRD. `freeze` records the body as final: after it the body is not edited and changes go in as scope comments; an already frozen TRD is a no-op. `fold` rewrites the body to the effective spec and records it; on an open TRD it needs `--force`. All three flush by default (`--no-flush` leaves the ops queued; `--no-wait` is hook mode).
+
+**Known limitation (open decision).** `freeze`, `scope` and `fold` read the issue and its comments from GitHub first, so they need connectivity: offline they exit 1 and queue nothing. Only `gh sync` and the outbox queue offline. `gh orphans <objective>` is read-only and lists TRD issues with no local file and local TRDs with no issue.
+
+#### Rebuilding the cache: `gh pull --all`
+
+`df-tools gh pull --all [--force]` reads the issues, comments and pages and lays them out as `.planning/` files, byte for byte. It writes only what changed (a second run writes nothing) and never deletes anything. It will not overwrite a file you edited locally since the last sync; that file is reported as `local_modified` and `--force` takes GitHub's version. A ROADMAP.md or STATE.md without the generated header is hand-maintained: it is reported and never overwritten, even with `--force`. Exit 0 means the cache matches GitHub, 1 an error, and 2 that the cache was rebuilt but something needs your attention (a locally modified file, a hand-maintained ROADMAP.md, a local file GitHub does not have, an item that could not be read or placed).
+
+#### Degraded mode
+
+Capabilities are detected per repository and cached under `<DEVFLOW_GH_CACHE_DIR>/capabilities/` (`~/.claude/devflow/state/gh-project/capabilities/` by default), then reported by `gh outbox status`. Nothing to configure:
+
+- no issue types or project fields (a user-owned repository): the labels `devflow:trd` / `devflow:decision` (`github.labels.trd|decision`) and a `meta` section in the objective body carry what types and fields would;
+- no wiki: reference pages are written to `docs/devflow/` and committed with your normal workflow; the sub-issue tree and blocked-by edges stay native.
+
+#### The planning write path (objective 48)
+
+Every planning file has one df-tools verb that writes it. Skills and agents call the verb; nobody edits the file by hand. Content comes from `--from <path>` (or `-` for stdin), usually a copy made with `planning draft <rel>`, which prints a temp path seeded with the current file.
+
+**Store off (the default).** Each verb writes the same `.planning/` file, byte for byte, that the old flow wrote, makes no `gh` calls, and `.planning/` stays tracked in git. Nothing changes for a project that never sets `github.store`.
+
+**Turning it on.** Use migration 0011 (see **Migrating an existing project**); it also handles a project with nothing to import. The manual route below still works, but it skips the preflight, the live-write budget bookkeeping and the verification that 0011 runs. Set both keys in `.planning/config.json`, then run the first-run steps once from the main checkout:
+
+```json
+{ "github": { "enabled": true, "store": true } }
+```
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning mode                 # prints: store
+node ~/.claude/devflow/bin/df-tools.cjs gh pull --all                 # bring down what GitHub already has
+node ~/.claude/devflow/bin/df-tools.cjs planning import --dry-run     # count what is only local
+node ~/.claude/devflow/bin/df-tools.cjs planning import               # queue it to GitHub
+node ~/.claude/devflow/bin/df-tools.cjs gh outbox flush               # drain the queue
+node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0010 --confirm
+```
+
+`planning import` reports, rather than skips, TRDs over the 60,000-character budget, decisions with no TRD and legacy-named TRDs (`NN-MM-TRD-<slug>.md`); rename or split those first. Running it twice queues nothing new, and a real import also queues the history closes described under **Migrating an existing project**. Migration 0010 refuses until the outbox is drained and every cache file is on GitHub, and lists each blocker; while the outbox holds only pending ops, 0010 skips instead, with a reason that names `--only 0011`. `--confirm` also runs any other pending confirm migration (for example 0006 on a project without `kind`); `--only 0010` without `--confirm` runs 0010 alone.
+
+**What git tracks afterwards.** Migration 0010 writes a `.gitignore` block (`.planning/*`, `!.planning/config.json`, `!.planning/STACK.md`) and untracks everything else from the index; the files stay on disk as the cache. The wiki clone at `.planning/wiki/` is excluded from its checks. Since objective 50, store mode refuses `df-tools commit` on the default branch (`default_branch`; see **Enforcement and setup**), so the migration prints the store-mode commit steps instead of a bare `df-tools commit` line: a new `devflow-store-cache` branch, the commit with `DEVFLOW_SKIP_GH_GATE=1` and a reason (logged), a push, a pull request, and a last line for an objective's linked branch (`df-tools gh pr start <objective>`), where the bare command is accepted (shown in step 5 of **Migrating an existing project**). Every commit follow-up DevFlow prints comes from the same builder, so in store mode `doctor` check 20 (branch `devflow-untrack-runtime-state`), `doctor` check 21 (branch `devflow-upgrade`) and `gh setup --apply` (branch `devflow-setup`) print the same form. In local mode doctor 20 and 21 still print `commit with: <df-tools commit ...>`. `df-tools doctor` warns (check 24) while a store-mode project still tracks its cache.
+
+**The verbs.**
+
+| Verb | Writes |
+|---|---|
+| `plan put-trd <obj> <file> --from <f> [--no-push]` / `plan push <obj>` | a TRD; refused over 60,000 encoded characters or once frozen. Batch with `--no-push`, then one `push` |
+| `summary checkpoint <trd> --from <f>` | progress after each task. Store mode writes runtime `.planning/.trd-progress/<trd>.md` and never reaches GitHub |
+| `summary post <trd> --from <f>` | the final SUMMARY, the one GitHub write per TRD |
+| `verification post <obj> --from <f>` | VERIFICATION.md |
+| `doc put <rel> --from <f>` | OBJECTIVE/CONTEXT/RESEARCH/UAT pages, PROJECT.md, REQUIREMENTS.md, `research/`, `codebase/` |
+| `objective put <id> --from <f>` / `objective set-status <id> <status>` | an objective's OBJECTIVE.md and its status |
+| `todo add --from <f>` / `todo complete <stem>` | a todo (an issue in store mode); completion moves it to `todos/completed/` |
+| `debug put <slug> --from <f>` / `debug resolve <slug>` | a debug session (a `Debug` issue in store mode) |
+| `quick put <N> <slug> --from <f>` / `quick summary <N> --from <f>` | a quick task and its summary (a `Quick` issue) |
+| `decision open <trd> --question <q>` / `decision answer <trd>-d<k> --from <f>` | a decision on a TRD |
+| `milestone put <v> --from <f>` / `milestone complete <v>` | a milestone (a native GitHub milestone plus a `Milestone-vX_Y` wiki page) |
+
+`summary checkpoint` and `summary post` write the checkout that runs them in local mode, so an executor worktree commits its own SUMMARY with its task commits and it arrives through the wave merge, with no untracked copy left in the main checkout. In store mode they write the main checkout's cache, because the cache, ledger and outbox live there. In store mode STATE.md, ROADMAP.md and MILESTONES.md are generated: STATE.md mutators record into the per-clone `state.json`, and `gh pull --all` regenerates the views. `/devflow:micro` follows the same rule: `df-tools micro commit` appends a Quick Tasks row to STATE.md and commits it separately in local mode only. In store mode it makes one commit, the source change, leaves STATE.md alone and reports `state_row: "skipped_store_mode"`, so it raises no W055. It commits through `df-tools commit`, so store mode refuses it on the default branch, an unlinked branch or a detached HEAD with the same gate message as any other commit (exit 1, nothing committed, the micro marker kept). Switch to the objective's linked branch and run it again, or take the logged `DEVFLOW_SKIP_GH_GATE=1` escape.
+
+**Decisions answered before objective 52.** A multi-line `decision answer` written before objective 52 left a mangled `resolution` in `.planning/decisions/resolved/DECISION-NNN.md` that reads back as its first line. `df-tools doctor` check 33 (`decision-resolution`) finds these, and `doctor --fix` repairs each one whose full answer is recoverable from the file: it backs up first, rewrites the answer as a `|-` block scalar, and writes only after the rebuilt file re-parses to the recovered answer. A decision whose answer already reads back whole is left alone. Fix by hand only the files the check reports as unrecoverable: write the answer as `resolution: |-` followed by its lines, each indented two spaces. In store mode the check is report-only; fix the decision's GitHub copy by hand, then run `gh pull --all`. Repair these before a backfill so 0011 carries the whole answer to GitHub.
+
+**Reading the gate message.** In store mode the edit gate denies an Edit or Write of a cached or generated `.planning/` file for everyone, including skills and DevFlow agents:
+
+```
+.planning/objectives/48-x/48-01-foo-TRD.md is a read-only cache of GitHub in store mode (github.store: true). Change it with: `df-tools plan put-trd 48 48-01-foo-TRD.md --from <draft>`. Direct edits are overwritten by gh pull --all and flagged by validate (W055).
+```
+
+Run the named verb with a draft instead. `config.json`, `STACK.md` and runtime files (`.trd-progress/`, `.skill-active` and the like) are always editable. The deny takes effect only once the installed DevFlow plugin is at or above the release that carries objective 48; `df-tools doctor` reports a stale plugin cache (check 11).
+
+**W055.** `validate health` (Check 15) reports W055 for a cache or generated file whose bytes match neither its last GitHub baseline nor a pending verb write: someone changed it outside a verb. The message names the verb that publishes it, or `gh pull --all --force` to take GitHub's version back. W056 means the check could not run, or stopped at its 5,000-file cap (for example an unreadable ledger). Neither appears in local mode.
+
+**W057-W061.** `validate health` (Check 16) and `df-tools doctor` (check 25, `gh-store-sync`) report whether the store and GitHub agree. They read local state only (the outbox, the mapping, the objective files) and make no GitHub call; all five are warnings that `--repair` and `doctor --fix` never touch. None appears in local mode.
+
+| Code | Meaning | What to do |
+|---|---|---|
+| W057 | unsynced writes: pending or blocked ops in the outbox, a halted outbox, or a recovered journal (a `.corrupt-*` file is named) | `gh outbox flush`; for a halt, `gh outbox status` then `gh outbox resolve <seq> --accept-remote\|--overwrite`; for a recovered journal, read the named file, run `gh sync --all` to queue what it held, then delete it |
+| W058 | missing links: a TRD file with no mapped issue, an objective with TRDs and no issue, a PR entry with no number | `gh sync <objective>` (or `gh pr sync <objective>` for a PR entry) |
+| W059 | orphans: a mapped TRD whose file is gone, or a PR entry whose objective has no directory | `gh orphans <objective>` confirms against GitHub; restore a missing file with `gh pull --all`, or, if the objective was removed on purpose, close its pull request on GitHub |
+| W060 | frozen-body drift: a frozen TRD whose local text no longer matches the body hash recorded at the last sync | publish the change as a scope comment (`gh trd scope`), or take GitHub's version back with `gh pull --all --force` |
+| W061 | the check itself could not run (an unreadable mapping, outbox or file); the other checks still ran | read the message; fix the named input |
+
+`doctor` check 25 shows the same findings as one warning with the most urgent fix command (a halt first, then unsynced writes, frozen drift, missing links, orphans, a failed check) and the full list under `--json`. Doctor check 22 (`validate health`) leaves these five codes to check 25, so each problem appears once.
+
+#### One branch and one pull request per objective (objective 49)
+
+In store mode `/devflow:execute-objective` runs each objective on one linked branch and one pull request. With `github.store` off none of this applies: every `gh pr` verb, `gh trd confirm-scope` and `gh trd start` prints `skipped`, exits 0 and makes no `gh` call, and `git.branching_strategy` keeps its old meaning. In store mode `git.branching_strategy` is ignored (see **Git Branching**), and `complete-milestone` no longer merges branches itself.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr start <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr sync <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr status <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr merge <objective>
+node ~/.claude/devflow/bin/df-tools.cjs gh pr reconcile <objective>
+```
+
+**Start.** `gh pr start` creates the objective branch linked to the objective issue, makes a start commit and opens a draft PR. The PR body carries `Closes #<objective issue>` and one `Closes #<TRD issue>` per TRD, and pins the wiki revision the objective was planned against. It also freezes every TRD, so a change after this point is a scope comment, not a body edit. `start` reads GitHub first: offline it exits 1 and queues nothing, so run it again when you are back online. The later verbs queue through the outbox.
+
+**TRDs.** At spawn, `gh trd start <trd>` puts the `github.labels.in_progress` label on the TRD's issue; `summary post` takes it off. Every commit on the objective branch ends with a `Refs #N` paragraph, the TRD's issue for a wave commit and the objective's for the start commit. It is a plain last paragraph, not a git trailer (git's trailer parser needs a colon), and matches `^Refs #\d+$`. A squash merge keeps these only in the PR's commit list, not in the squashed commit. After each wave, `gh pr sync` pushes the branch and refreshes the PR body.
+
+**Scope confirmation.** An executor reads a TRD's effective spec with `gh trd spec <trd>`. A scope comment counts only when an assignee of the objective issue wrote it, the DevFlow App (`github.app_login`) wrote it, DevFlow recorded it, or an assignee confirmed it. Anything else is pending, and `gh pr status` lists it with the command to accept it:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh trd confirm-scope <trd> <n>
+```
+
+A confirm counts only if an assignee posted it, so the token DevFlow uses must belong to one. Editing a scope after it was accepted makes it pending again.
+
+**Verify.** On a pass, `verification post` sets the commit status `devflow/verification` on the PR's head commit, marks the PR ready for review and posts the wiki diff as a PR comment. It is a commit status, not a check run, because only a GitHub App can create a check run; the two required checks of objective 50 are commit statuses too (see **Enforcement and setup**). Run `gh pr sync` first: the status is posted on the pushed head, so that head has to contain the verified commits. The objective issue stays open at this point.
+
+**Merge.** DevFlow offers the merge once the objective is verified; it never merges on its own. If you decline, or an auto-advance chain moves on without it, the next objective starts from the default branch without this one's work. `gh pr merge` refuses a draft PR, a PR with no passing `devflow/verification` on its current head and a closed PR. It merges with `github.pr.merge_method` (default `squash`), or enqueues the PR where the base branch has a merge queue.
+
+| Exit (`gh pr merge`) | Meaning | What to do |
+|---|---|---|
+| 0 | merged and reconciled | nothing |
+| 3 | enqueued in a merge queue, or `--no-flush` | run `gh pr reconcile` after the queue lands the PR; repeat until it exits 0 |
+| 2 | halted for a human (the halt names the PR and the reason) | fix it on GitHub, then `gh outbox flush` |
+| 1 | refused (draft, no passing status, closed unmerged, offline) | read the message; nothing was queued |
+
+**Reconcile.** `gh pr reconcile` runs after the PR merges, whether DevFlow or a person merged it on GitHub. GitHub caps how many issues a closing keyword closes, so reconcile reads every issue the PR should have closed (the objective and each TRD) and closes the ones that are still open. It then updates the Project fields, deletes the remote branch, returns your checkout to the default branch (a local branch that holds unmerged work is kept and reported) and pulls the cache. It is idempotent. Exit 0 is done, 3 means a queued PR has not landed yet, 1 is an error; warnings go to stderr with exit 0. The objective issue closes here or through the PR's `Closes`, never at verify.
+
+`gh pr status <objective>` shows where an objective stands at any point: the branch, the PR and its state, the `devflow/verification` status, the issues the PR closes, pending scopes and queued writes.
+
+#### Enforcement and setup (objective 50)
+
+Objective 50 enforces the planning model in two places: on your machine, where `df-tools commit` and a hook guard the working copy, and on GitHub, where `df-tools gh setup` configures the repository once and two required checks run on every pull request. The local guards act in store mode only. With `github.store` off, `df-tools commit` behaves as before, the hook stays silent, and none of this makes a `gh` call.
+
+**Why a commit is refused.** In store mode `df-tools commit` checks the branch before it stages anything. On the default branch it exits 1 with:
+
+```
+Refusing to commit on main, the default branch. To get a linked branch, run `df-tools gh pr start <objective>` and commit on its branch, or prefix the commit with DEVFLOW_SKIP_GH_GATE=1 (logged as gate gh; DEVFLOW_SKIP_GH_GATE_REASON=<why> records why).
+```
+
+The `reason` is `default_branch`, `unlinked_branch` (a branch that no unmerged objective PR names, which includes the old branch of a merged objective) or `detached_head`. Nothing is staged and HEAD does not move. A branch counts as linked when the mapping's `prs` entry for an objective names it and that PR is not merged; that is a local fact, so the gate works offline. A `df/exec-*` executor branch is allowed when the main checkout is on a linked branch, and a merge or rebase in progress is never refused. What to do: run `gh pr start <objective>` and commit on the branch it creates. `/devflow:execute-objective` already does this. A commit on a linked branch whose message has no recognised scope ends with `Refs #<objective issue>`.
+
+**The escape.** Put `DEVFLOW_SKIP_GH_GATE=1` in front of the command, for example `DEVFLOW_SKIP_GH_GATE=1 df-tools commit "chore: ..." --files <paths>`, and a refused commit lands anyway. The value must be exactly `1`. The result carries `gate_escaped: true`. Once the commit has landed, a `gate: gh` entry is appended to `.planning/.override-log.jsonl` in the main checkout (also when you commit from an executor worktree), and `df-tools override --list` shows it. Set `DEVFLOW_SKIP_GH_GATE_REASON="<why>"` to record the reason. A refused or empty commit logs nothing. The gate guards `df-tools commit` only. Every refusal names both remedies, `gh pr start` and this escape. With `--raw`, a refusal prints only the reason code on stdout and exits 1, and the full message goes to stderr.
+
+**Queued writes are flushed for you.** In store mode the `gh-flush` hook runs after a `df-tools commit` and at Stop. It sends queued GitHub writes, and says so when writes are still queued (offline, rate limited), when the outbox is halted for a human, or, at Stop, when a cache file was changed outside a verb (W055). It never blocks and never writes under `.planning/`. `DEVFLOW_SKIP_GH_FLUSH_HOOK=1` turns it off.
+
+**`gh setup`.** One command configures a repository. It is a dry-run until you pass `--apply`, and it needs `github.enabled` and `github.repo` (not store mode):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh setup              # dry-run: prints every action and the exact request, changes nothing
+node ~/.claude/devflow/bin/df-tools.cjs gh setup --apply      # does it
+node ~/.claude/devflow/bin/df-tools.cjs gh setup --apply --refresh   # also forget a recorded merge-queue refusal and try again
+node ~/.claude/devflow/bin/df-tools.cjs gh setup --require-wiki      # exit 1 while the wiki has no first page
+```
+
+Read the dry-run first. A run reads the repository, then lists one line per action as `[created|updated|exists|skipped|manual|conflict|advisory|failed] kind target`, with the `gh` command or the file it would write underneath. `--apply` makes these changes, in order, and attempts every action even when one fails:
+
+- repository settings: wiki on, delete branch on merge;
+- labels: `github.labels` roles (objective, trd, decision, todo, debug, quick, plus in-progress and gaps when configured);
+- on an organization: issue types Objective, TRD, Decision, Debug and Quick, and the issue fields `work` and `kind`;
+- the ruleset `devflow: default branch` on the default branch: pull request required (no approvals), no force-push, no deletion, the required checks below, and a merge queue (method from `github.pr.merge_method`) where the plan allows one;
+- `.github/workflows/devflow.yml`, a managed caller of the reusable workflow, and a managed block in `.github/pull_request_template.md` that asks for `Closes #<objective issue>`.
+
+A second `--apply` makes no GitHub write and changes no file. A ruleset that already does everything asked, or more, is left alone; a weaker one is updated with the union and never loses a rule or a bypass actor. A workflow file you wrote yourself (no `# devflow:managed` line at the top) is a `conflict`: it is never overwritten and the run exits 1, in a dry-run too, so CI can use the dry-run as a readiness check.
+
+Degraded cases never stop the run. On a user-owned repository, or where an organization endpoint answers 403 or 404, issue types, fields and rulesets are `skipped` and DevFlow keeps using labels and body metadata. If GitHub refuses the merge queue (HTTP 422, usually a plan limit), `gh setup` retries the ruleset without it, reports "merge queue unavailable on this plan" and records that, so the next run writes nothing; `--refresh` tries the queue again. An issue-field write that GitHub refuses is retried as a plain text field. A wiki with no first page is reported; create the first page once in the GitHub web UI (`--require-wiki` makes that an exit 1).
+
+**Committing the written files.** `--apply` writes the two files into your working tree and leaves them uncommitted. Put them on a branch and merge them through a pull request, before anything else: the ruleset requires two checks that exist only once the workflow is on the default branch, so until then nothing can merge, and an administrator may need to bypass the ruleset once for that pull request. `--apply` prints the steps under `Commit them through a pull request:`, and they run as printed; `--files` names only the files that run wrote. Outside store mode they are a plain branch sequence:
+
+```
+commit on a new branch, then merge it through a pull request:
+  git switch -c devflow-setup
+  node ~/.claude/devflow/bin/df-tools.cjs commit "chore: add the DevFlow checks workflow and pull request template" --files .github/workflows/devflow.yml .github/pull_request_template.md
+  git push -u origin devflow-setup
+  then open a pull request for that branch
+```
+
+In store mode `df-tools commit` refuses an unlinked branch, so the commit line carries the logged escape (`DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="gh setup workflow"`) and a last line gives the linked-branch route through `gh pr start`, the same form as step 5 of **Migrating an existing project**.
+
+**The App (optional).** The checks run on the workflow's own token by default. To run them as a GitHub App, create the App and install it on the repository, then set the repository or organization variable `DEVFLOW_APP_CLIENT_ID` and the secret `DEVFLOW_APP_PRIVATE_KEY`. The workflow mints a token scoped to the one repository (and a read-only one to check out DevFlow). Set `github.app_id` to the App's numeric id and rerun `gh setup --apply` only once those are set: the ruleset then accepts the two checks only from that App, and a status posted by the workflow token would not satisfy it.
+
+**The two required checks.** The reusable workflow `.github/workflows/devflow-checks.yml` (the caller's `uses:` target, `github.checks_workflow`) runs `gh-check-cli.cjs` on `pull_request` and on `merge_group`, and posts each result as a commit status on the PR head (or the merge-queue group head). The statuses are the required contexts, so the match does not depend on job or workflow names. There are no path or branch filters; a required check that a filter stops from running would hold every merge forever.
+
+| Context | Passes when |
+|---|---|
+| `devflow/linked-issue` | the PR targets the default branch and carries at least one closing reference (`Closes`, `Fixes` or `Resolves #N`, any tense, also `owner/repo#N` for this repository and issue URLs) to an issue that exists and is not itself a pull request. Fenced code and HTML comments are ignored, a reference to another repository does not count, and `Refs #N` in commits is noted but never required |
+| `devflow/planning-consistency` | store mode is off or the PR is not a DevFlow objective PR (it carries no `devflow:pr` marker), which pass with the reason stated; otherwise the PR targets the default branch and closes the objective issue and every TRD issue linked under it, and none of those was closed as not planned. It reads the GitHub issue graph, never `.planning/`, which is an untracked cache |
+
+A failing check names each problem on its own line in the status description and the workflow log, and an internal error posts an `error` status rather than leaving the check pending. After a merged PR into the default branch, the workflow's `reconcile` job closes any issue the PR should have closed and left open and adds one comment; it does nothing for an unmerged PR or another base branch.
+
+**Not yet verified on a real repository.** The reusable workflow, the status contexts through `workflow_call` and the issue-field option shape were tested against a model of GitHub, not a live repository. The central location of the reusable workflow is owned by platform and operations; point `github.checks_workflow` at it. If an action fails, `gh setup` reports it as `failed` with GitHub's one-line error and exits 1 after trying the rest.
+
+#### Where the code lives
+
+For maintainers. Under `plugins/devflow/devflow/bin/lib/`:
+
+- client and mirror: `gh.cjs`, `gh-client.cjs` (every `gh` call: writes at least 1 s apart, secondary limits retried, `github.enabled` gate, failure exits 1), `gh-mapping.cjs`, `gh-body.cjs`, `gh-issue.cjs`, `gh-project.cjs`, `gh-milestone.cjs`, `gh-pull.cjs`;
+- store (objective 47): `gh-trd.cjs`, `gh-capability.cjs`, `gh-outbox.cjs`, `gh-outbox-flush.cjs`, `gh-hierarchy.cjs`, `gh-comments.cjs`, `gh-wiki.cjs`, `gh-cache.cjs`, `gh-store-cli.cjs`;
+- planning verbs (objective 48): `planning-mode.cjs`, `planning-paths.cjs`, `planning-ledger.cjs`, `planning-verbs.cjs`, `planning-entity-verbs.cjs`, `planning-import.cjs`, `planning-verbs-cli.cjs`, `planning-drift.cjs`, `planning-audit.cjs`, `trd-bulk.cjs`, `gh-milestone-store.cjs`;
+- branch and pull request (objective 49): `gh-pr.cjs`, `gh-pr-cli.cjs`, `commit-trailer.cjs`;
+- enforcement and setup (objective 50): `gh-gate.cjs`, `gh-check.cjs`, `gh-check-cli.cjs`, `gh-health.cjs`, `gh-setup.cjs`, `gh-setup-cli.cjs`;
+- migration (objective 51): `gh-backfill.cjs` (history closes, the estimate, resume detection) and `migrations/0011-github-store-backfill.cjs`.
+
+State outside the repository: the outbox journal per repository in `~/.claude/devflow/state/outbox/` (`DEVFLOW_OUTBOX_DIR`), Project fields and the capability cache under `~/.claude/devflow/state/gh-project/` (`DEVFLOW_GH_CACHE_DIR`). The wiki clone is `.planning/wiki/` (remote from `github.wiki.remote` or `DEVFLOW_WIKI_REMOTE`).
+
+### Mirror mode (store off)
+
+With `github.store` off (the default), DevFlow mirrors objectives to GitHub one way: one issue per objective, its milestone, release notes and the Project fields. Skills and agents read the planning files; GitHub shows what they say, and nothing on GitHub changes them unless you run `gh pull <objective> --apply`. To make GitHub the system of record instead, see **Migrating an existing project** above. To stay in mirror mode and stop migration 0011 from asking, run `df-tools config-set github.mirror_only true` (see **Known behaviour** there).
+
+#### Enable
 
 In `.planning/config.json`:
 
@@ -679,38 +1041,65 @@ In `.planning/config.json`:
 
 Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 
-### What syncs and when
+#### What syncs and when
 
 | Trigger | Action | Manual command |
 |---|---|---|
-| End of `/devflow:new-project` (after roadmap creation) | Creates one milestone per roadmap version + one issue per objective, persists numbers to `.planning/.gh-mapping.json` | `df-tools gh sync-objectives` |
-| Verifier finds gaps (`status: gaps_found`) | Posts the VERIFICATION.md `gaps:` block as an issue comment | `df-tools gh comment <obj#> @file:path` |
-| Verifier final pass passes | Closes the issue with link to verification report | `df-tools gh close-issue <obj#>` |
+| End of `/devflow:new-project` (after roadmap creation) | Creates one milestone per roadmap version + one issue per objective, persists numbers to `.planning/.gh-mapping.json` | `df-tools gh sync --all` |
+| End of `/devflow:execute-objective` | Pushes that objective: creates its issue on the first sync, updates the managed body sections, the sticky state comment and the Project fields, and writes `github_issue` to its OBJECTIVE.md. A failure prints a warning and the retry command | `df-tools gh sync <objective>` |
+| Verifier finds gaps (`status: gaps_found`) | Posts the VERIFICATION.md `gaps:` block as an issue comment (`--kind verification`) | `df-tools gh comment <objective> @file:path --kind verification` |
+| Verifier final pass passes | Closes the issue with link to verification report. In store mode nothing closes here: the issue closes when the objective PR merges | `df-tools gh close-issue <objective>` |
 | Tag push (`vX.Y.Z`) | Generates rich release notes from SUMMARY.md files since previous tag, creates or edits the GitHub release | `df-tools gh sync-release vX.Y.Z` |
-| Manual recovery | All of the above | `/devflow:gh-sync [objectives|release vX.Y.Z|status]` |
+| Read back | Compares the issue with the local state and reports drift; `--apply` writes the differences | `df-tools gh pull <objective> [--apply]` |
+| Resolve the issue chain | Prints the objective's issue and its parent issue chain as JSON | `df-tools gh resolve <objective>` |
+| Migrate onto the store | Backfills the planning history and turns store mode on (see **Migrating an existing project**) | `df-tools upgrade --apply --only 0011 --confirm` |
+| Rebuild the cache (store mode) | Rebuilds `.planning/` from GitHub: TRDs, SUMMARY and VERIFICATION, pages, a generated ROADMAP.md and STATE.md | `df-tools gh pull --all [--force]` |
+| Queued writes (store mode) | Shows or drains the outbox of pending GitHub writes | `df-tools gh outbox status`, `df-tools gh outbox flush [--no-wait]` |
+| Objective branch and PR (store mode) | One linked branch and one draft PR per objective, from execute start to merge | `df-tools gh pr start\|sync\|status\|merge\|reconcile <objective>` |
+| TRD spec and scope (store mode) | Prints a TRD's effective spec, freezes it, adds a scope change or folds scope comments into the body | `df-tools gh trd spec\|freeze\|fold\|scope <trd>` |
+| Orphans (store mode) | Lists TRD issues with no local file and local TRDs with no issue; deletes nothing | `df-tools gh orphans <objective>` |
+| Manual recovery | All of the above | `/devflow:gh-sync [migrate [--dry-run]\|status\|flush\|pull\|setup [--apply]\|release <tag>\|<objective>\|--all]` |
 
-### Mapping file
+`<objective>` takes any spelling: `46`, `046`, `46-github-sync-foundations`, `2.1`. `gh comment` and `gh close-issue` also take `#N` for a raw issue. `gh sync-objectives` is a deprecated alias of `gh sync --all`. `gh sync --all` keeps going past a failing objective, prints JSON on stdout and exits 1 if any objective failed.
 
-`.planning/.gh-mapping.json` is the source of truth for "which objective maps to which GitHub issue":
+#### How a sync treats an issue
+
+- The first line of the body is `<!-- devflow:id=N -->`. DevFlow rewrites only the text between its `devflow:begin` and `devflow:end` section markers; anything a person wrote above, between or below them is kept byte for byte.
+- An issue made by an older DevFlow has no markers. Its old generated text is kept and the managed sections are appended below it once. Delete the old text by hand if you want it gone.
+- The sticky state comment carries `<!-- devflow:id=N kind=state -->` and is edited in place. An older `<!-- df:state -->` comment is adopted and rewritten with the new marker. Comments posted by `gh comment` and `gh close-issue` carry `devflow:id` markers with their kind.
+- An issue is found through the mapping, then OBJECTIVE.md `github_issue`, then the `devflow:id` marker, then an `[Objective N]` title, and only then created. Two candidates stop that objective with an error; nothing is guessed or duplicated.
+- Every `gh` call goes through one client: writes are at least 1 s apart, a secondary rate limit is retried after GitHub's `retry-after`, and list calls read every page.
+- The milestone is the objective's `milestone:` frontmatter, else the current entry in the ROADMAP `## Milestones` list.
+- Project v2 fields are discovered from GitHub and cached, not hardcoded. The project comes from PROJECT.md `org_project`, then `awareness.org_project_id` in config.json. With neither, project fields are skipped.
+- `gh pull` after a push reports no drift: the push records GitHub's own `updatedAt` as the baseline.
+- If an OBJECTIVE.md already has a different `github_issue`, your value is kept and the difference is reported.
+
+#### Mapping file
+
+`.planning/.gh-mapping.json` records which objective maps to which GitHub issue. It is version 3, keyed by the canonical objective id (`46`, `2.1`; leading zeros stripped):
 
 ```json
 {
-  "milestone_id": 12,
+  "version": 3,
+  "repo": "owner/name",
+  "milestones": { "v1.4": 12 },
   "objectives": {
-    "1": 42,
-    "2": 43,
-    "2.1": 44
-  }
+    "1": { "issue_id": 42, "state_comment_id": 901, "verified_at": null },
+    "2.1": { "issue_id": 44, "state_comment_id": null, "verified_at": null }
+  },
+  "trds": {}
 }
 ```
 
-Commit it. Re-running `gh sync-objectives` is idempotent — existing issues are edited, not duplicated.
+In mirror mode, commit it; in store mode it is cache, untracked by migration 0010. Re-running `gh sync --all` is idempotent — existing issues are edited, not duplicated. Older mapping shapes are converted by upgrade migration 0009, which also re-keys `.planning/.gh-sync-state.json` by objective id (`df-tools upgrade`, applied automatically on session start).
+
+If the mapping file is lost, re-run `gh sync --all`: the `devflow:id` markers on GitHub lead back to the same issues and no duplicates are created.
 
 ### What does NOT sync
 
-- Issues created in GitHub do not flow back to `.planning/` (would break "planning files are truth"). File issues normally; they become input to `/devflow:plan-objective`.
+- In mirror mode, issues created in GitHub do not flow back to `.planning/`: the mirror is one way. File issues normally; they become input to `/devflow:plan-objective`. With store mode, `gh pull --all` is the way back, under the overwrite rules above.
 - Per-task commits are not re-posted to issues (too noisy). Use `gh comment` manually if you want an update mid-execution.
-- GitHub Projects v2 boards are not synced (GraphQL-only, low marginal value over labels + milestones).
+- Project v2 boards are only updated for issues DevFlow syncs (status and similar fields, when a project is configured). DevFlow does not create boards, fields or options.
 
 ### Troubleshooting
 
@@ -719,11 +1108,26 @@ Commit it. Re-running `gh sync-objectives` is idempotent — existing issues are
 node ~/.claude/devflow/bin/df-tools.cjs gh status
 ```
 
-Common reasons for "skipped":
-- `github.enabled is false` — set `enabled: true` in config
+`skipped` (exit 0, no `gh` calls) means the integration is off:
+- `github.enabled is not true` — set `enabled: true` in config
+- `github.repo is not set` — set `github.repo` to `"owner/name"`
+
+These exit 1 with the reason and the fix:
 - `gh CLI not installed` — install from https://cli.github.com
-- `gh not authenticated` — run `gh auth login`
-- `github.repo must be set as "owner/name"` — fix the format
+- `gh not authenticated` — run `gh auth login` (Project fields also need the `project` scope; `gh auth refresh` adds it)
+
+**The backfill stopped with "not an error: N of M ops remain".** The hour budget, being offline, a long secondary rate limit or this run's write cap stopped migration 0011. Nothing is lost. Run `df-tools upgrade --apply --only 0011 --confirm` again after the resume time it prints; it skips the import and drains what is left, then verifies and untracks the cache. See step 4 of **Migrating an existing project**.
+
+**The backfill or a flush halted.** `gh outbox flush` exits 2, or 0011 says `the outbox halted at op <seq>`: someone edited a DevFlow-managed section or a TRD body on GitHub. Run `gh outbox status`, then `gh outbox resolve <seq> --accept-remote` (keep GitHub's version) or `--overwrite` (keep the local write), then flush or apply again. While the journal is halted, `upgrade --apply --only 0011 --confirm` fails on migration 0010 first; resolve the halt, not the import 0010's message mentions.
+
+**The wiki has no first page.** 0011's preflight refuses, `gh setup --require-wiki` exits 1, and a store flush that pushes a page halts with `reason: blocked`. Create the first wiki page once in the GitHub web UI (turn the wiki on first under Settings > General > Features > Wikis), then apply or flush again. DevFlow never falls back to `docs/` for this.
+
+**The hourly budget.** The outbox sends at most 80 writes a minute and 450 an hour, measured over a rolling window in the journal, and one process sends at most 450 `gh` writes. `gh outbox flush` waits out the minute budget and exits 3 (pending) when the hour budget is spent; `--no-wait` (the hook) leaves rate-limited writes queued. `gh outbox status` shows the counts and why the last flush stopped. Run the flush again later, or keep working and let the `gh-flush` hook drain the queue.
+
+**Known issues.**
+
+- After a backfill, `gh pull --all` can list objective 1's `OBJECTIVE.md` as an orphan even though its issue exists. It is an attention item (exit 2), not a gap; 0011's verification does not refuse on it.
+- Parallel executors in one wave also conflict on `.planning/STATE_ARCHIVE.md` and `.planning/state.json` when their branches merge, not only on STATE.md, ROADMAP.md and REQUIREMENTS.md. The documented planning-file conflict path in `/devflow:execute-objective` covers those three, and aborts the merge for any other conflicted path. A `state.json` conflict needs a JSON-aware merge (keep both `decisions` entries), then `git add` and `git commit --no-edit`. Extending the documented list to those two files is open.
 
 ---
 

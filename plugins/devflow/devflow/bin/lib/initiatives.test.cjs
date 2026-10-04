@@ -1939,3 +1939,75 @@ test('IT5: default-run end-to-end with mocked empty walkProject', async () => {
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+// ─── TRD 46-08: project id without PRODUCT_ROADMAP_FIELDS ────────────────────
+
+function mockWalk(seen) {
+  init._setRunGh((args) => {
+    if (args[0] === 'auth') return { ok: true, status: 0, stdout: "Token scopes: 'project', 'read:project', 'repo'", stderr: '' };
+    if (args[0] === 'api' && args[1] === 'graphql') {
+      seen.push(args.join(' '));
+      return { ok: true, status: 0, stdout: JSON.stringify({ data: { node: { items: { pageInfo: { hasNextPage: false }, nodes: [] } } } }), stderr: '' };
+    }
+    return { ok: false, stdout: '', stderr: 'unmocked' };
+  });
+}
+
+function projectRoot({ projectMd = '# P\n', config = null } = {}) {
+  const root = mkTmp('df-init-46-');
+  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'), projectMd);
+  if (config) fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+  return root;
+}
+
+test('S46-1: with no project_id, syncInitiatives walks PROJECT.md org_project', async () => {
+  const home = mkTmp('df-init-s-');
+  const root = projectRoot({ projectMd: '---\norg_project: PVT_from_project_md\n---\n# P\n' });
+  const seen = [];
+  mockWalk(seen);
+  try {
+    const r = await init.syncInitiatives({ home, cwd: root });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.ok(seen.some((a) => a.includes('projectId=PVT_from_project_md')), seen.join('\n'));
+  } finally {
+    init._resetMocks();
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('S46-2: without an org_project, the configured awareness.org_project_id is used', async () => {
+  const home = mkTmp('df-init-s-');
+  const root = projectRoot({ config: { awareness: { org_project_id: 'PVT_from_config' } } });
+  const seen = [];
+  mockWalk(seen);
+  try {
+    const r = await init.syncInitiatives({ home, cwd: root });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.ok(seen.some((a) => a.includes('projectId=PVT_from_config')), seen.join('\n'));
+  } finally {
+    init._resetMocks();
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('S46-3: no project id anywhere -> ok:false naming where to set one; no walk; no PRODUCT_ROADMAP_FIELDS read', async () => {
+  const home = mkTmp('df-init-s-');
+  const root = projectRoot();
+  const seen = [];
+  mockWalk(seen);
+  try {
+    const r = await init.syncInitiatives({ home, cwd: root });
+    assert.strictEqual(r.ok, false);
+    assert.match(r.warnings.join('\n'), /org_project/);
+    assert.deepStrictEqual(seen, []);
+    const src = fs.readFileSync(path.join(__dirname, 'initiatives.cjs'), 'utf-8');
+    assert.ok(!src.includes('PRODUCT_ROADMAP_FIELDS'), 'initiatives.cjs must not depend on the removed constant');
+  } finally {
+    init._resetMocks();
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

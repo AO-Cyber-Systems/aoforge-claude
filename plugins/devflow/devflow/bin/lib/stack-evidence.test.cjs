@@ -399,7 +399,7 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
     '',
   ].join('\n');
 
-  test('E13: runner items carry target {name, deps, isDefault, dependedOn, order} and bodyInvocations', () => {
+  test('E13: runner items carry target {name, deps, isDefault, dependedOn, order, legs} and bodyInvocations', () => {
     const root = runnerFx.taskfileDepsShape({ '.github/workflows/guard.yml': guardWorkflow });
     try {
       const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
@@ -410,21 +410,28 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
       assert.equal(bundle.key, 'build');
       assert.deepStrictEqual(
         { ...bundle.target, order: typeof bundle.target.order },
-        { name: 'build:bundle', deps: ['gen', 'tidy'], isDefault: false, dependedOn: true, order: 'number' },
+        // TRD 43-11 added `legs`: its prerequisites, then the targets its cmds call (build:daemon is no target).
+        { name: 'build:bundle', deps: ['gen', 'tidy'], isDefault: false, dependedOn: true, order: 'number', legs: ['gen', 'tidy', 'build:relay:internal'] },
         'the `default` task depends on build:bundle',
       );
       assert.deepStrictEqual(bundle.bodyInvocations, ['task build:daemon', 'task build:relay:internal']);
 
-      const internal = runner('build:relay:internal');
-      assert.ok(internal, JSON.stringify(evidence));
-      assert.equal(internal.target.dependedOn, false, 'called from cmds, not listed in any deps');
-      assert.deepStrictEqual(internal.bodyInvocations, ['go build -trimpath -o out/relay ./cmd/relay']);
+      // TRD 43-01 D5: `build:relay:internal` is `internal: true` in this fixture, so `task
+      // build:relay:internal` is not invocable and was never a candidate worth proposing. This
+      // test used it as the "called from cmds, not listed in deps" leaf; `build:relay:quickdev`
+      // is that same leaf shape without the internal flag.
+      assert.equal(runner('build:relay:internal'), undefined, 'an internal task is never a candidate');
+      const leaf = runner('build:relay:quickdev');
+      assert.ok(leaf, JSON.stringify(evidence));
+      assert.equal(leaf.target.dependedOn, false, 'not listed in any deps');
+      assert.deepStrictEqual(leaf.bodyInvocations, ['go build -o out/relay ./cmd/relay']);
 
       const gen = runner('gen');
       assert.ok(gen, JSON.stringify(evidence));
       assert.equal(gen.target.dependedOn, true);
       assert.equal(gen.target.isDefault, false);
-      assert.ok(bundle.target.order < internal.target.order, 'file order survives the sorted target list');
+      // quickdev is listed BEFORE build:bundle in the file but sorts AFTER it by name.
+      assert.ok(leaf.target.order < bundle.target.order, 'file order survives the sorted target list');
 
       // A direct CI command carries itself as its one body invocation, and no target.
       const guard = evidence.find((e) => e.source === 'ci' && e.key === 'test');
@@ -459,6 +466,56 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
       assert.deepStrictEqual(test_.bodyInvocations, ['vitest run']);
       assert.equal(test_.target.name, 'test');
       assert.equal(test_.target.isDefault, false);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// ─── TRD 43-01 test 13: internal Taskfile tasks are never candidates ────────────
+
+describe('stack-evidence internal Taskfile tasks (E13c, TRD 43-01 D5)', () => {
+  test('E13c: no candidate for an `internal: true` task, but a public caller still expands its body', () => {
+    const root = runnerFx.taskfileInternalShape();
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
+      const commands = evidence.map((e) => e.command);
+      for (const hidden of ['task lint', 'task l', 'task go:mod:tidy', 'task npm:install']) {
+        assert.ok(!commands.includes(hidden), `${hidden} is internal, so never proposed: ${JSON.stringify(commands)}`);
+      }
+      // The public tasks remain candidates.
+      assert.ok(commands.includes('task check'), JSON.stringify(commands));
+      assert.ok(commands.includes('task test'), JSON.stringify(commands));
+      assert.ok(commands.includes('task build'), JSON.stringify(commands));
+      // `check` runs `task: lint` (internal, `eslint .`) then `go vet ./...`: the internal task's
+      // body is still in the index, so it expands and the node stack shows up in the body.
+      const check = evidence.find((e) => e.command === 'task check');
+      assert.ok(check.bodyStacks.includes('node'), `the internal body was expanded: ${JSON.stringify(check)}`);
+      assert.ok(check.bodyStacks.includes('go'), JSON.stringify(check));
+    } finally {
+      runnerFx.cleanup(root);
+    }
+  });
+
+  test('E13d: a public task that only DEPENDS on an internal one still runs its body', () => {
+    const root = makeRepo({
+      'Taskfile.yml': [
+        "version: '3'",
+        'tasks:',
+        '  prep:',
+        '    internal: true',
+        '    cmd: eslint .',
+        '  lint:',
+        '    deps: [prep]',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { from: 'codebase', areas: [] });
+      assert.ok(!evidence.some((e) => e.command === 'task prep'), JSON.stringify(evidence));
+      const lint = evidence.find((e) => e.command === 'task lint');
+      assert.ok(lint, JSON.stringify(evidence));
+      assert.deepStrictEqual(lint.bodyStacks, ['node'], 'a prerequisites-only target runs its internal dep');
     } finally {
       cleanup(root);
     }
@@ -692,6 +749,966 @@ describe('stack-evidence bodyStacks / effectiveArea (E15, TRD 42-15 test 12)', (
       }
     } finally {
       cleanup(root);
+    }
+  });
+});
+
+// TRD 43-04 (D4): a NAME that carries a scenario-class key (e2e, e2e_env) keeps it, so the first
+// classified line of a wrapper's body cannot re-key it; the body still supplies tool and scope. A
+// neutral name keeps today's body-first-line behaviour. A single-purpose script is flagged for the
+// drafter (`singlePurpose`), which only reads the flag.
+describe('stack-evidence name-carried scenario keys (E16, TRD 43-04 tests 6-7)', () => {
+  const ciRun = (...cmds) => ['jobs:', '  j:', '    steps:', ...cmds.map((c) => `      - run: ${c}`)].join('\n');
+  const BUILD_FIRST = '#!/bin/sh\nset -eu\ngo build -o /tmp/docsvc ./cmd/docsvc\n./scripts/scenario.sh\n';
+
+  function scriptRepo(name, body = BUILD_FIRST) {
+    return makeRepo({
+      [`scripts/${name}`]: body,
+      '.github/workflows/ci.yml': ciRun(`./scripts/${name}`),
+    });
+  }
+
+  test('E16a: a script named docs-e2e.sh with a go build first line is e2e, keeping the body tool and stack', () => {
+    const root = scriptRepo('docs-e2e.sh');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/docs-e2e.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'e2e');
+      assert.equal(item.source, 'ci');
+      assert.equal(item.tool, 'go', 'the body tool is kept for scope');
+      assert.ok(item.bodyStacks.includes('go'), JSON.stringify(item.bodyStacks));
+      assert.equal(item.confidence, 'low', 'the key came from the name');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16b: a script named integration-env-up.sh with a go build first line is e2e_env', () => {
+    const root = scriptRepo('integration-env-up.sh');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/integration-env-up.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'e2e_env');
+      assert.equal(item.tool, 'go');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16c: a neutral name (run.sh) keeps the body first line: go build is build', () => {
+    const root = scriptRepo('run.sh');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/run.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'build');
+      assert.equal(item.confidence, 'high');
+      assert.equal(item.resolvesTo, 'go build -o /tmp/docsvc ./cmd/docsvc');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16d: a body that already agrees with the name is kept as is (high confidence, its own form)', () => {
+    const root = scriptRepo('smoke-e2e.sh', '#!/bin/sh\nset -eu\nnpx playwright test\n');
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).find((e) => e.command === './scripts/smoke-e2e.sh');
+      assert.ok(item);
+      assert.equal(item.key, 'e2e');
+      assert.equal(item.confidence, 'high');
+      assert.equal(item.tool, 'playwright');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16e: runner targets: e2e-stack-up (compose up body) is e2e_env; e2e (playwright) is e2e; a named e2e target keeps e2e over a go test body', () => {
+    const root = makeRepo({
+      Makefile: [
+        '.PHONY: e2e-stack-up e2e test-e2e',
+        'e2e-stack-up:',
+        '\tdocker compose -f e2e/compose.yml up -d',
+        'e2e:',
+        '\tnpx playwright test',
+        'test-e2e:',
+        '\tgo test -tags=e2e ./...',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      const keyOf = (cmd) => (evidence.find((e) => e.command === cmd) || {}).key;
+      assert.equal(keyOf('make e2e-stack-up'), 'e2e_env');
+      assert.equal(keyOf('make e2e'), 'e2e');
+      assert.equal(keyOf('make test-e2e'), 'e2e');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16f: a CI step `docker compose up -d` is e2e_env (body signal), never build or test', () => {
+    const root = makeRepo({ '.github/workflows/ci.yml': ciRun('docker compose -f e2e/compose.yml up -d') });
+    try {
+      const item = collectEvidence(root, { areas: [], hygiene: () => 'ok' })[0];
+      assert.ok(item);
+      assert.equal(item.key, 'e2e_env');
+      assert.equal(item.form, 'mutate');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16g: singlePurpose is set for check-*, verify-* and *_test.sh scripts, and for bash <script>', () => {
+    const root = makeRepo({
+      'scripts/check-migrations_test.sh': '#!/bin/sh\ngo run ./cmd/migrate verify\n',
+      'scripts/verify-tests.sh': '#!/bin/sh\ngo run ./cmd/schema verify\n',
+      'scripts/api_test.sh': '#!/bin/sh\ngo run ./cmd/apitest\n',
+      '.github/workflows/ci.yml': ciRun('./scripts/check-migrations_test.sh', 'bash scripts/verify-tests.sh', './scripts/api_test.sh'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      for (const cmd of ['./scripts/check-migrations_test.sh', 'bash scripts/verify-tests.sh', './scripts/api_test.sh']) {
+        const item = evidence.find((e) => e.command === cmd);
+        assert.ok(item, `${cmd}: ${JSON.stringify(evidence.map((e) => e.command))}`);
+        assert.equal(item.singlePurpose, true, cmd);
+      }
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E16h: test.sh, run-tests.sh, check.sh and a make target named check-x are not singlePurpose', () => {
+    const root = makeRepo({
+      'scripts/test.sh': '#!/bin/sh\ngo test ./...\n',
+      'scripts/run-tests.sh': '#!/bin/sh\ngo test ./...\n',
+      'scripts/check.sh': '#!/bin/sh\ngo vet ./...\n',
+      Makefile: '.PHONY: check-x\ncheck-x:\n\tgo vet ./...\n',
+      '.github/workflows/ci.yml': ciRun('./scripts/test.sh', './scripts/run-tests.sh', './scripts/check.sh', 'make check-x'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      assert.ok(evidence.length >= 4, JSON.stringify(evidence.map((e) => e.command)));
+      for (const item of evidence) assert.ok(!item.singlePurpose, `${item.command} must not be singlePurpose`);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// TRD 43-04 (D4, spot-check recovery): an item whose key was carried by a scenario NAME is flagged
+// `scenarioNamed`, so stack-draft can prefer it over a body-only e2e_env. Present only when true.
+describe('stack-evidence scenarioNamed (E17, TRD 43-04)', () => {
+  test('E17: make e2e-stack-up and a docs-e2e.sh wrapper are scenarioNamed; make infra-up (body only) is not', () => {
+    const root = makeRepo({
+      Makefile: [
+        '.PHONY: infra-up e2e-stack-up',
+        'infra-up:',
+        '\tdocker compose up -d',
+        'e2e-stack-up:',
+        '\tbash scripts/e2e-stack-up.sh',
+        '',
+      ].join('\n'),
+      'scripts/e2e-stack-up.sh': '#!/bin/sh\ndocker compose -f e2e/compose.yml up -d\n',
+      'scripts/docs-e2e.sh': '#!/bin/sh\ngo build -o /tmp/x ./cmd/x\n',
+      '.github/workflows/ci.yml': ['jobs:', '  j:', '    steps:', '      - run: ./scripts/docs-e2e.sh'].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      const byCmd = (c) => evidence.find((e) => e.command === c);
+      assert.equal(byCmd('make e2e-stack-up').key, 'e2e_env');
+      assert.equal(byCmd('make e2e-stack-up').scenarioNamed, true);
+      assert.equal(byCmd('make infra-up').key, 'e2e_env');
+      assert.ok(!('scenarioNamed' in byCmd('make infra-up')), 'a body-only bring-up is not named');
+      assert.equal(byCmd('./scripts/docs-e2e.sh').key, 'e2e');
+      assert.equal(byCmd('./scripts/docs-e2e.sh').scenarioNamed, true);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E17b: a plain build target and a neutral script are never scenarioNamed', () => {
+    const root = makeRepo({
+      Makefile: '.PHONY: build\nbuild:\n\tgo build ./...\n',
+      'scripts/run.sh': '#!/bin/sh\ngo build ./...\n',
+      '.github/workflows/ci.yml': ['jobs:', '  j:', '    steps:', '      - run: ./scripts/run.sh', '      - run: make build'].join('\n'),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      assert.ok(evidence.length >= 2);
+      for (const item of evidence) assert.ok(!('scenarioNamed' in item), item.command);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// ─── TRD 43-05 tests 14-15: where a body RUNS, for dirs that are in no language area (D2) ───────────
+//
+// (a) A unit whose cwd is non-root and in NO language area is its own pseudo-area (`infra/tiles/`), so
+// stack-draft files it as a `sub_area` note, never a root key. (b) A script invoked from the root with
+// no `cd` takes the language area of the script's own directory (`bash portal/build.sh` runs in the
+// flutter component `portal/`). A script in a root-level helper dir that is in no language area keeps
+// '' (EdenDocs `./scripts/eden/build.sh`, devcluster `bash t0-conformance/selftest.sh` are root keys).
+
+describe('stack-evidence pseudo-area and script-dir area (E18, TRD 43-05 tests 14-15)', () => {
+  const ciSteps = (...steps) => ['jobs:', '  j:', '    steps:', ...steps].join('\n');
+  const run = (cmd) => `      - run: ${cmd}`;
+  const AREAS = [
+    { dir: '', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'portal/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+  ];
+  const find = (evidence, command, source) => evidence.find((e) => e.command === command && (!source || e.source === source));
+
+  test('E18a (test 14): a CI step in `infra/tiles` (no language area) has the pseudo-area `infra/tiles/`', () => {
+    const root = makeRepo({
+      'infra/tiles/build.sh': '#!/bin/sh\nset -eu\n./gen-tiles\n',
+      '.github/workflows/tiles.yml': ciSteps('      - name: tiles', '        working-directory: infra/tiles', '        run: ./build.sh'),
+    });
+    try {
+      const item = find(collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }), './build.sh', 'ci');
+      assert.ok(item);
+      assert.equal(item.cwd, 'infra/tiles');
+      assert.equal(item.area, '', 'the item area is the language area of the cwd: none');
+      assert.equal(item.effectiveArea, 'infra/tiles/');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18b: a sub-dir Makefile target (`make -C docs`) runs in the pseudo-area `docs/`; a root target stays at the root', () => {
+    const root = makeRepo({
+      Makefile: 'build:\n\tgo build ./...\n',
+      'docs/Makefile': 'build:\n\tmkdocs build\n',
+      '.github/workflows/ci.yml': ciSteps(run('make -C docs build'), run('go test ./...')),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' });
+      const docs = evidence.find((e) => e.source === 'runner' && e.cwd === 'docs' && e.key === 'build');
+      assert.ok(docs, JSON.stringify(evidence.map((e) => [e.source, e.command, e.cwd])));
+      assert.equal(docs.effectiveArea, 'docs/');
+      const rootMake = evidence.find((e) => e.source === 'runner' && e.command === 'make build' && !e.cwd);
+      assert.ok(rootMake);
+      assert.equal(rootMake.effectiveArea, '');
+      assert.equal(find(evidence, 'go test ./...', 'ci').effectiveArea, '');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18b2: a sub-dir target with NO recipe of its own (prerequisites only) still runs in that dir: the item cwd is the pseudo-area', () => {
+    const root = makeRepo({
+      'engine/plugins/Makefile': 'all: build\nbuild: plugins\n',
+      '.github/workflows/ci.yml': ciSteps(run('go test ./...')),
+    });
+    try {
+      const item = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }).find((e) => e.source === 'runner' && e.cwd === 'engine/plugins');
+      assert.ok(item);
+      assert.deepStrictEqual(item.bodyScopes, [], 'no unit, so no stack');
+      assert.equal(item.effectiveArea, 'engine/plugins/');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18c (test 15): `bash portal/build.sh` from the root runs in the language area `portal/`, whether the script is readable or not', () => {
+    const readable = makeRepo({
+      'portal/build.sh': '#!/bin/sh\nflutter pub get\nflutter pub run build_runner build\n',
+      '.github/workflows/ci.yml': ciSteps(run('bash portal/build.sh')),
+    });
+    const missing = makeRepo({ '.github/workflows/ci.yml': ciSteps(run('bash portal/build.sh')) });
+    try {
+      for (const root of [readable, missing]) {
+        const item = find(collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }), 'bash portal/build.sh', 'ci');
+        assert.ok(item, root);
+        assert.equal(item.area, '', 'invoked from the root');
+        assert.equal(item.effectiveArea, 'portal/');
+      }
+    } finally {
+      cleanup(readable);
+      cleanup(missing);
+    }
+  });
+
+  test('E18d (test 15): a script in a root-level helper dir that is no language area, or at the root, keeps the root', () => {
+    const root = makeRepo({
+      'scripts/build.sh': '#!/bin/sh\ngo build ./...\n',
+      'build.sh': '#!/bin/sh\ngo build ./...\n',
+      'scripts/eden/build.sh': '#!/bin/sh\n./run-build\n',
+      '.github/workflows/ci.yml': ciSteps(run('./scripts/build.sh'), run('./build.sh'), run('./scripts/eden/build.sh')),
+    });
+    try {
+      const evidence = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' });
+      for (const cmd of ['./scripts/build.sh', './build.sh', './scripts/eden/build.sh']) {
+        const item = find(evidence, cmd, 'ci');
+        assert.ok(item, cmd);
+        assert.equal(item.effectiveArea, '', `${cmd}: a helper dir that is no language area runs root commands`);
+      }
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18f: a cwd that does not exist is no pseudo-area: the item keeps its own area and stays a cwd_missing candidate', () => {
+    const root = makeRepo({
+      '.github/workflows/ci.yml': ciSteps('      - name: gone', '        working-directory: nope/gone', '        run: go test ./...'),
+    });
+    try {
+      const item = find(collectEvidence(root, { areas: AREAS }), 'go test ./...', 'ci');
+      assert.ok(item);
+      assert.equal(item.cwdStatus, 'missing');
+      assert.equal(item.effectiveArea, '');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E18e: a `cd` before the script wins: `cd portal && ./build.sh` is portal/, `cd infra/tiles && ./build.sh` is the pseudo-area', () => {
+    const root = makeRepo({
+      'portal/build.sh': '#!/bin/sh\nflutter build web\n',
+      'infra/tiles/build.sh': '#!/bin/sh\n./gen-tiles\n',
+      '.github/workflows/ci.yml': ciSteps(run('cd portal && ./build.sh'), run('cd infra/tiles && ./build.sh')),
+    });
+    try {
+      const builds = collectEvidence(root, { areas: AREAS, hygiene: () => 'ok' }).filter((e) => e.source === 'ci' && e.key === 'build');
+      assert.deepStrictEqual(builds.map((e) => e.effectiveArea).sort(), ['infra/tiles/', 'portal/']);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// TRD 43-06 (devflowops / aodex goldens): check / apply target pairs.
+// - E19a a target whose recipe is a drift check (`git diff --exit-code`) after a prerequisite that
+//   WRITES key K (fmt, tidy, a generator) is K's check form, high confidence: `fmt-check: fmt`,
+//   `tidy-check: tidy`, `openapi-verify: openapi-regen`. Also a body that regenerates then diffs.
+// - E19b a target's prerequisites run before its recipe, so they are part of its units: the check
+//   target's stack is the prerequisite's (gofmt at the root), not unknown.
+// - E19c a prerequisites-only `lint-fix` is lint's apply form (its name says so).
+describe('check / apply target pairs (E19, TRD 43-06)', () => {
+  const MAKEFILE = [
+    'fmt:',
+    '\tgofmt -w .',
+    '',
+    'fmt-check: fmt',
+    '\tgit diff --exit-code',
+    '',
+    'tidy:',
+    '\tgo mod tidy',
+    '',
+    'tidy-check: tidy',
+    '\tgit diff --exit-code go.mod go.sum',
+    '',
+    'openapi-regen:',
+    '\tgo generate ./api/...',
+    '',
+    'openapi-verify: openapi-regen',
+    '\tgit diff --exit-code -- api/',
+    '',
+    'proto-check:',
+    '\tbuf generate',
+    '\tgit diff --quiet',
+    '',
+    'lint-fix: lint-go-fix',
+    '',
+    'lint-go-fix:',
+    '\tgolangci-lint run --fix',
+    '',
+    'notes:',
+    '\tgit diff --exit-code',
+    '',
+  ].join('\n');
+
+  function items() {
+    const root = makeRepo({ 'go.mod': 'module example.invalid/pairs\n\ngo 1.23\n', Makefile: MAKEFILE });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd) => list.find((e) => e.command === cmd) || null;
+
+  test('E19a: a drift check after a writing prerequisite is that key\'s check form, high confidence', () => {
+    const list = items();
+    const want = { 'make fmt-check': 'format', 'make tidy-check': 'tidy', 'make openapi-verify': 'codegen', 'make proto-check': 'codegen' };
+    for (const [cmd, key] of Object.entries(want)) {
+      const it = byCmd(list, cmd);
+      assert.ok(it, `${cmd} is evidence`);
+      assert.equal(it.key, key, cmd);
+      assert.equal(it.form, 'check', cmd);
+      assert.equal(it.confidence, 'high', cmd);
+    }
+    assert.equal(byCmd(list, 'make notes'), null, 'a bare drift check with no writer is not evidence');
+    assert.equal(byCmd(list, 'make openapi-regen').form, 'mutate', 'the generator itself keeps its form');
+  });
+
+  test('E19b: the prerequisite is part of the check target\'s units: its stack runs at the root', () => {
+    const list = items();
+    for (const cmd of ['make fmt-check', 'make tidy-check', 'make openapi-verify']) {
+      const it = byCmd(list, cmd);
+      assert.ok(it.bodyScopes.some((s) => s.stack === 'go' && s.area === ''), `${cmd}: ${JSON.stringify(it.bodyScopes)}`);
+    }
+  });
+
+  test('E19c: a prerequisites-only `lint-fix` is lint apply', () => {
+    const it = byCmd(items(), 'make lint-fix');
+    assert.ok(it);
+    assert.equal(it.key, 'lint');
+    assert.equal(it.form, 'apply');
+  });
+});
+
+// TRD 43-06 (EdenDocs golden): an item that goes through a runner target or a script FILE carries the
+// name it goes through (`invokedName`), so stack-draft can rank a step named exactly the key (`build.sh`)
+// above a qualified one (`build-deps.sh`). Runner items keep `target.name`; a raw command has none.
+describe('invokedName (E20, TRD 43-06)', () => {
+  test('E20: CI steps through a script or a runner target carry the name; raw commands do not', () => {
+    const steps = ['jobs:', '  j:', '    steps:', ...[
+      './scripts/eden/build.sh',
+      'bash tools/smoke-test.sh',
+      'make lint-backend',
+      'go test ./...',
+    ].map((c) => `      - run: ${c}`)].join('\n');
+    const root = makeRepo({
+      'scripts/eden/build.sh': '#!/bin/sh\nmake -j4\n',
+      'tools/smoke-test.sh': '#!/bin/sh\n./bin/server --selftest\n',
+      Makefile: 'lint-backend:\n\tgolangci-lint run\n',
+      '.github/workflows/ci.yml': steps,
+    });
+    try {
+      const ci = collectEvidence(root, { areas: [], hygiene: () => 'ok' }).filter((e) => e.source === 'ci');
+      const nameOf = (cmd) => (ci.find((e) => e.command === cmd) || {}).invokedName;
+      assert.equal(nameOf('./scripts/eden/build.sh'), 'build');
+      assert.equal(nameOf('bash tools/smoke-test.sh'), 'smoke-test');
+      assert.equal(nameOf('make lint-backend'), 'lint-backend');
+      assert.equal(nameOf('go test ./...'), undefined);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// TRD 43-06 (EdenDocs golden): a smoke test checks a built artifact quickly; it is one check, not the
+// repo's suite, so a script whose name carries the whole token `smoke` is single-purpose.
+describe('smoke scripts are single-purpose (E21, TRD 43-06)', () => {
+  test('E21: smoke-test.sh, smoke_tests.sh and api-smoke-test.sh are singlePurpose; smokey-test.sh and test.sh are not', () => {
+    // Names that carry the `test` token, so each step is test evidence and the flag is what differs.
+    const names = ['smoke-test.sh', 'smoke_tests.sh', 'api-smoke-test.sh', 'smokey-test.sh', 'test.sh'];
+    const files = { '.github/workflows/ci.yml': ['jobs:', '  j:', '    steps:', ...names.map((n) => `      - run: ./ci/${n}`)].join('\n') };
+    for (const n of names) files[`ci/${n}`] = '#!/bin/sh\n./bin/server --selftest\n';
+    const root = makeRepo(files);
+    try {
+      const ev = collectEvidence(root, { areas: [], hygiene: () => 'ok' });
+      const sp = (n) => (ev.find((e) => e.command === `./ci/${n}`) || {}).singlePurpose === true;
+      for (const n of names) assert.ok(ev.some((e) => e.command === `./ci/${n}` && e.key === 'test'), `${n} is test evidence`);
+      assert.equal(sp('smoke-test.sh'), true);
+      assert.equal(sp('smoke_tests.sh'), true);
+      assert.equal(sp('api-smoke-test.sh'), true);
+      assert.equal(sp('smokey-test.sh'), false);
+      assert.equal(sp('test.sh'), false);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// TRD 43-09 (devflowops.format / devflowops.tidy / aodex.codegen rows): drift checks as real recipes
+// write them, and the check suffix on a body-classified writer.
+// - E22a a `-verify` / `-check` target whose BODY writes codegen (`go generate`) is codegen's check
+//   form, high confidence (the body says what it runs; the suffix says which form).
+// - E22b a `-check` target whose recipe captures `git diff`, tests it non-empty and exits 1 (it
+//   normalises to nothing) after a prerequisite that writes format (known only by its name) is
+//   format/check, high. The same with a tidy writer.
+// - E22c a recipe that snapshots into mktemp, regenerates and fails on `diff -q` is the generator's
+//   check form, whatever the target is called.
+// - E22d unchanged: a `-verify` target whose body writes nothing (`go build`, an unknown script), and a
+//   target that only SHOWS a captured diff (no failing exit), which is not evidence.
+describe('real drift-check shapes and check suffixes (E22, TRD 43-09)', () => {
+  const MAKEFILE = [
+    'fmt:',
+    "\tgo run tools/fmtbatch/main.go -w '{file-list}'",
+    '\tsed -i -e "s/ *$$//" views/a.tmpl',
+    '',
+    'fmt-check: fmt',
+    '\t@out=$$(git diff --color=never cmd views); \\',
+    '\tif [ -n "$$out" ]; then \\',
+    '\t  echo "run make fmt"; \\',
+    '\t  exit 1; \\',
+    '\tfi',
+    '',
+    'tidy:',
+    '\tgo mod tidy -compat=1.22',
+    '',
+    'tidy-check: tidy',
+    '\t@out=$$(git diff go.mod go.sum); if [ -n "$$out" ]; then echo "$$out"; exit 1; fi',
+    '',
+    'fmt-show: fmt',
+    '\t@out=$$(git diff); echo "$$out"',
+    '',
+    'models-verify:',
+    '\tgo generate ./models/...',
+    '',
+    'api-guard:',
+    '\t@snap=$$(mktemp -d) && cp api/a.gen.go $$snap/ && go generate ./api/... && \\',
+    '\tif ! diff -q $$snap/a.gen.go api/a.gen.go >/dev/null; then cp $$snap/a.gen.go api/; exit 1; fi',
+    '',
+    'build-verify:',
+    '\tgo build ./...',
+    '',
+    'docs-verify:',
+    '\t./tools/docs-lint.sh',
+    '',
+  ].join('\n');
+
+  function items() {
+    const root = makeRepo({ 'go.mod': 'module example.invalid/shapes\n\ngo 1.23\n', Makefile: MAKEFILE });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd) => list.find((e) => e.command === cmd) || null;
+  const pick = (e) => (e ? { key: e.key, form: e.form, confidence: e.confidence } : null);
+
+  test('E22a: a check-suffixed target whose body writes codegen is codegen/check, high', () => {
+    assert.deepEqual(pick(byCmd(items(), 'make models-verify')), { key: 'codegen', form: 'check', confidence: 'high' });
+  });
+
+  test('E22b: a captured-diff check after a writing prerequisite is that key\'s check form, high', () => {
+    const list = items();
+    assert.deepEqual(pick(byCmd(list, 'make fmt-check')), { key: 'format', form: 'check', confidence: 'high' });
+    assert.deepEqual(pick(byCmd(list, 'make tidy-check')), { key: 'tidy', form: 'check', confidence: 'high' });
+    assert.equal(byCmd(list, 'make fmt').form, 'apply', 'the writer keeps its form');
+  });
+
+  test('E22c: a mktemp snapshot + regenerate + `diff -q` + exit 1 recipe is codegen/check, high', () => {
+    assert.deepEqual(pick(byCmd(items(), 'make api-guard')), { key: 'codegen', form: 'check', confidence: 'high' });
+  });
+
+  test('E22d: unchanged — a -verify target that writes nothing, and a diff that is only shown', () => {
+    const list = items();
+    assert.deepEqual(pick(byCmd(list, 'make build-verify')), { key: 'build', form: 'build', confidence: 'high' });
+    assert.equal(byCmd(list, 'make docs-verify'), null, 'an unknown script under a -verify name is not evidence');
+    assert.equal(byCmd(list, 'make fmt-show'), null, 'a captured diff that never fails is not a check');
+  });
+});
+
+// ─── TRD 43-10 test 8: unitAreas, the distinct areas an item's units run in ────────────────────────
+//
+// scopeOf already says where the KEYED units run (bodyScopes, effectiveArea). unitAreas says where ALL of an
+// item's units run, in first-seen order, so stack-draft can tell a recipe that fans out across areas (the
+// workspace interface) from one that runs in a single area. effectiveArea is unchanged by it. With no unit
+// at all it is the item's own area.
+
+describe('stack-evidence unitAreas (E19, TRD 43-10 test 8)', () => {
+  const UNIT_AREAS = [
+    { dir: 'svc/', kinds: ['go'], tier: 'go', flags: [] },
+    { dir: 'lib/', kinds: ['dart'], tier: 'dart', flags: [] },
+    { dir: 'ui/', kinds: ['node'], tier: null, unsupported: 'node', flags: ['unsupported'] },
+  ];
+  const TASKFILE = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  test:',
+    '    cmds:',
+    '      - (cd svc && go test ./...)',
+    '      - (cd ui && npm test)',
+    '      - (cd lib && dart test)',
+    '',
+    '  lint:',
+    '    cmds:',
+    '      - go vet ./...',
+    '',
+    '  prep:',
+    '    cmds:',
+    '      - (cd svc && go test ./...)',
+    '      - (cd tools && ./gen.sh)',
+    '',
+  ].join('\n');
+  const repo = () => makeRepo({
+    'go.mod': 'module example.com/unitareas\n',
+    'Taskfile.yml': TASKFILE,
+    'svc/go.mod': 'module example.com/unitareas/svc\n',
+    'lib/pubspec.yaml': 'name: unit_lib\nenvironment:\n  sdk: ^3.5.0\n',
+    'ui/package.json': JSON.stringify({ name: 'ui', private: true, scripts: { test: 'vitest run' } }),
+    'tools/gen.sh': '#!/bin/sh\n./gen\n',
+    'engine/plugins/Makefile': 'all: build\nbuild: plugins\n',
+  });
+  const find = (evidence, command) => evidence.find((e) => e.command === command);
+
+  test('E19a: a recipe that runs in three dirs lists all three, in first-seen order', () => {
+    const root = repo();
+    try {
+      const evidence = collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' });
+      const test = find(evidence, 'task test');
+      assert.ok(test, JSON.stringify(evidence.map((e) => e.command)));
+      assert.deepStrictEqual(test.unitAreas, ['svc/', 'ui/', 'lib/']);
+      assert.equal(test.effectiveArea, 'svc/', 'effectiveArea is unchanged: the first unit area');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19b: a recipe that runs in one area lists that one', () => {
+    const root = repo();
+    try {
+      const lint = find(collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' }), 'task lint');
+      assert.ok(lint);
+      assert.deepStrictEqual(lint.unitAreas, ['']);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19c: it covers ALL units, not only the ones that classify to the key', () => {
+    const root = repo();
+    try {
+      const prep = find(collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' }), 'task prep');
+      assert.ok(prep);
+      assert.deepStrictEqual(prep.bodyScopes.map((s) => s.area), ['svc/'], 'only the go test classifies to the key');
+      assert.deepStrictEqual(prep.unitAreas, ['svc/', 'tools/'], 'the generator script runs in `tools/` too');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19d: an item with no units gets its own area', () => {
+    const root = repo();
+    try {
+      const item = collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' }).find((e) => e.source === 'runner' && e.cwd === 'engine/plugins');
+      assert.ok(item);
+      assert.deepStrictEqual(item.bodyScopes, []);
+      assert.deepStrictEqual(item.unitAreas, ['engine/plugins/']);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('E19e: every item carries a non-empty list of strings', () => {
+    const root = repo();
+    try {
+      for (const item of collectEvidence(root, { areas: UNIT_AREAS, hygiene: () => 'ok' })) {
+        assert.ok(Array.isArray(item.unitAreas) && item.unitAreas.length > 0, JSON.stringify(item.command));
+        assert.ok(item.unitAreas.every((a) => typeof a === 'string'));
+      }
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// ─── TRD 43-11 test 6: unitKeys and target legs ───────────────────────────────────────────────────────
+//
+// unitKeys are the distinct keys an item's units classify to, over ALL its units: recipe lines, prerequisite
+// targets (transitively), called targets and internal tasks; an unclassified unit (`buf lint`) adds nothing.
+// A runner item's `target.legs` are the targets it runs directly: its prerequisites and the targets its recipe
+// calls, in the same runner file. stack-draft reads both (a mixed aggregate; a partial drift check).
+
+describe('stack-evidence unitKeys and legs (E23, TRD 43-11 test 6)', () => {
+  const MAKEFILE = [
+    'proto:',
+    '\tbuf lint',
+    '\tbuf generate',
+    '',
+    'sqlc:',
+    '\tsqlc generate',
+    '',
+    'gen-sdk: proto',
+    '\t@cd /opt/example/sdk-dart && dart pub get >/dev/null',
+    '\t@cd /opt/example/sdk-dart && dart analyze',
+    '',
+    'generate: proto sqlc gen-sdk',
+    '',
+    'acceptance:',
+    '\tmake gen-sdk',
+    '\tgo test ./...',
+    '',
+    'build: plugins',
+    '',
+  ].join('\n');
+  const TASKFILE = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  npm:install:',
+    '    internal: true',
+    '    cmd: npm install',
+    '',
+    '  go:mod:tidy:',
+    '    internal: true',
+    '    cmd: go mod tidy',
+    '',
+    '  bootstrap:',
+    '    cmds:',
+    '      - task: npm:install',
+    '      - task: go:mod:tidy',
+    '',
+  ].join('\n');
+  const WORKFLOW = [
+    'name: ci',
+    'on: [push]',
+    'jobs:',
+    '  gen:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: sqlc generate',
+    '',
+  ].join('\n');
+  function items() {
+    const root = makeRepo({
+      'go.mod': 'module example.invalid/unitkeys\n\ngo 1.23\n',
+      Makefile: MAKEFILE,
+      'Taskfile.yml': TASKFILE,
+      '.github/workflows/ci.yml': WORKFLOW,
+    });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd, source) => list.find((e) => e.command === cmd && (!source || e.source === source)) || null;
+
+  test('E23a: a prerequisite-only aggregate takes the keys of every leg, transitively, in first-seen order', () => {
+    const generate = byCmd(items(), 'make generate');
+    assert.ok(generate, 'make generate is evidence');
+    assert.deepStrictEqual(generate.unitKeys, ['codegen', 'deps', 'lint']);
+    assert.deepStrictEqual(generate.target.legs, ['proto', 'sqlc', 'gen-sdk']);
+  });
+
+  test('E23b: an unclassified recipe line adds no key; a prerequisite is a leg', () => {
+    const list = items();
+    const proto = byCmd(list, 'make proto');
+    assert.deepStrictEqual(proto.unitKeys, ['codegen'], '`buf lint` classifies to nothing');
+    assert.deepStrictEqual(proto.target.legs, []);
+    const sdk = byCmd(list, 'make gen-sdk');
+    assert.deepStrictEqual(sdk.unitKeys, ['codegen', 'deps', 'lint'], 'its prerequisite runs first');
+    assert.deepStrictEqual(sdk.target.legs, ['proto']);
+  });
+
+  test('E23c: a called target is a leg, and its units are the caller\'s', () => {
+    const acceptance = byCmd(items(), 'make acceptance');
+    assert.ok(acceptance, 'make acceptance is evidence');
+    assert.deepStrictEqual(acceptance.target.legs, ['gen-sdk']);
+    assert.deepStrictEqual(acceptance.unitKeys, ['codegen', 'deps', 'lint', 'test']);
+  });
+
+  test('E23d: a task calling internal tasks takes their keys, and they are its legs', () => {
+    // Named `bootstrap` so its key comes from the name: a body of `task:` calls classifies to nothing itself.
+    const boot = byCmd(items(), 'task bootstrap');
+    assert.ok(boot, 'task bootstrap is evidence');
+    assert.deepStrictEqual(boot.unitKeys, ['deps', 'tidy']);
+    assert.deepStrictEqual(boot.target.legs, ['npm:install', 'go:mod:tidy']);
+  });
+
+  test('E23e: an item with no units has no key; a raw CI line has its own', () => {
+    const list = items();
+    const build = byCmd(list, 'make build');
+    assert.ok(build, 'make build is evidence (by its name)');
+    assert.deepStrictEqual(build.unitKeys, []);
+    assert.deepStrictEqual(build.target.legs, [], 'a prerequisite that is no target is no leg');
+    const ci = byCmd(list, 'sqlc generate', 'ci');
+    assert.deepStrictEqual(ci.unitKeys, ['codegen']);
+  });
+
+  test('E23f: every item carries unitKeys as a list of strings', () => {
+    for (const item of items()) {
+      assert.ok(Array.isArray(item.unitKeys), JSON.stringify(item.command));
+      assert.ok(item.unitKeys.every((k) => typeof k === 'string' && k));
+    }
+  });
+});
+
+// ─── TRD 43-11: the writer of a drift check ───────────────────────────────────────────────────────────
+//
+// A drift check (driftCheckOf) regenerates, then fails on a diff. Its WRITER is the prerequisite target it
+// regenerates through (`templ-check: templ` -> { target: 'templ' }) or the earlier statement of its own recipe
+// (`… go generate ./api/... && if ! diff -q …` -> { invocation: 'go generate ./api/...' }). stack-draft
+// compares the writer with the codegen generator to tell a check of one leg from a check of the whole.
+
+describe('stack-evidence driftWriter (E24, TRD 43-11)', () => {
+  const MAKEFILE = [
+    'templ:',
+    '\ttempl generate',
+    '',
+    'templ-check: templ',
+    '\t@if ! git diff --exit-code --stat -- views; then echo "templ drift"; exit 1; fi',
+    '',
+    'api-guard:',
+    '\t@snap=$$(mktemp -d) && cp api/a.gen.go $$snap/ && go generate ./api/... >/dev/null 2>&1 && \\',
+    '\tif ! diff -q $$snap/a.gen.go api/a.gen.go >/dev/null; then cp $$snap/a.gen.go api/; exit 1; fi',
+    '',
+    'fmt:',
+    '\tgofmt -w .',
+    '',
+    'fmt-check: fmt',
+    '\t@out=$$(git diff --color=never); if [ -n "$$out" ]; then echo "$$out"; exit 1; fi',
+    '',
+    'generate: templ',
+    '',
+  ].join('\n');
+  const WORKFLOW = [
+    'name: drift',
+    'on: [push]',
+    'jobs:',
+    '  drift:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: make templ-check',
+    '',
+  ].join('\n');
+  function items() {
+    const root = makeRepo({
+      'go.mod': 'module example.invalid/writers\n\ngo 1.23\n',
+      Makefile: MAKEFILE,
+      '.github/workflows/drift.yml': WORKFLOW,
+    });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd, source) => list.find((e) => e.command === cmd && (!source || e.source === source)) || null;
+
+  test('E24a: a check that regenerates through a prerequisite names that target', () => {
+    const list = items();
+    assert.deepStrictEqual(byCmd(list, 'make templ-check', 'runner').driftWriter, { target: 'templ' });
+    assert.deepStrictEqual(byCmd(list, 'make fmt-check', 'runner').driftWriter, { target: 'fmt' });
+  });
+
+  test('E24b: a check that regenerates in its own recipe names that invocation', () => {
+    assert.deepStrictEqual(byCmd(items(), 'make api-guard', 'runner').driftWriter, { invocation: 'go generate ./api/... >/dev/null 2>&1' });
+  });
+
+  test('E24c: a CI step through a drift-check target carries the same writer', () => {
+    assert.deepStrictEqual(byCmd(items(), 'make templ-check', 'ci').driftWriter, { target: 'templ' });
+  });
+
+  test('E24d: a writer or an aggregate that checks nothing has no driftWriter', () => {
+    const list = items();
+    for (const cmd of ['make templ', 'make generate', 'make fmt']) {
+      const item = byCmd(list, cmd, 'runner');
+      assert.ok(item, cmd);
+      assert.equal(item.driftWriter, undefined, cmd);
+    }
+  });
+});
+
+// TRD 43-13 test 5: a CI item whose command expands a name its OWN step assigns at run time (stack-ci
+// step.runtimeVars: `$NAME` or `${NAME}`, quoted or not) carries `runtimeVar: true`. One that expands nothing
+// of the kind, an env-substituted literal, or a name another step assigns carries no flag.
+describe('stack-evidence runtimeVar (E25, TRD 43-13 test 5)', () => {
+  const WORKFLOW = [
+    'name: tests',
+    'on: [push]',
+    'env:',
+    '  FLOOR_PKG: ./internal/store',
+    'jobs:',
+    '  heavy:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - name: coverage',
+    '        run: |',
+    '          SKIP="$(./scripts/print-skips.sh --class slow)"',
+    '          go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out',
+    '      - name: per-package',
+    '        run: |',
+    '          for p in store tenant; do',
+    '            go test -short ./internal/$p/...',
+    '          done',
+    '      - name: other-step',
+    '        run: go test -count=1 ./... -skip "$SKIP"',
+    '  light:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: go test -short -race ./...',
+    '      - run: go test -cover $FLOOR_PKG',
+    '',
+  ].join('\n');
+  function items() {
+    const root = makeRepo({
+      'go.mod': 'module example.invalid/lanes\n\ngo 1.23\n',
+      'scripts/print-skips.sh': '#!/bin/sh\necho "TestSlow"\n',
+      '.github/workflows/tests.yml': WORKFLOW,
+    });
+    try {
+      return collectEvidence(root, { hygiene: () => 'ok' });
+    } finally {
+      cleanup(root);
+    }
+  }
+  const byCmd = (list, cmd) => list.find((e) => e.command === cmd && e.source === 'ci') || null;
+
+  test('E25a: a command expanding a name its step assigns at run time is flagged', () => {
+    const list = items();
+    for (const cmd of ['go test -short -p 1 ./... -race -skip "${SKIP}" -coverprofile=unit.out', 'go test -short ./internal/$p/...']) {
+      const item = byCmd(list, cmd);
+      assert.ok(item, `${cmd}: ${JSON.stringify(list.map((e) => e.command))}`);
+      assert.equal(item.runtimeVar, true, cmd);
+    }
+  });
+
+  test('E25b: a plain command, an env-substituted literal and a name another step assigns are not flagged', () => {
+    const list = items();
+    for (const cmd of ['go test -short -race ./...', 'go test -cover ./internal/store', 'go test -count=1 ./... -skip "$SKIP"']) {
+      const item = byCmd(list, cmd);
+      assert.ok(item, `${cmd}: ${JSON.stringify(list.map((e) => e.command))}`);
+      assert.equal(item.runtimeVar, undefined, cmd);
+    }
+  });
+});
+
+// quick-29 (CodeQL js/redos, alert 139): the trailing-connective strip was a `(?:...|\|\||[;|!{(]|...)+$`
+// regex whose `||` and `|` alternatives overlap, so a long run of `|` backtracked exponentially. It is a
+// loop now. The characterization rows below were computed against the old regex (it is not kept here:
+// CodeQL scans tests too).
+describe('stack-evidence stripTrailingConnective (E26, quick-29 alert 139)', () => {
+  const { stripTrailingConnective } = require('./stack-evidence.cjs');
+
+  test('E26a: a long run of `||` between words is returned unchanged, in linear time', () => {
+    const input = 'a' + '||'.repeat(50000) + 'x';
+    const started = process.hrtime.bigint();
+    const out = stripTrailingConnective(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, input);
+    assert.ok(elapsedMs < 200, `took ${elapsedMs}ms`);
+  });
+
+  test('E26b: a run of `|` with nothing else strips to empty, in linear time', () => {
+    const started = process.hrtime.bigint();
+    const out = stripTrailingConnective('|'.repeat(50000));
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, '');
+    assert.ok(elapsedMs < 200, `took ${elapsedMs}ms`);
+  });
+
+  test('E26c: same output as the old regex for every characterization row', () => {
+    const rows = [
+      ['go generate ./... && if !', 'go generate ./...'],
+      ['make gen; then', 'make gen'],
+      ['a ||', 'a'],
+      ['a |', 'a'],
+      ['a || b', 'a || b'],
+      ['echo gif', 'echo gif'],
+      ['xdo', 'xdo'],
+      ['x elif', 'x'],
+      ['foo-do', 'foo-'],
+      ['x &&&', 'x &'],
+      ['do', ''],
+      ['until', ''],
+      ['', ''],
+      ['cmd {(', 'cmd'],
+      ['x ! { (', 'x'],
+      ['run  \t', 'run'],
+    ];
+    for (const [input, expected] of rows) {
+      assert.equal(stripTrailingConnective(input), expected, JSON.stringify(input));
     }
   });
 });

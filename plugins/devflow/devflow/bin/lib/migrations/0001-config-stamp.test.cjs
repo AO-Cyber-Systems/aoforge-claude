@@ -174,7 +174,21 @@ describe('migration 0001 config-stamp', () => {
     m.apply(ctxFor(root));
     const after = readConfigJson(root);
     assert.equal(after.my_custom, 1);
-    assert.deepEqual(after.github, github);
+    // Every user github value survives; the only keys added are documented template defaults
+    // (TRD 46-08 added github.project_cache_ttl_minutes to the template).
+    const templateGithub = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'templates', 'config.json'), 'utf-8')).github;
+    // Recursive: a user object (github.labels) keeps every key it set; keys it did not set are template defaults
+    // (TRD 47-12 added github.labels.trd / .decision, which the migration's deep merge fills in).
+    const survives = (user, got, template, at) => {
+      for (const [k, v] of Object.entries(user)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) survives(v, got[k], (template && template[k]) || {}, `${at}.${k}`);
+        else assert.deepEqual(got[k], v, `${at}.${k}`);
+      }
+      for (const k of Object.keys(got).filter((key) => !(key in user))) {
+        assert.deepEqual(got[k], template ? template[k] : undefined, `${at}.${k} is a template default`);
+      }
+    };
+    survives(github, after.github, templateGithub, 'github');
     assert.deepEqual(after.devflow, { version: '2.0.0' });
   });
 

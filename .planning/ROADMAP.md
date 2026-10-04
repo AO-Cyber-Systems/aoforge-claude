@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (moved from v1.3 2026-09-28; kill candidate), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening)
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (KILLED 2026-10-01), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record); gap closure: Objective 43 (SDR-08), Objective 52 (store-mode polish), Objective 53 (worktree and health hygiene) — re-audit 2026-10-04 tech_debt
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -132,8 +132,26 @@ TRDs:
 ### Objective 43: Stack drafter rules
 
 **Goal:** Fix the drafter defects objective 42's rollout hand-fixed (aggregate targets, multi-stack roots, manifest-less roots, environment targets, internal Taskfile tasks, wrapped component recipes, commit gitignore check) so re-drafting matches the 11 override files.
-**Requirements:** see `.planning/objectives/43-stack-drafter-rules/OBJECTIVE.md`
-**Plans:** TBD
+**Requirements:** SDR-08 (confirm each proposed command runs), SDR-03 hardening (`stack verify --run` side-effect safe); defects in `.planning/objectives/43-stack-drafter-rules/OBJECTIVE.md`
+**Gap Closure:** Closes the v1.4 audit gap (`milestones/v1.4-MILESTONE-AUDIT.md`): SDR-08 partial and objective 42's "drafts correct without hand edits" truth
+**Plans:** 15 TRDs in 13 waves (gap closure cycle 1: 43-08..43-15, W6-W13, from 43-VERIFICATION gaps_found 34/36)
+
+TRDs:
+- [x] 43-01-TRD.md — (W1, tdd) Make variable expansion for aggregate targets (D1); internal Taskfile tasks not invocable (D5)
+- [x] 43-02-TRD.md — (W1, tdd) effect-based `stack verify --run` guard: snapshot/restore, halt, `flutter --no-pub`, stub-flutter regression (D8, SDR-03)
+- [x] 43-03-TRD.md — (W1, tdd) must_haves 2-space parsing (D11); mixed Flutter/Dart MCP (D9); commit ignore probe residual (D7)
+- [x] 43-04-TRD.md — (W2, tdd) `e2e_env` and scenario classification; single-purpose scripts narrow (D4)
+- [x] 43-05-TRD.md — (W3, tdd) literal manifest-less rule + primary component (go-first) placement; sub-area facts (D3, D6, D2)
+- [x] 43-06-TRD.md — (W4, tdd) golden equivalence for all 11 overrides; CHANGELOG [Unreleased], CLAUDE.md; full `npm test`
+- [x] 43-07-TRD.md — (W5, checkpoint) mirror sync + approved fleet `stack verify --run`, results in 43-ROLLOUT.md only (D10, SDR-08)
+- [x] 43-08-TRD.md — (W6, tdd, gap closure) drift comparison helper + real-fleet regression harness with KNOWN_DRIFT ratchet (SDR-08)
+- [x] 43-09-TRD.md — (W7, tdd, gap closure) evidence shapes: Makefile `##` comment `;`, captured/snapshot drift checks, workflow env literals, version probes
+- [x] 43-10-TRD.md — (W8, tdd, gap closure) multi-stack scope: canonical-key primary, tiered root/primary placement, workspace root
+- [x] 43-11-TRD.md — (W9, tdd, gap closure) mixed aggregates (codegen, bootstrap), partial drift checks, env teardown/reset
+- [x] 43-12-TRD.md — (W10, tdd, gap closure) declared key targets, wrapper reduction, lint actions with a CLI equivalent
+- [x] 43-13-TRD.md — (W11, tdd, gap closure) narrow CI builds fall back to the tier default; runtime-variable commands rank last
+- [x] 43-14-TRD.md — (W12, checkpoint, gap closure) refresh stale committed STACK.md in aoinference and opsCluster (two-file commits, no push)
+- [x] 43-15-TRD.md — (W13, checkpoint, gap closure) read-only fleet dry run, residual-row decision, KNOWN_DRIFT retired, CHANGELOG, full `npm test`
 
 ### Objective 45: DevFlow doctor + runtime hygiene
 
@@ -153,9 +171,209 @@ TRDs:
 - [x] 45-09-TRD.md — /devflow:doctor skill, route-intent, docs, full npm test (DOC-07) [W4]
 - [x] 45-10-TRD.md — autonomous hook markers out of .planning + SC1 planning-writes audit [W1]
 
+<!-- GitHub system of record: objectives 46–51, design in docs/PROPOSAL-github-system-of-record.md -->
+
+### Objective 46: GitHub sync foundations
+
+**Goal:** The existing GitHub sync is correct, idempotent and rate-safe, so the authoritative store can be built on it.
+**Requirements:** GSF-01, GSF-02, GSF-03, GSF-04, GSF-05, GSF-06, GSF-07, GSF-08
+**Depends on:** none
+**Success Criteria**:
+1. Push and pull resolve the same issue through one v3 mapping keyed by DevFlow id
+2. Losing the mapping never creates duplicate issues
+3. Human text outside managed body sections survives syncs
+4. Secondary rate limits are retried after `retry-after`; post-execute sync failures are reported
+**Plans:** 10 TRDs in 6 waves
+
+TRDs:
+- [x] 46-01-gh-client-TRD.md — (W1, tdd) `gh-client.cjs`: one gh seam, writes paced ≥1 s, secondary-limit retry honouring `retry-after`, `--paginate --slurp`, `github.enabled` gate, exit codes; gh PATH shim (GSF-08)
+- [x] 46-02-gh-mapping-v3-TRD.md — (W1, tdd) `gh-mapping.cjs`: objective id normaliser, mapping v3, pure v1/v2→v3 conversion; migration 0009 (auto) (GSF-01)
+- [x] 46-03-gh-body-markers-TRD.md — (W1, tdd) `gh-body.cjs`: `devflow:id` markers, managed body sections that preserve human text, sticky-marker compat, marker index (GSF-02, GSF-06)
+- [x] 46-04-gh-project-discovery-TRD.md — (W1, tdd) `gh-project.cjs`: Project v2 fields via GraphQL, out-of-repo TTL cache, live options (GSF-07)
+- [x] 46-05-gh-issue-resolution-TRD.md — (W2, tdd) `gh-issue.cjs` find-or-create (mapping → frontmatter → marker → title → create) + `gh-milestone.cjs` current milestone; stateful fake GitHub (GSF-02, GSF-01, GSF-05)
+- [x] 46-06-pull-syncstate-rewire-TRD.md — (W2, tdd) `setFrontmatterField`; sync-state keyed by id; `gh pull`/conflict on v3 mapping, `resolveRepo`, enabled gate, client seam (GSF-01, GSF-04, GSF-08)
+- [x] 46-07-sync-core-rewire-TRD.md — (W3, tdd) `gh sync <objective>` rebuilt: create-if-absent, managed body, paginated sticky comment, live Project fields, `github_issue` write-back; fixture read removed (GSF-01, 02, 04, 06, 07, 08)
+- [x] 46-08-command-surface-TRD.md — (W4, tdd) `gh sync --all`, deprecated `sync-objectives` alias, comment/close-issue/sync-release/resolve/status on the seam + v3 + markers + gate + exit codes; gen-1 code deleted; repo guard (GSF-01, GSF-02, GSF-08)
+- [x] 46-09-e2e-push-pull-TRD.md — (W5) end-to-end push → pull on one fake GitHub: SC1-SC4 + legacy mapping matrix
+- [x] 46-10-sync-step-and-docs-TRD.md — (W6, tdd) execute-objective sync step passes the dir and reports failures (GSF-03, SC5); deprecation guard; skill/agent/workflow/template/CLAUDE.md/USER-GUIDE/CHANGELOG; full `npm test` (SC6)
+
+### Objective 47: GitHub authoritative store
+
+**Goal:** GitHub holds the full planning hierarchy and content (milestone → objective issue → TRD sub-issues, detail in the wiki), and DevFlow round-trips it through an outbox and a local cache.
+**Requirements:** GST-01..GST-08 (see `.planning/objectives/47-github-authoritative-store/OBJECTIVE.md`)
+**Depends on:** Objective 46
+**Success Criteria**:
+1. A fixture objective round-trips: push → issues, sub-issues, blocked-by, wiki page; `pull --all` regenerates the cache
+2. TRDs over 60K characters are refused before an issue exists; scope comments form the effective spec
+3. Offline writes flush in order; a remote edit halts the flush
+4. Degraded mode works on a user-owned repo
+**Plans:** 14 TRDs in 6 waves
+
+TRDs:
+- [x] 47-01-gh-trd-codec-TRD.md — (W1, tdd) `gh-trd.cjs`: TRD body codec (id + file header), 40K/60K budget, scope comments by `n`, effective spec, fold, spec-rev log, lossless comment parts (GST-03)
+- [x] 47-02-fake-github-store-TRD.md — (W1, tdd) fake GitHub extended: REST create with ids ≠ numbers, sub-issues, dependencies, types, fields, repo meta, offline; store fixture builder (GST-01, GST-05, GST-08)
+- [x] 47-03-gh-outbox-store-TRD.md — (W1, tdd) `gh-outbox.cjs`: durable per-repo journal, logical op schema, coalesce/FIFO, lock, 80/min + 450/h budget, base hashes (GST-05)
+- [x] 47-04-gh-wiki-store-TRD.md — (W1, tdd) `gh-wiki.cjs`: `.wiki.git` clone at `.planning/wiki/`, page table, commit + rebase + push on master, revision pin, `docs/devflow/` backend; local bare-repo fixture (GST-06, GST-08)
+- [x] 47-05-body-mapping-extensions-TRD.md — (W1, tdd) `gh-body` wiki/meta sections, dir marker, tick-preserving criteria, trds section, Decision ids, part finder; `gh-mapping` trds accessors (GST-02, GST-04)
+- [x] 47-06-gh-capability-TRD.md — (W2, tdd) `gh-capability.cjs`: probe + TTL cache for types, fields, sub-issues, dependencies, wiki; degraded mode selection (GST-08)
+- [x] 47-07-gh-outbox-flush-TRD.md — (W2, tdd) `gh-outbox-flush.cjs`: idempotent op handlers, ordered flush, offline/rate-limit pending, remote-edit halt, resolve; `gh-client` scoped retry policy (GST-05)
+- [x] 47-08-gh-comments-TRD.md — (W2, tdd) `gh-comments.cjs`: SUMMARY/VERIFICATION comments, scope changes with budget, freeze, fold, effective spec, drift (GST-03, GST-04)
+- [x] 47-09-gh-hierarchy-TRD.md — (W3, tdd) `gh-hierarchy.cjs`: budget gate before any write, objective → TRD sub-issues → blocked-by, Decision issues, pages, one objective-body writer, orphans (GST-01, GST-02)
+- [x] 47-10-gh-cache-pull-all-TRD.md — (W3, tdd) `gh-cache.cjs` + `gh pull --all`: rebuild cache from issues + wiki, generated ROADMAP/STATE, safe overwrite rules (GST-07)
+- [x] 47-11-store-cli-TRD.md — (W4, tdd) `gh outbox status|flush|resolve` (exit 0/1/2/3), `gh trd spec|freeze|fold|scope`, `gh orphans`; dispatch + help
+- [x] 47-12-sync-store-wiring-TRD.md — (W4, tdd) `gh sync` store mode behind `github.store`: hierarchy via outbox, Roadmap wiki page, cache baseline; config defaults; seam guard
+- [x] 47-13-store-e2e-TRD.md — (W5) end-to-end SC1-SC5 on one fake GitHub + local wiki remote; seam guard covers gh-store-cli
+- [x] 47-14-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG [Unreleased], USER-GUIDE, gh-sync skill, proposal status; full `npm test` (SC6)
+
+### Objective 48: Planning write-path migration
+
+**Goal:** Skills and agents change planning state only through df-tools verbs that write to GitHub, and `.planning/` becomes a gitignored cache.
+**Requirements:** GWP-01..GWP-05 (see `.planning/objectives/48-planning-write-path-migration/OBJECTIVE.md`)
+**Depends on:** Objective 47
+**Success Criteria**:
+1. No skill/agent/workflow writes planning files directly (CI audit test)
+2. The edit gate denies direct cache edits and names the verb
+3. Plan → execute → verify leaves `git status` clean apart from code
+**Plans:** 23 TRDs in 6 waves
+
+TRDs:
+- [x] 48-01-planning-mode-paths-ledger-TRD.md — (W1, tdd) `planning-mode` (store iff github.enabled && github.store; main-checkout root), `planning-paths` total classifier + verb table + U-1 gitignore lines, `planning-ledger` verb-write ledger
+- [x] 48-02-entity-issue-contract-TRD.md — (W1, tdd) entity body codec, mapping `entities`, outbox roles todo/debug/quick + ENTITY_ROLES
+- [x] 48-03-trd-budget-and-bulk-TRD.md — (W1, tdd) `trd-bulk` 40K/60K budget + linked-bulk (8,000-char block, 40% share) warnings; `verify trd-pre` trd_budget; job-checker Dimension 8 (GWP-05)
+- [x] 48-04-planning-writes-audit-ratchet-TRD.md — (W2, tdd) SC1 audit: planning-write scanner + repo ratchet test with six per-group baselines
+- [x] 48-05-wiki-pages-and-native-milestones-TRD.md — (W1, tdd) PAGE_TABLE rules for research/, milestones/, objective docs; `gh-milestone-store` native milestones; fake milestone PATCH
+- [x] 48-06-flusher-entity-roles-TRD.md — (W2, tdd) flusher creates/updates/closes todo, debug (Debug type), quick (Quick type) issues; optional types; decision answer pinned
+- [x] 48-07-cache-materialize-entities-TRD.md — (W2, tdd) `gh pull --all` rebuilds todos, debug, quick, decisions, generated MILESTONES.md; owned list via classifier
+- [x] 48-08-edit-gate-cache-deny-TRD.md — (W2, tdd) store-mode gate denies cache/generated edits naming the verb (`plan put-trd`), store off unchanged (SC2)
+- [x] 48-09-validate-w055-cache-drift-TRD.md — (W2, tdd) `validate health` W055: cache file changed outside a verb (baseline + ledger hashes)
+- [x] 48-10-store-gitignore-migration-TRD.md — (W2, tdd) confirm migration 0010 (gitignore `.planning/*` except config.json + STACK.md), per-path `commit` filter, doctor check 24
+- [x] 48-11-core-planning-verbs-TRD.md — (W2, tdd) `writeThrough` + put-trd/push, objective put/set-status, summary post/checkpoint, verification post, doc put, drafts; flush settles ledger
+- [x] 48-12-entity-verbs-and-import-TRD.md — (W3, tdd) decision open/answer, todo add/complete, debug put/resolve, quick put/summary, milestone put/complete; `planning import`
+- [x] 48-13-generated-view-writers-store-mode-TRD.md — (W2, tdd) state mutators write state.json only, roadmap writers no-op in store mode
+- [x] 48-14-cache-writers-store-mode-TRD.md — (W3, tdd) objective add/insert/remove/complete, frontmatter set/merge, template fill, requirements mark-complete in store mode
+- [x] 48-15-verb-cli-wiring-TRD.md — (W4, tdd) df-tools dispatch + help for every verb; seam guard; verbs-exist audit
+- [x] 48-16-prose-plan-research-discuss-TRD.md — (W5, tdd) prose group `plan`: planner (put-trd, scope budget), researcher, discuss, discovery
+- [x] 48-17-prose-execute-TRD.md — (W5, tdd) prose group `execute`: executor summary checkpoint/post, execute flows, transition, build
+- [x] 48-18-prose-verify-TRD.md — (W5, tdd) prose group `verify`: verifier verification post, UAT, UI eval, design review, security audit
+- [x] 48-19-prose-bootstrap-milestone-TRD.md — (W5, tdd) prose group `bootstrap`: new-project, roadmapper, researchers, milestones, adopt, add/remove objective
+- [x] 48-20-prose-todo-decide-debug-quick-TRD.md — (W5, tdd) prose group `work`: todos, decide, debugger, quick, micro
+- [x] 48-21-prose-codebase-status-misc-TRD.md — (W5, tdd) prose group `misc`: map-codebase, gh-sync, sync-roadmap, status, help, workstreams
+- [x] 48-22-store-e2e-and-parity-TRD.md — (W5) SC3 plan→execute→verify on the fake GitHub leaves git clean apart from code; store-off parity; W055/offline negatives
+- [x] 48-23-docs-ratchet-zero-full-suite-TRD.md — (W6, tdd) SC1 audit to zero (baselines deleted), CLAUDE.md, CHANGELOG, USER-GUIDE, proposal status; `npm test` (SC4)
+
+### Objective 49: Objective branch and PR lifecycle
+
+**Goal:** Every objective runs on one linked branch and ends in one pull request that closes the objective and all its TRDs on merge.
+**Requirements:** GPR-01..GPR-06 (see `.planning/objectives/49-objective-branch-and-pr-lifecycle/OBJECTIVE.md`)
+**Depends on:** Objective 48
+**Success Criteria**:
+1. One draft PR per objective with closing references for every TRD
+2. Wave worktrees merge into the objective branch with no extra PRs
+3. Non-assignee scope changes wait for assignee confirmation
+**Plans:** 15 TRDs in 6 waves
+
+TRDs:
+- [x] 49-01-fake-github-prs-branches-statuses-TRD.md — (W1) fake GitHub: PRs on the shared issue counter, pulls/statuses/refs REST, linked-branch/ready/merge-queue GraphQL, comment authors + assignees, humanMergePr
+- [x] 49-02-mapping-prs-and-read-classification-TRD.md — (W1) mapping top-level `prs` map (byte-stable when empty), `issue develop --list` is a read
+- [x] 49-03-scope-acceptance-predicate-TRD.md — (W1) GPR-05 pure half: scope authors, confirm marker bound to the scope hash, acceptance predicate, pending scopes in effectiveSpec
+- [x] 49-04-objective-branch-git-seam-and-wiki-diff-TRD.md — (W1) `objective-branch` git seam (fetch/switch/start commit/push/cleanup), `makeGitRemote` fixture, `gh-wiki.diff`
+- [x] 49-05-outbox-upsert-pr-and-ready-TRD.md — (W2) outbox `upsert-pr` (draft, closes derived at flush, wiki pin, `devflow:pr=` marker), `pr-ready`, `patch-issue labels_remove`
+- [x] 49-06-scope-gate-confirm-and-trd-start-TRD.md — (W2) only accepted scopes change a TRD; `gh trd confirm-scope` (assignee only), `gh trd start` (in_progress label)
+- [x] 49-07-commit-refs-trailer-TRD.md — (W2) `df-tools commit` adds `Refs #issue` from the commit scope in store mode (main-root mapping)
+- [x] 49-08-init-pr-lifecycle-fields-TRD.md — (W2) init `pr_lifecycle`, `objective_branch`, `pr_number`, `branching_strategy_ignored`; local deprecation notice
+- [x] 49-09-gh-pr-start-sync-status-TRD.md — (W3) `gh pr start|sync|status`: linked branch, start commit, one draft PR, freeze every TRD; dispatch, help, seam guard
+- [x] 49-10-outbox-status-comment-merge-ops-TRD.md — (W3) outbox `post-status` (devflow/verification), `upsert-pr-comment`, `pr-merge` (squash default, queue-aware), `delete-branch`
+- [x] 49-11-summary-verify-pr-hooks-TRD.md — (W4) summary post drops in_progress + refreshes PR; verify pass → status, ready, wiki diff; objective issue closes on merge, not at verify
+- [x] 49-12-pr-merge-and-reconcile-TRD.md — (W4) `gh pr merge` (verified + ready only) and `gh pr reconcile` (stragglers closed, Project Done, branches deleted, cache pulled)
+- [x] 49-13-workflow-prose-pr-lifecycle-TRD.md — (W5) execute-objective + complete-milestone drive the PR in store mode; `branching_strategy` deprecated (GPR-06)
+- [x] 49-14-pr-lifecycle-e2e-and-parity-TRD.md — (W5) SC1 one PR closing every TRD, SC2 worktrees with no extra PRs, SC3 scope pending until confirmed; store-off parity
+- [x] 49-15-docs-and-full-suite-TRD.md — (W6) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync skill; `npm test` (SC4)
+
+### Objective 50: GitHub enforcement and setup
+
+**Goal:** Branch and PR discipline is enforced locally and on GitHub, and `df-tools gh setup` configures a repository for it.
+**Requirements:** GEN-01..GEN-05 (see `.planning/objectives/50-github-enforcement-and-setup/OBJECTIVE.md`)
+**Depends on:** Objective 49
+**Success Criteria**:
+1. Commits on the default branch or unlinked branches are refused; the escape is logged
+2. `gh setup` dry-run lists rulesets, checks, types and fields; apply is idempotent
+3. The linked-issue required check fails a PR without a closing reference
+**Plans:** 13 TRDs in 5 waves
+
+TRDs:
+- [x] 50-01-fake-github-setup-and-check-routes-TRD.md — (W1) fake GitHub: rulesets (422 merge queue, 403 non-admin), repo PATCH, labels list, org type/field writes (api-version header, options 422), PR commits, contents
+- [x] 50-02-commit-gate-decision-TRD.md — (W1) pure gate: default/unlinked/detached refused, linked `prs` branch and `df/exec-*` (main on linked branch) allowed, `DEVFLOW_SKIP_GH_GATE=1`; `gh` override gate
+- [x] 50-03-required-check-logic-TRD.md — (W1) pure `devflow/linked-issue` (closing ref to an existing issue, base = default) and `devflow/planning-consistency` (GitHub graph in store mode, pass when store off), reconcile plan
+- [x] 50-04-store-health-collector-TRD.md — (W1) offline store health: W057 unsynced, W058 missing links, W059 orphans, W060 frozen-body drift, W061 check failed
+- [x] 50-05-outbox-flush-hook-TRD.md — (W1) `gh-flush.js` PostToolUse(Bash, after `df-tools commit`) + Stop: flush outbox, report pending/halted/drift, never blocks
+- [x] 50-06-commit-gate-wiring-TRD.md — (W2) `df-tools commit` refuses before staging in store mode, logs the escape via override, `Refs #` falls back to the linked objective
+- [x] 50-07-health-and-doctor-reports-TRD.md — (W2) validate Check 16 (W057-W061), doctor check 25 `gh-store-sync`, check 22 defers the codes
+- [x] 50-08-check-runner-cli-TRD.md — (W2) Actions runner: posts the two contexts as commit statuses (PR + merge_group), merge-time reconcile closes stragglers
+- [x] 50-09-setup-plan-TRD.md — (W2) `gh setup` state reader, pure plan (ruleset superset-idempotent, types, fields, labels, settings, files, wiki, merge_group advisories), dry-run renderer
+- [x] 50-10-actions-workflows-and-templates-TRD.md — (W2) reusable `devflow-checks.yml` (workflow_call, App token via client-id), managed caller template, PR-template block
+- [x] 50-11-gh-setup-apply-and-cli-TRD.md — (W3) `df-tools gh setup [--apply]`: idempotent apply, merge-queue/field/403 degradation, dispatch, help, `github.app_id` / `github.checks_workflow`
+- [x] 50-12-enforcement-e2e-and-parity-TRD.md — (W4) SC1-SC3 through real entry points; store-off parity (zero gh calls) for everything but `gh setup`
+- [x] 50-13-docs-and-full-suite-TRD.md — (W5) CLAUDE.md, CHANGELOG, USER-GUIDE, proposal refinements, gh-sync/help skills; `npm test` (SC4)
+
+### Objective 51: GitHub migration and docs
+
+**Goal:** Existing DevFlow projects move to GitHub as the system of record in place, and the docs describe the new model.
+**Requirements:** GMD-01..GMD-04 (see `.planning/objectives/51-github-migration-and-docs/OBJECTIVE.md`)
+**Depends on:** Objective 50
+**Success Criteria**:
+1. Backfill stays under secondary limits, resumes after interruption, and re-runs as a no-op
+2. Docs pass doc-refs; `npm test` green
+3. objective 26 killed; decision recorded
+**Plans:** 10 TRDs in 6 waves
+
+TRDs:
+- [x] 51-01-record-objective-26-kill-TRD.md — (W1) GMD-04: objective 26 KILLED via `objective set-status 26 cancelled`, Disposition section, decision record, ROADMAP/STATE/PROJECT lines; never `objective remove`
+- [x] 51-02-backfill-fixtures-TRD.md — (W1, tdd) `makeBackfillProject` 20-objective x 5-TRD fixture (shipped/in progress/cancelled/planned, entities, docs, milestones, legacy/oversize variants) + `useBackfillEnv` fake-clock harness
+- [x] 51-03-gh-backfill-core-TRD.md — (W1, tdd) `gh-backfill.cjs`: history classification + close ops for finished work (G1), upper-bound request estimate (G3), `hasPendingOps`, live-create budget bookkeeping (G5); seam guard
+- [x] 51-04-0010-resume-and-commit-guidance-TRD.md — (W1, tdd) 0010 `detect` defers while the outbox has pending ops (G4); store-mode branch + logged-escape commit text in 0010 and doctor check 20 (G6)
+- [x] 51-05-import-estimate-and-preview-TRD.md — (W2, tdd) `planning import --dry-run` estimate + history + will-stay-local table, store-off preview, `noFlush`, history closes queued after creates; calibration test (GMD-02)
+- [x] 51-06-migration-0011-queue-TRD.md — (W3, tdd) confirm migration 0011: offline `detect` with the plan summary, zero-write dry run, local + remote preflight refusals, store switch, resume-aware queue (GMD-01, GMD-02)
+- [x] 51-07-migration-0011-drain-and-handoff-TRD.md — (W4, tdd) 0011 drain loop (hour budget stops resumably), `gh pull --all` + orphan verify, handoff to 0010; SC1 happy path across a resume with pacing asserts; SC2 re-run no-op + store-off parity
+- [x] 51-08-backfill-resilience-and-cli-e2e-TRD.md — (W5, tdd) interruption, lost mapping, secondary limit, remote-edit halt, bare `--apply --confirm` resume (G4); CLI e2e through `df-tools upgrade`; seam guard covers 0011
+- [x] 51-09-gh-sync-store-operator-TRD.md — (W5, tdd) `/devflow:gh-sync` repurposed in place as the store operator (`migrate [--dry-run]`, status, flush, pull, setup, release; mirror mode store-off only); flow/help/README/global template (GMD-03)
+- [x] 51-10-docs-and-full-suite-TRD.md — (W6) USER-GUIDE system-of-record chapter + migration guide, CLAUDE.md slimmed (detail moved to USER-GUIDE), CHANGELOG, proposal refinements; full `npm test` (SC3)
+
+### Objective 52: Store-mode polish
+
+**Goal:** Clear the store-mode rough edges the v1.4 audit logged as tech debt: printed follow-ups and gate messages that the GitHub gates refuse or under-explain, store-mode writers that drift the generated views, and the mirror-mode / `decision answer` gaps from objective 51.
+**Requirements:** none (tech debt; see `.planning/objectives/52-store-mode-polish/OBJECTIVE.md`)
+**Gap Closure:** v1.4 audit tech debt (objectives 48, 50, 51)
+**Depends on:** Objective 51
+**TRDs:** 6 plans
+
+TRDs:
+- [x] 52-01-commit-follow-ups-TRD.md — (W1) item 52-1: one `commit-steps.cjs` builder for gate-aware printed follow-ups (gh setup, doctor 21, 0010, doctor 20; names `gh pr start`), run as printed in a store-mode fixture
+- [x] 52-02-gate-remedies-TRD.md — (W1) items 52-2, 52-4: every refusal names `gh pr start` + the logged escape, `--raw` refusals write the message to stderr; debugger commits via `df-tools commit`, CI guard on raw commits in prompts
+- [x] 52-03-micro-store-mode-TRD.md — (W1) item 52-3: `micro commit` makes no STATE.md change in store mode (no W055)
+- [x] 52-04-mirror-only-opt-out-TRD.md — (W1) item 52-5: `github.mirror_only` opt-out honoured by 0011 detect (so no W040); gh-sync migrate + health offer it
+- [x] 52-05-multiline-decision-answer-TRD.md — (W1) item 52-6: frontmatter block scalars; multi-line `decision answer` round-trips (local, store, import)
+- [x] 52-06-docs-and-full-suite-TRD.md — (W2) CHANGELOG, USER-GUIDE, doctor skill, CLAUDE.md; full `npm test`
+
+### Objective 53: Worktree and health hygiene
+
+**Goal:** Clear the tech debt from the 2026-10-04 v1.4 re-audit: planning verbs and health checks that misbehave around worktrees and named TRDs, the gate gaps around `micro` and chained merges, and the small leftovers from 42, 45 and the repo's own health warnings.
+**Requirements:** none (tech debt; see `.planning/objectives/53-worktree-and-health-hygiene/OBJECTIVE.md`)
+**Gap Closure:** v1.4 re-audit tech debt (objectives 42, 45, 52, health)
+**Depends on:** Objective 52
+**TRDs:** 7 plans
+
+TRDs:
+- [x] 53-01-summary-verbs-worktree-TRD.md — (W1) item 53-1: local-mode `summary checkpoint|post` write the checkout that runs them; a worktree SUMMARY is committed on its branch and merges with no untracked copy in main (store mode unchanged)
+- [x] 53-02-summary-pairing-TRD.md — (W1) item 53-2: shared `trdKey`; health I001, consistency, objective-job-index, find-objective, verify completeness and gate-executor-stop agree with roadmap-reconcile on named TRDs
+- [x] 53-03-micro-commit-path-TRD.md — (W1) item 53-3: `micro commit` goes through `df-tools commit`, so the store-mode GEN-01 gate refuses it off the linked branch
+- [x] 53-04-merge-sequence-gate-TRD.md — (W2) item 53-4: one command per call merge prose (incl. planning-file conflicts) replayed through gate-commits; explained deny for chained merge+commit, no new allowance
+- [x] 53-05-leftovers-and-repo-health-TRD.md — (W1) items 53-5, 53-7: drop `AWARENESS_CACHE_REL`; global template v3 with `/devflow:doctor`; PROJECT.md Core Value/Requirements; archive UI-VISUAL-EVAL dirs to milestones/v1.2-objectives
+- [x] 53-06-decision-repair-TRD.md — (W1) item 53-8: doctor check 33 `decision-resolution` detects and repairs (backed up, verified) pre-52 flattened resolutions; reports the unrecoverable
+- [x] 53-07-docs-and-full-suite-TRD.md — (W3) CHANGELOG, USER-GUIDE, CLAUDE.md; item 53-6 closed by 43-03 with evidence; full `npm test`
+
 ### Other v1.4 candidates
 
-- **Objective 26: GitHub issue auto-build monitor** — moved out of v1.3 on 2026-09-28 by user decision; **candidate for killing**. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
+- **Objective 26: GitHub issue auto-build monitor** — **KILLED 2026-10-01** (user decision, GMD-04; see its OBJECTIVE.md Disposition). Moved out of v1.3 on 2026-09-28 by user decision. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
 
 - **v1.3 delivery (not objectives — user actions):**
   - merge `feat/stack-profile-loader` → `main`, then tag v2.11.0 on the merge commit and push it;
@@ -193,6 +411,14 @@ Candidate scope carried forward from v1.2 deferrals:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
-| 43. Stack drafter rules | v1.4 | 0/— | Registered | — |
+| 43. Stack drafter rules | v1.4 | 15/15 | Complete | 2026-10-04 |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
-| 26. GitHub issue auto-build monitor | v1.4 | 0/— | Moved to v1.4 (kill candidate) | — |
+| 26. GitHub issue auto-build monitor | v1.4 | 0/— | Cancelled (killed by user decision 2026-10-01; GMD-04) | 2026-10-01 |
+| 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
+| 47. GitHub authoritative store | v1.4 | 14/14 | Complete | 2026-10-01 |
+| 48. Planning write-path migration | v1.4 | 23/23 | Complete | 2026-10-01 |
+| 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
+| 50. GitHub enforcement and setup | v1.4 | 13/13 | Complete | 2026-10-01 |
+| 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
+| 52. Store-mode polish | v1.4 | 6/6 | Complete | 2026-10-04 |
+| 53. Worktree and health hygiene | v1.4 | 7/7 | Complete | 2026-10-04 |

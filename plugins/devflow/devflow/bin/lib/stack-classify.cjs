@@ -30,7 +30,7 @@ const { normalizeScript, splitWords, isFragment } = require('./stack-shell.cjs')
 const STANDARD_KEYS = ['build', 'test', 'lint', 'format', 'fix', 'typecheck', 'audit', 'codegen', 'deps'];
 
 // Custom keys this classifier can emit. All satisfy the schema key pattern `^[a-z][a-z0-9_]*$`.
-const STANDARD_KEYS_EXT = [...STANDARD_KEYS, 'sast', 'e2e', 'lint_helm', 'lint_docker', 'tidy', 'outdated'];
+const STANDARD_KEYS_EXT = [...STANDARD_KEYS, 'sast', 'e2e', 'e2e_env', 'lint_helm', 'lint_docker', 'tidy', 'outdated'];
 
 // ─── Matching helpers ─────────────────────────────────────────────────────────
 
@@ -50,6 +50,36 @@ const outputNone = (a) => flag(a, '--output') && (a.includes('--output=none') ||
 
 const R = (key, form, tool, match, extra = {}) => ({ key, form, tool, match, ...extra });
 
+// `docker compose [global flags] <verb>` / `docker-compose [flags] <verb>`: the verb, or null. A
+// flag that takes a separate value (`-f e2e/compose.yml`, `-p name`, `--profile e2e`) is skipped
+// together with its value so the value is never read as the verb.
+const COMPOSE_VALUE_FLAGS = new Set([
+  '-f', '--file', '-p', '--project-name', '--profile', '--env-file', '--project-directory', '--ansi', '--parallel', '--progress',
+]);
+const DOCKER_VALUE_FLAGS = new Set(['-c', '--context', '-H', '--host', '-l', '--log-level', '--config']);
+
+function composeVerb(a) {
+  let i;
+  if (a[0] === 'docker-compose') {
+    i = 1;
+  } else if (a[0] === 'docker') {
+    i = 1;
+    while (i < a.length && a[i].startsWith('-')) i += DOCKER_VALUE_FLAGS.has(a[i]) ? 2 : 1;
+    if (a[i] !== 'compose') return null;
+    i += 1;
+  } else {
+    return null;
+  }
+  for (; i < a.length; i++) {
+    if (!a[i].startsWith('-')) return a[i];
+    if (COMPOSE_VALUE_FLAGS.has(a[i])) i += 1;
+  }
+  return null;
+}
+
+/** The compose verbs that bring containers up (see the e2e_env rows in CLASSIFY_TABLE). */
+const ENV_COMPOSE_VERBS = new Set(['up', 'run', 'start']);
+
 // ─── CLASSIFY_TABLE ───────────────────────────────────────────────────────────
 
 const CLASSIFY_TABLE = [
@@ -60,6 +90,16 @@ const CLASSIFY_TABLE = [
   R('e2e', 'check', 'patrol', (a) => is(a, 'patrol', 'test')),
   R('e2e', 'check', 'flutter', (a) => is(a, 'flutter', 'test') && a.some((x) => x.includes('integration_test'))),
   R('e2e', 'check', 'flutter', (a) => is(a, 'flutter', 'drive')),
+
+  // e2e_env: bringing an environment up (TRD 43-04, D4). The command mutates the machine (starts
+  // containers, creates a cluster, installs a release), so it is `mutate`, never a check gate, and
+  // stack verify --run never runs the key. Never build / test / e2e.
+  R('e2e_env', 'mutate', 'docker', (a) => ENV_COMPOSE_VERBS.has(composeVerb(a))),
+  R('e2e_env', 'mutate', 'kind', (a) => is(a, 'kind', 'create')),
+  R('e2e_env', 'mutate', 'k3d', (a) => is(a, 'k3d', 'cluster', 'create')),
+  R('e2e_env', 'mutate', 'kubectl', (a) => a[0] === 'kubectl'),
+  R('e2e_env', 'mutate', 'helm', (a) => is(a, 'helm', 'install') || is(a, 'helm', 'upgrade')),
+  R('e2e_env', 'mutate', 'tilt', (a) => is(a, 'tilt', 'up')),
 
   // audit: dependency vulnerabilities.
   R('audit', 'check', 'govulncheck', (a) => a[0] === 'govulncheck'),
@@ -104,6 +144,8 @@ const CLASSIFY_TABLE = [
   R('lint', 'check', 'eslint', (a) => a[0] === 'eslint'),
   R('lint', 'check', 'ruff', (a) => is(a, 'ruff', 'check')),
   R('lint', 'check', 'cargo', (a) => is(a, 'cargo', 'clippy')),
+  // A shell repo's linter (TRD 43-06): `shellcheck bin/*.sh lib/*.sh`.
+  R('lint', 'check', 'shellcheck', (a) => a[0] === 'shellcheck'),
 
   // lint_helm / lint_docker: never the repo-wide `lint`.
   R('lint_helm', 'check', 'helm', (a) => is(a, 'helm', 'lint')),
@@ -187,8 +229,9 @@ const WEAK_MARKERS = [
 
 // ─── Uses map ─────────────────────────────────────────────────────────────────
 //
-// A `uses:` step proves a lint / audit / sast step EXISTS but gives no command: the report uses it,
-// the drafter never turns it into a `run`. `key: null` with `role: 'setup'` is toolchain setup.
+// A `uses:` step proves a lint / audit / sast step EXISTS. Only an action with a FIXED CLI equivalent
+// (USES_CLI below, a closed table) becomes a candidate command; every other entry gives no command: the
+// report uses it, the drafter never turns it into a `run`. `key: null` with `role: 'setup'` is toolchain setup.
 
 const USES_MAP = [
   { prefix: 'golangci/golangci-lint-action', key: 'lint', role: 'check' },
@@ -204,15 +247,37 @@ const USES_MAP = [
   { prefix: 'dart-lang/setup-dart', key: null, role: 'setup' },
 ];
 
-/** lookupUses(ref) -> the USES_MAP entry for `owner/repo[/path][@ref]`, or null. `@ref` is ignored. */
-function lookupUses(ref) {
+/**
+ * Actions whose job IS one command line, so a `uses:` step of one is that command (TRD 43-12): the action
+ * installs the tool and runs it over the module (`with: working-directory` says where; stack-ci records it).
+ * Closed: an action is added only when its default invocation is a fixed CLI line. Each prefix is also a
+ * USES_MAP entry of the same key.
+ */
+const USES_CLI = Object.freeze([
+  Object.freeze({ prefix: 'golangci/golangci-lint-action', key: 'lint', form: 'check', command: 'golangci-lint run ./...', tool: 'golangci-lint' }),
+  Object.freeze({ prefix: 'golang/govulncheck-action', key: 'audit', form: 'check', command: 'govulncheck ./...', tool: 'govulncheck' }),
+]);
+
+/** The entry of `table` whose prefix is `owner/repo[/path]` of `ref` (`@ref` ignored), or null. */
+function matchUses(ref, table) {
   if (typeof ref !== 'string') return null;
   const base = ref.trim().split('@')[0];
   if (!base || base.startsWith('.') || base.startsWith('docker:')) return null;
-  for (const entry of USES_MAP) {
+  for (const entry of table) {
     if (base === entry.prefix || base.startsWith(`${entry.prefix}/`)) return entry;
   }
   return null;
+}
+
+/** lookupUses(ref) -> the USES_MAP entry for `owner/repo[/path][@ref]`, or null. `@ref` is ignored. */
+function lookupUses(ref) {
+  return matchUses(ref, USES_MAP);
+}
+
+/** lookupUsesCli(ref) -> { key, form, command, tool } for an action with a fixed CLI equivalent, else null. */
+function lookupUsesCli(ref) {
+  const e = matchUses(ref, USES_CLI);
+  return e ? { key: e.key, form: e.form, command: e.command, tool: e.tool } : null;
 }
 
 /** classifyUses(ref) -> a key, or null (unknown action, or setup-only). */
@@ -290,13 +355,186 @@ const HINT_TOKENS = [
   ['typecheck', 'check', ['typecheck', 'tsc', 'mypy', 'pyright']],
   ['lint', 'check', ['lint', 'linter', 'vet', 'analyze', 'analyse', 'staticcheck', 'eslint', 'clippy']],
   ['format', 'apply', ['fmt', 'format', 'gofmt', 'gofumpt', 'goimports', 'prettier']],
-  ['test', 'check', ['test', 'tests', 'unit', 'pytest', 'jest', 'vitest', 'ginkgo', 'spec', 'specs']],
+  ['test', 'check', ['test', 'tests', 'unit', 'pytest', 'jest', 'vitest', 'ginkgo', 'spec', 'specs', 'selftest', 'selftests']],
   ['build', 'build', ['build', 'compile']],
   ['codegen', 'mutate', ['generate', 'codegen', 'gen']],
   ['tidy', 'apply', ['tidy']],
   ['deps', 'mutate', ['deps', 'install', 'bootstrap']],
   ['fix', 'apply', ['fix']],
 ];
+
+// A name that pairs an ENVIRONMENT token with a SCENARIO token (`e2e-stack-up`, `integration-env-up`,
+// `e2e:seed`) brings a scenario's environment up; it is not the scenario suite, and never `test` or
+// `build` (TRD 43-04, D4). Whole tokens only: `setup` is not `up`, `restart` is not `start`.
+const ENV_TOKENS = Object.freeze(['up', 'down', 'stack', 'env', 'seed', 'infra', 'cluster', 'compose', 'start', 'stop']);
+const SCENARIO_TOKENS = Object.freeze(['e2e', 'integration', 'scenario']);
+
+// What a scenario-environment name says the target does TO the environment (TRD 43-11): it tears it down
+// (`e2e-stack-down`, `e2e-teardown`, `integration-env-stop`) or resets it (`e2e-db-reset`). Whole tokens only.
+// `seed`, `up` and `start` are bring-ups and carry no role (43-04 keeps `e2e:seed` an e2e_env).
+const TEARDOWN_TOKENS = Object.freeze(['down', 'stop', 'teardown', 'destroy']);
+const RESET_TOKENS = Object.freeze(['reset']);
+
+/** envRole(name) -> 'teardown' | 'reset' | null (see above). The drafter reads it; classifyHint is unchanged. */
+function envRole(name) {
+  const tokens = String(name == null ? '' : name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.some((t) => TEARDOWN_TOKENS.includes(t))) return 'teardown';
+  if (tokens.some((t) => RESET_TOKENS.includes(t))) return 'reset';
+  return null;
+}
+
+// A check or apply SUFFIX in a name names the form of the key the rest of the name carries (TRD 43-06):
+// `fmt-check`, `tidy-check`, `generate-check` are check forms; `lint-fix`, `lint:fix` is lint's apply.
+// Only keys that HAVE that form take it: `build-check` is still a build, `test-fix` still a test.
+const CHECK_SUFFIX_TOKENS = Object.freeze(['check', 'verify', 'diff']);
+const APPLY_SUFFIX_TOKENS = Object.freeze(['fix', 'write', 'apply']);
+const KEYS_WITH_CHECK_FORM = new Set(['format', 'tidy', 'codegen', 'fix']);
+const KEYS_WITH_APPLY_FORM = new Set(['lint', 'format', 'tidy', 'fix']);
+
+function hintForm(key, form, tokens) {
+  // `fmt-lint` has always meant the checking format target.
+  if (key === 'format' && tokens.includes('lint')) return 'check';
+  if (KEYS_WITH_CHECK_FORM.has(key) && tokens.some((t) => CHECK_SUFFIX_TOKENS.includes(t))) return 'check';
+  if (key !== 'fix' && KEYS_WITH_APPLY_FORM.has(key) && tokens.some((t) => APPLY_SUFFIX_TOKENS.includes(t))) return 'apply';
+  return form;
+}
+
+/**
+ * checkFormByName(key, form, name) -> form (TRD 43-09). hintForm for a key the BODY decided: a writer
+ * (apply / mutate) under a name carrying a check suffix (`schema-verify` running `go generate`) is the
+ * key's check form when the key has one (format, tidy, codegen, fix). Any other form, or a name with
+ * no check suffix, is returned unchanged.
+ */
+function checkFormByName(key, form, name) {
+  if (form !== 'apply' && form !== 'mutate') return form;
+  const tokens = String(name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (!tokens.some((t) => CHECK_SUFFIX_TOKENS.includes(t))) return form;
+  return hintForm(key, form, tokens);
+}
+
+// ─── drift checks as real recipes write them (TRD 43-09) ─────────────────────
+//
+// Two shapes fail on drift without `git diff --exit-code`, and neither normalises to an invocation a
+// table row could read (an assignment, an `if`, an `exit`; a bare `diff`), so they are read from the
+// RAW recipe or script text. A Makefile recipe carries `$$` where the shell sees `$`: every pattern
+// accepts both.
+//   captured  `X=$(git diff …)` (or backticks) whose variable a `-n` / `-z` test reads, or the capture
+//             inline in that test, then a failing exit
+//   snapshot  `diff` / `cmp` (flags -q -u -s -r or none) of a copy under a mktemp or snapshot dir
+//             against the in-tree file, then a failing exit
+// A failing exit is `exit <non-zero>`, `exit $rc`, or the `false` command. Without one, the recipe only
+// SHOWS a diff (`… || true`, an echo) and is not a check.
+
+const DOLLAR = '\\$\\$?';
+// Each option token has exactly one reading (js/redos, CodeQL alert 138): a single-dash `-C`/`-c` followed
+// by whitespace is only ever the option-with-value. The one shape this drops is `git -C diff`, which
+// chdirs into `diff` with no subcommand and is not a real diff.
+const GIT_DIFF = 'git(?:\\s+(?:-[Cc]\\s+\\S+|--[A-Za-z][\\w-]*(?:=\\S+)?|-(?![Cc]\\s)[A-Za-z][\\w-]*(?:=\\S+)?))*\\s+diff\\b';
+const CAPTURED_GIT_DIFF = new RegExp(`${DOLLAR}\\(\\s*${GIT_DIFF}|\`\\s*${GIT_DIFF}`, 'g');
+const EMPTINESS_TEST = '(?:\\[\\[?|\\btest)\\s+!?\\s*-[nz]\\s+["\']?';
+// The capture is tested: `X=$(git diff …)` then `[ -n "$X" ]`, or inline `[ -n "$(git diff …)" ]`.
+const CAPTURE_TARGET = /([A-Za-z_][A-Za-z0-9_]*)=["']?$/;
+const INLINE_TESTED = new RegExp(`${EMPTINESS_TEST}$`);
+function captureIsTested(text, at) {
+  const before = text.slice(0, at);
+  const name = CAPTURE_TARGET.exec(before);
+  if (!name) return INLINE_TESTED.test(before);
+  return new RegExp(`${EMPTINESS_TEST}${DOLLAR}\\{?${name[1]}\\}?(?![A-Za-z0-9_])`).test(text.slice(at));
+}
+const FAILING_EXIT = new RegExp(
+  `\\bexit\\s+(?:0*[1-9]\\d*|${DOLLAR}\\{?[A-Za-z_?][A-Za-z0-9_]*\\}?)|(?:^|[;&|{(]|\\bthen|\\belse|\\bdo)\\s*false\\b`,
+  'm',
+);
+const MKTEMP_VAR = new RegExp(`\\b([A-Za-z_][A-Za-z0-9_]*)=["']?(?:${DOLLAR}\\(\\s*mktemp\\b|\`\\s*mktemp\\b)`, 'g');
+const SNAPSHOT_VAR_NAME = /^(?:tmp|temp|tmpdir|tempdir|tmp_dir|temp_dir|snap|snapdir|snap_dir|snapshot|snapshots|snapshot_dir|scratch)$/i;
+const SNAPSHOT_SEGMENT = /^\.?snap(?:shot)?s?$/i;
+const DIFF_OPERAND = '("[^"]*"|\'[^\']*\'|[^\\s;&|<>()]+)';
+const SNAPSHOT_DIFF = new RegExp(
+  `(?:^|[\\s;&|(!{])((?:diff|cmp)(?:\\s+(?:-[qusr]+|--(?:brief|quiet|silent|recursive|unified(?:=\\d+)?)))*)\\s+${DIFF_OPERAND}\\s+${DIFF_OPERAND}`,
+  'g',
+);
+// Where a statement starts: just after the last separator before a position (`;`, `&&`, `||`, `|`,
+// a newline). Quote-unaware on purpose: it only decides how much text precedes the check.
+const SEPARATOR = /;|&&|\|\||\||\n/g;
+
+function statementStart(text, at) {
+  let start = 0;
+  SEPARATOR.lastIndex = 0;
+  let m;
+  while ((m = SEPARATOR.exec(text)) !== null && m.index < at) start = m.index + m[0].length;
+  return start;
+}
+
+const unquote = (w) => (/^(["']).*\1$/.test(w) ? w.slice(1, -1) : w);
+
+/** `$snap/x`, `$$tmp/x`, `${TMPDIR}/x`, `/tmp/x` or `…/.snapshots/x`, given the mktemp-assigned names. */
+function isSnapshotPath(word, mktempVars) {
+  const p = unquote(word);
+  const v = new RegExp(`^${DOLLAR}\\{?([A-Za-z_][A-Za-z0-9_]*)\\}?/`).exec(p);
+  if (v) return mktempVars.has(v[1]) || SNAPSHOT_VAR_NAME.test(v[1]);
+  if (/^\/tmp\//.test(p)) return true;
+  return p.split('/').slice(0, -1).some((seg) => SNAPSHOT_SEGMENT.test(seg));
+}
+
+const isInTreePath = (word) => {
+  const p = unquote(word);
+  return p !== '-' && !p.startsWith('$') && !p.startsWith('/') && !p.startsWith('-');
+};
+
+/**
+ * driftCheckAt(text) -> the offset where the drift-check STATEMENT starts in a raw recipe or script
+ * text, or -1 (TRD 43-09). Recognises the captured-`git diff` and snapshot-`diff` shapes above; the
+ * caller reads what runs before that offset for the writer. `git diff --exit-code` is isDriftCheck's
+ * job on normalised invocations and is not repeated here.
+ */
+function driftCheckAt(text) {
+  const t = typeof text === 'string' ? text : '';
+  if (!t.trim()) return -1;
+  const failsAfter = (pos) => FAILING_EXIT.test(t.slice(pos));
+
+  let best = -1;
+  CAPTURED_GIT_DIFF.lastIndex = 0;
+  let m;
+  while ((m = CAPTURED_GIT_DIFF.exec(t)) !== null) {
+    if (captureIsTested(t, m.index) && failsAfter(m.index)) {
+      best = m.index;
+      break;
+    }
+  }
+
+  const mktempVars = new Set();
+  MKTEMP_VAR.lastIndex = 0;
+  while ((m = MKTEMP_VAR.exec(t)) !== null) mktempVars.add(m[1]);
+  SNAPSHOT_DIFF.lastIndex = 0;
+  while ((m = SNAPSHOT_DIFF.exec(t)) !== null) {
+    const at = m.index + m[0].indexOf(m[1]);
+    if (best !== -1 && at >= best) break;
+    const [a, b] = [m[2], m[3]];
+    const oneSnapshot = (isSnapshotPath(a, mktempVars) && isInTreePath(b)) || (isSnapshotPath(b, mktempVars) && isInTreePath(a));
+    if (oneSnapshot && failsAfter(at)) {
+      best = at;
+      break;
+    }
+  }
+  return best === -1 ? -1 : statementStart(t, best);
+}
+
+/**
+ * isDriftCheck(inv) -> true for `git diff --exit-code` / `git diff --quiet` (any paths after): the
+ * command a `<x>-check` target runs after regenerating, failing when the tree changed (TRD 43-06).
+ * A raw TEXT (a string) is also a drift check when it holds a captured or snapshot diff that fails
+ * (driftCheckAt, TRD 43-09).
+ */
+function isDriftCheck(inv) {
+  for (const c of toInvocations(inv)) {
+    let a = firstStage(c.argv);
+    if (a[0] !== 'git') continue;
+    a = a.slice(1);
+    while (a.length && a[0].startsWith('-')) a = a.slice(1); // `git --no-pager diff`
+    if (a[0] === 'diff' && a.some((x) => x === '--exit-code' || x === '--quiet')) return true;
+  }
+  return typeof inv === 'string' && driftCheckAt(inv) !== -1;
+}
 
 /** What a target / script NAME says the command does. Always low confidence; null when it says nothing. */
 function classifyHint(hint) {
@@ -306,11 +544,13 @@ function classifyHint(hint) {
   const viaTable = classifyText(h);
   if (viaTable) return { ...viaTable, confidence: 'low' };
   const tokens = h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.some((t) => ENV_TOKENS.includes(t)) && tokens.some((t) => SCENARIO_TOKENS.includes(t))) {
+    return { key: 'e2e_env', form: 'check', tool: null, weak: [], confidence: 'low' };
+  }
   for (const [key, form, names] of HINT_TOKENS) {
     if (tokens.some((t) => names.includes(t))) {
-      // `fmt-check` / `format-verify` describe the checking form.
-      const checking = key === 'format' && tokens.some((t) => t === 'check' || t === 'verify' || t === 'lint');
-      return { key, form: checking ? 'check' : form, tool: null, weak: [], confidence: 'low' };
+      // `fmt-check` / `tidy-verify` describe the checking form, `lint-fix` the applying one.
+      return { key, form: hintForm(key, form, tokens), tool: null, weak: [], confidence: 'low' };
     }
   }
   return null;
@@ -380,9 +620,27 @@ function classifyWrapped(text) {
   return { ...found, weak: found.weak.filter((w) => w !== 'never-fails') };
 }
 
+// A version or presence probe (TRD 43-09): `<tool> -v`, `<tool> --version`, `<tool> version` with no
+// further operand, `<tool> version --short|--client`. An install step that ends with `kubeconform -v`
+// shows the tool is there; it gates nothing. For the runners whose bare invocation runs the suite,
+// `-v` is verbose, not version.
+const VERBOSE_V_TOOLS = new Set(['pytest', 'py.test', 'ginkgo', 'mypy']);
+const VERSION_SUBCOMMAND_FLAGS = new Set(['--short', '--client']);
+
+function isVersionProbe(stage) {
+  const a = Array.isArray(stage) ? stage : [];
+  if (a.length < 2) return false;
+  const tool = basename(a[0]);
+  if (a.length === 2 && a[1] === '--version') return true;
+  if (a.length === 2 && a[1] === '-v') return !VERBOSE_V_TOOLS.has(tool);
+  if (a[1] !== 'version') return false;
+  return a.slice(2).every((x) => VERSION_SUBCOMMAND_FLAGS.has(x));
+}
+
 function classifyOne({ text, argv }, hint) {
   const tool = argv[0];
   if (tool === 'test' || tool === '[' || tool === '[[') return classifyWrapped(text);
+  if (isVersionProbe(unwrap(firstStage(argv)))) return null; // before the table: no row may claim it
   const hit = classifyArgv(argv, text);
   if (hit) return hit;
   if (hint && isOpaque(unwrap(firstStage(argv)))) return classifyHint(hint);
@@ -729,6 +987,70 @@ function testBreadth(inv) {
   return null;
 }
 
+// ─── Build breadth (TRD 43-13) ────────────────────────────────────────────────
+//
+// The repo-wide `build` builds the module. buildBreadth reads a `go build`'s OWN flags and operands, as
+// testBreadth reads a test runner's:
+//   broad    an operand that is a `...` pattern (`./...`, `./cmd/...`), or no operand and no `-o`
+//   narrow   an explicit package operand (`./cmd/server`, `.`, `main.go`): those packages only; or no
+//            operand with an `-o` output: the one package of its directory, to one binary
+//   unknown  an operand that is a template or variable (`"./cmd/${bin}"`), any other tool, no build at all
+// Flags that change HOW the build runs (`-tags`, `-ldflags`, `-race`, `-trimpath`) never decide breadth.
+
+/** go build flags that take a separate value (`-o X`, `-tags X`), so X is not read as an operand. */
+const GO_BUILD_VALUE_FLAGS = new Set([...GO_SPEC.value, '-pgo']);
+
+/** Why a build invocation is narrow, with the words a note prints. */
+const BUILD_BREADTH_REASONS = Object.freeze({
+  'package-path': 'builds the named packages, not the whole module',
+  'single-output': 'builds one package to an -o output, not the whole module',
+});
+
+/** `{ breadth, reason?, detail?, packages?, tool? }` for the args after `go build`. */
+function judgeGoBuild(args) {
+  let output = false;
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const x = String(args[i]);
+    if (x === '--') continue;
+    if (/^(?:\d*|&)(?:>>?|<)/.test(x)) { // a redirection (`2>&1`, `>/dev/null`, `> out`): never an operand
+      if (/^(?:\d*|&)(?:>>?|<)$/.test(x)) i += 1;
+      continue;
+    }
+    if (x.startsWith('-') && x !== '-') {
+      const eq = x.indexOf('=');
+      const name = GO_SPEC.norm(eq === -1 ? x : x.slice(0, eq));
+      if (name === '-o') output = true;
+      if (eq === -1 && GO_BUILD_VALUE_FLAGS.has(name) && i + 1 < args.length) i += 1;
+      continue;
+    }
+    operands.push(x);
+  }
+  if (operands.some((p) => p.includes('...'))) return { breadth: 'broad', tool: 'go' };
+  if (operands.some((p) => /\{\{|\$/.test(p))) return { breadth: 'unknown', tool: 'go' };
+  const narrow = (reason, packages) => ({
+    breadth: 'narrow', reason, detail: `${reason}: ${BUILD_BREADTH_REASONS[reason]}`, packages, tool: 'go',
+  });
+  if (operands.length) return narrow('package-path', operands);
+  return output ? narrow('single-output', ['.']) : { breadth: 'broad', tool: 'go' };
+}
+
+/**
+ * buildBreadth(inv) -> { breadth: 'broad'|'narrow'|'unknown', reason?, detail?, packages?, tool? }
+ *
+ * `inv` is a normalised invocation (`{ text, argv? }`) or a shell string; the first invocation that runs
+ * `go build` decides. `packages` lists what a narrow build builds (`.` for an operand-less `-o` build), so
+ * the drafter can tell one product binary from several variants. Never null: anything that is not a
+ * `go build` is `{ breadth: 'unknown' }`.
+ */
+function buildBreadth(inv) {
+  for (const c of toInvocations(inv)) {
+    const stage = unwrap(firstStage(c.argv));
+    if (is(stage, 'go', 'build')) return judgeGoBuild(stage.slice(2));
+  }
+  return { breadth: 'unknown' };
+}
+
 // ─── Tool stack (TRD 42-15, D3) ───────────────────────────────────────────────
 //
 // Which language / ecosystem a command's TOOL belongs to, so stack-draft can ask "does this root
@@ -785,6 +1107,26 @@ function toolStack(inv) {
   return null;
 }
 
+/**
+ * Tools the table classifies as `lint` and never as `build` or `test`: a DEDICATED linter (golangci-lint,
+ * staticcheck, eslint, ruff, shellcheck), as opposed to a toolchain driver whose subcommand lints (`go vet`,
+ * `dart analyze`, `flutter analyze`, `cargo clippy`). Derived from CLASSIFY_TABLE (TRD 43-12).
+ */
+const DEDICATED_LINTERS = (() => {
+  const lint = new Set();
+  const driver = new Set();
+  for (const r of CLASSIFY_TABLE) {
+    if (r.key === 'lint') lint.add(r.tool);
+    if (r.key === 'build' || r.key === 'test') driver.add(r.tool);
+  }
+  return new Set([...lint].filter((t) => !driver.has(t)));
+})();
+
+/** isDedicatedLinter(tool) -> true for a tool that only lints (DEDICATED_LINTERS). */
+function isDedicatedLinter(tool) {
+  return typeof tool === 'string' && DEDICATED_LINTERS.has(tool);
+}
+
 module.exports = {
   CLASSIFY_TABLE,
   TOOL_STACKS,
@@ -792,12 +1134,22 @@ module.exports = {
   NEUTRAL_STACK,
   toolStack,
   classifyInvocation,
+  classifyHint,
+  envRole,
+  isDriftCheck,
+  driftCheckAt,
+  checkFormByName,
   classifyUses,
   lookupUses,
+  lookupUsesCli,
+  isDedicatedLinter,
   testBreadth,
   TEST_BREADTH,
   BREADTH_REASONS,
+  buildBreadth,
+  BUILD_BREADTH_REASONS,
   WEAK_MARKERS,
   STANDARD_KEYS_EXT,
   USES_MAP,
+  USES_CLI,
 };

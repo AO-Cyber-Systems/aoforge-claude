@@ -16,6 +16,11 @@
 // resolveDisk/resolveGh/resolveMerge: orchestrators that delegate to existing push
 //   (lib/gh.cjs cmdGhSyncObjective) and pull-apply (lib/gh-pull.cjs applyDrift)
 //   primitives, then update sync state.
+//
+// Objective identity (TRD 46-06): every resolver's `objectiveId` is the objective DIRECTORY name
+// (e.g. "02-a"). It builds `.planning/objectives/<dir>/OBJECTIVE.md` and is handed to
+// `gh.cmdGhSyncObjective` unchanged. sync-state normalises that same value to the objective id
+// ("2"), so getLastSync/recordSync here read and write the record push and pull share.
 
 const fs = require('fs');
 const path = require('path');
@@ -148,6 +153,8 @@ function formatThreeWayDiff({ objectiveId, issueRef, conflicting_fields }) {
  * already updates the mapping. Then we update sync state to clear pending_resolution
  * and record the new authoritative state.
  *
+ * `objectiveId` is the objective DIRECTORY name; sync-state keys it by objective id.
+ *
  * Returns: { ok, action, error? }
  */
 function resolveDisk({ cwd, objectiveId, issueRef, ghIssue, currentDiskFm }) {
@@ -198,6 +205,9 @@ function resolveDisk({ cwd, objectiveId, issueRef, ghIssue, currentDiskFm }) {
 
 /**
  * resolveGh — user chose to accept GH values; overwrite disk via applyDrift.
+ *
+ * `objectiveId` is the objective DIRECTORY name (applyDrift builds the file path from it);
+ * the sync-state record lands on the normalised objective id.
  *
  * Returns: { ok, action, applied?, error? }
  */
@@ -252,7 +262,7 @@ function resolveGh({ cwd, objectiveId, issueRef, ghIssue, currentDiskFm }) {
  * resolveMerge — user manually edited OBJECTIVE.md; verify hash changed and record.
  *
  * Inputs:
- *   cwd, objectiveId, currentDiskFm (post-edit frontmatter)
+ *   cwd, objectiveId (the objective DIRECTORY name), currentDiskFm (post-edit frontmatter)
  *
  * Compares current disk hash vs pending_resolution.disk_hash_at_conflict (recorded
  * when conflict was first surfaced). If unchanged → user didn't edit yet → exit 1.

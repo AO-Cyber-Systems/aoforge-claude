@@ -71,12 +71,12 @@ Steps: {N}/{N} complete
 
 Reference patterns. Match the user's description against these names first; if no match, derive from verbs.
 
-- **build-and-sync** — `/devflow:build {N}` → `/devflow:gh-sync {N}`. After building an objective, push state to GitHub.
+- **build-and-sync** — `/devflow:build {N}` → `/devflow:gh-sync {N}`. After building an objective, push state to GitHub: in store mode this flushes the outbox; with the store off it mirrors the objective to its issue.
 - **discuss-and-plan** — `/devflow:discuss-objective {N}` → `/devflow:plan-objective {N}`. Lock decisions before planning.
 - **research-plan-build** — `/devflow:research-objective {N}` → `/devflow:plan-objective {N}` → `/devflow:execute-objective {N}`. Full pipeline from blank slate.
 - **debug-and-track** — `/devflow:debug "{issue}"` → `/devflow:todo add "{finding}"`. Investigate then capture a follow-up.
-- **verify-and-sync** — `/devflow:verify-work {N}` → `/devflow:gh-sync {N}`. Re-verify and push verification gaps to GitHub.
-- **ship-and-release** — `/devflow:execute-objective {N}` → `/devflow:verify-work {N}` → `/devflow:gh-sync sync-release {tag}`. End-to-end ship with release notes.
+- **verify-and-sync** — `/devflow:verify-work {N}` → `/devflow:gh-sync {N}`. Re-verify and push verification gaps to GitHub: in store mode this flushes the outbox; with the store off it mirrors the objective to its issue.
+- **ship-and-release** — `/devflow:execute-objective {N}` → `/devflow:verify-work {N}` → `/devflow:gh-sync release {tag}`. End-to-end ship with release notes.
 - **plan-and-discuss-first** — `/devflow:discuss-objective {N}` → `/devflow:research-objective {N}` → `/devflow:plan-objective {N}`. Lock decisions → research → plan, when an objective is risky or under-specified.
 
 </common_chains>

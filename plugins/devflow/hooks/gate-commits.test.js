@@ -735,3 +735,132 @@ describe('TRD 44-03 — resolveGitDir / gitOpInProgress / gitCPath (unit)', () =
     assert.equal(gateCommits.gitCPath('git -C /a -C b commit', cwd), '/a/b');
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 53-04 — a chained git-op + commit is still denied, and now says why.
+//
+// The gate decides BEFORE the command runs, so a `git merge … && git commit …`
+// in one Bash call is checked while MERGE_HEAD does not exist yet. That decision
+// is correct and does not change; only the deny reason gains a hint naming the
+// separate-call form (allowed once MERGE_HEAD exists).
+// ---------------------------------------------------------------------------
+
+describe('TRD 53-04 — chainsGitOpAndCommit (unit)', () => {
+  const TRUE_CASES = [
+    'git merge X && git commit --no-edit',
+    'git merge X; git add a && git commit -m y',
+    'git cherry-pick Y && git commit',
+    'git revert Z && git commit -m y',
+    'git rebase main && git commit --amend',
+    'git -C /repo merge X && git -C /repo commit --no-edit',
+    'git merge --no-ff --no-commit X && git commit --no-edit',
+    'git merge X\ngit commit --no-edit',
+    'git merge X || git commit -m y',
+    'git merge X; git checkout --theirs .planning/STATE.md && git add .planning/STATE.md && git commit --no-edit',
+  ];
+  for (const cmd of TRUE_CASES) {
+    test(`true: ${JSON.stringify(cmd)}`, () => {
+      assert.equal(gateCommits.chainsGitOpAndCommit(cmd), true);
+    });
+  }
+
+  const FALSE_CASES = [
+    'git commit -m x',
+    'git merge X',
+    'git commit -m x && git merge Y',
+    'git merge X && node ~/.claude/devflow/bin/df-tools.cjs commit "m" --files a',
+    'echo "git merge && git commit"',
+    "echo 'git merge X && git commit'",
+    'cat > f <<\'EOF\'\ngit merge X && git commit\nEOF',
+    'git status && git commit -m x',
+    '',
+  ];
+  for (const cmd of FALSE_CASES) {
+    test(`false: ${JSON.stringify(cmd)}`, () => {
+      assert.equal(gateCommits.chainsGitOpAndCommit(cmd), false);
+    });
+  }
+
+  test('non-string input is false, never a throw', () => {
+    assert.equal(gateCommits.chainsGitOpAndCommit(undefined), false);
+    assert.equal(gateCommits.chainsGitOpAndCommit(null), false);
+  });
+});
+
+describe('TRD 53-04 — the denial for a chained merge+commit names the separate-call form (subprocess e2e)', () => {
+  function reasonOf(result) {
+    return JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+  }
+
+  test('test 4: no MERGE_HEAD, `git merge X && git commit --no-edit` → denied, base message plus the hint', () => {
+    const { root, cleanup } = mkRepo('none');
+    try {
+      const result = runHook(bash('git merge X && git commit --no-edit', root), root);
+      assertDeny(result, 'chained merge+commit');
+      const reason = reasonOf(result);
+      assert.ok(reason.startsWith(gateCommits.DENY_MESSAGE), 'the base DENY_MESSAGE leads the reason');
+      assert.match(reason, /separate/i);
+      assert.match(reason, /MERGE_HEAD/);
+      assert.ok(reason.includes('git commit --no-edit'), reason);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('test 4: a cherry-pick, or a conflict resolved in one call, chained with a commit gets the hint too', () => {
+    const { root, cleanup } = mkRepo('none');
+    try {
+      for (const cmd of [
+        'git cherry-pick Y && git commit',
+        'git merge X; git checkout --theirs .planning/STATE.md && git add .planning/STATE.md && git commit --no-edit',
+      ]) {
+        const result = runHook(bash(cmd, root), root);
+        assertDeny(result, cmd);
+        assert.match(reasonOf(result), /separate/i, cmd);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('test 4: a plain `git commit -m x` is denied with exactly the base message, no hint', () => {
+    const { root, cleanup } = mkRepo('none');
+    try {
+      const result = runHook(bash('git commit -m x', root), root);
+      assertDeny(result, 'plain commit');
+      assert.equal(reasonOf(result), gateCommits.DENY_MESSAGE);
+      assert.doesNotMatch(reasonOf(result), /separate/i);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('test 4: with MERGE_HEAD present, `git commit --no-edit` on its own is allowed (objective 44)', () => {
+    const { root, cleanup } = mkRepo('merge');
+    try {
+      assertPass(runHook(bash('git commit --no-edit', root), root), 'MERGE_HEAD present');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('decision unchanged: the chained form is still denied even when MERGE_HEAD is absent and the inline prefix is missing on one commit', () => {
+    const { root, cleanup } = mkRepo('none');
+    try {
+      const cmd = 'DEVFLOW_ALLOW_RAW_COMMIT=1 git commit -m a && git merge X && git commit --no-edit';
+      assertDeny(runHook(bash(cmd, root), root), 'one commit unprefixed');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('decision unchanged: a chained merge + `df-tools commit` still passes, with no hint to give', () => {
+    const { root, cleanup } = mkRepo('none');
+    try {
+      const cmd = 'git merge X && node ~/.claude/devflow/bin/df-tools.cjs commit "m" --files a';
+      assertPass(runHook(bash(cmd, root), root), 'df-tools commit chained');
+    } finally {
+      cleanup();
+    }
+  });
+});

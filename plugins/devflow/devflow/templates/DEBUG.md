@@ -2,6 +2,10 @@
 
 Template for `.planning/debug/[slug].md` — active debug session tracking.
 
+The session is kept in a draft (`df-tools planning draft debug/[slug].md`) and saved with
+`df-tools debug put [slug] --from <draft>`; it is archived with `df-tools debug resolve [slug]`. Never write or move
+the `.planning/debug/` file directly. With `github.store` on the session is a debug GitHub issue.
+
 ---
 
 ## File Template
@@ -100,7 +104,7 @@ files_changed: []
 <lifecycle>
 
 **Creation:** Immediately when /devflow:debug is called
-- Create file with trigger from user input
+- Fill the draft with the trigger from user input, then save it with `debug put`
 - Set status to "gathering"
 - Current Focus: next_action = "gather symptoms"
 - Symptoms: empty, to be filled
@@ -127,9 +131,12 @@ files_changed: []
 - Update Resolution.verification with results
 - If verification fails: status → "investigating", try again
 
+**Saving:** `debug put` at session start, before every checkpoint or return, on pause, and before resolving — not after
+every hypothesis.
+
 **On resolution:**
-- status → "resolved"
-- Move file to .planning/debug/resolved/
+- status → "resolved", saved with `debug put`
+- `df-tools debug resolve [slug]` moves it to `.planning/debug/resolved/` (store mode: closes the issue)
 
 </lifecycle>
 

@@ -54,6 +54,7 @@ describe('readSyncState (S1-S4)', () => {
     }
   });
 
+  // 46-06: keys are objective ids, so the dir-name key '21-foo' on disk reads back as '21'.
   test('S2: file present with v1 schema → returns parsed content', () => {
     const record = fx.buildSyncStateRecord({ gh_updated_at: '2026-05-01T12:00:00Z' });
     const project = fx.buildTempProjectWithSyncState({
@@ -62,8 +63,8 @@ describe('readSyncState (S1-S4)', () => {
     try {
       const r = ss.readSyncState(project.root);
       assert.strictEqual(r.version, 1);
-      assert.strictEqual(r.objectives['21-foo'].gh_updated_at, '2026-05-01T12:00:00Z');
-      assert.deepStrictEqual(r.objectives['21-foo'].label_set, ['devflow:objective']);
+      assert.strictEqual(r.objectives['21'].gh_updated_at, '2026-05-01T12:00:00Z');
+      assert.deepStrictEqual(r.objectives['21'].label_set, ['devflow:objective']);
     } finally {
       project.cleanup();
     }
@@ -190,7 +191,7 @@ describe('recordSync (R1-R4)', () => {
       const record = fx.buildSyncStateRecord();
       const updated = ss.recordSync(project.root, '21-foo', record);
       assert.strictEqual(updated.version, 1);
-      assert.deepStrictEqual(updated.objectives['21-foo'].label_set, ['devflow:objective']);
+      assert.deepStrictEqual(updated.objectives['21'].label_set, ['devflow:objective']);
     } finally {
       project.cleanup();
     }
@@ -225,7 +226,7 @@ describe('recordSync (R1-R4)', () => {
       const filePath = path.join(project.root, '.planning', '.gh-sync-state.json');
       assert.ok(fs.existsSync(filePath));
       const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      assert.ok(parsed.objectives['21-foo']);
+      assert.ok(parsed.objectives['21']);
     } finally {
       project.cleanup();
     }
@@ -239,7 +240,7 @@ describe('recordSync (R1-R4)', () => {
       // Mutate the input record after recordSync; the disk state must be unaffected
       inputRecord.label_set.push('mutated');
       const re = ss.readSyncState(project.root);
-      assert.deepStrictEqual(re.objectives['21-foo'].label_set, ['a', 'b']);
+      assert.deepStrictEqual(re.objectives['21'].label_set, ['a', 'b']);
     } finally {
       project.cleanup();
     }
@@ -416,48 +417,112 @@ describe('integration: cmdGhSyncObjectives (push) records sync state (W2)', () =
         github: { enabled: true, repo: 'TestOrg/TestRepo', labels: { objective: 'devflow:objective' }, milestone_prefix: 'v' },
       }), 'utf-8');
 
-      // Mock runGh: auth ok with project scopes, milestone+label create succeed,
-      // and issue create returns a synthetic URL with #42.
-      gh._setRunGh((args) => {
-        if (args[0] === 'auth' && args[1] === 'status') {
-          return { ok: true, status: 0, stdout: "Token scopes: 'project', 'repo'", stderr: '' };
-        }
-        if (args[0] === 'api' && args[1] && args[1].includes('milestones')) {
-          // Successful milestone creation
-          return { ok: true, status: 0, stdout: JSON.stringify({ number: 1, title: 'v1.0' }), stderr: '' };
-        }
-        if (args[0] === 'label' && args[1] === 'create') {
-          return { ok: true, status: 0, stdout: '', stderr: '' };
-        }
-        if (args[0] === 'issue' && args[1] === 'create') {
-          return { ok: true, status: 0, stdout: 'https://github.com/TestOrg/TestRepo/issues/42', stderr: '' };
-        }
-        return { ok: false, status: 1, stdout: '', stderr: `unexpected: ${args.join(' ')}` };
-      });
+      // TRD 46-08: the alias runs the one sync (marker scan, find-or-create, sticky comment), so the
+      // hand-rolled argv mock is replaced by the stateful gh-fake on the gh-client seam; a no-op sleep
+      // keeps write pacing off the wall clock.
+      const client = require('./gh-client.cjs');
+      const fake = require('./__fixtures__/gh-fake.cjs').createFakeGitHub({ repo: 'TestOrg/TestRepo', scopes: ['project', 'repo'] });
+      client._resetClient();
+      client._setSleep(() => {});
+      gh._setRunGh(fake.runGh);
 
-      // Capture stdout AND process.exit (helpers.output calls process.exit which would
+      // Capture stdout/stderr AND process.exit (helpers.output calls process.exit which would
       // otherwise terminate the test runner before subsequent tests can register).
-      const origStdout = process.stdout.write.bind(process.stdout);
+      const origStdout = process.stdout.write;
+      const origStderr = process.stderr.write;
       const origExit = process.exit;
+      let exitCode = null;
       process.stdout.write = () => true;
+      process.stderr.write = () => true;
       process.exit = (code) => { throw new Error(`__exit_${code}__`); };
       try {
         try { gh.cmdGhSyncObjectives(root, true); }
-        catch (e) { if (!/^__exit_/.test(e.message)) throw e; }
+        catch (e) {
+          if (!/^__exit_/.test(e.message)) throw e;
+          exitCode = Number(e.message.replace(/\D/g, ''));
+        }
       } finally {
         process.stdout.write = origStdout;
+        process.stderr.write = origStderr;
         process.exit = origExit;
         gh._setRunGh(null);
+        client._resetClient();
+        client._setSleep(null);
       }
+      assert.strictEqual(exitCode, 0);
+      const created = fake.issues.find((iss) => iss.title.includes('Objective 1'));
+      assert.ok(created, 'the alias created the objective issue on the fake');
 
-      // Sync state should have an entry for objective '1' with issue 42
+      // Sync state should have an entry for objective '1' with the created issue
       const last = ss.getLastSync(root, '1');
       assert.ok(last, 'sync state recorded for objective 1');
-      assert.strictEqual(last.issue_ref, 'TestOrg/TestRepo#42');
+      assert.strictEqual(last.issue_ref, `TestOrg/TestRepo#${created.number}`);
       assert.deepStrictEqual(last.label_set, ['devflow:objective']);
       assert.match(last.last_synced_disk_hash, /^sha256:[a-f0-9]{64}$/);
     } finally {
       try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {}
     }
+  });
+});
+
+// ─── TRD 46-06: sync-state keys are objective ids ────────────────────────────
+
+describe('sync-state keys normalise to objective ids (46-06, tests 1-4)', () => {
+  const readRaw = (root) => JSON.parse(fs.readFileSync(path.join(root, '.planning', '.gh-sync-state.json'), 'utf-8'));
+
+  test('1: recordSync under a dir name is found by the bare id and by the padded id', () => {
+    const project = fx.buildTempProjectWithSyncState({ syncState: null });
+    try {
+      const r1 = fx.buildSyncStateRecord({ issue_ref: 'o/r#7' });
+      ss.recordSync(project.root, '02-a', r1);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '2'), r1);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '002'), r1);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '02-a'), r1);
+      assert.deepStrictEqual(Object.keys(readRaw(project.root).objectives), ['2']);
+    } finally { project.cleanup(); }
+  });
+
+  test('2: a file holding both 02-a (older) and 2 (newer) reads as one record under 2; recordSync rewrites it with only 2', () => {
+    const older = fx.buildSyncStateRecord({ issue_ref: 'o/r#1', last_synced_at: '2026-01-01T00:00:00Z' });
+    const newer = fx.buildSyncStateRecord({ issue_ref: 'o/r#2', last_synced_at: '2026-06-01T00:00:00Z' });
+    const other = fx.buildSyncStateRecord({ issue_ref: 'o/r#9' });
+    const project = fx.buildTempProjectWithSyncState({
+      syncState: { version: 1, objectives: { '02-a': older, '2': newer, '9': other } },
+    });
+    try {
+      const state = ss.readSyncState(project.root);
+      assert.deepStrictEqual(Object.keys(state.objectives).sort(), ['2', '9']);
+      assert.strictEqual(state.objectives['2'].issue_ref, 'o/r#2');
+
+      ss.recordSync(project.root, '9', fx.buildSyncStateRecord({ issue_ref: 'o/r#9b' }));
+      const raw = readRaw(project.root);
+      assert.deepStrictEqual(Object.keys(raw.objectives).sort(), ['2', '9']);
+      assert.strictEqual(raw.objectives['2'].issue_ref, 'o/r#2');
+      assert.strictEqual(raw.version, 1);
+    } finally { project.cleanup(); }
+  });
+
+  test('3: a decimal objective is stored under its own id, distinct from the integer', () => {
+    const project = fx.buildTempProjectWithSyncState({ syncState: null });
+    try {
+      const a = fx.buildSyncStateRecord({ issue_ref: 'o/r#2' });
+      const b = fx.buildSyncStateRecord({ issue_ref: 'o/r#21' });
+      ss.recordSync(project.root, '2', a);
+      ss.recordSync(project.root, '02.1-b', b);
+      assert.deepStrictEqual(Object.keys(readRaw(project.root).objectives).sort(), ['2', '2.1']);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '2.1'), b);
+      assert.deepStrictEqual(ss.getLastSync(project.root, '2'), a);
+    } finally { project.cleanup(); }
+  });
+
+  test('4: keys that are not objective ids are kept verbatim (no data loss)', () => {
+    const rec = fx.buildSyncStateRecord({ issue_ref: 'o/r#5' });
+    const project = fx.buildTempProjectWithSyncState({ syncState: { version: 1, objectives: { 'weird-key': rec } } });
+    try {
+      assert.deepStrictEqual(ss.readSyncState(project.root).objectives['weird-key'], rec);
+      ss.recordSync(project.root, 'also-weird', rec);
+      assert.deepStrictEqual(Object.keys(readRaw(project.root).objectives).sort(), ['also-weird', 'weird-key']);
+      assert.deepStrictEqual(ss.getLastSync(project.root, 'also-weird'), rec);
+    } finally { project.cleanup(); }
   });
 });

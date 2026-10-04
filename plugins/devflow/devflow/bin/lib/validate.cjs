@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { output, error, normalizeObjectiveName, findPlanFiles, stripPlanSuffix, pluginVersion, installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
+const { output, error, normalizeObjectiveName, findPlanFiles, trdKey, pluginVersion, installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getMilestoneInfo } = require('./roadmap.cjs');
 // The config / JOB.md / state.json repairs live in the upgrade migrations (TRD 36-04a); health
@@ -146,13 +146,14 @@ function cmdValidateConsistency(cwd, raw) {
 
       // Check: plans without summaries (completed plans)
       const summaries = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md'));
-      const jobIds = new Set(plans.map(p => stripPlanSuffix(p)));
-      const summaryIds = new Set(summaries.map(s => s.replace('-SUMMARY.md', '')));
+      // Pair on the NN-MM key (TRD 53-02): `NN-MM-<slug>-TRD.md` owns `NN-MM-SUMMARY.md`
+      // and `NN-MM-<slug>-SUMMARY.md` alike.
+      const jobKeys = new Set(plans.map(p => trdKey(p)));
 
       // Summary without matching job is suspicious
-      for (const sid of summaryIds) {
-        if (!jobIds.has(sid)) {
-          warnings.push(`Summary ${sid}-SUMMARY.md in ${dir} has no matching TRD.md or JOB.md`);
+      for (const summary of summaries) {
+        if (!jobKeys.has(trdKey(summary))) {
+          warnings.push(`Summary ${summary} in ${dir} has no matching TRD.md or JOB.md`);
         }
       }
     }
@@ -341,11 +342,12 @@ function cmdValidateHealth(cwd, options, raw) {
       const objectiveFiles = fs.readdirSync(path.join(objectivesDir, e.name));
       const plans = findPlanFiles(objectiveFiles);
       const summaries = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
-      const summaryBases = new Set(summaries.map(s => s.replace('-SUMMARY.md', '').replace('SUMMARY.md', '')));
+      // Pair on the NN-MM key (TRD 53-02): executors write `NN-MM-SUMMARY.md` beside a named
+      // `NN-MM-<slug>-TRD.md`, and either summary name counts as the TRD's summary.
+      const summaryKeys = new Set(summaries.map(s => trdKey(s)));
 
       for (const jobFile of plans) {
-        const jobBase = stripPlanSuffix(jobFile);
-        if (!summaryBases.has(jobBase)) {
+        if (!summaryKeys.has(trdKey(jobFile))) {
           addIssue('info', 'I001', `${e.name}/${jobFile} has no SUMMARY.md`, 'May be in progress');
         }
       }
@@ -701,6 +703,45 @@ function cmdValidateHealth(cwd, options, raw) {
     }
   } catch (e) {
     addIssue('warning', 'W054', `doc-staleness-check-failed: ${e.message}`, 'Run `df-tools validate docs` to see why');
+  }
+
+  // ─── Check 15: Planning cache drift (objective 48) ─────────────────────────
+  // Store mode only (planning-mode.cjs); local mode returns before reading any outbox state, so
+  // nothing here changes for a local project. W055: a cache or generated `.planning/` file whose
+  // bytes match neither its cache-index baseline nor a pending verb write — changed outside the
+  // df-tools verbs (D-15). Advisory and never repairable: publishing and restoring are both valid
+  // fixes, and only the user knows which was meant. A check that cannot run, or ran partially
+  // (the 5,000-file cap), is never silent (W056), matching Check 14's W054.
+  const driftFix = 'Run `df-tools validate health --raw` after `gh pull --all`';
+  try {
+    const { findCacheDrift } = require('./planning-drift.cjs');
+    const r = findCacheDrift(cwd, { home: homeDir });
+    for (const d of r.drift) addIssue('warning', 'W055', d.message, d.fix, false);
+    for (const note of r.notes) addIssue('warning', 'W056', `planning-drift-check-failed: ${note}`, driftFix, false);
+  } catch (e) {
+    addIssue('warning', 'W056', `planning-drift-check-failed: ${e.message}`, driftFix, false);
+  }
+
+  // ─── Check 16: Store sync health (objective 50, GEN-03) ────────────────────
+  // Store mode only; gh-health.collectStoreHealth returns {applicable:false} in local mode before it
+  // reads any outbox, mapping or objective state, so a local project's report is unchanged. Offline
+  // (no gh call). W057 unsynced writes (pending/blocked ops, a halted outbox, a recovered journal),
+  // W058 missing links, W059 orphans (the offline half; `df-tools gh orphans <objective>` is the
+  // online scan), W060 frozen-body drift. Warnings only and never repairable: --repair must not
+  // flush the outbox or rewrite the cache. A check that cannot run is never silent (W061).
+  try {
+    const r = require('./gh-health.cjs').collectStoreHealth(cwd, { home: homeDir });
+    if (r && r.applicable) {
+      for (const f of r.findings) addIssue('warning', f.code, f.message, f.fix, false);
+    }
+  } catch (e) {
+    addIssue(
+      'warning',
+      'W061',
+      `gh-health-check-failed: ${e.message}`,
+      'Run `df-tools gh outbox status` and `df-tools validate health --raw` to see why',
+      false,
+    );
   }
 
   // ─── Perform repairs if requested ─────────────────────────────────────────

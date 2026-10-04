@@ -81,6 +81,31 @@ STATE.md stays lean; this file grows over time.
 - [Objective 25-fleet-audit-fixes]: TRD 04 complete: global ~/.claude/CLAUDE.md routing table fixed (status/micro/4 adoption skills) + '## TDD & Quality' by-kind playbook section added; deriveOverrides yields only {_playbookDetected:true}; devflow-claude resolver config unchanged (strict->strict no-op)
 - [Objective 39-telemetry-audit-cli]: TRD 39-02 complete: wired df-tools transcript-export and df-tools override (--gate/--reason, --list) into lib/audit-cli.cjs. 19 new tests, strict TDD, no regressions.
 - [Objective 39-telemetry-audit-cli]: TRD 39-04 complete: dispatch-completeness gate (lib/dispatch-completeness.test.cjs spawns all 71 COMMANDS + pins CLAUDE.md/context-discipline.md prose to a 15-name FLOOR with justified EXEMPT). CLAUDE.md flips context/session-audit/transcript-export/override to live. 7 new tests, strict TDD, no regressions.
+- [Objective 43]: 43-06: primary component — a component whose CI goes through its task runner ranks first (resolves politihub's go/ primary; P1-P6 unchanged)
+- [Objective 43]: 43-06: a general root that builds itself in a stack no component has is a product (sidecar components, no primary); e2e_env needs a scenario name; the name rank covers every key. HAND_ONLY +10 author-named keys pending 43-07 acceptance
+- [Objective 43]: 43-07: dry-run drift is measured in the 43-06 golden scope and split into conflicts (hand-fix needed) and more-specific; devcluster is reported as drift pending a CI workflow (remedy (a)); a repo whose HEAD moved after pinning is skipped, not re-pinned
+- [Objective 43]: 43-08: KNOWN_DRIFT is a per-repo list of entries (keys, closes, reason); a committed run none against a draft command is a conflict; table guards run even when the fleet harness is skipped
+- [Objective 43]: 43-09: drift checks are also read from raw recipe text (a captured git diff whose -n/-z test reads the capture, or a mktemp/snapshot diff -q, then a failing exit); a check-suffixed name turns a body-classified writer into its check form; workflow/job/step env literals are substituted into run lines (runtime values never); version probes are never gates; a ; after an unescaped # on a Make rule line is comment text
+- [Objective 43]: 43-10: the primary component is chosen on build/test/lint evidence (a CI step through a runner lifts it only for those keys); a general root's key candidates are tiered (root runner recipes, the primary's runner targets with their own cwd, other root candidates, the primary's other candidates) and an unresolved tier falls through before discover; a root runner recipe running in 2+ areas makes a workspace root with no primary; evidence items carry unitAreas
+- [Objective 43]: 43-11: the mixed-aggregate rule judges single-purpose keys only; build/test/lint entry points and the e2e/e2e_env scenario keys are exempt (narrowed after the literal rule regressed 7 fleet rows)
+- [Objective 43]: 43-11: ao-terminal.deps stays in KNOWN_DRIFT as a flag-only residual (draft npm ci --no-audit --no-fund vs reviewed npm ci), closes 43-15; the drafter never strips flags
+- [Objective 43]: 43-12: a key-named task-runner target equal to the tier default is kept only when its WHOLE body is the default and its name does not restate the default's command word (fleet narrowing: eden-press build, aoid build, dfip/justinforme/smartWellness lint stay inherited)
+- [Objective 43]: 43-12: a lint tool is dedicated when stack-classify gives it lint and no build/test row (golangci-lint, staticcheck, eslint, ruff, shellcheck); toolchain drivers (go vet, dart analyze) never win the lint preference
+- [Objective 43]: 43-13: single-binary build variants (buildBreadth narrow, non-runner) are filtered only when the candidates build 2+ different packages or a broad build stands beside them; one package that is the only build is the product and is kept (fleet narrowing)
+- [Objective 43]: 43-13: a CI command expanding a variable its own step assigns at run time (command substitution, export, read/for, or derived from one) ranks after confidence, behind a plain one; aocore.test is a flag-only residual for 43-15
+- [Objective 43]: 43-14: refresh accepts the drafter output as is (extends general plus a control-plane component); SDR-08 stays partial pending politihub and the 43-15 residuals
+- [Objective 43]: 43-15: user accept-all on every residual row; KNOWN_DRIFT retired, ACCEPTED holds 13 user rows (each with kind, date, by user), OPEN empty; aodex.audit and the buf-lint coverage of justinforme and smartWellness stay known drafter limitations; SDR-08 stays partial pending a fleet stack verify --run
+- [Objective 52]: 52-01: every printed df-tools commit follow-up (gh setup, doctor 20/21, migration 0010 and 0011 through it) is built by lib/commit-steps.cjs branchCommitSteps; store mode adds the logged escape and the gh pr start route, mirror/local mode prints a plain branch sequence
+- [Objective 52]: 52-02: gate refusals word the escape as an inline prefix naming DEVFLOW_SKIP_GH_GATE_REASON; --raw refusals put the message on stderr, stdout stays the reason code
+- [Objective 52]: 52-02: the raw git commit CI guard covers agents and skills only (workflows hold merge-completion commits gate-commits allows) and follows CommonMark fence rules
+- [Objective 52]: 52-03: micro skips the STATE.md row in store mode (no verb owns a generated view); the store result reports state_row: 'skipped_store_mode', the local result shape is unchanged
+- [Objective 52]: TRD 52-04: github.mirror_only (tracked config, template default false) is honoured only in 0011 detect's store-off branch, checked before the planImport dry run; only boolean true opts out; with the store on it is ignored so an in-flight backfill is never hidden. The store-off reason names config-set github.mirror_only true; gh-sync migrate and health step 4 offer Keep mirror mode.
+- [Objective 52]: 52-05: multi-line frontmatter strings are written as |- block scalars in the shared serializer (strip exactly keyIndent+2 on read; > read literally); single-line output unchanged
+- [Objective 52]: 52-06: the pre-fix multi-line resolution known issue documents a hand fix (resolution: |- plus lines indented two spaces), not a re-answer, because decision answer refuses a decision no longer in decisions/pending/
+- [Objective 52]: 52-06: the doctor skill runs the switch and escape lines for store-mode check 20/21 notes and shows the gh pr start line to the user; it does not inspect git state to pick a route
+- [Objective 53]: 53-01: in local mode summary post|checkpoint write the checkout that holds the caller (planning-mode.resolveCheckoutRoot, fs-only), so an executor worktree commits its own SUMMARY and the wave merge delivers it; store mode keeps the MAIN checkout (D-14). Executor and orchestrator prose now say so; 5c reads a parallel plan's SUMMARY state from its worktree
+- [Objective 53]: 53-03: micro commits through df-tools commit by spawning the CLI; the store-mode gate, override log and Refs trailer keep one owner (cmdCommit), and gh-gate refusals map to gate-refused with the message verbatim
+- [Objective 53]: 53-04: gate-commits keeps denying a merge chained with a raw git commit; only the deny reason gains a hint, and a squash completion uses the inline DEVFLOW_ALLOW_RAW_COMMIT=1 prefix rather than SQUASH_MSG detection
 
 ## Performance Metrics
 
@@ -106,4 +131,28 @@ STATE.md stays lean; this file grows over time.
 | Objective 39-telemetry-audit-cli P39-02 | ~35min | 2 tasks | 3 files |
 | Objective 39-telemetry-audit-cli P39-04 | 30min | 2 tasks | 2 files |
 | Objective 45 P09 | 10min | 3 tasks | 7 files |
+| Objective 43 P05 | 18min | 3 tasks | 7 files |
+| Objective 43 P06 | 65 min | 3 tasks | 10 files |
+| Objective 43 P07 | 30min | 3 tasks | 2 files |
+| Objective 43 P08 | 35min | 2 tasks | 4 files |
+| Objective 43 P09 | 25min | 3 tasks | 11 files |
+| Objective 43 P10 | 21min | 3 tasks | 8 files |
+| Objective 43 P11 | 22min | 2 tasks | 10 files |
+| Objective 43 P12 | 48min | 2 tasks | 11 files |
+| Objective 43 P13 | 53min | 2 tasks | 10 files |
+| Objective 43 P14 | 3min | 3 tasks | 6 files |
+| Objective 43 P15 | 20min | 3 tasks | 4 files |
+| Objective 52 P01 | 15min | 3 tasks | 10 files |
+| Objective 52 P02 | 10min | 2 tasks | 6 files |
+| Objective 52 P03 | 7min | 2 tasks | 4 files |
+| Objective 52 P04 | 11min | 2 tasks | 6 files |
+| Objective 52 P05 | 13min | 3 tasks | 6 files |
+| Objective 52 P06 | 6min | 2 tasks | 4 files |
+| Objective 53 P01 | 23min | 2 tasks | 7 files |
+| Objective 53 P02 | 23min | 2 tasks | 11 files |
+| Objective 53 P03 | 25min | 2 tasks | 3 files |
+| Objective 53 P05 | 20min | 2 tasks | 7 files |
+| Objective 53 P06 | 28min | 2 tasks | 5 files |
+| Objective 53 P04 | 9min | 3 tasks | 6 files |
+| Objective 53 P07 | 6min | 2 tasks | 3 files |
 

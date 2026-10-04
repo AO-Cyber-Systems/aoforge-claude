@@ -35,6 +35,14 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 40 — Tooling correctness (completed 2026-09-28, 6/6 TRDs, verified 8/8)
 **Objective complete:** 41 — Retroactive verification of 27–34 (verified 2026-09-28, 6/6)
 **Objective complete:** 44 — Autonomy hardening (verified 2026-09-29, 7/7 SC after gap cycle 1; 10 TRDs in 4 waves. Changes: executor/verifier turn caps removed; INCOMPLETE outcome with SendMessage resume; SubagentStop executor gate; auto-continue Stop hook; edit gate allows devflow:* agents; commit gate allows merge/rebase/cherry-pick completion via rebase-merge/rebase-apply only, plus the inline bypass; migration 0008; config-get defaults; 13 legacy agent-read instructions removed and CI-guarded. Both hooks were E2E-tested live on Claude Code 2.1.284. Full npm test 5341/5374, with the single failure being environmental MA-7 doctl. Not yet released: installed plugin is 2.11.0)
+**Objective complete:** 46 — GitHub sync foundations (completed 2026-09-30, 10/10 TRDs)
+**Objective complete:** 47 — GitHub authoritative store (completed 2026-10-01, 14/14 TRDs)
+**Objective complete:** 48 — Planning write-path migration (completed 2026-10-01, 23/23 TRDs)
+**Objective complete:** 49 — Objective branch and PR lifecycle (completed 2026-10-01, 15/15 TRDs)
+**Objective complete:** 50 — GitHub enforcement and setup (completed 2026-10-01, 13/13 TRDs)
+**Objective complete:** 51 — GitHub migration and docs (completed 2026-10-01, 10/10 TRDs)
+**Objective complete:** 43 — Stack drafter rules (completed 2026-10-04, 15/15 TRDs)
+**Objective complete:** 52 — Store-mode polish (completed 2026-10-04, 6/6 TRDs)
 **Status:** Objective complete — ready for verification
 
 ## Branch State (post-merge)
@@ -46,6 +54,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 
 ## Recent Decisions
 
+- **Objective 26 killed (2026-10-01, GMD-04)** — user decision; status cancelled, Disposition in its OBJECTIVE.md, decision DECISION-002.
 - **TRD 39-04 complete (2026-09-28)** — New `lib/dispatch-completeness.test.cjs` spawns every `Object.keys(COMMANDS)` entry (71 commands) against the real `df-tools.cjs` binary, `--cwd`/`HOME` mkdtemp-isolated, never asserting exit code (many legitimately exit 1 on missing args) — only that stderr never matches `Error: Unknown command:`. A second, narrower check extracts `df-tools` command names from CLAUDE.md's `### Core Tool` bullets plus a whole-file `df-tools[.cjs] <word>` scan of CLAUDE.md and `context-discipline.md`, and holds every extracted name (minus a 4-entry justified EXEMPT: `internals`, `auto`, `confirm`, `df-tools` — all prose false positives) to a 15-name FLOOR that must be documented AND dispatch. RED failed on exactly `session-audit`, `transcript-export`, `override` (3 names, not the TRD's predicted 4 — `context` was already documented in `context-discipline.md` before this TRD ran). GREEN: CLAUDE.md's Telemetry & audit bullet and both Context management mentions rewritten to name all four commands as live, fronted by `lib/audit-cli.cjs`; `not yet wired`/`CLI command is not wired` strings removed from the file. Strict TDD (2 commits: 29bd7f8 test RED, c1faf99 docs GREEN). 7 new tests (4 unconditional + 3 `IS_DEVFLOW_CHECKOUT`-gated). Full suite 4168/4135 pass/1 pre-existing fail (MA-7 handoff-e2e)/32 skipped — up from baseline 4161/4128/1/32 by exactly the 7 added, no regressions. Objective 39: 4/5 TRDs done (`39-04-SUMMARY.md`).
 - **TRD 39-02 complete (2026-09-28)** — `lib/audit-cli.cjs` (created in 39-01) extended with `runTranscriptExport`/`formatExportRaw` and `runOverride`/`formatOverrideRaw`, wiring the two writers: `df-tools transcript-export [--out <file>] [--full <dir>] [--limit N] [--root <dir>] [--raw]` (dispatches to `transcript-export.exportTranscripts()`, defaulting the index to `~/.claude/devflow/transcript-index.jsonl`, resolved at call time; incremental — a re-run reports `skipped === <n>`) and `df-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]` (dispatches to `override.recordOverride` + `pruneLog` on success, or `override.readOverrides` for `--list`; `recordOverride`/`pruneLog` get their first production caller). Strict TDD, RED then GREEN per task (4 task commits: f0bc937 test, c030969 feat, 86b9823 test, 7993dc2 feat). One mid-flight deviation: the override implementation was accidentally included in the Task 1 GREEN commit (c030969) ahead of its own RED test; caught before Task 2 began and corrected with an explicit back-out commit (0439549) so the override RED test (86b9823) still precedes its GREEN (7993dc2) in history. 19 new tests (7 transcript-export CLI-spawn + 12 override CLI-spawn/unit). Full suite 4161/4127 pass/2 fail/32 skipped — the 2nd failure (`roadmap-reconcile.test.cjs` E2E1, 39-03's ROADMAP checkbox not yet ticked) is pre-existing, confirmed present at base commit 83734b5 via a disposable worktree, unrelated to this TRD; MA-7 handoff-e2e remains the only TRD-39-series-relevant pre-existing failure. Objective 39: 3/5 TRDs done (`39-02-SUMMARY.md`).
 - **TRD 39-03 complete (2026-09-28)** — `lib/hook-inventory.test.cjs` pins CLAUDE.md's `### Hooks` bullet list to `hooks.json` + plugin.json's `statusLine` in both directions (pure parsers: `hooksSection`/`parseBullets`/`registeredScripts`/`classifyInventory`). RED caught `inject-org-context.js`/`inject-handoff-results.js` documented as live when neither is registered (both carry a `DRAFT` header); GREEN moved them into a new `**Draft (not registered in hooks.json):**` group, descriptions preserved (reworded to "would ..."). Separately, four site pages' `df-tools override --gate gate-edits` examples corrected to `--gate edits`, matching `lib/override.cjs`'s real `GATES` keys (`edits`/`commits`/`changelog`); hook-name mentions of `gate-edits`/`gate-commits` elsewhere on those pages left untouched. Strict TDD on Task 1 (2 commits: 47e1e0d test, 48f7326 docs); Task 2 single commit (3d0a5d8). 5 new tests; full suite 4142/4109 pass/1 pre-existing fail (MA-7 handoff-e2e)/32 skipped — up from 39-01 baseline (4137/4104/1/32) by exactly the 5 added, no regressions. Objective 39: 2/5 TRDs done (`39-03-SUMMARY.md`). Follow-up noted: `telemetry --scan` site lines remain unimplemented/deferred, out of this TRD's scope.
@@ -237,9 +246,18 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 | 24 | Objective 44 follow-ups: job-index reads files_modified; commit_docs/gitignore gates skip only .planning paths; stale-REBASE_HEAD fixture comment (security-audit report-file follow-up closed by live harness test: not blocked) | 2026-09-29 | b7057a3 | — | [24-objective-44-follow-ups](./quick/24-objective-44-follow-ups/) |
 | 25 | Move no-progress guard state out of the repo: per-session files under ~/.claude/devflow/state/progress-guard/; telemetry reads them; stops per-call file-watcher dumps | 2026-09-30 | 2b673aa | — | [25-move-progress-guard-state-out-of-project](./quick/25-move-progress-guard-state-out-of-project/) |
 | 26 | validate health W007 reads archived milestone roadmaps and ROADMAP.md checklist lines (no false positives for archived objectives) | 2026-09-30 | 13be101 | — | [26-validate-health-w007-reads-archived-mile](./quick/26-validate-health-w007-reads-archived-mile/) |
+| 27 | bump actions/checkout to v7 in devflow-checks workflow | 2026-10-03 | c01a82ce | devflow-claude | Atomic |
+| 28 | Fix #120: micro commit --files sweeps in unrelated staged changes | 2026-10-03 | 0012a82f | Done | [28-fix-120-micro-commit-files-sweeps-in-unr](./quick/28-fix-120-micro-commit-files-sweeps-in-unr/) |
+| 29 | Fix 8 new CodeQL alerts on release PR #121 (ReDoS, regex injection, table-cell escaping) | 2026-10-04 | 518a25fa | Done | [29-fix-new-codeql-alerts-on-release-pr-121](./quick/29-fix-new-codeql-alerts-on-release-pr-121/) |
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- 2026-09-30 Objectives 46–51 added: GitHub as system of record (sync foundations, authoritative store, planning write-path migration, objective branch and PR lifecycle, enforcement and setup, migration and docs). Design: `docs/PROPOSAL-github-system-of-record.md`. Open fact to confirm: which private repos are on a plan that includes wikis.
 
 ## Session Continuity
 
-Last session: 2026-09-30T11:56:09.893Z
+Last session: 2026-10-04T16:50:17.321Z
 Resume file: `None`
-Stopped at: Completed 45-09-TRD.md
+Stopped at: Completed 53-07-docs-and-full-suite-TRD.md

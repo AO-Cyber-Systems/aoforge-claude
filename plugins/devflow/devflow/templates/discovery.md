@@ -71,7 +71,9 @@ Before completing discovery, verify:
 
 
 <output_structure>
-Create `.planning/objectives/XX-name/DISCOVERY.md`:
+Publish `objectives/XX-name/DISCOVERY.md` (relative to `.planning/`): fill a draft from
+`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/DISCOVERY.md`, then
+`node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/DISCOVERY.md --from <draft>`. Structure:
 
 ```markdown
 # [Topic] Discovery

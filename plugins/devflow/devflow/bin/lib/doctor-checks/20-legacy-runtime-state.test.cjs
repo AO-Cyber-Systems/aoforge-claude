@@ -1,6 +1,8 @@
 'use strict';
 
 // Tests for doctor check 20-legacy-runtime-state (TRD 45-06, tests 4-9b; DOC-05 + DOC-06).
+// TRD 51-04 test 6 (G6): the printed commit follow-up in store mode vs local mode.
+// TRD 52-01 test 10: the store-mode follow-up is the commit-steps builder's store form and names `gh pr start`.
 //
 // no_llm_test_data: every project is a hand-built fixture under the OS temp dir. `userHome` is a
 // fake home from the fixtures, so backups land under <fake home>/.claude/devflow/backups and never
@@ -16,6 +18,7 @@ const { execFileSync } = require('child_process');
 const legacy = require('./20-legacy-runtime-state.cjs');
 const doctor = require('../doctor.cjs');
 const upgrade = require('../upgrade.cjs');
+const steps = require('../commit-steps.cjs');
 const { makeDoctorProject, makeDoctorHome } = require('../__fixtures__/doctor-fixtures.cjs');
 const {
   gitEnv, makeTrackedRuntimeStateProject, snapshot, diffSnapshots,
@@ -271,6 +274,91 @@ describe('legacy-runtime-state: dead files (tests 8-9)', () => {
     assert.equal(exists(root, '.planning/.awareness-cache.json'), false);
     assert.equal(fs.existsSync(path.join(res.backup, '.planning', '.awareness-cache.json')), true);
     assert.equal(legacy.run(ctxFor(root, home)).severity, 'ok');
+  });
+});
+
+describe('legacy-runtime-state: commit follow-up by planning mode (TRD 51-04 test 6, G6)', () => {
+  // The exact pre-51-04 notes for the aodex fix. Local mode must keep printing this byte for byte.
+  const LOCAL_NOTES =
+    'untracked: .planning/.progress-guard.json, flutter/.planning/.progress-guard.json; ' +
+    'deleted: .planning/.awareness-cache.json, .planning/.progress-guard.json, flutter/.planning/.progress-guard.json; ' +
+    `commit with: ${COMMIT_CMD} .gitignore .planning/.progress-guard.json flutter/.planning/.progress-guard.json`;
+  const FILES = '.gitignore .planning/.progress-guard.json flutter/.planning/.progress-guard.json';
+
+  /** Turn GitHub store mode on in the fixture's (unstaged) config.json: planning-mode reads it from disk. */
+  function storeOn(root) {
+    const file = path.join(root, '.planning', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    cfg.github = { enabled: true, store: true, repo: 'acme/widgets' };
+    fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf-8');
+  }
+
+  test('6. local mode → the notes are byte-identical to the pre-51-04 text (COMMIT_COMMAND unchanged)', () => {
+    assert.equal(legacy.COMMIT_COMMAND, COMMIT_CMD);
+    const { root, home } = aodexFixture();
+    const ctx = ctxFor(root, home);
+    const res = legacy.fix(ctx, legacy.run(ctx));
+    assert.equal(res.applied, true, JSON.stringify(res));
+    assert.equal(res.notes, LOCAL_NOTES);
+    assert.doesNotMatch(res.notes, /DEVFLOW_SKIP_GH_GATE/);
+  });
+
+  test('6b. store mode → branch, logged-escape commit of the same files, push, PR; never the bare refused command', () => {
+    const { root, home } = aodexFixture();
+    storeOn(root);
+    const ctx = ctxFor(root, home);
+    const res = legacy.fix(ctx, legacy.run(ctx));
+    assert.equal(res.applied, true, JSON.stringify(res));
+
+    const n = res.notes;
+    assert.ok(n.startsWith(LOCAL_NOTES.slice(0, LOCAL_NOTES.indexOf('commit with:'))), `untracked/deleted parts unchanged: ${n}`);
+    assert.doesNotMatch(n, /commit with: node /, 'the bare command store mode refuses is gone');
+    const sw = n.indexOf('git switch -c devflow-untrack-runtime-state');
+    const esc = n.indexOf(`DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="untrack DevFlow runtime state" ${COMMIT_CMD} ${FILES}`);
+    const push = n.indexOf('git push -u origin devflow-untrack-runtime-state');
+    assert.ok(sw >= 0 && esc > sw && push > esc, `branch, then escaped commit, then push: ${n}`);
+    assert.match(n, /pull request/);
+    assert.match(n, /gate gh/, 'says the escape is logged');
+
+    // 52-01: the builder's store form, appended last, with the gh pr start route for a linked branch.
+    const expected = steps.branchCommitSteps({
+      branch: 'devflow-untrack-runtime-state', reason: 'untrack DevFlow runtime state', command: `${COMMIT_CMD} ${FILES}`,
+    });
+    assert.ok(n.endsWith(`; ${expected}`), n);
+    assert.match(n, /df-tools gh pr start <objective>/);
+    assert.ok(n.endsWith(`commit there with: ${COMMIT_CMD} ${FILES}`), n);
+  });
+
+  test('6d (52-01). commitNote(root, files) is exported: local text in local mode, the builder\'s store form in store mode', () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor20-local-'));
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor20-store-'));
+    try {
+      write(local, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
+      write(store, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: true } })}\n`);
+      const files = ['.gitignore', '.planning/.progress-guard.json'];
+      assert.equal(legacy.commitNote(local, files), `commit with: ${COMMIT_CMD} ${files.join(' ')}`);
+      assert.equal(legacy.commitNote(store, files), steps.branchCommitSteps({
+        branch: 'devflow-untrack-runtime-state', reason: 'untrack DevFlow runtime state', command: `${COMMIT_CMD} ${files.join(' ')}`,
+      }));
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+      fs.rmSync(store, { recursive: true, force: true });
+    }
+  });
+
+  test('6c. store mode with nothing to commit → no commit steps at all', () => {
+    const home = makeDoctorHome();
+    const { root } = makeTrackedRuntimeStateProject({
+      home,
+      tracked: [],
+      untrackedPresent: ['.planning/.progress-guard.json'],
+      gitignore: '.planning/.progress-guard.json\n',
+    });
+    storeOn(root);
+    const ctx = ctxFor(root, home);
+    const res = legacy.fix(ctx, legacy.run(ctx));
+    assert.equal(res.applied, true);
+    assert.equal(res.notes, 'deleted: .planning/.progress-guard.json; nothing to commit (working files only)');
   });
 });
 

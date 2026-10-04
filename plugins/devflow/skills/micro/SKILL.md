@@ -12,14 +12,14 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Execute sub-30-LOC, single-file changes with atomic-commit guarantees and STATE.md tracking, in a single context window.
+Execute sub-30-LOC, single-file changes with atomic-commit guarantees and STATE.md tracking (local mode), in a single context window.
 
 Micro is the FLOOR of the DevFlow ladder:
 - No planner, no executor, no verifier — Claude makes the edit inline
 - No JOB.md, no TRD.md, no SUMMARY.md
 - No CLAUDE.md / playbook absorption (mirrors /devflow:quick's no-ceremony posture)
 - Commit format: `chore(micro): {description}`
-- STATE.md "Quick Tasks Completed" table receives an entry on commit
+- STATE.md "Quick Tasks Completed" table receives an entry on commit (local mode only), recorded by `df-tools micro commit` (never a hand edit). With `github.store` on, STATE.md is a generated view and micro leaves it unchanged
 
 Cost target: ~2k tokens (skill body + df-tools output). For changes that exceed sub-30-LOC or touch multiple files, prefer /devflow:quick (<5 files, <200 LOC) or /devflow:build (multi-file features).
 </objective>

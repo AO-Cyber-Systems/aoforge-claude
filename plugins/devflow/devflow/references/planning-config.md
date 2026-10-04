@@ -19,8 +19,8 @@ Configuration options for `.planning/` directory behavior.
 |--------|---------|-------------|
 | `commit_docs` | `true` | Whether to commit planning artifacts to git |
 | `search_gitignored` | `false` | Add `--no-ignore` to broad rg searches |
-| `git.branching_strategy` | `"none"` | Git branching approach: `"none"`, `"objective"`, or `"milestone"` |
-| `git.objective_branch_template` | `"df/objective-{objective}-{slug}"` | Branch template for objective strategy |
+| `git.branching_strategy` | `"none"` | Git branching approach: `"none"`, `"objective"`, or `"milestone"`. `git.branching_strategy` is deprecated in store mode: the objective PR lifecycle replaces it, and local mode still honours it |
+| `git.objective_branch_template` | `"df/objective-{objective}-{slug}"` | Branch template for objective strategy. In store mode `objective_branch_template` names the linked branch that `gh pr start` creates for each objective |
 | `git.milestone_branch_template` | `"gsd/{milestone}-{slug}"` | Branch template for milestone strategy |
 </config_schema>
 
@@ -106,6 +106,8 @@ To use uncommitted mode:
 </setup_uncommitted_mode>
 
 <branching_strategy_behavior>
+
+**Store mode (`pr_lifecycle` true in init output):** `git.branching_strategy` is ignored. Each objective runs on one linked branch and one pull request: `execute-objective` runs `gh pr start`, syncs the PR once per wave, and ends with `gh pr merge` and `gh pr reconcile`. `complete-milestone` skips its branch step. Init reports a configured strategy as `branching_strategy_ignored`. The sections below describe local mode, where `init` prints a `deprecations` notice for `"objective"` and `"milestone"` and the behaviour is otherwise unchanged.
 
 **Branching Strategies:**
 

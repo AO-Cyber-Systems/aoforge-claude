@@ -142,3 +142,15 @@ describe('the global help scan knows what is data and what is addressed to it (i
     assert.match(r.out, /^Usage: df-tools \[--cwd <dir>\] <command>/m);
   });
 });
+
+// ─── TRD 46-08: gh command surface ───────────────────────────────────────────
+
+describe('gh usage (TRD 46-08)', () => {
+  test('gh usage names sync [<objective>|--all] and marks sync-objectives deprecated', () => {
+    const u = COMMANDS.gh.usage;
+    assert.ok(u.includes('sync [<objective>|--all]'), u);
+    assert.match(u, /sync-objectives: deprecated alias of sync --all/);
+    assert.ok(u.includes('comment <objective|#issue> <body|@file:path> [--kind k]'), u);
+    assert.ok(u.includes('close-issue <objective|#issue> [comment]'), u);
+  });
+});

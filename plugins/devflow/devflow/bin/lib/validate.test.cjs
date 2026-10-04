@@ -987,6 +987,70 @@ describe('Check 13: upgrade state (W040)', () => {
     assert.match(found[0].message, /missing detect/);
     assert.strictEqual(found[0].repairable, false);
   });
+
+  // ─── TRD 52-04: the recorded mirror-mode opt-out (github.mirror_only) ───
+  //
+  // A stamped-current project with GitHub enabled and the store off: migration 0011 (the GitHub backfill) is a pending
+  // confirm migration, so W040 reports "1 need confirmation", unless the project recorded `github.mirror_only: true`.
+  // All outbox state lives under hermeticEnv()'s temp dirs; nothing reads the real ~/.claude.
+  describe('mirror-mode opt-out (52-04)', () => {
+    const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+    let env = null;
+    beforeEach(() => {
+      env = hermeticEnv();
+    });
+    afterEach(() => {
+      if (env) env.restore();
+      env = null;
+    });
+
+    function makeMirrorProject(github) {
+      const root = upgradeFx.makeStampedProject(pluginVersion());
+      const configPath = path.join(root, '.planning', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      config.github = github;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+      return root;
+    }
+
+    test('16. enabled + store off + github.mirror_only true -> no W040', () => {
+      tmpProject = makeMirrorProject({ enabled: true, repo: 'acme/demo', mirror_only: true });
+      tmpHome = makeHome();
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+      assert.deepStrictEqual(w040s(json), [], JSON.stringify(json.warnings));
+    });
+
+    test('17. positive control: the same project without the key -> exactly one W040, "1 need confirmation"', () => {
+      tmpProject = makeMirrorProject({ enabled: true, repo: 'acme/demo' });
+      tmpHome = makeHome();
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+      const found = w040s(json);
+      assert.strictEqual(found.length, 1, `one W040; got ${JSON.stringify(found)}`);
+      assert.match(found[0].message, /\b1 need confirmation\b/);
+    });
+  });
+
+  // TRD 52-04 item 8: `config-get github.mirror_only` answers the template default on a project that never set it.
+  test('18. config-get github.mirror_only on a project without the key prints false (template default)', () => {
+    const { spawnSync } = require('child_process');
+    const dfTools = path.join(__dirname, '..', 'df-tools.cjs');
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+    writeJson(path.join(tmpProject, '.planning', 'config.json'), { github: { enabled: true, repo: 'acme/demo' } });
+    const run = (args) => spawnSync(process.execPath, [dfTools, '--cwd', tmpProject, 'config-get', ...args], {
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: { ...process.env, HOME: tmpHome },
+    });
+
+    const raw = run(['github.mirror_only', '--raw']);
+    assert.strictEqual(raw.status, 0, `expected exit 0; stderr: ${raw.stderr}`);
+    assert.strictEqual(raw.stdout, 'false');
+    const plain = run(['github.mirror_only']);
+    assert.strictEqual(plain.status, 0, `expected exit 0; stderr: ${plain.stderr}`);
+    assert.strictEqual(JSON.parse(plain.stdout), false);
+  });
 });
 
 // ─── Check 4: W002 — STATE.md position vs known objectives (TRD 38-02) ────
@@ -1498,5 +1562,277 @@ describe('df-tools validate docs (CLI)', () => {
     assert.match(r.stderr, /consistency/);
     assert.match(r.stderr, /health/);
     assert.match(r.stderr, /docs/);
+  });
+});
+
+// ─── Check 15: planning cache drift, W055 / W056 (TRD 48-09) ────────────────
+//
+// Store mode only. Test 9 pins today's issue codes for local-mode projects that hold
+// cache-shaped files with no baselines (every one would be W055 in store mode), so
+// Check 15's "not applicable in local mode" is proven additive. All outbox state lives
+// under hermeticEnv()'s temp DEVFLOW_OUTBOX_DIR; nothing reads the real ~/.claude.
+describe('Check 15: planning cache drift (W055/W056)', () => {
+  const upgradeFx = require('./__fixtures__/upgrade-fixtures.cjs');
+  const { pluginVersion } = require('./helpers.cjs');
+  const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+  let env = null;
+  beforeEach(() => {
+    env = hermeticEnv();
+  });
+  afterEach(() => {
+    if (env) env.restore();
+    env = null;
+  });
+
+  /** A current, stamped project (no W040) whose config.json gets `github` merged in. */
+  function makeProjectWithGithub(github) {
+    const root = upgradeFx.makeStampedProject(pluginVersion());
+    const configPath = path.join(root, '.planning', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    if (github !== undefined) config.github = github;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    return root;
+  }
+
+  const codes = (json) => ({
+    errors: json.errors.map((i) => i.code),
+    warnings: json.warnings.map((i) => i.code),
+    info: json.info.map((i) => i.code),
+  });
+
+  // Pinned from `validate health` at WAVE_BASE fdfb4b4f for upgrade-fixtures makeStampedProject:
+  // W001 (PROJECT.md missing a section) and I001 (02-01-TRD.md has no SUMMARY.md). The fixture's
+  // PROJECT.md, OBJECTIVE.md, TRDs and SUMMARY are all cache-shaped with no baseline, so each would
+  // be a W055 in store mode. Any change here is a behaviour change for local projects.
+  const PINNED_LOCAL_CODES = { errors: [], warnings: ['W001'], info: ['I001'] };
+
+  const LOCAL_SHAPES = [
+    ['no github block', undefined],
+    ['github disabled (this repo’s shape)', { enabled: false, repo: '' }],
+    ['github enabled, store absent', { enabled: true, repo: 'acme/demo' }],
+  ];
+
+  // TRD 51-06: with GitHub enabled, migration 0011 (the GitHub backfill, confirm-only) applies, so Check 13 adds a W040
+  // "1 need confirmation". It is the only difference; a project with GitHub off is unchanged.
+  const BACKFILL_PENDING = { errors: [], warnings: ['W001', 'W040'], info: ['I001'] };
+
+  for (const [name, github] of LOCAL_SHAPES) {
+    test(`9. characterization, local mode (${name}): issue codes are the pinned list, no W055/W056`, () => {
+      tmpProject = makeProjectWithGithub(github);
+      tmpHome = makeHome();
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+      const enabled = !!(github && github.enabled === true);
+      assert.deepStrictEqual(codes(json), enabled ? BACKFILL_PENDING : PINNED_LOCAL_CODES, JSON.stringify(json, null, 2));
+      if (enabled) assert.match(json.warnings.find((w) => w.code === 'W040').message, /0 pending, 1 need confirmation/);
+      assert.strictEqual(fs.existsSync(env.env.DEVFLOW_OUTBOX_DIR), false, 'local mode reads and writes no outbox state');
+    });
+  }
+
+  // ─── store mode ───────────────────────────────────────────────────────────
+  const ghCache = require('./gh-cache.cjs');
+  const planningPaths = require('./planning-paths.cjs');
+  const planningDrift = require('./planning-drift.cjs');
+
+  const DRIFTED_REL = 'objectives/01-alpha/01-01-TRD.md';
+  const w055s = (json) => json.warnings.filter((w) => w.code === 'W055');
+  const w056s = (json) => json.warnings.filter((w) => w.code === 'W056');
+
+  afterEach(() => {
+    planningDrift._setDriftReaders(null);
+  });
+
+  /**
+   * A store-mode project in sync with "GitHub": generated views carry the header and every cache
+   * and generated file has a cache-index baseline (gh-cache.recordCacheBaseline, the 47 writer).
+   */
+  function makeSyncedStoreProject() {
+    const root = makeProjectWithGithub({ enabled: true, store: true, repo: 'acme/demo' });
+    const planning = path.join(root, '.planning');
+    for (const rel of ['ROADMAP.md', 'STATE.md']) {
+      const abs = path.join(planning, rel);
+      fs.writeFileSync(abs, `${ghCache.GENERATED_HEADER}\n${fs.readFileSync(abs, 'utf-8')}`);
+    }
+    const byClass = planningPaths.listByClass(planning);
+    const rec = ghCache.recordCacheBaseline(root, [...byClass.cache, ...byClass.generated]);
+    assert.deepStrictEqual(rec.missing, []);
+    assert.deepStrictEqual(rec.invalid, []);
+    assert.ok(rec.recorded.includes(DRIFTED_REL), JSON.stringify(rec));
+    return root;
+  }
+
+  test('10a. store mode, every file baselined -> no W055 and no W056', () => {
+    tmpProject = makeSyncedStoreProject();
+    tmpHome = makeHome();
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+    assert.deepStrictEqual(w055s(json), []);
+    assert.deepStrictEqual(w056s(json), []);
+  });
+
+  test('10. store mode, one TRD edited outside the verbs -> exactly one non-repairable W055 naming it and `plan put-trd`', () => {
+    tmpProject = makeSyncedStoreProject();
+    tmpHome = makeHome();
+    fs.appendFileSync(path.join(tmpProject, '.planning', DRIFTED_REL), '\nedited with Bash\n');
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+    const found = w055s(json);
+    assert.strictEqual(found.length, 1, `one W055; got ${JSON.stringify(json.warnings, null, 2)}`);
+    const w = found[0];
+    assert.ok(w.message.startsWith(`${DRIFTED_REL} was changed outside a df-tools verb (changed)`), w.message);
+    assert.match(w.message, /`df-tools plan put-trd`/);
+    assert.match(w.message, /`df-tools gh pull --all --force`/);
+    assert.strictEqual(w.fix, w.message);
+    assert.strictEqual(w.repairable, false);
+    assert.deepStrictEqual(w056s(json), []);
+  });
+
+  test('11. --repair leaves the drifted file byte-identical and still reports W055 as not repairable', () => {
+    tmpProject = makeSyncedStoreProject();
+    tmpHome = makeHome();
+    const abs = path.join(tmpProject, '.planning', DRIFTED_REL);
+    fs.appendFileSync(abs, '\nedited with Bash\n');
+    const before = fs.readFileSync(abs);
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, true);
+    assert.ok(fs.readFileSync(abs).equals(before), 'the drifted TRD is untouched by --repair');
+    const found = w055s(json);
+    assert.strictEqual(found.length, 1, JSON.stringify(json.warnings, null, 2));
+    assert.strictEqual(found[0].repairable, false);
+    for (const action of json.repairs_performed || []) {
+      assert.notStrictEqual(action.path, DRIFTED_REL, `no repair targets ${DRIFTED_REL}`);
+    }
+  });
+
+  test('12. a drift reader that throws -> one W056 planning-drift-check-failed, every other check still runs', () => {
+    tmpProject = makeProjectWithGithub({ enabled: true, store: true, repo: 'acme/demo' });
+    tmpHome = makeHome();
+    planningDrift._setDriftReaders({
+      readIndex: () => {
+        throw new Error('index reader boom');
+      },
+    });
+
+    const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
+    const found = w056s(json);
+    assert.strictEqual(found.length, 1, JSON.stringify(json.warnings, null, 2));
+    assert.strictEqual(found[0].message, 'planning-drift-check-failed: index reader boom');
+    assert.match(found[0].fix, /df-tools validate health --raw/);
+    assert.match(found[0].fix, /gh pull --all/);
+    assert.strictEqual(found[0].repairable, false);
+    assert.deepStrictEqual(w055s(json), []);
+    // Checks 1-14 ran as they do in local mode: the pinned codes plus the one W056. Check 16
+    // (store sync health, W057-W061, TRD 50-07) also runs in store mode and this project has TRDs
+    // with no mapping (W058); its codes belong to validate-gh-health.test.cjs, so they are set aside.
+    const notCheck16 = (list) => list.filter((c) => !/^W0(5[7-9]|6[01])$/.test(c));
+    const seen = codes(json);
+    assert.deepStrictEqual(
+      { errors: notCheck16(seen.errors), warnings: notCheck16(seen.warnings), info: notCheck16(seen.info) },
+      {
+        // W040: store on with un-baselined cache files, so migration 0011 still applies (TRD 51-06).
+        errors: BACKFILL_PENDING.errors,
+        warnings: [...BACKFILL_PENDING.warnings, 'W056'],
+        info: BACKFILL_PENDING.info,
+      },
+    );
+  });
+});
+
+// ─── TRD 53-02: summary pairing on the NN-MM key ─────────────────────────────
+// Executors and `summary post` write `NN-MM-SUMMARY.md`; planners name TRDs
+// `NN-MM-<slug>-TRD.md`. Health (Check 7, I001) and the consistency orphan check
+// must pair on the `NN-MM` key, so either summary name completes a named TRD.
+
+describe('TRD 53-02: I001 and the orphan-summary warning pair on the NN-MM key', () => {
+  const { cmdValidateConsistency } = require('./validate.cjs');
+
+  const TRD_BODY = '---\nobjective: 07-demo\n---\n\n# TRD\n';
+  const SUMMARY_BODY = '# Summary\n\n## Self-Check: PASSED\n';
+
+  function makeObjective(files) {
+    const root = makePlanningProject();
+    const dir = path.join(root, '.planning', 'objectives', '07-demo');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body);
+    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n\n### Objective 07: demo\n');
+    return root;
+  }
+
+  function i001(json) {
+    return json.info.filter((i) => i.code === 'I001').map((i) => i.message);
+  }
+
+  function health(root) {
+    tmpHome = makeHome();
+    return runHealth(root, { homeDir: tmpHome, mainVersionFn: () => null }, true).json;
+  }
+
+  // cmdValidateConsistency ends in output() -> process.exit(0); capture both like runHealth.
+  function consistencyWarnings(root) {
+    const chunks = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    const origExit = process.exit.bind(process);
+    process.stdout.write = (c) => { chunks.push(c); return true; };
+    process.exit = (code) => { throw new Error(`process.exit(${code})`); };
+    try {
+      cmdValidateConsistency(root, false); // raw=false prints the JSON report, raw=true only "passed"/"failed"
+    } catch (e) {
+      if (!e.message.startsWith('process.exit')) throw e;
+    } finally {
+      process.stdout.write = origWrite;
+      process.exit = origExit;
+    }
+    return JSON.parse(chunks[chunks.length - 1]).warnings;
+  }
+
+  test('2a. Check 7: a named TRD with a short-name summary has no I001', () => {
+    tmpProject = makeObjective({ '07-01-alpha-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), []);
+  });
+
+  test('2b. Check 7: a named TRD with a long-name summary has no I001', () => {
+    tmpProject = makeObjective({ '07-02-beta-TRD.md': TRD_BODY, '07-02-beta-SUMMARY.md': SUMMARY_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), []);
+  });
+
+  test('2c. Check 7: a named TRD with no summary still reports I001', () => {
+    tmpProject = makeObjective({ '07-03-gamma-TRD.md': TRD_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), ['07-demo/07-03-gamma-TRD.md has no SUMMARY.md']);
+  });
+
+  test('2d. Check 7: another TRD\'s summary does not satisfy it (07-1 vs 07-10)', () => {
+    tmpProject = makeObjective({ '07-1-x-TRD.md': TRD_BODY, '07-10-SUMMARY.md': SUMMARY_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), ['07-demo/07-1-x-TRD.md has no SUMMARY.md']);
+  });
+
+  const LEGACY_SHAPES = [
+    ['NN-MM-TRD.md / NN-MM-SUMMARY.md', { '07-01-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY }],
+    ['NN-MM-JOB.md / NN-MM-SUMMARY.md', { '07-02-JOB.md': TRD_BODY, '07-02-SUMMARY.md': SUMMARY_BODY }],
+    ['decimal 07.1-02-x-TRD.md / 07.1-02-SUMMARY.md', { '07.1-02-x-TRD.md': TRD_BODY, '07.1-02-SUMMARY.md': SUMMARY_BODY }],
+    ['bare TRD.md / SUMMARY.md', { 'TRD.md': TRD_BODY, 'SUMMARY.md': SUMMARY_BODY }],
+  ];
+  for (const [name, files] of LEGACY_SHAPES) {
+    test(`2e. Check 7: legacy shape still pairs (${name})`, () => {
+      tmpProject = makeObjective(files);
+      assert.deepStrictEqual(i001(health(tmpProject)), []);
+    });
+  }
+
+  test('3a. consistency: 07-01-SUMMARY.md beside 07-01-alpha-TRD.md is not an orphan', () => {
+    tmpProject = makeObjective({ '07-01-alpha-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY });
+    const orphans = consistencyWarnings(tmpProject).filter((w) => /has no matching TRD\.md or JOB\.md/.test(w));
+    assert.deepStrictEqual(orphans, []);
+  });
+
+  test('3b. consistency: a long-name summary beside its named TRD is not an orphan', () => {
+    tmpProject = makeObjective({ '07-02-beta-TRD.md': TRD_BODY, '07-02-beta-SUMMARY.md': SUMMARY_BODY });
+    const orphans = consistencyWarnings(tmpProject).filter((w) => /has no matching TRD\.md or JOB\.md/.test(w));
+    assert.deepStrictEqual(orphans, []);
+  });
+
+  test('3c. consistency: 07-09-SUMMARY.md with no 07-09 TRD still warns, naming the file', () => {
+    tmpProject = makeObjective({ '07-01-alpha-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY, '07-09-SUMMARY.md': SUMMARY_BODY });
+    const orphans = consistencyWarnings(tmpProject).filter((w) => /has no matching TRD\.md or JOB\.md/.test(w));
+    assert.strictEqual(orphans.length, 1, JSON.stringify(orphans));
+    assert.match(orphans[0], /^Summary 07-09-SUMMARY\.md in 07-demo has no matching TRD\.md or JOB\.md$/);
   });
 });

@@ -20,9 +20,9 @@ INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init todos)
 
 Extract from init JSON: `commit_docs`, `date`, `timestamp`, `todo_count`, `todos`, `pending_dir`, `todos_dir_exists`.
 
-Ensure directories exist:
+Ensure the pending directory exists (the duplicate check below reads it):
 ```bash
-mkdir -p .planning/todos/pending .planning/todos/done
+mkdir -p .planning/todos/pending
 ```
 
 Note existing areas from the todos array for consistency in infer_area step.
@@ -84,12 +84,17 @@ If overlapping, use AskUserQuestion:
 <step name="create_file">
 Use values from init context: `timestamp` and `date` are already available.
 
-Generate slug for the title:
+Todo files are written only through `df-tools todo add`, never directly: in local mode the verb writes
+`.planning/todos/pending/<date>-<slug>.md`; with `github.store` on it also files the todo as a GitHub issue.
+
+Generate the slug for the title, then get a draft path for the todo (each command prints one value; note it as a
+literal, since shell variables do not survive between Bash calls):
 ```bash
-slug=$(node ~/.claude/devflow/bin/df-tools.cjs generate-slug "$title" --raw)
+node ~/.claude/devflow/bin/df-tools.cjs generate-slug "$title" --raw
+node ~/.claude/devflow/bin/df-tools.cjs planning draft todos/pending/${date}-${slug}.md
 ```
 
-Write to `.planning/todos/pending/${date}-${slug}.md`:
+Write this content to the draft path (`$DRAFT`) with the Write tool:
 
 ```markdown
 ---
@@ -108,13 +113,31 @@ files:
 
 [approach hints or "TBD"]
 ```
+
+Then add the todo:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs todo add --from "$DRAFT"
+```
+
+The verb derives the file stem from today's date and the `title:` frontmatter (`<date>-<slug>`, the same name as
+before) and prints `todo add: wrote .planning/todos/pending/<stem>.md (<mode> mode).` Use that file name as
+`[filename]` below.
 </step>
 
 <step name="update_state">
-If `.planning/STATE.md` exists:
+Check the planning mode first:
 
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning mode
+```
+
+**`local`:** if `.planning/STATE.md` exists,
 1. Use `todo_count` from init context (or re-run `init todos` if count changed)
 2. Update "### Pending Todos" under "## Accumulated Context"
+
+**`store`:** skip this step. STATE.md is a generated view there (`df-tools gh pull --all` rebuilds it), and the
+todo issue is the record.
 </step>
 
 <step name="git_commit">
@@ -151,10 +174,10 @@ Would you like to:
 
 <success_criteria>
 - [ ] Directory structure exists
-- [ ] Todo file created with valid frontmatter
+- [ ] Todo added through `todo add --from <draft>`, with valid frontmatter
 - [ ] Problem section has enough context for future Claude
 - [ ] No duplicates (checked and resolved)
 - [ ] Area consistent with existing todos
-- [ ] STATE.md updated if exists
+- [ ] STATE.md updated if it exists (local mode only)
 - [ ] Todo and state committed to git
 </success_criteria>

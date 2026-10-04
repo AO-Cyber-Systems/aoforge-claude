@@ -179,6 +179,20 @@ function stripPlanSuffix(filename) {
   return filename.replace(/-?TRD\.md$/, '').replace(/-?JOB\.md$/, '');
 }
 
+// The `NN-MM` pairing key (objective part may be decimal) of a TRD, JOB or SUMMARY file name.
+// `NN-MM-<slug>-TRD.md`, `NN-MM-SUMMARY.md` and `NN-MM-<slug>-SUMMARY.md` all key to `NN-MM`,
+// so a TRD pairs with its summary whichever name the summary was written under. Names without
+// an `NN-MM` prefix (bare `TRD.md`, `notes-SUMMARY.md`) fall back to the legacy suffix strip.
+// The optional `-slug` group cannot swallow a longer number: `\d+` never consumes `-`, so
+// `07-1-x-TRD.md` keys to `07-1` and `07-10-SUMMARY.md` to `07-10`.
+const TRD_KEY_RE = /^(\d+(?:\.\d+)?-\d+)(?:-.+)?-(?:TRD|JOB|SUMMARY)\.md$/i;
+
+function trdKey(filename) {
+  const m = TRD_KEY_RE.exec(filename);
+  if (m) return m[1];
+  return String(filename).replace(/-?(?:TRD|JOB|SUMMARY)\.md$/i, '');
+}
+
 function isTaskDoc(filename) {
   return filename.endsWith('-TRD.md') || filename.endsWith('-JOB.md') ||
          filename === 'TRD.md' || filename === 'JOB.md';
@@ -261,6 +275,7 @@ module.exports = {
   marketplaceCheckout,
   findPlanFiles,
   stripPlanSuffix,
+  trdKey,
   isTaskDoc,
   normalizeObjectiveName,
   generateSlugInternal,

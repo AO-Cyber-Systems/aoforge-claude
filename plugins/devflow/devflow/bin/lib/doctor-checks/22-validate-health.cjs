@@ -8,7 +8,8 @@
 // human output). Large output arrives as `@file:<tmp path>`, which is followed.
 //
 // Codes another doctor check owns are DEFERRED, never double-reported: E020 / I022 (mirror vs.
-// installed plugin — the runtime-mirror check) and W040 (project behind — pending-migrations).
+// installed plugin — the runtime-mirror check), W040 (project behind — pending-migrations) and
+// W057-W061 (store sync health — gh-store-sync, TRD 50-07).
 // They are listed in details.deferred and never set the severity.
 //
 //   remaining errors → error; remaining warnings → warn; else ok
@@ -21,7 +22,7 @@ const { spawnSync } = require('child_process');
 const dg = require('../doctor-git.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
 
-const DEFERRED = ['E020', 'I022', 'W040'];
+const DEFERRED = ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061'];
 const DF_TOOLS = 'node ~/.claude/devflow/bin/df-tools.cjs';
 const HEALTH_COMMAND = `${DF_TOOLS} validate health`;
 const REPAIR_COMMAND = `${DF_TOOLS} validate health --repair`;

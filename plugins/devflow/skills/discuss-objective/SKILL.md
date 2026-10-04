@@ -25,5 +25,6 @@ Extract implementation decisions that downstream agents (objective-researcher, p
 </execution_context>
 
 <process>
-Execute the discuss-objective workflow end-to-end. Write CONTEXT.md when decisions are locked. Do not proceed to planning — the user runs `/devflow:plan-objective <N>` when ready.
+Execute the discuss-objective workflow end-to-end. Publish CONTEXT.md when decisions are locked (draft, then
+`node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/<dir>/<NN>-CONTEXT.md --from <draft>`). Do not proceed to planning — the user runs `/devflow:plan-objective <N>` when ready.
 </process>

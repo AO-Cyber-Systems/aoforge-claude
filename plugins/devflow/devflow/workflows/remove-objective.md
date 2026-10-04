@@ -70,7 +70,7 @@ Removing Objective {target}: {Name}
 This will:
 - Delete: .planning/objectives/{target}-{slug}/
 - Renumber all subsequent objectives
-- Update: ROADMAP.md, STATE.md
+- Revise: ROADMAP.md, STATE.md
 
 Proceed? (y/n)
 ```
@@ -102,6 +102,8 @@ node ~/.claude/devflow/bin/df-tools.cjs objective remove "${target}" --force
 ```bash
 RESULT=$(node ~/.claude/devflow/bin/df-tools.cjs objective remove "${target}" --confirm)
 ```
+
+Store mode refuses deletes (D-19); close the objective with `node ~/.claude/devflow/bin/df-tools.cjs objective set-status <id> cancelled` instead.
 
 `--confirm` executes exactly the plan the dry run printed. For an objective with executed jobs, both flags are required — `--force` overrides the summaries refusal, `--confirm` authorizes the cascade:
 

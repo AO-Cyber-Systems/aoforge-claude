@@ -391,6 +391,52 @@ function taskfileDepsShape(extra = {}) {
 }
 
 /**
+ * taskfileInternalShape() — TRD 43-01 D5: `internal: true` tasks (`:`-namespaced, with an alias,
+ * with `cmd:` and `cmds:`), an explicit `internal: false`, and public tasks (`init`, `check`) that
+ * depend on or call internal ones. Invented names; the internal `lint` runs a node tool so a public
+ * task that expands it is observable through its body stacks.
+ */
+function taskfileInternalShape() {
+  const taskfile = [
+    "version: '3'",
+    '',
+    'tasks:',
+    '  go:mod:tidy:',
+    '    internal: true',
+    '    cmds:',
+    '      - go mod tidy',
+    '',
+    '  npm:install:',
+    '    internal: true',
+    '    cmd: npm install',
+    '',
+    '  lint:',
+    '    internal: true',
+    '    aliases: [l]',
+    '    cmd: eslint .',
+    '',
+    '  init:',
+    '    deps: [npm:install]',
+    '    cmds:',
+    '      - task: go:mod:tidy',
+    '',
+    '  check:',
+    '    cmds:',
+    '      - task: lint',
+    '      - go vet ./...',
+    '',
+    '  build:',
+    '    internal: false',
+    '    cmd: go build ./...',
+    '',
+    '  test:',
+    '    cmd: go test ./...',
+    '',
+  ].join('\n');
+  return makeRepo({ 'Taskfile.yml': taskfile });
+}
+
+/**
  * justDepsShape() — a root justfile whose FIRST recipe (`build`) is the default, with `build: gen`,
  * a parameterised dependency (`check: build (lint "strict")`) and a post-dependency
  * (`release: build && notify`); and `lib/justfile` whose `default` recipe is NOT first.
@@ -442,5 +488,6 @@ module.exports = {
   emptyRepo,
   makeDepsShape,
   taskfileDepsShape,
+  taskfileInternalShape,
   justDepsShape,
 };

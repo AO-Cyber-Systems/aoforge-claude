@@ -265,6 +265,57 @@ describe('summaryExists', () => {
     assert.equal(summaryExists('77-02', [a, b], fsImpl), true);
     assert.equal(summaryExists('77-02', [a], fsImpl), false);
   });
+
+  // TRD 53-02: the same pairing rule as roadmap-reconcile and the df-tools readers.
+  // `<id>-SUMMARY.md` is what the hook asks the executor to write; a named
+  // `<id>-<slug>-SUMMARY.md` counts too. The id is a key, not a string prefix.
+  function withObjectiveFiles(name, files) {
+    const root = path.join(tmp, name);
+    const dir = path.join(root, '.planning', 'objectives', '07-demo');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of files) fs.writeFileSync(path.join(dir, f), '# x\n');
+    return root;
+  }
+
+  test('53-02: a named <id>-<slug>-SUMMARY.md counts for <id>', () => {
+    const root = withObjectiveFiles('named', ['07-01-alpha-TRD.md', '07-01-alpha-SUMMARY.md']);
+    assert.equal(summaryExists('07-01', [root]), true);
+  });
+
+  test('53-02: the exact <id>-SUMMARY.md still counts beside a named TRD', () => {
+    const root = withObjectiveFiles('exact', ['07-01-alpha-TRD.md', '07-01-SUMMARY.md']);
+    assert.equal(summaryExists('07-01', [root]), true);
+  });
+
+  test('53-02: 07-010-SUMMARY.md and 07-01x-SUMMARY.md do not count for 07-01', () => {
+    const root = withObjectiveFiles('prefix', ['07-010-SUMMARY.md', '07-01x-SUMMARY.md', '07-011-alpha-SUMMARY.md']);
+    assert.equal(summaryExists('07-01', [root]), false);
+  });
+
+  test('53-02: another TRD\'s named summary does not count', () => {
+    const root = withObjectiveFiles('other-named', ['07-01-alpha-TRD.md', '07-02-beta-SUMMARY.md']);
+    assert.equal(summaryExists('07-01', [root]), false);
+  });
+
+  test('53-02: a decimal id is matched literally (the dot is not a wildcard)', () => {
+    const decimal = withObjectiveFiles('decimal', ['07.1-02-x-SUMMARY.md']);
+    assert.equal(summaryExists('07.1-02', [decimal]), true);
+    const wildcard = withObjectiveFiles('decimal-wild', ['07x1-02-SUMMARY.md']);
+    assert.equal(summaryExists('07.1-02', [wildcard]), false);
+  });
+
+  test('53-02: an fsImpl without readdirSync on objective dirs keeps the exact-name path', () => {
+    const root = F.makePlanningRepo(path.join(tmp, 'mock-exact'), { summaries: ['77-02'] });
+    const objectivesDir = path.join(root, '.planning', 'objectives');
+    const fsImpl = {
+      ...fs,
+      readdirSync: (p, ...rest) => {
+        if (p === objectivesDir) return fs.readdirSync(p, ...rest);
+        throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      },
+    };
+    assert.equal(summaryExists('77-02', [root], fsImpl), true);
+  });
 });
 
 // ─── candidateRoots ───────────────────────────────────────────────────────────

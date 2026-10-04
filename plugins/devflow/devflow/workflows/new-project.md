@@ -257,17 +257,17 @@ As you go, mentally check the context checklist from `questioning.md`. If gaps r
 
 **Decision gate:**
 
-When you could write a clear PROJECT.md, use AskUserQuestion:
+When you have enough for a clear PROJECT.md, use AskUserQuestion:
 
 - header: "Ready?"
-- question: "I think I understand what you're after. Ready to create PROJECT.md?"
+- question: "I think I understand what you're after. Ready to draft PROJECT.md?"
 - options:
-  - "Create PROJECT.md" — Let's move forward
+  - "Draft PROJECT.md" — Let's move forward
   - "Keep exploring" — I want to share more / ask me more
 
 If "Keep exploring" — ask what they want to add, or identify gaps and probe naturally.
 
-Loop until "Create PROJECT.md" selected.
+Loop until "Draft PROJECT.md" selected.
 
 ## 3.5. Identify project `kind` (required)
 
@@ -311,11 +311,11 @@ If "Skip" is chosen, omit `default_work` from PROJECT.md frontmatter — the pla
 
 **In auto mode:** Infer `kind` from the provided document (heuristic: presence of "API"/"endpoints"/"backend" → `api`; "UI"/"app"/"mobile" → `app`; "library"/"package"/"npm"/"gem" → `library`; "components"/"design system" → `ui-lib`; "CLI"/"command-line" → `cli`; "plugin"/"extension" → `plugin`). If the document is ambiguous, default to `api` and surface a warning. Skip `default_work` in auto mode.
 
-## 4. Write PROJECT.md
+## 4. Draft and publish PROJECT.md
 
 **If auto mode:** Synthesize from provided document. No "Ready?" gate was shown — proceed directly to commit.
 
-Synthesize all context into `.planning/PROJECT.md` using the template from `templates/project.md`. **Include the `kind` (and optionally `default_work`) values from Step 3.5 in the YAML frontmatter at the top of the file.**
+Synthesize all context into a PROJECT.md draft using the template from `templates/project.md`. **Include the `kind` (and optionally `default_work`) values from Step 3.5 in the YAML frontmatter at the top of the file.** The draft path comes from `node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md`; put the content there with the Write tool. It is published with `doc put PROJECT.md` just before the commit below (in local mode the published file is byte-identical to the draft).
 
 **For greenfield projects:**
 
@@ -394,6 +394,7 @@ Do not compress. Capture everything gathered.
 
 ```bash
 mkdir -p .planning
+node ~/.claude/devflow/bin/df-tools.cjs doc put PROJECT.md --from "$DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs: initialize project" --files .planning/PROJECT.md
 ```
 
@@ -597,7 +598,8 @@ Your STACK.md feeds into roadmap creation. Be prescriptive:
 </quality_gate>
 
 <output>
-Write to: .planning/research/STACK.md
+Draft path: `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/STACK.md` — put the file there.
+Publish: `node ~/.claude/devflow/bin/df-tools.cjs doc put research/STACK.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/devflow/templates/research-project/STACK.md
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="Stack research")
@@ -635,7 +637,8 @@ Your FEATURES.md feeds into requirements definition. Categorize clearly:
 </quality_gate>
 
 <output>
-Write to: .planning/research/FEATURES.md
+Draft path: `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/FEATURES.md` — put the file there.
+Publish: `node ~/.claude/devflow/bin/df-tools.cjs doc put research/FEATURES.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/devflow/templates/research-project/FEATURES.md
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="Features research")
@@ -673,7 +676,8 @@ Your ARCHITECTURE.md informs objective structure in roadmap. Include:
 </quality_gate>
 
 <output>
-Write to: .planning/research/ARCHITECTURE.md
+Draft path: `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/ARCHITECTURE.md` — put the file there.
+Publish: `node ~/.claude/devflow/bin/df-tools.cjs doc put research/ARCHITECTURE.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/devflow/templates/research-project/ARCHITECTURE.md
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="Architecture research")
@@ -711,7 +715,8 @@ Your PITFALLS.md prevents mistakes in roadmap/planning. For each pitfall:
 </quality_gate>
 
 <output>
-Write to: .planning/research/PITFALLS.md
+Draft path: `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/PITFALLS.md` — put the file there.
+Publish: `node ~/.claude/devflow/bin/df-tools.cjs doc put research/PITFALLS.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/devflow/templates/research-project/PITFALLS.md
 </output>
 ", subagent_type="project-researcher", model="{researcher_model}", description="Pitfalls research")
@@ -760,7 +765,7 @@ Return the SUMMARY.md content between the BEGIN/END markers. Do not write files.
 ", subagent_type="research-synthesizer", model="{synthesizer_model}", description="Synthesize research")
 ```
 
-**Write and commit SUMMARY.md (orchestrator):**
+**Publish and commit SUMMARY.md (orchestrator):**
 
 a. **Extract** the text strictly between the `--- BEGIN SUMMARY.md ---` and
    `--- END SUMMARY.md ---` lines of the synthesizer's final message (markers excluded).
@@ -768,9 +773,12 @@ a. **Extract** the text strictly between the `--- BEGIN SUMMARY.md ---` and
    `## SYNTHESIS COMPLETE` header block (the header line and the file list / `**Output:**` lines
    that follow it, up to the first line of the summary body).
    If the message is `## SYNTHESIS BLOCKED`, surface the blocker instead of writing anything.
-b. **Write** it verbatim to `.planning/research/SUMMARY.md` with the Write tool. Do not
-   summarise, reword or reformat it.
-c. **Commit** all research in one commit. The researchers wrote their four files without
+b. **Publish** it verbatim. Run `node ~/.claude/devflow/bin/df-tools.cjs planning draft research/SUMMARY.md`,
+   put the extracted text at the printed path with the Write tool, then run
+   `node ~/.claude/devflow/bin/df-tools.cjs doc put research/SUMMARY.md --from "$DRAFT"`.
+   Do not summarise, reword or reformat it: local mode stores exactly those bytes in
+   `.planning/research/SUMMARY.md`; store mode publishes the research wiki page.
+c. **Commit** all research in one commit. The researchers published their four files without
    committing, so this single commit covers all 5 files:
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs commit "docs: complete project research" --files .planning/research/
@@ -907,7 +915,7 @@ Cross-check requirements against Core Value from PROJECT.md. If gaps detected, s
 
 **Generate REQUIREMENTS.md:**
 
-Create `.planning/REQUIREMENTS.md` with:
+Draft REQUIREMENTS.md (path from `node ~/.claude/devflow/bin/df-tools.cjs planning draft REQUIREMENTS.md`) with:
 - v1 Requirements grouped by category (checkboxes, REQ-IDs)
 - v2 Requirements (deferred)
 - Out of Scope (explicit exclusions with reasoning)
@@ -955,6 +963,7 @@ If "adjust": Return to scoping.
 **Commit requirements:**
 
 ```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put REQUIREMENTS.md --from "$DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs: define v1 requirements" --files .planning/REQUIREMENTS.md
 ```
 
@@ -1000,10 +1009,10 @@ Create roadmap:
 2. Map every v1 requirement to exactly one objective
 3. Derive 2-5 success criteria per objective (observable user behaviors)
 4. Validate 100% coverage
-5. Write files immediately (ROADMAP.md, STATE.md, update REQUIREMENTS.md traceability)
+5. Persist immediately, per your Step 7: run `node ~/.claude/devflow/bin/df-tools.cjs planning mode`; `local` → write ROADMAP.md and STATE.md as today; `store` → `objective add` + `objective put` per objective, then `gh pull --all`; both → publish the REQUIREMENTS.md traceability with `doc put REQUIREMENTS.md`
 6. Return ROADMAP CREATED with summary
 
-Write files first, then return. This ensures artifacts persist even if context is lost.
+Persist first, then return. This ensures artifacts persist even if context is lost.
 </instructions>
 ", subagent_type="roadmapper", model="{roadmapper_model}", description="Create roadmap")
 ```
@@ -1106,20 +1115,22 @@ node ~/.claude/devflow/bin/df-tools.cjs commit "docs: create roadmap ([N] object
 If `.planning/config.json` has `github.enabled: true` and `github.repo` set, sync the roadmap to GitHub issues:
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs gh sync-objectives
+node ~/.claude/devflow/bin/df-tools.cjs gh sync --all
 ```
 
-This is a no-op when GitHub integration is disabled or `gh` is not installed/authenticated. The command:
-- Creates one milestone per roadmap version
-- Creates one issue per objective with goal + success criteria
+This reports `skipped` and exits 0 when GitHub integration is disabled. When it is enabled and `gh` is not authenticated it exits 1 with the fix. The command:
+- Uses each objective's `milestone:` (else the ROADMAP `## Milestones` current entry)
+- Creates one issue per objective with goal + success criteria, and records its number as `github_issue` in each OBJECTIVE.md
 - Persists issue numbers in `.planning/.gh-mapping.json` (commit this file)
-- Is idempotent — re-running updates existing issues
+- Is idempotent — re-running updates existing issues and never duplicates them
 
-If issues were created, commit the mapping file:
+If issues were created, commit the mapping file and the OBJECTIVE.md files that gained `github_issue`:
 
 ```bash
-[ -f .planning/.gh-mapping.json ] && node ~/.claude/devflow/bin/df-tools.cjs commit "chore: sync objectives to GitHub" --files .planning/.gh-mapping.json
+[ -f .planning/.gh-mapping.json ] && node ~/.claude/devflow/bin/df-tools.cjs commit "chore: sync objectives to GitHub" --files .planning/.gh-mapping.json $(git ls-files -m -o --exclude-standard -- '.planning/objectives/*/OBJECTIVE.md')
 ```
+
+The `git ls-files` list holds only OBJECTIVE.md files that changed, so a roadmap with no objective directories yet does not pass `commit` a glob that matches nothing (git rejects it).
 
 ## 9. Done
 

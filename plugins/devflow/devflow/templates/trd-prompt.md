@@ -175,7 +175,10 @@ Before declaring TRD complete:
 </success_criteria>
 
 <output>
-After completion, create `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`
+After completion, publish `{objective}-{trd}-SUMMARY.md`: draft it from
+`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md`, then
+`node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft>` (in local mode this lands on
+`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before)
 </output>
 ```
 

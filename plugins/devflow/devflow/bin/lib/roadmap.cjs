@@ -7,6 +7,16 @@ const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const { reconcile } = require('./roadmap-reconcile.cjs');
+const { isStoreMode } = require('./planning-mode.cjs');
+
+// TRD 48-13 (D-19): in store mode ROADMAP.md is a view rendered from GitHub by
+// `gh pull --all`, so the commands that write it no-op (exit 0) with this
+// result. Not an error: workflows call them unconditionally.
+const ROADMAP_STORE_SKIP = Object.freeze({
+  updated: false,
+  skipped: 'store-mode',
+  message: 'ROADMAP.md is generated in store mode; run `df-tools gh pull --all`',
+});
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -337,6 +347,11 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
     error('objective number required for roadmap update-job-progress');
   }
 
+  if (isStoreMode(cwd)) {
+    output(Object.assign({}, ROADMAP_STORE_SKIP), raw, 'skipped');
+    return;
+  }
+
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
 
   const objectiveInfo = findObjectiveInternal(cwd, objectiveNum);
@@ -637,6 +652,7 @@ function cmdProgressRender(cwd, format, raw) {
 }
 
 module.exports = {
+  ROADMAP_STORE_SKIP,
   getMilestoneInfo,
   getRoadmapObjectiveInternal,
   cmdRoadmapGetObjective,

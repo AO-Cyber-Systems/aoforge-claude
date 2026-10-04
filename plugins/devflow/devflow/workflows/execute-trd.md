@@ -171,7 +171,7 @@ After all tasks complete, run a verification loop:
 </step>
 
 <step name="create_summary_with_evidence">
-Create `{objective}-{trd}-SUMMARY.md` at `.planning/objectives/XX-name/`.
+Finish the SUMMARY in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path), then publish it once with `node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
 
 **Use template:** @~/.claude/devflow/templates/summary.md
 
@@ -215,7 +215,7 @@ Create `{objective}-{trd}-SUMMARY.md` at `.planning/objectives/XX-name/`.
 </step>
 
 <step name="state_updates">
-Update STATE.md, ROADMAP.md, REQUIREMENTS.md.
+Record state only through the store-aware commands, never by hand: `df-tools state advance-job` / `state update-progress` / `state record-metric` / `state add-decision` / `state record-session`, `df-tools roadmap update-job-progress <objective>`, and `df-tools requirements mark-complete <ids>`. Keep the SUMMARY path in the commit below in a worktree too (local mode): the summary verbs wrote your own checkout, so the commit puts it on your branch and the wave merge delivers it.
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs state advance-job
@@ -248,7 +248,7 @@ Use `--pause` flag to stop between phases.
 - Per-task verification evidence recorded
 - TDD enforcement applied for type: tdd TRDs
 - Post-TRD verification loop completed (max 2 auto-fix cycles)
-- SUMMARY.md created with evidence sections
-- STATE.md, ROADMAP.md, REQUIREMENTS.md updated
+- SUMMARY published once via `df-tools summary post`, with evidence sections
+- STATE.md, ROADMAP.md, REQUIREMENTS.md recorded via the state / roadmap / requirements commands
 - All metadata committed
 </success_criteria>

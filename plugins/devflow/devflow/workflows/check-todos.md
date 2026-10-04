@@ -108,7 +108,7 @@ Use AskUserQuestion:
 - header: "Action"
 - question: "This todo relates to Objective [N]: [name]. What would you like to do?"
 - options:
-  - "Work on it now" — move to done, start working
+  - "Work on it now" — mark it complete, start working
   - "Add to objective plan" — include when planning Objective [N]
   - "Brainstorm approach" — think through before deciding
   - "Put it back" — return to list
@@ -119,7 +119,7 @@ Use AskUserQuestion:
 - header: "Action"
 - question: "What would you like to do with this todo?"
 - options:
-  - "Work on it now" — move to done, start working
+  - "Work on it now" — mark it complete, start working
   - "Create an objective" — /devflow:objective add with this scope
   - "Brainstorm approach" — think through before deciding
   - "Put it back" — return to list
@@ -128,9 +128,11 @@ Use AskUserQuestion:
 <step name="execute_action">
 **Work on it now:**
 ```bash
-mv ".planning/todos/pending/[filename]" ".planning/todos/done/"
+node ~/.claude/devflow/bin/df-tools.cjs todo complete [filename]
 ```
-Update STATE.md todo count. Present problem/solution context. Begin work or ask how to proceed.
+The verb moves the todo to `.planning/todos/completed/` and stamps `completed: <date>`; with `github.store` on it also
+closes the todo issue. Never move todo files by hand. Then run the update_state step, present the problem/solution
+context, and begin work or ask how to proceed.
 
 **Add to objective plan:**
 Note todo reference in objective planning notes. Keep in pending. Return to list or exit.
@@ -147,17 +149,22 @@ Return to list_todos step.
 </step>
 
 <step name="update_state">
-After any action that changes todo count:
+After any action that changes todo count, check the planning mode:
 
-Re-run `init todos` to get updated count, then update STATE.md "### Pending Todos" section if exists.
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning mode
+```
+
+**`local`:** re-run `init todos` to get the updated count, then update STATE.md "### Pending Todos" section if it exists.
+**`store`:** skip it. STATE.md is a generated view there (`df-tools gh pull --all` rebuilds it).
 </step>
 
 <step name="git_commit">
-If todo was moved to done/, commit the change:
+If the todo was completed, commit the move. The pending path records the removal; in store mode the ignored
+planning paths are skipped and nothing else needs committing:
 
 ```bash
-git rm --cached .planning/todos/pending/[filename] 2>/dev/null || true
-node ~/.claude/devflow/bin/df-tools.cjs commit "docs: start work on todo - [title]" --files .planning/todos/done/[filename] .planning/STATE.md
+node ~/.claude/devflow/bin/df-tools.cjs commit "docs: start work on todo - [title]" --files .planning/todos/pending/[filename] .planning/todos/completed/[filename] .planning/STATE.md
 ```
 
 Tool respects `commit_docs` config and gitignore automatically.
@@ -175,5 +182,5 @@ Confirm: "Committed: docs: start work on todo - [title]"
 - [ ] Appropriate actions offered
 - [ ] Selected action executed
 - [ ] STATE.md updated if todo count changed
-- [ ] Changes committed to git (if todo moved to done/)
+- [ ] Changes committed to git (if the todo was completed with `todo complete`)
 </success_criteria>

@@ -5,6 +5,7 @@ const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, MODEL_PROFILES, MODEL_IDS } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
+const { planningMode } = require('./planning-mode.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { getMilestoneInfo, getRoadmapObjectiveInternal } = require('./roadmap.cjs');
 const { bootstrapProjectMd, bootstrapObjectiveMd } = require('./project-bootstrap.cjs');
@@ -339,6 +340,60 @@ function cmdResolveModel(cwd, agentType, raw) {
   output(result, raw, model);
 }
 
+// ─── Objective PR lifecycle (objective 49, GPR-06) ────────────────────────────
+
+const BRANCHING_STRATEGY_DEPRECATION =
+  'git.branching_strategy is deprecated: in store mode (github.store) each objective runs on one linked branch and pull request (gh pr start).';
+
+/**
+ * Whether the objective branch and pull request lifecycle replaces `git.branching_strategy` for this project.
+ *
+ * The mode is decided by the MAIN checkout's config (planningMode resolves it, so a linked worktree's own config
+ * never decides), and nothing here calls gh: the linked branch and PR number come from the local mapping.
+ *
+ *   -> { store, root, fields }
+ *
+ * `fields` is spread into an init's result. It always has `pr_lifecycle`. When a legacy strategy is configured
+ * (anything but 'none'): store mode adds `branching_strategy_ignored: <value>`, local mode adds a `deprecations`
+ * entry. Local mode otherwise changes nothing (D-01); `branching_strategy` itself keeps its value either way.
+ */
+function _prLifecycle(cwd, config) {
+  const mode = planningMode(cwd);
+  const store = mode.mode === 'store';
+  const fields = { pr_lifecycle: store };
+  const strategy = config.branching_strategy;
+  if (typeof strategy === 'string' && strategy !== '' && strategy !== 'none') {
+    if (store) fields.branching_strategy_ignored = strategy;
+    else fields.deprecations = [BRANCHING_STRATEGY_DEPRECATION];
+  }
+  return { store, root: mode.root, fields };
+}
+
+/**
+ * The objective's branch and PR number in store mode. The linked branch recorded in `prs[id]` wins; otherwise
+ * the objective_branch_template is rendered exactly as `branch_name` is rendered for the legacy strategy. With no
+ * recorded branch and no resolvable objective there is nothing to render: `objective_branch` is null.
+ */
+function _objectiveBranchFields(root, config, objectiveInfo, objective) {
+  let entry = null;
+  if (root) {
+    try {
+      const ghMapping = require('./gh-mapping.cjs');
+      entry = ghMapping.getPr(ghMapping.readMappingV3(root), objectiveInfo?.objective_number || objective);
+    } catch {
+      entry = null;
+    }
+  }
+  const number = entry && Number.isInteger(entry.number) ? entry.number : null;
+  if (entry && entry.branch) return { objective_branch: entry.branch, pr_number: number };
+  const rendered = objectiveInfo
+    ? config.objective_branch_template
+        .replace('{objective}', objectiveInfo.objective_number)
+        .replace('{slug}', objectiveInfo.objective_slug || 'objective')
+    : null;
+  return { objective_branch: rendered, pr_number: number };
+}
+
 function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
   if (!objective) {
     error('objective required for init execute-objective');
@@ -348,6 +403,7 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
   const config = loadConfig(cwd);
   const objectiveInfo = findObjectiveInternal(cwd, objective);
   const milestone = getMilestoneInfo(cwd);
+  const prl = _prLifecycle(cwd, config);
 
   const result = {
     // Models
@@ -376,16 +432,24 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
     job_count: objectiveInfo?.jobs?.length || 0,
     incomplete_count: objectiveInfo?.incomplete_jobs?.length || 0,
 
-    // Branch name (pre-computed)
-    branch_name: config.branching_strategy === 'objective' && objectiveInfo
-      ? config.objective_branch_template
-          .replace('{objective}', objectiveInfo.objective_number)
-          .replace('{slug}', objectiveInfo.objective_slug || 'objective')
-      : config.branching_strategy === 'milestone'
-        ? config.milestone_branch_template
-            .replace('{milestone}', milestone.version)
-            .replace('{slug}', generateSlugInternal(milestone.name) || 'milestone')
-        : null,
+    // Branch name (pre-computed). Store mode: null, the legacy `checkout -b` step has nothing to do; the
+    // objective's one linked branch is `objective_branch` below.
+    branch_name: prl.store
+      ? null
+      : config.branching_strategy === 'objective' && objectiveInfo
+        ? config.objective_branch_template
+            .replace('{objective}', objectiveInfo.objective_number)
+            .replace('{slug}', objectiveInfo.objective_slug || 'objective')
+        : config.branching_strategy === 'milestone'
+          ? config.milestone_branch_template
+              .replace('{milestone}', milestone.version)
+              .replace('{slug}', generateSlugInternal(milestone.name) || 'milestone')
+          : null,
+
+    // Objective PR lifecycle (GPR-06): pr_lifecycle always; store mode adds objective_branch / pr_number /
+    // branching_strategy_ignored, local mode adds deprecations when a legacy strategy is configured.
+    ...prl.fields,
+    ...(prl.store ? _objectiveBranchFields(prl.root, config, objectiveInfo, objective) : {}),
 
     // Milestone info
     milestone_version: milestone.version,
@@ -940,6 +1004,10 @@ function cmdInitMilestoneOp(cwd, raw, args = []) {
   const result = {
     // Config
     commit_docs: config.commit_docs,
+
+    // Objective PR lifecycle (GPR-06): store mode merges nothing locally, so complete-milestone skips the
+    // local branch merge. No objective is in context here, so no branch fields.
+    ..._prLifecycle(cwd, config).fields,
 
     // Current milestone
     milestone_version: milestone.version,

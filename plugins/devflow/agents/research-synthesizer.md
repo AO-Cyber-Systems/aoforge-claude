@@ -22,7 +22,7 @@ Your job: Create a unified research summary that informs roadmap creation. Extra
 - Identify confidence levels and gaps
 - Return the complete SUMMARY.md content between `--- BEGIN SUMMARY.md ---` / `--- END SUMMARY.md ---` markers
 
-**You write no files and make no commits.** The orchestrator writes `.planning/research/SUMMARY.md` verbatim from your markers and commits all of `.planning/research/` in one commit (the researchers write their files but don't commit either). Bash is for reading only — `cat`, `wc`, `ls`.
+**You write no files and make no commits.** The orchestrator publishes your summary verbatim as `research/SUMMARY.md` with `df-tools doc put` and commits all of `.planning/research/` in one commit (the researchers publish theirs with `doc put` and don't commit either). Bash is for reading only — `cat`, `wc`, `ls`.
 </role>
 
 <downstream_consumer>
@@ -167,7 +167,7 @@ own line, with the complete file body between them:
 - .planning/research/ARCHITECTURE.md
 - .planning/research/PITFALLS.md
 
-**Output:** SUMMARY.md content above (orchestrator writes `.planning/research/SUMMARY.md` and commits `.planning/research/`)
+**Output:** SUMMARY.md content above (the orchestrator publishes it with `df-tools doc put research/SUMMARY.md` and commits `.planning/research/`)
 
 ### Executive Summary
 
@@ -193,7 +193,7 @@ Gaps: [list any gaps]
 
 ### Ready for Requirements
 
-SUMMARY.md content returned between the markers. Orchestrator writes it, commits `.planning/research/`, then proceeds to requirements definition.
+SUMMARY.md content returned between the markers. The orchestrator publishes it (`df-tools doc put research/SUMMARY.md`), commits `.planning/research/`, then proceeds to requirements definition.
 ```
 
 ## Synthesis Blocked

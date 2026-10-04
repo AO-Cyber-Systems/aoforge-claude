@@ -536,11 +536,28 @@ async function _runStaleDeletionLoop({ home, stale_entries, force }) {
 // ─── TRD 05-02: syncInitiatives (now async for readline support) ──────────────
 
 /**
+ * The org Project node id for `cwd` (TRD 46-08; no longer the gen-1 cassette constant in gh.cjs):
+ * PROJECT.md `org_project`, else the project's configured `awareness.org_project_id`, else null.
+ * Only the project's own files are read — never a fixture, never the template default.
+ */
+function defaultProjectId(cwd) {
+  const nonEmpty = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+  try {
+    const fm = extractFrontmatter(fs.readFileSync(path.join(cwd, '.planning', 'PROJECT.md'), 'utf-8')) || {};
+    if (nonEmpty(fm.org_project)) return nonEmpty(fm.org_project);
+  } catch { /* no PROJECT.md */ }
+  const cfg = require('./gh-client.cjs').readConfig(cwd);
+  return nonEmpty(cfg && cfg.awareness && cfg.awareness.org_project_id);
+}
+
+/**
  * Sync initiatives from org Product Roadmap to disk.
  *
  * @param {object} opts
  * @param {string} opts.home          - target dir; defaults to defaultInitiativesHome()
- * @param {string} opts.project_id    - project node id; defaults to PRODUCT_ROADMAP_FIELDS._project_id
+ * @param {string} opts.project_id    - project node id; defaults to <cwd>/.planning/PROJECT.md `org_project`,
+ *                                      then <cwd>/.planning/config.json `awareness.org_project_id` (TRD 46-08)
+ * @param {string} opts.cwd           - project root for that default; defaults to process.cwd()
  * @param {string} opts.initiative    - sync ONLY this slug (skips all others; skips stale-deletion)
  * @param {boolean} opts.force        - delete stale files without confirmation (TRD 05-03)
  * @returns {Promise<{ ok: bool, written: [], deleted: [], skipped: [], warnings: [] }>}
@@ -551,7 +568,7 @@ async function syncInitiatives(opts) {
   gh.requireGhAuth(['project', 'read:project', 'repo']);
 
   const home = opts.home || defaultInitiativesHome();
-  const projectId = opts.project_id || (gh.PRODUCT_ROADMAP_FIELDS && gh.PRODUCT_ROADMAP_FIELDS._project_id) || null;
+  const projectId = opts.project_id || defaultProjectId(opts.cwd || process.cwd());
   const written = [];
   const deleted = [];
   const skipped = [];
@@ -561,7 +578,7 @@ async function syncInitiatives(opts) {
     return {
       ok: false,
       written, deleted, skipped,
-      warnings: ['no project_id available; obj 1 cassette missing or PRODUCT_ROADMAP_FIELDS not initialized'],
+      warnings: ['no project_id: pass --project-id, or set org_project in .planning/PROJECT.md (or awareness.org_project_id in .planning/config.json)'],
     };
   }
 

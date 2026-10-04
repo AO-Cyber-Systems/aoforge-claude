@@ -122,6 +122,23 @@ function sameServer(a, b) {
 
 // ─── Building the managed servers ─────────────────────────────────────────────
 
+/** The values a server's args switch off: each one following a `--disable` token, or `--disable=value`. */
+function disabledSet(args) {
+  const out = new Set();
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--disable' && i + 1 < args.length) out.add(args[i + 1]);
+    else if (args[i].startsWith('--disable=')) out.add(args[i].slice('--disable='.length));
+  }
+  return out;
+}
+
+/** True when every member of `a` is in `b` and `b` has at least one more. */
+function isStrictSubset(a, b) {
+  if (a.size >= b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
 function mcpEntriesOf(view) {
   const tooling = view && view.frontmatter && view.frontmatter.agent_tooling;
   return tooling && Array.isArray(tooling.mcp) ? tooling.mcp : [];
@@ -132,7 +149,8 @@ function mcpEntriesOf(view) {
  *
  * `views` are resolved profile views in precedence order (root first, then each component); a
  * later view's entry replaces an earlier one of the same name, so a component's args win over the
- * root's. Each surviving entry becomes `{ command, args, env: { DEVFLOW_MANAGED: 'stack' } }` —
+ * root's. The one exception: an earlier entry whose `--disable` set is a strict subset of the later
+ * one's is kept, because it enables more (see the comment in the loop). Each surviving entry becomes `{ command, args, env: { DEVFLOW_MANAGED: 'stack' } }` —
  * args verbatim from the profile, env the ownership marker only (Q5).
  *
  * Skipped (never written), each `{ name, reason, note }`:
@@ -157,11 +175,21 @@ function buildServers(views, { which = null, env = process.env, userHome = null,
         });
         continue;
       }
-      chosen.delete(entry.name); // re-insert so a later view's position and args both win
-      chosen.set(entry.name, {
+      const incoming = {
         command: entry.command,
         args: Array.isArray(entry.args) ? entry.args.map(String) : [],
-      });
+      };
+      // Two profiles can declare one server name with different feature flags (a Flutter
+      // profile and a pure-Dart one both ship `dart mcp-server`). The later view normally
+      // wins, but then a pure-Dart package listed after a Flutter app would switch the
+      // app's tools off for the whole repo. So when the earlier entry disables a strict
+      // subset of what the later one does, it enables more and is kept. Equal or
+      // incomparable sets fall through to "later wins". Decided by the args alone, never
+      // by a stack's name, so the loader stays stack-neutral.
+      const earlier = chosen.get(entry.name);
+      if (earlier && isStrictSubset(disabledSet(earlier.args), disabledSet(incoming.args))) continue;
+      chosen.delete(entry.name); // re-insert so a later view's position and args both win
+      chosen.set(entry.name, incoming);
     }
   }
 

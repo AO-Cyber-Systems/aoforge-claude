@@ -223,7 +223,7 @@ const {
 } = require('./lib/workstreams.cjs');
 const {
   cmdGhStatus, cmdGhSyncObjectives, cmdGhComment, cmdGhCloseIssue, cmdGhSyncRelease,
-  cmdGhResolve, cmdGhSyncObjective,
+  cmdGhResolve, cmdGhSync,
 } = require('./lib/gh.cjs');
 const {
   cmdChangelogUpdate, cmdChangelogCheck,
@@ -757,31 +757,55 @@ async function main() {
         cmdObjectiveRemove(cwd, args[2], { force: forceFlag, confirm: confirmFlag }, raw);
       } else if (subcommand === 'complete') {
         cmdObjectiveComplete(cwd, args[2], raw);
+      } else if (subcommand === 'put' || subcommand === 'set-status') {
+        // TRD 48-15: the planning verbs (logic in planning-verbs-cli.cjs).
+        require('./lib/planning-verbs-cli.cjs').cmdObjectiveVerb(cwd, args.slice(1), raw);
       } else {
-        error('Unknown objective subcommand. Available: next-decimal, add, insert, remove, complete');
+        error('Unknown objective subcommand. Available: next-decimal, add, insert, remove, complete, put, set-status');
       }
       break;
     }
 
     case 'milestone': {
-      const subcommand = args[1];
-      if (subcommand === 'complete') {
-        const nameIndex = args.indexOf('--name');
-        const archiveObjectives = args.includes('--archive-objectives');
-        // Collect --name value (everything after --name until next flag or end)
-        let milestoneName = null;
-        if (nameIndex !== -1) {
-          const nameArgs = [];
-          for (let i = nameIndex + 1; i < args.length; i++) {
-            if (args[i].startsWith('--')) break;
-            nameArgs.push(args[i]);
-          }
-          milestoneName = nameArgs.join(' ') || null;
-        }
-        cmdMilestoneComplete(cwd, args[2], { name: milestoneName, archiveObjectives }, raw);
-      } else {
-        error('Unknown milestone subcommand. Available: complete');
-      }
+      // milestone put | complete — TRD 48-15. Local `complete` runs cmdMilestoneComplete unchanged; store mode routes
+      // to the entity verb.
+      require('./lib/planning-verbs-cli.cjs').cmdMilestoneVerb(cwd, args.slice(1), raw);
+      break;
+    }
+
+    // ── Planning verbs (TRD 48-15): one argument shape, `--from <path|->`, `--raw`; logic in planning-verbs-cli.cjs.
+    case 'plan': {
+      require('./lib/planning-verbs-cli.cjs').cmdPlan(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'summary': {
+      require('./lib/planning-verbs-cli.cjs').cmdSummary(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'verification': {
+      require('./lib/planning-verbs-cli.cjs').cmdVerification(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'doc': {
+      require('./lib/planning-verbs-cli.cjs').cmdDoc(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'decision': {
+      require('./lib/planning-verbs-cli.cjs').cmdDecision(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'debug': {
+      require('./lib/planning-verbs-cli.cjs').cmdDebug(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'quick': {
+      require('./lib/planning-verbs-cli.cjs').cmdQuick(cwd, args.slice(1), raw);
       break;
     }
 
@@ -874,12 +898,9 @@ async function main() {
     }
 
     case 'todo': {
-      const subcommand = args[1];
-      if (subcommand === 'complete') {
-        cmdTodoComplete(cwd, args[2], raw);
-      } else {
-        error('Unknown todo subcommand. Available: complete');
-      }
+      // todo add | complete — TRD 48-15. Local `complete` runs cmdTodoComplete unchanged; store mode routes to the
+      // entity verb.
+      require('./lib/planning-verbs-cli.cjs').cmdTodoVerb(cwd, args.slice(1), raw);
       break;
     }
 
@@ -1069,12 +1090,13 @@ async function main() {
       if (subcommand === 'status') {
         cmdGhStatus(cwd, raw);
       } else if (subcommand === 'sync-objectives') {
+        // Deprecated alias of `gh sync --all` (TRD 46-08; skill-route DF_TOOLS_DEPRECATIONS)
         cmdGhSyncObjectives(cwd, raw);
       } else if (subcommand === 'comment') {
-        // df-tools gh comment <issue|objective> <body|@file:path>
-        cmdGhComment(cwd, args[2], args[3], raw);
+        // df-tools gh comment <objective|#issue> <body|@file:path> [--kind k]
+        cmdGhComment(cwd, args.slice(2), raw);
       } else if (subcommand === 'close-issue') {
-        // df-tools gh close-issue <issue|objective> [comment]
+        // df-tools gh close-issue <objective|#issue> [comment]
         cmdGhCloseIssue(cwd, args[2], args[3] || null, raw);
       } else if (subcommand === 'sync-release') {
         // df-tools gh sync-release <tag>
@@ -1083,19 +1105,38 @@ async function main() {
         // df-tools gh resolve <objectiveId> [--raw]
         cmdGhResolve(cwd, args[2], raw, args.slice(2));
       } else if (subcommand === 'sync') {
-        // df-tools gh sync <objectiveId> — singular: sync one objective's state to GH
-        // With no objectiveId, fall back to sync-objectives (plural, all objectives)
-        if (args[2]) {
-          cmdGhSyncObjective(cwd, args[2], raw);
-        } else {
-          cmdGhSyncObjectives(cwd, raw);
-        }
+        // df-tools gh sync [<objective>|--all] — bare `gh sync` is `--all`
+        cmdGhSync(cwd, args.slice(2), raw);
       } else if (subcommand === 'pull') {
         // df-tools gh pull <objectiveId> [--apply] [--raw]
         const { cmdGhPull } = require('./lib/gh-pull.cjs');
         cmdGhPull(cwd, args.slice(2), raw);
+      } else if (subcommand === 'outbox') {
+        // df-tools gh outbox <status|flush [--no-wait]|resolve <seq> --accept-remote|--overwrite> [--raw]
+        // Exit codes (flush): 0 flushed, 1 error, 2 halted for a human, 3 ops still pending.
+        const { cmdGhOutbox } = require('./lib/gh-store-cli.cjs');
+        cmdGhOutbox(cwd, args.slice(2), raw);
+      } else if (subcommand === 'trd') {
+        // df-tools gh trd <spec|freeze|fold [--force]|scope <body|@file:path> [--n K]> <trd> [--no-flush] [--raw]
+        const { cmdGhTrd } = require('./lib/gh-store-cli.cjs');
+        cmdGhTrd(cwd, args.slice(2), raw);
+      } else if (subcommand === 'orphans') {
+        // df-tools gh orphans <objective> [--raw]
+        const { cmdGhOrphans } = require('./lib/gh-store-cli.cjs');
+        cmdGhOrphans(cwd, args.slice(2), raw);
+      } else if (subcommand === 'pr') {
+        // df-tools gh pr <start <objective> [--name <branch>]|sync <objective>|status <objective>> [--no-flush] [--raw]
+        // Store mode only (skipped otherwise). Exit codes: 0 ok, 1 error, 2 halted for a human, 3 pending.
+        const { cmdGhPr } = require('./lib/gh-pr-cli.cjs');
+        cmdGhPr(cwd, args.slice(2), raw);
+      } else if (subcommand === 'setup') {
+        // df-tools gh setup [--apply] [--refresh] [--require-wiki] [--raw]
+        // Dry-run unless --apply. Needs github.enabled + github.repo (not store mode; skipped otherwise).
+        // Exit codes: 0 dry-run or applied, 1 an error, a failed action, a conflicting local file or an unready wiki.
+        const { cmdGhSetup } = require('./lib/gh-setup-cli.cjs');
+        cmdGhSetup(cwd, args.slice(2), raw);
       } else {
-        error('Unknown gh subcommand. Available: status, sync, pull, sync-objectives, resolve, comment, close-issue, sync-release');
+        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans, pr, setup (sync-objectives: deprecated alias)');
       }
       break;
     }
@@ -1162,7 +1203,12 @@ async function main() {
         }
         process.exit(0);
       }
-      error(`Unknown planning subcommand${sub ? ': ' + sub : ''}. Available: sibling-trd-scan`);
+      if (sub === 'draft' || sub === 'import' || sub === 'mode') {
+        // TRD 48-15: planning draft <rel> | import [--dry-run] | mode (logic in planning-verbs-cli.cjs).
+        require('./lib/planning-verbs-cli.cjs').cmdPlanningVerb(cwd, args.slice(1), raw);
+        break;
+      }
+      error(`Unknown planning subcommand${sub ? ': ' + sub : ''}. Available: sibling-trd-scan, draft, import, mode`);
       break;
     }
 

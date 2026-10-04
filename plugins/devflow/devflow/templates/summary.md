@@ -2,6 +2,8 @@
 
 Template for `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md` - task completion documentation with evidence.
 
+Fill it in a `df-tools planning draft` copy. The executor publishes it with `df-tools summary checkpoint` (per task) and `df-tools summary post` (once), never by putting the file in place itself.
+
 ---
 
 ## File Template

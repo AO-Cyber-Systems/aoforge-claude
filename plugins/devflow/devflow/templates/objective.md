@@ -84,7 +84,7 @@ org_project: PVT_kwDODwqLrc4BRsOP                   # OPTIONAL — overrides PRO
 
 All four fields are optional and back-compat — existing OBJECTIVE.md files without them parse and resolve cleanly. The resolver populates `provenance: 'absent'` for missing fields.
 
-- `github_issue`: Links the objective to its GH issue. Set when manually planning; auto-populated by `df:gh-sync` when missing (v1.2 — for now, set manually). Accepts full ref (`AO-Cyber-Systems/devflow-claude#20`) or shorthand (`#20`) resolved against PROJECT.md `github_repo`.
+- `github_issue`: Links the objective to its GH issue. Written by `df-tools gh sync` on first sync; a differing value you set is kept and reported. Accepts full ref (`AO-Cyber-Systems/devflow-claude#20`) or shorthand (`#20`) resolved against PROJECT.md `github_repo`.
 - `parent_issue`: Walked by `df-tools gh resolve` to find the repo's `[Roadmap]` issue. If absent, the resolver falls back to searching the repo for an issue titled `[Roadmap]`. Same format as `github_issue`.
 - `org_initiative`: Filename (no extension, no path) of an initiatives file in `~/.claude/devflow/initiatives/<name>.md`. Reserved field for v1.1 — planner reads it for strategic context but does not sync it to GitHub.
 - `org_project`: GitHub Project v2 ID (starts with `PVT_`). Inherited from PROJECT.md unless overridden here. Use when this objective belongs to a different org Project than the project's default.
@@ -123,7 +123,8 @@ OBJECTIVE.md is optional. Resolution still works without it:
 - `overrides` defaults to empty
 - The planner emits a slightly louder resolved-configuration message noting the file is absent
 
-Create OBJECTIVE.md when you need to:
+Add an OBJECTIVE.md (draft from `node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/OBJECTIVE.md`,
+then `node ~/.claude/devflow/bin/df-tools.cjs objective put <id> --from <draft>`) when you need to:
 1. Override the project's `default_work` for this objective
 2. Override a specific knob (`tdd`, `depth`, `model_profile`)
 3. Capture per-objective notes the planner should consider

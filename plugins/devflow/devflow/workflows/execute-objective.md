@@ -22,7 +22,9 @@ Load all context in one call:
 INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init execute-objective "${OBJECTIVE_ARG}")
 ```
 
-Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `jobs`, `incomplete_jobs`, `job_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `bootstrap`, `bootstrap_objectives`.
+Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `jobs`, `incomplete_jobs`, `job_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `bootstrap`, `bootstrap_objectives`, `pr_lifecycle`, `objective_branch`, `pr_number`, `branching_strategy_ignored`, `deprecations`.
+
+`pr_lifecycle` is the one switch for the objective branch and pull request (store mode). Branch on this field only; never probe config with a shell command. When it is true, `objective_branch` is the linked branch name, `pr_number` is the PR number (null until `gh pr start` has opened it) and `branch_name` is null. When it is false, every value is as before and `deprecations` is present only if `branching_strategy` is `objective` or `milestone`.
 
 **Bootstrap surface (one line, only when something changed).** If `bootstrap.applied` is true or
 `bootstrap_objectives.applied > 0`, print exactly one line and continue:
@@ -37,7 +39,17 @@ When `parallelization` is false, plans within a wave execute sequentially.
 </step>
 
 <step name="handle_branching">
-Check `branching_strategy` from init:
+Branch on `pr_lifecycle` from init.
+
+**If `pr_lifecycle` is true (store mode):** the objective runs on one linked branch with one pull request, and `branching_strategy` is ignored (init reports it as `branching_strategy_ignored`; say so in one line if it is set, and do nothing with it). Start it once, here, before the first wave:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr start "${OBJECTIVE_NUMBER}"
+```
+
+It puts the checkout on `objective_branch`, makes one start commit and opens the draft PR. It needs GitHub, so it is an online step and queues nothing. On exit 1 (offline, uncommitted changes to tracked files, an objective with no issue yet — run `df-tools gh sync` for it first — or a refused branch name) STOP: report the message and do not spawn any executor, because every later step builds on that branch. Exit 3 means the push or flush is pending: report it, run the command again, and go on once it exits 0. Re-running it on an objective that already has its branch is safe. From here on every commit goes to `objective_branch`; the merge happens through the PR (see `update_roadmap`), never by a local merge.
+
+**If `pr_lifecycle` is false (local mode):** unchanged. If init returned `deprecations`, print each entry once, then check `branching_strategy` from init:
 
 **"none":** Skip, continue on current branch.
 
@@ -252,6 +264,12 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Note the two values down as literals (`REPO_ROOT`, `WAVE_BASE`) — a shell variable does
    not survive into the next Bash call. Both go into every executor prompt in this wave.
 
+   **If `pr_lifecycle` is true:** `gh pr start` left this checkout on `objective_branch`, so the `HEAD`
+   read above is the objective branch tip, and that tip is `WAVE_BASE` for every wave, sequential or
+   parallel (each wave's merge-back moves it forward). Confirm it once per wave with
+   `git rev-parse --abbrev-ref HEAD`: it must print `objective_branch`. If it does not, STOP and report
+   it. Something switched branches mid-objective, and worktrees cut from there would build on the wrong base.
+
    **Sequential wave (`PARALLELIZATION=false`, or a single plan):** the executor runs in
    `REPO_ROOT` itself, on the branch already checked out. `WAVE_BASE` is the current HEAD,
    so the previous wave's commits are present by construction, and its preflight proves it.
@@ -321,6 +339,17 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    TRD_CONTENT = Read("{objective_dir}/{plan_file}")
    ```
 
+   **If `pr_lifecycle` is true:** mark each TRD in progress as you spawn it, one plain call per TRD:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs gh trd start {plan_id}
+   ```
+
+   It queues a label write and reads nothing, so it works offline: exit 3 only means the write is pending,
+   and the wave goes on. Exit 1 is shown as a warning and does not stop the wave. The executor's
+   `summary post` removes the label and refreshes the PR when the TRD completes, so do neither yourself.
+   The executor agent and its prompt are unchanged.
+
    ```
    Task(
      subagent_type="executor",
@@ -328,7 +357,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
      prompt="
        <objective>
        Execute plan {plan_number} of objective {objective_number}-{objective_name}.
-       Commit each task atomically. Create SUMMARY.md. Update STATE.md and ROADMAP.md.
+       Commit each task atomically. Publish the SUMMARY with `df-tools summary checkpoint` (per task) and
+       `df-tools summary post` (once). Record state with the `df-tools state` and `roadmap update-job-progress` commands.
        </objective>
 
        <execution_context>
@@ -365,19 +395,23 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        <worktree_protocol>
        - You may be in a git worktree the orchestrator provisioned for you. Commit to your
          current branch as normal.
-       - Write SUMMARY.md at the path given in the TRD output section and COMMIT it —
-         the orchestrator reads it from your branch after merging.
-       - STATE.md/ROADMAP.md updates: include them in your commits; conflicts are resolved
-         at merge time by the orchestrator.
+       - Publish the SUMMARY only through `node ~/.claude/devflow/bin/df-tools.cjs summary checkpoint` (per task) and
+         `summary post` (once), from a `planning draft` path. In local mode the verbs write the
+         checkout you are in, so from a worktree the SUMMARY lands in YOUR worktree: commit it with
+         your task commits, and the wave merge delivers it. In store mode the verbs write the main
+         checkout's gitignored cache and no commit carries the SUMMARY.
+       - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job` (and the other
+         `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
+         your commits; conflicts are resolved at merge time by the orchestrator.
        </worktree_protocol>
 
        <success_criteria>
        - [ ] All tasks executed
        - [ ] Each task committed individually
-       - [ ] Committed after every task; SUMMARY.md ## Progress kept current (a cut-short run is resumed, not redone)
-       - [ ] SUMMARY.md created in plan directory and committed
-       - [ ] STATE.md updated with position and decisions
-       - [ ] ROADMAP.md updated with job progress (via `roadmap update-job-progress`)
+       - [ ] Committed after every task; SUMMARY ## Progress kept current via `df-tools summary checkpoint` (a cut-short run is resumed, not redone)
+       - [ ] SUMMARY published once via `df-tools summary post`
+       - [ ] STATE.md position and decisions recorded via the `df-tools state` commands
+       - [ ] Roadmap progress recorded via `df-tools roadmap update-job-progress`
        </success_criteria>
      "
    )
@@ -418,8 +452,9 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
 5b. **Merge the wave's worktree branches (parallel waves only):**
 
-   **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads each plan's own
-   checkout, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
+   **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads each parallel plan's
+   SUMMARY state from that plan's worktree (`<worktree_path>/.planning/...`, local mode), where the
+   summary verbs wrote it, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
    executor is resumed inside its worktree, so merging that branch or removing that worktree
    would strand it. It is merged here, like any other plan, once a resume leaves it COMPLETE.
    A plan that falls through to item 7 keeps its worktree, so the fresh-respawn retry builds
@@ -437,22 +472,93 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Prior art: workstreams.cjs provisions worktrees the same way, with `worktree_prefix`
    and `merge_strategy: "squash"`.
 
-   **Branch merge protocol** — one plain command per call, for each plan in the wave:
+   **Branch merge protocol** — one plain command per call, for each plan in the wave. Never chain a
+   merge with a commit, and never resolve a conflict in the merge's own call: a merge chained with a raw
+   `git commit` is denied. gate-commits decides before a command runs, when `MERGE_HEAD` does not
+   exist yet, so a completion commit chained after the merge looks like a raw commit. Run each step as its
+   own Bash call. Merge the plan's branch:
    ```bash
    git merge --no-ff df/exec-{plan_id}
    ```
-   File ownership is exclusive per wave (each TRD owns different files), so a conflict
-   indicates a planning error. On conflict:
+   A clean merge commits itself, so there is nothing more to run for that plan. File ownership is
+   exclusive per wave (each TRD owns different files), so a conflict in a code file indicates a planning
+   error. The planning files are the exception: every executor touches `.planning/STATE.md`,
+   `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (see the worktree protocol above), so the peers'
+   changes to them can conflict. When the merge stops on a conflict, list the unmerged paths:
+   ```bash
+   git diff --name-only --diff-filter=U
+   ```
+   If EVERY listed path is `.planning/STATE.md`, `.planning/ROADMAP.md` or `.planning/REQUIREMENTS.md`,
+   take the integration branch's copy of each one. Run these two commands as separate calls, once per
+   listed path (`<planning_path>` stands for one listed path):
+   ```bash
+   git checkout --ours -- <planning_path>
+   ```
+   ```bash
+   git add <planning_path>
+   ```
+   When every path is added, finish the merge with the completion commit, as its own call. It is allowed
+   on its own because the stopped merge left `MERGE_HEAD`:
+   ```bash
+   git commit --no-edit
+   ```
+   If ANY other path is listed, resolve nothing. Abort the merge:
    ```bash
    git merge --abort
    ```
    Route to the failure handler with: "Merge conflict on {branch} — planning error, two
    TRDs in the same wave modified the same file."
 
+   Taking ours is the same "take ours, regenerate" policy as workstreams-merge step 3, so after the wave's
+   merges, when a planning-file conflict was resolved above, regenerate what it dropped. `STATE.md` keeps the
+   integration branch's copy: `state update-progress` rebuilds its progress figure from the SUMMARYs now on
+   disk, and a decision or note a peer recorded only in its own `STATE.md` copy is not carried over (it is
+   still in that plan's SUMMARY). `ROADMAP.md` is recomputed from disk. For a conflicted
+   `REQUIREMENTS.md`, re-run `node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete <ids>` with the
+   `requirements:` of each plan whose copy lost. Then commit the result:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs state update-progress
+   ```
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
+   ```
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .planning/ROADMAP.md .planning/STATE.md
+   ```
+   <!-- merge-sequence:end -->
+
    Then remove each worktree (the `remove` command `exec-context worktree` printed):
    ```bash
    git worktree remove <worktree_path>
    ```
+
+   **If `pr_lifecycle` is true:** `df/exec-*` branches are never pushed. They are scratch branches for one
+   executor, and pushing one creates a stray remote branch (and can open a stray PR). Only
+   `objective_branch` ever reaches GitHub. Once a plan's branch is merged and its worktree removed,
+   delete the branch locally, one plain call per merged plan:
+   ```bash
+   git branch -d df/exec-{plan_id}
+   ```
+   `-d` refuses an unmerged branch, which is what you want: if it refuses, the merge did not happen, so
+   report it and keep the branch. A plan that fell through to item 7 keeps its branch and worktree.
+
+   **The wave's SUMMARYs arrive with the merges (local mode).** Each parallel executor wrote its SUMMARY
+   into its own worktree and committed it on its `df/exec-*` branch, so the merges above already bring
+   them into this tree. There is nothing more to commit, and no copy of a SUMMARY exists here for a
+   merge to collide with. Do not copy or move a SUMMARY between trees. In store mode the SUMMARY is the
+   main checkout's gitignored cache, as before, and no commit carries it.
+
+   **If `pr_lifecycle` is true, sync the objective PR once per wave** (every wave, a sequential one with
+   nothing to merge included). It pushes `objective_branch` and refreshes the PR body, so running it once
+   per wave, not after every executor, keeps the number of pushes and PR updates low:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs gh pr sync "${OBJECTIVE_NUMBER}"
+   ```
+   Exit 0: done. Exit 3: the push or the flush is pending (offline, a rate limit); say so and go on. The
+   work is committed locally, and the verify step syncs again before it posts anything. Exit 2: the outbox
+   halted for a human; stop and report it. Exit 1: show the message and go on, since the commits are
+   safe; the verify step will not post until a sync succeeds. Warnings arrive on stderr with exit 0:
+   surface them in the wave report.
 
    **Why the base is stated rather than inferred (issue #86):** platform-managed isolation
    branched from the default branch, not the parent HEAD, so on a feature branch the prior
@@ -482,10 +588,13 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    - **COMMITS** = the line count of
      `git log --oneline --all --grep="({objective}-{trd})"`
      (`--all` sees an unmerged worktree branch too).
-   - **SUMMARY state**, read from the plan's own checkout (its worktree for a parallel wave, the
-     current tree for a sequential one). It is one of:
-     - `missing`: no `{objective}-{trd}-SUMMARY.md`;
-     - `checkpoint`: the file exists but has no `## Self-Check` heading. The executor contract
+   - **SUMMARY state**, read from where the summary verbs wrote it. Local mode: a parallel plan's state
+     comes from its worktree (`<worktree_path>/.planning/...`, the path you noted in step 0, read before
+     the 5b merge), and a sequential plan's from the current tree. Store mode: the main checkout's
+     `.planning/` and `.planning/.trd-progress/`, for every plan. It is one of:
+     - `missing`: no `{objective}-{trd}-SUMMARY.md` and no `.planning/.trd-progress/{objective}-{trd}.md`;
+     - `checkpoint`: the SUMMARY exists but has no `## Self-Check` heading, or (store mode) only
+       `.planning/.trd-progress/{objective}-{trd}.md` exists. The executor contract
        says "A SUMMARY without `## Self-Check` means checkpoint, not complete";
      - `final`: it has `## Self-Check: PASSED` or `## Self-Check: FAILED`.
 
@@ -514,9 +623,10 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Remaining steps:
    1. {first unticked ## Progress item, or first TRD task with no commit}
    2. ...
-   N. Write the final SUMMARY.md with ## Self-Check and commit it.
+   N. Finish the SUMMARY draft with ## Self-Check and publish it once with `df-tools summary post`.
    ```
-   Build the numbered steps from the plan's SUMMARY `## Progress` section when there is one: its
+   Build the numbered steps from the plan's SUMMARY `## Progress` section (store mode: its
+   `.trd-progress/` file) when there is one: its
    unticked items in order, with the `next step:` line as step 1. Without one, list the TRD's
    tasks that have no commit yet. The last step is always the final SUMMARY with
    `## Self-Check`.
@@ -812,27 +922,34 @@ PARENT_INFO=$(node ~/.claude/devflow/bin/df-tools.cjs find-objective "${PARENT_O
 
 **If no parent UAT found:** Skip this step (gap-closure may have been triggered by VERIFICATION.md instead).
 
-**3. Update UAT gap statuses:**
+**3. Resolve the UAT gaps in a draft.** The UAT file is published through `doc put` and never edited in place:
 
-Read the parent UAT file's `## Gaps` section. For each gap entry with `status: failed`:
-- Update to `status: resolved`
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/<parent objective dir>/<parent UAT file name>
+```
 
-**4. Update UAT frontmatter:**
+In the printed draft path, read the `## Gaps` section. For each gap entry with `status: failed`:
+- Set it to `status: resolved`
+
+**4. UAT frontmatter (same draft):**
 
 If all gaps now have `status: resolved`:
-- Update frontmatter `status: diagnosed` → `status: resolved`
-- Update frontmatter `updated:` timestamp
+- Set frontmatter `status: diagnosed` → `status: resolved`
+- Refresh the frontmatter `updated:` timestamp
+
+Then publish the draft:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/<parent objective dir>/<parent UAT file name> --from <draft path>
+```
 
 **5. Resolve referenced debug sessions:**
 
 For each gap that has a `debug_session:` field:
 - Read the debug session file
-- Update frontmatter `status:` → `resolved`
-- Update frontmatter `updated:` timestamp
-- Move to resolved directory:
+- Resolve it with the debug verb. In local mode it marks the session resolved and moves it to `.planning/debug/resolved/`:
 ```bash
-mkdir -p .planning/debug/resolved
-mv .planning/debug/{slug}.md .planning/debug/resolved/
+node ~/.claude/devflow/bin/df-tools.cjs debug resolve {slug}
 ```
 
 **6. Commit updated artifacts:**
@@ -843,6 +960,22 @@ node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-${PARENT_OBJECTIV
 
 <step name="verify_objective_goal">
 Verify objective achieved its GOAL, not just completed tasks.
+
+Mark the objective as verifying before the verifier runs. The command is store-aware; in local mode it sets `status: verifying` in OBJECTIVE.md. A non-zero exit is reported, not fatal:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs objective set-status "${OBJECTIVE_NUMBER}" verifying
+```
+
+**If `pr_lifecycle` is true, sync the objective PR BEFORE the verifier runs:**
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr sync "${OBJECTIVE_NUMBER}"
+```
+
+The verification result is recorded against the PR's head commit on GitHub. Syncing first means GitHub holds the head being verified, so the status lands on the verified head instead of a stale one. This sync must exit 0. On exit 3 (pending) or exit 1, run it again; if it still does not exit 0, STOP and report why, and do not start the verifier. Nothing may be committed to `objective_branch` between this sync and the post. Run the same sync again before every re-verify in the gap-closure loop below, because the fix TRDs moved the head.
+
+The verifier's `verification post` does the rest: it queues the verification comment, the commit status, the ready-for-review change and the wiki diff when the verdict is `passed`. Do not call any of those from here.
 
 **Progress tracking (if available):**
 ```
@@ -865,7 +998,8 @@ Objective goal: {goal from ROADMAP.md}
 Objective requirement IDs: {objective_req_ids}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from TRD/JOB frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
-Create VERIFICATION.md.",
+Draft VERIFICATION.md from `planning draft` and publish it with `node ~/.claude/devflow/bin/df-tools.cjs verification post {objective_number} --from <draft path>`.
+The VERIFICATION frontmatter must carry `status: passed|gaps_found|human_needed` (optional `score:`); `verification post` reads it.",
   subagent_type="verifier",
   model="{verifier_model}"
 )
@@ -943,7 +1077,7 @@ MAX_GAP_CYCLES=2
    Spawn executor agents for gap-closure TRDs (same wave-based execution as main execute step).
 
 3. **Re-verify:**
-   Re-run verification. Read new status.
+   If `pr_lifecycle` is true, run `gh pr sync` first (see the sync before the verifier above). Re-run verification. Read new status.
 
    - `passed` → Break loop, continue to update_roadmap
    - `gaps_found` → Continue loop (next cycle)
@@ -991,27 +1125,57 @@ Extract from result: `next_objective`, `next_objective_name`, `is_last_objective
 Before the final commit, reconcile any ROADMAP ↔ disk drift so the commit captures the corrected state in one atomic move. Non-blocking — failure produces a warning but does not abort completion.
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs sync-roadmap 2>/dev/null || {
+node ~/.claude/devflow/bin/df-tools.cjs sync-roadmap || {
   echo "Note: sync-roadmap reconcile skipped (CLI failed); continuing without ROADMAP drift correction."
 }
 ```
 
-**Auto-push to GitHub (TRD 18-02):**
+**Auto-push to GitHub (objective 46, GSF-03):**
 
-Push state to the linked GitHub issue when the objective has one. Skipped silently when OBJECTIVE.md is absent or has no `github_issue` field. Auth failures emit a warning with remediation but don't abort.
+Push the objective's state to its GitHub issue (created on first sync). When `github.enabled` is not true the command reports `skipped` and exits 0. A failure never blocks completion, but it is shown, never swallowed. `OBJECTIVE_DIR` may be the bare directory name or the `.planning/objectives/…` path that `init` reports; `basename` accepts both.
 
 ```bash
-OBJECTIVE_MD=".planning/objectives/${OBJECTIVE_DIR}/OBJECTIVE.md"
-if [[ -f "$OBJECTIVE_MD" ]] && grep -qE '^github_issue:' "$OBJECTIVE_MD" 2>/dev/null; then
-  node ~/.claude/devflow/bin/df-tools.cjs gh sync "${OBJECTIVE_NUMBER}" 2>/dev/null || {
-    echo "Note: gh sync skipped for objective ${OBJECTIVE_NUMBER} (CLI failed; check 'gh auth status' if persistent); continuing."
-  }
+OBJECTIVE_DIR="$(basename "${OBJECTIVE_DIR}")"
+if SYNC_OUT=$(node ~/.claude/devflow/bin/df-tools.cjs gh sync "${OBJECTIVE_DIR}" 2>&1); then
+  :
+else
+  echo "WARNING: GitHub sync failed for objective ${OBJECTIVE_DIR} (completion continues):"
+  printf '%s\n' "$SYNC_OUT" | head -40
+  echo "Retry: node ~/.claude/devflow/bin/df-tools.cjs gh sync ${OBJECTIVE_DIR}"
 fi
 ```
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{X}): complete objective execution" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/objectives/{objective_dir}/*-VERIFICATION.md
 ```
+
+Add `.planning/objectives/{objective_dir}/OBJECTIVE.md` to `--files` when the objective has one, because `objective set-status` changed it.
+
+**If `pr_lifecycle` is true — merge the objective PR, then reconcile.**
+
+In store mode `objective complete` does not close the objective's GitHub issue while its PR is unmerged: it exits 0, writes the status and prints a warning that the close is deferred. The objective issue closes on merge, not at verify, so the objective is not finished until its PR is. Local mode is unaffected (nothing here applies to it).
+
+Offer the merge with AskUserQuestion (header "Merge", options "Merge now" and "Leave open for review"). Never merge without a yes. The merge method is `github.pr.merge_method` (default `squash`). On "Merge now":
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr merge "${OBJECTIVE_NUMBER}"
+```
+
+- exit 0: merged and reconciled in the same call. The issues are closed, the Project is Done, the checkout is back on the default branch and the objective branch is deleted.
+- exit 3: the PR was only enqueued in the merge queue (or the flush is pending). Nothing is wrong. Tell the user to run `gh pr reconcile` once it lands (below).
+- exit 2: the outbox halted for a human. Stop and report the PR and the reason it printed.
+- exit 1: refused (still a draft, no successful `devflow/verification` status on the current head, closed, or offline). Nothing was queued. Report the message. A missing or stale verification means `gh pr sync` and the verification have to be redone (`verify_objective_goal`); do not retry the merge unchanged.
+- Warnings (a kept branch, a skipped Project or local step) arrive on stderr with exit 0. Show them; do not swallow them.
+
+Then reconcile:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs gh pr reconcile "${OBJECTIVE_NUMBER}"
+```
+
+Run it when the merge exited 3 (a merge queue) and the PR has landed, or when a human merged the PR on GitHub instead. It is idempotent, so running it twice is safe. Exit 0: reconciled. Exit 3: the PR is still open or a flush is pending, so run it again later. Exit 1: the PR was closed without merging; report it and do not mark anything done.
+
+A dependent objective starts from the default branch, so merge (or reconcile) this PR before starting it.
 </step>
 
 <step name="offer_next">
