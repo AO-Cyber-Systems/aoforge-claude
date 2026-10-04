@@ -18,19 +18,38 @@
 // the legacy check's back. Both guards exclude the doctor's own earlier changes
 // (ctx.changedThisRun); the worktree guard also excludes legacy runtime-state files, which hooks
 // rewrite constantly and which are the doctor's to clean, never user work.
+//
+// The doctor never commits: the fix prints the follow-up commit (commitNote). In GitHub store mode objective 50's gate
+// refuses a bare `df-tools commit` on the default branch and on unlinked branches, so there the note is the
+// commit-steps builder's branch + logged-escape sequence with the `gh pr start` route (TRD 52-01); local mode keeps the
+// `commit with: ...` line byte for byte.
 
 const upgrade = require('../upgrade.cjs');
 const dg = require('../doctor-git.cjs');
+const planningMode = require('../planning-mode.cjs');
+const { branchCommitSteps, commitCommand } = require('../commit-steps.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
 
 const DF_TOOLS = 'node ~/.claude/devflow/bin/df-tools.cjs';
 const APPLY_COMMAND = `${DF_TOOLS} upgrade --apply`;
 const CHECK_COMMAND = `${DF_TOOLS} upgrade --check`;
 const GUARDED_PATHS = ['.planning', 'CLAUDE.md', '.gitignore'];
+const STORE_BRANCH = 'devflow-upgrade';
 
 function confirmCommand(id) {
   const base = `${DF_TOOLS} upgrade --apply --only ${id} --confirm`;
   return id === '0006' ? `${base} --kind <kind>` : base;
+}
+
+/**
+ * The follow-up commit note for an upgrade to `version` that changed `files`. Local mode: `commit with: <command>`,
+ * byte-identical to before 52-01. Store mode: the builder's store form for branch `devflow-upgrade` (multi-line, so the
+ * fix appends it last). `planningMode.isStoreMode` is the only reader of `github.store`.
+ */
+function commitNote(root, version, files) {
+  const command = commitCommand(`chore: upgrade DevFlow project to v${version}`, files);
+  if (!planningMode.isStoreMode(root)) return `commit with: ${command}`;
+  return branchCommitSteps({ branch: STORE_BRANCH, reason: 'DevFlow upgrade', command });
 }
 
 function checkReport(ctx) {
@@ -140,9 +159,8 @@ function fix(ctx) {
   if (rep.pending_confirm.length) {
     notes.push(`still needs confirmation: ${rep.pending_confirm.map((p) => confirmCommand(p.id)).join(' && ')}`);
   }
-  if (rep.changed_files.length) {
-    notes.push(`commit with: ${DF_TOOLS} commit "chore: upgrade DevFlow project to v${ctx.pluginVersion}" --files ${rep.changed_files.join(' ')}`);
-  }
+  // Last on purpose: in store mode the note is multi-line.
+  if (rep.changed_files.length) notes.push(commitNote(ctx.projectRoot, ctx.pluginVersion, rep.changed_files));
   return { ...out, applied: true, notes: notes.join('; ') };
 }
 
@@ -153,4 +171,5 @@ module.exports = {
   run,
   fix,
   confirmCommand,
+  commitNote,
 };

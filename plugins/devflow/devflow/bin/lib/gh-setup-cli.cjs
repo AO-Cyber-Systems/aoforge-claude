@@ -16,9 +16,15 @@
 // process.exit is stubbed by the tests, so every handler RETURNS its result and `emit` runs exactly once.
 //
 // result/emit are small copies of gh-pr-cli's private helpers (the shape is the contract); `EXIT` is imported.
+//
+// The commit follow-up for the written files comes from commit-steps.cjs (TRD 52-01): a branch sequence in every mode
+// (the ruleset makes a pull request mandatory either way), with the logged gate escape and the `gh pr start` route
+// added in store mode, where objective 50's gate refuses a bare `df-tools commit` on the default or an unlinked branch.
 
 const setupLib = require('./gh-setup.cjs');
 const helpers = require('./helpers.cjs');
+const planningMode = require('./planning-mode.cjs');
+const { branchCommitSteps, commitCommand } = require('./commit-steps.cjs');
 const { EXIT } = require('./gh-store-cli.cjs');
 
 // ─── Results and output ──────────────────────────────────────────────────────
@@ -86,10 +92,21 @@ function countLine(outcomes) {
   return `Applied ${outcomes.length} action${outcomes.length === 1 ? '' : 's'}: ${parts.join(', ')}.`;
 }
 
-/** What to do with the files apply wrote, and why the order of the merge matters. */
-function filesLines(files, outcomes) {
-  const lines = ['', `Written to the working tree, not committed: ${files.join(', ')}.`,
-    `Commit them on a branch and open a pull request: df-tools commit "chore: add the DevFlow checks workflow and pull request template" --files ${files.join(' ')}`];
+const SETUP_BRANCH = 'devflow-setup';
+const SETUP_COMMIT_MESSAGE = 'chore: add the DevFlow checks workflow and pull request template';
+
+/**
+ * What to do with the files apply wrote, and why the order of the merge matters. The commit follow-up is the commit-steps
+ * builder's sequence (TRD 52-01), runnable as printed: the store form (logged escape, `gh pr start` route) when `cwd` is
+ * in store mode, the plain branch sequence otherwise.
+ */
+function filesLines(cwd, files, outcomes) {
+  const steps = branchCommitSteps({
+    branch: SETUP_BRANCH,
+    command: commitCommand(SETUP_COMMIT_MESSAGE, files),
+    reason: planningMode.isStoreMode(cwd) ? 'gh setup workflow' : null,
+  });
+  const lines = ['', `Written to the working tree, not committed: ${files.join(', ')}.`, 'Commit them through a pull request:', steps];
   const ruleset = outcomes.find((o) => o.kind === 'ruleset');
   if (ruleset && ['created', 'updated', 'exists'].includes(ruleset.status)) {
     lines.push('The ruleset requires devflow/linked-issue and devflow/planning-consistency, and those checks exist only once the workflow is on the default branch.',
@@ -112,7 +129,7 @@ function dryRun(state, actions, requireWiki) {
   return result(problems.length === 0 ? EXIT.OK : EXIT.ERROR, payload, lines.join('\n'));
 }
 
-function applied(state, applyResult, requireWiki) {
+function applied(cwd, state, applyResult, requireWiki) {
   const { outcomes } = applyResult;
   const files = outcomes.filter((o) => (o.kind === 'workflow' || o.kind === 'pr-template') && APPLIED.has(o.status)).map((o) => o.target);
   const changed = outcomes.some((o) => APPLIED.has(o.status) || o.status === 'failed');
@@ -123,7 +140,7 @@ function applied(state, applyResult, requireWiki) {
 
   const lines = [`DevFlow repository setup: ${state.repo}`, '', ...outcomes.map(outcomeLine), '', countLine(outcomes)];
   if (!changed) lines.push('Nothing to change: everything is already in place.');
-  if (files.length > 0) lines.push(...filesLines(files, outcomes));
+  if (files.length > 0) lines.push(...filesLines(cwd, files, outcomes));
   if (failed.length > 0) lines.push('', `${failed.length} action${failed.length === 1 ? '' : 's'} failed; the rest were still applied. Fix the cause and run \`df-tools gh setup --apply\` again: it only does what is still missing.`);
   if (conflicts.length > 0) lines.push('', `${conflicts.length} local file${conflicts.length === 1 ? ' is' : 's are'} in conflict and was left untouched: merge the DevFlow content into ${conflicts.length === 1 ? 'it' : 'them'} by hand, or remove ${conflicts.length === 1 ? 'it' : 'them'} and run again.`);
   const wikiBlocked = requireWiki && !ready;
@@ -154,11 +171,11 @@ function runSetup(cwd, args) {
   if (!parsed.apply) return dryRun(read.state, actions, parsed.requireWiki);
 
   const outcome = setupLib.applySetup(cwd, actions, { repo: read.state.repo, refresh: parsed.refresh });
-  return applied(read.state, outcome, parsed.requireWiki);
+  return applied(cwd, read.state, outcome, parsed.requireWiki);
 }
 
 function cmdGhSetup(cwd, args, raw) {
   emit(runSetup(cwd, args), raw);
 }
 
-module.exports = { SETUP_USAGE, cmdGhSetup };
+module.exports = { SETUP_USAGE, cmdGhSetup, filesLines };
