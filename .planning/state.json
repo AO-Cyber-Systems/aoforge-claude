@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 97,
+  "progress_pct": 99,
   "status": "ready_for_verification",
   "last_activity": "2026-10-04",
   "metrics": {
@@ -589,6 +589,11 @@
     {
       "objective": "53",
       "summary": "53-03: micro commits through df-tools commit by spawning the CLI; the store-mode gate, override log and Refs trailer keep one owner (cmdCommit), and gh-gate refusals map to gate-refused with the message verbatim",
+      "rationale": null
+    },
+    {
+      "objective": "53",
+      "summary": "53-04: gate-commits keeps denying a merge chained with a raw git commit; only the deny reason gains a hint, and a squash completion uses the inline DEVFLOW_ALLOW_RAW_COMMIT=1 prefix rather than SQUASH_MSG detection",
       "rationale": null
     }
   ],
