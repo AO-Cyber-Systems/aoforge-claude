@@ -51,6 +51,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { stripHeredocs, stripQuoted } = require('./gate-commits.js');
+const { escapeRegExp } = require('../devflow/bin/lib/text-escape.cjs');
 
 // Flags that consume the NEXT token as their value (never a commit-ish candidate).
 const VALUE_FLAGS = new Set(['-m', '--message', '-F', '--file', '-u', '--local-user']);
@@ -217,7 +218,7 @@ function main() {
   const content = reader.read('CHANGELOG.md');
   if (content === null) return; // No CHANGELOG at the resolved tree = nothing to gate (skips manifest check too)
 
-  const versionRe = new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm');
+  const versionRe = new RegExp(`^## \\[${escapeRegExp(version)}\\]`, 'm');
   if (!versionRe.test(content)) {
     deny([
       `CHANGELOG.md has no entry for ${tag}${at}.`,
