@@ -56,6 +56,7 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 
 const { getWrapper, UnsupportedShell } = require('./wrappers/index.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 let _ptyModule = null;
 function _loadPTY() {
@@ -394,7 +395,7 @@ class ShellSession extends EventEmitter {
     const begin = `__DFW_BEGIN_${id}__`;
     const delim = `__DFW_DELIM_${id}__`;
     const end = `__DFW_END_${id}__`;
-    const endRx = new RegExp(`${escapeRegex(end)}:(-?\\d+)`);
+    const endRx = new RegExp(`${escapeRegExp(end)}:(-?\\d+)`);
 
     return new Promise((resolve) => {
       const d = {
@@ -501,10 +502,6 @@ class ShellSession extends EventEmitter {
       this._activeDispatch = null;
     }
   }
-}
-
-function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**

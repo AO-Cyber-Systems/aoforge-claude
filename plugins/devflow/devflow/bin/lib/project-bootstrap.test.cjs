@@ -460,3 +460,69 @@ test('O13 — backfillAllObjectives no opts: old keys unchanged plus paths (ever
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+// TRD 54-07 — bootstrapObjectiveMd builds its ROADMAP regexes with the shared objectiveNumPattern and
+// bounds the Goal lookup to the objective's own section.
+//
+// O14 — decimal 04.1 takes name and goal from "### Objective 4.1:" even when "### Objective 401:" comes first
+// O15 — an objective with no **Goal:** keeps the placeholder and never borrows the next objective's goal
+
+test('O14 — bootstrapObjectiveMd: "04.1-right" ignores an earlier "### Objective 401:" heading', () => {
+  const roadmap = [
+    '# Roadmap',
+    '',
+    '### Objective 401: Wrong',
+    '',
+    '**Goal:** wrong goal',
+    '',
+    '### Objective 4.1: Right',
+    '',
+    '**Goal:** right goal',
+    '',
+  ].join('\n');
+  const repo = makeRepo({
+    projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
+    roadmap,
+    objectives: { '04.1-right': null },
+  });
+  try {
+    const r = bootstrapObjectiveMd(repo, '04.1-right');
+    assert.strictEqual(r.applied, true);
+    const content = fs.readFileSync(r.path, 'utf-8');
+    assert.match(content, /^# Right$/m);
+    assert.match(content, /right goal/);
+    assert.doesNotMatch(content, /wrong goal/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('O15 — bootstrapObjectiveMd: a section with no **Goal:** does not borrow the next objective\'s goal', () => {
+  const roadmap = [
+    '# Roadmap',
+    '',
+    '### Objective 2: NoGoal',
+    '',
+    'Only prose here.',
+    '',
+    '### Objective 3: Has',
+    '',
+    '**Goal:** three',
+    '',
+  ].join('\n');
+  const repo = makeRepo({
+    projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
+    roadmap,
+    objectives: { '02-nogoal': null },
+  });
+  try {
+    const r = bootstrapObjectiveMd(repo, '02-nogoal');
+    assert.strictEqual(r.applied, true);
+    const content = fs.readFileSync(r.path, 'utf-8');
+    assert.match(content, /^# NoGoal$/m);
+    assert.match(content, /_\(extract from ROADMAP\.md "### Objective N:" entry\)_/);
+    assert.doesNotMatch(content, /three/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

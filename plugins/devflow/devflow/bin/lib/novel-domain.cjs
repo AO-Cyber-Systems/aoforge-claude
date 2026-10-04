@@ -24,6 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const { output, error, safeReadFile } = require('./helpers.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const { objectiveNumPattern } = require('./text-escape.cjs');
 
 // ─── detectComparisonKeyword ──────────────────────────────────────────────────
 
@@ -329,9 +330,7 @@ function cmdDetectNovelDomain(cwd, objective, raw) {
     const roadmapContent = safeReadFile(roadmapPath);
     if (roadmapContent) {
       // Find section for this objective number
-      const numStr = String(objectiveNum);
-      const escapedNum = numStr.replace(/\./g, '\\.');
-      const headerRe = new RegExp(`^#{2,4}\\s+Objective\\s+${escapedNum}[:\\s]`, 'm');
+      const headerRe = new RegExp(`^#{2,4}\\s+Objective\\s+${objectiveNumPattern(objectiveNum)}[:\\s]`, 'm');
       const headerMatch = roadmapContent.match(headerRe);
       if (headerMatch) {
         const start = headerMatch.index;

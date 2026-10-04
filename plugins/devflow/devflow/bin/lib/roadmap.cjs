@@ -8,6 +8,7 @@ const { findObjectiveInternal } = require('./objective.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const { reconcile } = require('./roadmap-reconcile.cjs');
 const { isStoreMode } = require('./planning-mode.cjs');
+const { objectiveNumPattern } = require('./text-escape.cjs');
 
 // TRD 48-13 (D-19): in store mode ROADMAP.md is a view rendered from GitHub by
 // `gh pull --all`, so the commands that write it no-op (exit 0) with this
@@ -102,7 +103,7 @@ function getRoadmapObjectiveInternal(cwd, objectiveNum) {
 
   try {
     const content = fs.readFileSync(roadmapPath, 'utf-8');
-    const escapedObjective = objectiveNum.toString().replace(/\./g, '\\.');
+    const escapedObjective = objectiveNumPattern(objectiveNum);
     const objectivePattern = new RegExp(`#{2,4}\\s*Objective\\s+${escapedObjective}:\\s*([^\\n]+)`, 'i');
     const headerMatch = content.match(objectivePattern);
     if (!headerMatch) return null;
@@ -142,8 +143,8 @@ function cmdRoadmapGetObjective(cwd, objectiveNum, raw) {
   try {
     const content = fs.readFileSync(roadmapPath, 'utf-8');
 
-    // Escape special regex chars in objective number, handle decimal
-    const escapedObjective = objectiveNum.replace(/\./g, '\\.');
+    // Escaped objective number with a trailing boundary (4.1 never matches 4.10 or 4.1.2)
+    const escapedObjective = objectiveNumPattern(objectiveNum);
 
     // Match "## Objective X:", "### Objective X:", or "#### Objective X:" with optional name
     const objectivePattern = new RegExp(
@@ -278,7 +279,7 @@ function cmdRoadmapAnalyze(cwd, raw) {
     } catch {}
 
     // Check ROADMAP checkbox status
-    const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Objective\\s+${objectiveNum.replace('.', '\\.')}`, 'i');
+    const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Objective\\s+${objectiveNumPattern(objectiveNum)}`, 'i');
     const checkboxMatch = content.match(checkboxPattern);
     const roadmapComplete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
 
@@ -377,7 +378,7 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   }
 
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
-  const objectiveEscaped = objectiveNum.replace('.', '\\.');
+  const objectiveEscaped = objectiveNumPattern(objectiveNum);
 
   // Progress table row: update Plans + Status (and Completed, when complete) —
   // column-name-aware so the Milestone column (when present) is never disturbed.

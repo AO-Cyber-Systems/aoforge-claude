@@ -43,6 +43,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 51 — GitHub migration and docs (completed 2026-10-01, 10/10 TRDs)
 **Objective complete:** 43 — Stack drafter rules (completed 2026-10-04, 15/15 TRDs)
 **Objective complete:** 52 — Store-mode polish (completed 2026-10-04, 6/6 TRDs)
+**Objective complete:** 54 — CodeQL cleanup (completed 2026-10-04, 10/10 TRDs)
 **Status:** Objective complete — ready for verification
 
 ## Branch State (post-merge)
@@ -258,6 +259,6 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-04T16:50:17.321Z
+Last session: 2026-10-04T19:09:23.726Z
 Resume file: `None`
-Stopped at: Completed 53-07-docs-and-full-suite-TRD.md
+Stopped at: Completed 54-09-changelog-suite-push-TRD.md

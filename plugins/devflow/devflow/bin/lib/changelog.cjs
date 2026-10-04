@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { output } = require('./helpers.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const TYPE_LABELS = {
   feat: 'Added',
@@ -117,7 +118,7 @@ function hasVersionEntry(cwd, version) {
   const p = path.join(cwd, 'CHANGELOG.md');
   if (!fs.existsSync(p)) return false;
   const content = fs.readFileSync(p, 'utf-8');
-  const versionRe = new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm');
+  const versionRe = new RegExp(`^## \\[${escapeRegExp(version)}\\]`, 'm');
   return versionRe.test(content);
 }
 

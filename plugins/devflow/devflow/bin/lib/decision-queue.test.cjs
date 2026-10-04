@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 
@@ -396,17 +396,18 @@ describe('decision-queue', () => {
   // ─── CLI subcommand: decision-queue (subprocess, TRD 02-06 pattern) ───────────
 
   describe('CLI subcommand: decision-queue', () => {
-    function runCli(tmpDir, args) {
+    function runCli(tmpDir, argv) {
       const env = { ...process.env, NOTIFIER_DISABLE: '1' };
-      return execSync(
-        `node ${DF_TOOLS} decision-queue ${args}`,
+      return execFileSync(
+        process.execPath,
+        [DF_TOOLS, 'decision-queue', ...argv],
         { cwd: tmpDir, encoding: 'utf-8', env }
       );
     }
 
     test('19. add subcommand → exit 0, JSON {id, path}, file exists', () => {
       const tmp = mktmp();
-      const stdout = runCli(tmp, 'add --objective 10 --trd 10-03 --title "SmokeTest" --context "SomeContext" --options "option-a,option-b" --recommendation option-a');
+      const stdout = runCli(tmp, ['add', '--objective', '10', '--trd', '10-03', '--title', 'SmokeTest', '--context', 'SomeContext', '--options', 'option-a,option-b', '--recommendation', 'option-a']);
       const result = JSON.parse(stdout);
       assert.ok(result.id, 'result has id');
       assert.ok(result.path, 'result has path');
@@ -415,8 +416,8 @@ describe('decision-queue', () => {
 
     test('20. list --raw → exit 0, JSON array', () => {
       const tmp = mktmp();
-      runCli(tmp, 'add --objective 10 --trd 10-03 --title "T" --context "C" --options "a,b" --recommendation a');
-      const stdout = runCli(tmp, 'list --raw');
+      runCli(tmp, ['add', '--objective', '10', '--trd', '10-03', '--title', 'T', '--context', 'C', '--options', 'a,b', '--recommendation', 'a']);
+      const stdout = runCli(tmp, ['list', '--raw']);
       const result = JSON.parse(stdout);
       assert.ok(Array.isArray(result), 'result is array');
       assert.ok(result.length >= 1, 'has at least one item');
@@ -424,8 +425,8 @@ describe('decision-queue', () => {
 
     test('21. resolve DECISION-001 option-a → exit 0, file moved to resolved/', () => {
       const tmp = mktmp();
-      runCli(tmp, 'add --objective 10 --trd 10-03 --title "T" --context "C" --options "a,b" --recommendation a');
-      const stdout = runCli(tmp, 'resolve DECISION-001 option-a');
+      runCli(tmp, ['add', '--objective', '10', '--trd', '10-03', '--title', 'T', '--context', 'C', '--options', 'a,b', '--recommendation', 'a']);
+      const stdout = runCli(tmp, ['resolve', 'DECISION-001', 'option-a']);
       const result = JSON.parse(stdout);
       assert.ok(result.ok || result.resolved, 'ok response');
       const resolvedPath = path.join(tmp, '.planning', 'decisions', 'resolved', 'DECISION-001.md');
@@ -435,7 +436,7 @@ describe('decision-queue', () => {
     test('22. unknown subcommand → exit 1 with usage', () => {
       const tmp = mktmp();
       assert.throws(() => {
-        execSync(`node ${DF_TOOLS} decision-queue unknowncmd`, {
+        execFileSync(process.execPath, [DF_TOOLS, 'decision-queue', 'unknowncmd'], {
           cwd: tmp, encoding: 'utf-8',
           env: { ...process.env, NOTIFIER_DISABLE: '1' },
         });

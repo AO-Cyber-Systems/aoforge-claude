@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const ph = require('./project-hygiene.cjs');
 
@@ -201,7 +201,7 @@ describe('cmdProjectHygieneCheck (subprocess)', () => {
       objectives: { '01-foo': { parent_issue: 'AO-Cyber-Systems/devflow-claude#1' } },
     });
     try {
-      const out = execSync(`node ${dfTools} project-hygiene check`, { cwd: fx.dir, encoding: 'utf-8' });
+      const out = execFileSync(process.execPath, [dfTools, 'project-hygiene', 'check'], { cwd: fx.dir, encoding: 'utf-8' });
       const parsed = JSON.parse(out.trim());
       assert.strictEqual(parsed.ok, true);
       assert.strictEqual(parsed.objectives_scanned, 1);
@@ -212,7 +212,7 @@ describe('cmdProjectHygieneCheck (subprocess)', () => {
     const fx = buildHygieneFixture({ objectives: {} });
     try {
       assert.throws(
-        () => execSync(`node ${dfTools} project-hygiene`, { cwd: fx.dir, encoding: 'utf-8', stdio: 'pipe' }),
+        () => execFileSync(process.execPath, [dfTools, 'project-hygiene'], { cwd: fx.dir, encoding: 'utf-8', stdio: 'pipe' }),
         /Unknown project-hygiene/i
       );
     } finally { fx.cleanup(); }
@@ -222,7 +222,7 @@ describe('cmdProjectHygieneCheck (subprocess)', () => {
     const fx = buildHygieneFixture({ objectives: {} });
     try {
       assert.throws(
-        () => execSync(`node ${dfTools} project-hygiene bogus`, { cwd: fx.dir, encoding: 'utf-8', stdio: 'pipe' }),
+        () => execFileSync(process.execPath, [dfTools, 'project-hygiene', 'bogus'], { cwd: fx.dir, encoding: 'utf-8', stdio: 'pipe' }),
         /Unknown project-hygiene/i
       );
     } finally { fx.cleanup(); }
@@ -379,7 +379,7 @@ describe('cmdProjectHygieneMove (subprocess)', () => {
     const src = buildHygieneFixture({ objectives: {} });
     try {
       assert.throws(
-        () => execSync(`node ${dfTools} project-hygiene move`, { cwd: src.dir, encoding: 'utf-8', stdio: 'pipe' }),
+        () => execFileSync(process.execPath, [dfTools, 'project-hygiene', 'move'], { cwd: src.dir, encoding: 'utf-8', stdio: 'pipe' }),
         /objective-id required/
       );
     } finally { src.cleanup(); }
@@ -389,7 +389,7 @@ describe('cmdProjectHygieneMove (subprocess)', () => {
     const src = buildHygieneFixture({ objectives: { '05-foo': { kind: 'plugin' } } });
     try {
       assert.throws(
-        () => execSync(`node ${dfTools} project-hygiene move 05-foo`, { cwd: src.dir, encoding: 'utf-8', stdio: 'pipe' }),
+        () => execFileSync(process.execPath, [dfTools, 'project-hygiene', 'move', '05-foo'], { cwd: src.dir, encoding: 'utf-8', stdio: 'pipe' }),
         /--to/
       );
     } finally { src.cleanup(); }

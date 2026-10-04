@@ -33,6 +33,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { objectiveNumPattern } = require('./text-escape.cjs');
 
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
@@ -154,13 +155,19 @@ function bootstrapObjectiveMd(cwd, objectiveId) {
   if (fs.existsSync(roadmapPath)) {
     const roadmap = fs.readFileSync(roadmapPath, 'utf-8');
     // Match heading: ### Objective N: <name>
-    const headingRe = new RegExp(`^### Objective ${objectiveNum}:\\s*(.+)$`, 'm');
-    const headingMatch = roadmap.match(headingRe);
-    if (headingMatch) objectiveName = headingMatch[1].trim();
-    // Extract **Goal:** line following the heading
-    const goalRe = new RegExp(`### Objective ${objectiveNum}:[\\s\\S]*?\\*\\*Goal:\\*\\*\\s*([^\\n]+)`, 'm');
-    const goalMatch = roadmap.match(goalRe);
-    if (goalMatch) goalLine = goalMatch[1].trim();
+    const num = objectiveNumPattern(objectiveNum);
+    const headingRe = new RegExp(`^### Objective ${num}:\\s*(.+)$`, 'm');
+    const headingMatch = headingRe.exec(roadmap);
+    if (headingMatch) {
+      objectiveName = headingMatch[1].trim();
+      // Extract the **Goal:** line from this objective's own section only: stop at the next objective
+      // or milestone heading so a missing Goal never borrows the following objective's.
+      const rest = roadmap.slice(headingMatch.index + headingMatch[0].length);
+      const next = rest.search(/\n#{2,4}\s*Objective\s+\d|\n##\s/);
+      const section = next === -1 ? rest : rest.slice(0, next);
+      const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/);
+      if (goalMatch) goalLine = goalMatch[1].trim();
+    }
   }
 
   const today = new Date().toISOString().slice(0, 10);
