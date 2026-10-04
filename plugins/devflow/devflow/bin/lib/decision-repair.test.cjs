@@ -109,13 +109,14 @@ describe('classifyDecision / repairDecision: the 52-05 quoted shape (test 4)', (
     assert.equal(extractFrontmatter(repairDecision(text).text).resolution, 'x: 1\ny: 2');
   });
 
-  test('a quoted single-line answer left with a stray quote line is recovered as one line', () => {
-    // answer `a: b\n`, written as `resolution: "a: b` / `"`. Its first line alone does not read back.
+  test('a quoted single-line answer with a stray quote line already reads back whole, so it is intact', () => {
+    // answer `a: b\n`, written as `resolution: "a: b` / `"`. The parser strips the leading quote and ignores the
+    // stray line, so it already reads `a: b`: the TRD's intact rule (parse === recovered answer) applies, no rewrite.
     const text = decisionFile(['resolution: "a: b', '"']);
+    assert.equal(extractFrontmatter(text).resolution, 'a: b');
     const r = classifyDecision(text);
-    assert.equal(r.state, 'repairable');
-    assert.equal(r.answer, 'a: b');
-    assert.equal(extractFrontmatter(repairDecision(text).text).resolution, 'a: b');
+    assert.equal(r.state, 'intact');
+    assert.equal(repairDecision(text).ok, false);
   });
 
   test('lines the answer holds with leading spaces and blank lines in the middle round-trip', () => {
