@@ -387,7 +387,7 @@ TRDs:
 - [x] 54-06-objective-roadmap-regex-TRD.md — (W2) 54-A part 1: objective/roadmap/workstreams on objectiveNumPattern; section-anchored, escaped Requirements update (65, 66, 68, 74, 76-79, 82, 84, 85, 87)
 - [x] 54-07-detector-bootstrap-changelog-regex-TRD.md — (W2) 54-A part 2: novel-domain, trd-pre-check, project-bootstrap, changelog + tag hook on the shared escape (64, 83, 91-94, 101, 110, 111)
 - [x] 54-08-markdown-table-cells-TRD.md — (W2) 54-B: ADOPT-REPORT cells escaped once at render, 3-column high table; STACK-REPORT cell via mdCell (130-133, 135)
-- [ ] 54-09-changelog-suite-push-TRD.md — (W3) CHANGELOG [Unreleased] Fixed/Security; full `npm test` (MA-7 only); per-group audits; push branch
+- [x] 54-09-changelog-suite-push-TRD.md — (W3) CHANGELOG [Unreleased] Fixed/Security; full `npm test` (MA-7 only); per-group audits; push branch
 - [ ] 54-10-codeql-verify-and-dismiss-TRD.md — (W4, checkpoint) draft PR decision for a CodeQL run (default setup scans main + PRs only); 0 new alerts; dismiss 95 as "won't fix"
 
 ### Other v1.4 candidates
@@ -441,4 +441,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
 | 52. Store-mode polish | v1.4 | 6/6 | Complete | 2026-10-04 |
 | 53. Worktree and health hygiene | v1.4 | 7/7 | Complete | 2026-10-04 |
-| 54. CodeQL cleanup | v1.4 | 8/10 | In Progress | — |
+| 54. CodeQL cleanup | v1.4 | 9/10 | In Progress | — |
