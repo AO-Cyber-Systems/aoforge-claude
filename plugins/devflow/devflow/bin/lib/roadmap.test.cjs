@@ -935,3 +935,95 @@ describe('48-13 store mode — roadmap update-job-progress defers to gh pull --a
     assert.equal(readRoadmap(project), ROADMAP_7_IN_PROGRESS);
   });
 });
+
+// ─── 54-06: objective-number matching goes through text-escape's objectiveNumPattern ───────────────
+
+describe('54-06 objective-number boundaries in roadmap analyze / get-objective / update-job-progress', () => {
+  function writeRoadmap(project, body) {
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), body, 'utf-8');
+  }
+
+  // Item 1. RED before the fix: cmdRoadmapAnalyze's checkbox pattern had no trailing boundary, so
+  // `Objective\s+1` matched the checked `Objective 12` line first and objective 1 read as complete.
+  test('1: analyze does not take Objective 12\'s checked box as Objective 1\'s', () => {
+    const project = tmpProject();
+    writeRoadmap(project, [
+      '# Roadmap',
+      '',
+      '- [x] **Objective 12: Done**',
+      '- [ ] **Objective 1: Todo**',
+      '',
+      '### Objective 1: Todo',
+      '',
+      '**Goal:** First.',
+      '',
+      '### Objective 12: Done',
+      '',
+      '**Goal:** Twelfth.',
+      '',
+    ].join('\n'));
+
+    const r = run(['roadmap', 'analyze', '--raw'], project);
+    assert.equal(r.status, 0, r.stderr);
+    const one = r.json.objectives.find(o => o.number === '1');
+    const twelve = r.json.objectives.find(o => o.number === '12');
+    assert.equal(one.roadmap_complete, false, 'objective 1 is unchecked');
+    assert.equal(twelve.roadmap_complete, true, 'objective 12 is checked');
+  });
+
+  // Item 2. Regression guard: the `:` after the number already rejected 4.10; this pins it across the helper swap.
+  test('2: get-objective 4.1 reads the 4.1 section, not 4.10 listed first (regression guard)', () => {
+    const project = tmpProject();
+    writeRoadmap(project, [
+      '# Roadmap',
+      '',
+      '### Objective 4.10: Ten',
+      '',
+      '**Goal:** Tenth.',
+      '',
+      '### Objective 4.1: One',
+      '',
+      '**Goal:** First.',
+      '',
+    ].join('\n'));
+
+    const r = run(['roadmap', 'get-objective', '4.1'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.found, true);
+    assert.equal(r.json.objective_name, 'One');
+    assert.equal(r.json.goal, 'First.');
+  });
+
+  // Item 3. Regression guard: the `[:\s]` boundary on the checkbox write already rejected 4.10.
+  test('3: update-job-progress 4.1 flips only the 4.1 checkbox, not 4.10 listed first (regression guard)', () => {
+    const project = tmpProject();
+    const roadmap = [
+      '# Roadmap',
+      '',
+      '- [ ] **Objective 4.10: Ten**',
+      '- [ ] **Objective 4.1: One**',
+      '',
+      '### Objective 4.10: Ten',
+      '',
+      '**Goal:** Tenth.',
+      '',
+      '### Objective 4.1: One',
+      '',
+      '**Goal:** First.',
+      '',
+    ].join('\n');
+    writeRoadmap(project, roadmap);
+    const dir = path.join(project, '.planning', 'objectives', '04.1-one');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '04.1-01-TRD.md'), '# TRD 01\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '04.1-01-SUMMARY.md'), '# Summary 01\n', 'utf-8');
+
+    const r = run(['roadmap', 'update-job-progress', '4.1'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.updated, true);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.match(after, /^- \[ \] \*\*Objective 4\.10: Ten\*\*$/m, '4.10 stays unchecked');
+    assert.match(after, /^- \[x\] \*\*Objective 4\.1: One\*\* \(completed \d{4}-\d{2}-\d{2}\)$/m, '4.1 is checked');
+  });
+});
