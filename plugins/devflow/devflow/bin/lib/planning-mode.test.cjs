@@ -264,6 +264,67 @@ describe('resolveMainRoot: outside git', () => {
   });
 });
 
+// TRD 53-01: the checkout that holds cwd. Local-mode summary verbs write it (so the SUMMARY is committed by the checkout
+// that wrote it); store mode keeps resolveMainRoot. fs-only, same worktree fixture as above.
+describe('resolveCheckoutRoot: the checkout holding cwd (TRD 53-01)', () => {
+  test('5a. inside a linked worktree that has .planning/ -> the worktree root, not main', () => {
+    const main = mainCheckout();
+    const wt = linkedWorktree(main);
+    mkdirs(wt, '.planning');
+    assert.strictEqual(mode.resolveCheckoutRoot(wt), real(wt));
+    assert.notStrictEqual(mode.resolveCheckoutRoot(wt), mode.resolveMainRoot(wt));
+  });
+
+  test('5b. from a nested subdir of that worktree -> still the worktree root', () => {
+    const main = mainCheckout();
+    const wt = linkedWorktree(main);
+    mkdirs(wt, '.planning');
+    assert.strictEqual(mode.resolveCheckoutRoot(mkdirs(wt, 'src', 'x')), real(wt));
+    assert.strictEqual(mode.resolveCheckoutRoot(mkdirs(wt, '.planning', 'objectives', '53-x')), real(wt));
+  });
+
+  test('5c. a worktree with no .planning/ (planning untracked) falls back to resolveMainRoot -> main', () => {
+    const main = mainCheckout();
+    const wt = linkedWorktree(main);
+    assert.strictEqual(mode.resolveCheckoutRoot(wt), real(main));
+    assert.strictEqual(mode.resolveCheckoutRoot(wt), mode.resolveMainRoot(wt));
+  });
+
+  test('5d. from the main checkout (root and nested) it equals resolveMainRoot', () => {
+    const main = mainCheckout();
+    assert.strictEqual(mode.resolveCheckoutRoot(main), real(main));
+    const deep = mkdirs(main, 'plugins', 'devflow');
+    assert.strictEqual(mode.resolveCheckoutRoot(deep), mode.resolveMainRoot(deep));
+  });
+
+  test('5e. a non-git dir holding .planning/ equals resolveMainRoot', () => {
+    const root = mkdirs(tmp, 'plain');
+    mkdirs(root, '.planning');
+    assert.strictEqual(mode.resolveCheckoutRoot(root), real(root));
+    const deep = mkdirs(root, 'a', 'b');
+    assert.strictEqual(mode.resolveCheckoutRoot(deep), mode.resolveMainRoot(deep));
+  });
+
+  test('5f. no .planning/ anywhere, a missing cwd and a broken .git pointer: null or the holder, never a throw', () => {
+    assert.strictEqual(mode.resolveCheckoutRoot(mkdirs(tmp, 'nothing', 'here')), null);
+    assert.strictEqual(mode.resolveCheckoutRoot(path.join(tmp, 'missing', 'dir')), null);
+    const broken = mkdirs(tmp, 'broken');
+    fs.writeFileSync(path.join(broken, '.git'), 'not a gitdir line\n');
+    mkdirs(broken, '.planning');
+    assert.strictEqual(mode.resolveCheckoutRoot(broken), real(broken));
+  });
+
+  test("5g. a worktree's own config never decides the mode: planningMode(wt) still reads MAIN (D-14)", () => {
+    const main = mainCheckout();
+    writeConfig(main, { github: { enabled: true, store: true } });
+    const wt = linkedWorktree(main);
+    writeConfig(wt, { github: { enabled: true, store: false } });
+    assert.strictEqual(mode.resolveCheckoutRoot(wt), real(wt));
+    assert.strictEqual(mode.planningMode(wt).mode, 'store');
+    assert.strictEqual(mode.planningMode(wt).root, real(main));
+  });
+});
+
 describe('module hygiene', () => {
   test('requires only fs, path and os (hook-safe, no child_process)', () => {
     const src = fs.readFileSync(path.join(__dirname, 'planning-mode.cjs'), 'utf8');
