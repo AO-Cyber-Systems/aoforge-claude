@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error, normalizeObjectiveName, findPlanFiles, safeReadFile } = require('./helpers.cjs');
+const { objectiveNumPattern } = require('./text-escape.cjs');
 
 function cmdWorkstreamsAnalyze(cwd, raw) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
@@ -45,7 +46,7 @@ function cmdWorkstreamsAnalyze(cwd, raw) {
     }
 
     // Check completion status from ROADMAP checkbox
-    const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Objective\\s+${objectiveNum.replace('.', '\\.')}`, 'i');
+    const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Objective\\s+${objectiveNumPattern(objectiveNum)}`, 'i');
     const checkboxMatch = content.match(checkboxPattern);
     const isComplete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
 
@@ -354,13 +355,13 @@ function cmdWorkstreamsReconcile(cwd, raw) {
       if (rp.complete) {
         // Mark objective checkbox as complete
         const checkboxPattern = new RegExp(
-          `(- \\[)( )(\\]\\s*\\*\\*Objective\\s+${String(rp.objective).replace('.', '\\.')})`
+          `(- \\[)( )(\\]\\s*\\*\\*Objective\\s+${objectiveNumPattern(rp.objective)})`
         );
         roadmapContent = roadmapContent.replace(checkboxPattern, '$1x$3');
 
         // Update progress table row
         const tablePattern = new RegExp(
-          `(\\|\\s*${String(rp.objective).replace('.', '\\.')}\\.[^|]+\\|\\s*)\\d+\\/\\d+(\\s*\\|\\s*)\\w[^|]*(\\s*\\|)`,
+          `(\\|\\s*${objectiveNumPattern(rp.objective)}\\.[^|]+\\|\\s*)\\d+\\/\\d+(\\s*\\|\\s*)\\w[^|]*(\\s*\\|)`,
         );
         const today = new Date().toISOString().split('T')[0];
         roadmapContent = roadmapContent.replace(
@@ -394,7 +395,7 @@ function cmdWorkstreamsReconcile(cwd, raw) {
   let joinPhaseName = 'Next objective';
   if (nextObjective) {
     const joinMatch = roadmapContent.match(
-      new RegExp(`#{2,4}\\s*Objective\\s+${String(nextObjective).replace('.', '\\.')}\\s*:\\s*([^\\n]+)`, 'i')
+      new RegExp(`#{2,4}\\s*Objective\\s+${objectiveNumPattern(nextObjective)}\\s*:\\s*([^\\n]+)`, 'i')
     );
     if (joinMatch) {
       joinPhaseName = joinMatch[1].replace(/\(INSERTED\)/i, '').trim();
