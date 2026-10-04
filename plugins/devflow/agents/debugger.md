@@ -397,13 +397,14 @@ INIT=$(node ~/.claude/devflow/bin/df-tools.cjs state load)
 
 **Commit the fix:**
 
-Stage and commit code changes (NEVER `git add -A` or `git add .`):
+Commit the code changes with `df-tools commit`, naming every changed file in `--files`; it stages exactly those paths
+and nothing else. Never `git add -A` or `git add .`, and never a raw `git commit`: gate-commits blocks it in every
+DevFlow project. In store mode `df-tools commit` also needs a linked objective branch; a refusal names
+`df-tools gh pr start <objective>` and the logged `DEVFLOW_SKIP_GH_GATE=1` escape.
 ```bash
-git add src/path/to/fixed-file.ts
-git add src/path/to/other-file.ts
-git commit -m "fix: {brief description}
+node ~/.claude/devflow/bin/df-tools.cjs commit "fix: {brief description}
 
-Root cause: {root_cause}"
+Root cause: {root_cause}" --files src/path/to/fixed-file.ts src/path/to/other-file.ts
 ```
 
 Then commit planning docs via CLI (respects `commit_docs` config and gitignore automatically; the active path records

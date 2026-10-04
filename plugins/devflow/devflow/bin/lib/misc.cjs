@@ -646,6 +646,8 @@ function cmdCommit(cwd, message, files, raw, amend) {
     const verdict = ghGate.evaluateGate({ ...inputs, env: process.env });
     if (!verdict.allow) {
       const result = { committed: false, hash: null, reason: verdict.reason, branch: inputs.branch, error: verdict.message };
+      // TRD 52-02: raw mode prints only the reason code, which would drop both remedies; the message goes to stderr.
+      if (raw) process.stderr.write(`${verdict.message}\n`);
       output(result, raw, verdict.reason, 1);
       return;
     }

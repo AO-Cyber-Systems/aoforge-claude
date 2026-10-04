@@ -545,6 +545,16 @@
       "objective": "52",
       "summary": "52-01: every printed df-tools commit follow-up (gh setup, doctor 20/21, migration 0010 and 0011 through it) is built by lib/commit-steps.cjs branchCommitSteps; store mode adds the logged escape and the gh pr start route, mirror/local mode prints a plain branch sequence",
       "rationale": null
+    },
+    {
+      "objective": "52",
+      "summary": "52-02: gate refusals word the escape as an inline prefix naming DEVFLOW_SKIP_GH_GATE_REASON; --raw refusals put the message on stderr, stdout stays the reason code",
+      "rationale": null
+    },
+    {
+      "objective": "52",
+      "summary": "52-02: the raw git commit CI guard covers agents and skills only (workflows hold merge-completion commits gate-commits allows) and follows CommonMark fence rules",
+      "rationale": null
     }
   ],
   "blockers": [],

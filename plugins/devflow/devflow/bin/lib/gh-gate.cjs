@@ -30,7 +30,9 @@ const ESCAPE_ENV = 'DEVFLOW_SKIP_GH_GATE';
 /** `df/exec-<id>`: a worktree executor's branch (exec-context.cjs). It merges back into the objective branch. */
 const EXEC_BRANCH_RE = /^df\/exec-/;
 
-const START_HINT = 'run `df-tools gh pr start <objective>` and commit on its branch, or set DEVFLOW_SKIP_GH_GATE=1 (logged)';
+const START_HINT =
+  'run `df-tools gh pr start <objective>` and commit on its branch, or prefix the commit with DEVFLOW_SKIP_GH_GATE=1 ' +
+  '(logged as gate gh; DEVFLOW_SKIP_GH_GATE_REASON=<why> records why)';
 
 function isPlainObject(x) {
   return x !== null && typeof x === 'object' && !Array.isArray(x);
