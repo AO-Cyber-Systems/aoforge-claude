@@ -27,6 +27,7 @@ const stackProfile = require('./stack-profile.cjs');
 const { loadClaudeMdTemplate } = require('./migrations/0005-claude-md-block.cjs');
 const upgrade = require('./upgrade.cjs');
 const backupPrune = require('./backup-prune.cjs');
+const { mdCell } = require('./text-escape.cjs');
 
 const ADOPT_BRANCH = 'devflow/adopt';
 const MARKER_NAME = 'devflow-adopt.json';
@@ -823,13 +824,14 @@ function renderNeedsReviewTable(rows) {
     return 'Nothing needs review — every inference was high confidence.\n';
   }
   const lines = ['| # | Item | Inferred | Confidence | Evidence |', '|---|---|---|---|---|'];
-  rows.forEach((r, i) => lines.push(`| ${i + 1} | ${r.item} | ${r.inferred} | ${r.confidence} | ${r.evidence} |`));
+  // Every data cell is escaped here, once: row builders pass raw values (the JSON payload keeps them raw).
+  rows.forEach((r, i) => lines.push(`| ${i + 1} | ${mdCell(r.item)} | ${mdCell(r.inferred)} | ${mdCell(r.confidence)} | ${mdCell(r.evidence)} |`));
   return lines.join('\n') + '\n';
 }
 
 function renderHighTable(rows) {
-  const lines = ['| Item | Value | Evidence |', '|---|---|'];
-  for (const r of rows) lines.push(`| ${r.item} | ${r.value} | ${r.evidence} |`);
+  const lines = ['| Item | Value | Evidence |', '|---|---|---|'];
+  for (const r of rows) lines.push(`| ${mdCell(r.item)} | ${mdCell(r.value)} | ${mdCell(r.evidence)} |`);
   return lines.join('\n') + '\n';
 }
 
@@ -976,9 +978,9 @@ function report(root, opts = {}) {
     const item = `${n.key || 'stack'}: ${n.candidate || n.detail || '(no detail)'} — ${n.status || 'note'}`;
     rows.push({
       confidence: 'low',
-      item: item.replace(/\|/g, '\\|'),
+      item,
       inferred: n.area ? n.area : '(root)',
-      evidence: String(n.detail || `stack init ${n.source || 'draft'}`).replace(/\|/g, '\\|'),
+      evidence: String(n.detail || `stack init ${n.source || 'draft'}`),
     });
   }
   for (const key of ['test', 'lint', 'build']) {
@@ -1021,8 +1023,8 @@ function report(root, opts = {}) {
       const proposal = f.snippet ? `${f.proposal} \`${f.snippet}\`` : f.proposal;
       rows.push({
         confidence: 'medium',
-        item: `${f.id}: ${f.finding}`.replace(/\|/g, '\\|'),
-        inferred: proposal.replace(/\|/g, '\\|'),
+        item: `${f.id}: ${f.finding}`,
+        inferred: proposal,
         evidence: 'STACK-REPORT.md',
       });
     }
