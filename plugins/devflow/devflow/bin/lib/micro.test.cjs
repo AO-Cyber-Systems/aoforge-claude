@@ -1356,6 +1356,24 @@ describe('micro commit through df-tools commit: local-mode file resolution (53-0
     assert.equal(git(env.root, 'show', '--name-status', '--format=', 'HEAD~1').stdout.trim(), 'D\tc.txt');
     assert.equal(git(env.root, 'ls-tree', '--name-only', 'HEAD', 'c.txt').stdout.trim(), '', 'c.txt is gone from HEAD');
   });
+
+  test('R-5: a project in a subdirectory of its repo resolves the implicit list relative to the project', () => {
+    // .planning/ lives in <repo>/proj, so `git diff --name-only` would print `proj/x.txt`, which df-tools commit (run from
+    // proj/) cannot resolve. The runner asks for paths relative to the project root.
+    const proj = path.join(env.root, 'proj');
+    fs.mkdirSync(path.join(proj, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(proj, 'x.txt'), 'x\n');
+    fs.writeFileSync(path.join(proj, '.planning', 'STATE.md'), '# DevFlow State\n\n## Quick Tasks Completed\n\n| # | Description | Date | Commit | Directory |\n|---|---|---|---|---|\n');
+    git(env.root, 'add', 'proj/x.txt');
+    git(env.root, 'commit', '-m', 'chore: seed proj');
+    const planningDir = path.join(proj, '.planning');
+    startMicro({ planningDir, description: 'edit x', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(proj, 'x.txt'), 'x changed\n');
+
+    const result = commitMicro({ planningDir, description: 'edit x', files: null, now: '2026-05-06T00:01:00Z', gitRunner: null });
+    assert.equal(result.ok, true, `expected ok:true, got: ${JSON.stringify(result)}`);
+    assert.deepEqual(sourceCommitFiles(env.root), ['proj/x.txt']);
+  });
 });
 
 describe('micro.cjs commits only through df-tools commit (53-03)', () => {

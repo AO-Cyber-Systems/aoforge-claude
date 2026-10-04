@@ -6,6 +6,6 @@ trd: "03"
 # Objective 53 TRD 03: micro commits through `df-tools commit` (checkpoint)
 
 ## Progress
-- [x] Task 1 RED: failing tests for the store-mode gate, no-files resolution and raw-commit guard — (this commit)
-- [ ] Task 1 GREEN: replace `_defaultGitRunner` in plugins/devflow/devflow/bin/lib/micro.cjs with a runner that spawns `df-tools commit <message> --files <list>`, add `_implicitFiles`, `_GATE_REASONS`, the `gate-refused` mapping in `commitMicro` and the JSON refusal in `cmdMicro` — next step: edit micro.cjs lines ~149-210 and ~343-357, then run `node --test` on micro.test.cjs
-- [ ] Task 2: add the commit-path prose to plugins/devflow/devflow/workflows/micro.md
+- [x] Task 1 RED: failing tests for the store-mode gate, no-files resolution and raw-commit guard — 54501582
+- [x] Task 1 GREEN: micro's default runner spawns `df-tools commit`; gate refusals map to `gate-refused`; no raw `git commit` left — (this commit)
+- [ ] Task 2: add the commit-path prose to plugins/devflow/devflow/workflows/micro.md — next step: in the commit step of micro.md state that `micro commit` goes through `df-tools commit` and is refused in store mode off a linked branch (remedy `df-tools gh pr start <objective>` or the logged `DEVFLOW_SKIP_GH_GATE=1`), marker kept for retry, then run the two doc repo tests
