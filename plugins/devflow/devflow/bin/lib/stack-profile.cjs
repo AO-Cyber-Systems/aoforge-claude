@@ -899,8 +899,10 @@ function noteLine(n) {
   const where = n.area ? n.area : 'root';
   const what = n.candidate ? `${n.key}: ${n.candidate}` : (n.key || 'stack');
   const detail = n.detail ? ` (${n.detail})` : '';
-  // Never close the HTML comment early, never break it across lines.
-  return `- ${where} ${what} — ${n.status}${detail}`.replace(/\r?\n/g, ' ').replace(/-->/g, '-- >');
+  // Never close the HTML comment early, never break it across lines. HTML5 ends a comment at `-->`
+  // (after any run of dashes, so `--->` too) and at `--!>`; `(--!?)>` catches both and the inserted
+  // space defuses it. A bare CLI flag such as `--no-pub` has no `>` and is left intact.
+  return `- ${where} ${what} — ${n.status}${detail}`.replace(/\r?\n/g, ' ').replace(/(--!?)>/g, '$1 >');
 }
 
 /**
