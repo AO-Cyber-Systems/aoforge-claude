@@ -441,4 +441,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
 | 52. Store-mode polish | v1.4 | 6/6 | Complete | 2026-10-04 |
 | 53. Worktree and health hygiene | v1.4 | 7/7 | Complete | 2026-10-04 |
-| 54. CodeQL cleanup | v1.4 | 6/10 | In Progress | — |
+| 54. CodeQL cleanup | v1.4 | 8/10 | In Progress | — |
