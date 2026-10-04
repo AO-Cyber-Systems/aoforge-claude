@@ -45,6 +45,7 @@
   "github": {
     "enabled": false,
     "store": false,
+    "mirror_only": false,
     "repo": "",
     "milestone_prefix": "v",
     "project_cache_ttl_minutes": 360,

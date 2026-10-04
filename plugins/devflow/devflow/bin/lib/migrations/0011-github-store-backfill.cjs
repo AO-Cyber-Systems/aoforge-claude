@@ -23,8 +23,12 @@
 // Confirm-only, never from a bare `--apply` or the SessionStart hook. `detect` is local and offline (zero gh calls, no
 // writes), because `upgrade --check` runs it on every project:
 //   GitHub disabled or no repo  -> not applicable (D-01 parity: a local project sees nothing)
+//   store off + github.mirror_only true
+//                               -> skipped (52-04): the project recorded that it keeps mirror mode; only boolean true
+//                                  opts out, and only while the store is off
 //   store off                   -> applies; the reason is the plan summary (planImport dry run: objective and TRD
-//                                  counts, history closes, the request estimate) and the pointer to the full plan
+//                                  counts, history closes, the request estimate), the pointer to the full plan and
+//                                  the opt-out (`config-set github.mirror_only true`)
 //   store on                    -> applies while the journal holds pending/blocked ops, a cache file has no baseline,
 //                                  or 0010 still applies (the last phase hands off to it); else "already on GitHub"
 //
@@ -69,6 +73,10 @@ const APPLY_COMMAND = '`df-tools upgrade --apply --only 0011 --confirm`';
 const DRY_RUN_COMMAND = '`df-tools planning import --dry-run`';
 const NOT_ENABLED = 'GitHub integration not enabled';
 const COMPLETE = 'already on GitHub (backfill complete)';
+// 52-04: the recorded opt-out (github.mirror_only: true), honoured only while the store is off.
+const MIRROR_ONLY = 'mirror mode kept (github.mirror_only: true): the GitHub store backfill is opted out. ' +
+  `To migrate later, run \`df-tools config-set github.mirror_only false\`, then ${APPLY_COMMAND}.`;
+const KEEP_MIRROR = ' To keep mirror mode instead: `df-tools config-set github.mirror_only true`.';
 const CONFIG_REL = '.planning/config.json';
 // P5: the partial window between the store switch and the end of the migration.
 const PARTIAL_WINDOW = 'until the migration finishes, the project is in store mode: the edit gate denies cache edits and ' +
@@ -202,12 +210,15 @@ function detect(ctx) {
   if (!gate.enabled) return { applies: false, reason: `${NOT_ENABLED} (${gate.reason})` };
 
   if (!planningMode.isStoreMode(main)) {
+    // Checked before the dry run: an opted-out project pays nothing. With the store on the key is ignored (below), so a
+    // backfill in flight is never hidden.
+    if (gate.config && gate.config.mirror_only === true) return { applies: false, reason: MIRROR_ONLY };
     const plan = planningImport.planImport(main, { dryRun: true });
     const summary = plan.ok ? planSentence(plan) : `the plan could not be computed (${plan.error})`;
     return {
       applies: true,
       reason: `GitHub backfill not started (github.store is off): ${summary}. Full plan: ${DRY_RUN_COMMAND}; ` +
-        `run it with ${APPLY_COMMAND}.`,
+        `run it with ${APPLY_COMMAND}.${KEEP_MIRROR}`,
     };
   }
 
