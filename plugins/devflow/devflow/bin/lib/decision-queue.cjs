@@ -301,17 +301,22 @@ function resolveDecision(cwd, id, choice) {
   const content = _runFs.readFileSync(pendingPath, 'utf-8');
   const fm = extractFrontmatter(content);
 
+  // TRD 52-05: an answer read from a file (`decision answer --from`) carries CRLF and a trailing newline. Normalise
+  // first, so a one-line answer is written as `resolution: <answer>` and matches its option; a multi-line one becomes
+  // a `|-` block scalar in spliceFrontmatter.
+  const text = String(choice).replace(/\r\n/g, '\n').trimEnd();
+
   // Warn if choice not in options (freeform is still valid)
   const optionNames = Array.isArray(fm.options) ? fm.options : [];
-  if (optionNames.length > 0 && !optionNames.includes(choice)) {
+  if (optionNames.length > 0 && !optionNames.includes(text)) {
     process.stderr.write(
-      `[decision-queue] warn: choice "${choice}" not in declared options [${optionNames.join(', ')}] — resolving anyway\n`
+      `[decision-queue] warn: choice "${text}" not in declared options [${optionNames.join(', ')}] — resolving anyway\n`
     );
   }
 
   // Update frontmatter
   fm.status = 'resolved';
-  fm.resolution = choice;
+  fm.resolution = text;
   fm.resolved_at = new Date().toISOString();
 
   const newContent = spliceFrontmatter(content, fm);

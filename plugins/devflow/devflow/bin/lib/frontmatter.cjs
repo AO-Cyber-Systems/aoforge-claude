@@ -6,6 +6,40 @@ const { output, error, safeReadFile } = require('./helpers.cjs');
 
 // ─── YAML Frontmatter Parser ──────────────────────────────────────────────────
 
+// A value that is exactly a block-scalar indicator opens a block (`a | b` does not). Indentation indicators
+// (`|2-`) are not supported: the serializer never writes them.
+const BLOCK_SCALAR_RE = /^[|>][+-]?$/;
+
+/**
+ * Read the block scalar whose indicator sits on `lines[start - 1]` at column `keyIndent` (TRD 52-05).
+ * The block is every following line that is blank or indented past the key. Exactly `keyIndent + 2` columns are
+ * stripped from each line (all of its leading whitespace when it is shorter), so spaces past the block indent stay
+ * part of the text. Chomping: `-` strips every trailing newline, none keeps exactly one, `+` keeps them all.
+ * `>` / `>-` / `>+` are read as literal blocks, NOT folded: the serializer never emits them, and a wrong fold
+ * would be worse than an honest literal. Returns `{ value, next }`, `next` being the first line after the block.
+ */
+function readBlockScalar(lines, start, keyIndent, indicator) {
+  const strip = keyIndent + 2;
+  const body = [];
+  let i = start;
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    const lead = line.match(/^\s*/)[0].length;
+    if (line.trim() !== '' && lead <= keyIndent) break;
+    body.push(line.slice(Math.min(strip, lead)));
+  }
+  if (body.length === 0) return { value: '', next: i };
+  // Every block line ends in a newline (the last one's is the newline before the closing `---` or the next key).
+  const text = `${body.join('\n')}\n`;
+  const core = text.replace(/\n+$/, '');
+  const chomp = indicator.slice(1);
+  let value;
+  if (chomp === '-') value = core;
+  else if (chomp === '+') value = text;
+  else value = core === '' ? '' : `${core}\n`;
+  return { value, next: i };
+}
+
 function extractFrontmatter(content) {
   const frontmatter = {};
   const match = content.match(/^---\n([\s\S]+?)\n---/);
@@ -18,7 +52,8 @@ function extractFrontmatter(content) {
   // obj = object to write to, key = current key collecting array items, indent = indentation level
   let stack = [{ obj: frontmatter, key: null, indent: -1 }];
 
-  for (const line of lines) {
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
     // Skip empty lines
     if (line.trim() === '') continue;
 
@@ -39,7 +74,14 @@ function extractFrontmatter(content) {
       const key = keyMatch[2];
       const value = keyMatch[3].trim();
 
-      if (value === '' || value === '[') {
+      if (BLOCK_SCALAR_RE.test(value)) {
+        // Block scalar (`key: |-` + indented lines): a multi-line string, read whole so none of its lines is
+        // mistaken for a key, a list item or the end of the frontmatter.
+        const block = readBlockScalar(lines, li + 1, indent, value);
+        current.obj[key] = block.value;
+        current.key = null;
+        li = block.next - 1;
+      } else if (value === '' || value === '[') {
         // Key with no value or opening bracket — could be nested object or array
         // We'll determine based on next lines, for now create placeholder
         current.obj[key] = value === '[' ? [] : {};
@@ -79,6 +121,21 @@ function extractFrontmatter(content) {
   }
 
   return frontmatter;
+}
+
+/**
+ * A string holding a newline as a `|-` literal block scalar: `${pad}${key}: |-`, then each line indented two columns
+ * past the key (TRD 52-05). CRLF is normalised; an empty content line is an empty line (no trailing spaces);
+ * trailing newlines are dropped, since `|-` strips them on read. An indented line can never be the column-0 `---`
+ * that ends the frontmatter. Single-line strings never come here, so their output is unchanged.
+ */
+function blockScalarLines(pad, key, text) {
+  const body = text.replace(/\r\n/g, '\n').replace(/\n+$/, '');
+  const out = [`${pad}${key}: |-`];
+  if (body !== '') {
+    for (const line of body.split('\n')) out.push(line === '' ? '' : `${pad}  ${line}`);
+  }
+  return out;
 }
 
 function reconstructFrontmatter(obj) {
@@ -130,12 +187,18 @@ function reconstructFrontmatter(obj) {
           }
         } else {
           const sv = String(subval);
-          lines.push(`  ${subkey}: ${sv.includes(':') || sv.includes('#') ? `"${sv}"` : sv}`);
+          if (sv.includes('\n')) {
+            lines.push(...blockScalarLines('  ', subkey, sv));
+          } else {
+            lines.push(`  ${subkey}: ${sv.includes(':') || sv.includes('#') ? `"${sv}"` : sv}`);
+          }
         }
       }
     } else {
       const sv = String(value);
-      if (sv.includes(':') || sv.includes('#') || sv.startsWith('[') || sv.startsWith('{')) {
+      if (sv.includes('\n')) {
+        lines.push(...blockScalarLines('', key, sv));
+      } else if (sv.includes(':') || sv.includes('#') || sv.startsWith('[') || sv.startsWith('{')) {
         lines.push(`${key}: "${sv}"`);
       } else {
         lines.push(`${key}: ${sv}`);

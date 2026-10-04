@@ -150,12 +150,44 @@ describe('48-12 planning import (store mode)', () => {
     const dec = mappingLib.getTrd(mappingLib.readMappingV3(S.root), '7-01-d1');
     assert.equal(S.fake.issues.find((i) => i.number === dec.issue_number).state, 'CLOSED');
 
+    // TRD 52-05 #5: the single-line `resolution: B` still queues exactly `B`.
+    assert.deepEqual(answerOps().map((o) => o.payload.text), ['B']);
+
     const ops = journalOps().length;
     const again = planImport(S.root);
     assert.equal(total(again.queued), 0, JSON.stringify(again.queued));
     assert.equal(journalOps().length, ops);
   });
+
+  // TRD 52-05 #4: a block-scalar resolution used to import as the bare indicator `|-`.
+  test('52-05 #4: a resolved decision with a `resolution: |-` block queues the full multi-line answer', () => {
+    seed('decisions/resolved/DECISION-001.md', [
+      '---',
+      'id: DECISION-001',
+      'trd: 7-01',
+      'status: resolved',
+      'resolution: |-',
+      '  Option B.',
+      '  Reason: second line with colon',
+      'resolved_at: "2026-10-04T13:49:05.343Z"',
+      '---',
+      '',
+      '# A or B?',
+      '',
+    ].join('\n'));
+    const r = planImport(S.root);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.queued.decision, 1);
+    const answer = 'Option B.\nReason: second line with colon';
+    assert.deepEqual(answerOps().map((o) => o.payload.text), [answer]);
+    assert.equal(fs.readFileSync(planning('decisions/7-01-d1.md'), 'utf8').endsWith(`## Answer\n\n${answer}\n`), true);
+  });
 });
+
+/** The queued `answer` comment ops (decisionAnswer's upsert-comment). */
+function answerOps() {
+  return journalOps().filter((o) => o.kind === 'upsert-comment' && o.target && o.target.kind === 'answer');
+}
 
 describe('48-12 planning import (local mode)', () => {
   useProject({ store: false });
