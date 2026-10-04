@@ -129,7 +129,7 @@ test.describe('deriveStateManagement (REQ-10-03 derived field)', () => {
 // ─── Task 2: df-tools subcommand + planner gate content (8 cases) ─────────────
 
 test.describe('df-tools detect flutter-ui-scope (REQ-10-03)', () => {
-  const { execSync } = require('node:child_process');
+  const { execFileSync, spawnSync } = require('node:child_process');
   const os = require('node:os');
   const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 
@@ -160,7 +160,7 @@ must_haves:
 
   test('Case E1 — fires detected:true for objective with lib/*.dart TRD files', () => {
     const tmp = makeTempObjective(['lib/foo.dart']);
-    const out = execSync(`node ${DF_TOOLS} detect flutter-ui-scope 99 --raw`,
+    const out = execFileSync(process.execPath, [DF_TOOLS, 'detect', 'flutter-ui-scope', '99', '--raw'],
       { encoding: 'utf-8', cwd: tmp });
     const parsed = JSON.parse(out);
     assert.strictEqual(parsed.detected, true);
@@ -171,7 +171,7 @@ must_haves:
 
   test('Case E2 — missing objective returns detected:false cleanly', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flutter-ui-scope-empty-'));
-    const out = execSync(`node ${DF_TOOLS} detect flutter-ui-scope 999 --raw`,
+    const out = execFileSync(process.execPath, [DF_TOOLS, 'detect', 'flutter-ui-scope', '999', '--raw'],
       { encoding: 'utf-8', cwd: tmp });
     const parsed = JSON.parse(out);
     assert.strictEqual(parsed.detected, false);
@@ -179,12 +179,8 @@ must_haves:
   });
 
   test('Case E3 — subcommand listed in df-tools detect help', () => {
-    let out = '';
-    try {
-      out = execSync(`node ${DF_TOOLS} detect bogus 2>&1`, { encoding: 'utf-8' });
-    } catch (e) {
-      out = (e.stdout || '') + (e.stderr || '');
-    }
+    const r = spawnSync(process.execPath, [DF_TOOLS, 'detect', 'bogus'], { encoding: 'utf-8' });
+    const out = (r.stdout || '') + (r.stderr || '');
     assert.ok(/flutter-ui-scope/.test(out), `expected help text to mention flutter-ui-scope, got: ${out}`);
   });
 });
