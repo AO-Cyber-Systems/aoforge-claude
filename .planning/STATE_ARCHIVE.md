@@ -95,6 +95,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 43]: 43-13: a CI command expanding a variable its own step assigns at run time (command substitution, export, read/for, or derived from one) ranks after confidence, behind a plain one; aocore.test is a flag-only residual for 43-15
 - [Objective 43]: 43-14: refresh accepts the drafter output as is (extends general plus a control-plane component); SDR-08 stays partial pending politihub and the 43-15 residuals
 - [Objective 43]: 43-15: user accept-all on every residual row; KNOWN_DRIFT retired, ACCEPTED holds 13 user rows (each with kind, date, by user), OPEN empty; aodex.audit and the buf-lint coverage of justinforme and smartWellness stay known drafter limitations; SDR-08 stays partial pending a fleet stack verify --run
+- [Objective 52]: TRD 52-04: github.mirror_only (tracked config, template default false) is honoured only in 0011 detect's store-off branch, checked before the planImport dry run; only boolean true opts out; with the store on it is ignored so an in-flight backfill is never hidden. The store-off reason names config-set github.mirror_only true; gh-sync migrate and health step 4 offer Keep mirror mode.
 
 ## Performance Metrics
 
@@ -131,4 +132,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 43 P13 | 53min | 2 tasks | 10 files |
 | Objective 43 P14 | 3min | 3 tasks | 6 files |
 | Objective 43 P15 | 20min | 3 tasks | 4 files |
+| Objective 52 P04 | 11min | 2 tasks | 6 files |
 
