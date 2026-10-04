@@ -2,6 +2,7 @@
 
 // Tests for doctor check 20-legacy-runtime-state (TRD 45-06, tests 4-9b; DOC-05 + DOC-06).
 // TRD 51-04 test 6 (G6): the printed commit follow-up in store mode vs local mode.
+// TRD 52-01 test 10: the store-mode follow-up is the commit-steps builder's store form and names `gh pr start`.
 //
 // no_llm_test_data: every project is a hand-built fixture under the OS temp dir. `userHome` is a
 // fake home from the fixtures, so backups land under <fake home>/.claude/devflow/backups and never
@@ -17,6 +18,7 @@ const { execFileSync } = require('child_process');
 const legacy = require('./20-legacy-runtime-state.cjs');
 const doctor = require('../doctor.cjs');
 const upgrade = require('../upgrade.cjs');
+const steps = require('../commit-steps.cjs');
 const { makeDoctorProject, makeDoctorHome } = require('../__fixtures__/doctor-fixtures.cjs');
 const {
   gitEnv, makeTrackedRuntimeStateProject, snapshot, diffSnapshots,
@@ -317,6 +319,31 @@ describe('legacy-runtime-state: commit follow-up by planning mode (TRD 51-04 tes
     assert.ok(sw >= 0 && esc > sw && push > esc, `branch, then escaped commit, then push: ${n}`);
     assert.match(n, /pull request/);
     assert.match(n, /gate gh/, 'says the escape is logged');
+
+    // 52-01: the builder's store form, appended last, with the gh pr start route for a linked branch.
+    const expected = steps.branchCommitSteps({
+      branch: 'devflow-untrack-runtime-state', reason: 'untrack DevFlow runtime state', command: `${COMMIT_CMD} ${FILES}`,
+    });
+    assert.ok(n.endsWith(`; ${expected}`), n);
+    assert.match(n, /df-tools gh pr start <objective>/);
+    assert.ok(n.endsWith(`commit there with: ${COMMIT_CMD} ${FILES}`), n);
+  });
+
+  test('6d (52-01). commitNote(root, files) is exported: local text in local mode, the builder\'s store form in store mode', () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor20-local-'));
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor20-store-'));
+    try {
+      write(local, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
+      write(store, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: true } })}\n`);
+      const files = ['.gitignore', '.planning/.progress-guard.json'];
+      assert.equal(legacy.commitNote(local, files), `commit with: ${COMMIT_CMD} ${files.join(' ')}`);
+      assert.equal(legacy.commitNote(store, files), steps.branchCommitSteps({
+        branch: 'devflow-untrack-runtime-state', reason: 'untrack DevFlow runtime state', command: `${COMMIT_CMD} ${files.join(' ')}`,
+      }));
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+      fs.rmSync(store, { recursive: true, force: true });
+    }
   });
 
   test('6c. store mode with nothing to commit → no commit steps at all', () => {

@@ -15,6 +15,7 @@ const os = require('os');
 const path = require('path');
 
 const cli = require('./gh-setup-cli.cjs');
+const steps = require('./commit-steps.cjs');
 const setup = require('./gh-setup.cjs');
 const client = require('./gh-client.cjs');
 const wiki = require('./gh-wiki.cjs');
@@ -27,6 +28,16 @@ const DF_TOOLS = path.resolve(__dirname, '..', 'df-tools.cjs');
 const GIT_OK = { ok: true, status: 0, stdout: 'abc123\tHEAD\n', stderr: '' };
 const WORKFLOW = '.github/workflows/devflow.yml';
 const PR_TEMPLATE = '.github/pull_request_template.md';
+const SETUP_MESSAGE = 'chore: add the DevFlow checks workflow and pull request template';
+// The printed follow-up must name the df-tools commit of both files (52-01: the builder prints `df-tools.cjs commit`).
+const SETUP_COMMIT_RE = /df-tools\.cjs commit .* --files .*\.github\/workflows\/devflow\.yml .*\.github\/pull_request_template\.md/;
+
+/** The builder's follow-up for the two setup files: store form with the logged escape, or the plain form (TRD 52-01). */
+const setupSteps = (store) => steps.branchCommitSteps({
+  branch: 'devflow-setup',
+  reason: store ? 'gh setup workflow' : null,
+  command: steps.commitCommand(SETUP_MESSAGE, [WORKFLOW, PR_TEMPLATE]),
+});
 
 /** Run fn with process.exit / stdout / stderr captured. The first exit code wins; exit does not throw. */
 function capture(fn) {
@@ -137,9 +148,29 @@ describe('gh setup command (tests 1, 2, 3, 4, 6, 7, 8)', () => {
     assert.equal(fake.rulesets.length, 1);
     assert.equal(fake.labels.length, 6);
     assert.match(r.stdout, /not committed/i);
-    assert.match(r.stdout, /df-tools commit .* --files .*\.github\/workflows\/devflow\.yml .*\.github\/pull_request_template\.md/);
+    assert.match(r.stdout, SETUP_COMMIT_RE);
     assert.match(r.stdout, /devflow\/linked-issue/, 'the bootstrapping hazard is stated');
     assert.match(r.stdout, /merge .*workflow .*first/i);
+    assert.equal(r.stderr, '');
+    // 52-01 (store off): the plain branch sequence from the builder, runnable as printed, with no gate escape.
+    assert.ok(r.stdout.includes(`Commit them through a pull request:\n${setupSteps(false)}\n`), r.stdout);
+    assert.doesNotMatch(r.stdout, /DEVFLOW_SKIP_GH_GATE/);
+    assert.doesNotMatch(r.stdout, /Commit them on a branch and open a pull request: df-tools commit/, 'the bare line is gone');
+  });
+
+  test('2s. --apply in store mode prints the builder\'s branch + logged-escape sequence and the gh pr start route (52-01)', () => {
+    install();
+    project({ store: true });
+    const r = run(['--apply']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.ok(exists(WORKFLOW) && exists(PR_TEMPLATE));
+    assert.match(r.stdout, /not committed/i);
+    assert.ok(r.stdout.includes(`Commit them through a pull request:\n${setupSteps(true)}\n`), r.stdout);
+    assert.match(r.stdout, SETUP_COMMIT_RE);
+    assert.match(r.stdout, /DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="gh setup workflow" /);
+    assert.match(r.stdout, /df-tools gh pr start <objective>/);
+    assert.doesNotMatch(r.stdout, /Commit them on a branch and open a pull request: df-tools commit/, 'the bare line is gone');
+    assert.match(r.stdout, /merge .*workflow .*first/i, 'the ruleset lines are unchanged');
     assert.equal(r.stderr, '');
   });
 

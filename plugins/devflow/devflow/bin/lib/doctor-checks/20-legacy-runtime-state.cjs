@@ -23,7 +23,8 @@
 // unignored → `git rm --cached` tracked markers → delete every working copy. The index-changing
 // part runs only behind doctor-git.indexChangeGuard (DOC-06). The doctor never commits: the fix
 // returns the exact `df-tools commit` command for the user (in GitHub store mode, the branch +
-// logged-escape + pull-request sequence the commit gate accepts; TRD 51-04).
+// logged-escape + pull-request sequence the commit gate accepts; TRD 51-04), built by commit-steps.cjs with the
+// `gh pr start` route for a linked branch (TRD 52-01).
 
 const fs = require('fs');
 const path = require('path');
@@ -32,6 +33,7 @@ const m0008 = require('../migrations/0008-runtime-state-untrack.cjs');
 const upgrade = require('../upgrade.cjs');
 const dg = require('../doctor-git.cjs');
 const planningMode = require('../planning-mode.cjs');
+const { branchCommitSteps } = require('../commit-steps.cjs');
 
 const MARKER_PREFIXES = ['.autonomous-retry-', '.autonomous-resume-'];
 const MARKER_PATHSPECS = MARKER_PREFIXES.map((p) => `:(glob)**/.planning/${p}*`);
@@ -42,20 +44,14 @@ const STORE_BRANCH = 'devflow-untrack-runtime-state';
 /**
  * The follow-up commit note for `files`. Local mode: `commit with: <COMMIT_COMMAND> <files>`, byte-identical to before
  * 51-04. Store mode (TRD 51-04, G6): objective 50's gate refuses that line on the default branch and on any branch no
- * objective PR names, so print a new branch, the logged escape (gate `gh`), push and a pull request instead.
+ * objective PR names, so print a new branch, the logged escape (gate `gh`), push and a pull request instead, plus the
+ * `gh pr start` route for a linked branch — the commit-steps builder's store form (TRD 52-01).
  * `planningMode.isStoreMode` is the only reader of `github.store`.
  */
 function commitNote(root, files) {
   const list = files.join(' ');
   if (!planningMode.isStoreMode(root)) return `commit with: ${COMMIT_COMMAND} ${list}`;
-  return [
-    'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
-      'branches), then merge it through a pull request:',
-    `  git switch -c ${STORE_BRANCH}`,
-    `  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="untrack DevFlow runtime state" ${COMMIT_COMMAND} ${list}`,
-    `  git push -u origin ${STORE_BRANCH}`,
-    '  then open a pull request for that branch',
-  ].join('\n');
+  return branchCommitSteps({ branch: STORE_BRANCH, reason: 'untrack DevFlow runtime state', command: `${COMMIT_COMMAND} ${list}` });
 }
 
 /** True for `<anything>/.planning/.autonomous-{retry,resume}-*` at any depth. Lexical. */
@@ -248,4 +244,5 @@ module.exports = {
   isLegacyRuntimePath,
   MARKER_PREFIXES,
   COMMIT_COMMAND,
+  commitNote,
 };
