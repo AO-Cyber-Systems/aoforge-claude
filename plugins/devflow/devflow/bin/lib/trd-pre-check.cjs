@@ -28,6 +28,7 @@ const { output, error, safeReadFile } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const trdBulk = require('./trd-bulk.cjs');
+const { objectiveNumPattern } = require('./text-escape.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -128,9 +129,7 @@ function extractRoadmapRequirements(cwd, objectiveNum) {
   if (!content) return { ids: [], found: false };
 
   // Find the objective section header
-  const numStr = objectiveNum.toString();
-  const escapedNum = numStr.replace(/\./g, '\\.');
-  const headerRe = new RegExp(`^#{2,4}\\s+Objective\\s+${escapedNum}[:\\s]`, 'm');
+  const headerRe = new RegExp(`^#{2,4}\\s+Objective\\s+${objectiveNumPattern(objectiveNum)}[:\\s]`, 'm');
   const headerMatch = content.match(headerRe);
   if (!headerMatch) return { ids: [], found: false };
 
