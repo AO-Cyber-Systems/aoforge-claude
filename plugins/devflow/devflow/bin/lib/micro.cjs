@@ -8,7 +8,9 @@
  * a single git commit per micro task with a `chore(micro): {description}`
  * message. In local mode the STATE.md "Quick Tasks Completed" table is updated
  * on each commit; with `github.store` on, STATE.md is a generated view and is
- * left untouched (52-03).
+ * left untouched (52-03). Every commit goes through `df-tools commit` (53-03), so in
+ * store mode it is refused off an objective's linked branch with the normal gate
+ * message, and the logged DEVFLOW_SKIP_GH_GATE=1 escape works as it does there.
  *
  * CLI surface:
  *   df-tools micro start <description>           write .planning/.skill-active, allocate task slot
@@ -146,67 +148,90 @@ function _appendQuickTaskRow(stateMdPath, row) {
   fs.writeFileSync(stateMdPath, before + '\n' + newRow + '\n' + after, 'utf8');
 }
 
-// ─── Internal: default git runner ────────────────────────────────────────────
+// ─── Internal: default commit runner (df-tools commit) ───────────────────────
+
+// micro commits THROUGH `df-tools commit` (53-03), never with a raw `git commit`. cmdCommit owns the store-mode GEN-01 branch
+// gate, its logged DEVFLOW_SKIP_GH_GATE escape and the `Refs #` trailer, so micro reuses it instead of forking any of them.
+// It is spawned rather than called in-process because cmdCommit reports through output(), which ends the process. A child
+// process is not seen by the gate-commits hook (hooks only see Claude's own Bash calls), so it needs no escape variable.
+const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
+
+// The refusal codes gh-gate.cjs emits (its `refuse(...)` calls). Only these become `gate-refused`; every other failed
+// commit stays `commit-failed`. micro.test.cjs G-5 fails if gh-gate.cjs gains a code that is missing here.
+const GATE_REASONS = new Set(['detached_head', 'default_branch', 'unlinked_branch']);
+
+const NOTHING_STAGED_MSG =
+  'nothing staged and no tracked file is modified. Untracked files are never ' +
+  'swept in — name new files explicitly: df-tools micro commit --files <path>...';
 
 /**
- * Default git runner — stages and commits via child_process.spawnSync.
- * Sets DEVFLOW_ALLOW_RAW_COMMIT=1 in the subprocess env so gate-commits.js
- * does not block the internal commit.
+ * The NUL-separated paths `git diff <args>` prints, relative to `cwd` (`--relative`, so a project that lives in a
+ * subdirectory of its repository still hands `df-tools commit` paths it can resolve). `--no-renames` lists a rename as the
+ * deletion plus the addition so both halves are committed.
+ *
+ * @returns {{ paths: string[], error: string|null }}
+ */
+function _diffPaths(cwd, args) {
+  const r = spawnSync('git', ['diff', ...args, '--name-only', '--no-renames', '--relative', '-z'], { cwd, encoding: 'utf8' });
+  if (r.status !== 0) {
+    return { paths: [], error: (r.stderr || '').trim() || `git diff exited ${r.status}` };
+  }
+  return { paths: (r.stdout || '').split('\0').filter(Boolean), error: null };
+}
+
+/**
+ * The paths a micro commit covers when the caller named none: what is staged, else the tracked modifications. Untracked files
+ * are never included — the old `git add .` fallback swept a user's unrelated drafts into a micro commit and onto a pushed
+ * branch. df-tools commit with no `--files` commits `.planning/` only, so micro resolves the list itself.
+ *
+ * @returns {{ paths: string[], error: string|null }}
+ */
+function _implicitFiles(cwd) {
+  const staged = _diffPaths(cwd, ['--cached']);
+  if (staged.error || staged.paths.length > 0) return staged;
+  return _diffPaths(cwd, []);
+}
+
+/**
+ * Default runner: commits exactly `opts.files` (or the implicit list) with `df-tools commit <message> --files ...`. The commit
+ * is always pathspec-limited, so any other change the user has staged stays staged and out of it (#120).
+ *
+ * Maps df-tools commit's JSON result onto the runner contract `{ exitCode, stdout, stderr }`, plus `reason` and `json`:
+ *   committed: true            -> exitCode 0, stdout = the short hash
+ *   committed: false + error   -> exitCode 1, stderr = the message verbatim (a gate refusal names both remedies), reason
+ *   committed: false, no error -> exitCode 1 (skipped_* / nothing_to_commit: nothing landed, so micro must not report success)
  *
  * @param {string} cwd
  * @param {{ message: string, files: string[]|null }} opts
- * @returns {{ exitCode: number, stdout: string, stderr: string }}
+ * @returns {{ exitCode: number, stdout: string, stderr: string, reason?: string, json?: object }}
  */
-function _defaultGitRunner(cwd, opts) {
-  const safeEnv = { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' };
-
-  // Stage files. With an explicit list, stage exactly that and commit exactly
-  // that, by pathspec, so any other changes the user has staged stay staged and
-  // out of the commit (#120). Without one, NEVER
-  // stage untracked files: the old `git add .` fallback swept a user's unrelated
-  // drafts into a micro commit and onto a pushed branch. Instead commit what the
-  // caller already staged, or — if nothing is — tracked modifications only.
-  if (opts.files && opts.files.length > 0) {
-    for (const f of opts.files) {
-      const addResult = spawnSync('git', ['add', f], { cwd, encoding: 'utf8', env: safeEnv });
-      if (addResult.status !== 0) {
-        return { exitCode: addResult.status ?? 1, stdout: '', stderr: addResult.stderr || '' };
-      }
-    }
-  } else {
-    const staged = () => spawnSync('git', ['diff', '--cached', '--quiet'], { cwd, env: safeEnv }).status === 1;
-    if (!staged()) {
-      const addResult = spawnSync('git', ['add', '-u'], { cwd, encoding: 'utf8', env: safeEnv });
-      if (addResult.status !== 0) {
-        return { exitCode: addResult.status ?? 1, stdout: '', stderr: addResult.stderr || '' };
-      }
-    }
-    if (!staged()) {
-      return {
-        exitCode: 1,
-        stdout: '',
-        stderr: 'nothing staged and no tracked file is modified. Untracked files are never ' +
-          'swept in — name new files explicitly: df-tools micro commit --files <path>...',
-      };
-    }
+function _dfToolsCommitRunner(cwd, opts) {
+  let files = opts.files && opts.files.length > 0 ? opts.files : null;
+  if (!files) {
+    const implicit = _implicitFiles(cwd);
+    if (implicit.error) return { exitCode: 1, stdout: '', stderr: implicit.error };
+    if (implicit.paths.length === 0) return { exitCode: 1, stdout: '', stderr: NOTHING_STAGED_MSG };
+    files = implicit.paths;
   }
 
-  // Commit
-  const commitArgs = ['commit', '-m', opts.message];
-  // Pathspec-limit an explicit list: a whole-index commit swept the user's
-  // unrelated staged changes into the micro (#120). `--` keeps paths from
-  // being read as options; a staged deletion of a listed path is still recorded.
-  if (opts.files && opts.files.length > 0) commitArgs.push('--', ...opts.files);
-  const commitResult = spawnSync('git', commitArgs, {
+  const r = spawnSync(process.execPath, [DF_TOOLS, 'commit', opts.message, '--files', ...files], {
     cwd,
     encoding: 'utf8',
-    env: safeEnv,
+    env: process.env,
   });
-  return {
-    exitCode: commitResult.status ?? 1,
-    stdout: (commitResult.stdout || '').trim(),
-    stderr: (commitResult.stderr || '').trim(),
-  };
+
+  let json = null;
+  try { json = JSON.parse((r.stdout || '').trim()); } catch { /* not JSON: report the raw streams below */ }
+
+  if (json && json.committed === true) {
+    return { exitCode: 0, stdout: json.hash || '', stderr: '', json };
+  }
+  if (json && json.committed === false) {
+    const stderr = json.error || `df-tools commit did not commit (${json.reason})`;
+    return { exitCode: 1, stdout: '', stderr, reason: json.reason, json };
+  }
+  const said = (r.stderr || r.stdout || (r.error && r.error.message) || '').trim();
+  return { exitCode: r.status || 1, stdout: '', stderr: said };
 }
 
 // ─── startMicro ──────────────────────────────────────────────────────────────
@@ -287,6 +312,9 @@ function startMicro({ planningDir, description, pid, now }) {
  * Produces an atomic git commit with message `chore(micro): {description}`,
  * appends a row to STATE.md "Quick Tasks Completed" (local mode only), and
  * removes the marker. Marker is NOT removed if the commit fails — caller can retry.
+ * The default runner commits through `df-tools commit` (53-03). A store-mode gate refusal
+ * returns `{ ok: false, reason: 'gate-refused', gate_reason, message }` with the gate's
+ * message verbatim (it names `df-tools gh pr start` and DEVFLOW_SKIP_GH_GATE=1).
  * In store mode (planning-mode.isStoreMode) STATE.md is not required, not
  * written and not committed: the result carries `state_commit_hash: null` and
  * `state_row: 'skipped_store_mode'` (52-03).
@@ -296,8 +324,8 @@ function startMicro({ planningDir, description, pid, now }) {
  * @param {string} opts.description - task description (used in commit message)
  * @param {string[]|null} opts.files - files to stage and commit (pathspec-limited; unrelated staged changes stay staged); null = what is already staged, else tracked modifications; never untracked files
  * @param {string} opts.now - ISO8601 timestamp (for STATE.md date)
- * @param {Function|null} opts.gitRunner - injection for tests; null = real git
- * @returns {{ ok: boolean, commit_hash?: string, state_commit_hash?: string|null, state_row?: 'skipped_store_mode', removed_marker?: boolean, reason?: string, message?: string, stderr?: string }}
+ * @param {Function|null} opts.gitRunner - injection for tests, `(cwd, {message, files}) => {exitCode, stdout, stderr, reason?}`; null = the df-tools commit runner
+ * @returns {{ ok: boolean, commit_hash?: string, state_commit_hash?: string|null, state_row?: 'skipped_store_mode', removed_marker?: boolean, reason?: string, gate_reason?: string, message?: string, stderr?: string }}
  */
 function commitMicro({ planningDir, description, files, now, gitRunner }) {
   if (!planningDir) {
@@ -342,11 +370,23 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
 
   // Commit via runner
   const message = `chore(micro): ${commitDesc}`;
-  const runner = gitRunner || ((cwd, opts) => _defaultGitRunner(cwd, opts));
+  const runner = gitRunner || ((cwd, opts) => _dfToolsCommitRunner(cwd, opts));
 
   const commitResult = runner(projectRoot, { message, files });
 
   if (commitResult.exitCode !== 0) {
+    // 53-03: a store-mode refusal from `df-tools commit` (the GEN-01 branch gate) is not a git failure. Return the gate's
+    // message verbatim, since it names the remedies (`df-tools gh pr start`, the logged DEVFLOW_SKIP_GH_GATE=1 escape), and
+    // keep the marker like every failed commit so the user can switch branch and rerun `micro commit`.
+    if (GATE_REASONS.has(commitResult.reason)) {
+      return {
+        ok: false,
+        reason: 'gate-refused',
+        gate_reason: commitResult.reason,
+        message: commitResult.stderr,
+        removed_marker: false,
+      };
+    }
     return {
       ok: false,
       reason: 'commit-failed',
@@ -361,7 +401,6 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   const hashResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
     cwd: projectRoot,
     encoding: 'utf8',
-    env: { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' },
   });
   if (hashResult.status === 0) {
     commitHash = hashResult.stdout.trim();
@@ -452,7 +491,6 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   const lsResult = spawnSync('git', ['ls-files', '--error-unmatch', '.planning/.skill-active'], {
     cwd: projectRoot,
     encoding: 'utf8',
-    env: { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' },
   });
   if (lsResult.status === 0) {
     stateFiles.push('.planning/.skill-active');
@@ -469,7 +507,6 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
         const h = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
           cwd: projectRoot,
           encoding: 'utf8',
-          env: { ...process.env, DEVFLOW_ALLOW_RAW_COMMIT: '1' },
         });
         if (h.status === 0) {
           stateCommitHash = h.stdout.trim();
@@ -611,6 +648,13 @@ function cmdMicro(cwd, args, raw) {
       gitRunner: null,
     });
     if (!result.ok) {
+      // 53-03: a gate refusal is machine-readable, like `df-tools commit`'s own: the JSON result on stdout (exit 1) and the
+      // message, which names both remedies, on stderr. The marker and description file are kept so the user can rerun.
+      if (result.reason === 'gate-refused') {
+        process.stderr.write(`${result.message}\n`);
+        output(result, raw, JSON.stringify(result), 1);
+        return;
+      }
       error(result.message || result.reason);
       return;
     }
@@ -651,4 +695,5 @@ module.exports = {
   abortMicro,
   _setRunFs,
   _resetMocks,
+  _GATE_REASONS: GATE_REASONS,
 };
