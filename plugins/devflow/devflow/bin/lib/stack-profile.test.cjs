@@ -887,3 +887,59 @@ describe('mergeFrontmatter prototype-pollution guard (SEC group)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// renderDraftBody notes comment (54-C, CodeQL js/bad-tag-filter alert 129)
+//
+// HTML5 ends a comment at `-->` (after any run of dashes, so `--->` too) and at `--!>`.
+// noteLine must never let a note close the "stack init notes" comment early.
+// ---------------------------------------------------------------------------
+describe('renderDraftBody notes comment (54-C)', () => {
+  // The text from the notes comment on, so the "Drafted by" comment's own `-->` is out of scope.
+  function notesComment(body) {
+    const at = body.indexOf('<!-- stack init notes');
+    assert.ok(at >= 0, 'the notes comment must be present');
+    return body.slice(at);
+  }
+
+  function draft(notes) {
+    return sp.renderDraftBody('go', 'general', notes);
+  }
+
+  test('C1: a --!> in a note detail does not close the comment early', () => {
+    const text = notesComment(draft([
+      { key: 'test', candidate: 'go test ./...', status: 'candidate', detail: 'ends early --!> leaked' },
+    ]));
+    const first = text.search(/--!?>/);
+    const lastLine = text.lastIndexOf('\n-->');
+    assert.ok(first >= 0, 'the closing terminator must exist');
+    assert.strictEqual(first, lastLine + 1, 'the first terminator must be the final closing line');
+  });
+
+  test('C2: a --no-pub flag in a candidate is kept verbatim', () => {
+    const text = notesComment(draft([
+      { key: 'test', candidate: 'flutter test --no-pub', status: 'candidate' },
+    ]));
+    assert.ok(text.includes('test: flutter test --no-pub'), 'the flag must survive unchanged');
+  });
+
+  test('C3: --> and ---> are neutralised, and --> keeps the "-- >" output', () => {
+    const text = notesComment(draft([
+      { key: 'a', candidate: 'x', status: 'candidate', detail: 'one --> two' },
+      { key: 'b', candidate: 'y', status: 'candidate', detail: 'three ---> four' },
+    ]));
+    const first = text.search(/--!?>/);
+    const lastLine = text.lastIndexOf('\n-->');
+    assert.strictEqual(first, lastLine + 1, 'no terminator before the closing line');
+    assert.ok(text.includes('one -- > two'), '`-->` must still render as `-- >`');
+  });
+
+  test('C4: a newline in detail stays on one line (regression guard)', () => {
+    const text = notesComment(draft([
+      { key: 'test', candidate: 'go test ./...', status: 'candidate', detail: 'first\nsecond\r\nthird' },
+    ]));
+    const noteLines = text.split('\n').filter((l) => l.startsWith('- '));
+    assert.strictEqual(noteLines.length, 1, 'one note renders as exactly one line');
+    assert.ok(noteLines[0].includes('first second third'));
+  });
+});
