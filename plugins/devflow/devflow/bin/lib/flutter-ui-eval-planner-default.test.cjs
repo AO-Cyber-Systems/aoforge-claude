@@ -11,7 +11,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 
 const { decideUIEvalDefault, buildManifestStub } = require('./flutter-ui-eval-planner-default.cjs');
 
@@ -195,8 +195,9 @@ test.describe('buildManifestStub — emits the key the engine reads (32-02)', ()
       fs.writeFileSync(path.join(tmpDir, 'seed.png'), 'stub-pixel-placeholder', 'utf-8');
       fs.writeFileSync(path.join(tmpDir, 'manifest.json'), JSON.stringify(stub, null, 2), 'utf-8');
 
-      const out = execSync(
-        `node ${DF_TOOLS} verify flutter-ui-eval ${path.join(tmpDir, 'manifest.json')} --raw`,
+      const out = execFileSync(
+        process.execPath,
+        [DF_TOOLS, 'verify', 'flutter-ui-eval', path.join(tmpDir, 'manifest.json'), '--raw'],
         { encoding: 'utf-8' },
       );
       const rollup = JSON.parse(out);

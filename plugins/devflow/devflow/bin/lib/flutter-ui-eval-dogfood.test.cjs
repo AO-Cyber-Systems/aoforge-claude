@@ -14,27 +14,28 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execSync, spawnSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 const FIXTURE_DIR = path.join(__dirname, '__fixtures__', 'flutter-ui-eval');
 const MANIFEST = path.join(FIXTURE_DIR, 'manifest.json');
 
 // Run df-tools and capture stdout (no --raw appended here so callers control flags exactly).
-function runRaw(argStr, opts = {}) {
-  return execSync(`node ${DF_TOOLS} ${argStr}`, { encoding: 'utf-8', ...opts });
+// argv is an array of arguments: df-tools is spawned directly, never through a shell.
+function runRaw(argv, opts = {}) {
+  return execFileSync(process.execPath, [DF_TOOLS, ...argv], { encoding: 'utf-8', ...opts });
 }
-function runJSON(argStr) {
+function runJSON(argv) {
   // 32-04: a scoreRun verdict:'fail' now exits non-zero (see Case X1 below), so bare
-  // execSync's default throw-on-nonzero is no longer the right tool here — every dogfood
+  // execFileSync's default throw-on-nonzero is no longer the right tool here — every dogfood
   // case that legitimately drives the checked-in fixture manifest (which scores 'fail' BY
   // DESIGN — it contains a deliberately-broken state) would otherwise crash on the exit
   // code instead of asserting on the rollup content. Catching the throw and parsing
-  // `err.stdout` (execSync still attaches the child's stdout to a thrown error) preserves
+  // `err.stdout` (execFileSync still attaches the child's stdout to a thrown error) preserves
   // EVERY existing content assertion unchanged for D2/DF1/DF2/DF3/N1/C5/G1/G2 — only HOW a
   // non-zero exit is tolerated changes, never what is asserted about the rollup.
   try {
-    return JSON.parse(runRaw(`${argStr} --raw`));
+    return JSON.parse(runRaw([...argv, '--raw']));
   } catch (err) {
     if (err.stdout) return JSON.parse(err.stdout);
     throw err;
@@ -44,13 +45,13 @@ function runJSON(argStr) {
 test.describe('flutter-ui-eval CLI dogfood (UI-VISUAL-EVAL-JUDGE-02)', () => {
 
   test('Case D1 — verify flutter-ui-eval --help exits 0 and prints usage (no crash, no network)', () => {
-    const out = runRaw('verify flutter-ui-eval --help');
+    const out = runRaw(['verify', 'flutter-ui-eval', '--help']);
     assert.match(out, /flutter-ui-eval/);
     assert.match(out, /verify|usage|Usage/);
   });
 
   test('Case D2 — verify flutter-ui-eval <manifest> --raw emits a scoreRun rollup JSON', () => {
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST]);
     assert.ok(rollup && typeof rollup === 'object', 'rollup is an object');
     assert.ok('verdict' in rollup, 'rollup has a verdict');
     assert.ok(rollup.counts && typeof rollup.counts === 'object', 'rollup has counts');
@@ -66,13 +67,13 @@ test.describe('flutter-ui-eval CLI dogfood (UI-VISUAL-EVAL-JUDGE-02)', () => {
 
   test('Case F1 — flutter-ui eval is a reachable subcommand (not "Unknown ... Available: setup")', () => {
     // Should route to the same handler; --help is the safe reachability probe.
-    const out = runRaw('flutter-ui eval --help');
+    const out = runRaw(['flutter-ui', 'eval', '--help']);
     assert.match(out, /flutter-ui-eval|eval/);
     assert.doesNotMatch(out, /Unknown flutter-ui subcommand/);
   });
 
   test('Case DF1 — known-good capture -> state verdict pass', () => {
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST]);
     const good = rollup.states.find(s => s.state_id === 'good-dashboard');
     assert.ok(good, 'good-dashboard state present in rollup');
     assert.strictEqual(good.verdict, 'pass');
@@ -80,7 +81,7 @@ test.describe('flutter-ui-eval CLI dogfood (UI-VISUAL-EVAL-JUDGE-02)', () => {
   });
 
   test('Case DF2 — known-broken overflow capture -> is_broken:true, defect overflow/high, verdict fail', () => {
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST]);
     const broken = rollup.states.find(s => s.state_id === 'broken-overflow');
     assert.ok(broken, 'broken-overflow state present in rollup');
     assert.strictEqual(broken.is_broken, true);
@@ -91,7 +92,7 @@ test.describe('flutter-ui-eval CLI dogfood (UI-VISUAL-EVAL-JUDGE-02)', () => {
   });
 
   test('Case DF3 — scoreRun rollup over the fixture set -> verdict fail, broken state listed', () => {
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST]);
     assert.strictEqual(rollup.verdict, 'fail');
     assert.deepStrictEqual(rollup.fails, ['broken-overflow']);
     assert.strictEqual(rollup.counts.pass, 1);
@@ -101,7 +102,7 @@ test.describe('flutter-ui-eval CLI dogfood (UI-VISUAL-EVAL-JUDGE-02)', () => {
   test('Case N1 — dogfood/verify path never reaches the real network judge (offline flag asserted)', () => {
     // The handler's offline/dogfood path injects a label-echo judge; the rollup carries
     // network:false as the machine-checkable no-network guarantee for this path.
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST]);
     assert.strictEqual(rollup.network, false);
     assert.strictEqual(rollup.judge, 'offline-label-echo');
   });
@@ -110,7 +111,7 @@ test.describe('flutter-ui-eval CLI dogfood (UI-VISUAL-EVAL-JUDGE-02)', () => {
     // 32-02 (aodex#485 defect 2): a consumer reading a single state's rollup detail must be
     // able to see what basis the verdict rests on, without also reading the run-level
     // `judge` field. Every state on the default (offline) path must declare evidence:'label'.
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST]);
     assert.ok(Array.isArray(rollup.states) && rollup.states.length > 0, 'rollup has per-state detail');
     for (const s of rollup.states) {
       assert.strictEqual(s.evidence, 'label',
@@ -233,7 +234,7 @@ test.describe('Case U1 — a state absent from labels.json must not report pass 
 
   test('Case U1 — a state absent from labels.json must NOT report pass (aodex#485)', () => {
     const manifestPath = path.join(tmpDir, 'manifest.json');
-    const rollup = runJSON(`verify flutter-ui-eval ${manifestPath}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', manifestPath]);
 
     const ghost = rollup.states.find(s => s.state_id === 'never-judged-by-anything');
     assert.ok(ghost, 'never-judged-by-anything state present in rollup');
@@ -317,7 +318,7 @@ test.describe('Case A1 — a manifest state keyed `id` is attributable by name (
 
   test('Case A1 — a state keyed `id` is named (no null) in the rollup, with an advisory on the non-canonical key', () => {
     const manifestPath = path.join(tmpDir, 'manifest.json');
-    const rollup = runJSON(`verify flutter-ui-eval ${manifestPath}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', manifestPath]);
 
     // No null entries in EITHER name-keyed bucket.
     assert.ok(!rollup.reviews.includes(null), 'reviews[] must contain no null entries');
@@ -355,14 +356,14 @@ test.describe('Case A1 — a manifest state keyed `id` is attributable by name (
 test.describe('Case G1-G5 — judge selection is explicit; the rollup declares its own gate standing (32-03)', () => {
 
   test('Case G1 — default invocation (no --judge) declares gate:"advisory"; still network:false + offline judge', () => {
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST}`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST]);
     assert.strictEqual(rollup.gate, 'advisory', 'a labels lookup must not present itself as a gate');
     assert.strictEqual(rollup.network, false);
     assert.strictEqual(rollup.judge, 'offline-label-echo');
   });
 
   test('Case G2 — --judge labels selects the offline path explicitly: same rollup shape, gate:"advisory"', () => {
-    const rollup = runJSON(`verify flutter-ui-eval ${MANIFEST} --judge labels`);
+    const rollup = runJSON(['verify', 'flutter-ui-eval', MANIFEST, '--judge', 'labels']);
     assert.strictEqual(rollup.gate, 'advisory');
     assert.strictEqual(rollup.network, false);
     assert.strictEqual(rollup.judge, 'offline-label-echo');
@@ -382,7 +383,8 @@ test.describe('Case G1-G5 — judge selection is explicit; the rollup declares i
     // capture directly. Content assertions are unchanged; only the exit-code handling moves.
     let out;
     try {
-      out = execSync(`node ${DF_TOOLS} verify flutter-ui-eval ${MANIFEST} --judge live --raw`,
+      out = execFileSync(process.execPath,
+        [DF_TOOLS, 'verify', 'flutter-ui-eval', MANIFEST, '--judge', 'live', '--raw'],
         { encoding: 'utf-8', env: strippedEnv });
     } catch (err) {
       out = err.stdout;
@@ -399,7 +401,7 @@ test.describe('Case G1-G5 — judge selection is explicit; the rollup declares i
 
   test('Case G4 — an unrecognised --judge value is rejected with a usage error, not a silent offline fallthrough', () => {
     assert.throws(() => {
-      execSync(`node ${DF_TOOLS} verify flutter-ui-eval ${MANIFEST} --judge nonsense --raw`, { encoding: 'utf-8' });
+      execFileSync(process.execPath, [DF_TOOLS, 'verify', 'flutter-ui-eval', MANIFEST, '--judge', 'nonsense', '--raw'], { encoding: 'utf-8' });
     }, (err) => {
       assert.ok(err.status && err.status !== 0, `expected a non-zero exit for an unrecognised --judge value, got ${err.status}`);
       const stderr = err.stderr || '';
@@ -410,7 +412,7 @@ test.describe('Case G1-G5 — judge selection is explicit; the rollup declares i
   });
 
   test('Case G5 — --help usage text states the default is advisory and the gate requires --judge live', () => {
-    const out = runRaw('verify flutter-ui-eval --help');
+    const out = runRaw(['verify', 'flutter-ui-eval', '--help']);
     assert.match(out, /advisory/i, '--help must state the default is advisory');
     assert.match(out, /--judge live/, '--help must name --judge live as the path to a binding gate');
     assert.match(out, /binding/i, '--help must state that the binding gate is opt-in');
