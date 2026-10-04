@@ -383,7 +383,7 @@ TRDs:
 - [x] 54-02-single-site-fixes-TRD.md — (W1) 54-C/E/D: stack notes neutralise `-->`/`--!>` (129); `config-set` refuses `__proto__`/`constructor`/`prototype` (89); handoff `prompt_match` comment (95)
 - [x] 54-03-workflow-permissions-and-test-leftovers-TRD.md — (W1) 54-F/H: `contents: read` for test.yml + agent-shell-harness.yml with a repo guard (125, 137); PJ-6 via fixture builder (124); doctor e2e `includes` (134)
 - [x] 54-04-execfile-verify-tests-TRD.md — (W1) 54-G part 1: execFileSync in api-contract, flutter-ui dogfood/eval/planner-default, verifier-ui-eval-invocation tests (102-106, 115-119)
-- [ ] 54-05-execfile-cli-tests-TRD.md — (W1) 54-G part 2: execFileSync in decision-queue, flutter-ui-scope, project-hygiene; positional-arg `sh` gate in ui-spec-cli (96-100, 107-109, 112, 113, 122)
+- [x] 54-05-execfile-cli-tests-TRD.md — (W1) 54-G part 2: execFileSync in decision-queue, flutter-ui-scope, project-hygiene; positional-arg `sh` gate in ui-spec-cli (96-100, 107-109, 112, 113, 122)
 - [ ] 54-06-objective-roadmap-regex-TRD.md — (W2) 54-A part 1: objective/roadmap/workstreams on objectiveNumPattern; section-anchored, escaped Requirements update (65, 66, 68, 74, 76-79, 82, 84, 85, 87)
 - [ ] 54-07-detector-bootstrap-changelog-regex-TRD.md — (W2) 54-A part 2: novel-domain, trd-pre-check, project-bootstrap, changelog + tag hook on the shared escape (64, 83, 91-94, 101, 110, 111)
 - [ ] 54-08-markdown-table-cells-TRD.md — (W2) 54-B: ADOPT-REPORT cells escaped once at render, 3-column high table; STACK-REPORT cell via mdCell (130-133, 135)
