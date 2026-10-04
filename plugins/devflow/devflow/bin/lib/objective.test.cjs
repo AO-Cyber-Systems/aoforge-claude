@@ -901,3 +901,171 @@ describe('53-02: findObjectiveInternal incomplete_jobs pairs a named TRD with ei
     assert.deepEqual(findObjectiveInternal(projectWith(['TRD.md', 'SUMMARY.md']), '07').incomplete_jobs, []);
   });
 });
+
+// ─── 54-06: objective remove / complete match through text-escape's objectiveNumPattern ────────────
+
+describe('54-06 objective complete: Requirements lookup is scoped to the objective\'s own section', () => {
+  function requirementsProject(roadmap, requirements) {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    fs.writeFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), requirements, 'utf-8');
+    for (const [dir, n] of [['01-auth', '01'], ['02-api', '02']]) {
+      const d = path.join(project, '.planning', 'objectives', dir);
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, `${n}-01-TRD.md`), '# TRD\n', 'utf-8');
+      fs.writeFileSync(path.join(d, `${n}-01-SUMMARY.md`), '# Summary\n', 'utf-8');
+    }
+    return project;
+  }
+
+  const REQUIREMENTS = `# Requirements
+
+- [ ] **R-1**: First
+- [ ] **R-2**: Second
+
+## Traceability
+
+| Requirement | Objective | Status |
+|---|---|---|
+| R-1 | Objective 1 | Pending |
+| R-2 | Objective 2 | Pending |
+`;
+
+  // Item 4. RED before the fix: the lookup started at the first mention of `Objective 2` (the checklist line
+  // at the top) and lazily captured the first `**Requirements:**` after it, which is objective 1's.
+  test('4: completing objective 2 ticks R-2 and leaves objective 1\'s R-1 alone', () => {
+    const project = requirementsProject(`# Roadmap
+
+- [ ] **Objective 1: Auth**
+- [ ] **Objective 2: API**
+
+### Objective 1: Auth
+
+**Goal:** Auth.
+**Requirements:** R-1
+**Jobs:** 1 jobs
+
+### Objective 2: API
+
+**Goal:** API.
+**Requirements:** R-2
+**Jobs:** 1 jobs
+`, REQUIREMENTS);
+
+    const r = run(['objective', 'complete', '2'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const req = fs.readFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    assert.match(req, /^- \[x\] \*\*R-2\*\*: Second$/m, 'R-2 is ticked');
+    assert.match(req, /^- \[ \] \*\*R-1\*\*: First$/m, 'R-1 stays unticked');
+    assert.match(req, /^\| R-2 \| Objective 2 \| Complete \|$/m, 'R-2 row is Complete');
+    assert.match(req, /^\| R-1 \| Objective 1 \| Pending \|$/m, 'R-1 row stays Pending');
+  });
+
+  // Item 5. RED before the fix: the free-text line was split on whitespace and each token compiled unescaped,
+  // so `(tech` threw "Unterminated group" and `objective complete` crashed.
+  test('5: a free-text Requirements line with regex metacharacters does not crash and changes nothing', () => {
+    const project = requirementsProject(`# Roadmap
+
+- [ ] **Objective 1: Auth**
+
+### Objective 1: Auth
+
+**Goal:** Auth.
+**Requirements:** none (tech debt; see OBJECTIVE.md)
+**Jobs:** 1 jobs
+
+### Objective 2: API
+
+**Goal:** API.
+**Requirements:** R-2
+`, REQUIREMENTS);
+
+    const r = run(['objective', 'complete', '1'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(fs.readFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), 'utf-8'), REQUIREMENTS);
+  });
+});
+
+describe('54-06 objective remove / complete: a decimal number never reaches 4.10 or 4.1.2', () => {
+  function decimalProject(extraRoadmap) {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), extraRoadmap, 'utf-8');
+    for (const dir of ['04.1-one', '04.10-ten']) {
+      fs.mkdirSync(path.join(project, '.planning', 'objectives', dir), { recursive: true });
+    }
+    return project;
+  }
+
+  // Item 6. Regression guard: passes on the unmodified code (every site already had a `:`, `[:\s]` or `\.?\s` after
+  // the number); it pins the behaviour across the helper swap.
+  test('6: remove 4.1 deletes only 4.1\'s section, checkbox and row (regression guard)', () => {
+    const project = decimalProject(`# Roadmap
+
+## Objectives
+
+- [ ] **Objective 4.1: One**
+- [ ] **Objective 4.10: Ten**
+- [ ] **Objective 4.1.2: Sub**
+
+### Objective 4.1: One
+
+**Goal:** One.
+
+### Objective 4.10: Ten
+
+**Goal:** Ten.
+
+### Objective 4.1.2: Sub
+
+**Goal:** Sub.
+
+## Progress
+
+| Objective | Plans | Status |
+|---|---|---|
+| 4.1 One | 0/1 | Planned |
+| 4.10 Ten | 0/1 | Planned |
+| 4.1.2 Sub | 0/1 | Planned |
+`);
+
+    const r = run(['objective', 'remove', '4.1', '--confirm'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.doesNotMatch(after, /Objective 4\.1: One/, '4.1 checkbox and section are gone');
+    assert.doesNotMatch(after, /\| 4\.1 One /, '4.1 row is gone');
+    assert.match(after, /^- \[ \] \*\*Objective 4\.10: Ten\*\*$/m, '4.10 checkbox survives');
+    assert.match(after, /^- \[ \] \*\*Objective 4\.1\.2: Sub\*\*$/m, '4.1.2 checkbox survives');
+    assert.match(after, /^### Objective 4\.10: Ten$/m, '4.10 section survives');
+    assert.match(after, /^### Objective 4\.1\.2: Sub$/m, '4.1.2 section survives');
+    assert.match(after, /^\| 4\.10 Ten \| 0\/1 \| Planned \|$/m, '4.10 row survives');
+    assert.match(after, /^\| 4\.1\.2 Sub \| 0\/1 \| Planned \|$/m, '4.1.2 row survives');
+    assert.ok(fs.existsSync(path.join(project, '.planning', 'objectives', '04.10-ten')), '04.10 directory survives');
+  });
+
+  // Item 7. Regression guard: the `[:\s]` after the number already rejected 4.1.2.
+  test('7: complete 4.1 checks only 4.1\'s checkbox, not 4.1.2 listed first (regression guard)', () => {
+    const project = decimalProject(`# Roadmap
+
+- [ ] **Objective 4.1.2: Sub**
+- [ ] **Objective 4.10: Ten**
+- [ ] **Objective 4.1: One**
+
+### Objective 4.1: One
+
+**Goal:** One.
+`);
+    const dir = path.join(project, '.planning', 'objectives', '04.1-one');
+    fs.writeFileSync(path.join(dir, '04.1-01-TRD.md'), '# TRD\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '04.1-01-SUMMARY.md'), '# Summary\n', 'utf-8');
+
+    const r = run(['objective', 'complete', '4.1'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.match(after, /^- \[ \] \*\*Objective 4\.1\.2: Sub\*\*$/m, '4.1.2 stays unchecked');
+    assert.match(after, /^- \[ \] \*\*Objective 4\.10: Ten\*\*$/m, '4.10 stays unchecked');
+    assert.match(after, /^- \[x\] \*\*Objective 4\.1: One\*\* \(completed \d{4}-\d{2}-\d{2}\)$/m, '4.1 is checked');
+  });
+});
