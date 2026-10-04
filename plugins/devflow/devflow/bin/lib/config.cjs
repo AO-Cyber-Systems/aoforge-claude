@@ -137,11 +137,25 @@ function cmdConfigEnsureSection(cwd, raw) {
   }
 }
 
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+// Dot segments that name an object's own machinery, not a config key. A path through any of them
+// would assign into Object.prototype (or a constructor's prototype) instead of into config.json
+// (CodeQL js/prototype-pollution-utility). Only the exact names are reserved: `prototype_x` is a key.
+const RESERVED_KEY_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function cmdConfigSet(cwd, keyPath, value, raw) {
   const configPath = path.join(cwd, '.planning', 'config.json');
 
   if (!keyPath) {
     error('Usage: config-set <key.path> <value>');
+  }
+
+  // Refuse before touching config.json: the user sees the error and the file stays as it was.
+  const keys = keyPath.split('.');
+  const bad = keys.find((k) => RESERVED_KEY_SEGMENTS.has(k));
+  if (bad !== undefined) {
+    error(`config-set: refusing key segment "${bad}" in "${keyPath}" (reserved object property)`);
   }
 
   // Parse value (handle booleans and numbers)
@@ -160,12 +174,12 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
     error('Failed to read config.json: ' + err.message);
   }
 
-  // Set nested value using dot notation (e.g., "workflow.research")
-  const keys = keyPath.split('.');
+  // Set nested value using dot notation (e.g., "workflow.research"). The walk follows OWN
+  // properties only, so an inherited name is never treated as an existing section.
   let current = config;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (current[key] === undefined || typeof current[key] !== 'object') {
+    if (!hasOwn(current, key) || current[key] === null || typeof current[key] !== 'object') {
       current[key] = {};
     }
     current = current[key];
@@ -218,8 +232,6 @@ const LEGACY_FORMS = {
 
 // Unset, these follow the mode rather than a fixed template value (loadConfig: `?? autonomous`).
 const MODE_DERIVED = new Set(['workflow.verifier_checkpoints', 'workflow.decision_queue']);
-
-const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 /**
  * Walk a dot path through OWN properties only, so `constructor` or `toString` is never "found".
