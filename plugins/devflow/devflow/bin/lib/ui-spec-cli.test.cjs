@@ -771,10 +771,14 @@ const GATE_SENTINEL = 'GATE_FAILED';
  *
  * Not `result.status !== 0`: that is the assertion restated in the test's own words. The claim
  * is about what `sh` does with the code, so `sh` is what runs it.
+ *
+ * The script is a constant. Everything variable — the node binary, df-tools and its arguments —
+ * reaches `sh` as positional parameters (`$0` is the binary, `"$@"` is the rest), so nothing from
+ * the environment is ever parsed as shell syntax. `argv` is an array, not a shell-quoted string.
  */
+const GATE_SCRIPT = `"$0" "$@" >/dev/null 2>&1 || echo ${GATE_SENTINEL}`;
 function gateFails(argv) {
-  const cmd = `node ${JSON.stringify(DF_TOOLS)} ${argv} >/dev/null 2>&1 || echo ${GATE_SENTINEL}`;
-  const r = spawnSync('sh', ['-c', cmd], { cwd: LIB_DIR, encoding: 'utf-8' });
+  const r = spawnSync('sh', ['-c', GATE_SCRIPT, process.execPath, DF_TOOLS, ...argv], { cwd: LIB_DIR, encoding: 'utf-8' });
   return (r.stdout || '').includes(GATE_SENTINEL);
 }
 
@@ -782,7 +786,7 @@ test('Case G1 — an UNCHECKED invariant cannot pass a gate written the obvious 
   const spec = '__fixtures__/ui-spec/projects-rail.md';
 
   assert.strictEqual(
-    gateFails(`ui spec validate ${spec}`), true,
+    gateFails(['ui', 'spec', 'validate', spec]), true,
     'a spec whose §4.5 I5 was never checked must NOT pass `ui spec validate "$spec" || exit 1`'
   );
 
@@ -790,12 +794,12 @@ test('Case G1 — an UNCHECKED invariant cannot pass a gate written the obvious 
   // pattern catalogue is now reachable, i.e. that I5 was actually evaluated. Without this half
   // the case above passes for a tool that fails on everything.
   assert.strictEqual(
-    gateFails(`ui spec validate ${spec} --patterns ${JSON.stringify(PATTERN_CATALOGUE)}`), false,
+    gateFails(['ui', 'spec', 'validate', spec, '--patterns', PATTERN_CATALOGUE]), false,
     'the same spec, CHECKED against a catalogue, must still pass the same gate'
   );
 
   // And the third outcome stays where it was: a real violation fails the gate too.
-  assert.strictEqual(gateFails('ui spec validate __fixtures__/ui-spec/broken/route-without-back.md'), true);
+  assert.strictEqual(gateFails(['ui', 'spec', 'validate', '__fixtures__/ui-spec/broken/route-without-back.md']), true);
 });
 
 test('Case G2 — the three exit codes are 0, 1 and 2, and they are distinguishable', () => {
