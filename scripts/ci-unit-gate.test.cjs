@@ -34,7 +34,10 @@ function xmlEscape(s) {
 }
 
 /**
- * One <testcase>. status: 'pass' | 'fail' | 'skip' | 'todo' | 'todo-fail'.
+ * One <testcase>. status: 'pass' | 'fail' | 'skip' | 'todo' | 'todo-fail' | 'error'.
+ *
+ * `error` is a testcase holding an `<error>` child instead of `<failure>`: the shape a
+ * reporter emits when the harness, not an assertion, broke the case (PJ-6).
  *
  * `todo-fail` is the shape `{ todo: '…' }` on a test that actually throws: node
  * emits BOTH <skipped type="todo"> and <failure> inside one <testcase>, and
@@ -60,6 +63,9 @@ function buildTestCase({ name, file, status = 'pass', message = 'AssertionError'
   if (status === 'pass') return `\t\t<testcase ${attrs}/>`;
   if (status === 'skip') {
     return `\t\t<testcase ${attrs}>\n\t\t\t<skipped type="skipped" message="true"/>\n\t\t</testcase>`;
+  }
+  if (status === 'error') {
+    return `\t\t<testcase ${attrs}>\n\t\t\t<error type="harness" message="load failed"/>\n\t\t</testcase>`;
   }
   if (status === 'todo') {
     return `\t\t<testcase ${attrs}>\n\t\t\t<skipped type="todo" message="later"/>\n\t\t</testcase>`;
@@ -215,12 +221,10 @@ test('PJ-5 an empty document yields zero tests (which evaluate() then rejects)',
 });
 
 test('PJ-6 an <error> child counts as a failure, same as <failure>', () => {
-  const xml = buildJunit([{ name: 'E', file: 'plugins/devflow/e.test.cjs' }])
-    .replace('<testcase name="E" time="0.001" classname="test"',
-             '<testcase name="E" time="0.001" classname="test"');
-  const withError = xml.replace(/\/>\n\t<\/testsuite>/,
-    '>\n\t\t\t<error type="harness" message="load failed"/>\n\t\t</testcase>\n\t</testsuite>');
-  const r = parseJunit(withError);
+  const xml = buildJunit([{ name: 'E', file: 'plugins/devflow/e.test.cjs', status: 'error' }]);
+  assert.ok(xml.includes('<error type="harness" message="load failed"/>'),
+    `the fixture must carry the <error> child; got ${xml}`);
+  const r = parseJunit(xml);
   assert.strictEqual(r.failures, 1, `expected the <error> case to count; got ${JSON.stringify(r)}`);
 });
 

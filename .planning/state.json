@@ -600,6 +600,11 @@
       "objective": "54",
       "summary": "text-escape.cjs is the single dependency-free home for escapeRegExp, objectiveNumPattern and mdCell; it must never require helpers.cjs (hooks load it per call)",
       "rationale": "Hooks (changelog-on-tag.js, TRD 54-07) require it on every PreToolUse(Bash); helpers.cjs loads model-profiles JSON at require time"
+    },
+    {
+      "objective": "54",
+      "summary": "54-03: test.yml and agent-shell-harness.yml run on top-level permissions contents: read; scripts/workflow-permissions.test.cjs fails any workflow with no top-level or per-job permissions",
+      "rationale": null
     }
   ],
   "blockers": [],
