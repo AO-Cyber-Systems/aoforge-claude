@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-10-04
+
 ### Added
 - **Migration onto the GitHub store (objective 51).** Migration 0011 `github-store-backfill` (confirm)
   moves an existing project onto the store in place: a local and a remote preflight that list every
