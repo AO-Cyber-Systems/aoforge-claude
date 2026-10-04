@@ -42,6 +42,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 50 — GitHub enforcement and setup (completed 2026-10-01, 13/13 TRDs)
 **Objective complete:** 51 — GitHub migration and docs (completed 2026-10-01, 10/10 TRDs)
 **Objective complete:** 43 — Stack drafter rules (completed 2026-10-04, 15/15 TRDs)
+**Objective complete:** 52 — Store-mode polish (completed 2026-10-04, 6/6 TRDs)
 **Status:** Objective complete — ready for verification
 
 ## Branch State (post-merge)
