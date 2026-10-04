@@ -479,9 +479,9 @@ test('48-14 store 6: frontmatter set on a cached TRD is refused naming plan put-
     const before = p.read(FM_TRD_REL);
     const r = p.run(['frontmatter', 'set', `.planning/${FM_TRD_REL}`, '--field', 'status', '--value', 'done']);
     strict.equal(r.status, 1);
-    strict.match(r.stderr, new RegExp(`${FM_TRD_REL.replace(/[.]/g, '\\.')} is a GitHub-backed cache file in store mode`));
+    strict.ok(r.stderr.includes(`${FM_TRD_REL} is a GitHub-backed cache file in store mode`), r.stderr);
     strict.match(r.stderr, /df-tools plan put-trd/);
-    strict.match(r.stderr, new RegExp(`df-tools planning draft ${FM_TRD_REL.replace(/[.]/g, '\\.')}`));
+    strict.ok(r.stderr.includes(`df-tools planning draft ${FM_TRD_REL}`), r.stderr);
     strict.equal(p.read(FM_TRD_REL), before);
     strict.deepEqual(p.ghCalls(), []);
   });

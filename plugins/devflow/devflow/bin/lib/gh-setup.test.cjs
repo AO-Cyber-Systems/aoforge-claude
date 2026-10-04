@@ -720,7 +720,7 @@ describe('planSetup, wiki and merge_group (test 9)', () => {
     for (const a of advisories) {
       assert.equal(a.status, 'advisory');
       assert.match(a.desc, /merge_group/);
-      assert.match(a.desc, new RegExp(a.target.replace(/[.]/g, '\\.')));
+      assert.ok(a.desc.includes(a.target), `${a.desc} names ${a.target}`);
       assert.equal(a.file, undefined, 'never rewritten');
     }
   });

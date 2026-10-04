@@ -445,6 +445,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   gained `## Core Value` and `## Requirements` from its existing text (W001), and the three
   `UI-VISUAL-EVAL-*` ad-hoc objective directories moved with `git mv` to
   `.planning/milestones/v1.2-objectives/`, history intact (W005). `validate health` reports neither.
+- Eight CodeQL alerts new in PR #121 (138-145). Two ReDoS fixes (js/redos): the `stack-classify`
+  `GIT_DIFF` option parsing now reads a single-dash `-C`/`-c` followed by whitespace only as the
+  option-with-value, so a long run of `git -C -A …` is no longer exponential (the one shape dropped is
+  `git -C diff`, which is not a real diff), and the `stack-evidence` trailing-connective strip is now a
+  loop (`stripTrailingConnective`) instead of a `(?:…)+$` regex, with identical output. The 0011 backfill
+  and `planning import` stay-local table cells now escape a backslash before the pipe
+  (js/incomplete-sanitization), so a path holding `\|` can no longer break out of its cell. The gh-wiki
+  page-table rule method is renamed from `match` to `toPage` (js/regex-injection; mapping unchanged), and
+  its `objectiveDocRule` escapes `kind` before building a `RegExp`. Three test assertions in
+  `frontmatter.test.cjs` and `gh-setup.test.cjs` use substring checks instead of building a `RegExp` from
+  a string (js/incomplete-sanitization).
 
 ### Deprecated
 - `git.branching_strategy` (objective 49). In store mode it is ignored and `init` reports it as
