@@ -376,7 +376,19 @@ TRDs:
 **Goal:** Clear the open CodeQL alerts on `main` (56 at 2.13.0): one shared regex escape for objective/version patterns, one markdown-cell escape, the HTML-comment filter, a prototype-pollution guard in `config-set`, workflow token permissions, `execFileSync` in tests, and two test leftovers; dismiss the intended `handoff.cjs` `prompt_match` regex with a reason.
 **Requirements:** none (security/correctness tech debt; see `.planning/objectives/54-codeql-cleanup/OBJECTIVE.md`)
 **Depends on:** Objective 53
-**Plans:** TBD
+**TRDs:** 10 plans
+
+TRDs:
+- [ ] 54-01-text-escape-helper-TRD.md — (W1) 54-A/B enabler: dependency-free `lib/text-escape.cjs` (escapeRegExp, objectiveNumPattern, mdCell); duplicates in roadmap-progress, gh-wiki, watcher-shell, 0011, planning-verbs-cli folded in
+- [ ] 54-02-single-site-fixes-TRD.md — (W1) 54-C/E/D: stack notes neutralise `-->`/`--!>` (129); `config-set` refuses `__proto__`/`constructor`/`prototype` (89); handoff `prompt_match` comment (95)
+- [ ] 54-03-workflow-permissions-and-test-leftovers-TRD.md — (W1) 54-F/H: `contents: read` for test.yml + agent-shell-harness.yml with a repo guard (125, 137); PJ-6 via fixture builder (124); doctor e2e `includes` (134)
+- [ ] 54-04-execfile-verify-tests-TRD.md — (W1) 54-G part 1: execFileSync in api-contract, flutter-ui dogfood/eval/planner-default, verifier-ui-eval-invocation tests (102-106, 115-119)
+- [ ] 54-05-execfile-cli-tests-TRD.md — (W1) 54-G part 2: execFileSync in decision-queue, flutter-ui-scope, project-hygiene; positional-arg `sh` gate in ui-spec-cli (96-100, 107-109, 112, 113, 122)
+- [ ] 54-06-objective-roadmap-regex-TRD.md — (W2) 54-A part 1: objective/roadmap/workstreams on objectiveNumPattern; section-anchored, escaped Requirements update (65, 66, 68, 74, 76-79, 82, 84, 85, 87)
+- [ ] 54-07-detector-bootstrap-changelog-regex-TRD.md — (W2) 54-A part 2: novel-domain, trd-pre-check, project-bootstrap, changelog + tag hook on the shared escape (64, 83, 91-94, 101, 110, 111)
+- [ ] 54-08-markdown-table-cells-TRD.md — (W2) 54-B: ADOPT-REPORT cells escaped once at render, 3-column high table; STACK-REPORT cell via mdCell (130-133, 135)
+- [ ] 54-09-changelog-suite-push-TRD.md — (W3) CHANGELOG [Unreleased] Fixed/Security; full `npm test` (MA-7 only); per-group audits; push branch
+- [ ] 54-10-codeql-verify-and-dismiss-TRD.md — (W4, checkpoint) draft PR decision for a CodeQL run (default setup scans main + PRs only); 0 new alerts; dismiss 95 as "won't fix"
 
 ### Other v1.4 candidates
 
