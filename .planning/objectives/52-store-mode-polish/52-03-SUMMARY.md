@@ -7,5 +7,6 @@ status: in-progress
 # Objective 52 TRD 03: micro leaves STATE.md alone in store mode (checkpoint)
 
 ## Progress
-- [x] Task 1: commitMicro skips the STATE.md row in store mode — RED 07b9fb8a, GREEN (this commit)
-- [ ] Task 2: micro prose says the row is local mode only — next step: in plugins/devflow/devflow/workflows/micro.md Step 4 say `micro commit` records the STATE.md row in local mode and makes no STATE.md change with `github.store` on (generated view, `df-tools gh pull --all` rebuilds it), mark the success-criteria checkbox "(local mode)", and in plugins/devflow/skills/micro/SKILL.md mark the STATE.md objective bullet "(local mode only)"; then run the planning-writes / devflow-workflows / doc-refs repo tests
+- [x] Task 1: commitMicro skips the STATE.md row in store mode — RED 07b9fb8a, GREEN c70359ea
+- [x] Task 2: micro prose says the row is local mode only — (this commit)
+- [ ] Final: validation gate and SUMMARY — next step: run `npm test` in the worktree (background, 900s), then write the final SUMMARY with Task Evidence / TDD Evidence / Validation Gate Results and `## Self-Check`, publish it with `df-tools summary post 52-03 --from <file>`, copy it into the worktree and commit it with STATE.md / ROADMAP.md / REQUIREMENTS.md
