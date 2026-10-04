@@ -28,6 +28,13 @@
  *     `git -C <path>` or cwd, following a linked worktree's `.git` file to its
  *     per-worktree git dir. An unresolvable target is "no op in progress".
  *
+ * A merge-like git operation chained with a raw `git commit` in ONE call
+ * (`git merge X && git commit --no-edit`) stays denied: the gate decides before
+ * the merge runs, so MERGE_HEAD does not exist yet, and a no-op merge never
+ * creates one. The deny reason then names the separate-call form that IS allowed
+ * (TRD 53-04, `chainsGitOpAndCommit`). A squash leaves no MERGE_HEAD either, so
+ * its completion uses the inline prefix. Neither is an allowance.
+ *
  * Fails open: any internal error exits 0 with no output.
  *
  * Detection is invocation-aware (TRD 27-04), not a substring test: heredoc
@@ -175,6 +182,27 @@ function resolvePathWord(raw, base) {
  *   gitDirWord — raw `--git-dir=` value, or null
  */
 function commitInvocations(cmd) {
+  const found = [];
+  for (const inv of gitInvocations(cmd)) {
+    if (inv.subcommand === 'commit') {
+      found.push({ prefix: inv.prefix, cWords: inv.cWords, gitDirWord: inv.gitDirWord });
+    }
+  }
+  return found;
+}
+
+/**
+ * Every git invocation in `cmd`, in command order, one entry per `git` word that
+ * sits in a simple command. Same cleaning and segmentation as commitInvocations
+ * (which is now a filter over this): heredoc bodies removed, quoted text masked,
+ * split on `&&`, `||`, `;`, `&`, `|`, `(`, `)` and newline.
+ *
+ * @param {string} cmd
+ * @returns {Array<{segment: number, subcommand: string|null, prefix: string[], cWords: string[], gitDirWord: string|null}>}
+ *   segment    — index of the simple command (increases left to right)
+ *   subcommand — the masked word after git's global flags, or null when there is none
+ */
+function gitInvocations(cmd) {
   const src = stripHeredocs(String(cmd || '')).replace(/\\\n/g, '  ');
   const masked = maskQuoted(src);
 
@@ -189,7 +217,7 @@ function commitInvocations(cmd) {
   segments.push([start, masked.length]);
 
   const found = [];
-  for (const [s, e] of segments) {
+  segments.forEach(([s, e], segment) => {
     const words = [];
     const wordRe = /\S+/g;
     const seg = masked.slice(s, e);
@@ -218,12 +246,48 @@ function commitInvocations(cmd) {
           break;
         }
       }
-      if (j < words.length && words[j].masked === 'commit') {
-        found.push({ prefix: words.slice(0, k).map((x) => x.masked), cWords, gitDirWord });
-      }
+      found.push({
+        segment,
+        subcommand: j < words.length ? words[j].masked : null,
+        prefix: words.slice(0, k).map((x) => x.masked),
+        cWords,
+        gitDirWord,
+      });
+    }
+  });
+  return found;
+}
+
+// The git subcommands that stop with MERGE_HEAD / CHERRY_PICK_HEAD / a rebase dir
+// and are finished by a separate `git commit` (or `--continue`).
+const MERGE_LIKE = new Set(['merge', 'cherry-pick', 'revert', 'rebase', 'am']);
+
+/**
+ * True when one command runs a merge-like git operation (`git merge`,
+ * `cherry-pick`, `revert`, `rebase`, `am`) in a simple command BEFORE one that
+ * runs `git commit` (TRD 53-04).
+ *
+ * That chain is what gate-commits cannot let through: the hook decides before
+ * any of it runs, so MERGE_HEAD does not exist yet and the completion commit
+ * looks like a raw commit. A no-op `git merge HEAD` creates no MERGE_HEAD at
+ * all, which is why the gate cannot "predict" one from the command text. This
+ * predicate only drives the deny MESSAGE (the hint naming the separate-call
+ * form); it never widens an allow.
+ *
+ * @param {string} cmd
+ * @returns {boolean}
+ */
+function chainsGitOpAndCommit(cmd) {
+  const invs = gitInvocations(cmd);
+  let opAt = -1;
+  for (const inv of invs) {
+    if (opAt === -1 && MERGE_LIKE.has(inv.subcommand)) {
+      opAt = inv.segment;
+    } else if (opAt !== -1 && inv.subcommand === 'commit' && inv.segment > opAt) {
+      return true;
     }
   }
-  return found;
+  return false;
 }
 
 const ALLOW_VAR = 'DEVFLOW_ALLOW_RAW_COMMIT';
@@ -375,6 +439,16 @@ const DENY_MESSAGE = [
   'That inline prefix is the only in-command form this hook can see; setting the variable in an earlier statement of the command never reaches it.',
 ].join(' ');
 
+// Appended to DENY_MESSAGE when the denied command chains a merge-like git
+// operation with `git commit` (TRD 53-04). Message only: the decision is the same
+// one the base message explains.
+const CHAINED_MERGE_HINT = [
+  'This command runs `git merge` (or cherry-pick/revert/rebase) and `git commit` in one call.',
+  'The gate decides before the merge runs, so MERGE_HEAD does not exist yet and the commit looks raw.',
+  'Run them as separate Bash calls: once the merge has stopped and the resolved files are staged, `git commit --no-edit` on its own is allowed.',
+  'A `git merge --squash` leaves no MERGE_HEAD, so its completion needs the inline `DEVFLOW_ALLOW_RAW_COMMIT=1 git commit …` prefix.',
+].join(' ');
+
 function deny(reason) {
   const out = {
     hookSpecificOutput: {
@@ -432,7 +506,7 @@ function run() {
   const objectivesDirExists = fs.existsSync(path.join(planningDir, 'objectives'));
   if (!roadmapExists && !objectivesDirExists) return; // Planning dir exists but uninitialized
 
-  deny(DENY_MESSAGE);
+  deny(chainsGitOpAndCommit(cmd) ? `${DENY_MESSAGE} ${CHAINED_MERGE_HINT}` : DENY_MESSAGE);
 }
 
 if (require.main === module) main();
@@ -442,8 +516,10 @@ module.exports = {
   stripHeredocs,
   stripQuoted,
   hasInlineAllowPrefix,
+  chainsGitOpAndCommit,
   gitCPath,
   resolveGitDir,
   gitOpInProgress,
   DENY_MESSAGE,
+  CHAINED_MERGE_HINT,
 };
