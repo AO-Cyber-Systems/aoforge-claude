@@ -396,9 +396,10 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        - You may be in a git worktree the orchestrator provisioned for you. Commit to your
          current branch as normal.
        - Publish the SUMMARY only through `node ~/.claude/devflow/bin/df-tools.cjs summary checkpoint` (per task) and
-         `summary post` (once), from a `planning draft` path. The verbs resolve the MAIN checkout, so
-         from a worktree the SUMMARY lands there, not in your tree: leave it out of your commits. The
-         orchestrator reads it there and commits it after the merge.
+         `summary post` (once), from a `planning draft` path. In local mode the verbs write the
+         checkout you are in, so from a worktree the SUMMARY lands in YOUR worktree: commit it with
+         your task commits, and the wave merge delivers it. In store mode the verbs write the main
+         checkout's gitignored cache and no commit carries the SUMMARY.
        - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job` (and the other
          `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
          your commits; conflicts are resolved at merge time by the orchestrator.
@@ -451,8 +452,9 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
 5b. **Merge the wave's worktree branches (parallel waves only):**
 
-   **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads the main
-   checkout's `.planning/`, where the summary verbs publish, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
+   **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads each parallel plan's
+   SUMMARY state from that plan's worktree (`<worktree_path>/.planning/...`, local mode), where the
+   summary verbs wrote it, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
    executor is resumed inside its worktree, so merging that branch or removing that worktree
    would strand it. It is merged here, like any other plan, once a resume leaves it COMPLETE.
    A plan that falls through to item 7 keeps its worktree, so the fresh-respawn retry builds
@@ -497,14 +499,11 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    `-d` refuses an unmerged branch, which is what you want: if it refuses, the merge did not happen, so
    report it and keep the branch. A plan that fell through to item 7 keeps its branch and worktree.
 
-   **Commit the wave's SUMMARYs (local mode).** The summary verbs resolve the main checkout, so each
-   parallel executor's SUMMARY is already in this tree, uncommitted, and not on its branch. After the
-   merges, commit them in one plain call:
-   ```bash
-   node ~/.claude/devflow/bin/df-tools.cjs commit "docs({objective}): wave {N} summaries" --files <each merged plan's SUMMARY path>
-   ```
-   In store mode `.planning/` is a gitignored cache: the commit reports `skipped_gitignored` and there
-   is nothing more to do.
+   **The wave's SUMMARYs arrive with the merges (local mode).** Each parallel executor wrote its SUMMARY
+   into its own worktree and committed it on its `df/exec-*` branch, so the merges above already bring
+   them into this tree. There is nothing more to commit, and no copy of a SUMMARY exists here for a
+   merge to collide with. Do not copy or move a SUMMARY between trees. In store mode the SUMMARY is the
+   main checkout's gitignored cache, as before, and no commit carries it.
 
    **If `pr_lifecycle` is true, sync the objective PR once per wave** (every wave, a sequential one with
    nothing to merge included). It pushes `objective_branch` and refreshes the PR body, so running it once
@@ -546,8 +545,10 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    - **COMMITS** = the line count of
      `git log --oneline --all --grep="({objective}-{trd})"`
      (`--all` sees an unmerged worktree branch too).
-   - **SUMMARY state**, read from the main checkout's `.planning/` (the current tree). The summary
-     verbs publish there for every plan, including a parallel wave's worktree executors. It is one of:
+   - **SUMMARY state**, read from where the summary verbs wrote it. Local mode: a parallel plan's state
+     comes from its worktree (`<worktree_path>/.planning/...`, the path you noted in step 0, read before
+     the 5b merge), and a sequential plan's from the current tree. Store mode: the main checkout's
+     `.planning/` and `.planning/.trd-progress/`, for every plan. It is one of:
      - `missing`: no `{objective}-{trd}-SUMMARY.md` and no `.planning/.trd-progress/{objective}-{trd}.md`;
      - `checkpoint`: the SUMMARY exists but has no `## Self-Check` heading, or (store mode) only
        `.planning/.trd-progress/{objective}-{trd}.md` exists. The executor contract

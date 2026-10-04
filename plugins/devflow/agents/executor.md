@@ -240,9 +240,9 @@ It prints an absolute path outside the project, seeded from the current SUMMARY 
 node ~/.claude/devflow/bin/df-tools.cjs summary checkpoint {objective}-{trd} --from <draft path>
 ```
 
-- **Local mode:** the checkpoint lands at the TRD's output path (`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`), byte for byte as before.
-- **Store mode:** it lands in the runtime file `.planning/.trd-progress/{objective}-{trd}.md` and nothing reaches GitHub. A comment per task would spend GitHub's per-minute rate budget; `summary post` is the single GitHub post per TRD.
-- **Both modes** resolve the MAIN checkout, from a worktree too. task_commit_protocol says when the SUMMARY joins the task commit.
+- **Local mode:** the checkpoint lands at the TRD's output path (`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`) in the checkout you are standing in, byte for byte as before. In a worktree that is YOUR worktree, so you commit it on your own branch and the wave merge delivers it. Nothing is written to the main checkout. (A worktree with no `.planning/`, because planning is untracked, falls back to the main checkout.)
+- **Store mode:** it lands in the runtime file `.planning/.trd-progress/{objective}-{trd}.md` and nothing reaches GitHub. A comment per task would spend GitHub's per-minute rate budget; `summary post` is the single GitHub post per TRD. From a worktree this is still the MAIN checkout's gitignored cache: the journal, ledger and outbox are single-writer files there.
+- task_commit_protocol says when the SUMMARY joins the task commit.
 
 The draft's `## Progress` section looks like this:
 
@@ -926,12 +926,12 @@ After each task completes (verification passed, done criteria met), commit immed
 | `refactor` | Code cleanup, no behavior change                |
 | `chore`    | Config, tooling, dependencies                   |
 
-**4. Commit** with `df-tools commit`, one plain command. A raw `git commit` is denied by `gate-commits.js` in every DevFlow project, so do not reach for it. The `--files` list is the task's files. Add the TRD's SUMMARY path, which `summary checkpoint` just refreshed, when you are in the main checkout (`exec-context check` printed `is_worktree: false`):
+**4. Commit** with `df-tools commit`, one plain command. A raw `git commit` is denied by `gate-commits.js` in every DevFlow project, so do not reach for it. The `--files` list is the task's files plus the TRD's SUMMARY path, which `summary checkpoint` just refreshed. In local mode always add it, in the main checkout and in a worktree alike (`exec-context check` prints which one you are in): the verb wrote the checkout you are standing in, so the file is in your tree and your branch carries it to the merge:
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs commit "{type}({objective}-{trd}): {concise task description}" --files src/api/auth.ts src/types/user.ts .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md
 ```
 
-From a worktree (`is_worktree: true`), leave the SUMMARY path out. The summary verbs resolve the MAIN checkout, so the file is not in your tree. The orchestrator reads it there and commits it after the merge. In store mode, `.planning/` is a gitignored cache and `df-tools commit` drops the SUMMARY path itself (`skipped_planning` beside `committed: true`). That is expected, and the task's code still commits.
+In store mode, `.planning/` is a gitignored cache and `df-tools commit` drops the SUMMARY path itself (`skipped_planning` beside `committed: true`). That is expected, and the task's code still commits.
 
 Read the JSON it prints: `committed: true` with a hash is the only success. `committed: false` with a `skipped_*` reason (`commit_docs` is false, or `.planning/` is gitignored) means NOTHING was committed. Record that as a blocker in the SUMMARY draft, and do not report the task as committed.
 
@@ -1120,7 +1120,7 @@ node ~/.claude/devflow/bin/df-tools.cjs state add-blocker "Blocker description"
 node ~/.claude/devflow/bin/df-tools.cjs commit "docs({objective}-{trd}): complete [trd-name] TRD" --files .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md .planning/STATE.md .planning/STATE_ARCHIVE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
 ```
 
-Separate from per-task commits — captures execution results only. From a worktree, drop the SUMMARY path from `--files`; it was published to the main checkout (see task_commit_protocol).
+Separate from per-task commits — captures execution results only. Keep the SUMMARY path in `--files` in a worktree too (local mode): `summary post` wrote your own checkout, so this commit puts the final SUMMARY on your branch (see task_commit_protocol).
 </final_commit>
 
 <completion_format>
