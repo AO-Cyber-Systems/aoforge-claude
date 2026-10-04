@@ -52,6 +52,12 @@ concurrency:
   group: unit-suite-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege (CodeQL actions/missing-workflow-permissions): this job checks out the tree and runs
+# the suite. It writes nothing through GITHUB_TOKEN, and setup-node's npm cache uses the Actions cache
+# service, not a token scope.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: test (npm test, gated)

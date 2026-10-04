@@ -20,6 +20,11 @@ on:
       - 'plugins/devflow/devflow/bin/lib/__fixtures__/agent-shell/**'
       - '.github/workflows/agent-shell-harness.yml'
 
+# Least privilege (CodeQL actions/missing-workflow-permissions): this job checks out the tree and runs
+# the harness. It writes nothing through GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   harness:
     runs-on: ubuntu-latest
