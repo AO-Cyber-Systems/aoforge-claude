@@ -5,7 +5,7 @@
 - ✅ **v1.1 — DevFlow Coordination Layer** — Objectives 0–9, 6, 8, 24 (shipped 2026-05-06)
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merge to `main` pending)
-- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (KILLED 2026-10-01), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record); gap closure: Objective 43 (SDR-08), Objective 52 (store-mode polish) — audit 2026-10-01 gaps_found
+- 📋 **v1.4 — not yet planned** — candidates: Objective 26 (KILLED 2026-10-01), Objective 42 (codebase-aware stack drafter, in progress), Objective 44 (autonomy hardening), Objectives 46–51 (GitHub as system of record); gap closure: Objective 43 (SDR-08), Objective 52 (store-mode polish), Objective 53 (worktree and health hygiene) — re-audit 2026-10-04 tech_debt
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -354,6 +354,14 @@ TRDs:
 - [x] 52-05-multiline-decision-answer-TRD.md — (W1) item 52-6: frontmatter block scalars; multi-line `decision answer` round-trips (local, store, import)
 - [x] 52-06-docs-and-full-suite-TRD.md — (W2) CHANGELOG, USER-GUIDE, doctor skill, CLAUDE.md; full `npm test`
 
+### Objective 53: Worktree and health hygiene
+
+**Goal:** Clear the tech debt from the 2026-10-04 v1.4 re-audit: planning verbs and health checks that misbehave around worktrees and named TRDs, the gate gaps around `micro` and chained merges, and the small leftovers from 42, 45 and the repo's own health warnings.
+**Requirements:** none (tech debt; see `.planning/objectives/53-worktree-and-health-hygiene/OBJECTIVE.md`)
+**Gap Closure:** v1.4 re-audit tech debt (objectives 42, 45, 52, health)
+**Depends on:** Objective 52
+**Plans:** TBD
+
 ### Other v1.4 candidates
 
 - **Objective 26: GitHub issue auto-build monitor** — **KILLED 2026-10-01** (user decision, GMD-04; see its OBJECTIVE.md Disposition). Moved out of v1.3 on 2026-09-28 by user decision. Goal: discover untracked GitHub issues and drive trusted-author ones plan → execute → verify → PR unattended via `devflow-watch`. Locked design in `.planning/objectives/26-github-issue-auto-build-monitor/OBJECTIVE.md`; not planned.
@@ -404,3 +412,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 50. GitHub enforcement and setup | v1.4 | 13/13 | Complete | 2026-10-01 |
 | 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
 | 52. Store-mode polish | v1.4 | 6/6 | Complete | 2026-10-04 |
+| 53. Worktree and health hygiene | v1.4 | 0/— | Registered (re-audit tech debt) | — |
