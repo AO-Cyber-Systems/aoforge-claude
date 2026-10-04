@@ -661,3 +661,189 @@ The 43-VERIFICATION.md re-verification returned human_needed at 35/36. The user 
 - **SDR-08: "Follow-up run now".** Objective 43 stays open. The follow-up `stack verify --run` covers politihub, which never ran under `--run`, and the 19 host-inconclusive gates. It needs a fresh per-run approval and a host fix first.
   - **Host cause, diagnosed 2026-10-03.** The Command Line Tools updated on 2026-10-02 to the macOS 27.0 SDK. `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk` now points to `MacOSX27.0.sdk`. `xcode-select` points at Xcode.app, and its clang 21.0.0 (2100.1.1.101) linker rejects the 27 SDK's `arm64e.x1` tbd architectures with "unknown architecture". A minimal cgo build fails under the default setup and passes with `DEVELOPER_DIR=/Library/Developer/CommandLineTools`.
 - **Limitations: "Acknowledge + todo".** The accept-all limitations are acknowledged: aodex.audit is a self-test step, justinforme and smartWellness lint lack `buf lint`, and ao-terminal.deps and aocore.test carry hand-edited flags. They are captured in `.planning/todos/pending/2026-10-03-stack-drafter-self-test-and-buf-lint.md`.
+
+## SDR-08 follow-up run (2026-10-04)
+
+An ad-hoc follow-up the user approved. It is not a new TRD. It re-runs the 14 repos that had inconclusive gates in the 43-07 run, and adds politihub, which never ran under `--run` (its HEAD had moved past the pin). The 43-07 rules still bind: nothing is written into a fleet repo, no fleet commit, no `--write`.
+
+### Approval
+
+Recorded before any gate ran. The user chose **"Fix first, then run"** in chat on 2026-10-04 on this plan, relayed in the dispatch:
+
+> - Re-run the 14 repos that had inconclusive gates, each with the exact 43-07 key set:
+>   - Default keys (format, lint, typecheck, build) for every repo.
+>   - eden-libs gets `--keys lint,format` only.
+>   - `--include test` for dfip, eden-circle, qrCodeBuilder and trades. Nothing else is included.
+> - Add politihub, first run, with default keys only.
+> - No audit, e2e, e2e_env, deploy, push, codegen, deps or apply forms.
+
+Invocations as run (each with `--timeout 300`, which is the default made explicit; no fleet STACK.md sets a per-gate `timeout_s`):
+
+| Group | Repos | Invocation |
+|---|---|---|
+| `--keys lint,format` | eden-libs | `stack verify --run --keys lint,format --timeout 300` |
+| default keys plus `--include test` | dfip, eden-circle, qrCodeBuilder, trades | `stack verify --run --include test --timeout 300` |
+| default keys only | aocore, aoedge, aoid, aoinference, devcluster, eden-biz, eden-platform-go, eden-press, justinforme, politihub | `stack verify --run --timeout 300` |
+
+No audit, e2e, e2e_env, codegen, deps, apply, deploy, push or port-8080 command ran, and no `stack init` dry run ran. The `## Dry-run drift` tables above are not touched by this run.
+
+### Host fixes applied before the run
+
+Applied by the orchestrator and the user, recorded here. This run only read the state back.
+
+| Fix | Who | State read back before the run |
+|---|---|---|
+| `xcode-select -s /Library/Developer/CommandLineTools`. A minimal cgo build now links (see the diagnosis in `## Re-verification decisions (2026-10-03)`). | the user | `xcode-select -p` prints `/Library/Developer/CommandLineTools`; no `DEVELOPER_DIR`, `SDKROOT` or `CGO_ENABLED` is set in the environment |
+| golangci-lint v1.64.8 reinstalled, now built with go1.27.1. | orchestrator | `golangci-lint version`: v1.64.8 built with go1.27.1; `go version`: go1.27.1 darwin/arm64. **Found during the run: aocore's `go/.golangci.yml` is `version: "2"`, so the repo needs golangci-lint v2, not v1.** |
+| trades: `SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm ci`. The plain `npm ci` failed because sharp tried to build against Homebrew libvips 8.18.7. | orchestrator | trades work tree clean (0 dirty) before and after; `node_modules` is ignored |
+| eden-biz `flutter/`: `flutter pub get`. eden-libs `eden-experience-api-dart/`: `dart pub get`. | orchestrator | reported as changing no tracked file; the dirty counts below were read after these ran |
+| Flutter NOT upgraded. | - | Flutter 3.47.5 stable, Dart 3.13.4 (Dart 3.13.4 already supports dot-shorthands) |
+
+The orchestrator expected the qrCodeBuilder and eden-circle `test@client` failures to be "the same linker issue". **That did not hold.** See gate 15 below: it is a stale `.dart_tool/package_config.json`, which the `xcode-select` fix cannot reach.
+
+### Method
+
+- **Mirror.** At the start the runtime mirror no longer matched the checkout: digest `sha256:eee82d8c94188cde89adfd492d3a46903dd72497c9ff54a5c655c1e1ffcc525f` (the same stale digest recorded at the 43-07 approval), and `cmp` differed for `stack-verify.cjs`, `stack-draft.cjs`, `stack-evidence.cjs` and `stack-runners.cjs`. Something re-mirrors an older bundle between sessions; the cause was not investigated. No gate ran on that mirror. The TRD's own sync command was re-run (`CLAUDE_PLUGIN_ROOT=<checkout>/plugins/devflow DEVFLOW_SKIP_GLOBAL_UPGRADE=1 node <checkout>/plugins/devflow/hooks/sync-runtime.js`). After it, `cmp` exits 0 for the four stack modules plus `df-tools.cjs` and `stack-profile.cjs`, and the digest is `sha256:1f259a0726488d79088130dfac8306a7925f2f0b48fe000cc13465b414fa6b82`. That differs from 43-07's `f6a61ba4...` because objectives 43-08 to 43-15 changed the bundle since, so **this run exercises the current `stack-verify`**, not the 43-07 one. Visible effect: aoinference resolves a different gate set (`build` is now `make build`, and `go build ./...` appears as `build@control-plane/`). Every one of the 19 gates below was matched to its 43-07 twin by command and cwd, not by label. The mirror was re-compared against the checkout before every repo, and the digest was unchanged at the end.
+- **Guard.** `node --test .../stack-verify-run-guard.test.cjs`: 15 of 15 pass, run before any fleet repo was touched. The effect guard stayed on.
+- **Driver.** One sequential script (scratchpad, not committed), one repo at a time in dispatch order. Per repo: mirror check; `git rev-parse HEAD` against the pinned 12-character prefix (a mismatch skips the repo); the harness snapshot (`git status --porcelain=v1 -z -uall` bytes plus permission bits and content hash of every listed path); `df-tools --cwd <repo> stack verify --run <flags> --timeout 300` (JSON mode); the snapshot again and a diff. A surviving delta, a HEAD move or a guard `restored: false` would have stopped the run. None happened. After the run the HEAD, dirty count and stash count of all 15 repos were read again independently of the driver.
+- **Run window** 2026-10-04T13:08:31Z to 13:17:12Z, gate wall time 519 s, branch `feat/stack-profile-loader`, base `d2385747c8039856fa66b39a60946241c321881b`.
+- **Cause labels.** The three 43-07 labels, plus one new one. `repo state`: what the tool says about the repository. `host toolchain`: this machine's toolchain fails. `deps not installed`: a missing or stale dependency install. `test environment` (new): the test suite ran but needs a service the machine does not provide. Each label is judged from the kept output, not from its last line.
+
+### Results
+
+`key=exit (seconds)`. `+N items outside the approved key set` counts items this run did not select (opt-in keys not approved, never-run keys, keys with no command). Pinned HEAD, branch and dirty count are in `### Pinned HEADs and integrity` below.
+
+| repo | invocation | gates run (key=exit, duration) | skipped (key: reason) | mutated (paths, restored) | harness delta | gate-red notes |
+|---|---|---|---|---|---|---|
+| aocore | default | build=0 (9.0s)<br>lint=3 (0.0s)<br>lint@admin/=0 (7.1s)<br>format@admin/=1 (0.6s)<br>build@dev/devedge/=0 (0.1s)<br>lint@dev/devedge/=0 (0.2s)<br>format@dev/devedge/=0 (0.0s)<br>build@go/=0 (7.2s)<br>lint@go/=0 (1.4s)<br>format@go/=1 (0.3s)<br>lint@portal/=1 (2.4s)<br>format@portal/=1 (0.1s) | +36 items outside the approved key set | - | none | lint exit 3 [host toolchain]: Error: you are using a configuration file for golangci-lint v2 with golangci-lint v1: please use golangci-l...<br>format@admin/ exit 1 [repo state]: Formatted 404 files (299 changed) in 0.56 seconds.<br>format@go/ exit 1 [repo state]: no output<br>lint@portal/ exit 1 [repo state]: 17 issues found. (ran in 1.9s)<br>format@portal/ exit 1 [repo state]: Formatted 22 files (13 changed) in 0.02 seconds. |
+| aoedge | default | build=0 (5.6s)<br>lint=0 (1.5s)<br>format=1 (0.0s) | +7 items outside the approved key set | - | none | format exit 1 [repo state]: no output |
+| aoid | default | build=0 (4.8s)<br>lint=0 (0.8s)<br>format=1 (1.1s)<br>lint@portal/=1 (3.3s)<br>format@portal/=1 (0.2s) | +16 items outside the approved key set | - | none | format exit 1 [repo state]: no output<br>lint@portal/ exit 1 [repo state]: 4 issues found. (ran in 2.9s)<br>format@portal/ exit 1 [repo state]: Formatted 87 files (54 changed) in 0.12 seconds. |
+| aoinference | default | build=0 (4.8s)<br>lint=2 (2.2s)<br>build@control-plane/=0 (3.4s)<br>lint@control-plane/=0 (2.7s)<br>format@control-plane/=1 (0.0s) | +11 items outside the approved key set | - | none | lint exit 2 [repo state]: make: *** [lint] Error 1<br>format@control-plane/ exit 1 [repo state]: no output |
+| devcluster | default | lint=1 (3.5s)<br>build@tools/devproxy/=0 (0.9s)<br>lint@tools/devproxy/=0 (0.4s)<br>format@tools/devproxy/=0 (0.0s) | +13 items outside the approved key set | - | none | lint exit 1 [repo state]: https://www.shellcheck.net/wiki/SC2097 -- This assignment is only seen by t... |
+| dfip | --include test | build=0 (0.2s)<br>test=2 (8.1s)<br>lint=0 (0.3s)<br>format=1 (0.0s) | +5 items outside the approved key set | - | none | test exit 2 [repo state]: FAIL	github.com/aocybersystems/dfip/spec	0.449s<br>format exit 1 [repo state]: no output |
+| eden-biz | default | lint@api-dart/=0 (1.2s)<br>format@api-dart/=1 (1.8s)<br>lint@flutter/=1 (10.7s)<br>format@flutter/=1 (5.3s)<br>build@go/=0 (6.0s)<br>lint@go/=0 (2.5s)<br>format@go/=1 (0.3s)<br>lint@mobile/=0 (4.2s)<br>format@mobile/=1 (0.2s)<br>lint@pos/=1 (5.2s)<br>format@pos/=1 (0.3s) | build: unverifiable-body<br>+47 items outside the approved key set | - | none | format@api-dart/ exit 1 [repo state]: Formatted 529 files (452 changed) in 1.76 seconds.<br>lint@flutter/ exit 1 [repo state]: 1028 issues found. (ran in 10.3s)<br>format@flutter/ exit 1 [repo state]: Formatted 1424 files (1194 changed) in 5.25 seconds.<br>format@go/ exit 1 [repo state]: no output<br>format@mobile/ exit 1 [repo state]: Formatted 29 files (25 changed) in 0.08 seconds.<br>lint@pos/ exit 1 [repo state]: 5 issues found. (ran in 4.8s)<br>format@pos/ exit 1 [repo state]: Formatted 96 files (70 changed) in 0.19 seconds. |
+| eden-circle | --include test | build=0 (7.6s)<br>test=0 (2.9s)<br>lint=0 (1.0s)<br>format=1 (0.7s) | test@client/: side-effect-unsafe<br>lint@client/: side-effect-unsafe<br>format@client/: side-effect-unsafe<br>+13 items outside the approved key set | build: bin/circle-api (added); restored=true | none | format exit 1 [repo state]: no output |
+| eden-libs | --keys lint,format | lint=3 (0.9s)<br>lint@eden-cli/=0 (0.2s)<br>format@eden-cli/=1 (0.0s)<br>lint@eden-doc-crdt/=0 (0.6s)<br>format@eden-doc-crdt/=0 (0.2s)<br>lint@eden-doc-model/=0 (0.5s)<br>format@eden-doc-model/=1 (0.3s)<br>lint@eden-doc-render/=0 (4.0s)<br>format@eden-doc-render/=1 (0.1s)<br>lint@eden-docs/=0 (0.2s)<br>format@eden-docs/=1 (0.0s)<br>lint@eden-experience-api-dart/=3 (0.6s)<br>format@eden-experience-api-dart/=1 (0.1s)<br>lint@eden-experience-flutter/=0 (3.5s)<br>format@eden-experience-flutter/=1 (0.2s)<br>lint@eden-justinforme-api-dart/=1 (1.8s)<br>format@eden-justinforme-api-dart/=1 (0.7s)<br>lint@eden-loro/=0 (2.3s)<br>format@eden-loro/=0 (0.3s)<br>lint@eden-loro/example_mobile/=0 (2.2s)<br>format@eden-loro/example_mobile/=0 (0.1s)<br>lint@eden-platform-api-dart/=3 (0.6s)<br>format@eden-platform-api-dart/=1 (0.4s)<br>lint@eden-smartwellness-api-dart/=1 (0.5s)<br>format@eden-smartwellness-api-dart/=1 (0.3s)<br>lint@eden-ui-docs/=0 (3.6s)<br>format@eden-ui-docs/=0 (0.2s)<br>lint@eden-web/=0 (0.2s)<br>format@eden-web/=1 (0.0s) | +111 items outside the approved key set | - | none | lint exit 3 [repo state]: 14 issues found.<br>format@eden-cli/ exit 1 [repo state]: no output<br>format@eden-doc-model/ exit 1 [repo state]: Formatted 71 files (6 changed) in 0.21 seconds.<br>format@eden-doc-render/ exit 1 [repo state]: Formatted 7 files (2 changed) in 0.03 seconds.<br>format@eden-docs/ exit 1 [repo state]: no output<br>lint@eden-experience-api-dart/ exit 3 [repo state]: 13 issues found.<br>format@eden-experience-api-dart/ exit 1 [repo state]: Formatted 6 files (5 changed) in 0.02 seconds.<br>format@eden-experience-flutter/ exit 1 [repo state]: Formatted 146 files (125 changed) in 0.16 seconds.<br>lint@eden-justinforme-api-dart/ exit 1 [repo state]: 21 issues found.<br>format@eden-justinforme-api-dart/ exit 1 [repo state]: Formatted 148 files (127 changed) in 0.60 seconds.<br>lint@eden-platform-api-dart/ exit 3 [repo state]: 14 issues found.<br>format@eden-platform-api-dart/ exit 1 [repo state]: Formatted 133 files (115 changed) in 0.33 seconds.<br>lint@eden-smartwellness-api-dart/ exit 1 [repo state]: 1 issue found.<br>format@eden-smartwellness-api-dart/ exit 1 [repo state]: Formatted 21 files (15 changed) in 0.17 seconds.<br>format@eden-web/ exit 1 [repo state]: no output |
+| eden-platform-go | default | build=0 (3.1s)<br>lint=0 (0.9s)<br>format=1 (0.8s) | +6 items outside the approved key set | - | none | format exit 1 [repo state]: no output |
+| eden-press | default | build=0 (1.3s)<br>lint=0 (0.6s)<br>format=0 (0.1s)<br>lint@bind/dart/=0 (3.2s)<br>format@bind/dart/=1 (0.1s) | +15 items outside the approved key set | - | none | format@bind/dart/ exit 1 [repo state]: Formatted 10 files (3 changed) in 0.01 seconds. |
+| justinforme | default | build=0 (7.3s)<br>lint=0 (0.9s)<br>format=1 (0.4s)<br>lint@flutter/admin/=1 (8.1s)<br>format@flutter/admin/=1 (1.0s)<br>lint@flutter/volunteer/=0 (7.6s)<br>format@flutter/volunteer/=1 (0.5s) | +25 items outside the approved key set | - | none | format exit 1 [repo state]: no output<br>lint@flutter/admin/ exit 1 [repo state]: 199 issues found. (ran in 7.6s)<br>format@flutter/admin/ exit 1 [repo state]: Formatted 280 files (242 changed) in 0.81 seconds.<br>format@flutter/volunteer/ exit 1 [repo state]: Formatted 93 files (76 changed) in 0.36 seconds. |
+| qrCodeBuilder | --include test | test=1 (206.6s)<br>lint=0 (5.8s)<br>format=1 (0.3s) | +9 items outside the approved key set | - | none | test exit 1 [deps not installed]: /opt/homebrew/share/flutter/packages/flutter/lib/src/painting/text_painter.dart:1506:23: Error: This requir...<br>format exit 1 [repo state]: Formatted 111 files (103 changed) in 0.20 seconds. |
+| trades | --include test | build=0 (11.0s)<br>test=1 (66.5s) | +8 items outside the approved key set | - | none | test exit 1 [test environment]: Error: expected 201 "Created", got 500 "Internal Server Error" |
+| politihub | default | build=0 (5.0s)<br>lint@flutter-navigators/=1 (6.7s)<br>format@flutter-navigators/=1 (0.9s)<br>lint@flutter/=0 (6.0s)<br>format@flutter/=1 (1.1s)<br>build@go/=0 (1.7s)<br>lint@go/=0 (2.7s)<br>format@go/=1 (0.1s) | +30 items outside the approved key set | - | none | lint@flutter-navigators/ exit 1 [repo state]: 29 issues found. (ran in 6.2s)<br>format@flutter-navigators/ exit 1 [repo state]: Formatted 493 files (377 changed) in 0.77 seconds.<br>format@flutter/ exit 1 [repo state]: Formatted 277 files (259 changed) in 1.06 seconds.<br>format@go/ exit 1 [repo state]: no output |
+
+#### Red gates by cause
+
+50 of the 105 gates that ran exited non-zero. None is a rollout failure; each is a result.
+
+| cause | gates | what it is |
+|---|---|---|
+| repo state | 47 | `gofmt -l` lists files; `dart format --set-exit-if-changed` would change files; `dart analyze` / `flutter analyze` issues; shellcheck findings (devcluster); a typecheck error in a test file (aoinference `make lint`); dfip's `spec` package fails (its output includes a live RDAP lookup that answers `dfip.us not found`) |
+| host toolchain | 1 | aocore `lint`: golangci-lint v1.64.8 refuses `go/.golangci.yml`, a v2 config |
+| deps not installed | 1 | qrCodeBuilder `test`: stale `.dart_tool/package_config.json` (gate 15) |
+| test environment | 1 | trades `test`: DB-backed suite, HTTP 500 from routes (gate 17) |
+
+### Before and after: the 19 gates that were inconclusive in 43-07
+
+43-07 recorded 15 gates as host toolchain and 4 as deps not installed. Each row is matched to its 43-07 twin by command and cwd.
+
+| # | gate (command, cwd) | 43-07 cause | now: exit and cause |
+|---|---|---|---|
+| 1 | aocore `build` (`go build ./...`, `go/`) | host toolchain: cgo link | **0** (9.0 s). Pass. |
+| 2 | aocore `lint` (`golangci-lint run ./...`, `go/`) | host toolchain: golangci-lint built with go1.26, repo targets 1.27.1 | **3** (0.0 s). **Host toolchain, still.** The go1.27.1 reinstall cleared the old error; now v1.64.8 stops at `you are using a configuration file for golangci-lint v2 with golangci-lint v1`. Needs golangci-lint v2. |
+| 3 | aocore `build@go/` (`go build ./...`, `go/`) | host toolchain: cgo link | **0** (7.2 s). Pass. |
+| 4 | aoedge `build` (`make build-fips`) | host toolchain: cgo link | **0** (5.6 s). Pass. |
+| 5 | aoid `build` (`go build ./...`) | host toolchain: cgo link | **0** (4.8 s). Pass. |
+| 6 | aoinference `build` (`go build ./...`, `control-plane/`) | host toolchain: cgo link | **0** (3.4 s, now labelled `build@control-plane/`). Pass. The root `build` (`make build`) also exits 0. |
+| 7 | devcluster `build@tools/devproxy/` (`go build ./...`) | host toolchain: cgo link | **0** (0.9 s). Pass. |
+| 8 | dfip `test` (`make test`) | host toolchain: cgo link | **2** (8.1 s). **Repo state.** The suite now compiles and runs; the `spec` package FAILs (live RDAP lookup, `dfip.us not found`). |
+| 9 | eden-circle `build` (`make build`) | host toolchain: cgo link | **0** (7.6 s). Pass, but the guard caught a mutation: `bin/circle-api` added, removed, `restored=true`. |
+| 10 | eden-circle `test` (`make test`) | host toolchain: cgo link | **0** (2.9 s). Pass. |
+| 11 | eden-circle `test@client/` (`flutter test`, `client/`) | host toolchain: Flutter `dot-shorthands` | **not run**: `side-effect-unsafe`. After gate 9 changed the tree, the guard halted the root's Dart and Flutter items. **Still inconclusive.** It would hit gate 15's cause anyway: `client/.dart_tool/package_config.json` also carries flutter `languageVersion 3.9` (generated 2026-09-10). |
+| 12 | eden-platform-go `build` (`go build ./cmd/aoid`) | host toolchain: cgo link | **0** (3.1 s). Pass. |
+| 13 | eden-press `build` (`go build ./...`) | host toolchain: cgo link | **0** (1.3 s). Pass. |
+| 14 | justinforme `build` (`make build`) | host toolchain: cgo link | **0** (7.3 s). Pass. |
+| 15 | qrCodeBuilder `test` (`flutter test`, run as `flutter test --no-pub`) | host toolchain: Flutter `dot-shorthands` | **1** (206.6 s). **Deps not installed, still inconclusive.** Not the linker, and not the Flutter version: the framework needs Dart `^3.11.0-0` and Dart 3.13.4 is installed, but `.dart_tool/package_config.json` (generated 2026-09-22 by an older Flutter) lists `flutter` at `languageVersion 3.9`, and dot-shorthands needs 3.10. The guard's `--no-pub` rewrite means `--run` can never refresh it. Needs `flutter pub get`. |
+| 16 | trades `build` (`npm run build`) | deps not installed: `vite: command not found` | **0** (11.0 s). Pass. |
+| 17 | trades `test` (`npx vitest --run`) | deps not installed: `ERR_MODULE_NOT_FOUND` | **1** (66.5 s). **Test environment, still inconclusive about the repo.** The suite now loads and runs, and fails with HTTP 500 from DB-backed routes (the failure counter in the kept output reads `[15/299]`; the kept tail is 40 lines and holds no summary line, so the exact failure count is not known). The suite wants a database (`loadTestEnv`, `.env.local`, `TEST_DATABASE_URL`); trades has `.env.template` and `.env.do-template` only. See the note under mutations. |
+| 18 | eden-biz `format@flutter/` (`dart format --output=none --set-exit-if-changed .`, `flutter/`) | deps not installed: `Failed to resolve package URI` | **1** (5.3 s). **Repo state.** `Formatted 1424 files (1194 changed)`. **43-07's label was wrong:** its own output has the identical summary line. The package-URI text is a trailing warning (from the nested `test_support` package) and never set the exit code. |
+| 19 | eden-libs `format@eden-experience-api-dart/` (same command) | deps not installed: `Failed to resolve package URI` | **1** (0.1 s). **Repo state.** `Formatted 6 files (5 changed)`. **43-07's label was wrong:** same summary line in its output. |
+
+Tally of the 19: **12 pass** (gates 1, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 16), **3 red on repo state** (8, 18, 19), **4 still inconclusive** (2, 11, 15, 17). Of the 12 cgo link failures in 43-07, 11 now pass and 1 (dfip) runs and fails on its own tests, so the `xcode-select` fix closed that whole class.
+
+### politihub (first run under `--run`)
+
+HEAD `30be797fb85b` equals the pin; branch `main`; 9 dirty files before and after; harness delta none. Default keys. 8 gates ran: 4 pass, 4 red, all four `repo state`, and nothing was skipped by the policy or the guard.
+
+| gate | exit | cause |
+|---|---|---|
+| `build` | 0 (5.0 s) | pass |
+| `lint@flutter-navigators/` | 1 (6.7 s) | repo state: 29 analyzer issues (e.g. `nativeComposer` is not a named parameter) |
+| `format@flutter-navigators/` | 1 (0.9 s) | repo state: 377 of 493 files would change |
+| `lint@flutter/` | 0 (6.0 s) | pass |
+| `format@flutter/` | 1 (1.1 s) | repo state: 259 of 277 files would change |
+| `build@go/` | 0 (1.7 s) | pass |
+| `lint@go/` | 0 (2.7 s) | pass |
+| `format@go/` | 1 (0.1 s) | repo state: `gofmt -l` lists files |
+
+### Pinned HEADs and integrity
+
+HEAD matched the pin for all 15 repos before each run and was the same after. The dirty count and the porcelain hash were identical before and after for every repo, and the independent read after the run agrees with the driver.
+
+| repo | HEAD | branch | dirty before and after |
+|---|---|---|---|
+| aocore | `62ea74b9b43b` | df/110-developer-console | 137 |
+| aoedge | `bedacb4dfeb3` | fix/strip-inbound-aoid-trust-headers | 1 |
+| aoid | `1def47413b6c` | main | 76 |
+| aoinference | `87ea0e1a2ff2` | fix/obj31-oci-source-label | 3 |
+| devcluster | `e038d4b7f62a` | main | 11 |
+| dfip | `ffcff7d12360` | main | 0 |
+| eden-biz | `e6756547ba77` | main | 13 |
+| eden-circle | `25c2cfa45097` | obj-36-initstate-audit | 36 |
+| eden-libs | `d321277288c9` | main | 77 |
+| eden-platform-go | `0326e888ccfe` | fix/cf-email-retry-on-throttle | 19 |
+| eden-press | `40e4c9ea414f` | main | 4 |
+| justinforme | `e4305601c406` | df/riverpod3-bump | 585 |
+| qrCodeBuilder | `e55991bbb12b` | main | 4 |
+| trades | `1c9ba00c0232` | main | 0 |
+| politihub | `30be797fb85b` | main | 9 |
+
+### Mutations, timeouts and HEAD moves
+
+- **Mutations caught: 1, restored.** eden-circle `build` (`make build`) created `bin/circle-api`, an untracked file that is not gitignored (`git check-ignore` finds no rule). The guard reported `added`, removed it (`restored: true`), and halted the root's Dart and Flutter items (`test@client/`, `lint@client/`, `format@client/`, all `side-effect-unsafe`). The harness snapshot after the run equals the one before, and the file is absent. `lint@client/` and `format@client/` ran in 43-07, so eden-circle lost those two results here. They were not among the 19.
+- **Surviving harness deltas: 0.** No `restored: false`. No STOP.
+- **Timeouts: 0.** The longest gate was qrCodeBuilder `test` at 206.6 s, under the 300 s cap.
+- **HEAD moves: 0.** No repo was skipped.
+- **trades test, a note for the user.** This was the first time the trades suite executed (43-07 stopped at `ERR_MODULE_NOT_FOUND`). Its test files describe running against a local development database, and something is listening on `127.0.0.1:5432`. The effect guard watches the work tree only. Whether any test connected to that database was not inspected and cannot be told from the kept output, so the user may want to look. The kept output (HTTP 500 responses from routes that persist rows) suggests the DB-backed routes did not get a usable database.
+
+### Gates still inconclusive (4)
+
+| gate | why | what clears it |
+|---|---|---|
+| aocore `lint` | the installed golangci-lint is v1.64.8; `go/.golangci.yml` is v2 | golangci-lint v2 built with go1.27.1. Check aoinference `make lint` after that: it also calls `golangci-lint run` (no config file; its current red is a typecheck error in a test file). |
+| eden-circle `test@client/` | skipped by the guard after `make build` added `bin/circle-api`; and `client/.dart_tool` is stale as in qrCodeBuilder | `flutter pub get` in `client/`, then a run that does not select `build` first (or a gitignore entry for `bin/circle-api`). A narrower re-run was not attempted: it would hit the stale config. |
+| qrCodeBuilder `test` | stale `.dart_tool/package_config.json` (flutter `languageVersion 3.9`) | `flutter pub get` in the repo root. `--run` cannot do it, because the guard appends `--no-pub`. |
+| trades `test` | the suite needs a database | a local test database and `TEST_DATABASE_URL`, then a re-run. Until then the failures say nothing about trades. |
+
+### Totals
+
+| | all 15 | the 14 re-run | politihub |
+|---|---|---|---|
+| repos run | 15 | 14 | 1 |
+| gates run | 105 | 97 | 8 |
+| pass | 55 | 51 | 4 |
+| red | 50 | 46 | 4 |
+| red: repo state | 47 | 43 | 4 |
+| red: host toolchain | 1 | 1 | 0 |
+| red: deps not installed | 1 | 1 | 0 |
+| red: test environment | 1 | 1 | 0 |
+| timeouts | 0 | 0 | 0 |
+| skipped by policy or guard | 4 | 4 | 0 |
+| mutations caught (restored) | 1 | 1 | 0 |
+| harness deltas | 0 | 0 | 0 |
+| HEAD moves | 0 | 0 | 0 |
+
+The 4 skipped are eden-circle's three `side-effect-unsafe` client gates and eden-biz `build` (`unverifiable-body`, as in 43-07).
+
+### SDR-08 assessment
+
+Not every proposed command passes, but after the host fixes none of them fails for a reason that belongs to the drafter. Of the 105 gates that ran, 102 either passed (55) or failed on repo state (47: unformatted files, analyzer and shellcheck findings, a typecheck error, dfip's own failing spec), and no run hit a wrong tool, a wrong working directory or a command-not-found. All 12 cgo link failures from 43-07 are resolved: 11 now pass and dfip runs and fails on its own tests, so the `xcode-select` fix did what it was meant to. The 3 other red gates are not repo state and each has a specific host-side fix: aocore `lint` needs golangci-lint v2 (the v1 reinstall cleared the go-version error but v1 cannot read aocore's v2 config), qrCodeBuilder `test` needs `flutter pub get` (its `package_config.json` predates the installed Flutter, and the guard's `--no-pub` rewrite means `--run` cannot repair it), and trades `test` needs a database. A fourth gate, eden-circle `test@client/`, did not run: `make build` added an untracked, un-ignored `bin/circle-api`, the guard removed it correctly and then halted the client's Flutter items. Two 43-07 labels were also wrong and are corrected above (eden-biz and eden-libs `format`, which were repo state, not deps). So SDR-08 is substantively met for the command set, with 4 of the 19 earlier gates still waiting on host action rather than on any change to the drafter; the one drafter-adjacent item is that a `build` that leaves an un-ignored artifact stops later Flutter gates in the same root.
