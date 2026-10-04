@@ -108,9 +108,13 @@ The `--squash` strategy creates a single clean commit per workstream on main.
    git add .planning/
    ```
 
-4. **Commit the merge:**
+4. **Commit the merge** as its own call, never chained after the merge or the conflict resolution in step 3.
+A squash leaves no `MERGE_HEAD` (only `SQUASH_MSG`), so gate-commits cannot see a merge in progress and would
+deny a bare `git commit`. This one command carries the inline `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix, the
+sanctioned per-command escape; it has to be on the same command, since the gate cannot see a variable set in
+an earlier call:
 ```bash
-git commit -m "feat: merge {ws-name} (Objective {N}: {objective name})"
+DEVFLOW_ALLOW_RAW_COMMIT=1 git commit -m "feat: merge {ws-name} (Objective {N}: {objective name})"
 ```
 
 5. **Update workstream status in workstreams.json:**

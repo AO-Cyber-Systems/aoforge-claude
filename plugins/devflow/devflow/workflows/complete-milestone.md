@@ -541,62 +541,88 @@ Options:
 
 AskUserQuestion with options: Squash merge (Recommended), Merge with history, Delete without merging, Keep branches.
 
-**Squash merge:**
+**Squash merge:** run each step as its own Bash call. Never chain a merge with its commit in one call:
+gate-commits decides before a command runs, so it refuses a raw `git commit` chained after a merge.
+`<branch>` is each branch in `OBJECTIVE_BRANCHES` (objective strategy, one branch at a time, steps 3-5
+repeated per branch) or `MILESTONE_BRANCH` (milestone strategy, steps 3-5 once).
+
+1. Note the branch you are on (call it `CURRENT_BRANCH`):
 
 ```bash
-CURRENT_BRANCH=$(git branch --show-current)
-git checkout main
-
-if [ "$BRANCHING_STRATEGY" = "objective" ]; then
-  for branch in $OBJECTIVE_BRANCHES; do
-    git merge --squash "$branch"
-    # Strip .planning/ from staging if commit_docs is false
-    if [ "$COMMIT_DOCS" = "false" ]; then
-      git reset HEAD .planning/ 2>/dev/null || true
-    fi
-    git commit -m "feat: $branch for v[X.Y]"
-  done
-fi
-
-if [ "$BRANCHING_STRATEGY" = "milestone" ]; then
-  git merge --squash "$MILESTONE_BRANCH"
-  # Strip .planning/ from staging if commit_docs is false
-  if [ "$COMMIT_DOCS" = "false" ]; then
-    git reset HEAD .planning/ 2>/dev/null || true
-  fi
-  git commit -m "feat: $MILESTONE_BRANCH for v[X.Y]"
-fi
-
-git checkout "$CURRENT_BRANCH"
+git branch --show-current
 ```
 
-**Merge with history:**
+2. Switch to main:
 
 ```bash
-CURRENT_BRANCH=$(git branch --show-current)
 git checkout main
+```
 
-if [ "$BRANCHING_STRATEGY" = "objective" ]; then
-  for branch in $OBJECTIVE_BRANCHES; do
-    git merge --no-ff --no-commit "$branch"
-    # Strip .planning/ from staging if commit_docs is false
-    if [ "$COMMIT_DOCS" = "false" ]; then
-      git reset HEAD .planning/ 2>/dev/null || true
-    fi
-    git commit -m "Merge branch '$branch' for v[X.Y]"
-  done
-fi
+3. Squash the branch in:
 
-if [ "$BRANCHING_STRATEGY" = "milestone" ]; then
-  git merge --no-ff --no-commit "$MILESTONE_BRANCH"
-  # Strip .planning/ from staging if commit_docs is false
-  if [ "$COMMIT_DOCS" = "false" ]; then
-    git reset HEAD .planning/ 2>/dev/null || true
-  fi
-  git commit -m "Merge branch '$MILESTONE_BRANCH' for v[X.Y]"
-fi
+```bash
+git merge --squash <branch>
+```
 
-git checkout "$CURRENT_BRANCH"
+4. Only if `commit_docs` is false, strip `.planning/` from the staging area:
+
+```bash
+git reset HEAD .planning/
+```
+
+5. Commit it. A squash leaves no `MERGE_HEAD` (only `SQUASH_MSG`), so the gate cannot see a merge in
+   progress and would deny a bare `git commit`. This one command carries the inline
+   `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix, the sanctioned per-command escape; it has to be on the same
+   command, since the gate cannot see a variable set in an earlier call:
+
+```bash
+DEVFLOW_ALLOW_RAW_COMMIT=1 git commit -m "feat: <branch> for v[X.Y]"
+```
+
+6. After the last branch, return to where you started:
+
+```bash
+git checkout <CURRENT_BRANCH>
+```
+
+**Merge with history:** the same one-command-per-call rule applies. `<branch>` and `CURRENT_BRANCH` mean the
+same as above.
+
+1. Note the branch you are on (call it `CURRENT_BRANCH`):
+
+```bash
+git branch --show-current
+```
+
+2. Switch to main:
+
+```bash
+git checkout main
+```
+
+3. Merge the branch without committing. This stops the merge, and git leaves `MERGE_HEAD` behind:
+
+```bash
+git merge --no-ff --no-commit <branch>
+```
+
+4. Only if `commit_docs` is false, strip `.planning/` from the staging area:
+
+```bash
+git reset HEAD .planning/
+```
+
+5. Complete the merge as its own call. No escape prefix is needed: the gate sees the stopped merge's
+   `MERGE_HEAD` and allows the commit.
+
+```bash
+git commit -m "Merge branch '<branch>' for v[X.Y]"
+```
+
+6. After the last branch, return to where you started:
+
+```bash
+git checkout <CURRENT_BRANCH>
 ```
 
 **Delete without merging:**
