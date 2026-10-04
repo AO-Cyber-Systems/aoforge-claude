@@ -785,3 +785,68 @@ describe('trd_budget (48-03 tests 10-12)', () => {
     assert.strictEqual(result.summary, '1/5 dimensions passed');
   });
 });
+
+// ─── 8. ROADMAP header regex (objective 54, TRD 07: shared objectiveNumPattern) ──
+
+describe('requirement_coverage — ROADMAP header regex escapes the objective number', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTmp(); });
+  afterEach(() => { removeTmp(tmpDir); });
+
+  test('metacharacter objective arg `1(` does not throw (guard)', () => {
+    // `1(` is normalised to the 01- directory, so objective_number is the digits `01` and the regex is
+    // never built from the raw `(`. Kept as a guard for the CLI surface the TRD names.
+    setupObjectiveDir(tmpDir, {
+      objective: '01-test',
+      roadmap_requirements: ['F1'],
+      trds: [{ trd: '01-01', requirements: ['F1'], depends_on: [] }],
+    });
+    const { result, exitCode } = runCheck(tmpDir, '1(');
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(result.checks.requirement_coverage.passed, true);
+  });
+
+  test('a directory name that is not numeric reaches the header regex without a SyntaxError', () => {
+    // searchObjectiveInDir keeps the raw argument as objective_number when the directory name has no
+    // leading digits, so `a(` is interpolated into the header regex. Unescaped, `(` is an unterminated group.
+    setupObjectiveDir(tmpDir, {
+      objective: 'a(-test',
+      roadmap_requirements: ['F1'],
+      trds: [{ trd: 'a(-01', requirements: ['F1'], depends_on: [] }],
+    });
+    const { result, exitCode } = runCheck(tmpDir, 'a(');
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(result.checks.requirement_coverage.passed, true);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, []);
+  });
+
+  test('decimal 14.1 ignores a preceding 14.10 section (guard)', () => {
+    // Two-digit base on purpose: objective_number is the directory's own digits, so a single-digit
+    // decimal would not line up with a `### Objective 4.1:` ROADMAP heading.
+    setupObjectiveDir(tmpDir, {
+      objective: '14.1-test',
+      roadmap_requirements: ['F1'],
+      trds: [{ trd: '14.1-01', requirements: ['F1'], depends_on: [] }],
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      [
+        '# Roadmap',
+        '',
+        '### Objective 141: Wrong one',
+        '**Requirements:** [WRONG1]',
+        '',
+        '### Objective 14.10: Wrong ten',
+        '**Requirements:** [WRONG2]',
+        '',
+        '### Objective 14.1: Right',
+        '**Requirements:** [F1]',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    const { result } = runCheck(tmpDir, '14.1');
+    assert.strictEqual(result.checks.requirement_coverage.passed, true);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, []);
+  });
+});

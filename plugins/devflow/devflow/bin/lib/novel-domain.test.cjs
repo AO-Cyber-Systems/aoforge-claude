@@ -31,6 +31,10 @@
 //   22. missing description sources → error key, novel:false (failsafe)
 //   23. --raw mode → JSON only, no human summary
 //   24. unknown objective → error, exit non-zero
+// ROADMAP header regex (objective 54, TRD 07):
+//   25. metacharacter arg `1(` → no throw, exit 0, JSON (guard)
+//   25b. non-numeric directory name `a(-thing` reaches the regex → no SyntaxError, header found
+//   26. decimal 14.1 ignores preceding 141 and 14.10 sections (guard)
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
@@ -396,5 +400,75 @@ describe('CLI — cmdDetectNovelDomain', () => {
     }
 
     assert.notStrictEqual(exitCode, 0, 'should exit non-zero for unknown objective');
+  });
+});
+
+// ─── ROADMAP header regex (objective 54, TRD 07: shared objectiveNumPattern) ─────
+
+describe('CLI — ROADMAP header regex escapes the objective number', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTmp(); });
+  afterEach(() => { removeTmp(tmpDir); });
+
+  test('25. metacharacter objective arg `1(` does not throw and exits 0 with JSON (guard)', () => {
+    // `1(` is normalised to the 01- directory, so objective_number is the digits `01` and the regex is
+    // never built from the raw `(`. Kept as a guard for the CLI surface the TRD names.
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-something'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n### Objective 1: Something\n\n**Goal:** Test.\n',
+      'utf-8',
+    );
+
+    const { stdout, exitCode } = runCmd(tmpDir, '1(', true);
+    assert.strictEqual(exitCode, 0);
+    const parsed = JSON.parse(stdout);
+    assert.strictEqual(parsed.novel, false);
+  });
+
+  test('25b. a directory name that is not numeric reaches the header regex without a SyntaxError', () => {
+    // searchObjectiveInDir keeps the raw argument as objective_number when the directory name has no
+    // leading digits, so `a(` is interpolated into the header regex. Unescaped, `(` is an unterminated group.
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', 'a(-thing'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n### Objective a(: Thing\n\nUse `left-pad` for padding.\n',
+      'utf-8',
+    );
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), makePackageJson({ deps: [], devDeps: [] }), 'utf-8');
+
+    const { stdout, exitCode } = runCmd(tmpDir, 'a(', true);
+    assert.strictEqual(exitCode, 0);
+    const parsed = JSON.parse(stdout);
+    assert.ok(parsed.signals.new_dep.candidates.includes('left-pad'), 'the literal `a(` header is found');
+  });
+
+  test('26. decimal 14.1 resolves its own section when 141 and 14.10 precede it (guard)', () => {
+    // Two-digit base on purpose: objective_number is the directory's own digits (`04.1` for a `04.1-` dir),
+    // so a single-digit decimal would not line up with a `### Objective 4.1:` ROADMAP heading.
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '14.1-decimal'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      [
+        '# Roadmap',
+        '',
+        '### Objective 141: Wrong one',
+        'Use `wrong-one-pkg` here.',
+        '',
+        '### Objective 14.10: Wrong ten',
+        'Use `wrong-ten-pkg` here.',
+        '',
+        '### Objective 14.1: Right',
+        'Use `right-pkg` here.',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), makePackageJson({ deps: [], devDeps: [] }), 'utf-8');
+
+    const { stdout, exitCode } = runCmd(tmpDir, '14.1', true);
+    assert.strictEqual(exitCode, 0);
+    const { candidates } = JSON.parse(stdout).signals.new_dep;
+    assert.deepStrictEqual(candidates, ['right-pkg']);
   });
 });
