@@ -183,6 +183,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `false` on a project that never set it. The key applies to 0011 only; it is not a way to decline other
   migrations. The store-off 0011 reason names the opt-out, and `/devflow:gh-sync migrate` and
   `/devflow:status check --migrate` offer it as "Keep mirror mode".
+- **`doctor` check 33 `decision-resolution` repairs decisions mangled before objective 52 (objective 53).**
+  The pre-52 one-line writer flattened a multi-line `resolution` in
+  `.planning/decisions/resolved/DECISION-NNN.md`, so it read back as its first line. The raw file still
+  holds every byte of the answer, so the check recovers the text between `resolution:` and `resolved_at:`,
+  and reports each file as repairable or unrecoverable (warn). `doctor --fix` rewrites a repairable one as
+  a `|-` block scalar, after a backup, and only once the rebuilt file re-parses to the recovered answer, the
+  original `resolved_at` and an unchanged body. It edits the working tree and never stages or commits. A
+  decision whose answer already reads back whole is left alone. In store mode the check is report-only (hand
+  fix the GitHub copy, then `gh pull --all`). Modules: `decision-repair.cjs`,
+  `doctor-checks/33-decision-resolution.cjs`.
 
 ### Changed
 - **`stack verify --run` is effect-based (objective 43, SDR-03).** A gate was judged safe by its key, yet
@@ -197,8 +207,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   mirror. `migrate` shows the plan and the request estimate, asks before applying, and shows the branch
   plus logged-escape commit; it runs that commit only when asked. The skill no longer commits
   `.planning/.gh-mapping.json`. The flow chains, the help reference and the README describe the store
-  model. The routing line in the managed `~/.claude/CLAUDE.md` template changed but its template version
-  did not, so existing blocks pick it up at the next version bump.
+  model. The routing line in the managed `~/.claude/CLAUDE.md` template changed without a version bump;
+  objective 53 bumped the template to v3, so existing blocks pick it up at the next global upgrade.
 - **Migration 0010 defers during a backfill and prints the store-mode commit (objective 51).** While the
   outbox holds only pending ops, 0010 skips with a reason that names `--only 0011`, so a bare
   `upgrade --apply --confirm` reaches 0011; a direct apply still refuses. Its printed follow-up, and doctor
@@ -232,9 +242,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Skills, workflows, agents and templates now publish planning files through the verbs: the planner
   uses `planning draft` + `plan put-trd --no-push` + one `plan push`; the executor uses
   `summary checkpoint` per task and one `summary post`; verify, bootstrap, milestone, todo, debug,
-  quick, decision and codebase-map flows use their verbs. `summary checkpoint|post` write the main
-  checkout even from a worktree, so execute-objective commits a wave's SUMMARYs from the main
-  checkout after the merge.
+  quick, decision and codebase-map flows use their verbs. In store mode `summary checkpoint|post` write
+  the main checkout; in local mode they write the checkout that runs them (objective 53).
 - In store mode the STATE.md mutators write the per-clone `state.json`; `roadmap
   update-job-progress` and the writing `sync-roadmap` modes are no-ops that point at `gh pull
   --all`; `objective add|complete` go through `objective put|set-status` and `objective remove` is
@@ -257,6 +266,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `initiatives` resolves its project from PROJECT.md `org_project`, then `awareness.org_project_id`.
 - Push records GitHub's own `updatedAt` as the sync-state baseline, so `gh pull` straight after a
   push reports no drift.
+- **`gate-commits` explains a refused merge-then-commit chain (objective 53).** A merge-like git operation
+  (`merge`, `cherry-pick`, `revert`, `rebase`, `am`) chained before a raw `git commit` in one command is
+  still denied, because a no-op merge creates no `MERGE_HEAD` and the chain cannot be proven safe from the
+  command text. The deny reason now says to run them as separate calls and that `git commit --no-edit` is
+  allowed once `MERGE_HEAD` exists. Every allow path is unchanged, and so is the text for a plain commit.
+- **The global `~/.claude/CLAUDE.md` template is v3 and routes to `/devflow:doctor` (objective 53).** The
+  managed block gains "Diagnose and safely repair the install and project state". A block refreshes only
+  when `template_version` rises, so existing blocks pick up both this line and the `/devflow:gh-sync` line
+  at the next global upgrade (`df-tools upgrade --global`, or the SessionStart sync).
 
 ### Fixed
 - **Stack drafter rules (objective 43).** `stack init` re-drafts the eleven fleet shapes hand-fixed in
@@ -383,7 +401,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   read from a file still matches its declared option. `planning import` reads a block-scalar
   `resolution` in full, so the 0011 backfill carries the whole answer to GitHub. Decisions answered
   before this fix keep their mangled multi-line `resolution`, which still reads back as its first line;
-  fix those by hand before a backfill (see Known issues in `docs/USER-GUIDE.md`).
+  `df-tools doctor --fix` repairs those whose answer is recoverable (objective 53, doctor check 33), and
+  the rest are fixed by hand (see `docs/USER-GUIDE.md`).
+- **Executor worktrees no longer leave a stray SUMMARY in the main checkout (objective 53).** In local mode
+  `summary checkpoint|post` wrote the main checkout even when run from an executor worktree, leaving an
+  untracked `NN-MM-SUMMARY.md` that blocked the wave merge (objective 52 hit it five times). They now write
+  the checkout that runs them, so a worktree executor commits its SUMMARY with its task commits and it
+  arrives through the wave merge. The file name is chosen from that checkout's objective directory, so a
+  committed `NN-MM-<slug>-SUMMARY.md` is reused rather than duplicated. A worktree with no `.planning/`
+  falls back to the main checkout, and store mode still writes the main checkout's cache, ledger and
+  outbox. `gate-executor-stop` needed no change (it scans every `git worktree list` entry).
+  `execute-objective` no longer commits a wave's SUMMARYs after the merge.
+  `planning-mode.resolveCheckoutRoot(cwd)` is the new resolver.
+- **A named TRD with a short SUMMARY, or the reverse, counts as summarised everywhere (objective 53).**
+  `NN-MM-<slug>-TRD.md` is paired with `NN-MM-SUMMARY.md` or `NN-MM-<slug>-SUMMARY.md` on the `NN-MM`
+  key (`helpers.trdKey`), never by string prefix (`07-1-x` and `07-10` stay distinct). `validate health`
+  I001 and the `validate consistency` orphan warning, `objective-job-index` `has_summary` (which
+  `execute-objective` uses to resume and to complete), `init execute-objective` `incomplete_jobs`,
+  `verify objective-completeness` and `gate-executor-stop` now agree with `sync-roadmap`. Before this,
+  health reported every named TRD in objectives 47-52 as missing a summary and `objective-job-index`
+  reported `has_summary: false` for each of them. A checkpoint-only SUMMARY (a `## Progress` section and no
+  `## Self-Check`) still does not count.
+- **`df-tools micro commit` goes through `df-tools commit` (objective 53).** It committed with a raw
+  `git commit` under `DEVFLOW_ALLOW_RAW_COMMIT=1`, so the store-mode GEN-01 branch gate never saw it. In
+  store mode it is now refused on the default branch, an unlinked branch or a detached HEAD with the normal
+  gate message (exit 1, JSON on stdout, the message on stderr), commits nothing and keeps the
+  `.micro-description` marker so the commit can be re-run after switching branch. The logged
+  `DEVFLOW_SKIP_GH_GATE=1` escape works and writes one `gate:gh` override entry. Local mode is unchanged,
+  with one exception: because `df-tools commit` honours `commit_docs`, a project with `commit_docs: false`
+  still gets the source commit but no second STATE.md row commit, and micro warns that it left STATE.md
+  dirty. `workflows/micro.md` names the path and the refusal.
+- **The documented wave-merge sequence passes `gate-commits` (objective 53).** `execute-objective`'s
+  branch-merge protocol, `complete-milestone` and `workstreams-merge` chained a merge with a commit in one
+  Bash call, which the gate denies because no `MERGE_HEAD` exists yet. Each merge step is now its own call.
+  A wave-merge conflict confined to STATE.md, ROADMAP.md and REQUIREMENTS.md is resolved by taking the
+  integration copy and finishing with `git commit --no-edit` (allowed once `MERGE_HEAD` exists); any other
+  conflicted path aborts the merge. A squash completion carries the inline `DEVFLOW_ALLOW_RAW_COMMIT=1`
+  prefix, because a squash leaves no `MERGE_HEAD`. The gate's allow and deny decisions did not change.
+  `gate-commits-merge-sequence.test.js` replays the sequence through the hook in a scratch repo.
+- **`PROJECT.md` and the archived UI-VISUAL-EVAL objectives (objective 53, this repo only).** `PROJECT.md`
+  gained `## Core Value` and `## Requirements` from its existing text (W001), and the three
+  `UI-VISUAL-EVAL-*` ad-hoc objective directories moved with `git mv` to
+  `.planning/milestones/v1.2-objectives/`, history intact (W005). `validate health` reports neither.
 
 ### Deprecated
 - `git.branching_strategy` (objective 49). In store mode it is ignored and `init` reports it as
@@ -391,6 +450,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   prints a deprecation notice for `objective` and `milestone`.
 - `gh sync-objectives`. It still works and prints a one-line notice; use `gh sync --all`. The rename
   is recorded in `DF_TOOLS_DEPRECATIONS` (`lib/skill-route.cjs`).
+
+### Removed
+- The dead `AWARENESS_CACHE_REL` export of `lib/awareness.cjs` (objective 53). Nothing imported it. The legacy
+  path survives as `awareness-store.LEGACY_CACHE_REL` (`.planning/.awareness-cache.json`), which migration
+  0008 and doctor use.
 
 ## [2.12.0] - 2026-09-30
 
