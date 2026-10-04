@@ -78,7 +78,7 @@ function normaliseRel(rel) {
 function fixedRule(name, rel, page) {
   return {
     name,
-    match: (r) => (r === rel ? page : null),
+    toPage: (r) => (r === rel ? page : null),
     invert: (p) => (p === page ? rel : null),
   };
 }
@@ -105,12 +105,18 @@ const titleKind = (kind) => kind.split('-').map((p) => p[0] + p.slice(1).toLower
 const versionToPage = (v) => v.replace(/\./g, '_');
 const versionFromPage = (v) => v.replace(/_/g, '.');
 
+// js/regex-injection (CodeQL alert 145): `kind` is an in-code constant, so escaping it is defensive only.
+// Mirrors objective.cjs's own escapeRegExp (same TRD-locked pattern).
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Rule for `objectives/<dir>/[<NN>-]<KIND>.md` -> `<ObjectivePage>-<Suffix>`. */
 function objectiveDocRule(kind, suffix) {
-  const fileRe = new RegExp(`^objectives/([^/]+)/(?:\\d+(?:\\.\\d+)?-)?${kind}\\.md$`);
+  const fileRe = new RegExp(`^objectives/([^/]+)/(?:\\d+(?:\\.\\d+)?-)?${escapeRegExp(kind)}\\.md$`);
   return {
     name: `objective-${kind.toLowerCase()}`,
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(fileRe);
       const base = m && objectivePage(m[1]);
       return base ? `${base}-${suffix}` : null;
@@ -130,7 +136,7 @@ function objectiveDocRule(kind, suffix) {
 
 /**
  * THE page-mapping table (single source for both directions). An ordered rule list; each rule is
- *   { name, match(relCachePath) -> page | null, invert(page, {objectiveDirs}) -> relCachePath | null }.
+ *   { name, toPage(relCachePath) -> page | null, invert(page, {objectiveDirs}) -> relCachePath | null }.
  * `relCachePath` is relative to `.planning/` with `/` separators. Anything no rule matches is not a wiki
  * document (STATE.md, config.json, TRDs, SUMMARYs, VERIFICATIONs...), and maps to null.
  *
@@ -153,7 +159,7 @@ const PAGE_TABLE = [
   fixedRule('roadmap', 'ROADMAP.md', 'Roadmap'),
   {
     name: 'codebase',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(CODEBASE_RE);
       if (!m) return null;
       return 'Codebase-' + m[1].toLowerCase().replace(/(^|[_-])([a-z0-9])/g, (_, sep, c) => sep + c.toUpperCase());
@@ -165,7 +171,7 @@ const PAGE_TABLE = [
   },
   {
     name: 'research',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(RESEARCH_RE);
       return m ? `Research-${m[1]}` : null;
     },
@@ -176,7 +182,7 @@ const PAGE_TABLE = [
   },
   {
     name: 'milestone',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(MILESTONE_RE);
       return m ? `Milestone-v${versionToPage(m[1])}` : null;
     },
@@ -187,7 +193,7 @@ const PAGE_TABLE = [
   },
   {
     name: 'milestone-archive',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(MILESTONE_ARCHIVE_RE);
       return m ? `Milestone-v${versionToPage(m[1])}-${titleKind(m[2])}` : null;
     },
@@ -200,7 +206,7 @@ const PAGE_TABLE = [
   objectiveDocRule('RESEARCH', 'Research'),
   {
     name: 'objective',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(/^objectives\/([^/]+)\/OBJECTIVE\.md$/);
       return m ? objectivePage(m[1]) : null;
     },
@@ -215,7 +221,7 @@ const PAGE_TABLE = [
     // Any other `<N>-<SUFFIX>.md` beside an objective: N must be the directory's own objective prefix, so a
     // TRD (`NN-MM-...-TRD.md`) can never match, and the issue-backed suffixes are refused outright.
     name: 'objective-doc',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(OBJECTIVE_DOC_RE);
       if (!m || OBJECTIVE_DOC_EXCLUDED.has(m[3])) return null;
       const dir = parseObjectiveDir(m[1]);
@@ -238,7 +244,7 @@ const PAGE_TABLE = [
   },
   {
     name: 'adr',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(ADR_RE);
       return m ? `ADR-${m[1]}-${m[2]}` : null;
     },
@@ -249,7 +255,7 @@ const PAGE_TABLE = [
   },
   {
     name: 'retro',
-    match(rel) {
+    toPage(rel) {
       const m = rel.match(RETRO_RE);
       return m ? `Retro-v${m[1].replace(/\./g, '_')}` : null;
     },
@@ -265,7 +271,7 @@ function pageForCachePath(rel) {
   const r = normaliseRel(rel);
   if (r === null) return null;
   for (const rule of PAGE_TABLE) {
-    const page = rule.match(r);
+    const page = rule.toPage(r);
     if (page) return page;
   }
   return null;

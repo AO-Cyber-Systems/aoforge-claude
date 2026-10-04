@@ -441,3 +441,18 @@ describe('help', () => {
     }
   });
 });
+
+// quick-29 (CodeQL js/incomplete-sanitization, alert 144): the stay-local table cell escaped `|` but not
+// the backslash before it, so a rel ending in `\` (or holding `\|`) broke out of its cell.
+describe('quick-29: stayLocalTable escapes a backslash before the pipe in a cell', () => {
+  test('8b: `a\\|b.md` and `c\\d` render as `a\\\\\\|b.md` and `c\\\\d`; a newline flattens to a space', () => {
+    const lines = cli().stayLocalTable({
+      kept_local: [
+        { rel: 'a\\|b.md', reason: 'c\\d' },
+        { rel: 'x\ny.md', reason: 'p\r\nq' },
+      ],
+    });
+    assert.ok(lines.includes('  | a\\\\\\|b.md | c\\\\d |'), lines.join('\n'));
+    assert.ok(lines.includes('  | x y.md | p q |'), lines.join('\n'));
+  });
+});

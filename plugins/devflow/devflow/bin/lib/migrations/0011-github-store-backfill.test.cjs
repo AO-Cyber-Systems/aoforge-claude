@@ -543,3 +543,20 @@ describe('0011 mirror-mode opt-out (52-04)', () => {
     assert.equal(env.fake.calls().length, 0);
   });
 });
+
+// quick-29 (CodeQL js/incomplete-sanitization, alert 143): the stay-local table cell escaped `|` but not
+// the backslash before it, so a rel ending in `\` (or holding `\|`) broke out of its cell.
+describe('quick-29: planText escapes a backslash before the pipe in a stay-local cell', () => {
+  test('8a: `a\\|b.md` and `c\\d` render as `a\\\\\\|b.md` and `c\\\\d`; a newline flattens to a space', () => {
+    const text = m0011().planText({
+      ok: true,
+      queued: {},
+      kept_local: [
+        { rel: 'a\\|b.md', reason: 'c\\d' },
+        { rel: 'x\ny.md', reason: 'p\r\nq' },
+      ],
+    });
+    assert.ok(text.split('\n').includes('  | a\\\\\\|b.md | c\\\\d |'), text);
+    assert.ok(text.split('\n').includes('  | x y.md | p q |'), text);
+  });
+});

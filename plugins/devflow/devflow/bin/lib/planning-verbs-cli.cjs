@@ -375,7 +375,8 @@ const describeItem = (x) => {
   return JSON.stringify(x);
 };
 
-const tableCell = (s) => String(s).replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+// Backslash before pipe: escaping it after the pipe would double the one the pipe just gained (js/incomplete-sanitization).
+const tableCell = (s) => String(s).replace(/\r?\n/g, ' ').replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 
 /** The `will stay local:` table (51-05, OQ5): every refused TRD and every kept-local file, one row each. */
 function stayLocalTable(res) {
@@ -460,4 +461,5 @@ module.exports = {
   cmdQuick,
   cmdMilestoneVerb,
   cmdPlanningVerb,
+  stayLocalTable,
 };

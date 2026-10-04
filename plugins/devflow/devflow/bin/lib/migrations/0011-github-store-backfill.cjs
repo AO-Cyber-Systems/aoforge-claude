@@ -98,7 +98,8 @@ const SHORT_WAIT_MS = 60 * 1000;
 const ISSUE_FILE_RE = /^objectives\/[^/]+\/[^/]+-TRD\.md$/;
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const cell = (s) => String(s === undefined || s === null ? '' : s).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+// Backslash first: escaping it after the pipe would double the one the pipe just gained (js/incomplete-sanitization).
+const cell = (s) => String(s === undefined || s === null ? '' : s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 
 /** The MAIN checkout: the journal, the cache index and config.json all belong to it (D-14). */
 function mainOf(ctx) {

@@ -141,12 +141,21 @@ describe('page mapping (tests 1-4)', () => {
 
   test('PAGE_TABLE is exported as an ordered rule list used by both directions', () => {
     assert.ok(Array.isArray(wiki.PAGE_TABLE) && wiki.PAGE_TABLE.length >= 8);
+    // quick-29 (CodeQL js/regex-injection, alert 145): `<rule>.match(<cli path>)` read as a string-to-regex
+    // `String.prototype.match`, so the rule method is `toPage` and no rule exposes `match`.
     for (const rule of wiki.PAGE_TABLE) {
-      assert.equal(typeof rule.match, 'function');
-      assert.equal(typeof rule.invert, 'function');
+      assert.equal(typeof rule.toPage, 'function', rule.name);
+      assert.equal(rule.match, undefined, rule.name);
+      assert.equal(typeof rule.invert, 'function', rule.name);
     }
     assert.equal(wiki.WIKI_DIR_REL, '.planning/wiki');
     assert.equal(wiki.DOCS_DIR_REL, 'docs/devflow');
+  });
+
+  test('quick-29: regex-metacharacter cache paths map to null and never throw', () => {
+    for (const rel of ['objectives/(/TRD.md', 'objectives/[x/UAT.md', 'codebase/a+b.md', 'objectives/.*/CONTEXT.md']) {
+      assert.equal(wiki.pageForCachePath(rel), null, rel);
+    }
   });
 });
 
