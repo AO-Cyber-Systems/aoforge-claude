@@ -386,7 +386,7 @@ Candidate scope carried forward from v1.2 deferrals:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42. Codebase-aware stack drafter | v1.4 | 15/15 | Verified: gaps_found (5/6 SC; gaps carried to 43; fleet 33/36) | 2026-09-29 |
 | 44. Autonomy hardening | v1.4 | 10/10 | Complete | 2026-09-29 |
-| 43. Stack drafter rules | v1.4 | 15/15 | Complete | 2026-10-03 |
+| 43. Stack drafter rules | v1.4 | 15/15 | Complete | 2026-10-04 |
 | 45. DevFlow doctor + runtime hygiene | v1.4 | 10/10 | Complete | 2026-09-30 |
 | 26. GitHub issue auto-build monitor | v1.4 | 0/— | Cancelled (killed by user decision 2026-10-01; GMD-04) | 2026-10-01 |
 | 46. GitHub sync foundations | v1.4 | 10/10 | Complete | 2026-09-30 |
