@@ -987,6 +987,70 @@ describe('Check 13: upgrade state (W040)', () => {
     assert.match(found[0].message, /missing detect/);
     assert.strictEqual(found[0].repairable, false);
   });
+
+  // ─── TRD 52-04: the recorded mirror-mode opt-out (github.mirror_only) ───
+  //
+  // A stamped-current project with GitHub enabled and the store off: migration 0011 (the GitHub backfill) is a pending
+  // confirm migration, so W040 reports "1 need confirmation", unless the project recorded `github.mirror_only: true`.
+  // All outbox state lives under hermeticEnv()'s temp dirs; nothing reads the real ~/.claude.
+  describe('mirror-mode opt-out (52-04)', () => {
+    const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+
+    let env = null;
+    beforeEach(() => {
+      env = hermeticEnv();
+    });
+    afterEach(() => {
+      if (env) env.restore();
+      env = null;
+    });
+
+    function makeMirrorProject(github) {
+      const root = upgradeFx.makeStampedProject(pluginVersion());
+      const configPath = path.join(root, '.planning', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      config.github = github;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+      return root;
+    }
+
+    test('16. enabled + store off + github.mirror_only true -> no W040', () => {
+      tmpProject = makeMirrorProject({ enabled: true, repo: 'acme/demo', mirror_only: true });
+      tmpHome = makeHome();
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+      assert.deepStrictEqual(w040s(json), [], JSON.stringify(json.warnings));
+    });
+
+    test('17. positive control: the same project without the key -> exactly one W040, "1 need confirmation"', () => {
+      tmpProject = makeMirrorProject({ enabled: true, repo: 'acme/demo' });
+      tmpHome = makeHome();
+      const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
+      const found = w040s(json);
+      assert.strictEqual(found.length, 1, `one W040; got ${JSON.stringify(found)}`);
+      assert.match(found[0].message, /\b1 need confirmation\b/);
+    });
+  });
+
+  // TRD 52-04 item 8: `config-get github.mirror_only` answers the template default on a project that never set it.
+  test('18. config-get github.mirror_only on a project without the key prints false (template default)', () => {
+    const { spawnSync } = require('child_process');
+    const dfTools = path.join(__dirname, '..', 'df-tools.cjs');
+    tmpProject = makePlanningProject();
+    tmpHome = makeHome();
+    writeJson(path.join(tmpProject, '.planning', 'config.json'), { github: { enabled: true, repo: 'acme/demo' } });
+    const run = (args) => spawnSync(process.execPath, [dfTools, '--cwd', tmpProject, 'config-get', ...args], {
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: { ...process.env, HOME: tmpHome },
+    });
+
+    const raw = run(['github.mirror_only', '--raw']);
+    assert.strictEqual(raw.status, 0, `expected exit 0; stderr: ${raw.stderr}`);
+    assert.strictEqual(raw.stdout, 'false');
+    const plain = run(['github.mirror_only']);
+    assert.strictEqual(plain.status, 0, `expected exit 0; stderr: ${plain.stderr}`);
+    assert.strictEqual(JSON.parse(plain.stdout), false);
+  });
 });
 
 // ─── Check 4: W002 — STATE.md position vs known objectives (TRD 38-02) ────

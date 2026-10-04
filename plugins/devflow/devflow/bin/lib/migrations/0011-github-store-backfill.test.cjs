@@ -8,6 +8,8 @@
 //   5     remote preflight refusals (wiki disabled, wiki with no first page, read-only token)
 //   6-8   store switch + queue, resume without re-import, empty plan (51-07: the drain is held at `maxOps: 0`, so the
 //         apply stops `pending` right after the queue; test 8 runs every phase)
+//   52-04 the mirror-mode opt-out: github.mirror_only true keeps 0011 skipped while the store is off (check, apply,
+//         detect), only boolean true counts, the store on ignores it, and the store-off reason names the opt-out
 //
 // no_llm_test_data: every project is the hand-built 51-02 backfill fixture (useBackfillEnv: hermetic HOME, outbox and
 // gh-cache dirs, the fake GitHub on the gh seam, a local bare wiki remote, a fake clock) or a hand-built minimal git repo
@@ -434,5 +436,110 @@ describe('0011 store switch and queue (tests 6-8)', () => {
     const again = m0011().ensureStoreSwitch(ctxFor(env, { root }));
     assert.equal(again.changed, false);
     assert.equal(configText(root), switched);
+  });
+});
+
+// ─── 52-04: the recorded mirror-mode opt-out (github.mirror_only) ─────────────
+//
+// A project that enables GitHub only for mirror mode records `github.mirror_only: true`. While the store is off, 0011
+// detect says no, so `upgrade --check` lists it under skipped, `--apply --confirm` and `--only 0011` never run it, and
+// W040 goes quiet. With the store on the key is ignored: a backfill in flight is never hidden.
+
+const MIRROR_ONLY_REASON = 'mirror mode kept (github.mirror_only: true): the GitHub store backfill is opted out. ' +
+  'To migrate later, run `df-tools config-set github.mirror_only false`, then `df-tools upgrade --apply --only 0011 --confirm`.';
+
+describe('0011 mirror-mode opt-out (52-04)', () => {
+  test('2: upgrade.check on an opted-out project lists 0011 under skipped with the opt-out reason, up_to_date', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    patchGithub(env.root, { mirror_only: true });
+    // Stamp the fixture current (no confirm): the only applicable migration would be 0011.
+    const stamped = upgrade.apply({ projectRoot: env.root, userHome: env.home, pluginVersion: PLUGIN_VERSION, options: { maxOps: 0 } });
+    assert.deepEqual(stamped.failed, []);
+
+    const r = upgrade.check({ projectRoot: env.root, userHome: env.home, pluginVersion: PLUGIN_VERSION });
+    assert.deepEqual(r.failed, []);
+    assert.deepEqual(r.pending.map((p) => p.id), []);
+    assert.deepEqual(r.pending_confirm.map((p) => p.id), [], 'never a pending confirm migration');
+    const skipped = r.skipped.find((s) => s.id === '0011');
+    assert.ok(skipped, `0011 is skipped: ${JSON.stringify(r.skipped)}`);
+    assert.equal(skipped.reason, MIRROR_ONLY_REASON);
+    assert.equal(r.up_to_date, true, JSON.stringify(r));
+    assert.equal(env.fake.calls().length, 0, 'check makes zero gh calls');
+  });
+
+  test('3: apply({confirm}) and apply({only: [0011], confirm}) skip 0011: the store stays off, zero gh calls', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    patchGithub(env.root, { mirror_only: true });
+    for (const extra of [{ confirm: true }, { only: ['0011'], confirm: true }]) {
+      const r = upgrade.apply({
+        projectRoot: env.root, userHome: env.home, pluginVersion: PLUGIN_VERSION, options: { maxOps: 0 }, ...extra,
+      });
+      assert.deepEqual(r.failed, [], JSON.stringify(extra));
+      assert.deepEqual(r.applied.map((a) => a.id), [], `nothing applied: ${JSON.stringify(extra)}`);
+      assert.deepEqual(r.pending_confirm.map((p) => p.id), [], JSON.stringify(extra));
+      const skipped = r.skipped.find((s) => s.id === '0011');
+      assert.ok(skipped, `0011 skipped: ${JSON.stringify(extra)}`);
+      assert.match(skipped.reason, /mirror_only/);
+      const cfg = JSON.parse(configText(env.root));
+      assert.notEqual(cfg.github.store, true, `github.store is still not true: ${JSON.stringify(extra)}`);
+      assert.equal(cfg.github.mirror_only, true, 'the opt-out is left in place');
+    }
+    assert.equal(env.fake.calls().length, 0, 'zero gh calls');
+    assert.deepEqual(outboxFiles(env), [], 'nothing queued');
+  });
+
+  test('4: detect, enabled + store off + mirror_only true -> applies:false naming the opt-out, zero gh calls, no writes', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    patchGithub(env.root, { mirror_only: true });
+    const before = snapshot(env.root);
+    const d = m0011().detect(ctxFor(env, { dryRun: true }));
+    assert.equal(d.applies, false);
+    assert.match(d.reason, /mirror_only/);
+    assert.equal(d.reason, MIRROR_ONLY_REASON);
+    assert.deepEqual(snapshot(env.root), before, 'detect writes nothing');
+    assert.equal(env.fake.calls().length, 0);
+    assert.deepEqual(outboxFiles(env), []);
+  });
+
+  test('5: only boolean true opts out: mirror_only "true" (string) and false still apply', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    for (const value of ['true', false]) {
+      patchGithub(env.root, { mirror_only: value });
+      const d = m0011().detect(ctxFor(env, { dryRun: true }));
+      assert.equal(d.applies, true, `mirror_only: ${JSON.stringify(value)}`);
+      assert.match(d.reason, /GitHub backfill not started/);
+    }
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('6: store on + a pending journal + mirror_only true -> still applies (resume; the opt-out is ignored)', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    patchGithub(env.root, { store: true, mirror_only: true });
+    const q = outbox.enqueue(env.root, [{ kind: 'patch-issue', target: { id: '1-01' }, payload: { state: 'closed', state_reason: 'completed' } }]);
+    assert.ok(q.ok && !q.skipped, JSON.stringify(q));
+    const d = m0011().detect(ctxFor(env, { dryRun: true }));
+    assert.equal(d.applies, true);
+    assert.match(d.reason, /1 outbox op\(s\) pending/);
+    assert.doesNotMatch(d.reason, /mirror mode kept/);
+    assert.equal(env.fake.calls().length, 0);
+  });
+
+  test('7: the store-off applies reason names `config-set github.mirror_only true` as the way to keep mirror mode', (t) => {
+    const env = useBackfillEnv(t, SMALL);
+    if (!env) return;
+    const d = m0011().detect(ctxFor(env, { dryRun: true }));
+    assert.equal(d.applies, true);
+    assert.match(d.reason, /run it with `df-tools upgrade --apply --only 0011 --confirm`\./);
+    assert.ok(
+      d.reason.endsWith(' To keep mirror mode instead: `df-tools config-set github.mirror_only true`.'),
+      d.reason,
+    );
+    assert.doesNotMatch(d.reason, /\n/, 'one paragraph');
+    assert.equal(env.fake.calls().length, 0);
   });
 });
