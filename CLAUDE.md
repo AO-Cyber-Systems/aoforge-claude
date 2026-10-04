@@ -202,10 +202,10 @@ Every project declares a `kind` (`api | app | library | ui-lib | cli | plugin`) 
 
 See `docs/PROPOSAL-kind-and-work.md` for the full design rationale.
 
-## Where we left off (2026-10-01, branch `feat/stack-profile-loader`)
+## Where we left off (2026-10-04, branch `feat/stack-profile-loader`)
 
-Objective 51 (GitHub migration and docs) is done: migration 0011 backfills a project onto the GitHub store with an estimate, history closes and hour-budget resume; `/devflow:gh-sync` is the store operator; objective 26 is killed (DECISION-002). Objectives 46-51 complete the GitHub system-of-record plan.
+Objective 52 (store-mode polish) is done: printed commit follow-ups run as printed in store mode (`lib/commit-steps.cjs`), gate refusals name `gh pr start` and the logged escape, `micro` leaves the generated STATE.md alone, the debugger commits through `df-tools commit`, `github.mirror_only` opts a mirror-mode project out of 0011 and W040, and a multi-line `decision answer` round-trips. Objectives 46-52 complete the GitHub system-of-record plan.
 
-**Next:** the first real-repository backfill as a manual UAT step against a throwaway repository; an opt-out for projects that keep GitHub in mirror mode (0011 stays a pending confirm migration, W040); the multi-line `decision answer` bug; the open items in `docs/USER-GUIDE.md` (GitHub integration, Known issues).
+**Next:** the first real-repository backfill as a manual UAT step against a throwaway repository; `micro commit` uses raw git, so the store-mode commit gate does not check its branch; the open items in `docs/USER-GUIDE.md` (GitHub integration, Known issues).
 
 **Still deferred:** `mcp__context7__*` cleanup in agents; Node/Rust/Python tier-2 profiles; the other UTC date sites listed in the 42-01 SUMMARY; long-term `dflang mcp` in place of these servers (`docs/PROPOSAL-stack-packs.md` §6.12). No `upgrade` migration writes `.mcp.json`: `stack mcp --write` is its only writer.

@@ -174,6 +174,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   dated and `by: 'user'`) and `OPEN` (reported with a diagnostic; a key that stops drifting fails with
   "remove it"). The harness skips when `DEVFLOW_SKIP_FLEET_HARNESS=1` or the fleet root
   (`DEVFLOW_FLEET_ROOT`, default `~/dev`) holds fewer than half the fleet.
+- **`github.mirror_only`: keep GitHub in mirror mode (objective 52).** A project that never wants the
+  store records `df-tools config-set github.mirror_only true` in its tracked `.planning/config.json`.
+  While `github.store` is off, migration 0011 then skips with "mirror mode kept (github.mirror_only:
+  true)", so it drops out of `pending_confirm`, `validate health` W040, doctor check 21 and the
+  SessionStart notice. Only boolean `true` counts. With the store on the key is ignored, so a pending
+  backfill still resumes. The template default is `false`, so `config-get github.mirror_only` prints
+  `false` on a project that never set it. The key applies to 0011 only; it is not a way to decline other
+  migrations. The store-off 0011 reason names the opt-out, and `/devflow:gh-sync migrate` and
+  `/devflow:status check --migrate` offer it as "Keep mirror mode".
 
 ### Changed
 - **`stack verify --run` is effect-based (objective 43, SDR-03).** A gate was judged safe by its key, yet
@@ -341,6 +350,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the paths as a pathspec (`git commit -- <files>`), and unrelated staged changes stay staged. A
   `--files` path with no changes now fails instead of committing whatever else was staged. Without
   `--files` nothing changes.
+- **Printed commit follow-ups run as printed in store mode (objective 52).** `gh setup --apply`, doctor
+  check 21, migration 0010 (and 0011 through it) and doctor check 20 printed `df-tools commit` lines
+  that the store-mode commit gate refused on the default branch. All four now come from one builder,
+  `lib/commit-steps.cjs`. In store mode it prints a new branch, the commit with the logged
+  `DEVFLOW_SKIP_GH_GATE=1` escape and a reason, the push and the pull request, then a last line for an
+  objective's linked branch (`df-tools gh pr start <objective>`), where the bare command is accepted.
+  The branches are `devflow-setup` (gh setup), `devflow-upgrade` (doctor 21), `devflow-store-cache`
+  (0010) and `devflow-untrack-runtime-state` (doctor 20). Outside store mode, `gh setup` prints the
+  same branch sequence without the escape, and doctor 20 and 21 still print `commit with: ...`. A
+  store-mode git fixture runs each emitter's real output, from the default branch and from a linked
+  branch.
+- **Commit-gate refusals name both remedies (objective 52).** Every store-mode refusal (default branch,
+  unlinked branch, a merged objective's branch, detached HEAD, an executor branch whose main checkout is
+  not linked) now says: run `df-tools gh pr start <objective>` and commit on its branch, or prefix the
+  commit with `DEVFLOW_SKIP_GH_GATE=1` (logged as gate gh; `DEVFLOW_SKIP_GH_GATE_REASON=<why>` records
+  why). Before, the escape was documented only in the user guide. `df-tools commit --raw` printed only
+  the reason code; stdout is unchanged and the full message now goes to stderr.
+- **`df-tools micro commit` leaves STATE.md alone in store mode (objective 52).** It appended a Quick
+  Tasks row to the generated STATE.md and committed it, which `validate health` reported as W055 drift.
+  In store mode it now makes one commit, the source change, and returns
+  `state_row: "skipped_store_mode"` with `state_commit_hash: null`. Local mode is unchanged.
+- **The debugger agent commits through `df-tools commit` (objective 52).** `agents/debugger.md` told the
+  agent to run `git add` and `git commit`, which gate-commits blocks. It now commits the fix with
+  `df-tools commit "fix: ..." --files ...`. `prompt-raw-commit.repo.test.cjs` fails CI when a raw
+  `git commit` line appears in a fenced block of an agent or skill prompt.
+- **A multi-line `decision answer` round-trips intact (objective 52).** The frontmatter writer stored a
+  multi-line string as a value the line-based reader truncated to its first line. The shared serializer
+  (`frontmatter.cjs`) now writes any string that contains a newline as a `|-` block scalar, and the
+  reader parses `|`, `|-` and `|+` blocks back to the exact text. Single-line frontmatter is
+  byte-identical. `decision answer` normalises CRLF and trailing whitespace first, so a one-line answer
+  read from a file still matches its declared option. `planning import` reads a block-scalar
+  `resolution` in full, so the 0011 backfill carries the whole answer to GitHub. Decisions answered
+  before this fix keep their mangled multi-line `resolution`, which still reads back as its first line;
+  fix those by hand before a backfill (see Known issues in `docs/USER-GUIDE.md`).
 
 ### Deprecated
 - `git.branching_strategy` (objective 49). In store mode it is ignored and `init` reports it as
