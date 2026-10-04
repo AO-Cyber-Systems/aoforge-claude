@@ -1,5 +1,5 @@
 # Objective 53 TRD 02: One rule for which TRDs have a summary (checkpoint)
 
 ## Progress
-- [ ] Task 1: trdKey helper; health I001, consistency and objective-job-index pair on it — RED committed (this commit); next step: add and export `trdKey` in plugins/devflow/devflow/bin/lib/helpers.cjs, then use it in validate.cjs Check 7 and the consistency orphan check and in misc.cjs cmdObjectiveJobIndex (completedJobIds), and commit `fix(53-02): ...`
-- [ ] Task 2: find-objective, verify objective-completeness and gate-executor-stop agree — next step: add the summaryExists cases to plugins/devflow/hooks/gate-executor-stop.test.js and an objective.test.cjs case, commit RED, then pair objective.cjs searchObjectiveInDir, verify.cjs cmdVerifyObjectiveCompleteness and the hook on the key
+- [x] Task 1: trdKey helper; health I001, consistency and objective-job-index pair on it — RED 3f8f4425, GREEN (this commit)
+- [ ] Task 2: find-objective, verify objective-completeness and gate-executor-stop agree — next step: add the summaryExists cases (short and long name, `07-010` and `07-01x` must not match `07-01`) to plugins/devflow/hooks/gate-executor-stop.test.js and a named-TRD/short-summary case to plugins/devflow/devflow/bin/lib/objective.test.cjs, commit RED, then pair objective.cjs searchObjectiveInDir, verify.cjs cmdVerifyObjectiveCompleteness and the hook's summaryExists on the key

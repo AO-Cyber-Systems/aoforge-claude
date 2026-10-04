@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, normalizeObjectiveName, generateSlugInternal } = require('./helpers.cjs');
+const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey, normalizeObjectiveName, generateSlugInternal } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getArchivedObjectiveDirs, findObjectiveInternal } = require('./objective.cjs');
@@ -260,11 +260,14 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
   const jobFiles = findPlanFiles(objectiveFiles).sort();
   const summaryFiles = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
 
-  // Build set of job IDs with a completed SUMMARY (a Progress-only checkpoint is not complete)
-  const completedJobIds = new Set(
+  // Build set of NN-MM keys with a completed SUMMARY (a Progress-only checkpoint is not complete).
+  // Pair on the key (TRD 53-02), so `NN-MM-<slug>-TRD.md` is complete under `NN-MM-SUMMARY.md`
+  // or `NN-MM-<slug>-SUMMARY.md`. The job `id` below stays `stripPlanSuffix(jobFile)`: that JSON
+  // shape is consumed by execute-objective.
+  const completedJobKeys = new Set(
     summaryFiles
       .filter(s => _summaryIsComplete(path.join(objectiveDir, s)))
-      .map(s => s.replace('-SUMMARY.md', '').replace('SUMMARY.md', ''))
+      .map(s => trdKey(s))
   );
 
   const plans = [];
@@ -300,7 +303,7 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
     const fmFiles = fm.files_modified ?? fm['files-modified'];
     if (fmFiles) filesModified = Array.isArray(fmFiles) ? fmFiles : [fmFiles];
 
-    const hasSummary = completedJobIds.has(jobId);
+    const hasSummary = completedJobKeys.has(trdKey(jobFile));
     if (!hasSummary) {
       incomplete.push(jobId);
     }

@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { output, error, normalizeObjectiveName, findPlanFiles, stripPlanSuffix, pluginVersion, installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
+const { output, error, normalizeObjectiveName, findPlanFiles, trdKey, pluginVersion, installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getMilestoneInfo } = require('./roadmap.cjs');
 // The config / JOB.md / state.json repairs live in the upgrade migrations (TRD 36-04a); health
@@ -146,13 +146,14 @@ function cmdValidateConsistency(cwd, raw) {
 
       // Check: plans without summaries (completed plans)
       const summaries = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md'));
-      const jobIds = new Set(plans.map(p => stripPlanSuffix(p)));
-      const summaryIds = new Set(summaries.map(s => s.replace('-SUMMARY.md', '')));
+      // Pair on the NN-MM key (TRD 53-02): `NN-MM-<slug>-TRD.md` owns `NN-MM-SUMMARY.md`
+      // and `NN-MM-<slug>-SUMMARY.md` alike.
+      const jobKeys = new Set(plans.map(p => trdKey(p)));
 
       // Summary without matching job is suspicious
-      for (const sid of summaryIds) {
-        if (!jobIds.has(sid)) {
-          warnings.push(`Summary ${sid}-SUMMARY.md in ${dir} has no matching TRD.md or JOB.md`);
+      for (const summary of summaries) {
+        if (!jobKeys.has(trdKey(summary))) {
+          warnings.push(`Summary ${summary} in ${dir} has no matching TRD.md or JOB.md`);
         }
       }
     }
@@ -341,11 +342,12 @@ function cmdValidateHealth(cwd, options, raw) {
       const objectiveFiles = fs.readdirSync(path.join(objectivesDir, e.name));
       const plans = findPlanFiles(objectiveFiles);
       const summaries = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
-      const summaryBases = new Set(summaries.map(s => s.replace('-SUMMARY.md', '').replace('SUMMARY.md', '')));
+      // Pair on the NN-MM key (TRD 53-02): executors write `NN-MM-SUMMARY.md` beside a named
+      // `NN-MM-<slug>-TRD.md`, and either summary name counts as the TRD's summary.
+      const summaryKeys = new Set(summaries.map(s => trdKey(s)));
 
       for (const jobFile of plans) {
-        const jobBase = stripPlanSuffix(jobFile);
-        if (!summaryBases.has(jobBase)) {
+        if (!summaryKeys.has(trdKey(jobFile))) {
           addIssue('info', 'I001', `${e.name}/${jobFile} has no SUMMARY.md`, 'May be in progress');
         }
       }
