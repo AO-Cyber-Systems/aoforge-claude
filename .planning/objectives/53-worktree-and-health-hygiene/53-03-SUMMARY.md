@@ -7,5 +7,6 @@ trd: "03"
 
 ## Progress
 - [x] Task 1 RED: failing tests for the store-mode gate, no-files resolution and raw-commit guard — 54501582
-- [x] Task 1 GREEN: micro's default runner spawns `df-tools commit`; gate refusals map to `gate-refused`; no raw `git commit` left — (this commit)
-- [ ] Task 2: add the commit-path prose to plugins/devflow/devflow/workflows/micro.md — next step: in the commit step of micro.md state that `micro commit` goes through `df-tools commit` and is refused in store mode off a linked branch (remedy `df-tools gh pr start <objective>` or the logged `DEVFLOW_SKIP_GH_GATE=1`), marker kept for retry, then run the two doc repo tests
+- [x] Task 1 GREEN: micro's default runner spawns `df-tools commit`; gate refusals map to `gate-refused`; no raw `git commit` left — b7153bf7
+- [x] Task 2: micro.md names the `df-tools commit` path and the store-mode refusal — (this commit)
+- [ ] Finalize: write the full SUMMARY (evidence tables, deviations, `## Self-Check`), then `state advance-job`, `roadmap update-job-progress 53`, `requirements mark-complete 53-3` and the docs commit

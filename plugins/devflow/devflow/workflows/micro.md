@@ -40,6 +40,9 @@ node ~/.claude/devflow/bin/df-tools.cjs micro commit --files <path> --raw   # re
 With `github.store` on it makes no STATE.md change and no second commit, because STATE.md is a generated view there (`df-tools gh pull --all` rebuilds it); the result reports `state_row: "skipped_store_mode"`.
 Never edit STATE.md (or ROADMAP.md) by hand in micro: df-tools owns those touches.
 
+`micro commit` commits through `df-tools commit`, so it follows the same rules as any other commit. Every commit is limited to the paths it names (`--files`), or to what is staged, else the tracked edits, so your other staged changes stay staged.
+With `github.store` on it is therefore refused off an objective's linked branch (on the default branch, an unlinked branch or a detached HEAD) with the normal gate message. Nothing is committed or staged, and the marker stays. The remedy is `df-tools gh pr start <objective>`, then re-run `micro commit`; the logged `DEVFLOW_SKIP_GH_GATE=1` escape also works and is recorded as a `gh` override. The refusal is JSON on stdout (`ok: false`, `reason: "gate-refused"`, `gate_reason`) and exits 1.
+
 If commit fails: surface error. Marker stays active — fix the cause and re-run `node ~/.claude/devflow/bin/df-tools.cjs micro commit --raw`, or run `node ~/.claude/devflow/bin/df-tools.cjs micro abort` to discard.
 
 **Step 5: Done**
