@@ -560,6 +560,11 @@
       "objective": "52",
       "summary": "52-03: micro skips the STATE.md row in store mode (no verb owns a generated view); the store result reports state_row: 'skipped_store_mode', the local result shape is unchanged",
       "rationale": null
+    },
+    {
+      "objective": "52",
+      "summary": "TRD 52-04: github.mirror_only (tracked config, template default false) is honoured only in 0011 detect's store-off branch, checked before the planImport dry run; only boolean true opts out; with the store on it is ignored so an in-flight backfill is never hidden. The store-off reason names config-set github.mirror_only true; gh-sync migrate and health step 4 offer Keep mirror mode.",
+      "rationale": null
     }
   ],
   "blockers": [],

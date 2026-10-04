@@ -350,7 +350,7 @@ TRDs:
 - [x] 52-01-commit-follow-ups-TRD.md — (W1) item 52-1: one `commit-steps.cjs` builder for gate-aware printed follow-ups (gh setup, doctor 21, 0010, doctor 20; names `gh pr start`), run as printed in a store-mode fixture
 - [x] 52-02-gate-remedies-TRD.md — (W1) items 52-2, 52-4: every refusal names `gh pr start` + the logged escape, `--raw` refusals write the message to stderr; debugger commits via `df-tools commit`, CI guard on raw commits in prompts
 - [x] 52-03-micro-store-mode-TRD.md — (W1) item 52-3: `micro commit` makes no STATE.md change in store mode (no W055)
-- [ ] 52-04-mirror-only-opt-out-TRD.md — (W1) item 52-5: `github.mirror_only` opt-out honoured by 0011 detect (so no W040); gh-sync migrate + health offer it
+- [x] 52-04-mirror-only-opt-out-TRD.md — (W1) item 52-5: `github.mirror_only` opt-out honoured by 0011 detect (so no W040); gh-sync migrate + health offer it
 - [ ] 52-05-multiline-decision-answer-TRD.md — (W1) item 52-6: frontmatter block scalars; multi-line `decision answer` round-trips (local, store, import)
 - [ ] 52-06-docs-and-full-suite-TRD.md — (W2) CHANGELOG, USER-GUIDE, doctor skill, CLAUDE.md; full `npm test`
 
