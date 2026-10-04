@@ -5,6 +5,7 @@ const path = require('path');
 const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const planningMode = require('./planning-mode.cjs');
+const { escapeRegExp, objectiveNumPattern } = require('./text-escape.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -739,7 +740,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
 
   // Remove the target objective section
-  const targetEscaped = targetObjective.replace(/\./g, '\\.');
+  const targetEscaped = objectiveNumPattern(targetObjective);
   const sectionPattern = new RegExp(
     `\\n?#{2,4}\\s*Objective\\s+${targetEscaped}\\s*:[\\s\\S]*?(?=\\n#{2,4}\\s+Objective\\s+\\d|$)`,
     'i'
@@ -873,14 +874,13 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
 
     // Checkbox: - [ ] Objective N: → - [x] Objective N: (...completed DATE)
     const checkboxPattern = new RegExp(
-      `(-\\s*\\[)[ ](\\]\\s*.*Objective\\s+${objectiveNum.replace('.', '\\.')}[:\\s][^\\n]*)`,
+      `(-\\s*\\[)[ ](\\]\\s*.*Objective\\s+${objectiveNumPattern(objectiveNum)}[:\\s][^\\n]*)`,
       'i'
     );
     roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
 
     // Progress table: update Status to Complete, set Completed date — column-name-
     // aware so the Milestone column (when present) is never disturbed.
-    const objectiveEscaped = objectiveNum.replace('.', '\\.');
     ({ content: roadmapContent } = updateProgressTableRow(roadmapContent, objectiveNum, {
       status: 'Complete',
       completed: today,
@@ -899,10 +899,17 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     // Update REQUIREMENTS.md traceability for this objective's requirements
     const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
     if (fs.existsSync(reqPath)) {
-      // Extract Requirements line from roadmap for this objective
-      const reqMatch = roadmapContent.match(
-        new RegExp(`Objective\\s+${objectiveNum.replace('.', '\\.')}[\\s\\S]*?\\*\\*Requirements:\\*\\*\\s*([^\\n]+)`, 'i')
-      );
+      // Extract the Requirements line from this objective's own section. Anchoring to the `#{2,4}` header
+      // keeps a checklist mention of `Objective N` from starting the scan in an earlier section.
+      const headerRe = new RegExp(`^#{2,4}\\s*Objective\\s+${objectiveNumPattern(objectiveNum)}\\s*:`, 'im');
+      const header = headerRe.exec(roadmapContent);
+      let reqMatch = null;
+      if (header) {
+        const rest = roadmapContent.slice(header.index + header[0].length);
+        const next = rest.search(/\n#{2,4}\s*Objective\s+\d/i);
+        const section = next === -1 ? rest : rest.slice(0, next);
+        reqMatch = section.match(/\*\*Requirements:\*\*\s*([^\n]+)/i);
+      }
 
       if (reqMatch) {
         const reqIds = reqMatch[1].replace(/[\[\]]/g, '').split(/[,\s]+/).map(r => r.trim()).filter(Boolean);
@@ -911,12 +918,12 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
         for (const reqId of reqIds) {
           // Update checkbox: - [ ] **REQ-ID** → - [x] **REQ-ID**
           reqContent = reqContent.replace(
-            new RegExp(`(-\\s*\\[)[ ](\\]\\s*\\*\\*${reqId}\\*\\*)`, 'gi'),
+            new RegExp(`(-\\s*\\[)[ ](\\]\\s*\\*\\*${escapeRegExp(reqId)}\\*\\*)`, 'gi'),
             '$1x$2'
           );
           // Update traceability table: | REQ-ID | Objective N | Pending | → | REQ-ID | Objective N | Complete |
           reqContent = reqContent.replace(
-            new RegExp(`(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi'),
+            new RegExp(`(\\|\\s*${escapeRegExp(reqId)}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi'),
             '$1 Complete $2'
           );
         }
@@ -1064,10 +1071,6 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
   };
 
   output(result, raw);
-}
-
-function escapeRegExp(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // The objective number as written in the narrative log: leading zeros dropped
