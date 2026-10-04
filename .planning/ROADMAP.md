@@ -368,7 +368,7 @@ TRDs:
 - [x] 53-03-micro-commit-path-TRD.md — (W1) item 53-3: `micro commit` goes through `df-tools commit`, so the store-mode GEN-01 gate refuses it off the linked branch
 - [ ] 53-04-merge-sequence-gate-TRD.md — (W2) item 53-4: one command per call merge prose (incl. planning-file conflicts) replayed through gate-commits; explained deny for chained merge+commit, no new allowance
 - [x] 53-05-leftovers-and-repo-health-TRD.md — (W1) items 53-5, 53-7: drop `AWARENESS_CACHE_REL`; global template v3 with `/devflow:doctor`; PROJECT.md Core Value/Requirements; archive UI-VISUAL-EVAL dirs to milestones/v1.2-objectives
-- [ ] 53-06-decision-repair-TRD.md — (W1) item 53-8: doctor check 33 `decision-resolution` detects and repairs (backed up, verified) pre-52 flattened resolutions; reports the unrecoverable
+- [x] 53-06-decision-repair-TRD.md — (W1) item 53-8: doctor check 33 `decision-resolution` detects and repairs (backed up, verified) pre-52 flattened resolutions; reports the unrecoverable
 - [ ] 53-07-docs-and-full-suite-TRD.md — (W3) CHANGELOG, USER-GUIDE, CLAUDE.md; item 53-6 closed by 43-03 with evidence; full `npm test`
 
 ### Other v1.4 candidates
@@ -421,4 +421,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 50. GitHub enforcement and setup | v1.4 | 13/13 | Complete | 2026-10-01 |
 | 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
 | 52. Store-mode polish | v1.4 | 6/6 | Complete | 2026-10-04 |
-| 53. Worktree and health hygiene | v1.4 | 1/7 | In Progress | — |
+| 53. Worktree and health hygiene | v1.4 | 5/7 | In Progress | — |
