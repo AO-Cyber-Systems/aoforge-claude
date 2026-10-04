@@ -2,6 +2,7 @@
 
 // TRD 48-10 — migration 0010 store-gitignore (test list items 8-14, GWP-04, U-1, D-17).
 // TRD 51-04 — detect defers to an in-progress backfill (tests 1-4, G4); store-mode commit follow-up (test 5, G6).
+// TRD 52-01 — STORE_COMMIT_STEPS is the commit-steps builder's store form and names `gh pr start` (test 10).
 //
 // no_llm_test_data: every project is a hand-built temp git repo (initGitFixture: local identity, signing off). The
 // outbox journal and cache index live under hermeticEnv()'s temp DEVFLOW_OUTBOX_DIR, seeded only through the real
@@ -20,6 +21,7 @@ const outbox = require('../gh-outbox.cjs');
 const ghCache = require('../gh-cache.cjs');
 const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 const { hermeticEnv } = require('../__fixtures__/gh-store-fixtures.cjs');
+const steps = require('../commit-steps.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0010-store-gitignore.cjs');
 const TOOLS_PATH = path.join(__dirname, '..', '..', 'df-tools.cjs');
@@ -503,6 +505,21 @@ describe('migration 0010: store-mode commit follow-up (TRD 51-04 test 5, G6)', (
     assert.equal(dry.dryRun, true, JSON.stringify(dry));
     assert.ok(dry.notes.includes(m.STORE_COMMIT_STEPS), `a dry run prints the same steps: ${dry.notes}`);
     assert.doesNotMatch(dry.notes, /commit with: node /);
+  });
+
+  test('5c (52-01). STORE_COMMIT_STEPS is the builder\'s store form and names the gh pr start route; one escaped line', () => {
+    const m = m0010();
+    const expected = steps.branchCommitSteps({
+      branch: 'devflow-store-cache',
+      reason: 'store migration',
+      command: steps.commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.planning/']),
+    });
+    assert.equal(m.STORE_COMMIT_STEPS, expected);
+    assert.match(m.STORE_COMMIT_STEPS, /df-tools gh pr start <objective>/);
+    assert.ok(m.STORE_COMMIT_STEPS.endsWith(
+      'commit there with: node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" ' +
+      '--files .gitignore .planning/'), m.STORE_COMMIT_STEPS);
+    assert.equal(m.STORE_COMMIT_STEPS.match(/^\s*DEVFLOW_SKIP_GH_GATE=1 /gm).length, 1, 'ESCAPED_COMMIT_RE matches once');
   });
 
   test('5b. the printed steps work in store mode: bare commit refused on the new branch, the escaped one lands and logs gate gh', (t) => {

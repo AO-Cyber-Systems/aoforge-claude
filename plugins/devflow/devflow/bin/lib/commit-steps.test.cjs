@@ -14,6 +14,8 @@
  *      branch, reason and command substituted; line 6 names `df-tools gh pr start <objective>` and ends with the bare
  *      command; the plain form; the TypeErrors
  *   7  commitCommand('m', ['a', 'b']) is exactly `node ~/.claude/devflow/bin/df-tools.cjs commit "m" --files a b`
+ *  11  the four real emitters (migration 0010 STORE_COMMIT_STEPS, doctor 20 and 21 commitNote, gh setup filesLines),
+ *      each run as printed in a fresh store-mode fixture from `main` (scenario 1) and on the linked branch (scenario 3)
  *
  * "As printed" means the emitted text is executed: each runnable line goes through `sh -c` with only the literal prefix
  * `node ~/.claude/devflow/bin/df-tools.cjs` replaced by this checkout's df-tools. `git push` and the pull-request line are
@@ -367,4 +369,93 @@ describe('52-01 the builder (tests 6-7)', () => {
     assert.throws(() => commitCommand('m', 'a'), TypeError);
     assert.throws(() => commitCommand('say "hi"', ['a']), TypeError, 'the message is printed inside double quotes');
   });
+});
+
+describe('52-01 all four emitters run as printed (test 11)', () => {
+  const WORKFLOW = '.github/workflows/devflow.yml';
+  const PR_TEMPLATE = '.github/pull_request_template.md';
+
+  /** Track a runtime file, then untrack it the way doctor 20's fix does: ignore rule, `git rm --cached`, delete. */
+  function untrackRuntimeState(p) {
+    const rel = '.planning/.progress-guard.json';
+    write(p.root, rel, '{\n  "count": 1\n}\n');
+    git(p, 'add', '-f', '--', rel);
+    git(p, 'commit', '-q', '-m', 'track a runtime file');
+    fs.appendFileSync(path.join(p.root, '.gitignore'), `${rel}\n`, 'utf-8');
+    git(p, 'rm', '-q', '--cached', '--', rel);
+    fs.rmSync(path.join(p.root, rel));
+    return ['.gitignore', rel];
+  }
+
+  // Each emitter's REAL store-mode output for a fixture, the files its printed command names (created or modified
+  // first), and the branch and reason it prints. Modules load inside the test, so one broken emitter fails alone.
+  const EMITTERS = [
+    {
+      name: 'migration 0010 STORE_COMMIT_STEPS',
+      branch: 'devflow-store-cache',
+      reason: 'store migration',
+      // `.planning/` paths are ignored and skipped by design; the `.gitignore` change is what lands.
+      prepare: (p) => {
+        fs.appendFileSync(path.join(p.root, '.gitignore'), 'node_modules/\n', 'utf-8');
+        return ['.gitignore'];
+      },
+      text: () => require('./migrations/0010-store-gitignore.cjs').STORE_COMMIT_STEPS,
+    },
+    {
+      name: 'doctor check 20 commitNote',
+      branch: 'devflow-untrack-runtime-state',
+      reason: 'untrack DevFlow runtime state',
+      prepare: untrackRuntimeState,
+      text: (p, files) => require('./doctor-checks/20-legacy-runtime-state.cjs').commitNote(p.root, files),
+    },
+    {
+      name: 'doctor check 21 commitNote',
+      branch: 'devflow-upgrade',
+      reason: 'DevFlow upgrade',
+      prepare: (p) => {
+        write(p.root, '.planning/config.json',
+          `${JSON.stringify({ commit_docs: true, github: { enabled: true, store: true }, devflow: { version: '9.9.9' } })}\n`);
+        write(p.root, 'CLAUDE.md', '# Project\n');
+        return ['.planning/config.json', 'CLAUDE.md'];
+      },
+      text: (p, files) => require('./doctor-checks/21-pending-migrations.cjs').commitNote(p.root, '9.9.9', files),
+    },
+    {
+      name: 'gh setup filesLines',
+      branch: 'devflow-setup',
+      reason: 'gh setup workflow',
+      prepare: (p) => {
+        write(p.root, WORKFLOW, 'name: devflow\n');
+        write(p.root, PR_TEMPLATE, '## Linked issue\n');
+        return [WORKFLOW, PR_TEMPLATE];
+      },
+      text: (p, files) => require('./gh-setup-cli.cjs').filesLines(p.root, files, []).join('\n'),
+    },
+  ];
+
+  for (const e of EMITTERS) {
+    test(`11. ${e.name}, from main: the printed new-branch sequence lands with the logged escape`, (t) => {
+      if (!HAS_GIT) return t.skip('git not installed');
+      const p = storeRepo();
+      const files = e.prepare(p);
+      const before = git(p, 'rev-parse', 'HEAD');
+      const text = e.text(p, files);
+      assert.match(text, /`df-tools gh pr start <objective>`/, `${e.name} names gh pr start: ${text}`);
+
+      const runs = runAsPrinted(p, text, 'branch');
+      assertEscapedOnNewBranch(p, runs, { branch: e.branch, reason: e.reason, before, files });
+    });
+
+    test(`11. ${e.name}, on the linked branch: the printed gh pr start command lands with no escape`, (t) => {
+      if (!HAS_GIT) return t.skip('git not installed');
+      const p = storeRepo();
+      git(p, 'switch', '-q', '-c', LINKED);
+      const files = e.prepare(p);
+      const before = git(p, 'rev-parse', 'HEAD');
+      const text = e.text(p, files);
+
+      const runs = runAsPrinted(p, text, 'linked');
+      assertLinkedCommit(p, runs, { before, files });
+    });
+  }
 });
