@@ -445,6 +445,67 @@ describe('determinism and render (TRD 42-08 test 12)', () => {
   });
 });
 
+// ─── TRD 54-08: table cells are escaped once, backslash first (CodeQL js/incomplete-sanitization) ───
+
+/**
+ * cellsOf(row) -> the trimmed cells of one markdown table row, split on pipes that are NOT
+ * escaped. On a backslash the next character is skipped (it is escaped); on a pipe a cell closes.
+ * The empty leading and trailing cells (the row's outer pipes) are dropped.
+ */
+function cellsOf(row) {
+  const cells = [];
+  let current = '';
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '\\' && i + 1 < row.length) {
+      current += ch + row[i + 1];
+      i += 1;
+    } else if (ch === '|') {
+      cells.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current);
+  return cells.slice(1, -1).map((c) => c.trim());
+}
+
+describe('report table cells (TRD 54-08 tests 6-8)', () => {
+  const META = { generated: '2026-09-28', id: 'demo', profile: 'general', profile_source: 'draft', components: [] };
+  const finding = (over) => ({
+    id: 'GO-VET', severity: 'gap', component: '', finding: 'no vet', evidence: ['ci.yml'], proposal: 'add go vet', snippet: null, ...over,
+  });
+  const rowOf = (md, needle) => {
+    const line = md.split('\n').find((l) => l.startsWith('|') && l.includes(needle));
+    assert.ok(line, `no table row contains ${JSON.stringify(needle)}:\n${md}`);
+    return line;
+  };
+
+  test('6. a finding containing backslash-pipe renders as exactly five cells, backslash escaped before the pipe', () => {
+    const { renderReport } = lazyReport();
+    const md = renderReport([finding({ finding: 'a\\|b' })], META);
+    const cells = cellsOf(rowOf(md, 'GO-VET'));
+    assert.equal(cells.length, 5, JSON.stringify(cells));
+    assert.equal(cells[2], 'a\\\\\\|b');
+  });
+
+  test('7. an empty component renders (root) and other empty cells render the em-dash placeholder', () => {
+    const { renderReport } = lazyReport();
+    const md = renderReport([finding({ component: null, evidence: [], proposal: '' })], META);
+    const cells = cellsOf(rowOf(md, 'GO-VET'));
+    assert.deepEqual(cells, ['GO-VET', '(root)', 'no vet', '—', '—']);
+  });
+
+  test('7b. a draft-note row keeps its five-column structure and the em-dash for a missing candidate', () => {
+    const { renderReport } = lazyReport();
+    const note = { id: 'DRAFT-NOTE-test', severity: 'info', component: '', finding: 'n', evidence: [], proposal: '', note: { key: 'test', candidate: null, status: 'binary_missing', source: 'ci' } };
+    const md = renderReport([note], META);
+    const cells = cellsOf(rowOf(md, 'binary_missing'));
+    assert.deepEqual(cells, ['test', '—', 'binary_missing', 'ci']);
+  });
+});
+
 // ─── TRD 42-12: report components = the profile's components ───────────────
 
 const { goMod } = require('./__fixtures__/stack-detect-fixtures.cjs');
