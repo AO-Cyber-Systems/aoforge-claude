@@ -773,3 +773,126 @@ test('43-03 D11 #8b: `verify artifacts` checks each inline-array export on its o
     assert.deepStrictEqual(r.json.artifacts.map((a) => a.issues), [[], ['Missing export: // nope']]);
   });
 });
+
+// ─── TRD 52-05: multi-line strings as YAML block scalars ─────────────────────
+// A string holding a newline used to be written on one line, so extractFrontmatter read back only its first line,
+// turned a `Reason: ...` line into a spurious key, and ended the frontmatter early at a `---` line.
+
+test('52-05 #6: reconstruct writes a multi-line string as a |- block indented two past its key, top level and nested', () => {
+  strict.equal(reconstructFrontmatter({ a: 'x\ny' }), 'a: |-\n  x\n  y');
+  strict.equal(reconstructFrontmatter({ o: { k: 'x\ny' } }), 'o:\n  k: |-\n    x\n    y');
+  // CRLF is normalised, an empty content line is an empty line (no trailing spaces), trailing newlines are dropped.
+  strict.equal(reconstructFrontmatter({ a: 'x\r\n\r\ny\n\n' }), 'a: |-\n  x\n\n  y');
+  strict.equal(reconstructFrontmatter({ a: 'one', b: 'p\nq', c: 'two' }), 'a: one\nb: |-\n  p\n  q\nc: two');
+});
+
+test('52-05 #7a: extract parses |-, | and |+ with their chomping', () => {
+  const fm = extractFrontmatter([
+    '---',
+    'strip: |-',
+    '  a',
+    '  b',
+    '',
+    'clip: |',
+    '  a',
+    '  b',
+    '',
+    '',
+    'keep: |+',
+    '  a',
+    '  b',
+    '',
+    '',
+    'after: z',
+    '---',
+    'body',
+  ].join('\n'));
+  strict.equal(fm.strip, 'a\nb');
+  strict.equal(fm.clip, 'a\nb\n');
+  strict.equal(fm.keep, 'a\nb\n\n\n');
+  strict.equal(fm.after, 'z');
+});
+
+test('52-05 #7b: extract keeps blank lines inside a block and the spaces past the block indent', () => {
+  const fm = extractFrontmatter([
+    '---',
+    'resolution: |-',
+    '  Option B.',
+    '',
+    '    indented two more',
+    '  Reason: has a colon',
+    '  - looks like an item',
+    '  ---',
+    'status: resolved',
+    '---',
+  ].join('\n'));
+  strict.equal(fm.resolution, 'Option B.\n\n  indented two more\nReason: has a colon\n- looks like an item\n---');
+  strict.equal(fm.status, 'resolved');
+  strict.equal(fm.Reason, undefined);
+});
+
+test('52-05 #7c: a block one level down ends at the next sibling key and at the parent level', () => {
+  const fm = extractFrontmatter([
+    '---',
+    'o:',
+    '  k: |-',
+    '    x',
+    '    y',
+    '  j: plain',
+    '  m: |',
+    '    last',
+    'top: t',
+    '---',
+  ].join('\n'));
+  strict.deepEqual(fm.o, { k: 'x\ny', j: 'plain', m: 'last\n' });
+  strict.equal(fm.top, 't');
+});
+
+test('52-05 #7d: only a bare indicator starts a block; `a | b` stays a plain scalar; > is read literally', () => {
+  const fm = extractFrontmatter([
+    '---',
+    'pipe: a | b',
+    'gt: x > y',
+    'folded: >-',
+    '  one',
+    '  two',
+    'next: n',
+    '---',
+  ].join('\n'));
+  strict.equal(fm.pipe, 'a | b');
+  strict.equal(fm.gt, 'x > y');
+  strict.equal(fm.folded, 'one\ntwo'); // literal, not folded: the serializer never emits >
+  strict.equal(fm.next, 'n');
+});
+
+test('52-05 #8: extract(splice(content, obj)) preserves every multi-line string exactly', () => {
+  const answer = 'Option B.\nReason: second line with colon\n---\n  indented line\n\n- item\n# not a comment\nlast';
+  const nested = 'x: 1\n---\n\n  y';
+  const obj = { id: 'DECISION-001', status: 'resolved', resolution: answer, meta: { note: nested, k: 'v' }, resolved_at: '2026-10-04T13:49:05.343Z' };
+  const content = '---\nid: DECISION-001\nstatus: pending\n---\n\n## Question\n\nPick?\n';
+  const out = spliceFrontmatter(content, obj);
+  strict.ok(out.endsWith('\n---\n\n## Question\n\nPick?\n'), 'the body after the frontmatter is unchanged');
+  const fm = extractFrontmatter(out);
+  strict.equal(fm.resolution, answer);
+  strict.deepEqual(fm.meta, { note: nested, k: 'v' });
+  strict.equal(fm.status, 'resolved');
+  strict.equal(fm.resolved_at, '2026-10-04T13:49:05.343Z');
+  strict.equal(fm.Reason, undefined);
+  // CRLF content reads back as LF.
+  strict.equal(extractFrontmatter(spliceFrontmatter(content, { r: 'a\r\nb' })).r, 'a\nb');
+  // A second splice is a fixed point.
+  strict.equal(spliceFrontmatter(out, fm), out);
+});
+
+test('52-05 #9: single-line values reconstruct byte-identically to before the block-scalar change', () => {
+  const obj = {
+    id: 'DECISION-001', status: 'resolved', question: 'Pick: A or B?', tag: '#x', flow: '[a]', brace: '{b}', n: 3, ok: true,
+    empty: '', tags: ['a', 'b'], long: ['one: x', 'two #y', 'three', 'four'],
+    nested: { s: 'plain', c: 'has: colon', arr: ['p', 'q'], deep: { k: 'v', list: ['m'] } },
+    resolved_at: '2026-10-04T13:49:05.343Z',
+  };
+  strict.equal(reconstructFrontmatter(obj),
+    'id: DECISION-001\nstatus: resolved\nquestion: "Pick: A or B?"\ntag: "#x"\nflow: "[a]"\nbrace: "{b}"\nn: 3\nok: true\n' +
+    'empty: \ntags: [a, b]\nlong:\n  - "one: x"\n  - "two #y"\n  - three\n  - four\nnested:\n  s: plain\n  c: "has: colon"\n' +
+    '  arr: [p, q]\n  deep:\n    k: v\n    list:\n      - m\nresolved_at: "2026-10-04T13:49:05.343Z"');
+});
