@@ -7,6 +7,6 @@ status: in-progress
 # Objective 52 TRD 01: Gate-aware printed commit follow-ups Summary
 
 ## Progress
-- [ ] Task 1: commit-steps.cjs builder and the as-printed store-mode fixture — RED (this commit); next step: create plugins/devflow/devflow/bin/lib/commit-steps.cjs (DF_TOOLS_CMD, commitCommand, branchCommitSteps with TypeErrors) and run `node --test plugins/devflow/devflow/bin/lib/commit-steps.test.cjs` to green
-- [ ] Task 2: gh setup and doctor check 21 print the builder's sequence
+- [x] Task 1: commit-steps.cjs builder and the as-printed store-mode fixture — RED ac41df61, GREEN (this commit)
+- [ ] Task 2: gh setup and doctor check 21 print the builder's sequence — next step: add test-list items 8 and 9 (store variant of gh-setup-cli test 2 via `project({store: true})`, a doctor-21 store-mode fix case in 21-22-project.test.cjs) and commit them failing
 - [ ] Task 3: 0010 and doctor 20 use the builder; all four emitters run as printed
