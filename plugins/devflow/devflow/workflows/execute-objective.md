@@ -472,17 +472,60 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Prior art: workstreams.cjs provisions worktrees the same way, with `worktree_prefix`
    and `merge_strategy: "squash"`.
 
-   **Branch merge protocol** — one plain command per call, for each plan in the wave:
+   **Branch merge protocol** — one plain command per call, for each plan in the wave. Never chain a
+   merge with a commit, and never resolve a conflict in the merge's own call: a merge chained with a raw
+   `git commit` is denied. gate-commits decides before a command runs, when `MERGE_HEAD` does not
+   exist yet, so a completion commit chained after the merge looks like a raw commit. Run each step as its
+   own Bash call. Merge the plan's branch:
    ```bash
    git merge --no-ff df/exec-{plan_id}
    ```
-   File ownership is exclusive per wave (each TRD owns different files), so a conflict
-   indicates a planning error. On conflict:
+   A clean merge commits itself, so there is nothing more to run for that plan. File ownership is
+   exclusive per wave (each TRD owns different files), so a conflict in a code file indicates a planning
+   error. The planning files are the exception: every executor touches `.planning/STATE.md`,
+   `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (see the worktree protocol above), so the peers'
+   changes to them can conflict. When the merge stops on a conflict, list the unmerged paths:
+   ```bash
+   git diff --name-only --diff-filter=U
+   ```
+   If EVERY listed path is `.planning/STATE.md`, `.planning/ROADMAP.md` or `.planning/REQUIREMENTS.md`,
+   take the integration branch's copy of each one. Run these two commands as separate calls, once per
+   listed path (`<planning_path>` stands for one listed path):
+   ```bash
+   git checkout --ours -- <planning_path>
+   ```
+   ```bash
+   git add <planning_path>
+   ```
+   When every path is added, finish the merge with the completion commit, as its own call. It is allowed
+   on its own because the stopped merge left `MERGE_HEAD`:
+   ```bash
+   git commit --no-edit
+   ```
+   If ANY other path is listed, resolve nothing. Abort the merge:
    ```bash
    git merge --abort
    ```
    Route to the failure handler with: "Merge conflict on {branch} — planning error, two
    TRDs in the same wave modified the same file."
+
+   Taking ours is the same "take ours, regenerate" policy as workstreams-merge step 3, so after the wave's
+   merges, when a planning-file conflict was resolved above, regenerate what it dropped. `STATE.md` keeps the
+   integration branch's copy: `state update-progress` rebuilds its progress figure from the SUMMARYs now on
+   disk, and a decision or note a peer recorded only in its own `STATE.md` copy is not carried over (it is
+   still in that plan's SUMMARY). `ROADMAP.md` is recomputed from disk. For a conflicted
+   `REQUIREMENTS.md`, re-run `node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete <ids>` with the
+   `requirements:` of each plan whose copy lost. Then commit the result:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs state update-progress
+   ```
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
+   ```
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .planning/ROADMAP.md .planning/STATE.md
+   ```
+   <!-- merge-sequence:end -->
 
    Then remove each worktree (the `remove` command `exec-context worktree` printed):
    ```bash
