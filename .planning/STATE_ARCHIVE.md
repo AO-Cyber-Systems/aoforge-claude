@@ -101,6 +101,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 52]: 52-03: micro skips the STATE.md row in store mode (no verb owns a generated view); the store result reports state_row: 'skipped_store_mode', the local result shape is unchanged
 - [Objective 52]: TRD 52-04: github.mirror_only (tracked config, template default false) is honoured only in 0011 detect's store-off branch, checked before the planImport dry run; only boolean true opts out; with the store on it is ignored so an in-flight backfill is never hidden. The store-off reason names config-set github.mirror_only true; gh-sync migrate and health step 4 offer Keep mirror mode.
 - [Objective 52]: 52-05: multi-line frontmatter strings are written as |- block scalars in the shared serializer (strip exactly keyIndent+2 on read; > read literally); single-line output unchanged
+- [Objective 52]: 52-06: the pre-fix multi-line resolution known issue documents a hand fix (resolution: |- plus lines indented two spaces), not a re-answer, because decision answer refuses a decision no longer in decisions/pending/
+- [Objective 52]: 52-06: the doctor skill runs the switch and escape lines for store-mode check 20/21 notes and shows the gh pr start line to the user; it does not inspect git state to pick a route
 
 ## Performance Metrics
 
@@ -142,4 +144,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 52 P03 | 7min | 2 tasks | 4 files |
 | Objective 52 P04 | 11min | 2 tasks | 6 files |
 | Objective 52 P05 | 13min | 3 tasks | 6 files |
+| Objective 52 P06 | 6min | 2 tasks | 4 files |
 

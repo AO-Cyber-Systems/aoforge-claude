@@ -352,7 +352,7 @@ TRDs:
 - [x] 52-03-micro-store-mode-TRD.md — (W1) item 52-3: `micro commit` makes no STATE.md change in store mode (no W055)
 - [x] 52-04-mirror-only-opt-out-TRD.md — (W1) item 52-5: `github.mirror_only` opt-out honoured by 0011 detect (so no W040); gh-sync migrate + health offer it
 - [x] 52-05-multiline-decision-answer-TRD.md — (W1) item 52-6: frontmatter block scalars; multi-line `decision answer` round-trips (local, store, import)
-- [ ] 52-06-docs-and-full-suite-TRD.md — (W2) CHANGELOG, USER-GUIDE, doctor skill, CLAUDE.md; full `npm test`
+- [x] 52-06-docs-and-full-suite-TRD.md — (W2) CHANGELOG, USER-GUIDE, doctor skill, CLAUDE.md; full `npm test`
 
 ### Other v1.4 candidates
 
@@ -403,4 +403,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 49. Objective branch and PR lifecycle | v1.4 | 15/15 | Complete | 2026-10-01 |
 | 50. GitHub enforcement and setup | v1.4 | 13/13 | Complete | 2026-10-01 |
 | 51. GitHub migration and docs | v1.4 | 10/10 | Complete | 2026-10-01 |
-| 52. Store-mode polish | v1.4 | 1/6 | In Progress | — |
+| 52. Store-mode polish | v1.4 | 6/6 | Complete | 2026-10-04 |
