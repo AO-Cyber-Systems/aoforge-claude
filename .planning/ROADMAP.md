@@ -360,7 +360,16 @@ TRDs:
 **Requirements:** none (tech debt; see `.planning/objectives/53-worktree-and-health-hygiene/OBJECTIVE.md`)
 **Gap Closure:** v1.4 re-audit tech debt (objectives 42, 45, 52, health)
 **Depends on:** Objective 52
-**Plans:** TBD
+**TRDs:** 7 plans
+
+TRDs:
+- [ ] 53-01-summary-verbs-worktree-TRD.md — (W1) item 53-1: local-mode `summary checkpoint|post` write the checkout that runs them; a worktree SUMMARY is committed on its branch and merges with no untracked copy in main (store mode unchanged)
+- [ ] 53-02-summary-pairing-TRD.md — (W1) item 53-2: shared `trdKey`; health I001, consistency, objective-job-index, find-objective, verify completeness and gate-executor-stop agree with roadmap-reconcile on named TRDs
+- [ ] 53-03-micro-commit-path-TRD.md — (W1) item 53-3: `micro commit` goes through `df-tools commit`, so the store-mode GEN-01 gate refuses it off the linked branch
+- [ ] 53-04-merge-sequence-gate-TRD.md — (W2) item 53-4: one command per call merge prose (incl. planning-file conflicts) replayed through gate-commits; explained deny for chained merge+commit, no new allowance
+- [ ] 53-05-leftovers-and-repo-health-TRD.md — (W1) items 53-5, 53-7: drop `AWARENESS_CACHE_REL`; global template v3 with `/devflow:doctor`; PROJECT.md Core Value/Requirements; archive UI-VISUAL-EVAL dirs to milestones/v1.2-objectives
+- [ ] 53-06-decision-repair-TRD.md — (W1) item 53-8: doctor check 33 `decision-resolution` detects and repairs (backed up, verified) pre-52 flattened resolutions; reports the unrecoverable
+- [ ] 53-07-docs-and-full-suite-TRD.md — (W3) CHANGELOG, USER-GUIDE, CLAUDE.md; item 53-6 closed by 43-03 with evidence; full `npm test`
 
 ### Other v1.4 candidates
 
