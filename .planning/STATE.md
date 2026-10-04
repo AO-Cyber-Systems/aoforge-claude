@@ -248,6 +248,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 | 26 | validate health W007 reads archived milestone roadmaps and ROADMAP.md checklist lines (no false positives for archived objectives) | 2026-09-30 | 13be101 | — | [26-validate-health-w007-reads-archived-mile](./quick/26-validate-health-w007-reads-archived-mile/) |
 | 27 | bump actions/checkout to v7 in devflow-checks workflow | 2026-10-03 | c01a82ce | devflow-claude | Atomic |
 | 28 | Fix #120: micro commit --files sweeps in unrelated staged changes | 2026-10-03 | 0012a82f | Done | [28-fix-120-micro-commit-files-sweeps-in-unr](./quick/28-fix-120-micro-commit-files-sweeps-in-unr/) |
+| 29 | Fix 8 new CodeQL alerts on release PR #121 (ReDoS, regex injection, table-cell escaping) | 2026-10-04 | 518a25fa | Done | [29-fix-new-codeql-alerts-on-release-pr-121](./quick/29-fix-new-codeql-alerts-on-release-pr-121/) |
 
 ## Accumulated Context
 
