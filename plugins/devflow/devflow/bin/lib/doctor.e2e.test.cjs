@@ -270,7 +270,8 @@ describe('doctor e2e: aodex-like state (SC4)', () => {
       'backup is inside the fake home'
     );
 
-    assert.match(fixes['pending-migrations'].notes, new RegExp(`stamped v${ENGINE_VERSION.replace(/\./g, '\\.')}`));
+    assert.ok(fixes['pending-migrations'].notes.includes(`stamped v${ENGINE_VERSION}`),
+      `pending-migrations notes name the stamped version; got: ${fixes['pending-migrations'].notes}`);
     assert.deepEqual(fixes['skill-markers'].changed, ['.planning/.skill-active']);
     assert.equal(fixes['guard-state'].changed.length, 2);
     assert.equal(fixes['awareness-state'].changed.length, 2);
