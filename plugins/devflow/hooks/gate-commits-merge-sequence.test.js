@@ -411,17 +411,59 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
 // 2. Prose guard
 // ---------------------------------------------------------------------------
 
-const PROSE_FILES = ['execute-objective.md'];
+const PROSE_FILES = ['execute-objective.md', 'complete-milestone.md', 'workstreams-merge.md'];
+
+const SQUASH_RE = /\bgit\s+(?:-\S+\s+)*merge\b[^\n]*--squash\b/;
+const MERGE_RE = /\bgit\s+(?:-\S+\s+)*merge\b/;
+
+function shellFences(file) {
+  return fences(readWorkflow(file)).filter((f) => SHELL_LANGS.has(f.lang));
+}
 
 describe('TRD 53-04 — workflows never document a merge chained with a commit', () => {
   for (const file of PROSE_FILES) {
     test(`${file}: no shell fence runs a merge-like git operation and a git commit together`, () => {
       const bad = [];
-      for (const f of fences(readWorkflow(file))) {
-        if (!SHELL_LANGS.has(f.lang)) continue;
+      for (const f of shellFences(file)) {
         if (gate.chainsGitOpAndCommit(f.body)) bad.push(`${file}:${f.line}`);
       }
       assert.deepEqual(bad, [], 'a fence chains a merge-like git operation with a git commit, which gate-commits denies');
     });
+
+    test(`${file}: a git commit completing a squash merge carries the inline DEVFLOW_ALLOW_RAW_COMMIT=1 prefix`, () => {
+      // A squash leaves no MERGE_HEAD (only SQUASH_MSG), so the gate cannot see the merge and a bare
+      // `git commit` is denied. A commit after any other merge stops in the stopped merge's MERGE_HEAD
+      // and is allowed on its own; a commit with no merge before it at all has nothing to complete.
+      const bad = [];
+      let lastMerge = null;
+      for (const f of shellFences(file)) {
+        if (SQUASH_RE.test(f.body)) lastMerge = 'squash';
+        else if (MERGE_RE.test(f.body)) lastMerge = 'other';
+        if (!gate.invokesGitCommit(f.body)) continue;
+        if (gate.hasInlineAllowPrefix(f.body)) continue;
+        if (lastMerge === 'other') continue;
+        bad.push(`${file}:${f.line} (${lastMerge === 'squash' ? 'bare commit after a squash merge' : 'bare commit with no merge before it'})`);
+      }
+      assert.deepEqual(bad, []);
+    });
   }
+
+  for (const file of ['complete-milestone.md', 'workstreams-merge.md']) {
+    test(`${file}: says why a squash completion needs the inline prefix (no MERGE_HEAD)`, () => {
+      const text = readWorkflow(file);
+      assert.ok(SQUASH_RE.test(text), `${file} documents a squash merge`);
+      assert.match(text, /MERGE_HEAD/, 'names the reason: a squash leaves no MERGE_HEAD, so the gate cannot see the merge');
+      assert.match(text, /DEVFLOW_ALLOW_RAW_COMMIT=1 git commit/);
+    });
+  }
+
+  test('complete-milestone.md: a no-commit merge is completed by a plain `git commit`, as its own call', () => {
+    const fs_ = shellFences('complete-milestone.md');
+    const idx = fs_.findIndex((f) => /\bgit\s+merge\b[^\n]*--no-commit\b/.test(f.body));
+    assert.ok(idx >= 0, 'the merge-with-history path documents `git merge --no-ff --no-commit`');
+    const after = fs_.slice(idx + 1).find((f) => gate.invokesGitCommit(f.body));
+    assert.ok(after, 'a git commit completes it');
+    assert.equal(gate.hasInlineAllowPrefix(after.body), false, 'no escape prefix: MERGE_HEAD exists after --no-commit');
+    assert.equal(gate.chainsGitOpAndCommit(after.body), false);
+  });
 });
