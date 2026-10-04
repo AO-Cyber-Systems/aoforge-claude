@@ -168,6 +168,25 @@ function resolveMainRoot(cwd) {
   return nearest ? realOrResolved(nearest) : null;
 }
 
+/**
+ * The checkout that HOLDS `cwd` (a linked worktree or the main checkout), realpath'd, when it has `.planning/`; otherwise
+ * `resolveMainRoot(cwd)`. Never spawns git, never throws (TRD 53-01).
+ *
+ * resolveMainRoot answers "where is the shared project state" (config, journal, ledger, outbox: single-writer files in
+ * the main checkout, D-14). This answers "which tree will commit what I write". They differ only inside a linked
+ * worktree that tracks `.planning/`: a local-mode SUMMARY written there must land in that worktree, so the executor
+ * commits it on its `df/exec-*` branch and the wave merge delivers it. A worktree with no `.planning/` (planning
+ * untracked) has nothing to commit into, so it falls back to the main checkout, as before.
+ */
+function resolveCheckoutRoot(cwd) {
+  const start = typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd();
+  try {
+    const holder = findGitHolder(start);
+    if (holder && isDir(path.join(holder.dir, '.planning'))) return realOrResolved(holder.dir);
+  } catch { /* fall through to the main checkout */ }
+  return resolveMainRoot(start);
+}
+
 // ─── mode ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -200,4 +219,5 @@ module.exports = {
   planningMode,
   isStoreMode,
   resolveMainRoot,
+  resolveCheckoutRoot,
 };

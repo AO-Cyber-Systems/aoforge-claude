@@ -103,6 +103,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 52]: 52-05: multi-line frontmatter strings are written as |- block scalars in the shared serializer (strip exactly keyIndent+2 on read; > read literally); single-line output unchanged
 - [Objective 52]: 52-06: the pre-fix multi-line resolution known issue documents a hand fix (resolution: |- plus lines indented two spaces), not a re-answer, because decision answer refuses a decision no longer in decisions/pending/
 - [Objective 52]: 52-06: the doctor skill runs the switch and escape lines for store-mode check 20/21 notes and shows the gh pr start line to the user; it does not inspect git state to pick a route
+- [Objective 53]: 53-01: in local mode summary post|checkpoint write the checkout that holds the caller (planning-mode.resolveCheckoutRoot, fs-only), so an executor worktree commits its own SUMMARY and the wave merge delivers it; store mode keeps the MAIN checkout (D-14). Executor and orchestrator prose now say so; 5c reads a parallel plan's SUMMARY state from its worktree
 
 ## Performance Metrics
 
@@ -145,4 +146,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 52 P04 | 11min | 2 tasks | 6 files |
 | Objective 52 P05 | 13min | 3 tasks | 6 files |
 | Objective 52 P06 | 6min | 2 tasks | 4 files |
+| Objective 53 P01 | 23min | 2 tasks | 7 files |
 

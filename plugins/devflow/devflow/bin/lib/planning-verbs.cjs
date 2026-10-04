@@ -20,6 +20,13 @@
  * Every verb resolves the MAIN checkout first (D-14), so a call from a worktree writes the main `.planning/` and uses
  * the main journal, ledger and cache index.
  *
+ * ONE exception, local mode only (TRD 53-01): `summary post|checkpoint` write the checkout that holds the caller
+ * (planning-mode.resolveCheckoutRoot), so an executor in a linked worktree writes its own `.planning/` and commits the
+ * SUMMARY on its `df/exec-*` branch. Writing main there left an untracked copy that made the wave merge refuse to
+ * overwrite it (objective 52, five times). Visibility is unaffected: gate-executor-stop scans every worktree and the
+ * orchestrator reads a parallel plan's SUMMARY from that plan's worktree. Store mode keeps the rule above: the cache,
+ * `.trd-progress/`, journal, ledger and outbox are single-writer files in the main checkout.
+ *
  * Verb -> file -> store-mode op(s):
  *   plan put-trd          objectives/<dir>/<NN-MM-slug>-TRD.md   hierarchy push of the objective (none with noPush)
  *   plan push             (no file)                             hierarchy push of the objective
@@ -222,9 +229,10 @@ function enqueueAndFlush(main, base, { enqueue, covers = [], rel = null, text = 
 // ─── writeThrough ────────────────────────────────────────────────────────────
 
 /**
- * writeThrough(root, {rel, text, verb, enqueue, covers, noFlush, noWait, warnings}) — the one write primitive.
+ * writeThrough(root, {rel, text, verb, enqueue, covers, noFlush, noWait, warnings, writeRoot}) — the one write primitive.
  *
- *   local  atomic write of `<main>/.planning/<rel>` (directories created), nothing else.
+ *   local  atomic write of `<main>/.planning/<rel>` (directories created), nothing else. `writeRoot` (the summary verbs
+ *          only, 53-01) names another checkout to write instead of `<main>`; store mode ignores it.
  *   store  atomic write -> ledger.record(rel, text, {verb}) -> `enqueue(main)` -> flush unless `noFlush`
  *          -> on a drained flush, baseline + forget `rel` and `covers`.
  *
@@ -246,7 +254,9 @@ function writeThrough(root, opts = {}) {
   if (!main) return fail(`no .planning/ directory at or above ${root}`, { rel, warnings });
 
   const { mode } = planningMode.planningMode(main);
-  const file = planningFile(main, rel);
+  // `writeRoot` redirects the LOCAL write only; store mode always writes the cache under main (D-14).
+  const target = mode === LOCAL && typeof o.writeRoot === 'string' && o.writeRoot !== '' ? o.writeRoot : main;
+  const file = planningFile(target, rel);
   const base = { mode, rel, path: file, warnings };
   try {
     atomicWrite(file, o.text);
@@ -583,6 +593,21 @@ function summaryFileOf(t, file) {
   return t.files.find((f) => re.test(f)) || `${t.prefix}-SUMMARY.md`;
 }
 
+/**
+ * The checkout a summary verb writes (TRD 53-01). Local mode: the one holding `root`, so a linked worktree commits its own
+ * SUMMARY. Store mode: `main`, always (D-14: cache, `.trd-progress/`, journal, ledger and outbox are single-writer there).
+ */
+function summaryWriteRoot(root, main) {
+  if (planningMode.planningMode(main).mode !== LOCAL) return main;
+  return planningMode.resolveCheckoutRoot(root) || main;
+}
+
+/** The SUMMARY file name, chosen from the WRITE root's objective dir so a worktree's committed `NN-MM-<slug>-SUMMARY.md` is reused. */
+function summaryNameIn(writeRoot, t, file) {
+  const files = listDir(path.join(writeRoot, '.planning', 'objectives', t.objective.dir));
+  return summaryFileOf({ ...t, files }, file);
+}
+
 // ─── PR hooks of summary post / verification post (objective 49, GPR-03) ─────
 //
 // Every op below is built inside the `enqueue` callback of writeThrough, which local mode never calls: that is what
@@ -773,7 +798,8 @@ function verificationEnqueue(main, target, file, text) {
 }
 
 /**
- * summaryPost(root, {trd, text, file?, noFlush, noWait}) — `summary post`: write the TRD's SUMMARY; store mode queues
+ * summaryPost(root, {trd, text, file?, noFlush, noWait}) — `summary post`: write the TRD's SUMMARY (local mode: in the
+ * checkout holding `root`, a linked worktree included; store mode: the main cache, 53-01); store mode queues
  * it as the TRD issue's `summary` comment, takes the in-progress label off the TRD issue, refreshes the objective
  * PR's summary section when it has one (`pr_refresh` says why it did not), and removes the `.trd-progress/<trd>.md`
  * checkpoint.
@@ -785,7 +811,8 @@ function summaryPost(root, opts = {}) {
   if (typeof o.text !== 'string') return fail('summary post needs the SUMMARY text');
   const t = trdTarget(main, o.trd);
   if (t.error) return fail(t.error);
-  const name = summaryFileOf(t, o.file);
+  const writeRoot = summaryWriteRoot(root, main);
+  const name = summaryNameIn(writeRoot, t, o.file);
   const bad = checkFileName(name, 'the SUMMARY file');
   if (bad) return fail(bad);
   const rel = `objectives/${t.objective.dir}/${name}`;
@@ -794,6 +821,7 @@ function summaryPost(root, opts = {}) {
   const r = writeThrough(main, {
     rel,
     text: o.text,
+    writeRoot,
     verb: 'summary post',
     enqueue: (m) => summaryEnqueue(m, t, name, o.text, note),
     noFlush: o.noFlush === true,
@@ -807,7 +835,7 @@ function summaryPost(root, opts = {}) {
 
 /**
  * summaryCheckpoint(root, {trd, text, file?}) — per-task progress (D-12). Local: the SUMMARY file, exactly as
- * summary post writes it. Store: `.planning/.trd-progress/<trd>.md`, a runtime file: no ledger, never queued (80
+ * summary post writes it (the checkout holding `root`, 53-01). Store: `.planning/.trd-progress/<trd>.md`, a runtime file: no ledger, never queued (80
  * writes/min is GitHub's budget; a comment per task would spend it). `summary post` replaces it at the end.
  */
 function summaryCheckpoint(root, opts = {}) {
@@ -819,10 +847,11 @@ function summaryCheckpoint(root, opts = {}) {
   if (t.error) return fail(t.error);
   const { mode } = planningMode.planningMode(main);
   if (mode === LOCAL) {
-    const name = summaryFileOf(t, o.file);
+    const writeRoot = summaryWriteRoot(root, main);
+    const name = summaryNameIn(writeRoot, t, o.file);
     const bad = checkFileName(name, 'the SUMMARY file');
     if (bad) return fail(bad);
-    return writeThrough(main, { rel: `objectives/${t.objective.dir}/${name}`, text: o.text, verb: 'summary checkpoint' });
+    return writeThrough(main, { rel: `objectives/${t.objective.dir}/${name}`, text: o.text, writeRoot, verb: 'summary checkpoint' });
   }
   const rel = `.trd-progress/${t.id}.md`;
   const file = planningFile(main, rel);
