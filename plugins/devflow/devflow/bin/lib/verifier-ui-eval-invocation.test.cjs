@@ -34,7 +34,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 
 // CRITICAL: run the LOCAL df-tools.cjs, not the `~/.claude/devflow/bin/` path verifier.md's
 // prose contains — that path points at the synced plugin cache, which lags this worktree.
@@ -165,13 +165,26 @@ test.describe('verifier-ui-eval-invocation (TRD 33-02, aodex#485 defect 5)', () 
     const { root, objectiveId } = makeFixtureObjective({ id: '77', slug: 'v1-fixture' });
     const finalArgv = argv.replace(/FIXTURE_OBJECTIVE_ID_PLACEHOLDER/g, objectiveId);
 
+    // df-tools is spawned directly (no shell), so the extracted tail is split into argv here.
+    // Whitespace splitting is only faithful while the tail has no quoting or expansion; if
+    // Step 8c ever gains a quoted argument, fail loudly and name it rather than mis-split it.
+    assert.ok(
+      !/["'\\`$]/.test(finalArgv),
+      `Step 8c arg tail needs shell parsing; extend the splitter: ${finalArgv}`,
+    );
+    const tokens = finalArgv.split(/\s+/).filter(Boolean);
+
     let stdout;
     try {
-      stdout = execSync(`node ${DF_TOOLS} verify flutter-ui-eval ${finalArgv}`, { cwd: root, encoding: 'utf-8' });
+      stdout = execFileSync(
+        process.execPath,
+        [DF_TOOLS, 'verify', 'flutter-ui-eval', ...tokens],
+        { cwd: root, encoding: 'utf-8' },
+      );
     } catch (e) {
       // A non-zero exit here would itself be evidence of a defect (Step 8c's contract is
       // "never a hard fail") — but read stdout regardless so the assertion below is about
-      // the PAYLOAD, not about execSync's throw-on-nonzero behavior.
+      // the PAYLOAD, not about execFileSync's throw-on-nonzero behavior.
       stdout = e.stdout;
     }
 
