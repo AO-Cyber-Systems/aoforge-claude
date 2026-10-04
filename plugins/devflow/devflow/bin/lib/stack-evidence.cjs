@@ -227,7 +227,22 @@ const writes = (r) => !!r && (r.form === 'apply' || r.form === 'mutate');
 
 // What precedes a drift-check statement, with the dangling connective and control words removed so
 // it normalises on its own (`go generate … && if !` -> `go generate …`).
-const TRAILING_CONNECTIVE = /(?:\s|&&|\|\||[;|!{(]|\b(?:if|then|elif|else|while|until|do)\b)+$/;
+// A loop, not a `(?:…)+$` regex: the old `||` alternative overlapped the `|` in the character class and
+// backtracked exponentially on a long run of `|` (js/redos, CodeQL alert 139), and any `$`-anchored
+// repeat rescans to the end from every start. `trimEnd` strips the same set as ECMAScript `\s`; the
+// `\w` check on the character before a word reproduces the old leading `\b` (so `elif` is not `if`).
+const CONNECTIVE_WORDS = ['if', 'then', 'elif', 'else', 'while', 'until', 'do'];
+function stripTrailingConnective(s) {
+  let out = String(s);
+  for (;;) {
+    out = out.trimEnd();
+    if (out.endsWith('&&')) { out = out.slice(0, -2); continue; }
+    if (out && ';|!{('.includes(out[out.length - 1])) { out = out.slice(0, -1); continue; }
+    const w = CONNECTIVE_WORDS.find((k) => out.endsWith(k) && !/\w/.test(out.charAt(out.length - k.length - 1)));
+    if (w) { out = out.slice(0, -w.length); continue; }
+    return out;
+  }
+}
 
 /**
  * rawDriftCheck(body, cwd) -> the invocations that run BEFORE a raw-text drift check, or null when the
@@ -238,7 +253,7 @@ function rawDriftCheck(body, cwd) {
   for (let i = 0; i < body.length; i++) {
     const at = driftCheckAt(String(body[i]));
     if (at === -1) continue;
-    const prefix = String(body[i]).slice(0, at).replace(TRAILING_CONNECTIVE, '');
+    const prefix = stripTrailingConnective(String(body[i]).slice(0, at));
     return [...safeNormalize(body.slice(0, i).join('\n'), cwd), ...(prefix ? safeNormalize(prefix, cwd) : [])];
   }
   return null;
@@ -915,4 +930,5 @@ module.exports = {
   classifyCommand,
   collectEvidence,
   localInvocation,
+  stripTrailingConnective,
 };

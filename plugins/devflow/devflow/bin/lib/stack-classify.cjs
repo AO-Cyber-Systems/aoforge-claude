@@ -426,7 +426,10 @@ function checkFormByName(key, form, name) {
 // SHOWS a diff (`… || true`, an echo) and is not a check.
 
 const DOLLAR = '\\$\\$?';
-const GIT_DIFF = 'git(?:\\s+(?:-[Cc]\\s+\\S+|--?[A-Za-z][\\w-]*(?:=\\S+)?))*\\s+diff\\b';
+// Each option token has exactly one reading (js/redos, CodeQL alert 138): a single-dash `-C`/`-c` followed
+// by whitespace is only ever the option-with-value. The one shape this drops is `git -C diff`, which
+// chdirs into `diff` with no subcommand and is not a real diff.
+const GIT_DIFF = 'git(?:\\s+(?:-[Cc]\\s+\\S+|--[A-Za-z][\\w-]*(?:=\\S+)?|-(?![Cc]\\s)[A-Za-z][\\w-]*(?:=\\S+)?))*\\s+diff\\b';
 const CAPTURED_GIT_DIFF = new RegExp(`${DOLLAR}\\(\\s*${GIT_DIFF}|\`\\s*${GIT_DIFF}`, 'g');
 const EMPTINESS_TEST = '(?:\\[\\[?|\\btest)\\s+!?\\s*-[nz]\\s+["\']?';
 // The capture is tested: `X=$(git diff …)` then `[ -n "$X" ]`, or inline `[ -n "$(git diff …)" ]`.

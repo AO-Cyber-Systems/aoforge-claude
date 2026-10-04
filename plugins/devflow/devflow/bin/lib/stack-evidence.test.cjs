@@ -1663,3 +1663,52 @@ describe('stack-evidence runtimeVar (E25, TRD 43-13 test 5)', () => {
     }
   });
 });
+
+// quick-29 (CodeQL js/redos, alert 139): the trailing-connective strip was a `(?:...|\|\||[;|!{(]|...)+$`
+// regex whose `||` and `|` alternatives overlap, so a long run of `|` backtracked exponentially. It is a
+// loop now. The characterization rows below were computed against the old regex (it is not kept here:
+// CodeQL scans tests too).
+describe('stack-evidence stripTrailingConnective (E26, quick-29 alert 139)', () => {
+  const { stripTrailingConnective } = require('./stack-evidence.cjs');
+
+  test('E26a: a long run of `||` between words is returned unchanged, in linear time', () => {
+    const input = 'a' + '||'.repeat(50000) + 'x';
+    const started = process.hrtime.bigint();
+    const out = stripTrailingConnective(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, input);
+    assert.ok(elapsedMs < 200, `took ${elapsedMs}ms`);
+  });
+
+  test('E26b: a run of `|` with nothing else strips to empty, in linear time', () => {
+    const started = process.hrtime.bigint();
+    const out = stripTrailingConnective('|'.repeat(50000));
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, '');
+    assert.ok(elapsedMs < 200, `took ${elapsedMs}ms`);
+  });
+
+  test('E26c: same output as the old regex for every characterization row', () => {
+    const rows = [
+      ['go generate ./... && if !', 'go generate ./...'],
+      ['make gen; then', 'make gen'],
+      ['a ||', 'a'],
+      ['a |', 'a'],
+      ['a || b', 'a || b'],
+      ['echo gif', 'echo gif'],
+      ['xdo', 'xdo'],
+      ['x elif', 'x'],
+      ['foo-do', 'foo-'],
+      ['x &&&', 'x &'],
+      ['do', ''],
+      ['until', ''],
+      ['', ''],
+      ['cmd {(', 'cmd'],
+      ['x ! { (', 'x'],
+      ['run  \t', 'run'],
+    ];
+    for (const [input, expected] of rows) {
+      assert.equal(stripTrailingConnective(input), expected, JSON.stringify(input));
+    }
+  });
+});

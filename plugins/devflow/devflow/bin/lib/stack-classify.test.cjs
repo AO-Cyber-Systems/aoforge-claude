@@ -948,6 +948,28 @@ describe('K27 drift checks as real recipes write them (TRD 43-09)', () => {
     assert.equal(driftCheckAt('gofmt -w .'), -1);
     assert.equal(driftCheckAt(''), -1);
   });
+
+  // quick-29 (CodeQL js/redos, alert 138): GIT_DIFF's option alternatives overlapped (`-C` read as the
+  // option-with-value and as a bare flag; `\S+` could swallow the next `-A`), so a long run of `-C -A `
+  // had exponentially many parses. Hand-built adversarial input, timed.
+  test('K27e: driftCheckAt stays linear on a long run of git options (quick-29, alert 138)', () => {
+    const started = process.hrtime.bigint();
+    const at = driftCheckAt('$(git ' + '-C -A '.repeat(50000));
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(at, -1);
+    assert.ok(elapsedMs < 200, `took ${elapsedMs}ms`);
+  });
+
+  test('K27f: git options with and without a value are still read as a captured git diff (quick-29)', () => {
+    // driftCheckAt wants the whole drift shape: the capture, a non-empty test of it, then a failing exit.
+    const drift = (capture) => `out=${capture}; [ -n "$out" ] || exit 1`;
+    assert.equal(driftCheckAt(drift('$(git -Cfoo diff)')), 0, 'attached -C value');
+    assert.equal(driftCheckAt(drift('`git -C "$d" diff`')), 0, 'quoted -C value');
+    assert.equal(driftCheckAt(drift('$(git -C /repo diff --quiet)')), 0, '-C with a path');
+    assert.equal(driftCheckAt(drift('$$(git -c core.x=y --no-pager diff)')), 0, '-c k=v and a long flag');
+    assert.equal(driftCheckAt(drift('$(git --git-dir=.git diff)')), 0, 'long option with =value');
+    assert.equal(driftCheckAt(drift('$(git log)')), -1, 'not a diff');
+  });
 });
 
 // TRD 43-09 (aocore.lint_helm row): an install step that ends by printing the tool's version
