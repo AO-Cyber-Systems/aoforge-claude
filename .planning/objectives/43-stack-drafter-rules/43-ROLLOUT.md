@@ -847,3 +847,20 @@ The 4 skipped are eden-circle's three `side-effect-unsafe` client gates and eden
 ### SDR-08 assessment
 
 Not every proposed command passes, but after the host fixes none of them fails for a reason that belongs to the drafter. Of the 105 gates that ran, 102 either passed (55) or failed on repo state (47: unformatted files, analyzer and shellcheck findings, a typecheck error, dfip's own failing spec), and no run hit a wrong tool, a wrong working directory or a command-not-found. All 12 cgo link failures from 43-07 are resolved: 11 now pass and dfip runs and fails on its own tests, so the `xcode-select` fix did what it was meant to. The 3 other red gates are not repo state and each has a specific host-side fix: aocore `lint` needs golangci-lint v2 (the v1 reinstall cleared the go-version error but v1 cannot read aocore's v2 config), qrCodeBuilder `test` needs `flutter pub get` (its `package_config.json` predates the installed Flutter, and the guard's `--no-pub` rewrite means `--run` cannot repair it), and trades `test` needs a database. A fourth gate, eden-circle `test@client/`, did not run: `make build` added an untracked, un-ignored `bin/circle-api`, the guard removed it correctly and then halted the client's Flutter items. Two 43-07 labels were also wrong and are corrected above (eden-biz and eden-libs `format`, which were repo state, not deps). So SDR-08 is substantively met for the command set, with 4 of the 19 earlier gates still waiting on host action rather than on any change to the drafter; the one drafter-adjacent item is that a `build` that leaves an un-ignored artifact stops later Flutter gates in the same root.
+
+### Targeted re-run of 3 environment-blocked gates (2026-10-04)
+
+The user chose "Fix 3 more, re-run". The orchestrator ran each gate with the runtime-mirror df-tools. `cmp` shows the mirror equal to the repo for stack-verify/draft/evidence/runners/classify/ci. Every run had the effect guard on and used the pinned HEAD. `git status --porcelain` hashes were identical before and after each run.
+
+Host fixes made for these gates:
+- **golangci-lint v2.14.0 (go1.27.1)** was installed to a session-only directory and put on PATH for the aocore run only. The global v1.64.8 is unchanged, because devflowops/.golangci.yml and aodex/go/.golangci.yml are v1 configs.
+- **`flutter pub get`** ran in qrCodeBuilder and eden-circle/client to refresh `.dart_tool/package_config.json` (`flutter` languageVersion 3.9 → 3.11). In both repos, pub get also rewrote the tracked `analysis_options.yaml` (it added `analyzer.exclude`) and `pubspec.lock` (SDK-pinned package bumps such as meta 1.17.0 → 1.19.0). Both files were clean beforehand, so they were restored with `git restore`. Tracked state is identical to before. Those lockfile bumps are real upkeep the repos need, and committing them is left to the user.
+
+| gate | before (follow-up run) | now |
+|---|---|---|
+| aocore `lint` (`golangci-lint run ./...`, cwd go) | 3, host (v1 binary vs v2 config) | **0** |
+| qrCodeBuilder `test` (`flutter test --no-pub`) | 1, stale package_config | **0** (≈775 tests) |
+| eden-circle `test@client/` (`flutter test --no-pub`, `--keys test`, so no `make build` first) | not run (guard halt after `bin/circle-api`) | **1, repo state**: pinned `livekit_client 2.6.1` fails to compile against the installed Flutter SDK (null-safety errors in `local.dart`) |
+| trades `test` | 1, test environment | not re-run, by user choice. It needs a dedicated `TEST_DATABASE_URL`. The follow-up run executed the suite against whatever was listening on 127.0.0.1:5432. |
+
+**SDR-08 result.** Of the 105 gates in the follow-up scope, 104 now pass or fail on the repo's own state. The one remaining environment-blocked gate is trades `test` (a test database). aocore's root `lint` was environment-blocked before and now passes. In the aocore `--keys lint` run, `lint@portal/` stayed red on repo state, as it was in 43-07.
