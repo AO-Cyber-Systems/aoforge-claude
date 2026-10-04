@@ -36,7 +36,8 @@ node ~/.claude/devflow/bin/df-tools.cjs micro commit --raw            # commits 
 node ~/.claude/devflow/bin/df-tools.cjs micro commit --files <path> --raw   # required for a NEW file — untracked files are never swept in
 ```
 
-`micro commit` produces `chore(micro): ${DESCRIPTION}`, removes the marker, and records the row in STATE.md's "Quick Tasks Completed" table itself.
+`micro commit` produces `chore(micro): ${DESCRIPTION}` and removes the marker. In local mode it also records the row in STATE.md's "Quick Tasks Completed" table itself, in a second commit.
+With `github.store` on it makes no STATE.md change and no second commit, because STATE.md is a generated view there (`df-tools gh pull --all` rebuilds it); the result reports `state_row: "skipped_store_mode"`.
 Never edit STATE.md (or ROADMAP.md) by hand in micro: df-tools owns those touches.
 
 If commit fails: surface error. Marker stays active — fix the cause and re-run `node ~/.claude/devflow/bin/df-tools.cjs micro commit --raw`, or run `node ~/.claude/devflow/bin/df-tools.cjs micro abort` to discard.
@@ -54,6 +55,6 @@ No SUMMARY.md. No further ceremony.
 - [ ] Single-file edit made inline (no agent spawn)
 - [ ] `df-tools micro commit` produces `chore(micro): ${DESCRIPTION}`
 - [ ] Marker removed on success; retained on failure with retry instructions
-- [ ] STATE.md "Quick Tasks Completed" row recorded by `micro commit` (no hand edit)
+- [ ] (local mode) STATE.md "Quick Tasks Completed" row recorded by `micro commit` (no hand edit); with `github.store` on, STATE.md unchanged
 - [ ] No SUMMARY.md, JOB.md, or TRD.md created
 </success_criteria>

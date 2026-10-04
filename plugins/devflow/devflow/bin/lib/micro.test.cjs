@@ -865,3 +865,221 @@ describe('cmdMicro (CLI dispatch via spawnSync e2e)', () => {
     assert.notEqual(proc.status, 0, 'expected non-zero exit for unknown subcommand');
   });
 });
+
+// ─── commitMicro: store mode (52-03) ─────────────────────────────────────────
+//
+// With `github.store` on, STATE.md is a generated view (`df-tools gh pull --all` rebuilds it). micro must not append its
+// "Quick Tasks Completed" row there: the append is W055 drift, and the second commit fails once the cache is gitignored.
+// Mirrors workflows/quick.md Step 7, which is skipped in store mode.
+
+const planningDrift = require('./planning-drift.cjs');
+const { contentHash } = require('./gh-trd.cjs');
+
+/** STATE.md as the store writes it. A generated view must start with GENERATED_HEADER or drift calls it hand-edited. */
+const STORE_STATE_MD = `${planningDrift.GENERATED_HEADER}\n# DevFlow State\n\n## Quick Tasks Completed\n\n| # | Description | Date | Commit | Directory |\n|---|---|---|---|---|\n`;
+
+/** mkGitAmbient plus a store-mode `.planning/config.json` and a generated-view STATE.md. */
+function mkGitAmbientStore() {
+  const env = mkGitAmbient();
+  fs.writeFileSync(
+    path.join(env.planningDir, 'config.json'),
+    JSON.stringify({ github: { enabled: true, store: true } }, null, 2) + '\n',
+    'utf8'
+  );
+  fs.writeFileSync(path.join(env.planningDir, 'STATE.md'), STORE_STATE_MD, 'utf8');
+  return env;
+}
+
+function gitOut(cwd, args) {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  assert.equal(r.status, 0, `git ${args.join(' ')} failed: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+/** A runner that records its calls and succeeds without touching git. */
+function recordingRunner(calls) {
+  return (cwd, opts) => {
+    calls.push({ cwd, opts });
+    return { exitCode: 0, stdout: 'abc1234', stderr: '' };
+  };
+}
+
+describe('commitMicro: store mode (52-03)', () => {
+  let env;
+  let stateMdPath;
+  beforeEach(() => {
+    env = mkGitAmbientStore();
+    stateMdPath = path.join(env.planningDir, 'STATE.md');
+    process.env.DEVFLOW_ALLOW_RAW_COMMIT = '1';
+  });
+  afterEach(() => {
+    fs.rmSync(env.root, { recursive: true, force: true });
+    delete process.env.DEVFLOW_ALLOW_RAW_COMMIT;
+    planningDrift._setDriftReaders(null);
+    _resetMocks();
+  });
+
+  test('SM-0 fixture: the store fixture is in store mode', () => {
+    assert.equal(require('./planning-mode.cjs').isStoreMode(env.root), true);
+  });
+
+  test('SM-1 e2e: micro start then commit --files a.txt makes one commit and leaves STATE.md byte-identical', () => {
+    const before = fs.readFileSync(stateMdPath);
+
+    const startProc = spawnMicro(env.root, ['start', 'fix typo in readme', '--raw'], { DEVFLOW_ALLOW_RAW_COMMIT: '1' });
+    assert.equal(startProc.status, 0, `start failed: ${startProc.stderr}`);
+    assert.equal(fs.existsSync(path.join(env.planningDir, '.skill-active')), true);
+
+    fs.writeFileSync(path.join(env.root, 'a.txt'), 'a\n');
+    const commitProc = spawnMicro(env.root, ['commit', '--files', 'a.txt', '--raw'], { DEVFLOW_ALLOW_RAW_COMMIT: '1' });
+    assert.equal(commitProc.status, 0, `commit failed: ${commitProc.stderr}`);
+    const result = JSON.parse(commitProc.stdout);
+    assert.equal(result.ok, true);
+    assert.equal(result.state_commit_hash, null);
+    assert.equal(result.state_row, 'skipped_store_mode');
+    assert.equal(result.removed_marker, true);
+
+    // Exactly one new commit: HEAD~1 is the initial commit, and HEAD holds only the source file.
+    assert.equal(gitOut(env.root, ['rev-list', '--count', 'HEAD']), '2');
+    assert.equal(gitOut(env.root, ['log', '-1', '--pretty=%s', 'HEAD~1']), 'chore: initial');
+    assert.equal(gitOut(env.root, ['log', '-1', '--pretty=%s']), 'chore(micro): fix typo in readme');
+    assert.equal(gitOut(env.root, ['show', '--name-only', '--pretty=format:', 'HEAD']), 'a.txt');
+
+    assert.ok(fs.readFileSync(stateMdPath).equals(before), 'STATE.md must be byte-identical in store mode');
+    assert.equal(fs.existsSync(path.join(env.planningDir, '.skill-active')), false, 'marker removed');
+    assert.equal(fs.existsSync(path.join(env.planningDir, '.micro-description')), false, 'description file removed');
+  });
+
+  test('SM-2: the runner is called once, for the source files, and the result reports the skipped row', () => {
+    const before = fs.readFileSync(stateMdPath);
+    startMicro({ planningDir: env.planningDir, description: 'bump dependency version', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'a.txt'), 'a\n');
+
+    const calls = [];
+    const result = commitMicro({
+      planningDir: env.planningDir,
+      description: 'bump dependency version',
+      files: ['a.txt'],
+      now: '2026-05-06T00:01:00Z',
+      gitRunner: recordingRunner(calls),
+    });
+
+    assert.equal(calls.length, 1, `expected 1 runner call (source only), got ${calls.length}`);
+    assert.deepEqual(calls[0].opts.files, ['a.txt']);
+    assert.equal(calls[0].opts.message, 'chore(micro): bump dependency version');
+
+    const { commit_hash: commitHash, ...rest } = result;
+    assert.match(commitHash, /^[0-9a-f]{7,}$/);
+    assert.deepEqual(rest, { ok: true, state_commit_hash: null, state_row: 'skipped_store_mode', removed_marker: true });
+
+    assert.ok(fs.readFileSync(stateMdPath).equals(before), 'STATE.md must be byte-identical in store mode');
+    assert.equal(fs.existsSync(path.join(env.planningDir, '.skill-active')), false, 'marker removed');
+    assert.equal(fs.existsSync(path.join(env.planningDir, '.micro-description')), false, 'description file removed');
+  });
+
+  test('SM-3: a missing STATE.md does not refuse the commit and is not created', () => {
+    fs.unlinkSync(stateMdPath);
+    startMicro({ planningDir: env.planningDir, description: 'add missing semicolon', pid: 1, now: '2026-05-06T00:00:00Z' });
+
+    const calls = [];
+    const result = commitMicro({
+      planningDir: env.planningDir,
+      description: 'add missing semicolon',
+      files: ['a.txt'],
+      now: '2026-05-06T00:01:00Z',
+      gitRunner: recordingRunner(calls),
+    });
+
+    assert.equal(result.ok, true, `expected ok:true, got reason: ${result.reason}`);
+    assert.notEqual(result.reason, 'no-state-file');
+    assert.equal(result.state_row, 'skipped_store_mode');
+    assert.equal(calls.length, 1);
+    assert.equal(fs.existsSync(stateMdPath), false, 'STATE.md must not be created in store mode');
+    assert.equal(fs.existsSync(path.join(env.planningDir, '.skill-active')), false, 'marker removed');
+  });
+
+  test('SM-4: findCacheDrift reports nothing for STATE.md after a store-mode micro commit (no W055)', () => {
+    planningDrift._setDriftReaders({
+      readIndex: () => ({ 'STATE.md': contentHash(STORE_STATE_MD) }),
+      readLedger: () => ({ version: 1, entries: {}, corrupt: false }),
+    });
+    const pre = planningDrift.findCacheDrift(env.root);
+    assert.equal(pre.applicable, true, 'drift check must apply in store mode');
+    assert.deepEqual(pre.drift.filter((d) => d.rel === 'STATE.md'), [], 'baseline: STATE.md starts clean');
+
+    startMicro({ planningDir: env.planningDir, description: 'fix typo in readme', pid: 1, now: '2026-05-06T00:00:00Z' });
+    fs.writeFileSync(path.join(env.root, 'a.txt'), 'a\n');
+    const result = commitMicro({
+      planningDir: env.planningDir,
+      description: 'fix typo in readme',
+      files: ['a.txt'],
+      now: '2026-05-06T00:01:00Z',
+      gitRunner: null,
+    });
+    assert.equal(result.ok, true, `expected ok:true, got reason: ${result.reason}`);
+
+    const post = planningDrift.findCacheDrift(env.root);
+    assert.deepEqual(post.drift.filter((d) => d.rel === 'STATE.md'), [], 'no W055 for STATE.md after micro');
+  });
+
+  test('SM-4 control: a row appended to the store STATE.md is reported as changed drift', () => {
+    planningDrift._setDriftReaders({
+      readIndex: () => ({ 'STATE.md': contentHash(STORE_STATE_MD) }),
+      readLedger: () => ({ version: 1, entries: {}, corrupt: false }),
+    });
+    // What micro did before 52-03: append a "Quick Tasks Completed" row.
+    fs.appendFileSync(stateMdPath, '| 1 | fix typo in readme | 2026-05-06 | abc1234 | x |\n', 'utf8');
+    const drift = planningDrift.findCacheDrift(env.root).drift.filter((d) => d.rel === 'STATE.md');
+    assert.equal(drift.length, 1);
+    assert.equal(drift[0].reason, 'changed');
+  });
+});
+
+describe('commitMicro: local mode with a github block but store off (52-03)', () => {
+  let env;
+  beforeEach(() => {
+    env = mkGitAmbient();
+    fs.writeFileSync(
+      path.join(env.planningDir, 'config.json'),
+      JSON.stringify({ github: { enabled: true, store: false } }, null, 2) + '\n',
+      'utf8'
+    );
+    process.env.DEVFLOW_ALLOW_RAW_COMMIT = '1';
+  });
+  afterEach(() => {
+    fs.rmSync(env.root, { recursive: true, force: true });
+    delete process.env.DEVFLOW_ALLOW_RAW_COMMIT;
+    _resetMocks();
+  });
+
+  test('SL-1: the row is appended, the runner is called twice, and the result has no state_row key', () => {
+    startMicro({ planningDir: env.planningDir, description: 'bump dependency version', pid: 1, now: '2026-05-06T00:00:00Z' });
+    const calls = [];
+    const result = commitMicro({
+      planningDir: env.planningDir,
+      description: 'bump dependency version',
+      files: ['a.txt'],
+      now: '2026-05-06T00:01:00Z',
+      gitRunner: recordingRunner(calls),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 2, `expected 2 runner calls (source + STATE.md), got ${calls.length}`);
+    assert.deepEqual(calls[1].opts.files, ['.planning/STATE.md']);
+    assert.equal(Object.hasOwn(result, 'state_row'), false, 'local result shape is unchanged');
+    assert.ok(fs.readFileSync(path.join(env.planningDir, 'STATE.md'), 'utf8').includes('bump dependency version'));
+  });
+
+  test('SL-2: STATE.md missing still refuses with no-state-file', () => {
+    fs.unlinkSync(path.join(env.planningDir, 'STATE.md'));
+    startMicro({ planningDir: env.planningDir, description: 'add missing semicolon', pid: 1, now: '2026-05-06T00:00:00Z' });
+    const result = commitMicro({
+      planningDir: env.planningDir,
+      description: 'add missing semicolon',
+      files: null,
+      now: '2026-05-06T00:01:00Z',
+      gitRunner: null,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'no-state-file');
+  });
+});

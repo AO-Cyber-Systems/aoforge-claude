@@ -6,11 +6,13 @@
  * Implements the `df-tools micro start|commit|abort` surface for atomic
  * micro-task tracking. Wraps the skill-active marker lifecycle and drives
  * a single git commit per micro task with a `chore(micro): {description}`
- * message. STATE.md "Quick Tasks Completed" table is updated on each commit.
+ * message. In local mode the STATE.md "Quick Tasks Completed" table is updated
+ * on each commit; with `github.store` on, STATE.md is a generated view and is
+ * left untouched (52-03).
  *
  * CLI surface:
  *   df-tools micro start <description>           write .planning/.skill-active, allocate task slot
- *   df-tools micro commit [--files <path>...]    atomic commit + STATE.md row + remove marker
+ *   df-tools micro commit [--files <path>...]    atomic commit + STATE.md row (local mode only) + remove marker
  *   df-tools micro abort                         remove marker without committing (idempotent)
  *
  * Imports marker logic from skill-active.cjs — does NOT duplicate it.
@@ -283,8 +285,11 @@ function startMicro({ planningDir, description, pid, now }) {
 
 /**
  * Produces an atomic git commit with message `chore(micro): {description}`,
- * appends a row to STATE.md "Quick Tasks Completed", and removes the marker.
- * Marker is NOT removed if the commit fails — caller can retry.
+ * appends a row to STATE.md "Quick Tasks Completed" (local mode only), and
+ * removes the marker. Marker is NOT removed if the commit fails — caller can retry.
+ * In store mode (planning-mode.isStoreMode) STATE.md is not required, not
+ * written and not committed: the result carries `state_commit_hash: null` and
+ * `state_row: 'skipped_store_mode'` (52-03).
  *
  * @param {object} opts
  * @param {string|null} opts.planningDir - absolute path to .planning/
@@ -292,7 +297,7 @@ function startMicro({ planningDir, description, pid, now }) {
  * @param {string[]|null} opts.files - files to stage and commit (pathspec-limited; unrelated staged changes stay staged); null = what is already staged, else tracked modifications; never untracked files
  * @param {string} opts.now - ISO8601 timestamp (for STATE.md date)
  * @param {Function|null} opts.gitRunner - injection for tests; null = real git
- * @returns {{ ok: boolean, commit_hash?: string, removed_marker?: boolean, reason?: string, message?: string, stderr?: string }}
+ * @returns {{ ok: boolean, commit_hash?: string, state_commit_hash?: string|null, state_row?: 'skipped_store_mode', removed_marker?: boolean, reason?: string, message?: string, stderr?: string }}
  */
 function commitMicro({ planningDir, description, files, now, gitRunner }) {
   if (!planningDir) {
@@ -317,9 +322,17 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // cmdMicro reads it from the marker)
   const commitDesc = (description && description.trim()) ? description.trim() : (status.marker.description || 'micro task');
 
-  // Check STATE.md exists (do NOT auto-create)
+  // Derive project root from planningDir (parent of .planning/)
+  const projectRoot = path.dirname(planningDir);
+
+  // 52-03: in store mode STATE.md is a generated view (`df-tools gh pull --all`
+  // rebuilds it), so micro neither requires it nor appends its row there. Same rule
+  // as workflows/quick.md Step 7. isStoreMode resolves the main checkout itself.
+  const store = require('./planning-mode.cjs').isStoreMode(projectRoot);
+
+  // Check STATE.md exists (do NOT auto-create) — local mode only
   const stateMdPath = path.join(planningDir, 'STATE.md');
-  if (!fs.existsSync(stateMdPath)) {
+  if (!store && !fs.existsSync(stateMdPath)) {
     return {
       ok: false,
       reason: 'no-state-file',
@@ -330,9 +343,6 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // Commit via runner
   const message = `chore(micro): ${commitDesc}`;
   const runner = gitRunner || ((cwd, opts) => _defaultGitRunner(cwd, opts));
-
-  // Derive project root from planningDir (parent of .planning/)
-  const projectRoot = path.dirname(planningDir);
 
   const commitResult = runner(projectRoot, { message, files });
 
@@ -360,6 +370,20 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // When the runner is a mock (test injection), it may return a hash directly
   if (!commitHash && commitResult.stdout) {
     commitHash = commitResult.stdout.trim().substring(0, 7);
+  }
+
+  // 52-03: store mode makes exactly one commit (the source change) and leaves
+  // STATE.md byte-identical. Marker and description cleanup still always happen.
+  if (store) {
+    endSkill({ planningDir });
+    try { fs.unlinkSync(path.join(planningDir, '.micro-description')); } catch { /* absent */ }
+    return {
+      ok: true,
+      commit_hash: commitHash,
+      state_commit_hash: null,
+      state_row: 'skipped_store_mode',
+      removed_marker: true,
+    };
   }
 
   // Determine row num for STATE.md.

@@ -98,6 +98,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 52]: 52-01: every printed df-tools commit follow-up (gh setup, doctor 20/21, migration 0010 and 0011 through it) is built by lib/commit-steps.cjs branchCommitSteps; store mode adds the logged escape and the gh pr start route, mirror/local mode prints a plain branch sequence
 - [Objective 52]: 52-02: gate refusals word the escape as an inline prefix naming DEVFLOW_SKIP_GH_GATE_REASON; --raw refusals put the message on stderr, stdout stays the reason code
 - [Objective 52]: 52-02: the raw git commit CI guard covers agents and skills only (workflows hold merge-completion commits gate-commits allows) and follows CommonMark fence rules
+- [Objective 52]: 52-03: micro skips the STATE.md row in store mode (no verb owns a generated view); the store result reports state_row: 'skipped_store_mode', the local result shape is unchanged
 
 ## Performance Metrics
 
@@ -136,4 +137,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 43 P15 | 20min | 3 tasks | 4 files |
 | Objective 52 P01 | 15min | 3 tasks | 10 files |
 | Objective 52 P02 | 10min | 2 tasks | 6 files |
+| Objective 52 P03 | 7min | 2 tasks | 4 files |
 

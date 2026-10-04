@@ -555,6 +555,11 @@
       "objective": "52",
       "summary": "52-02: the raw git commit CI guard covers agents and skills only (workflows hold merge-completion commits gate-commits allows) and follows CommonMark fence rules",
       "rationale": null
+    },
+    {
+      "objective": "52",
+      "summary": "52-03: micro skips the STATE.md row in store mode (no verb owns a generated view); the store result reports state_row: 'skipped_store_mode', the local result shape is unchanged",
+      "rationale": null
     }
   ],
   "blockers": [],
