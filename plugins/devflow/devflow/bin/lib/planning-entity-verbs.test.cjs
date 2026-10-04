@@ -38,6 +38,7 @@ const ghCache = require('./gh-cache.cjs');
 const decisionQueue = require('./decision-queue.cjs');
 const checkTodos = require('./check-todos.cjs');
 const milestoneStore = require('./gh-milestone-store.cjs');
+const { extractFrontmatter } = require('./frontmatter.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
@@ -270,6 +271,64 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     assertLocalInvariant();
   });
 
+  // TRD 52-05: a multi-line answer used to keep only its first line (and lose resolved_at at a `---` line).
+  test('52-05 #1: CLI `decision answer --from` keeps a multi-line answer whole; a one-line file answer stays one line', () => {
+    const dir = tempProject();
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{}\n');
+    const run = (...args) => spawnSync(process.execPath, [DF_TOOLS, '--cwd', dir, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, NOTIFIER_DISABLE: '1' },
+    });
+    const ans = path.join(dir, 'ans.md');
+    fs.writeFileSync(ans, 'Option B.\nReason: second line with colon\n---\n  indented line\n\nlast\n');
+
+    let r = run('decision', 'open', '52-01', '--question', 'Pick?');
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    r = run('decision', 'answer', 'DECISION-001', '--from', ans);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+
+    const file = path.join(dir, '.planning', 'decisions', 'resolved', 'DECISION-001.md');
+    const fm = extractFrontmatter(fs.readFileSync(file, 'utf8'));
+    assert.equal(fm.resolution, 'Option B.\nReason: second line with colon\n---\n  indented line\n\nlast');
+    assert.equal(fm.status, 'resolved');
+    assert.match(String(fm.resolved_at), /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(Object.hasOwn(fm, 'Reason'), false, 'no spurious key from an answer line');
+
+    // A one-line answer read from a file ends in a newline; it is written as `resolution: <answer>`, not a block.
+    fs.writeFileSync(ans, 'Option A\n');
+    r = run('decision', 'open', '52-01', '--question', 'Again?');
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    r = run('decision', 'answer', 'DECISION-002', '--from', ans);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    const one = fs.readFileSync(path.join(dir, '.planning', 'decisions', 'resolved', 'DECISION-002.md'), 'utf8');
+    assert.match(one, /\nresolution: Option A\n/);
+  });
+
+  test('52-05 #2: decision answer normalises CRLF and trailing whitespace before resolving', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: T0 });
+    const opts = { objective: '7', trd: '7-01', wave: 1, title: 'A or B?', context: 'c', recommendation: 'B', created: '2026-10-01T12:00:00.000Z' };
+    assert.equal(ev.decisionOpen(S.root, opts).ok, true);
+    const a = ev.decisionAnswer(S.root, { id: 'DECISION-001', text: 'a\r\nb\r\n' });
+    assert.equal(a.ok, true, JSON.stringify(a));
+    const raw1 = readRel('decisions/resolved/DECISION-001.md');
+    assert.equal(raw1.includes('\r'), false, 'no CR on disk');
+    assert.equal(extractFrontmatter(raw1).resolution, 'a\nb');
+
+    assert.equal(ev.decisionOpen(S.root, opts).ok, true);
+    assert.equal(ev.decisionAnswer(S.root, { id: 'DECISION-002', text: 'a\nb  \r\n\r\n' }).ok, true);
+    assert.equal(extractFrontmatter(readRel('decisions/resolved/DECISION-002.md')).resolution, 'a\nb', 'trailing whitespace trimmed');
+
+    // `B\r\n` is the declared option B: written as a plain `resolution: B`, with no "not in declared options" warning.
+    fs.writeFileSync(planning('decisions/pending/DECISION-003.md'), '---\nid: DECISION-003\nstatus: pending\noptions: [A, B]\n---\n\n## Decision: A or B?\n');
+    const writes = [];
+    t.mock.method(process.stderr, 'write', (chunk) => { writes.push(String(chunk)); return true; });
+    assert.equal(ev.decisionAnswer(S.root, { id: 'DECISION-003', text: 'B\r\n' }).ok, true);
+    t.mock.restoreAll();
+    assert.match(readRel('decisions/resolved/DECISION-003.md'), /\nresolution: B\n/);
+    assert.deepEqual(writes.filter((w) => w.includes('not in declared options')), []);
+    assertLocalInvariant();
+  });
+
   test('3: debug put / resolve and quick put / summary use the debugger and quick layouts', () => {
     const d = ev.debugPut(S.root, { slug: 'x', text: DEBUG_TEXT });
     assert.equal(d.ok, true, JSON.stringify(d));
@@ -415,6 +474,22 @@ describe('48-12 store mode: decisions', () => {
     const noTrd = ev.decisionOpen(S.root, { question: 'x?' });
     assert.equal(noTrd.ok, false, 'store mode needs the TRD the decision blocks');
     assert.match(noTrd.error, /TRD/);
+  });
+
+  // TRD 52-05 regression guard: the store keeps the answer in the body after `## Answer`, never in frontmatter.
+  test('52-05 #3: a multi-line answer round-trips whole through the answer comment and gh pull --all', () => {
+    const r = ev.decisionOpen(S.root, { trd: '7-01', question: 'A or B?' });
+    assertStoreClean(r, 'decisions/7-01-d1.md');
+    const number = mappingLib.getTrd(mappingLib.readMappingV3(S.root), '7-01-d1').issue_number;
+
+    const answer = 'Option B.\nReason: second line with colon\n---\n  indented line\n\nlast';
+    const a = ev.decisionAnswer(S.root, { id: '7-01-d1', text: `${answer.replace(/\n/g, '\r\n')}\r\n` });
+    assertStoreClean(a, 'decisions/7-01-d1.md');
+    assert.equal(readRel('decisions/7-01-d1.md'), `A or B?\n\n## Answer\n\n${answer}\n`);
+    const comment = commentsOn(number).find((c) => c.body.startsWith('<!-- devflow:id=7-01-d1 kind=answer -->'));
+    assert.ok(comment, 'the answer comment was posted');
+    assert.ok(comment.body.endsWith(answer) || comment.body.endsWith(`${answer}\n`), `full answer in the comment: ${JSON.stringify(comment.body)}`);
+    assertPullRebuilds(['decisions/7-01-d1.md']);
   });
 });
 
