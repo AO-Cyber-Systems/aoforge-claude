@@ -2,4 +2,5 @@
 
 ## Progress
 - [x] Task 1: trdKey helper; health I001, consistency and objective-job-index pair on it — RED 3f8f4425, GREEN 3235b127
-- [ ] Task 2: find-objective, verify objective-completeness and gate-executor-stop agree — RED committed (this commit); next step: in plugins/devflow/devflow/bin/lib/objective.cjs searchObjectiveInDir and plugins/devflow/devflow/bin/lib/verify.cjs cmdVerifyObjectiveCompleteness compare `trdKey` on both sides, and widen summaryExists in plugins/devflow/hooks/gate-executor-stop.js to an exact-name fast path then a readdir regex `^<escaped id>(?:-.+)?-SUMMARY\.md$`; then run summary-pairing, objective, hook and reconcile tests, record before/after I001 counts for this repo, and commit `fix(53-02): ...`
+- [x] Task 2: find-objective, verify objective-completeness and gate-executor-stop agree — RED 463a435e, GREEN (this commit)
+- [ ] Wrap-up: write the final SUMMARY (evidence tables, I001 before/after, Self-Check), then run state advance-job, update-progress, record-metric, record-session, roadmap update-job-progress and requirements mark-complete 53-2, and commit the docs
