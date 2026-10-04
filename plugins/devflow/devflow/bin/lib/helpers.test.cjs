@@ -102,3 +102,63 @@ describe('localDate() — the local calendar date, never the UTC date', () => {
     assert.ok(got === fmt(before) || got === fmt(after), `got ${got}, expected ${fmt(before)} or ${fmt(after)}`);
   });
 });
+
+// ─── trdKey (TRD 53-02) ──────────────────────────────────────────────────────
+// One pairing key for a TRD/JOB/SUMMARY file name: the `NN-MM` prefix, so
+// `NN-MM-<slug>-TRD.md` pairs with `NN-MM-SUMMARY.md` and `NN-MM-<slug>-SUMMARY.md` alike.
+
+describe('trdKey() — the NN-MM pairing key of a TRD/JOB/SUMMARY file name', () => {
+  const { trdKey } = helpers;
+
+  test('is exported as a function', () => {
+    assert.strictEqual(typeof trdKey, 'function');
+  });
+
+  test('named TRD, short SUMMARY and named SUMMARY share one key', () => {
+    assert.strictEqual(trdKey('07-01-alpha-TRD.md'), '07-01');
+    assert.strictEqual(trdKey('07-01-SUMMARY.md'), '07-01');
+    assert.strictEqual(trdKey('07-01-alpha-SUMMARY.md'), '07-01');
+  });
+
+  test('unnamed TRD pairs with unnamed SUMMARY', () => {
+    assert.strictEqual(trdKey('07-04-TRD.md'), '07-04');
+    assert.strictEqual(trdKey('07-04-SUMMARY.md'), '07-04');
+  });
+
+  test('legacy JOB files key the same way', () => {
+    assert.strictEqual(trdKey('01-02-JOB.md'), '01-02');
+  });
+
+  test('decimal objectives keep their decimal part', () => {
+    assert.strictEqual(trdKey('07.1-02-x-TRD.md'), '07.1-02');
+    assert.strictEqual(trdKey('07.1-02-SUMMARY.md'), '07.1-02');
+  });
+
+  test('a multi-word slug does not confuse the key', () => {
+    assert.strictEqual(trdKey('52-01-commit-follow-ups-TRD.md'), '52-01');
+    assert.strictEqual(trdKey('07-01-2fa-setup-TRD.md'), '07-01');
+  });
+
+  test('bare TRD.md / JOB.md / SUMMARY.md key to the empty string (legacy strip)', () => {
+    assert.strictEqual(trdKey('TRD.md'), '');
+    assert.strictEqual(trdKey('JOB.md'), '');
+    assert.strictEqual(trdKey('SUMMARY.md'), '');
+  });
+
+  test('a name without an NN-MM prefix falls back to the legacy suffix strip', () => {
+    assert.strictEqual(trdKey('notes-SUMMARY.md'), 'notes');
+    assert.strictEqual(trdKey('notes-TRD.md'), 'notes');
+  });
+
+  test('matches case-insensitively, like the verify.cjs readers', () => {
+    assert.strictEqual(trdKey('07-01-alpha-trd.md'), '07-01');
+    assert.strictEqual(trdKey('07-01-summary.md'), '07-01');
+  });
+
+  test('07-1 and 07-10 are different keys (no string-prefix pairing)', () => {
+    assert.notStrictEqual(trdKey('07-1-x-TRD.md'), trdKey('07-10-SUMMARY.md'));
+    assert.strictEqual(trdKey('07-1-x-TRD.md'), '07-1');
+    assert.strictEqual(trdKey('07-10-SUMMARY.md'), '07-10');
+    assert.strictEqual(trdKey('07-010-SUMMARY.md'), '07-010');
+  });
+});

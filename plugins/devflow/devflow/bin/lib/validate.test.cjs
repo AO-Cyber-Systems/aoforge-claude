@@ -1736,3 +1736,103 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
     );
   });
 });
+
+// ─── TRD 53-02: summary pairing on the NN-MM key ─────────────────────────────
+// Executors and `summary post` write `NN-MM-SUMMARY.md`; planners name TRDs
+// `NN-MM-<slug>-TRD.md`. Health (Check 7, I001) and the consistency orphan check
+// must pair on the `NN-MM` key, so either summary name completes a named TRD.
+
+describe('TRD 53-02: I001 and the orphan-summary warning pair on the NN-MM key', () => {
+  const { cmdValidateConsistency } = require('./validate.cjs');
+
+  const TRD_BODY = '---\nobjective: 07-demo\n---\n\n# TRD\n';
+  const SUMMARY_BODY = '# Summary\n\n## Self-Check: PASSED\n';
+
+  function makeObjective(files) {
+    const root = makePlanningProject();
+    const dir = path.join(root, '.planning', 'objectives', '07-demo');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body);
+    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n\n### Objective 07: demo\n');
+    return root;
+  }
+
+  function i001(json) {
+    return json.info.filter((i) => i.code === 'I001').map((i) => i.message);
+  }
+
+  function health(root) {
+    tmpHome = makeHome();
+    return runHealth(root, { homeDir: tmpHome, mainVersionFn: () => null }, true).json;
+  }
+
+  // cmdValidateConsistency ends in output() -> process.exit(0); capture both like runHealth.
+  function consistencyWarnings(root) {
+    const chunks = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    const origExit = process.exit.bind(process);
+    process.stdout.write = (c) => { chunks.push(c); return true; };
+    process.exit = (code) => { throw new Error(`process.exit(${code})`); };
+    try {
+      cmdValidateConsistency(root, false); // raw=false prints the JSON report, raw=true only "passed"/"failed"
+    } catch (e) {
+      if (!e.message.startsWith('process.exit')) throw e;
+    } finally {
+      process.stdout.write = origWrite;
+      process.exit = origExit;
+    }
+    return JSON.parse(chunks[chunks.length - 1]).warnings;
+  }
+
+  test('2a. Check 7: a named TRD with a short-name summary has no I001', () => {
+    tmpProject = makeObjective({ '07-01-alpha-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), []);
+  });
+
+  test('2b. Check 7: a named TRD with a long-name summary has no I001', () => {
+    tmpProject = makeObjective({ '07-02-beta-TRD.md': TRD_BODY, '07-02-beta-SUMMARY.md': SUMMARY_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), []);
+  });
+
+  test('2c. Check 7: a named TRD with no summary still reports I001', () => {
+    tmpProject = makeObjective({ '07-03-gamma-TRD.md': TRD_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), ['07-demo/07-03-gamma-TRD.md has no SUMMARY.md']);
+  });
+
+  test('2d. Check 7: another TRD\'s summary does not satisfy it (07-1 vs 07-10)', () => {
+    tmpProject = makeObjective({ '07-1-x-TRD.md': TRD_BODY, '07-10-SUMMARY.md': SUMMARY_BODY });
+    assert.deepStrictEqual(i001(health(tmpProject)), ['07-demo/07-1-x-TRD.md has no SUMMARY.md']);
+  });
+
+  const LEGACY_SHAPES = [
+    ['NN-MM-TRD.md / NN-MM-SUMMARY.md', { '07-01-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY }],
+    ['NN-MM-JOB.md / NN-MM-SUMMARY.md', { '07-02-JOB.md': TRD_BODY, '07-02-SUMMARY.md': SUMMARY_BODY }],
+    ['decimal 07.1-02-x-TRD.md / 07.1-02-SUMMARY.md', { '07.1-02-x-TRD.md': TRD_BODY, '07.1-02-SUMMARY.md': SUMMARY_BODY }],
+    ['bare TRD.md / SUMMARY.md', { 'TRD.md': TRD_BODY, 'SUMMARY.md': SUMMARY_BODY }],
+  ];
+  for (const [name, files] of LEGACY_SHAPES) {
+    test(`2e. Check 7: legacy shape still pairs (${name})`, () => {
+      tmpProject = makeObjective(files);
+      assert.deepStrictEqual(i001(health(tmpProject)), []);
+    });
+  }
+
+  test('3a. consistency: 07-01-SUMMARY.md beside 07-01-alpha-TRD.md is not an orphan', () => {
+    tmpProject = makeObjective({ '07-01-alpha-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY });
+    const orphans = consistencyWarnings(tmpProject).filter((w) => /has no matching TRD\.md or JOB\.md/.test(w));
+    assert.deepStrictEqual(orphans, []);
+  });
+
+  test('3b. consistency: a long-name summary beside its named TRD is not an orphan', () => {
+    tmpProject = makeObjective({ '07-02-beta-TRD.md': TRD_BODY, '07-02-beta-SUMMARY.md': SUMMARY_BODY });
+    const orphans = consistencyWarnings(tmpProject).filter((w) => /has no matching TRD\.md or JOB\.md/.test(w));
+    assert.deepStrictEqual(orphans, []);
+  });
+
+  test('3c. consistency: 07-09-SUMMARY.md with no 07-09 TRD still warns, naming the file', () => {
+    tmpProject = makeObjective({ '07-01-alpha-TRD.md': TRD_BODY, '07-01-SUMMARY.md': SUMMARY_BODY, '07-09-SUMMARY.md': SUMMARY_BODY });
+    const orphans = consistencyWarnings(tmpProject).filter((w) => /has no matching TRD\.md or JOB\.md/.test(w));
+    assert.strictEqual(orphans.length, 1, JSON.stringify(orphans));
+    assert.match(orphans[0], /^Summary 07-09-SUMMARY\.md in 07-demo has no matching TRD\.md or JOB\.md$/);
+  });
+});
