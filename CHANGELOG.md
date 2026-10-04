@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.13.1] - 2026-10-04
+
 ### Fixed
 - Objective-number matching in `roadmap analyze`, `roadmap update-job-progress`, `workstreams analyze` and `workstreams reconcile`,
   `objective remove` and `objective complete`, and in the novel-domain and trd-pre-check detectors no longer confuses `1` with `12`

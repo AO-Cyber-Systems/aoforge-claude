@@ -2,7 +2,7 @@
 objective: 54-codeql-cleanup
 kind: plugin
 work: bugfix
-status: registered
+status: complete
 milestone: v1.4
 ---
 
