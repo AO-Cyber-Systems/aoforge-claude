@@ -420,3 +420,75 @@ describe('config-get documented defaults', () => {
 test('46-08: github.project_cache_ttl_minutes is documented with a default of 360', () => {
   assert.deepStrictEqual(documentedDefault('github.project_cache_ttl_minutes'), { known: true, value: 360 });
 });
+
+// ─── TRD 54-02 (54-E): config-set refuses reserved object-property key segments ──
+//
+// CodeQL js/prototype-pollution-utility (alert 89): cmdConfigSet walks `keyPath.split('.')` from
+// argv and assigns through it, so `config-set __proto__.polluted 1` walked into Object.prototype.
+// The real df-tools is spawned with `--cwd <tmp>` so no case touches this repo's config.json.
+
+function runConfigSet(dir, args) {
+  const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', dir, 'config-set', ...args], {
+    encoding: 'utf-8',
+  });
+  return { stdout: r.stdout, stderr: r.stderr, status: r.status };
+}
+
+describe('config-set reserved key segments (54-E)', () => {
+  const made = [];
+
+  function projectWith(configObj) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-config-set-'));
+    made.push(dir);
+    buildPlanningDirWithConfig(dir, configObj);
+    return dir;
+  }
+
+  const configBytes = (dir) => fs.readFileSync(path.join(dir, '.planning', 'config.json'));
+
+  afterEach(() => {
+    while (made.length) fs.rmSync(made.pop(), { recursive: true, force: true });
+  });
+
+  /** Run a refused config-set and assert exit 1, the segment named on stderr, config.json untouched. */
+  function assertRefused(args, segment) {
+    const dir = projectWith({ mode: 'autonomous', workflow: { research: true } });
+    const before = configBytes(dir);
+    const r = runConfigSet(dir, args);
+    assert.strictEqual(r.status, 1, `${args[0]} must exit 1; stdout=${r.stdout} stderr=${r.stderr}`);
+    assert.ok(r.stderr.includes(segment), `stderr must name "${segment}": ${r.stderr}`);
+    assert.ok(configBytes(dir).equals(before), 'config.json must be byte-identical after a refused key');
+  }
+
+  test('E5: __proto__.polluted is refused, names __proto__, leaves config.json unchanged', () => {
+    assertRefused(['__proto__.polluted', '1'], '__proto__');
+  });
+
+  test('E6: constructor.prototype.polluted is refused and names constructor', () => {
+    assertRefused(['constructor.prototype.polluted', '1'], 'constructor');
+  });
+
+  test('E7: a reserved segment in the middle (workflow.__proto__.x) is refused', () => {
+    assertRefused(['workflow.__proto__.x', '1'], '__proto__');
+  });
+
+  test('E8: a reserved segment last (workflow.prototype) is refused', () => {
+    assertRefused(['workflow.prototype', '1'], 'prototype');
+  });
+
+  test('E9: an ordinary dotted key still works (workflow.research false)', () => {
+    const dir = projectWith({ mode: 'autonomous', workflow: { research: true } });
+    const r = runConfigSet(dir, ['workflow.research', 'false']);
+    assert.strictEqual(r.status, 0, r.stderr);
+    const saved = JSON.parse(configBytes(dir).toString('utf-8'));
+    assert.strictEqual(saved.workflow.research, false);
+    assert.strictEqual(saved.mode, 'autonomous', 'sibling keys are preserved');
+  });
+
+  test('E10: only exact segment names are reserved (prototype_x is allowed)', () => {
+    const dir = projectWith({ mode: 'autonomous' });
+    const r = runConfigSet(dir, ['prototype_x', '1']);
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.strictEqual(JSON.parse(configBytes(dir).toString('utf-8')).prototype_x, 1);
+  });
+});
