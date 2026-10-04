@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Objective-number matching in `roadmap analyze`, `roadmap update-job-progress`, `workstreams analyze` and `workstreams reconcile`,
+  `objective remove` and `objective complete`, and in the novel-domain and trd-pre-check detectors no longer confuses `1` with `12`
+  or `4.1` with `4.10` or `401`. Every site builds its pattern with one shared helper, `objectiveNumPattern` in
+  `lib/text-escape.cjs`, which escapes every metacharacter and adds a trailing boundary.
+- `objective complete` reads the Requirements line from the objective's own ROADMAP section, and no longer throws
+  `Unterminated group` when that line is free text (each requirement ID is escaped). An objective that exists only as a checklist
+  line, with no `### Objective N:` section, now updates no requirements.
+- `changelog check` finds SemVer entries with build metadata (`1.0.0+build.1`).
+- The OBJECTIVE.md bootstrap takes the name and goal from the right heading for decimal objectives, and no longer borrows the next
+  section's goal.
+- ADOPT-REPORT.md and STACK-REPORT.md escape table cells once, at render, backslash first and then pipe, so a value cannot add or
+  remove a column. The ADOPT high-confidence table now has a valid three-column delimiter row.
+
+### Security
+- `config-set` refuses `__proto__`, `constructor` and `prototype` key segments, exits 1 and leaves `config.json` unchanged
+  (prototype pollution, CodeQL alert 89).
+- Regexes built from objective numbers and versions escape every metacharacter through that one helper (CodeQL
+  `js/regex-injection`, `js/incomplete-sanitization`). The four earlier copies of the escape function are gone.
+- `stack init` notes neutralise every HTML comment terminator, including `--!>` (`js/bad-tag-filter`). Flags such as `--no-pub` stay
+  copyable.
+- The unit-suite and agent-shell-harness workflows run with a read-only `GITHUB_TOKEN` (`contents: read`), and a repo test requires
+  every workflow to declare its permissions.
+- Tests spawn df-tools with `execFileSync` and an argv array instead of shell strings
+  (`js/shell-command-injection-from-environment`).
+
 ## [2.13.0] - 2026-10-04
 
 ### Added
