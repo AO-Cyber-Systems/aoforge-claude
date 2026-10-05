@@ -4,6 +4,11 @@
 // medians, P90s and dollars. The result depends only on the inputs: no wall-clock value is read anywhere, so a rebuild
 // over unchanged inputs is byte-identical (see stableStringify and writeCalibration).
 
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 const ci = require('./calibration-inputs.cjs');
 
 const CALIBRATION_VERSION = 1;
@@ -188,6 +193,67 @@ function latestCompleted(projectList) {
   return latest;
 }
 
+// ─── Canonical text ───────────────────────────────────────────────────────────
+
+function sortKeysDeep(value) {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === 'object') {
+    const copy = {};
+    for (const key of Object.keys(value).sort()) copy[key] = sortKeysDeep(value[key]);
+    return copy;
+  }
+  return value;
+}
+
+/**
+ * calibration.json text: a key-sorted deep copy (at every depth, arrays keep their order), 2-space indent and a
+ * trailing newline. People read this file, so it is not the one-line form gh-mapping.canonicalJson emits.
+ */
+function stableStringify(value) {
+  return JSON.stringify(sortKeysDeep(value), null, 2) + '\n';
+}
+
+// What the digest hashes about one TRD: only values read from the inputs, never a path or an mtime, and only the parts
+// that can change the output (a task's name and a duration's spelling cannot, so they are left out).
+function normalizedTrd(project, trd) {
+  const s = trd.summary;
+  return {
+    project,
+    objective_dir: trd.objective_dir,
+    id: trd.id,
+    trd_type: trd.trd_type,
+    autonomous: trd.autonomous,
+    gap_closure: trd.gap_closure,
+    tasks: trd.tasks.map((t) => ({ type: t.type, tdd: t.tdd, files: t.files })),
+    minutes: trd.minutes,
+    duration_source: trd.duration_source,
+    summary: s === null ? null : {
+      minutes: s.minutes,
+      completed: s.completed,
+      tokens_input: s.tokens_input,
+      tokens_output: s.tokens_output,
+      tokens_cache_read: s.tokens_cache_read,
+      tokens_cache_write: s.tokens_cache_write,
+      token_model: s.token_model,
+    },
+    metric_minutes: trd.metric === null ? null : trd.metric.minutes,
+  };
+}
+
+function inputsDigest(projectList, rates, sources) {
+  const trds = projectList
+    .flatMap((project) => project.trds.map((trd) => normalizedTrd(project.label, trd)))
+    .sort((a, b) => compareStrings(a.project, b.project)
+      || compareStrings(a.objective_dir, b.objective_dir) || compareStrings(a.id, b.id));
+  const payload = {
+    classifier_version: ci.CLASSIFIER_VERSION,
+    rates: { models: rates.models, aliases: rates.aliases },
+    trds,
+    sources, // metric rows that joined no TRD change the output, so they belong to the inputs too
+  };
+  return `sha256:${crypto.createHash('sha256').update(stableStringify(payload)).digest('hex')}`;
+}
+
 // ─── The calibration ──────────────────────────────────────────────────────────
 
 /**
@@ -229,17 +295,20 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH } = {}) {
     }
   }
 
+  const sources = projectList.map(sourceCounts).sort((a, b) => compareStrings(a.project, b.project));
+
   return {
     version: CALIBRATION_VERSION,
     classifier_version: ci.CLASSIFIER_VERSION,
     data_as_of: latestCompleted(projectList),
+    inputs_digest: inputsDigest(projectList, rates, sources),
     notes: [...NOTES],
     samples: {
       trds: samples.length,
       tasks: tasks.length,
       with_tokens: samples.filter((s) => s.with_tokens).length,
     },
-    sources: projectList.map(sourceCounts).sort((a, b) => compareStrings(a.project, b.project)),
+    sources,
     trd_level: {
       samples: samples.length,
       minutes: statBlock(samples.map((s) => s.minutes), roundMinutes),
@@ -260,10 +329,49 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH } = {}) {
   };
 }
 
+// ─── Where it is written ──────────────────────────────────────────────────────
+
+/** `DEVFLOW_CALIBRATION_PATH`, else `<HOME>/.claude/devflow/calibration.json`; HOME is read per call, never at load. */
+function defaultCalibrationPath(env = process.env) {
+  return env.DEVFLOW_CALIBRATION_PATH || path.join(os.homedir(), '.claude', 'devflow', 'calibration.json');
+}
+
+/**
+ * Writes `obj` as calibration.json text, but only when the bytes differ from what is already there, so an unchanged
+ * history leaves the file (and its mtime) alone. An explicit `outPath` never resolves the home directory.
+ * @returns {{path:string, changed:boolean, bytes:number}}
+ */
+function writeCalibration(outPath, obj) {
+  const target = outPath || defaultCalibrationPath();
+  const text = stableStringify(obj);
+  const bytes = Buffer.byteLength(text);
+  let existing = null;
+  try {
+    existing = fs.readFileSync(target, 'utf-8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw new Error(`cannot read calibration ${target}: ${err.message}`);
+  }
+  if (existing === text) return { path: target, changed: false, bytes };
+
+  const tmp = `${target}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    if (fs.existsSync(tmp)) fs.rmSync(tmp, { force: true });
+    throw new Error(`cannot write calibration ${target}: ${err.message}`);
+  }
+  return { path: target, changed: true, bytes };
+}
+
 module.exports = {
   CALIBRATION_VERSION,
   nearestRank,
   statBlock,
   sampleCost,
   buildCalibration,
+  stableStringify,
+  writeCalibration,
+  defaultCalibrationPath,
 };
