@@ -36,6 +36,7 @@ const ghComments = require('./gh-comments.cjs');
 const ghCapability = require('./gh-capability.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── Small helpers ───────────────────────────────────────────────────────────
 
@@ -264,8 +265,6 @@ function configuredMilestonePrefix(root) {
   return gh.milestone_prefix || 'v';
 }
 
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** The SUMMARY files of every TRD: `<prefix>-SUMMARY.md` or `<prefix>-<slug>-SUMMARY.md`. */
 function findSummaries(base, trds, warnings) {
   const files = listFiles(base);
@@ -273,7 +272,7 @@ function findSummaries(base, trds, warnings) {
   for (const t of trds) {
     const parts = parseTrdFile(t.file);
     if (!parts) continue;
-    const re = new RegExp(`^${escapeRe(parts.prefix)}-(?:.*-)?SUMMARY\\.md$`);
+    const re = new RegExp(`^${escapeRegExp(parts.prefix)}-(?:.*-)?SUMMARY\\.md$`);
     const hits = files.filter((f) => re.test(f));
     if (hits.length === 0) continue;
     if (hits.length > 1) warnings.push(`${t.id}: ${hits.length} SUMMARY files (${hits.join(', ')}); pushing ${hits[0]}`);
