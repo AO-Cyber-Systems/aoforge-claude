@@ -658,6 +658,8 @@ function cmdProgressRender(cwd, format, raw) {
 
 module.exports = {
   ROADMAP_STORE_SKIP,
+  parseMilestoneBullets,
+  pickMilestone,
   getMilestoneInfo,
   getRoadmapObjectiveInternal,
   cmdRoadmapGetObjective,

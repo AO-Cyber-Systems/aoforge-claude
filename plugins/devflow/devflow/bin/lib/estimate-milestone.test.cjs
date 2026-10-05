@@ -6,6 +6,8 @@
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 
 const milestone = require('./estimate-milestone.cjs');
 const roadmap = require('./roadmap.cjs');
@@ -119,6 +121,40 @@ test('5b. singles join the ranges; a single with neither a directory nor a secti
     assert.deepEqual(sel.absent, ['90']);
   } finally {
     removeEstimateProject(mixed);
+  }
+});
+
+test('5c. an archived objective directory counts as the objective\'s directory, a current one wins', () => {
+  const archived = makeEstimateProject(MILESTONE_SPEC);
+  try {
+    const archive = path.join(archived, '.planning', 'milestones', 'v0.9-objectives');
+    fs.mkdirSync(path.join(archive, '70-legacy'), { recursive: true });
+    fs.mkdirSync(path.join(archive, '80-stale'), { recursive: true });
+    const sel = milestone.selectMilestoneObjectives(archived, { version: 'v0.9' });
+    assert.deepEqual(numbers(sel), ['70']);
+    assert.equal(sel.objectives[0].name, 'legacy');
+    assert.equal(sel.objectives[0].dir, '.planning/milestones/v0.9-objectives/70-legacy');
+    assert.deepEqual(sel.absent, ['71', '72', '73', '74', '75', '76', '77', '78', '79']);
+    // 80 exists in the current objectives too; the current directory is the one listed.
+    const now = milestone.selectMilestoneObjectives(archived);
+    assert.equal(now.objectives[0].dir, '.planning/objectives/80-alpha');
+  } finally {
+    removeEstimateProject(archived);
+  }
+});
+
+test('5d. a ROADMAP.md that is missing, or has no milestone bullet, is an error that names the problem', () => {
+  const none = makeEstimateProject({ ...MILESTONE_SPEC, roadmap: undefined });
+  try {
+    assert.throws(() => milestone.selectMilestoneObjectives(none), /ROADMAP\.md not found/);
+  } finally {
+    removeEstimateProject(none);
+  }
+  const bare = makeEstimateProject({ ...MILESTONE_SPEC, roadmap: '# Roadmap\n\n### Objective 80: Alpha\n' });
+  try {
+    assert.throws(() => milestone.selectMilestoneObjectives(bare), /no milestone in ROADMAP\.md/);
+  } finally {
+    removeEstimateProject(bare);
   }
 });
 
