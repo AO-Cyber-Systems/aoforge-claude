@@ -9,14 +9,21 @@
  *   df-tools estimate trd <trd-id|path>
  *   df-tools estimate objective <N> [--all] [--table|--line]
  *   df-tools estimate milestone [vX.Y] [--table|--line]
+ *   df-tools estimate start <N> | wave <N> <wave> (--start|--done) | finish <N>      (the run verbs, below)
  *
- * Every form takes `[--calibration <file>] [--raw]`. The calibration is `--calibration` (relative to cwd), else
+ * Every form but `finish` takes `[--calibration <file>]`, and every form `[--raw]`. The calibration is `--calibration` (relative to cwd), else
  * DEVFLOW_CALIBRATION_PATH, else ~/.claude/devflow/calibration.json.
  *
  * Output: the JSON result by default (rounded once, see estimate-format.roundResult; every result carries `line`, the
  * objective and milestone ones also `table`, plus `calibration: {path, version, data_as_of, samples}`). `--raw` prints the
  * text instead: the table for objective and milestone with `--table`, otherwise the one line. The text is what the
  * planner, build and execute-objective prose paste.
+ *
+ * The run verbs are the only writer of the run state the status line reads (estimate-run-store.cjs, kept outside the
+ * repository under DEVFLOW_ESTIMATE_STATE_DIR or ~/.claude/devflow/state/estimates): `start` estimates the objective's
+ * remaining TRDs and records its waves, `wave --start|--done` records one wave's timing and prints actual against the
+ * estimate, `finish` closes the run and prints the execution time against the execution estimate. They work without a
+ * calibration too (the estimates are then null and the text says why), and a verb with nothing to report is exit 0.
  *
  * Exit 0 for every estimate, including "no estimate": a missing, unreadable or mismatched calibration is
  * `{available: false, reason, calibration_path}` and the text `No estimate: <reason>`, never a number. Exit 1 (an
@@ -35,6 +42,7 @@ const est = require('./estimate.cjs');
 const fmt = require('./estimate-format.cjs');
 const milestone = require('./estimate-milestone.cjs');
 const rollup = require('./estimate-rollup.cjs');
+const store = require('./estimate-run-store.cjs');
 
 const FORMS = [
   'df-tools estimate task (--files <a[,b]> [--tdd] [--trd-type <t>] | --class <name> | --checkpoint) [--calibration <file>] [--raw]',
@@ -53,9 +61,13 @@ const SPECS = {
   trd: { values: ['calibration'], bools: [], min: 1, max: 1, what: 'a TRD id (NN-MM) or the path of a -TRD.md file' },
   objective: { values: ['calibration'], bools: ['all', 'table', 'line'], min: 1, max: 1, what: 'an objective number' },
   milestone: { values: ['calibration'], bools: ['table', 'line'], min: 0, max: 1, what: 'a milestone version like v1.0' },
+  start: { values: ['calibration'], bools: [], min: 1, max: 1, what: 'an objective number' },
+  wave: { values: ['calibration'], bools: ['start', 'done'], min: 2, max: 2, what: 'an objective number and a wave number' },
+  finish: { values: [], bools: [], min: 1, max: 1, what: 'an objective number' },
 };
 
 const OBJECTIVE_NUMBER = /^\d+(?:\.\d+)?$/;
+const WAVE_NUMBER = /^[1-9]\d*$/;
 const MILESTONE_VERSION = /^v?\d+(?:\.\d+)*$/i;
 
 function usageError(message) {
@@ -120,7 +132,14 @@ function validate(parsed) {
   if ((sub === 'objective' || sub === 'milestone') && bools.table && bools.line) {
     return usageError('--table and --line cannot be used together');
   }
-  if (sub === 'objective' && !OBJECTIVE_NUMBER.test(positionals[0])) {
+  if (sub === 'wave') {
+    if (bools.start && bools.done) return usageError('--start and --done cannot be used together');
+    if (!bools.start && !bools.done) return usageError('wave needs --start or --done');
+    if (!WAVE_NUMBER.test(positionals[1])) {
+      return usageError(`wave number must be a whole number from 1, got ${JSON.stringify(positionals[1])}`);
+    }
+  }
+  if (['objective', 'start', 'wave', 'finish'].includes(sub) && !OBJECTIVE_NUMBER.test(positionals[0])) {
     return usageError(`objective number must look like 58 or 4.1, got ${JSON.stringify(positionals[0])}`);
   }
   if (sub === 'milestone' && positionals.length === 1 && !MILESTONE_VERSION.test(positionals[0])) {
@@ -213,11 +232,214 @@ function runMilestone(parsed, env, base) {
   return { ok: true, result: { ...fmt.roundResult(full), line, table }, text, exit: 0 };
 }
 
+// ─── Run verbs ────────────────────────────────────────────────────────────────
+
+const MS_PER_MINUTE = 60 * 1000;
+const isoOf = (ms) => new Date(ms).toISOString();
+
+/** The directory that holds `.planning`, which keys the run state; cwd itself when there is none above it. */
+const runRoot = (base) => store.findProjectRoot(base) || base;
+
+function newWave(wave, trds, minutes) {
+  return {
+    wave,
+    trds,
+    p50: minutes ? minutes.p50 : null,
+    p90: minutes ? minutes.p90 : null,
+    started_at: null,
+    finished_at: null,
+    actual_minutes: null,
+  };
+}
+
+/** The waves of the objective's remaining TRDs read from their frontmatter, for when there is no estimate to take them from. */
+function wavesFromFrontmatter(trds) {
+  const byWave = new Map();
+  for (const trd of trds) {
+    const fm = ci.readTrdTasks(trd.text).frontmatter;
+    const wave = parseInt(fm && fm.wave, 10) || 1;
+    if (!byWave.has(wave)) byWave.set(wave, []);
+    byWave.get(wave).push(trd.id);
+  }
+  return [...byWave.keys()].sort((a, b) => a - b).map((wave) => newWave(wave, byWave.get(wave), null));
+}
+
+/**
+ * What a run is made of: the objective's remaining waves with their estimates, the line that says so and the `estimate`
+ * block for the run state. With no usable calibration the waves carry null estimates and the line says why.
+ * @throws {Error} `objective <N> not found`
+ */
+function planObjective(base, objective, loaded) {
+  if (!loaded.ok) {
+    const waves = wavesFromFrontmatter(rollup.remainingTrds(base, objective).trds);
+    const line = `No estimate: ${loaded.reason}`;
+    return { waves, line, estimate: { line, wall_minutes: null, confidence: 'none' }, output: null };
+  }
+  const result = rollup.estimateObjective(loaded.cal, base, objective);
+  const output = objectiveOutput(result, loaded, false);
+  return {
+    waves: result.waves.map((w) => newWave(w.wave, w.trds, w.wall_minutes)),
+    line: output.line,
+    estimate: { line: output.line, wall_minutes: result.execution ? result.execution.wall_minutes : null, confidence: result.confidence },
+    output,
+  };
+}
+
+/** A new run state at `now` (nothing started). */
+function newRunState(objective, plan, now) {
+  const stamp = isoOf(now);
+  return {
+    version: store.STATE_VERSION,
+    objective: String(objective),
+    started_at: stamp,
+    updated_at: stamp,
+    finished_at: null,
+    estimate: plan.estimate,
+    waves: plan.waves,
+  };
+}
+
+/** A run is live when it is for this objective, not finished and not idle for longer than the status line's staleness limit. */
+function isLive(state, objective, now) {
+  if (!state || state.objective !== String(objective) || state.finished_at) return false;
+  const updated = Date.parse(state.updated_at);
+  return Number.isFinite(updated) && now - updated <= store.STALE_MS;
+}
+
+function minutesOrNull(p50, p90) {
+  return p50 === null || p50 === undefined ? null : { p50, p90 };
+}
+
+function runStart(parsed, env, base, now) {
+  const objective = parsed.positionals[0];
+  const loaded = loadCal(parsed.flags, env, base);
+  const plan = planObjective(base, objective, loaded);
+  const state = newRunState(objective, plan, now);
+  const written = store.writeRunState(runRoot(base), state, { env });
+  const runState = { path: written.path, waves: state.waves.length };
+
+  if (!loaded.ok) {
+    const none = noEstimateResult(loaded, true);
+    return { ...none, result: { ...none.result, run_state: runState } };
+  }
+  const { full, line, table } = plan.output;
+  return { ok: true, result: { ...fmt.roundResult(full), line, table, run_state: runState }, text: line, exit: 0 };
+}
+
+function runWave(parsed, env, base, now) {
+  const [objective, waveText] = parsed.positionals;
+  const waveNo = Number(waveText);
+  const root = runRoot(base);
+  const state = store.readRunState(root, { env });
+  return parsed.bools.start
+    ? waveStart({ objective, waveNo, root, state, parsed, env, base, now })
+    : waveDone({ objective, waveNo, root, state, env, now });
+}
+
+function waveStart({ objective, waveNo, root, state, parsed, env, base, now }) {
+  let created = false;
+  let run = state;
+  if (!isLive(run, objective, now)) {
+    run = newRunState(objective, planObjective(base, objective, loadCal(parsed.flags, env, base)), now);
+    created = true;
+  }
+  let wave = run.waves.find((w) => w.wave === waveNo);
+  if (!wave) {
+    // A wave the run does not hold (a gap-closure wave added after the start): estimated now, or recorded without one.
+    try {
+      const plan = planObjective(base, objective, loadCal(parsed.flags, env, base));
+      wave = plan.waves.find((w) => w.wave === waveNo);
+    } catch {
+      wave = undefined;
+    }
+    if (!wave) wave = newWave(waveNo, [], null);
+    run.waves.push(wave);
+    run.waves.sort((a, b) => a.wave - b.wave);
+  }
+  if (!wave.started_at) wave.started_at = isoOf(now);
+  run.updated_at = isoOf(now);
+  const written = store.writeRunState(root, run, { env });
+
+  const text = fmt.waveStartLine({ wave: waveNo, p50: wave.p50, p90: wave.p90 });
+  const result = {
+    objective: String(objective),
+    wave: waveNo,
+    minutes: minutesOrNull(wave.p50, wave.p90),
+    started_at: wave.started_at,
+    run_state: { path: written.path, created },
+    line: text,
+  };
+  return { ok: true, result: fmt.roundResult(result), text, exit: 0 };
+}
+
+function waveDone({ objective, waveNo, root, state, env, now }) {
+  const unknown = (why) => {
+    const text = `Wave ${waveNo}: actual unknown (${why})`;
+    return { ok: true, result: { objective: String(objective), wave: waveNo, actual_minutes: null, verdict: null, line: text }, text, exit: 0 };
+  };
+  if (!state || state.objective !== String(objective) || state.finished_at) return unknown('no run state');
+  const wave = state.waves.find((w) => w.wave === waveNo);
+  if (!wave || !wave.started_at) return unknown('the wave was not started');
+
+  if (!wave.finished_at) {
+    const started = Date.parse(wave.started_at);
+    wave.finished_at = isoOf(now);
+    wave.actual_minutes = Number.isFinite(started) ? Math.max(0, (now - started) / MS_PER_MINUTE) : null;
+    state.updated_at = isoOf(now);
+    store.writeRunState(root, state, { env });
+  }
+  const estimate = minutesOrNull(wave.p50, wave.p90);
+  const text = fmt.waveDoneLine({ wave: waveNo, actual: wave.actual_minutes, p50: wave.p50, p90: wave.p90 });
+  const result = {
+    objective: String(objective),
+    wave: waveNo,
+    actual_minutes: wave.actual_minutes,
+    minutes: estimate,
+    verdict: fmt.verdict(wave.actual_minutes, estimate),
+    finished_at: wave.finished_at,
+    line: text,
+  };
+  return { ok: true, result: fmt.roundResult(result), text, exit: 0 };
+}
+
+function runFinish(parsed, env, base, now) {
+  const objective = parsed.positionals[0];
+  const root = runRoot(base);
+  const state = store.readRunState(root, { env });
+  if (!state || state.objective !== String(objective)) {
+    const text = `Objective ${objective} execution: actual unknown (no run state)`;
+    return { ok: true, result: { objective: String(objective), actual_minutes: null, verdict: null, line: text }, text, exit: 0 };
+  }
+  if (!state.finished_at) {
+    state.finished_at = isoOf(now);
+    state.updated_at = isoOf(now);
+    store.writeRunState(root, state, { env });
+  }
+  const started = Date.parse(state.started_at);
+  const finished = Date.parse(state.finished_at);
+  const actual = Number.isFinite(started) && Number.isFinite(finished) ? Math.max(0, (finished - started) / MS_PER_MINUTE) : null;
+  const wall = state.estimate && state.estimate.wall_minutes ? state.estimate.wall_minutes : null;
+  const text = fmt.finishLine({ objective, actual, wall });
+  const result = {
+    objective: String(objective),
+    actual_minutes: actual,
+    minutes: wall,
+    verdict: fmt.verdict(actual, wall),
+    started_at: state.started_at,
+    finished_at: state.finished_at,
+    line: text,
+  };
+  return { ok: true, result: fmt.roundResult(result), text, exit: 0 };
+}
+
 const HANDLERS = {
   task: runTask,
   trd: runTrd,
   objective: runObjective,
   milestone: runMilestone,
+  start: runStart,
+  wave: runWave,
+  finish: runFinish,
 };
 
 /**
