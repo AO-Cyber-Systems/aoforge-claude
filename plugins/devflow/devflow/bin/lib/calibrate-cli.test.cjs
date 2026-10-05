@@ -30,6 +30,7 @@ const { spawnSync } = require('node:child_process');
 const {
   makeCalibrationProject, removeCalibrationProject, ALPHA_SPEC,
 } = require('./__fixtures__/calibration-fixtures.cjs');
+const fx = require('./__fixtures__/transcript-fixtures.cjs');
 
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 const USAGE = /df-tools calibrate /;
@@ -187,7 +188,7 @@ describe('df-tools calibrate (end to end)', () => {
 
     assert.ok(fs.existsSync(out), 'the file exists');
     const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
-    assert.equal(written.version, 1);
+    assert.equal(written.version, 2);
     assert.equal(written.samples.trds, 5);
     assert.equal(written.inputs_digest, result.inputs_digest);
   });
@@ -360,7 +361,8 @@ describe('df-tools calibrate (end to end)', () => {
     const sb = sandbox();
     const beta = project(BETA_SPEC);
     const out = path.join(sb.tmp, 'c.json');
-    const tail = '5 TRDs, 7 tasks, 1 with tokens · classes code_tdd 5, doc 1, prompt 1';
+    // The fake HOME has no ~/.claude/projects, so the overhead scan runs and finds nothing.
+    const tail = '5 TRDs, 7 tasks, 1 with tokens · classes code_tdd 5, doc 1, prompt 1 · overhead none';
     const oneLine = (r) => {
       assert.equal(r.status, 0, r.stderr);
       const text = r.stdout.replace(/\n$/, '');
@@ -394,5 +396,147 @@ describe('df-tools calibrate (end to end)', () => {
     assert.equal(noValue.status, 1);
     assert.match(noValue.stderr, /--paths needs a value/);
     assert.equal(fs.existsSync(sb.defaultOut), false, 'no usage error writes the default file');
+  });
+});
+
+// ─── 58-03: agent overhead (--root, --no-overhead) ───────────────────────────
+//   1 no --root, fake HOME without .claude/projects: overhead is scanned and empty; --raw ends ` · overhead none`
+//   2 --root <troot>: planner 1 and verifier 1 matched, the foreign verifier counted; --raw lists them
+//   3 no --root: the default root is <HOME>/.claude/projects, resolved at call time
+//   4 --no-overhead: nothing scanned, in the result and in the file
+//   5 the same --root twice: byte-identical, changed:false
+//   6 --root with no value, and --root with --no-overhead, are usage errors
+// Every spawn has HOME = a fresh temp dir; the real ~/.claude/projects is never read.
+
+const EMPTY_OVERHEAD = { scanned: true, spawns: 0, matched: 0, foreign: 0, quick: 0, unreadable: 0, agents: {} };
+
+// A projects root holding a planner and a verifier for `repo` (session s1, agents p1 and v1), and a verifier spawned
+// from an unrelated directory.
+function overheadRoot(repo, root = fx.makeProjectsRoot()) {
+  if (!toRemove.some((r) => r.dir === root)) toRemove.push({ dir: root });
+  const foreign = tmpDir('df-calibrate-foreign-');
+  const write = (cwd, agentId, spawn) => fx.writeOverheadTranscript(root, {
+    projectKey: fx.projectKeyFor(cwd), session: 's1', agentId, spawn, cwd,
+  });
+  write(repo, 'p1', fx.PLANNER_SPAWN);
+  write(repo, 'v1', fx.VERIFIER_SPAWN);
+  write(foreign, 'f1', fx.VERIFIER_SPAWN);
+  return root;
+}
+
+describe('df-tools calibrate agent overhead (end to end)', () => {
+  test('58-03/1. with no --root and no ~/.claude/projects the scan runs and finds nothing', () => {
+    const sb = sandbox();
+    const beta = project(BETA_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    assert.equal(fs.existsSync(path.join(sb.home, '.claude', 'projects')), false);
+
+    const result = okJson(sb, sb.tmp, ['--paths', beta, '--out', out]);
+    assert.deepEqual(result.overhead, EMPTY_OVERHEAD);
+
+    const raw = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead none'), raw.stdout);
+  });
+
+  test('58-03/2. --root reads that projects root: matched spawns by agent, the foreign one counted, and the file carries them', () => {
+    const sb = sandbox();
+    const beta = project(BETA_SPEC);
+    const troot = overheadRoot(beta);
+    const out = path.join(sb.tmp, 'c.json');
+
+    const result = okJson(sb, sb.tmp, ['--paths', beta, '--out', out, '--root', troot]);
+    assert.deepEqual(result.overhead, {
+      scanned: true, spawns: 3, matched: 2, foreign: 1, quick: 0, unreadable: 0, agents: { planner: 1, verifier: 1 },
+    });
+    const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
+    assert.equal(written.agent_overhead.planner.samples, 1);
+    assert.equal(written.agent_overhead.verifier.samples, 1);
+    assert.equal(written.agent_overhead_sources.scanned, true);
+    assert.equal(written.agent_overhead_sources.foreign, 1);
+
+    const raw = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--root', troot, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    const line = raw.stdout.replace(/\n$/, '');
+    assert.equal(line.includes('\n'), false, 'one line');
+    assert.ok(line.endsWith(' · overhead planner 1, verifier 1'), line);
+  });
+
+  test('58-03/2b. a relative --root resolves against cwd', () => {
+    const sb = sandbox();
+    const beta = project(BETA_SPEC);
+    const troot = overheadRoot(beta);
+    const result = okJson(sb, sb.tmp, [
+      '--paths', beta, '--out', path.join(sb.tmp, 'c.json'), '--root', path.relative(sb.tmp, troot),
+    ]);
+    assert.equal(result.overhead.matched, 2);
+  });
+
+  test('58-03/3. with no --root the default root is <HOME>/.claude/projects, read at call time', () => {
+    const sb = sandbox();
+    const beta = project(BETA_SPEC);
+    const homeRoot = path.join(sb.home, '.claude', 'projects');
+    fx.writeOverheadTranscript(homeRoot, {
+      projectKey: fx.projectKeyFor(beta), session: 's1', agentId: 'p1', spawn: fx.PLANNER_SPAWN, cwd: beta,
+    });
+
+    const result = okJson(sb, sb.tmp, ['--paths', beta, '--out', path.join(sb.tmp, 'c.json')]);
+    assert.equal(result.overhead.agents.planner, 1);
+    assert.equal(result.overhead.matched, 1);
+  });
+
+  test('58-03/4. --no-overhead scans nothing, in the result and in the file, even with transcripts under HOME', () => {
+    const sb = sandbox();
+    const beta = project(BETA_SPEC);
+    fx.writeOverheadTranscript(path.join(sb.home, '.claude', 'projects'), {
+      projectKey: fx.projectKeyFor(beta), session: 's1', agentId: 'p1', spawn: fx.PLANNER_SPAWN, cwd: beta,
+    });
+    const out = path.join(sb.tmp, 'c.json');
+
+    const result = okJson(sb, sb.tmp, ['--paths', beta, '--out', out, '--no-overhead']);
+    assert.deepEqual(result.overhead, { ...EMPTY_OVERHEAD, scanned: false });
+    const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
+    assert.equal(written.agent_overhead_sources.scanned, false);
+    assert.equal(written.agent_overhead.planner.samples, 0);
+
+    const raw = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--no-overhead', '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead skipped'), raw.stdout);
+  });
+
+  test('58-03/5. the same --root twice gives byte-identical files and changed:false', () => {
+    const sb = sandbox();
+    const beta = project(BETA_SPEC);
+    const troot = overheadRoot(beta);
+    const out = path.join(sb.tmp, 'c.json');
+    const args = ['--paths', beta, '--out', out, '--root', troot];
+
+    assert.equal(okJson(sb, sb.tmp, args).changed, true);
+    const first = fs.readFileSync(out);
+    const mtime = fs.statSync(out).mtimeMs;
+
+    assert.equal(okJson(sb, sb.tmp, args).changed, false);
+    assert.ok(first.equals(fs.readFileSync(out)), 'bytes are identical');
+    assert.equal(fs.statSync(out).mtimeMs, mtime);
+  });
+
+  test('58-03/6. --root with no value, and --root with --no-overhead, exit 1 with the usage line and write nothing', () => {
+    const sb = sandbox();
+    const beta = project(BETA_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+
+    const noValue = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--root']);
+    assert.equal(noValue.status, 1);
+    assert.match(noValue.stderr, /--root needs a value/);
+    assert.match(noValue.stderr, USAGE);
+
+    const both = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--root', sb.tmp, '--no-overhead']);
+    assert.equal(both.status, 1);
+    assert.match(both.stderr, /--root/);
+    assert.match(both.stderr, /--no-overhead/);
+    assert.match(both.stderr, USAGE);
+
+    assert.equal(fs.existsSync(out), false);
+    assert.equal(fs.existsSync(sb.defaultOut), false);
   });
 });
