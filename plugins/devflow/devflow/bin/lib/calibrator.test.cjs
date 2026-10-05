@@ -1,0 +1,577 @@
+'use strict';
+
+const { test, describe, afterEach } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const ci = require('./calibration-inputs.cjs');
+const {
+  makeCalibrationProject, removeCalibrationProject, cloneSpec, ALPHA_SPEC,
+} = require('./__fixtures__/calibration-fixtures.cjs');
+const calibrator = require('./calibrator.cjs');
+
+const {
+  nearestRank, statBlock, sampleCost, buildCalibration,
+  stableStringify, writeCalibration, defaultCalibrationPath, CALIBRATION_VERSION,
+} = calibrator;
+
+const projects = [];
+function makeProject(spec) {
+  const root = makeCalibrationProject(spec);
+  projects.push(root);
+  return root;
+}
+// Every write test goes to a mkdtemp directory. Nothing here may touch the real ~/.claude/devflow/calibration.json.
+const tmpDirs = [];
+function tmpDir() {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-calibrator-')));
+  tmpDirs.push(dir);
+  return dir;
+}
+afterEach(() => {
+  while (projects.length) removeCalibrationProject(projects.pop());
+  while (tmpDirs.length) fs.rmSync(tmpDirs.pop(), { recursive: true, force: true });
+});
+
+// Gives every file and directory under `dir` a new mtime, so a path that orders or selects inputs by mtime changes output.
+function touchTree(dir, seconds) {
+  for (const entry of fs.readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (fs.statSync(full).isDirectory()) touchTree(full, seconds);
+    fs.utimesSync(full, seconds, seconds);
+  }
+  fs.utimesSync(dir, seconds, seconds);
+}
+
+function withEnv(overrides, fn) {
+  const saved = {};
+  for (const key of Object.keys(overrides)) saved[key] = process.env[key];
+  try {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    return fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+// The hand-built BETA history, literal. Five TRDs in two objectives:
+//   70-a/01  code_tdd + doc            10min         -> 5 / 5 minutes
+//   70-a/02  one code_tdd               8min
+//   70-a/03  three code_tdd            12min + tokens (140747 in / 1370 out, Opus 5.5)
+//   71-b/01  one code_tdd + checkpoint 30min, autonomous:false, gap_closure:true (minutes excluded, no tokens)
+//   71-b/02  one prompt, no SUMMARY, 6min from its Performance Metrics row
+const BETA_SPEC = {
+  name: 'beta',
+  objectives: [
+    {
+      dir: '70-a',
+      trds: [
+        {
+          nn: '01', slug: 'first',
+          tasks: [
+            { name: 'Task 1: a', type: 'auto', tdd: true, files: ['lib/a.cjs', 'lib/a.test.cjs'] },
+            { name: 'Task 2: readme', type: 'auto', files: ['README.md'] },
+          ],
+          summary: { duration: '10min', completed: '2026-09-01' },
+        },
+        {
+          nn: '02', slug: 'second',
+          tasks: [{ name: 'Task 1: b', type: 'auto', tdd: true, files: ['lib/b.cjs', 'lib/b.test.cjs'] }],
+          summary: { duration: '8min', completed: '2026-09-02' },
+        },
+        {
+          nn: '03', slug: 'third',
+          tasks: [
+            { name: 'Task 1: c', type: 'auto', tdd: true, files: ['lib/c.cjs', 'lib/c.test.cjs'] },
+            { name: 'Task 2: d', type: 'auto', tdd: true, files: ['lib/d.cjs', 'lib/d.test.cjs'] },
+            { name: 'Task 3: e', type: 'auto', tdd: true, files: ['lib/e.cjs', 'lib/e.test.cjs'] },
+          ],
+          summary: {
+            duration: '12min', completed: '2026-10-05',
+            tokens_input: 140747, tokens_output: 1370, tokens_cache_read: 121144, tokens_cache_write: 19596,
+            token_model: 'claude-opus-5-5',
+          },
+        },
+      ],
+    },
+    {
+      dir: '71-b',
+      trds: [
+        {
+          nn: '01', slug: 'gated', frontmatter: { autonomous: false, gap_closure: true },
+          tasks: [
+            { name: 'Task 1: f', type: 'auto', tdd: true, files: ['lib/f.cjs', 'lib/f.test.cjs'] },
+            { name: 'Task 2: verify', type: 'checkpoint:human-verify', files: [] },
+          ],
+          summary: { duration: '30min', completed: '2026-09-20' },
+        },
+        {
+          nn: '02', slug: 'prompt',
+          tasks: [{ name: 'Task 1: skill', type: 'auto', files: ['skills/x/SKILL.md'] }],
+          summary: null,
+        },
+      ],
+    },
+  ],
+  stateArchiveRows: ['| Objective 71 P02 | 6min | 1 tasks | 1 files |'],
+};
+
+function approx(actual, expected, message) {
+  assert.ok(Math.abs(actual - expected) < 1e-9, message || `${actual} is not ${expected}`);
+}
+
+function collectKeys(value, into = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectKeys(item, into);
+  } else if (value && typeof value === 'object') {
+    for (const key of Object.keys(value)) {
+      into.push(key);
+      collectKeys(value[key], into);
+    }
+  }
+  return into;
+}
+
+describe('57-05 nearestRank and statBlock', () => {
+  test('2: nearest rank returns an observed sample; empty input is null', () => {
+    const tenSorted = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    assert.equal(nearestRank(tenSorted, 0.5), 5);
+    assert.equal(nearestRank(tenSorted, 0.9), 9);
+    assert.equal(nearestRank([7], 0.5), 7);
+    assert.equal(nearestRank([7], 0.9), 7);
+    assert.equal(nearestRank([], 0.5), null);
+  });
+
+  test('2: statBlock of nothing is an all-null block with n 0', () => {
+    assert.deepEqual(statBlock([]), { n: 0, p50: null, p90: null, min: null, max: null });
+  });
+
+  test('2: statBlock drops nulls, sorts numerically and rounds every value once', () => {
+    const block = statBlock([null, 10, 2, undefined, 3.14159, 7], (x) => Math.round(x * 10) / 10);
+    assert.deepEqual(block, { n: 4, p50: 3.1, p90: 10, min: 2, max: 10 });
+  });
+});
+
+describe('57-05 sampleCost', () => {
+  const rates = ci.loadRates();
+  const opusSample = {
+    tokens_input: 140747, tokens_output: 1370, tokens_cache_read: 121144, tokens_cache_write: 19596,
+    token_model: 'claude-opus-5-5',
+  };
+
+  test('3: the shipped rates load', () => {
+    assert.equal(rates.ok, true);
+  });
+
+  test('3: Opus 5.5 prices fresh input, 5-minute cache writes, cache reads and output', () => {
+    approx(sampleCost(opusSample, rates), 0.1496368);
+  });
+
+  test('3: a [1m] suffix prices at the base model rates', () => {
+    const suffixed = sampleCost({ ...opusSample, token_model: 'claude-opus-5[1m]' }, rates);
+    const plain = sampleCost({ ...opusSample, token_model: 'claude-opus-5' }, rates);
+    assert.equal(suffixed, plain);
+    assert.notEqual(suffixed, sampleCost(opusSample, rates));
+  });
+
+  test('3: a model without a rate, or missing token counts, gives null', () => {
+    assert.equal(sampleCost({ ...opusSample, token_model: 'claude-unknown-9' }, rates), null);
+    assert.equal(sampleCost({ ...opusSample, token_model: null }, rates), null);
+    assert.equal(sampleCost({ ...opusSample, tokens_input: null }, rates), null);
+    assert.equal(sampleCost({ ...opusSample, tokens_output: null }, rates), null);
+  });
+
+  test('3: absent cache counts are zero and fresh input never goes negative', () => {
+    const m = rates.models['claude-opus-5-5'];
+    approx(sampleCost({ tokens_input: 1e6, tokens_output: 0, token_model: 'claude-opus-5-5' }, rates), m.input);
+    approx(
+      sampleCost({ tokens_input: 10, tokens_output: 0, tokens_cache_read: 100, token_model: 'claude-opus-5-5' }, rates),
+      (100 * m.cache_read) / 1e6,
+    );
+  });
+});
+
+describe('57-05 buildCalibration', () => {
+  test('1: the BETA history gives the exact per-class medians, P90s and dollars', () => {
+    const beta = makeProject(BETA_SPEC);
+    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+
+    assert.deepEqual(cal.samples, { trds: 5, tasks: 7, with_tokens: 1 });
+
+    const tdd = cal.task_classes.code_tdd;
+    assert.equal(tdd.samples, 5);
+    assert.deepEqual(tdd.minutes, { n: 5, p50: 4, p90: 8, min: 4, max: 8 });
+    assert.equal(tdd.tokens_input.n, 3);
+    assert.equal(tdd.tokens_input.p50, 46916);
+    assert.equal(tdd.tokens_output.p50, 457);
+    assert.equal(tdd.cost_usd.n, 3);
+    assert.equal(tdd.cost_usd.p50, 0.0499);
+
+    assert.equal(cal.task_classes.doc.samples, 1);
+    assert.equal(cal.task_classes.doc.minutes.n, 1);
+    assert.equal(cal.task_classes.doc.minutes.p50, 5);
+    assert.equal(cal.task_classes.prompt.samples, 1);
+    assert.equal(cal.task_classes.prompt.minutes.n, 1);
+    assert.equal(cal.task_classes.prompt.minutes.p50, 6);
+    assert.deepEqual(Object.keys(cal.task_classes).sort(), ['all', 'code_tdd', 'doc', 'prompt']);
+
+    assert.equal(cal.task_classes.all.samples, 7);
+    assert.deepEqual(cal.task_classes.all.minutes, { n: 7, p50: 5, p90: 8, min: 4, max: 8 });
+
+    assert.equal(cal.trd_level.samples, 5);
+    assert.deepEqual(cal.trd_level.minutes, { n: 4, p50: 8, p90: 12, min: 6, max: 12 });
+    assert.equal(cal.trd_level.cost_usd.n, 1);
+    assert.equal(cal.trd_level.cost_usd.p50, 0.1496);
+    assert.equal(cal.trd_level.tokens_input.p50, 140747);
+    assert.equal(cal.trd_level.tokens_output.p50, 1370);
+    assert.equal(cal.trd_level.tasks.n, 5);
+
+    assert.deepEqual(cal.probabilities.gap_closure, { value: 0.5, n: 2 });
+    assert.deepEqual(cal.probabilities.checkpoint, { value: 0.2, n: 5 });
+
+    assert.equal(cal.data_as_of, '2026-10-05');
+    assert.equal(cal.version, 1);
+    assert.equal(cal.classifier_version, 1);
+    assert.deepEqual(cal.unpriced_models, []);
+    assert.ok(!collectKeys(cal).includes('generated_at'));
+  });
+
+  test('1: the 71-b/01 human wait is excluded from minutes and the metric row fills 71-b/02', () => {
+    const beta = makeProject(BETA_SPEC);
+    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    // 71-b/01 (30 min, autonomous:false) never reaches a minutes sample: the largest minutes value is 12.
+    assert.equal(cal.trd_level.minutes.max, 12);
+    assert.equal(cal.task_classes.all.minutes.max, 8);
+    assert.equal(cal.task_classes.prompt.minutes.p50, 6);
+  });
+
+  test('1: sources carry per-project counts with the metric-row join accounted', () => {
+    const beta = makeProject(BETA_SPEC);
+    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    assert.deepEqual(cal.sources, [{
+      project: 'beta', trds: 5, summaries: 4, with_minutes: 5, with_tokens: 1, no_outcome: 0,
+      metric_rows: 1, metric_rows_joined: 1, metric_rows_ambiguous: 0,
+    }]);
+  });
+
+  test('1: models, aliases and rates_as_of are copied from the rates file', () => {
+    const beta = makeProject(BETA_SPEC);
+    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    const rates = ci.loadRates();
+    assert.deepEqual(cal.models, rates.models);
+    assert.deepEqual(cal.model_aliases, rates.aliases);
+    assert.equal(cal.rates_as_of, rates.as_of);
+    assert.ok(Array.isArray(cal.notes) && cal.notes.length >= 3);
+  });
+
+  test('1: an unreadable rates file throws an Error naming the file', () => {
+    const beta = makeProject(BETA_SPEC);
+    assert.throws(
+      () => buildCalibration({ paths: [beta], ratesPath: '/nonexistent/rates-file.json' }),
+      /rates-file\.json/,
+    );
+  });
+
+  test('3: a model without a rate stays unpriced and is listed once, sorted', () => {
+    const tokenTrd = (nn, model) => ({
+      nn, slug: `t${nn}`,
+      tasks: [{ name: 'Task 1: x', type: 'auto', files: ['lib/x.cjs'] }],
+      summary: {
+        duration: '5min', completed: '2026-10-01',
+        tokens_input: 1000, tokens_output: 100, tokens_cache_read: 0, tokens_cache_write: 0, token_model: model,
+      },
+    });
+    const gamma = makeProject({
+      name: 'gamma',
+      objectives: [{
+        dir: '80-g',
+        trds: [
+          tokenTrd('01', 'claude-unknown-9'),
+          tokenTrd('02', 'claude-unknown-9'),
+          tokenTrd('03', 'claude-opus-5-5'),
+          tokenTrd('04', 'claude-aaa-1[1m]'),
+        ],
+      }],
+    });
+    const cal = buildCalibration({ paths: [gamma], ratesPath: ci.RATES_PATH });
+    assert.deepEqual(cal.unpriced_models, ['claude-aaa-1', 'claude-unknown-9']);
+    assert.equal(cal.samples.with_tokens, 4);
+    assert.equal(cal.trd_level.tokens_input.n, 4);
+    assert.equal(cal.trd_level.cost_usd.n, 1);
+    assert.equal(cal.task_classes.all.cost_usd.n, 1);
+  });
+
+  test('8: an empty project builds without throwing', () => {
+    const empty = makeProject({ name: 'empty', objectives: [] });
+    const cal = buildCalibration({ paths: [empty], ratesPath: ci.RATES_PATH });
+    assert.deepEqual(cal.samples, { trds: 0, tasks: 0, with_tokens: 0 });
+    assert.deepEqual(Object.keys(cal.task_classes), ['all']);
+    assert.equal(cal.task_classes.all.samples, 0);
+    assert.deepEqual(cal.task_classes.all.minutes, { n: 0, p50: null, p90: null, min: null, max: null });
+    assert.equal(cal.trd_level.samples, 0);
+    assert.equal(cal.data_as_of, null);
+    assert.deepEqual(cal.probabilities.gap_closure, { value: null, n: 0 });
+    assert.deepEqual(cal.probabilities.checkpoint, { value: null, n: 0 });
+    assert.equal(cal.sources.length, 1);
+    assert.equal(cal.sources[0].trds, 0);
+  });
+
+  test('8: no projects at all builds too', () => {
+    const cal = buildCalibration({ paths: [], ratesPath: ci.RATES_PATH });
+    assert.deepEqual(cal.samples, { trds: 0, tasks: 0, with_tokens: 0 });
+    assert.deepEqual(cal.sources, []);
+    assert.equal(cal.data_as_of, null);
+  });
+
+  test('9: two projects give two sorted sources and pooled class stats', () => {
+    const beta = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const cal = buildCalibration({ paths: [beta, alpha], ratesPath: ci.RATES_PATH });
+
+    assert.deepEqual(cal.sources.map((s) => s.project), ['alpha', 'beta']);
+    assert.deepEqual(cal.sources[0], {
+      project: 'alpha', trds: 4, summaries: 3, with_minutes: 4, with_tokens: 1, no_outcome: 0,
+      metric_rows: 3, metric_rows_joined: 3, metric_rows_ambiguous: 0,
+    });
+    assert.equal(cal.sources[1].trds, 5);
+
+    assert.deepEqual(cal.samples, { trds: 9, tasks: 12, with_tokens: 2 });
+    assert.equal(cal.task_classes.code_tdd.samples, 8);
+    assert.equal(cal.task_classes.code_tdd.minutes.n, 8);
+    assert.equal(cal.task_classes.doc.samples, 2);
+    assert.equal(cal.task_classes.config.samples, 1);
+    assert.equal(cal.task_classes.config.minutes.p50, 7);
+    assert.equal(cal.task_classes.all.samples, 12);
+    assert.equal(cal.trd_level.cost_usd.n, 2);
+    assert.deepEqual(cal.probabilities.gap_closure, { value: 0.5, n: 4 });
+    assert.deepEqual(cal.probabilities.checkpoint, { value: 0.2222, n: 9 });
+    assert.equal(cal.data_as_of, '2026-10-05');
+  });
+});
+
+describe('57-05 stableStringify', () => {
+  test('4: keys are sorted at every depth, arrays keep their order, 2-space indent, trailing newline', () => {
+    const text = stableStringify({ b: { z: 1, a: { y: [{ d: 1, c: 2 }, 3], x: null } }, a: 'v' });
+    assert.equal(text, [
+      '{',
+      '  "a": "v",',
+      '  "b": {',
+      '    "a": {',
+      '      "x": null,',
+      '      "y": [',
+      '        {',
+      '          "c": 2,',
+      '          "d": 1',
+      '        },',
+      '        3',
+      '      ]',
+      '    },',
+      '    "z": 1',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+  });
+
+  test('4: the input object is not mutated and insertion order does not matter', () => {
+    const one = { b: 1, a: { d: 1, c: 2 } };
+    const two = { a: { c: 2, d: 1 }, b: 1 };
+    assert.equal(stableStringify(one), stableStringify(two));
+    assert.deepEqual(Object.keys(one), ['b', 'a']);
+    assert.deepEqual(Object.keys(one.a), ['d', 'c']);
+  });
+});
+
+describe('57-05 deterministic output', () => {
+  test('4: two builds over unchanged inputs are byte-identical', () => {
+    const beta = makeProject(BETA_SPEC);
+    const first = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }));
+    const second = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }));
+    assert.equal(first, second);
+  });
+
+  test('4: still byte-identical after every input file mtime changes', () => {
+    const beta = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const before = stableStringify(buildCalibration({ paths: [alpha, beta], ratesPath: ci.RATES_PATH }));
+    touchTree(beta, 1000000000);
+    touchTree(alpha, 1100000000);
+    const after = stableStringify(buildCalibration({ paths: [alpha, beta], ratesPath: ci.RATES_PATH }));
+    assert.equal(after, before);
+  });
+
+  test('4: the same history in a different directory gives the same bytes and the argument order does not matter', () => {
+    const betaOne = makeProject(BETA_SPEC);
+    const betaTwo = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const one = stableStringify(buildCalibration({ paths: [betaOne, alpha], ratesPath: ci.RATES_PATH }));
+    const two = stableStringify(buildCalibration({ paths: [alpha, betaTwo], ratesPath: ci.RATES_PATH }));
+    assert.equal(two, one);
+  });
+
+  test('4: nested keys come out sorted at three depths and sources are sorted by project', () => {
+    const beta = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const text = stableStringify(buildCalibration({ paths: [beta, alpha], ratesPath: ci.RATES_PATH }));
+    const parsed = JSON.parse(text);
+    const sorted = (obj) => assert.deepEqual(Object.keys(obj), Object.keys(obj).slice().sort());
+    sorted(parsed);
+    sorted(parsed.task_classes);
+    sorted(parsed.task_classes.code_tdd);
+    sorted(parsed.task_classes.code_tdd.minutes);
+    sorted(parsed.models);
+    sorted(parsed.models['claude-opus-5-5']);
+    sorted(parsed.sources[0]);
+    assert.deepEqual(parsed.sources.map((s) => s.project), ['alpha', 'beta']);
+    assert.ok(text.endsWith('}\n'));
+  });
+
+  test('4: no clock value reaches the output', () => {
+    const beta = makeProject(BETA_SPEC);
+    const text = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }));
+    assert.ok(!collectKeys(JSON.parse(text)).some((k) => /generated|timestamp|created|updated/.test(k)));
+    assert.ok(!text.includes(beta), 'no input path appears in the file');
+  });
+
+  test('exports CALIBRATION_VERSION 1, the version the build stamps', () => {
+    assert.equal(CALIBRATION_VERSION, 1);
+    const beta = makeProject(BETA_SPEC);
+    assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).version, CALIBRATION_VERSION);
+  });
+});
+
+describe('57-05 writeCalibration', () => {
+  test('5: creates missing parents, then reports changed:false and leaves the file alone on an identical rerun', () => {
+    const target = path.join(tmpDir(), 'a', 'b', 'c.json');
+    const obj = { version: 1, z: { b: 1, a: 2 } };
+
+    const first = writeCalibration(target, obj);
+    assert.equal(first.changed, true);
+    assert.equal(first.path, target);
+    assert.equal(fs.readFileSync(target, 'utf-8'), stableStringify(obj));
+    assert.equal(first.bytes, Buffer.byteLength(stableStringify(obj)));
+
+    // An old mtime proves the second call does not rewrite: a rewrite would move it to now.
+    fs.utimesSync(target, 1000000000, 1000000000);
+    const mtimeBefore = fs.statSync(target).mtimeMs;
+    const second = writeCalibration(target, obj);
+    assert.equal(second.changed, false);
+    assert.equal(fs.statSync(target).mtimeMs, mtimeBefore);
+
+    const third = writeCalibration(target, { version: 1, z: { a: 2, b: 1 } });
+    assert.equal(third.changed, false, 'key order of the input does not matter');
+  });
+
+  test('5: a changed object is written and no temp file is left behind', () => {
+    const dir = tmpDir();
+    const target = path.join(dir, 'cal.json');
+    writeCalibration(target, { n: 1 });
+    const result = writeCalibration(target, { n: 2 });
+    assert.equal(result.changed, true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf-8')), { n: 2 });
+    assert.deepEqual(fs.readdirSync(dir), ['cal.json']);
+  });
+
+  test('5: an explicit path never resolves the home directory', () => {
+    const target = path.join(tmpDir(), 'explicit.json');
+    const original = os.homedir;
+    os.homedir = () => { throw new Error('os.homedir must not be called for an explicit path'); };
+    try {
+      assert.equal(writeCalibration(target, { ok: true }).changed, true);
+    } finally {
+      os.homedir = original;
+    }
+  });
+
+  test('5: a path that cannot be written throws an Error naming it', () => {
+    const dir = tmpDir();
+    const blocker = path.join(dir, 'file');
+    fs.writeFileSync(blocker, 'x');
+    assert.throws(() => writeCalibration(path.join(blocker, 'sub', 'cal.json'), { a: 1 }), /cal\.json/);
+  });
+});
+
+describe('57-05 defaultCalibrationPath', () => {
+  test('6: DEVFLOW_CALIBRATION_PATH wins', () => {
+    assert.equal(defaultCalibrationPath({ DEVFLOW_CALIBRATION_PATH: '/somewhere/cal.json' }), '/somewhere/cal.json');
+    withEnv({ DEVFLOW_CALIBRATION_PATH: '/from/process-env.json' }, () => {
+      assert.equal(defaultCalibrationPath(), '/from/process-env.json');
+    });
+  });
+
+  test('6: otherwise <HOME>/.claude/devflow/calibration.json, with HOME read at call time', () => {
+    const homeOne = tmpDir();
+    const homeTwo = tmpDir();
+    withEnv({ DEVFLOW_CALIBRATION_PATH: undefined, HOME: homeOne }, () => {
+      assert.equal(defaultCalibrationPath(), path.join(homeOne, '.claude', 'devflow', 'calibration.json'));
+      process.env.HOME = homeTwo;
+      assert.equal(defaultCalibrationPath(), path.join(homeTwo, '.claude', 'devflow', 'calibration.json'));
+    });
+  });
+
+  test('6: loading the module resolves no home directory', () => {
+    const original = os.homedir;
+    let calls = 0;
+    os.homedir = () => { calls += 1; return original(); };
+    try {
+      delete require.cache[require.resolve('./calibrator.cjs')];
+      require('./calibrator.cjs');
+      assert.equal(calls, 0);
+    } finally {
+      os.homedir = original;
+    }
+  });
+});
+
+describe('57-05 inputs_digest', () => {
+  test('7: is sha256:<64 hex> and unchanged across rebuilds', () => {
+    const beta = makeProject(BETA_SPEC);
+    const one = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    const two = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    assert.match(one.inputs_digest, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(one.inputs_digest, two.inputs_digest);
+  });
+
+  test('7: changes when an input value changes (70-a/02 duration 8min to 9min)', () => {
+    const beta = makeProject(BETA_SPEC);
+    const edited = cloneSpec(BETA_SPEC);
+    edited.objectives[0].trds[1].summary.duration = '9min';
+    const betaEdited = makeProject(edited);
+    const base = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    const changed = buildCalibration({ paths: [betaEdited], ratesPath: ci.RATES_PATH });
+    assert.notEqual(changed.inputs_digest, base.inputs_digest);
+    assert.equal(changed.task_classes.code_tdd.minutes.n, 5, 'the edit is a real input change, not a structural one');
+  });
+
+  test('7: changes with the rates, and with the project set', () => {
+    const beta = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const base = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+
+    const repriced = JSON.parse(fs.readFileSync(ci.RATES_PATH, 'utf-8'));
+    repriced.models['claude-opus-5-5'].output += 1;
+    const ratesFile = path.join(tmpDir(), 'rates.json');
+    fs.writeFileSync(ratesFile, JSON.stringify(repriced));
+    assert.notEqual(buildCalibration({ paths: [beta], ratesPath: ratesFile }).inputs_digest, base.inputs_digest);
+
+    assert.notEqual(
+      buildCalibration({ paths: [beta, alpha], ratesPath: ci.RATES_PATH }).inputs_digest,
+      base.inputs_digest,
+    );
+  });
+
+  test('7: does not change when only mtimes change', () => {
+    const beta = makeProject(BETA_SPEC);
+    const before = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).inputs_digest;
+    touchTree(beta, 1234567890);
+    assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).inputs_digest, before);
+  });
+});

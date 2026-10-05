@@ -168,7 +168,7 @@ TRDs:
 - [x] 57-02-calibration-inputs-TRD.md — (W1) EST-01 inputs: `references/model-rates.json` (source + as_of per model), duration/metrics-table parsers, `classifyTask`, `collectProject`
 - [x] 57-03-forward-token-stamp-TRD.md — (W2) EST-06: `df-tools tokens trd|stamp`; executor.md and execute-trd.md stamp the SUMMARY draft before `summary post`; template fields; record-metric `--job` fix
 - [ ] 57-04-token-backfill-TRD.md — (W2) EST-07: `planBackfill` (dry run, recovered/unrecovered by reason) and `applyBackfill` through `summary post`
-- [ ] 57-05-calibrator-TRD.md — (W2) EST-01: per-class p50/P90 minutes, tokens and dollars; probabilities; deterministic calibration.json writer
+- [x] 57-05-calibrator-TRD.md — (W2) EST-01: per-class p50/P90 minutes, tokens and dollars; probabilities; deterministic calibration.json writer
 - [ ] 57-06-tokens-and-calibrate-cli-TRD.md — (W3) `df-tools tokens backfill [--write]` and `df-tools calibrate` with spawn-level determinism tests (fake HOME)
 - [ ] 57-07-backfill-dogfood-and-docs-TRD.md — (W4) live backfill of this repo (diff-guarded), real calibrate twice (same sha256), live stamp of its own SUMMARY, CHANGELOG/CLAUDE.md/USER-GUIDE
 
