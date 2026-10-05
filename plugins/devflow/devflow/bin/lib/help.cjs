@@ -438,6 +438,19 @@ const COMMANDS = {
     summary: 'The micro workflow: start, commit, abort.',
     mutates: true,
   },
+  'merge-driver': {
+    usage: 'df-tools merge-driver <install [--check]|uninstall|resolve <path>|state-json <base> <ours> <theirs>> [--raw]',
+    summary: 'Merge .planning/state.json (JSON-aware) and STATE_ARCHIVE.md (union) without conflicts in wave merges.',
+    mutates: true,
+    details: [
+      '  install      Register the state.json driver and the attributes in info/attributes and',
+      '               repo-local config (never committed); idempotent. --check writes nothing.',
+      '  uninstall    The undo for install: removes only the managed block and config section.',
+      '  resolve      Resolve a merge that already stopped on state.json or STATE_ARCHIVE.md from',
+      '               the index stages and stage the result; any other path is refused.',
+      '  state-json   The git merge driver entry point: 3-way merges <ours> in place (git runs it).',
+    ],
+  },
   'exec-context': {
     usage: 'df-tools exec-context <check|worktree|release> --repo <path> [--base <ref>] [--id <slug>] [--path <dir>] [--raw]',
     summary: 'Prove a spawn is in the intended repo on an explicit base; provision a worktree from that base.',

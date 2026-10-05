@@ -10,4 +10,4 @@ tags: [merge-driver, state-json, plmb-02]
 ## Progress
 - [x] Task 1: Fixture builders for state.json, the archive and a hermetic wave repository — 63f5b61c
 - [x] Task 2: mergeStateJson pure 3-way merge (tests 1-10) — RED 3e1b22d9, GREEN 52810aff
-- [ ] Task 3: df-tools merge-driver state-json | install | uninstall | resolve, then dogfood install (tests 11-20) — RED committed (this commit); next step: write lib/merge-driver-cli.cjs (cmdMergeDriver, driverCommand, driverBinPath), add the `case 'merge-driver':` arm to df-tools.cjs and HELP_TABLE['merge-driver'] to help.cjs, run the 4 scoped test files, commit `feat(59-01): df-tools merge-driver ...`, then dogfood install
+- [ ] Task 3: df-tools merge-driver state-json | install | uninstall | resolve, then dogfood install (tests 11-20) — RED 6cc0870b, counter fix 890d6dcd/6a6b1a4f, GREEN (this commit); next step: from /Users/justin/dev/devflow-claude run the four dogfood commands (`merge-driver install`, `git check-attr merge -- ...`, `git config --get merge.devflow-state-json.driver`, `git rev-parse --path-format=absolute --git-common-dir`), then finish the SUMMARY draft and `summary post`

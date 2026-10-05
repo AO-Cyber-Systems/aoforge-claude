@@ -108,6 +108,13 @@
  *   skill-active --end                 Mark skill as ended (removes .planning/.skill-active)
  *   skill-active --status              Show active skill marker (or {active:false})
  *
+ * Merge Driver:
+ *   merge-driver install [--check]     Register the state.json (JSON-aware) and STATE_ARCHIVE.md (union)
+ *                                      merges in info/attributes + repo-local config (never committed)
+ *   merge-driver uninstall             Undo install (removes only the managed block and config section)
+ *   merge-driver resolve <path>        Resolve a stopped merge's state.json / STATE_ARCHIVE.md from the index
+ *   merge-driver state-json <b> <o> <t>  The git merge driver entry point (writes <o>)
+ *
  * Detection:
  *   detect novel-domain <objective>   Detect if objective crosses research boundary
  *     [--raw]                           Returns { novel, signals, recommendation }
@@ -282,6 +289,7 @@ const { cmdProjectDecline, cmdProjectAccept } = require('./lib/decline-tracker.c
 const { cmdProjectState } = require('./lib/project-state.cjs');
 const { cmdGlobalConfig } = require('./lib/global-config.cjs');
 const { cmdExecContextRoute } = require('./lib/exec-context.cjs');
+const { cmdMergeDriver } = require('./lib/merge-driver-cli.cjs');
 const {
   hasTopLevelHelpFlag, ownsHelp, HELP_FLAGS, printHelp, topLevelUsage, COMMANDS: HELP_TABLE,
 } = require('./lib/help.cjs');
@@ -1418,6 +1426,15 @@ async function main() {
       // df-tools exec-context worktree --repo <path> --id <slug> [--base <ref>] [--path <dir>]
       // df-tools exec-context release --repo <path> [--id <slug>]
       cmdExecContextRoute(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'merge-driver': {
+      // df-tools merge-driver state-json <base> <ours> <theirs>   (the git merge driver entry point)
+      // df-tools merge-driver install [--check]
+      // df-tools merge-driver uninstall
+      // df-tools merge-driver resolve <path>
+      cmdMergeDriver(cwd, args.slice(1), raw);
       break;
     }
 

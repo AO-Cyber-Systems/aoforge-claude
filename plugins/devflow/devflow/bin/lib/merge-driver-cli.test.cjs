@@ -21,6 +21,7 @@ const {
 } = require('./__fixtures__/state-merge-fixtures.cjs');
 
 const BIN = path.join(__dirname, '..', 'df-tools.cjs');
+const REAL_BIN = fs.realpathSync(BIN); // install records the real path of the df-tools that ran
 const SKIP_GIT = gitAvailable() ? false : 'git is not available';
 
 const BEGIN = '# >>> devflow merge drivers (df-tools merge-driver install)';
@@ -138,8 +139,8 @@ describe('merge-driver install', () => {
       assert.strictEqual(firstOut.changed, true);
       assert.strictEqual(firstOut.installed, true);
       assert.strictEqual(fs.readFileSync(attr, 'utf-8'), BLOCK);
-      assert.strictEqual(repo.git(['config', '--local', '--get', 'merge.devflow-state-json.driver']), driverCommand(BIN));
-      assert.strictEqual(firstOut.bin, BIN);
+      assert.strictEqual(repo.git(['config', '--local', '--get', 'merge.devflow-state-json.driver']), driverCommand(REAL_BIN));
+      assert.strictEqual(firstOut.bin, REAL_BIN);
       assert.ok(repo.git(['config', '--local', '--get', 'merge.devflow-state-json.name']).length > 0);
 
       const attrAfter = fs.readFileSync(attr, 'utf-8');
@@ -184,7 +185,7 @@ describe('merge-driver install', () => {
       assert.strictEqual(fs.readFileSync(infoAttributes(repo), 'utf-8'), BLOCK);
       assert.match(repo.git(['check-attr', 'merge', '--', '.planning/state.json']), /devflow-state-json/);
       assert.match(repo.git(['check-attr', 'merge', '--', '.planning/STATE_ARCHIVE.md']), /union/);
-      assert.strictEqual(repo.git(['config', '--local', '--get', 'merge.devflow-state-json.driver']), driverCommand(BIN));
+      assert.strictEqual(repo.git(['config', '--local', '--get', 'merge.devflow-state-json.driver']), driverCommand(REAL_BIN));
     } finally {
       repo.cleanup();
     }
@@ -341,8 +342,8 @@ describe('merge-driver fail safe', () => {
       assert.strictEqual(b.status, 1, 'the second merge must stop on a conflict, not abort');
       assert.ok(unmerged(repo).includes('.planning/state.json'));
       const text = fs.readFileSync(path.join(repo.root, '.planning', 'state.json'), 'utf-8');
-      assert.match(text, /<<<<<<< ours/);
-      assert.match(text, />>>>>>>> theirs/);
+      assert.match(text, /^<{7} ours$/m);
+      assert.match(text, /^>{7} theirs$/m);
       assert.ok(fs.existsSync(path.join(repo.root, '.git', 'MERGE_HEAD')), 'the merge must have stopped, not aborted');
 
       const r = dftools(repo, ['merge-driver', 'resolve', '.planning/state.json']);
