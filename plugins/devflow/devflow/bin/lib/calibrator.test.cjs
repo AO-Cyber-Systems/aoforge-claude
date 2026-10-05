@@ -2,6 +2,9 @@
 
 const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const ci = require('./calibration-inputs.cjs');
 const {
@@ -9,7 +12,10 @@ const {
 } = require('./__fixtures__/calibration-fixtures.cjs');
 const calibrator = require('./calibrator.cjs');
 
-const { nearestRank, statBlock, sampleCost, buildCalibration } = calibrator;
+const {
+  nearestRank, statBlock, sampleCost, buildCalibration,
+  stableStringify, writeCalibration, defaultCalibrationPath, CALIBRATION_VERSION,
+} = calibrator;
 
 const projects = [];
 function makeProject(spec) {
@@ -17,9 +23,44 @@ function makeProject(spec) {
   projects.push(root);
   return root;
 }
+// Every write test goes to a mkdtemp directory. Nothing here may touch the real ~/.claude/devflow/calibration.json.
+const tmpDirs = [];
+function tmpDir() {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-calibrator-')));
+  tmpDirs.push(dir);
+  return dir;
+}
 afterEach(() => {
   while (projects.length) removeCalibrationProject(projects.pop());
+  while (tmpDirs.length) fs.rmSync(tmpDirs.pop(), { recursive: true, force: true });
 });
+
+// Gives every file and directory under `dir` a new mtime, so a path that orders or selects inputs by mtime changes output.
+function touchTree(dir, seconds) {
+  for (const entry of fs.readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (fs.statSync(full).isDirectory()) touchTree(full, seconds);
+    fs.utimesSync(full, seconds, seconds);
+  }
+  fs.utimesSync(dir, seconds, seconds);
+}
+
+function withEnv(overrides, fn) {
+  const saved = {};
+  for (const key of Object.keys(overrides)) saved[key] = process.env[key];
+  try {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    return fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
 
 // The hand-built BETA history, literal. Five TRDs in two objectives:
 //   70-a/01  code_tdd + doc            10min         -> 5 / 5 minutes
@@ -313,5 +354,224 @@ describe('57-05 buildCalibration', () => {
     assert.deepEqual(cal.probabilities.gap_closure, { value: 0.5, n: 4 });
     assert.deepEqual(cal.probabilities.checkpoint, { value: 0.2222, n: 9 });
     assert.equal(cal.data_as_of, '2026-10-05');
+  });
+});
+
+describe('57-05 stableStringify', () => {
+  test('4: keys are sorted at every depth, arrays keep their order, 2-space indent, trailing newline', () => {
+    const text = stableStringify({ b: { z: 1, a: { y: [{ d: 1, c: 2 }, 3], x: null } }, a: 'v' });
+    assert.equal(text, [
+      '{',
+      '  "a": "v",',
+      '  "b": {',
+      '    "a": {',
+      '      "x": null,',
+      '      "y": [',
+      '        {',
+      '          "c": 2,',
+      '          "d": 1',
+      '        },',
+      '        3',
+      '      ]',
+      '    },',
+      '    "z": 1',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+  });
+
+  test('4: the input object is not mutated and insertion order does not matter', () => {
+    const one = { b: 1, a: { d: 1, c: 2 } };
+    const two = { a: { c: 2, d: 1 }, b: 1 };
+    assert.equal(stableStringify(one), stableStringify(two));
+    assert.deepEqual(Object.keys(one), ['b', 'a']);
+    assert.deepEqual(Object.keys(one.a), ['d', 'c']);
+  });
+});
+
+describe('57-05 deterministic output', () => {
+  test('4: two builds over unchanged inputs are byte-identical', () => {
+    const beta = makeProject(BETA_SPEC);
+    const first = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }));
+    const second = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }));
+    assert.equal(first, second);
+  });
+
+  test('4: still byte-identical after every input file mtime changes', () => {
+    const beta = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const before = stableStringify(buildCalibration({ paths: [alpha, beta], ratesPath: ci.RATES_PATH }));
+    touchTree(beta, 1000000000);
+    touchTree(alpha, 1100000000);
+    const after = stableStringify(buildCalibration({ paths: [alpha, beta], ratesPath: ci.RATES_PATH }));
+    assert.equal(after, before);
+  });
+
+  test('4: the same history in a different directory gives the same bytes and the argument order does not matter', () => {
+    const betaOne = makeProject(BETA_SPEC);
+    const betaTwo = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const one = stableStringify(buildCalibration({ paths: [betaOne, alpha], ratesPath: ci.RATES_PATH }));
+    const two = stableStringify(buildCalibration({ paths: [alpha, betaTwo], ratesPath: ci.RATES_PATH }));
+    assert.equal(two, one);
+  });
+
+  test('4: nested keys come out sorted at three depths and sources are sorted by project', () => {
+    const beta = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const text = stableStringify(buildCalibration({ paths: [beta, alpha], ratesPath: ci.RATES_PATH }));
+    const parsed = JSON.parse(text);
+    const sorted = (obj) => assert.deepEqual(Object.keys(obj), Object.keys(obj).slice().sort());
+    sorted(parsed);
+    sorted(parsed.task_classes);
+    sorted(parsed.task_classes.code_tdd);
+    sorted(parsed.task_classes.code_tdd.minutes);
+    sorted(parsed.models);
+    sorted(parsed.models['claude-opus-5-5']);
+    sorted(parsed.sources[0]);
+    assert.deepEqual(parsed.sources.map((s) => s.project), ['alpha', 'beta']);
+    assert.ok(text.endsWith('}\n'));
+  });
+
+  test('4: no clock value reaches the output', () => {
+    const beta = makeProject(BETA_SPEC);
+    const text = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }));
+    assert.ok(!collectKeys(JSON.parse(text)).some((k) => /generated|timestamp|created|updated/.test(k)));
+    assert.ok(!text.includes(beta), 'no input path appears in the file');
+  });
+
+  test('exports CALIBRATION_VERSION 1, the version the build stamps', () => {
+    assert.equal(CALIBRATION_VERSION, 1);
+    const beta = makeProject(BETA_SPEC);
+    assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).version, CALIBRATION_VERSION);
+  });
+});
+
+describe('57-05 writeCalibration', () => {
+  test('5: creates missing parents, then reports changed:false and leaves the file alone on an identical rerun', () => {
+    const target = path.join(tmpDir(), 'a', 'b', 'c.json');
+    const obj = { version: 1, z: { b: 1, a: 2 } };
+
+    const first = writeCalibration(target, obj);
+    assert.equal(first.changed, true);
+    assert.equal(first.path, target);
+    assert.equal(fs.readFileSync(target, 'utf-8'), stableStringify(obj));
+    assert.equal(first.bytes, Buffer.byteLength(stableStringify(obj)));
+
+    // An old mtime proves the second call does not rewrite: a rewrite would move it to now.
+    fs.utimesSync(target, 1000000000, 1000000000);
+    const mtimeBefore = fs.statSync(target).mtimeMs;
+    const second = writeCalibration(target, obj);
+    assert.equal(second.changed, false);
+    assert.equal(fs.statSync(target).mtimeMs, mtimeBefore);
+
+    const third = writeCalibration(target, { version: 1, z: { a: 2, b: 1 } });
+    assert.equal(third.changed, false, 'key order of the input does not matter');
+  });
+
+  test('5: a changed object is written and no temp file is left behind', () => {
+    const dir = tmpDir();
+    const target = path.join(dir, 'cal.json');
+    writeCalibration(target, { n: 1 });
+    const result = writeCalibration(target, { n: 2 });
+    assert.equal(result.changed, true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf-8')), { n: 2 });
+    assert.deepEqual(fs.readdirSync(dir), ['cal.json']);
+  });
+
+  test('5: an explicit path never resolves the home directory', () => {
+    const target = path.join(tmpDir(), 'explicit.json');
+    const original = os.homedir;
+    os.homedir = () => { throw new Error('os.homedir must not be called for an explicit path'); };
+    try {
+      assert.equal(writeCalibration(target, { ok: true }).changed, true);
+    } finally {
+      os.homedir = original;
+    }
+  });
+
+  test('5: a path that cannot be written throws an Error naming it', () => {
+    const dir = tmpDir();
+    const blocker = path.join(dir, 'file');
+    fs.writeFileSync(blocker, 'x');
+    assert.throws(() => writeCalibration(path.join(blocker, 'sub', 'cal.json'), { a: 1 }), /cal\.json/);
+  });
+});
+
+describe('57-05 defaultCalibrationPath', () => {
+  test('6: DEVFLOW_CALIBRATION_PATH wins', () => {
+    assert.equal(defaultCalibrationPath({ DEVFLOW_CALIBRATION_PATH: '/somewhere/cal.json' }), '/somewhere/cal.json');
+    withEnv({ DEVFLOW_CALIBRATION_PATH: '/from/process-env.json' }, () => {
+      assert.equal(defaultCalibrationPath(), '/from/process-env.json');
+    });
+  });
+
+  test('6: otherwise <HOME>/.claude/devflow/calibration.json, with HOME read at call time', () => {
+    const homeOne = tmpDir();
+    const homeTwo = tmpDir();
+    withEnv({ DEVFLOW_CALIBRATION_PATH: undefined, HOME: homeOne }, () => {
+      assert.equal(defaultCalibrationPath(), path.join(homeOne, '.claude', 'devflow', 'calibration.json'));
+      process.env.HOME = homeTwo;
+      assert.equal(defaultCalibrationPath(), path.join(homeTwo, '.claude', 'devflow', 'calibration.json'));
+    });
+  });
+
+  test('6: loading the module resolves no home directory', () => {
+    const original = os.homedir;
+    let calls = 0;
+    os.homedir = () => { calls += 1; return original(); };
+    try {
+      delete require.cache[require.resolve('./calibrator.cjs')];
+      require('./calibrator.cjs');
+      assert.equal(calls, 0);
+    } finally {
+      os.homedir = original;
+    }
+  });
+});
+
+describe('57-05 inputs_digest', () => {
+  test('7: is sha256:<64 hex> and unchanged across rebuilds', () => {
+    const beta = makeProject(BETA_SPEC);
+    const one = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    const two = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    assert.match(one.inputs_digest, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(one.inputs_digest, two.inputs_digest);
+  });
+
+  test('7: changes when an input value changes (70-a/02 duration 8min to 9min)', () => {
+    const beta = makeProject(BETA_SPEC);
+    const edited = cloneSpec(BETA_SPEC);
+    edited.objectives[0].trds[1].summary.duration = '9min';
+    const betaEdited = makeProject(edited);
+    const base = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    const changed = buildCalibration({ paths: [betaEdited], ratesPath: ci.RATES_PATH });
+    assert.notEqual(changed.inputs_digest, base.inputs_digest);
+    assert.equal(changed.task_classes.code_tdd.minutes.n, 5, 'the edit is a real input change, not a structural one');
+  });
+
+  test('7: changes with the rates, and with the project set', () => {
+    const beta = makeProject(BETA_SPEC);
+    const alpha = makeProject(cloneSpec(ALPHA_SPEC));
+    const base = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+
+    const repriced = JSON.parse(fs.readFileSync(ci.RATES_PATH, 'utf-8'));
+    repriced.models['claude-opus-5-5'].output += 1;
+    const ratesFile = path.join(tmpDir(), 'rates.json');
+    fs.writeFileSync(ratesFile, JSON.stringify(repriced));
+    assert.notEqual(buildCalibration({ paths: [beta], ratesPath: ratesFile }).inputs_digest, base.inputs_digest);
+
+    assert.notEqual(
+      buildCalibration({ paths: [beta, alpha], ratesPath: ci.RATES_PATH }).inputs_digest,
+      base.inputs_digest,
+    );
+  });
+
+  test('7: does not change when only mtimes change', () => {
+    const beta = makeProject(BETA_SPEC);
+    const before = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).inputs_digest;
+    touchTree(beta, 1234567890);
+    assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).inputs_digest, before);
   });
 });
