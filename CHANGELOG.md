@@ -8,8 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - `session-audit` now reports what happened after each edit-gate denial (bypassed by a Bash write of the same file, routed through a skill/marker/override, or abandoned) as `edit_gate_bypass` in the JSON and an `edit_gate:` line under `--raw`, the measurement DECISION-001 waits on.
+- `df-tools tokens trd|stamp|backfill`: per-TRD executor token usage read from Claude Code transcripts and counted once per
+  API message. `tokens backfill` is a dry run unless `--write`, and `--write` goes through `summary post` so only SUMMARY
+  frontmatter changes. Run over this repository's 396 SUMMARYs it recovered 231 (163 unrecovered: 156 whose transcripts are
+  gone to retention, 7 with no TRD key); a second dry run reports 0 recovered.
+- `df-tools calibrate`: per-task-class p50/P90 minutes, files, tokens and dollars (plus TRD-level figures and checkpoint and
+  gap-closure probabilities), written deterministically to `~/.claude/devflow/calibration.json` (`--out`,
+  `DEVFLOW_CALIBRATION_PATH`). A rerun on unchanged inputs is byte-identical and reports `unchanged`. It refuses to write when
+  no project is found under the paths. This repository's history gives 313 TRDs, 723 tasks and 233 TRDs with token data.
+- `references/model-rates.json`: per-model USD rates per million tokens, each entry with its own source and `as_of`.
 
 ### Changed
+- Executors stamp `tokens_input`/`tokens_output` (and cache counts, model and `tokens_source`) into the SUMMARY draft with
+  `tokens stamp` before `summary post`. TRD identification moved to `lib/trd-identify.cjs`, which the executor-stop hook
+  re-exports, and `context-audit` exposes `forEachRecord`.
 - Every regex escape in df-tools and the hooks goes through `lib/text-escape.cjs`. The 12 hand-rolled copies are gone and 5
   places that put text into a regex unescaped now escape it. `regex-escape.repo.test.cjs` fails CI, naming the file and line,
   when a new hand-rolled escape appears.
@@ -31,6 +43,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `requirements mark-complete` matches IDs literally: `REQ.01` no longer ticks `REQ-01`, and an ID such as `A(1` no longer
   crashes. `objective remove` renumbers every later objective down by exactly one (removing objective 3 from 3-6 used to leave
   `### Objective 3:` three times) and renumbers each item of a `**Depends on**: Objective N, Objective M` list.
+- `agents/executor.md`'s `state record-metric` example passes `--job`.
 
 ## [2.13.2] - 2026-10-05
 
