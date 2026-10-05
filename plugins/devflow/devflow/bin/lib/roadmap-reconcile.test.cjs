@@ -841,6 +841,51 @@ test('RU8: TRD checkboxes empty (no TRD lines in section) → no rollup change',
   assert.strictEqual(lines[2], '**Status:** in flight');
 });
 
+// ─── 56-04: the Progress-row matcher goes through objectiveNumPattern ─────────
+
+// A rolled-up objective whose Progress table lists `firstCells` as the first cell of one row each.
+function rollupWithProgressRows(headingNum, firstCells) {
+  const lines = [
+    `### Objective ${headingNum}: Five`,
+    '',
+    '**Status:** in flight',
+    '',
+    `- [x] ${String(headingNum).padStart(2, '0')}-01-TRD.md`,
+    '',
+    '## Progress',
+    '',
+    '| Objective | Title | Status |',
+    '| --- | --- | --- |',
+    ...firstCells.map(c => `| ${c} | x | in flight |`),
+    '',
+  ];
+  reconcile._rollupObjectiveStatus(lines, '2026-05-04');
+  return lines;
+}
+
+test('RU-56a: only the 05 row of 15 / 05 / 50 becomes complete for ### Objective 5', () => {
+  const lines = rollupWithProgressRows('5', ['15', '05', '50']);
+  assert.strictEqual(lines[10], '| 15 | x | in flight |', '15 untouched');
+  assert.ok(lines[11].includes('complete 2026-05-04'), '05 row updated');
+  assert.strictEqual(lines[12], '| 50 | x | in flight |', '50 untouched');
+});
+
+test('RU-56b: first cells "5" and "Objective 5" are still updated for ### Objective 5, never 15 or 50', () => {
+  for (const cell of ['5', 'Objective 5']) {
+    const lines = rollupWithProgressRows('5', ['15', cell, '50']);
+    assert.strictEqual(lines[10], '| 15 | x | in flight |', `15 untouched (${cell})`);
+    assert.ok(lines[11].includes('complete 2026-05-04'), `${cell} row updated`);
+    assert.strictEqual(lines[12], '| 50 | x | in flight |', `50 untouched (${cell})`);
+  }
+});
+
+test('RU-56c: a zero-padded heading (### Objective 05) updates a bare "5" row, never 15 or 50', () => {
+  const lines = rollupWithProgressRows('05', ['15', '5', '50']);
+  assert.strictEqual(lines[10], '| 15 | x | in flight |', '15 untouched');
+  assert.ok(lines[11].includes('complete 2026-05-04'), '5 row updated');
+  assert.strictEqual(lines[12], '| 50 | x | in flight |', '50 untouched');
+});
+
 // ─── Group RUI — rollup integration via reconcile ─────────────────────────────
 
 test('RUI1: reconcile flips final TRD [ ] → [x] AND triggers rollup in same run', () => {

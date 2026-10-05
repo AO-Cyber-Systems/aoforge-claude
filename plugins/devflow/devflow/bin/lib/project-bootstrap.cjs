@@ -33,7 +33,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { objectiveNumPattern } = require('./text-escape.cjs');
+const { objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
 
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
@@ -160,12 +160,12 @@ function bootstrapObjectiveMd(cwd, objectiveId) {
     const headingMatch = headingRe.exec(roadmap);
     if (headingMatch) {
       objectiveName = headingMatch[1].trim();
-      // Extract the **Goal:** line from this objective's own section only: stop at the next objective
-      // or milestone heading so a missing Goal never borrows the following objective's.
+      // Extract the **Goal:** or **Goal**: line (both label forms) from this objective's own section only:
+      // stop at the next objective or milestone heading so a missing Goal never borrows the following objective's.
       const rest = roadmap.slice(headingMatch.index + headingMatch[0].length);
       const next = rest.search(/\n#{2,4}\s*Objective\s+\d|\n##\s/);
       const section = next === -1 ? rest : rest.slice(0, next);
-      const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/);
+      const goalMatch = section.match(new RegExp(boldLabelPattern('Goal') + '\\s*([^\\n]+)'));
       if (goalMatch) goalLine = goalMatch[1].trim();
     }
   }

@@ -8,7 +8,11 @@ const { findObjectiveInternal } = require('./objective.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const { reconcile } = require('./roadmap-reconcile.cjs');
 const { isStoreMode } = require('./planning-mode.cjs');
-const { objectiveNumPattern } = require('./text-escape.cjs');
+const { objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
+
+// `**Goal:**` and `**Goal**:` (the v1.5 ROADMAP form) both read; one definition for every reader here.
+const GOAL_RE = new RegExp(boldLabelPattern('Goal') + '\\s*([^\\n]+)', 'i');
+const DEPENDS_RE = new RegExp(boldLabelPattern('Depends on') + '\\s*([^\\n]+)', 'i');
 
 // TRD 48-13 (D-19): in store mode ROADMAP.md is a view rendered from GitHub by
 // `gh pull --all`, so the commands that write it no-op (exit 0) with this
@@ -115,7 +119,7 @@ function getRoadmapObjectiveInternal(cwd, objectiveNum) {
     const sectionEnd = nextHeaderMatch ? headerIndex + nextHeaderMatch.index : content.length;
     const section = content.slice(headerIndex, sectionEnd).trim();
 
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
+    const goalMatch = section.match(GOAL_RE);
     const goal = goalMatch ? goalMatch[1].trim() : null;
 
     return {
@@ -190,7 +194,7 @@ function cmdRoadmapGetObjective(cwd, objectiveNum, raw) {
     const section = content.slice(headerIndex, sectionEnd).trim();
 
     // Extract goal if present
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
+    const goalMatch = section.match(GOAL_RE);
     const goal = goalMatch ? goalMatch[1].trim() : null;
 
     // Extract success criteria as structured array
@@ -243,10 +247,10 @@ function cmdRoadmapAnalyze(cwd, raw) {
     const sectionEnd = nextHeader ? sectionStart + nextHeader.index : content.length;
     const section = content.slice(sectionStart, sectionEnd);
 
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
+    const goalMatch = section.match(GOAL_RE);
     const goal = goalMatch ? goalMatch[1].trim() : null;
 
-    const dependsMatch = section.match(/\*\*Depends on:\*\*\s*([^\n]+)/i);
+    const dependsMatch = section.match(DEPENDS_RE);
     const depends_on = dependsMatch ? dependsMatch[1].trim() : null;
 
     // Check completion on disk

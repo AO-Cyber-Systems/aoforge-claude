@@ -360,6 +360,16 @@ describe('readObjectiveState TRD/SUMMARY pairing (test 13)', () => {
     assert.equal(s.number, '2.1');
     assert.equal(s.name, 'b');
   });
+
+  // 56-04 test 7: the v1.5 ROADMAP writes `**Goal**:` (colon outside the bold). `root` is rebuilt per test,
+  // so rewriting its ROADMAP here cannot leak into another test.
+  test('13c: a **Goal**: line (colon outside the bold) is read as the issue goal', () => {
+    const roadmap = ROADMAP.replace('**Goal:** Build a', '**Goal**: Build a');
+    assert.notEqual(roadmap, ROADMAP, 'fixture sanity: the Goal line was rewritten');
+    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), roadmap);
+    assert.equal(gh.readObjectiveState('02-a', root).goal, 'Build a');
+    assert.equal(gh.readObjectiveState('02.1-b', root).goal, 'Build b', 'the colon-inside form still reads');
+  });
 });
 
 describe('gh seam (test 14)', () => {

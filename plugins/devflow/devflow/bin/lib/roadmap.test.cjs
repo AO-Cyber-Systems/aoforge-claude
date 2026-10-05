@@ -1027,3 +1027,105 @@ describe('54-06 objective-number boundaries in roadmap analyze / get-objective /
     assert.match(after, /^- \[x\] \*\*Objective 4\.1: One\*\* \(completed \d{4}-\d{2}-\d{2}\)$/m, '4.1 is checked');
   });
 });
+
+// ─── 56-04: ROADMAP field labels with the colon outside the bold ────────────────────────────────
+
+// One objective section in the shape the v1.5 ROADMAP writes (`**Goal**:`), or the older colon-inside
+// shape (`**Goal:**`) with form: 'inside'. Hand-built literal lines, no generated data.
+function v15Section(num, name, { goal, requirements, dependsOn, criteria, form = 'outside' } = {}) {
+  const label = (l) => (form === 'outside' ? `**${l}**:` : `**${l}:**`);
+  const lines = [`### Objective ${num}: ${name}`, ''];
+  if (goal !== undefined) lines.push(`${label('Goal')} ${goal}`);
+  if (requirements !== undefined) lines.push(`${label('Requirements')} ${requirements}`);
+  if (dependsOn !== undefined) lines.push(`${label('Depends on')} ${dependsOn}`);
+  if (criteria !== undefined) {
+    lines.push('**Success Criteria** (what must be TRUE):');
+    criteria.forEach((c, i) => lines.push(`  ${i + 1}. ${c}`));
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+describe('56-04 ROADMAP labels with the colon outside the bold', () => {
+  function writeRoadmap(project, body) {
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), body, 'utf-8');
+  }
+
+  const V15_GOAL = 'Objective lookups resolve exactly the objective asked for.';
+  const V15_DEPENDS = 'Nothing (Objective 55 shipped)';
+
+  const v15Objective56 = () => v15Section('56', 'Objective-number correctness', {
+    goal: V15_GOAL,
+    requirements: 'ONUM-01, ONUM-02',
+    dependsOn: V15_DEPENDS,
+    criteria: ['No df-tools module hand-rolls a regex escape.'],
+  });
+
+  // Test 1. RED for goal before the fix: the Goal regex required the colon inside the bold.
+  test('1: get-objective reads **Goal**: and keeps the success criteria', () => {
+    const project = tmpProject();
+    writeRoadmap(project, ['# Roadmap', '', v15Objective56()].join('\n'));
+
+    const r = run(['roadmap', 'get-objective', '56'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.found, true);
+    assert.equal(r.json.goal, V15_GOAL);
+    assert.deepEqual(r.json.success_criteria, ['No df-tools module hand-rolls a regex escape.']);
+  });
+
+  // Test 2. RED for 56 before the fix; 57 uses the old form and is the guard that both still read.
+  test('2: analyze reports goal and depends_on for both label forms', () => {
+    const project = tmpProject();
+    writeRoadmap(project, [
+      '# Roadmap',
+      '',
+      v15Objective56(),
+      v15Section('57', 'Next', { goal: 'Old form.', dependsOn: 'Objective 56', form: 'inside' }),
+    ].join('\n'));
+
+    const r = run(['roadmap', 'analyze', '--raw'], project);
+    assert.equal(r.status, 0, r.stderr);
+    const fiftySix = r.json.objectives.find(o => o.number === '56');
+    const fiftySeven = r.json.objectives.find(o => o.number === '57');
+    assert.equal(fiftySix.goal, V15_GOAL);
+    assert.equal(fiftySix.depends_on, V15_DEPENDS);
+    assert.equal(fiftySeven.goal, 'Old form.');
+    assert.equal(fiftySeven.depends_on, 'Objective 56');
+  });
+
+  // Test 3. RED before the fix: the internal helper (init plan-objective, gh-pr, gh) had its own Goal regex.
+  test('3: getRoadmapObjectiveInternal returns the **Goal**: goal', () => {
+    const project = tmpProject();
+    writeRoadmap(project, ['# Roadmap', '', v15Objective56()].join('\n'));
+
+    const { getRoadmapObjectiveInternal } = require('./roadmap.cjs');
+    assert.equal(getRoadmapObjectiveInternal(project, '56').goal, V15_GOAL);
+  });
+
+  // Test 4. Guard: the section ends at the next objective heading, so a missing Goal cannot borrow the next one's.
+  test('4: an objective with no Goal never borrows the next section\'s **Goal**:', () => {
+    const project = tmpProject();
+    writeRoadmap(project, [
+      '# Roadmap',
+      '',
+      v15Section('58', 'No goal', { dependsOn: 'Nothing' }),
+      v15Section('59', 'X', { goal: 'Borrowed?' }),
+    ].join('\n'));
+
+    const r = run(['roadmap', 'get-objective', '58'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.found, true);
+    assert.equal(r.json.goal, null);
+  });
+
+  // Test 5. Pins ONUM-03 at roadmap level: a zero-padded heading is found for the unpadded id.
+  test('5: get-objective 4 finds ### Objective 04: and reads its **Goal**:', () => {
+    const project = tmpProject();
+    writeRoadmap(project, ['# Roadmap', '', v15Section('04', 'Four', { goal: 'Fourth.' })].join('\n'));
+
+    const r = run(['roadmap', 'get-objective', '4'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.found, true);
+    assert.equal(r.json.goal, 'Fourth.');
+  });
+});
