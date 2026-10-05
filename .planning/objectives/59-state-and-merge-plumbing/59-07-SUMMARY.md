@@ -30,8 +30,8 @@ completed: 2026-10-05
 **In progress.**
 
 ## Progress
-- [x] Task 1: Live merge, position and preflight on this repository (evidence 1-4) — (this commit)
-- [ ] Task 2: Milestone and change flags on a scratch copy of .planning (evidence 5) — next step: `cp -R .planning` into the scratchpad `ms/` dir, then run `milestone complete v1.4 --name "GitHub as system of record"` with `--cwd <scratch>/ms`
+- [x] Task 1: Live merge, position and preflight on this repository (evidence 1-4) — bbd0053b
+- [x] Task 2: Milestone and change flags on a scratch copy of .planning (evidence 5) — (this commit)
 - [ ] Task 3: Docs, help details and the full test run (evidence 6) — next step: add the CHANGELOG [Unreleased] entries, then CLAUDE.md, USER-GUIDE and the help.cjs exec-context lines
 
 ## Task 1 evidence
@@ -116,3 +116,34 @@ No claim was taken here.
 ```
 
 The printed `preflight` and WRONG CHECKOUT commands name the `~/.claude/devflow` mirror, which lacks the guard until release; the run above substituted the repo bin, as the TRD's binding rules direct. After the cleanup an empty `/Users/justin/dev/.df-worktrees/devflow-claude/` directory remains (the parent that provisioning creates; earlier waves used it too).
+
+## Task 2 evidence (scratch copy of `.planning/`)
+
+`cp -R /Users/justin/dev/devflow-claude/.planning <scratch>/ms/.planning`; every command below carries `--cwd <scratch>/ms`. The copy is not a git repository.
+
+### Evidence 5: milestone scope and truthful flags (PLMB-04, PLMB-05)
+
+| step | command | exit | result |
+|---|---|---|---|
+| 1 | `df --cwd <scratch>/ms milestone complete v1.4 --name "GitHub as system of record"` | 0 | `objectives: 13`, `objective_numbers` 42..54, `jobs: 158`, `tasks: 396`, `cancelled: []`, `absent: []`, `scope_source: "milestone bullet"`, `state_updated: true`, `milestones_updated: true` |
+| 2 | the same command again | 0 | same counts; `state_updated: false` |
+| 3 | `df --cwd <scratch>/ms objective complete 58` (this repository's ROADMAP already has 58 complete) | 0 | `roadmap_updated: false` |
+| 4 | reopen 58 in the scratch ROADMAP only (checkbox `[ ]`, progress row `In Progress`), then `objective complete 58` | 0 | `roadmap_updated: true` |
+| 5 | `objective complete 58` again | 0 | `roadmap_updated: false` |
+| 6 | `git status --porcelain .planning/MILESTONES.md .planning/ROADMAP.md .planning/milestones` (this repository) | 0 | empty |
+
+Against the hand-written v1.4 entry (MILESTONES.md line 79: "13 objectives (42–54), 158 TRDs, all executed"): objective count 13 and numbers 42..54 match, and the TRD total 158 matches exactly (no per-objective recount needed). (Per 59-04's RED run, the pre-59-04 code counted every objective directory; it was not re-run on this repository's data.) `cancelled` lists in-range objectives whose OBJECTIVE.md says `status: cancelled`; the killed objective 26 lies outside the bullet's 42–54, so `cancelled` and `absent` are empty. The entry the command appended to the scratch MILESTONES.md:
+
+```
+## v1.4 GitHub as system of record (Shipped: 2026-10-05)
+
+**Objectives completed:** 13 objectives (42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54), 158 plans, 396 tasks
+```
+
+(117 accomplishments, taken from the SUMMARYs' one-liners.) The wording is the existing "plans", the hand-written entry says "TRDs"; the numbers agree.
+
+Steps 3-5 are the two directions of PLMB-05: a no-op reports `false` (step 3, step 5) and a real ROADMAP change reports `true` (step 4). Step 4's reopening was done by hand in the scratch copy to have a real change to report.
+
+### Observation recorded for gap closure (not fixed here, outside the TRD's flags)
+
+`milestone complete` is not idempotent for MILESTONES.md: the second run printed `milestones_updated: true` and appended a SECOND `## v1.4 GitHub as system of record (Shipped: 2026-10-05)` entry (scratch MILESTONES.md lines 117 and 243). `state_updated` is truthful (PLMB-05 as written), but the entry is duplicated on a re-run. Worth a TRD of its own: skip the append when an entry for the version already exists, or report `milestones_updated: false`.
