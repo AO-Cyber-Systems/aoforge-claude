@@ -119,6 +119,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 56]: 56-01: every production regex escape goes through text-escape.cjs escapeRegExp (hooks via ../devflow/bin/lib/text-escape.cjs); test files keep their own local escapes
 - [Objective 56]: 56-03: requirement IDs come only from the leading token of ID-shaped list items (lib/requirement-ids.cjs); free text declares none
 - [Objective 56]: 56-03: objective remove renumbers the ROADMAP ascending (descending collapsed later objectives onto the removed number) and every item of a **Depends on** list
+- [Objective 56]: Changelog names the reconcile command sync-roadmap; dogfood ran through the repo CLI, not the ~/.claude/devflow mirror, so merged fixes were exercised
 
 ## Performance Metrics
 
@@ -186,4 +187,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 55 P08 | 30min | 2 tasks | 4 files |
 | Objective 56 P01 | 11min | 3 tasks | 16 files |
 | Objective 56 P03 | 9min | 3 tasks | 8 files |
+| Objective 56 P05 | 4min | 2 tasks | 2 files |
 

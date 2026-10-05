@@ -105,7 +105,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - Docs site deploy: Cloudflare Pages project `devflow-docs` not found (fails on every `main` push since 2.11).
 
 - [x] **Objective 55: Store live-smoke fixes** - 8/8, shipped in 2.13.2
-- [ ] **Objective 56: Objective-number correctness** - One escape helper, exact objective lookups, ID-shaped requirement parsing
+- [x] **Objective 56: Objective-number correctness** - One escape helper, exact objective lookups, ID-shaped requirement parsing (completed 2026-10-05)
 - [ ] **Objective 57: Estimation data foundation** - Token data in SUMMARYs, historical backfill, `df-tools calibrate`
 - [ ] **Objective 58: Estimation engine and surfacing** - `df-tools estimate`, plan-objective table, build and status-line estimates
 - [ ] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats
@@ -149,7 +149,7 @@ TRDs:
 - [x] 56-02-exact-objective-lookups-TRD.md — (W1) ONUM-02 + ONUM-03: `objectiveDirMatches` (4.1 never selects 04.10-*), leading-zero-tolerant `objectiveNumPattern`, `boldLabelPattern`
 - [x] 56-03-id-shaped-requirements-TRD.md — (W2) ONUM-04: `requirement-ids.cjs`; `verify trd-pre` and `objective complete` read IDs only from ID-shaped items; mark-complete escapes IDs
 - [x] 56-04-roadmap-field-labels-TRD.md — (W2) plan-time fix: `**Goal**:` / `**Depends on**:` read in roadmap, gh, OBJECTIVE.md bootstrap; reconcile row via `objectiveNumPattern`
-- [ ] 56-05-changelog-and-dogfood-TRD.md — (W3) live-repo dogfood (get-objective/analyze/trd-pre 56), OBJECTIVE.md goal via `objective put`, CHANGELOG [Unreleased], full suite
+- [x] 56-05-changelog-and-dogfood-TRD.md — (W3) live-repo dogfood (get-objective/analyze/trd-pre 56), OBJECTIVE.md goal via `objective put`, CHANGELOG [Unreleased], full suite
 
 ### Objective 57: Estimation data foundation
 
@@ -257,7 +257,7 @@ TRDs:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
-| 56. Objective-number correctness | v1.5 | 4/5 | In Progress | - |
+| 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
 | 57. Estimation data foundation | v1.5 | 0/0 | Not started | - |
 | 58. Estimation engine and surfacing | v1.5 | 0/0 | Not started | - |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |

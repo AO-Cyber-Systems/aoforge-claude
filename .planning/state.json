@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -659,6 +659,11 @@
     {
       "objective": "56",
       "summary": "56-03: objective remove renumbers the ROADMAP ascending (descending collapsed later objectives onto the removed number) and every item of a **Depends on** list",
+      "rationale": null
+    },
+    {
+      "objective": "56",
+      "summary": "Changelog names the reconcile command sync-roadmap; dogfood ran through the repo CLI, not the ~/.claude/devflow mirror, so merged fixes were exercised",
       "rationale": null
     }
   ],
