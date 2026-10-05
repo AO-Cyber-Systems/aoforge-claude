@@ -302,11 +302,18 @@ function hierarchyEnqueue(main, objectiveId) {
   return { ...r, covers };
 }
 
+/**
+ * Said when an objective-scoped verb names an objective nothing registered. `objective add` owns numbering, the slug
+ * and the directory (objective.cjs storeObjectiveAdd); the verbs that write into an objective never create one.
+ * gh-hierarchy.cjs resolveObjectiveDir carries the same sentence.
+ */
+const REGISTER_HINT = 'register a new objective with df-tools objective add "<description>", then run this again';
+
 /** `{id, dir}` of the objective, or `{error}`. */
 function objectiveTarget(main, objective) {
   const resolved = ghMapping.resolveObjective(main, objective);
   const label = String(objective === undefined ? null : objective).trim();
-  if (!resolved) return { error: `objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives)` };
+  if (!resolved) return { error: `objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives); ${REGISTER_HINT}` };
   if (!resolved.dir) return { error: `objective ${resolved.id} has no directory under .planning/objectives yet` };
   return { id: resolved.id, dir: resolved.dir };
 }

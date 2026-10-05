@@ -92,7 +92,9 @@ function parseTrdFile(file) {
 function resolveObjectiveDir(root, objectiveArg) {
   const resolved = ghMapping.resolveObjective(root, objectiveArg);
   const label = String(objectiveArg === undefined ? null : objectiveArg).trim();
-  if (!resolved) throw new Error(`objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives)`);
+  if (!resolved) {
+    throw new Error(`objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives); register a new objective with df-tools objective add "<description>", then run this again`);
+  }
   if (!resolved.dir) throw new Error(`objective ${resolved.id} has no directory under .planning/objectives yet`);
   return { id: resolved.id, dir: resolved.dir };
 }

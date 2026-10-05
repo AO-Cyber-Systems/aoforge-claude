@@ -10,5 +10,5 @@ tags: [planning-verbs, gh-pr, reconcile, objective-branch]
 (in progress)
 
 ## Progress
-- [ ] Task 1: Unknown-objective error names `objective add` — (RED this commit) next step: edit objectiveTarget in planning-verbs.cjs:309 and gh-hierarchy.cjs:95 to append the `objective add` hint
-- [ ] Task 2: Reconcile deletes a non-ancestor branch whose content is already on the default branch
+- [x] Task 1: Unknown-objective error names `objective add` — 3a23215a (RED), (this commit) (GREEN)
+- [ ] Task 2: Reconcile deletes a non-ancestor branch whose content is already on the default branch — next step: run test 4 (reproduction) in gh-pr-reconcile.test.cjs on today's code, then add tests 5-8 and `contentMerged` in objective-branch.cjs
