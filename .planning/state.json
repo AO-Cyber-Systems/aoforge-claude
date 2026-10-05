@@ -650,6 +650,16 @@
       "objective": "56",
       "summary": "56-01: every production regex escape goes through text-escape.cjs escapeRegExp (hooks via ../devflow/bin/lib/text-escape.cjs); test files keep their own local escapes",
       "rationale": null
+    },
+    {
+      "objective": "56",
+      "summary": "56-03: requirement IDs come only from the leading token of ID-shaped list items (lib/requirement-ids.cjs); free text declares none",
+      "rationale": null
+    },
+    {
+      "objective": "56",
+      "summary": "56-03: objective remove renumbers the ROADMAP ascending (descending collapsed later objectives onto the removed number) and every item of a **Depends on** list",
+      "rationale": null
     }
   ],
   "blockers": [],
