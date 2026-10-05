@@ -38,6 +38,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { escapeRegExp } = require('../devflow/bin/lib/text-escape.cjs');
 
 // ─── TRD identification ───────────────────────────────────────────────────────
 
@@ -285,8 +286,9 @@ function candidateRoots({ cwd, repoRoot = null, gitWorktrees = () => [], fsImpl 
  * A root without (or with an unreadable) `.planning/objectives` is skipped.
  * Content is NOT inspected: a `## Progress`-only checkpoint counts as present.
  *
- * Self-contained on purpose (fast hook, no df-tools lib require): the pairing
- * regex is inlined rather than shared with `helpers.trdKey`.
+ * Kept light on purpose (fast hook): the only df-tools lib it requires is the
+ * dependency-free text-escape.cjs, and the pairing regex is inlined rather than
+ * shared with `helpers.trdKey`.
  *
  * @param {string} id
  * @param {string[]} roots
@@ -297,7 +299,7 @@ function summaryExists(id, roots, fsImpl = fs) {
   if (!id || !Array.isArray(roots)) return false;
   const file = `${id}-SUMMARY.md`;
   // The id is escaped so a decimal id's dot is literal.
-  const paired = new RegExp(`^${String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:-.+)?-SUMMARY\\.md$`);
+  const paired = new RegExp(`^${escapeRegExp(id)}(?:-.+)?-SUMMARY\\.md$`);
   for (const root of roots) {
     if (typeof root !== 'string' || !root) continue;
     const objectivesDir = path.join(root, '.planning', 'objectives');

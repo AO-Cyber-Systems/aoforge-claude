@@ -17,6 +17,7 @@ const path = require('path');
 const allowlist = require('./watcher-allowlist.cjs');
 const handoff = require('./handoff.cjs');
 const state = require('./watcher-state.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const POLL_INTERVAL_MS = 500;
 const DEFAULT_DISPATCH_TIMEOUT_MS = 600000; // 10 minutes per command
@@ -184,7 +185,7 @@ function _redactSecrets(text, resolvedSecrets) {
   for (const sec of resolvedSecrets) {
     if (!sec.value || sec.value.length < MIN_REDACT_LEN) continue;
     // Escape regex special chars in the literal value.
-    const esc = sec.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const esc = escapeRegExp(sec.value);
     out = out.replace(new RegExp(esc, 'g'), REDACT_PLACEHOLDER);
   }
   return out;
