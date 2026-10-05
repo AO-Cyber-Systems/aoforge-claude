@@ -1122,3 +1122,72 @@ describe('readSetupState (test 11)', () => {
     assert.equal(fs.readFileSync(path.join(dir, WORKFLOW_PATH), 'utf-8'), TEMPLATES.workflow);
   });
 });
+
+// ─── 55-01: the caller workflow pins one ref (tests 10-13) ───────────────────
+
+describe('renderTemplates, devflow-ref follows a pinned checks_workflow (55-01)', () => {
+  const REUSABLE = 'AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml';
+  const SHA = '0123456789abcdef0123456789abcdef01234567';
+  const render = (checks_workflow) => setup.renderTemplates({ checks_workflow }, '2.13.1').workflow;
+
+  test('test 10. a branch after @ pins the runner script to the same branch as the reusable workflow', () => {
+    const workflow = render(`${REUSABLE}@feat/x`);
+    assert.ok(workflow.includes(`uses: ${REUSABLE}@feat/x`), workflow);
+    assert.ok(workflow.includes('devflow-ref: feat/x'), workflow);
+    assert.ok(!workflow.includes('devflow-ref: v2.13.1'), 'the plugin tag is not used when a ref is pinned');
+    assert.doesNotMatch(workflow, /\{\{\s*(checks_workflow|devflow_ref)\s*\}\}/);
+  });
+
+  test('test 11. a 40-hex commit SHA after @ is the devflow-ref too', () => {
+    const workflow = render(`${REUSABLE}@${SHA}`);
+    assert.ok(workflow.includes(`uses: ${REUSABLE}@${SHA}`), workflow);
+    assert.ok(workflow.includes(`devflow-ref: ${SHA}`), workflow);
+  });
+
+  test('test 12. without an @, or unset, or empty, both stay v<plugin version>; a uses line without @ is kept as it is', () => {
+    const noAt = render(`${REUSABLE}`);
+    assert.ok(noAt.includes(`uses: ${REUSABLE}\n`), 'the uses line keeps today\'s value');
+    assert.ok(noAt.includes('devflow-ref: v2.13.1'), noAt);
+
+    for (const cfg of [{ checks_workflow: '' }, { checks_workflow: '   ' }, {}, undefined, null]) {
+      const workflow = setup.renderTemplates(cfg, '2.13.1').workflow;
+      assert.ok(workflow.includes(`uses: ${REUSABLE}@v2.13.1`), JSON.stringify(cfg));
+      assert.ok(workflow.includes('devflow-ref: v2.13.1'), JSON.stringify(cfg));
+    }
+  });
+
+  test('test 12b. an @ that names no ref pins nothing: a trailing @ or a leading @ falls back to v<plugin version>', () => {
+    assert.ok(render(`${REUSABLE}@`).includes('devflow-ref: v2.13.1'));
+    assert.ok(render('@feat/x').includes('devflow-ref: v2.13.1'));
+    assert.ok(render(`${REUSABLE}@  `).includes('devflow-ref: v2.13.1'));
+  });
+
+  test('test 12c. a leading v in the plugin version is tolerated and the PR template carries no ref', () => {
+    const t = setup.renderTemplates({ checks_workflow: `${REUSABLE}@feat/x` }, 'v2.13.1');
+    assert.ok(t.workflow.includes('devflow-ref: feat/x'));
+    assert.doesNotMatch(t.workflow, /vv\d/);
+    assert.doesNotMatch(t.prTemplate, /devflow-ref/);
+  });
+
+  test('test 13. a managed workflow rendered for the previous version is planned as an update: re-running setup refreshes it', () => {
+    const older = setup.renderTemplates({}, '2.13.0');
+    const newer = setup.renderTemplates({}, '2.13.1');
+    assert.notEqual(older.workflow, newer.workflow);
+    const plan = setup.planSetup(satisfiedState({
+      templates: newer,
+      local: { workflow: older.workflow, prTemplate: newer.prTemplate, otherWorkflows: [] },
+    }));
+    const workflow = pick(plan, 'workflow');
+    assert.equal(workflow.status, 'update');
+    assert.equal(workflow.desc, 'refresh the managed DevFlow checks workflow');
+    assert.equal(workflow.file.path, WORKFLOW_PATH);
+    assert.equal(workflow.file.content, newer.workflow);
+    assert.equal(pick(plan, 'pr-template').status, 'exists', 'only the workflow differs');
+
+    const same = pick(setup.planSetup(satisfiedState({
+      templates: newer,
+      local: { workflow: newer.workflow, prTemplate: newer.prTemplate, otherWorkflows: [] },
+    })), 'workflow');
+    assert.equal(same.status, 'exists', 'a workflow already at this version is left alone');
+  });
+});

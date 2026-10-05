@@ -174,6 +174,73 @@ describe('gh setup command (tests 1, 2, 3, 4, 6, 7, 8)', () => {
     assert.equal(r.stderr, '');
   });
 
+  // ─── 55-01: the printed merge step is runnable (the ruleset grants repository admins a bypass) ───
+
+  /** The apply output's lines that tell the user how to merge the workflow pull request. */
+  const guidance = (stdout) => stdout.split('\n').filter((l) => /repository-admin bypass|gh pr merge/.test(l));
+  /** The status the apply output reports for `kind` (`[created] ruleset ...`), or null. */
+  const outcomeOf = (stdout, kind) => {
+    const m = new RegExp(`^\\[(\\w+)\\] ${kind} `, 'm').exec(stdout);
+    return m ? m[1] : null;
+  };
+
+  test('55-01 test 5. an apply that created the ruleset names the repository-admin bypass and the gh pr merge --admin --squash command', () => {
+    install();
+    project();
+    const r = run(['--apply']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.equal(outcomeOf(r.stdout, 'ruleset'), 'created');
+    assert.match(r.stdout, /repository-admin bypass/);
+    assert.match(r.stdout, /gh pr merge <number> --admin --squash/);
+    assert.match(r.stdout, /Merge the workflow pull request first/);
+    assert.match(r.stdout, /devflow\/linked-issue and devflow\/planning-consistency/, 'the bootstrapping hazard is still stated');
+    assert.doesNotMatch(r.stdout, /may need to bypass/, 'the impossible step is gone');
+    assert.ok(guidance(r.stdout).length >= 1);
+    assert.equal(fake.rulesets[0].bypass_actors.length, 1, 'and the ruleset really grants it');
+  });
+
+  test('55-01 test 5b. the guidance is printed when the ruleset already existed (exists) and files were written', () => {
+    install({ rulesets: [{ ...setup.desiredRuleset({ mergeMethod: 'squash' }) }] });
+    project();
+    const r = run(['--apply']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.equal(outcomeOf(r.stdout, 'ruleset'), 'exists');
+    assert.match(r.stdout, /gh pr merge <number> --admin --squash/);
+    assert.doesNotMatch(r.stdout, /may need to bypass/);
+  });
+
+  test('55-01 test 6. the merge command follows github.pr.merge_method: rebase and merge are named, an unknown method prints --squash', () => {
+    for (const [method, flag] of [['rebase', '--rebase'], ['merge', '--merge'], ['squash', '--squash'], ['fast-forward', '--squash'], ['', '--squash']]) {
+      install();
+      project({ pr: { merge_method: method } });
+      const r = run(['--apply']);
+      assert.equal(exitOf(r), 0, `${method}: ${r.stdout}${r.stderr}`);
+      assert.match(r.stdout, new RegExp(`gh pr merge <number> --admin ${flag}\\b`), `${method}: ${r.stdout}`);
+      const others = ['--squash', '--rebase', '--merge'].filter((f) => f !== flag);
+      for (const other of others) assert.doesNotMatch(r.stdout, new RegExp(`gh pr merge <number> --admin ${other}\\b`), `${method} must not print ${other}`);
+      fs.rmSync(root, { recursive: true, force: true });
+      root = null;
+    }
+  });
+
+  test('55-01 test 6b. with no github.pr block at all the command is --squash', () => {
+    install();
+    project();
+    const r = run(['--apply']);
+    assert.match(r.stdout, /gh pr merge <number> --admin --squash\b/);
+    assert.doesNotMatch(r.stdout, /--admin --(rebase|merge)\b/);
+  });
+
+  test('55-01 test 6c. nothing to merge, nothing printed: a second apply has no guidance and no bypass talk', () => {
+    install();
+    project();
+    assert.equal(exitOf(run(['--apply'])), 0);
+    const again = run(['--apply']);
+    assert.equal(exitOf(again), 0);
+    assert.doesNotMatch(again.stdout, /gh pr merge/);
+    assert.doesNotMatch(again.stdout, /may need to bypass/);
+  });
+
   test('3. a second --apply makes zero writes, reports nothing to do and leaves both files identical', () => {
     install();
     project();
