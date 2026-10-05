@@ -165,7 +165,7 @@ TRDs:
 
 TRDs:
 - [x] 57-01-transcript-token-reader-TRD.md — (W1) EST-06/07 foundation: `context-audit.forEachRecord`, `token-usage.cjs` (per-message usage dedupe, executor transcript index, repo/objective matching, frontmatter stamp), `trd-identify.cjs` moved out of the executor-stop hook
-- [ ] 57-02-calibration-inputs-TRD.md — (W1) EST-01 inputs: `references/model-rates.json` (source + as_of per model), duration/metrics-table parsers, `classifyTask`, `collectProject`
+- [x] 57-02-calibration-inputs-TRD.md — (W1) EST-01 inputs: `references/model-rates.json` (source + as_of per model), duration/metrics-table parsers, `classifyTask`, `collectProject`
 - [ ] 57-03-forward-token-stamp-TRD.md — (W2) EST-06: `df-tools tokens trd|stamp`; executor.md and execute-trd.md stamp the SUMMARY draft before `summary post`; template fields; record-metric `--job` fix
 - [ ] 57-04-token-backfill-TRD.md — (W2) EST-07: `planBackfill` (dry run, recovered/unrecovered by reason) and `applyBackfill` through `summary post`
 - [ ] 57-05-calibrator-TRD.md — (W2) EST-01: per-class p50/P90 minutes, tokens and dollars; probabilities; deterministic calibration.json writer
@@ -267,7 +267,7 @@ TRDs:
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
-| 57. Estimation data foundation | v1.5 | 1/7 | In Progress | - |
+| 57. Estimation data foundation | v1.5 | 2/7 | In Progress | - |
 | 58. Estimation engine and surfacing | v1.5 | 0/0 | Not started | - |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
