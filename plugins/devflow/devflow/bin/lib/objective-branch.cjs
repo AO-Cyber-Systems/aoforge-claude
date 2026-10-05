@@ -1,7 +1,9 @@
 'use strict';
 
 // objective-branch.cjs (TRD 49-04) — the one git seam for the objective branch / PR lifecycle (objective 49):
-// fetch, switch, empty start commit, push, local cleanup.
+// fetch, switch, empty start commit, push, local cleanup. Reads: current branch, tips (local, origin, fetched
+// tracking), tracked-clean, ancestry, local branches, the default branch and (TRD 55-03) `unpushedCommits`, which
+// `verification post` and `gh pr merge` use to refuse while the local linked branch has work origin lacks.
 //
 // `git` is spawned ONLY through `runGit` below (argv array, never a shell string). `_setRunGit(fn)` replaces it
 // for tests; `_resetRunGit()` (or `_setRunGit(null)`) restores it. This module never calls `gh` and never
@@ -202,6 +204,43 @@ function listLocal(root, pattern) {
 }
 
 /**
+ * Commits on the local `branch` that origin does not have (TRD 55-03):
+ * `{ok:true, count, commits, local, remote, fetched, fetch_error?}`. `commits` is newest first.
+ *
+ * No local branch (another developer's checkout), or a root that is not a git work tree, is count 0 and
+ * `local:null`: nothing here can be unpushed. The branch is fetched first (best effort, so an offline run still
+ * answers from the tracking refs it already has; the failure is carried as `fetch_error`). With `origin/<branch>`
+ * present the count is `<remote>..<local>`; without it (never pushed) it is every commit on no `origin/*` ref.
+ * A local branch that is only behind origin is count 0. Reads only; never pushes.
+ */
+function unpushedCommits(root, branch) {
+  if (!validBranch(branch)) return branchError(branch);
+  const inside = git(root, ['rev-parse', '--is-inside-work-tree']);
+  if (!inside.ok || inside.stdout.trim() !== 'true') {
+    return { ok: true, count: 0, commits: [], local: null, reason: 'not a git work tree' };
+  }
+  const tip = branchTip(root, branch);
+  if (!tip.ok) return tip;
+  if (!tip.sha) return { ok: true, count: 0, commits: [], local: null };
+  const f = fetchBranch(root, branch);
+  const remote = trackingTip(root, branch);
+  if (!remote.ok) return remote;
+  const range = remote.sha ? [`${remote.sha}..${tip.sha}`] : [tip.sha, '--not', `--remotes=${REMOTE}`];
+  const r = git(root, ['rev-list', ...range]);
+  if (!r.ok) return fail(r);
+  const commits = r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+  return {
+    ok: true,
+    count: commits.length,
+    commits,
+    local: tip.sha,
+    remote: remote.sha,
+    fetched: f.ok,
+    ...(f.ok ? {} : { fetch_error: f.error }),
+  };
+}
+
+/**
  * The default branch: what origin/HEAD points at (`source:'origin-head'`), else the first of main / master that
  * exists locally (`source:'fallback'`), else `branch:null`.
  */
@@ -346,6 +385,8 @@ module.exports = {
   headSha,
   branchTip,
   remoteTip,
+  trackingTip,
+  unpushedCommits,
   isTrackedClean,
   isAncestor,
   listLocal,
