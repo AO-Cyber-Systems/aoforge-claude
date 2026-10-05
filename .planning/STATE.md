@@ -46,7 +46,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 54 — CodeQL cleanup (completed 2026-10-04, 10/10 TRDs)
 **Objective complete:** 42, 45, 53 — Codebase-aware stack drafter (15/15), DevFlow doctor (10/10), Worktree and health hygiene (7/7; completed 2026-10-04)
 **Objective complete:** 55 — Store live-smoke fixes (completed 2026-10-05, 8/8 TRDs)
-**Status:** Objective 56 in progress: wave 1 (56-01, 56-02) merged; wave 2 56-03 complete (ONUM-04), 56-04 in parallel, 56-05 pending
+**Status:** Executing objective 56, wave 3 (56-01 to 56-04 complete; 1 of 5 TRDs remaining)
 
 ## Branch State (post-merge)
 
