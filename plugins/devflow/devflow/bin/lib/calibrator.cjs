@@ -10,13 +10,16 @@ const os = require('os');
 const path = require('path');
 
 const ci = require('./calibration-inputs.cjs');
+const { OVERHEAD_AGENTS, collectOverhead } = require('./agent-overhead.cjs');
 
-const CALIBRATION_VERSION = 1;
+const CALIBRATION_VERSION = 2;
 
 const NOTES = Object.freeze([
   "Task values split each TRD's outcome equally across its auto tasks and include the executor's per-TRD overhead pro rata; do not add executor overhead on top.",
   'Minutes exclude autonomous:false TRDs (human wait); their tokens still count.',
   'cost_usd prices cache writes at the 5-minute rate; percentiles are nearest-rank.',
+  'agent_overhead is one spawn of a non-executor DevFlow agent, measured from subagent transcripts (minutes from first to last record); quick-plan planner spawns are excluded.',
+  'objective_level sums executor outcomes per objective and counts an objective for a metric only when every TRD in it has that metric; its minutes are serial executor time, not wall time.',
 ]);
 
 // ─── Statistics ───────────────────────────────────────────────────────────────
@@ -193,6 +196,48 @@ function latestCompleted(projectList) {
   return latest;
 }
 
+// ─── Agent overhead ───────────────────────────────────────────────────────────
+
+const NO_OVERHEAD_COUNTS = Object.freeze({ spawns: 0, matched: 0, foreign: 0, quick: 0, unreadable: 0 });
+
+/**
+ * USD for one overhead spawn: each model's share is priced at its own rates and summed. Null when the spawn has no
+ * token usage or any model in it has no rate (that model is added to `unpricedModels`); a partial price is never reported.
+ */
+function overheadCost(sample, rates, unpricedModels) {
+  const models = Object.keys(sample.by_model || {}).sort();
+  if (models.length === 0 || !hasNumber(sample.tokens_input) || !hasNumber(sample.tokens_output)) return null;
+  let total = 0;
+  let priced = true;
+  for (const model of models) {
+    const cost = sampleCost({ ...sample.by_model[model], token_model: model }, rates);
+    if (cost === null) {
+      priced = false;
+      const normalized = ci.normalizeModelId(model);
+      if (normalized !== null && ci.rateFor(rates, normalized) === null) unpricedModels.add(normalized);
+    } else {
+      total += cost;
+    }
+  }
+  return priced ? total : null;
+}
+
+/** One block per OVERHEAD_AGENTS entry, present even with no samples, so a reader never has to test for a missing key. */
+function agentOverheadBlocks(overheadSamples) {
+  const blocks = {};
+  for (const name of OVERHEAD_AGENTS) {
+    const list = overheadSamples.filter((s) => s.agent === name);
+    blocks[name] = {
+      samples: list.length,
+      minutes: statBlock(list.map((s) => s.minutes), roundMinutes),
+      tokens_input: statBlock(list.map((s) => s.tokens_input), roundTokens),
+      tokens_output: statBlock(list.map((s) => s.tokens_output), roundTokens),
+      cost_usd: statBlock(list.map((s) => s.cost_usd), roundCost),
+    };
+  }
+  return blocks;
+}
+
 // ─── Canonical text ───────────────────────────────────────────────────────────
 
 function sortKeysDeep(value) {
@@ -240,7 +285,18 @@ function normalizedTrd(project, trd) {
   };
 }
 
-function inputsDigest(projectList, rates, sources) {
+// What the digest hashes about the overhead spawns: the values the blocks are computed from, never a path or an mtime.
+// `counts` is hashed too because agent_overhead_sources puts those numbers in the file.
+function normalizedOverhead(overheadSamples, counts) {
+  return {
+    samples: overheadSamples.map((s) => ({
+      agent: s.agent, project: s.project, session: s.session, agent_id: s.agent_id, minutes: s.minutes, by_model: s.by_model,
+    })),
+    counts,
+  };
+}
+
+function inputsDigest(projectList, rates, sources, overhead) {
   const trds = projectList
     .flatMap((project) => project.trds.map((trd) => normalizedTrd(project.label, trd)))
     .sort((a, b) => compareStrings(a.project, b.project)
@@ -250,6 +306,7 @@ function inputsDigest(projectList, rates, sources) {
     rates: { models: rates.models, aliases: rates.aliases },
     trds,
     sources, // metric rows that joined no TRD change the output, so they belong to the inputs too
+    overhead, // null when no transcripts root was scanned
   };
   return `sha256:${crypto.createHash('sha256').update(stableStringify(payload)).digest('hex')}`;
 }
@@ -259,13 +316,17 @@ function inputsDigest(projectList, rates, sources) {
 /**
  * Builds the calibration object from the planning history under `paths`, priced from `ratesPath`.
  * Throws an Error naming the rates file when it cannot be read or fails validation.
- * @param {{paths:string[], ratesPath?:string}} options
+ *
+ * Subagent transcripts are read only when `transcriptsRoot` is a string (the CLI resolves the default root); without it
+ * `agent_overhead` is present and empty and `agent_overhead_sources.scanned` is false.
+ * @param {{paths:string[], ratesPath?:string, transcriptsRoot?:?string}} options
  */
-function buildCalibration({ paths, ratesPath = ci.RATES_PATH } = {}) {
+function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = null } = {}) {
   const rates = ci.loadRates(ratesPath);
   if (!rates.ok) throw new Error(rates.error);
 
-  const projectList = ci.discoverProjects(paths).map((root) => ci.collectProject(root));
+  const projectRoots = ci.discoverProjects(paths);
+  const projectList = projectRoots.map((root) => ci.collectProject(root));
   const unpricedModels = new Set();
   const samples = [];
   for (const project of projectList) {
@@ -297,11 +358,30 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH } = {}) {
 
   const sources = projectList.map(sourceCounts).sort((a, b) => compareStrings(a.project, b.project));
 
+  // Overhead is read after, and separately from, the TRD samples above: it must not touch task_classes or trd_level.
+  const scanned = typeof transcriptsRoot === 'string' && transcriptsRoot !== '';
+  const overhead = scanned
+    ? collectOverhead({
+      root: transcriptsRoot,
+      projects: projectRoots.map((root, i) => ({ root, label: projectList[i].label })),
+    })
+    : { samples: [], counts: { ...NO_OVERHEAD_COUNTS } };
+  const overheadSamples = overhead.samples.map((s) => ({ ...s, cost_usd: overheadCost(s, rates, unpricedModels) }));
+  const overheadSources = {
+    scanned,
+    spawns: overhead.counts.spawns,
+    matched: overhead.counts.matched,
+    foreign: overhead.counts.foreign,
+    quick: overhead.counts.quick,
+    unreadable: overhead.counts.unreadable,
+  };
+
   return {
     version: CALIBRATION_VERSION,
     classifier_version: ci.CLASSIFIER_VERSION,
     data_as_of: latestCompleted(projectList),
-    inputs_digest: inputsDigest(projectList, rates, sources),
+    inputs_digest: inputsDigest(projectList, rates, sources,
+      scanned ? normalizedOverhead(overheadSamples, overheadSources) : null),
     notes: [...NOTES],
     samples: {
       trds: samples.length,
@@ -318,6 +398,8 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH } = {}) {
       cost_usd: statBlock(samples.map((s) => s.cost_usd), roundCost),
     },
     task_classes: taskClasses,
+    agent_overhead: agentOverheadBlocks(overheadSamples),
+    agent_overhead_sources: overheadSources,
     probabilities: {
       gap_closure: probability(gapObjectives.size, sampledObjectives.size),
       checkpoint: probability(samples.filter((s) => !s.autonomous).length, samples.length),
