@@ -190,7 +190,7 @@ TRDs:
 - [x] 58-03-calibration-v2-TRD.md — (W2) EST-03 input: calibration.json v2 `agent_overhead` + `objective_level`; `calibrate --root | --no-overhead`
 - [x] 58-04-run-state-and-statusline-TRD.md — (W1) EST-05: out-of-repo estimate run state (`~/.claude/devflow/state/estimates/`), remaining-time rule, status line segment (fail-open, cached only)
 - [x] 58-05-task-and-trd-estimates-TRD.md — (W2) EST-02/03: `estimate.cjs` shared classifier, confidence labels, thin-class fallback, no-data reasons, TRD composition
-- [ ] 58-06-objective-rollup-TRD.md — (W3) EST-03: remaining TRDs by wave, verifier overhead, gap-closure mixture, unplanned fallback from objective history
+- [x] 58-06-objective-rollup-TRD.md — (W3) EST-03: remaining TRDs by wave, verifier overhead, gap-closure mixture, unplanned fallback from objective history
 - [ ] 58-07-milestone-rollup-TRD.md — (W4) EST-03: milestone scope from the ROADMAP bullet, remaining objectives + integration-checker overhead
 - [ ] 58-08-estimate-cli-TRD.md — (W5) EST-02/03/05: `df-tools estimate task|trd|objective|milestone|start|wave|finish`, text renderers (line, table), help and dispatch
 - [ ] 58-09-planning-and-build-surfacing-TRD.md — (W6) EST-04/05: estimate table in PLANNING COMPLETE and plan-objective, one-line estimate and run state in /devflow:build, actual vs estimate in wave reports; repo test pins it
@@ -280,7 +280,7 @@ TRDs:
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
-| 58. Estimation engine and surfacing | v1.5 | 5/10 | In Progress | - |
+| 58. Estimation engine and surfacing | v1.5 | 6/10 | In Progress | - |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |

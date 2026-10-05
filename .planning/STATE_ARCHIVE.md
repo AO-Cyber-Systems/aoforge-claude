@@ -131,6 +131,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 58]: calibration v2 inputs_digest hashes overhead samples plus counts; --no-overhead raw line says 'overhead skipped' not 'none'
 - [Objective 58]: overallConfidence ties go to the larger p50 then the earlier component; a null-p50 component has an unknown share and always counts; a TRD with no auto tasks is confidence none, nothing to judge is n/a
 - [Objective 58]: estimateTask confidence and samples cover only the metrics present; a metric with no samples anywhere is null and listed in missing, never defaulted
+- [Objective 58]: 58-06: a wave distribution (max when parallel, correlated sum when serial) is one member of the flat total list; the gap alternative appends planner, trd_level and a second verifier, mixed with the calibrated probability
+- [Objective 58]: 58-06: missing agent overhead is listed in missing and caps objective confidence at low; unplanned objectives use objective_level history with no gap mixture and are capped low
 
 ## Performance Metrics
 
@@ -208,4 +210,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 58 P04 | 9min | 2 tasks | 4 files |
 | Objective 58 P03 | 6min | 3 tasks | 6 files |
 | Objective 58 P05 | 25min | 2 tasks | 3 files |
+| Objective 58 P06 | 35min | 2 tasks | 4 files |
 
