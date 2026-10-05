@@ -449,6 +449,55 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   }, raw, `${summaryCount}/${jobCount} ${status}`);
 }
 
+// ─── milestone complete (TRD 59-04) ───────────────────────────────────────────
+
+/**
+ * The objectives a milestone's completion counts, and where that list came from (`source`, reported as `scope_source`):
+ * the ROADMAP.md `## Milestones` bullet for `version` (the selection `estimate milestone` uses), else every
+ * `### Objective N:` section that has a directory when the bullet is missing, else every current objective directory when
+ * there is no ROADMAP.md. milestone-scope.cjs requires this module, so it is loaded here, not at the top.
+ * @returns {{source: string, objectives: object[], absent: string[]}}
+ */
+function completionScope(cwd, version) {
+  const ms = require('./milestone-scope.cjs');
+  try {
+    const s = ms.selectMilestoneObjectives(cwd, { version });
+    return { source: s.range_source, objectives: s.objectives, absent: s.absent };
+  } catch (e) {
+    if (/ROADMAP\.md not found/.test(e.message)) {
+      return { source: 'objective directories', objectives: ms.currentDirObjectives(cwd), absent: [] };
+    }
+    if (/not in ROADMAP\.md|no milestone in ROADMAP\.md/.test(e.message)) {
+      return { source: 'roadmap sections', objectives: ms.sectionObjectives(cwd), absent: [] };
+    }
+    throw e;
+  }
+}
+
+// One opening task tag per task, checkpoints included; the \b after the tag name keeps the <tasks> wrapper out. The same
+// pattern as trd-pre-check.cjs countTasks.
+const TASK_TAG_RE = /<task\b([^>]*?)>/gi;
+const countTaskElements = (text) => (text.match(TASK_TAG_RE) || []).length;
+
+/**
+ * A SUMMARY's one-liner: the frontmatter `one-liner:` when it has one, else the template's bold line, the first non-blank
+ * line under the H1. A bold line that still starts with `[` is the template placeholder and is not a one-liner.
+ * @returns {?string}
+ */
+function summaryOneLiner(text) {
+  const fm = extractFrontmatter(text);
+  const fromFrontmatter = typeof fm['one-liner'] === 'string' ? fm['one-liner'].trim() : '';
+  if (fromFrontmatter) return fromFrontmatter;
+
+  const lines = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').split(/\r?\n/);
+  const h1 = lines.findIndex((l) => /^#\s+\S/.test(l));
+  if (h1 === -1) return null;
+  const next = lines.slice(h1 + 1).find((l) => l.trim() !== '');
+  const bold = next === undefined ? null : /^\*\*(.+)\*\*\s*$/.exec(next.trim());
+  if (!bold || bold[1].trim().startsWith('[')) return null;
+  return bold[1].trim();
+}
+
 function cmdMilestoneComplete(cwd, version, options, raw) {
   if (!version) {
     error('version required for milestone complete (e.g., v1.0)');
@@ -459,45 +508,41 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   const milestonesPath = path.join(cwd, '.planning', 'MILESTONES.md');
   const archiveDir = path.join(cwd, '.planning', 'milestones');
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
   const today = new Date().toISOString().split('T')[0];
   const milestoneName = options.name || version;
 
-  // Ensure archive directory exists
-  fs.mkdirSync(archiveDir, { recursive: true });
-
-  // Gather stats from objectives
-  let objectiveCount = 0;
+  // Gather stats from this milestone's objectives only (reads only: nothing is written until the scope is known).
+  let scope;
+  try {
+    scope = completionScope(cwd, version);
+  } catch (e) {
+    error(`milestone complete ${version}: ${e.message}`);
+  }
+  // `objectives` counts what is there to count: a cancelled objective is reported, an objective with no directory is `absent`.
+  const counted = scope.objectives.filter(o => o.dir && o.status_hint === 'dir');
+  const cancelled = scope.objectives.filter(o => o.status_hint === 'cancelled').map(o => o.number);
   let totalJobs = 0;
   let totalTasks = 0;
   const accomplishments = [];
 
-  try {
-    const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
-    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-
-    for (const dir of dirs) {
-      objectiveCount++;
-      const objectiveFiles = fs.readdirSync(path.join(objectivesDir, dir));
-      const plans = findPlanFiles(objectiveFiles);
-      const summaries = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
-      totalJobs += plans.length;
-
-      // Extract one-liners from summaries
-      for (const s of summaries) {
-        try {
-          const content = fs.readFileSync(path.join(objectivesDir, dir, s), 'utf-8');
-          const fm = extractFrontmatter(content);
-          if (fm['one-liner']) {
-            accomplishments.push(fm['one-liner']);
-          }
-          // Count tasks
-          const taskMatches = content.match(/##\s*Task\s*\d+/gi) || [];
-          totalTasks += taskMatches.length;
-        } catch {}
-      }
+  for (const o of counted) {
+    const objectiveFiles = fs.readdirSync(path.join(cwd, o.dir)).sort();
+    const plans = findPlanFiles(objectiveFiles);
+    const summaries = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
+    totalJobs += plans.length;
+    for (const plan of plans) {
+      totalTasks += countTaskElements(fs.readFileSync(path.join(cwd, o.dir, plan), 'utf-8'));
     }
-  } catch {}
+    for (const s of summaries) {
+      const oneLiner = summaryOneLiner(fs.readFileSync(path.join(cwd, o.dir, s), 'utf-8'));
+      if (oneLiner) accomplishments.push(oneLiner);
+    }
+  }
+  const objectiveCount = counted.length;
+  const objectiveNumbers = counted.map(o => o.number);
+
+  // Ensure archive directory exists
+  fs.mkdirSync(archiveDir, { recursive: true });
 
   // Archive ROADMAP.md
   if (fs.existsSync(roadmapPath)) {
@@ -520,7 +565,10 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
 
   // Create/append MILESTONES.md entry
   const accomplishmentsList = accomplishments.map(a => `- ${a}`).join('\n');
-  const milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Objectives completed:** ${objectiveCount} objectives, ${totalJobs} plans, ${totalTasks} tasks\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n---\n\n`;
+  const objectivesLine = objectiveCount > 0
+    ? `${objectiveCount} objectives (${objectiveNumbers.join(', ')}), ${totalJobs} plans, ${totalTasks} tasks`
+    : '0 objectives, 0 plans, 0 tasks';
+  const milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Objectives completed:** ${objectivesLine}\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n---\n\n`;
 
   if (fs.existsSync(milestonesPath)) {
     const existing = fs.readFileSync(milestonesPath, 'utf-8');
@@ -529,38 +577,32 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     fs.writeFileSync(milestonesPath, `# Milestones\n\n${milestoneEntry}`, 'utf-8');
   }
 
-  // Update STATE.md
+  // Update STATE.md: written only when the replacement changes its bytes, and `state_updated` says exactly that.
+  let stateUpdated = false;
   if (fs.existsSync(statePath)) {
-    let stateContent = fs.readFileSync(statePath, 'utf-8');
-    stateContent = stateContent.replace(
-      /(\*\*Status:\*\*\s*).*/,
-      `$1${version} milestone complete`
-    );
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity:\*\*\s*).*/,
-      `$1${today}`
-    );
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity Description:\*\*\s*).*/,
-      `$1${version} milestone completed and archived`
-    );
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    const original = fs.readFileSync(statePath, 'utf-8');
+    const stateContent = original
+      .replace(/(\*\*Status:\*\*\s*).*/, `$1${version} milestone complete`)
+      .replace(/(\*\*Last Activity:\*\*\s*).*/, `$1${today}`)
+      .replace(/(\*\*Last Activity Description:\*\*\s*).*/, `$1${version} milestone completed and archived`);
+    if (stateContent !== original) {
+      fs.writeFileSync(statePath, stateContent, 'utf-8');
+      stateUpdated = true;
+    }
   }
 
-  // Archive objective directories if requested
+  // Archive this milestone's objective directories if requested: the counted and the cancelled ones that live under
+  // .planning/objectives/ (an objective already archived by an earlier milestone stays where it is).
   let phasesArchived = false;
   if (options.archiveObjectives) {
-    try {
-      const phaseArchiveDir = path.join(archiveDir, `${version}-objectives`);
-      fs.mkdirSync(phaseArchiveDir, { recursive: true });
-
-      const phaseEntries = fs.readdirSync(objectivesDir, { withFileTypes: true });
-      const objectiveDirNames = phaseEntries.filter(e => e.isDirectory()).map(e => e.name);
-      for (const dir of objectiveDirNames) {
-        fs.renameSync(path.join(objectivesDir, dir), path.join(phaseArchiveDir, dir));
-      }
-      phasesArchived = objectiveDirNames.length > 0;
-    } catch {}
+    const currentPrefix = '.planning/objectives/';
+    const toArchive = scope.objectives.filter(o => o.dir && o.dir.startsWith(currentPrefix) && (o.status_hint === 'dir' || o.status_hint === 'cancelled'));
+    const phaseArchiveDir = path.join(archiveDir, `${version}-objectives`);
+    fs.mkdirSync(phaseArchiveDir, { recursive: true });
+    for (const o of toArchive) {
+      fs.renameSync(path.join(cwd, o.dir), path.join(phaseArchiveDir, path.basename(o.dir)));
+    }
+    phasesArchived = toArchive.length > 0;
   }
 
   const result = {
@@ -568,8 +610,12 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     name: milestoneName,
     date: today,
     objectives: objectiveCount,
+    objective_numbers: objectiveNumbers,
     jobs: totalJobs,
     tasks: totalTasks,
+    cancelled,
+    absent: scope.absent,
+    scope_source: scope.source,
     accomplishments,
     archived: {
       roadmap: fs.existsSync(path.join(archiveDir, `${version}-ROADMAP.md`)),
@@ -578,7 +624,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       objectives: phasesArchived,
     },
     milestones_updated: true,
-    state_updated: fs.existsSync(statePath),
+    state_updated: stateUpdated,
   };
 
   output(result, raw);
