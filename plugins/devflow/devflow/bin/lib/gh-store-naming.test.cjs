@@ -12,6 +12,7 @@
 //   footer  4  the created objective issue body ends with the store footer: "source of truth" and "cache", never
 //              "in this repo"                                   (gh-body.test.cjs pins the builder, gh-sync.test.cjs
 //                                                                the unchanged mirror text)
+//           4b buildIssueBody carries the same store flag and text; without it, today's line
 //
 // Hermetic: hermeticEnv() temp HOME / outbox / cache dirs, the stateful fake GitHub through the gh-client seam, a fake
 // clock, the wiki is a local bare repo over file://. No real GitHub, no network, no port, never ~/.claude.
@@ -24,6 +25,7 @@ const path = require('node:path');
 const verbs = require('./planning-verbs.cjs');
 const gh = require('./gh.cjs');
 const client = require('./gh-client.cjs');
+const bodyLib = require('./gh-body.cjs');
 const objectiveLib = require('./objective.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
@@ -140,6 +142,49 @@ describe('55-04 store objective issue title', () => {
     const issues = objectiveIssues();
     assert.equal(issues.length, 1, `one objective issue, got ${JSON.stringify(issues.map((i) => i.title))}`);
     assert.equal(issues[0].title, '[Objective 1] hello-cli');
+  });
+});
+
+// ─── Footer ──────────────────────────────────────────────────────────────────
+
+describe('55-04 store objective issue footer', () => {
+  useEmptyStoreProject();
+
+  test('4. the created objective issue body ends with the store footer: source of truth + cache, never "in this repo"', () => {
+    if (S.skipped) return;
+    const { code, out } = runObjectiveAdd('Hello CLI');
+    assert.equal(code, 0, JSON.stringify(out));
+    const issues = objectiveIssues();
+    assert.equal(issues.length, 1);
+    const footer = /^_Tracked by .*$/m.exec(issues[0].body);
+    assert.ok(footer, `no footer line in the body: ${issues[0].body}`);
+    assert.match(footer[0], /source of truth/i);
+    assert.match(footer[0], /cache/);
+    assert.ok(!footer[0].includes('in this repo'), footer[0]);
+    assert.ok(!issues[0].body.includes('.planning/objectives/'), 'the body must not point at a repo path');
+    // The footer is the LAST managed section: nothing DevFlow-owned follows it.
+    const begin = issues[0].body.indexOf('<!-- devflow:begin footer -->');
+    const end = issues[0].body.indexOf('<!-- devflow:end footer -->');
+    assert.ok(begin > -1 && end > begin, 'footer section markers present');
+    assert.ok(issues[0].body.indexOf(footer[0]) > begin && issues[0].body.indexOf(footer[0]) < end, 'the text sits inside the footer section');
+  });
+
+  test('4b. buildIssueBody takes the same store flag and ends with the same text; without it, today\'s line', () => {
+    const state = {
+      objectiveId: '01-hello-cli', number: '1', name: 'Hello CLI', goal: null, success_criteria: [], trds: [],
+      trd_done: 0, trd_total: 0, current_wave: 1, last_commit: null,
+    };
+    const store = gh.buildIssueBody({ ...state, store: true }).split('\n').pop();
+    assert.match(store, /source of truth/i);
+    assert.match(store, /cache/);
+    assert.ok(!store.includes('in this repo'), store);
+    const mirror = gh.buildIssueBody(state).split('\n').pop();
+    assert.equal(
+      mirror,
+      '_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). Source of truth: `.planning/objectives/01-hello-cli/` in this repo._'
+    );
+    // The two builders agree on the store text.
+    assert.equal(store, bodyLib.buildObjectiveSections({ ...state, store: true }).footer);
   });
 });
 
