@@ -10,10 +10,13 @@
  * length being counted, the tool is lying again.
  */
 
-const { describe, test } = require('node:test');
+const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
-  accumulate, summarize, newAccumulator, tokensOfResult, TOKENS_PER_IMAGE,
+  accumulate, summarize, newAccumulator, tokensOfResult, TOKENS_PER_IMAGE, forEachRecord,
 } = require('./context-audit.cjs');
 
 const assistant = (content, extra = {}) => ({
@@ -148,5 +151,28 @@ describe('summarize() — targets', () => {
 
   test('the accounting note ships with every report', () => {
     assert.match(summarize(newAccumulator()).note, /base64/i);
+  });
+});
+
+// TRD 57-01 (EST-07): the one JSONL reader shared by analyze() and the token reader (token-usage.cjs).
+describe('forEachRecord() — the shared transcript parser', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-audit-')));
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  test('calls fn once per parsed row in file order, skipping blank and malformed lines', () => {
+    const file = path.join(dir, 'rows.jsonl');
+    // the last line has no trailing newline on purpose
+    fs.writeFileSync(file, ['{"a":1}', '', '{not json', '   ', '{"b":2}', '{"c":3}'].join('\n'));
+    const seen = [];
+    const ok = forEachRecord(file, (row) => seen.push(row));
+    assert.equal(ok, true);
+    assert.deepStrictEqual(seen, [{ a: 1 }, { b: 2 }, { c: 3 }]);
+  });
+
+  test('returns false for an unreadable path without calling fn', () => {
+    let calls = 0;
+    const ok = forEachRecord(path.join(dir, 'missing.jsonl'), () => { calls++; });
+    assert.equal(ok, false);
+    assert.equal(calls, 0);
   });
 });
