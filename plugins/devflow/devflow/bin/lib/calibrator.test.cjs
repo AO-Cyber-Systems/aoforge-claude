@@ -10,6 +10,8 @@ const ci = require('./calibration-inputs.cjs');
 const {
   makeCalibrationProject, removeCalibrationProject, cloneSpec, ALPHA_SPEC,
 } = require('./__fixtures__/calibration-fixtures.cjs');
+const fx = require('./__fixtures__/transcript-fixtures.cjs');
+const { OVERHEAD_AGENTS } = require('./agent-overhead.cjs');
 const calibrator = require('./calibrator.cjs');
 
 const {
@@ -238,7 +240,7 @@ describe('57-05 buildCalibration', () => {
     assert.deepEqual(cal.probabilities.checkpoint, { value: 0.2, n: 5 });
 
     assert.equal(cal.data_as_of, '2026-10-05');
-    assert.equal(cal.version, 1);
+    assert.equal(cal.version, 2);
     assert.equal(cal.classifier_version, 1);
     assert.deepEqual(cal.unpriced_models, []);
     assert.ok(!collectKeys(cal).includes('generated_at'));
@@ -441,8 +443,8 @@ describe('57-05 deterministic output', () => {
     assert.ok(!text.includes(beta), 'no input path appears in the file');
   });
 
-  test('exports CALIBRATION_VERSION 1, the version the build stamps', () => {
-    assert.equal(CALIBRATION_VERSION, 1);
+  test('exports CALIBRATION_VERSION 2, the version the build stamps', () => {
+    assert.equal(CALIBRATION_VERSION, 2);
     const beta = makeProject(BETA_SPEC);
     assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).version, CALIBRATION_VERSION);
   });
@@ -573,5 +575,207 @@ describe('57-05 inputs_digest', () => {
     const before = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).inputs_digest;
     touchTree(beta, 1234567890);
     assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).inputs_digest, before);
+  });
+});
+
+// ─── 58-03: calibration v2, agent overhead ───────────────────────────────────
+
+const EMPTY_STAT = { n: 0, p50: null, p90: null, min: null, max: null };
+
+// Every projects root is a mkdtemp dir that the test removes. Nothing here reads the real ~/.claude.
+const troots = [];
+function makeTroot() {
+  const root = fx.makeProjectsRoot();
+  troots.push(root);
+  return root;
+}
+afterEach(() => {
+  while (troots.length) fs.rmSync(troots.pop(), { recursive: true, force: true });
+});
+
+// PLANNER_SPAWN (p1) and VERIFIER_SPAWN (v1) for `repo`, plus a verifier spawn (f1) from an unrelated directory.
+function overheadRoot(repo, { verifierSpawn = fx.VERIFIER_SPAWN } = {}) {
+  const troot = makeTroot();
+  const foreign = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-foreign-repo-')));
+  tmpDirs.push(foreign);
+  const write = (projectKey, agentId, spawn, cwd) => fx.writeOverheadTranscript(troot, {
+    projectKey, session: 's1', agentId, spawn, cwd,
+  });
+  write(fx.projectKeyFor(repo), 'p1', fx.PLANNER_SPAWN, repo);
+  write(fx.projectKeyFor(repo), 'v1', verifierSpawn, repo);
+  write(fx.projectKeyFor(foreign), 'f1', fx.VERIFIER_SPAWN, foreign);
+  return troot;
+}
+
+describe('58-03 agent_overhead in calibration v2', () => {
+  test('7: without a transcripts root, agent_overhead has the six agents, all empty, and nothing was scanned', () => {
+    const beta = makeProject(BETA_SPEC);
+    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+
+    assert.equal(cal.version, 2);
+    assert.deepEqual(Object.keys(cal.agent_overhead).sort(), [...OVERHEAD_AGENTS].sort());
+    for (const name of OVERHEAD_AGENTS) {
+      assert.deepEqual(cal.agent_overhead[name], {
+        samples: 0, minutes: EMPTY_STAT, tokens_input: EMPTY_STAT, tokens_output: EMPTY_STAT, cost_usd: EMPTY_STAT,
+      }, name);
+    }
+    assert.deepEqual(cal.agent_overhead_sources, {
+      scanned: false, spawns: 0, matched: 0, foreign: 0, quick: 0, unreadable: 0,
+    });
+    assert.equal(cal.notes.length, 5);
+    assert.ok(cal.notes.every((n) => typeof n === 'string'));
+    assert.ok(cal.notes[3].startsWith('agent_overhead is one spawn of a non-executor DevFlow agent'));
+  });
+
+  test('7: the BETA numbers are the same with and without overhead samples', () => {
+    const beta = makeProject(BETA_SPEC);
+    const plain = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    const withOverhead = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: overheadRoot(beta) });
+    assert.equal(plain.task_classes.code_tdd.minutes.p50, 4);
+    assert.deepEqual(withOverhead.task_classes, plain.task_classes);
+    assert.deepEqual(withOverhead.trd_level, plain.trd_level);
+    assert.deepEqual(withOverhead.probabilities, plain.probabilities);
+    assert.deepEqual(withOverhead.samples, plain.samples);
+    assert.deepEqual(withOverhead.sources, plain.sources);
+  });
+
+  test('8: the planner and verifier spawns are measured and priced per model', () => {
+    const beta = makeProject(BETA_SPEC);
+    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: overheadRoot(beta) });
+
+    const planner = cal.agent_overhead.planner;
+    assert.equal(planner.samples, 1);
+    assert.deepEqual(planner.minutes, { n: 1, p50: 6, p90: 6, min: 6, max: 6 });
+    assert.equal(planner.tokens_input.p50, 111015);
+    assert.equal(planner.tokens_output.p50, 6000);
+    assert.equal(planner.cost_usd.p50, 0.1471);
+
+    const verifier = cal.agent_overhead.verifier;
+    assert.equal(verifier.samples, 1);
+    assert.equal(verifier.minutes.p50, 4);
+    assert.equal(verifier.tokens_input.p50, 20503);
+    assert.equal(verifier.cost_usd.p50, 0.0203);
+
+    assert.equal(cal.agent_overhead['job-checker'].samples, 0);
+    assert.deepEqual(cal.agent_overhead_sources, {
+      scanned: true, spawns: 3, matched: 2, foreign: 1, quick: 0, unreadable: 0,
+    });
+    assert.deepEqual(cal.unpriced_models, []);
+  });
+
+  test('8: a spawn on an unpriced model keeps its minutes, has no cost, and the model is listed', () => {
+    const beta = makeProject(BETA_SPEC);
+    const unknownVerifier = {
+      ...fx.VERIFIER_SPAWN,
+      messages: [{ ...fx.VERIFIER_SPAWN.messages[0], model: 'claude-unknown-9' }],
+    };
+    const cal = buildCalibration({
+      paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: overheadRoot(beta, { verifierSpawn: unknownVerifier }),
+    });
+    const verifier = cal.agent_overhead.verifier;
+    assert.equal(verifier.samples, 1);
+    assert.equal(verifier.minutes.p50, 4);
+    assert.equal(verifier.tokens_input.n, 1);
+    assert.equal(verifier.cost_usd.n, 0);
+    assert.equal(cal.agent_overhead.planner.cost_usd.n, 1);
+    assert.ok(cal.unpriced_models.includes('claude-unknown-9'));
+  });
+
+  test('9: two builds over the same transcripts are byte-identical', () => {
+    const beta = makeProject(BETA_SPEC);
+    const troot = overheadRoot(beta);
+    const first = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: troot }));
+    const second = stableStringify(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: troot }));
+    assert.equal(first, second);
+    assert.ok(!first.includes(troot), 'no transcript path appears in the file');
+  });
+
+  test('9: inputs_digest changes when an overhead transcript changes, and not with its mtime or location', () => {
+    const beta = makeProject(BETA_SPEC);
+    const troot = overheadRoot(beta);
+    const base = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: troot }).inputs_digest;
+    const unscanned = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).inputs_digest;
+    assert.notEqual(unscanned, base, 'scanned and unscanned inputs differ');
+
+    // The same spawns in another projects root: same digest.
+    const copy = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: overheadRoot(beta) }).inputs_digest;
+    assert.equal(copy, base);
+
+    touchTree(troot, 1234567890);
+    assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: troot }).inputs_digest, base);
+
+    // One more message in the planner transcript is a different input.
+    const plannerFile = path.join(troot, fx.projectKeyFor(beta), 's1', 'subagents', 'agent-p1.jsonl');
+    const extra = fx.assistantRecords({
+      id: 'msg_P3', model: 'claude-opus-5-5', input: 1, cacheWrite: 0, cacheRead: 1000, output: 100, blocks: 1,
+      timestamp: '2026-10-01T10:08:00.000Z',
+    });
+    fs.appendFileSync(plannerFile, extra.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const changed = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, transcriptsRoot: troot });
+    assert.notEqual(changed.inputs_digest, base);
+    assert.equal(changed.agent_overhead.planner.minutes.p50, 8);
+  });
+});
+
+// ─── 58-03: calibration v2, objective-level history ──────────────────────────
+
+describe('58-03 objective_level in calibration v2', () => {
+  test('10: the BETA objectives sum to their serial minutes; an objective counts for a metric only when every TRD has it', () => {
+    const beta = makeProject(BETA_SPEC);
+    const level = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).objective_level;
+
+    // 70-a: 3 TRDs, 6 auto tasks, 10 + 8 + 12 minutes. 71-b: 2 TRDs, 2 auto tasks (the checkpoint is not counted);
+    // 71-b/01 is autonomous:false and has no minutes, so 71-b has no minutes total.
+    assert.equal(level.samples, 2);
+    assert.deepEqual(level.trds, { n: 2, p50: 2, p90: 3, min: 2, max: 3 });
+    assert.deepEqual(level.tasks, { n: 2, p50: 2, p90: 6, min: 2, max: 6 });
+    assert.deepEqual(level.minutes, { n: 1, p50: 30, p90: 30, min: 30, max: 30 });
+    // Only 70-a/03 has tokens, so no objective has them on every TRD.
+    assert.deepEqual(level.tokens_input, EMPTY_STAT);
+    assert.deepEqual(level.tokens_output, EMPTY_STAT);
+    assert.deepEqual(level.cost_usd, EMPTY_STAT);
+    assert.deepEqual(Object.keys(level).sort(), ['cost_usd', 'minutes', 'samples', 'tasks', 'tokens_input', 'tokens_output', 'trds']);
+  });
+
+  test('10: tokens and dollars are summed over fully measured objectives; a TRD without an outcome blocks its objective', () => {
+    const tokenTrd = (nn) => ({
+      nn, slug: `t${nn}`,
+      tasks: [{ name: 'Task 1: x', type: 'auto', files: ['lib/x.cjs'] }],
+      summary: {
+        duration: '5min', completed: '2026-10-01',
+        tokens_input: 1000, tokens_output: 100, tokens_cache_read: 0, tokens_cache_write: 0, token_model: 'claude-opus-5-5',
+      },
+    });
+    const gamma = makeProject({
+      name: 'gamma',
+      objectives: [
+        {
+          dir: '80-g',
+          trds: [tokenTrd('01'), {
+            nn: '02', slug: 'unmeasured', tasks: [{ name: 'Task 1: y', type: 'auto', files: ['lib/y.cjs'] }], summary: null,
+          }],
+        },
+        { dir: '81-h', trds: [tokenTrd('01'), tokenTrd('02')] },
+        { dir: '82-i', trds: [{ nn: '01', slug: 'never', tasks: [{ name: 'Task 1: z', type: 'auto', files: ['lib/z.cjs'] }], summary: null }] },
+      ],
+    });
+    const level = buildCalibration({ paths: [gamma], ratesPath: ci.RATES_PATH }).objective_level;
+
+    // 82-i has no sample TRD at all, so it is not an objective sample.
+    assert.equal(level.samples, 2);
+    assert.deepEqual(level.trds, { n: 2, p50: 2, p90: 2, min: 2, max: 2 });
+    assert.deepEqual(level.tasks, { n: 2, p50: 2, p90: 2, min: 2, max: 2 });
+    assert.deepEqual(level.minutes, { n: 1, p50: 10, p90: 10, min: 10, max: 10 });
+    assert.deepEqual(level.tokens_input, { n: 1, p50: 2000, p90: 2000, min: 2000, max: 2000 });
+    assert.deepEqual(level.tokens_output, { n: 1, p50: 200, p90: 200, min: 200, max: 200 });
+    assert.deepEqual(level.cost_usd, { n: 1, p50: 0.012, p90: 0.012, min: 0.012, max: 0.012 });
+  });
+
+  test('10: an empty project has no objective samples', () => {
+    const empty = makeProject({ name: 'empty', objectives: [] });
+    const level = buildCalibration({ paths: [empty], ratesPath: ci.RATES_PATH }).objective_level;
+    assert.equal(level.samples, 0);
+    assert.deepEqual(level.trds, EMPTY_STAT);
+    assert.deepEqual(level.minutes, EMPTY_STAT);
   });
 });

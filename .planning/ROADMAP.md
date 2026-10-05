@@ -187,7 +187,7 @@ TRDs:
 TRDs:
 - [x] 58-01-composition-math-TRD.md — (W1) EST-03: `estimate-math.cjs` lognormal fit from p50/P90, comonotonic and correlated (Fenton-Wilkinson, rho 0.5) sums, parallel-wave max, gap-closure mixture; literal anchors
 - [x] 58-02-agent-overhead-reader-TRD.md — (W1) EST-03 input: `agent-overhead.cjs` per-spawn minutes and tokens for planner/job-checker/verifier/researcher/integration-checker/roadmapper transcripts, repo-scoped, quick plans excluded
-- [ ] 58-03-calibration-v2-TRD.md — (W2) EST-03 input: calibration.json v2 `agent_overhead` + `objective_level`; `calibrate --root | --no-overhead`
+- [x] 58-03-calibration-v2-TRD.md — (W2) EST-03 input: calibration.json v2 `agent_overhead` + `objective_level`; `calibrate --root | --no-overhead`
 - [x] 58-04-run-state-and-statusline-TRD.md — (W1) EST-05: out-of-repo estimate run state (`~/.claude/devflow/state/estimates/`), remaining-time rule, status line segment (fail-open, cached only)
 - [ ] 58-05-task-and-trd-estimates-TRD.md — (W2) EST-02/03: `estimate.cjs` shared classifier, confidence labels, thin-class fallback, no-data reasons, TRD composition
 - [ ] 58-06-objective-rollup-TRD.md — (W3) EST-03: remaining TRDs by wave, verifier overhead, gap-closure mixture, unplanned fallback from objective history
@@ -280,7 +280,7 @@ TRDs:
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
-| 58. Estimation engine and surfacing | v1.5 | 3/10 | In Progress | - |
+| 58. Estimation engine and surfacing | v1.5 | 4/10 | In Progress | - |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
