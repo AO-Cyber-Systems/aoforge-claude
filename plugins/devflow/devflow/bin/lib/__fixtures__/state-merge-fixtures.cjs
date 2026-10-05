@@ -97,6 +97,9 @@ function makeWaveRepo({ state, archive }) {
 
   const env = { ...process.env, ...gitTestEnv(home) };
   for (const key of LEAKY) delete env[key];
+  // A merge driver runs through `sh -c` with git's own environment: put the node that runs the tests
+  // first on PATH so the driver really runs instead of silently falling back to `git merge-file`.
+  env.PATH = path.dirname(process.execPath) + path.delimiter + (env.PATH || '');
 
   function run(args, opts = {}) {
     return spawnSync('git', args, { cwd: opts.cwd || root, env, encoding: 'utf-8' });
