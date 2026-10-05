@@ -47,7 +47,8 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 42, 45, 53 — Codebase-aware stack drafter (15/15), DevFlow doctor (10/10), Worktree and health hygiene (7/7; completed 2026-10-04)
 **Objective complete:** 55 — Store live-smoke fixes (completed 2026-10-05, 8/8 TRDs)
 **Objective complete:** 56 — Objective-number correctness (completed 2026-10-05, 5/5 TRDs)
-**Status:** Objective complete — ready for verification
+**Objective complete:** 57 — Estimation data foundation (completed 2026-10-05, 7/7 TRDs)
+**Status:** Objective 57 complete (verified 4/4) — ready to plan Objective 58: Estimation engine and surfacing
 
 ## Branch State (post-merge)
 

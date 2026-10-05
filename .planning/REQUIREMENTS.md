@@ -55,7 +55,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 
 ### Estimation engine (EST): Phase K, devflow-claude#36
 
-- [ ] **EST-01**: `df-tools calibrate` builds `~/.claude/devflow/calibration.json` from SUMMARY frontmatter, STATE_ARCHIVE metrics and model rates.
+- [x] **EST-01**: `df-tools calibrate` builds `~/.claude/devflow/calibration.json` from SUMMARY frontmatter, STATE_ARCHIVE metrics and model rates.
 - [ ] **EST-02**: `df-tools estimate task` classifies a task and returns median/P90 minutes, tokens and dollars with the sample count and a confidence label.
 - [ ] **EST-03**: `df-tools estimate trd|objective|milestone` composes task estimates and adds agent overhead and the gap-closure factor.
 - [ ] **EST-04**: plan-objective's PLANNING COMPLETE output includes an estimate table.
@@ -112,7 +112,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | BLTN-04 | Objective 63 | Pending |
 | BLTN-05 | Objective 63 | Pending |
 | BLTN-06 | Objective 63 | Pending |
-| EST-01 | Objective 57 | Pending |
+| EST-01 | Objective 57 | Complete |
 | EST-02 | Objective 58 | Pending |
 | EST-03 | Objective 58 | Pending |
 | EST-04 | Objective 58 | Pending |
