@@ -69,6 +69,20 @@ function toolResult(id, text, opts = {}) {
   };
 }
 
+// The edit gate's real message shape (quick 31). It contains the override
+// phrases, which must never route a denial; only user prompts count.
+const GATE_TEXT = 'DevFlow ambient mode active — direct Edit/Write/MultiEdit denied. ' +
+  'To proceed, invoke a DevFlow skill, or include "skip devflow" or "just edit" in your prompt.';
+
+/** Write a.go -> gate denial -> Bash heredoc write of the same file (a bypass). */
+function bypassRows() {
+  return [
+    toolUse('e1', 'Write', { file_path: '/repo/src/a.go', content: 'x' }),
+    toolResult('e1', GATE_TEXT, { isError: true }),
+    toolUse('b1', 'Bash', { command: "cat > /repo/src/a.go <<'EOF'\nx\nEOF" }, { timestamp: '2026-08-01T00:00:02Z' }),
+  ];
+}
+
 const {
   parseAuditArgs, defaultTranscriptRoot, runContext, formatContextRaw,
   defaultIndexPath, runOverride,
@@ -305,7 +319,8 @@ describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
     }
   });
 
-  test('10. session-audit --raw: exactly 2 lines', () => {
+  test('10. session-audit --raw: exactly 3 lines', () => {
+    // C-2: lines 1-2 are unchanged from TRD 39-01; quick 31 adds the edit_gate line.
     const cwd = tmpCwd();
     const home = makeFixtureHome();
     try {
@@ -315,9 +330,48 @@ describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
       const r = runCli(['session-audit', '--raw'], cwd, home);
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
       const lines = r.stdout.split('\n');
-      assert.equal(lines.length, 2, `expected 2 lines, got: ${JSON.stringify(lines)}`);
+      assert.equal(lines.length, 3, `expected 3 lines, got: ${JSON.stringify(lines)}`);
       assert.match(lines[0], /^files_scanned: \d+, sessions: \d+, sessions_with_blocks: \d+ \(\d+(\.\d+)?%\)$/);
       assert.match(lines[1], /^verdict: /);
+      assert.match(lines[2], /^edit_gate: denials 0, bypasses 0, routed 0, abandoned 0, bypass_rate 0$/);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('C-1. session-audit JSON carries edit_gate_bypass for a denial followed by a Bash write', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', bypassRows());
+      const r = runCli(['session-audit'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      const g = json.edit_gate_bypass;
+      assert.ok(g, 'edit_gate_bypass is present');
+      assert.deepEqual(
+        { denials: g.denials, bypasses: g.bypasses, routed: g.routed, abandoned: g.abandoned, bypass_rate: g.bypass_rate },
+        { denials: 1, bypasses: 1, routed: 0, abandoned: 0, bypass_rate: 1 }
+      );
+      assert.equal(g.sample[0].file, 'a.go');
+      assert.equal(json.by_category['devflow-edit-gate'], 1);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('C-3. session-audit --raw with a bypass: 5 lines (edit_gate, by_period, sample)', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', bypassRows());
+      const r = runCli(['session-audit', '--raw'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const lines = r.stdout.split('\n');
+      assert.equal(lines.length, 5, `expected 5 lines, got: ${JSON.stringify(lines)}`);
+      assert.equal(lines[2], 'edit_gate: denials 1, bypasses 1, routed 0, abandoned 0, bypass_rate 1');
+      assert.equal(lines[3], 'edit_gate_by_period: 2026-08 1/1/0/0 (denials/bypasses/routed/abandoned)');
+      assert.ok(lines[4].startsWith('edit_gate_bypass_sample: a.go <- cat > /repo/src/a.go'), lines[4]);
     } finally {
       cleanup(cwd, home);
     }
