@@ -1,8 +1,8 @@
 {
   "current_objective": "59",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 7,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -789,6 +789,11 @@
     {
       "objective": "59",
       "summary": "59-05: objective remove and complete report roadmap_updated from a before/after text comparison and write ROADMAP.md only on a change (TOOL-02 rule); objective.test.cjs 48-14 case 1d pins the old defect and needs roadmap_updated: false",
+      "rationale": null
+    },
+    {
+      "objective": "59",
+      "summary": "Merge driver install lives in execute-objective step 0 only, and a failed install is reported while the wave continues; the Branch merge protocol resolves state.json and STATE_ARCHIVE.md with merge-driver resolve; the post-wave regeneration is unconditional",
       "rationale": null
     }
   ],
