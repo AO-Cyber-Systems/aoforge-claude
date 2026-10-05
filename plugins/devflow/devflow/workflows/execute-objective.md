@@ -289,9 +289,18 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
    Read each job's `<objective>`. Extract what's being built and why.
 
+   Record the wave start with one plain command, wave number written out:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs estimate wave ${OBJECTIVE_NUMBER} {N} --start --raw
+   ```
+
+   Put the line it prints under the `## Wave {N}` header. If the estimate command fails or prints `No estimate:`, show that line (or nothing) and carry on; an estimate never blocks planning or execution.
+
    ```
    ---
    ## Wave {N}
+   {wave estimate line}
 
    **{Plan ID}: {Plan Name}**
    {2-3 sentences: what this builds, technical approach, why it matters}
@@ -651,6 +660,12 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
 6. **Report completion — spot-check claims first:**
 
+   Record the wave end with one plain command, wave number written out. Keep the line it prints for the report below:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs estimate wave ${OBJECTIVE_NUMBER} {N} --done --raw
+   ```
+
    **Update progress (if available):** For each completed plan:
    ```
    TaskUpdate(taskId=plan_task_id, status="completed")
@@ -667,6 +682,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    ```
    ---
    ## Wave {N} Complete
+   {actual vs estimate line}
 
    **{Plan ID}: {Plan Name}**
    {What was built — from SUMMARY.md}
@@ -872,6 +888,7 @@ After all waves:
 ## Objective {X}: {Name} Execution Complete
 
 **Waves:** {N} | **Jobs:** {M}/{total} complete
+**Time:** {output of `node ~/.claude/devflow/bin/df-tools.cjs estimate finish ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails}
 
 | Wave | Plans | Status |
 |------|-------|--------|

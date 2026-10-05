@@ -60,6 +60,14 @@ Make the objective directory, plan 1-3 TRDs inline from the description, execute
 mkdir -p ".planning/objectives/${padded_objective}-${objective_slug}"
 ```
 
+**One-line estimate (skip in Quick Build mode):** once the objective number is known, run this as one plain command, with the number written out:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs estimate objective ${OBJECTIVE_NUMBER} --line --raw
+```
+
+Print the line it outputs and keep it for the plan below. An unplanned objective gets a line estimated from history. If the estimate command fails or prints `No estimate:`, show that line (or nothing) and carry on; an estimate never blocks planning or execution.
+
 ## 3. Present Build Plan (EnterPlanMode)
 
 **Skip if:** `--auto` flag or config `workflow.auto_advance` is true.
@@ -75,7 +83,7 @@ Write a plan summarizing:
 - **Pipeline:** Research → Plan → {Check (if enabled)} → Execute → Verify
 - **Agents:** researcher ({researcher_model}), planner ({planner_model}), executor ({executor_model})
 - **Skipped steps:** {list any --skip flags or disabled agents}
-- **Estimated waves:** {based on objective complexity}
+- **Estimate:** {the one-line estimate from step 2, or "none"}
 
 If objective needs clarification (vague goal, no requirements listed), include 2-3 scoping questions in the plan using AskUserQuestion:
 
@@ -161,6 +169,14 @@ Delegate to execute-objective workflow (same as /devflow:execute-objective). The
 - Checkpoint handling
 - Auto gap-closure (max 2 cycles)
 
+Before delegating, start the run so the status line has a live estimate. One plain command, number written out:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs estimate start ${OBJECTIVE_NUMBER} --raw
+```
+
+Print the line it outputs. Skip this in Quick Build mode.
+
 ```
 Task(
   prompt="Run /devflow:execute-objective ${OBJECTIVE_NUMBER} --auto",
@@ -221,6 +237,7 @@ Display completion:
 
 TRDs: {count} executed
 Duration: {total time}
+Estimate: {output of `node ~/.claude/devflow/bin/df-tools.cjs estimate finish ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails}
 Verification: Passed ✓
 ```
 
