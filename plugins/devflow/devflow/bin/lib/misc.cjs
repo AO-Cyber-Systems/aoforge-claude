@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey, normalizeObjectiveName, generateSlugInternal } = require('./helpers.cjs');
+const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey, normalizeObjectiveName, objectiveDirMatches, generateSlugInternal } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getArchivedObjectiveDirs, findObjectiveInternal } = require('./objective.cjs');
@@ -241,7 +241,7 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
   try {
     const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    const match = dirs.find(d => d.startsWith(normalized));
+    const match = dirs.find(d => objectiveDirMatches(d, normalized));
     if (match) {
       objectiveDir = path.join(objectivesDir, match);
       objectiveDirName = match;

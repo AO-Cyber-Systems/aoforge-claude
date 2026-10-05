@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
+const { output, error, normalizeObjectiveName, objectiveDirMatches, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const planningMode = require('./planning-mode.cjs');
 const { escapeRegExp, objectiveNumPattern } = require('./text-escape.cjs');
@@ -13,7 +13,7 @@ function searchObjectiveInDir(baseDir, relBase, normalized) {
   try {
     const entries = fs.readdirSync(baseDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    const match = dirs.find(d => d.startsWith(normalized));
+    const match = dirs.find(d => objectiveDirMatches(d, normalized));
     if (!match) return null;
 
     const dirMatch = match.match(/^(\d+(?:\.\d+)?)-?(.*)/);
@@ -139,7 +139,7 @@ function cmdFindObjective(cwd, objective, raw) {
     const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
 
-    const match = dirs.find(d => d.startsWith(normalized));
+    const match = dirs.find(d => objectiveDirMatches(d, normalized));
     if (!match) {
       output(notFound, raw, '');
       return;
@@ -218,7 +218,8 @@ function cmdObjectivesList(cwd, options, raw) {
     // If filtering by objective number
     if (objective) {
       const normalized = normalizeObjectiveName(objective);
-      const match = dirs.find(d => d.startsWith(normalized));
+      // Archived entries read `04.1-one [v1.2]`: match on the directory name alone.
+      const match = dirs.find(d => objectiveDirMatches(d.replace(/ \[v[\d.]+\]$/, ''), normalized));
       if (!match) {
         output({ files: [], count: 0, objective_dir: null, error: 'Objective not found' }, raw, '');
         return;
@@ -647,7 +648,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   try {
     const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    targetDir = dirs.find(d => d.startsWith(normalized + '-') || d === normalized);
+    targetDir = dirs.find(d => objectiveDirMatches(d, normalized));
   } catch {}
 
   // Check for executed work (SUMMARY.md files).
