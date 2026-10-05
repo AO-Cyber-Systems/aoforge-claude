@@ -304,6 +304,14 @@ describe('summaryExists', () => {
     assert.equal(summaryExists('07.1-02', [wildcard]), false);
   });
 
+  // TRD 56-01 (ONUM-01): the id is escaped with the shared text-escape.cjs escapeRegExp.
+  test('56-01 #10: 12.1-03 matches only its own literal id, exact or named', () => {
+    const lookalikes = withObjectiveFiles('decimal-lookalikes', ['1201-03-SUMMARY.md', '12x1-03-SUMMARY.md']);
+    assert.equal(summaryExists('12.1-03', [lookalikes]), false);
+    const named = withObjectiveFiles('decimal-named', ['1201-03-SUMMARY.md', '12.1-03-x-SUMMARY.md']);
+    assert.equal(summaryExists('12.1-03', [named]), true);
+  });
+
   test('53-02: an fsImpl without readdirSync on objective dirs keeps the exact-name path', () => {
     const root = F.makePlanningRepo(path.join(tmp, 'mock-exact'), { summaries: ['77-02'] });
     const objectivesDir = path.join(root, '.planning', 'objectives');

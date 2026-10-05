@@ -268,6 +268,7 @@ describe('runLoop', () => {
 //   TP-8:  pending with inputs.secrets[keyring] → status:'failed' before dispatch
 //   TP-9:  redaction skips values shorter than MIN_REDACT_LEN
 //   TP-10: stderr containing resolved secret also gets redacted
+//   TP-11: a secret with regex metacharacters is redacted literally (TRD 56-01)
 // =============================================================================
 
 /**
@@ -619,6 +620,47 @@ describe('processOnce — token passing (TRD 19-02)', () => {
       assert.match(done.stderr, /\*\*\*REDACTED\*\*\*/);
     } finally {
       delete process.env.TP10_TOKEN;
+    }
+  });
+
+  // TRD 56-01 (ONUM-01): the redaction regex escapes the secret through text-escape.cjs.
+  // Unescaped, `p.ss(w)rd+$1[x]` compiles to a pattern that can never match itself.
+  test('TP-11: a secret with regex metacharacters is redacted literally; a near-miss is left alone', async () => {
+    const secret = 'p.ss(w)rd+$1[x]';
+    const nearMiss = 'pXss(w)rd+$1[x]';
+    assert.ok(secret.length >= 8, 'long enough to be redacted (MIN_REDACT_LEN)');
+    process.env.TP11_TOKEN = secret;
+    try {
+      writePending(root, 'h-tp11', 'doctl auth init', {
+        inputs: {
+          secrets: [{
+            prompt_match: 'Token:',
+            value_source: 'env',
+            value_ref: 'TP11_TOKEN',
+          }],
+        },
+      });
+      const allow = allowlistLib.defaultAllowlist();
+      const session = makeTokenSession({
+        stream: ['Token: '],
+        // Buggy tool echoes the token back, beside a string that differs only at the `.`.
+        result: {
+          stdout: `Token saved as ${secret}. Old token ${nearMiss}.\n`,
+          stderr: `debug: ${secret}\n`,
+          exit_code: 0,
+          status: 'done',
+        },
+      });
+      const pending = daemon.readPending(root);
+      const done = await daemon.processOnce(pending[0], {
+        session, allowlist: allow, projectRoot: root,
+      });
+      assert.equal(done.status, 'done');
+      assert.ok(!done.stdout.includes(secret), `stdout should NOT contain the raw secret, got: ${done.stdout}`);
+      assert.ok(!done.stderr.includes(secret), `stderr should NOT contain the raw secret, got: ${done.stderr}`);
+      assert.equal(done.stdout, `Token saved as ***REDACTED***. Old token ${nearMiss}.\n`);
+    } finally {
+      delete process.env.TP11_TOKEN;
     }
   });
 });
