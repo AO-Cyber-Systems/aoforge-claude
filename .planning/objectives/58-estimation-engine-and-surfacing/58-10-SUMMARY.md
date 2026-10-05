@@ -28,9 +28,9 @@ completed: 2026-10-05
 **Work in progress.**
 
 ## Progress
-- [x] Task 1: Calibrate v2 and estimate this repository live, with an in-sample backtest — (this commit)
-- [ ] Task 2: Run-state and status line smoke — next step: build the scratch HOME and state dir under the session scratchpad, then run `estimate start 58 --raw` with `DEVFLOW_ESTIMATE_STATE_DIR` set
-- [ ] Task 3: CHANGELOG, CLAUDE.md, USER-GUIDE, hook doc; full test run
+- [x] Task 1: Calibrate v2 and estimate this repository live, with an in-sample backtest — 6a538169
+- [x] Task 2: Run-state and status line smoke — (this commit)
+- [ ] Task 3: CHANGELOG, CLAUDE.md, USER-GUIDE, hook doc; full test run — next step: edit CHANGELOG.md [Unreleased] (Added and Changed), then CLAUDE.md, docs/USER-GUIDE.md and scripts/gen-docs-data.cjs, then run the scoped tests and `npm test`
 
 ## Task 1 evidence (calibrate v2 and live estimates)
 
@@ -124,4 +124,22 @@ These three objectives are inside the 323-TRD calibration, so every row is optim
 | 56 | 5 (4 / 5) | 74.6 / 218.5 | 27 | yes | 2.76 | $15.83 / $23.58 | $15.72 | yes | 1.01 |
 | 57 | 7 (7 / 7) | 109.5 / 302.7 | 72 | yes | 1.52 | $22.61 / $32.81 | $21.41 | yes | 1.06 |
 
-Reading for Objective 64: cost medians land within 6% of actual on all three, minutes medians run 1.5x to 2.8x high (the p50 sits well above what these executors took), and every actual is under its P90. Both are in-sample results.
+Reading for Objective 64: cost medians land within 6% of actual on all three, minutes medians run 1.5x to 2.8x high (the p50 sits well above what these executors took), and every actual is under its P90. All of it is in-sample.
+
+## Task 2 evidence (run state and status line smoke)
+
+Scratch HOME `<scratchpad>/smoke/home` held copies of `estimate-run-store.cjs` and `upgrade.cjs` under `.claude/devflow/bin/lib/`; scratch state dir `<scratchpad>/smoke/state`. Every `estimate` command ran with the inline prefix `env DEVFLOW_ESTIMATE_STATE_DIR=<scratch state>` and read the real calibration file (read only). The render script (scratch, not committed) spawned `plugins/devflow/hooks/statusline.js` with `HOME=<scratch home>`, the same state dir and `workspace.current_dir` = this repository.
+
+| Step | Command | Output |
+|---|---|---|
+| 1 | `estimate start 58 --raw` | `Objective 58 estimate: 25 min median (P90 1h 25m) wall · $4.83 (P90 $9.91) · 1 TRD left in 1 wave · confidence low` |
+| 2 | `estimate wave 58 7 --start --raw` | `Wave 7 estimate: 20 min median, P90 1h 09m` |
+| 3 | status line render (during the run) | `Smoke │ devflow-claude │ ⏱ 58 W7/7 ~20m left` (contains `⏱ 58`) |
+| 4 | `estimate wave 58 7 --done --raw` | `Wave 7: actual 0 min · estimate 20 min median, P90 1h 09m · at or under median` |
+| 5 | `estimate finish 58 --raw` | `Objective 58 execution: actual 0 min · estimate 20 min median, P90 1h 09m · at or under median` |
+| 6 | `estimate finish 58 --raw` (again) | identical to step 5 |
+| 7 | status line render (after finish) | `Smoke │ devflow-claude` (no `⏱`) |
+
+The wave ran for 0.1717 minutes (the commands were issued seconds apart), hence `actual 0 min`. The stored estimate is the execution wall (19.7 / 69.3), which is what `finish` compares against; the `start` line (25 min median) adds the verifier overhead.
+
+`~/.claude/devflow/state/estimates/` does not exist after the smoke: nothing was written under the real state directory.
