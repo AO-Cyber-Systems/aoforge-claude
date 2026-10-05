@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 100,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -760,6 +760,16 @@
       "objective": "58",
       "summary": "58-10: in-sample backtest of 55-57 (execution agent minutes and cost vs SUMMARY actuals) recorded as information for Objective 64: cost medians within 6% of actual, minutes medians 1.5x-2.8x high, every actual under P90. Gaps for closure: estimate objective <done> --all prints 'all TRDs done'; estimate objective on a ROADMAP-only objective exits 1 (milestone covers it).",
       "rationale": null
+    },
+    {
+      "objective": "59",
+      "summary": "Metrics counters in state.json sum both deltas even when both sides ended at the same value (two parallel +1 jobs make base + 2); a counter absent from the base is kept once",
+      "rationale": "The equal-values shortcut in the TRD pseudo-code lost a completed job (found by the end-to-end wave merge test)"
+    },
+    {
+      "objective": "59",
+      "summary": "merge-driver install records the realpath of the running df-tools.cjs, mapped to the main checkout's copy when run from a linked worktree (refuses if absent)",
+      "rationale": "A wave worktree is removed after its merge; a driver pointing into it would be stranded"
     }
   ],
   "blockers": [],

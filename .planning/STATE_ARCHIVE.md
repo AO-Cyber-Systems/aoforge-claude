@@ -139,6 +139,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 58]: 58-08: every estimate verb exits 0 with 'No estimate: <reason>' (available: false) when the calibration is unusable, never a number; the JSON is rounded once by roundResult from the raw result, the text by each formatter from the same raw result, with line on every result and table on objective and milestone — Rounding a rounded figure shifts edge cases; a missing calibration is an answer, not a failure
 - [Objective 58]: 58-09: estimate calls in prose are fail-soft one-liners that paste df-tools output verbatim; wave --done runs before spot-checks; build re-runs idempotent estimate finish
 - [Objective 58]: 58-10: in-sample backtest of 55-57 (execution agent minutes and cost vs SUMMARY actuals) recorded as information for Objective 64: cost medians within 6% of actual, minutes medians 1.5x-2.8x high, every actual under P90. Gaps for closure: estimate objective <done> --all prints 'all TRDs done'; estimate objective on a ROADMAP-only objective exits 1 (milestone covers it).
+- [Objective 59]: Metrics counters in state.json sum both deltas even when both sides ended at the same value (two parallel +1 jobs make base + 2); a counter absent from the base is kept once — The equal-values shortcut in the TRD pseudo-code lost a completed job (found by the end-to-end wave merge test)
+- [Objective 59]: merge-driver install records the realpath of the running df-tools.cjs, mapped to the main checkout's copy when run from a linked worktree (refuses if absent) — A wave worktree is removed after its merge; a driver pointing into it would be stranded
 
 ## Performance Metrics
 
@@ -221,4 +223,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 58 P08 | 14min | 3 tasks | 6 files |
 | Objective 58 P09 | 14min | 2 tasks | 5 files |
 | Objective 58 P10 | 15min | 3 tasks | 4 files |
+| Objective 59 P01 | 12min | 3 tasks | 7 files |
 
