@@ -257,15 +257,11 @@ describe('df-tools calibrate (end to end)', () => {
     const beta = project(BETA_SPEC);
     const out = path.join(sb.tmp, 'c.json');
     okJson(sb, sb.tmp, ['--paths', beta, '--out', out]);
-    const before = fs.readFileSync(out);
-    const mtime = fs.statSync(out).mtimeMs;
 
     assert.equal(okJson(sb, sb.tmp, ['--paths', beta, '--out', out, '--dry-run']).changed, false, 'same inputs: no change');
     fs.writeFileSync(out, '{}\n');
     assert.equal(okJson(sb, sb.tmp, ['--paths', beta, '--out', out, '--dry-run']).changed, true, 'a different file would change');
     assert.equal(fs.readFileSync(out, 'utf-8'), '{}\n', 'dry run does not repair it');
-    assert.notEqual(before.toString(), '{}\n');
-    assert.ok(Number.isFinite(mtime));
   });
 
   test('6. with no --paths it calibrates the checkout holding cwd; outside a project it exits 1 naming --paths', () => {
@@ -323,6 +319,20 @@ describe('df-tools calibrate (end to end)', () => {
     assert.equal(result.out, path.join(sb.tmp, 'nested', 'rel.json'));
     assert.ok(fs.existsSync(path.join(sb.tmp, 'nested', 'rel.json')), 'written relative to cwd');
     assert.equal(result.sources[0].project, 'beta');
+  });
+
+  test('6e. --paths that holds no project exits 1 and writes nothing, so an empty history cannot overwrite a good file', () => {
+    const sb = sandbox();
+    const nowhere = tmpDir('df-calibrate-nowhere-');
+    const out = path.join(sb.tmp, 'c.json');
+    fs.writeFileSync(out, '{"keep":"me"}\n');
+
+    const r = run(sb, sb.tmp, ['--paths', nowhere, '--out', out]);
+
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /no DevFlow project/);
+    assert.equal(fs.readFileSync(out, 'utf-8'), '{"keep":"me"}\n', 'the existing file is untouched');
+    assert.equal(fs.existsSync(sb.defaultOut), false);
   });
 
   test('7. --rates without claude-opus-5-5 leaves it unpriced; a rates file missing `source` exits 1 naming the model', () => {

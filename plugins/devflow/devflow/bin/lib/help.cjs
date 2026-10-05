@@ -259,6 +259,12 @@ const COMMANDS = {
     mutates: true,
     details: 'trd is read-only; stamp writes only the draft you name (tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model, tokens_source: "live"), never a file under .planning/. Transcripts are read from --root, default ~/.claude/projects, for the repository at --repo (default: the main checkout). Exit 0 even when no transcript is found (stamped: false, the draft is left byte-identical); exit 1 for usage errors or a draft inside .planning/.',
   },
+  'calibrate': {
+    usage: 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--dry-run] [--raw]',
+    summary: 'Build per-task-class medians/P90s (minutes, tokens, dollars) from SUMMARY frontmatter, STATE_ARCHIVE metrics and model-rates.json into ~/.claude/devflow/calibration.json.',
+    mutates: true,
+    details: 'Default paths: the checkout holding cwd (or DEVFLOW_CALIBRATE_PATHS, path.delimiter separated). Default out: DEVFLOW_CALIBRATION_PATH, else ~/.claude/devflow/calibration.json. Deterministic: unchanged inputs give a byte-identical file and changed:false. --dry-run builds and reports but writes nothing. Refuses (exit 1) when no project is found, so an empty history never overwrites a good file.',
+  },
   'override': {
     usage: 'df-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]',
     summary: 'Record a structured, logged gate override in .planning/.override-log.jsonl, or list recent overrides.',

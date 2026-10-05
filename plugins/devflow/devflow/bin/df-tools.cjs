@@ -150,6 +150,9 @@
  *     [--objective-dir d] [--repo p] [--root dir]   (read-only; exit 0 even when none is found)
  *   tokens stamp <trd-id> --draft <path>  Write tokens_input/tokens_output/... into a SUMMARY draft
  *     [--objective-dir d] [--repo p] [--root dir]   (a draft inside .planning/ is refused; run before summary post)
+ *   calibrate [--paths a,b] [--out f]  Build per-task-class medians/P90s (minutes, tokens, dollars) into calibration.json
+ *     [--rates f] [--dry-run]          (default out: DEVFLOW_CALIBRATION_PATH or ~/.claude/devflow/calibration.json;
+ *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS)
  *
  * UI Metrics:
  *   ui metrics baseline [--since D] [--paths p1,p2] [--out f]  Fix/feat commit baseline JSON for UI paths
@@ -874,6 +877,16 @@ async function main() {
       const r = runTokens({ argv: args.slice(1), cwd });
       if (!r.ok) error(r.message);
       outputTokens(r.result, raw, r.text, r.exit || 0);
+      break;
+    }
+
+    case 'calibrate': {
+      // df-tools calibrate [--paths a,b] [--out file] [--rates file] [--dry-run] — TRD 57-06
+      const { output: outputCalibrate } = require('./lib/helpers.cjs');
+      const { runCalibrate } = require('./lib/calibrate-cli.cjs');
+      const r = runCalibrate({ argv: args.slice(1), cwd, env: process.env });
+      if (!r.ok) error(r.message);
+      outputCalibrate(r.result, raw, r.text, r.exit || 0);
       break;
     }
 
