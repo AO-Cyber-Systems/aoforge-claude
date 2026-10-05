@@ -3,7 +3,7 @@
   "depth": "standard",
   "job_checker_enabled": true,
   "workflow": {
-    "research": true,
+    "research": false,
     "job_check": true,
     "verifier": true,
     "auto_advance": true,
