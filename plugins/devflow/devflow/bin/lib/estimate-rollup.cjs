@@ -435,4 +435,12 @@ module.exports = {
   remainingTrds,
   estimateObjective,
   estimateUnplanned,
+  // Shared with the milestone layer (estimate-milestone.cjs, TRD 58-07), so both layers total, cap and label confidence
+  // by the same rules.
+  TOTAL_KEYS,
+  zeroTotals,
+  stat,
+  entryDist,
+  overheadComponent,
+  capAt,
 };
