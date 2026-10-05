@@ -635,6 +635,11 @@
       "objective": "55",
       "summary": "55-06: push-branch (A, user answer relayed by orchestrator); smoke pins devflow-claude@d4147b8c1dd00af210b09a90c2af87dce0bf1010",
       "rationale": null
+    },
+    {
+      "objective": "55",
+      "summary": "55-07: merge guard proven live with option B (ready PR + second unpushed commit); on a draft PR the draft check (gh-pr.cjs:975) runs before the unpushed guard (:980-982), so the merge refusal names verification, not gh pr sync",
+      "rationale": null
     }
   ],
   "blockers": [],

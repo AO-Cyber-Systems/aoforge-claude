@@ -59,7 +59,7 @@ completed: 2026-10-05
 
 ## Progress
 - [x] Task 1: Register objective 2, start its PR, commit code without syncing, fire the guard — 9f068bc0. Gap: the merge refusal named the draft check, not `gh pr sync` (resolved in Task 2 by option B)
-- [x] Task 2: Sync, checks green, verify, merge through the queue, reconcile, code on main — (this commit)
+- [x] Task 2: Sync, checks green, verify, merge through the queue, reconcile, code on main — 9bf74fdf
 
 ## Ids
 
@@ -241,3 +241,11 @@ None.
   - After `verification post 2` (passed), `gh pr merge 2` enqueued the PR (exit 3). The merge_group checks passed (run 37310333089), and the PR merged through the queue (34ba818).
   - `goodbye.sh` is on origin/main. `gh pr reconcile 2` left #7 and #8 CLOSED/COMPLETED and deleted the local branch, with no `was kept` warning (`kept: []`).
 - Gate failures: None
+
+## Self-Check: PASSED
+
+- FOUND: commit 9f068bc0 (Task 1) and 9bf74fdf (Task 2) (`git cat-file -t` -> `commit`)
+- FOUND: merge commit 34ba818eb4dd1de2ce8632f3d4dbcbc8ab1f187d on origin/main (`git merge-base --is-ancestor` exit 0); `origin/main:goodbye.sh` (`git cat-file -e` exit 0, mode 100755)
+- FOUND: PR #9 `MERGED` (mergedAt 2026-10-05T12:33:52Z); merge_group run 37310333089 `success`
+- FOUND: issues #7 and #8 `CLOSED` / `COMPLETED`; remote heads are `main` and `compass-github-importer` only
+- FOUND: scratch drafts `<scratchpad>/smoke2-obj3-unknown.md`, `smoke2-trd.md`, `smoke2-sum.md`, `smoke2-ver.md`
