@@ -95,7 +95,7 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 
 ### 📋 v1.5 candidates
 
-Not yet planned. Run `/devflow:milestone new` to start it. Carried from the v1.4 audit (`milestones/v1.4-MILESTONE-AUDIT.md`):
+Not yet planned. Run `/devflow:milestone new` to start it. Objective 55 (store live-smoke fixes) is registered ahead of it. Carried from the v1.4 audit (`milestones/v1.4-MILESTONE-AUDIT.md`):
 
 - **User actions:**
   - run the live store-mode smoke / first real backfill on a throwaway GitHub repo;
@@ -109,6 +109,13 @@ Not yet planned. Run `/devflow:milestone new` to start it. Carried from the v1.4
   - leading-zero ROADMAP lookup in novel-domain / trd-pre-check;
   - `verify trd-pre` reads free-text Requirements as IDs;
   - `milestone complete` stats count every objective dir.
+
+### Objective 55: Store live-smoke fixes
+
+**Goal:** Fix what the first live store-mode smoke (2026-10-05, `AO-Cyber-Systems/devflow-store-smoke`) found against real GitHub. Three bugs block store adoption: (1) the `gh setup` ruleset has no bypass actors, (4) `devflow-checks.yml` sparse-checkout omits `references/`, so the required checks crash, and (5) verify, merge and reconcile ignore unpushed local commits. Also fix the wiki-retry, `objective put` and wording issues, then re-run the live smoke.
+**Requirements:** none (live-UAT findings; see `.planning/objectives/55-store-live-smoke-fixes/OBJECTIVE.md`)
+**Depends on:** none
+**Plans:** TBD
 
 ### Earlier carry-overs
 
@@ -143,3 +150,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
+| 55. Store live-smoke fixes | v1.5 | 0/— | Registered | — |
