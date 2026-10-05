@@ -542,6 +542,8 @@ describe('55-03 verification post refuses unpushed work', () => {
     if (S.skipped) return;
     startPr();
     const opsBefore = allOps().length;
+    const kindsBefore = (kind) => opsOf(kind, allOps()).length;
+    const before = Object.fromEntries(['post-status', 'pr-ready', 'upsert-comment', 'upsert-pr-comment'].map((k) => [k, kindsBefore(k)]));
     const calls = stubGit({ ahead: 1 });
     const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
     assert.equal(r.ok, false, JSON.stringify(r));
@@ -552,9 +554,11 @@ describe('55-03 verification post refuses unpushed work', () => {
     assert.ok(calls.length > 0, 'the git seam was asked');
     assert.equal(fs.existsSync(planning(VERIFICATION_REL)), false, 'the VERIFICATION cache file was not created');
     assert.equal(allOps().length, opsBefore, 'nothing was queued');
-    for (const kind of ['post-status', 'pr-ready', 'upsert-comment', 'upsert-pr-comment']) {
-      assert.equal(opsOf(kind, allOps()).length, 0, `no ${kind} op`);
+    for (const kind of Object.keys(before)) {
+      assert.equal(opsOf(kind, allOps()).length, before[kind], `no new ${kind} op`);
     }
+    assert.equal(opsOf('post-status', allOps()).length, 0, 'no post-status op at all');
+    assert.equal(opsOf('pr-ready', allOps()).length, 0, 'no pr-ready op at all');
     assert.equal(S.fake.writes().filter((w) => /statuses/.test(w.join(' '))).length, 0, 'no status reached GitHub');
   });
 
