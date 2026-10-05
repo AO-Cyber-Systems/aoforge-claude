@@ -60,8 +60,8 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 - [ ] **EST-03**: `df-tools estimate trd|objective|milestone` composes task estimates and adds agent overhead and the gap-closure factor.
 - [ ] **EST-04**: plan-objective's PLANNING COMPLETE output includes an estimate table.
 - [ ] **EST-05**: `/devflow:build` shows a one-line estimate at start, the status line shows estimated time remaining, and wave reports show actual vs estimate.
-- [ ] **EST-06**: Executor SUMMARY frontmatter records `tokens_input` / `tokens_output`.
-- [ ] **EST-07**: A retroactive pass backfills token data for historical TRDs from transcripts, reusing the `df-tools context` parser.
+- [x] **EST-06**: Executor SUMMARY frontmatter records `tokens_input` / `tokens_output`.
+- [x] **EST-07**: A retroactive pass backfills token data for historical TRDs from transcripts, reusing the `df-tools context` parser.
 - [ ] **EST-08**: Across the next 5 executed objectives after the engine ships, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes.
 
 ## Future Requirements
@@ -117,8 +117,8 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | EST-03 | Objective 58 | Pending |
 | EST-04 | Objective 58 | Pending |
 | EST-05 | Objective 58 | Pending |
-| EST-06 | Objective 57 | Pending |
-| EST-07 | Objective 57 | Pending |
+| EST-06 | Objective 57 | Complete |
+| EST-07 | Objective 57 | Complete |
 | EST-08 | Objective 64 | Pending |
 
 ---
