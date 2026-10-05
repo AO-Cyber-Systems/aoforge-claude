@@ -109,6 +109,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 54]: text-escape.cjs is the single dependency-free home for escapeRegExp, objectiveNumPattern and mdCell; it must never require helpers.cjs (hooks load it per call) — Hooks (changelog-on-tag.js, TRD 54-07) require it on every PreToolUse(Bash); helpers.cjs loads model-profiles JSON at require time
 - [Objective 54]: 54-03: test.yml and agent-shell-harness.yml run on top-level permissions contents: read; scripts/workflow-permissions.test.cjs fails any workflow with no top-level or per-job permissions
 - [Objective 55]: 55-01: ruleset admin bypass uses bypass_mode always (verified live); setup compares the actor, never the mode, so a team's pull_request mode is kept
+- [Objective 55]: 55-02: fix the sparse checkout list (add references/) rather than remove helpers.cjs's model-profiles.json read; flush retries only a halted blocked wiki-push, once per flush
 
 ## Performance Metrics
 
@@ -167,4 +168,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 54 P08 | 4min | 2 tasks | 4 files |
 | Objective 54 P09 | 22min | 2 tasks | 1 files |
 | Objective 55 P01 | 9min | 2 tasks | 7 files |
+| Objective 55 P02 | 7min | 2 tasks | 6 files |
 

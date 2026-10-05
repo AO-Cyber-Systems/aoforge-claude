@@ -32,6 +32,11 @@
 # a filter prevents from running never reports, and the merge hangs on "expected".
 #
 # `pull_request_target` is not used: the checks only read PR metadata and never execute PR code.
+#
+# THE SPARSE CHECKOUT LISTS `bin` AND `references`. helpers.cjs reads `references/model-profiles.json`
+# when it loads (gh-check-cli -> gh-client -> helpers), so a runner checked out without `references/`
+# dies with ENOENT before it posts anything. devflow-workflows.repo.test.cjs rebuilds this list and
+# runs the runner from it; keep the three jobs' lists identical.
 name: DevFlow checks
 
 on:
@@ -107,7 +112,9 @@ jobs:
           repository: ${{ inputs.devflow-repo }}
           ref: ${{ inputs.devflow-ref }}
           path: .devflow
-          sparse-checkout: plugins/devflow/devflow/bin
+          sparse-checkout: |
+            plugins/devflow/devflow/bin
+            plugins/devflow/devflow/references
           token: ${{ steps.app-src.outputs.token || github.token }}
           persist-credentials: false
 
@@ -167,7 +174,9 @@ jobs:
           repository: ${{ inputs.devflow-repo }}
           ref: ${{ inputs.devflow-ref }}
           path: .devflow
-          sparse-checkout: plugins/devflow/devflow/bin
+          sparse-checkout: |
+            plugins/devflow/devflow/bin
+            plugins/devflow/devflow/references
           token: ${{ steps.app-src.outputs.token || github.token }}
           persist-credentials: false
 
@@ -227,7 +236,9 @@ jobs:
           repository: ${{ inputs.devflow-repo }}
           ref: ${{ inputs.devflow-ref }}
           path: .devflow
-          sparse-checkout: plugins/devflow/devflow/bin
+          sparse-checkout: |
+            plugins/devflow/devflow/bin
+            plugins/devflow/devflow/references
           token: ${{ steps.app-src.outputs.token || github.token }}
           persist-credentials: false
 
