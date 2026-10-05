@@ -620,6 +620,11 @@
       "objective": "55",
       "summary": "55-03: unpushed linked-branch commits are refused (not auto-pushed) by gh pr merge and verification post, naming gh pr sync; the refusal text is built once in objective-branch.unpushedRefusal",
       "rationale": null
+    },
+    {
+      "objective": "55",
+      "summary": "55-04: store footer keyed on strict state.store === true only; objective issue name chain is ROADMAP, OBJECTIVE.md heading, bare slug",
+      "rationale": null
     }
   ],
   "blockers": [],

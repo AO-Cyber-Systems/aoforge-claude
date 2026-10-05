@@ -145,6 +145,12 @@ describe('syncObjective (46-07)', () => {
     assert.equal(argv[argv.indexOf('--title') + 1], '[Objective 2] a');
     assert.equal(argv[argv.indexOf('--milestone') + 1], 'v1.4');
     assert.equal(writesOf(fake, 'edit').length, 0, 'a created issue needs no edit');
+    // 55-04 test 6: with the store off the footer is still today's text (D-01: mirror bytes are untouched).
+    assert.ok(
+      body.includes('Source of truth: `.planning/objectives/02-a/` in this repo._'),
+      `mirror-mode footer changed: ${body}`
+    );
+    assert.ok(!body.includes('store mode'), 'the store footer must not leak into mirror mode');
   });
 
   test('3: write-back, v3 mapping keyed by id with verified_at, sync-state under the same id', () => {

@@ -956,7 +956,13 @@ function buildIssueBody(state) {
     lines.push('');
   }
   const objId = state.objectiveId || '';
-  lines.push(`_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). Source of truth: \`.planning/objectives/${objId}/\` in this repo._`);
+  // Same text as gh-body.buildObjectiveSections: `state.store === true` names the issue as the record.
+  lines.push(
+    '_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). ' +
+      (state.store === true
+        ? 'This issue is the source of truth (store mode); `.planning/` in a checkout is a local cache rebuilt from it._'
+        : `Source of truth: \`.planning/objectives/${objId}/\` in this repo._`)
+  );
   return lines.join('\n');
 }
 
@@ -1089,6 +1095,23 @@ function updateProjectFields(issueRef, projectId, fields = {}, opts = {}) {
 }
 
 /**
+ * OBJECTIVE.md's title heading without its `Objective N —|:|-` prefix, or null.
+ * `objective add` writes `# Objective N: <description>`; a hand-written file may use a dash or no prefix.
+ */
+function objectiveHeadingName(objDir) {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(objDir, 'OBJECTIVE.md'), 'utf-8');
+  } catch {
+    return null;
+  }
+  const m = /^#\s+(.+?)\s*$/m.exec(text.replace(/^---\n[\s\S]*?\n---\n/, ''));
+  if (!m) return null;
+  const name = m[1].replace(/^Objective\s+[\d.]+\s*(?:[—–:-]\s*)?/i, '').trim();
+  return name || null;
+}
+
+/**
  * readObjectiveState(objectiveId, projectRoot) — read disk state for one objective.
  * Returns structured state object used by buildIssueBody + buildStickyComment.
  */
@@ -1170,7 +1193,10 @@ function readObjectiveState(objectiveId, projectRoot) {
   return {
     objectiveId,
     number,
-    name: found ? found.name : objectiveId,
+    // ROADMAP name, then the OBJECTIVE.md title heading, then the directory slug without its number prefix.
+    // A fresh store has no ROADMAP entry (the view is generated from the issues), so the directory name must
+    // never be the title: `[Objective 1] 01-hello-cli`.
+    name: (found && found.name) || objectiveHeadingName(objDir) || String(objectiveId).replace(/^[\d.]+-/, ''),
     goal: found ? found.goal : null,
     success_criteria,
     trds: trdEntries.map(({ name, done, brief }) => ({ name, done, brief })),
@@ -1496,7 +1522,7 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
 
   // 4. Disk state and the managed sections.
   const state = resolved.dir ? readObjectiveState(resolved.dir, projectRoot) : roadmapOnlyState(projectRoot, resolved);
-  const sections = bodyLib.buildObjectiveSections({ ...state, objectiveId: resolved.id, dir: resolved.dir });
+  const sections = bodyLib.buildObjectiveSections({ ...state, objectiveId: resolved.id, dir: resolved.dir, store: storeMode });
   const initial = bodyLib.mergeManaged('', sections, resolved.id);
   if (!initial.ok) return { ok: false, error: initial.error, warnings: allWarnings(chain) };
 
