@@ -740,6 +740,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
 
   // Update ROADMAP.md
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
+  const originalRoadmap = roadmapContent;
 
   // Remove the target objective section
   const targetEscaped = objectiveNumPattern(targetObjective);
@@ -804,7 +805,13 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
     }
   }
 
-  fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  // roadmap_updated follows the same rule as state_updated below: it reports an actual write, decided by comparing the
+  // text before and after, never "the file exists" or "this command ran" (TOOL-02, PLMB-05). A ROADMAP that never
+  // mentioned the objective is left untouched; the directory renames above are done either way.
+  const roadmapUpdated = roadmapContent !== originalRoadmap;
+  if (roadmapUpdated) {
+    fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  }
 
   // Update STATE.md objective count. state_updated reports an actual write,
   // not whether the file exists (TOOL-02).
@@ -843,7 +850,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
     target_directory: plan.target_directory,
     renamed_directories: renamedDirs,
     renamed_files: renamedFiles,
-    roadmap_updated: true,
+    roadmap_updated: roadmapUpdated,
     state_updated: stateUpdated,
   };
 
@@ -872,9 +879,13 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
   const jobCount = objectiveInfo.jobs.length;
   const summaryCount = objectiveInfo.summaries.length;
 
-  // Update ROADMAP.md: mark objective complete
+  // Update ROADMAP.md: mark objective complete. roadmap_updated follows the same rule as state_updated below: it reports
+  // whether ROADMAP.md was actually written (text compared before and after), never merely whether the file exists
+  // (TOOL-02, PLMB-05). A re-run that changes nothing writes nothing and reports false.
+  let roadmapUpdated = false;
   if (fs.existsSync(roadmapPath)) {
     let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
+    const originalRoadmap = roadmapContent;
 
     // Checkbox: - [ ] Objective N: → - [x] Objective N: (...completed DATE)
     const checkboxPattern = new RegExp(
@@ -898,7 +909,10 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
       `${summaryCount}/${jobCount} jobs complete`
     ));
 
-    fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+    if (roadmapContent !== originalRoadmap) {
+      fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+      roadmapUpdated = true;
+    }
 
     // Update REQUIREMENTS.md traceability for this objective's requirements
     const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
@@ -1071,7 +1085,7 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     next_objective_name: nextObjectiveName,
     is_last_objective: isLastObjective,
     date: today,
-    roadmap_updated: fs.existsSync(roadmapPath),
+    roadmap_updated: roadmapUpdated,
     state_updated: stateUpdated,
     state_update_reason: stateUpdateReason,
   };

@@ -144,6 +144,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 59]: advance-job reports no_position (writes nothing) when no counters or total <= 0; --objective N derives position from disk
 - [Objective 59]: WRONG CHECKOUT is the one recoverable exec-context preflight failure: it fires before any claim, writes nothing and prints the --cwd command; the other three stay hard stops
 - [Objective 59]: milestone complete reads a SUMMARY one-liner from frontmatter or the first non-blank line under the H1 when it is a bold-only line (placeholders starting with [ skipped); its scope is the ROADMAP bullet selection shared with estimate milestone (milestone-scope.cjs)
+- [Objective 59]: 59-05: objective remove and complete report roadmap_updated from a before/after text comparison and write ROADMAP.md only on a change (TOOL-02 rule); objective.test.cjs 48-14 case 1d pins the old defect and needs roadmap_updated: false
 
 ## Performance Metrics
 
@@ -230,4 +231,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 59 P02 | 8min | 2 tasks | 5 files |
 | Objective 59 P03 | 10min | 2 tasks | 6 files |
 | Objective 59 P04 | 10min | 3 tasks | 5 files |
+| Objective 59 P05 | 9min | 2 tasks | 3 files |
 

@@ -785,6 +785,11 @@
       "objective": "59",
       "summary": "milestone complete reads a SUMMARY one-liner from frontmatter or the first non-blank line under the H1 when it is a bold-only line (placeholders starting with [ skipped); its scope is the ROADMAP bullet selection shared with estimate milestone (milestone-scope.cjs)",
       "rationale": null
+    },
+    {
+      "objective": "59",
+      "summary": "59-05: objective remove and complete report roadmap_updated from a before/after text comparison and write ROADMAP.md only on a change (TOOL-02 rule); objective.test.cjs 48-14 case 1d pins the old defect and needs roadmap_updated: false",
+      "rationale": null
     }
   ],
   "blockers": [],
