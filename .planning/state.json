@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 100,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -685,6 +685,16 @@
       "objective": "57",
       "summary": "calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json",
       "rationale": "57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json"
+    },
+    {
+      "objective": "58",
+      "summary": "Estimate run state is schema v1 JSON outside the repo (~/.claude/devflow/state/estimates/<repo-key>.json); only df-tools estimate (58-08) writes it, the status line only reads it",
+      "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "Status line wave denominator is the highest wave number in the run state, so a resumed run holding waves 6 and 7 shows W6/7",
+      "rationale": null
     }
   ],
   "blockers": [],
