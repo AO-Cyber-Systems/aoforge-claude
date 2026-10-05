@@ -6,12 +6,12 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 
 **Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** v1.4 complete (2026-10-05, plugin v2.13.0 + v2.13.1, merged to `main`). Next: `/plugin update devflow@aocyber`, the live store-mode smoke, the Docs site Cloudflare fix, then plan v1.5 (`/devflow:milestone new`).
+**Current focus:** v1.5 Gate & Plumbing: defining requirements and roadmap
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
 
 ## Current Position
 
-**Milestone:** v1.4 complete 2026-10-05 (objectives 42–54, 158 TRDs; 26 killed; archived to .planning/milestones/v1.4-ROADMAP.md; audit passed 58/58). v1.5 not yet planned. Last release v2.13.1 (merge f101acb6); PR #123 (CodeQL #89, d79fed0c) merged, unreleased
+**Milestone:** v1.5 Gate & Plumbing — started 2026-10-05; defining requirements (objective 55 shipped in 2.13.2; new objectives start at 56). v1.4 complete 2026-10-05 (archived to .planning/milestones/v1.4-ROADMAP.md)
 **Branch:** `feat/stack-profile-loader` (merged to `main` via #121, #122, #123)
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
@@ -46,7 +46,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 54 — CodeQL cleanup (completed 2026-10-04, 10/10 TRDs)
 **Objective complete:** 42, 45, 53 — Codebase-aware stack drafter (15/15), DevFlow doctor (10/10), Worktree and health hygiene (7/7; completed 2026-10-04)
 **Objective complete:** 55 — Store live-smoke fixes (completed 2026-10-05, 8/8 TRDs)
-**Status:** v1.4 milestone complete
+**Status:** Defining requirements (v1.5 Gate & Plumbing)
 
 ## Branch State (post-merge)
 

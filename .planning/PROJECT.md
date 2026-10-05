@@ -15,6 +15,20 @@ DevFlow is a meta-prompting, context engineering, and spec-driven development sy
 
 AI workflow orchestration for Claude Code sessions — skills, hooks, MCP integration, planning state, and program-aware coordination across the AO-Cyber-Systems org.
 
+## Current Milestone: v1.5 Gate & Plumbing
+
+**Goal:** Close the edit gate's Bash hole, clear the plumbing and correctness debt that v1.4 and the live store smoke surfaced, and ship two features: adopting Claude Code built-ins (Phase J) and an agentic estimation engine (Phase K).
+
+**Target features:**
+- Edit gate enforces the action: Bash writes to tracked source are gated like `Edit`/`Write` (DECISION-001 option-a), with the false-positive rate measured by `session-audit` before it ships as default strict
+- State and merge plumbing: `state advance-job` status text, a JSON-aware merge path for `STATE_ARCHIVE.md` / `state.json`, executor preflight with `--cwd <worktree>`, honest `milestone complete` / `objective remove` reporting
+- Objective-number correctness: one regex-escape helper, `4.1` vs `04.10` matching, leading-zero ROADMAP lookups, `verify trd-pre` requirement parsing
+- Store-mode rough edges and observability: `gh setup` dry-run/PR titles, a stale-pin doctor warning, a `requires:` capability gate, current model ids, `telemetry --scan`, automatic `transcript-export`, the 09-03 SUMMARY
+- Phase J (#35): Claude Code built-in integration (TodoWrite/Task*/plan mode/AskUserQuestion standardization, hook coexistence)
+- Phase K (#36): agentic estimation engine (`df-tools calibrate`, `df-tools estimate`, planner integration)
+
+Objective 55 (store live-smoke fixes) already shipped in 2.13.2 as the first v1.5 objective.
+
 ## Requirements
 
 Requirement IDs live in each objective's `OBJECTIVE.md`; there is no `REQUIREMENTS.md`.
@@ -25,7 +39,7 @@ The capability areas listed under `## Scope`: skills, subagents, hooks, `.planni
 
 ### Active
 
-None. v1.4 is complete and v1.5 is not yet planned. The ROADMAP `v1.5 candidates` section lists the carried items: live store-mode smoke, Docs site deploy, and v1.4 tech debt.
+v1.5 Gate & Plumbing: see `## Current Milestone` above and `.planning/REQUIREMENTS.md` for the REQ-IDs.
 
 ### Out of Scope
 
@@ -157,4 +171,4 @@ Also open: the live store-mode smoke on a real GitHub repo (every store test use
 Objective 26 (GitHub issue auto-build monitor) was killed on 2026-10-01 (resolved; GMD-04).
 
 ---
-*Last updated: 2026-10-05 after v1.4 milestone*
+*Last updated: 2026-10-05 — v1.5 Gate & Plumbing started*
