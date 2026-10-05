@@ -6,5 +6,5 @@ trd: "02"
 # Objective 58 TRD 02: Agent overhead reader Summary
 
 ## Progress
-- [ ] Task 1: Fixture builder, agent-type rules, span and per-spawn sample — next step: write agent-overhead.cjs (OVERHEAD_AGENTS, normalizeAgentType, isQuickSpawn, transcriptSpanMinutes, spawnSample) and export repoMatcher/repoMatch from token-usage.cjs
-- [ ] Task 2: Index overhead transcripts and collect samples per repository — next step: write RED tests 4 and 5 in agent-overhead.test.cjs
+- [x] Task 1: Fixture builder, agent-type rules, span and per-spawn sample — (this commit) (RED 7142a44d)
+- [ ] Task 2: Index overhead transcripts and collect samples per repository — next step: write RED tests 4 and 5 in agent-overhead.test.cjs (world built in a before hook from the TRD table), then indexOverheadTranscripts and collectOverhead in agent-overhead.cjs
