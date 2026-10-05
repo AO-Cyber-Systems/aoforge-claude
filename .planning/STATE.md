@@ -46,7 +46,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 54 — CodeQL cleanup (completed 2026-10-04, 10/10 TRDs)
 **Objective complete:** 42, 45, 53 — Codebase-aware stack drafter (15/15), DevFlow doctor (10/10), Worktree and health hygiene (7/7; completed 2026-10-04)
 **Objective complete:** 55 — Store live-smoke fixes (completed 2026-10-05, 8/8 TRDs)
-**Status:** Defining requirements (v1.5 Gate & Plumbing)
+**Status:** Roadmap created — ready to plan objective 56
 
 ## Branch State (post-merge)
 

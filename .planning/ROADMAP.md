@@ -6,7 +6,7 @@
 - ✅ **v1.2 — Token Efficiency + Ambient Mode + Handoff Polish** — Objectives 10–23, 25 (shipped 2026-07-22)
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merged to `main` with 2.13.0)
 - ✅ **v1.4 — GitHub as system of record, stack drafter, doctor, autonomy hardening** — Objectives 42–54 (completed 2026-10-05; plugin v2.13.0 + v2.13.1; 26 killed)
-- 📋 **v1.5 — not yet planned**
+- 🚧 **v1.5 — Gate & Plumbing** — Objectives 55–64 (in progress)
 
 Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`), `.planning/milestones/v1.4-ROADMAP.md` (v1.4 detail; audit: `milestones/v1.4-MILESTONE-AUDIT.md`). Milestone history: `.planning/MILESTONES.md`.
 
@@ -93,52 +93,27 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 
 </details>
 
-### 📋 v1.5 candidates
+### 🚧 v1.5 Gate & Plumbing (In Progress)
 
-Not yet planned; `/devflow:milestone new` starts it. Triaged 2026-10-05: resolved items were removed, low-value ones dropped, and the rest grouped below. Objective 55 (store live-smoke fixes) shipped first, in 2.13.2. Suggested shape: a hardening milestone (the four "Do" groups), with #35 or #36 added if it should carry a feature.
+Hardening plus two feature phases (Phase J, devflow-claude#35; Phase K, devflow-claude#36). Triaged 2026-10-05. Objective 55 (store live-smoke fixes) shipped first, in 2.13.2. Requirements: `.planning/REQUIREMENTS.md` (36 mapped to Objectives 56-64).
 
-**Decide before planning (user):**
+Sequencing: ONUM first (everything after it touches objective lookups). The estimation engine (57-58) is additive and lands before the other hardening so that Objectives 59-63 are the five objectives that run with it, which is what EST-08 (Objective 64) measures. Phase J (62-63) goes last among the code objectives because it edits nearly every SKILL.md and workflow; everything that touches a skill (STOR-04, EST-04, EST-05) lands before it.
+
+**Decide before planning (user), still open:**
 - CI `ANTHROPIC` secret, needed only for the live visual judge in CI (32/33).
 - Branch protection on devflow-claude `main` (34).
 - Docs site deploy: Cloudflare Pages project `devflow-docs` not found (fails on every `main` push since 2.11).
 
-**Do: edit gate enforces the action (DECISION-001 resolved option-a, 2026-10-05)**
-- Gate writes to tracked repo source made through Bash (redirection, `tee`, `sed -i`, `cp`/`mv` onto a file, inline python/node writes) like `Edit`/`Write`. It is preventive: 0 bypasses since 2.11.0 (quick-31).
-- Bounds: invocation-aware parsing (strip heredoc bodies and quoted args); tracked-source scope only (never `.planning/`, `.md`, out-of-repo, tmp or scratchpad); keep every existing escape and `gates.editGate`; measure the false-positive rate with `session-audit` before it ships as default strict. See `.planning/decisions/resolved/DECISION-001.md`.
-
-**Do: state and merge plumbing**
-- `state advance-job` rewrites STATE.md `**Status:**` to "ready for verification" (hit every 55 executor).
-- Merge path for `STATE_ARCHIVE.md` / `state.json`: parallel waves conflict on them every time. Candidate fix: a JSON-aware merge driver.
-- Executors run their first `exec-context` preflight from the main checkout. Spawn prompts should pass `--cwd <worktree>`.
-- `milestone complete` stats count every objective dir. Its `state_updated`, and `objective remove`'s `roadmap_updated`, report by existence.
-
-**Do: objective-number correctness**
-- Hand-rolled regex escapes outside `text-escape.cjs` (state x5, gh-hierarchy, planning-verbs, planning-entity-verbs, frontmatter, watcher-daemon).
-- `searchObjectiveInDir` matches `04.10-*` for `4.1`. The ROADMAP lookup in novel-domain and trd-pre-check never matches single-digit objectives (leading zero).
-- `verify trd-pre` reads a free-text Requirements line as requirement IDs.
-
-**Do: store-mode rough edges**
-- `gh setup` dry run omits the pinned `uses:`/`devflow-ref:` lines, and its printed steps lack a PR-create command.
-- PR titles still use the directory slug (issue titles use the name).
-- Doctor/health warning when a repo's checks workflow is pinned to a DevFlow ref older than the installed plugin (pre-2.13.2 pins have broken checks).
-- Capability gate: `requires:` skill frontmatter plus a doctor-backed refusal with remediation (gh, docker, …). This is the one idea kept from the deleted visual-workflow proposal.
-
-**Do: observability and model ids**
-- `model-profiles.json` pins `claude-opus-5` / `claude-sonnet-5`; current ids are `claude-opus-5-5` / `claude-sonnet-5-5`.
-- `telemetry --scan` is silently ignored: implement it or reject the flag.
-- `transcript-export` never runs automatically: throttle it at SessionStart like the backup prune.
-- Backfill the 09-03 SUMMARY (the last I001).
-
-**Feature candidates (pick zero or one):**
-- #35 Phase J: Claude Code built-in integration.
-- #36 Phase K: agentic estimation engine (`df-tools estimate`).
-
-**Dropped 2026-10-05:**
-- Resolved: CLAUDE.md counts now match (13 agents / 16 hooks / 34 skills); adopt now gitignores `.planning/.*` markers.
-- Intentional: on a draft PR, `gh pr merge` reports "draft" before the unpushed-commit guard.
-- Low value: 28-06 Haiku replay eval and the escalation re-spawn consumer (Sonnet matches Opus on subagent work).
-- Unused: handoff-watcher PTY gaps and the `devflow-watch stash add` CLI.
-- Out of scope: the sibling `monorepo-standards` command naming; the Codex port and the visual workflow class proposals (deleted).
+- [x] **Objective 55: Store live-smoke fixes** - 8/8, shipped in 2.13.2
+- [ ] **Objective 56: Objective-number correctness** - One escape helper, exact objective lookups, ID-shaped requirement parsing
+- [ ] **Objective 57: Estimation data foundation** - Token data in SUMMARYs, historical backfill, `df-tools calibrate`
+- [ ] **Objective 58: Estimation engine and surfacing** - `df-tools estimate`, plan-objective table, build and status-line estimates
+- [ ] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats
+- [ ] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships
+- [ ] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene
+- [ ] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows
+- [ ] **Objective 63: Todo store, hook coexistence and built-in inventory** - TodoWrite-backed `/devflow:todo`, coexistence test, living inventory
+- [ ] **Objective 64: Estimate accuracy validation** - Close EST-08 against five executed objectives
 
 ### Objective 55: Store live-smoke fixes
 
@@ -157,6 +132,114 @@ TRDs:
 - [x] 55-07-live-objective-lifecycle-TRD.md — (W4) objective 2 live: guard fires, `gh pr sync`, checks green, merge queue, reconcile, code on main
 - [x] 55-08-docs-and-changelog-TRD.md — (W5) USER-GUIDE / gh-sync skill / execute-objective prose from the live results; CHANGELOG [Unreleased]; `npm test`
 
+### Objective 56: Objective-number correctness
+
+**Goal**: Objective lookups resolve exactly the objective asked for, and no regex in df-tools is built from unescaped text, so everything later in the milestone can rely on objective resolution.
+**Requirements**: ONUM-01, ONUM-02, ONUM-03, ONUM-04
+**Depends on**: Nothing (Objective 55 shipped)
+**Success Criteria** (what must be TRUE):
+  1. No df-tools module hand-rolls a regex escape; all go through `text-escape.cjs`, and a repo test fails CI when a new one appears.
+  2. `objective`/`roadmap` lookup of `4.1` returns `04.1-*` only and never `04.10-*`.
+  3. ROADMAP lookups in novel-domain and trd-pre-check find single-digit objectives with or without a leading zero.
+  4. `verify trd-pre` takes requirement IDs only from ID-shaped tokens; a free-text Requirements line yields none.
+**TRDs**: TBD
+
+### Objective 57: Estimation data foundation
+
+**Goal**: Token usage is recorded for new executions and recovered for history, and a calibration file turns that history into per-task-class medians and P90s.
+**Requirements**: EST-06, EST-07, EST-01
+**Depends on**: Objective 56 (calibration walks objective directories through the corrected lookups)
+**Success Criteria** (what must be TRUE):
+  1. A new executor SUMMARY carries `tokens_input` and `tokens_output` in its frontmatter.
+  2. The retroactive pass fills token data for historical TRDs from transcripts, using the `df-tools context` parser, and reports how many it could and could not recover.
+  3. `df-tools calibrate` writes `~/.claude/devflow/calibration.json` from SUMMARY frontmatter, STATE_ARCHIVE metrics and model rates, with a sample count per class.
+  4. Re-running `calibrate` on unchanged inputs produces the same file.
+**TRDs**: TBD
+
+### Objective 58: Estimation engine and surfacing
+
+**Goal**: Users see an honest time, token and dollar estimate, with its confidence, when planning and when building.
+**Requirements**: EST-02, EST-03, EST-04, EST-05
+**Depends on**: Objective 57
+**Success Criteria** (what must be TRUE):
+  1. `df-tools estimate task` returns median and P90 minutes, tokens and dollars, with sample count and a confidence label.
+  2. `df-tools estimate trd|objective|milestone` composes task estimates and adds agent overhead and the gap-closure factor.
+  3. plan-objective's PLANNING COMPLETE output includes an estimate table.
+  4. `/devflow:build` prints a one-line estimate at start, the status line shows estimated time remaining, and wave reports show actual against estimate.
+**TRDs**: TBD
+
+### Objective 59: State and merge plumbing
+
+**Goal**: Executing an objective no longer corrupts STATE.md or fights over generated files, and milestone completion reports true numbers.
+**Requirements**: PLMB-01, PLMB-02, PLMB-03, PLMB-04, PLMB-05
+**Depends on**: Objective 56 (PLMB-04 and PLMB-05 count and remove objectives through the lookups)
+**Success Criteria** (what must be TRUE):
+  1. After `state advance-job` mid-objective, STATE.md `**Status:**` still describes the real state, not "ready for verification".
+  2. A parallel wave merge completes with no conflict on `STATE_ARCHIVE.md` or `state.json`, by a JSON-aware merge driver or a documented regeneration step.
+  3. An executor's first `exec-context` preflight reports its own worktree, because spawn prompts pass `--cwd <worktree>`.
+  4. `milestone complete` stats and base MILESTONES entry count only that milestone's objectives.
+  5. `milestone complete` `state_updated` and `objective remove` `roadmap_updated` are true only when a change was made.
+**TRDs**: TBD
+
+### Objective 60: Edit gate enforces the action
+
+**Goal**: The edit gate denies Bash writes to tracked repo source in ambient mode, the same as `Edit`/`Write` (DECISION-001 option-a), and ships strict only if measured false positives are low.
+**Requirements**: GATE-01, GATE-02, GATE-03, GATE-04, GATE-05
+**Depends on**: Nothing (independent of 59; can run in a parallel workstream)
+**Success Criteria** (what must be TRUE):
+  1. In ambient mode a Bash write to a tracked source file (redirection, `tee`, `sed -i`, `cp`/`mv` onto a file, inline python/node write) is denied.
+  2. Text that only mentions a write (heredoc bodies, quoted arguments, `echo` to stdout) is never gated.
+  3. Writes to `.planning/`, `.md`, out-of-repo, tmp and scratchpad paths, and to untracked files, pass.
+  4. A live skill marker, a `devflow:*` agent, an override phrase, `DEVFLOW_SKIP_EDIT_GATE=1`, and `gates.editGate` warn/off each let the write through.
+  5. `session-audit` reports the Bash-gate false-positive rate, and the default is `strict` only if that rate is at most 2% of ambient Bash calls, otherwise `warn`.
+**TRDs**: TBD
+
+### Objective 61: Store-mode rough edges and observability
+
+**Goal**: Store-mode setup and PRs read correctly, stale pins and stale model ids are caught by doctor, skills can declare the tools they need, and telemetry no longer drops data silently.
+**Requirements**: STOR-01, STOR-02, STOR-03, STOR-04, OBS-01, OBS-02, OBS-03, OBS-04
+**Depends on**: Objective 56
+**Success Criteria** (what must be TRUE):
+  1. The `gh setup` dry run shows the pinned `uses:` / `devflow-ref:` lines and a PR-create step; objective PR titles use the objective name.
+  2. `doctor` and `validate health` warn on a checks workflow pinned to a DevFlow ref older than the installed plugin, and on a stale pinned model id.
+  3. `model-profiles.json` pins `claude-opus-5-5` and `claude-sonnet-5-5`.
+  4. A skill with `requires:` in its frontmatter is refused without the tool, with a doctor-backed remediation message.
+  5. `telemetry --scan` works or errors; `transcript-export` runs at SessionStart throttled with its own skip env; the 09-03 SUMMARY is backfilled and I001 clears.
+**TRDs**: TBD
+
+### Objective 62: Built-in sweep
+
+**Goal**: Skills and workflows use Claude Code's progress, plan-mode and question built-ins instead of ad hoc prose. This objective edits nearly every SKILL.md and workflow, so it runs after every other objective that touches them.
+**Requirements**: BLTN-01, BLTN-02, BLTN-03
+**Depends on**: Objective 58 (EST-04, EST-05 edit plan-objective and build), Objective 61 (STOR-04 adds skill frontmatter)
+**Success Criteria** (what must be TRUE):
+  1. Running micro, quick, build, debug, plan-objective or verify-work shows TaskCreate/TaskUpdate progress.
+  2. plan-objective, new-project and milestone complete present their drafts in plan mode (EnterPlanMode/ExitPlanMode).
+  3. Every discrete-choice prompt in skills and workflows uses AskUserQuestion, and the sweep lists each prompt it converted.
+**TRDs**: TBD
+
+### Objective 63: Todo store, hook coexistence and built-in inventory
+
+**Goal**: `/devflow:todo` uses TodoWrite in-session with a durable archive. This is the riskiest change in Phase J (BLTN-04, J1), so it stands alone with the hook coexistence test and inventory that depend on its Stop hook.
+**Requirements**: BLTN-04, BLTN-05, BLTN-06
+**Depends on**: Objective 62
+**Success Criteria** (what must be TRUE):
+  1. `/devflow:todo` adds and lists items through TodoWrite in-session, and a Stop-hook sync merges them into a durable archive (on disk, or the GitHub store) without losing or duplicating items.
+  2. A coexistence test shows DevFlow hooks degrade gracefully, compose output and isolate errors when a user-level hook fires on the same event.
+  3. `docs/built-in-integration-status.md` lists the Claude Code built-ins and DevFlow's adoption of each, matching the state after Objectives 62-63.
+**TRDs**: TBD
+
+### Objective 64: Estimate accuracy validation
+
+**Goal**: Show that the estimation engine is accurate enough to trust, against real executions. It can close only after five objectives have run with the engine.
+**Requirements**: EST-08
+**Depends on**: Objective 58 (engine), Objective 63 (Objectives 59-63 are the five executed after the engine ships)
+**Success Criteria** (what must be TRUE):
+  1. A report compares estimate with actual for the five executed objectives after the engine shipped.
+  2. The median estimate is within ±30% of actual.
+  3. P90 covers at least 80% of outcomes, or the report names the miscalibrated classes and the follow-up.
+**TRDs**: TBD
+
 ## Progress
 
 | Objective | Milestone | Plans | Status | Completed |
@@ -167,3 +250,12 @@ TRDs:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
+| 56. Objective-number correctness | v1.5 | 0/0 | Not started | - |
+| 57. Estimation data foundation | v1.5 | 0/0 | Not started | - |
+| 58. Estimation engine and surfacing | v1.5 | 0/0 | Not started | - |
+| 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
+| 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
+| 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
+| 62. Built-in sweep | v1.5 | 0/0 | Not started | - |
+| 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
+| 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |

@@ -84,8 +84,42 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 
 | Requirement | Objective | Status |
 |-------------|-----------|--------|
-
-*Filled by the roadmapper.*
+| GATE-01 | Objective 60 | Pending |
+| GATE-02 | Objective 60 | Pending |
+| GATE-03 | Objective 60 | Pending |
+| GATE-04 | Objective 60 | Pending |
+| GATE-05 | Objective 60 | Pending |
+| PLMB-01 | Objective 59 | Pending |
+| PLMB-02 | Objective 59 | Pending |
+| PLMB-03 | Objective 59 | Pending |
+| PLMB-04 | Objective 59 | Pending |
+| PLMB-05 | Objective 59 | Pending |
+| ONUM-01 | Objective 56 | Pending |
+| ONUM-02 | Objective 56 | Pending |
+| ONUM-03 | Objective 56 | Pending |
+| ONUM-04 | Objective 56 | Pending |
+| STOR-01 | Objective 61 | Pending |
+| STOR-02 | Objective 61 | Pending |
+| STOR-03 | Objective 61 | Pending |
+| STOR-04 | Objective 61 | Pending |
+| OBS-01 | Objective 61 | Pending |
+| OBS-02 | Objective 61 | Pending |
+| OBS-03 | Objective 61 | Pending |
+| OBS-04 | Objective 61 | Pending |
+| BLTN-01 | Objective 62 | Pending |
+| BLTN-02 | Objective 62 | Pending |
+| BLTN-03 | Objective 62 | Pending |
+| BLTN-04 | Objective 63 | Pending |
+| BLTN-05 | Objective 63 | Pending |
+| BLTN-06 | Objective 63 | Pending |
+| EST-01 | Objective 57 | Pending |
+| EST-02 | Objective 58 | Pending |
+| EST-03 | Objective 58 | Pending |
+| EST-04 | Objective 58 | Pending |
+| EST-05 | Objective 58 | Pending |
+| EST-06 | Objective 57 | Pending |
+| EST-07 | Objective 57 | Pending |
+| EST-08 | Objective 64 | Pending |
 
 ---
 *Last updated: 2026-10-05 at v1.5 start*
