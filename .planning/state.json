@@ -755,6 +755,11 @@
       "objective": "58",
       "summary": "58-09: estimate calls in prose are fail-soft one-liners that paste df-tools output verbatim; wave --done runs before spot-checks; build re-runs idempotent estimate finish",
       "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "58-10: in-sample backtest of 55-57 (execution agent minutes and cost vs SUMMARY actuals) recorded as information for Objective 64: cost medians within 6% of actual, minutes medians 1.5x-2.8x high, every actual under P90. Gaps for closure: estimate objective <done> --all prints 'all TRDs done'; estimate objective on a ROADMAP-only objective exits 1 (milestone covers it).",
+      "rationale": null
     }
   ],
   "blockers": [],

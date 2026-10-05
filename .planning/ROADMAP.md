@@ -107,7 +107,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - [x] **Objective 55: Store live-smoke fixes** - 8/8, shipped in 2.13.2
 - [x] **Objective 56: Objective-number correctness** - One escape helper, exact objective lookups, ID-shaped requirement parsing (completed 2026-10-05)
 - [x] **Objective 57: Estimation data foundation** - Token data in SUMMARYs, historical backfill, `df-tools calibrate` (completed 2026-10-05)
-- [ ] **Objective 58: Estimation engine and surfacing** - `df-tools estimate`, plan-objective table, build and status-line estimates
+- [x] **Objective 58: Estimation engine and surfacing** - `df-tools estimate`, plan-objective table, build and status-line estimates (completed 2026-10-05)
 - [ ] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats
 - [ ] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships
 - [ ] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene
@@ -194,7 +194,7 @@ TRDs:
 - [x] 58-07-milestone-rollup-TRD.md — (W4) EST-03: milestone scope from the ROADMAP bullet, remaining objectives + integration-checker overhead
 - [x] 58-08-estimate-cli-TRD.md — (W5) EST-02/03/05: `df-tools estimate task|trd|objective|milestone|start|wave|finish`, text renderers (line, table), help and dispatch
 - [x] 58-09-planning-and-build-surfacing-TRD.md — (W6) EST-04/05: estimate table in PLANNING COMPLETE and plan-objective, one-line estimate and run state in /devflow:build, actual vs estimate in wave reports; repo test pins it
-- [ ] 58-10-dogfood-and-docs-TRD.md — (W7) live calibrate v2 and estimates on this repo, run-state + status line smoke, in-sample backtest for Objective 64, CHANGELOG/CLAUDE.md/USER-GUIDE, full `npm test`
+- [x] 58-10-dogfood-and-docs-TRD.md — (W7) live calibrate v2 and estimates on this repo, run-state + status line smoke, in-sample backtest for Objective 64, CHANGELOG/CLAUDE.md/USER-GUIDE, full `npm test`
 
 ### Objective 59: State and merge plumbing
 
@@ -280,7 +280,7 @@ TRDs:
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
-| 58. Estimation engine and surfacing | v1.5 | 9/10 | In Progress | - |
+| 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
