@@ -258,6 +258,88 @@ function removeEstimateProject(root) {
   fs.rmSync(path.dirname(root), { recursive: true, force: true });
 }
 
+// ─── Objective rollup project (TRD 58-06) ─────────────────────────────────────
+
+/**
+ * The project the objective-rollup tests (estimate-rollup.test.cjs) estimate, and 58-07 extends for milestones.
+ *   80-alpha  four TRDs: 80-01 and 80-02 in wave 1 (code_tdd x2, doc), 80-03 in wave 2 (code_tdd, depends on 80-01) and
+ *             80-04 in wave 2 (config) already complete -> partial, three TRDs remaining
+ *   81-beta   OBJECTIVE.md only -> unplanned
+ *   82-gamma  one TRD, complete -> done
+ *   83-delta  one TRD whose SUMMARY is checkpoint-only (`## Progress`, no `## Self-Check`) -> planned, not done
+ * Parallelization is on in its config.json.
+ */
+const ROLLUP_SPEC = Object.freeze({
+  name: 'rollup',
+  config: { parallelization: { enabled: true } },
+  objectives: [
+    {
+      dir: '80-alpha',
+      objectiveMd: '# Objective 80: alpha\n',
+      trds: [
+        {
+          nn: '01',
+          slug: 'core',
+          frontmatter: { type: 'standard', wave: 1, depends_on: [] },
+          tasks: [
+            { name: 'Task 1: a', tdd: true, files: ['lib/a.cjs', 'lib/a.test.cjs'] },
+            { name: 'Task 2: b', tdd: true, files: ['lib/b.cjs'] },
+          ],
+          summary: null,
+        },
+        {
+          nn: '02',
+          slug: 'docs',
+          frontmatter: { type: 'standard', wave: 1, depends_on: [] },
+          tasks: [{ name: 'Task 1: x', files: ['docs/x.md'] }],
+          summary: null,
+        },
+        {
+          nn: '03',
+          slug: 'more',
+          frontmatter: { type: 'standard', wave: 2, depends_on: ['80-01'] },
+          tasks: [{ name: 'Task 1: c', tdd: true, files: ['lib/c.cjs'] }],
+          summary: null,
+        },
+        {
+          nn: '04',
+          slug: 'pkg',
+          frontmatter: { type: 'standard', wave: 2, depends_on: [] },
+          tasks: [{ name: 'Task 1: package', files: ['package.json'] }],
+          summary: 'complete',
+        },
+      ],
+    },
+    { dir: '81-beta', objectiveMd: '# Objective 81: beta\n', trds: [] },
+    {
+      dir: '82-gamma',
+      objectiveMd: '# Objective 82: gamma\n',
+      trds: [
+        {
+          nn: '01',
+          slug: 'only',
+          frontmatter: { type: 'standard', wave: 1, depends_on: [] },
+          tasks: [{ name: 'Task 1: g', tdd: true, files: ['lib/g.cjs'] }],
+          summary: 'complete',
+        },
+      ],
+    },
+    {
+      dir: '83-delta',
+      objectiveMd: '# Objective 83: delta\n',
+      trds: [
+        {
+          nn: '01',
+          slug: 'wip',
+          frontmatter: { type: 'standard', wave: 1, depends_on: [] },
+          tasks: [{ name: 'Task 1: d', files: ['docs/d.md'] }],
+          summary: 'checkpoint',
+        },
+      ],
+    },
+  ],
+});
+
 module.exports = {
   EMPTY_STAT,
   CAL_V2,
@@ -267,4 +349,5 @@ module.exports = {
   trdText,
   makeEstimateProject,
   removeEstimateProject,
+  ROLLUP_SPEC,
 };
