@@ -50,7 +50,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 57 — Estimation data foundation (completed 2026-10-05, 7/7 TRDs)
 **Objective complete:** 58 — Estimation engine and surfacing (completed 2026-10-05, 10/10 TRDs)
 **Objective complete:** 59 — State and merge plumbing (completed 2026-10-05, 7/7 TRDs)
-**Status:** Objective 59 executed — 7/7 TRDs complete, ready for verification
+**Status:** Objective 59 complete — verified 5/5; next: Objective 60 (plan)
 
 ## Branch State (post-merge)
 
