@@ -171,7 +171,7 @@ After all tasks complete, run a verification loop:
 </step>
 
 <step name="create_summary_with_evidence">
-Finish the SUMMARY in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path), then publish it once with `node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
+Finish the SUMMARY in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path). Stamp your token usage into the draft's frontmatter with `node ~/.claude/devflow/bin/df-tools.cjs tokens stamp {objective}-{trd} --draft <draft path>` (its own command; it reads your executor transcript, and if it reports `stamped: false` or is unknown in an older runtime you carry on without the fields; never type token numbers by hand), then publish it once with `node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
 
 **Use template:** @~/.claude/devflow/templates/summary.md
 

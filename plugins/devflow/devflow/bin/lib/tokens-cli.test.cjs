@@ -431,7 +431,7 @@ describe('executor prose stamps token usage before summary post (TRD 57-03)', { 
 
   test('14. executor.md record-metric example passes --job "${TRD}", never --trd', () => {
     const executor = readPlugin('agents', 'executor.md');
-    const metrics = commandLines(executor, 'state record-metric');
+    const metrics = commandLines(executor, 'df-tools.cjs state record-metric');
     assert.ok(metrics.length >= 1, 'executor.md has a record-metric example');
     for (const line of metrics) {
       assert.ok(line.includes('--job "${TRD}"'), `uses --job "\${TRD}": ${line}`);
