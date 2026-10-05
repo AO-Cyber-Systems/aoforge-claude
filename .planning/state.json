@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -770,6 +770,11 @@
       "objective": "59",
       "summary": "merge-driver install records the realpath of the running df-tools.cjs, mapped to the main checkout's copy when run from a linked worktree (refuses if absent)",
       "rationale": "A wave worktree is removed after its merge; a driver pointing into it would be stranded"
+    },
+    {
+      "objective": "59",
+      "summary": "milestone complete reads a SUMMARY one-liner from frontmatter or the first non-blank line under the H1 when it is a bold-only line (placeholders starting with [ skipped); its scope is the ROADMAP bullet selection shared with estimate milestone (milestone-scope.cjs)",
+      "rationale": null
     }
   ],
   "blockers": [],
