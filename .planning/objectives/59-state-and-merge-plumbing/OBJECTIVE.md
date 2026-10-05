@@ -1,5 +1,6 @@
 ---
 work: feature
+status: verifying
 ---
 
 # State and merge plumbing
