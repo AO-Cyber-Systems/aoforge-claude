@@ -956,7 +956,13 @@ function buildIssueBody(state) {
     lines.push('');
   }
   const objId = state.objectiveId || '';
-  lines.push(`_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). Source of truth: \`.planning/objectives/${objId}/\` in this repo._`);
+  // Same text as gh-body.buildObjectiveSections: `state.store === true` names the issue as the record.
+  lines.push(
+    '_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). ' +
+      (state.store === true
+        ? 'This issue is the source of truth (store mode); `.planning/` in a checkout is a local cache rebuilt from it._'
+        : `Source of truth: \`.planning/objectives/${objId}/\` in this repo._`)
+  );
   return lines.join('\n');
 }
 
@@ -1516,7 +1522,7 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
 
   // 4. Disk state and the managed sections.
   const state = resolved.dir ? readObjectiveState(resolved.dir, projectRoot) : roadmapOnlyState(projectRoot, resolved);
-  const sections = bodyLib.buildObjectiveSections({ ...state, objectiveId: resolved.id, dir: resolved.dir });
+  const sections = bodyLib.buildObjectiveSections({ ...state, objectiveId: resolved.id, dir: resolved.dir, store: storeMode });
   const initial = bodyLib.mergeManaged('', sections, resolved.id);
   if (!initial.ok) return { ok: false, error: initial.error, warnings: allWarnings(chain) };
 
