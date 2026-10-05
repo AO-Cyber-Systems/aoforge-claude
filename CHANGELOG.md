@@ -6,7 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.13.2] - 2026-10-05
+
+Store mode was tested end to end against a real GitHub repository (`AO-Cyber-Systems/devflow-store-smoke`), and this release fixes what that run found. **Repositories set up with `gh setup` on 2.13.1 or earlier keep a broken checks workflow until they re-pin.** To re-pin, update the plugin, then run `df-tools gh setup` followed by `gh setup --apply`, and merge the workflow PR.
+
 ### Fixed
+- `config-set` repeats its reserved-key check (`__proto__`, `constructor`, `prototype`) at each assignment, which closes CodeQL alert #89 (PR #123).
 - `gh setup` creates the default-branch ruleset with a bypass for the repository-admin role, so the workflow pull request it
   asks you to open can merge before the required checks can pass. A ruleset that lacks the bypass is updated with it, an admin
   entry that is already there keeps its mode, and a second `--apply` writes nothing. The guidance `--apply` prints now names the
