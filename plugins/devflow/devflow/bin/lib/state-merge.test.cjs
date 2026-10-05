@@ -84,6 +84,22 @@ describe('mergeStateJson: numbers and dates', () => {
     assert.strictEqual(r.value.metrics.sessions, 5);
   });
 
+  test('4b. metrics counters that both sides raised by the same amount still sum both deltas', () => {
+    // Two parallel executors each finishing one job leave jobs_completed equal on both sides (base + 1).
+    // The equal-values shortcut would keep that single +1 and lose a completed job.
+    const base = stateDoc({ metrics: { jobs_completed: 2, jobs_failed: 0, sessions: 0 } });
+    const both = stateDoc({ metrics: { jobs_completed: 3, jobs_failed: 0, sessions: 0 } });
+    const r = merged(base, both, both);
+    assert.strictEqual(r.value.metrics.jobs_completed, 4);
+    assert.strictEqual(r.value.metrics.jobs_failed, 0);
+  });
+
+  test('4c. a counter absent from the base and equal on both sides is kept once, not doubled', () => {
+    const base = stateDoc();
+    const withExtra = (n) => { const d = stateDoc(); d.metrics.retries = n; return d; };
+    assert.strictEqual(merged(base, withExtra(1), withExtra(1)).value.metrics.retries, 1);
+  });
+
   test('5. other numbers changed on both sides take the max', () => {
     const base = stateDoc({ current_job: 2, progress_pct: 20 });
     const ours = stateDoc({ current_job: 3, progress_pct: 40 });
