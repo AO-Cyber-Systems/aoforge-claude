@@ -134,6 +134,30 @@ describe('57-01 executor token totals', () => {
     assert.deepStrictEqual(index.counts, { ...ZERO_COUNTS, executor_transcripts: 5, identified: 3, foreign: 2 });
   });
 
+  // Observed 2026-10-05: gap-closure executors 42-13/14/15 ran with cwd = /Users/justin/dev/.df-worktrees/devflow-claude/42-12
+  // and no REPO_ROOT line. exec-context provisions every worktree at <dirname(repo)>/.df-worktrees/<basename(repo)>/<id>,
+  // so a cwd there is this repository's, not another's.
+  test('5b: with no REPO_ROOT line, a cwd under this repo\'s DevFlow worktree directory counts as the repo', () => {
+    const r = freshRoot();
+    const tag = (id) => fx.executorPrompt('objective_tag', { id, objectiveDir: '99-demo' });
+    const worktrees = path.join(path.dirname(repo), '.df-worktrees', path.basename(repo));
+    writeExecutor(r, { session: 's', agentId: 'a-wt', cwd: path.join(worktrees, '42-12'), prompt: tag('99-10') });
+    // the same layout for another repository is not this repo
+    writeExecutor(r, {
+      session: 's',
+      agentId: 'a-wt-other',
+      cwd: path.join(path.dirname(repo), '.df-worktrees', `${path.basename(repo)}-other`, '42-12'),
+      prompt: tag('99-11'),
+    });
+    // a REPO_ROOT line still decides on its own: a worktree cwd never overrides a foreign REPO_ROOT
+    writeExecutor(r, {
+      session: 's', agentId: 'a-wt-foreign', cwd: path.join(worktrees, '42-12'), prompt: planIdPrompt('99-12', '99-demo', '/elsewhere/repo'),
+    });
+    const index = tu.indexExecutorTranscripts({ root: r, repoRoot: repo });
+    assert.deepStrictEqual(Object.fromEntries(index.entries.map((e) => [e.id, e.match])), { '99-10': 'worktree' });
+    assert.deepStrictEqual(index.counts, { ...ZERO_COUNTS, executor_transcripts: 3, identified: 1, foreign: 2 });
+  });
+
   test('6: a shared objective number counts a transcript only for the directory its prompt names', () => {
     const r = freshRoot();
     const beta = writeExecutor(r, { session: 's', agentId: 'a-beta', prompt: planIdPrompt('10-01', '10-beta') });
