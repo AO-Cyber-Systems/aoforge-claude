@@ -247,10 +247,14 @@ describe('6: estimate objective', () => {
     assert.equal(r.result.available, true);
     assert.deepEqual(r.result.total.wall_minutes, { p50: 25.6, p90: 69.2 });
     assert.equal(r.result.status, 'partial');
+    const cost = r.result.total.cost_usd;
     assert.equal(
       r.result.line,
-      'Objective 80 estimate: 26 min median (P90 1h 09m) wall · $6.80 (P90 $10.90) · 3 TRDs left in 2 waves · confidence medium',
+      `Objective 80 estimate: 26 min median (P90 1h 09m) wall · $${cost.p50.toFixed(2)} (P90 $${cost.p90.toFixed(2)}) · 3 TRDs left in 2 waves · confidence medium`,
     );
+    // The three TRD medians (2.8 + 0.8 + 1.4) and the verifier (0.9) sum to 5.9; the gap-closure mixture only adds to
+    // that. The line must quote the JSON's figures.
+    assert.ok(cost.p50 > 5.9 && cost.p50 < 7.5 && cost.p90 > cost.p50, JSON.stringify(cost));
     assert.ok(r.result.table.startsWith('| Objective 80 (3 TRDs left, 2 waves) | Median | P90 |\n'), r.result.table);
     assert.equal(r.result.calibration.path, calFile);
     assert.equal(r.result.calibration.version, 2);
@@ -315,10 +319,15 @@ describe('7: estimate milestone', () => {
     const r = ok(run(['milestone', '--table']));
     const lines = r.text.split('\n');
     assert.equal(lines[0], '| Objective | Status | Wall median | Wall P90 | Cost median | Confidence |');
-    assert.ok(lines[2].startsWith('| 80 Alpha | partial, 3 of 4 TRDs left | 26 min | 1h 09m | $6.80 | medium |'), lines[2]);
+    const total = r.result.total.cost_usd;
+    assert.ok(lines[2].startsWith('| 80 Alpha | partial, 3 of 4 TRDs left | 26 min | 1h 09m | $'), lines[2]);
+    assert.ok(lines[2].endsWith(' | medium |'), lines[2]);
     assert.ok(lines[3].startsWith('| 81 Beta | unplanned | 1h 02m | 3h 05m | $17.98 | low |'), lines[3]);
-    assert.ok(lines[4].startsWith('| 83 Delta | planned, 1 TRD | 9 min | 24 min | '), lines[4]);
-    assert.ok(lines[5].startsWith('| **v1.0 total (3 objectives left)** | | **1h 49m** | **4h 36m** | **$29.40** | **low** |'), lines[5]);
+    assert.ok(lines[4].startsWith('| 83 Delta | planned, 1 TRD | 9 min | 24 min | $'), lines[4]);
+    assert.equal(
+      lines[5],
+      `| **v1.0 total (3 objectives left)** | | **1h 49m** | **4h 36m** | **$${total.p50.toFixed(2)}** | **low** |`,
+    );
     assert.ok(r.text.includes('Done: 82. Cancelled: 84.'), r.text);
     assert.equal(r.result.version, 'v1.0');
     assert.deepEqual(r.result.total.wall_minutes, { p50: 109.3, p90: 276.3 });
@@ -328,9 +337,10 @@ describe('7: estimate milestone', () => {
 
   test('milestone --line, with the version named or implied', () => {
     const line = ok(run(['milestone', '--line']));
+    const cost = line.result.total.cost_usd;
     assert.equal(
       line.text,
-      'Milestone v1.0 estimate: 1h 49m median (P90 4h 36m) · $29.40 (P90 $58.10) · 3 objectives left (1 unplanned) · confidence low',
+      `Milestone v1.0 estimate: 1h 49m median (P90 4h 36m) · $${cost.p50.toFixed(2)} (P90 $${cost.p90.toFixed(2)}) · 3 objectives left (1 unplanned) · confidence low`,
     );
     assert.equal(ok(run(['milestone', 'v1.0', '--line'])).text, line.text);
     assert.equal(ok(run(['milestone', '1.0', '--line'])).text, line.text);

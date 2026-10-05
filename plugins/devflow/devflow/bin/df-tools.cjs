@@ -159,6 +159,20 @@
  *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS;
  *                                       --root: transcripts for agent overhead, default ~/.claude/projects;
  *                                       --no-overhead skips that scan)
+ *   estimate task (--files a[,b] [--tdd] [--trd-type t] | --class c | --checkpoint)
+ *                                      Median and P90 minutes, tokens and dollars for one task, with sample count and confidence
+ *   estimate trd <trd-id|path>         The composed estimate of one TRD
+ *   estimate objective <N> [--all] [--table|--line]
+ *                                      What is left of an objective: waves, verifier, gap-closure factor (--all also counts done TRDs)
+ *   estimate milestone [vX.Y] [--table|--line]
+ *                                      What is left of a milestone (default: the current one)
+ *   estimate start <N>                 Estimate an objective's remaining TRDs and record the run state the status line reads
+ *   estimate wave <N> <wave> (--start|--done)
+ *                                      Record a wave's timing; --done prints actual against the estimate with a verdict
+ *   estimate finish <N>                Print the objective's execution time against its estimate (idempotent)
+ *     (every estimate verb: [--calibration f] [--raw]; default calibration: DEVFLOW_CALIBRATION_PATH or
+ *      ~/.claude/devflow/calibration.json; run state: DEVFLOW_ESTIMATE_STATE_DIR or ~/.claude/devflow/state/estimates;
+ *      exit 0 even when there is no estimate (`No estimate: <reason>`), exit 1 for usage errors and unknown objectives/TRDs)
  *
  * UI Metrics:
  *   ui metrics baseline [--since D] [--paths p1,p2] [--out f]  Fix/feat commit baseline JSON for UI paths
@@ -893,6 +907,16 @@ async function main() {
       const r = runCalibrate({ argv: args.slice(1), cwd, env: process.env });
       if (!r.ok) error(r.message);
       outputCalibrate(r.result, raw, r.text, r.exit || 0);
+      break;
+    }
+
+    case 'estimate': {
+      // df-tools estimate <task|trd|objective|milestone|start|wave|finish> ... — TRD 58-08
+      const { output: outputEstimate } = require('./lib/helpers.cjs');
+      const { runEstimate } = require('./lib/estimate-cli.cjs');
+      const r = runEstimate({ argv: args.slice(1), cwd, env: process.env, now: Date.now() });
+      if (!r.ok) error(r.message);
+      outputEstimate(r.result, raw, r.text, r.exit || 0);
       break;
     }
 
