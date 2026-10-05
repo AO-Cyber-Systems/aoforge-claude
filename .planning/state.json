@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -674,6 +674,11 @@
     {
       "objective": "57",
       "summary": "57-01: executor TRD identification lives in lib/trd-identify.cjs; hooks/gate-executor-stop.js requires and re-exports it (the runtime mirror ships no hooks/)",
+      "rationale": null
+    },
+    {
+      "objective": "57",
+      "summary": "57-05: calibration inputs_digest also hashes per-project sources; a TRD needs both token fields to be a token sample",
       "rationale": null
     }
   ],

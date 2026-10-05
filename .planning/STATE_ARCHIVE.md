@@ -122,6 +122,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 56]: Changelog names the reconcile command sync-roadmap; dogfood ran through the repo CLI, not the ~/.claude/devflow mirror, so merged fixes were exercised
 - [Objective 57]: 57-01: executor token totals are deduped per API message (message.id) and scoped to one repo (REPO_ROOT, else cwd in the repo or its .df-worktrees, else a <repo>/.planning/ path) and, for a shared objective number, to the directory the prompt names; otherwise ambiguous_objective
 - [Objective 57]: 57-01: executor TRD identification lives in lib/trd-identify.cjs; hooks/gate-executor-stop.js requires and re-exports it (the runtime mirror ships no hooks/)
+- [Objective 57]: 57-05: calibration inputs_digest also hashes per-project sources; a TRD needs both token fields to be a token sample
 
 ## Performance Metrics
 
@@ -191,4 +192,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 56 P03 | 9min | 3 tasks | 8 files |
 | Objective 56 P05 | 4min | 2 tasks | 2 files |
 | Objective 57 P01 | 15min | 3 tasks | 8 files |
+| Objective 57 P05 | 10min | 2 tasks | 2 files |
 
