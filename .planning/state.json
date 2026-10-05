@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -750,6 +750,11 @@
       "objective": "58",
       "summary": "58-08: every estimate verb exits 0 with 'No estimate: <reason>' (available: false) when the calibration is unusable, never a number; the JSON is rounded once by roundResult from the raw result, the text by each formatter from the same raw result, with line on every result and table on objective and milestone",
       "rationale": "Rounding a rounded figure shifts edge cases; a missing calibration is an answer, not a failure"
+    },
+    {
+      "objective": "58",
+      "summary": "58-09: estimate calls in prose are fail-soft one-liners that paste df-tools output verbatim; wave --done runs before spot-checks; build re-runs idempotent estimate finish",
+      "rationale": null
     }
   ],
   "blockers": [],

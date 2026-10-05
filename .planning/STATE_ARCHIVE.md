@@ -137,6 +137,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 58]: 58-07: the milestone total is one flat correlated sum of the remaining objectives' fitted totals plus one integration-checker spawn; a missing integration-checker history is listed in missing, adds nothing and caps confidence at low; an empty milestone has overhead [] and zero totals
 - [Objective 58]: 58-08: estimate wave --done and finish read only the stored run state (the wave's p50/p90 and the execution wall that start stored), so they need no calibration; a state for another objective, a finished one or one idle over 12 hours is no live run — The status line and the verdict must agree on one stored estimate even if the calibration file changes mid-run
 - [Objective 58]: 58-08: every estimate verb exits 0 with 'No estimate: <reason>' (available: false) when the calibration is unusable, never a number; the JSON is rounded once by roundResult from the raw result, the text by each formatter from the same raw result, with line on every result and table on objective and milestone — Rounding a rounded figure shifts edge cases; a missing calibration is an answer, not a failure
+- [Objective 58]: 58-09: estimate calls in prose are fail-soft one-liners that paste df-tools output verbatim; wave --done runs before spot-checks; build re-runs idempotent estimate finish
 
 ## Performance Metrics
 
@@ -217,4 +218,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 58 P06 | 35min | 2 tasks | 4 files |
 | Objective 58 P07 | 9min | 2 tasks | 5 files |
 | Objective 58 P08 | 14min | 3 tasks | 6 files |
+| Objective 58 P09 | 14min | 2 tasks | 5 files |
 
