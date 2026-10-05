@@ -20,7 +20,9 @@
  *
  * TRD identification reads ONLY the first user prompt of the agent transcript
  * (`agent_transcript_path`), bounded to the first 1 MiB. Later tool output
- * mentions other TRDs, so it is never authoritative.
+ * mentions other TRDs, so it is never authoritative. `identifyTrd` and
+ * `readFirstUserPrompt` live in devflow/bin/lib/trd-identify.cjs (TRD 57-01),
+ * shared with the df-tools token reader; this hook requires and re-exports them.
  *
  * Fail-open contract: every path that is not a confident "this executor's TRD
  * has no SUMMARY anywhere" exits 0 with NO output. That includes any error,
@@ -42,150 +44,9 @@ const { escapeRegExp } = require('../devflow/bin/lib/text-escape.cjs');
 
 // ─── TRD identification ───────────────────────────────────────────────────────
 
-const ID = String.raw`\d+(?:\.\d+)?-\d+`;
-const ID_END = String.raw`(?![\w-])`;
-
-// Line-anchored, so an embedded TRD quoting "`PLAN_ID: 77-09`" in prose never counts.
-const PLAN_ID_RE = new RegExp(String.raw`^[ \t]*PLAN_ID:[ \t]*(${ID})${ID_END}`, 'gm');
-// `--id` only counts inside an `exec-context check` command line.
-const EXEC_ID_RE = new RegExp(String.raw`exec-context[ \t]+check\b[^\n]*?[ \t]--id(?:=|[ \t]+)(${ID})${ID_END}`, 'g');
-const TRD_PATH_RE = new RegExp(String.raw`(?<![\w.-])(${ID})-TRD\.md\b`, 'g');
-const FM_OBJECTIVE_RE = /^[ \t]*objective:[ \t]*["']?(\d+(?:\.\d+)?)(?:-[^\s"']*)?["']?[ \t]*$/gm;
-const FM_TRD_RE = /^[ \t]*trd:[ \t]*["']?(\d+)["']?[ \t]*$/gm;
-const REPO_ROOT_RE = /^[ \t]*REPO_ROOT:[ \t]*(\S+)/m;
-
-function capturesOf(re, text) {
-  const out = [];
-  for (const m of text.matchAll(re)) out.push(m[1]);
-  return out;
-}
-
-function unique(list) {
-  return [...new Set(list)];
-}
-
-/** Ids implied by embedded TRD frontmatter: `<NN of objective:>-<trd>`. */
-function frontmatterIds(text) {
-  const objectives = unique(capturesOf(FM_OBJECTIVE_RE, text));
-  const trds = unique(capturesOf(FM_TRD_RE, text).map((t) => (t.length === 1 ? `0${t}` : t)));
-  const ids = [];
-  for (const o of objectives) for (const t of trds) ids.push(`${o}-${t}`);
-  return unique(ids);
-}
-
-/**
- * Identify the TRD an executor was spawned for, from its first user prompt.
- *
- * Sources, strongest first. The first source that yields ANY id is chosen;
- * if it yields more than one distinct id the prompt is ambiguous → null.
- *   1. The explicit dispatch declaration: `PLAN_ID: <id>` lines together with
- *      `exec-context check ... --id <id>`. Both name the plan the orchestrator
- *      dispatched, so a disagreement between them is a contradiction and
- *      means ambiguous, not "first wins".
- *   2. `<id>-TRD.md` paths.
- *   3. Embedded TRD frontmatter: `objective: NN-slug` + `trd: "MM"` → `NN-MM`.
- *
- * @param {string} text
- * @returns {{id: string, repoRoot: string|null}|null}
- */
-function identifyTrd(text) {
-  if (typeof text !== 'string' || !text) return null;
-
-  const rootMatch = REPO_ROOT_RE.exec(text);
-  const repoRoot = rootMatch && path.isAbsolute(rootMatch[1]) ? rootMatch[1] : null;
-
-  const tiers = [
-    unique([...capturesOf(PLAN_ID_RE, text), ...capturesOf(EXEC_ID_RE, text)]),
-    unique(capturesOf(TRD_PATH_RE, text)),
-    frontmatterIds(text),
-  ];
-
-  for (const ids of tiers) {
-    if (ids.length === 0) continue;
-    if (ids.length > 1) return null; // ambiguous → fail open
-    return { id: ids[0], repoRoot };
-  }
-  return null;
-}
-
-// ─── Bounded transcript read ──────────────────────────────────────────────────
-
-function textOfContent(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
-    .map((p) => p.text)
-    .join('\n');
-}
-
-/**
- * Parse one JSONL line. Returns the prompt text (or null for an empty one)
- * when the record is the user record, `undefined` to keep scanning.
- */
-function userTextOfLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed) return undefined;
-  let rec;
-  try { rec = JSON.parse(trimmed); } catch { return undefined; } // garbage line: skip
-  if (!rec || typeof rec !== 'object' || rec.type !== 'user') return undefined;
-  const text = textOfContent(rec.message && rec.message.content);
-  return text || null;
-}
-
-/**
- * Text of the FIRST `type:'user'` record in a JSONL transcript.
- *
- * Reads at most `maxBytes` (default 1 MiB) via openSync + readSync, parses
- * only complete lines, and stops at the first user record. A final line
- * without a trailing newline counts as complete only when EOF was reached
- * inside the budget. Any failure → null.
- *
- * @param {string} filePath
- * @param {{maxBytes?: number, fsImpl?: object, chunkSize?: number}} [opts]
- * @returns {string|null}
- */
-function readFirstUserPrompt(filePath, { maxBytes = 1 << 20, fsImpl = fs, chunkSize = 64 * 1024 } = {}) {
-  if (typeof filePath !== 'string' || !filePath) return null;
-
-  let fd;
-  try { fd = fsImpl.openSync(filePath, 'r'); } catch { return null; }
-
-  try {
-    const buf = Buffer.alloc(Math.max(0, maxBytes));
-    let filled = 0;
-    let lineStart = 0;
-    let eof = false;
-
-    for (;;) {
-      const view = buf.subarray(0, filled);
-      let nl;
-      while ((nl = view.indexOf(0x0a, lineStart)) !== -1) {
-        const found = userTextOfLine(view.toString('utf8', lineStart, nl));
-        if (found !== undefined) return found;
-        lineStart = nl + 1;
-      }
-
-      if (eof) {
-        if (lineStart < filled) {
-          const found = userTextOfLine(view.toString('utf8', lineStart, filled));
-          if (found !== undefined) return found;
-        }
-        return null;
-      }
-      if (filled >= buf.length) return null; // budget spent, no complete user line
-
-      const want = Math.min(chunkSize, buf.length - filled);
-      const n = fsImpl.readSync(fd, buf, filled, want, filled);
-      if (!n) eof = true;
-      else filled += n;
-    }
-  } catch {
-    return null;
-  } finally {
-    try { fsImpl.closeSync(fd); } catch { /* ignore */ }
-  }
-}
+// Moved to lib/trd-identify.cjs (TRD 57-01) so df-tools can use it: the runtime mirror does not ship hooks/.
+// Re-exported below as the same function objects.
+const { identifyTrd, readFirstUserPrompt } = require('../devflow/bin/lib/trd-identify.cjs');
 
 // ─── Candidate roots + SUMMARY lookup ─────────────────────────────────────────
 
