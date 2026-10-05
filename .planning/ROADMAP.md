@@ -113,9 +113,19 @@ Not yet planned. Run `/devflow:milestone new` to start it. Objective 55 (store l
 ### Objective 55: Store live-smoke fixes
 
 **Goal:** Fix what the first live store-mode smoke (2026-10-05, `AO-Cyber-Systems/devflow-store-smoke`) found against real GitHub. Three bugs block store adoption: (1) the `gh setup` ruleset has no bypass actors, (4) `devflow-checks.yml` sparse-checkout omits `references/`, so the required checks crash, and (5) verify, merge and reconcile ignore unpushed local commits. Also fix the wiki-retry, `objective put` and wording issues, then re-run the live smoke.
-**Requirements:** none (live-UAT findings; see `.planning/objectives/55-store-live-smoke-fixes/OBJECTIVE.md`)
+**Requirements:** 55-1, 55-2, 55-3, 55-4, 55-5, 55-6
 **Depends on:** none
-**Plans:** TBD
+**TRDs:** 8 plans
+
+TRDs:
+- [ ] 55-01-setup-ruleset-bypass-and-pin-TRD.md — (W1) 55-1 + 55-4 caller: setup ruleset grants RepositoryRole 5 `always` bypass (superset-idempotent), guidance names `gh pr merge <n> --admin`; `checks_workflow@<ref>` pins `devflow-ref`
+- [ ] 55-02-checks-sparse-and-wiki-retry-TRD.md — (W1) 55-4: `references/` in every sparse checkout + sparse-copy guard test; 55-3: flush retries a halted blocked wiki-push once
+- [ ] 55-03-unpushed-commit-guard-TRD.md — (W1) 55-5: `unpushedCommits`; `verification post` and `gh pr merge` refuse naming `gh pr sync`
+- [ ] 55-04-store-issue-naming-TRD.md — (W1) 55-6: objective issue title from ROADMAP / OBJECTIVE.md heading, not the dir slug; store-mode footer
+- [ ] 55-05-objective-put-hint-and-reconcile-content-TRD.md — (W2) 55-2: unknown objective names `objective add`; 55-6: reconcile deletes branches whose content is already merged (merge-tree)
+- [ ] 55-06-live-setup-rerun-TRD.md — (W3, checkpoint) push approval; smoke `upgrade --apply` (state.json/stamp); ruleset re-created by `gh setup --apply`; workflow PR merged with admin bypass; runner without ENOENT
+- [ ] 55-07-live-objective-lifecycle-TRD.md — (W4) objective 2 live: guard fires, `gh pr sync`, checks green, merge queue, reconcile, code on main
+- [ ] 55-08-docs-and-changelog-TRD.md — (W5) USER-GUIDE / gh-sync skill / execute-objective prose from the live results; CHANGELOG [Unreleased]; `npm test`
 
 ### Earlier carry-overs
 
