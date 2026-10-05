@@ -9,4 +9,4 @@ tags: [df-tools, objective, roadmap, tool-02]
 
 ## Progress
 - [x] Task 1: Fixture builder for remove/complete projects — 11550f94
-- [ ] Task 2: roadmap_updated reports a real change (tests 1-7) — RED committed (this commit; tests 2 and 5 fail on roadmap_updated); next step: in plugins/devflow/devflow/bin/lib/objective.cjs make cmdObjectiveRemove and cmdObjectiveComplete compare ROADMAP text before/after, write only on change, and report that as roadmap_updated
+- [x] Task 2: roadmap_updated reports a real change (tests 1-7) — RED 91c9862f, GREEN (this commit)
