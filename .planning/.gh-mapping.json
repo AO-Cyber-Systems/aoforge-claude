@@ -1,9 +1,12 @@
 {
-  "milestone_id": null,
+  "version": 3,
+  "milestones": {},
   "objectives": {
     "0": {
       "issue_id": 20,
-      "state_comment_id": 4374249280
+      "state_comment_id": 4374249280,
+      "verified_at": null
     }
-  }
+  },
+  "trds": {}
 }
