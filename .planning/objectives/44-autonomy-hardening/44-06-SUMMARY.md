@@ -33,6 +33,12 @@ decisions:
 metrics:
   tasks: 3
   completed: 2026-09-29
+tokens_input: 12632931
+tokens_output: 68688
+tokens_cache_read: 12454816
+tokens_cache_write: 177941
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 06: Migration 0008 untracks DevFlow runtime state files Summary

@@ -57,6 +57,12 @@ verification:
 # Metrics
 duration: 55min
 completed: 2026-09-28
+tokens_input: 13470321
+tokens_output: 66475
+tokens_cache_read: 13290409
+tokens_cache_write: 179662
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 02: Stop generating stale text; retarget W002 Summary

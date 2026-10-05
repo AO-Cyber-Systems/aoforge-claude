@@ -59,6 +59,12 @@ verification:
 # Metrics
 duration: ~40min
 completed: 2026-09-28
+tokens_input: 11973842
+tokens_output: 67688
+tokens_cache_read: 11791686
+tokens_cache_write: 181956
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 39 TRD 02: Wire `df-tools transcript-export` and `df-tools override` Summary

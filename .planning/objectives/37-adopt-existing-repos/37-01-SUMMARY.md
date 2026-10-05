@@ -47,6 +47,12 @@ verification:
 # Metrics
 duration: 13min
 completed: 2026-09-28
+tokens_input: 11171190
+tokens_output: 113293
+tokens_cache_read: 10800638
+tokens_cache_write: 370352
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 01: Fixture factory + the one repo-state detector Summary

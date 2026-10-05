@@ -42,6 +42,12 @@ verification:
   test_pairing: true
 duration: about 40 min
 completed: 2026-10-01
+tokens_input: 8102027
+tokens_output: 50794
+tokens_cache_read: 7962616
+tokens_cache_write: 139277
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 13: Workflow prose runs the PR lifecycle Summary

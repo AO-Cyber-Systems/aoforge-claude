@@ -29,6 +29,12 @@ decisions:
 metrics:
   duration: "~7 min"
   completed: 2026-10-05
+tokens_input: 9243408
+tokens_output: 43222
+tokens_cache_read: 9082251
+tokens_cache_write: 161007
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 02: Required checks load from their sparse checkout; a blocked wiki push retries on flush Summary

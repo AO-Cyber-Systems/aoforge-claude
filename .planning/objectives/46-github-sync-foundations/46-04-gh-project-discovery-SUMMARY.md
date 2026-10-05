@@ -46,6 +46,12 @@ verification:
 
 duration: 15min
 completed: 2026-09-30
+tokens_input: 4998064
+tokens_output: 61727
+tokens_cache_read: 4870899
+tokens_cache_write: 127073
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 04: Project field discovery with a TTL cache Summary

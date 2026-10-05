@@ -47,6 +47,12 @@ verification:
 # Metrics
 duration: 5min
 completed: 2026-09-27
+tokens_input: 5075456
+tokens_output: 22943
+tokens_cache_read: 4949988
+tokens_cache_write: 125346
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 36 TRD 07: Surface init's bootstrap results; drop the dead import Summary

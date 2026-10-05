@@ -28,6 +28,12 @@ metrics:
   completed: 2026-10-01T20:26:20Z
   tasks: 2
   files: 4
+tokens_input: 8896034
+tokens_output: 71474
+tokens_cache_read: 8716795
+tokens_cache_write: 179103
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 03: gh-backfill core Summary

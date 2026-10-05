@@ -46,6 +46,12 @@ verification:
 
 duration: 2 sessions (resumed once)
 completed: 2026-10-01
+tokens_input: 8517466
+tokens_output: 88403
+tokens_cache_read: 8301247
+tokens_cache_write: 216105
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 09: Hierarchy push - objective to TRD sub-issues to blocked-by, decisions, pages Summary

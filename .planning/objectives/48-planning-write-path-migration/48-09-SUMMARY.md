@@ -51,6 +51,12 @@ verification:
 
 duration: 25min
 completed: 2026-10-01
+tokens_input: 5621512
+tokens_output: 54205
+tokens_cache_read: 5490871
+tokens_cache_write: 130547
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 09: validate flags Bash writes to the cache (W055) Summary

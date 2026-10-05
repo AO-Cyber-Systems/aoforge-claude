@@ -35,6 +35,12 @@ metrics:
   completed: 2026-09-29
   tasks: 3
   files: 7
+tokens_input: 9453336
+tokens_output: 79613
+tokens_cache_read: 9231771
+tokens_cache_write: 221438
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 12: Ignore-aware area detection, profile-derived report components, file-level gitignore preflight Summary

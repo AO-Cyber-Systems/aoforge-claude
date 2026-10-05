@@ -58,6 +58,12 @@ verification:
 
 duration: 16min
 completed: 2026-10-01
+tokens_input: 11070087
+tokens_output: 97217
+tokens_cache_read: 10867806
+tokens_cache_write: 202147
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 11: Core planning verbs Summary

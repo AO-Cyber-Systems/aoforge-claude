@@ -52,6 +52,12 @@ verification:
 
 duration: 6min
 completed: 2026-09-30
+tokens_input: 3206403
+tokens_output: 49687
+tokens_cache_read: 3093328
+tokens_cache_write: 113013
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 05: Doctor global install checks Summary

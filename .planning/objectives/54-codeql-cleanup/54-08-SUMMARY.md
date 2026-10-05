@@ -40,6 +40,12 @@ verification:
 
 duration: 4min
 completed: 2026-10-04
+tokens_input: 4226384
+tokens_output: 26122
+tokens_cache_read: 4130077
+tokens_cache_write: 96221
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 08: Markdown table cells in adopt and stack-report Summary

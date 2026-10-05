@@ -50,6 +50,12 @@ verification:
 # Metrics
 duration: 3min
 completed: 2026-09-28
+tokens_input: 2995451
+tokens_output: 28558
+tokens_cache_read: 2921950
+tokens_cache_write: 73423
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 40 TRD 04: `state record-session` handles the narrative Session Continuity section Summary

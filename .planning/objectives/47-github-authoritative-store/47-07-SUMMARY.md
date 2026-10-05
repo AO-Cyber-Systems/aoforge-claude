@@ -53,6 +53,12 @@ verification:
 
 duration: 3 sessions (resumed twice)
 completed: 2026-10-01
+tokens_input: 15594662
+tokens_output: 166041
+tokens_cache_read: 15233231
+tokens_cache_write: 361297
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 07: Outbox flusher, op handlers, remote-edit halt, client retry policy Summary

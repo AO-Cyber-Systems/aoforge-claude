@@ -46,6 +46,12 @@ verification:
 
 duration: 3 sessions (resumed twice)
 completed: 2026-10-01
+tokens_input: 11599084
+tokens_output: 92939
+tokens_cache_read: 11228335
+tokens_cache_write: 370603
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 12: Wire the store into `gh sync`; config defaults; seam guard Summary

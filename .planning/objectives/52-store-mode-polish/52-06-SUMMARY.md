@@ -43,6 +43,12 @@ verification:
 
 duration: 6min
 completed: 2026-10-04
+tokens_input: 12217681
+tokens_output: 39838
+tokens_cache_read: 12065404
+tokens_cache_write: 152099
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 52 TRD 06: Docs and full suite Summary

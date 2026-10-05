@@ -50,6 +50,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-05
+tokens_input: 10978149
+tokens_output: 44884
+tokens_cache_read: 10831247
+tokens_cache_write: 146736
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 56 TRD 02: Exact objective lookups Summary

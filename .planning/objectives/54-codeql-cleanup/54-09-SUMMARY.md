@@ -37,6 +37,12 @@ verification:
 
 duration: 22min
 completed: 2026-10-04
+tokens_input: 6116169
+tokens_output: 35577
+tokens_cache_read: 5935927
+tokens_cache_write: 180116
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 09: CHANGELOG, full suite, static audit, push Summary

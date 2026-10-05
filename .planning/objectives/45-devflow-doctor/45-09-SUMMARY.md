@@ -42,6 +42,12 @@ metrics:
   completed: 2026-09-30
   tasks: 3
   files: 7
+tokens_input: 5541853
+tokens_output: 32837
+tokens_cache_read: 5397831
+tokens_cache_write: 143916
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 09: /devflow:doctor skill, registration, docs, full suite Summary

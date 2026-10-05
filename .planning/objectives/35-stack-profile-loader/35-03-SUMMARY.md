@@ -38,6 +38,12 @@ decisions:
 metrics:
   duration: "~50 min"
   completed: 2026-09-27
+tokens_input: 14178183
+tokens_output: 100425
+tokens_cache_read: 13942211
+tokens_cache_write: 235716
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 03: `validateProfile` and the `df-tools stack` CLI Summary

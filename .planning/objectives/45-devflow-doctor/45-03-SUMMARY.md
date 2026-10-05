@@ -47,6 +47,12 @@ verification:
 
 duration: 7min
 completed: 2026-09-30
+tokens_input: 3680159
+tokens_output: 37964
+tokens_cache_read: 3566747
+tokens_cache_write: 113342
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 03: sync-runtime content digest marker Summary

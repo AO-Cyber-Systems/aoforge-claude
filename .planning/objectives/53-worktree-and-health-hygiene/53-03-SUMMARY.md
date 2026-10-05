@@ -45,6 +45,12 @@ verification:
 
 duration: 25min
 completed: 2026-10-04
+tokens_input: 11770164
+tokens_output: 63690
+tokens_cache_read: 11467047
+tokens_cache_write: 302961
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 53 TRD 03: micro commits through `df-tools commit` Summary

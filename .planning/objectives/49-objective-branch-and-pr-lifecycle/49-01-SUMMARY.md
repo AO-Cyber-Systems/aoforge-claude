@@ -49,6 +49,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-01
+tokens_input: 12997857
+tokens_output: 92848
+tokens_cache_read: 12759567
+tokens_cache_write: 238136
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 01: Fake GitHub learns pull requests, linked branches, statuses and comment authors Summary

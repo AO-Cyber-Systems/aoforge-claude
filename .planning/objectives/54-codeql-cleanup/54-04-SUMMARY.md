@@ -23,6 +23,12 @@ decisions:
 requirements-completed: ["54-G"]
 duration: 3 min
 completed: 2026-10-04
+tokens_input: 3745526
+tokens_output: 27749
+tokens_cache_read: 3663102
+tokens_cache_write: 82338
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 04: execFileSync in the verify/flutter-ui test files Summary

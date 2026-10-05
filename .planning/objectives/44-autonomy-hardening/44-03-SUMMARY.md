@@ -51,6 +51,12 @@ verification:
 
 duration: 12min
 completed: 2026-09-29
+tokens_input: 7224249
+tokens_output: 76325
+tokens_cache_read: 7074367
+tokens_cache_write: 149766
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 03: Gates stop blocking DevFlow's own agents and merge completions Summary

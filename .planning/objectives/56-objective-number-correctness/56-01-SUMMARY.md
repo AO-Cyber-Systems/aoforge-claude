@@ -61,6 +61,12 @@ verification:
 # Metrics
 duration: 11min
 completed: 2026-10-05
+tokens_input: 16728311
+tokens_output: 71568
+tokens_cache_read: 16482830
+tokens_cache_write: 245281
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 56 TRD 01: One regex escape, guarded in CI Summary

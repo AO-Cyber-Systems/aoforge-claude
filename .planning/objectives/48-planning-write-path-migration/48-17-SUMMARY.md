@@ -32,6 +32,12 @@ metrics:
   completed: 2026-10-01
   tasks: 2
   files: 8
+tokens_input: 5320329
+tokens_output: 53943
+tokens_cache_read: 5181352
+tokens_cache_write: 138879
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 17: Prose migration — execute flows (audit group `execute`) Summary

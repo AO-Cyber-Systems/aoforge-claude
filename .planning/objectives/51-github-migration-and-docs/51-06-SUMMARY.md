@@ -48,6 +48,12 @@ verification:
 
 duration: 45min
 completed: 2026-10-01
+tokens_input: 19072611
+tokens_output: 103083
+tokens_cache_read: 18832301
+tokens_cache_write: 240092
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 06: migration 0011, part 1 (detect, dry run, preflight, switch, queue) Summary

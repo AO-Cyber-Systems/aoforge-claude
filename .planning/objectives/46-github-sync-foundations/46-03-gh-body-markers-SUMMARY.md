@@ -48,6 +48,12 @@ verification:
 
 duration: 15min
 completed: 2026-09-30
+tokens_input: 5189694
+tokens_output: 74844
+tokens_cache_read: 5054856
+tokens_cache_write: 134746
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 03: Markers and managed body sections Summary

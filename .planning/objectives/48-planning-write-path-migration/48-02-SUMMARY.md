@@ -48,6 +48,12 @@ verification:
 
 duration: 16min
 completed: 2026-10-01
+tokens_input: 9771912
+tokens_output: 68525
+tokens_cache_read: 9571637
+tokens_cache_write: 200143
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 02: Entity issue contract Summary

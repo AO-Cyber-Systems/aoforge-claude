@@ -31,6 +31,12 @@ metrics:
   duration: 28min
   completed: 2026-10-04
 requirements: ["53-8"]
+tokens_input: 9312142
+tokens_output: 90494
+tokens_cache_read: 9060560
+tokens_cache_write: 251450
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 53 TRD 06: Decision repair Summary

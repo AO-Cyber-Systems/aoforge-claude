@@ -50,6 +50,12 @@ verification:
   test_pairing: true
 duration: 25min
 completed: 2026-10-03
+tokens_input: 30136259
+tokens_output: 143962
+tokens_cache_read: 29799259
+tokens_cache_write: 336726
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 09: Evidence-shape fixes from real repos (Make comments, drift checks, CI env, version probes) Summary

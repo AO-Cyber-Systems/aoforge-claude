@@ -46,6 +46,12 @@ verification:
 # Metrics
 duration: 6min
 completed: 2026-09-28
+tokens_input: 6310130
+tokens_output: 30531
+tokens_cache_read: 6219462
+tokens_cache_write: 90516
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 39 TRD 05: Re-baseline `read_share_pct`, CHANGELOG, full-suite gate Summary

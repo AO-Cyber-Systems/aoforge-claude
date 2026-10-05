@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: 24min
 completed: 2026-09-28
+tokens_input: 8355186
+tokens_output: 64373
+tokens_cache_read: 8228765
+tokens_cache_write: 126269
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 02: Global `--cwd <dir>` for df-tools Summary

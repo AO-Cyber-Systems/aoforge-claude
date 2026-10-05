@@ -41,6 +41,12 @@ verification:
 
 duration: 3min
 completed: 2026-10-04
+tokens_input: 4227381
+tokens_output: 24721
+tokens_cache_read: 4144361
+tokens_cache_write: 82922
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 03: Workflow token permissions and two test leftovers Summary

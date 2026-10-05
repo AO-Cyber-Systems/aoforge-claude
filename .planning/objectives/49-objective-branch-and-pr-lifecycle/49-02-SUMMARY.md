@@ -47,6 +47,12 @@ verification:
 
 duration: 17min
 completed: 2026-10-01
+tokens_input: 8492657
+tokens_output: 54348
+tokens_cache_read: 8336282
+tokens_cache_write: 156241
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 02: Mapping `prs` map and gh-client read classification Summary

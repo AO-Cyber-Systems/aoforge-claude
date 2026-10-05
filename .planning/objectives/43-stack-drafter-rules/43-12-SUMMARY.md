@@ -50,6 +50,12 @@ verification:
   test_pairing: true
 duration: 48min
 completed: 2026-10-03
+tokens_input: 25950680
+tokens_output: 123049
+tokens_cache_read: 25631566
+tokens_cache_write: 318886
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 12: Authored targets, wrappers and lint actions versus the tier default Summary

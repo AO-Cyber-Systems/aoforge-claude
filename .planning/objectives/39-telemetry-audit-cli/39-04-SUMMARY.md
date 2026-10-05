@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: 30min
 completed: 2026-09-28
+tokens_input: 9346367
+tokens_output: 55759
+tokens_cache_read: 9162552
+tokens_cache_write: 183643
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 39 TRD 04: Dispatch-completeness gate + CLAUDE.md CLI inventory flip Summary

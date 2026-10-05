@@ -56,6 +56,12 @@ verification:
 
 duration: about 45min
 completed: 2026-10-01
+tokens_input: 8054623
+tokens_output: 66718
+tokens_cache_read: 7885867
+tokens_cache_write: 168632
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 11: Summary and verify hooks drive the PR, and the early-close fix Summary

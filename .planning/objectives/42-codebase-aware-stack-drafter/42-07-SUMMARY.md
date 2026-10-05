@@ -63,6 +63,12 @@ verification:
 
 duration: ~25min
 completed: 2026-09-29
+tokens_input: 20574115
+tokens_output: 144554
+tokens_cache_read: 20276643
+tokens_cache_write: 297292
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 07: Drafter integration (grounded, verified `stack init`) Summary

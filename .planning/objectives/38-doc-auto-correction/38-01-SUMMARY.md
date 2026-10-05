@@ -47,6 +47,12 @@ verification:
 # Metrics
 duration: 14min
 completed: 2026-09-28
+tokens_input: 8512381
+tokens_output: 62952
+tokens_cache_read: 8355096
+tokens_cache_write: 157133
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 01: `lib/doc-refs.cjs` — the command-reference resolver Summary

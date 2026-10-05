@@ -31,6 +31,12 @@ metrics:
   completed: 2026-09-27
   tasks: 2
   files: 5
+tokens_input: 4018778
+tokens_output: 48594
+tokens_cache_read: 3921669
+tokens_cache_write: 97031
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 36 TRD 06: Global upgrade Summary

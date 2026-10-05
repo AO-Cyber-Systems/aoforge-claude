@@ -50,6 +50,12 @@ verification:
 metrics:
   duration: "~1 session (continuation)"
   completed: 2026-09-28
+tokens_input: 9701670
+tokens_output: 109606
+tokens_cache_read: 9389978
+tokens_cache_write: 311514
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 05: `adopt preflight` and `adopt begin` Summary

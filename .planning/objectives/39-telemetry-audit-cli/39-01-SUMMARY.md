@@ -55,6 +55,12 @@ verification:
 # Metrics
 duration: 20min
 completed: 2026-09-28
+tokens_input: 10094084
+tokens_output: 63709
+tokens_cache_read: 9871609
+tokens_cache_write: 222293
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 39 TRD 01: Wire `df-tools context` and `df-tools session-audit` Summary

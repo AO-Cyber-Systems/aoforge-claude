@@ -29,6 +29,12 @@ key-decisions:
   - "backups delegates retention entirely to runPrune (dry run for detection, real run for the fix); only the size-threshold case is the doctor's own logic."
 duration: 4m
 completed: 2026-09-30
+tokens_input: 2863753
+tokens_output: 40733
+tokens_cache_read: 2768516
+tokens_cache_write: 95177
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 07: Doctor state-hygiene checks Summary

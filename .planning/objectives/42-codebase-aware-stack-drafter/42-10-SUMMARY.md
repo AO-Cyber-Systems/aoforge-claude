@@ -49,6 +49,12 @@ verification:
 
 duration: ~25 min
 completed: 2026-09-29
+tokens_input: 5394917
+tokens_output: 33793
+tokens_cache_read: 5137192
+tokens_cache_write: 257621
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 10: Documentation and bundled-profile mirroring Summary

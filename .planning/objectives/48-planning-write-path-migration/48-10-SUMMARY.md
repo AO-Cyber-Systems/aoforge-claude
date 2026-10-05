@@ -53,6 +53,12 @@ verification:
 
 duration: 13min
 completed: 2026-10-01
+tokens_input: 8020597
+tokens_output: 75373
+tokens_cache_read: 7829198
+tokens_cache_write: 191303
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 10: Migration 0010 store-gitignore, per-path commit filter, doctor check 24 Summary

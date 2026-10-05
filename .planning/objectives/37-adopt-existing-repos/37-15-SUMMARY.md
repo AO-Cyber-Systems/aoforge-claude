@@ -23,6 +23,12 @@ decisions:
 metrics:
   duration: "~45 min"
   completed: 2026-09-28
+tokens_input: 7296544
+tokens_output: 34595
+tokens_cache_read: 7196116
+tokens_cache_write: 100280
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 15: Document what shipped; prove completion leaves ROADMAP/STATE intact Summary

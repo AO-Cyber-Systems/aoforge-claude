@@ -46,6 +46,12 @@ verification:
 
 duration: 1 session
 completed: 2026-10-01
+tokens_input: 2684235
+tokens_output: 22847
+tokens_cache_read: 2600074
+tokens_cache_write: 84101
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 14: Documentation and full test suite (SC6) Summary

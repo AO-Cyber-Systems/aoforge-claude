@@ -50,6 +50,12 @@ verification:
 
 duration: ~15min
 completed: 2026-10-01
+tokens_input: 4673154
+tokens_output: 39684
+tokens_cache_read: 4533064
+tokens_cache_write: 140008
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 07: validate health and doctor store sync reports Summary

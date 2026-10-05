@@ -44,6 +44,12 @@ verification:
 
 duration: 7min
 completed: 2026-10-04
+tokens_input: 8693238
+tokens_output: 43062
+tokens_cache_read: 8560182
+tokens_cache_write: 132908
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 52 TRD 03: micro leaves STATE.md alone in store mode Summary

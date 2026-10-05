@@ -31,6 +31,12 @@ metrics:
   duration: "~20 min (includes one stream stall and resume)"
   completed: 2026-10-04
 requirements-completed: ["53-5", "53-7"]
+tokens_input: 5939226
+tokens_output: 33821
+tokens_cache_read: 5735703
+tokens_cache_write: 203409
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 53 TRD 05: Objective 45 leftovers and repo health Summary

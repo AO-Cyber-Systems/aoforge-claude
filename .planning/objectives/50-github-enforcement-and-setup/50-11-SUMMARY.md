@@ -58,6 +58,12 @@ verification:
 
 duration: ~45min
 completed: 2026-10-01
+tokens_input: 9884906
+tokens_output: 81523
+tokens_cache_read: 9680759
+tokens_cache_write: 204021
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 11: `gh setup` apply and command Summary

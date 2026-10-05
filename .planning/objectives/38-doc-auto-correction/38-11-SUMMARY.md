@@ -49,6 +49,12 @@ verification:
 
 duration: ~15min
 completed: 2026-09-28
+tokens_input: 9133019
+tokens_output: 45917
+tokens_cache_read: 9013639
+tokens_cache_write: 119204
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 11: Wire `df-tools telemetry` and show doc advisories in `/devflow:status` Summary

@@ -39,6 +39,12 @@ verification:
 
 duration: 30min
 completed: 2026-10-05
+tokens_input: 8452684
+tokens_output: 38401
+tokens_cache_read: 8141668
+tokens_cache_write: 310890
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 08: docs and changelog Summary

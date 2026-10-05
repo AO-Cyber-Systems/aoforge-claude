@@ -51,6 +51,12 @@ verification:
 
 duration: 7min
 completed: 2026-10-01
+tokens_input: 5550075
+tokens_output: 67588
+tokens_cache_read: 5400232
+tokens_cache_write: 149757
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 08: the check runner for Actions Summary

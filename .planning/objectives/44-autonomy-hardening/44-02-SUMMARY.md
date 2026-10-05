@@ -55,6 +55,12 @@ verification:
 # Metrics
 duration: 5min
 completed: 2026-09-29
+tokens_input: 3212928
+tokens_output: 25675
+tokens_cache_read: 3127235
+tokens_cache_write: 85615
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 02: Drop legacy agent-path reads; synthesizer returns text; planner gets Edit Summary

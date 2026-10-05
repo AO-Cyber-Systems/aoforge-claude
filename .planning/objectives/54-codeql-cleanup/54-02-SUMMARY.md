@@ -25,6 +25,12 @@ metrics:
   tasks: 3
   commits: 5 task commits
   files: 5
+tokens_input: 4804797
+tokens_output: 28681
+tokens_cache_read: 4711729
+tokens_cache_write: 92962
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 02: Single-site CodeQL fixes Summary

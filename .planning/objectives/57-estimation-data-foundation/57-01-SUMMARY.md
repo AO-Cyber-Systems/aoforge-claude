@@ -62,6 +62,12 @@ verification:
 # Metrics
 duration: 15min
 completed: 2026-10-05
+tokens_input: 15075702
+tokens_output: 118738
+tokens_cache_read: 14832818
+tokens_cache_write: 242718
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 57 TRD 01: Transcript token reader Summary

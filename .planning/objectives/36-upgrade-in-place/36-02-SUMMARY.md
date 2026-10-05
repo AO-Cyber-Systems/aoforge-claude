@@ -49,6 +49,12 @@ verification:
 # Metrics
 duration: ~10min
 completed: 2026-09-27
+tokens_input: 2738942
+tokens_output: 34137
+tokens_cache_read: 2667989
+tokens_cache_write: 70883
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 36 TRD 02: Managed-block and notices primitives Summary

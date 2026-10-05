@@ -45,6 +45,12 @@ metrics:
   completed: 2026-09-29
   tasks: 3
   files: 11
+tokens_input: 17361008
+tokens_output: 118364
+tokens_cache_read: 17071341
+tokens_cache_write: 289516
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 13: Broad repo-wide `test` and canonical runner targets Summary

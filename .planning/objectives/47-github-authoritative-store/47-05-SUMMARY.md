@@ -51,6 +51,12 @@ verification:
 
 duration: 25min
 completed: 2026-09-30
+tokens_input: 5243067
+tokens_output: 59018
+tokens_cache_read: 5117814
+tokens_cache_write: 125161
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 05: Body and mapping extensions Summary

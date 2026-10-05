@@ -57,6 +57,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-01
+tokens_input: 6301071
+tokens_output: 65848
+tokens_cache_read: 6159879
+tokens_cache_write: 141086
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 04: Objective-branch git seam and wiki diff Summary

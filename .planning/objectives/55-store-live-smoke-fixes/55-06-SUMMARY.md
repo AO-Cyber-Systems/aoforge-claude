@@ -39,6 +39,12 @@ verification:
 
 duration: 4min
 completed: 2026-10-05
+tokens_input: 6964953
+tokens_output: 31083
+tokens_cache_read: 6845208
+tokens_cache_write: 119591
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 06: Live setup re-run Summary

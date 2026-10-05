@@ -44,6 +44,12 @@ verification:
 
 duration: 6min
 completed: 2026-10-04
+tokens_input: 8513228
+tokens_output: 41582
+tokens_cache_read: 8365890
+tokens_cache_write: 147206
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 06: Objective-number regexes in objective.cjs, roadmap.cjs and workstreams.cjs Summary

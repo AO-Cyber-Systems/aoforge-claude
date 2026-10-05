@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: ~45min
 completed: 2026-09-27
+tokens_input: 8218338
+tokens_output: 92139
+tokens_cache_read: 8065434
+tokens_cache_write: 152780
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 36 TRD 01: The upgrade runner Summary

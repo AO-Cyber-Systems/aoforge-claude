@@ -49,6 +49,12 @@ verification:
 
 duration: 35min
 completed: 2026-10-01
+tokens_input: 8337600
+tokens_output: 51324
+tokens_cache_read: 8172017
+tokens_cache_write: 165455
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 04: 0010 defers to an in-progress backfill; store-mode commit guidance Summary

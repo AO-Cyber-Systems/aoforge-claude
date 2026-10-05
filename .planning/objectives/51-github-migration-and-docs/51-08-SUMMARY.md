@@ -48,6 +48,12 @@ verification:
 
 duration: 75min
 completed: 2026-10-01
+tokens_input: 18491660
+tokens_output: 103611
+tokens_cache_read: 18231064
+tokens_cache_write: 260400
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 08: backfill resilience and CLI end to end (SC1 resume) Summary

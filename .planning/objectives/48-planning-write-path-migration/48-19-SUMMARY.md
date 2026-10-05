@@ -57,6 +57,12 @@ verification:
 
 duration: 40min
 completed: 2026-10-01
+tokens_input: 5278912
+tokens_output: 68191
+tokens_cache_read: 5134748
+tokens_cache_write: 144072
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 19: Prose migration — project bootstrap, milestones, objective add/remove Summary

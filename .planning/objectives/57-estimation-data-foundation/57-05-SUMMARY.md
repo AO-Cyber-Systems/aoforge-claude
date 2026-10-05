@@ -34,6 +34,12 @@ requirements-completed: []
 
 duration: 10min
 completed: 2026-10-05
+tokens_input: 6357323
+tokens_output: 57150
+tokens_cache_read: 6237167
+tokens_cache_write: 120052
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 57 TRD 05: Calibrator Summary

@@ -25,6 +25,12 @@ verification:
 metrics:
   duration: "~15 min (Task 1 + Task 3; Task 2 was a human-verify pause outside session time)"
   completed: 2026-09-28
+tokens_input: 1325312
+tokens_output: 17364
+tokens_cache_read: 1221812
+tokens_cache_write: 103456
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 16: Human check — install from this checkout, `/devflow:adopt` in a fresh session (E2E proof b) Summary

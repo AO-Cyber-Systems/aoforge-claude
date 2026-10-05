@@ -36,6 +36,12 @@ decisions:
 metrics:
   duration: "~1 session"
   completed: 2026-09-29
+tokens_input: 20148334
+tokens_output: 109135
+tokens_cache_read: 19881849
+tokens_cache_write: 266281
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 15: Root-override policy (D3), D1-D5 end to end, 42-11 re-run hand-off Summary

@@ -50,6 +50,12 @@ verification:
   test_pairing: true
 duration: 22min
 completed: 2026-10-03
+tokens_input: 32834712
+tokens_output: 135091
+tokens_cache_read: 32478391
+tokens_cache_write: 356049
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 11: Aggregates, codegen target choice and environment targets Summary

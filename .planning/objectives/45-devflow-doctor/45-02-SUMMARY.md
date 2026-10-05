@@ -31,6 +31,12 @@ metrics:
   completed: 2026-09-30
   tasks: 2
   files: 4
+tokens_input: 3540243
+tokens_output: 30437
+tokens_cache_read: 3440113
+tokens_cache_write: 100058
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 02: Migration 0008 covers nested `.planning/` runtime state Summary

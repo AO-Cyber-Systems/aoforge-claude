@@ -49,6 +49,12 @@ verification:
 
 duration: 14min
 completed: 2026-10-01
+tokens_input: 3552140
+tokens_output: 81062
+tokens_cache_read: 3425097
+tokens_cache_write: 126981
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 03: Outbox journal store Summary

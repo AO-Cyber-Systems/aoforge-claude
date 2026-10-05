@@ -32,6 +32,12 @@ decisions:
 metrics:
   duration: "~40 min"
   completed: 2026-09-30
+tokens_input: 9314241
+tokens_output: 86464
+tokens_cache_read: 9105735
+tokens_cache_write: 208368
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 07: Sync core rewire Summary

@@ -41,6 +41,12 @@ verification:
   test_pairing: false
 duration: 3min (Task 3 continuation after the checkpoint; Task 1 ran in the earlier session)
 completed: 2026-10-03
+tokens_input: 7310716
+tokens_output: 50755
+tokens_cache_read: 7119391
+tokens_cache_write: 191155
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 14: Refresh the stale committed STACK.md in aoinference and opsCluster Summary

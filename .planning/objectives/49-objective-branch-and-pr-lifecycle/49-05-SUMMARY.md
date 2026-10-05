@@ -54,6 +54,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-01
+tokens_input: 10207439
+tokens_output: 87760
+tokens_cache_read: 9982466
+tokens_cache_write: 224849
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 05: Outbox ops for the objective PR body and ready state Summary

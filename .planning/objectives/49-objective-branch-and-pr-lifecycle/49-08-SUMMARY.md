@@ -46,6 +46,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-01
+tokens_input: 2015881
+tokens_output: 22711
+tokens_cache_read: 1937698
+tokens_cache_write: 78133
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 08: Init reports the PR lifecycle Summary

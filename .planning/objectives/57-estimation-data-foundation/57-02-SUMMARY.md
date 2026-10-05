@@ -48,6 +48,12 @@ verification:
 
 duration: 11min
 completed: 2026-10-05
+tokens_input: 14327506
+tokens_output: 94654
+tokens_cache_read: 14122486
+tokens_cache_write: 204844
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 57 TRD 02: Calibration inputs Summary

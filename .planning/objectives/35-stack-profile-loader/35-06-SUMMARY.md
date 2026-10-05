@@ -45,6 +45,12 @@ verification:
 # Metrics
 duration: ~25min
 completed: 2026-09-27
+tokens_input: 3569296
+tokens_output: 18472
+tokens_cache_read: 3509744
+tokens_cache_write: 59450
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 06: Planner and executor read the stack profile Summary

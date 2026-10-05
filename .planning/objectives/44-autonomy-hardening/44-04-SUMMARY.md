@@ -48,6 +48,12 @@ verification:
 
 duration: 7min
 completed: 2026-09-29
+tokens_input: 4770391
+tokens_output: 73120
+tokens_cache_read: 4642816
+tokens_cache_write: 127491
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 04: SubagentStop completion gate Summary

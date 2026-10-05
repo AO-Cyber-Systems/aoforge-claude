@@ -50,6 +50,12 @@ verification:
 # Metrics
 duration: 25min
 completed: 2026-09-28
+tokens_input: 4080357
+tokens_output: 28227
+tokens_cache_read: 3988042
+tokens_cache_write: 92217
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 39 TRD 03: Hook inventory truth + pinned test; site gate-name fix Summary

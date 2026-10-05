@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: 12min
 completed: 2026-10-05
+tokens_input: 8163260
+tokens_output: 61870
+tokens_cache_read: 8006797
+tokens_cache_write: 156351
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 57 TRD 04: Token backfill Summary

@@ -41,6 +41,12 @@ requirements-completed: [GEN-05, GEN-04]
 
 duration: ~20min
 completed: 2026-10-01
+tokens_input: 2893096
+tokens_output: 30505
+tokens_cache_read: 2807263
+tokens_cache_write: 85765
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 10: Actions workflows and templates Summary

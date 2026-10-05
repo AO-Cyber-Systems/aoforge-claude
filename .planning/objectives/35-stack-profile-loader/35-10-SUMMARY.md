@@ -51,6 +51,12 @@ verification:
 # Metrics
 duration: 5min
 completed: 2026-09-27
+tokens_input: 2254393
+tokens_output: 13024
+tokens_cache_read: 2205685
+tokens_cache_write: 48636
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 10: Dogfood STACK.md, proposal status, CHANGELOG, USER-GUIDE Summary

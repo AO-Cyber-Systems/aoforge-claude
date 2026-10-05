@@ -57,6 +57,12 @@ verification:
 
 duration: ~45min
 completed: 2026-09-29
+tokens_input: 13371442
+tokens_output: 125612
+tokens_cache_read: 13106398
+tokens_cache_write: 264909
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 08: Recommendations report (`.planning/STACK-REPORT.md`) Summary

@@ -48,6 +48,12 @@ verification:
 
 duration: 2 sessions
 completed: 2026-10-01
+tokens_input: 10368779
+tokens_output: 109951
+tokens_cache_read: 10128953
+tokens_cache_write: 239700
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 10: Cache rebuild, `gh pull --all`, generated ROADMAP/STATE Summary

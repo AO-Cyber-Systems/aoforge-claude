@@ -40,6 +40,12 @@ decisions:
 metrics:
   duration: ~11m
   completed: 2026-10-01
+tokens_input: 7088718
+tokens_output: 50861
+tokens_cache_read: 6944159
+tokens_cache_write: 144431
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 18: Prose migration — verify group Summary

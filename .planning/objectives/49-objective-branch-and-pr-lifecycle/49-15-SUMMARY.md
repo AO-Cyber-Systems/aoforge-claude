@@ -41,6 +41,12 @@ metrics:
   tasks: 2
   files: 5
   tests-added: "none (docs only; the three audits plus the full suite are the tests)"
+tokens_input: 4214639
+tokens_output: 28334
+tokens_cache_read: 4121407
+tokens_cache_write: 93140
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 15: Documentation and the full suite Summary

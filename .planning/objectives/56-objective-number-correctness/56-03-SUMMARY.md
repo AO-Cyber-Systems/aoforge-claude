@@ -50,6 +50,12 @@ verification:
   test_pairing: true
 
 completed: 2026-10-05
+tokens_input: 11296729
+tokens_output: 73687
+tokens_cache_read: 11122487
+tokens_cache_write: 174086
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 56 TRD 03: Requirement IDs from ID-shaped tokens Summary

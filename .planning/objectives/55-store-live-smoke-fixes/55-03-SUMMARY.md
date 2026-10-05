@@ -47,6 +47,12 @@ verification:
 
 duration: 9min
 completed: 2026-10-05
+tokens_input: 10765449
+tokens_output: 58635
+tokens_cache_read: 10578716
+tokens_cache_write: 186579
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 03: Unpushed-commit guard Summary

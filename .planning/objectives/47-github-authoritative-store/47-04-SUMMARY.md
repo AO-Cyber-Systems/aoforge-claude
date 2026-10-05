@@ -42,6 +42,12 @@ metrics:
   completed: "2026-10-01"
   tasks: 3
   files: 3
+tokens_input: 4480968
+tokens_output: 84857
+tokens_cache_read: 4346441
+tokens_cache_write: 134447
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 04: Wiki store and docs backend Summary

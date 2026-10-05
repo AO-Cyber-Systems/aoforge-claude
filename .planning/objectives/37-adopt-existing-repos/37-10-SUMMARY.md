@@ -34,6 +34,12 @@ decisions:
 metrics:
   duration: "~1h"
   completed: 2026-09-28
+tokens_input: 10199769
+tokens_output: 42808
+tokens_cache_read: 10085958
+tokens_cache_write: 113617
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 10: Register adopt in routing — route-intent, routing table, help, init-offer Summary

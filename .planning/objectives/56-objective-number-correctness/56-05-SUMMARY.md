@@ -34,6 +34,12 @@ verification:
 
 duration: 3min
 completed: 2026-10-05
+tokens_input: 4148218
+tokens_output: 17420
+tokens_cache_read: 4061711
+tokens_cache_write: 86419
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 56 TRD 05: Dogfood and changelog Summary

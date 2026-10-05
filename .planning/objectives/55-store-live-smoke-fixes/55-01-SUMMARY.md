@@ -52,6 +52,12 @@ verification:
 started: 2026-10-05T11:56:00Z
 completed: 2026-10-05T12:05:00Z
 duration: 9min
+tokens_input: 13351419
+tokens_output: 67121
+tokens_cache_read: 13130275
+tokens_cache_write: 220964
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 01: setup ruleset bypass and pin Summary

@@ -49,6 +49,12 @@ verification:
 
 duration: 23min
 completed: 2026-10-04
+tokens_input: 9505860
+tokens_output: 57216
+tokens_cache_read: 9210436
+tokens_cache_write: 295286
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 53 TRD 02: One rule for which TRDs have a summary Summary

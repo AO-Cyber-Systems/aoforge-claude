@@ -50,6 +50,12 @@ verification:
 metrics:
   duration: "~1h (continuation session)"
   completed: 2026-09-28
+tokens_input: 9172499
+tokens_output: 76583
+tokens_cache_read: 8948606
+tokens_cache_write: 223719
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 04: The three heuristics delegate to repo-state Summary

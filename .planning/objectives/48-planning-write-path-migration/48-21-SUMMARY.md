@@ -41,6 +41,12 @@ metrics:
   completed: 2026-10-01T13:31:52Z
   tasks: 2
   files: 11
+tokens_input: 7010012
+tokens_output: 47344
+tokens_cache_read: 6883359
+tokens_cache_write: 126521
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 21: Prose migration, audit group `misc` (codebase map, sync, status, help, workstreams) Summary

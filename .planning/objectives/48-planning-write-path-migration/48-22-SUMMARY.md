@@ -55,6 +55,12 @@ verification:
 
 duration: 15min
 completed: 2026-10-01
+tokens_input: 6161351
+tokens_output: 60724
+tokens_cache_read: 6015965
+tokens_cache_write: 145288
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 22: End-to-end SC3, store-off parity, drift and offline negatives Summary

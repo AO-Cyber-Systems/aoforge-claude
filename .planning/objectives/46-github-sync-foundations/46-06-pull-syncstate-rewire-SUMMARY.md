@@ -33,6 +33,12 @@ key-decisions:
 requirements-completed: [GSF-01, GSF-04, GSF-08]
 duration: ~29 min
 completed: 2026-09-30
+tokens_input: 8375645
+tokens_output: 64053
+tokens_cache_read: 8047792
+tokens_cache_write: 327719
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 06: Pull, sync-state and conflict resolution on one objective id

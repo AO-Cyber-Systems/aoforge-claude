@@ -56,6 +56,12 @@ metrics:
   completed: 2026-10-01
   tasks: 3
   files: 13
+tokens_input: 6195046
+tokens_output: 38434
+tokens_cache_read: 6073807
+tokens_cache_write: 121113
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 23: Ratchet to zero, documentation, full suite (SC1 final, SC4) Summary

@@ -62,6 +62,12 @@ verification:
 
 duration: 16min
 completed: 2026-10-01
+tokens_input: 14787375
+tokens_output: 80367
+tokens_cache_read: 14576085
+tokens_cache_write: 211118
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 14: Cache writers in store mode Summary

@@ -41,6 +41,12 @@ verification:
 
 duration: ~45min
 completed: 2026-10-01
+tokens_input: 12871108
+tokens_output: 62440
+tokens_cache_read: 12649830
+tokens_cache_write: 221136
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 10: docs for the GitHub model and the full suite Summary

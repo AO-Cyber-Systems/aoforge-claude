@@ -40,6 +40,12 @@ requirements-completed: ["52-5"]
 
 duration: 11min
 completed: 2026-10-04
+tokens_input: 9271809
+tokens_output: 45694
+tokens_cache_read: 9125230
+tokens_cache_write: 146431
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 52 TRD 04: Mirror-only opt-out Summary

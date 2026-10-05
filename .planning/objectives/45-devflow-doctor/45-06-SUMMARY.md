@@ -61,6 +61,12 @@ metrics:
 verification:
   gates_defined: 2
   gates_passed: 2
+tokens_input: 8550642
+tokens_output: 93592
+tokens_cache_read: 8357585
+tokens_cache_write: 192947
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 06: Doctor project checks + DOC-06 staged-changes guard Summary

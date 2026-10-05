@@ -50,6 +50,12 @@ verification:
 
 duration: 5min
 completed: 2026-10-05
+tokens_input: 7639341
+tokens_output: 33449
+tokens_cache_read: 7502069
+tokens_cache_write: 137150
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 56 TRD 04: ROADMAP field labels Summary

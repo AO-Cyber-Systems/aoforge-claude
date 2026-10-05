@@ -38,6 +38,12 @@ verification:
 
 duration: 35min
 completed: 2026-09-28
+tokens_input: 8524320
+tokens_output: 46348
+tokens_cache_read: 8411719
+tokens_cache_write: 112421
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 06: README and USER-GUIDE Summary

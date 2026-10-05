@@ -67,6 +67,12 @@ verification:
 
 duration: about 25 min
 completed: 2026-10-01
+tokens_input: 12605591
+tokens_output: 103590
+tokens_cache_read: 12124068
+tokens_cache_write: 481369
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 09: `gh pr start | sync | status` Summary
