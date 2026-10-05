@@ -11,7 +11,8 @@
 //   in-process
 //     10 the default transcript root is os.homedir()/.claude/projects, read at call time
 //   prose contract (read-only, devflow-claude checkout only)
-//     11-14 executor.md / execute-trd.md / summary.md template   (added with Task 2)
+//     11 executor.md <self_check>: tokens stamp before summary post   12 execute-trd.md create_summary_with_evidence
+//     13 templates/summary.md documents the fields                    14 executor.md record-metric passes --job, not --trd
 //
 // Hermetic: every repo, home and draft is an fs.mkdtemp directory (realpath'd). Spawned runs get HOME=<fake home>, so
 // the real ~/.claude is never read; in-process calls pass `root` explicitly, or set HOME and restore it. Transcripts
@@ -359,6 +360,82 @@ describe('runTokens (in-process)', () => {
       assert.match(bad.message, USAGE);
     } finally {
       p.cleanup();
+    }
+  });
+});
+
+// ─── 11-14: prose contract (read-only) ───────────────────────────────────────
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
+const IS_DEVFLOW_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
+const PLUGIN = path.join(REPO_ROOT, 'plugins', 'devflow');
+
+const readPlugin = (...rel) => fs.readFileSync(path.join(PLUGIN, ...rel), 'utf-8');
+
+/** The text between `<tag ...>` and `</tag>` (first occurrence), or null. */
+function blockOf(text, openRe, closeTag) {
+  const open = openRe.exec(text);
+  if (!open) return null;
+  const from = open.index + open[0].length;
+  const to = text.indexOf(closeTag, from);
+  return to === -1 ? null : text.slice(from, to);
+}
+
+/** Logical command lines containing `needle`: a trailing backslash joins the next line. */
+function commandLines(text, needle) {
+  const out = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    while (line.trimEnd().endsWith('\\') && i + 1 < lines.length) {
+      i++;
+      line = `${line.trimEnd().slice(0, -1)} ${lines[i].trim()}`;
+    }
+    if (line.includes(needle)) out.push(line);
+  }
+  return out;
+}
+
+describe('executor prose stamps token usage before summary post (TRD 57-03)', { skip: !IS_DEVFLOW_CHECKOUT && 'not a devflow-claude checkout' }, () => {
+  const NEVER_BY_HAND = /never type token numbers by hand/i;
+
+  test('11. executor.md <self_check> runs tokens stamp before summary post, and says never type the numbers', () => {
+    const executor = readPlugin('agents', 'executor.md');
+    const selfCheck = blockOf(executor, /<self_check>/, '</self_check>');
+    assert.ok(selfCheck, 'executor.md has a <self_check> block');
+    const stamp = selfCheck.indexOf('df-tools.cjs tokens stamp {objective}-{trd} --draft');
+    const post = selfCheck.indexOf('summary post {objective}-{trd} --from');
+    assert.ok(stamp >= 0, 'self_check names the tokens stamp command');
+    assert.ok(post >= 0, 'self_check names the summary post command');
+    assert.ok(stamp < post, 'tokens stamp comes before summary post');
+    assert.match(executor, NEVER_BY_HAND);
+  });
+
+  test('12. execute-trd.md create_summary_with_evidence names tokens stamp before summary post', () => {
+    const workflow = readPlugin('devflow', 'workflows', 'execute-trd.md');
+    const step = blockOf(workflow, /<step name="create_summary_with_evidence">/, '</step>');
+    assert.ok(step, 'workflow has the create_summary_with_evidence step');
+    const stamp = step.indexOf('tokens stamp');
+    const post = step.indexOf('summary post');
+    assert.ok(stamp >= 0, 'step names tokens stamp');
+    assert.ok(post >= 0, 'step names summary post');
+    assert.ok(stamp < post, 'tokens stamp comes before summary post');
+    assert.match(step, NEVER_BY_HAND);
+  });
+
+  test('13. templates/summary.md documents tokens_input and tokens_output', () => {
+    const template = readPlugin('devflow', 'templates', 'summary.md');
+    assert.match(template, /tokens_input/);
+    assert.match(template, /tokens_output/);
+  });
+
+  test('14. executor.md record-metric example passes --job "${TRD}", never --trd', () => {
+    const executor = readPlugin('agents', 'executor.md');
+    const metrics = commandLines(executor, 'state record-metric');
+    assert.ok(metrics.length >= 1, 'executor.md has a record-metric example');
+    for (const line of metrics) {
+      assert.ok(line.includes('--job "${TRD}"'), `uses --job "\${TRD}": ${line}`);
+      assert.doesNotMatch(line, /--trd\b/, `no --trd flag: ${line}`);
     }
   });
 });
