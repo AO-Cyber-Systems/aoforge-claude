@@ -154,8 +154,11 @@
  *     [--repo p] [--root dir]            (dry run unless --write: counts recovered/unrecovered by reason, changes no file;
  *                                         --write stamps through summary post; --force restamps already stamped SUMMARYs)
  *   calibrate [--paths a,b] [--out f]  Build per-task-class medians/P90s (minutes, tokens, dollars) into calibration.json
- *     [--rates f] [--dry-run]          (default out: DEVFLOW_CALIBRATION_PATH or ~/.claude/devflow/calibration.json;
- *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS)
+ *     [--rates f] [--root dir | --no-overhead] [--dry-run]
+ *                                      (default out: DEVFLOW_CALIBRATION_PATH or ~/.claude/devflow/calibration.json;
+ *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS;
+ *                                       --root: transcripts for agent overhead, default ~/.claude/projects;
+ *                                       --no-overhead skips that scan)
  *
  * UI Metrics:
  *   ui metrics baseline [--since D] [--paths p1,p2] [--out f]  Fix/feat commit baseline JSON for UI paths
@@ -884,7 +887,7 @@ async function main() {
     }
 
     case 'calibrate': {
-      // df-tools calibrate [--paths a,b] [--out file] [--rates file] [--dry-run] — TRD 57-06
+      // df-tools calibrate [--paths a,b] [--out file] [--rates file] [--root dir | --no-overhead] [--dry-run] — TRD 57-06, 58-03
       const { output: outputCalibrate } = require('./lib/helpers.cjs');
       const { runCalibrate } = require('./lib/calibrate-cli.cjs');
       const r = runCalibrate({ argv: args.slice(1), cwd, env: process.env });

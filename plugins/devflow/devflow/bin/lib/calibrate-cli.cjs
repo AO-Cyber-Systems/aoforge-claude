@@ -5,15 +5,19 @@
  *
  * Thin CLI front end for the calibrator (lib/calibrator.cjs, TRD 57-05):
  *
- *   df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--dry-run] [--raw]
+ *   df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--dry-run] [--raw]
  *       Builds the per-task-class medians and P90s (minutes, tokens, dollars) from SUMMARY frontmatter, STATE_ARCHIVE
- *       metrics and model-rates.json, and writes calibration.json.
+ *       metrics and model-rates.json, and writes calibration.json. Version 2 also measures what one spawn of each
+ *       non-executor agent costs (planner, verifier, ...) from subagent transcripts.
  *
  *   paths   --paths (comma separated), else DEVFLOW_CALIBRATE_PATHS (path.delimiter separated), else the checkout
  *           holding cwd. A path is a project (has .planning/objectives) or a directory of projects. Relative paths
  *           resolve against cwd.
  *   out     --out (relative to cwd), else DEVFLOW_CALIBRATION_PATH, else ~/.claude/devflow/calibration.json.
  *   rates   --rates, else the shipped references/model-rates.json.
+ *   root    --root (relative to cwd), else ~/.claude/projects resolved when the command runs: the Claude Code projects
+ *           directory the agent-overhead spawns are read from. `--no-overhead` skips the scan (agent_overhead is then
+ *           empty and says `scanned: false`). The two flags are exclusive.
  *
  * Deterministic: unchanged inputs give a byte-identical file and `changed: false`; the file is then not rewritten.
  * `--dry-run` builds and reports but writes nothing. stdout is a summary, never the calibration object: the file is
@@ -30,10 +34,10 @@ const path = require('path');
 const calibrator = require('./calibrator.cjs');
 const planningMode = require('./planning-mode.cjs');
 
-const USAGE = 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--dry-run] [--raw]';
+const USAGE = 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--dry-run] [--raw]';
 
-const VALUE_FLAGS = ['paths', 'out', 'rates'];
-const BOOL_FLAGS = ['dry-run'];
+const VALUE_FLAGS = ['paths', 'out', 'rates', 'root'];
+const BOOL_FLAGS = ['dry-run', 'no-overhead'];
 
 function usageError(message) {
   return { ok: false, message: `${message}\nUsage: ${USAGE}` };
@@ -43,18 +47,18 @@ function usageError(message) {
  * `argv` is everything after `calibrate`. A value flag needs a value that is not itself a flag; unknown flags and stray
  * positionals are usage errors. `--raw` is stripped by the dispatcher before this runs; it is tolerated here.
  *
- * @returns {{ok:true, flags: Object<string,string>, dryRun: boolean} | {ok:false, message:string}}
+ * @returns {{ok:true, flags: Object<string,string>, dryRun: boolean, noOverhead: boolean} | {ok:false, message:string}}
  */
 function parseArgs(argv) {
   const flags = {};
-  let dryRun = false;
+  const bools = {};
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
     if (tok === '--raw') continue;
     if (!tok.startsWith('--')) return usageError(`unexpected argument ${JSON.stringify(tok)}; calibrate takes only flags`);
     const name = tok.slice(2);
     if (BOOL_FLAGS.includes(name)) {
-      dryRun = true;
+      bools[name] = true;
       continue;
     }
     if (!VALUE_FLAGS.includes(name)) return usageError(`unknown flag ${tok} for calibrate`);
@@ -63,7 +67,10 @@ function parseArgs(argv) {
     flags[name] = value;
     i++;
   }
-  return { ok: true, flags, dryRun };
+  if (flags.root !== undefined && bools['no-overhead']) {
+    return usageError('--root and --no-overhead cannot be used together: --no-overhead reads no transcripts');
+  }
+  return { ok: true, flags, dryRun: bools['dry-run'] === true, noOverhead: bools['no-overhead'] === true };
 }
 
 /** Non-empty trimmed pieces of `text` split on `sep`, each resolved against `base`. */
@@ -98,10 +105,19 @@ function classSamples(taskClasses) {
   return out;
 }
 
-/** `code_tdd 5, doc 1, prompt 1`: by samples descending, then name. `none` when there is no class. */
+/** `code_tdd 5, doc 1, prompt 1` (also `planner 1, verifier 1`): by samples descending, then name. `none` when empty. */
 function classList(classes) {
   const names = Object.keys(classes).sort((a, b) => classes[b] - classes[a] || (a < b ? -1 : a > b ? 1 : 0));
   return names.length > 0 ? names.map((n) => `${n} ${classes[n]}`).join(', ') : 'none';
+}
+
+/** `{agent: samples}` for every overhead agent with at least one sample. */
+function overheadAgents(agentOverhead) {
+  const out = {};
+  for (const name of Object.keys(agentOverhead).sort()) {
+    if (agentOverhead[name].samples > 0) out[name] = agentOverhead[name].samples;
+  }
+  return out;
 }
 
 /** Would writing `obj` to `file` change it? True when the file is absent or its bytes differ. */
@@ -122,7 +138,7 @@ function wouldChange(file, obj) {
 function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) return parsed;
-  const { flags, dryRun } = parsed;
+  const { flags, dryRun, noOverhead } = parsed;
 
   const base = path.resolve(cwd);
   const where = resolvePaths(flags, env, base);
@@ -131,9 +147,17 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
   const out = path.resolve(base, flags.out !== undefined ? flags.out : calibrator.defaultCalibrationPath(env));
   const ratesPath = flags.rates !== undefined ? path.resolve(base, flags.rates) : undefined;
 
+  // The default transcripts root is resolved here, per call, so HOME-isolated runs never reach the real one.
+  let transcriptsRoot = null;
+  if (!noOverhead) {
+    transcriptsRoot = flags.root !== undefined
+      ? path.resolve(base, flags.root)
+      : require('./token-usage.cjs').defaultTranscriptRoot();
+  }
+
   let calibration;
   try {
-    calibration = calibrator.buildCalibration({ paths: where.paths, ratesPath });
+    calibration = calibrator.buildCalibration({ paths: where.paths, ratesPath, transcriptsRoot });
   } catch (err) {
     return { ok: false, message: err.message };
   }
@@ -156,6 +180,17 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
   }
 
   const classes = classSamples(calibration.task_classes);
+  const agents = overheadAgents(calibration.agent_overhead);
+  const src = calibration.agent_overhead_sources;
+  const overhead = {
+    scanned: src.scanned,
+    spawns: src.spawns,
+    matched: src.matched,
+    foreign: src.foreign,
+    quick: src.quick,
+    unreadable: src.unreadable,
+    agents,
+  };
   const result = {
     out,
     dry_run: dryRun,
@@ -166,10 +201,11 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
     data_as_of: calibration.data_as_of,
     inputs_digest: calibration.inputs_digest,
     unpriced_models: calibration.unpriced_models,
+    overhead,
   };
   const slot = dryRun ? 'dry run' : changed ? 'changed' : 'unchanged';
   const s = calibration.samples;
-  const text = `calibration ${out}: ${slot} · ${s.trds} TRDs, ${s.tasks} tasks, ${s.with_tokens} with tokens · classes ${classList(classes)}`;
+  const text = `calibration ${out}: ${slot} · ${s.trds} TRDs, ${s.tasks} tasks, ${s.with_tokens} with tokens · classes ${classList(classes)} · overhead ${src.scanned ? classList(agents) : 'skipped'}`;
   return { ok: true, result, text, exit: 0 };
 }
 
