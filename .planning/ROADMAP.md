@@ -212,7 +212,7 @@ TRDs:
 TRDs:
 - [x] 59-01-state-merge-driver-TRD.md — (W1) PLMB-02: `df-tools merge-driver install|resolve|state-json` (JSON-aware state.json 3-way merge, union STATE_ARCHIVE.md, info/attributes + repo config); installed here so wave 2's merges use it
 - [ ] 59-02-advance-job-from-disk-TRD.md — (W2) PLMB-01: `state advance-job --objective N` derives Status and counters from the objective's TRDs/SUMMARYs; 0/0 counters write nothing (`no_position`)
-- [ ] 59-03-worktree-preflight-TRD.md — (W2) PLMB-03: dispatch names `CHECKOUT`, preflight runs `--cwd {CHECKOUT}`; `exec-context check` fails WRONG CHECKOUT outside the plan's worktree; `worktree` prints `preflight`
+- [x] 59-03-worktree-preflight-TRD.md — (W2) PLMB-03: dispatch names `CHECKOUT`, preflight runs `--cwd {CHECKOUT}`; `exec-context check` fails WRONG CHECKOUT outside the plan's worktree; `worktree` prints `preflight`
 - [ ] 59-04-milestone-complete-scope-TRD.md — (W2) PLMB-04/05: `milestone complete` counts only the milestone bullet's objectives (selection moved to `milestone-scope.cjs`), true one-liners and task counts, truthful `state_updated`
 - [ ] 59-05-objective-change-flags-TRD.md — (W2) PLMB-05: `objective remove` / `objective complete` report `roadmap_updated` only on a real change
 - [ ] 59-06-merge-and-state-wiring-TRD.md — (W3) execute-objective installs the driver, resolves state.json/STATE_ARCHIVE.md conflicts, regenerates position after every parallel wave; executor uses `--objective` and `--cwd`; replay test extended
@@ -290,7 +290,7 @@ TRDs:
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
-| 59. State and merge plumbing | v1.5 | 1/7 | In Progress | - |
+| 59. State and merge plumbing | v1.5 | 2/7 | In Progress | - |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |

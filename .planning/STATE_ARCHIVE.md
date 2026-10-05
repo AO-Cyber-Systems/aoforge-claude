@@ -141,6 +141,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 58]: 58-10: in-sample backtest of 55-57 (execution agent minutes and cost vs SUMMARY actuals) recorded as information for Objective 64: cost medians within 6% of actual, minutes medians 1.5x-2.8x high, every actual under P90. Gaps for closure: estimate objective <done> --all prints 'all TRDs done'; estimate objective on a ROADMAP-only objective exits 1 (milestone covers it).
 - [Objective 59]: Metrics counters in state.json sum both deltas even when both sides ended at the same value (two parallel +1 jobs make base + 2); a counter absent from the base is kept once — The equal-values shortcut in the TRD pseudo-code lost a completed job (found by the end-to-end wave merge test)
 - [Objective 59]: merge-driver install records the realpath of the running df-tools.cjs, mapped to the main checkout's copy when run from a linked worktree (refuses if absent) — A wave worktree is removed after its merge; a driver pointing into it would be stranded
+- [Objective 59]: WRONG CHECKOUT is the one recoverable exec-context preflight failure: it fires before any claim, writes nothing and prints the --cwd command; the other three stay hard stops
 
 ## Performance Metrics
 
@@ -224,4 +225,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 58 P09 | 14min | 2 tasks | 5 files |
 | Objective 58 P10 | 15min | 3 tasks | 4 files |
 | Objective 59 P01 | 12min | 3 tasks | 7 files |
+| Objective 59 P03 | 10min | 2 tasks | 6 files |
 
