@@ -11,7 +11,8 @@
  *               additions, in that order); drop an entry one side removed. Entries compare by canonical
  *               JSON (keys sorted). Only theirs' additions are deduplicated, and only against ours:
  *               repeats inside one side are legitimate and kept.
- *   metrics.*   counters sum both deltas onto the base: base + (ours - base) + (theirs - base).
+ *   metrics.*   counters sum both deltas onto the base: base + (ours - base) + (theirs - base), also when
+ *               both sides ended at the same value (two parallel jobs each adding 1 make base + 2).
  *   numbers     elsewhere, changed on both sides: the max.
  *   ISO dates   changed on both sides: the later (string comparison).
  *   objects     merged key by key; ours' key order first, then keys only theirs has. A key one side
@@ -95,8 +96,20 @@ function mergeObject(base, ours, theirs, keyPath, notes) {
   return Object.fromEntries(entries);
 }
 
+/**
+ * True while the merge is on the way to, or at, a `metrics` counter whose base exists. There the
+ * equal-values shortcut must not fire when both sides moved away from base: two parallel jobs each
+ * adding 1 leave the counter equal on both sides (base + 1), and keeping "ours" would lose a delta.
+ * A counter absent from the base has no delta to sum, so equal values are kept once.
+ */
+function summingCounters(base, ours, keyPath) {
+  const onCounterPath = keyPath.length === 0 || keyPath[0] === 'metrics';
+  const baseCounts = isPlain(base) || typeof base === 'number';
+  return onCounterPath && baseCounts && !equal(base, ours);
+}
+
 function mergeValue(base, ours, theirs, keyPath, notes) {
-  if (equal(ours, theirs)) return ours;
+  if (!summingCounters(base, ours, keyPath) && equal(ours, theirs)) return ours;
   if (equal(base, ours)) return theirs; // only theirs changed
   if (equal(base, theirs)) return ours; // only ours changed
 
