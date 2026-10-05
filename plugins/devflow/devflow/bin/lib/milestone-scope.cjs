@@ -197,7 +197,54 @@ function selectMilestoneObjectives(cwd, { version } = {}) {
   };
 }
 
+// ─── Fallback scopes (TRD 59-04) ──────────────────────────────────────────────
+// `milestone complete` for a version the ROADMAP.md has no bullet for, or a project with no ROADMAP.md at all. Both
+// return the entry shape selectMilestoneObjectives does, in number order.
+
+function entryFor(cwd, number, name, d) {
+  if (!d) return { number, name, dir: null, status_hint: 'no_dir' };
+  return { number, name, dir: d.dir, status_hint: isCancelled(cwd, d.dir) ? 'cancelled' : 'dir' };
+}
+
+/** Every `### Objective N:` section of ROADMAP.md that has an objective directory (a section alone has nothing to count); none when there is no ROADMAP.md. */
+function sectionObjectives(cwd) {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  const sections = roadmapSections(text);
+  const dirs = objectiveDirectories(cwd);
+  return [...sections.keys()]
+    .filter((number) => dirs.has(number))
+    .sort(byNumber)
+    .map((number) => entryFor(cwd, number, sections.get(number), dirs.get(number)));
+}
+
+/** Every directory under `.planning/objectives/` (archived milestones' directories are not current), named by its ROADMAP.md section when it has one, else by its slug. */
+function currentDirObjectives(cwd) {
+  let sections = new Map();
+  try {
+    sections = roadmapSections(fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  const currentPrefix = '.planning/objectives/';
+  const dirs = objectiveDirectories(cwd);
+  return [...dirs.keys()]
+    .filter((number) => dirs.get(number).dir.startsWith(currentPrefix))
+    .sort(byNumber)
+    .map((number) => {
+      const d = dirs.get(number);
+      return entryFor(cwd, number, sections.get(number) || d.slug || number, d);
+    });
+}
+
 module.exports = {
   milestoneObjectiveNumbers,
   selectMilestoneObjectives,
+  sectionObjectives,
+  currentDirObjectives,
 };
