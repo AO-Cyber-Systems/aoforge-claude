@@ -521,7 +521,7 @@ Task(
 TaskUpdate(taskId=plan_task_id, status="completed")
 ```
 
-- **`## PLANNING COMPLETE`:** Display TRD count. If the return says `**Pushed:** no` (TRDs published with `--no-push` and no push), push them now: `node ~/.claude/devflow/bin/df-tools.cjs plan push "${objective_number}"` (in local mode it reports `local mode` and does nothing). If `--skip-verify` or `job_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
+- **`## PLANNING COMPLETE`:** Display TRD count and the return's `**Estimate:**` block as is. If the return says `**Pushed:** no` (TRDs published with `--no-push` and no push), push them now: `node ~/.claude/devflow/bin/df-tools.cjs plan push "${objective_number}"` (in local mode it reports `local mode` and does nothing). If `--skip-verify` or `job_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
 - **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation (step 12)
 - **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual
 - **`## RESEARCH NEEDED`:** The planner detected a novel domain with no research and wrote no TRDs. It is a subagent and cannot spawn the researcher, so you do. Spawn objective-researcher exactly as in step 6 (same banner, prompt and spawn call; handle its return as in step 6), appending the returned **Signals** to the research prompt's `<additional_context>` as `**Novel-domain signals (why research was triggered):** {signals}`. Then re-run the step 1 init so `has_research` and `research_content` are refreshed, and re-spawn the planner (step 9) with the new research. Allow at most one re-spawn: a second `## RESEARCH NEEDED` is handled as `## PLANNING INCONCLUSIVE`. If `--skip-research` was passed, the planner never emits this (step 9 passes the flag); if it does anyway, handle it as `## PLANNING INCONCLUSIVE` rather than overriding the flag.
@@ -730,6 +730,10 @@ Output this markdown directly (not as a code block):
 Research: {Completed | Used existing | Skipped}
 Verification: {Passed | Passed with override | Skipped}
 Confidence: {Display confidence scores if checker ran, e.g., "01: 8/10, 02: 7/10" | "N/A" if checker skipped}
+
+### Estimate
+
+{output of `node ~/.claude/devflow/bin/df-tools.cjs estimate objective {X} --table --raw`, run now (after any revisions); show a `No estimate:` line as is. If the estimate command fails or prints `No estimate:`, show that line (or nothing) and carry on; an estimate never blocks planning or execution.}
 
 ───────────────────────────────────────────────────────────────
 
