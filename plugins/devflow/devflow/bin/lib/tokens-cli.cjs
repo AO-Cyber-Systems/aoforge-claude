@@ -13,6 +13,14 @@
  *       `summary post`, so the store-aware verb publishes the fields. A draft inside .planning/ is refused:
  *       every planning write still goes through `summary post` (D-01).
  *
+ *   df-tools tokens backfill [--write] [--force] [--repo <path>] [--root <dir>]
+ *       TRD 57-06 (EST-07). Recovers executor token usage for every historical SUMMARY of the checkout from the transcripts
+ *       that survive (lib/token-backfill.cjs). A DRY RUN unless --write: it prints recovered and unrecovered counts (by
+ *       reason) and changes no file. --write stamps each recovered SUMMARY through `summary post` (tokens_source:
+ *       "backfill"); --force also restamps a SUMMARY that already carries token values. Transcripts are matched against
+ *       the main checkout (--repo, default resolveMainRoot(cwd)); SUMMARYs are read and written in the checkout holding
+ *       cwd. Unrecoverable history (retention deleted the transcript) is the normal outcome: exit 0.
+ *
  * Never blocks publication: no matching transcript (retention, an older runtime, another harness) is
  * `stamped:false` with exit 0 and the draft untouched. Only usage errors and a `.planning/` draft exit 1.
  *
@@ -24,14 +32,24 @@ const fs = require('fs');
 const path = require('path');
 const planningMode = require('./planning-mode.cjs');
 const tokenUsage = require('./token-usage.cjs');
+const tokenBackfill = require('./token-backfill.cjs');
 
 const USAGE =
-  'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path>> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]';
+  'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path> | backfill [--write] [--force]> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]';
 
 const VALUE_FLAGS = {
   trd: ['objective-dir', 'repo', 'root'],
   stamp: ['draft', 'objective-dir', 'repo', 'root'],
+  backfill: ['repo', 'root'],
 };
+
+/** Boolean flags per subcommand. `--write` and `--force` exist for `backfill` only. */
+const BOOL_FLAGS = {
+  trd: [],
+  stamp: [],
+  backfill: ['write', 'force'],
+};
+const BACKFILL_ONLY = ['write', 'force'];
 
 function usageError(message) {
   return { ok: false, message: `${message}\nUsage: ${USAGE}` };
@@ -41,15 +59,18 @@ function usageError(message) {
  * `argv` is everything after `tokens`. A value flag needs a value that is not itself a flag; unknown flags and stray
  * positionals are usage errors. `--raw` is stripped by the dispatcher before this runs; it is tolerated here.
  *
- * @returns {{ok:true, sub: string, id: string, flags: Object<string,string>} | {ok:false, message:string}}
+ * `backfill` takes no TRD id: `id` is null there, and `--write` / `--force` arrive as `flags.write` / `flags.force` = true.
+ *
+ * @returns {{ok:true, sub: string, id: string|null, flags: Object<string,string|boolean>} | {ok:false, message:string}}
  */
 function parseArgs(argv) {
   const sub = argv[0];
-  if (sub === undefined) return usageError('tokens needs a subcommand: trd or stamp');
+  if (sub === undefined) return usageError('tokens needs a subcommand: trd, stamp or backfill');
   if (!Object.prototype.hasOwnProperty.call(VALUE_FLAGS, sub)) {
-    return usageError(`unknown tokens subcommand ${JSON.stringify(sub)}; expected trd or stamp`);
+    return usageError(`unknown tokens subcommand ${JSON.stringify(sub)}; expected trd, stamp or backfill`);
   }
   const allowed = VALUE_FLAGS[sub];
+  const bools = BOOL_FLAGS[sub];
   const flags = {};
   const positionals = [];
   for (let i = 1; i < argv.length; i++) {
@@ -57,11 +78,19 @@ function parseArgs(argv) {
     if (tok === '--raw') continue;
     if (!tok.startsWith('--')) { positionals.push(tok); continue; }
     const name = tok.slice(2);
+    if (bools.includes(name)) { flags[name] = true; continue; }
+    if (BACKFILL_ONLY.includes(name)) return usageError(`${tok} is only valid for tokens backfill`);
     if (!allowed.includes(name)) return usageError(`unknown flag ${tok} for tokens ${sub}`);
     const value = argv[i + 1];
     if (value === undefined || value.startsWith('--')) return usageError(`${tok} needs a value`);
     flags[name] = value;
     i++;
+  }
+  if (sub === 'backfill') {
+    if (positionals.length > 0) {
+      return usageError(`tokens backfill takes no TRD id or argument, got ${JSON.stringify(positionals[0])}; it covers every SUMMARY`);
+    }
+    return { ok: true, sub, id: null, flags };
   }
   if (positionals.length === 0) return usageError(`tokens ${sub} needs a TRD id (for example 57-03)`);
   if (positionals.length > 1) return usageError(`tokens ${sub} takes one TRD id, got ${positionals.length}`);
@@ -111,6 +140,49 @@ function summaryLine(totals, count) {
 }
 
 /**
+ * `tokens backfill`: plan (always), apply (`--write`), report. The repository is `--repo`, else the main checkout of cwd;
+ * the checkout whose SUMMARYs are read and written is the one holding cwd, else the repository. No project and no
+ * `--repo` is a usage error. Exit 1 only when a write failed; unrecovered history is exit 0.
+ *
+ * @returns {{ok: true, result: object, text: string, exit: number} | {ok: false, message: string}}
+ */
+function runBackfill({ flags, cwd, root }) {
+  const base = path.resolve(cwd);
+  const main = planningMode.resolveMainRoot(base);
+  if (!flags.repo && !main) {
+    return usageError(`no DevFlow project at ${base}; run tokens backfill inside one or pass --repo <path>`);
+  }
+  const repoRoot = flags.repo ? realOrResolved(path.resolve(base, flags.repo)) : main;
+  const checkoutRoot = planningMode.resolveCheckoutRoot(base) || repoRoot;
+  const transcriptRoot = flags.root ? path.resolve(base, flags.root) : (root || tokenUsage.defaultTranscriptRoot());
+  const force = flags.force === true;
+
+  let plan;
+  let applied = null;
+  try {
+    plan = tokenBackfill.planBackfill({ checkoutRoot, repoRoot, root: transcriptRoot, force });
+    if (flags.write === true) applied = tokenBackfill.applyBackfill(plan, { checkoutRoot, force });
+  } catch (err) {
+    return { ok: false, message: `tokens backfill failed: ${err.message}` };
+  }
+
+  const result = {
+    checkout: plan.checkout,
+    repo: plan.repo,
+    transcripts_root: plan.transcripts_root,
+    counts: plan.counts,
+    index_counts: plan.index_counts,
+    recovered: plan.entries.filter((e) => e.status === 'recovered').map((e) => e.id),
+    unrecovered: plan.entries
+      .filter((e) => e.status === 'unrecovered')
+      .map((e) => ({ id: e.id, objective_dir: e.objective_dir, reason: e.reason })),
+  };
+  if (applied) result.applied = applied;
+  const exit = applied && applied.write_failed.length > 0 ? 1 : 0;
+  return { ok: true, result, text: tokenBackfill.formatBackfillReport(plan, applied), exit };
+}
+
+/**
  * @param {{argv: string[], cwd?: string, root?: string}} opts
  *   argv: everything after `tokens`. cwd: the project cwd (default process.cwd()). root: the transcripts root
  *   (`--root` wins; default `os.homedir()/.claude/projects`, read at call time).
@@ -120,6 +192,7 @@ function runTokens({ argv = [], cwd = process.cwd(), root } = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) return parsed;
   const { sub, id, flags } = parsed;
+  if (sub === 'backfill') return runBackfill({ flags, cwd, root });
 
   const base = path.resolve(cwd);
   const repo = flags.repo

@@ -150,6 +150,9 @@
  *     [--objective-dir d] [--repo p] [--root dir]   (read-only; exit 0 even when none is found)
  *   tokens stamp <trd-id> --draft <path>  Write tokens_input/tokens_output/... into a SUMMARY draft
  *     [--objective-dir d] [--repo p] [--root dir]   (a draft inside .planning/ is refused; run before summary post)
+ *   tokens backfill [--write] [--force]  Recover token usage for historical SUMMARYs from surviving transcripts
+ *     [--repo p] [--root dir]            (dry run unless --write: counts recovered/unrecovered by reason, changes no file;
+ *                                         --write stamps through summary post; --force restamps already stamped SUMMARYs)
  *   calibrate [--paths a,b] [--out f]  Build per-task-class medians/P90s (minutes, tokens, dollars) into calibration.json
  *     [--rates f] [--dry-run]          (default out: DEVFLOW_CALIBRATION_PATH or ~/.claude/devflow/calibration.json;
  *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS)
@@ -871,7 +874,7 @@ async function main() {
     }
 
     case 'tokens': {
-      // df-tools tokens <trd|stamp> ... — TRD 57-03 (backfill: 57-06)
+      // df-tools tokens <trd|stamp|backfill> ... — TRD 57-03, backfill TRD 57-06
       const { output: outputTokens } = require('./lib/helpers.cjs');
       const { runTokens } = require('./lib/tokens-cli.cjs');
       const r = runTokens({ argv: args.slice(1), cwd });

@@ -254,10 +254,10 @@ const COMMANDS = {
     mutates: true,
   },
   'tokens': {
-    usage: 'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path>> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]',
-    summary: 'Executor token usage of one TRD from Claude Code transcripts; `stamp` writes it into a SUMMARY draft before `summary post`.',
+    usage: 'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path> | backfill [--write] [--force]> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]',
+    summary: 'Executor token usage of one TRD from Claude Code transcripts; `stamp` writes it into a SUMMARY draft before `summary post`; `backfill` recovers it for historical SUMMARYs.',
     mutates: true,
-    details: 'trd is read-only; stamp writes only the draft you name (tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model, tokens_source: "live"), never a file under .planning/. Transcripts are read from --root, default ~/.claude/projects, for the repository at --repo (default: the main checkout). Exit 0 even when no transcript is found (stamped: false, the draft is left byte-identical); exit 1 for usage errors or a draft inside .planning/.',
+    details: 'trd is read-only; stamp writes only the draft you name (tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model, tokens_source: "live"), never a file under .planning/. Transcripts are read from --root, default ~/.claude/projects, for the repository at --repo (default: the main checkout). Exit 0 even when no transcript is found (stamped: false, the draft is left byte-identical); exit 1 for usage errors or a draft inside .planning/. backfill covers every SUMMARY of the checkout holding cwd and is a dry run by default: it prints recovered and unrecovered counts (by reason) and changes no file. --write stamps each recovered SUMMARY through `summary post` (tokens_source: "backfill"); a second --write writes nothing. --force also restamps a SUMMARY that already has token values. Unrecoverable history is the normal outcome (exit 0); exit 1 only for usage errors or a failed write.',
   },
   'calibrate': {
     usage: 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--dry-run] [--raw]',
