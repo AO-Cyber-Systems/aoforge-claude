@@ -98,10 +98,13 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 Not yet planned; `/devflow:milestone new` starts it. Triaged 2026-10-05: resolved items were removed, low-value ones dropped, and the rest grouped below. Objective 55 (store live-smoke fixes) shipped first, in 2.13.2. Suggested shape: a hardening milestone (the four "Do" groups), with #35 or #36 added if it should carry a feature.
 
 **Decide before planning (user):**
-- DECISION-001: edit-gate posture, pending since 2026-08-18. Recommendation: option-c (`.planning/decisions/pending/DECISION-001.md`).
 - CI `ANTHROPIC` secret, needed only for the live visual judge in CI (32/33).
 - Branch protection on devflow-claude `main` (34).
 - Docs site deploy: Cloudflare Pages project `devflow-docs` not found (fails on every `main` push since 2.11).
+
+**Do: edit gate enforces the action (DECISION-001 resolved option-a, 2026-10-05)**
+- Gate writes to tracked repo source made through Bash (redirection, `tee`, `sed -i`, `cp`/`mv` onto a file, inline python/node writes) like `Edit`/`Write`. It is preventive: 0 bypasses since 2.11.0 (quick-31).
+- Bounds: invocation-aware parsing (strip heredoc bodies and quoted args); tracked-source scope only (never `.planning/`, `.md`, out-of-repo, tmp or scratchpad); keep every existing escape and `gates.editGate`; measure the false-positive rate with `session-audit` before it ships as default strict. See `.planning/decisions/resolved/DECISION-001.md`.
 
 **Do: state and merge plumbing**
 - `state advance-job` rewrites STATE.md `**Status:**` to "ready for verification" (hit every 55 executor).
