@@ -424,7 +424,7 @@ describe('task and TRD lines', () => {
       class: 'doc', basis: 'class', class_samples: 12, minutes: stat(4, 8, 12), tokens_input: null, tokens_output: null,
       cost_usd: null, samples: 12, confidence: 'medium',
     };
-    assert.equal(fmt.taskLine(task), 'Task doc: 4 min (P90 8 min) · tokens n/a in / n/a out · n/a · n=12, confidence medium');
+    assert.equal(fmt.taskLine(task), 'Task doc: 4 min (P90 8 min) · tokens n/a in / n/a out · cost n/a · n=12, confidence medium');
   });
 
   test('trdLine', () => {
