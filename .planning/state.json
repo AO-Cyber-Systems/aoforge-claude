@@ -730,6 +730,16 @@
       "objective": "58",
       "summary": "58-06: missing agent overhead is listed in missing and caps objective confidence at low; unplanned objectives use objective_level history with no gap mixture and are capped low",
       "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "58-07: milestone scope comes from the ROADMAP bullet via roadmap.cjs's own parser; numbers in the bounds with neither a directory nor a section are counted absent, and a bullet with no objective text falls back to every ### Objective section (range_source)",
+      "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "58-07: the milestone total is one flat correlated sum of the remaining objectives' fitted totals plus one integration-checker spawn; a missing integration-checker history is listed in missing, adds nothing and caps confidence at low; an empty milestone has overhead [] and zero totals",
+      "rationale": null
     }
   ],
   "blockers": [],

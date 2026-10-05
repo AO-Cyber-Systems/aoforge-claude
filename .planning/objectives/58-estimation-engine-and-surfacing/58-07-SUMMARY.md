@@ -53,7 +53,7 @@ completed: 2026-10-05
 
 ## Progress
 - [x] Task 1: Milestone scope from the ROADMAP bullet — RED d0ee66e1, GREEN 2b70b998
-- [x] Task 2: Milestone totals, overhead and confidence — RED 6e366600, GREEN (this commit)
+- [x] Task 2: Milestone totals, overhead and confidence — RED 6e366600, GREEN 5b1644f1
 
 ## Exported API (`plugins/devflow/devflow/bin/lib/estimate-milestone.cjs`)
 
@@ -127,7 +127,7 @@ As a read-only sanity run (not a test), `estimateMilestone(CAL_V2, <this repo>)`
 - **Issue:** The milestone total needs the rollup layer's `TOTAL_KEYS`, `zeroTotals`, `stat`, `entryDist`, `overheadComponent` and `capAt`, none of them exported. The TRD lists only roadmap.cjs for exports; copying them would put the cap-at-low and overhead-component rules in two places.
 - **Fix:** Added the six names to `module.exports` of estimate-rollup.cjs with a comment. No other line of that file changed.
 - **Files modified:** plugins/devflow/devflow/bin/lib/estimate-rollup.cjs
-- **Commit:** see Task 2 GREEN
+- **Commit:** 5b1644f1
 
 Notes where the TRD was silent:
 
@@ -145,3 +145,12 @@ None. `test` and `test_scoped` came from `.planning/STACK.md` / the TRD's valida
 - Auto-fix cycles used: 0
 - Must-haves verified: 4/4 (milestone picked from the bullet with a named version or the current one; done and cancelled counted and left out, planned/partial by remaining TRDs, no-TRD and no-directory objectives unplanned; correlated total plus one integration checker with confidence and weakest; ROADMAP-section fallback with `range_source`)
 - Gate failures: none beyond the three known baseline failures
+
+## Self-Check: PASSED
+
+- FOUND: plugins/devflow/devflow/bin/lib/estimate-milestone.cjs
+- FOUND: plugins/devflow/devflow/bin/lib/estimate-milestone.test.cjs
+- FOUND: plugins/devflow/devflow/bin/lib/__fixtures__/estimate-fixtures.cjs (MILESTONE_ROADMAP, MILESTONE_SPEC added)
+- FOUND: plugins/devflow/devflow/bin/lib/roadmap.cjs (parseMilestoneBullets, pickMilestone exported)
+- FOUND: plugins/devflow/devflow/bin/lib/estimate-rollup.cjs (six helpers exported)
+- FOUND commits: d0ee66e1, 2b70b998, 6e366600, 5b1644f1

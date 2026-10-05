@@ -133,6 +133,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 58]: estimateTask confidence and samples cover only the metrics present; a metric with no samples anywhere is null and listed in missing, never defaulted
 - [Objective 58]: 58-06: a wave distribution (max when parallel, correlated sum when serial) is one member of the flat total list; the gap alternative appends planner, trd_level and a second verifier, mixed with the calibrated probability
 - [Objective 58]: 58-06: missing agent overhead is listed in missing and caps objective confidence at low; unplanned objectives use objective_level history with no gap mixture and are capped low
+- [Objective 58]: 58-07: milestone scope comes from the ROADMAP bullet via roadmap.cjs's own parser; numbers in the bounds with neither a directory nor a section are counted absent, and a bullet with no objective text falls back to every ### Objective section (range_source)
+- [Objective 58]: 58-07: the milestone total is one flat correlated sum of the remaining objectives' fitted totals plus one integration-checker spawn; a missing integration-checker history is listed in missing, adds nothing and caps confidence at low; an empty milestone has overhead [] and zero totals
 
 ## Performance Metrics
 
@@ -211,4 +213,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 58 P03 | 6min | 3 tasks | 6 files |
 | Objective 58 P05 | 25min | 2 tasks | 3 files |
 | Objective 58 P06 | 35min | 2 tasks | 4 files |
+| Objective 58 P07 | 9min | 2 tasks | 5 files |
 
