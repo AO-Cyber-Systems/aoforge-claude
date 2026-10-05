@@ -51,8 +51,9 @@ function contentBlock(kind, msgId, i) {
 /**
  * The records of ONE API message: `blocks` records sharing `message.id`, each repeating the same input/cache usage.
  * Earlier records carry output_tokens 8; the last carries `output` and stop_reason 'tool_use'.
+ * Every record is stamped `timestamp` (TRD 58-02; FIXED_TIMESTAMP unless a spawn says when the message arrived).
  */
-function assistantRecords({ id, model = 'claude-opus-5-5', input, cacheWrite, cacheRead, output, blocks }) {
+function assistantRecords({ id, model = 'claude-opus-5-5', input, cacheWrite, cacheRead, output, blocks, timestamp = FIXED_TIMESTAMP }) {
   const kinds = blockKinds(blocks);
   return kinds.map((kind, i) => {
     const last = i === kinds.length - 1;
@@ -61,7 +62,7 @@ function assistantRecords({ id, model = 'claude-opus-5-5', input, cacheWrite, ca
       isSidechain: true,
       type: 'assistant',
       uuid: `${id}-rec-${i}`,
-      timestamp: FIXED_TIMESTAMP,
+      timestamp,
       message: {
         model,
         id,
@@ -138,6 +139,7 @@ function writeSubagentTranscript(projectsRoot, {
   cwd,
   records = [],
   extraLines = [],
+  timestamp = FIXED_TIMESTAMP,
 }) {
   const dir = path.join(projectsRoot, projectKey, session, 'subagents');
   fs.mkdirSync(dir, { recursive: true });
@@ -148,7 +150,7 @@ function writeSubagentTranscript(projectsRoot, {
     type: 'user',
     message: { role: 'user', content: prompt },
     uuid: `${agentId}-user-0`,
-    timestamp: FIXED_TIMESTAMP,
+    timestamp,
     userType: 'external',
     cwd,
     sessionId: session,
@@ -160,6 +162,52 @@ function writeSubagentTranscript(projectsRoot, {
   fs.writeFileSync(path.join(dir, `agent-${agentId}.meta.json`), JSON.stringify(meta));
   return file;
 }
+
+/**
+ * Write one overhead spawn (planner, verifier, ...) whose records carry real timestamps: the user record at
+ * `spawn.start`, each message's records at `message.at`. `spawn` is `{agentType, description, start, messages}`, a
+ * message `{id, model, input, cacheWrite, cacheRead, output, blocks, at}`. `prompt` defaults to the description.
+ * Returns the jsonl path.
+ */
+function writeOverheadTranscript(projectsRoot, { projectKey, session, agentId, spawn, cwd, prompt }) {
+  const records = spawn.messages.flatMap((m) => assistantRecords({
+    id: m.id, model: m.model, input: m.input, cacheWrite: m.cacheWrite, cacheRead: m.cacheRead,
+    output: m.output, blocks: m.blocks, timestamp: m.at,
+  }));
+  return writeSubagentTranscript(projectsRoot, {
+    projectKey,
+    session,
+    agentId,
+    agentType: spawn.agentType,
+    description: spawn.description,
+    prompt: prompt === undefined ? spawn.description : prompt,
+    cwd,
+    records,
+    timestamp: spawn.start,
+  });
+}
+
+// Overhead spawns of TRD 58-02. Six minutes / four minutes of wall time; all literal.
+// PLANNER_SPAWN: tokens_input 111015 (input 15 + cache_creation 1000 + cache_read 110000), output 6000.
+const PLANNER_SPAWN = Object.freeze({
+  agentType: 'devflow:planner',
+  description: 'Plan Objective 80',
+  start: '2026-10-01T10:00:00.000Z',
+  messages: Object.freeze([
+    { id: 'msg_P1', model: 'claude-opus-5-5', input: 10, cacheWrite: 1000, cacheRead: 50000, output: 2000, blocks: 2, at: '2026-10-01T10:03:00.000Z' },
+    { id: 'msg_P2', model: 'claude-opus-5-5', input: 5, cacheWrite: 0, cacheRead: 60000, output: 4000, blocks: 1, at: '2026-10-01T10:06:00.000Z' },
+  ]),
+});
+
+// VERIFIER_SPAWN: tokens_input 20503 (input 3 + cache_creation 500 + cache_read 20000), output 1500.
+const VERIFIER_SPAWN = Object.freeze({
+  agentType: 'devflow:verifier',
+  description: 'Verify objective 80',
+  start: '2026-10-01T10:10:00.000Z',
+  messages: Object.freeze([
+    { id: 'msg_V1', model: 'claude-sonnet-5-5', input: 3, cacheWrite: 500, cacheRead: 20000, output: 1500, blocks: 3, at: '2026-10-01T10:14:00.000Z' },
+  ]),
+});
 
 // The msg_A/B/C table of TRD 57-01 (model claude-opus-5-5). Deduped totals: input 7, cache_creation 19596,
 // cache_read 121144, output 1370 → tokens_input 140747. A naive per-record sum gives a different number.
@@ -177,5 +225,8 @@ module.exports = {
   assistantRecords,
   executorPrompt,
   writeSubagentTranscript,
+  writeOverheadTranscript,
   THREE_MESSAGES,
+  PLANNER_SPAWN,
+  VERIFIER_SPAWN,
 };

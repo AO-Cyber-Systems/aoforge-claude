@@ -125,6 +125,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 57]: tokens stamp writes the SUMMARY draft, never .planning/; no transcript is exit 0 stamped:false so summary post is never blocked — Keeps the D-01 invariant (every planning write goes through summary post) and tolerates retention, older runtimes and non-Claude-Code harnesses
 - [Objective 57]: calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json — 57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json
 - [Objective 58]: Estimate composition: percentiles never add except sumComonotonic (tasks in one TRD); correlated sums use Fenton-Wilkinson with DEFAULT_CORRELATION 0.5, an assumption Objective 64 (EST-08) tunes
+- [Objective 58]: 58-02: overhead agent types need the devflow: or df- prefix; Quick planner spawns are excluded and counted; samples carry per-model token splits and no paths
 
 ## Performance Metrics
 
@@ -198,4 +199,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 57 P06 | 7min | 2 tasks | 6 files |
 | Objective 57 P07 | 4min | 3 tasks | 235 files |
 | Objective 58 P01 | 10min | 2 tasks | 2 files |
+| Objective 58 P02 | 10min | 2 tasks | 4 files |
 

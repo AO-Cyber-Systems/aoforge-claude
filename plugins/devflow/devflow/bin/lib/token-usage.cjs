@@ -461,6 +461,8 @@ module.exports = {
   pickModel,
   identifyExecutorTrd,
   indexExecutorTranscripts,
+  repoMatcher,
+  repoMatch,
   tokensForTrd,
   objectiveDirsFor,
   TOKEN_FIELDS,

@@ -690,6 +690,11 @@
       "objective": "58",
       "summary": "Estimate composition: percentiles never add except sumComonotonic (tasks in one TRD); correlated sums use Fenton-Wilkinson with DEFAULT_CORRELATION 0.5, an assumption Objective 64 (EST-08) tunes",
       "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "58-02: overhead agent types need the devflow: or df- prefix; Quick planner spawns are excluded and counted; samples carry per-model token splits and no paths",
+      "rationale": null
     }
   ],
   "blockers": [],
