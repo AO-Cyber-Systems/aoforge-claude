@@ -20,5 +20,5 @@ completed: 2026-10-05
 **In progress.**
 
 ## Progress
-- [x] Task 1: Replay and prose pins for install, resolve and the regeneration (tests 1-12, RED) — (this commit)
-- [ ] Task 2: Prose — install, resolve, regeneration, --objective (GREEN) — next step: edit step 0 and the Branch merge protocol in /Users/justin/dev/devflow-claude/plugins/devflow/devflow/workflows/execute-objective.md, then the state blocks of executor.md and execute-trd.md
+- [x] Task 1: Replay and prose pins for install, resolve and the regeneration (tests 1-12, RED) — 74c38071
+- [x] Task 2: Prose — install, resolve, regeneration, --objective (GREEN) — (this commit)

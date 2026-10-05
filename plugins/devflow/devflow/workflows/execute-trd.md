@@ -215,10 +215,10 @@ Finish the SUMMARY in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning
 </step>
 
 <step name="state_updates">
-Record state only through the store-aware commands, never by hand: `df-tools state advance-job` / `state update-progress` / `state record-metric` / `state add-decision` / `state record-session`, `df-tools roadmap update-job-progress <objective>`, and `df-tools requirements mark-complete <ids>`. Keep the SUMMARY path in the commit below in a worktree too (local mode): the summary verbs wrote your own checkout, so the commit puts it on your branch and the wave merge delivers it.
+Record state only through the store-aware commands, never by hand: `df-tools state advance-job --objective "${OBJECTIVE_NUMBER}"` / `state update-progress` / `state record-metric` / `state add-decision` / `state record-session`, `df-tools roadmap update-job-progress <objective>`, and `df-tools requirements mark-complete <ids>`. Keep the SUMMARY path in the commit below in a worktree too (local mode): the summary verbs wrote your own checkout, so the commit puts it on your branch and the wave merge delivers it.
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs state advance-job
+node ~/.claude/devflow/bin/df-tools.cjs state advance-job --objective "${OBJECTIVE_NUMBER}"
 node ~/.claude/devflow/bin/df-tools.cjs state update-progress
 node ~/.claude/devflow/bin/df-tools.cjs state record-metric \
   --objective "${OBJECTIVE}" --job "${TRD}" --duration "${DURATION}" \

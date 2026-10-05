@@ -1080,42 +1080,44 @@ Do NOT skip. Do NOT proceed to state updates if self-check fails.
 <state_updates>
 After posting the SUMMARY, record state through the df-tools `state` commands. They are store-aware; never touch STATE.md by hand:
 
+Every call below passes `--cwd <checkout>`: each Bash call starts in the session's directory, so without it the command updates the wrong tree. `<checkout>` is the literal path your preflight reported.
+
 ```bash
-# Advance TRD counter (handles edge cases automatically)
-node ~/.claude/devflow/bin/df-tools.cjs state advance-job
+# Derive Current/Total TRDs and Status from the objective's TRD and SUMMARY files on disk
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state advance-job --objective "${OBJECTIVE_NUMBER}"
 
 # Recalculate progress bar from disk state
-node ~/.claude/devflow/bin/df-tools.cjs state update-progress
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state update-progress
 
 # Record execution metrics
-node ~/.claude/devflow/bin/df-tools.cjs state record-metric \
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state record-metric \
   --objective "${OBJECTIVE}" --job "${TRD}" --duration "${DURATION}" \
   --tasks "${TASK_COUNT}" --files "${FILE_COUNT}"
 
 # Add decisions (extract from SUMMARY.md key-decisions)
 for decision in "${DECISIONS[@]}"; do
-  node ~/.claude/devflow/bin/df-tools.cjs state add-decision \
+  node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state add-decision \
     --objective "${OBJECTIVE}" --summary "${decision}"
 done
 
 # Update session info
-node ~/.claude/devflow/bin/df-tools.cjs state record-session \
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state record-session \
   --stopped-at "Completed ${OBJECTIVE}-${TRD}-TRD.md"
 ```
 
 ```bash
-# Update ROADMAP.md progress for this objective (TRD counts, status)
-node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
+# Recompute this objective's roadmap progress row (TRD counts, status)
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> roadmap update-job-progress "${OBJECTIVE_NUMBER}"
 
 # Mark completed requirements from TRD.md frontmatter
 # Extract the `requirements` array from the TRD's frontmatter, then mark each complete
-node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete ${REQ_IDS}
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> requirements mark-complete ${REQ_IDS}
 ```
 
 **Requirement IDs:** Extract from the TRD.md frontmatter `requirements:` field (e.g., `requirements: [AUTH-01, AUTH-02]`). Pass all IDs to `requirements mark-complete`. If the TRD has no requirements field, skip this step.
 
 **State command behaviors:**
-- `state advance-job`: Increments Current TRD, detects last-plan edge case, sets status
+- `state advance-job --objective N`: derives Current/Total TRDs and Status from the objective's TRD and SUMMARY files; never says ready for verification until every TRD has a SUMMARY
 - `state update-progress`: Recalculates the progress bar from the summary counts on disk
 - `state record-metric`: Appends to Performance Metrics table in STATE_ARCHIVE.md
 - `state add-decision`: Adds to Decisions section in STATE_ARCHIVE.md
@@ -1127,7 +1129,7 @@ node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete ${REQ_IDS}
 
 **For blockers found during execution:**
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs state add-blocker "Blocker description"
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state add-blocker "Blocker description"
 ```
 </state_updates>
 

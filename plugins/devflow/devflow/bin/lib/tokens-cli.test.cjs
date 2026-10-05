@@ -432,7 +432,8 @@ describe('executor prose stamps token usage before summary post (TRD 57-03)', { 
 
   test('14. executor.md record-metric example passes --job "${TRD}", never --trd', () => {
     const executor = readPlugin('agents', 'executor.md');
-    const metrics = commandLines(executor, 'df-tools.cjs state record-metric');
+    // 59-06: the call reads `df-tools.cjs --cwd <checkout> state record-metric`, so match the subcommand, not the prefix.
+    const metrics = commandLines(executor, 'state record-metric').filter((l) => l.includes('df-tools.cjs'));
     assert.ok(metrics.length >= 1, 'executor.md has a record-metric example');
     for (const line of metrics) {
       assert.ok(line.includes('--job "${TRD}"'), `uses --job "\${TRD}": ${line}`);

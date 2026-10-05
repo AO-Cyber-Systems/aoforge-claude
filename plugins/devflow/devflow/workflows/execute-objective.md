@@ -276,8 +276,22 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    `WAVE_BASE` is the current HEAD, so the previous wave's commits are present by
    construction, and its preflight proves it.
 
-   **Parallel wave (2+ plans):** give each plan its own worktree, provisioned explicitly
-   from `WAVE_BASE` in the target repo — never from the default branch:
+   **Parallel wave (2+ plans):** once per objective run, before the first parallel wave's worktrees,
+   register the planning-file merge drivers from the main checkout (idempotent; it prints `changed: false`
+   on later runs):
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs merge-driver install
+   ```
+
+   `.planning/state.json` then merges JSON-aware and `.planning/STATE_ARCHIVE.md` by union, so neither stops a
+   wave merge. A failure, or `Unknown command` from an older runtime, is reported and the wave goes on: the
+   Branch merge protocol in step 5b still handles a conflict on either file. Run the install and every wave
+   merge in the main checkout, never inside an executor worktree: that worktree is removed after its merge, and
+   a driver recorded from it would be stranded. `merge-driver uninstall` reverses the install.
+
+   Then give each plan its own worktree, provisioned explicitly from `WAVE_BASE` in the target repo — never
+   from the default branch:
 
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs exec-context worktree --repo <REPO_ROOT> --id <plan_id> --base <WAVE_BASE>
@@ -420,8 +434,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
          checkout you are in, so from a worktree the SUMMARY lands in YOUR worktree: commit it with
          your task commits, and the wave merge delivers it. In store mode the verbs write the main
          checkout's gitignored cache and no commit carries the SUMMARY.
-       - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job` (and the other
-         `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
+       - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job --objective {objective_number}`
+         (and the other `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
          your commits; conflicts are resolved at merge time by the orchestrator.
        </worktree_protocol>
 
@@ -496,28 +510,37 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    merge with a commit, and never resolve a conflict in the merge's own call: a merge chained with a raw
    `git commit` is denied. gate-commits decides before a command runs, when `MERGE_HEAD` does not
    exist yet, so a completion commit chained after the merge looks like a raw commit. Run each step as its
-   own Bash call. Merge the plan's branch:
+   own Bash call. The merges run in the main checkout you are standing in, the integration checkout
+   `merge_back` names, and never inside an executor worktree. Merge the plan's branch:
    ```bash
    git merge --no-ff df/exec-{plan_id}
    ```
    A clean merge commits itself, so there is nothing more to run for that plan. File ownership is
    exclusive per wave (each TRD owns different files), so a conflict in a code file indicates a planning
    error. The planning files are the exception: every executor touches `.planning/STATE.md`,
-   `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (see the worktree protocol above), so the peers'
-   changes to them can conflict. When the merge stops on a conflict, list the unmerged paths:
+   `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (see the worktree protocol above), and records
+   its position and metrics in `.planning/state.json` and `.planning/STATE_ARCHIVE.md`, so the peers'
+   changes to them can conflict. With the merge driver from step 0 installed, the last two merge without
+   stopping. When the merge stops on a conflict, list the unmerged paths:
    ```bash
    git diff --name-only --diff-filter=U
    ```
-   If EVERY listed path is `.planning/STATE.md`, `.planning/ROADMAP.md` or `.planning/REQUIREMENTS.md`,
-   take the integration branch's copy of each one. Run these two commands as separate calls, once per
-   listed path (`<planning_path>` stands for one listed path):
+   Classify every listed path three ways. `.planning/STATE.md`, `.planning/ROADMAP.md` and
+   `.planning/REQUIREMENTS.md`: take the integration branch's copy of each one, as two separate calls,
+   once per listed path (`<planning_path>` stands for one listed path):
    ```bash
    git checkout --ours -- <planning_path>
    ```
    ```bash
    git add <planning_path>
    ```
-   When every path is added, finish the merge with the completion commit, as its own call. It is allowed
+   `.planning/state.json` and `.planning/STATE_ARCHIVE.md`: merge them rather than dropping a peer's
+   record. The command resolves the file (JSON-aware for state.json, by union for STATE_ARCHIVE.md) and
+   stages it; run it once per listed state.json or STATE_ARCHIVE.md path:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs merge-driver resolve <planning_path>
+   ```
+   When every path is resolved, finish the merge with the completion commit, as its own call. It is allowed
    on its own because the stopped merge left `MERGE_HEAD`:
    ```bash
    git commit --no-edit
@@ -529,13 +552,18 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Route to the failure handler with: "Merge conflict on {branch} — planning error, two
    TRDs in the same wave modified the same file."
 
-   Taking ours is the same "take ours, regenerate" policy as workstreams-merge step 3, so after the wave's
-   merges, when a planning-file conflict was resolved above, regenerate what it dropped. `STATE.md` keeps the
-   integration branch's copy: `state update-progress` rebuilds its progress figure from the SUMMARYs now on
-   disk, and a decision or note a peer recorded only in its own `STATE.md` copy is not carried over (it is
-   still in that plan's SUMMARY). `ROADMAP.md` is recomputed from disk. For a conflicted
+   After EVERY parallel wave's merges, conflict or not, regenerate the position from disk: the merged
+   SUMMARYs change it, and `state advance-job --objective` is idempotent. Taking ours is the same "take
+   ours, regenerate" policy as workstreams-merge step 3, so a conflicted planning file loses nothing that
+   cannot be rebuilt. `STATE.md` keeps the integration branch's copy: the advance rewrites its Status and
+   counters from the TRDs and SUMMARYs now on disk, `state update-progress` rebuilds its progress figure,
+   and a decision or note a peer recorded only in its own `STATE.md` copy is not carried over (it is still
+   in that plan's SUMMARY). `ROADMAP.md` is recomputed from disk. For a conflicted
    `REQUIREMENTS.md`, re-run `node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete <ids>` with the
    `requirements:` of each plan whose copy lost. Then commit the result:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs state advance-job --objective "${OBJECTIVE_NUMBER}"
+   ```
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs state update-progress
    ```
@@ -543,7 +571,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
    ```
    ```bash
-   node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .planning/ROADMAP.md .planning/STATE.md
+   node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .planning/ROADMAP.md .planning/STATE.md .planning/state.json
    ```
    <!-- merge-sequence:end -->
 
