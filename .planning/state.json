@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -719,6 +719,16 @@
     {
       "objective": "58",
       "summary": "estimateTask confidence and samples cover only the metrics present; a metric with no samples anywhere is null and listed in missing, never defaulted",
+      "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "58-06: a wave distribution (max when parallel, correlated sum when serial) is one member of the flat total list; the gap alternative appends planner, trd_level and a second verifier, mixed with the calibrated probability",
+      "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "58-06: missing agent overhead is listed in missing and caps objective confidence at low; unplanned objectives use objective_level history with no gap mixture and are capped low",
       "rationale": null
     }
   ],
