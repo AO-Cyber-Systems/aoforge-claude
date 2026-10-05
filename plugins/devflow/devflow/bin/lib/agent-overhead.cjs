@@ -14,8 +14,11 @@
  * is the CLI's job, so a test can never reach the real one by accident.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { forEachRecord } = require('./context-audit.cjs');
-const { sumUsage } = require('./token-usage.cjs');
+const trdIdentify = require('./trd-identify.cjs');
+const { sumUsage, repoMatcher, repoMatch } = require('./token-usage.cjs');
 
 /** The six non-executor agents whose spawns count as objective overhead. The debugger is ad hoc work, not overhead. */
 const OVERHEAD_AGENTS = Object.freeze([
@@ -99,10 +102,110 @@ function spawnSample(file) {
   return { minutes, ...tokenShare(usage), by_model };
 }
 
+// ─── Transcript index ─────────────────────────────────────────────────────────
+
+const META_RE = /^agent-(.+)\.meta\.json$/;
+
+/** Sorted names of the directories (or files) directly in `dir`; [] when it cannot be read. */
+function sortedNames(dir, directories) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+  return entries
+    .filter((e) => (directories ? e.isDirectory() : e.isFile()))
+    .map((e) => e.name)
+    .sort();
+}
+
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+
+function byCodeUnit(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+/**
+ * Every overhead spawn of the given repositories under a Claude Code projects root.
+ *
+ * Reads exactly `<root>/<key>/<session>/subagents/agent-*.meta.json` (sorted at each level, no deeper walk). A meta file
+ * whose agentType normalises to an overhead agent is one spawn; only then is the sibling jsonl's FIRST user record read.
+ * A repository claims the spawn by the executor rule (token-usage.repoMatch): a REPO_ROOT line, else the first record's
+ * cwd in the repo or its `.df-worktrees`, else a `<repo>/.planning/` path. The project-key directory name is never
+ * evidence: keys are lossy.
+ *
+ * counts: `spawns` = overhead-typed meta files; each is exactly one of `quick` (a planner whose description starts with
+ * Quick), `unreadable` (no readable first user record), `foreign` (no listed repository claims it) or `matched`.
+ *
+ * @param {{root: string, projects?: Array<{root: string, label: string}>}} opts  root is required, never defaulted
+ * @returns {{entries: Array<{agent, project, session, agent_id, file}>,
+ *   counts: {spawns, matched, foreign, quick, unreadable, by_agent: Object<string, number>}}}
+ */
+function indexOverheadTranscripts({ root, projects = [] } = {}) {
+  if (typeof root !== 'string' || !root) throw new Error('indexOverheadTranscripts: root is required');
+  const repos = [...projects]
+    .sort((a, b) => byCodeUnit(a.root, b.root))
+    .map((p) => ({ label: p.label, repo: repoMatcher(p.root) }));
+  const counts = { spawns: 0, matched: 0, foreign: 0, quick: 0, unreadable: 0, by_agent: {} };
+  const entries = [];
+
+  for (const key of sortedNames(root, true)) {
+    for (const session of sortedNames(path.join(root, key), true)) {
+      const subagents = path.join(root, key, session, 'subagents');
+      for (const name of sortedNames(subagents, false)) {
+        const m = META_RE.exec(name);
+        if (!m) continue;
+        const meta = readJson(path.join(subagents, name));
+        const agent = meta ? normalizeAgentType(meta.agentType) : null;
+        if (!agent) continue;
+        counts.spawns++;
+        if (agent === 'planner' && isQuickSpawn(meta)) { counts.quick++; continue; }
+
+        const agentId = m[1];
+        const file = path.join(subagents, `agent-${agentId}.jsonl`);
+        const rec = trdIdentify.readFirstUserRecord(file);
+        if (!rec) { counts.unreadable++; continue; }
+        const prompt = trdIdentify.textOfContent(rec.message && rec.message.content);
+
+        const owner = repos.find((p) => repoMatch(prompt, rec.cwd, p.repo));
+        if (!owner) { counts.foreign++; continue; }
+
+        counts.matched++;
+        counts.by_agent[agent] = (counts.by_agent[agent] || 0) + 1;
+        entries.push({ agent, project: owner.label, session, agent_id: agentId, file });
+      }
+    }
+  }
+  counts.by_agent = Object.fromEntries(Object.keys(counts.by_agent).sort().map((k) => [k, counts.by_agent[k]]));
+  return { entries, counts };
+}
+
+/**
+ * One sample per matched overhead spawn: `{agent, project, session, agent_id}` plus spawnSample's measurements. No file
+ * path in a sample. Sorted by agent, project, session, agent_id, so two calls over the same tree are deep-equal.
+ *
+ * @param {{root: string, projects?: Array<{root: string, label: string}>}} opts
+ * @returns {{samples: Array<object>, counts: object}}  counts as indexOverheadTranscripts
+ */
+function collectOverhead({ root, projects = [] } = {}) {
+  if (typeof root !== 'string' || !root) throw new Error('collectOverhead: root is required');
+  const { entries, counts } = indexOverheadTranscripts({ root, projects });
+  const samples = entries.map((e) => ({
+    agent: e.agent, project: e.project, session: e.session, agent_id: e.agent_id, ...spawnSample(e.file),
+  }));
+  samples.sort((a, b) => byCodeUnit(a.agent, b.agent)
+    || byCodeUnit(a.project, b.project)
+    || byCodeUnit(a.session, b.session)
+    || byCodeUnit(a.agent_id, b.agent_id));
+  return { samples, counts };
+}
+
 module.exports = {
   OVERHEAD_AGENTS,
   normalizeAgentType,
   isQuickSpawn,
   transcriptSpanMinutes,
   spawnSample,
+  indexOverheadTranscripts,
+  collectOverhead,
 };
