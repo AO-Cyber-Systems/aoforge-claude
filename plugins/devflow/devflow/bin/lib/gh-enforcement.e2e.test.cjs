@@ -511,8 +511,10 @@ describe('the reusable workflow runs a script that exists (test 10)', () => {
     }
   });
 
-  test('10c. the runner needs nothing outside plugins/devflow/devflow/bin (the workflow sparse-checks-out only that directory)', () => {
-    assert.match(text, /sparse-checkout:\s*plugins\/devflow\/devflow\/bin\s*$/m);
+  test('10c. no JS module the runner loads lies outside plugins/devflow/devflow/bin (the workflow also checks out references/ for model-profiles.json)', () => {
+    // helpers.cjs reads references/model-profiles.json at load (data, not a module), so the sparse checkout lists
+    // `references` beside `bin`. The full copy-and-run proof is in devflow-workflows.repo.test.cjs (55-02).
+    assert.match(text, /sparse-checkout:\s*\|\s*\n\s+plugins\/devflow\/devflow\/bin\s*\n\s+plugins\/devflow\/devflow\/references\s*\n/);
     const probe = 'console.log(JSON.stringify(Object.keys(require.cache)));';
     const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(CHECK_CLI)}); ${probe}`], { encoding: 'utf-8' });
     assert.equal(r.status, 0, r.stderr);
