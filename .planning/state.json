@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 100,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -685,6 +685,11 @@
       "objective": "57",
       "summary": "calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json",
       "rationale": "57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json"
+    },
+    {
+      "objective": "58",
+      "summary": "Estimate composition: percentiles never add except sumComonotonic (tasks in one TRD); correlated sums use Fenton-Wilkinson with DEFAULT_CORRELATION 0.5, an assumption Objective 64 (EST-08) tunes",
+      "rationale": null
     }
   ],
   "blockers": [],
