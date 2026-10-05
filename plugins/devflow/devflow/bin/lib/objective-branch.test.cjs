@@ -481,3 +481,115 @@ describe('objective-branch unpushedCommits (55-03)', { skip: !HAS_GIT && 'git no
     assert.deepEqual(ob.trackingTip(g.work, 'df/nope'), { ok: true, sha: null });
   });
 });
+
+// TRD 55-05: contentMerged — are `tip`'s changes already in `into`? `gh pr reconcile` uses it to delete a branch whose tip
+// is not in the merged PR's history (a squash merge, a local merge of main) when nothing on it is lost.
+describe('objective-branch contentMerged (55-05)', { skip: !HAS_GIT && 'git not installed' }, () => {
+  const remotes = [];
+
+  function setup() {
+    const g = makeGitRemote();
+    remotes.push(g);
+    return g;
+  }
+
+  afterEach(() => {
+    ob._resetRunGit();
+    while (remotes.length) remotes.pop().cleanup();
+  });
+
+  const tipOf = (g, rev) => g.git(g.work, ['rev-parse', rev]);
+
+  test('8a. a tip that is an ancestor of `into` is merged', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '-c', 'df/x']);
+    const tip = g.commitFile(g.work, 'a.txt', 'a\n', 'feat: a');
+    g.git(g.work, ['switch', '-q', 'main']);
+    g.git(g.work, ['merge', '-q', '--ff-only', 'df/x']);
+    assert.deepEqual(ob.contentMerged(g.work, tip, tipOf(g, 'main')), { ok: true, merged: true });
+    // an `{ok, sha}` result from the tip functions is accepted, as in isAncestor
+    assert.deepEqual(ob.contentMerged(g.work, ob.branchTip(g.work, 'df/x'), ob.headSha(g.work)), { ok: true, merged: true });
+  });
+
+  test('8b. the same change re-made as a different commit (a squash) is merged although the tip is not an ancestor', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '-c', 'df/x']);
+    const tip = g.commitFile(g.work, 'a.txt', 'a\n', 'feat: a');
+    g.git(g.work, ['switch', '-q', 'main']);
+    g.commitFile(g.work, 'a.txt', 'a\n', 'squash: a');
+    g.commitFile(g.work, 'b.txt', 'b\n', 'chore: more on main');
+    const into = tipOf(g, 'main');
+    assert.equal(ob.isAncestor(g.work, tip, into).ancestor, false, 'precondition: not an ancestor');
+    assert.deepEqual(ob.contentMerged(g.work, tip, into), { ok: true, merged: true });
+  });
+
+  test('8c. a merge commit that brought in main and added nothing is merged once main has moved on', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '-c', 'df/x']);
+    g.commitFile(g.work, 'a.txt', 'a\n', 'feat: a');
+    g.git(g.work, ['switch', '-q', 'main']);
+    g.commitFile(g.work, 'm.txt', 'm\n', 'chore: main moves');
+    g.git(g.work, ['switch', '-q', 'df/x']);
+    g.git(g.work, ['merge', '-q', '--no-edit', 'main']);
+    const tip = tipOf(g, 'df/x');
+    g.git(g.work, ['switch', '-q', 'main']);
+    g.commitFile(g.work, 'a.txt', 'a\n', 'squash: a');
+    assert.deepEqual(ob.contentMerged(g.work, tip, tipOf(g, 'main')), { ok: true, merged: true });
+  });
+
+  test('8d. a change `into` lacks is not merged, and is not a conflict', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '-c', 'df/x']);
+    const tip = g.commitFile(g.work, 'new.txt', 'new\n', 'feat: new');
+    g.git(g.work, ['switch', '-q', 'main']);
+    g.commitFile(g.work, 'm.txt', 'm\n', 'chore: main moves');
+    assert.deepEqual(ob.contentMerged(g.work, tip, tipOf(g, 'main')), { ok: true, merged: false });
+  });
+
+  test('8e. a change that conflicts with `into` is {merged:false, conflict:true}', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '-c', 'df/x']);
+    const tip = g.commitFile(g.work, 'README.md', '# fixture\nbranch edit\n', 'feat: edit readme');
+    g.git(g.work, ['switch', '-q', 'main']);
+    g.commitFile(g.work, 'README.md', '# fixture\nmain edit\n', 'chore: edit readme on main');
+    assert.deepEqual(ob.contentMerged(g.work, tip, tipOf(g, 'main')), { ok: true, merged: false, conflict: true });
+  });
+
+  test('8f. invalid, missing and option-looking revisions are ok:false', () => {
+    const g = setup();
+    const head = tipOf(g, 'main');
+    for (const [tip, into] of [['', head], [head, ''], ['--all', head], [head, '--all'], ['a b', head], [undefined, head], [head, 42]]) {
+      const r = ob.contentMerged(g.work, tip, into);
+      assert.equal(r.ok, false, `contentMerged(${String(tip)}, ${String(into)})`);
+      assert.ok(r.error.length > 0);
+    }
+    const missing = ob.contentMerged(g.work, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', head);
+    assert.equal(missing.ok, false);
+    assert.ok(missing.error.length > 0);
+  });
+
+  test('8g. an older git (merge-tree --write-tree is a usage error) is ok:false, never merged:true', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '-c', 'df/x']);
+    const tip = g.commitFile(g.work, 'a.txt', 'a\n', 'feat: a');
+    g.git(g.work, ['switch', '-q', 'main']);
+    g.commitFile(g.work, 'a.txt', 'a\n', 'squash: a');
+    const into = tipOf(g, 'main');
+    ob._setRunGit((args, opts) => (args[0] === 'merge-tree'
+      ? { ok: false, status: 129, stdout: '', stderr: 'usage: git merge-tree [<options>] <branch1> <branch2>' }
+      : ob.realRunGit(args, opts)));
+    const r = ob.contentMerged(g.work, tip, into);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /usage: git merge-tree/);
+  });
+
+  test('8h. unrelated histories are ok:false (git refuses), never merged', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '--orphan', 'df/orphan']);
+    g.git(g.work, ['rm', '-rf', '-q', '.']);
+    const tip = g.commitFile(g.work, 'z.txt', 'z\n', 'feat: unrelated root');
+    const r = ob.contentMerged(g.work, tip, tipOf(g, 'main'));
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.equal(r.merged, undefined);
+  });
+});

@@ -23,6 +23,7 @@ const mappingLib = require('./gh-mapping.cjs');
 const trdLib = require('./gh-trd.cjs');
 const bodyLib = require('./gh-body.cjs');
 const prLib = require('./gh-pr.cjs');
+const branchLib = require('./objective-branch.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { makeGitRemote, gitAvailable } = require('./__fixtures__/git-remote.cjs');
@@ -289,6 +290,8 @@ describe('49-12 gh pr reconcile', { skip: GIT ? false : 'git is not available' }
     assert.ok(left.includes('main'));
     assert.deepEqual(r.kept, []);
     assert.deepEqual(r.deleted_local.sort(), [BRANCH, 'df/exec-7-01', 'df/exec-7-02'].sort());
+    // 55-05 (reproduction of the OBJECTIVE 55-6 claim): a fully pushed branch after a squash merge draws no warning.
+    assert.deepEqual(r.warnings.filter((x) => /was kept/.test(x)), [], 'no "was kept" warning for a fully pushed squash merge');
   });
 
   test('10a. unpushed or unmerged work is never lost: a branch whose tip is not in the PR head is kept, named, and warned about; GitHub is still reconciled', () => {
@@ -315,6 +318,96 @@ describe('49-12 gh pr reconcile', { skip: GIT ? false : 'git is not available' }
     assert.equal(branchNow(), 'main');
     for (const num of allIssues()) assert.equal(isOpen(num), false, `#${num} is closed`);
     assert.equal(S.fake.refs[BRANCH], undefined, 'the remote branch is deleted');
+  });
+
+  /**
+   * 55-05: the objective branch carries `feature.txt` (pushed, so the PR head holds it); origin's main moves on with an
+   * unrelated change; the user merges origin/main into the local branch after the last push (an unpushed merge commit).
+   * Returns nothing; the PR is still open.
+   */
+  function pushedFeatureThenMergedMain() {
+    startPr();
+    S.g.commitFile(S.root, 'feature.txt', 'feature\n', 'feat(7-01): the feature');
+    assert.equal(prLib.syncObjectivePr(S.root, '7').ok, true);
+    S.g.advanceOrigin({ file: 'other.txt', content: 'other\n', message: 'chore: other work lands on main' });
+    S.g.git(S.root, ['fetch', '-q', 'origin', 'main']);
+    S.g.git(S.root, ['merge', '-q', '--no-edit', 'origin/main']);
+  }
+
+  /** The squash merge: the PR's changes land on main as one new commit that is not in the branch's history. */
+  function squashMerge(files = { 'feature.txt': 'feature\n' }) {
+    S.fake.humanMergePr(prNumber(), { method: 'squash' });
+    const names = Object.keys(files);
+    names.forEach((file, i) => S.g.advanceOrigin({ file, content: files[file], message: i === 0 ? 'squash merge' : `squash merge (${file})` }));
+  }
+
+  const keptWarnings = (r) => r.warnings.filter((x) => /was kept/.test(x));
+
+  test('10b. the user merged origin/main into the branch after the last push (an unpushed merge commit with nothing new): the tip is not in the PR head, its content is on main, so it is deleted with no "kept" warning', () => {
+    setup();
+    pushedFeatureThenMergedMain();
+    const mergeTip = headNow();
+    assert.equal(S.g.run(S.root, ['merge-base', '--is-ancestor', mergeTip, 'origin/' + BRANCH]).status, 1, 'precondition: the merge commit is unpushed');
+    squashMerge();
+
+    const r = reconcile();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(!localBranches().includes(BRANCH), 'the objective branch is deleted');
+    assert.deepEqual(r.kept, []);
+    assert.deepEqual(r.deleted_local, [BRANCH]);
+    assert.deepEqual(keptWarnings(r), [], 'no "was kept" warning');
+    assert.equal(branchNow(), 'main');
+  });
+
+  test('10c. an unpushed commit adding a file main lacks, on top of content that did land: kept and warned, the commit is still reachable', () => {
+    setup();
+    pushedFeatureThenMergedMain();
+    S.g.commitFile(S.root, 'late.txt', 'late\n', 'feat(7-01): an unpushed commit');
+    const lateTip = headNow();
+    squashMerge();
+
+    const r = reconcile();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(localBranches().includes(BRANCH), 'the branch holding real unpushed work is kept');
+    assert.equal(S.g.git(S.root, ['rev-parse', BRANCH]), lateTip);
+    assert.deepEqual(r.kept.map((k) => k.branch), [BRANCH]);
+    assert.match(r.kept[0].reason, /not in the merged PR/);
+    assert.equal(keptWarnings(r).length, 1);
+    assert.ok(keptWarnings(r)[0].includes(BRANCH));
+    assert.ok(!/conflicts with/.test(keptWarnings(r)[0]), 'a clean non-merge is not called a conflict');
+  });
+
+  test('10d. an unpushed commit that conflicts with main: kept and warned, and the warning says it conflicts', () => {
+    setup();
+    startPr();
+    S.g.commitFile(S.root, 'README.md', '# fixture\nbranch edit\n', 'feat(7-01): edit the readme');
+    squashMerge({ 'README.md': '# fixture\nmain edit\n' });
+
+    const r = reconcile();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(localBranches().includes(BRANCH), 'the conflicting branch is kept');
+    assert.deepEqual(r.kept.map((k) => k.branch), [BRANCH]);
+    assert.equal(keptWarnings(r).length, 1);
+    assert.match(keptWarnings(r)[0], /conflicts with main/);
+  });
+
+  test('10e. an unknown is never a delete: when the content check cannot run (an older git), the branch is kept with the usual warning', () => {
+    setup();
+    pushedFeatureThenMergedMain();
+    squashMerge();
+    branchLib._setRunGit((args, opts) => (args[0] === 'merge-tree'
+      ? { ok: false, status: 129, stdout: '', stderr: 'usage: git merge-tree [<options>] <branch1> <branch2>' }
+      : branchLib.realRunGit(args, opts)));
+    let r;
+    try {
+      r = reconcile();
+    } finally {
+      branchLib._resetRunGit();
+    }
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(localBranches().includes(BRANCH), 'kept on an unknown');
+    assert.deepEqual(r.kept.map((k) => k.branch), [BRANCH]);
+    assert.equal(keptWarnings(r).length, 1);
   });
 
   test('11. a dirty tracked file skips every local step with a warning; the GitHub side is still reconciled and the run can be repeated', () => {
