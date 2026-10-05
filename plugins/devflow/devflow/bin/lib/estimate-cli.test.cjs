@@ -12,7 +12,11 @@
 //     5  trd 80-01
 //     6  objective: JSON, the unplanned, done and missing objectives
 //     7  milestone: the table, a milestone with nothing left
-//     8-11 (start, wave, finish) are in the second half of this file
+//     8  start 80 writes the run state: objective '80', two waves with their estimates; the text is `objective 80 --line`
+//     9  wave 1 --start / --done print actual against the estimate; wave 2 --start leaves about a minute (remainingMinutes)
+//     10 no run state: wave --start creates one, wave --done says `actual unknown`; --start with --done is a usage error
+//     11 finish prints the execution actual against the estimate, again idempotently; the status segment is then empty
+//     plus: a spawned `start` (the dispatcher passes the real clock), no calibration, stale state, double --start/--done
 //
 // Hermetic: the project is MILESTONE_SPEC written into an mkdtemp directory, the calibration is the literal CAL_V2 written
 // to a temp file, the run-state directory is a temp directory (DEVFLOW_ESTIMATE_STATE_DIR) and every spawned process gets
@@ -26,6 +30,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { runEstimate, USAGE } = require('./estimate-cli.cjs');
+const store = require('./estimate-run-store.cjs');
 const {
   CAL_V2,
   MILESTONE_SPEC,
@@ -399,5 +404,286 @@ describe('usage and calibration resolution', () => {
   test('every estimate verb reads the clock only from the injected now', () => {
     const src = fs.readFileSync(path.join(__dirname, 'estimate-cli.cjs'), 'utf-8');
     assert.equal(/Date\.now\(\)|new Date\(\)/.test(src.replace(/now = Date\.now\(\)/, '')), false);
+  });
+});
+
+// ─── 8-11: start, wave, finish ────────────────────────────────────────────────
+
+const MIN = 60 * 1000;
+const iso = (ms) => new Date(ms).toISOString();
+
+/** Every path under `dir`, relative and sorted: the project tree must be the same after the run verbs as before. */
+function listTree(dir) {
+  const out = [];
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      out.push(path.relative(dir, full));
+      if (entry.isDirectory()) walk(full);
+    }
+  };
+  walk(dir);
+  return out.sort();
+}
+
+function near(actual, expected, label, tolerance = 0.05) {
+  assert.ok(
+    typeof actual === 'number' && Math.abs(actual - expected) <= tolerance,
+    `${label}: expected ${expected} within ${tolerance}, got ${actual}`,
+  );
+}
+
+describe('8-11: estimate start, wave, finish (one run, one state dir)', () => {
+  let runDir;
+  let treeBefore;
+  const opts = () => ({ env: { DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: runDir } });
+  const step = (argv, at) => ok(run(argv, { ...opts(), now: at }));
+  const readState = () => store.readRunState(root, { env: opts().env });
+
+  before(() => {
+    runDir = path.join(scratch, 'run-state');
+    treeBefore = listTree(root);
+  });
+
+  test('8: start 80 records the objective, its waves and their estimates', () => {
+    const r = step(['start', '80'], T0);
+    const line = ok(run(['objective', '80', '--line'], { now: T0 })).text;
+    assert.equal(r.text, line);
+    assert.equal(r.result.line, line);
+
+    const file = store.statePath(root, { env: opts().env });
+    assert.ok(file.startsWith(runDir + path.sep), file);
+    assert.equal(r.result.run_state.path, file);
+    assert.ok(fs.existsSync(file));
+
+    const state = readState();
+    assert.equal(state.version, 1);
+    assert.equal(state.objective, '80');
+    assert.equal(state.started_at, iso(T0));
+    assert.equal(state.updated_at, iso(T0));
+    assert.equal(state.finished_at, null);
+    assert.equal(state.estimate.line, line);
+    assert.equal(state.estimate.confidence, 'medium');
+    near(state.estimate.wall_minutes.p50, 19.3982, 'execution wall p50');
+    near(state.estimate.wall_minutes.p90, 52.1221, 'execution wall p90');
+
+    assert.equal(state.waves.length, 2);
+    assert.deepEqual(state.waves.map((w) => w.wave), [1, 2]);
+    assert.deepEqual(state.waves[0].trds, ['80-01', '80-02']);
+    assert.deepEqual(state.waves[1].trds, ['80-03']);
+    near(state.waves[0].p50, 12.2554, 'wave 1 p50');
+    near(state.waves[0].p90, 36.0038, 'wave 1 p90');
+    near(state.waves[1].p50, 6, 'wave 2 p50');
+    for (const w of state.waves) {
+      assert.equal(w.started_at, null);
+      assert.equal(w.finished_at, null);
+      assert.equal(w.actual_minutes, null);
+    }
+  });
+
+  test('9: wave 1 --start then --done prints actual against the estimate; wave 2 --start leaves about a minute', () => {
+    const started = step(['wave', '80', '1', '--start'], T0);
+    assert.equal(started.text, 'Wave 1 estimate: 12 min median, P90 36 min');
+    assert.equal(readState().waves[0].started_at, iso(T0));
+
+    const done = step(['wave', '80', '1', '--done'], T0 + 14 * MIN);
+    assert.equal(done.text, 'Wave 1: actual 14 min · estimate 12 min median, P90 36 min · within P90');
+    assert.equal(done.result.verdict, 'within P90');
+    assert.equal(done.result.actual_minutes, 14);
+    const afterDone = readState();
+    assert.equal(afterDone.waves[0].finished_at, iso(T0 + 14 * MIN));
+    assert.equal(afterDone.waves[0].actual_minutes, 14);
+    assert.equal(afterDone.updated_at, iso(T0 + 14 * MIN));
+
+    const second = step(['wave', '80', '2', '--start'], T0 + 15 * MIN);
+    assert.equal(second.text, 'Wave 2 estimate: 6 min median, P90 18 min');
+    const state = readState();
+    assert.equal(state.waves[1].started_at, iso(T0 + 15 * MIN));
+    assert.equal(state.updated_at, iso(T0 + 15 * MIN));
+
+    const left = store.remainingMinutes(state, T0 + 20 * MIN);
+    assert.equal(left.wave, 2);
+    assert.equal(left.waves, 2);
+    assert.equal(left.done, 1);
+    assert.ok(left.minutes >= 1 && left.minutes <= 2, `wave 2's 6 minutes less 5 elapsed leaves about 1: ${JSON.stringify(left)}`);
+    assert.equal(left.over, false);
+  });
+
+  test('9b: a second --start keeps started_at and bumps updated_at; a second --done changes nothing', () => {
+    step(['wave', '80', '2', '--start'], T0 + 16 * MIN);
+    const restarted = readState();
+    assert.equal(restarted.waves[1].started_at, iso(T0 + 15 * MIN));
+    assert.equal(restarted.updated_at, iso(T0 + 16 * MIN));
+
+    const again = step(['wave', '80', '1', '--done'], T0 + 17 * MIN);
+    assert.equal(again.text, 'Wave 1: actual 14 min · estimate 12 min median, P90 36 min · within P90');
+    const state = readState();
+    assert.equal(state.waves[0].finished_at, iso(T0 + 14 * MIN));
+    assert.equal(state.updated_at, iso(T0 + 16 * MIN));
+  });
+
+  test('9c: a wave the state does not hold (a gap-closure wave) is added with null estimates', () => {
+    const r = step(['wave', '80', '3', '--start'], T0 + 18 * MIN);
+    assert.equal(r.text, 'Wave 3: no estimate');
+    const w3 = readState().waves.find((w) => w.wave === 3);
+    assert.deepEqual(w3, {
+      wave: 3, trds: [], p50: null, p90: null, started_at: iso(T0 + 18 * MIN), finished_at: null, actual_minutes: null,
+    });
+  });
+
+  test('11: finish 80 prints the execution actual against the execution estimate, and again on a second call', () => {
+    const first = step(['finish', '80'], T0 + 30 * MIN);
+    assert.equal(first.text, 'Objective 80 execution: actual 30 min · estimate 19 min median, P90 52 min · within P90');
+    assert.equal(first.result.actual_minutes, 30);
+    assert.equal(first.result.verdict, 'within P90');
+    assert.equal(readState().finished_at, iso(T0 + 30 * MIN));
+
+    const second = step(['finish', '80'], T0 + 60 * MIN);
+    assert.equal(second.text, first.text);
+    assert.equal(readState().finished_at, iso(T0 + 30 * MIN));
+    assert.equal(readState().updated_at, iso(T0 + 30 * MIN), 'a second finish does not write');
+
+    assert.equal(store.formatStatusSegment(readState(), T0 + 31 * MIN), '');
+  });
+
+  test('11b: after finish a new --start begins a new run; wave --done on a finished run is unknown', () => {
+    const unknown = step(['wave', '80', '2', '--done'], T0 + 61 * MIN);
+    assert.equal(unknown.text, 'Wave 2: actual unknown (no run state)');
+    assert.equal(readState().finished_at, iso(T0 + 30 * MIN), 'nothing was written');
+
+    const fresh = step(['wave', '80', '1', '--start'], T0 + 62 * MIN);
+    assert.equal(fresh.text, 'Wave 1 estimate: 12 min median, P90 36 min');
+    const state = readState();
+    assert.equal(state.started_at, iso(T0 + 62 * MIN));
+    assert.equal(state.finished_at, null);
+    assert.equal(state.waves.length, 2);
+  });
+
+  test('the run verbs wrote only under the state directory', () => {
+    assert.deepEqual(listTree(root), treeBefore);
+    assert.deepEqual(fs.readdirSync(runDir).filter((f) => f.endsWith('.tmp')), []);
+  });
+});
+
+describe('10: no run state', () => {
+  let dir;
+  const env = () => ({ DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: dir });
+  const step = (argv, at) => run(argv, { env: env(), now: at });
+  const readState = () => store.readRunState(root, { env: env() });
+
+  before(() => {
+    dir = path.join(scratch, 'run-state-10');
+  });
+
+  test('wave --done with no state says so, exits 0 and writes nothing', () => {
+    const r = ok(step(['wave', '80', '1', '--done'], T0));
+    assert.equal(r.text, 'Wave 1: actual unknown (no run state)');
+    assert.equal(r.exit, 0);
+    assert.equal(fs.existsSync(dir), false);
+  });
+
+  test('finish with no state says so, exits 0 and writes nothing', () => {
+    const r = ok(step(['finish', '80'], T0));
+    assert.equal(r.text, 'Objective 80 execution: actual unknown (no run state)');
+    assert.equal(r.exit, 0);
+    assert.equal(fs.existsSync(dir), false);
+  });
+
+  test('wave 81 1 --start creates a run: the unplanned objective gets wave 1 with null estimates', () => {
+    const r = ok(step(['wave', '81', '1', '--start'], T0));
+    assert.equal(r.text, 'Wave 1: no estimate');
+    const state = readState();
+    assert.equal(state.objective, '81');
+    assert.equal(state.started_at, iso(T0));
+    assert.equal(state.estimate.wall_minutes, null);
+    assert.deepEqual(state.waves, [
+      { wave: 1, trds: [], p50: null, p90: null, started_at: iso(T0), finished_at: null, actual_minutes: null },
+    ]);
+    assert.equal(store.formatStatusSegment(state, T0 + MIN), '⏱ 81 W1/1');
+  });
+
+  test('a state for another objective is not the run: wave 80 1 --done is unknown, --start begins a new run', () => {
+    const unknown = ok(step(['wave', '80', '1', '--done'], T0 + MIN));
+    assert.equal(unknown.text, 'Wave 1: actual unknown (no run state)');
+    assert.equal(readState().objective, '81');
+
+    const begun = ok(step(['wave', '80', '1', '--start'], T0 + 2 * MIN));
+    assert.equal(begun.text, 'Wave 1 estimate: 12 min median, P90 36 min');
+    assert.equal(readState().objective, '80');
+  });
+
+  test('a stale run (idle for more than 12 hours) is replaced by --start, not continued', () => {
+    const later = T0 + 13 * 60 * MIN;
+    const r = ok(step(['wave', '80', '2', '--start'], later));
+    assert.equal(r.text, 'Wave 2 estimate: 6 min median, P90 18 min');
+    const state = readState();
+    assert.equal(state.started_at, iso(later));
+    assert.equal(state.waves[0].started_at, null, 'wave 1 of the old run is not carried over');
+  });
+
+  test('start with no usable calibration records the waves with null estimates and says why', () => {
+    const r = ok(step(['start', '80', '--calibration', path.join(scratch, 'absent.json')], T0));
+    assert.ok(r.text.startsWith('No estimate: '), r.text);
+    assert.ok(r.text.includes('df-tools calibrate'), r.text);
+    assert.equal(r.exit, 0);
+    const state = readState();
+    assert.equal(state.estimate.wall_minutes, null);
+    assert.deepEqual(state.waves.map((w) => [w.wave, w.trds, w.p50, w.p90]), [
+      [1, ['80-01', '80-02'], null, null],
+      [2, ['80-03'], null, null],
+    ]);
+    assert.equal(store.formatStatusSegment(state, T0 + MIN), '⏱ 80 W1/2');
+  });
+
+  test('start for an objective that does not exist exits 1 and writes nothing new', () => {
+    const prior = readState();
+    assert.deepEqual(step(['start', '99'], T0), { ok: false, message: 'objective 99 not found' });
+    assert.deepEqual(readState(), prior);
+  });
+
+  test('usage errors: --start with --done, neither, a bad wave number, a missing argument', () => {
+    for (const argv of [
+      ['wave', '80', '1', '--start', '--done'],
+      ['wave', '80', '1'],
+      ['wave', '80', 'one', '--start'],
+      ['wave', '80', '--start'],
+      ['start'],
+      ['finish'],
+      ['finish', '80', '--table'],
+      ['start', 'eighty'],
+    ]) {
+      const r = step(argv, T0);
+      assert.equal(r.ok, false, JSON.stringify(argv));
+      assert.match(r.message, /\nUsage: df-tools estimate /, JSON.stringify(argv));
+    }
+  });
+});
+
+describe('spawned run verbs', () => {
+  test('start through the dispatcher stamps the run with the real clock', () => {
+    const dir = path.join(scratch, 'run-state-spawn');
+    const env = { ...process.env, HOME: fakeHome, DEVFLOW_ESTIMATE_STATE_DIR: dir, DEVFLOW_CALIBRATION_PATH: calFile };
+    const sentAt = Date.now();
+    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', root, 'estimate', 'start', '80', '--raw'], {
+      encoding: 'utf-8', env, timeout: 30000,
+    });
+    const doneAt = Date.now();
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^Objective 80 estimate: 26 min median/);
+
+    const state = store.readRunState(root, { env: { DEVFLOW_ESTIMATE_STATE_DIR: dir } });
+    assert.equal(state.objective, '80');
+    const stamped = Date.parse(state.started_at);
+    assert.ok(stamped >= sentAt - 1000 && stamped <= doneAt + 1000, `${state.started_at} vs ${sentAt}..${doneAt}`);
+  });
+
+  test('wave --done through the dispatcher with no state prints the unknown line', () => {
+    const dir = path.join(scratch, 'run-state-spawn-empty');
+    const env = { ...process.env, HOME: fakeHome, DEVFLOW_ESTIMATE_STATE_DIR: dir, DEVFLOW_CALIBRATION_PATH: calFile };
+    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', root, 'estimate', 'wave', '80', '1', '--done', '--raw'], {
+      encoding: 'utf-8', env, timeout: 30000,
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, 'Wave 1: actual unknown (no run state)');
   });
 });
