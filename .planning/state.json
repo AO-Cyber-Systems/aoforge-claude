@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -770,6 +770,11 @@
       "objective": "59",
       "summary": "merge-driver install records the realpath of the running df-tools.cjs, mapped to the main checkout's copy when run from a linked worktree (refuses if absent)",
       "rationale": "A wave worktree is removed after its merge; a driver pointing into it would be stranded"
+    },
+    {
+      "objective": "59",
+      "summary": "59-05: objective remove and complete report roadmap_updated from a before/after text comparison and write ROADMAP.md only on a change (TOOL-02 rule); objective.test.cjs 48-14 case 1d pins the old defect and needs roadmap_updated: false",
+      "rationale": null
     }
   ],
   "blockers": [],
