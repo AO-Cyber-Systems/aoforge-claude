@@ -973,7 +973,7 @@ node ~/.claude/devflow/bin/df-tools.cjs objective set-status "${OBJECTIVE_NUMBER
 node ~/.claude/devflow/bin/df-tools.cjs gh pr sync "${OBJECTIVE_NUMBER}"
 ```
 
-The verification result is recorded against the PR's head commit on GitHub. Syncing first means GitHub holds the head being verified, so the status lands on the verified head instead of a stale one. This sync must exit 0. On exit 3 (pending) or exit 1, run it again; if it still does not exit 0, STOP and report why, and do not start the verifier. Nothing may be committed to `objective_branch` between this sync and the post. Run the same sync again before every re-verify in the gap-closure loop below, because the fix TRDs moved the head.
+The verification result is recorded against the PR's head commit on GitHub. Syncing first means GitHub holds the head being verified, so the status lands on the verified head instead of a stale one. This sync must exit 0. On exit 3 (pending) or exit 1, run it again; if it still does not exit 0, STOP and report why, and do not start the verifier. Nothing may be committed to `objective_branch` between this sync and the post. Run the same sync again before every re-verify in the gap-closure loop below, because the fix TRDs moved the head. A `verification post` while the linked branch has commits that GitHub does not have is refused for that reason: it exits 1 naming `df-tools gh pr sync <objective>`, and writes and queues nothing. The remedy is the sync above, then the verification again on the pushed head.
 
 The verifier's `verification post` does the rest: it queues the verification comment, the commit status, the ready-for-review change and the wiki diff when the verdict is `passed`. Do not call any of those from here.
 
@@ -1077,7 +1077,7 @@ MAX_GAP_CYCLES=2
    Spawn executor agents for gap-closure TRDs (same wave-based execution as main execute step).
 
 3. **Re-verify:**
-   If `pr_lifecycle` is true, run `gh pr sync` first (see the sync before the verifier above). Re-run verification. Read new status.
+   If `pr_lifecycle` is true, run `gh pr sync` first (see the sync before the verifier above); `verification post` refuses an unsynced head and names that command. Re-run verification. Read new status.
 
    - `passed` → Break loop, continue to update_roadmap
    - `gaps_found` → Continue loop (next cycle)
@@ -1164,7 +1164,7 @@ node ~/.claude/devflow/bin/df-tools.cjs gh pr merge "${OBJECTIVE_NUMBER}"
 - exit 0: merged and reconciled in the same call. The issues are closed, the Project is Done, the checkout is back on the default branch and the objective branch is deleted.
 - exit 3: the PR was only enqueued in the merge queue (or the flush is pending). Nothing is wrong. Tell the user to run `gh pr reconcile` once it lands (below).
 - exit 2: the outbox halted for a human. Stop and report the PR and the reason it printed.
-- exit 1: refused (still a draft, no successful `devflow/verification` status on the current head, closed, or offline). Nothing was queued. Report the message. A missing or stale verification means `gh pr sync` and the verification have to be redone (`verify_objective_goal`); do not retry the merge unchanged.
+- exit 1: refused (still a draft, the linked branch has unpushed commits, no successful `devflow/verification` status on the current head, closed, or offline). Nothing was queued. Report the message. The draft check comes first: a draft PR is refused with "PR is still a draft; run verification first" even when the branch also has unpushed commits, and only a ready PR gets the unpushed refusal, which names `df-tools gh pr sync <objective>`. A missing or stale verification, or unpushed commits, mean `gh pr sync` and the verification have to be redone (`verify_objective_goal`); do not retry the merge unchanged.
 - Warnings (a kept branch, a skipped Project or local step) arrive on stderr with exit 0. Show them; do not swallow them.
 
 Then reconcile:
