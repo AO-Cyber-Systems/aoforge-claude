@@ -189,7 +189,7 @@ TRDs:
 - [x] 58-02-agent-overhead-reader-TRD.md — (W1) EST-03 input: `agent-overhead.cjs` per-spawn minutes and tokens for planner/job-checker/verifier/researcher/integration-checker/roadmapper transcripts, repo-scoped, quick plans excluded
 - [x] 58-03-calibration-v2-TRD.md — (W2) EST-03 input: calibration.json v2 `agent_overhead` + `objective_level`; `calibrate --root | --no-overhead`
 - [x] 58-04-run-state-and-statusline-TRD.md — (W1) EST-05: out-of-repo estimate run state (`~/.claude/devflow/state/estimates/`), remaining-time rule, status line segment (fail-open, cached only)
-- [ ] 58-05-task-and-trd-estimates-TRD.md — (W2) EST-02/03: `estimate.cjs` shared classifier, confidence labels, thin-class fallback, no-data reasons, TRD composition
+- [x] 58-05-task-and-trd-estimates-TRD.md — (W2) EST-02/03: `estimate.cjs` shared classifier, confidence labels, thin-class fallback, no-data reasons, TRD composition
 - [ ] 58-06-objective-rollup-TRD.md — (W3) EST-03: remaining TRDs by wave, verifier overhead, gap-closure mixture, unplanned fallback from objective history
 - [ ] 58-07-milestone-rollup-TRD.md — (W4) EST-03: milestone scope from the ROADMAP bullet, remaining objectives + integration-checker overhead
 - [ ] 58-08-estimate-cli-TRD.md — (W5) EST-02/03/05: `df-tools estimate task|trd|objective|milestone|start|wave|finish`, text renderers (line, table), help and dispatch

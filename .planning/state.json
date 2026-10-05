@@ -710,6 +710,16 @@
       "objective": "58",
       "summary": "calibration v2 inputs_digest hashes overhead samples plus counts; --no-overhead raw line says 'overhead skipped' not 'none'",
       "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "overallConfidence ties go to the larger p50 then the earlier component; a null-p50 component has an unknown share and always counts; a TRD with no auto tasks is confidence none, nothing to judge is n/a",
+      "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "estimateTask confidence and samples cover only the metrics present; a metric with no samples anywhere is null and listed in missing, never defaulted",
+      "rationale": null
     }
   ],
   "blockers": [],
