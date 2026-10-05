@@ -169,7 +169,7 @@ TRDs:
 - [x] 57-03-forward-token-stamp-TRD.md — (W2) EST-06: `df-tools tokens trd|stamp`; executor.md and execute-trd.md stamp the SUMMARY draft before `summary post`; template fields; record-metric `--job` fix
 - [x] 57-04-token-backfill-TRD.md — (W2) EST-07: `planBackfill` (dry run, recovered/unrecovered by reason) and `applyBackfill` through `summary post`
 - [x] 57-05-calibrator-TRD.md — (W2) EST-01: per-class p50/P90 minutes, tokens and dollars; probabilities; deterministic calibration.json writer
-- [ ] 57-06-tokens-and-calibrate-cli-TRD.md — (W3) `df-tools tokens backfill [--write]` and `df-tools calibrate` with spawn-level determinism tests (fake HOME)
+- [x] 57-06-tokens-and-calibrate-cli-TRD.md — (W3) `df-tools tokens backfill [--write]` and `df-tools calibrate` with spawn-level determinism tests (fake HOME)
 - [ ] 57-07-backfill-dogfood-and-docs-TRD.md — (W4) live backfill of this repo (diff-guarded), real calibrate twice (same sha256), live stamp of its own SUMMARY, CHANGELOG/CLAUDE.md/USER-GUIDE
 
 ### Objective 58: Estimation engine and surfacing
@@ -267,7 +267,7 @@ TRDs:
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
-| 57. Estimation data foundation | v1.5 | 5/7 | In Progress | - |
+| 57. Estimation data foundation | v1.5 | 6/7 | In Progress | - |
 | 58. Estimation engine and surfacing | v1.5 | 0/0 | Not started | - |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |

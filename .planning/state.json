@@ -680,6 +680,11 @@
       "objective": "57",
       "summary": "tokens stamp writes the SUMMARY draft, never .planning/; no transcript is exit 0 stamped:false so summary post is never blocked",
       "rationale": "Keeps the D-01 invariant (every planning write goes through summary post) and tolerates retention, older runtimes and non-Claude-Code harnesses"
+    },
+    {
+      "objective": "57",
+      "summary": "calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json",
+      "rationale": "57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json"
     }
   ],
   "blockers": [],

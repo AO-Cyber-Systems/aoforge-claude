@@ -123,6 +123,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 57]: 57-01: executor token totals are deduped per API message (message.id) and scoped to one repo (REPO_ROOT, else cwd in the repo or its .df-worktrees, else a <repo>/.planning/ path) and, for a shared objective number, to the directory the prompt names; otherwise ambiguous_objective
 - [Objective 57]: 57-01: executor TRD identification lives in lib/trd-identify.cjs; hooks/gate-executor-stop.js requires and re-exports it (the runtime mirror ships no hooks/)
 - [Objective 57]: tokens stamp writes the SUMMARY draft, never .planning/; no transcript is exit 0 stamped:false so summary post is never blocked — Keeps the D-01 invariant (every planning write goes through summary post) and tolerates retention, older runtimes and non-Claude-Code harnesses
+- [Objective 57]: calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json — 57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json
 
 ## Performance Metrics
 
@@ -193,4 +194,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 56 P05 | 4min | 2 tasks | 2 files |
 | Objective 57 P01 | 15min | 3 tasks | 8 files |
 | Objective 57 P03 | 13min | 2 tasks | 7 files |
+| Objective 57 P06 | 7min | 2 tasks | 6 files |
 
