@@ -18,9 +18,14 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync, spawnSync } = require('child_process');
 
 const fx = require('./__fixtures__/transcript-fixtures.cjs');
+const ufx = require('./__fixtures__/upgrade-fixtures.cjs');
+const ghMapping = require('./gh-mapping.cjs');
 const backfill = require('./token-backfill.cjs');
+
+const HAS_GIT = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
 
 const cleanup = [];
 afterEach(() => {
@@ -230,5 +235,164 @@ describe('57-04 formatBackfillReport', () => {
     );
     const clean = { ...synthetic, counts: { summaries: 2, already_stamped: 0, recovered: 2, unrecovered: 0, by_reason: {} } };
     assert.equal(backfill.formatBackfillReport(clean).split('\n')[0], 'summaries 2 · already stamped 0 · recovered 2 · unrecovered 0');
+  });
+});
+
+// ─── applyBackfill ────────────────────────────────────────────────────────────
+
+const REL_99_01 = '.planning/objectives/99-demo/99-01-demo-SUMMARY.md';
+const REL_99_02 = '.planning/objectives/99-demo/99-02-SUMMARY.md';
+const OLD_99_01 = SUMMARIES['99-demo/99-01-demo-SUMMARY.md'];
+
+/** 99-01 as backfill must leave it: the six token lines directly before the closing `---`, nothing else changed. */
+const STAMPED_99_01 = '---\nobjective: 99-demo\ntrd: "01"\n'
+  + 'tokens_input: 140747\ntokens_output: 1370\ntokens_cache_read: 121144\ntokens_cache_write: 19596\n'
+  + 'token_model: "claude-opus-5-5"\ntokens_source: "backfill"\n'
+  + '---\n\n# Summary 99-demo 01\n\nHand-written body.\n';
+
+/** 99-02 after a forced backfill: 5 and 6 replaced in place, the other four fields appended. */
+const FORCED_99_02 = '---\nobjective: 99-demo\ntrd: "02"\n'
+  + 'tokens_input: 140747\ntokens_output: 1370\n'
+  + 'tokens_cache_read: 121144\ntokens_cache_write: 19596\ntoken_model: "claude-opus-5-5"\ntokens_source: "backfill"\n'
+  + '---\n\n# Summary 99-demo 02\n\nHand-written body.\n';
+
+const readAt = (root, rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+
+/** `snapshot(dir)` without one relative path. */
+function snapshotWithout(dir, rel) {
+  const snap = snapshot(dir);
+  delete snap[rel];
+  return snap;
+}
+
+describe('57-04 applyBackfill: writes only through the summary post verb', () => {
+  test('3. stamps the recovered SUMMARY in place (no second SUMMARY), every other file unchanged', () => {
+    const { repo, root } = buildBackfillRepo();
+    const plan = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
+    const othersBefore = snapshotWithout(repo, REL_99_01);
+
+    const applied = backfill.applyBackfill(plan, { checkoutRoot: repo });
+    assert.deepEqual(applied, { written: ['99-01'], unchanged: [], skipped: [], write_failed: [] });
+
+    assert.equal(readAt(repo, REL_99_01), STAMPED_99_01);
+    assert.notEqual(STAMPED_99_01, OLD_99_01);
+    assert.equal(STAMPED_99_01.replace(/tokens_[a-z_]+: [^\n]+\n|token_model: [^\n]+\n/g, ''), OLD_99_01, 'only the six lines were added');
+    assert.deepEqual(fs.readdirSync(path.join(repo, '.planning/objectives/99-demo')).sort(), [
+      '99-01-demo-SUMMARY.md', '99-01-demo-TRD.md', '99-02-SUMMARY.md', '99-02-more-TRD.md',
+    ]);
+    assert.deepEqual(snapshotWithout(repo, REL_99_01), othersBefore);
+  });
+
+  test('4. idempotent: a second plan recovers nothing and its apply writes nothing', () => {
+    const { repo, root } = buildBackfillRepo();
+    backfill.applyBackfill(backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root }), { checkoutRoot: repo });
+
+    const again = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
+    assert.equal(again.counts.recovered, 0);
+    assert.equal(again.counts.already_stamped, 2);
+    const before = snapshot(repo);
+    assert.deepEqual(backfill.applyBackfill(again, { checkoutRoot: repo }), { written: [], unchanged: [], skipped: [], write_failed: [] });
+    assert.deepEqual(snapshot(repo), before);
+  });
+
+  test('5. force: an already stamped SUMMARY is untouched without force and recomputed with it', () => {
+    const { repo, root, addTranscript } = buildBackfillRepo();
+    addTranscript({ id: '99-02', objectiveDir: '99-demo', session: 'sess-99-02', agentId: 'a9902', description: 'Execute TRD 99-02' });
+    const before99_02 = readAt(repo, REL_99_02);
+
+    const plain = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
+    assert.equal(plain.entries.find((e) => e.file === '99-02-SUMMARY.md').status, 'already_stamped');
+    backfill.applyBackfill(plain, { checkoutRoot: repo });
+    assert.equal(readAt(repo, REL_99_02), before99_02, 'without force the 5 / 6 stay');
+
+    // Reset 99-01 so the forced plan has two recoverable SUMMARIES.
+    fs.writeFileSync(path.join(repo, REL_99_01), OLD_99_01);
+    const forced = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root, force: true });
+    assert.equal(forced.entries.find((e) => e.file === '99-02-SUMMARY.md').status, 'recovered');
+    assert.equal(forced.counts.recovered, 2);
+    assert.deepEqual(backfill.applyBackfill(forced, { checkoutRoot: repo, force: true }),
+      { written: ['99-01', '99-02'], unchanged: [], skipped: [], write_failed: [] });
+    assert.equal(readAt(repo, REL_99_02), FORCED_99_02);
+  });
+
+  test('5b. a conflicting existing value is never overwritten without force; unchanged is reported on a re-apply', () => {
+    const { repo, root, addTranscript } = buildBackfillRepo();
+    const half = summaryText('99-demo', '04', 'tokens_input: 5\n');
+    writeAt(repo, '.planning/objectives/99-demo/99-04-SUMMARY.md', half);
+    addTranscript({ id: '99-04', objectiveDir: '99-demo', session: 'sess-99-04', agentId: 'a9904', description: 'Execute TRD 99-04' });
+
+    const plan = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
+    assert.equal(plan.entries.find((e) => e.file === '99-04-SUMMARY.md').status, 'recovered', 'tokens_output is missing, so it is not stamped');
+
+    const first = backfill.applyBackfill(plan, { checkoutRoot: repo });
+    assert.deepEqual(first, {
+      written: ['99-01'],
+      unchanged: [],
+      skipped: [{ id: '99-04', file: '99-04-SUMMARY.md', objective_dir: '99-demo', reason: 'token_conflict' }],
+      write_failed: [],
+    });
+    assert.equal(readAt(repo, '.planning/objectives/99-demo/99-04-SUMMARY.md'), half, 'the 5 was not overwritten and nothing was half-written');
+
+    const second = backfill.applyBackfill(plan, { checkoutRoot: repo, force: true });
+    assert.deepEqual(second, { written: ['99-04'], unchanged: ['99-01'], skipped: [], write_failed: [] });
+    assert.equal(
+      readAt(repo, '.planning/objectives/99-demo/99-04-SUMMARY.md'),
+      '---\nobjective: 99-demo\ntrd: "04"\ntokens_input: 140747\n'
+        + 'tokens_output: 1370\ntokens_cache_read: 121144\ntokens_cache_write: 19596\ntoken_model: "claude-opus-5-5"\ntokens_source: "backfill"\n'
+        + '---\n\n# Summary 99-demo 04\n\nHand-written body.\n',
+    );
+  });
+
+  test('7. directory guard: a shared objective number is written only when summary post resolves to that directory', () => {
+    const { repo, root } = buildBackfillRepo({ tenOne: '10-beta' });
+    const plan = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
+    assert.deepEqual(summed(plan.entries.find((e) => e.objective_dir === '10-beta')), ['10-beta', '10-01-SUMMARY.md', 'recovered', null]);
+    assert.deepEqual(summed(plan.entries.find((e) => e.objective_dir === '10-alpha')), ['10-alpha', '10-01-SUMMARY.md', 'unrecovered', 'no_transcript']);
+
+    const alphaRel = '.planning/objectives/10-alpha/10-01-SUMMARY.md';
+    const betaRel = '.planning/objectives/10-beta/10-01-SUMMARY.md';
+    const alphaBefore = readAt(repo, alphaRel);
+    const betaBefore = readAt(repo, betaRel);
+
+    const resolved = ghMapping.resolveObjective(repo, '10').dir;
+    const applied = backfill.applyBackfill(plan, { checkoutRoot: repo });
+    if (resolved === '10-beta') {
+      assert.deepEqual(applied, { written: ['10-01', '99-01'], unchanged: [], skipped: [], write_failed: [] });
+      assert.notEqual(readAt(repo, betaRel), betaBefore);
+    } else {
+      assert.deepEqual(applied, {
+        written: ['99-01'],
+        unchanged: [],
+        skipped: [{ id: '10-01', file: '10-01-SUMMARY.md', objective_dir: '10-beta', reason: 'ambiguous_objective_dir' }],
+        write_failed: [],
+      });
+      assert.equal(readAt(repo, betaRel), betaBefore, 'the skipped file is unchanged');
+    }
+    assert.equal(readAt(repo, alphaRel), alphaBefore, '10-alpha is untouched either way');
+  });
+
+  test('8. worktree: transcripts match the main checkout, the SUMMARY is read from and written to the worktree', { skip: !HAS_GIT && 'git not available' }, () => {
+    const { repo, root } = buildBackfillRepo();
+    const home = ufx.makeFakeHome();
+    const holder = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-backfill-wt-')));
+    cleanup.push(home, holder);
+    ufx.initGitFixture(repo, home);
+    const env = ufx.gitEnv(home);
+    const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+    git(repo, 'worktree', 'add', '-q', '-b', 'df/exec-99-01', path.join(holder, 'wt'));
+    const wt = fs.realpathSync(path.join(holder, 'wt'));
+
+    const plan = backfill.planBackfill({ checkoutRoot: wt, repoRoot: repo, root });
+    assert.equal(plan.checkout, wt);
+    assert.equal(plan.repo, repo);
+    assert.equal(plan.entries.find((e) => e.file === '99-01-demo-SUMMARY.md').status, 'recovered', 'transcripts name the main checkout');
+
+    const applied = backfill.applyBackfill(plan, { checkoutRoot: wt });
+    assert.deepEqual(applied, { written: ['99-01'], unchanged: [], skipped: [], write_failed: [] });
+    assert.equal(readAt(wt, REL_99_01), STAMPED_99_01, 'the worktree copy is stamped');
+    assert.equal(readAt(repo, REL_99_01), OLD_99_01, 'the main checkout copy is byte-identical');
+    assert.equal(git(repo, 'status', '--porcelain'), '', 'main has no change');
+    assert.equal(git(wt, 'status', '--porcelain'), ` M ${REL_99_01}`, 'the worktree has exactly the one stamped SUMMARY');
   });
 });
