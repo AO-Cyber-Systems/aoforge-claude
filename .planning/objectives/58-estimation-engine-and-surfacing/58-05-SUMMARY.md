@@ -22,5 +22,5 @@ key-files:
 **In progress.**
 
 ## Progress
-- [x] Task 1: Estimate fixtures, calibration loading, confidence and estimateTask — RED ebc43a68, GREEN (this commit)
-- [ ] Task 2: TRD composition, overall confidence and TRD lookup — next step: add tests 5-10 to estimate.test.cjs (RED), then overallConfidence, estimateTrdText, resolveTrd, estimateTrd
+- [x] Task 1: Estimate fixtures, calibration loading, confidence and estimateTask — RED ebc43a68, GREEN adb8b2a9
+- [ ] Task 2: TRD composition, overall confidence and TRD lookup — RED (this commit); next step: add overallConfidence, estimateTrdText, resolveTrd, estimateTrd to plugins/devflow/devflow/bin/lib/estimate.cjs so tests 5-10 pass
