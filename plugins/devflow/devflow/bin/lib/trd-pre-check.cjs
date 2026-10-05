@@ -29,6 +29,7 @@ const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const trdBulk = require('./trd-bulk.cjs');
 const { objectiveNumPattern } = require('./text-escape.cjs');
+const { roadmapRequirementIds } = require('./requirement-ids.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -120,6 +121,10 @@ function parseTrdRequirements(reqField) {
 /**
  * Extract requirement IDs declared in ROADMAP.md for the given objective number.
  * Returns { ids: string[], found: boolean }
+ *
+ * `found` is true when the objective's section carries a Requirements label (either colon placement), even when it
+ * yields no IDs. IDs are read by requirement-ids.cjs from ID-shaped list items only, so a free-text line such as
+ * `none (tech debt; ...)` declares nothing; ranges (`GWP-01..GWP-05`) expand and `<objective>-<n>` is an ID.
  */
 function extractRoadmapRequirements(cwd, objectiveNum) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
@@ -144,15 +149,8 @@ function extractRoadmapRequirements(cwd, objectiveNum) {
     ? rest.slice(0, firstNewline + 1 + nextHeaderMatch.index)
     : rest;
 
-  // Find **Requirements:** line (with or without brackets)
-  const reqLineMatch = section.match(/\*\*Requirements:\*\*\s*(\[?[^\]\n]+\]?)/i);
-  if (!reqLineMatch) return { ids: [], found: false };
-
-  const rawReqs = reqLineMatch[1].replace(/^\[|\]$/g, '').trim();
-  if (!rawReqs) return { ids: [], found: true };
-
-  const ids = rawReqs.split(/,\s*/).map(s => s.trim()).filter(Boolean);
-  return { ids, found: true };
+  // `**Requirements:**` and `**Requirements**:`, inline or as a bullet block; IDs come only from ID-shaped items.
+  return roadmapRequirementIds(section, { objective: objectiveNum });
 }
 
 /**
