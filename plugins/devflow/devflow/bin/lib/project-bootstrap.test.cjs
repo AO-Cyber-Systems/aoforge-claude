@@ -296,7 +296,7 @@ test('O6 — bootstrapObjectiveMd: ROADMAP.md has "### Objective 5:" + "**Goal:*
   }
 });
 
-test('O12 — bootstrapObjectiveMd: v1.5 "**Goal**: baz" (colon outside the bold) → stub carries the goal, not the placeholder', () => {
+test('O16 — bootstrapObjectiveMd: v1.5 "**Goal**: baz" (colon outside the bold) → stub carries the goal, not the placeholder', () => {
   const roadmap = [
     '# Roadmap',
     '',
@@ -323,7 +323,7 @@ test('O12 — bootstrapObjectiveMd: v1.5 "**Goal**: baz" (colon outside the bold
   }
 });
 
-test('O13 — bootstrapObjectiveMd: "### Objective 05:" heading + "**Goal:** baz" for dir 05-foo-bar → name and goal read', () => {
+test('O17 — bootstrapObjectiveMd: "### Objective 05:" heading + "**Goal:** baz" for dir 05-foo-bar → name and goal read', () => {
   const roadmap = [
     '# Roadmap',
     '',

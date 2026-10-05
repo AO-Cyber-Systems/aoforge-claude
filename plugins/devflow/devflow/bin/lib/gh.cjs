@@ -25,6 +25,7 @@ const path = require('path');
 const { output, execGit } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { boldLabelPattern } = require('./text-escape.cjs');
 const { recordSync, hashFrontmatter } = require('./sync-state.cjs');
 const client = require('./gh-client.cjs');
 const bodyLib = require('./gh-body.cjs');
@@ -633,6 +634,9 @@ function ghStatus(cwd) {
 
 // ─── ROADMAP parsing ─────────────────────────────────────────────────────────
 
+// `**Goal:**` and `**Goal**:` (the v1.5 ROADMAP form) both read.
+const GOAL_RE = new RegExp(boldLabelPattern('Goal') + '\\s*([^\\n]+)', 'i');
+
 function listObjectives(cwd) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) return [];
@@ -648,7 +652,7 @@ function listObjectives(cwd) {
     const next = tail.slice(1).match(/\n#{2,4}\s+Objective\s+\d/i);
     const sectionEnd = next ? headerIdx + 1 + next.index : content.length;
     const section = content.slice(headerIdx, sectionEnd).trim();
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
+    const goalMatch = section.match(GOAL_RE);
     const criteriaMatch = section.match(/\*\*Success Criteria\*\*[^\n]*:\s*\n((?:\s*\d+\.\s*[^\n]+\n?)+)/i);
     const successCriteria = criteriaMatch
       ? criteriaMatch[1].trim().split('\n').map(l => l.replace(/^\s*\d+\.\s*/, '').trim()).filter(Boolean)
