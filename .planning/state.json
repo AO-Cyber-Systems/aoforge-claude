@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 100,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -664,6 +664,16 @@
     {
       "objective": "56",
       "summary": "Changelog names the reconcile command sync-roadmap; dogfood ran through the repo CLI, not the ~/.claude/devflow mirror, so merged fixes were exercised",
+      "rationale": null
+    },
+    {
+      "objective": "57",
+      "summary": "Model dollar rates live in references/model-rates.json (source + as_of per entry), separate from model-profiles.json",
+      "rationale": null
+    },
+    {
+      "objective": "57",
+      "summary": "Bare-number durations parse to null and ambiguous objective numbers in metric rows join nothing; both are counted, never guessed",
       "rationale": null
     }
   ],
