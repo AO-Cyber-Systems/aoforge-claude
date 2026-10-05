@@ -22,6 +22,7 @@
 // added in store mode, where objective 50's gate refuses a bare `df-tools commit` on the default or an unlinked branch.
 
 const setupLib = require('./gh-setup.cjs');
+const client = require('./gh-client.cjs');
 const helpers = require('./helpers.cjs');
 const planningMode = require('./planning-mode.cjs');
 const { branchCommitSteps, commitCommand } = require('./commit-steps.cjs');
@@ -95,6 +96,12 @@ function countLine(outcomes) {
 const SETUP_BRANCH = 'devflow-setup';
 const SETUP_COMMIT_MESSAGE = 'chore: add the DevFlow checks workflow and pull request template';
 
+/** `github.pr.merge_method` as `gh pr merge` spells it: merge | squash | rebase, squash when unset or unknown (as gh-pr.cjs reads it). */
+function mergeMethodOf(cwd) {
+  const pr = ((client.readConfig(cwd) || {}).github || {}).pr;
+  return pr && ['merge', 'squash', 'rebase'].includes(pr.merge_method) ? pr.merge_method : 'squash';
+}
+
 /**
  * What to do with the files apply wrote, and why the order of the merge matters. The commit follow-up is the commit-steps
  * builder's sequence (TRD 52-01), runnable as printed: the store form (logged escape, `gh pr start` route) when `cwd` is
@@ -110,7 +117,9 @@ function filesLines(cwd, files, outcomes) {
   const ruleset = outcomes.find((o) => o.kind === 'ruleset');
   if (ruleset && ['created', 'updated', 'exists'].includes(ruleset.status)) {
     lines.push('The ruleset requires devflow/linked-issue and devflow/planning-consistency, and those checks exist only once the workflow is on the default branch.',
-      'Merge the workflow pull request first: until it is merged nothing can merge into the default branch, so an admin may need to bypass the ruleset once for that pull request.');
+      'Merge the workflow pull request first. Its required checks cannot pass until the workflow is on the default branch, so merge it with '
+        + `the repository-admin bypass the ruleset grants: gh pr merge <number> --admin --${mergeMethodOf(cwd)} `
+        + '(or "Merge without waiting for requirements to be met" in the web UI). Every later pull request goes through the checks and the merge queue.');
   }
   return lines;
 }
