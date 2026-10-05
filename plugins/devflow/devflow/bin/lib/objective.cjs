@@ -5,7 +5,8 @@ const path = require('path');
 const { output, error, normalizeObjectiveName, objectiveDirMatches, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const planningMode = require('./planning-mode.cjs');
-const { escapeRegExp, objectiveNumPattern } = require('./text-escape.cjs');
+const { escapeRegExp, objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
+const { roadmapRequirementIds } = require('./requirement-ids.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -760,9 +761,11 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   if (!isDecimal) {
     const removedInt = parseInt(normalized, 10);
 
-    // Collect all integer objectives > removedInt
+    // Collect all integer objectives > removedInt. Ascending: each number moves down by one exactly once. A descending
+    // pass renamed 5 -> 4 and then 4 -> 3 on the next iteration, collapsing every later objective onto the removed one.
     const maxObjective = 99; // reasonable upper bound
-    for (let oldNum = maxObjective; oldNum > removedInt; oldNum--) {
+    const dependsOnLine = new RegExp(`^[^\\n]*${boldLabelPattern('Depends on')}[^\\n]*$`, 'gim');
+    for (let oldNum = removedInt + 1; oldNum <= maxObjective; oldNum++) {
       const newNum = oldNum - 1;
       const oldStr = String(oldNum);
       const newStr = String(newNum);
@@ -793,10 +796,10 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
         `$1${newStr}. `
       );
 
-      // Depends on references
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(Depends on:\\*\\*\\s*Objective\\s+)${oldStr}\\b`, 'gi'),
-        `$1${newStr}`
+      // Depends on references: every `Objective N` on a `**Depends on:**` or `**Depends on**:` line, including list
+      // items the rule above cannot see (`Objective 4, Objective 5, ...`: a comma is not `[:\s]`).
+      roadmapContent = roadmapContent.replace(dependsOnLine, (line) =>
+        line.replace(new RegExp(`(Objective\\s+)${oldStr}(?!\\.?\\d)`, 'gi'), `$1${newStr}`)
       );
     }
   }
@@ -904,16 +907,18 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
       // keeps a checklist mention of `Objective N` from starting the scan in an earlier section.
       const headerRe = new RegExp(`^#{2,4}\\s*Objective\\s+${objectiveNumPattern(objectiveNum)}\\s*:`, 'im');
       const header = headerRe.exec(roadmapContent);
-      let reqMatch = null;
+      let found = false;
+      let reqIds = [];
       if (header) {
         const rest = roadmapContent.slice(header.index + header[0].length);
         const next = rest.search(/\n#{2,4}\s*Objective\s+\d/i);
         const section = next === -1 ? rest : rest.slice(0, next);
-        reqMatch = section.match(/\*\*Requirements:\*\*\s*([^\n]+)/i);
+        // Same rule as `verify trd-pre` (TRD 56-03): `**Requirements:**` or `**Requirements**:`, IDs from ID-shaped
+        // list items only, so a free-text line such as `none (tech debt; ...)` ticks nothing.
+        ({ found, ids: reqIds } = roadmapRequirementIds(section, { objective: objectiveNum }));
       }
 
-      if (reqMatch) {
-        const reqIds = reqMatch[1].replace(/[\[\]]/g, '').split(/[,\s]+/).map(r => r.trim()).filter(Boolean);
+      if (found && reqIds.length > 0) {
         let reqContent = fs.readFileSync(reqPath, 'utf-8');
 
         for (const reqId of reqIds) {

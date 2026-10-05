@@ -1196,3 +1196,147 @@ describe('56-02 objective directory lookups are exact', () => {
     assert.equal(objectiveDirMatches('04-a', '04'), true);
   });
 });
+
+// ─── 56-03: requirement IDs and Depends-on renumbering (ONUM-04) ─────────────
+
+describe('56-03 objective complete reads `**Requirements**:` through requirement-ids', () => {
+  const REQUIREMENTS = `# Requirements
+
+- [ ] **R-1**: First
+- [ ] **R-2**: Second
+- [ ] **R-3**: Third
+
+## Traceability
+
+| Requirement | Objective | Status |
+|---|---|---|
+| R-1 | Objective 1 | Pending |
+| R-2 | Objective 1 | Pending |
+| R-3 | Objective 2 | Pending |
+`;
+
+  // Test 5. RED before the fix: the v1.5 label `**Requirements**:` (colon outside the bold) was never found,
+  // so completing the objective ticked nothing.
+  test('5: `**Requirements**: R-1, R-2` ticks R-1 and R-2 only', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), `# Roadmap
+
+### Objective 1: Auth
+
+**Goal**: Auth.
+**Requirements**: R-1, R-2
+**Jobs:** 1 jobs
+
+### Objective 2: API
+
+**Goal**: API.
+**Requirements**: R-3
+`, 'utf-8');
+    fs.writeFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), REQUIREMENTS, 'utf-8');
+    const dir = path.join(project, '.planning', 'objectives', '01-auth');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '01-01-TRD.md'), '# TRD\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '01-01-SUMMARY.md'), '# Summary\n', 'utf-8');
+
+    const r = run(['objective', 'complete', '1'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const req = fs.readFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    assert.match(req, /^- \[x\] \*\*R-1\*\*: First$/m, 'R-1 is ticked');
+    assert.match(req, /^- \[x\] \*\*R-2\*\*: Second$/m, 'R-2 is ticked');
+    assert.match(req, /^- \[ \] \*\*R-3\*\*: Third$/m, 'R-3 stays unticked');
+    assert.match(req, /^\| R-1 \| Objective 1 \| Complete \|$/m, 'R-1 row is Complete');
+    assert.match(req, /^\| R-2 \| Objective 1 \| Complete \|$/m, 'R-2 row is Complete');
+    assert.match(req, /^\| R-3 \| Objective 2 \| Pending \|$/m, 'R-3 row stays Pending');
+  });
+});
+
+describe('56-03 objective remove renumbers later objectives and their `**Depends on**:` lines', () => {
+  function removeProject(dirs, roadmap) {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    for (const dir of dirs) {
+      fs.mkdirSync(path.join(project, '.planning', 'objectives', dir), { recursive: true });
+    }
+    return project;
+  }
+
+  const SECTIONS = `# Roadmap
+
+### Objective 3: C
+
+**Goal**: c
+
+### Objective 4: D
+
+**Goal**: d
+
+### Objective 5: E
+
+**Goal**: e
+**Depends on**: Objective 4
+
+### Objective 6: F
+
+**Goal**: f
+**Depends on**: Objective 4, Objective 5
+`;
+
+  // The renumber loop used to run from 99 down, so a heading renamed 5 -> 4 was renamed again 4 -> 3 on the next pass
+  // and every later objective collapsed onto the removed number.
+  test('7a: removing 3 renames headings 4, 5, 6 to 3, 4, 5 once each', () => {
+    const project = removeProject(['03-c', '04-d', '05-e', '06-f'], SECTIONS);
+    const r = run(['objective', 'remove', '3', '--confirm'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.deepEqual(after.match(/^### Objective .*$/gm), [
+      '### Objective 3: D',
+      '### Objective 4: E',
+      '### Objective 5: F',
+    ]);
+  });
+
+  // Test 7. RED before the fix: `Objective 4,` (a comma is not `[:\s]`) was never renumbered, and the label with the
+  // colon outside the bold (`**Depends on**:`) did not match the Depends-on rule.
+  test('7: `**Depends on**: Objective 4, Objective 5` becomes `Objective 3, Objective 4`', () => {
+    const project = removeProject(['03-c', '04-d', '05-e', '06-f'], SECTIONS);
+    const r = run(['objective', 'remove', '3', '--confirm'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.match(after, /^\*\*Depends on\*\*: Objective 3$/m, 'objective 5 (now 4) depends on 4 (now 3)');
+    assert.match(after, /^\*\*Depends on\*\*: Objective 3, Objective 4$/m, 'objective 6 (now 5) depends on 4, 5 (now 3, 4)');
+  });
+
+  test('7b: a three-item list renumbers every item, in either colon placement', () => {
+    const project = removeProject(['03-c', '04-d', '05-e', '06-f', '07-g'], `# Roadmap
+
+### Objective 3: C
+
+**Goal**: c
+
+### Objective 4: D
+
+**Goal**: d
+
+### Objective 5: E
+
+**Goal**: e
+
+### Objective 6: F
+
+**Goal**: f
+
+### Objective 7: G
+
+**Goal**: g
+**Depends on:** Objective 4, Objective 5, Objective 6 (note, see 4.1)
+`);
+    const r = run(['objective', 'remove', '3', '--confirm'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.match(after, /^\*\*Depends on:\*\* Objective 3, Objective 4, Objective 5 \(note, see 4\.1\)$/m);
+  });
+});
