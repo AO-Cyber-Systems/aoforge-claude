@@ -149,7 +149,7 @@ const HOOK_DOCS = {
   'changelog-on-tag.js': ['Enforcement', 'Blocks `git tag -a vX.Y.Z` unless CHANGELOG.md has a `## [X.Y.Z]` heading and the three release manifests carry matching versions.', 'DEVFLOW_SKIP_CHANGELOG_GATE=1'],
   'verify-completion.js': ['Observability', 'Checks that the most recent SUMMARY.md carries task evidence and no failure markers. Warns only — never blocks.', null],
   'verify-commits.js': ['Observability', 'Warns when a subagent finishes without producing commits — a silent-failure detector for the executor.', null],
-  'statusline.js': ['Observability', 'Renders model, current task, directory, and context usage in the Claude Code status line.', null],
+  'statusline.js': ['Observability', 'Renders model, current task, directory, and context usage in the Claude Code status line, plus estimated time remaining while an objective builds.', null],
   'inject-org-context.js': ['Session context', 'Injects an objective’s full org context — parent issue, repo roadmap, sibling repo activity — at planning time.', null],
   'inject-handoff-results.js': ['Session context', 'Surfaces completed handoff-watcher results back into the session.', null],
   'upgrade-project.js': ['Session context', 'Upgrades a behind DevFlow project in place at session start: applies the safe migrations, then commits exactly the changed files in a detached background process (skipped during rebase/merge/cherry-pick/bisect, on a detached HEAD, over uncommitted edits other than the gitignored runtime-state files, or if signing fails). Notices are emitted once on the next prompt. It also prunes ~/.claude/devflow/backups at most once per 24 h (older than 14 days, keeping the newest 5 per repo).', 'DEVFLOW_SKIP_UPGRADE=1, DEVFLOW_SKIP_PRUNE=1'],

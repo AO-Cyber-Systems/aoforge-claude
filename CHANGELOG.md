@@ -17,8 +17,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `DEVFLOW_CALIBRATION_PATH`). A rerun on unchanged inputs is byte-identical and reports `unchanged`. It refuses to write when
   no project is found under the paths. This repository's history gives 313 TRDs, 723 tasks and 233 TRDs with token data.
 - `references/model-rates.json`: per-model USD rates per million tokens, each entry with its own source and `as_of`.
+- `df-tools estimate task|trd|objective|milestone`: median and P90 minutes, tokens and dollars with a sample count and a
+  confidence label, from `calibration.json`. Tasks in a TRD add quantile by quantile; TRDs, waves, agent overhead and objectives
+  combine as a correlated sum (rho 0.5, an assumption Objective 64 tests); a parallel wave takes the max of its TRDs; gap
+  closure is a mixture with the calibrated probability. `--raw` prints paste-ready text (`--table` or `--line` for objectives
+  and milestones), the default is JSON, and an unusable calibration prints `No estimate: <reason>` instead of a number. Live on
+  this repository: a `code_tdd` task is 6 min (P90 18 min) and $1.35 (P90 $2.20) from 332 samples, confidence high; the v1.5
+  milestone is 8h 55m median (P90 20h 03m) and $226.43, with objectives 59-64 estimated from 12 objectives of history because
+  they have no plan yet, confidence low.
+- `df-tools estimate start|wave|finish` keep a per-project run state in `~/.claude/devflow/state/estimates/`
+  (`DEVFLOW_ESTIMATE_STATE_DIR`), never inside the repository. The status line reads it and shows an estimated time remaining
+  segment (`⏱ 58 W7/7 ~20m left`, or `over P90`) while an objective builds; the segment is gone after `finish`. `wave --done`
+  and `finish` print actual against estimate with a verdict (`at or under median`, `within P90`, `over P90`), and `finish` is
+  idempotent.
+- The planner's PLANNING COMPLETE return and plan-objective's OBJECTIVE PLANNED view carry the `estimate objective --table`
+  output, `/devflow:build` prints the one-line estimate before it starts and the actual-vs-estimate line when it finishes,
+  and execute-objective's wave reports show each wave's estimate and its actual. Every estimate call is fail-soft: a missing
+  calibration never blocks planning or execution. `estimate-surfacing.repo.test.cjs` pins each call and where it sits.
 
 ### Changed
+- `df-tools calibrate` also measures agent overhead from the subagent transcripts (`--root <dir>` points at the projects
+  directory, `--no-overhead` skips the scan): planner, job-checker, verifier, objective-researcher, integration-checker and
+  roadmapper minutes, tokens and dollars. `calibration.json` is now version 2 and adds `agent_overhead`,
+  `agent_overhead_sources` and `objective_level` (objective-wide minutes, tokens, cost, TRD and task counts for objectives
+  with no plan). On this repository it reads 323 TRDs, 746 tasks and 236 TRDs with token data, with overhead sample counts of
+  verifier 31, planner 26, job-checker 22, objective-researcher 11, integration-checker 4 and roadmapper 1. A rerun is
+  byte-identical.
 - Executors stamp `tokens_input`/`tokens_output` (and cache counts, model and `tokens_source`) into the SUMMARY draft with
   `tokens stamp` before `summary post`. TRD identification moved to `lib/trd-identify.cjs`, which the executor-stop hook
   re-exports, and `context-audit` exposes `forEachRecord`.

@@ -30,7 +30,7 @@ completed: 2026-10-05
 ## Progress
 - [x] Task 1: Calibrate v2 and estimate this repository live, with an in-sample backtest — 6a538169
 - [x] Task 2: Run-state and status line smoke — (this commit)
-- [ ] Task 3: CHANGELOG, CLAUDE.md, USER-GUIDE, hook doc; full test run — next step: edit CHANGELOG.md [Unreleased] (Added and Changed), then CLAUDE.md, docs/USER-GUIDE.md and scripts/gen-docs-data.cjs, then run the scoped tests and `npm test`
+- [x] Task 3: CHANGELOG, CLAUDE.md, USER-GUIDE, hook doc; full test run — (this commit)
 
 ## Task 1 evidence (calibrate v2 and live estimates)
 
@@ -143,3 +143,24 @@ Scratch HOME `<scratchpad>/smoke/home` held copies of `estimate-run-store.cjs` a
 The wave ran for 0.1717 minutes (the commands were issued seconds apart), hence `actual 0 min`. The stored estimate is the execution wall (19.7 / 69.3), which is what `finish` compares against; the `start` line (25 min median) adds the verifier overhead.
 
 `~/.claude/devflow/state/estimates/` does not exist after the smoke: nothing was written under the real state directory.
+
+## Task 3 evidence (docs and full test run)
+
+Changed files (`git diff --stat`): CHANGELOG.md (+28/-2), CLAUDE.md (+2/-2), docs/USER-GUIDE.md (+39/-4), scripts/gen-docs-data.cjs (+1/-1).
+
+- **CHANGELOG [Unreleased].** Added: `estimate task|trd|objective|milestone` (with this repository's live figures), `estimate start|wave|finish` and the status line segment, the estimate surfacing in PLANNING COMPLETE, plan-objective, `/devflow:build` and the wave reports. Changed: `calibrate` measures agent overhead (`--root`, `--no-overhead`), calibration.json version 2 (`agent_overhead`, `agent_overhead_sources`, `objective_level`), with this repository's sample counts.
+- **CLAUDE.md.** The Estimation data bullet now covers agent overhead, version 2, the `estimate` verbs, the run-state location and override, and the eight new modules; the `statusline.js` hook line gains the estimated-time-remaining clause. Net growth: two lines edited, 746 characters (27,387 to 28,133).
+- **docs/USER-GUIDE.md.** The `calibrate` bullet, the `--root`/`--no-overhead` flags and the keys bullet are updated for version 2; a new `### Estimates (df-tools estimate)` section follows `### Estimation data` with the seven command forms, live output lines, the composition method, the confidence labels, where estimates appear, the run state, the status line segment and the rho 0.5 assumption; the hook table's `statusline.js` row is extended. The Table of Contents lists only top-level headings, so it needed no entry.
+- **scripts/gen-docs-data.cjs.** The `statusline.js` HOOK_DOCS sentence ends with ", plus estimated time remaining while an objective builds." `site/data/devflow.json` is not regenerated (the release does that).
+
+| Check | Command | Result |
+|---|---|---|
+| scoped doc tests | `node --test plugins/devflow/devflow/bin/lib/dispatch-completeness.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/hook-inventory.test.cjs` | 26 tests, 26 pass, 0 fail |
+| docs advisories | `df-tools validate docs --raw` (repo copy) | `no documentation advisories` |
+| full suite | `npm test` | exit 1: 9706 tests, 9671 pass, 3 fail, 32 skipped, 0 cancelled |
+
+The three `npm test` failures are the known baseline set, and the counts are identical to 58-09's run (this TRD adds no tests):
+
+1. `MA-7 doctl auth init with unset DIGITALOCEAN_TOKEN` (`handoff-e2e.test.cjs:795`, handoff pipeline PTY mock auth).
+2. `E2E1: SELF-TEST reconcile dry-run against this repo ROADMAP shows zero drift` (`roadmap-reconcile.test.cjs:1029`): it names `trd_summary_exists` for 58-10 itself, since the SUMMARY now exists while the ROADMAP box stays unticked until the orchestrator completes the objective.
+3. `github-enterprise-migration: draft has no unaccepted conflict with the committed STACK.md` (`stack init against the real fleet`, TRD 43-08).
