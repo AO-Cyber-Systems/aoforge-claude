@@ -280,7 +280,7 @@ TRDs:
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
-| 58. Estimation engine and surfacing | v1.5 | 4/10 | In Progress | - |
+| 58. Estimation engine and surfacing | v1.5 | 5/10 | In Progress | - |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
