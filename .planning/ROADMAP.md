@@ -120,7 +120,7 @@ Not yet planned. Run `/devflow:milestone new` to start it. Objective 55 (store l
 TRDs:
 - [x] 55-01-setup-ruleset-bypass-and-pin-TRD.md — (W1) 55-1 + 55-4 caller: setup ruleset grants RepositoryRole 5 `always` bypass (superset-idempotent), guidance names `gh pr merge <n> --admin`; `checks_workflow@<ref>` pins `devflow-ref`
 - [x] 55-02-checks-sparse-and-wiki-retry-TRD.md — (W1) 55-4: `references/` in every sparse checkout + sparse-copy guard test; 55-3: flush retries a halted blocked wiki-push once
-- [ ] 55-03-unpushed-commit-guard-TRD.md — (W1) 55-5: `unpushedCommits`; `verification post` and `gh pr merge` refuse naming `gh pr sync`
+- [x] 55-03-unpushed-commit-guard-TRD.md — (W1) 55-5: `unpushedCommits`; `verification post` and `gh pr merge` refuse naming `gh pr sync`
 - [ ] 55-04-store-issue-naming-TRD.md — (W1) 55-6: objective issue title from ROADMAP / OBJECTIVE.md heading, not the dir slug; store-mode footer
 - [ ] 55-05-objective-put-hint-and-reconcile-content-TRD.md — (W2) 55-2: unknown objective names `objective add`; 55-6: reconcile deletes branches whose content is already merged (merge-tree)
 - [ ] 55-06-live-setup-rerun-TRD.md — (W3, checkpoint) push approval; smoke `upgrade --apply` (state.json/stamp); ruleset re-created by `gh setup --apply`; workflow PR merged with admin bypass; runner without ENOENT

@@ -77,9 +77,10 @@ const PR_USAGE = [
   '  df-tools gh pr merge <objective> [--no-flush] [--no-wait]                     (store mode, online) merge a verified PR (merge queue where the repo has one), then reconcile',
   '  df-tools gh pr reconcile <objective> [--no-flush] [--no-wait]                 after the merge: close every leftover issue, Project Done, delete the branches, pull the cache',
   'start creates (or reuses) the objective\'s linked branch, makes one empty start commit, pushes, opens the one draft PR that closes the objective and',
-  'every TRD, and freezes every TRD. Re-running it changes nothing. merge refuses a draft PR or one without a success devflow/verification status, uses',
-  'github.pr.merge_method (default squash), and exits 3 when the PR was only added to a merge queue: run reconcile after the queue merges it. reconcile exits',
-  '3 while the PR is open, 1 if it was closed unmerged, and is idempotent. With the store off every verb is skipped (exit 0, no gh call, no git change).',
+  'every TRD, and freezes every TRD. Re-running it changes nothing. merge refuses a draft PR, one without a success devflow/verification status, or a',
+  'linked branch with unpushed commits (run gh pr sync); it uses github.pr.merge_method (default squash), and exits 3 when the PR was only added to a',
+  'merge queue: run reconcile after the queue merges it. reconcile exits 3 while the PR is open, 1 if it was closed unmerged, and is idempotent. With',
+  'the store off every verb is skipped (exit 0, no gh call, no git change).',
   'Flags: --raw prints JSON. Exit codes: 0 ok, 1 error, 2 halted for a human, 3 pending (offline, a failed push, or a PR that cannot be created yet).',
 ].join('\n');
 

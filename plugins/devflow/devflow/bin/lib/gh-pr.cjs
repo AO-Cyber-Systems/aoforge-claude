@@ -38,6 +38,10 @@ const path = require('path');
 const fail = (error, extra = {}) => ({ ok: false, error, ...extra });
 const skippedResult = (reason) => ({ ok: true, skipped: true, reason });
 
+// The one refusal text for a local linked branch with commits origin lacks (TRD 55-03). It is built in objective-branch
+// so planning-verbs.cjs (`verification post`) can use it without requiring this module.
+const unpushedRefusal = branchLib.unpushedRefusal;
+
 const failureText = (r) => String((r && (r.stderr || r.error || r.stdout)) || 'unknown error').trim().split('\n')[0];
 const isNotFound = (r) => /\b404\b|Not Found/i.test(`${r.stderr || ''} ${r.stdout || ''}`);
 
@@ -912,8 +916,10 @@ function verificationAt(repo, sha) {
  * queue where the repository has one, and reconcile when it merged.
  *
  * Online-required: the PR and its `devflow/verification` status are read before anything is queued. A draft PR, a PR
- * closed unmerged, and a PR whose head has no `success` verification status are refused (objective 50 owns enforcement
- * and the escapes; there is no bypass here). Then `pr-merge {method}` is queued (`github.pr.merge_method`, default
+ * closed unmerged, a local linked branch with commits origin lacks (TRD 55-03: refused naming `gh pr sync`, never
+ * pushed from here; no guard when the branch is not in this clone or has no branch on record), and a PR whose head has
+ * no `success` verification status are refused (objective 50 owns enforcement and the escapes; there is no bypass
+ * here). Then `pr-merge {method}` is queued (`github.pr.merge_method`, default
  * squash) and flushed, and the PR is READ again: a returned `pr-merge` only means the PR was merged or, with a queue,
  * enqueued. Merged: `reconcileObjectivePr` runs in this call. Enqueued: `pending`, to be reconciled after the queue
  * merges it. An already merged PR goes straight to the reconcile.
@@ -953,6 +959,13 @@ function mergeObjectivePr(root, objArg, opts = {}) {
     return fail(`${what} was closed without merging; reopen it or start the objective again`);
   }
   if (pr.state === 'draft') return fail(`PR is still a draft; run verification first (${what})`);
+
+  // TRD 55-03: the PR head is what gets merged. Commits that exist only on the local linked branch are not in it, so
+  // the verification status above would certify code the merge does not carry. Refuse; `gh pr sync` is the remedy.
+  // No branch on record (a PR recorded before 49-04) leaves nothing to compare, so there is no guard.
+  const ahead = recorded.branch ? branchLib.unpushedCommits(root, recorded.branch) : null;
+  if (ahead && !ahead.ok) return fail(`could not tell whether ${recorded.branch} has unpushed commits: ${ahead.error}; nothing was queued`);
+  if (ahead && ahead.count > 0) return fail(unpushedRefusal(id, recorded.branch, ahead));
 
   const v = verificationAt(repo, pr.head_sha);
   if (!v.ok) return fail(`${v.error}; nothing was queued`);
@@ -1016,4 +1029,5 @@ module.exports = {
   prStatus,
   reconcileObjectivePr,
   mergeObjectivePr,
+  unpushedRefusal,
 };

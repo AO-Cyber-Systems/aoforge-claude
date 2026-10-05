@@ -110,6 +110,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 54]: 54-03: test.yml and agent-shell-harness.yml run on top-level permissions contents: read; scripts/workflow-permissions.test.cjs fails any workflow with no top-level or per-job permissions
 - [Objective 55]: 55-01: ruleset admin bypass uses bypass_mode always (verified live); setup compares the actor, never the mode, so a team's pull_request mode is kept
 - [Objective 55]: 55-02: fix the sparse checkout list (add references/) rather than remove helpers.cjs's model-profiles.json read; flush retries only a halted blocked wiki-push, once per flush
+- [Objective 55]: 55-03: unpushed linked-branch commits are refused (not auto-pushed) by gh pr merge and verification post, naming gh pr sync; the refusal text is built once in objective-branch.unpushedRefusal
 
 ## Performance Metrics
 
@@ -169,4 +170,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 54 P09 | 22min | 2 tasks | 1 files |
 | Objective 55 P01 | 9min | 2 tasks | 7 files |
 | Objective 55 P02 | 7min | 2 tasks | 6 files |
+| Objective 55 P03 | 9min | 3 tasks | 7 files |
 

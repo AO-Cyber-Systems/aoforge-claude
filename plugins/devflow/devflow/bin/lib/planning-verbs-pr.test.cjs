@@ -22,6 +22,7 @@ const path = require('node:path');
 
 const verbs = require('./planning-verbs.cjs');
 const gh = require('./gh.cjs');
+const ob = require('./objective-branch.cjs');
 const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
@@ -500,8 +501,173 @@ describe('49-11 verification post in pages (docs) mode', () => {
   });
 });
 
+// ─── 55-03: refuse before writing while the linked branch has unpushed commits ───
+
+const LOCAL_TIP = `c0de${'1'.repeat(36)}`;
+const REMOTE_TIP = `feed${'2'.repeat(36)}`;
+
+/**
+ * Stub objective-branch's git seam (the only place planning-verbs reaches git): the local linked branch is `ahead`
+ * commits past origin's tip (`local:false` is a clone that has no such branch; `fail` makes `rev-list` fail). Returns
+ * every argv the seam saw. Restore with `ob._resetRunGit()` (afterEach).
+ */
+function stubGit({ ahead = 1, local = true, fail = false } = {}) {
+  const calls = [];
+  const ok = (stdout = '') => ({ ok: true, status: 0, stdout, stderr: '' });
+  const shas = Array.from({ length: ahead }, (_, i) => `${(i + 3).toString(16)}`.repeat(40));
+  ob._setRunGit((args) => {
+    calls.push(args);
+    const line = args.join(' ');
+    if (line === 'rev-parse --is-inside-work-tree') return ok('true\n');
+    if (args[0] === 'rev-parse' && line.includes('refs/heads/')) {
+      return local ? ok(`${LOCAL_TIP}\n`) : { ok: false, status: 1, stdout: '', stderr: '' };
+    }
+    if (args[0] === 'fetch') return ok();
+    if (args[0] === 'rev-parse' && line.includes('refs/remotes/')) return ok(`${REMOTE_TIP}\n`);
+    if (args[0] === 'rev-list') {
+      return fail ? { ok: false, status: 128, stdout: '', stderr: 'fatal: bad object' } : ok(shas.length ? `${shas.join('\n')}\n` : '');
+    }
+    return { ok: false, status: 128, stdout: '', stderr: `unexpected git ${line}` };
+  });
+  return calls;
+}
+
+const VERIFICATION_REL = `${OBJ_REL}/07-VERIFICATION.md`;
+
+describe('55-03 verification post refuses unpushed work', () => {
+  useProject({ store: true, sync: true });
+  afterEach(() => ob._resetRunGit());
+
+  test('4. a passed verdict with the local linked branch 1 commit ahead: refused naming gh pr sync, before the cache file or any op', () => {
+    if (S.skipped) return;
+    startPr();
+    const opsBefore = allOps().length;
+    const kindsBefore = (kind) => opsOf(kind, allOps()).length;
+    const before = Object.fromEntries(['post-status', 'pr-ready', 'upsert-comment', 'upsert-pr-comment'].map((k) => [k, kindsBefore(k)]));
+    const calls = stubGit({ ahead: 1 });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.equal(r.exit, 1, JSON.stringify(r));
+    assert.match(r.error, /df-tools gh pr sync 7\b/);
+    assert.match(r.error, /1 unpushed commit\b/);
+    assert.ok(r.error.includes(BRANCH), 'the branch is named');
+    assert.ok(calls.length > 0, 'the git seam was asked');
+    assert.equal(fs.existsSync(planning(VERIFICATION_REL)), false, 'the VERIFICATION cache file was not created');
+    assert.equal(allOps().length, opsBefore, 'nothing was queued');
+    for (const kind of Object.keys(before)) {
+      assert.equal(opsOf(kind, allOps()).length, before[kind], `no new ${kind} op`);
+    }
+    assert.equal(opsOf('post-status', allOps()).length, 0, 'no post-status op at all');
+    assert.equal(opsOf('pr-ready', allOps()).length, 0, 'no pr-ready op at all');
+    assert.equal(S.fake.writes().filter((w) => /statuses/.test(w.join(' '))).length, 0, 'no status reached GitHub');
+  });
+
+  test('4b. after the branch is pushed the same call goes through: file written, comment, status and ready queued', () => {
+    if (S.skipped) return;
+    startPr();
+    stubGit({ ahead: 1 });
+    assert.equal(verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true }).ok, false);
+    stubGit({ ahead: 0 });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(fs.readFileSync(planning(VERIFICATION_REL), 'utf8'), VERIFICATION_PASSED);
+    assert.deepEqual(pendingOps().map((o) => o.kind).sort(), ['post-status', 'pr-ready', 'upsert-comment']);
+  });
+
+  test('5. every verdict that would post a status is refused: gaps_found (a failure on a head without the code) and human_needed too', () => {
+    if (S.skipped) return;
+    startPr();
+    const opsBefore = allOps().length;
+    stubGit({ ahead: 2 });
+    for (const status of ['gaps_found', 'human_needed']) {
+      const r = verbs.verificationPost(S.root, { objective: '7', text: verificationText(status), noFlush: true });
+      assert.equal(r.ok, false, `${status}: ${JSON.stringify(r)}`);
+      assert.match(r.error, /df-tools gh pr sync 7\b/, status);
+      assert.match(r.error, /2 unpushed commits\b/, status);
+    }
+    assert.equal(fs.existsSync(planning(VERIFICATION_REL)), false);
+    assert.equal(allOps().length, opsBefore);
+  });
+
+  test('5b. a verdict that posts no status (no recognised frontmatter status) is not guarded: nothing to certify, no git call', () => {
+    if (S.skipped) return;
+    startPr();
+    const calls = stubGit({ ahead: 1 });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: verificationText('in_progress'), noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(calls.length, 0, 'the git seam was not asked');
+    assert.deepEqual(pendingOps().map((o) => o.kind), ['upsert-comment']);
+  });
+
+  test('6. no PR on record: no guard and no git call; a merged PR: no guard and no git call', () => {
+    if (S.skipped) return;
+    const calls = stubGit({ ahead: 1 });
+    const none = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(none.ok, true, JSON.stringify(none));
+    assert.deepEqual(pendingOps().map((o) => o.kind), ['upsert-comment']);
+    assert.equal(calls.length, 0, 'no PR on record: git not asked');
+
+    ob._resetRunGit();
+    startPr();
+    recordPr({ merged_at: '2026-10-01T12:00:00Z' });
+    const again = stubGit({ ahead: 1 });
+    const merged = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(merged.ok, true, JSON.stringify(merged));
+    assert.equal(again.length, 0, 'merged PR: git not asked');
+  });
+
+  test('6b. a git failure while counting is a warning on the result, never a refusal: the verb still writes and queues', () => {
+    if (S.skipped) return;
+    startPr();
+    stubGit({ ahead: 1, fail: true });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(r.warnings.some((w) => /could not tell whether .* unpushed/.test(w)), r.warnings.join('\n'));
+    assert.deepEqual(pendingOps().map((o) => o.kind).sort(), ['post-status', 'pr-ready', 'upsert-comment']);
+    assert.ok(fs.existsSync(planning(VERIFICATION_REL)));
+  });
+
+  test('6c. the linked branch is not in this clone, or the PR entry has no branch on record: no guard, no warning', () => {
+    if (S.skipped) return;
+    startPr();
+    stubGit({ local: false });
+    const absent = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(absent.ok, true, JSON.stringify(absent));
+    assert.equal(absent.warnings.filter((w) => /unpushed/.test(w)).length, 0);
+
+    const m = mappingNow();
+    delete m.prs['7'].branch;
+    assert.ok(mappingLib.writeMappingV3(S.root, m).ok);
+    const calls = stubGit({ ahead: 1 });
+    const noBranch = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(noBranch.ok, true, JSON.stringify(noBranch));
+    assert.equal(calls.length, 0, 'no branch on record: nothing to compare');
+  });
+
+  test('7. the checkout is not a git work tree (the store fixture, real git): no guard and no warning', () => {
+    if (S.skipped) return;
+    startPr();
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED, noFlush: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.warnings.filter((w) => /unpushed|git work tree/.test(w)).length, 0, r.warnings.join('\n'));
+    assert.deepEqual(pendingOps().map((o) => o.kind).sort(), ['post-status', 'pr-ready', 'upsert-comment']);
+  });
+});
+
 describe('49-11 local mode is today\'s write (D-01)', () => {
   useProject({ store: false, sync: false });
+  afterEach(() => ob._resetRunGit());
+
+  test('11b. (55-03) local mode with a `prs` entry and an ahead branch: verification post writes today\'s bytes with zero git calls', () => {
+    recordPr({ number: 12 });
+    const calls = stubGit({ ahead: 3 });
+    const r = verbs.verificationPost(S.root, { objective: '7', text: VERIFICATION_PASSED });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.mode, 'local');
+    assert.ok(Buffer.from(VERIFICATION_PASSED).equals(fs.readFileSync(planning(VERIFICATION_REL))), 'same bytes');
+    assert.equal(calls.length, 0, 'zero git calls');
+    assert.equal(S.fake.calls().length, 0, 'zero gh calls');
+  });
 
   test('11. summary post, verification post and set-status complete write today\'s bytes with zero gh calls, even with a `prs` entry', () => {
     recordPr({ number: 12 });
