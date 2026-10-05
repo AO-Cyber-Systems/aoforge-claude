@@ -25,6 +25,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'df-tools.cjs');
@@ -71,6 +72,22 @@ function landWaveOne(repo, branch = 'df/objective-571') {
   git(repo, 'add -A');
   git(repo, 'commit -q -m "feat(571-01): wave 1"');
   return git(repo, 'rev-parse HEAD');
+}
+
+/**
+ * Provision a worktree for `id` through the REAL `exec-context worktree` command
+ * (59-03): the guard under test keys on the branch that command creates, so a
+ * hand-built `git worktree add` would only test the fixture. Returns the parsed
+ * JSON and registers the worktree for cleanup.
+ */
+function provisionWorktree(repo, id, base) {
+  const argv = ['exec-context', 'worktree', '--repo', repo, '--id', id];
+  if (base) argv.push('--base', base);
+  const r = run(argv, repo);
+  assert.strictEqual(r.status, 0, `worktree provisioning for ${id} failed; stderr: ${r.stderr}`);
+  const json = JSON.parse(r.stdout);
+  tmpRoots.push(json.worktree_path);
+  return json;
 }
 
 function cleanupAll() {
@@ -512,5 +529,138 @@ describe('exec-context check — shared-index claim (issue #98)', () => {
     assert.deepStrictEqual(JSON.parse(rel.stdout).released, ['98-01']);
     const after = check('98-02');
     assert.strictEqual(after.status, 0, `after release a new id must pass; stderr: ${after.stderr}`);
+  });
+});
+
+/**
+ * 59-03 (PLMB-03) — every Bash call an executor makes starts in the SESSION's
+ * directory, which for a parallel wave is the main checkout, not the worktree the
+ * orchestrator provisioned. A preflight without `--cwd` therefore inspects the
+ * main checkout: it takes a stray claim there and, when a sibling got there
+ * first, reports a false SHARED INDEX. `check --id X` now refuses
+ * (WRONG CHECKOUT) when a worktree was provisioned for X and the check is not
+ * running in it, takes no claim, and prints the `--cwd` command to run instead.
+ */
+describe('exec-context — the preflight runs against the plan\'s own worktree (59-03)', () => {
+  let repo;
+  let base;
+
+  beforeEach(() => {
+    repo = makeRepo('wrongco');
+    base = landWaveOne(repo);
+  });
+  afterEach(cleanupAll);
+
+  function claimsDir(dir) {
+    const common = git(dir, 'rev-parse --git-common-dir');
+    return path.join(fs.realpathSync(path.resolve(dir, common)), 'devflow-exec-claims');
+  }
+
+  function claimFilesFor(checkout) {
+    const key = crypto.createHash('sha1').update(fs.realpathSync(checkout)).digest('hex').slice(0, 12);
+    const dir = claimsDir(repo);
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((n) => n.startsWith(`${key}-`));
+  }
+
+  function check(id, { cwd = repo, withBase = true } = {}) {
+    const argv = ['exec-context', 'check', '--repo', repo];
+    if (withBase) argv.push('--base', base);
+    if (id) argv.push('--id', id);
+    return run(argv, cwd);
+  }
+
+  test('(1) `exec-context worktree` prints the exact --cwd preflight command for that worktree', () => {
+    const wt = provisionWorktree(repo, '59-03', base);
+    assert.strictEqual(
+      wt.preflight,
+      `node ~/.claude/devflow/bin/df-tools.cjs --cwd ${wt.worktree_path} exec-context check ` +
+      `--repo ${wt.repo_root} --base ${wt.base_sha} --id 59-03`);
+    assert.strictEqual(wt.base_sha, base);
+  });
+
+  test('(2) a check outside the provisioned worktree fails WRONG CHECKOUT, names the fix, takes no claim', () => {
+    const wt = provisionWorktree(repo, '59-03', base);
+    const r = check('59-03');
+    assert.strictEqual(r.status, 1, `must refuse; stdout: ${r.stdout}`);
+    assert.match(r.stderr, /^(?:Error: )?WRONG CHECKOUT —/m, `headline must be WRONG CHECKOUT; got: ${r.stderr}`);
+    assert.ok(r.stderr.includes(wt.worktree_path), `must name the worktree; got: ${r.stderr}`);
+    assert.ok(r.stderr.includes(`--cwd ${wt.worktree_path} exec-context check`),
+      `must print the --cwd re-run command; got: ${r.stderr}`);
+    assert.ok(r.stderr.includes(`--repo ${wt.repo_root}`), `the command must carry --repo; got: ${r.stderr}`);
+    assert.ok(r.stderr.includes(`--base ${base}`), `the command must carry --base; got: ${r.stderr}`);
+    assert.ok(r.stderr.includes('--id 59-03'), `the command must carry --id; got: ${r.stderr}`);
+    assert.deepStrictEqual(claimFilesFor(repo), [],
+      'the refused check must not leave a claim on the main checkout');
+  });
+
+  test('(2b) the printed command omits --base when the check was given none, and it runs', () => {
+    const wt = provisionWorktree(repo, '59-03', base);
+    const r = check('59-03', { withBase: false });
+    assert.strictEqual(r.status, 1, `must refuse; stdout: ${r.stdout}`);
+    assert.ok(!/--base/.test(r.stderr.split('\n').filter((l) => l.includes('exec-context check')).join('\n')),
+      `the command must not invent a --base; got: ${r.stderr}`);
+    // The printed command is runnable: swap the installed-mirror path for this repo's df-tools.
+    const line = r.stderr.split('\n').find((l) => l.includes('df-tools.cjs --cwd '));
+    assert.ok(line, `must print a runnable df-tools line; got: ${r.stderr}`);
+    const argv = line.trim().split('df-tools.cjs ')[1].split(' ');
+    const rerun = run(argv, repo);
+    assert.strictEqual(rerun.status, 0, `the printed command must pass; stderr: ${rerun.stderr}`);
+    assert.strictEqual(JSON.parse(rerun.stdout).checkout, fs.realpathSync(wt.worktree_path));
+  });
+
+  test('(3) the same check through the global --cwd flag reports the worktree and claims it', () => {
+    const wt = provisionWorktree(repo, '59-03', base);
+    const r = run(['--cwd', wt.worktree_path, 'exec-context', 'check', '--repo', repo, '--base', base, '--id', '59-03'], repo);
+    assert.strictEqual(r.status, 0, `the --cwd preflight must pass; stderr: ${r.stderr}`);
+    const json = JSON.parse(r.stdout);
+    assert.strictEqual(json.checkout, fs.realpathSync(wt.worktree_path));
+    assert.strictEqual(json.is_worktree, true);
+    assert.strictEqual(json.claim.id, '59-03');
+    assert.strictEqual(claimFilesFor(wt.worktree_path).length, 1, 'the worktree must hold the claim');
+    assert.deepStrictEqual(claimFilesFor(repo), [], 'the main checkout must hold none');
+  });
+
+  test('(4) sequential control: with no provisioned worktree the main checkout passes as before', () => {
+    const r = check('59-03');
+    assert.strictEqual(r.status, 0, `no df/exec-59-03 branch, so nothing to refuse; stderr: ${r.stderr}`);
+    const json = JSON.parse(r.stdout);
+    assert.strictEqual(json.is_worktree, false);
+    assert.strictEqual(json.claim.id, '59-03');
+  });
+
+  test('(5) the guard slugifies the id exactly as provisioning does', () => {
+    for (const [id, branch] of [['59-03', 'df/exec-59-03'], ['A-1', 'df/exec-a-1'], ['Plan 7', 'df/exec-plan-7']]) {
+      const wt = provisionWorktree(repo, id, base);
+      assert.strictEqual(wt.branch, branch, 'fixture sanity: the provisioned branch');
+      const r = check(id);
+      assert.strictEqual(r.status, 1, `${id}: a check outside its worktree must refuse; stdout: ${r.stdout}`);
+      assert.match(r.stderr, /WRONG CHECKOUT/, `${id}: ${r.stderr}`);
+      assert.ok(r.stderr.includes(`--id ${id}`), `${id}: the command carries the id AS GIVEN; got: ${r.stderr}`);
+    }
+  });
+
+  test('(6) a sibling\'s worktree does not trip another id\'s check in the main checkout', () => {
+    provisionWorktree(repo, '59-04', base);
+    const r = check('59-03');
+    assert.strictEqual(r.status, 0, `59-04's worktree is not 59-03's; stderr: ${r.stderr}`);
+    assert.strictEqual(JSON.parse(r.stdout).claim.id, '59-03');
+  });
+
+  test('(6b) checking from inside a sibling\'s worktree is still WRONG CHECKOUT for this id', () => {
+    const mine = provisionWorktree(repo, '59-03', base);
+    const theirs = provisionWorktree(repo, '59-04', base);
+    const r = check('59-03', { cwd: theirs.worktree_path });
+    assert.strictEqual(r.status, 1, `must refuse; stdout: ${r.stdout}`);
+    assert.ok(r.stderr.includes(`--cwd ${mine.worktree_path} exec-context check`), r.stderr);
+    assert.deepStrictEqual(claimFilesFor(theirs.worktree_path), [], 'no stray claim in the sibling\'s tree');
+  });
+
+  test('(7) a pruned worktree (directory gone, still listed) does not count as the owner', () => {
+    const wt = provisionWorktree(repo, '59-03', base);
+    fs.rmSync(wt.worktree_path, { recursive: true, force: true });
+    const r = check('59-03');
+    assert.strictEqual(r.status, 0, `a vanished worktree owns nothing; stderr: ${r.stderr}`);
+    assert.strictEqual(JSON.parse(r.stdout).claim.id, '59-03');
   });
 });

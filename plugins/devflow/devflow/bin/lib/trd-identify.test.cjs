@@ -94,3 +94,31 @@ describe('57-01 readFirstUserRecord / readFirstUserPrompt / repoRootOf', () => {
     assert.equal(lib.repoRootOf(null), null);
   });
 });
+
+describe('59-03 identification survives a --cwd preflight', () => {
+  const preflight =
+    'node ~/.claude/devflow/bin/df-tools.cjs --cwd /x/wt exec-context check --repo /x/r --base abc --id 59-03';
+
+  test('8: a preflight line that carries --cwd before `exec-context check` still names the plan', () => {
+    assert.deepEqual(lib.identifyTrd(preflight), { id: '59-03', repoRoot: null });
+  });
+
+  test('8b: the full dispatch block (CHECKOUT line, --cwd preflight) identifies the plan and its REPO_ROOT', () => {
+    const prompt = [
+      '<repo_and_base>',
+      'REPO_ROOT:  /x/r',
+      'WAVE_BASE:  abc',
+      'PLAN_ID:    59-03',
+      'CHECKOUT:   /x/wt',
+      '',
+      `  ${preflight}`,
+      '</repo_and_base>',
+    ].join('\n');
+    assert.deepEqual(lib.identifyTrd(prompt), { id: '59-03', repoRoot: '/x/r' });
+  });
+
+  test('8c: a --cwd preflight naming a different id than PLAN_ID is still a contradiction (ambiguous -> null)', () => {
+    const prompt = `PLAN_ID: 59-03\n${preflight.replace('--id 59-03', '--id 59-04')}\n`;
+    assert.equal(lib.identifyTrd(prompt), null);
+  });
+});
