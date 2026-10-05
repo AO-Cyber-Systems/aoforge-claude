@@ -1,9 +1,9 @@
 {
   "current_objective": "59",
-  "current_job": 6,
+  "current_job": 7,
   "total_jobs": 7,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
     "jobs_completed": 0,
@@ -794,6 +794,11 @@
     {
       "objective": "59",
       "summary": "Merge driver install lives in execute-objective step 0 only, and a failed install is reported while the wave continues; the Branch merge protocol resolves state.json and STATE_ARCHIVE.md with merge-driver resolve; the post-wave regeneration is unconditional",
+      "rationale": null
+    },
+    {
+      "objective": "59",
+      "summary": "59-07: Known issues note replaces the wave-merge bullet and lists two dogfood-found open defects (objective remove rewrites NN-NN dates; milestone complete appends a duplicate MILESTONES.md entry on a re-run) rather than fixing them in a docs TRD",
       "rationale": null
     }
   ],

@@ -108,7 +108,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - [x] **Objective 56: Objective-number correctness** - One escape helper, exact objective lookups, ID-shaped requirement parsing (completed 2026-10-05)
 - [x] **Objective 57: Estimation data foundation** - Token data in SUMMARYs, historical backfill, `df-tools calibrate` (completed 2026-10-05)
 - [x] **Objective 58: Estimation engine and surfacing** - `df-tools estimate`, plan-objective table, build and status-line estimates (completed 2026-10-05)
-- [ ] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats
+- [x] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats (completed 2026-10-05)
 - [ ] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships
 - [ ] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene
 - [ ] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows
@@ -216,7 +216,7 @@ TRDs:
 - [x] 59-04-milestone-complete-scope-TRD.md — (W2) PLMB-04/05: `milestone complete` counts only the milestone bullet's objectives (selection moved to `milestone-scope.cjs`), true one-liners and task counts, truthful `state_updated`
 - [x] 59-05-objective-change-flags-TRD.md — (W2) PLMB-05: `objective remove` / `objective complete` report `roadmap_updated` only on a real change
 - [x] 59-06-merge-and-state-wiring-TRD.md — (W3) execute-objective installs the driver, resolves state.json/STATE_ARCHIVE.md conflicts, regenerates position after every parallel wave; executor uses `--objective` and `--cwd`; replay test extended
-- [ ] 59-07-dogfood-and-docs-TRD.md — (W4) live merge on a scratch clone, advance-job here, WRONG CHECKOUT smoke, `milestone complete v1.4` on a scratch copy; CHANGELOG/CLAUDE.md/USER-GUIDE; full `npm test`
+- [x] 59-07-dogfood-and-docs-TRD.md — (W4) live merge on a scratch clone, advance-job here, WRONG CHECKOUT smoke, `milestone complete v1.4` on a scratch copy; CHANGELOG/CLAUDE.md/USER-GUIDE; full `npm test`
 
 ### Objective 60: Edit gate enforces the action
 
@@ -290,7 +290,7 @@ TRDs:
 | 56. Objective-number correctness | v1.5 | 5/5 | Complete | 2026-10-05 |
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
-| 59. State and merge plumbing | v1.5 | 6/7 | In Progress | - |
+| 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |

@@ -41,7 +41,7 @@ completed: 2026-10-05
 ## Progress
 - [x] Task 1: Live merge, position and preflight on this repository (evidence 1-4) — bbd0053b
 - [x] Task 2: Milestone and change flags on a scratch copy of .planning (evidence 5) — e85f5114
-- [x] Task 3: Docs, help details and the full test run (evidence 6) — (this commit)
+- [x] Task 3: Docs, help details and the full test run (evidence 6) — d1ccf50b
 
 ## Task 1 evidence
 
@@ -223,3 +223,10 @@ After re-sync, execute-objective's `merge-driver install` runs the mirror's df-t
 - Auto-fix cycles used: 0 (one inline doc fix, Deviation 1)
 - Must-haves verified: 6/6 (clone merge with uninstall; driver bin is the main checkout's; Status at 6/7; WRONG CHECKOUT then pass with cleanup; v1.4 at 13 objectives, 158 TRDs and the two truthful flags; docs and suite at baseline)
 - Gate failures: None beyond the 3 known baseline failures
+
+## Self-Check: PASSED
+
+- FOUND: CHANGELOG.md, CLAUDE.md, docs/USER-GUIDE.md, plugins/devflow/devflow/bin/lib/help.cjs (each carries the new merge-driver / Parallel wave merges text)
+- FOUND commits: bbd0053b, e85f5114, d1ccf50b (`git log --oneline`; d1ccf50b holds the four files plus this SUMMARY)
+- This repository's `.planning/MILESTONES.md`, `ROADMAP.md` and `milestones/` were untouched by the scratch runs (`git status --porcelain` empty before the Task 3 edits).
+- No scratch worktree, branch or claim remains (`git worktree list`, `git branch --list df/exec-59-07-dogfood`, `exec-context release` output).
