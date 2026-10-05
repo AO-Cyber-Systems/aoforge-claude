@@ -145,6 +145,12 @@
  *     --stopped-at "..."
  *     [--resume-file path]
  *
+ * Estimation data:
+ *   tokens trd <trd-id>                Executor token totals of one TRD from transcripts
+ *     [--objective-dir d] [--repo p] [--root dir]   (read-only; exit 0 even when none is found)
+ *   tokens stamp <trd-id> --draft <path>  Write tokens_input/tokens_output/... into a SUMMARY draft
+ *     [--objective-dir d] [--repo p] [--root dir]   (a draft inside .planning/ is refused; run before summary post)
+ *
  * UI Metrics:
  *   ui metrics baseline [--since D] [--paths p1,p2] [--out f]  Fix/feat commit baseline JSON for UI paths
  *
@@ -858,6 +864,16 @@ async function main() {
       const r = runContext({ argv: args.slice(1) });
       if (!r.ok) error(r.message);
       outputAudit(r.result, raw, r.text);
+      break;
+    }
+
+    case 'tokens': {
+      // df-tools tokens <trd|stamp> ... — TRD 57-03 (backfill: 57-06)
+      const { output: outputTokens } = require('./lib/helpers.cjs');
+      const { runTokens } = require('./lib/tokens-cli.cjs');
+      const r = runTokens({ argv: args.slice(1), cwd });
+      if (!r.ok) error(r.message);
+      outputTokens(r.result, raw, r.text, r.exit || 0);
       break;
     }
 
