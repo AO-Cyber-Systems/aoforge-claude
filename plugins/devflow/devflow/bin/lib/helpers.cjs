@@ -209,6 +209,14 @@ function normalizeObjectiveName(objective) {
   return parts.length > 1 ? `${padded}.${parts[1]}` : padded;
 }
 
+/**
+ * True when `dirName` is the directory of objective `normalized` (from normalizeObjectiveName): the bare name or the name
+ * followed by `-`. `04.1` never selects `04.10-ten`; `04` never selects `04.1-x` or `045-x`.
+ */
+function objectiveDirMatches(dirName, normalized) {
+  return dirName === normalized || dirName.startsWith(normalized + '-');
+}
+
 function generateSlugInternal(text) {
   if (!text) return null;
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -278,6 +286,7 @@ module.exports = {
   trdKey,
   isTaskDoc,
   normalizeObjectiveName,
+  objectiveDirMatches,
   generateSlugInternal,
   isGitIgnored,
   execGit,
