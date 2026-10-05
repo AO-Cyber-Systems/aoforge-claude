@@ -142,7 +142,14 @@ TRDs:
   2. `objective`/`roadmap` lookup of `4.1` returns `04.1-*` only and never `04.10-*`.
   3. ROADMAP lookups in novel-domain and trd-pre-check find single-digit objectives with or without a leading zero.
   4. `verify trd-pre` takes requirement IDs only from ID-shaped tokens; a free-text Requirements line yields none.
-**TRDs**: TBD
+**TRDs:** 5 plans
+
+TRDs:
+- [ ] 56-01-shared-regex-escape-TRD.md — (W1) ONUM-01: 12 hand-rolled escapes and 5 unescaped interpolations go through `text-escape.cjs`; `regex-escape.repo.test.cjs` fails CI on a new one
+- [ ] 56-02-exact-objective-lookups-TRD.md — (W1) ONUM-02 + ONUM-03: `objectiveDirMatches` (4.1 never selects 04.10-*), leading-zero-tolerant `objectiveNumPattern`, `boldLabelPattern`
+- [ ] 56-03-id-shaped-requirements-TRD.md — (W2) ONUM-04: `requirement-ids.cjs`; `verify trd-pre` and `objective complete` read IDs only from ID-shaped items; mark-complete escapes IDs
+- [ ] 56-04-roadmap-field-labels-TRD.md — (W2) plan-time fix: `**Goal**:` / `**Depends on**:` read in roadmap, gh, OBJECTIVE.md bootstrap; reconcile row via `objectiveNumPattern`
+- [ ] 56-05-changelog-and-dogfood-TRD.md — (W3) live-repo dogfood (get-objective/analyze/trd-pre 56), OBJECTIVE.md goal via `objective put`, CHANGELOG [Unreleased], full suite
 
 ### Objective 57: Estimation data foundation
 
