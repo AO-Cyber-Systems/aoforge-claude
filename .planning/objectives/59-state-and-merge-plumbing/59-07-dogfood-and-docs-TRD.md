@@ -13,7 +13,8 @@ autonomous: true
 requirements: [PLMB-01, PLMB-02, PLMB-03, PLMB-04, PLMB-05]
 must_haves:
   truths:
-    - "On a scratch clone of this repository with the driver installed, two branches that each ran the repo copy's `state add-decision` and `state record-metric` merge with no conflict, and state.json keeps both decisions"
+    - "On a scratch clone of this repository with the driver installed, two branches that each ran the repo copy's `state add-decision` and `state record-metric` merge with no conflict, and state.json keeps both decisions; `merge-driver uninstall` in the clone then reverses the install (`install --check` reports `installed: false`)"
+    - "This repository's recorded driver points at the MAIN checkout's df-tools.cjs (the parent of `git rev-parse --path-format=absolute --git-common-dir`), not a worktree path"
     - "In this repository, `state advance-job --objective 59` sets STATE.md `**Status:**` to `Executing objective 59 — 6/7 TRDs complete` (not ready for verification)"
     - "A live `exec-context check` for a provisioned worktree id fails WRONG CHECKOUT from the main checkout and passes through the printed `--cwd` preflight, and the scratch worktree, branch and claim are cleaned up"
     - "`milestone complete v1.4` on a scratch copy of `.planning/` reports 13 objectives (42-54) and matches or explains the hand-written v1.4 entry's 158 TRDs; a second run reports `state_updated: false`; a repeated `objective complete 58` on the copy reports `roadmap_updated: false`"
@@ -74,10 +75,14 @@ Output: four files changed; live evidence in the SUMMARY.
 
 Evidence checks (code is tested by 59-01..59-06):
 
-1. `merge-driver install --check --raw` in this repository → installed; `git log --merges --format='%h %s' -8` lists wave
-   2's four `df/exec-59-0*` merges; `.planning/state.json` parses.
+1. `merge-driver install --check --raw` in this repository → installed; the bin quoted in
+   `git config --get merge.devflow-state-json.driver` equals `<parent of git rev-parse --path-format=absolute
+   --git-common-dir>/plugins/devflow/devflow/bin/df-tools.cjs` (the main checkout, not a `.df-worktrees/...` path);
+   `git log --merges --format='%h %s' -8` lists wave 2's four `df/exec-59-0*` merges; `.planning/state.json` parses.
 2. Scratch clone: after install, both `git -C <clone> merge --no-ff ...` exit 0, `git -C <clone> diff --name-only
-   --diff-filter=U` is empty, the clone's state.json holds both new decisions and STATE_ARCHIVE.md both new rows.
+   --diff-filter=U` is empty, the clone's state.json holds both new decisions and STATE_ARCHIVE.md both new rows. Then
+   `merge-driver uninstall` in the clone → `changed: true`, a second uninstall → `changed: false`, and
+   `install --check` → `installed: false`.
 3. `state advance-job --objective 59 --raw` prints `executing`; STATE.md's Status line is
    `Executing objective 59 — 6/7 TRDs complete`.
 4. Scratch worktree: the check from the main checkout exits 1 with `WRONG CHECKOUT`; the `--cwd` check exits 0 with
@@ -155,6 +160,9 @@ worktree prints `preflight`, the exact `--cwd` check command.
   <action>
 Merge, in order, one command per call:
 1. `node plugins/devflow/devflow/bin/df-tools.cjs merge-driver install --check --raw`;
+   `git config --get merge.devflow-state-json.driver`; `git rev-parse --path-format=absolute --git-common-dir` (compare:
+   the driver's quoted bin must be the main checkout's `plugins/devflow/devflow/bin/df-tools.cjs`; if it is a worktree
+   path, record it as a deviation and re-run `merge-driver install` from the main checkout);
    `git log --merges --format='%h %s' -8`; `node -e "JSON.parse(require('fs').readFileSync('.planning/state.json','utf8')); console.log('ok')"`.
 2. Scratch clone (`...` below is `node plugins/devflow/devflow/bin/df-tools.cjs`):
    - `git clone --quiet /Users/justin/dev/devflow-claude <scratch>/clone`, then
@@ -171,6 +179,8 @@ Merge, in order, one command per call:
      `git -C <scratch>/clone merge --no-ff -m "merge demo-b" demo-b`;
      `git -C <scratch>/clone diff --name-only --diff-filter=U`; then read the clone's state.json and the tail of its
      STATE_ARCHIVE.md.
+   - Undo, live: `... --cwd <scratch>/clone merge-driver uninstall` (expect `changed: true`), the same again (expect
+     `changed: false`), then `... --cwd <scratch>/clone merge-driver install --check --raw` (expect not installed).
 
 Position: `node plugins/devflow/devflow/bin/df-tools.cjs state advance-job --objective 59 --raw`; read the Status line
 (`rg -n '^\*\*Status:\*\*' .planning/STATE.md`); commit
@@ -217,9 +227,11 @@ the target of every following command (each one carries `--cwd <scratch>/ms`):
   <files>CHANGELOG.md, CLAUDE.md, docs/USER-GUIDE.md, plugins/devflow/devflow/bin/lib/help.cjs</files>
   <action>
 1. CHANGELOG `[Unreleased]`:
-   - Added: `df-tools merge-driver install|resolve|state-json` (JSON-aware state.json merge, union STATE_ARCHIVE.md,
-     installed in info/attributes + repo config, nothing committed; the scratch-clone result); `exec-context worktree`
-     prints `preflight`.
+   - Added: `df-tools merge-driver install|uninstall|resolve|state-json` (JSON-aware state.json merge, union
+     STATE_ARCHIVE.md, installed in info/attributes + repo config, nothing committed; `uninstall` is the idempotent undo;
+     the recorded driver is a fail-safe wrapper that falls back to `git merge-file`, an ordinary conflict, when the
+     binary is gone, and points at the main checkout's or the mirror's df-tools, never a worktree copy; the scratch-clone
+     result); `exec-context worktree` prints `preflight`.
    - Changed: `state advance-job --objective N` derives position and Status from disk; execute-objective installs the
      driver, resolves state.json/STATE_ARCHIVE.md conflicts with `merge-driver resolve`, and regenerates position after
      every parallel wave; the executor dispatch names `CHECKOUT` and the preflight runs with `--cwd`; `milestone complete`
@@ -232,7 +244,9 @@ the target of every following command (each one carries `--cwd <scratch>/ms`):
    conflict from "Where we left off".
 3. USER-GUIDE: replace the Known issues bullet with a short note that it is fixed (pointing at the new text); add a
    "Parallel wave merges" subsection beside the execute-objective documentation (`rg -n "wave" docs/USER-GUIDE.md` to place
-   it) covering install, what each file does on merge, the resolve fallback, and the `--cwd` preflight; mention
+   it) covering install (run from the main checkout, where wave merges run; never inside an executor worktree), what
+   each file does on merge, the fail-safe fallback (a missing df-tools binary gives an ordinary text conflict), the
+   resolve fallback, the undo (`merge-driver uninstall`), and the `--cwd` preflight; mention
    `--objective` where advance-job is described and the new `milestone complete` keys where it is described.
 4. help.cjs `exec-context` details: the WRONG CHECKOUT and `preflight` lines.
 5. `node plugins/devflow/devflow/bin/df-tools.cjs validate docs --raw`; `node --test plugins/devflow/devflow/bin/lib/dispatch-completeness.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/help.test.cjs`;

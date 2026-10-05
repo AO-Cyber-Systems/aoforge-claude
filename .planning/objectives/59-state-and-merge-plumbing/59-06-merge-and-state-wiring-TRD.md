@@ -14,7 +14,7 @@ autonomous: true
 requirements: [PLMB-01, PLMB-02, PLMB-03]
 must_haves:
   truths:
-    - "execute-objective.md installs the merge driver (`df-tools merge-driver install`, one plain command) once per objective run before the first parallel wave's worktrees are provisioned"
+    - "execute-objective.md installs the merge driver (`df-tools merge-driver install`, one plain command) once per objective run before the first parallel wave's worktrees are provisioned, and states that the install and every wave merge run from the main checkout, never inside an executor worktree (with `merge-driver uninstall` named as the undo)"
     - "The documented Branch merge protocol resolves a conflict on `.planning/state.json` or `.planning/STATE_ARCHIVE.md` with `df-tools merge-driver resolve <planning_path>` instead of aborting, and the replay test runs that command for real and completes the merge"
     - "After every parallel wave's merges the orchestrator runs `state advance-job --objective ${OBJECTIVE_NUMBER}` with update-progress and roadmap update-job-progress, and commits STATE.md, ROADMAP.md and state.json"
     - "executor.md and execute-trd.md call `state advance-job --objective ${OBJECTIVE_NUMBER}`, and executor.md's state commands carry `--cwd <checkout>`"
@@ -40,9 +40,13 @@ from disk, and 59-03 put `--cwd <CHECKOUT>` in the preflight. This TRD puts the 
 keeps the documented merge sequence honest:
 
 1. **execute-objective.md step 0**: once per objective run, before the first parallel wave's `exec-context worktree`,
-   `node ~/.claude/devflow/bin/df-tools.cjs merge-driver install`. A failure or `Unknown command` is reported and does not
-   stop the wave (the protocol's resolve path still covers a conflict when the command exists; an older runtime simply
-   keeps today's behaviour).
+   `node ~/.claude/devflow/bin/df-tools.cjs merge-driver install`, run from the main checkout. A failure or
+   `Unknown command` is reported and does not stop the wave (the protocol's resolve path still covers a conflict when
+   the command exists; an older runtime simply keeps today's behaviour). The prose states where things run: the install
+   and every wave merge happen in the main checkout, where the orchestrator stands, never inside an executor
+   worktree. That worktree is removed after its merge, so a driver recorded from it would be stranded (59-01 maps such a
+   path to the main checkout's copy, and its wrapper degrades a missing binary to an ordinary conflict, but the prose
+   should not rely on either). `merge-driver uninstall` is named as the undo.
 2. **Branch merge protocol**: conflicted paths are classified three ways: take ours for STATE.md, ROADMAP.md and
    REQUIREMENTS.md (unchanged); `node ~/.claude/devflow/bin/df-tools.cjs merge-driver resolve <planning_path>` for
    state.json and STATE_ARCHIVE.md (it resolves and stages); abort for anything else.
@@ -101,6 +105,9 @@ Prose pins (`state-merge-wiring.repo.test.cjs`, reads the three markdown files):
    includes `.planning/state.json`.
 10. Every `state advance-job` invocation in executor.md and execute-trd.md carries `--objective`.
 11. executor.md's state_updates block passes `--cwd <checkout>` on its df-tools state commands.
+12. execute-objective.md says, in step 0 beside the install line and again in the Branch merge protocol's lead-in prose
+    (not inside a shell fence, so the replay's classifier is unaffected), that the install and the wave merges run from
+    the main checkout and never inside an executor worktree; step 0 names `merge-driver uninstall` as the undo.
 
 <embedded_context>
 
@@ -175,8 +182,9 @@ builders in the test file: `stateJsonWith(decisions)` (`JSON.stringify({...defau
 `archiveWith(rows)` (the ARCHIVE_SEED shape with metrics rows).
 
 Then the replay changes (TAKE_OURS / RESOLVE lists, `resolve` category, real resolve through the repo bin) and scenarios
-1-6, and the new repo test with pins 7-11. Run both files: 1-3 and 7-11 fail against today's prose (no resolve line, no
-install, no `--objective`); 4-6 may pass. Commit `test(59-06): merge sequence resolves state.json and STATE_ARCHIVE.md`.
+1-6, and the new repo test with pins 7-12. Run both files: 1-3 and 7-12 fail against today's prose (no resolve line, no
+install, no `--objective`, no main-checkout note); 4-6 may pass. Commit
+`test(59-06): merge sequence resolves state.json and STATE_ARCHIVE.md`.
   </action>
   <verify>`node --test plugins/devflow/hooks/gate-commits-merge-sequence.test.js plugins/devflow/devflow/bin/lib/state-merge-wiring.repo.test.cjs` runs; the expected tests fail for the documented reason (missing prose), not for a fixture error.</verify>
   <done>The RED commit holds the replay changes, scenarios 1-6 and pins 7-11; failures name missing prose lines.</done>
@@ -189,9 +197,13 @@ install, no `--objective`); 4-6 may pass. Commit `test(59-06): merge sequence re
   <action>
 execute-objective.md:
 1. Step 0, parallel wave, before the `exec-context worktree` fence: "Once per objective run, before the first parallel
-   wave's worktrees, register the planning-file merge drivers (idempotent; `changed: false` on later runs):" + fence
-   `node ~/.claude/devflow/bin/df-tools.cjs merge-driver install` + one sentence: state.json then merges JSON-aware and
-   STATE_ARCHIVE.md by union, so neither stops a wave merge; a failure is reported and the wave goes on.
+   wave's worktrees, register the planning-file merge drivers from the main checkout (idempotent; `changed: false` on
+   later runs):" + fence `node ~/.claude/devflow/bin/df-tools.cjs merge-driver install` + two sentences: state.json then
+   merges JSON-aware and STATE_ARCHIVE.md by union, so neither stops a wave merge, and a failure is reported while the
+   wave goes on. Run the install and every wave merge in the main checkout, never inside an executor worktree (it is
+   removed after its merge); `merge-driver uninstall` reverses the install.
+   In the Branch merge protocol's lead-in prose (before its first fence), add one sentence: the merges run in the main
+   checkout you are standing in, the integration checkout `merge_back` names, and never inside a plan's worktree.
 2. Branch merge protocol: replace the two-way rule with the three-way classification (take ours / resolve / abort), with
    a fence holding `node ~/.claude/devflow/bin/df-tools.cjs merge-driver resolve <planning_path>` ("resolves and stages
    it; run once per listed state.json or STATE_ARCHIVE.md path"). Keep the existing ours/add/commit/abort fences.
@@ -210,7 +222,7 @@ execute-trd.md `state_updates`: the advance-job line carries `--objective "${OBJ
 Commit `docs(59-06): build wires the merge driver and disk-derived position`.
   </action>
   <verify>`node --test plugins/devflow/hooks/gate-commits-merge-sequence.test.js plugins/devflow/devflow/bin/lib/state-merge-wiring.repo.test.cjs plugins/devflow/devflow/bin/lib/executor-isolation.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/planning-writes.repo.test.cjs` passes.</verify>
-  <done>Tests 1-11 pass; executor-isolation (59-03), doc-refs and planning-writes repo tests stay green.</done>
+  <done>Tests 1-12 pass; executor-isolation (59-03), doc-refs and planning-writes repo tests stay green.</done>
   <recovery>If planning-writes.repo.test.cjs flags a new line as a direct planning write, the line names a `.planning/` path in a non-verb command; only `git` merge-protocol lines and df-tools verbs may name planning paths, so reword accordingly.</recovery>
 </task>
 
@@ -231,7 +243,7 @@ Commit `docs(59-06): build wires the merge driver and disk-derived position`.
 </verification>
 
 <success_criteria>
-- 11 named tests pass; full `npm test` at baseline (three known failures).
+- 12 named tests pass; full `npm test` at baseline (three known failures).
 </success_criteria>
 
 <output>
