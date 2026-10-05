@@ -730,6 +730,19 @@ test('43-03 D11 #7: a block ends at the next sibling key, in both layouts', () =
   assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'truths'), ['legacy truth']);
 });
 
+test('56-01 #9: the block name goes through escapeRegExp: the real names read as before, a metacharacter name is literal', () => {
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'artifacts'), [
+    { path: 'lib/a.js', provides: 'the a module' },
+    { path: 'lib/b.js', provides: 'the b module', min_lines: 3 },
+  ]);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'truths'), ['first truth', 'second truth']);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'key_links'), ['lib/a.js -> lib/b.js -> require']);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_4_6, 'key_links'), [{ from: 'lib/a.js', to: 'lib/b.js', via: 'require' }]);
+  // Unescaped, `artifact.` compiled `.` as a wildcard and read the `artifacts:` block.
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'artifact.'), []);
+  assert.deepStrictEqual(parseMustHavesBlock(MH_2_4, 'key_link.'), []);
+});
+
 test('43-03 D11 #8: inline-array and single-quoted values parse as `verify artifacts` needs them', () => {
   // 76 real TRDs write `exports: ["a", "b"]` and 7 write `contains: 'subagent_type="x"'`.
   // Left as raw text, `verify artifacts` would report "Missing export: [...]" for files

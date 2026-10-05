@@ -25,7 +25,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 
 ### Objective-number correctness (ONUM)
 
-- [ ] **ONUM-01**: Every regex escape goes through `text-escape.cjs` (state x5, gh-hierarchy, planning-verbs, planning-entity-verbs, frontmatter, watcher-daemon), and a repo test fails CI on a new hand-rolled escape.
+- [x] **ONUM-01**: Every regex escape goes through `text-escape.cjs` (state x5, gh-hierarchy, planning-verbs, planning-entity-verbs, frontmatter, watcher-daemon), and a repo test fails CI on a new hand-rolled escape.
 - [ ] **ONUM-02**: Looking up objective `4.1` never matches `04.10-*` (`searchObjectiveInDir`).
 - [ ] **ONUM-03**: The ROADMAP lookups in novel-domain and trd-pre-check find single-digit objectives regardless of leading zeros.
 - [ ] **ONUM-04**: `verify trd-pre` reads requirement IDs only from ID-shaped tokens, never from a free-text Requirements line.
@@ -94,7 +94,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | PLMB-03 | Objective 59 | Pending |
 | PLMB-04 | Objective 59 | Pending |
 | PLMB-05 | Objective 59 | Pending |
-| ONUM-01 | Objective 56 | Pending |
+| ONUM-01 | Objective 56 | Complete |
 | ONUM-02 | Objective 56 | Pending |
 | ONUM-03 | Objective 56 | Pending |
 | ONUM-04 | Objective 56 | Pending |

@@ -82,6 +82,7 @@ const branchLib = require('./objective-branch.cjs');
 const { extractFrontmatter, setFrontmatterField } = require('./frontmatter.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const { EXIT, UNQUEUED_MARK } = storeCli;
 const { LOCAL, STORE } = planningMode;
@@ -564,8 +565,6 @@ const listDir = (dir) => {
   }
 };
 
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** The zero-padded objective prefix of a directory name (`07-store-demo` -> `07`). */
 function dirPrefix(target) {
   const m = /^(\d+(?:\.\d+)?)-/.exec(target.dir);
@@ -597,7 +596,7 @@ function checkFileName(file, what) {
 /** The SUMMARY file of a TRD: the caller's, else the existing `<prefix>-[...-]SUMMARY.md`, else `<prefix>-SUMMARY.md`. */
 function summaryFileOf(t, file) {
   if (file !== undefined && file !== null) return file;
-  const re = new RegExp(`^${escapeRe(t.prefix)}-(?:.*-)?SUMMARY\\.md$`);
+  const re = new RegExp(`^${escapeRegExp(t.prefix)}-(?:.*-)?SUMMARY\\.md$`);
   return t.files.find((f) => re.test(f)) || `${t.prefix}-SUMMARY.md`;
 }
 

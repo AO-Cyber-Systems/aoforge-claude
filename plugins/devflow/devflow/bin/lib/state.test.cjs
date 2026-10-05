@@ -372,6 +372,20 @@ describe('sessionReplacePlainField (unit)', () => {
   });
 });
 
+// ─── TRD 56-01 (ONUM-01): field names are matched literally ──────────────────
+// stateExtractField compiled the field name into the regex source unescaped, so
+// `Progress (%)` became a capture group and never matched its own bold label.
+
+describe('stateExtractField (unit, TRD 56-01)', () => {
+  test('56-01 #6: a field name with regex metacharacters reads its own **Label:** line', () => {
+    assert.equal(state.stateExtractField('**Progress (%):** 40\n', 'Progress (%)'), '40');
+    // `.` is not a wildcard: `Current.Job` does not read `**Current Job:**`.
+    assert.equal(state.stateExtractField('**Current Job:** 3\n', 'Current.Job'), null);
+    // Plain names read as before.
+    assert.equal(state.stateExtractField('**Current Job:** 3\n**Status:** Executing\n', 'Status'), 'Executing');
+  });
+});
+
 // ─── TRD 48-13: STATE.md mutators — local-mode characterization + store mode ──
 //
 // Characterization (local mode) pins the bytes every STATE.md mutator writes

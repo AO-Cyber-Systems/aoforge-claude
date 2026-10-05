@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 100,
+  "progress_pct": 99,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -639,6 +639,16 @@
     {
       "objective": "55",
       "summary": "55-07: merge guard proven live with option B (ready PR + second unpushed commit); on a draft PR the draft check (gh-pr.cjs:975) runs before the unpushed guard (:980-982), so the merge refusal names verification, not gh pr sync",
+      "rationale": null
+    },
+    {
+      "objective": "56",
+      "summary": "56-01: regex-escape.repo.test.cjs exempts lib/text-escape.cjs by path, not basename; a copy of the canonical escape anywhere else fails CI",
+      "rationale": null
+    },
+    {
+      "objective": "56",
+      "summary": "56-01: every production regex escape goes through text-escape.cjs escapeRegExp (hooks via ../devflow/bin/lib/text-escape.cjs); test files keep their own local escapes",
       "rationale": null
     }
   ],

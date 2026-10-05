@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { output, error, findPlanFiles } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── State JSON Sidecar ───────────────────────────────────────────────────────
 // state.json holds machine-readable fields alongside the human-readable STATE.md.
@@ -97,13 +98,13 @@ function ensureArchive(cwd) {
 // ─── State Field Helpers (markdown) ──────────────────────────────────────────
 
 function stateExtractField(content, fieldName) {
-  const pattern = new RegExp(`\\*\\*${fieldName}:\\*\\*\\s*(.+)`, 'i');
+  const pattern = new RegExp(`\\*\\*${escapeRegExp(fieldName)}:\\*\\*\\s*(.+)`, 'i');
   const match = content.match(pattern);
   return match ? match[1].trim() : null;
 }
 
 function stateReplaceField(content, fieldName, newValue) {
-  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegExp(fieldName);
   const pattern = new RegExp(`(\\*\\*${escaped}:\\*\\*\\s*)(.*)`, 'i');
   if (pattern.test(content)) {
     return content.replace(pattern, `$1${newValue}`);
@@ -126,7 +127,7 @@ function sessionReplacePlainField(content, label, newValue) {
   const end = nextHeading === -1 ? content.length : start + nextHeading;
   const section = content.slice(start, end);
 
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegExp(label);
   const pattern = new RegExp(`^(${escaped}:[ \\t]*)(.*)$`, 'im');
   const hit = section.match(pattern);
   if (!hit) return null;
@@ -197,7 +198,7 @@ function cmdStateGet(cwd, section, raw) {
     }
 
     // Try to find markdown section or field
-    const fieldEscaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const fieldEscaped = escapeRegExp(section);
 
     // Check for **field:** value
     const fieldPattern = new RegExp(`\\*\\*${fieldEscaped}:\\*\\*\\s*(.*)`, 'i');
@@ -238,7 +239,7 @@ function cmdStatePatch(cwd, patches, raw) {
     const results = { updated: [], failed: [] };
 
     for (const [field, value] of Object.entries(patches)) {
-      const fieldEscaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const fieldEscaped = escapeRegExp(field);
       const pattern = new RegExp(`(\\*\\*${fieldEscaped}:\\*\\*\\s*)(.*)`, 'i');
 
       if (pattern.test(content)) {
@@ -273,7 +274,7 @@ function cmdStateUpdate(cwd, field, value) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   try {
     let content = fs.readFileSync(statePath, 'utf-8');
-    const fieldEscaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const fieldEscaped = escapeRegExp(field);
     const pattern = new RegExp(`(\\*\\*${fieldEscaped}:\\*\\*\\s*)(.*)`, 'i');
     if (pattern.test(content)) {
       content = content.replace(pattern, `$1${value}`);
@@ -604,7 +605,7 @@ function cmdStateSnapshot(cwd, raw) {
 
   // Helper to extract **Field:** value patterns from markdown (fallback)
   const extractField = (fieldName) => {
-    const pattern = new RegExp(`\\*\\*${fieldName}:\\*\\*\\s*(.+)`, 'i');
+    const pattern = new RegExp(`\\*\\*${escapeRegExp(fieldName)}:\\*\\*\\s*(.+)`, 'i');
     const match = content.match(pattern);
     return match ? match[1].trim() : null;
   };

@@ -115,6 +115,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 55]: 55-05: reconcile gates a local branch delete on ancestry, then on content (git merge-tree --write-tree of the default tip and the branch tip equals the default tip's own tree); an unknown (older git, missing object) keeps the branch
 - [Objective 55]: 55-06: push-branch (A, user answer relayed by orchestrator); smoke pins devflow-claude@d4147b8c1dd00af210b09a90c2af87dce0bf1010
 - [Objective 55]: 55-07: merge guard proven live with option B (ready PR + second unpushed commit); on a draft PR the draft check (gh-pr.cjs:975) runs before the unpushed guard (:980-982), so the merge refusal names verification, not gh pr sync
+- [Objective 56]: 56-01: regex-escape.repo.test.cjs exempts lib/text-escape.cjs by path, not basename; a copy of the canonical escape anywhere else fails CI
+- [Objective 56]: 56-01: every production regex escape goes through text-escape.cjs escapeRegExp (hooks via ../devflow/bin/lib/text-escape.cjs); test files keep their own local escapes
 
 ## Performance Metrics
 
@@ -180,4 +182,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 55 P06 | 4min | 3 tasks | 0 files |
 | Objective 55 P07 | 10min | 2 tasks | 1 files |
 | Objective 55 P08 | 30min | 2 tasks | 4 files |
+| Objective 56 P01 | 11min | 3 tasks | 16 files |
 

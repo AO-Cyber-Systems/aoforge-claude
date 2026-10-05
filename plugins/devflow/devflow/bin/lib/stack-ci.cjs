@@ -22,6 +22,7 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizeScript } = require('./stack-shell.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // indent, optional `- `, key (bare or quoted), `:`, optional value.
 const KEY_RE = /^(\s*)(-\s+)?(?:"([^"]*)"|'([^']*)'|([A-Za-z0-9_][A-Za-z0-9_.-]*))\s*:(?:\s+(.*?))?\s*$/;
@@ -301,7 +302,10 @@ function wordAt(text, i) {
 function expandsAny(text, names) {
   if (!names || !names.length) return false;
   const t = unquoteSingle(text);
-  return names.some((n) => new RegExp(`\\$(?:\\{${n}(?![A-Za-z0-9_])|${n}(?![A-Za-z0-9_]))`).test(t));
+  return names.some((n) => {
+    const name = escapeRegExp(n);
+    return new RegExp(`\\$(?:\\{${name}(?![A-Za-z0-9_])|${name}(?![A-Za-z0-9_]))`).test(t);
+  });
 }
 
 /** runtimeVarsOf(text) -> the run block's runtime-assigned names, in first-seen order (see the section header). */
