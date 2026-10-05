@@ -21,11 +21,11 @@ Requirement IDs live in each objective's `OBJECTIVE.md`; there is no `REQUIREMEN
 
 ### Validated
 
-The capability areas listed under `## Scope`: skills, subagents, hooks, `.planning/` templates and `df-tools.cjs`; the program-aware coordination layer (v1.1+); the project lifecycle (v1.3+); and self-measurement (v1.3+). v1.2 shipped 2026-07-22 and v1.3 completed 2026-09-28 (see `## Context`).
+The capability areas listed under `## Scope`: skills, subagents, hooks, `.planning/` templates and `df-tools.cjs`; the program-aware coordination layer (v1.1+); the project lifecycle (v1.3+); self-measurement (v1.3+); GitHub as an opt-in system of record (v1.4+); and environment diagnosis and repair (v1.4+). v1.2 shipped 2026-07-22, v1.3 completed 2026-09-28 and v1.4 completed 2026-10-05, with all 58 v1.4 requirement IDs satisfied (see `## Context`).
 
 ### Active
 
-Milestone v1.4, objectives 42-53. The v1.4 audit (`.planning/milestones/v1.4-MILESTONE-AUDIT.md`) records 58 of 58 formal requirement IDs satisfied across the objectives it covers. Objective 53 (worktree and health hygiene) was registered on 2026-10-04 from that audit's tech-debt list.
+None. v1.4 is complete and v1.5 is not yet planned. The ROADMAP `v1.5 candidates` section lists the carried items: live store-mode smoke, Docs site deploy, and v1.4 tech debt.
 
 ### Out of Scope
 
@@ -47,6 +47,12 @@ devflow-claude owns:
   - unattended adoption of existing repos (`/devflow:adopt`);
   - self-correcting documentation (command-reference checker, staleness advisories).
 - **Self-measurement** (v1.3+): `df-tools context|session-audit|transcript-export|override|telemetry`, `validate health` Checks 12–14
+- **GitHub as system of record** (v1.4+, opt-in via `github.enabled` + `github.store`):
+  - planning state lives in issues, TRD sub-issues, comments, the wiki and native milestones, written through an outbox, with `.planning/` as a rebuildable cache;
+  - every planning write goes through a df-tools verb;
+  - one linked branch and PR per objective, enforced locally and by required checks, with `gh setup` to configure a repo;
+  - in-place migration (0011, `/devflow:gh-sync migrate`).
+- **Environment diagnosis** (v1.4+): `df-tools doctor` / `/devflow:doctor`, and the codebase-aware stack drafter (`stack init|verify|report|mcp`)
 
 ## Out of Scope
 
@@ -137,16 +143,18 @@ devflow-claude/
 
 ## Context
 
-v1.3 completed on 2026-09-28 with 15 objectives (27–41) and 107 of 109 TRDs executed; plugin version 2.11.0. Release commit `b907932` is on `feat/stack-profile-loader`, and the merge to `main` is pending. v1.2 shipped 2026-07-22.
+v1.4 completed on 2026-10-05 with 13 objectives (42–54), all 158 TRDs executed, and objective 26 killed. It shipped as plugin 2.13.0 and 2.13.1, and `feat/stack-profile-loader` is merged to `main`. The milestone ended with CodeQL at 0 open alerts on `main`. v1.3 (27–41, plugin 2.11.0) completed 2026-09-28, and v1.2 shipped 2026-07-22.
 
-Test suite: 4268 tests, 1 known failure (MA-7 handoff-e2e), 32 skipped. v1.3 cut the handful of daemon/timing flakes carried from v1.2 down to that one known failure.
+Test suite: 9,088 tests, 1 known failure (MA-7 handoff-e2e, which fails on any machine with a real `doctl`), 32 skipped. CI is green on `main`.
 
-Open decisions carried to v1.4:
+Open decisions carried to v1.5:
 - DECISION-001 (edit-gate posture);
 - the CI Anthropic secret for the live visual judge;
 - `main` branch protection.
 
+Also open: the live store-mode smoke on a real GitHub repo (every store test uses a fake GitHub), and the Docs site deploy (Cloudflare Pages project `devflow-docs` not found).
+
 Objective 26 (GitHub issue auto-build monitor) was killed on 2026-10-01 (resolved; GMD-04).
 
 ---
-*Last updated: 2026-10-04 after TRD 53-05 (Core Value and Requirements sections)*
+*Last updated: 2026-10-05 after v1.4 milestone*

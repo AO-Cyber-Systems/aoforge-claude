@@ -2,17 +2,17 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
+See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 
 **Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** v1.3 complete (2026-09-28, plugin v2.11.0). Next: merge `feat/stack-profile-loader` → `main`, tag, `/plugin update`; then plan v1.4 (`/devflow:milestone new`).
+**Current focus:** v1.4 complete (2026-10-05, plugin v2.13.0 + v2.13.1, merged to `main`). Next: `/plugin update devflow@aocyber`, the live store-mode smoke, the Docs site Cloudflare fix, then plan v1.5 (`/devflow:milestone new`).
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
 
 ## Current Position
 
-**Milestone:** v1.3 complete 2026-09-28 (objectives 27–41; archived to .planning/milestones/v1.3-ROADMAP.md). v1.4 not yet planned. Last release v2.11.0 (commit b907932; tag local, merge to main pending)
-**Branch:** `feat/stack-profile-loader` (352 commits past v2.10.1; not yet merged to `main`)
+**Milestone:** v1.4 complete 2026-10-05 (objectives 42–54, 158 TRDs; 26 killed; archived to .planning/milestones/v1.4-ROADMAP.md; audit passed 58/58). v1.5 not yet planned. Last release v2.13.1 (merge f101acb6); PR #123 (CodeQL #89, d79fed0c) merged, unreleased
+**Branch:** `feat/stack-profile-loader` (merged to `main` via #121, #122, #123)
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
 **Objective complete:** 2 — Cross-repo awareness layer (verified 2026-05-04, 731/731 tests with integration flags, all 10 SC met, 7 TRDs done)
@@ -44,7 +44,8 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 **Objective complete:** 43 — Stack drafter rules (completed 2026-10-04, 15/15 TRDs)
 **Objective complete:** 52 — Store-mode polish (completed 2026-10-04, 6/6 TRDs)
 **Objective complete:** 54 — CodeQL cleanup (completed 2026-10-04, 10/10 TRDs)
-**Status:** Objective complete — ready for verification
+**Objective complete:** 42, 45, 53 — Codebase-aware stack drafter (15/15), DevFlow doctor (10/10), Worktree and health hygiene (7/7; completed 2026-10-04)
+**Status:** v1.4 milestone complete
 
 ## Branch State (post-merge)
 
