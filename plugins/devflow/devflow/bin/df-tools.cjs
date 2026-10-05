@@ -139,7 +139,7 @@
  *     --objective N [--fields '{json}']
  *
  * State Progression:
- *   state advance-job                 Increment job counter
+ *   state advance-job [--objective <N>]   Record TRD progress (position from disk with --objective)
  *   state record-metric --objective N      Record execution metrics
  *     --job M --duration Xmin
  *     [--tasks N] [--files N]
@@ -365,7 +365,12 @@ async function main() {
         }
         cmdStatePatch(cwd, patches, raw);
       } else if (subcommand === 'advance-job') {
-        cmdStateAdvanceJob(cwd, raw);
+        const objectiveIdx = args.indexOf('--objective');
+        const objective = objectiveIdx !== -1 ? args[objectiveIdx + 1] : null;
+        if (objectiveIdx !== -1 && (!objective || objective.startsWith('--'))) {
+          error('state advance-job --objective requires an objective number, e.g. --objective 59');
+        }
+        cmdStateAdvanceJob(cwd, { objective }, raw);
       } else if (subcommand === 'record-metric') {
         const objectiveIdx = args.indexOf('--objective');
         const jobIdx = args.indexOf('--job');

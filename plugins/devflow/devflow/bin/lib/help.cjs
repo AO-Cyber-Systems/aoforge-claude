@@ -30,7 +30,7 @@ const VERB_DETAILS = [
 // name → { usage, summary, mutates?, details? }
 const COMMANDS = {
   'state': {
-    usage: 'df-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session] [--raw]',
+    usage: 'df-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job [--objective <N>]|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session] [--raw]',
     summary: 'Read or update .planning/STATE.md.',
     mutates: true,
   },
