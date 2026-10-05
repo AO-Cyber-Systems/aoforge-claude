@@ -117,6 +117,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 55]: 55-07: merge guard proven live with option B (ready PR + second unpushed commit); on a draft PR the draft check (gh-pr.cjs:975) runs before the unpushed guard (:980-982), so the merge refusal names verification, not gh pr sync
 - [Objective 56]: 56-01: regex-escape.repo.test.cjs exempts lib/text-escape.cjs by path, not basename; a copy of the canonical escape anywhere else fails CI
 - [Objective 56]: 56-01: every production regex escape goes through text-escape.cjs escapeRegExp (hooks via ../devflow/bin/lib/text-escape.cjs); test files keep their own local escapes
+- [Objective 56]: 56-04: Goal and Depends on are read through text-escape.boldLabelPattern, so the v1.5 colon-outside form (**Goal**:) and the older **Goal:** both resolve; reconcile's Progress-row matcher shares objectiveNumPattern
 
 ## Performance Metrics
 
@@ -183,4 +184,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 55 P07 | 10min | 2 tasks | 1 files |
 | Objective 55 P08 | 30min | 2 tasks | 4 files |
 | Objective 56 P01 | 11min | 3 tasks | 16 files |
+| Objective 56 P04 | 5min | 2 tasks | 8 files |
 
