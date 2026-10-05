@@ -9,5 +9,5 @@ tags: [merge-driver, state-json, plmb-02]
 
 ## Progress
 - [x] Task 1: Fixture builders for state.json, the archive and a hermetic wave repository — 63f5b61c
-- [ ] Task 2: mergeStateJson pure 3-way merge (tests 1-10) — RED committed (this commit); next step: write lib/state-merge.cjs (mergeStateJson, canonicalJson) so state-merge.test.cjs goes green, commit `feat(59-01): JSON-aware 3-way merge for state.json`
+- [x] Task 2: mergeStateJson pure 3-way merge (tests 1-10) — RED 3e1b22d9, GREEN (this commit)
 - [ ] Task 3: df-tools merge-driver state-json | install | uninstall | resolve, then dogfood install (tests 11-20) — next step: after Task 2, write merge-driver-cli.test.cjs with tests 11-20 and run it RED
