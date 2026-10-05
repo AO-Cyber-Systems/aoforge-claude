@@ -296,6 +296,58 @@ test('O6 — bootstrapObjectiveMd: ROADMAP.md has "### Objective 5:" + "**Goal:*
   }
 });
 
+test('O12 — bootstrapObjectiveMd: v1.5 "**Goal**: baz" (colon outside the bold) → stub carries the goal, not the placeholder', () => {
+  const roadmap = [
+    '# Roadmap',
+    '',
+    '### Objective 5: Foo Bar',
+    '',
+    '**Goal**: baz quux integration layer',
+    '**Requirements**: ONUM-01',
+    '',
+    'Some other text.',
+  ].join('\n');
+  const repo = makeRepo({
+    projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
+    roadmap,
+    objectives: { '05-foo-bar': null },
+  });
+  try {
+    const r = bootstrapObjectiveMd(repo, '05-foo-bar');
+    assert.strictEqual(r.applied, true);
+    const content = fs.readFileSync(r.path, 'utf-8');
+    assert.match(content, /baz quux integration layer/);
+    assert.doesNotMatch(content, /_\(extract from ROADMAP\.md/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('O13 — bootstrapObjectiveMd: "### Objective 05:" heading + "**Goal:** baz" for dir 05-foo-bar → name and goal read', () => {
+  const roadmap = [
+    '# Roadmap',
+    '',
+    '### Objective 05: Foo Bar',
+    '',
+    '**Goal:** baz',
+    '',
+  ].join('\n');
+  const repo = makeRepo({
+    projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
+    roadmap,
+    objectives: { '05-foo-bar': null },
+  });
+  try {
+    const r = bootstrapObjectiveMd(repo, '05-foo-bar');
+    assert.strictEqual(r.applied, true);
+    const content = fs.readFileSync(r.path, 'utf-8');
+    assert.match(content, /^# Foo Bar$/m);
+    assert.match(content, /^baz$/m);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('O7 — bootstrapObjectiveMd: idempotent — second invocation produces no file mtime change', () => {
   const repo = makeRepo({
     projectMd: '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
