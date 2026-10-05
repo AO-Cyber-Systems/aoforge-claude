@@ -340,6 +340,53 @@ const ROLLUP_SPEC = Object.freeze({
   ],
 });
 
+// ─── Milestone rollup project (TRD 58-07) ─────────────────────────────────────
+
+/**
+ * The ROADMAP.md of MILESTONE_SPEC: two milestone bullets in the shapes this repo writes (a shipped one whose objectives
+ * 70-79 have neither a directory nor a section, and the current one covering 80-84) and a section for every objective
+ * 80-85. Objective 85 lies outside the current bullet's range.
+ */
+const MILESTONE_ROADMAP = [
+  '# Roadmap: Fixture',
+  '',
+  '## Milestones',
+  '',
+  '- ✅ **v0.9 — Old** — Objectives 70–79 (shipped 2026-09-01)',
+  '- 🚧 **v1.0 — Now** — Objectives 80–84 (in progress)',
+  '',
+  '## Objectives',
+  '',
+  '### Objective 80: Alpha',
+  '**Goal**: Alpha goal.',
+  '### Objective 81: Beta',
+  '**Goal**: Beta goal.',
+  '### Objective 82: Gamma',
+  '**Goal**: Gamma goal.',
+  '### Objective 83: Delta',
+  '**Goal**: Delta goal.',
+  '### Objective 84: Epsilon',
+  '**Goal**: Epsilon goal.',
+  '### Objective 85: Later',
+  '**Goal**: Later goal.',
+  '',
+].join('\n');
+
+/**
+ * The project the milestone tests (estimate-milestone.test.cjs) estimate: ROLLUP_SPEC (80 partial, 81 unplanned, 82
+ * done, 83 planned) plus 84-epsilon, whose OBJECTIVE.md carries `status: cancelled` and which has no TRDs, and the
+ * ROADMAP above. Objective 85 has a section but no directory.
+ */
+const MILESTONE_SPEC = Object.freeze({
+  ...ROLLUP_SPEC,
+  name: 'milestone',
+  objectives: [
+    ...ROLLUP_SPEC.objectives,
+    { dir: '84-epsilon', objectiveMd: '---\nstatus: cancelled\n---\n# Objective 84: epsilon\n', trds: [] },
+  ],
+  roadmap: MILESTONE_ROADMAP,
+});
+
 module.exports = {
   EMPTY_STAT,
   CAL_V2,
@@ -350,4 +397,6 @@ module.exports = {
   makeEstimateProject,
   removeEstimateProject,
   ROLLUP_SPEC,
+  MILESTONE_ROADMAP,
+  MILESTONE_SPEC,
 };
