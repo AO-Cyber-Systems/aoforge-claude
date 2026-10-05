@@ -9,6 +9,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - `session-audit` now reports what happened after each edit-gate denial (bypassed by a Bash write of the same file, routed through a skill/marker/override, or abandoned) as `edit_gate_bypass` in the JSON and an `edit_gate:` line under `--raw`, the measurement DECISION-001 waits on.
 
+### Changed
+- Every regex escape in df-tools and the hooks goes through `lib/text-escape.cjs`. The 12 hand-rolled copies are gone and 5
+  places that put text into a regex unescaped now escape it. `regex-escape.repo.test.cjs` fails CI, naming the file and line,
+  when a new hand-rolled escape appears.
+
+### Fixed
+- Objective lookups match the exact directory. `4.1` no longer resolves to a `04.10-*` directory in `find-objective`,
+  `objectives list --objective`, `objective-job-index` and every command that resolves an objective, and an archived `04.1-*`
+  is found when only `04.10-*` is current.
+- Single-digit objectives find their ROADMAP section with or without a leading zero (`### Objective 4:` or `### Objective 04:`)
+  in `detect novel-domain`, `verify trd-pre`, `roadmap get-objective` and the OBJECTIVE.md scaffold.
+- `verify trd-pre` takes requirement IDs only from ID-shaped list items. A free-text Requirements line
+  (`none (tech debt; ...)`) now yields no IDs instead of a requirement no TRD can cover. It reads `**Requirements**:` as well as
+  `**Requirements:**`, expands `GWP-01..GWP-05`, and reads the leading IDs of a bulleted Requirements block.
+  `objective complete` applies the same rules.
+- `roadmap get-objective`, `roadmap analyze`, the OBJECTIVE.md scaffold and the gh issue body read `**Goal**:` and
+  `**Depends on**:` (colon outside the bold) as well as the old form. Before this, every v1.5 objective reported `goal: null`
+  and a new OBJECTIVE.md got the `_(extract from ROADMAP.md ...)_` placeholder. The ROADMAP Progress-table row matcher in
+  `sync-roadmap` now uses the shared objective-number pattern, so it never touches `| 15 |` when updating objective 5.
+- `requirements mark-complete` matches IDs literally: `REQ.01` no longer ticks `REQ-01`, and an ID such as `A(1` no longer
+  crashes. `objective remove` renumbers every later objective down by exactly one (removing objective 3 from 3-6 used to leave
+  `### Objective 3:` three times) and renumbers each item of a `**Depends on**: Objective N, Objective M` list.
+
 ## [2.13.2] - 2026-10-05
 
 Store mode was tested end to end against a real GitHub repository (`AO-Cyber-Systems/devflow-store-smoke`), and this release fixes what that run found. **Repositories set up with `gh setup` on 2.13.1 or earlier keep a broken checks workflow until they re-pin.** To re-pin, update the plugin, then run `df-tools gh setup` followed by `gh setup --apply`, and merge the workflow PR.
