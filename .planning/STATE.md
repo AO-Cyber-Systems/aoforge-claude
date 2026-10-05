@@ -48,6 +48,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 55 — Store live-smoke fixes (completed 2026-10-05, 8/8 TRDs)
 **Objective complete:** 56 — Objective-number correctness (completed 2026-10-05, 5/5 TRDs)
 **Objective complete:** 57 — Estimation data foundation (completed 2026-10-05, 7/7 TRDs)
+**Objective complete:** 58 — Estimation engine and surfacing (completed 2026-10-05, 10/10 TRDs)
 **Status:** Objective complete — ready for verification
 
 ## Branch State (post-merge)
