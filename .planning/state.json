@@ -685,6 +685,11 @@
       "objective": "57",
       "summary": "calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json",
       "rationale": "57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json"
+    },
+    {
+      "objective": "58",
+      "summary": "58-02: overhead agent types need the devflow: or df- prefix; Quick planner spawns are excluded and counted; samples carry per-model token splits and no paths",
+      "rationale": null
     }
   ],
   "blockers": [],
