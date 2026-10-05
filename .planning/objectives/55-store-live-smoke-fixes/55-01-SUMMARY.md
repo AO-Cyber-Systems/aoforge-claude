@@ -13,4 +13,4 @@ IN PROGRESS (checkpoint, not complete).
 
 ## Progress
 - [x] Task 1: Admin bypass in the desired ruleset, satisfies and union; fake reports current_user_can_bypass — RED f88e283b, GREEN eb808dd3
-- [ ] Task 2: Printed guidance names the admin-bypass merge; devflow-ref follows a pinned checks_workflow — RED committed (this commit); next step: replace the second guidance string in filesLines of plugins/devflow/devflow/bin/lib/gh-setup-cli.cjs (merge method from client.readConfig) and derive devflow_ref from the checks_workflow @ref in renderTemplates of gh-setup.cjs, then run the four setup test files
+- [x] Task 2: Printed guidance names the admin-bypass merge; devflow-ref follows a pinned checks_workflow — RED dcbd1bb3, GREEN (this commit)

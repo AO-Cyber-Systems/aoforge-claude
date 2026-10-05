@@ -11,7 +11,8 @@
 //
 // The apply half (TRD 50-11) consumes the actions this module produces:
 //
-//   renderTemplates(cfg, ver)     the two local files with {{checks_workflow}} / {{devflow_ref}} filled in  (impure: reads templates)
+//   renderTemplates(cfg, ver)     the two local files with {{checks_workflow}} / {{devflow_ref}} filled in  (impure: reads templates;
+//                                 devflow_ref follows the @ref of a configured checks_workflow)
 //   applySetup(root, actions, d)  actions -> outcomes; GitHub writes via gh-client.ghWrite, local files via fs
 //
 // An action is `{kind, target, status, desc, payload?, request?, file?}`:
@@ -707,7 +708,9 @@ const DEFAULT_CHECKS_WORKFLOW = 'AO-Cyber-Systems/devflow-claude/.github/workflo
 /**
  * The two local files setup writes, rendered from `templates/github/` (read relative to this module, so the plugin
  * checkout and the home mirror both work). `{{checks_workflow}}` is `github.checks_workflow`, or the DevFlow reusable
- * workflow pinned to `v<version>` when that is unset or empty; `{{devflow_ref}}` is `v<version>`. GitHub's own `${{ ... }}`
+ * workflow pinned to `v<version>` when that is unset or empty; `{{devflow_ref}}` is the `@<ref>` of a configured
+ * `checks_workflow` (a branch, tag or SHA), else `v<version>`, so the runner script and the reusable workflow come from
+ * the same ref (55-01). A configured value with no `@`, or nothing after it, pins nothing. GitHub's own `${{ ... }}`
  * expressions are left alone, and a value containing `$&` is inserted literally.
  *
  * @param {object} [cfg] the `github` block of .planning/config.json
@@ -719,7 +722,12 @@ function renderTemplates(cfg, version) {
   const github = isObject(cfg) ? cfg : {};
   const ref = `v${version.trim().replace(/^v/, '')}`;
   const configured = typeof github.checks_workflow === 'string' ? github.checks_workflow.trim() : '';
-  const values = { checks_workflow: configured !== '' ? configured : `${DEFAULT_CHECKS_WORKFLOW}@${ref}`, devflow_ref: ref };
+  const at = configured.lastIndexOf('@');
+  const pinned = at > 0 ? configured.slice(at + 1).trim() : '';
+  const values = {
+    checks_workflow: configured !== '' ? configured : `${DEFAULT_CHECKS_WORKFLOW}@${ref}`,
+    devflow_ref: pinned !== '' ? pinned : ref,
+  };
   const fill = (body) => body.replace(/\{\{\s*(checks_workflow|devflow_ref)\s*\}\}/g, (_match, key) => values[key]);
   return {
     workflow: fill(fs.readFileSync(path.join(TEMPLATE_DIR, 'devflow.yml'), 'utf-8')),
