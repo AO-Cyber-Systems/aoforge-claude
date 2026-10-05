@@ -137,3 +137,126 @@ describe('58-02 overhead spawn samples', () => {
     });
   });
 });
+
+describe('58-02 overhead spawns of a repository', () => {
+  let root;   // stands in for ~/.claude/projects
+  let R;      // the repository whose overhead is measured
+  let F;      // another repository sharing the projects root
+  let projectsR;
+
+  const realTmp = (prefix) => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+    fs.mkdirSync(path.join(dir, '.planning', 'objectives'), { recursive: true });
+    return dir;
+  };
+
+  const CHECKER_SPAWN = {
+    agentType: 'devflow:job-checker',
+    description: 'Verify Objective 80 plans',
+    start: '2026-10-01T10:20:00.000Z',
+    messages: [
+      { id: 'msg_C1', model: 'claude-sonnet-5-5', input: 2, cacheWrite: 300, cacheRead: 10000, output: 800, blocks: 1, at: '2026-10-01T10:22:00.000Z' },
+    ],
+  };
+  const QUICK_SPAWN = {
+    agentType: 'devflow:planner',
+    description: 'Quick plan: fix X',
+    start: '2026-10-01T10:30:00.000Z',
+    messages: [
+      { id: 'msg_Q1', model: 'claude-opus-5-5', input: 1, cacheWrite: 100, cacheRead: 1000, output: 100, blocks: 1, at: '2026-10-01T10:31:00.000Z' },
+    ],
+  };
+  const FOREIGN_SPAWN = { ...fx.VERIFIER_SPAWN, description: 'Verify objective 9' };
+  const LEGACY_SPAWN = { ...fx.VERIFIER_SPAWN, agentType: 'df-verifier', description: 'Verify objective 79' };
+
+  before(() => {
+    root = fx.makeProjectsRoot();
+    R = realTmp('df-overhead-r-');
+    F = realTmp('df-overhead-f-');
+    projectsR = [{ root: R, label: 'repo-r' }];
+    const keyR = fx.projectKeyFor(R);
+    const keyF = fx.projectKeyFor(F);
+
+    const spawn = (projectKey, session, agentId, s, cwd) => fx.writeOverheadTranscript(root, { projectKey, session, agentId, spawn: s, cwd });
+    spawn(keyR, 's1', 'p1', fx.PLANNER_SPAWN, R);
+    spawn(keyR, 's1', 'v1', fx.VERIFIER_SPAWN, R);
+    spawn(keyR, 's1', 'c1', CHECKER_SPAWN, R);
+    spawn(keyR, 's2', 'q1', QUICK_SPAWN, R);
+    fx.writeSubagentTranscript(root, {
+      projectKey: keyR, session: 's2', agentId: 'e1', agentType: 'devflow:executor', description: 'Execute TRD 80-01',
+      prompt: 'Execute TRD 80-01', cwd: R, records: fx.THREE_MESSAGES,
+    });
+    fx.writeSubagentTranscript(root, {
+      projectKey: keyR, session: 's2', agentId: 'g1', agentType: 'general-purpose', description: 'Explore',
+      prompt: 'Explore the repo', cwd: R, records: fx.THREE_MESSAGES,
+    });
+    spawn(keyF, 's3', 'f1', FOREIGN_SPAWN, F);
+    // x1: the meta.json is there, the transcript is not.
+    const dir = path.join(root, keyR, 's3', 'subagents');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'agent-x1.meta.json'), JSON.stringify({ agentType: 'devflow:planner', description: 'Plan Objective 81' }));
+    spawn(keyR, 's3', 'l1', LEGACY_SPAWN, R);
+  });
+
+  after(() => {
+    for (const d of [root, R, F]) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  const brief = (e) => ({ agent: e.agent, project: e.project, session: e.session, agent_id: e.agent_id });
+
+  test('4: the index keeps this repository\'s overhead spawns and counts every other outcome', () => {
+    const { entries, counts } = ao.indexOverheadTranscripts({ root, projects: projectsR });
+    assert.deepEqual(counts, {
+      spawns: 7, matched: 4, foreign: 1, quick: 1, unreadable: 1,
+      by_agent: { 'job-checker': 1, planner: 1, verifier: 2 },
+    });
+    assert.deepEqual(entries.map(brief).sort((a, b) => a.agent_id.localeCompare(b.agent_id)), [
+      { agent: 'job-checker', project: 'repo-r', session: 's1', agent_id: 'c1' },
+      { agent: 'verifier', project: 'repo-r', session: 's3', agent_id: 'l1' },
+      { agent: 'planner', project: 'repo-r', session: 's1', agent_id: 'p1' },
+      { agent: 'verifier', project: 'repo-r', session: 's1', agent_id: 'v1' },
+    ]);
+    for (const e of entries) {
+      assert.ok(path.isAbsolute(e.file) && e.file.endsWith(`agent-${e.agent_id}.jsonl`), e.file);
+      assert.ok(fs.existsSync(e.file), e.file);
+    }
+
+    // With the other repository in `projects`, its verifier belongs to it instead of being foreign.
+    const both = ao.indexOverheadTranscripts({
+      root, projects: [{ root: R, label: 'repo-r' }, { root: F, label: 'repo-f' }],
+    });
+    assert.deepEqual(both.counts, {
+      spawns: 7, matched: 5, foreign: 0, quick: 1, unreadable: 1,
+      by_agent: { 'job-checker': 1, planner: 1, verifier: 3 },
+    });
+    assert.deepEqual(brief(both.entries.find((e) => e.agent_id === 'f1')), {
+      agent: 'verifier', project: 'repo-f', session: 's3', agent_id: 'f1',
+    });
+  });
+
+  test('5: collectOverhead returns sorted, path-free samples deterministically and demands a root', () => {
+    const first = ao.collectOverhead({ root, projects: projectsR });
+    const second = ao.collectOverhead({ root, projects: projectsR });
+    assert.deepEqual(first, second);
+
+    assert.deepEqual(first.counts, ao.indexOverheadTranscripts({ root, projects: projectsR }).counts);
+    assert.deepEqual(first.samples.map((s) => `${s.agent}/${s.session}/${s.agent_id}`), [
+      'job-checker/s1/c1', 'planner/s1/p1', 'verifier/s1/v1', 'verifier/s3/l1',
+    ]);
+    for (const s of first.samples) {
+      assert.equal(s.project, 'repo-r');
+      assert.equal('file' in s, false);
+    }
+    assert.deepEqual(first.samples[1], {
+      agent: 'planner', project: 'repo-r', session: 's1', agent_id: 'p1',
+      minutes: 6, tokens_input: 111015, tokens_output: 6000, tokens_cache_read: 110000, tokens_cache_write: 1000,
+      by_model: {
+        'claude-opus-5-5': { tokens_input: 111015, tokens_output: 6000, tokens_cache_read: 110000, tokens_cache_write: 1000 },
+      },
+    });
+
+    assert.throws(() => ao.indexOverheadTranscripts({ projects: projectsR }), /indexOverheadTranscripts: root is required/);
+    assert.throws(() => ao.collectOverhead({ projects: projectsR }), /collectOverhead: root is required/);
+    assert.throws(() => ao.collectOverhead(), /root is required/);
+  });
+});
