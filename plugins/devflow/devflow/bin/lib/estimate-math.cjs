@@ -154,6 +154,69 @@ function sumCorrelated(dists, rho = DEFAULT_CORRELATION) {
   return fromMoments(mean, (1 - r) * sumVar + r * sumSd * sumSd);
 }
 
+// ─── Max and mixture ──────────────────────────────────────────────────────────
+
+const BISECTION_STEPS = 100;
+const MAX_DOUBLINGS = 64;
+
+/** The smallest t in [lo, hi] with `f(t) >= q` for a non-decreasing `f`, by 100 halvings; returns the midpoint. */
+function bisect(f, q, lo, hi) {
+  let a = lo;
+  let b = hi;
+  for (let i = 0; i < BISECTION_STEPS; i++) {
+    const mid = (a + b) / 2;
+    if (f(mid) >= q) b = mid;
+    else a = mid;
+  }
+  return (a + b) / 2;
+}
+
+/**
+ * Median and P90 of the maximum of independent components (the wall time of a parallel wave). Solves
+ * `prod_i cdf(d_i, t) = q` for q = 0.5 and 0.9. Null when any member is null; ZERO members are dropped; an empty list
+ * gives ZERO; a single member is returned as is. Otherwise the result is the lognormal fitted to the two roots.
+ * The q-quantile of a max is at least every member's q-quantile, so the search starts at the largest of them and
+ * doubles the upper bound until the product reaches q.
+ */
+function maxIndependent(dists) {
+  if (!Array.isArray(dists) || dists.some((d) => d === null || d === undefined)) return null;
+  const parts = dists.filter((d) => d !== ZERO);
+  if (parts.length === 0) return ZERO;
+  if (parts.length === 1) return parts[0];
+  const product = (t) => parts.reduce((acc, d) => acc * cdf(d, t), 1);
+  const solve = (q, z) => {
+    const lo = Math.max(...parts.map((d) => quantile(d, z)));
+    let hi = 2 * lo;
+    for (let i = 0; i < MAX_DOUBLINGS && product(hi) < q; i++) hi *= 2;
+    return bisect(product, q, lo, hi);
+  };
+  return fitQuantiles({ p50: solve(0.5, 0), p90: solve(0.9, Z90) });
+}
+
+/**
+ * Median and P90 of the mixture `(1 - p) * base + p * alt` (with probability p the alternative applies, as in the
+ * gap-closure factor). Returns `{p50, p90, dist}` on every branch, so callers can compose the result further: `dist`
+ * is the base itself when p is missing or <= 0 or alt is null, the alt itself when p >= 1, and otherwise the lognormal
+ * fitted to the two roots of `(1 - p) * cdf(base, t) + p * cdf(alt, t) = q`. The root lies between the two members'
+ * q-quantiles, which bracket the search.
+ */
+function mixtureQuantiles(base, alt, p) {
+  const own = (d) => {
+    const s = summarize(d) || { p50: null, p90: null };
+    return { p50: s.p50, p90: s.p90, dist: d === undefined ? null : d };
+  };
+  if (!isNum(p) || p <= 0 || alt === null || alt === undefined || base === null || base === undefined) return own(base);
+  if (p >= 1) return own(alt);
+  const mix = (t) => (1 - p) * cdf(base, t) + p * cdf(alt, t);
+  const solve = (q, z) => {
+    const qb = quantile(base, z);
+    const qa = quantile(alt, z);
+    return bisect(mix, q, Math.min(qb, qa), Math.max(qb, qa));
+  };
+  const dist = fitQuantiles({ p50: solve(0.5, 0), p90: solve(0.9, Z90) });
+  return { ...summarize(dist), dist };
+}
+
 module.exports = {
   Z90,
   DEFAULT_CORRELATION,
@@ -167,4 +230,6 @@ module.exports = {
   summarize,
   sumComonotonic,
   sumCorrelated,
+  maxIndependent,
+  mixtureQuantiles,
 };
