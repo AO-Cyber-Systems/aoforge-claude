@@ -22,9 +22,13 @@
 //                  stamped SUMMARYs are committed on that branch; in the main checkout the two are equal.
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { trdKey } = require('./helpers.cjs');
+const ghMapping = require('./gh-mapping.cjs');
+const planningMode = require('./planning-mode.cjs');
+const verbs = require('./planning-verbs.cjs');
 const tu = require('./token-usage.cjs');
 
 /** Written into `tokens_source` so a backfilled figure is never mistaken for a live one. */
@@ -150,6 +154,95 @@ function planBackfill({ checkoutRoot, repoRoot, root, force = false } = {}) {
   };
 }
 
+// ─── applyBackfill ────────────────────────────────────────────────────────────
+
+/**
+ * Stamp the token fields onto a temp copy of `text` and return the result, so the only write to a `.planning/` file is the
+ * verb's. `{ok: false, error}` when the stamp refuses (no frontmatter block, a key that cannot be written).
+ */
+function stampOnCopy(file, text, fields, force) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-backfill-'));
+  try {
+    const copy = path.join(tmp, file);
+    fs.writeFileSync(copy, text);
+    const r = tu.stampTokenFields(copy, fields, { force });
+    return r.ok ? { ...r, text: fs.readFileSync(copy, 'utf8') } : r;
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Write the planned token fields into every `recovered` SUMMARY of `plan`, in plan order, through `summary post`
+ * (planning-verbs.summaryPost): local mode writes the file byte for byte into the checkout holding `checkoutRoot`; store
+ * mode writes the main cache and queues one outbox write per SUMMARY. Nothing here writes under `.planning/` itself.
+ *
+ * Per recovered SUMMARY:
+ *   1. the six fields are stamped onto a temp copy; a refusal is `write_failed`
+ *   2. a conflicting existing token value without `force` is `skipped` (`token_conflict`): never overwritten, never
+ *      half-written. An identical result is `unchanged`
+ *   3. summaryPost picks the objective directory from the id alone, so with a shared objective number the SUMMARY is
+ *      posted only when `resolveObjective(main, <objective>).dir` is its own directory; otherwise `skipped`
+ *      (`ambiguous_objective_dir`) and the file is left alone
+ *   4. summaryPost not-ok is `write_failed`; the loop continues
+ *
+ * @param {object} plan  from planBackfill
+ * @param {{checkoutRoot?: string, force?: boolean}} [opts]  checkoutRoot defaults to `plan.checkout`
+ * @returns {{written: string[], unchanged: string[],
+ *   skipped: Array<{id, file, objective_dir, reason: 'token_conflict'|'ambiguous_objective_dir'}>,
+ *   write_failed: Array<{id, file, objective_dir, error: string}>}}  written/unchanged hold TRD ids, in plan order
+ */
+function applyBackfill(plan, { checkoutRoot, force = false } = {}) {
+  if (!plan || !Array.isArray(plan.entries)) throw new Error('applyBackfill: a plan from planBackfill is required');
+  const checkout = typeof checkoutRoot === 'string' && checkoutRoot !== '' ? checkoutRoot : plan.checkout;
+  if (typeof checkout !== 'string' || !checkout) throw new Error('applyBackfill: checkoutRoot is required');
+
+  const main = planningMode.resolveMainRoot(checkout);
+  const result = { written: [], unchanged: [], skipped: [], write_failed: [] };
+
+  for (const entry of plan.entries) {
+    if (entry.status !== 'recovered') continue;
+    const where = { id: entry.id, file: entry.file, objective_dir: entry.objective_dir };
+    const abs = path.join(checkout, '.planning', 'objectives', entry.objective_dir, entry.file);
+
+    let text;
+    try {
+      text = fs.readFileSync(abs, 'utf8');
+    } catch (e) {
+      result.write_failed.push({ ...where, error: `cannot read ${abs}: ${e.message}` });
+      continue;
+    }
+
+    const stamped = stampOnCopy(entry.file, text, entry.fields, force);
+    if (!stamped.ok) {
+      result.write_failed.push({ ...where, error: stamped.error });
+      continue;
+    }
+    if (stamped.conflicts.length > 0 && !force) {
+      result.skipped.push({ ...where, reason: 'token_conflict' });
+      continue;
+    }
+    if (stamped.text === text) {
+      result.unchanged.push(entry.id);
+      continue;
+    }
+
+    const resolved = main ? ghMapping.resolveObjective(main, objectivePartOf(entry.id)) : null;
+    if (!resolved || resolved.dir !== entry.objective_dir) {
+      result.skipped.push({ ...where, reason: 'ambiguous_objective_dir' });
+      continue;
+    }
+
+    const posted = verbs.summaryPost(checkout, { trd: entry.id, text: stamped.text, file: entry.file });
+    if (!posted.ok) {
+      result.write_failed.push({ ...where, error: posted.error || `summary post failed (exit ${posted.exit})` });
+      continue;
+    }
+    result.written.push(entry.id);
+  }
+  return result;
+}
+
 // ─── Report ───────────────────────────────────────────────────────────────────
 
 /**
@@ -186,5 +279,6 @@ function formatBackfillReport(plan, applied) {
 module.exports = {
   BACKFILL_SOURCE,
   planBackfill,
+  applyBackfill,
   formatBackfillReport,
 };

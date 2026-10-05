@@ -393,6 +393,7 @@ describe('57-04 applyBackfill: writes only through the summary post verb', () =>
     assert.equal(readAt(wt, REL_99_01), STAMPED_99_01, 'the worktree copy is stamped');
     assert.equal(readAt(repo, REL_99_01), OLD_99_01, 'the main checkout copy is byte-identical');
     assert.equal(git(repo, 'status', '--porcelain'), '', 'main has no change');
-    assert.equal(git(wt, 'status', '--porcelain'), ` M ${REL_99_01}`, 'the worktree has exactly the one stamped SUMMARY');
+    // `git()` trims, which drops the porcelain's leading space: ` M <path>` reads `M <path>`.
+    assert.equal(git(wt, 'status', '--porcelain'), `M ${REL_99_01}`, 'the worktree has exactly the one stamped SUMMARY');
   });
 });
