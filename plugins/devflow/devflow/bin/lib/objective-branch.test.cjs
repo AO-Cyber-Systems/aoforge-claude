@@ -586,7 +586,6 @@ describe('objective-branch contentMerged (55-05)', { skip: !HAS_GIT && 'git not 
   test('8h. unrelated histories are ok:false (git refuses), never merged', () => {
     const g = setup();
     g.git(g.work, ['switch', '-q', '--orphan', 'df/orphan']);
-    g.git(g.work, ['rm', '-rf', '-q', '.']);
     const tip = g.commitFile(g.work, 'z.txt', 'z\n', 'feat: unrelated root');
     const r = ob.contentMerged(g.work, tip, tipOf(g, 'main'));
     assert.equal(r.ok, false, JSON.stringify(r));

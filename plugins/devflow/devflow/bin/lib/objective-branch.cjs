@@ -2,7 +2,7 @@
 
 // objective-branch.cjs (TRD 49-04) — the one git seam for the objective branch / PR lifecycle (objective 49):
 // fetch, switch, empty start commit, push, local cleanup. Reads: current branch, tips (local, origin, fetched
-// tracking), tracked-clean, ancestry, local branches, the default branch and (TRD 55-03) `unpushedCommits`, which
+// tracking), tracked-clean, ancestry, content-merged (TRD 55-05), local branches, the default branch and (TRD 55-03) `unpushedCommits`, which
 // `verification post` and `gh pr merge` use to refuse while the local linked branch has work origin lacks.
 //
 // `git` is spawned ONLY through `runGit` below (argv array, never a shell string). `_setRunGit(fn)` replaces it
@@ -188,6 +188,36 @@ function isAncestor(root, commit, of) {
   if (r.status === 0) return { ok: true, ancestor: true };
   if (r.status === 1) return { ok: true, ancestor: false };
   return fail(r, `git merge-base --is-ancestor exited ${r.status}`);
+}
+
+/**
+ * Are `tip`'s changes already in `into`? (TRD 55-05) `{ok:true, merged, conflict?}`.
+ *
+ * Ancestry first: a tip that `into` already contains is merged. Otherwise `git merge-tree --write-tree <into> <tip>`
+ * (git 2.38+) merges the two in memory, touching neither the index, the work tree nor any ref: exit 0 prints the merged
+ * tree on its first stdout line, and the tip is merged exactly when that tree is `into`'s own, so the merge would add
+ * nothing. That is the case for a squash merge (the PR's changes were re-made as one new commit on the default branch)
+ * and for a tip that only merged the default branch in. Exit 1 is a conflict (`merged:false, conflict:true`). Any other
+ * outcome (an older git that treats `--write-tree` as a usage error, unrelated histories, a missing object, a bad
+ * revision) is `ok:false`: the caller must treat that as unknown and never delete on it.
+ */
+function contentMerged(root, tip, into) {
+  const t = asRev(tip);
+  const i = asRev(into);
+  if (!validRev(t) || !validRev(i)) return bad(`contentMerged needs two revisions, got ${JSON.stringify(t)} and ${JSON.stringify(i)}`);
+  const anc = isAncestor(root, t, i);
+  if (!anc.ok) return anc;
+  if (anc.ancestor) return { ok: true, merged: true };
+
+  const mt = git(root, ['merge-tree', '--write-tree', i, t]);
+  if (mt.status === 1) return { ok: true, merged: false, conflict: true };
+  if (!mt.ok) return fail(mt, `git merge-tree --write-tree exited ${mt.status}`);
+  const tree = mt.stdout.split('\n')[0].trim();
+  if (!/^[0-9a-f]{40,64}$/.test(tree)) return bad(`git merge-tree --write-tree printed no tree: ${JSON.stringify(mt.stdout.slice(0, 80))}`);
+  const own = git(root, ['rev-parse', '--verify', '--quiet', `${i}^{tree}`]);
+  const ownTree = own.stdout.trim();
+  if (!own.ok || ownTree === '') return fail(own, `could not read the tree of ${i}`);
+  return { ok: true, merged: tree === ownTree };
 }
 
 /** Local branches matching a glob (default all): `{ok:true, branches}`. */
@@ -407,6 +437,7 @@ module.exports = {
   unpushedRefusal,
   isTrackedClean,
   isAncestor,
+  contentMerged,
   listLocal,
   defaultBranch,
   // writes
