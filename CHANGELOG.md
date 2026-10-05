@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- `gh setup` creates the default-branch ruleset with a bypass for the repository-admin role, so the workflow pull request it
+  asks you to open can merge before the required checks can pass. A ruleset that lacks the bypass is updated with it, an admin
+  entry that is already there keeps its mode, and a second `--apply` writes nothing. The guidance `--apply` prints now names the
+  runnable step, `gh pr merge <number> --admin --squash` (the method follows `github.pr.merge_method`). Verified live on a
+  smoke repository: the workflow pull request merged with the merge queue and the required-checks rule active.
+- The reusable checks workflow (`devflow-checks.yml`) checks out `plugins/devflow/devflow/references` beside `bin` in all three
+  jobs, so the check runner no longer stops with `ENOENT` on `model-profiles.json` and the required checks post real verdicts
+  instead of `error`. A repository test now rebuilds the workflow's sparse checkout and runs the runner from it. The managed
+  caller's `devflow-ref` follows the `@<ref>` of a configured `github.checks_workflow`, so a pinned branch, tag or commit pins
+  the runner script and the workflow together. An existing repository picks up a fixed workflow by upgrading the plugin, running
+  `gh setup --apply` and merging the workflow pull request.
+- `verification post` and `gh pr merge` refuse while the linked objective branch has commits that GitHub does not have. Each
+  exits 1, names `df-tools gh pr sync <objective>`, and writes and queues nothing, so a status can no longer certify (and a merge
+  can no longer land) a pull request head that lacks the verified code. A draft pull request is still refused first by the
+  draft check.
+- `gh outbox flush` retries a blocked wiki push once per flush. Create the first wiki page and flush; `gh outbox resolve
+  --overwrite` is no longer needed for it, and a wiki that still has no first page ends in the same halt after one attempt.
+- `objective put`, `plan put-trd`, `verification post` and the other verbs that take an objective id answer an unknown objective
+  with `register a new objective with df-tools objective add "<description>"` instead of a bare "not known".
+- A new store-mode objective issue is titled after the objective's name (`[Objective 2] Goodbye CLI`, from the ROADMAP name,
+  then the OBJECTIVE.md heading, then the slug without its number) instead of the directory name, and its footer says the issue is
+  the source of truth and `.planning/` a local cache. Mirror-mode issue bodies are unchanged. `gh pr reconcile` deletes a local
+  branch that is not in the merged pull request's history when its changes are already on the default branch (a squash merge
+  after the default branch was merged into it); a branch with unpushed or conflicting work, or one git cannot decide (git
+  before 2.38), is still kept and reported.
+
 ## [2.13.1] - 2026-10-04
 
 ### Fixed
