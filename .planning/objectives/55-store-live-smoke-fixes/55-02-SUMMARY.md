@@ -22,5 +22,5 @@ key-files:
 (In progress.)
 
 ## Progress
-- [x] Task 1: Sparse-checkout guard test, then add references/ to all three jobs — 6d5c0b56 (RED), (this commit: GREEN)
-- [ ] Task 2: Flush retries a halted blocked wiki-push once — next step: add RED test 12b to /Users/justin/dev/.df-worktrees/devflow-claude/55-02/plugins/devflow/devflow/bin/lib/gh-store-e2e.test.cjs and unit tests 6-7 to gh-outbox-flush.test.cjs
+- [x] Task 1: Sparse-checkout guard test, then add references/ to all three jobs — 6d5c0b56 (RED), de10c719 (GREEN)
+- [ ] Task 2: Flush retries a halted blocked wiki-push once — RED tests 12b/18g/18h committed (this commit); next step: add retryBlockedWiki() and call it inside the lock before the loop in flush() in /Users/justin/dev/.df-worktrees/devflow-claude/55-02/plugins/devflow/devflow/bin/lib/gh-outbox-flush.cjs, update the flush JSDoc

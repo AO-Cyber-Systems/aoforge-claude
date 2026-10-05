@@ -1105,6 +1105,52 @@ describe('flush: order, offline and blocked ops (tests 17, 18)', () => {
     assert.equal(res.warnings[0].kind, 'upsert-issue');
     assert.match(res.warnings[0].message, /type NoSuchType not applied/);
   });
+
+  // 55-02 (item 55-3). The wiki's own messages say "then run `df-tools gh outbox flush`" / "then flush again", so a
+  // halted blocked wiki-push is retried by flush with no `resolve`. Other kinds keep their human step.
+  test('18g. flush retries a halted blocked wiki-push exactly once per flush; while the wiki is still missing it halts blocked again (55-02 test 6)', (t) => {
+    if (!gitAvailable()) return t.skip('git is not available');
+    const restoreGit = applyGitTestEnv(path.join(S.envh.root, 'home'));
+    const remote = createWikiRemote();
+    t.after(() => { restoreGit(); remote.cleanup(); });
+    const clones = [];
+    wiki._setRunGit((args, opts) => {
+      if (args.includes('clone')) clones.push(args);
+      const r = spawnSync('git', args, { cwd: opts && opts.cwd, env: process.env, encoding: 'utf-8' });
+      return { ok: r.status === 0, status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+    });
+
+    enqueueOps([{ kind: 'wiki-push', target: { store: 'pages' }, payload: { pages: ['PROJECT.md'], message: 'm' } }]);
+    const first = runFlush({ wikiRemote: remote.missingUrl });
+    assert.equal(first.status, 'halted');
+    assert.equal(first.halted.reason, 'blocked');
+    assert.equal(clones.length, 1, 'the first flush made one attempt');
+
+    const second = runFlush({ wikiRemote: remote.missingUrl });
+    assert.equal(second.status, 'halted', JSON.stringify(second));
+    assert.equal(second.halted.reason, 'blocked');
+    assert.match(second.halted.detail, /first wiki page|web UI/i);
+    assert.equal(clones.length, 2, 'the second flush made exactly one more attempt: retried, not looped');
+    assert.deepEqual(queueNow().map((o) => [o.seq, o.status]), [[1, 'blocked']]);
+  });
+
+  test('18h. a halted blocked op of any other kind still needs resolve: flush halts without executing it (55-02 test 7)', () => {
+    enqueueOps([trdOp('7-01'), trdOp('7-02')]);
+    S.fake.failNext(
+      (argv) => argv.join(' ') === 'api --method POST repos/o/r/issues --input -',
+      { ok: false, status: 1, stderr: 'gh: Validation Failed (HTTP 422)' },
+    );
+    const first = runFlush();
+    assert.equal(first.status, 'halted');
+    assert.equal(first.halted.reason, 'blocked');
+    assert.equal(S.fake.issues.length, 0);
+
+    const second = runFlush();
+    assert.equal(second.status, 'halted', JSON.stringify(second));
+    assert.equal(second.halted.reason, 'blocked');
+    assert.equal(S.fake.issues.length, 0, 'the blocked upsert-issue was not executed again, and op 2 never ran');
+    assert.deepEqual(queueNow().map((o) => [o.seq, o.status]), [[1, 'blocked'], [2, 'pending']]);
+  });
 });
 
 describe('flush: disabled and locked (tests 25)', () => {
