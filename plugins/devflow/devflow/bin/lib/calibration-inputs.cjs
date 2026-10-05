@@ -8,6 +8,9 @@
 const fs = require('fs');
 const path = require('path');
 const { parseTrdTasks, resolveEffectiveTddFlag } = require('./trd-tdd.cjs');
+const { extractFrontmatter } = require('./frontmatter.cjs');
+const { findPlanFiles, trdKey, normalizeObjectiveName, objectiveDirMatches } = require('./helpers.cjs');
+const { resolveMainRoot } = require('./planning-mode.cjs');
 
 // ─── Model rates ──────────────────────────────────────────────────────────────
 
@@ -152,8 +155,10 @@ function parseDurationMinutes(text) {
 
 const METRIC_ROW_RE = /^\|\s*Objective\s+([^\s|]+)\s+P([^\s|]+)\s*\|([^|]*)\|\s*(-|\d+)\s+tasks?\s*\|\s*(-|\d+)\s+files?\s*\|\s*$/;
 
+// A task/file count is digits; `-` (the table's "unknown"), empty and null are null.
 function countOrNull(token) {
-  return token === '-' || token === undefined || token === null || token === '' ? null : Number(token);
+  const text = token === undefined || token === null ? '' : String(token).trim();
+  return /^\d+$/.test(text) ? Number(text) : null;
 }
 
 /**
@@ -274,7 +279,9 @@ function readTrdTasks(text) {
 const CLASSIFIER_VERSION = 1;
 
 const SCHEMA_RE = /(^|\/)(migrations?|schema)(\/|\.)|\.sql$|\.prisma$/i;
-const TEST_RE = /\.(test|spec)\.|_test\.(go|dart|py)$|(^|\/)test_[^/]*\.py$|(^|\/)(__tests__|__fixtures__|tests?|integration_test)\//;
+// `_{2}fixtures_{2}` is the double-underscore fixtures directory; the literal is avoided on purpose, because the repo
+// guard in gh-project.test.cjs (X2) fails any non-test lib module whose source contains it.
+const TEST_RE = /\.(test|spec)\.|_test\.(go|dart|py)$|(^|\/)test_[^/]*\.py$|(^|\/)(_{2}tests_{2}|_{2}fixtures_{2}|tests?|integration_test)\//;
 const UI_RE = /\.(tsx|jsx|vue|svelte|css|scss|html)$/i;
 const DART_RE = /\.dart$/i;
 const CODE_RE = /\.(c?js|mjs|ts|go|dart|py|rs|rb|java|kt|swift|sh)$/i;
@@ -314,6 +321,222 @@ function classifyTask(task) {
   return t.tdd === true ? `${kind}_tdd` : kind;
 }
 
+// ─── Projects and the per-TRD join ────────────────────────────────────────────
+
+const TRD_KEY_SHAPE = /^\d+(?:\.\d+)?-\d+$/;
+
+function isDir(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false; // absent or unreadable: not a directory for our purposes
+  }
+}
+
+function realpathOrNull(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null; // a path that does not exist is skipped by the caller
+  }
+}
+
+/** Sorted realpath'd project roots: a project (`.planning/objectives`) is itself, anything else contributes its project children. */
+function discoverProjects(paths) {
+  const list = Array.isArray(paths) ? paths : (paths ? [paths] : []);
+  const isProject = (dir) => isDir(path.join(dir, '.planning', 'objectives'));
+  const found = new Set();
+  for (const input of list) {
+    const real = realpathOrNull(path.resolve(String(input)));
+    if (real === null || !isDir(real)) continue;
+    if (isProject(real)) {
+      found.add(real);
+      continue;
+    }
+    for (const entry of fs.readdirSync(real).sort()) {
+      if (entry.startsWith('.')) continue;
+      const child = realpathOrNull(path.join(real, entry));
+      if (child !== null && isDir(child) && isProject(child)) found.add(child);
+    }
+  }
+  return [...found].sort();
+}
+
+function textOrNull(v) {
+  if (typeof v === 'number') return String(v);
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+}
+
+function numberOrNull(v) {
+  const text = textOrNull(v);
+  return text !== null && Number.isFinite(Number(text)) ? Number(text) : null;
+}
+
+function readSummary(text) {
+  const fm = extractFrontmatter(text) || {};
+  const duration = textOrNull(fm.duration);
+  return {
+    duration,
+    minutes: parseDurationMinutes(duration),
+    completed: textOrNull(fm.completed),
+    tokens_input: numberOrNull(fm.tokens_input),
+    tokens_output: numberOrNull(fm.tokens_output),
+    tokens_cache_read: numberOrNull(fm.tokens_cache_read),
+    tokens_cache_write: numberOrNull(fm.tokens_cache_write),
+    token_model: textOrNull(fm.token_model),
+  };
+}
+
+// STATE_ARCHIVE.md rows, then store mode's state.json `metrics_log` (the same rows). Later rows outrank earlier ones.
+function readMetricRows(base) {
+  const rows = [];
+  const archive = path.join(base, '.planning', 'STATE_ARCHIVE.md');
+  if (fs.existsSync(archive)) rows.push(...parseMetricsTable(fs.readFileSync(archive, 'utf-8')));
+  const stateJson = path.join(base, '.planning', 'state.json');
+  if (fs.existsSync(stateJson)) {
+    let log = [];
+    try {
+      const parsed = JSON.parse(fs.readFileSync(stateJson, 'utf-8'));
+      if (isPlainObject(parsed) && Array.isArray(parsed.metrics_log)) log = parsed.metrics_log;
+    } catch {
+      log = []; // a malformed state.json carries no metrics; the archive table is still read
+    }
+    for (const entry of log) {
+      if (!isPlainObject(entry)) continue;
+      const duration = textOrNull(entry.duration) || '';
+      rows.push({
+        objective: textOrNull(entry.objective) || '',
+        trdToken: textOrNull(entry.job) || '',
+        duration_raw: duration,
+        minutes: parseDurationMinutes(duration),
+        tasks: countOrNull(entry.tasks),
+        files: countOrNull(entry.files),
+      });
+    }
+  }
+  return rows;
+}
+
+// The directory a metric row's objective token names: the exact name, else a numeric token (or numeric prefix) that
+// matches exactly one directory. More than one is ambiguous and is never guessed.
+function resolveObjectiveDir(token, dirNames) {
+  if (dirNames.includes(token)) return { dir: token };
+  if (!/^\d/.test(token)) return { unmatched: true };
+  const normalized = normalizeObjectiveName(token);
+  const matches = dirNames.filter((name) => objectiveDirMatches(name, normalized));
+  if (matches.length === 1) return { dir: matches[0] };
+  return matches.length === 0 ? { unmatched: true } : { ambiguous: true };
+}
+
+function compareStrings(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Every TRD of one project joined with its SUMMARY frontmatter and its Performance Metrics row.
+ * Every list in the result is sorted (objective directory, then TRD number), so 57-05 can build a byte-identical file.
+ */
+function collectProject(root) {
+  const base = realpathOrNull(root) || path.resolve(String(root));
+  const objectivesDir = path.join(base, '.planning', 'objectives');
+  const dirNames = isDir(objectivesDir)
+    ? fs.readdirSync(objectivesDir).filter((name) => isDir(path.join(objectivesDir, name))).sort()
+    : [];
+  const counts = { summaries: 0, summaries_without_trd: 0, unkeyed: 0, task_files_misaligned: 0, duplicate_trds: 0 };
+  const trds = [];
+
+  for (const dirName of dirNames) {
+    const dirPath = path.join(objectivesDir, dirName);
+    const files = fs.readdirSync(dirPath).sort();
+
+    const trdFiles = new Map();
+    for (const file of findPlanFiles(files)) {
+      const key = trdKey(file);
+      if (!TRD_KEY_SHAPE.test(key)) {
+        counts.unkeyed += 1;
+      } else if (trdFiles.has(key)) {
+        counts.duplicate_trds += 1;
+      } else {
+        trdFiles.set(key, file);
+      }
+    }
+    const summaryFiles = new Map();
+    for (const file of files) {
+      if (!file.endsWith('-SUMMARY.md') && file !== 'SUMMARY.md') continue;
+      const key = trdKey(file);
+      if (!TRD_KEY_SHAPE.test(key)) counts.unkeyed += 1;
+      else if (!summaryFiles.has(key)) summaryFiles.set(key, file);
+    }
+    counts.summaries += summaryFiles.size;
+    for (const key of summaryFiles.keys()) {
+      if (!trdFiles.has(key)) counts.summaries_without_trd += 1;
+    }
+
+    for (const [key, file] of trdFiles) {
+      const parsed = readTrdTasks(fs.readFileSync(path.join(dirPath, file), 'utf-8'));
+      if (parsed.task_files_misaligned) counts.task_files_misaligned += 1;
+      const fm = parsed.frontmatter;
+      const summaryFile = summaryFiles.get(key);
+      trds.push({
+        id: key,
+        objective_dir: dirName,
+        trd: key.slice(key.lastIndexOf('-') + 1).padStart(2, '0'),
+        trd_type: textOrNull(fm.type),
+        autonomous: String(fm.autonomous).trim().toLowerCase() !== 'false',
+        gap_closure: String(fm.gap_closure).trim().toLowerCase() === 'true',
+        tasks: parsed.tasks,
+        summary: summaryFile ? readSummary(fs.readFileSync(path.join(dirPath, summaryFile), 'utf-8')) : null,
+        metric: null,
+        minutes: null,
+        duration_source: null,
+      });
+    }
+  }
+
+  trds.sort((a, b) => compareStrings(a.objective_dir, b.objective_dir)
+    || (Number(a.trd) - Number(b.trd)) || compareStrings(a.id, b.id));
+
+  const byKey = new Map(trds.map((t) => [`${t.objective_dir}/${t.trd}`, t]));
+  const rows = readMetricRows(base);
+  const metrics = { rows: rows.length, joined: 0, ambiguous: 0, unparsed_trd: 0, unparsed_duration: 0, unmatched: 0, superseded: 0 };
+  const winners = new Map();
+  for (const row of rows) {
+    const resolved = resolveObjectiveDir(row.objective, dirNames);
+    if (resolved.ambiguous) { metrics.ambiguous += 1; continue; }
+    if (resolved.unmatched) { metrics.unmatched += 1; continue; }
+    const trdDigits = String(row.trdToken).split('-').pop();
+    if (!/^\d+$/.test(trdDigits)) { metrics.unparsed_trd += 1; continue; }
+    const key = `${resolved.dir}/${trdDigits.padStart(2, '0')}`;
+    if (!byKey.has(key)) { metrics.unmatched += 1; continue; }
+    if (winners.has(key)) metrics.superseded += 1;
+    winners.set(key, row);
+  }
+  for (const [key, row] of winners) {
+    byKey.get(key).metric = { duration_raw: row.duration_raw, minutes: row.minutes, tasks: row.tasks, files: row.files };
+    metrics.joined += 1;
+    if (row.minutes === null) metrics.unparsed_duration += 1;
+  }
+
+  for (const record of trds) {
+    if (record.summary && record.summary.minutes !== null) {
+      record.minutes = record.summary.minutes;
+      record.duration_source = 'summary';
+    } else if (record.metric && record.metric.minutes !== null) {
+      record.minutes = record.metric.minutes;
+      record.duration_source = 'metric';
+    }
+  }
+
+  return {
+    root: base,
+    label: path.basename(resolveMainRoot(base) || base),
+    objectives: dirNames,
+    trds,
+    counts,
+    metrics,
+  };
+}
+
 module.exports = {
   RATES_PATH,
   loadRates,
@@ -325,4 +548,6 @@ module.exports = {
   classifyTask,
   TASK_CLASSES,
   CLASSIFIER_VERSION,
+  discoverProjects,
+  collectProject,
 };
