@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 100,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -664,6 +664,16 @@
     {
       "objective": "56",
       "summary": "Changelog names the reconcile command sync-roadmap; dogfood ran through the repo CLI, not the ~/.claude/devflow mirror, so merged fixes were exercised",
+      "rationale": null
+    },
+    {
+      "objective": "57",
+      "summary": "57-01: executor token totals are deduped per API message (message.id) and scoped to one repo (REPO_ROOT, else cwd in the repo or its .df-worktrees, else a <repo>/.planning/ path) and, for a shared objective number, to the directory the prompt names; otherwise ambiguous_objective",
+      "rationale": null
+    },
+    {
+      "objective": "57",
+      "summary": "57-01: executor TRD identification lives in lib/trd-identify.cjs; hooks/gate-executor-stop.js requires and re-exports it (the runtime mirror ships no hooks/)",
       "rationale": null
     }
   ],
