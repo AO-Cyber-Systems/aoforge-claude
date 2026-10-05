@@ -38,6 +38,10 @@ const path = require('path');
 const fail = (error, extra = {}) => ({ ok: false, error, ...extra });
 const skippedResult = (reason) => ({ ok: true, skipped: true, reason });
 
+// The one refusal text for a local linked branch with commits origin lacks (TRD 55-03). It is built in objective-branch
+// so planning-verbs.cjs (`verification post`) can use it without requiring this module.
+const unpushedRefusal = branchLib.unpushedRefusal;
+
 const failureText = (r) => String((r && (r.stderr || r.error || r.stdout)) || 'unknown error').trim().split('\n')[0];
 const isNotFound = (r) => /\b404\b|Not Found/i.test(`${r.stderr || ''} ${r.stdout || ''}`);
 
@@ -628,9 +632,13 @@ function defaultDeps(deps) {
 /**
  * The local half of a reconcile, run only after GitHub is reconciled: leave the checkout on the default branch at
  * origin's tip, then delete the objective branch and this objective's `df/exec-<obj>-*` branches. A squash merge
- * leaves every one of them "unmerged" to git, so `-d` always refuses; the delete is forced, and it is gated on the
- * branch tip being an ancestor of the merged PR's head sha. A branch whose tip is not (unpushed or unmerged work), or
- * whose ancestry cannot be decided, is kept and reported. A dirty tracked tree skips everything.
+ * leaves every one of them "unmerged" to git, so `-d` always refuses; the delete is forced, and it is gated twice.
+ * First ancestry: the branch tip is an ancestor of the merged PR's head sha, so everything on it was in the PR.
+ * Failing that (TRD 55-05), content: merging the tip into the updated default branch would change nothing
+ * (objective-branch.contentMerged), as when the default branch was merged into the branch after the last push or a
+ * commit was re-made through the squash. A branch with a change the default branch lacks (unpushed or unmerged work),
+ * one that conflicts with it, or one neither check can decide, is kept and reported. A dirty tracked tree skips
+ * everything.
  * -> {local, deleted, kept, warnings, changed}
  */
 function reconcileLocal(root, { id, branch, base, headSha }) {
@@ -679,17 +687,27 @@ function reconcileLocal(root, { id, branch, base, headSha }) {
     if (!anc.ok) {
       keep(name, `could not compare with the merged head (${anc.error})`,
         `${name} was kept: its tip could not be compared with the merged head ${headSha.slice(0, 8)} (${anc.error}); the merged head may not be fetched here`);
-    } else if (!anc.ancestor) {
-      keep(name, 'not in the merged PR',
-        `${name} was kept: its tip is not in the merged pull request (unpushed or unmerged work); delete it with git branch -D ${name} once you are sure`);
-    } else {
-      const del = branchLib.deleteLocal(root, name, { force: true });
-      if (del.ok) {
-        out.deleted.push(name);
-        out.changed = true;
-      } else {
-        keep(name, `could not delete: ${del.error}`, `${name} was kept: ${del.error}`);
+      continue;
+    }
+    if (!anc.ancestor) {
+      // Not in the PR head's history. A squash merge, or a merge of the default branch made locally after the last push,
+      // leaves such a tip whose changes are nevertheless on the default branch: merging it there would add nothing.
+      // Only that is deleted. A change the default branch lacks, a conflict, and anything the check cannot decide
+      // (an older git, a missing object) keep the branch: keeping is safe, deleting work is not.
+      const content = branchLib.contentMerged(root, tip.sha, synced.sha);
+      if (!(content.ok && content.merged)) {
+        const conflict = content.ok && content.conflict ? ` (it conflicts with ${synced.branch})` : '';
+        keep(name, 'not in the merged PR',
+          `${name} was kept: its tip is not in the merged pull request${conflict} (unpushed or unmerged work); delete it with git branch -D ${name} once you are sure`);
+        continue;
       }
+    }
+    const del = branchLib.deleteLocal(root, name, { force: true });
+    if (del.ok) {
+      out.deleted.push(name);
+      out.changed = true;
+    } else {
+      keep(name, `could not delete: ${del.error}`, `${name} was kept: ${del.error}`);
     }
   }
   return out;
@@ -704,7 +722,7 @@ function reconcileLocal(root, { id, branch, base, headSha }) {
  * and unconfirmed beyond it, so closure is verified, never assumed); the remote branch is deleted with `delete-branch`
  * (only now that the merge is confirmed, and only when it still exists, so a repeat writes nothing); the queue is
  * flushed. Only when GitHub is reconciled do the Project (Status Done), the checkout and the cache follow: switch
- * to the default branch at origin's tip, ancestry-gated force delete of the objective and `df/exec-<obj>-*` branches,
+ * to the default branch at origin's tip, ancestry-then-content-gated force delete of the objective and `df/exec-<obj>-*` branches,
  * `pullAll`. `prs[obj].merged_at` is recorded; `reconciled_at` once every step finished, so a run that skipped or
  * failed one is finished by running it again. Re-running changes nothing.
  *
@@ -912,8 +930,10 @@ function verificationAt(repo, sha) {
  * queue where the repository has one, and reconcile when it merged.
  *
  * Online-required: the PR and its `devflow/verification` status are read before anything is queued. A draft PR, a PR
- * closed unmerged, and a PR whose head has no `success` verification status are refused (objective 50 owns enforcement
- * and the escapes; there is no bypass here). Then `pr-merge {method}` is queued (`github.pr.merge_method`, default
+ * closed unmerged, a local linked branch with commits origin lacks (TRD 55-03: refused naming `gh pr sync`, never
+ * pushed from here; no guard when the branch is not in this clone or has no branch on record), and a PR whose head has
+ * no `success` verification status are refused (objective 50 owns enforcement and the escapes; there is no bypass
+ * here). Then `pr-merge {method}` is queued (`github.pr.merge_method`, default
  * squash) and flushed, and the PR is READ again: a returned `pr-merge` only means the PR was merged or, with a queue,
  * enqueued. Merged: `reconcileObjectivePr` runs in this call. Enqueued: `pending`, to be reconciled after the queue
  * merges it. An already merged PR goes straight to the reconcile.
@@ -953,6 +973,13 @@ function mergeObjectivePr(root, objArg, opts = {}) {
     return fail(`${what} was closed without merging; reopen it or start the objective again`);
   }
   if (pr.state === 'draft') return fail(`PR is still a draft; run verification first (${what})`);
+
+  // TRD 55-03: the PR head is what gets merged. Commits that exist only on the local linked branch are not in it, so
+  // the verification status above would certify code the merge does not carry. Refuse; `gh pr sync` is the remedy.
+  // No branch on record (a PR recorded before 49-04) leaves nothing to compare, so there is no guard.
+  const ahead = recorded.branch ? branchLib.unpushedCommits(root, recorded.branch) : null;
+  if (ahead && !ahead.ok) return fail(`could not tell whether ${recorded.branch} has unpushed commits: ${ahead.error}; nothing was queued`);
+  if (ahead && ahead.count > 0) return fail(unpushedRefusal(id, recorded.branch, ahead));
 
   const v = verificationAt(repo, pr.head_sha);
   if (!v.ok) return fail(`${v.error}; nothing was queued`);
@@ -1016,4 +1043,5 @@ module.exports = {
   prStatus,
   reconcileObjectivePr,
   mergeObjectivePr,
+  unpushedRefusal,
 };

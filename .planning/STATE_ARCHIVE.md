@@ -108,6 +108,13 @@ STATE.md stays lean; this file grows over time.
 - [Objective 53]: 53-04: gate-commits keeps denying a merge chained with a raw git commit; only the deny reason gains a hint, and a squash completion uses the inline DEVFLOW_ALLOW_RAW_COMMIT=1 prefix rather than SQUASH_MSG detection
 - [Objective 54]: text-escape.cjs is the single dependency-free home for escapeRegExp, objectiveNumPattern and mdCell; it must never require helpers.cjs (hooks load it per call) — Hooks (changelog-on-tag.js, TRD 54-07) require it on every PreToolUse(Bash); helpers.cjs loads model-profiles JSON at require time
 - [Objective 54]: 54-03: test.yml and agent-shell-harness.yml run on top-level permissions contents: read; scripts/workflow-permissions.test.cjs fails any workflow with no top-level or per-job permissions
+- [Objective 55]: 55-01: ruleset admin bypass uses bypass_mode always (verified live); setup compares the actor, never the mode, so a team's pull_request mode is kept
+- [Objective 55]: 55-02: fix the sparse checkout list (add references/) rather than remove helpers.cjs's model-profiles.json read; flush retries only a halted blocked wiki-push, once per flush
+- [Objective 55]: 55-03: unpushed linked-branch commits are refused (not auto-pushed) by gh pr merge and verification post, naming gh pr sync; the refusal text is built once in objective-branch.unpushedRefusal
+- [Objective 55]: 55-04: store footer keyed on strict state.store === true only; objective issue name chain is ROADMAP, OBJECTIVE.md heading, bare slug
+- [Objective 55]: 55-05: reconcile gates a local branch delete on ancestry, then on content (git merge-tree --write-tree of the default tip and the branch tip equals the default tip's own tree); an unknown (older git, missing object) keeps the branch
+- [Objective 55]: 55-06: push-branch (A, user answer relayed by orchestrator); smoke pins devflow-claude@d4147b8c1dd00af210b09a90c2af87dce0bf1010
+- [Objective 55]: 55-07: merge guard proven live with option B (ready PR + second unpushed commit); on a draft PR the draft check (gh-pr.cjs:975) runs before the unpushed guard (:980-982), so the merge refusal names verification, not gh pr sync
 
 ## Performance Metrics
 
@@ -165,4 +172,12 @@ STATE.md stays lean; this file grows over time.
 | Objective 54 P07 | 5min | 3 tasks | 9 files |
 | Objective 54 P08 | 4min | 2 tasks | 4 files |
 | Objective 54 P09 | 22min | 2 tasks | 1 files |
+| Objective 55 P01 | 9min | 2 tasks | 7 files |
+| Objective 55 P02 | 7min | 2 tasks | 6 files |
+| Objective 55 P03 | 9min | 3 tasks | 7 files |
+| Objective 55 P04 | 20min | 2 tasks | 5 files |
+| Objective 55 P05 | 6min | 2 tasks | 7 files |
+| Objective 55 P06 | 4min | 3 tasks | 0 files |
+| Objective 55 P07 | 10min | 2 tasks | 1 files |
+| Objective 55 P08 | 30min | 2 tasks | 4 files |
 

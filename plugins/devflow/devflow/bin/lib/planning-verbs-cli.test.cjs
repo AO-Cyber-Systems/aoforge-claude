@@ -456,3 +456,47 @@ describe('quick-29: stayLocalTable escapes a backslash before the pipe in a cell
     assert.ok(lines.includes('  | x y.md | p q |'), lines.join('\n'));
   });
 });
+
+// 55-05 item 55-2: `objective put N` for an objective nothing registered names `objective add`, the step that works.
+describe('55-05 objective put on an unknown objective names objective add', () => {
+  test('1. local mode: exit 1, stderr names `objective add`, nothing is written', () => {
+    const c = cliProject({ store: false });
+    try {
+      const before = c.p.snapshot();
+      const r = c.run(['objective', 'put', '9', '--from', c.file('obj9.md', '---\nobjective: 09-new\nstatus: planned\n---\n\n# Objective 9\n')]);
+      assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
+      assert.match(r.stderr, /objective 9 is not known/);
+      assert.match(r.stderr, /objective add/);
+      assert.deepEqual(c.p.snapshot(), before, 'nothing written');
+    } finally {
+      c.cleanup();
+    }
+  });
+
+  test('2. store mode: same exit and hint, and nothing is queued', { skip: gitAvailable() ? false : 'git is not available' }, () => {
+    const c = cliProject({ store: true });
+    try {
+      const r = c.run(['objective', 'put', '9', '--from', c.file('obj9.md', '---\nobjective: 09-new\nstatus: planned\n---\n\n# Objective 9\n')]);
+      assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
+      assert.match(r.stderr, /objective 9 is not known/);
+      assert.match(r.stderr, /objective add/);
+      assert.deepEqual(c.p.journalOps(), [], 'nothing queued');
+    } finally {
+      c.cleanup();
+    }
+  });
+
+  test('2b. every verb sharing objectiveTarget carries the hint (plan put-trd, verification post)', () => {
+    const c = cliProject({ store: false });
+    try {
+      const trd = c.run(['plan', 'put-trd', '9', '09-01-x-TRD.md', '--from', c.file('t.md', smallTrd('01'))]);
+      assert.equal(trd.status, 1, `${trd.stdout}\n${trd.stderr}`);
+      assert.match(trd.stderr, /objective add/);
+      const ver = c.run(['verification', 'post', '9', '--from', c.file('v.md', '# V\n')]);
+      assert.equal(ver.status, 1, `${ver.stdout}\n${ver.stderr}`);
+      assert.match(ver.stderr, /objective add/);
+    } finally {
+      c.cleanup();
+    }
+  });
+});

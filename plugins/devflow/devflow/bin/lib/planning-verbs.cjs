@@ -78,6 +78,7 @@ const ghHierarchy = require('./gh-hierarchy.cjs');
 const ghMapping = require('./gh-mapping.cjs');
 const ghTrd = require('./gh-trd.cjs');
 const ghWiki = require('./gh-wiki.cjs');
+const branchLib = require('./objective-branch.cjs');
 const { extractFrontmatter, setFrontmatterField } = require('./frontmatter.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
@@ -301,11 +302,18 @@ function hierarchyEnqueue(main, objectiveId) {
   return { ...r, covers };
 }
 
+/**
+ * Said when an objective-scoped verb names an objective nothing registered. `objective add` owns numbering, the slug
+ * and the directory (objective.cjs storeObjectiveAdd); the verbs that write into an objective never create one.
+ * gh-hierarchy.cjs resolveObjectiveDir carries the same sentence.
+ */
+const REGISTER_HINT = 'register a new objective with df-tools objective add "<description>", then run this again';
+
 /** `{id, dir}` of the objective, or `{error}`. */
 function objectiveTarget(main, objective) {
   const resolved = ghMapping.resolveObjective(main, objective);
   const label = String(objective === undefined ? null : objective).trim();
-  if (!resolved) return { error: `objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives)` };
+  if (!resolved) return { error: `objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives); ${REGISTER_HINT}` };
   if (!resolved.dir) return { error: `objective ${resolved.id} has no directory under .planning/objectives yet` };
   return { id: resolved.id, dir: resolved.dir };
 }
@@ -757,7 +765,9 @@ function wikiDiffOp(main, id, entry, warnings) {
  *   gaps_found    post-status failure; the PR stays a draft
  *   human_needed  post-status pending
  * The status carries no sha: the flusher resolves the PR head at flush (49-10), so `gh pr sync` first (the prose does)
- * and the status lands on the pushed tip. Every op is idempotent, so a status on every verify pass is safe.
+ * and the status lands on the pushed tip. `verificationPost` enforces that (TRD 55-03, `unpushedGuard`): it refuses
+ * before anything is written or queued while the local linked branch has commits origin lacks, so the status can
+ * never certify a head without the verified code. Every op is idempotent, so a status on every verify pass is safe.
  */
 function verificationEnqueue(main, target, file, text) {
   let payloadText;
@@ -864,8 +874,36 @@ function summaryCheckpoint(root, opts = {}) {
 }
 
 /**
+ * TRD 55-03: would `verification post` certify a PR head that lacks the verified code? Store mode only, only when the
+ * objective has an unmerged PR on record with a branch, and only when the VERIFICATION `status:` is one that posts a
+ * `devflow/verification` status (every `VERDICT_STATE` key: a `failure` on a head without the code is as wrong as a
+ * `success`). The local linked branch is compared with origin through objective-branch's git seam (the main checkout
+ * shares refs with every executor worktree, so work committed there counts).
+ *   null                no guard applies, or nothing is unpushed (a branch absent from this clone, or a checkout
+ *                       that is not a git work tree, counts as nothing unpushed)
+ *   {error}             refuse: the local branch is ahead; the text names `df-tools gh pr sync <id>`
+ *   {warning}           git could not answer; a warning on the result, never a refusal
+ */
+function unpushedGuard(main, id, text) {
+  if (planningMode.planningMode(main).mode !== STORE) return null;
+  const entry = prOnRecord(main, id);
+  if (!entry || entry.merged_at || !entry.branch) return null;
+  const fm = extractFrontmatter(text);
+  const status = typeof fm.status === 'string' ? fm.status.trim() : '';
+  if (!VERDICT_STATE[status]) return null;
+  const ahead = branchLib.unpushedCommits(main, entry.branch);
+  if (!ahead.ok) {
+    return { warning: `could not tell whether ${entry.branch} has unpushed commits (${ahead.error}); run df-tools gh pr sync ${id} before verification to be sure the PR head carries the verified code` };
+  }
+  if (ahead.count > 0) return { error: branchLib.unpushedRefusal(id, entry.branch, ahead) };
+  return null;
+}
+
+/**
  * verificationPost(root, {objective, text, file?, noFlush, noWait}) — `verification post`: write the objective's
  * VERIFICATION (the existing one, else `<NN>-VERIFICATION.md`); store mode queues the sticky `verification` comment.
+ * Store mode with an unmerged PR on record refuses, before the cache file is written or any op is queued, while the
+ * local linked branch has commits origin lacks (TRD 55-03; `unpushedGuard`): run `df-tools gh pr sync <obj>` first.
  */
 function verificationPost(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
@@ -878,7 +916,10 @@ function verificationPost(root, opts = {}) {
   const name = o.file !== undefined && o.file !== null ? o.file : existing || `${dirPrefix(target)}-VERIFICATION.md`;
   const bad = checkFileName(name, 'the VERIFICATION file');
   if (bad) return fail(bad);
-  return writeThrough(main, {
+  // Before writeThrough: a refusal after the write would leave the cache and the outbox disagreeing.
+  const guard = unpushedGuard(main, target.id, o.text);
+  if (guard && guard.error) return fail(guard.error);
+  const r = writeThrough(main, {
     rel: `objectives/${target.dir}/${name}`,
     text: o.text,
     verb: 'verification post',
@@ -886,6 +927,7 @@ function verificationPost(root, opts = {}) {
     noFlush: o.noFlush === true,
     noWait: o.noWait === true,
   });
+  return guard && guard.warning ? { ...r, warnings: [...(r.warnings || []), guard.warning] } : r;
 }
 
 // ─── doc put ─────────────────────────────────────────────────────────────────

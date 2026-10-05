@@ -180,6 +180,32 @@ describe('buildObjectiveSections', () => {
     assert.ok(viaObjectiveId.footer.includes('`.planning/objectives/46-github-sync-foundations/`'));
   });
 
+  test('4g2 (55-04): state.store swaps the footer for the store text; without the flag it is today\'s footer', () => {
+    const storeFooter = ghBody.buildObjectiveSections({ ...makeState(), store: true }).footer;
+    assert.strictEqual(
+      storeFooter,
+      '_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). ' +
+        'This issue is the source of truth (store mode); `.planning/` in a checkout is a local cache rebuilt from it._'
+    );
+    assert.ok(!storeFooter.includes('in this repo'));
+    assert.ok(!storeFooter.includes('.planning/objectives/'));
+
+    // Mirror mode is byte-identical to the pre-55-04 footer, with the flag absent, false or any other value.
+    const mirror = ghBody.buildObjectiveSections(makeState()).footer;
+    assert.strictEqual(
+      mirror,
+      '_Tracked by [DevFlow](https://github.com/AO-Cyber-Systems/devflow-claude). ' +
+        'Source of truth: `.planning/objectives/46-github-sync-foundations/` in this repo._'
+    );
+    assert.strictEqual(ghBody.buildObjectiveSections({ ...makeState(), store: false }).footer, mirror);
+    assert.strictEqual(ghBody.buildObjectiveSections({ ...makeState(), store: 'yes' }).footer, mirror);
+
+    // Only the footer differs: the other three sections do not depend on the flag.
+    const withStore = ghBody.buildObjectiveSections({ ...makeState(), store: true });
+    const without = ghBody.buildObjectiveSections(makeState());
+    for (const name of ['summary', 'criteria', 'trds']) assert.strictEqual(withStore[name], without[name], name);
+  });
+
   test('4h: section content never carries managed-section markers of its own', () => {
     const s = ghBody.buildObjectiveSections(makeState());
     for (const name of ghBody.SECTION_ORDER) assert.ok(!s[name].includes('devflow:begin'), name);

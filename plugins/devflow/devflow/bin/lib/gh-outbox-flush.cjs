@@ -1540,6 +1540,24 @@ function recordWrites(root, count, at) {
 }
 
 /**
+ * A wiki-push blocked on the wiki itself (no first page, a rebase conflict) is a human step whose message says
+ * "then run `df-tools gh outbox flush`" / "then flush again". Honour that: put the halted op back to pending once
+ * at the start of a flush. If the wiki is ready the push publishes; if not, the op blocks and halts exactly as it
+ * did (one attempt, never a loop: the hook flushes at every Stop). Every other kind of blocked op keeps its
+ * human `resolve` step, and so does a remote-edit halt.
+ */
+function retryBlockedWiki(root, clock) {
+  const { journal } = outbox.readJournal(root, { now: clock() });
+  const h = journal.halted;
+  if (!h || h.reason !== 'blocked') return;
+  const op = journal.ops.find((o) => o.seq === h.seq);
+  if (!op || op.kind !== 'wiki-push' || op.status !== 'blocked') return;
+  const pending = outbox.markPending(root, op.seq, { error: null }, { now: clock() });
+  if (!pending.ok) return;
+  outbox.clearHalted(root, { now: clock() });
+}
+
+/**
  * Drain the outbox: the one executor. Strictly in `seq` order, one handler per op kind, one flusher at a
  * time (the lock), every gh write recorded against the 80/min and 450/h budget.
  *
@@ -1552,7 +1570,9 @@ function recordWrites(root, count, at) {
  *   pending  nothing is wrong: offline, rate limited, over budget, a retry_after not reached, or maxOps
  *            (`reason` says which; `retry_after` / `wait_ms` when known)
  *   halted   a human must act: a remote edit (`halted.reason 'remote-edit'`, `issue_number`) or a blocked
- *            op (`halted.reason 'blocked'`); resolve with resolveHalt
+ *            op (`halted.reason 'blocked'`); resolve with resolveHalt. The exception is a blocked wiki-push:
+ *            each flush retries it once first (retryBlockedWiki), so creating the wiki's first page and
+ *            flushing again is the whole fix
  *   running  another flusher holds the lock
  *   skipped  github.enabled is not true
  *   error    the project cannot be flushed at all (`error` says why)
@@ -1578,6 +1598,7 @@ function flush(root, opts = {}) {
   };
 
   try {
+    retryBlockedWiki(root, clock);
     let ctx = null;
     let executed = 0;
     let budgetSleeps = 0;

@@ -73,3 +73,43 @@ All of these are delivery or decision items. No requirement is unsatisfied. See 
 - **Tooling:** `df-tools milestone complete` counts every objective directory, not only the milestone's, so this entry was written by hand.
 
 ---
+
+## v1.4 GitHub as System of Record, Stack Drafter, Doctor, Autonomy Hardening (Completed: 2026-10-05)
+
+**Objectives completed:** 13 objectives (42–54), 158 TRDs, all executed. Objective 26 was killed by user decision on 2026-10-01 (GMD-04, DECISION-002).
+
+**Delivered:** GitHub can now be the system of record for planning state. Projects opt in, and existing projects migrate in place with a resumable backfill. Each objective runs on one linked branch and ends in one PR, enforced locally and on GitHub. The stack drafter writes a verified STACK.md for a codebase, and re-drafting reproduces the fleet's hand-fixed overrides. Two other changes landed: `df-tools doctor` diagnoses and repairs DevFlow environment problems, and executors run to completion without nudges. By the end of the milestone, CodeQL reported no open alerts on `main`.
+
+**Release:** plugin **v2.13.0** (PR #121, merge `2f0ed83b`), **v2.13.1** (PR #122, merge `f101acb6`), plus PR #123 (`d79fed0c`, CodeQL #89, unreleased). `feat/stack-profile-loader` is merged into `main`. From v2.11.0 to v2.13.1: 1,163 commits and 426 plugin files changed (+128,235 / −3,123). Tests: 9,088 total, 9,055 pass, 1 known failure (MA-7), 32 skipped, and CI is green on `main`. Timeline: 2026-09-28 → 2026-10-05.
+
+**Key accomplishments:**
+- **GitHub as system of record (46–51), opt-in via `github.enabled` + `github.store`.**
+  - Storage: objective issues, TRD sub-issues, comments, the wiki and native milestones, written through a rate-safe outbox. `.planning/` becomes a cache that `gh pull --all` rebuilds.
+  - Writes: every planning write goes through a df-tools verb, and a CI audit enforces that.
+  - Discipline: one linked branch and PR per objective, with a commit gate, required checks and `gh setup`.
+  - Migration: 0011 / `/devflow:gh-sync migrate` backfills an existing project in place, and resumes after a stop. With store mode off, behaviour is byte-for-byte unchanged.
+- **Stack drafter (42–43):** `stack init|verify|report|mcp` and bundled go/dart/flutter profiles. `stack verify --run` is effect-based and safe. Re-drafting matches all 11 fleet override files, and SDR-08 passed 104 of 105 fleet gates.
+- **Autonomy hardening (44):** executors have no turn cap and resume when INCOMPLETE. This added the executor stop gate, auto-continue, gates that let DevFlow's own agents and merge completions through, and runtime state kept out of repos.
+- **`df-tools doctor` / `/devflow:doctor` (45):** a diagnose-and-safe-fix check registry, with the awareness cache and hook markers moved out of repos. sync-runtime now re-mirrors when the content digest changes.
+- **Store-mode polish and hygiene (52–53):**
+  - Printed follow-ups now pass the gates, and refusals name both remedies.
+  - Added the `github.mirror_only` opt-out, multi-line decision answers that round-trip, and doctor check 33 to repair existing ones.
+  - Summary verbs write the worktree they run in, and every reader uses one shared SUMMARY key.
+  - `micro commit` is now gated.
+- **CodeQL cleanup (54 + PR #123):** CodeQL on `main` went from 56 open alerts to 0, with shared `escapeRegExp` / `mdCell` helpers, a `config-set` prototype guard, workflow token permissions and `execFileSync` in tests. #95 and #146 were dismissed with reasons.
+
+### Known Gaps
+
+No requirement is unsatisfied: 58/58. See `milestones/v1.4-MILESTONE-AUDIT.md` (2026-10-05, passed).
+- **Live store-mode smoke.** Every store test runs against a fake GitHub. The first real backfill against a throwaway repo is a manual UAT step.
+- **Docs site deploy.** It fails on every push to `main` because the Cloudflare Pages project `devflow-docs` is not found (8000007). The fix is to create the project or correct the account and token secrets.
+- **Not live locally.** The installed plugin and the `~/.claude/devflow` mirror are still 2.12.0. Run `/plugin update devflow@aocyber` to pick up 2.13.1. Migration 0009 is pending in this repo.
+- **Still pending from v1.3:** the CI `ANTHROPIC` secret (32/33), branch protection on `main` (34), DECISION-001 (27-03).
+- **Tech debt for the next milestone:**
+  - Hand-rolled regex escapes outside `text-escape.cjs`.
+  - The merge path doesn't document STATE_ARCHIVE.md or `state.json`.
+  - Two older objective-number lookup bugs (`searchObjectiveInDir`, leading-zero lookups).
+  - `verify trd-pre` reads a free-text Requirements line as a requirement ID.
+- **Tooling:** `df-tools milestone complete` still counts every objective directory, so this entry was written by hand.
+
+---

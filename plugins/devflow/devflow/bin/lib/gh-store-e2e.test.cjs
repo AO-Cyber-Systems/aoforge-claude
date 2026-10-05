@@ -700,4 +700,28 @@ describe('an uninitialised wiki (hasWiki true, no remote yet)', () => {
     assert.equal(fs.existsSync(path.join(S.root, 'docs', 'devflow')), false, 'no docs/devflow fallback while the wiki merely lacks a first page');
     assert.equal(fs.existsSync(planning('wiki')), false, 'no wiki clone either');
   });
+
+  test('12b. once the wiki has its first page, `gh outbox flush` publishes the halted wiki push with no `resolve` (55-02)', (t) => {
+    if (needsGit(t)) return;
+    const r = syncCmd(S.root);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.equal(json(r).outbox, 'halted');
+    const before = json(outboxCmd(S.root, ['status']));
+    assert.ok(before.halted, JSON.stringify(before));
+    assert.equal(before.halted.reason, 'blocked');
+    const seq = before.halted.seq;
+    assert.equal(journalOps().find((op) => op.seq === seq).kind, 'wiki-push');
+
+    // A human creates the first wiki page in the web UI: the remote now exists and holds one commit.
+    const remote = createWikiRemote({ seed: { 'Home.md': '# Home\n' } });
+    t.after(() => remote.cleanup());
+    process.env.DEVFLOW_WIKI_REMOTE = remote.remoteUrl;
+
+    const flush = outboxCmd(S.root, ['flush']);
+    assert.equal(exitOf(flush), 0, flush.stdout + flush.stderr);
+    assert.equal(journalOps().find((op) => op.seq === seq).status, 'done', 'the wiki push went through on a plain flush');
+    assert.equal(json(outboxCmd(S.root, ['status'])).halted, null, 'no halt is left');
+    assert.notEqual(remote.readRemotePage('Project'), null, 'the cache pages reached the wiki');
+    assert.equal(fs.existsSync(path.join(S.root, 'docs', 'devflow')), false, 'still no docs/devflow fallback');
+  });
 });

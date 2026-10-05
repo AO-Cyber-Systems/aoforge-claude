@@ -1,7 +1,9 @@
 'use strict';
 
 // objective-branch.cjs (TRD 49-04) — the one git seam for the objective branch / PR lifecycle (objective 49):
-// fetch, switch, empty start commit, push, local cleanup.
+// fetch, switch, empty start commit, push, local cleanup. Reads: current branch, tips (local, origin, fetched
+// tracking), tracked-clean, ancestry, content-merged (TRD 55-05), local branches, the default branch and (TRD 55-03) `unpushedCommits`, which
+// `verification post` and `gh pr merge` use to refuse while the local linked branch has work origin lacks.
 //
 // `git` is spawned ONLY through `runGit` below (argv array, never a shell string). `_setRunGit(fn)` replaces it
 // for tests; `_resetRunGit()` (or `_setRunGit(null)`) restores it. This module never calls `gh` and never
@@ -188,6 +190,36 @@ function isAncestor(root, commit, of) {
   return fail(r, `git merge-base --is-ancestor exited ${r.status}`);
 }
 
+/**
+ * Are `tip`'s changes already in `into`? (TRD 55-05) `{ok:true, merged, conflict?}`.
+ *
+ * Ancestry first: a tip that `into` already contains is merged. Otherwise `git merge-tree --write-tree <into> <tip>`
+ * (git 2.38+) merges the two in memory, touching neither the index, the work tree nor any ref: exit 0 prints the merged
+ * tree on its first stdout line, and the tip is merged exactly when that tree is `into`'s own, so the merge would add
+ * nothing. That is the case for a squash merge (the PR's changes were re-made as one new commit on the default branch)
+ * and for a tip that only merged the default branch in. Exit 1 is a conflict (`merged:false, conflict:true`). Any other
+ * outcome (an older git that treats `--write-tree` as a usage error, unrelated histories, a missing object, a bad
+ * revision) is `ok:false`: the caller must treat that as unknown and never delete on it.
+ */
+function contentMerged(root, tip, into) {
+  const t = asRev(tip);
+  const i = asRev(into);
+  if (!validRev(t) || !validRev(i)) return bad(`contentMerged needs two revisions, got ${JSON.stringify(t)} and ${JSON.stringify(i)}`);
+  const anc = isAncestor(root, t, i);
+  if (!anc.ok) return anc;
+  if (anc.ancestor) return { ok: true, merged: true };
+
+  const mt = git(root, ['merge-tree', '--write-tree', i, t]);
+  if (mt.status === 1) return { ok: true, merged: false, conflict: true };
+  if (!mt.ok) return fail(mt, `git merge-tree --write-tree exited ${mt.status}`);
+  const tree = mt.stdout.split('\n')[0].trim();
+  if (!/^[0-9a-f]{40,64}$/.test(tree)) return bad(`git merge-tree --write-tree printed no tree: ${JSON.stringify(mt.stdout.slice(0, 80))}`);
+  const own = git(root, ['rev-parse', '--verify', '--quiet', `${i}^{tree}`]);
+  const ownTree = own.stdout.trim();
+  if (!own.ok || ownTree === '') return fail(own, `could not read the tree of ${i}`);
+  return { ok: true, merged: tree === ownTree };
+}
+
 /** Local branches matching a glob (default all): `{ok:true, branches}`. */
 function listLocal(root, pattern) {
   const args = ['branch', '--list', '--format=%(refname:short)'];
@@ -199,6 +231,60 @@ function listLocal(root, pattern) {
   if (!r.ok) return fail(r);
   const branches = r.stdout.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('('));
   return { ok: true, branches };
+}
+
+/**
+ * Commits on the local `branch` that origin does not have (TRD 55-03):
+ * `{ok:true, count, commits, local, remote, fetched, fetch_error?}`. `commits` is newest first.
+ *
+ * No local branch (another developer's checkout), or a root that is not a git work tree, is count 0 and
+ * `local:null`: nothing here can be unpushed. The branch is fetched first (best effort, so an offline run still
+ * answers from the tracking refs it already has; the failure is carried as `fetch_error`). With `origin/<branch>`
+ * present the count is `<remote>..<local>`; without it (never pushed) it is every commit on no `origin/*` ref.
+ * A local branch that is only behind origin is count 0. Reads only; never pushes.
+ */
+function unpushedCommits(root, branch) {
+  if (!validBranch(branch)) return branchError(branch);
+  const inside = git(root, ['rev-parse', '--is-inside-work-tree']);
+  if (!inside.ok || inside.stdout.trim() !== 'true') {
+    return { ok: true, count: 0, commits: [], local: null, reason: 'not a git work tree' };
+  }
+  const tip = branchTip(root, branch);
+  if (!tip.ok) return tip;
+  if (!tip.sha) return { ok: true, count: 0, commits: [], local: null };
+  const f = fetchBranch(root, branch);
+  const remote = trackingTip(root, branch);
+  if (!remote.ok) return remote;
+  const range = remote.sha ? [`${remote.sha}..${tip.sha}`] : [tip.sha, '--not', `--remotes=${REMOTE}`];
+  const r = git(root, ['rev-list', ...range]);
+  if (!r.ok) return fail(r);
+  const commits = r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+  return {
+    ok: true,
+    count: commits.length,
+    commits,
+    local: tip.sha,
+    remote: remote.sha,
+    fetched: f.ok,
+    ...(f.ok ? {} : { fetch_error: f.error }),
+  };
+}
+
+/**
+ * The one refusal text for "the local linked branch has commits origin lacks" (TRD 55-03), used by `gh pr merge` and
+ * `verification post` (gh-pr.cjs re-exports it as `unpushedRefusal`). `info` is an `unpushedCommits` result with
+ * `count > 0`. It names the remedy, `df-tools gh pr sync <id>`: the refusal never pushes, because an implicit push from
+ * a verify or merge verb is a surprising write and `gh pr sync` also refreshes the PR body.
+ */
+function unpushedRefusal(id, branch, info) {
+  const n = info.count;
+  const one = n === 1;
+  const shown = (info.commits || []).slice(0, 5).map((s) => s.slice(0, 7));
+  const more = n > shown.length ? `, and ${n - shown.length} more` : '';
+  return `${branch} has ${n} unpushed commit${one ? '' : 's'} (${shown.join(', ')}${more}) that ${one ? 'is' : 'are'} not on GitHub: `
+    + `the pull request head does not contain ${one ? 'it' : 'them'}. `
+    + `Run df-tools gh pr sync ${id} to push ${one ? 'it' : 'them'}, re-run verification on the pushed head, then try again. `
+    + 'Nothing was queued or written.';
 }
 
 /**
@@ -346,8 +432,12 @@ module.exports = {
   headSha,
   branchTip,
   remoteTip,
+  trackingTip,
+  unpushedCommits,
+  unpushedRefusal,
   isTrackedClean,
   isAncestor,
+  contentMerged,
   listLocal,
   defaultBranch,
   // writes

@@ -1503,7 +1503,9 @@ describe('50-01 setup routes', () => {
     assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets')),
       [{ id: 9001, name: 'devflow: default branch', target: 'branch', enforcement: 'active' }],
       'the list carries summaries only, like GitHub');
-    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets/9001')), { id: 9001, ...RULESET_BODY });
+    // The full object carries GitHub's computed per-viewer field (55-01): no admin bypass is listed, so `never`.
+    assert.deepEqual(json(restGet(fake, 'repos/o/r/rulesets/9001')), { id: 9001, ...RULESET_BODY, current_user_can_bypass: 'never' });
+    assert.equal('current_user_can_bypass' in fake.rulesets[0], false, 'the computed field is never stored');
 
     const put = restCall(fake, 'PUT', 'repos/o/r/rulesets/9001', { rules: [{ type: 'deletion' }] });
     assert.equal(put.ok, true, put.stderr);
