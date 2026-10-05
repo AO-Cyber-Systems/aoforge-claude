@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const rollup = require('./estimate-rollup.cjs');
 const {
   CAL_V2,
+  makeCalibration,
   makeEstimateProject,
   removeEstimateProject,
   ROLLUP_SPEC,
@@ -134,4 +135,146 @@ test('remainingTrds pairs TRDs with SUMMARYs by key and applies the checkpoint-o
   assert.deepEqual(everything.trds.map((t) => t.id), ['80-01', '80-02', '80-03', '80-04']);
 
   assert.throws(() => rollup.remainingTrds(root, '99'), /objective 99 not found/);
+});
+
+// ─── Agent overhead, the gap-closure factor, unplanned objectives (Task 2) ────
+
+const CAL0 = makeCalibration({
+  probabilities: { gap_closure: { value: 0, n: 40 }, checkpoint: { value: 0.02, n: 50 } },
+});
+const CAL_V1 = makeCalibration({ version: 1, agent_overhead: undefined, objective_level: undefined });
+
+test('1c. estimateObjective: one verifier of overhead, the gap-closure mixture, confidence and method', () => {
+  const r = rollup.estimateObjective(CAL_V2, root, '80');
+
+  nearPair(r.total.wall_minutes, 25.6464, 69.1577, 'total wall');
+  nearPair(r.total.agent_minutes, 29.8369, 76.4976, 'total agent minutes');
+  assert.notEqual(r.total.tokens_input, null);
+  assert.notEqual(r.total.tokens_output, null);
+  assert.notEqual(r.total.cost_usd, null);
+  // The mixture only adds: every total is above the execution part.
+  assert.ok(r.total.wall_minutes.p50 > r.execution.wall_minutes.p50);
+  assert.ok(r.total.cost_usd.p50 > r.execution.cost_usd.p50);
+
+  assert.equal(r.overhead.length, 1);
+  assert.equal(r.overhead[0].agent, 'verifier');
+  assert.equal(r.overhead[0].spawns, 1);
+  assert.equal(r.overhead[0].samples, 31);
+  assert.equal(r.overhead[0].confidence, 'high');
+  assert.deepEqual({ p50: r.overhead[0].minutes.p50, p90: r.overhead[0].minutes.p90 }, { p50: 4, p90: 10 });
+  assert.deepEqual(r.spent, ['planner', 'job-checker']);
+
+  assert.equal(r.gap_closure.probability, 0.1);
+  assert.equal(r.gap_closure.n, 40);
+  nearPair(r.gap_closure.extra.wall_minutes, 25.4888, 73.6832, 'gap extra wall');
+  assert.notEqual(r.gap_closure.extra.cost_usd, null);
+  assert.deepEqual(r.gap_closure.notes, []);
+
+  assert.equal(r.confidence, 'medium');
+  assert.equal(r.weakest.name, '80-02');
+  assert.equal(r.weakest.class, 'doc');
+  assert.equal(r.weakest.n, 10);
+  assert.deepEqual(r.missing, []);
+  assert.equal(r.history, null);
+
+  for (const rule of ['within_trd', 'across', 'parallel_wave', 'gap_closure']) {
+    assert.equal(typeof r.method[rule], 'string', `method.${rule}`);
+  }
+  assert.deepEqual(r.method, rollup.METHOD);
+});
+
+test('2. a gap-closure probability of 0 adds no mass; parallel: false sums wave 1', () => {
+  const r = rollup.estimateObjective(CAL0, root, '80');
+  nearPair(r.total.wall_minutes, 23.993, 61.0235, 'total wall, no gap mass');
+  nearPair(r.total.cost_usd, 6.1068, 9.5407, 'total cost, no gap mass');
+  assert.equal(r.gap_closure.probability, 0);
+  assert.equal(r.gap_closure.n, 40);
+  // The extra is still reported: it is what a gap cycle would cost.
+  nearPair(r.gap_closure.extra.wall_minutes, 25.4888, 73.6832, 'gap extra wall');
+
+  const serial = rollup.estimateObjective(CAL0, root, '80', { parallel: false });
+  nearPair(serial.total.wall_minutes, 28.2265, 68.2523, 'total wall, wave 1 summed');
+});
+
+test('2b. no gap-closure probability in the calibration: the total is the base and the note says so', () => {
+  const noP = makeCalibration({ probabilities: { gap_closure: undefined } });
+  const r = rollup.estimateObjective(noP, root, '80');
+  nearPair(r.total.wall_minutes, 23.993, 61.0235, 'total wall');
+  assert.equal(r.gap_closure, null);
+  assert.ok(r.notes.includes('gap closure: no data'), JSON.stringify(r.notes));
+});
+
+test('6b. the checkpoint-only objective: one doc TRD, one verifier, the gap mixture', () => {
+  const r = rollup.estimateObjective(CAL_V2, root, '83');
+  nearPair(r.total.wall_minutes, 8.9727, 23.5003, 'total wall');
+  assert.equal(r.status, 'planned');
+});
+
+test('4. an objective with no TRDs is estimated from objective_level history and labelled unplanned', () => {
+  const r = rollup.estimateObjective(CAL_V2, root, '81');
+  assert.equal(r.status, 'unplanned');
+  assert.equal(r.wall_basis, 'serial (unplanned)');
+  assert.deepEqual(r.trds, { total: 0, done: 0, remaining: 0 });
+  assert.deepEqual(r.waves, []);
+  nearPair(r.total.wall_minutes, 62.2252, 184.6035, 'total wall');
+  nearPair(r.total.cost_usd, 17.9788, 46.9899, 'total cost');
+  assert.equal(r.gap_closure, null);
+  assert.ok(r.notes.some((n) => /gap-closure cycles/.test(n)), JSON.stringify(r.notes));
+  assert.deepEqual(r.overhead.map((o) => o.agent), ['planner', 'job-checker', 'verifier']);
+  assert.deepEqual(r.spent, []);
+  assert.equal(r.confidence, 'low');
+  assert.notEqual(r.weakest, null);
+  assert.deepEqual(r.history, { objectives: 30 });
+  assert.ok(r.notes.some((n) => /30 objectives/.test(n)), JSON.stringify(r.notes));
+  assert.equal(r.name, 'beta');
+  assert.deepEqual(r.method, rollup.METHOD);
+});
+
+test('4b. estimateUnplanned stands alone for a roadmap objective that has no directory', () => {
+  const r = rollup.estimateUnplanned(CAL_V2, { objective: '90', name: 'Future work' });
+  assert.equal(r.objective, '90');
+  assert.equal(r.name, 'Future work');
+  assert.equal(r.dir, null);
+  assert.equal(r.status, 'unplanned');
+  nearPair(r.total.wall_minutes, 62.2252, 184.6035, 'total wall');
+  assert.equal(r.confidence, 'low');
+});
+
+test('7. a version 1 calibration: execution is still estimated, missing overhead is listed and caps confidence at low', () => {
+  const r = rollup.estimateObjective(CAL_V1, root, '80');
+  nearPair(r.execution.wall_minutes, 19.3982, 52.1221, 'execution wall');
+  assert.ok(r.missing.includes('agent_overhead.verifier'), JSON.stringify(r.missing));
+  assert.equal(r.confidence, 'low');
+  assert.deepEqual(r.overhead, []);
+
+  // No verifier in the base; the gap extra is trd_level alone.
+  nearPair(r.total.wall_minutes, 20.3534, 56.617, 'total wall');
+  nearPair(r.gap_closure.extra.wall_minutes, 12, 45, 'gap extra wall (trd_level only)');
+  assert.ok(r.gap_closure.notes.some((n) => /planner/.test(n) && /verifier/.test(n)), JSON.stringify(r.gap_closure.notes));
+
+  const unplanned = rollup.estimateObjective(CAL_V1, root, '81');
+  assert.equal(unplanned.status, 'unplanned');
+  assert.deepEqual(unplanned.total, {
+    wall_minutes: null, agent_minutes: null, tokens_input: null, tokens_output: null, cost_usd: null,
+  });
+  assert.deepEqual(unplanned.missing, ['objective_level']);
+  assert.equal(unplanned.confidence, 'none');
+  assert.equal(unplanned.history, null);
+});
+
+test('objectiveOverhead returns an entry per agent with data and names the agents without', () => {
+  const some = rollup.objectiveOverhead(CAL_V2, ['planner', 'verifier', 'roadmapper', 'objective-researcher', 'nobody']);
+  assert.deepEqual(some.entries.map((e) => e.agent), ['planner', 'verifier']);
+  assert.deepEqual(some.missing, [
+    'agent_overhead.roadmapper', 'agent_overhead.objective-researcher', 'agent_overhead.nobody',
+  ]);
+  const planner = some.entries[0];
+  assert.equal(planner.spawns, 1);
+  assert.equal(planner.samples, 25);
+  assert.equal(planner.confidence, 'medium');
+  assert.deepEqual({ p50: planner.cost_usd.p50, p90: planner.cost_usd.p90 }, { p50: 2, p90: 4.5 });
+
+  const none = rollup.objectiveOverhead(CAL_V1, ['verifier']);
+  assert.deepEqual(none.entries, []);
+  assert.deepEqual(none.missing, ['agent_overhead.verifier']);
 });
