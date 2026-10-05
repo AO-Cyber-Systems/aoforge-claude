@@ -22,5 +22,5 @@ key-files:
 **In progress.**
 
 ## Progress
-- [ ] Task 1: Estimate fixtures, calibration loading, confidence and estimateTask — next step: implement CONFIDENCE_LEVELS, MIN_CLASS_SAMPLES, confidenceFor, loadCalibration, estimateTask in estimate.cjs so tests 1-4 in estimate.test.cjs pass
+- [x] Task 1: Estimate fixtures, calibration loading, confidence and estimateTask — RED ebc43a68, GREEN (this commit)
 - [ ] Task 2: TRD composition, overall confidence and TRD lookup — next step: add tests 5-10 to estimate.test.cjs (RED), then overallConfidence, estimateTrdText, resolveTrd, estimateTrd
