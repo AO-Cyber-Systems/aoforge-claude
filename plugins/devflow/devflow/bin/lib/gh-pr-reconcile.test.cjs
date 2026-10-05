@@ -559,6 +559,55 @@ describe('49-12 gh pr merge', { skip: GIT ? false : 'git is not available' }, ()
     assert.equal(r.local, 'done');
   });
 
+  test('3b. (55-03) the local linked branch has a commit origin lacks: merge refuses naming gh pr sync, with nothing written or queued', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify();
+    const sha = S.g.commitFile(S.root, 'unpushed.txt', 'unpushed\n', 'feat(7-01): never pushed');
+    const w = writesNow();
+    const r = merge();
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.match(r.error, /df-tools gh pr sync 7\b/);
+    assert.match(r.error, /1 unpushed commit\b/);
+    assert.ok(r.error.includes(sha.slice(0, 7)), 'the unpushed commit is named');
+    assert.ok(r.error.includes(BRANCH), 'the branch is named');
+    assert.equal(writesNow(), w, 'zero GitHub writes');
+    assert.equal(queueNow().filter((o) => o.status !== 'done').length, 0, 'nothing queued');
+    assert.equal(issue(prNumber()).pr.merged, false, 'the PR is still open');
+    assert.equal(S.g.git(S.root, ['rev-parse', BRANCH]), sha, 'the refusal pushed nothing and moved nothing');
+
+    // the remedy it names works: sync, verify the pushed head, merge
+    assert.equal(prLib.syncObjectivePr(S.root, '7').ok, true);
+    verify();
+    const again = merge();
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal(again.merged, true);
+  });
+
+  test('3c. (55-03) the linked branch does not exist in this clone (another developer\'s checkout): merge proceeds', () => {
+    setup();
+    startPr();
+    readyPr();
+    verify();
+    S.g.git(S.root, ['switch', '-q', 'main']);
+    S.g.git(S.root, ['branch', '-D', BRANCH]);
+    assert.ok(!localBranches().includes(BRANCH), 'control: no local linked branch');
+    const r = merge();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.merged, true);
+    assert.equal(issue(prNumber()).pr.merged, true);
+  });
+
+  test('3d. (55-03) a draft PR with an unpushed commit keeps its draft refusal (the guard runs after the draft check)', () => {
+    setup();
+    startPr();
+    S.g.commitFile(S.root, 'unpushed.txt', 'unpushed\n', 'feat(7-01): never pushed');
+    const draft = merge();
+    assert.equal(draft.ok, false);
+    assert.match(draft.error, /PR is still a draft; run verification first/);
+  });
+
   test('4. github.pr.merge_method overrides the squash default (and a bad value falls back to squash)', () => {
     setup();
     startPr();
