@@ -35,6 +35,9 @@
 //   25. metacharacter arg `1(` → no throw, exit 0, JSON (guard)
 //   25b. non-numeric directory name `a(-thing` reaches the regex → no SyntaxError, header found
 //   26. decimal 14.1 ignores preceding 141 and 14.10 sections (guard)
+// ROADMAP header regex, leading zeros (objective 56, TRD 02):
+//   27. single-digit objective: `### Objective 4:` found for an 04- directory
+//   28. single-digit decimal: `### Objective 4.1:` found for an 04.1- directory, past 41 and 4.10
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
@@ -467,6 +470,50 @@ describe('CLI — ROADMAP header regex escapes the objective number', () => {
     fs.writeFileSync(path.join(tmpDir, 'package.json'), makePackageJson({ deps: [], devDeps: [] }), 'utf-8');
 
     const { stdout, exitCode } = runCmd(tmpDir, '14.1', true);
+    assert.strictEqual(exitCode, 0);
+    const { candidates } = JSON.parse(stdout).signals.new_dep;
+    assert.deepStrictEqual(candidates, ['right-pkg']);
+  });
+
+  // TRD 56-02 (ONUM-03): objective_number is the directory's own digits (`04`), and a ROADMAP written
+  // `### Objective 4:` has no leading zero. 54-07 could only pin the two-digit cases above.
+  test('27. a single-digit objective finds its `### Objective 4:` section for an 04- directory', () => {
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '04-thing'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n### Objective 4: Thing\n\nUse `left-pad` for padding.\n',
+      'utf-8',
+    );
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), makePackageJson({ deps: [], devDeps: [] }), 'utf-8');
+
+    const { stdout, exitCode } = runCmd(tmpDir, '4', true);
+    assert.strictEqual(exitCode, 0);
+    const { candidates } = JSON.parse(stdout).signals.new_dep;
+    assert.ok(candidates.includes('left-pad'), `the section was not found, candidates: ${JSON.stringify(candidates)}`);
+  });
+
+  test('28. decimal 4.1 resolves `### Objective 4.1:` for an 04.1- directory, past 41 and 4.10', () => {
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '04.1-dec'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      [
+        '# Roadmap',
+        '',
+        '### Objective 41: Wrong one',
+        'Use `wrong-one-pkg` here.',
+        '',
+        '### Objective 4.10: Wrong ten',
+        'Use `wrong-ten-pkg` here.',
+        '',
+        '### Objective 4.1: Right',
+        'Use `right-pkg` here.',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), makePackageJson({ deps: [], devDeps: [] }), 'utf-8');
+
+    const { stdout, exitCode } = runCmd(tmpDir, '4.1', true);
     assert.strictEqual(exitCode, 0);
     const { candidates } = JSON.parse(stdout).signals.new_dep;
     assert.deepStrictEqual(candidates, ['right-pkg']);

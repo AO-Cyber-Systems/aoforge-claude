@@ -849,4 +849,39 @@ describe('requirement_coverage — ROADMAP header regex escapes the objective nu
     assert.strictEqual(result.checks.requirement_coverage.passed, true);
     assert.deepStrictEqual(result.checks.requirement_coverage.missing, []);
   });
+
+  // TRD 56-02 (ONUM-03): objective_number is the directory's own digits (`04`); a ROADMAP heading written
+  // `### Objective 4:` has no leading zero. Before the fix the section was never found and the check
+  // passed trivially with "no requirements declared".
+  test('04-test with a `### Objective 4:` heading reports the uncovered requirement F2', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '04-test',
+      roadmap_requirements: ['F1', 'F2'],
+      trds: [{ trd: '04-01', requirements: ['F1'], depends_on: [] }],
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n### Objective 4: T\n\n**Requirements:** [F1, F2]\n',
+      'utf-8',
+    );
+    const { result } = runCheck(tmpDir, '4');
+    assert.strictEqual(result.checks.requirement_coverage.passed, false);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['F2']);
+  });
+
+  test('04-test with a `### Objective 04:` heading reports the same uncovered requirement (guard)', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '04-test',
+      roadmap_requirements: ['F1', 'F2'],
+      trds: [{ trd: '04-01', requirements: ['F1'], depends_on: [] }],
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n### Objective 04: T\n\n**Requirements:** [F1, F2]\n',
+      'utf-8',
+    );
+    const { result } = runCheck(tmpDir, '4');
+    assert.strictEqual(result.checks.requirement_coverage.passed, false);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['F2']);
+  });
 });
