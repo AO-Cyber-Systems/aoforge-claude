@@ -12,5 +12,5 @@ started: 2026-10-05T11:56:00Z
 IN PROGRESS (checkpoint, not complete).
 
 ## Progress
-- [ ] Task 1: Admin bypass in the desired ruleset, satisfies and union; fake reports current_user_can_bypass — RED committed (this commit); next step: add ADMIN_BYPASS and isAdminBypass to plugins/devflow/devflow/bin/lib/gh-setup.cjs, wire desiredRuleset, rulesetSatisfies and unionRuleset, then run the three setup test files
-- [ ] Task 2: Printed guidance names the admin-bypass merge; devflow-ref follows a pinned checks_workflow
+- [x] Task 1: Admin bypass in the desired ruleset, satisfies and union; fake reports current_user_can_bypass — RED f88e283b, GREEN (this commit)
+- [ ] Task 2: Printed guidance names the admin-bypass merge; devflow-ref follows a pinned checks_workflow — next step: add tests 5, 6 and 10-13 to gh-setup-cli.test.cjs and gh-setup.test.cjs (RED commit), then edit filesLines in gh-setup-cli.cjs and renderTemplates in gh-setup.cjs

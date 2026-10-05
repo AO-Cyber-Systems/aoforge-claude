@@ -46,6 +46,15 @@ const DEFAULT_MERGE_METHOD = 'SQUASH';
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
+/**
+ * Repository admins may bypass the ruleset (55-01). The workflow pull request cannot pass checks that only exist once
+ * it is merged, and with `bypass_actors: []` GitHub reports `current_user_can_bypass: never`: nothing could merge it.
+ * `always` is the mode verified live against a ruleset with a merge_queue rule. Role id 5 is "Repository admin".
+ */
+const ADMIN_BYPASS = Object.freeze({ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' });
+/** The repository-admin role, in any bypass_mode: the actor is compared, never the mode (a team may tighten it). */
+const isAdminBypass = (a) => isObject(a) && a.actor_type === 'RepositoryRole' && Number(a.actor_id) === ADMIN_BYPASS.actor_id;
+
 /** A positive integer, or null. A numeric string counts: the config template ships `app_id` as a string. */
 function positiveInt(value) {
   const n = typeof value === 'string' && /^\s*\d+\s*$/.test(value) ? Number(value) : value;
@@ -108,7 +117,7 @@ function desiredRuleset({ mergeMethod, appId, mergeQueue = true } = {}) {
     name: SETUP_RULESET_NAME,
     target: 'branch',
     enforcement: 'active',
-    bypass_actors: [],
+    bypass_actors: [clone(ADMIN_BYPASS)],
     conditions: { ref_name: { include: [DEFAULT_BRANCH_REF], exclude: [] } },
     rules,
   };
@@ -130,14 +139,17 @@ const includeOf = (ruleset) => {
  * Does `existing` already do everything `desired` asks (it may do more)? True when the ruleset is active and
  * targets branches, its include list names `~DEFAULT_BRANCH`, every desired rule type is present, approvals are at
  * least the desired count, and every desired required context is present (pinned to the same App when the desired
- * one pins). Extra rules, extra contexts, tuned merge-queue numbers and bypass actors are the user's and never
- * count against it. A ruleset that is not `active` enforces nothing, so it does not satisfy.
+ * one pins). Extra rules, extra contexts, tuned merge-queue numbers and extra bypass actors are the user's and never
+ * count against it. A ruleset that is not `active` enforces nothing, so it does not satisfy. One bypass actor is
+ * needed, not optional (55-01): the repository-admin role, in any `bypass_mode`. Without it nobody can merge the
+ * workflow pull request. The mode is never compared, so a team that tightened it to `pull_request` is not rewritten.
  */
 function rulesetSatisfies(existing, desired) {
   if (!isObject(existing) || !Array.isArray(existing.rules)) return false;
   if (existing.enforcement !== 'active') return false;
   if (existing.target !== undefined && existing.target !== desired.target) return false;
   if (!includeOf(existing).includes(DEFAULT_BRANCH_REF)) return false;
+  if (!(Array.isArray(existing.bypass_actors) ? existing.bypass_actors : []).some(isAdminBypass)) return false;
 
   for (const want of desired.rules) {
     const have = ruleOf(existing, want.type);
@@ -159,8 +171,11 @@ function rulesetSatisfies(existing, desired) {
  * The body an `update` PUTs: the existing ruleset with whatever `desired` needs added, never anything removed.
  * Existing rules keep their order and parameters (approvals only ever rise, a user's strict policy, extra
  * contexts and bypass actors stay), missing desired rules follow in the desired order, `~DEFAULT_BRANCH` joins the
- * include list, and enforcement becomes `active`. Only the writable fields are returned (no id or server metadata),
- * and `existing` is never mutated. With no existing ruleset the union is a copy of `desired`.
+ * include list, and enforcement becomes `active`. Bypass actors are still the user's and are never removed or
+ * reordered, but the repository-admin entry is something DevFlow needs (55-01): when none is listed, in any mode, a
+ * copy of `ADMIN_BYPASS` is appended after the user's actors, once. Only the writable fields are returned (no id or
+ * server metadata, so `current_user_can_bypass` never reaches a PUT), and `existing` is never mutated. With no
+ * existing ruleset the union is a copy of `desired`.
  */
 function unionRuleset(existing, desired) {
   if (!isObject(existing)) return clone(desired);
@@ -189,11 +204,13 @@ function unionRuleset(existing, desired) {
   const include = includeOf(existing).slice();
   if (!include.includes(DEFAULT_BRANCH_REF)) include.push(DEFAULT_BRANCH_REF);
   const refName = isObject(existing.conditions) && isObject(existing.conditions.ref_name) ? existing.conditions.ref_name : {};
+  const bypassActors = Array.isArray(existing.bypass_actors) ? clone(existing.bypass_actors) : [];
+  if (!bypassActors.some(isAdminBypass)) bypassActors.push(clone(ADMIN_BYPASS));
   return {
     name: desired.name,
     target: existing.target || desired.target,
     enforcement: 'active',
-    bypass_actors: Array.isArray(existing.bypass_actors) ? clone(existing.bypass_actors) : clone(desired.bypass_actors),
+    bypass_actors: bypassActors,
     conditions: {
       ...(isObject(existing.conditions) ? clone(existing.conditions) : {}),
       ref_name: { ...clone(refName), include, exclude: Array.isArray(refName.exclude) ? clone(refName.exclude) : [] },
@@ -405,7 +422,7 @@ function planRuleset(state) {
     } else {
       const payload = unionRuleset(existing, desired);
       main = action('ruleset', target, 'update',
-        `update ruleset ${existing.id} to add what DevFlow needs (its other rules, contexts, approvals and bypass actors are kept)`,
+        `update ruleset ${existing.id} to add what DevFlow needs (its other rules, contexts, approvals and bypass actors are kept; the repository-admin bypass is added when missing)`,
         { payload, request: apiRequest('PUT', `${base}/${encodeURIComponent(String(existing.id))}`, payload) });
     }
   }
@@ -829,6 +846,7 @@ function applySetup(root, actions, deps = {}) {
 
 module.exports = {
   SETUP_RULESET_NAME,
+  ADMIN_BYPASS,
   WORKFLOW_PATH,
   PR_TEMPLATE_PATH,
   desiredRuleset,
