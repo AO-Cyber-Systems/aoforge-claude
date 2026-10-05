@@ -39,6 +39,13 @@ them, and how often. This is the acceptance test for the gate-correctness and
 model-tier work — "this gate false-positives" is either in this output or it is an
 anecdote.
 
+The JSON also carries an `edit_gate_bypass` block that gives every edit-gate denial
+exactly one outcome. A denial is *bypassed* when a later Bash command in the same
+session writes the denied file, *routed* when the agent goes through a DevFlow skill,
+a skill marker or a user override phrase instead, and *abandoned* when neither
+happens. With `--raw` the same counts appear as an `edit_gate:` line, followed by a
+per-month line and a few bypassing commands when there were any denials.
+
 ## Telemetry view
 
 ```bash

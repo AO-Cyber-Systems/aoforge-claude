@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `session-audit` now reports what happened after each edit-gate denial (bypassed by a Bash write of the same file, routed through a skill/marker/override, or abandoned) as `edit_gate_bypass` in the JSON and an `edit_gate:` line under `--raw`, the measurement DECISION-001 waits on.
+
 ## [2.13.2] - 2026-10-05
 
 Store mode was tested end to end against a real GitHub repository (`AO-Cyber-Systems/devflow-store-smoke`), and this release fixes what that run found. **Repositories set up with `gh setup` on 2.13.1 or earlier keep a broken checks workflow until they re-pin.** To re-pin, update the plugin, then run `df-tools gh setup` followed by `gh setup --apply`, and merge the workflow PR.

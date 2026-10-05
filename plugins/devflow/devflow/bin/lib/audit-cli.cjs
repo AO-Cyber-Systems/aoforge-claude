@@ -110,12 +110,35 @@ function formatContextRaw(summary) {
   ].join('\n');
 }
 
-/** Exactly 2 lines, `\n`-joined. See TRD 39-01 for the fixed shape. */
+/**
+ * 2 fixed lines (TRD 39-01) + the edit_gate line (quick 31); the by-period and
+ * sample lines appear only when denials > 0. `\n`-joined. A summary without
+ * `edit_gate_bypass` is treated as zeros.
+ */
 function formatSessionAuditRaw(summary) {
-  return [
+  const g = summary.edit_gate_bypass || {};
+  const n = k => Number(g[k]) || 0;
+  const denials = n('denials');
+  const lines = [
     `files_scanned: ${summary.files_scanned}, sessions: ${summary.sessions}, sessions_with_blocks: ${summary.sessions_with_blocks} (${summary.sessions_with_blocks_pct}%)`,
     `verdict: ${summary.verdict}`,
-  ].join('\n');
+    `edit_gate: denials ${denials}, bypasses ${n('bypasses')}, routed ${n('routed')}, abandoned ${n('abandoned')}, bypass_rate ${n('bypass_rate')}`,
+  ];
+  if (denials > 0) {
+    const byPeriod = g.by_period || {};
+    const periods = Object.keys(byPeriod).sort();
+    if (periods.length) {
+      const cells = periods.map(p => {
+        const x = byPeriod[p];
+        return `${p} ${x.denials}/${x.bypasses}/${x.routed}/${x.abandoned}`;
+      });
+      lines.push(`edit_gate_by_period: ${cells.join(', ')} (denials/bypasses/routed/abandoned)`);
+    }
+    for (const s of Array.isArray(g.sample) ? g.sample : []) {
+      lines.push(`edit_gate_bypass_sample: ${s.file} <- ${String(s.command).slice(0, 120)}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /**
