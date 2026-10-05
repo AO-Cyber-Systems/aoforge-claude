@@ -695,6 +695,16 @@
       "objective": "58",
       "summary": "58-02: overhead agent types need the devflow: or df- prefix; Quick planner spawns are excluded and counted; samples carry per-model token splits and no paths",
       "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "Estimate run state is schema v1 JSON outside the repo (~/.claude/devflow/state/estimates/<repo-key>.json); only df-tools estimate (58-08) writes it, the status line only reads it",
+      "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "Status line wave denominator is the highest wave number in the run state, so a resumed run holding waves 6 and 7 shows W6/7",
+      "rationale": null
     }
   ],
   "blockers": [],

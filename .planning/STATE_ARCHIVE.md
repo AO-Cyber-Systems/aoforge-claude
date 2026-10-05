@@ -126,6 +126,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 57]: calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json — 57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json
 - [Objective 58]: Estimate composition: percentiles never add except sumComonotonic (tasks in one TRD); correlated sums use Fenton-Wilkinson with DEFAULT_CORRELATION 0.5, an assumption Objective 64 (EST-08) tunes
 - [Objective 58]: 58-02: overhead agent types need the devflow: or df- prefix; Quick planner spawns are excluded and counted; samples carry per-model token splits and no paths
+- [Objective 58]: Estimate run state is schema v1 JSON outside the repo (~/.claude/devflow/state/estimates/<repo-key>.json); only df-tools estimate (58-08) writes it, the status line only reads it
+- [Objective 58]: Status line wave denominator is the highest wave number in the run state, so a resumed run holding waves 6 and 7 shows W6/7
 
 ## Performance Metrics
 
@@ -200,4 +202,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 57 P07 | 4min | 3 tasks | 235 files |
 | Objective 58 P01 | 10min | 2 tasks | 2 files |
 | Objective 58 P02 | 10min | 2 tasks | 4 files |
+| Objective 58 P04 | 9min | 2 tasks | 4 files |
 

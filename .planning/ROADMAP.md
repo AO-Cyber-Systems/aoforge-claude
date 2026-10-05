@@ -188,7 +188,7 @@ TRDs:
 - [x] 58-01-composition-math-TRD.md — (W1) EST-03: `estimate-math.cjs` lognormal fit from p50/P90, comonotonic and correlated (Fenton-Wilkinson, rho 0.5) sums, parallel-wave max, gap-closure mixture; literal anchors
 - [ ] 58-02-agent-overhead-reader-TRD.md — (W1) EST-03 input: `agent-overhead.cjs` per-spawn minutes and tokens for planner/job-checker/verifier/researcher/integration-checker/roadmapper transcripts, repo-scoped, quick plans excluded
 - [ ] 58-03-calibration-v2-TRD.md — (W2) EST-03 input: calibration.json v2 `agent_overhead` + `objective_level`; `calibrate --root | --no-overhead`
-- [ ] 58-04-run-state-and-statusline-TRD.md — (W1) EST-05: out-of-repo estimate run state (`~/.claude/devflow/state/estimates/`), remaining-time rule, status line segment (fail-open, cached only)
+- [x] 58-04-run-state-and-statusline-TRD.md — (W1) EST-05: out-of-repo estimate run state (`~/.claude/devflow/state/estimates/`), remaining-time rule, status line segment (fail-open, cached only)
 - [ ] 58-05-task-and-trd-estimates-TRD.md — (W2) EST-02/03: `estimate.cjs` shared classifier, confidence labels, thin-class fallback, no-data reasons, TRD composition
 - [ ] 58-06-objective-rollup-TRD.md — (W3) EST-03: remaining TRDs by wave, verifier overhead, gap-closure mixture, unplanned fallback from objective history
 - [ ] 58-07-milestone-rollup-TRD.md — (W4) EST-03: milestone scope from the ROADMAP bullet, remaining objectives + integration-checker overhead
