@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 99,
+  "progress_pct": 98,
   "status": "ready_for_verification",
   "last_activity": "2026-10-04",
   "metrics": {
@@ -604,6 +604,11 @@
     {
       "objective": "54",
       "summary": "54-03: test.yml and agent-shell-harness.yml run on top-level permissions contents: read; scripts/workflow-permissions.test.cjs fails any workflow with no top-level or per-job permissions",
+      "rationale": null
+    },
+    {
+      "objective": "55",
+      "summary": "55-01: ruleset admin bypass uses bypass_mode always (verified live); setup compares the actor, never the mode, so a team's pull_request mode is kept",
       "rationale": null
     }
   ],
