@@ -55,7 +55,7 @@ completed: 2026-10-05
 ## Progress
 - [x] Task 1: Approve the push that makes the fixed workflow reachable — decision A (push-branch), user answer relayed by orchestrator (no commit: decision only)
 - [x] Task 2: Push, bootstrap the smoke clone, re-create the ruleset with `gh setup --apply` — c7498b7f
-- [x] Task 3: Merge the workflow PR with the printed admin-bypass command; the checks run without ENOENT — (this commit)
+- [x] Task 3: Merge the workflow PR with the printed admin-bypass command; the checks run without ENOENT — c61e266f
 
 ## Task 1 facts (reads only)
 
@@ -156,3 +156,12 @@ completed: 2026-10-05
   - main's `.github/workflows/devflow.yml` pins `@d4147b8c...` and `devflow-ref: d4147b8c...`
   - DevFlow jobs posted real verdicts (success / failure, no `error`), 0 ENOENT; PR #6 merged with `gh pr merge 6 --admin --squash`
 - Gate failures: None
+
+## Self-Check: PASSED
+
+- FOUND: commit c7498b7f (Task 2), c61e266f (Task 3) in `git log`
+- FOUND: pushed SHA d4147b8c1dd00af210b09a90c2af87dce0bf1010 on GitHub (`gh api .../devflow-claude/commits/<SHA> -q .sha`)
+- FOUND: `<scratchpad>/ruleset-24476250.json` (1645 bytes)
+- FOUND: `<SMOKE>/.planning/state.json`
+- FOUND: ruleset 24502205 active, `current_user_can_bypass: always`
+- FOUND: PR #6 `MERGED` (merge commit 20c3bd5684f9c979e30feb1b8c5e1ac80ff64b57); main's devflow.yml pins the SHA on both lines

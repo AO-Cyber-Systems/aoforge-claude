@@ -113,6 +113,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 55]: 55-03: unpushed linked-branch commits are refused (not auto-pushed) by gh pr merge and verification post, naming gh pr sync; the refusal text is built once in objective-branch.unpushedRefusal
 - [Objective 55]: 55-04: store footer keyed on strict state.store === true only; objective issue name chain is ROADMAP, OBJECTIVE.md heading, bare slug
 - [Objective 55]: 55-05: reconcile gates a local branch delete on ancestry, then on content (git merge-tree --write-tree of the default tip and the branch tip equals the default tip's own tree); an unknown (older git, missing object) keeps the branch
+- [Objective 55]: 55-06: push-branch (A, user answer relayed by orchestrator); smoke pins devflow-claude@d4147b8c1dd00af210b09a90c2af87dce0bf1010
 
 ## Performance Metrics
 
@@ -175,4 +176,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 55 P03 | 9min | 3 tasks | 7 files |
 | Objective 55 P04 | 20min | 2 tasks | 5 files |
 | Objective 55 P05 | 6min | 2 tasks | 7 files |
+| Objective 55 P06 | 4min | 3 tasks | 0 files |
 
