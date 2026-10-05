@@ -34,6 +34,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   output, `/devflow:build` prints the one-line estimate before it starts and the actual-vs-estimate line when it finishes,
   and execute-objective's wave reports show each wave's estimate and its actual. Every estimate call is fail-soft: a missing
   calibration never blocks planning or execution. `estimate-surfacing.repo.test.cjs` pins each call and where it sits.
+- `df-tools merge-driver install|uninstall|resolve|state-json`: parallel wave merges no longer conflict on
+  `.planning/state.json` and `.planning/STATE_ARCHIVE.md`. `state-json` is a JSON-aware three-way merge (`decisions`,
+  `blockers` and `session_log` keep both sides' entries, `metrics` counters sum both deltas) and STATE_ARCHIVE.md merges by
+  union. `install` registers both in the clone's `info/attributes` and local git config and commits nothing; `uninstall` is
+  the idempotent undo. The recorded driver is a fail-safe wrapper: when the df-tools binary is gone it falls back to
+  `git merge-file`, an ordinary conflict, and it points at the main checkout's or the mirror's df-tools, never a worktree
+  copy. Live: in this repository's wave-2 merges of Objective 59 only STATE.md, ROADMAP.md and REQUIREMENTS.md conflicted
+  and `state.json` and STATE_ARCHIVE.md merged cleanly, and on a scratch clone two branches that each ran `state
+  add-decision` and `state record-metric` merged with exit 0, no unmerged path, both decisions and both archive rows kept.
+- `exec-context worktree` prints `preflight`, the exact `--cwd` check command for the new worktree.
 
 ### Changed
 - `df-tools calibrate` also measures agent overhead from the subagent transcripts (`--root <dir>` points at the projects
@@ -49,6 +59,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Every regex escape in df-tools and the hooks goes through `lib/text-escape.cjs`. The 12 hand-rolled copies are gone and 5
   places that put text into a regex unescaped now escape it. `regex-escape.repo.test.cjs` fails CI, naming the file and line,
   when a new hand-rolled escape appears.
+- `state advance-job --objective N` derives the position from objective N's TRD and SUMMARY files on disk and writes
+  `Executing objective N — D/T TRDs complete`. `execute-objective` installs the merge driver before its first parallel
+  wave, resolves state.json and STATE_ARCHIVE.md conflicts with `merge-driver resolve` instead of aborting, and
+  regenerates the position after every parallel wave, whether or not a conflict was resolved. The executor dispatch names a
+  `CHECKOUT`, the preflight runs with `--cwd {CHECKOUT}`, and the executor's state commands carry `--cwd` too.
+- `milestone complete` counts, lists and archives only the objectives the milestone's ROADMAP bullet names and reports
+  `objective_numbers`, `cancelled`, `absent` and `scope_source` (`milestone bullet`, `roadmap sections` or `objective
+  directories`). On a scratch copy of this repository's `.planning/`, `milestone complete v1.4` reports 13 objectives
+  (42-54) and 158 TRDs, the numbers in the hand-written v1.4 entry.
 
 ### Fixed
 - Objective lookups match the exact directory. `4.1` no longer resolves to a `04.10-*` directory in `find-objective`,
@@ -68,6 +87,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   crashes. `objective remove` renumbers every later objective down by exactly one (removing objective 3 from 3-6 used to leave
   `### Objective 3:` three times) and renumbers each item of a `**Depends on**: Objective N, Objective M` list.
 - `agents/executor.md`'s `state record-metric` example passes `--job`.
+- `state advance-job` no longer writes `ready for verification` in the middle of an objective: with state.json at 0/0, or no
+  counters at all, it writes nothing and reports `reason: no_position` instead of rewriting Status to "Objective complete"
+  after the first TRD.
+- `exec-context check --id X` fails `WRONG CHECKOUT` (no claim taken, the `--cwd` command printed) when a worktree was
+  provisioned for X and the check ran elsewhere, instead of claiming the main checkout for X or reporting a false SHARED INDEX.
+- `milestone complete` accomplishments skip the template's placeholder one-liners, its task counts come from the TRDs' task
+  elements (the `<tasks>` wrapper is not a task), and `state_updated` says whether STATE.md changed. `objective remove` and
+  `objective complete` report `roadmap_updated` from a before/after comparison and write ROADMAP.md only when it changed, so
+  a repeated `objective complete` reports `false`.
 
 ## [2.13.2] - 2026-10-05
 

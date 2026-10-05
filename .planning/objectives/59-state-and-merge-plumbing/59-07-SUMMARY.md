@@ -19,20 +19,29 @@ key-files:
     - docs/USER-GUIDE.md
     - plugins/devflow/devflow/bin/lib/help.cjs
 
-requirements-completed: [PLMB-01, PLMB-02, PLMB-03, PLMB-04, PLMB-05]
+key-decisions:
+  - "The Known issues bullet for the state.json/STATE_ARCHIVE.md wave-merge conflict is replaced by a short 'fixed in objective 59' note, and the two defects the dogfood surfaced (objective remove rewriting dates, milestone complete appending a duplicate entry) are listed as open there instead of being fixed here"
+  - "Core Tool bullets in CLAUDE.md never backtick a workflow name: dispatch-completeness reads the first word of every backtick span as a df-tools command"
 
-duration: in progress
+verification:
+  gates_defined: 1
+  gates_passed: 1
+  auto_fix_cycles: 0
+  tdd_evidence: false
+  test_pairing: n/a (docs and live evidence; the code is tested by 59-01..59-06)
+
+duration: 10min
 completed: 2026-10-05
 ---
 
 # Objective 59 TRD 07: Dogfood and docs Summary
 
-**In progress.**
+**The five state and merge fixes ran on real data (this repository's driver and wave-2 merges, a scratch-clone two-branch merge with live uninstall, advance-job on this repository, WRONG CHECKOUT then a `--cwd` pass, `milestone complete v1.4` giving 13 objectives and 158 TRDs on a scratch copy) and are now written up in CHANGELOG, CLAUDE.md, USER-GUIDE and the exec-context help.**
 
 ## Progress
 - [x] Task 1: Live merge, position and preflight on this repository (evidence 1-4) — bbd0053b
-- [x] Task 2: Milestone and change flags on a scratch copy of .planning (evidence 5) — (this commit)
-- [ ] Task 3: Docs, help details and the full test run (evidence 6) — next step: add the CHANGELOG [Unreleased] entries, then CLAUDE.md, USER-GUIDE and the help.cjs exec-context lines
+- [x] Task 2: Milestone and change flags on a scratch copy of .planning (evidence 5) — e85f5114
+- [x] Task 3: Docs, help details and the full test run (evidence 6) — (this commit)
 
 ## Task 1 evidence
 
@@ -146,4 +155,71 @@ Steps 3-5 are the two directions of PLMB-05: a no-op reports `false` (step 3, st
 
 ### Observation recorded for gap closure (not fixed here, outside the TRD's flags)
 
-`milestone complete` is not idempotent for MILESTONES.md: the second run printed `milestones_updated: true` and appended a SECOND `## v1.4 GitHub as system of record (Shipped: 2026-10-05)` entry (scratch MILESTONES.md lines 117 and 243). `state_updated` is truthful (PLMB-05 as written), but the entry is duplicated on a re-run. Worth a TRD of its own: skip the append when an entry for the version already exists, or report `milestones_updated: false`.
+`milestone complete` is not idempotent for MILESTONES.md: the second run printed `milestones_updated: true` and appended a SECOND `## v1.4 GitHub as system of record (Shipped: 2026-10-05)` entry (scratch MILESTONES.md lines 117 and 243). `state_updated` is truthful (PLMB-05 as written), but the entry is duplicated on a re-run. Worth a TRD of its own: skip the append when an entry for the version already exists, or report `milestones_updated: false`. Also listed under Known issues in USER-GUIDE.
+
+## Task 3: what was documented (evidence 6)
+
+- **CHANGELOG `[Unreleased]`.** Added: `merge-driver install|uninstall|resolve|state-json` (with the live wave-2 and scratch-clone results) and `exec-context worktree` printing `preflight`. Changed: `state advance-job --objective N`, the execute-objective wiring and the executor `CHECKOUT`/`--cwd` dispatch, `milestone complete` scope. Fixed: advance-job's mid-objective `ready for verification` and `no_position`, `exec-context check` WRONG CHECKOUT, and the `milestone complete` accomplishments, task counts, `state_updated` and `roadmap_updated`.
+- **CLAUDE.md.** `state advance-job [--objective N]` in State operations; one Merge driver bullet in the Core Tool list; the wave-merge conflict is no longer named as open in "Where we left off".
+- **docs/USER-GUIDE.md.** A "Parallel wave merges (`df-tools merge-driver`)" subsection in the Command Reference: install from the main checkout, what each file does on merge, the fail-safe wrapper, `merge-driver resolve`, uninstall, advance-job `--objective`, the executor `--cwd` preflight and WRONG CHECKOUT, the `milestone complete` keys. The Known issues bullet is replaced by a short "fixed in objective 59" note pointing at it, and two newly observed open issues are listed there (the `objective remove` date rewrite from 59-05, the duplicate MILESTONES.md entry from Task 2). There was no existing prose describing `state advance-job` or the `milestone complete` keys in USER-GUIDE, so both are described in the new subsection.
+- **`help.cjs`.** `exec-context` details gained the WRONG CHECKOUT line under `check` and the `preflight` line under `worktree`.
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: live merge, position, preflight | clone: both `git merge --no-ff` exit 0, `git diff --name-only --diff-filter=U` empty, state.json decisions `["demo A","demo B"]`, archive rows P91 and P92, `merge-driver uninstall` `changed: true` then `false`, `install --check --raw` `false`; here: Status `Executing objective 59 — 6/7 TRDs complete`; preflight WRONG CHECKOUT exit 1 then `--cwd` check exit 0; `git worktree list` and `git branch --list df/exec-59-07-dogfood` clean | 0 / 1 (the WRONG CHECKOUT check, expected) | PASS |
+| 2: milestone and flags | `milestone complete v1.4` on the scratch copy: `objectives: 13`, `jobs: 158`; second run `state_updated: false`; `objective complete 58` second run `roadmap_updated: false`; `git status --porcelain .planning/MILESTONES.md .planning/ROADMAP.md .planning/milestones` empty | 0 | PASS |
+| 3: docs, help, suite | `node --test dispatch-completeness.test.cjs doc-refs.repo.test.cjs help.test.cjs` (34 tests); `df-tools validate docs --raw` printed `no documentation advisories`; `npm test` | 0 / 0 / 1 | PASS against baseline (3 known failures) |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test_scoped | `node --test plugins/devflow/devflow/bin/lib/dispatch-completeness.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/help.test.cjs` | 0 | PASS: 34/34 (first run 33/34, see Deviations 1) |
+| test (task 3, before commit) | `npm test` | 1 | PASS against baseline: 9808 tests, 9773 pass, 3 fail, 32 skipped; the 3 are the known baseline failures (MA-7 doctl handoff; roadmap-reconcile E2E1; stack-drafter-fleet github-enterprise-migration, TRD 43-08) |
+| test (tasks 1 and 2) | n/a | n/a | not run per task: those commits change no code, only the SUMMARY checkpoint; the full gate ran before the Task 3 commit |
+| lint / build / typecheck | none in the stack profile | n/a | not_available |
+
+Failing tests, by name, in the final run: `MA-7 doctl auth init with unset DIGITALOCEAN_TOKEN — secret-resolution OR architectural-gap path`; `E2E1: SELF-TEST — reconcile dry-run against this repo ROADMAP shows zero drift` (it names `59-07`: this TRD's SUMMARY exists in the checkout while the ROADMAP box is still `[ ]`, which `roadmap update-job-progress 59` ticks); `github-enterprise-migration: draft has no unaccepted conflict with the committed STACK.md` (stack-drafter-fleet). (The `handoff pipeline — PTY-path mock auth (TRD 19-05)` line in the stream is MA-7's parent suite.) Totals equal 59-06's final run (9808 / 9773 / 3 / 32), as expected for a docs-only change.
+
+## Discovered commands
+
+None. The stack profile (`general`) supplied `npm test` and `node --test {files}`.
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] My CLAUDE.md Merge driver bullet failed dispatch-completeness test 5**
+- **Found during:** Task 3 scoped gate
+- **Issue:** The first draft of the bullet wrote `` `execute-objective` `` in backticks inside a Core Tool bullet. `dispatch-completeness.test.cjs` reads the first word of every backtick span in those bullets as a df-tools command, so it reported `execute-objective: not a COMMANDS key`.
+- **Fix:** wrote the workflow name without backticks ("the execute-objective workflow installs it and falls back to `merge-driver resolve <path>`"). The scoped gate then passed 34/34.
+- **Files modified:** CLAUDE.md
+- **Commit:** the Task 3 commit (the bullet was never committed in the failing form)
+
+### Observations (no TRD code changed; recorded for gap closure)
+
+**2. `milestone complete` appends a duplicate MILESTONES.md entry on a re-run** (Task 2). The command: `df --cwd <scratch>/ms milestone complete v1.4 --name "GitHub as system of record"` twice. Output: the second run printed `milestones_updated: true, state_updated: false`, and the scratch MILESTONES.md held two `## v1.4 GitHub as system of record (Shipped: 2026-10-05)` entries. Outside PLMB-05 as written (`state_updated`); listed under USER-GUIDE Known issues.
+
+**3. `objective remove` still rewrites `NN-NN` date tokens (59-05's Deferred Issue)** was not exercised: the TRD names only `milestone complete` and `objective complete` for the scratch copy, and the orchestrator said to record it only if hit. It is listed under USER-GUIDE Known issues, with 59-05's reproduction (`2026-03-15` became `2025-02-15`).
+
+**4. The advance-job dogfood was a no-op.** The TRD expected the verb to move Status to `Executing objective 59 — 6/7 TRDs complete`. The orchestrator's post-wave regeneration (fb6b91ec) had already written exactly that, so the run printed `advanced: false`, `state_md_updated: false` and left STATE.md and state.json byte-identical; there was nothing to commit. The result is the same fact, read from disk.
+
+**5. Printed commands name the mirror.** `exec-context worktree`'s `preflight` and the WRONG CHECKOUT message print `node ~/.claude/devflow/bin/df-tools.cjs --cwd <worktree> ...`. The mirror lacks the guard until release, so the dogfood ran the same commands through the repo bin, as the TRD's binding rules say. Not a defect; it resolves at re-sync.
+
+**6. Wave 2's merge subjects** read `merge: wave 2 TRD 59-0x` rather than the `df/exec-59-0*` branch names the TRD's evidence line expected; the four merges are present. The `.claude/worktrees/mystifying-gates` worktree in `git worktree list` pre-dates this run and is not mine; an empty `/Users/justin/dev/.df-worktrees/devflow-claude/` directory remains from provisioning.
+
+### Auth gates
+
+None.
+
+## Release note
+
+After re-sync, execute-objective's `merge-driver install` runs the mirror's df-tools and re-points this repository's driver from the repo copy to `~/.claude/devflow/bin/df-tools.cjs` (`changed: true` once). This repository's driver stays installed (`install --check` is `true`); only the scratch clone's was uninstalled.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0 (one inline doc fix, Deviation 1)
+- Must-haves verified: 6/6 (clone merge with uninstall; driver bin is the main checkout's; Status at 6/7; WRONG CHECKOUT then pass with cleanup; v1.4 at 13 objectives, 158 TRDs and the two truthful flags; docs and suite at baseline)
+- Gate failures: None beyond the 3 known baseline failures
