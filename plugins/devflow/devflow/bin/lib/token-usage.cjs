@@ -15,7 +15,8 @@
  * sibling `agent-<id>.meta.json` (`agentType`, `description`). The index reads meta.json first and, only for executors,
  * the FIRST user record of the jsonl. Transcript bodies are read only by tokensForTrd, for the transcripts it kept.
  * Ids repeat across repositories and within one (three `10-*` objectives here), so every match is scoped to a repo
- * (REPO_ROOT line, else first-record cwd, else a `<repo>/.planning/` path) and, for a shared objective number, to the
+ * (REPO_ROOT line, else first-record cwd in the repo or one of its `.df-worktrees`, else a `<repo>/.planning/` path)
+ * and, for a shared objective number, to the
  * objective directory the prompt names.
  */
 
@@ -224,6 +225,11 @@ function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
+/** True when `p` is `base` or inside it. */
+function within(p, base) {
+  return p === base || p.startsWith(base + path.sep);
+}
+
 /** Path comparisons against one repository (the MAIN checkout), realpath'd on both sides. */
 function repoMatcher(repoRoot) {
   const given = path.resolve(repoRoot);
@@ -233,11 +239,15 @@ function repoMatcher(repoRoot) {
     if (!cache.has(p)) cache.set(p, realOrResolved(p));
     return cache.get(p);
   };
+  // exec-context provisions every executor worktree at <dirname(repo)>/.df-worktrees/<basename(repo)>/<id>.
+  const worktreeBases = [...new Set([given, real])].map((r) => path.join(path.dirname(r), '.df-worktrees', path.basename(r)));
   return {
     isRepo: (p) => canon(p) === real,
-    contains: (p) => {
+    contains: (p) => within(canon(p), real),
+    // a deleted worktree no longer realpaths; canon() then falls back to path.resolve, which still compares
+    inWorktree: (p) => {
       const c = canon(p);
-      return c === real || c.startsWith(real + path.sep);
+      return worktreeBases.some((b) => c.startsWith(b + path.sep));
     },
     planningPrefixes: [...new Set([given, real])].map((r) => `${r}/.planning/`),
   };
@@ -245,12 +255,16 @@ function repoMatcher(repoRoot) {
 
 /**
  * How an executor transcript belongs to the repo, or null (foreign). A REPO_ROOT line decides on its own; without
- * one, the first record's cwd (equal to or inside the repo), else a `<repo>/.planning/` path in the prompt.
+ * one, the first record's cwd (equal to or inside the repo: 'cwd'; inside one of its DevFlow worktrees: 'worktree'),
+ * else a `<repo>/.planning/` path in the prompt ('path').
  */
 function repoMatch(prompt, cwd, repo) {
   const declared = trdIdentify.repoRootOf(prompt);
   if (declared) return repo.isRepo(declared) ? 'repo_root' : null;
-  if (typeof cwd === 'string' && path.isAbsolute(cwd) && repo.contains(cwd)) return 'cwd';
+  if (typeof cwd === 'string' && path.isAbsolute(cwd)) {
+    if (repo.contains(cwd)) return 'cwd';
+    if (repo.inWorktree(cwd)) return 'worktree';
+  }
   if (repo.planningPrefixes.some((p) => prompt.includes(p))) return 'path';
   return null;
 }
