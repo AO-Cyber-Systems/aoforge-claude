@@ -196,6 +196,50 @@ function latestCompleted(projectList) {
   return latest;
 }
 
+// ─── Objective level ──────────────────────────────────────────────────────────
+
+const OBJECTIVE_METRICS = Object.freeze(['minutes', 'tokens_input', 'tokens_output', 'cost_usd']);
+
+/**
+ * What whole objectives cost, from the TRD samples. An objective is kept when at least one of its TRDs is a sample. It
+ * counts for a metric only when EVERY TRD in it has that metric: a TRD with no sample, or a null value, takes the
+ * objective out of that metric, because a partial sum would bias the unplanned fallback low. Minutes are serial executor
+ * time (the TRDs summed), not wall time.
+ */
+function objectiveLevelBlock(projectList, samples) {
+  const sampleKey = (project, dir, id) => `${project}\u0000${dir}\u0000${id}`;
+  const sampleOf = new Map(samples.map((s) => [sampleKey(s.project, s.objective_dir, s.id), s]));
+
+  const kept = [];
+  for (const project of projectList) {
+    const byDir = new Map();
+    for (const trd of project.trds) {
+      if (!byDir.has(trd.objective_dir)) byDir.set(trd.objective_dir, []);
+      byDir.get(trd.objective_dir).push(trd);
+    }
+    for (const dir of [...byDir.keys()].sort()) {
+      const trds = byDir.get(dir);
+      const measured = trds.map((trd) => sampleOf.get(sampleKey(project.label, dir, trd.id)) || null);
+      if (measured.every((m) => m === null)) continue;
+      const row = { trds: trds.length, tasks: trds.reduce((n, trd) => n + trd.tasks.filter((t) => !isCheckpoint(t)).length, 0) };
+      for (const metric of OBJECTIVE_METRICS) {
+        const values = measured.map((m) => (m === null ? null : m[metric]));
+        row[metric] = values.every(hasNumber) ? values.reduce((a, b) => a + b, 0) : null;
+      }
+      kept.push(row);
+    }
+  }
+  return {
+    samples: kept.length,
+    trds: statBlock(kept.map((r) => r.trds), roundMinutes),
+    tasks: statBlock(kept.map((r) => r.tasks), roundMinutes),
+    minutes: statBlock(kept.map((r) => r.minutes), roundMinutes),
+    tokens_input: statBlock(kept.map((r) => r.tokens_input), roundTokens),
+    tokens_output: statBlock(kept.map((r) => r.tokens_output), roundTokens),
+    cost_usd: statBlock(kept.map((r) => r.cost_usd), roundCost),
+  };
+}
+
 // ─── Agent overhead ───────────────────────────────────────────────────────────
 
 const NO_OVERHEAD_COUNTS = Object.freeze({ spawns: 0, matched: 0, foreign: 0, quick: 0, unreadable: 0 });
@@ -398,6 +442,7 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = 
       cost_usd: statBlock(samples.map((s) => s.cost_usd), roundCost),
     },
     task_classes: taskClasses,
+    objective_level: objectiveLevelBlock(projectList, samples),
     agent_overhead: agentOverheadBlocks(overheadSamples),
     agent_overhead_sources: overheadSources,
     probabilities: {
