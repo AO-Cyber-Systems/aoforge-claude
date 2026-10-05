@@ -241,6 +241,23 @@ function unpushedCommits(root, branch) {
 }
 
 /**
+ * The one refusal text for "the local linked branch has commits origin lacks" (TRD 55-03), used by `gh pr merge` and
+ * `verification post` (gh-pr.cjs re-exports it as `unpushedRefusal`). `info` is an `unpushedCommits` result with
+ * `count > 0`. It names the remedy, `df-tools gh pr sync <id>`: the refusal never pushes, because an implicit push from
+ * a verify or merge verb is a surprising write and `gh pr sync` also refreshes the PR body.
+ */
+function unpushedRefusal(id, branch, info) {
+  const n = info.count;
+  const one = n === 1;
+  const shown = (info.commits || []).slice(0, 5).map((s) => s.slice(0, 7));
+  const more = n > shown.length ? `, and ${n - shown.length} more` : '';
+  return `${branch} has ${n} unpushed commit${one ? '' : 's'} (${shown.join(', ')}${more}) that ${one ? 'is' : 'are'} not on GitHub: `
+    + `the pull request head does not contain ${one ? 'it' : 'them'}. `
+    + `Run df-tools gh pr sync ${id} to push ${one ? 'it' : 'them'}, re-run verification on the pushed head, then try again. `
+    + 'Nothing was queued or written.';
+}
+
+/**
  * The default branch: what origin/HEAD points at (`source:'origin-head'`), else the first of main / master that
  * exists locally (`source:'fallback'`), else `branch:null`.
  */
@@ -387,6 +404,7 @@ module.exports = {
   remoteTip,
   trackingTip,
   unpushedCommits,
+  unpushedRefusal,
   isTrackedClean,
   isAncestor,
   listLocal,
