@@ -705,6 +705,11 @@
       "objective": "58",
       "summary": "Status line wave denominator is the highest wave number in the run state, so a resumed run holding waves 6 and 7 shows W6/7",
       "rationale": null
+    },
+    {
+      "objective": "58",
+      "summary": "calibration v2 inputs_digest hashes overhead samples plus counts; --no-overhead raw line says 'overhead skipped' not 'none'",
+      "rationale": null
     }
   ],
   "blockers": [],
