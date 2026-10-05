@@ -176,15 +176,24 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
 
   // Set nested value using dot notation (e.g., "workflow.research"). The walk follows OWN
   // properties only, so an inherited name is never treated as an existing section.
+  // The reserved-name checks repeat the refusal above at each assignment, where CodeQL's
+  // prototype-pollution query looks for them (alert #89); they never fire after that refusal.
   let current = config;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      error(`config-set: refusing key segment "${key}" in "${keyPath}" (reserved object property)`);
+    }
     if (!hasOwn(current, key) || current[key] === null || typeof current[key] !== 'object') {
       current[key] = {};
     }
     current = current[key];
   }
-  current[keys[keys.length - 1]] = parsedValue;
+  const leaf = keys[keys.length - 1];
+  if (leaf === '__proto__' || leaf === 'constructor' || leaf === 'prototype') {
+    error(`config-set: refusing key segment "${leaf}" in "${keyPath}" (reserved object property)`);
+  }
+  current[leaf] = parsedValue;
 
   // Write back
   try {
