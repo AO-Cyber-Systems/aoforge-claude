@@ -1001,4 +1001,5 @@ module.exports = {
   cmdTodoComplete,
   cmdScaffold,
   cmdRequirementsMarkComplete,
+  isCheckpointOnlySummary: _isCheckpointOnlySummary,
 };
