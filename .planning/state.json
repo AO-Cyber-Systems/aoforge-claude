@@ -2,9 +2,9 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 99,
+  "progress_pct": 98,
   "status": "ready_for_verification",
-  "last_activity": "2026-10-04",
+  "last_activity": "2026-10-05",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -604,6 +604,11 @@
     {
       "objective": "54",
       "summary": "54-03: test.yml and agent-shell-harness.yml run on top-level permissions contents: read; scripts/workflow-permissions.test.cjs fails any workflow with no top-level or per-job permissions",
+      "rationale": null
+    },
+    {
+      "objective": "55",
+      "summary": "55-03: unpushed linked-branch commits are refused (not auto-pushed) by gh pr merge and verification post, naming gh pr sync; the refusal text is built once in objective-branch.unpushedRefusal",
       "rationale": null
     }
   ],

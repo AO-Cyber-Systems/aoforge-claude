@@ -108,6 +108,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 53]: 53-04: gate-commits keeps denying a merge chained with a raw git commit; only the deny reason gains a hint, and a squash completion uses the inline DEVFLOW_ALLOW_RAW_COMMIT=1 prefix rather than SQUASH_MSG detection
 - [Objective 54]: text-escape.cjs is the single dependency-free home for escapeRegExp, objectiveNumPattern and mdCell; it must never require helpers.cjs (hooks load it per call) — Hooks (changelog-on-tag.js, TRD 54-07) require it on every PreToolUse(Bash); helpers.cjs loads model-profiles JSON at require time
 - [Objective 54]: 54-03: test.yml and agent-shell-harness.yml run on top-level permissions contents: read; scripts/workflow-permissions.test.cjs fails any workflow with no top-level or per-job permissions
+- [Objective 55]: 55-03: unpushed linked-branch commits are refused (not auto-pushed) by gh pr merge and verification post, naming gh pr sync; the refusal text is built once in objective-branch.unpushedRefusal
 
 ## Performance Metrics
 
@@ -165,4 +166,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 54 P07 | 5min | 3 tasks | 9 files |
 | Objective 54 P08 | 4min | 2 tasks | 4 files |
 | Objective 54 P09 | 22min | 2 tasks | 1 files |
+| Objective 55 P03 | 9min | 3 tasks | 7 files |
 

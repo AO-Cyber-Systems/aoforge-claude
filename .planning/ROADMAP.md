@@ -120,7 +120,7 @@ Not yet planned. Run `/devflow:milestone new` to start it. Objective 55 (store l
 TRDs:
 - [ ] 55-01-setup-ruleset-bypass-and-pin-TRD.md — (W1) 55-1 + 55-4 caller: setup ruleset grants RepositoryRole 5 `always` bypass (superset-idempotent), guidance names `gh pr merge <n> --admin`; `checks_workflow@<ref>` pins `devflow-ref`
 - [ ] 55-02-checks-sparse-and-wiki-retry-TRD.md — (W1) 55-4: `references/` in every sparse checkout + sparse-copy guard test; 55-3: flush retries a halted blocked wiki-push once
-- [ ] 55-03-unpushed-commit-guard-TRD.md — (W1) 55-5: `unpushedCommits`; `verification post` and `gh pr merge` refuse naming `gh pr sync`
+- [x] 55-03-unpushed-commit-guard-TRD.md — (W1) 55-5: `unpushedCommits`; `verification post` and `gh pr merge` refuse naming `gh pr sync`
 - [ ] 55-04-store-issue-naming-TRD.md — (W1) 55-6: objective issue title from ROADMAP / OBJECTIVE.md heading, not the dir slug; store-mode footer
 - [ ] 55-05-objective-put-hint-and-reconcile-content-TRD.md — (W2) 55-2: unknown objective names `objective add`; 55-6: reconcile deletes branches whose content is already merged (merge-tree)
 - [ ] 55-06-live-setup-rerun-TRD.md — (W3, checkpoint) push approval; smoke `upgrade --apply` (state.json/stamp); ruleset re-created by `gh setup --apply`; workflow PR merged with admin bypass; runner without ENOENT
@@ -160,4 +160,4 @@ Candidate scope carried forward from v1.2 deferrals:
 | 25. Fleet audit fixes | v1.2 | 6/6 | Complete | 2026-07-22 |
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
-| 55. Store live-smoke fixes | v1.5 | 0/— | Registered | — |
+| 55. Store live-smoke fixes | v1.5 | 1/8 | In Progress | — |
