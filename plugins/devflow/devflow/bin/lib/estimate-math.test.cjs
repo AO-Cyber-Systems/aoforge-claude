@@ -82,3 +82,63 @@ test('5. edges: nulls, zeros, equal quantiles, p90 below p50, empty and null sum
   assert.equal(em.sumCorrelated([a(), null]), null);
   assert.equal(em.sumComonotonic([a(), null]), null);
 });
+
+test('6. max of independent components: the parallel-wave wall time', () => {
+  nearPair(em.maxIndependent([a()]), 6, 18, 1e-6, 'single');
+  nearPair(em.maxIndependent([a(), a()]), 9.572751018085604, 24.312286508606064, 0.01, 'two equal');
+  const mixed = em.maxIndependent([em.fitQuantiles({ p50: 12, p90: 36 }), em.fitQuantiles({ p50: 4, p90: 8 })]);
+  nearPair(mixed, 12.255355025779103, 36.003840475022926, 0.01, 'large and small');
+  assert.equal(em.maxIndependent([a(), null]), null);
+  assert.equal(em.maxIndependent([]), em.ZERO);
+  nearPair(em.maxIndependent([a(), em.ZERO]), 6, 18, 1e-6, 'zero member dropped');
+  nearPair(em.maxIndependent([em.fitQuantiles({ p50: 5, p90: 5 }), a()]), 6, 18, 0.01, 'point mass below the median');
+});
+
+test('7. mixture: the gap-closure factor', () => {
+  const base = em.fitQuantiles({ p50: 10, p90: 30 });
+  const alt = em.sumCorrelated([base, em.fitQuantiles({ p50: 12, p90: 45 })], 0.5);
+  nearPair(alt, 23.584752348605253, 73.23985479227876, 1e-6, 'alt');
+
+  const mixed = em.mixtureQuantiles(base, alt, 0.1);
+  near(mixed.p50, 10.774866439412751, 0.01, 'mixture p50');
+  near(mixed.p90, 34.538766368707584, 0.01, 'mixture p90');
+  nearPair(mixed.dist, mixed.p50, mixed.p90, 1e-9, 'mixture dist round-trips its quantiles');
+
+  const atZero = em.mixtureQuantiles(base, alt, 0);
+  near(atZero.p50, 10, 1e-6, 'p 0 p50');
+  near(atZero.p90, 30, 1e-6, 'p 0 p90');
+  const atOne = em.mixtureQuantiles(base, alt, 1);
+  near(atOne.p50, 23.584752348605253, 1e-6, 'p 1 p50');
+  near(atOne.p90, 73.23985479227876, 1e-6, 'p 1 p90');
+
+  for (const result of [em.mixtureQuantiles(base, alt, null), em.mixtureQuantiles(base, null, 0.1)]) {
+    near(result.p50, 10, 1e-6, 'unchanged base p50');
+    near(result.p90, 30, 1e-6, 'unchanged base p90');
+    assert.equal(result.dist, base);
+  }
+  assert.deepEqual(Object.keys(atZero).sort(), ['dist', 'p50', 'p90']);
+  assert.deepEqual(Object.keys(atOne).sort(), ['dist', 'p50', 'p90']);
+});
+
+test('8. determinism and purity', () => {
+  const run = () => {
+    const base = em.fitQuantiles({ p50: 10, p90: 30 });
+    const alt = em.sumCorrelated([base, em.fitQuantiles({ p50: 12, p90: 45 })], 0.5);
+    return {
+      sum: em.summarize(em.sumCorrelated([a(), a()], 0.5)),
+      max: em.summarize(em.maxIndependent([a(), a()])),
+      mixture: em.mixtureQuantiles(base, alt, 0.1),
+    };
+  };
+  const first = run();
+  const second = run();
+  assert.equal(first.sum.p50, second.sum.p50);
+  assert.equal(first.sum.p90, second.sum.p90);
+  assert.equal(first.max.p50, second.max.p50);
+  assert.equal(first.max.p90, second.max.p90);
+  assert.equal(first.mixture.p50, second.mixture.p50);
+  assert.equal(first.mixture.p90, second.mixture.p90);
+
+  const source = require('node:fs').readFileSync(require.resolve('./estimate-math.cjs'), 'utf8');
+  assert.equal(/Date|Math\.random|process\./.test(source), false, 'the module must read no clock, random source or process');
+});
