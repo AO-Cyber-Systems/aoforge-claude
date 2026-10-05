@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-09-30T13:40:25.532Z",
-  "version": "2.12.0",
-  "packageVersion": "2.12.0",
+  "generatedAt": "2026-10-05T13:59:08.143Z",
+  "version": "2.13.2",
+  "packageVersion": "2.13.2",
   "repo": "AO-Cyber-Systems/devflow-claude",
   "marketplace": "devflow@aocyber",
   "counts": {
     "skills": 34,
     "agents": 13,
-    "hooks": 18,
+    "hooks": 19,
     "workflows": 41,
-    "references": 37,
-    "templates": 30,
-    "dfToolsCommands": 72
+    "references": 36,
+    "templates": 31,
+    "dfToolsCommands": 79
   },
   "skills": [
     {
@@ -322,19 +322,23 @@
       "name": "gh-sync",
       "slug": "gh-sync",
       "command": "/devflow:gh-sync",
-      "summary": "Sync DevFlow planning state to GitHub — create/update objective issues, generate release notes, or push a single objective's state (body + sticky comment + Project v2 fields).",
+      "summary": "Operate the GitHub store, where GitHub is the system of record once `github.store` is on: migrate a project onto it (dry run first, then explicit approval), show store status, flush the outbox, pull the cache, set the repository up, generate release notes. With the store off, mirror objectives to GitHub issues.",
       "notes": [],
       "triggers": [
+        "migrate to github",
+        "move planning to github",
+        "github store",
+        "flush the outbox",
         "sync to github",
         "push objectives to github",
         "github release notes",
         "sync objective"
       ],
-      "args": "[objectives|release <tag>|status|<objective_id>]",
+      "args": "[migrate [--dry-run]|status|flush|pull|setup [--apply]|release <tag>|<objective>|--all]",
       "tools": [
         "Read",
         "Bash",
-        "Write"
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": false
@@ -1312,6 +1316,19 @@
       "note": null
     },
     {
+      "file": "gh-flush.js",
+      "name": "gh-flush",
+      "group": "Other",
+      "purpose": "",
+      "escape": null,
+      "events": [
+        "Stop",
+        "PostToolUse (Bash)"
+      ],
+      "registered": true,
+      "note": null
+    },
+    {
       "file": "guard-no-progress.js",
       "name": "guard-no-progress",
       "group": "Enforcement",
@@ -1475,6 +1492,14 @@
       "subcommands": []
     },
     {
+      "command": "debug",
+      "subcommands": []
+    },
+    {
+      "command": "decision",
+      "subcommands": []
+    },
+    {
       "command": "decision-queue",
       "subcommands": []
     },
@@ -1495,6 +1520,10 @@
         "brownfield-map",
         "flutter-ui-scope"
       ]
+    },
+    {
+      "command": "doc",
+      "subcommands": []
     },
     {
       "command": "doctor",
@@ -1550,7 +1579,12 @@
         "sync-release",
         "resolve",
         "sync",
-        "pull"
+        "pull",
+        "outbox",
+        "trd",
+        "orphans",
+        "pr",
+        "setup"
       ]
     },
     {
@@ -1615,9 +1649,7 @@
     },
     {
       "command": "milestone",
-      "subcommands": [
-        "complete"
-      ]
+      "subcommands": []
     },
     {
       "command": "objective",
@@ -1626,7 +1658,9 @@
         "add",
         "insert",
         "remove",
-        "complete"
+        "complete",
+        "put",
+        "set-status"
       ]
     },
     {
@@ -1648,9 +1682,16 @@
       "subcommands": []
     },
     {
+      "command": "plan",
+      "subcommands": []
+    },
+    {
       "command": "planning",
       "subcommands": [
-        "sibling-trd-scan"
+        "sibling-trd-scan",
+        "draft",
+        "import",
+        "mode"
       ]
     },
     {
@@ -1675,6 +1716,10 @@
     },
     {
       "command": "project-state",
+      "subcommands": []
+    },
+    {
+      "command": "quick",
       "subcommands": []
     },
     {
@@ -1735,6 +1780,10 @@
       "subcommands": []
     },
     {
+      "command": "summary",
+      "subcommands": []
+    },
+    {
       "command": "summary-extract",
       "subcommands": []
     },
@@ -1761,9 +1810,7 @@
     },
     {
       "command": "todo",
-      "subcommands": [
-        "complete"
-      ]
+      "subcommands": []
     },
     {
       "command": "transcript-export",
@@ -1799,6 +1846,10 @@
         "health",
         "docs"
       ]
+    },
+    {
+      "command": "verification",
+      "subcommands": []
     },
     {
       "command": "verify",
@@ -2007,7 +2058,6 @@
     "anti-patterns",
     "auto-behaviors",
     "checkpoints",
-    "codex-agent-policy",
     "context-discipline",
     "continuation-format",
     "debugging-methods",
@@ -2052,6 +2102,7 @@
     "continue-here.md",
     "debug-subagent-prompt.md",
     "discovery.md",
+    "github",
     "global-claude-md.md",
     "job-prompt.md",
     "milestone-archive.md",
@@ -2149,12 +2200,26 @@
     },
     "github": {
       "enabled": false,
+      "store": false,
+      "mirror_only": false,
       "repo": "",
       "milestone_prefix": "v",
+      "project_cache_ttl_minutes": 360,
+      "app_login": "",
+      "app_id": "",
+      "checks_workflow": "",
       "labels": {
         "objective": "devflow:objective",
         "in_progress": "devflow:in-progress",
-        "gaps": "devflow:gaps"
+        "gaps": "devflow:gaps",
+        "trd": "devflow:trd",
+        "decision": "devflow:decision"
+      },
+      "wiki": {
+        "remote": ""
+      },
+      "pr": {
+        "merge_method": "squash"
       }
     },
     "awareness": {

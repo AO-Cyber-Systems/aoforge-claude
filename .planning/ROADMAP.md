@@ -95,20 +95,47 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 
 ### 📋 v1.5 candidates
 
-Not yet planned. Run `/devflow:milestone new` to start it. Objective 55 (store live-smoke fixes) is registered ahead of it. Carried from the v1.4 audit (`milestones/v1.4-MILESTONE-AUDIT.md`):
+Not yet planned; `/devflow:milestone new` starts it. Triaged 2026-10-05: resolved items were removed, low-value ones dropped, and the rest grouped below. Objective 55 (store live-smoke fixes) shipped first, in 2.13.2. Suggested shape: a hardening milestone (the four "Do" groups), with #35 or #36 added if it should carry a feature.
 
-- **User actions:**
-  - run the live store-mode smoke / first real backfill on a throwaway GitHub repo;
-  - fix the Docs site deploy (Cloudflare Pages project `devflow-docs` not found);
-  - `/plugin update devflow@aocyber` to 2.13.1;
-  - release PR #123 (CodeQL #89) with the next tag.
-- **Tech debt:**
-  - hand-rolled regex escapes outside `text-escape.cjs`;
-  - merge path for STATE_ARCHIVE.md / `state.json`;
-  - `searchObjectiveInDir` `4.1` vs `04.10`;
-  - leading-zero ROADMAP lookup in novel-domain / trd-pre-check;
-  - `verify trd-pre` reads free-text Requirements as IDs;
-  - `milestone complete` stats count every objective dir.
+**Decide before planning (user):**
+- DECISION-001: edit-gate posture, pending since 2026-08-18. Recommendation: option-c (`.planning/decisions/pending/DECISION-001.md`).
+- CI `ANTHROPIC` secret, needed only for the live visual judge in CI (32/33).
+- Branch protection on devflow-claude `main` (34).
+- Docs site deploy: Cloudflare Pages project `devflow-docs` not found (fails on every `main` push since 2.11).
+
+**Do: state and merge plumbing**
+- `state advance-job` rewrites STATE.md `**Status:**` to "ready for verification" (hit every 55 executor).
+- Merge path for `STATE_ARCHIVE.md` / `state.json`: parallel waves conflict on them every time. Candidate fix: a JSON-aware merge driver.
+- Executors run their first `exec-context` preflight from the main checkout. Spawn prompts should pass `--cwd <worktree>`.
+- `milestone complete` stats count every objective dir. Its `state_updated`, and `objective remove`'s `roadmap_updated`, report by existence.
+
+**Do: objective-number correctness**
+- Hand-rolled regex escapes outside `text-escape.cjs` (state x5, gh-hierarchy, planning-verbs, planning-entity-verbs, frontmatter, watcher-daemon).
+- `searchObjectiveInDir` matches `04.10-*` for `4.1`. The ROADMAP lookup in novel-domain and trd-pre-check never matches single-digit objectives (leading zero).
+- `verify trd-pre` reads a free-text Requirements line as requirement IDs.
+
+**Do: store-mode rough edges**
+- `gh setup` dry run omits the pinned `uses:`/`devflow-ref:` lines, and its printed steps lack a PR-create command.
+- PR titles still use the directory slug (issue titles use the name).
+- Doctor/health warning when a repo's checks workflow is pinned to a DevFlow ref older than the installed plugin (pre-2.13.2 pins have broken checks).
+- Capability gate: `requires:` skill frontmatter plus a doctor-backed refusal with remediation (gh, docker, …). This is the one idea kept from the deleted visual-workflow proposal.
+
+**Do: observability and model ids**
+- `model-profiles.json` pins `claude-opus-5` / `claude-sonnet-5`; current ids are `claude-opus-5-5` / `claude-sonnet-5-5`.
+- `telemetry --scan` is silently ignored: implement it or reject the flag.
+- `transcript-export` never runs automatically: throttle it at SessionStart like the backup prune.
+- Backfill the 09-03 SUMMARY (the last I001).
+
+**Feature candidates (pick zero or one):**
+- #35 Phase J: Claude Code built-in integration.
+- #36 Phase K: agentic estimation engine (`df-tools estimate`).
+
+**Dropped 2026-10-05:**
+- Resolved: CLAUDE.md counts now match (13 agents / 16 hooks / 34 skills); adopt now gitignores `.planning/.*` markers.
+- Intentional: on a draft PR, `gh pr merge` reports "draft" before the unpushed-commit guard.
+- Low value: 28-06 Haiku replay eval and the escalation re-spawn consumer (Sonnet matches Opus on subagent work).
+- Unused: handoff-watcher PTY gaps and the `devflow-watch stash add` CLI.
+- Out of scope: the sibling `monorepo-standards` command naming; the Codex port and the visual workflow class proposals (deleted).
 
 ### Objective 55: Store live-smoke fixes
 
@@ -126,30 +153,6 @@ TRDs:
 - [x] 55-06-live-setup-rerun-TRD.md — (W3, checkpoint) push approval; smoke `upgrade --apply` (state.json/stamp); ruleset re-created by `gh setup --apply`; workflow PR merged with admin bypass; runner without ENOENT
 - [x] 55-07-live-objective-lifecycle-TRD.md — (W4) objective 2 live: guard fires, `gh pr sync`, checks green, merge queue, reconcile, code on main
 - [x] 55-08-docs-and-changelog-TRD.md — (W5) USER-GUIDE / gh-sync skill / execute-objective prose from the live results; CHANGELOG [Unreleased]; `npm test`
-
-### Earlier carry-overs
-
-- **v1.3 decisions pending:**
-  - DECISION-001 (27-03 edit-gate posture);
-  - CI `ANTHROPIC` secret (32/33);
-  - `main` branch protection (34).
-- **v1.3 deferred / tech debt** (full list in `milestones/v1.3-MILESTONE-AUDIT.md`):
-  - 28-06 Haiku replay eval; escalation re-spawn consumer; `models.opus` → `claude-opus-5-5`;
-  - `telemetry --scan` silently ignored; `transcript-export` unscheduled;
-  - `milestone complete` stats count every objective dir and report `state_updated` by existence; `objective remove` `roadmap_updated` same;
-  - adopt/new-project don't gitignore `.planning/.*` markers;
-  - CLAUDE.md agent/hook counts stale (13 agents / 16 hooks).
-- Sibling plugin `monorepo-standards` names its commands `/devflow:*` (out of this plugin's scope).
-
-### Carried-forward v1.2 deferrals
-
-Candidate scope carried forward from v1.2 deferrals:
-
-- Phase J — Claude Code built-in integration (devflow-claude#35)
-- Phase K — Agentic estimation engine (devflow-claude#36)
-- PTY architectural gaps from TRD 19-05 (dispatch-wrapper isatty, wrapper stdin race, detector Ctrl+C-on-late-match)
-- `devflow-watch stash add` CLI for token-passing `value_source: 'stash'`
-- 09-03 SUMMARY.md backfill (deliverables shipped, summary doc missing)
 
 ## Progress
 
