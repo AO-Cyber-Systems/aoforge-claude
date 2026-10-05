@@ -213,7 +213,7 @@ TRDs:
 - [x] 59-01-state-merge-driver-TRD.md — (W1) PLMB-02: `df-tools merge-driver install|resolve|state-json` (JSON-aware state.json 3-way merge, union STATE_ARCHIVE.md, info/attributes + repo config); installed here so wave 2's merges use it
 - [x] 59-02-advance-job-from-disk-TRD.md — (W2) PLMB-01: `state advance-job --objective N` derives Status and counters from the objective's TRDs/SUMMARYs; 0/0 counters write nothing (`no_position`)
 - [ ] 59-03-worktree-preflight-TRD.md — (W2) PLMB-03: dispatch names `CHECKOUT`, preflight runs `--cwd {CHECKOUT}`; `exec-context check` fails WRONG CHECKOUT outside the plan's worktree; `worktree` prints `preflight`
-- [ ] 59-04-milestone-complete-scope-TRD.md — (W2) PLMB-04/05: `milestone complete` counts only the milestone bullet's objectives (selection moved to `milestone-scope.cjs`), true one-liners and task counts, truthful `state_updated`
+- [x] 59-04-milestone-complete-scope-TRD.md — (W2) PLMB-04/05: `milestone complete` counts only the milestone bullet's objectives (selection moved to `milestone-scope.cjs`), true one-liners and task counts, truthful `state_updated`
 - [ ] 59-05-objective-change-flags-TRD.md — (W2) PLMB-05: `objective remove` / `objective complete` report `roadmap_updated` only on a real change
 - [ ] 59-06-merge-and-state-wiring-TRD.md — (W3) execute-objective installs the driver, resolves state.json/STATE_ARCHIVE.md conflicts, regenerates position after every parallel wave; executor uses `--objective` and `--cwd`; replay test extended
 - [ ] 59-07-dogfood-and-docs-TRD.md — (W4) live merge on a scratch clone, advance-job here, WRONG CHECKOUT smoke, `milestone complete v1.4` on a scratch copy; CHANGELOG/CLAUDE.md/USER-GUIDE; full `npm test`
