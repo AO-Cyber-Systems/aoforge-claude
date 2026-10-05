@@ -250,6 +250,7 @@ See: .planning/PROJECT.md (updated 2026-09-28 after v1.3 milestone)
 | 27 | bump actions/checkout to v7 in devflow-checks workflow | 2026-10-03 | c01a82ce | devflow-claude | Atomic |
 | 28 | Fix #120: micro commit --files sweeps in unrelated staged changes | 2026-10-03 | 0012a82f | Done | [28-fix-120-micro-commit-files-sweeps-in-unr](./quick/28-fix-120-micro-commit-files-sweeps-in-unr/) |
 | 29 | Fix 8 new CodeQL alerts on release PR #121 (ReDoS, regex injection, table-cell escaping) | 2026-10-04 | 518a25fa | Done | [29-fix-new-codeql-alerts-on-release-pr-121](./quick/29-fix-new-codeql-alerts-on-release-pr-121/) |
+| 30 | in-loop reserved-key guard in config-set (CodeQL #89) | 2026-10-05 | 967bf9dd | devflow-claude | Atomic |
 
 ## Accumulated Context
 
