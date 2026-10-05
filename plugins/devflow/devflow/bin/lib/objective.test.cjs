@@ -704,7 +704,9 @@ describe('48-14 characterization: objective ops in local mode', () => {
         next_objective_name: null,
         is_last_objective: true,
         date: todayIso(),
-        roadmap_updated: true,
+        // ROADMAP.md is byte-identical below, so nothing changed: roadmap_updated is false (PLMB-05; this pin
+        // recorded the old fs.existsSync defect).
+        roadmap_updated: false,
         state_updated: false,
         state_update_reason: 'state_missing',
       }, null, 2));
