@@ -142,6 +142,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 59]: Metrics counters in state.json sum both deltas even when both sides ended at the same value (two parallel +1 jobs make base + 2); a counter absent from the base is kept once — The equal-values shortcut in the TRD pseudo-code lost a completed job (found by the end-to-end wave merge test)
 - [Objective 59]: merge-driver install records the realpath of the running df-tools.cjs, mapped to the main checkout's copy when run from a linked worktree (refuses if absent) — A wave worktree is removed after its merge; a driver pointing into it would be stranded
 - [Objective 59]: advance-job reports no_position (writes nothing) when no counters or total <= 0; --objective N derives position from disk
+- [Objective 59]: WRONG CHECKOUT is the one recoverable exec-context preflight failure: it fires before any claim, writes nothing and prints the --cwd command; the other three stay hard stops
 
 ## Performance Metrics
 
@@ -226,4 +227,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 58 P10 | 15min | 3 tasks | 4 files |
 | Objective 59 P01 | 12min | 3 tasks | 7 files |
 | Objective 59 P02 | 8min | 2 tasks | 5 files |
+| Objective 59 P03 | 10min | 2 tasks | 6 files |
 

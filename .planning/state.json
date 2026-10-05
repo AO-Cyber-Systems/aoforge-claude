@@ -775,6 +775,11 @@
       "objective": "59",
       "summary": "advance-job reports no_position (writes nothing) when no counters or total <= 0; --objective N derives position from disk",
       "rationale": null
+    },
+    {
+      "objective": "59",
+      "summary": "WRONG CHECKOUT is the one recoverable exec-context preflight failure: it fires before any claim, writes nothing and prints the --cwd command; the other three stay hard stops",
+      "rationale": null
     }
   ],
   "blockers": [],

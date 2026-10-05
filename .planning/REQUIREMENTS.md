@@ -19,7 +19,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 
 - [x] **PLMB-01**: `state advance-job` leaves STATE.md `**Status:**` accurate; it no longer rewrites it to "ready for verification" mid-objective.
 - [x] **PLMB-02**: Parallel wave merges no longer conflict on `STATE_ARCHIVE.md` or `state.json`, through a JSON-aware merge driver or documented regeneration.
-- [ ] **PLMB-03**: An executor's first `exec-context` preflight runs against its own worktree, because spawn prompts pass `--cwd <worktree>`.
+- [x] **PLMB-03**: An executor's first `exec-context` preflight runs against its own worktree, because spawn prompts pass `--cwd <worktree>`.
 - [ ] **PLMB-04**: `milestone complete` counts only the milestone's objectives, so its stats and base MILESTONES entry are correct without hand-writing.
 - [ ] **PLMB-05**: `milestone complete` `state_updated` and `objective remove` `roadmap_updated` report whether a change was made, not whether the file exists.
 
@@ -91,7 +91,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | GATE-05 | Objective 60 | Pending |
 | PLMB-01 | Objective 59 | Complete |
 | PLMB-02 | Objective 59 | Complete |
-| PLMB-03 | Objective 59 | Pending |
+| PLMB-03 | Objective 59 | Complete |
 | PLMB-04 | Objective 59 | Pending |
 | PLMB-05 | Objective 59 | Pending |
 | ONUM-01 | Objective 56 | Complete |

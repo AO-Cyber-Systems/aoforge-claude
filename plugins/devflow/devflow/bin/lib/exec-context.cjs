@@ -29,6 +29,14 @@
  *     a second executor with a different id in the same checkout for the same
  *     base is refused with SHARED INDEX (issue #98).
  *
+ *     With --id it first refuses WRONG CHECKOUT when a worktree was provisioned
+ *     for that id (branch df/exec-<slug(id)>) and the check is not running in it
+ *     (59-03). Every Bash call an executor makes starts in the SESSION's
+ *     directory, which for a parallel wave is the main checkout, so a preflight
+ *     that forgets `df-tools --cwd <worktree>` would otherwise claim the main
+ *     checkout and report a false SHARED INDEX. The refusal takes no claim and
+ *     prints the exact `--cwd` command to run instead.
+ *
  *   exec-context release --repo <path> [--id <slug>]
  *     Clears this checkout's claims (all, or only those held by --id) — for a
  *     claim left behind by a dead executor.
@@ -37,7 +45,8 @@
  *     Provisions isolation explicitly, in the NAMED repo, from an EXPLICIT base
  *     that defaults to that repo's current HEAD — never the default branch.
  *     This is the replacement for the frontmatter flag, for when waves run in
- *     parallel and need separate indexes.
+ *     parallel and need separate indexes. Its result carries `preflight`: the
+ *     exact `--cwd` check command for the new worktree (59-03).
  *
  * Repository identity is the git COMMON directory, not the checkout, so a
  * legitimate worktree of the target repo is recognised as the target repo while
@@ -99,6 +108,32 @@ function flag(args, name) {
   // A flag whose value is itself a flag was given no value at all.
   if (v === undefined || v.startsWith('--')) return undefined;
   return v;
+}
+
+function slugify(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/**
+ * The linked worktree `exec-context worktree` provisioned for `id` (59-03), or
+ * null. `id` is already slugified. Matches the branch `df/exec-<id>` exactly
+ * and requires the directory to exist: `git worktree list` keeps listing a
+ * worktree whose directory was deleted until it is pruned, and a vanished tree
+ * owns nothing.
+ */
+function worktreeForId(identity, id) {
+  if (!id) return null;
+  const out = git(identity.checkout, ['worktree', 'list', '--porcelain']);
+  if (out.exitCode !== 0) return null;
+  const wanted = `df/exec-${id}`;
+  for (const block of out.stdout.split(/\n\n+/)) {
+    const wt = /^worktree (.+)$/m.exec(block);
+    const br = /^branch refs\/heads\/(.+)$/m.exec(block);
+    if (!wt || !br || br[1] !== wanted) continue;
+    if (!fs.existsSync(wt[1])) continue;
+    return { path: realpath(wt[1]), branch: br[1] };
+  }
+  return null;
 }
 
 // ── shared-index claim (issue #98) ───────────────────────────────────────────
@@ -248,6 +283,37 @@ function cmdExecContextCheck(cwd, args, raw) {
     );
   }
 
+  const baseArg = flag(args, '--base');
+  if (baseArg === undefined) {
+    error('--base was given without a value.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>] [--raw]');
+  }
+
+  const idArg = flag(args, '--id');
+  if (idArg === undefined) {
+    error('--id was given without a value.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>] [--raw]');
+  }
+
+  // 59-03: every Bash call starts in the SESSION's directory. For a parallel wave
+  // that is the main checkout, not the worktree provisioned for this plan, so a
+  // preflight without `--cwd` lands here. Refuse BEFORE any claim is taken — a
+  // stray claim on the main checkout is what made a sibling's real preflight
+  // report a false SHARED INDEX — and print the command that fixes it. Nothing
+  // was written, so unlike the three failures around it this one is recoverable.
+  if (idArg) {
+    const owned = worktreeForId(actual, slugify(idArg));
+    if (owned && owned.path !== actual.checkout) {
+      error(
+        `WRONG CHECKOUT — a worktree was provisioned for ${idArg} and this check ran somewhere else.\n` +
+        `  your worktree : ${owned.path} (branch ${owned.branch})\n` +
+        `  checked here  : ${actual.checkout}\n` +
+        `Every Bash call starts in the session's directory, not in your worktree, so the check must name it:\n` +
+        `  node ~/.claude/devflow/bin/df-tools.cjs --cwd ${owned.path} exec-context check --repo ${expected.mainRoot}` +
+        (baseArg ? ` --base ${baseArg}` : '') + ` --id ${idArg}\n` +
+        `No claim was taken here.`
+      );
+    }
+  }
+
   // Issue #100 finding 8: on an unborn HEAD `git rev-parse HEAD` prints the
   // LITERAL STRING "HEAD" and exits 128. Taking .stdout without the exit code
   // reported {"ok":true,"branch":"HEAD","head_sha":"HEAD"} for a repository
@@ -267,16 +333,6 @@ function cmdExecContextCheck(cwd, args, raw) {
   }
   const headSha = head.stdout;
   const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout;
-
-  const baseArg = flag(args, '--base');
-  if (baseArg === undefined) {
-    error('--base was given without a value.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>] [--raw]');
-  }
-
-  const idArg = flag(args, '--id');
-  if (idArg === undefined) {
-    error('--id was given without a value.\nUsage: df-tools exec-context check --repo <path> [--base <ref>] [--id <plan_id>] [--raw]');
-  }
 
   let baseSha = null;
   let baseVisible = null;
@@ -371,10 +427,6 @@ function cmdExecContextRelease(cwd, args, raw) {
 
 // ── exec-context worktree ────────────────────────────────────────────────────
 
-function slugify(s) {
-  return String(s).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
 function cmdExecContextWorktree(cwd, args, raw) {
   const repoArg = flag(args, '--repo');
   if (repoArg === null || repoArg === undefined) {
@@ -455,6 +507,10 @@ function cmdExecContextWorktree(cwd, args, raw) {
     merge_into: mergeInto,
     merge_back: `git -C ${mergeInto} merge --no-ff ${branch}`,
     remove: `git -C ${repo.mainRoot} worktree remove ${worktreePath}`,
+    // 59-03: the executor's first command. `--cwd` is what puts the check in the
+    // worktree — every Bash call starts in the session's directory, not here.
+    preflight: `node ~/.claude/devflow/bin/df-tools.cjs --cwd ${realpath(worktreePath)} exec-context check ` +
+      `--repo ${repo.mainRoot} --base ${baseSha} --id ${idArg}`,
   };
   output(result, raw, realpath(worktreePath));
 }

@@ -262,7 +262,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    ```
 
    Note the two values down as literals (`REPO_ROOT`, `WAVE_BASE`) — a shell variable does
-   not survive into the next Bash call. Both go into every executor prompt in this wave.
+   not survive into the next Bash call. Both go into every executor prompt in this wave, with
+   a third, `CHECKOUT`, the tree that executor works in (below).
 
    **If `pr_lifecycle` is true:** `gh pr start` left this checkout on `objective_branch`, so the `HEAD`
    read above is the objective branch tip, and that tip is `WAVE_BASE` for every wave, sequential or
@@ -271,8 +272,9 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    it. Something switched branches mid-objective, and worktrees cut from there would build on the wrong base.
 
    **Sequential wave (`PARALLELIZATION=false`, or a single plan):** the executor runs in
-   `REPO_ROOT` itself, on the branch already checked out. `WAVE_BASE` is the current HEAD,
-   so the previous wave's commits are present by construction, and its preflight proves it.
+   `REPO_ROOT` itself, on the branch already checked out. `CHECKOUT` is `REPO_ROOT`.
+   `WAVE_BASE` is the current HEAD, so the previous wave's commits are present by
+   construction, and its preflight proves it.
 
    **Parallel wave (2+ plans):** give each plan its own worktree, provisioned explicitly
    from `WAVE_BASE` in the target repo — never from the default branch:
@@ -281,9 +283,12 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    node ~/.claude/devflow/bin/df-tools.cjs exec-context worktree --repo <REPO_ROOT> --id <plan_id> --base <WAVE_BASE>
    ```
 
-   Run one per plan. Each prints `worktree_path`, `branch`, `merge_back` and `remove`;
-   note them down. Pass `worktree_path` as that executor's working directory, and merge
-   the branches back in step 5b before the next wave reads `WAVE_BASE` again.
+   Run one per plan. Each prints `worktree_path`, `branch`, `merge_back`, `remove` and
+   `preflight`; note them down. Pass `worktree_path` as that executor's `CHECKOUT` (the Task
+   tool cannot set a working directory, and every Bash call starts in the session's
+   directory, not in the worktree), and merge the branches back in step 5b before the next
+   wave reads `WAVE_BASE` again. `preflight` is the exact `--cwd` check command for that
+   worktree: it is the preflight line the spawn prompt below carries, filled in.
 
 1. **Describe what's being built (BEFORE spawning):**
 
@@ -390,15 +395,21 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        REPO_ROOT:  {REPO_ROOT}
        WAVE_BASE:  {WAVE_BASE}
        PLAN_ID:    {plan_id}
+       CHECKOUT:   {CHECKOUT}
 
        Before anything else, prove you are where you are supposed to be:
 
-         node ~/.claude/devflow/bin/df-tools.cjs exec-context check --repo {REPO_ROOT} --base {WAVE_BASE} --id {plan_id}
+         node ~/.claude/devflow/bin/df-tools.cjs --cwd {CHECKOUT} exec-context check --repo {REPO_ROOT} --base {WAVE_BASE} --id {plan_id}
+
+       Your Bash calls start in the session's directory, not in CHECKOUT. Pass `--cwd {CHECKOUT}` to
+       every df-tools call and `git -C {CHECKOUT}` to every git call, and use absolute paths under
+       CHECKOUT for everything else.
 
        Exit 1 means WRONG REPOSITORY, BASE NOT VISIBLE or SHARED INDEX — all are hard stops. Report
        which fired, quote the output, and end your turn without writing anything. Do not
        try the paths anyway: a wrong-repo spawn cannot land a single commit where it is
-       being looked for, and it fails silently if you let it.
+       being looked for, and it fails silently if you let it. WRONG CHECKOUT is the one
+       recoverable case: nothing was written and no claim was taken, so run the command it prints.
        </repo_and_base>
 
        <worktree_protocol>
