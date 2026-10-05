@@ -253,6 +253,12 @@ const COMMANDS = {
     summary: 'Append a compact per-session index of transcripts (default ~/.claude/devflow/transcript-index.jsonl); incremental.',
     mutates: true,
   },
+  'tokens': {
+    usage: 'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path>> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]',
+    summary: 'Executor token usage of one TRD from Claude Code transcripts; `stamp` writes it into a SUMMARY draft before `summary post`.',
+    mutates: true,
+    details: 'trd is read-only; stamp writes only the draft you name (tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model, tokens_source: "live"), never a file under .planning/. Transcripts are read from --root, default ~/.claude/projects, for the repository at --repo (default: the main checkout). Exit 0 even when no transcript is found (stamped: false, the draft is left byte-identical); exit 1 for usage errors or a draft inside .planning/.',
+  },
   'override': {
     usage: 'df-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]',
     summary: 'Record a structured, logged gate override in .planning/.override-log.jsonl, or list recent overrides.',

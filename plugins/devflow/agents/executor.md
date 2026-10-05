@@ -944,7 +944,7 @@ TaskUpdate(taskId=task_id, status="completed")
 </task_commit_protocol>
 
 <summary_creation>
-After all tasks complete, finish the SUMMARY in your draft: the `planning draft` path from the first task. It already holds `## Progress`. The self-check below adds `## Self-Check` and then publishes it once:
+After all tasks complete, finish the SUMMARY in your draft: the `planning draft` path from the first task. It already holds `## Progress`. The self-check below adds `## Self-Check`, stamps your token usage and then publishes it once:
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>
@@ -956,7 +956,7 @@ node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <d
 
 **Use template:** @~/.claude/devflow/templates/summary.md
 
-**Frontmatter:** objective, trd (or legacy job), subsystem, tags, dependency graph (requires/provides/affects), tech-stack (added/patterns), key-files (created/modified), decisions, metrics (duration, completed date).
+**Frontmatter:** objective, trd (or legacy job), subsystem, tags, dependency graph (requires/provides/affects), tech-stack (added/patterns), key-files (created/modified), decisions, metrics (duration, completed date), token usage (stamped by `df-tools tokens stamp`, never typed).
 
 **Title:** `# Objective [X] TRD [Y]: [Name] Summary`
 
@@ -1050,11 +1050,17 @@ After finishing the SUMMARY draft, verify its claims before you publish it.
 git log --oneline --all | grep -q "{hash}" && echo "FOUND: {hash}" || echo "MISSING: {hash}"
 ```
 
-**3. Add the result to the draft, then post it once:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed, then:
+**3. Add the result to the draft, stamp your token usage into it, then post it once:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed. Then the stamp and the post, two separate commands:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs tokens stamp {objective}-{trd} --draft <draft path>
+```
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>
 ```
+
+`tokens stamp` reads your own executor transcript and adds `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, `token_model` and `tokens_source` to the draft's frontmatter (EST-06). If it reports `stamped: false`, or the command is unknown in an older runtime, post without them. Never type token numbers by hand.
 
 A non-zero exit is a blocker to report in your return, never a reason to put the file in place yourself.
 
@@ -1073,7 +1079,7 @@ node ~/.claude/devflow/bin/df-tools.cjs state update-progress
 
 # Record execution metrics
 node ~/.claude/devflow/bin/df-tools.cjs state record-metric \
-  --objective "${OBJECTIVE}" --trd "${TRD}" --duration "${DURATION}" \
+  --objective "${OBJECTIVE}" --job "${TRD}" --duration "${DURATION}" \
   --tasks "${TASK_COUNT}" --files "${FILE_COUNT}"
 
 # Add decisions (extract from SUMMARY.md key-decisions)
