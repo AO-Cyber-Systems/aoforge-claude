@@ -625,6 +625,11 @@
       "objective": "55",
       "summary": "55-04: store footer keyed on strict state.store === true only; objective issue name chain is ROADMAP, OBJECTIVE.md heading, bare slug",
       "rationale": null
+    },
+    {
+      "objective": "55",
+      "summary": "55-05: reconcile gates a local branch delete on ancestry, then on content (git merge-tree --write-tree of the default tip and the branch tip equals the default tip's own tree); an unknown (older git, missing object) keeps the branch",
+      "rationale": null
     }
   ],
   "blockers": [],

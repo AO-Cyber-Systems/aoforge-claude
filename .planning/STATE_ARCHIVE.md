@@ -112,6 +112,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 55]: 55-02: fix the sparse checkout list (add references/) rather than remove helpers.cjs's model-profiles.json read; flush retries only a halted blocked wiki-push, once per flush
 - [Objective 55]: 55-03: unpushed linked-branch commits are refused (not auto-pushed) by gh pr merge and verification post, naming gh pr sync; the refusal text is built once in objective-branch.unpushedRefusal
 - [Objective 55]: 55-04: store footer keyed on strict state.store === true only; objective issue name chain is ROADMAP, OBJECTIVE.md heading, bare slug
+- [Objective 55]: 55-05: reconcile gates a local branch delete on ancestry, then on content (git merge-tree --write-tree of the default tip and the branch tip equals the default tip's own tree); an unknown (older git, missing object) keeps the branch
 
 ## Performance Metrics
 
@@ -173,4 +174,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 55 P02 | 7min | 2 tasks | 6 files |
 | Objective 55 P03 | 9min | 3 tasks | 7 files |
 | Objective 55 P04 | 20min | 2 tasks | 5 files |
+| Objective 55 P05 | 6min | 2 tasks | 7 files |
 
