@@ -11,5 +11,5 @@ tags: [exec-context, worktree, preflight, wrong-checkout]
 **In progress.**
 
 ## Progress
-- [x] Task 1: WRONG CHECKOUT guard and the `preflight` field (tests 1-8) — RED 7a7a82ea, GREEN (this commit)
-- [ ] Task 2: CHECKOUT and `--cwd` in the dispatch and the executor's first step (tests 9-12) — next step: widen the two `exec-context check --repo` regexes in `plugins/devflow/devflow/bin/lib/executor-isolation.test.cjs` and add tests 9, 10, 12 (RED), then edit `agents/executor.md` and `workflows/execute-objective.md`.
+- [x] Task 1: WRONG CHECKOUT guard and the `preflight` field (tests 1-8) — RED 7a7a82ea, GREEN 5bb6a9c9
+- [ ] Task 2: CHECKOUT and `--cwd` in the dispatch and the executor's first step (tests 9-12) — RED committed (this commit); next step: edit `plugins/devflow/agents/executor.md` `repo_base_preflight` (command with `--cwd <CHECKOUT>`, `git -C <checkout>` guidance, WRONG CHECKOUT table row) and `plugins/devflow/devflow/workflows/execute-objective.md` (step 0 CHECKOUT, spawn prompt CHECKOUT line and `--cwd {CHECKOUT}` preflight), then run `node --test plugins/devflow/devflow/bin/lib/executor-isolation.test.cjs`.
