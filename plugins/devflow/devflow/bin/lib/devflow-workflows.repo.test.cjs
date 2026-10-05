@@ -15,7 +15,7 @@
  * possible offline; the live check is an open item in 50-13.
  */
 
-const { test, describe } = require('node:test');
+const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -268,5 +268,150 @@ describe('PR template templates/github/pull_request_template.md', () => {
     const { scanText, liveSkillNames } = require('./doc-refs.cjs');
     const liveSkills = liveSkillNames(path.join(REPO_ROOT, 'plugins/devflow/skills'));
     assert.deepEqual(scanText(text, { liveSkills }), []);
+  });
+});
+
+/**
+ * TRD 55-02 (item 55-4). The reusable workflow checks the DevFlow runner out with `sparse-checkout`, and the
+ * runner reads `references/model-profiles.json` when helpers.cjs loads. A directory missing from that list
+ * crashed every required check (ENOENT) on a customer's pull request. These tests rebuild the sparse checkout
+ * from the workflow's own lists and run the runner from it, so the omission fails this repository's CI instead.
+ */
+describe('55-02 the check runner loads from the workflow\'s sparse checkout', () => {
+  const { spawnSync } = require('child_process');
+  const os = require('os');
+
+  const BIN = 'plugins/devflow/devflow/bin';
+  const REFERENCES = 'plugins/devflow/devflow/references';
+  const CHECKS = ['linked-issue', 'planning-consistency', 'reconcile'];
+
+  /** The paths one `sparse-checkout:` key lists: inline value, or a `|` block of deeper-indented lines. */
+  function sparseSets(workflowLines) {
+    const sets = [];
+    workflowLines.forEach((line, i) => {
+      const m = /^(\s*)sparse-checkout:\s*(.*)$/.exec(line);
+      if (!m) return;
+      const keyIndent = m[1].length;
+      const inline = m[2].trim();
+      if (inline && !/^[|>][+-]?$/.test(inline)) {
+        sets.push(inline.split(/\s+/));
+        return;
+      }
+      const items = [];
+      for (let j = i + 1; j < workflowLines.length; j++) {
+        const l = workflowLines[j];
+        if (l.trim() === '') continue;
+        if (indentOf(l) <= keyIndent) break;
+        items.push(l.trim());
+      }
+      sets.push(items);
+    });
+    return sets;
+  }
+
+  const workflowLines = read(WORKFLOW).split('\n');
+  const sets = sparseSets(workflowLines);
+
+  /**
+   * The relative requires reachable from `entry`, as absolute paths. Static and lazy requires are both
+   * found by the one regex, so a `require('./x.cjs')` inside a function body is in the closure too.
+   */
+  function relativeClosure(entry) {
+    const seen = new Set();
+    const queue = [entry];
+    const re = /require\(\s*'(\.\/[^']+)'\s*\)/g;
+    while (queue.length) {
+      const file = queue.shift();
+      if (seen.has(file)) continue;
+      seen.add(file);
+      const src = fs.readFileSync(file, 'utf-8');
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        let target = path.resolve(path.dirname(file), m[1]);
+        if (!fs.existsSync(target) && fs.existsSync(target + '.cjs')) target += '.cjs';
+        queue.push(target);
+      }
+    }
+    return [...seen];
+  }
+
+  let tmp;
+  let sparse;
+  let eventPath;
+
+  function buildSparseCopy() {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-sparse-'));
+    sparse = path.join(tmp, '.devflow');
+    for (const p of sets[0]) {
+      fs.cpSync(path.join(REPO_ROOT, p), path.join(sparse, p), { recursive: true });
+    }
+    eventPath = path.join(tmp, 'event.json');
+    fs.writeFileSync(
+      eventPath,
+      JSON.stringify({
+        action: 'closed',
+        pull_request: { number: 1, merged: false, head: { sha: 'a'.repeat(40) }, base: { ref: 'main' } },
+        repository: { full_name: 'o/r', default_branch: 'main' },
+      })
+    );
+  }
+
+  test('1. every sparse-checkout lists the bin and references directories, and all three lists are equal', () => {
+    assert.equal(sets.length, 3, 'one sparse-checkout per job (linked-issue, planning-consistency, reconcile)');
+    for (const s of sets) {
+      assert.ok(s.includes(BIN), `lists ${BIN}: ${JSON.stringify(s)}`);
+      assert.ok(s.includes(REFERENCES), `lists ${REFERENCES}: ${JSON.stringify(s)}`);
+    }
+    assert.deepEqual([...sets[1]].sort(), [...sets[0]].sort());
+    assert.deepEqual([...sets[2]].sort(), [...sets[0]].sort());
+  });
+
+  describe('from a copy holding only the listed paths', () => {
+    before(buildSparseCopy);
+    after(() => {
+      if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    for (const check of CHECKS) {
+      test(`2. gh-check-cli ${check} on a closed, unmerged pull_request exits 0 with no missing-file error`, () => {
+        const r = spawnSync(
+          process.execPath,
+          [path.join(sparse, BIN, 'lib', 'gh-check-cli.cjs'), check],
+          {
+            encoding: 'utf-8',
+            env: {
+              PATH: process.env.PATH,
+              HOME: tmp,
+              DEVFLOW_GH_CACHE_DIR: path.join(tmp, 'cache'),
+              GITHUB_EVENT_PATH: eventPath,
+              GITHUB_EVENT_NAME: 'pull_request',
+              GITHUB_REPOSITORY: 'o/r',
+            },
+          }
+        );
+        assert.doesNotMatch(r.stderr, /ENOENT|Cannot find module/, `stderr: ${r.stderr}`);
+        assert.equal(r.status, 0, `exit ${r.status}; stderr: ${r.stderr}`);
+      });
+    }
+
+    test('3. every module in the runner\'s relative-require closure (lazy requires included) loads from the copy', () => {
+      const entry = path.join(sparse, BIN, 'lib', 'gh-check-cli.cjs');
+      const closure = relativeClosure(entry);
+      assert.ok(closure.length > 3, `closure found: ${closure.length} files`);
+      // The closure itself must lie inside the sparse copy: nothing escapes to a path the workflow did not check out.
+      for (const f of closure) {
+        assert.ok(fs.existsSync(f), `required file exists in the sparse copy: ${f}`);
+        assert.ok(f.startsWith(sparse + path.sep), `inside the sparse copy: ${f}`);
+      }
+      assert.ok(closure.some((f) => f.endsWith('gh-hierarchy.cjs')), 'the lazy require in gh-check-cli is in the closure');
+      const code = closure
+        .map((f) => `require(${JSON.stringify(f)});`)
+        .join('\n');
+      const r = spawnSync(process.execPath, ['-e', code], {
+        encoding: 'utf-8',
+        env: { PATH: process.env.PATH, HOME: tmp, DEVFLOW_GH_CACHE_DIR: path.join(tmp, 'cache') },
+      });
+      assert.equal(r.status, 0, `loading the closure failed; stderr: ${r.stderr}`);
+    });
   });
 });
