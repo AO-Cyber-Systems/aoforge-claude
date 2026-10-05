@@ -1,6 +1,7 @@
 'use strict';
 
 // tokens-cli.test.cjs (TRD 57-03) — `df-tools tokens trd|stamp`, the forward token stamp (EST-06).
+// TRD 57-06 adds `tokens backfill` (EST-07): its tests are the last describe in this file, named `57-06 10.` onwards.
 //
 // Test list (TRD 57-03), outermost first:
 //   end to end (spawned df-tools, HOME = fake home)
@@ -436,6 +437,235 @@ describe('executor prose stamps token usage before summary post (TRD 57-03)', { 
     for (const line of metrics) {
       assert.ok(line.includes('--job "${TRD}"'), `uses --job "\${TRD}": ${line}`);
       assert.doesNotMatch(line, /--trd\b/, `no --trd flag: ${line}`);
+    }
+  });
+});
+
+// ─── TRD 57-06: tokens backfill (EST-07) ─────────────────────────────────────
+//
+// Test list (TRD 57-06 tests 10-15; the names carry the `57-06` prefix because 10-14 above belong to 57-03):
+//   10 dry run by default: counts, recovered and unrecovered by reason, no file changed
+//   11 --write stamps the recovered SUMMARY (tokens_source "backfill"); a second --write writes nothing
+//   12 --raw prints the formatBackfillReport lines (2 for a dry run, 3 with --write)
+//   13 a failed write exits 1 and lists the failure; unrecoverable history never does
+//   14 --write and --force belong to backfill only; backfill takes no TRD id
+//   15 the help entry lists backfill
+//   extra: --force restamps an already stamped SUMMARY; outside a project it asks for --repo
+// Fixture: `99-demo/99-01` has an executor transcript, `98-old/98-01` has none, both with literal SUMMARYs. Spawned runs
+// use the fake HOME of makeProject and `--root <fake projects root>`.
+
+const SUMMARY_98_01 = SUMMARY_TEXT.replace('objective: 99-demo', 'objective: 98-old');
+const SUMMARY_99_02 = [
+  '---', 'objective: 99-demo', 'trd: "02"', 'tokens_input: 5', 'tokens_output: 6', '---', '', '# Objective 99 TRD 02: Stamped', '',
+].join('\n');
+const STAMPED_FIELDS = ['tokens_input: 140747', 'tokens_output: 1370', 'tokens_cache_read: 121144', 'tokens_cache_write: 19596',
+  'token_model: "claude-opus-5-5"', 'tokens_source: "backfill"'];
+
+/** `{relativePath: base64 bytes}` for every file under `dir`. */
+function treeBytes(dir) {
+  const out = {};
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const abs = path.join(d, e.name);
+      if (e.isDirectory()) walk(abs);
+      else out[path.relative(dir, abs)] = fs.readFileSync(abs).toString('base64');
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+/** makeProject with the two backfill SUMMARYs (and a config.json); 99-01 has a transcript, 98-01 does not. */
+function makeBackfillProject() {
+  const p = makeProject({ dirs: ['99-demo', '98-old'] });
+  const objectives = path.join(p.repo, '.planning', 'objectives');
+  fs.writeFileSync(path.join(p.repo, '.planning', 'config.json'), '{}\n');
+  fs.writeFileSync(path.join(objectives, '99-demo', '99-01-SUMMARY.md'), SUMMARY_TEXT);
+  fs.writeFileSync(path.join(objectives, '98-old', '98-01-SUMMARY.md'), SUMMARY_98_01);
+  p.transcript('99-01', '99-demo');
+  return { ...p, summary99: path.join(objectives, '99-demo', '99-01-SUMMARY.md'), objectives };
+}
+
+describe('df-tools tokens backfill (end to end, TRD 57-06)', () => {
+  test('57-06 10. a dry run reports recovered and unrecovered counts and changes no file', () => {
+    const p = makeBackfillProject();
+    try {
+      const before = treeBytes(p.repo);
+      const result = okJson(p, ['tokens', 'backfill', '--root', p.projectsRoot]);
+
+      assert.equal(result.counts.summaries, 2);
+      assert.equal(result.counts.recovered, 1);
+      assert.equal(result.counts.unrecovered, 1);
+      assert.equal(result.counts.already_stamped, 0);
+      assert.equal(result.counts.by_reason.no_transcript, 1);
+      assert.deepEqual(result.recovered, ['99-01']);
+      assert.deepEqual(result.unrecovered, [{ id: '98-01', objective_dir: '98-old', reason: 'no_transcript' }]);
+      assert.equal(result.index_counts.executor_transcripts, 1);
+      assert.equal(result.checkout, p.repo);
+      assert.equal(result.repo, p.repo);
+      assert.equal(result.transcripts_root, p.projectsRoot);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'applied'), false, 'a dry run has no applied block');
+      assert.deepEqual(treeBytes(p.repo), before, 'no file under the repository changed');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('57-06 11. --write stamps the recovered SUMMARY with tokens_source "backfill"; a second --write writes nothing', () => {
+    const p = makeBackfillProject();
+    try {
+      const first = okJson(p, ['tokens', 'backfill', '--write', '--root', p.projectsRoot]);
+      assert.deepEqual(first.applied.written, ['99-01']);
+      assert.deepEqual(first.applied.write_failed, []);
+      const stamped = fs.readFileSync(p.summary99, 'utf-8');
+      for (const line of STAMPED_FIELDS) assert.ok(stamped.includes(`${line}\n`), `has ${line}`);
+      assert.equal(bodyOf(stamped), bodyOf(SUMMARY_TEXT), 'the body is byte-identical');
+      assert.equal(
+        fs.readFileSync(path.join(p.objectives, '98-old', '98-01-SUMMARY.md'), 'utf-8'), SUMMARY_98_01, 'the unrecovered SUMMARY is untouched',
+      );
+
+      const before = treeBytes(p.repo);
+      const second = okJson(p, ['tokens', 'backfill', '--write', '--root', p.projectsRoot]);
+      assert.deepEqual(second.applied.written, []);
+      assert.equal(second.counts.already_stamped, 1);
+      assert.equal(second.counts.recovered, 0);
+      assert.deepEqual(treeBytes(p.repo), before, 'a second --write changes nothing');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('57-06 11b. --force restamps an already stamped SUMMARY; without it the 5 and 6 stay', () => {
+    const p = makeBackfillProject();
+    try {
+      const file = path.join(p.objectives, '99-demo', '99-02-SUMMARY.md');
+      fs.writeFileSync(file, SUMMARY_99_02);
+      p.transcript('99-02', '99-demo', { agentId: 'agent-99-02', session: 's2' });
+
+      const plain = okJson(p, ['tokens', 'backfill', '--write', '--root', p.projectsRoot]);
+      assert.deepEqual(plain.applied.written, ['99-01']);
+      assert.equal(fs.readFileSync(file, 'utf-8'), SUMMARY_99_02, 'without --force the existing values stay');
+
+      const forced = okJson(p, ['tokens', 'backfill', '--write', '--force', '--root', p.projectsRoot]);
+      assert.deepEqual(forced.applied.written, ['99-02']);
+      const text = fs.readFileSync(file, 'utf-8');
+      assert.ok(text.includes('tokens_input: 140747\n'), 'tokens_input replaced');
+      assert.ok(text.includes('tokens_source: "backfill"\n'));
+      assert.equal((text.match(/^tokens_input:/gm) || []).length, 1, 'replaced in place, not duplicated');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('57-06 12. --raw prints the formatBackfillReport lines: two for a dry run, three with --write', () => {
+    const p = makeBackfillProject();
+    try {
+      const dry = p.run(['tokens', 'backfill', '--root', p.projectsRoot, '--raw']);
+      assert.equal(dry.status, 0, dry.stderr);
+      assert.equal(
+        dry.stdout.replace(/\n$/, ''),
+        'summaries 2 · already stamped 0 · recovered 1 · unrecovered 1 (no_transcript 1)\n'
+        + 'executor transcripts 1 (identified 1, unidentified 0, ambiguous 0, foreign 0)',
+      );
+
+      const written = p.run(['tokens', 'backfill', '--write', '--root', p.projectsRoot, '--raw']);
+      assert.equal(written.status, 0, written.stderr);
+      const lines = written.stdout.replace(/\n$/, '').split('\n');
+      assert.equal(lines.length, 3);
+      assert.equal(lines[2], 'written 1 · unchanged 0 · skipped 0 · failed 0');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('57-06 13. unrecoverable history exits 0; a --write whose summary post fails exits 1 and lists the failure', {
+    skip: (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) && 'needs a non-root POSIX user to make a directory read-only',
+  }, () => {
+    const p = makeBackfillProject();
+    const dir = path.join(p.objectives, '99-demo');
+    try {
+      const calm = p.run(['tokens', 'backfill', '--root', p.projectsRoot]);
+      assert.equal(calm.status, 0, 'an unrecovered SUMMARY is the normal outcome, never an error');
+
+      fs.chmodSync(p.summary99, 0o444);
+      fs.chmodSync(dir, 0o555);
+      const r = p.run(['tokens', 'backfill', '--write', '--root', p.projectsRoot]);
+      fs.chmodSync(dir, 0o755);
+      fs.chmodSync(p.summary99, 0o644);
+
+      assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
+      const result = JSON.parse(r.stdout);
+      assert.deepEqual(result.applied.written, []);
+      assert.equal(result.applied.write_failed.length, 1);
+      assert.equal(result.applied.write_failed[0].id, '99-01');
+      assert.equal(result.applied.write_failed[0].objective_dir, '99-demo');
+      assert.ok(result.applied.write_failed[0].error, 'the failure carries its error');
+      assert.equal(fs.readFileSync(p.summary99, 'utf-8'), SUMMARY_TEXT, 'a failed write leaves the SUMMARY as it was');
+    } finally {
+      fs.chmodSync(dir, 0o755);
+      p.cleanup();
+    }
+  });
+
+  test('57-06 14. --write and --force belong to backfill only, and backfill takes no TRD id or draft', () => {
+    const p = makeBackfillProject();
+    try {
+      const draft = p.draft('objectives/99-demo/99-01-SUMMARY.md');
+      const before = treeBytes(p.repo);
+      const cases = [
+        ['tokens', 'stamp', '99-01', '--draft', draft, '--force'],
+        ['tokens', 'stamp', '99-01', '--draft', draft, '--write'],
+        ['tokens', 'trd', '99-01', '--force'],
+        ['tokens', 'trd', '99-01', '--write'],
+        ['tokens', 'backfill', '99-01'],
+        ['tokens', 'backfill', '--draft', draft],
+        ['tokens', 'backfill', '--objective-dir', '99-demo'],
+        ['tokens', 'backfill', '--bogus'],
+        ['tokens', 'backfill', '--root'],
+      ];
+      for (const args of cases) {
+        const r = p.run(args);
+        assert.equal(r.status, 1, `df-tools ${args.join(' ')} should exit 1\n${r.stdout}\n${r.stderr}`);
+        assert.match(r.stderr, USAGE, `df-tools ${args.join(' ')} prints a usage line`);
+        assert.doesNotMatch(r.stderr, /Unknown command/);
+      }
+      assert.deepEqual(treeBytes(p.repo), before, 'a usage error writes nothing');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('57-06 14b. outside a DevFlow project, backfill is a usage error that names --repo', () => {
+    const p = makeBackfillProject();
+    try {
+      const empty = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-tokens-empty-')));
+      try {
+        const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', empty, 'tokens', 'backfill', '--root', p.projectsRoot], {
+          cwd: p.tmp, env: { ...process.env, HOME: p.home, NOTIFIER_DISABLE: '1' }, encoding: 'utf-8', timeout: 60000,
+        });
+        assert.equal(r.status, 1);
+        assert.match(r.stderr, /no DevFlow project/);
+        assert.match(r.stderr, /pass --repo/);
+      } finally {
+        fs.rmSync(empty, { recursive: true, force: true });
+      }
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('57-06 15. the tokens help usage lists backfill, --write and --force', () => {
+    const { COMMANDS } = require('./help.cjs');
+    assert.match(COMMANDS.tokens.usage, /backfill \[--write\] \[--force\]/);
+    assert.match(COMMANDS.tokens.details, /dry run/i);
+
+    const p = makeBackfillProject();
+    try {
+      const r = p.run(['tokens', '--help']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /backfill/);
+    } finally {
+      p.cleanup();
     }
   });
 });
