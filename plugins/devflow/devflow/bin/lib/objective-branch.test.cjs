@@ -363,3 +363,121 @@ describe('objective-branch git seam', { skip: !HAS_GIT && 'git not installed' },
     assert.equal(notRepo.ok, false);
   });
 });
+
+// TRD 55-03: unpushedCommits — the local linked branch's commits that origin does not have. verification post and
+// gh pr merge refuse on count > 0 (the PR head would not contain the work that was verified).
+describe('objective-branch unpushedCommits (55-03)', { skip: !HAS_GIT && 'git not installed' }, () => {
+  const remotes = [];
+
+  function setup() {
+    const g = makeGitRemote();
+    remotes.push(g);
+    return g;
+  }
+
+  /** A local branch `df/x` created and pushed with -u (tracking origin/df/x). */
+  function pushedBranch(g, branch = 'df/x') {
+    g.git(g.work, ['switch', '-q', '-c', branch]);
+    g.commitFile(g.work, 'a.txt', 'a\n', 'feat: a');
+    g.git(g.work, ['push', '-q', '-u', 'origin', branch]);
+    return branch;
+  }
+
+  afterEach(() => {
+    ob._resetRunGit();
+    while (remotes.length) remotes.pop().cleanup();
+  });
+
+  test('8. no local branch: {ok:true, count:0, local:null}, so another developer\'s checkout is never guarded', () => {
+    const g = setup();
+    g.createRemoteBranch('df/x');
+    assert.deepEqual(ob.unpushedCommits(g.work, 'df/x'), { ok: true, count: 0, commits: [], local: null });
+  });
+
+  test('9. a branch pushed with -u and nothing new has count 0', () => {
+    const g = setup();
+    const b = pushedBranch(g);
+    const r = ob.unpushedCommits(g.work, b);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.count, 0);
+    assert.deepEqual(r.commits, []);
+    assert.equal(r.fetched, true);
+    assert.equal(r.local, g.git(g.work, ['rev-parse', b]));
+    assert.equal(r.remote, r.local);
+  });
+
+  test('10. one commit after the push: count 1, and commits lists that sha', () => {
+    const g = setup();
+    const b = pushedBranch(g);
+    const sha = g.commitFile(g.work, 'b.txt', 'b\n', 'feat: unpushed');
+    const r = ob.unpushedCommits(g.work, b);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.count, 1);
+    assert.deepEqual(r.commits, [sha]);
+    assert.equal(r.local, sha);
+    assert.notEqual(r.remote, sha);
+  });
+
+  test('11. a branch that was never pushed: every commit on no origin ref (2 on top of main)', () => {
+    const g = setup();
+    g.git(g.work, ['switch', '-q', '-c', 'df/x']);
+    const first = g.commitFile(g.work, 'a.txt', 'a\n', 'feat: a');
+    const second = g.commitFile(g.work, 'b.txt', 'b\n', 'feat: b');
+    const r = ob.unpushedCommits(g.work, 'df/x');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.count, 2, 'main\'s seed commit is on origin/main and is not counted');
+    assert.deepEqual(r.commits, [second, first]);
+    assert.equal(r.remote, null);
+    assert.equal(r.fetched, false, 'origin has no such branch to fetch');
+    assert.match(r.fetch_error, /\S/);
+  });
+
+  test('12. another clone pushed to origin/df/x and the local branch has nothing new (behind): count 0', () => {
+    const g = setup();
+    const b = pushedBranch(g);
+    g.advanceOrigin({ branch: b, file: 'theirs.txt', message: 'feat: theirs' });
+    const r = ob.unpushedCommits(g.work, b);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.count, 0, 'behind is not ahead');
+    assert.equal(r.fetched, true);
+    assert.notEqual(r.remote, r.local, 'control: the tracking ref moved past the local tip');
+  });
+
+  test('13. origin unreachable: ok:true, fetched:false with fetch_error, counted against the existing tracking refs', () => {
+    const g = setup();
+    const b = pushedBranch(g);
+    const sha = g.commitFile(g.work, 'b.txt', 'b\n', 'feat: unpushed');
+    fs.renameSync(g.origin, `${g.origin}.away`);
+    const r = ob.unpushedCommits(g.work, b);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.fetched, false);
+    assert.match(r.fetch_error, /\S/);
+    assert.equal(r.count, 1);
+    assert.deepEqual(r.commits, [sha]);
+  });
+
+  test('14. root is not a git work tree: {ok:true, count:0, local:null, reason:"not a git work tree"}', () => {
+    const g = setup();
+    const r = ob.unpushedCommits(path.join(g.root, 'home'), 'df/x');
+    assert.deepEqual(r, { ok: true, count: 0, commits: [], local: null, reason: 'not a git work tree' });
+  });
+
+  test('14b. a bad branch name is {ok:false}, and the seam is asked nothing', () => {
+    const calls = [];
+    ob._setRunGit((args) => {
+      calls.push(args);
+      return { ok: true, status: 0, stdout: '', stderr: '' };
+    });
+    for (const bad of ['', '-x', 'a..b', 'a b', undefined, 42]) {
+      assert.equal(ob.unpushedCommits('/x', bad).ok, false, `unpushedCommits(${String(bad)})`);
+    }
+    assert.equal(calls.length, 0);
+  });
+
+  test('14c. trackingTip is exported: the fetched origin/<branch> tip, or {ok:true, sha:null}', () => {
+    const g = setup();
+    const b = pushedBranch(g);
+    assert.equal(ob.trackingTip(g.work, b).sha, g.git(g.work, ['rev-parse', b]));
+    assert.deepEqual(ob.trackingTip(g.work, 'df/nope'), { ok: true, sha: null });
+  });
+});
