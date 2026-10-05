@@ -218,6 +218,27 @@ describe('57-02 readTrdTasks', () => {
     ]);
   });
 
+  // Shapes found in this repository's real TRDs: brace expansion and a parenthesised "no files" note.
+  test('8: a brace list expands, and a parenthesised note with commas is not a file list', () => {
+    const text = [
+      '---', 'type: standard', '---',
+      '<task type="auto"><name>Task 1: braces</name>',
+      '<files>plugins/devflow/skills/{add-todo,health}/, README.md</files></task>',
+      '<task type="auto"><name>Task 2: note</name>',
+      '<files>(none; GitHub API reads only, plus `gh pr create --draft` under option A)</files></task>',
+      '<task type="auto"><name>Task 3: note two</name>',
+      '<files>(no files modified — this task only verifies)</files></task>',
+      '<task type="auto"><name>Task 4: parens in a path</name>',
+      '<files>src/app/(auth)/page.tsx (new, 12 lines)</files></task>',
+    ].join('\n');
+    assert.deepEqual(ci.readTrdTasks(text).tasks.map((t) => t.files), [
+      ['plugins/devflow/skills/add-todo/', 'plugins/devflow/skills/health/', 'README.md'],
+      [],
+      [],
+      ['src/app/(auth)/page.tsx'],
+    ]);
+  });
+
   test('8: a TRD of type tdd makes a task without the attribute effectively tdd', () => {
     const text = TRD.replace('type: standard', 'type: tdd');
     const out = ci.readTrdTasks(text);
