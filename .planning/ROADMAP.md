@@ -145,7 +145,7 @@ TRDs:
 **TRDs:** 5 plans
 
 TRDs:
-- [ ] 56-01-shared-regex-escape-TRD.md — (W1) ONUM-01: 12 hand-rolled escapes and 5 unescaped interpolations go through `text-escape.cjs`; `regex-escape.repo.test.cjs` fails CI on a new one
+- [x] 56-01-shared-regex-escape-TRD.md — (W1) ONUM-01: 12 hand-rolled escapes and 5 unescaped interpolations go through `text-escape.cjs`; `regex-escape.repo.test.cjs` fails CI on a new one
 - [ ] 56-02-exact-objective-lookups-TRD.md — (W1) ONUM-02 + ONUM-03: `objectiveDirMatches` (4.1 never selects 04.10-*), leading-zero-tolerant `objectiveNumPattern`, `boldLabelPattern`
 - [ ] 56-03-id-shaped-requirements-TRD.md — (W2) ONUM-04: `requirement-ids.cjs`; `verify trd-pre` and `objective complete` read IDs only from ID-shaped items; mark-complete escapes IDs
 - [ ] 56-04-roadmap-field-labels-TRD.md — (W2) plan-time fix: `**Goal**:` / `**Depends on**:` read in roadmap, gh, OBJECTIVE.md bootstrap; reconcile row via `objectiveNumPattern`
@@ -257,7 +257,7 @@ TRDs:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55. Store live-smoke fixes | v1.5 | 8/8 | Complete | 2026-10-05 |
-| 56. Objective-number correctness | v1.5 | 0/0 | Not started | - |
+| 56. Objective-number correctness | v1.5 | 1/5 | In Progress | - |
 | 57. Estimation data foundation | v1.5 | 0/0 | Not started | - |
 | 58. Estimation engine and surfacing | v1.5 | 0/0 | Not started | - |
 | 59. State and merge plumbing | v1.5 | 0/0 | Not started | - |
