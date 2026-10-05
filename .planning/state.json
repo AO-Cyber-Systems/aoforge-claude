@@ -2,7 +2,7 @@
   "current_objective": null,
   "current_job": 0,
   "total_jobs": 0,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "ready_for_verification",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -674,6 +674,16 @@
     {
       "objective": "57",
       "summary": "57-01: executor TRD identification lives in lib/trd-identify.cjs; hooks/gate-executor-stop.js requires and re-exports it (the runtime mirror ships no hooks/)",
+      "rationale": null
+    },
+    {
+      "objective": "57",
+      "summary": "57-04: backfill classifies a recoverable SUMMARY with no frontmatter block as unrecovered/no_frontmatter at plan time, so recovered always means apply can stamp it",
+      "rationale": null
+    },
+    {
+      "objective": "57",
+      "summary": "57-04: applyBackfill skips a SUMMARY whose existing token value conflicts (token_conflict) rather than half-writing it; force overwrites",
       "rationale": null
     }
   ],
