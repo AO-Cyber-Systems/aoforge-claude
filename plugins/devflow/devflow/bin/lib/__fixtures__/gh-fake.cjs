@@ -63,6 +63,10 @@
 //   object; PUT patches only the fields it names). Stored as {id,name,target,enforcement,conditions,bypass_actors,
 //   rules}, ids from 9001; name and enforcement are required and a name is unique. A `merge_queue` rule is refused
 //   with 422 when `mergeQueueAllowed:false` (a plan without merge queues), on POST and on PUT, storing nothing.
+//   The full object (GET, and the POST/PUT echo) also carries the computed `current_user_can_bypass`, as GitHub's
+//   does: `never` unless the token is an admin (`isAdmin`) and an admin RepositoryRole (actor_id 5) is in
+//   bypass_actors, then `always`, or `pull_requests_only` when that actor's bypass_mode is `pull_request`. It is
+//   never stored, so `fake.rulesets` and a PUT body never hold it (55-01).
 //   repos/o/r (PATCH has_wiki, delete_branch_on_merge; any other field is a loud gap), repos/o/r/labels (GET: the
 //   labels `gh label create` made, with colour and description).
 // Org level (404 for a User owner or another org, 403 when `orgAdmin:false`):
@@ -172,7 +176,8 @@ function matcherFor(match) {
  *   `closeKeywordCap` (default null: how many closing-keyword links one merge honours; reconcile's straggler path).
  * 50-01 options (setup and check inputs): `rulesets` (seeded `[{name, enforcement, target?, conditions?, bypass_actors?,
  *   rules?}]`, ids from 9001), `mergeQueueAllowed` (default true; false = a merge_queue rule is 422), `isAdmin` (default
- *   true; false = repo-level writes are 403 and permissions.admin is false), `orgAdmin` (default true; false = org
+ *   true; false = repo-level writes are 403, permissions.admin is false and a ruleset's computed
+ *   `current_user_can_bypass` is `never`), `orgAdmin` (default true; false = org
  *   writes are 403), `fieldOptionsAccepted` (default true; false = issue-field `options` are 422),
  *   `deleteBranchOnMerge` (default false, the repo setting), `files` (`{ref: {path: text}}`), `prCommits`
  *   (`{prNumber: [message]}`). NB `mergeQueue` is the GraphQL probe answer (does the branch HAVE a queue);
@@ -1105,6 +1110,17 @@ function createFakeGitHub({
   const RULESET_FIELDS = ['name', 'target', 'enforcement', 'conditions', 'bypass_actors', 'rules'];
   const rulesetSummary = (r) => ({ id: r.id, name: r.name, target: r.target, enforcement: r.enforcement });
 
+  /**
+   * GitHub's per-viewer answer (55-01): an admin token bypasses when an admin RepositoryRole actor (id 5) is listed;
+   * the actor's mode narrows it to `pull_requests_only`. Computed on every full-object response, never stored.
+   */
+  function canBypass(r) {
+    const admin = (r.bypass_actors || []).find((a) => a && a.actor_type === 'RepositoryRole' && Number(a.actor_id) === 5);
+    if (!isAdmin || !admin) return 'never';
+    return admin.bypass_mode === 'pull_request' ? 'pull_requests_only' : 'always';
+  }
+  const rulesetBody = (r) => ({ ...r, current_user_can_bypass: canBypass(r) });
+
   function addRuleset(body) {
     const r = {
       id: nextRuleset++,
@@ -1148,7 +1164,7 @@ function createFakeGitHub({
       if (denied) return denied;
       const bad = rulesetInvalid(fields, { create: true });
       if (bad) return bad;
-      return ok(JSON.stringify(addRuleset(fields)));
+      return ok(JSON.stringify(rulesetBody(addRuleset(fields))));
     }
     if (method !== 'GET' && method !== 'PUT') return unsupported(args);
     if (method === 'PUT') {
@@ -1162,7 +1178,7 @@ function createFakeGitHub({
       if (bad) return bad;
       for (const key of RULESET_FIELDS) if (fields[key] !== undefined) found[key] = copy(fields[key]);
     }
-    return ok(JSON.stringify(found));
+    return ok(JSON.stringify(rulesetBody(found)));
   }
 
   /** The repo meta GET and PATCH both answer with. */

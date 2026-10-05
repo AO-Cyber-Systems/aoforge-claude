@@ -13,11 +13,14 @@ const setup = require('./gh-setup.cjs');
 const { CONTEXTS } = require('./gh-check.cjs');
 
 // The payload of 50-RESEARCH "Code Examples", written out literally so a drift in desiredRuleset fails here.
+// `bypass_actors` is the one deliberate departure (55-01): the live smoke showed `[]` leaves the workflow pull
+// request unmergeable (`current_user_can_bypass: never`), so repository admins (RepositoryRole 5) may bypass.
+const ADMIN_BYPASS = { actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' };
 const RESEARCH_PAYLOAD = {
   name: 'devflow: default branch',
   target: 'branch',
   enforcement: 'active',
-  bypass_actors: [],
+  bypass_actors: [ADMIN_BYPASS],
   conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
   rules: [
     { type: 'deletion' },
@@ -121,6 +124,21 @@ describe('desiredRuleset (test 1)', () => {
     a.rules.length = 0;
     assert.equal(setup.desiredRuleset().rules.length, 5);
   });
+
+  test('test 7. bypass_actors is the repository-admin entry, with and without appId / mergeQueue:false', () => {
+    const admin = [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }];
+    assert.deepEqual(setup.desiredRuleset().bypass_actors, admin);
+    assert.deepEqual(setup.desiredRuleset({ appId: 42 }).bypass_actors, admin);
+    assert.deepEqual(setup.desiredRuleset({ mergeQueue: false }).bypass_actors, admin);
+    assert.deepEqual(setup.desiredRuleset({ appId: '7', mergeQueue: false, mergeMethod: 'rebase' }).bypass_actors, admin);
+  });
+
+  test('test 7b. the admin entry is a fresh object each call (a caller can edit it)', () => {
+    const a = setup.desiredRuleset();
+    a.bypass_actors[0].bypass_mode = 'pull_request';
+    a.bypass_actors.push({ actor_id: 1, actor_type: 'Team', bypass_mode: 'always' });
+    assert.deepEqual(setup.desiredRuleset().bypass_actors, [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }]);
+  });
 });
 
 // ─── Test 2: satisfaction ─────────────────────────────────────────────────────
@@ -204,6 +222,31 @@ describe('rulesetSatisfies (test 2)', () => {
     assert.equal(setup.rulesetSatisfies({}, desired()), false);
     assert.equal(setup.rulesetSatisfies({ rules: 'nope' }, desired()), false);
   });
+
+  test('test 8. a complete ruleset with no repository-admin bypass does not satisfy: empty, absent or another actor', () => {
+    const empty = desired();
+    empty.bypass_actors = [];
+    assert.equal(setup.rulesetSatisfies(empty, desired()), false, 'bypass_actors: []');
+
+    const absent = desired();
+    delete absent.bypass_actors;
+    assert.equal(setup.rulesetSatisfies(absent, desired()), false, 'the field is absent');
+
+    const other = desired();
+    other.bypass_actors = [{ actor_id: 7, actor_type: 'Team', bypass_mode: 'always' }, { actor_id: 5, actor_type: 'Team', bypass_mode: 'always' }];
+    assert.equal(setup.rulesetSatisfies(other, desired()), false, 'a Team with id 5 is not the repository admin role');
+  });
+
+  test('test 8b. the admin entry satisfies in any bypass_mode, and among other actors; the mode is never compared', () => {
+    for (const bypass_mode of ['always', 'pull_request', 'exempt']) {
+      const existing = desired();
+      existing.bypass_actors = [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode }];
+      assert.equal(setup.rulesetSatisfies(existing, desired()), true, bypass_mode);
+    }
+    const among = desired();
+    among.bypass_actors = [{ actor_id: 7, actor_type: 'Team', bypass_mode: 'always' }, { actor_id: '5', actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }];
+    assert.equal(setup.rulesetSatisfies(among, desired()), true, 'a string actor id still names the role');
+  });
 });
 
 // ─── unionRuleset: update PUTs the union, never a removal ─────────────────────
@@ -263,9 +306,53 @@ describe('unionRuleset', () => {
   });
 
   test('the union carries only the writable fields (no id or server metadata)', () => {
-    const existing = { ...desired(), id: 9001, source: 'o/r', source_type: 'Repository', created_at: 'x' };
+    const existing = { ...desired(), id: 9001, source: 'o/r', source_type: 'Repository', created_at: 'x', current_user_can_bypass: 'never' };
     const union = setup.unionRuleset(existing, desired());
     assert.deepEqual(Object.keys(union).sort(), ['bypass_actors', 'conditions', 'enforcement', 'name', 'rules', 'target']);
+  });
+
+  test('test 9. no existing ruleset: the union is the desired ruleset, admin bypass included', () => {
+    assert.deepEqual(setup.unionRuleset(null, desired()), desired());
+    assert.deepEqual(setup.unionRuleset(null, desired()).bypass_actors, [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }]);
+  });
+
+  test('test 9b. an existing admin entry in pull_request mode is kept as it is and never duplicated', () => {
+    const existing = desired();
+    existing.bypass_actors = [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }];
+    const union = setup.unionRuleset(existing, desired());
+    assert.deepEqual(union.bypass_actors, [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }]);
+    assert.equal(union.bypass_actors.filter((a) => a.actor_type === 'RepositoryRole' && a.actor_id === 5).length, 1);
+  });
+
+  test('test 9c. a ruleset with no admin bypass gains it once, after every actor the user had, none removed or reordered', () => {
+    const existing = desired();
+    existing.rules = existing.rules.filter((r) => r.type !== 'merge_queue');
+    existing.bypass_actors = [{ actor_id: 7, actor_type: 'Team', bypass_mode: 'always' }, { actor_id: 9, actor_type: 'Integration', bypass_mode: 'pull_request' }];
+    const before = copy(existing);
+    const union = setup.unionRuleset(existing, desired());
+    assert.deepEqual(existing, before, 'the existing ruleset is not mutated');
+    assert.deepEqual(union.bypass_actors, [
+      { actor_id: 7, actor_type: 'Team', bypass_mode: 'always' },
+      { actor_id: 9, actor_type: 'Integration', bypass_mode: 'pull_request' },
+      { actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' },
+    ]);
+    assert.deepEqual(setup.unionRuleset({ ...union, id: 1 }, desired()).bypass_actors, union.bypass_actors, 'a second union adds nothing');
+  });
+
+  test('test 9d. an existing ruleset with the field absent or empty gets exactly the admin entry', () => {
+    const noField = desired();
+    delete noField.bypass_actors;
+    assert.deepEqual(setup.unionRuleset(noField, desired()).bypass_actors, [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }]);
+    const empty = desired();
+    empty.bypass_actors = [];
+    assert.deepEqual(setup.unionRuleset(empty, desired()).bypass_actors, [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }]);
+  });
+
+  test('test 9e. the union satisfies the desired ruleset whenever it started without the admin bypass', () => {
+    const existing = desired();
+    existing.bypass_actors = [];
+    assert.equal(setup.rulesetSatisfies(existing, desired()), false);
+    assert.equal(setup.rulesetSatisfies(setup.unionRuleset(existing, desired()), desired()), true);
   });
 });
 
@@ -505,6 +592,27 @@ describe('planSetup, an existing weaker ruleset (test 5)', () => {
     assert.ok(types.includes('required_linear_history'), 'the user\'s rule survives');
     for (const t of ['deletion', 'non_fast_forward', 'pull_request', 'required_status_checks', 'merge_queue']) assert.ok(types.includes(t), t);
     assert.equal(setup.rulesetSatisfies(rule.payload, setup.desiredRuleset({ mergeMethod: 'squash' })), true);
+  });
+
+  test('a ruleset with every rule but no admin bypass is an update that only appends the admin entry (55-01)', () => {
+    const complete = setup.desiredRuleset({ mergeMethod: 'squash' });
+    complete.bypass_actors = [{ actor_id: 7, actor_type: 'Team', bypass_mode: 'always' }];
+    const rule = pick(setup.planSetup(satisfiedState({ rulesets: [{ id: 9001, ...complete }] })), 'ruleset');
+    assert.equal(rule.status, 'update');
+    assert.deepEqual(rule.request.args, ['api', '-X', 'PUT', 'repos/o/r/rulesets/9001', '--input', '-']);
+    assert.deepEqual(rule.payload.bypass_actors, [
+      { actor_id: 7, actor_type: 'Team', bypass_mode: 'always' },
+      { actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' },
+    ]);
+    assert.deepEqual(rule.payload.rules, complete.rules, 'nothing else changes');
+  });
+
+  test('a ruleset whose admin bypass is pull_request mode is exists: the user\'s mode is never changed (55-01)', () => {
+    const tuned = setup.desiredRuleset({ mergeMethod: 'squash' });
+    tuned.bypass_actors = [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }];
+    const rule = pick(setup.planSetup(satisfiedState({ rulesets: [{ id: 9001, ...tuned }] })), 'ruleset');
+    assert.equal(rule.status, 'exists');
+    assert.equal(rule.request, undefined);
   });
 
   test('a ruleset with another name is not ours: a new one is created beside it', () => {

@@ -170,6 +170,86 @@ describe('applySetup (tests 2-7)', () => {
     assert.equal(outcome(again, 'ruleset').status, 'exists');
   });
 
+  // ─── 55-01: the ruleset grants repository admins a bypass ───────────────────
+
+  const ADMIN = { actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' };
+  const rulesetId = () => JSON.parse(fake.runGh(['api', 'repos/o/r/rulesets']).stdout).find((r) => r.name === 'devflow: default branch').id;
+  const rulesetGet = () => apiJson(`repos/o/r/rulesets/${rulesetId()}`);
+  const rulesetPuts = () => fake.writes().filter((w) => w.includes('PUT') && w.some((a) => /rulesets\/\d+$/.test(a)));
+
+  test('55-01 test 1. a fresh apply creates the ruleset with the admin bypass; GitHub then reports an admin can bypass it', () => {
+    install({ isAdmin: true });
+    project();
+    const r = apply();
+    assert.equal(r.ok, true, JSON.stringify(r.outcomes.filter((o) => o.status === 'failed')));
+    assert.equal(outcome(r, 'ruleset').status, 'created');
+    const created = rulesetGet();
+    assert.equal(created.current_user_can_bypass, 'always', 'it was `never` before the fix');
+    assert.deepEqual(created.bypass_actors, [ADMIN]);
+  });
+
+  test('55-01 test 2. a second apply after that makes zero GitHub writes and leaves the ruleset as it was', () => {
+    install({ isAdmin: true });
+    project();
+    assert.equal(apply().ok, true);
+    const before = rulesetGet();
+    const writes = fake.writes().length;
+    const again = apply();
+    assert.equal(again.ok, true);
+    assert.equal(fake.writes().length, writes, 'zero new writes');
+    assert.equal(outcome(again, 'ruleset').status, 'exists');
+    assert.deepEqual(rulesetGet(), before);
+  });
+
+  test('55-01 test 3. a complete ruleset with only another bypass actor is updated: the PUT keeps it first and appends the admin entry once', () => {
+    const team = { actor_id: 7, actor_type: 'Team', bypass_mode: 'always' };
+    install({ isAdmin: true, rulesets: [{ ...setup.desiredRuleset({ mergeMethod: 'squash' }), bypass_actors: [team] }] });
+    project();
+    assert.equal(fake.rulesets[0].bypass_actors.length, 1);
+    assert.equal(rulesetGet().current_user_can_bypass, 'never', 'the seeded ruleset cannot be bypassed by an admin');
+
+    const actions = plan();
+    const rs = actions.find((a) => a.kind === 'ruleset');
+    assert.equal(rs.status, 'update');
+    assert.deepEqual(JSON.parse(rs.request.input).bypass_actors, [team, ADMIN], 'the PUT body, in that order');
+
+    const r = setup.applySetup(root, actions, { now: () => NOW });
+    assert.equal(r.ok, true, JSON.stringify(r.outcomes.filter((o) => o.status === 'failed')));
+    assert.equal(outcome(r, 'ruleset').status, 'updated');
+    assert.equal(rulesetPuts().length, 1, 'exactly one ruleset PUT');
+    assert.deepEqual(fake.rulesets[0].bypass_actors, [team, ADMIN]);
+    assert.equal('current_user_can_bypass' in fake.rulesets[0], false, 'the computed field never reaches the stored ruleset');
+    assert.equal(rulesetGet().current_user_can_bypass, 'always');
+
+    const writes = fake.writes().length;
+    assert.equal(apply().ok, true);
+    assert.equal(fake.writes().length, writes, 'a second apply makes zero writes');
+  });
+
+  test('55-01 test 4. an existing admin bypass in pull_request mode is exists: setup never changes the mode and writes nothing', () => {
+    const tuned = { actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' };
+    install({ isAdmin: true, rulesets: [{ ...setup.desiredRuleset({ mergeMethod: 'squash' }), bypass_actors: [tuned] }] });
+    project();
+    const rs = plan().find((a) => a.kind === 'ruleset');
+    assert.equal(rs.status, 'exists');
+    assert.equal(rs.request, undefined);
+
+    const rulesetWrites = () => fake.writes().filter((w) => w.some((a) => /rulesets/.test(a))).length;
+    const before = rulesetWrites();
+    const r = apply();
+    assert.equal(r.ok, true, JSON.stringify(r.outcomes.filter((o) => o.status === 'failed')));
+    assert.equal(outcome(r, 'ruleset').status, 'exists');
+    assert.equal(rulesetWrites(), before, 'no ruleset write');
+    assert.deepEqual(fake.rulesets[0].bypass_actors, [tuned], 'the user\'s mode is untouched');
+    assert.equal(rulesetGet().current_user_can_bypass, 'pull_requests_only');
+  });
+
+  test('55-01 test 4b. a non-admin token is told `never` even with the admin entry listed', () => {
+    install({ isAdmin: false, rulesets: [{ ...setup.desiredRuleset({ mergeMethod: 'squash' }), bypass_actors: [ADMIN] }] });
+    project();
+    assert.equal(rulesetGet().current_user_can_bypass, 'never');
+  });
+
   test('2c. an existing PR template keeps its own text and gains the DevFlow block, once', () => {
     install();
     project({}, { [PR_TEMPLATE]: '## My checklist\n\n- [ ] tested\n' });
