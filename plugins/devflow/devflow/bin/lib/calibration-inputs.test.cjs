@@ -315,3 +315,267 @@ describe('57-02 classifyTask', () => {
     assert.equal(ci.classifyTask(), 'other');
   });
 });
+
+// ─── collectProject / discoverProjects ────────────────────────────────────────
+
+const { makeCalibrationProject, removeCalibrationProject, cloneSpec, ALPHA_SPEC } = require('./__fixtures__/calibration-fixtures.cjs');
+
+const builtProjects = [];
+function build(spec) {
+  const root = makeCalibrationProject(spec);
+  builtProjects.push(root);
+  return root;
+}
+afterEach(() => {
+  while (builtProjects.length) removeCalibrationProject(builtProjects.pop());
+});
+
+function recordOf(project, objectiveDir, trd) {
+  const record = project.trds.find((t) => t.objective_dir === objectiveDir && t.trd === trd);
+  assert.ok(record, `${objectiveDir}/${trd} is in the project`);
+  return record;
+}
+
+describe('57-02 collectProject', () => {
+  test('1: one record per TRD, sorted by objective directory then TRD number, joining TRD, SUMMARY and metric', () => {
+    const root = build(ALPHA_SPEC);
+    const project = ci.collectProject(root);
+    assert.equal(project.root, root);
+    assert.equal(project.label, 'alpha');
+    assert.deepEqual(project.objectives, ['55-old', '56-new']);
+    assert.deepEqual(project.trds.map((t) => `${t.objective_dir}/${t.trd}`),
+      ['55-old/01', '55-old/02', '56-new/01', '56-new/02']);
+    assert.deepEqual(project.trds.map((t) => t.id), ['55-01', '55-02', '56-01', '56-02']);
+
+    const withTokens = recordOf(project, '56-new', '01');
+    assert.equal(withTokens.trd_type, 'tdd');
+    assert.equal(withTokens.summary.tokens_input, 140747);
+    assert.equal(withTokens.summary.tokens_output, 1370);
+    assert.equal(withTokens.summary.tokens_cache_read, 121144);
+    assert.equal(withTokens.summary.tokens_cache_write, 19596);
+    assert.equal(typeof withTokens.summary.tokens_input, 'number');
+    assert.equal(withTokens.summary.token_model, 'claude-opus-5-5');
+    assert.equal(withTokens.summary.completed, '2026-10-05');
+    assert.equal(withTokens.summary.minutes, 8);
+    assert.deepEqual(withTokens.metric, { duration_raw: '11min', minutes: 11, tasks: 3, files: 16 });
+    assert.deepEqual(withTokens.tasks.map((t) => [t.name, t.tdd, t.files]), [
+      ['Task 1: reader', true, ['lib/r.cjs', 'lib/r.test.cjs']],
+      ['Task 2: stamp', true, ['lib/s.cjs']],
+    ]);
+
+    const plain = recordOf(project, '55-old', '01');
+    assert.equal(plain.summary.tokens_input, null);
+    assert.equal(plain.summary.token_model, null);
+    assert.equal(plain.metric, null);
+    assert.equal(plain.autonomous, true);
+
+    const pending = recordOf(project, '56-new', '02');
+    assert.equal(pending.summary, null);
+    assert.equal(pending.tasks.length, 1);
+
+    assert.deepEqual(project.counts,
+      { summaries: 3, summaries_without_trd: 0, unkeyed: 0, task_files_misaligned: 0, duplicate_trds: 0 });
+    assert.deepEqual(project.metrics, {
+      rows: 3, joined: 3, ambiguous: 0, unparsed_trd: 0, unparsed_duration: 0, unmatched: 0, superseded: 0,
+    });
+  });
+
+  test('1: the result does not depend on the order the fixture was written in, and a second read is deep-equal', () => {
+    const shuffled = cloneSpec(ALPHA_SPEC);
+    shuffled.objectives.reverse();
+    for (const objective of shuffled.objectives) objective.trds.reverse();
+    const a = ci.collectProject(build(ALPHA_SPEC));
+    const b = ci.collectProject(build(shuffled));
+    assert.deepEqual(b.trds, a.trds);
+    assert.deepEqual(ci.collectProject(a.root), a);
+  });
+
+  test('2: a SUMMARY duration wins over the metric row, and one session falls back to it', () => {
+    const wins = ci.collectProject(build(ALPHA_SPEC));
+    const first = recordOf(wins, '55-old', '02');
+    assert.equal(first.summary.minutes, 45);
+    assert.equal(first.metric.minutes, 12);
+    assert.equal(first.minutes, 45);
+    assert.equal(first.duration_source, 'summary');
+    const pending = recordOf(wins, '56-new', '02');
+    assert.equal(pending.minutes, 7);
+    assert.equal(pending.duration_source, 'metric');
+
+    const spec = cloneSpec(ALPHA_SPEC);
+    spec.objectives[0].trds[1].summary.duration = 'one session';
+    const falls = recordOf(ci.collectProject(build(spec)), '55-old', '02');
+    assert.equal(falls.summary.duration, 'one session');
+    assert.equal(falls.summary.minutes, null);
+    assert.equal(falls.minutes, 12);
+    assert.equal(falls.duration_source, 'metric');
+  });
+
+  test('2: no parseable duration anywhere is minutes null and source null', () => {
+    const spec = cloneSpec(ALPHA_SPEC);
+    spec.objectives[0].trds[1].summary.duration = '3 sessions (resumed twice)';
+    spec.stateArchiveRows = [];
+    const none = recordOf(ci.collectProject(build(spec)), '55-old', '02');
+    assert.equal(none.minutes, null);
+    assert.equal(none.duration_source, null);
+  });
+
+  test('3: metric rows join by number, by exact directory name; ambiguous numbers are counted, never guessed', () => {
+    const spec = cloneSpec(ALPHA_SPEC);
+    spec.objectives.push({ dir: '10-a', trds: [] }, { dir: '10-b', trds: [] });
+    spec.stateArchiveRows = [
+      '| Objective 56 P01 | 11min | 3 tasks | 16 files |',
+      '| Objective 55-old P55-01 | 30min | 2 tasks | 4 files |',
+      '| Objective 10 P03 | 5min | 1 tasks | 1 files |',
+      '| Objective 10-a P10-04a | 7min | 2 tasks | 3 files |',
+      '| Objective 56 P02 | 360 | - tasks | - files |',
+      '| Objective 56 P01 | 14min | 3 tasks | 16 files |',
+      '| Objective 99 P01 | 3min | 1 tasks | 1 files |',
+      '| Objective 56 P07 | 3min | 1 tasks | 1 files |',
+    ];
+    const project = ci.collectProject(build(spec));
+    assert.deepEqual(project.metrics, {
+      rows: 8, joined: 3, ambiguous: 1, unparsed_trd: 1, unparsed_duration: 1, unmatched: 2, superseded: 1,
+    });
+    assert.equal(project.trds.length, 4, 'the 10-* directories hold no TRD, so nothing joined there');
+    assert.equal(recordOf(project, '56-new', '01').metric.minutes, 14, 'a repeated key takes the last row');
+    assert.equal(recordOf(project, '55-old', '01').metric.minutes, 30);
+    assert.equal(recordOf(project, '55-old', '01').minutes, 9, 'its SUMMARY still wins');
+    assert.equal(recordOf(project, '55-old', '02').metric, null);
+    const unparsedDuration = recordOf(project, '56-new', '02');
+    assert.deepEqual(unparsedDuration.metric, { duration_raw: '360', minutes: null, tasks: null, files: null });
+    assert.equal(unparsedDuration.minutes, null);
+    assert.equal(unparsedDuration.duration_source, null);
+  });
+
+  test('3: every metric row lands in exactly one bucket', () => {
+    const spec = cloneSpec(ALPHA_SPEC);
+    spec.objectives.push({ dir: '10-a', trds: [] }, { dir: '10-b', trds: [] });
+    spec.stateArchiveRows = ALPHA_SPEC.stateArchiveRows.concat([
+      '| Objective 10 P03 | 5min | 1 tasks | 1 files |', '| Objective 56 P01 | 14min | 3 tasks | 16 files |',
+      '| Objective 77 P01 | 1min | 1 tasks | 1 files |', '| Objective 10-a P10-04a | 7min | 2 tasks | 3 files |',
+    ]);
+    const m = ci.collectProject(build(spec)).metrics;
+    assert.equal(m.rows, m.joined + m.superseded + m.ambiguous + m.unparsed_trd + m.unmatched);
+  });
+
+  test('4: store mode reads state.json metrics_log like table rows, and a log row outranks an archive row', () => {
+    const spec = cloneSpec(ALPHA_SPEC);
+    delete spec.stateArchiveRows;
+    spec.stateJson = { metrics_log: [{ objective: '56', job: '02', duration: '7min', tasks: '2', files: '3' }] };
+    const project = ci.collectProject(build(spec));
+    assert.deepEqual(recordOf(project, '56-new', '02').metric, { duration_raw: '7min', minutes: 7, tasks: 2, files: 3 });
+    assert.deepEqual(project.metrics, {
+      rows: 1, joined: 1, ambiguous: 0, unparsed_trd: 0, unparsed_duration: 0, unmatched: 0, superseded: 0,
+    });
+
+    const both = cloneSpec(ALPHA_SPEC);
+    both.stateJson = { metrics_log: [
+      { objective: '56', job: '56-02', duration: '9min', tasks: null, files: null },
+      { duration: '1min' },
+    ] };
+    const merged = ci.collectProject(build(both));
+    assert.deepEqual(recordOf(merged, '56-new', '02').metric, { duration_raw: '9min', minutes: 9, tasks: null, files: null });
+    assert.equal(merged.metrics.rows, 5);
+    assert.equal(merged.metrics.superseded, 1);
+    assert.equal(merged.metrics.unmatched, 1, 'a log entry without an objective matches nothing');
+  });
+
+  test('4: a malformed state.json is ignored', () => {
+    const root = build(ALPHA_SPEC);
+    fs.writeFileSync(path.join(root, '.planning', 'state.json'), '{ not json');
+    assert.equal(ci.collectProject(root).metrics.rows, 3);
+  });
+
+  test('5: gap_closure and autonomous surface as booleans, defaulting to false and true', () => {
+    const project = ci.collectProject(build(ALPHA_SPEC));
+    const flagged = recordOf(project, '55-old', '02');
+    assert.equal(flagged.gap_closure, true);
+    assert.equal(flagged.autonomous, false);
+    const absent = recordOf(project, '55-old', '01');
+    assert.equal(absent.gap_closure, false);
+    assert.equal(absent.autonomous, true);
+
+    const spec = cloneSpec(ALPHA_SPEC);
+    spec.objectives[0].trds[0].frontmatter = { type: 'standard', autonomous: 'true', gap_closure: 'false' };
+    const explicit = recordOf(ci.collectProject(build(spec)), '55-old', '01');
+    assert.equal(explicit.gap_closure, false);
+    assert.equal(explicit.autonomous, true);
+  });
+
+  test('6: a SUMMARY whose TRD file is missing is counted and yields no record', () => {
+    const spec = cloneSpec(ALPHA_SPEC);
+    spec.objectives[1].trds.push({ nn: '09', slug: 'gone', noTrd: true, summary: { duration: '3min', completed: '2026-10-05' } });
+    const project = ci.collectProject(build(spec));
+    assert.equal(project.counts.summaries_without_trd, 1);
+    assert.equal(project.counts.summaries, 4);
+    assert.equal(project.trds.length, 4);
+    assert.equal(project.trds.some((t) => t.id === '56-09'), false);
+  });
+
+  test('6: a SUMMARY pairs with its TRD by key whichever name it was written under', () => {
+    const spec = cloneSpec(ALPHA_SPEC);
+    spec.objectives[0].trds[0].summaryName = '55-01-parser-SUMMARY.md';
+    assert.equal(recordOf(ci.collectProject(build(spec)), '55-old', '01').summary.minutes, 9);
+  });
+
+  test('6: files without an NN-MM key are counted as unkeyed and skipped', () => {
+    const root = build(ALPHA_SPEC);
+    fs.writeFileSync(path.join(root, '.planning', 'objectives', '56-new', 'TRD.md'), '---\ntype: standard\n---\n');
+    fs.writeFileSync(path.join(root, '.planning', 'objectives', '56-new', 'notes-SUMMARY.md'), '---\nduration: 1min\n---\n');
+    const project = ci.collectProject(root);
+    assert.equal(project.counts.unkeyed, 2);
+    assert.equal(project.trds.length, 4);
+  });
+
+  test('6: two TRD files with one key keep the first sorted and count the other', () => {
+    const root = build(ALPHA_SPEC);
+    fs.writeFileSync(path.join(root, '.planning', 'objectives', '56-new', '56-01-zzz-TRD.md'), '---\ntype: standard\n---\n');
+    const project = ci.collectProject(root);
+    assert.equal(project.counts.duplicate_trds, 1);
+    assert.equal(recordOf(project, '56-new', '01').trd_type, 'tdd');
+  });
+
+  test('1: a project with no planning history is empty, never an error', () => {
+    const parent = tmpDir();
+    const root = path.join(parent, 'bare');
+    fs.mkdirSync(root);
+    const project = ci.collectProject(root);
+    assert.deepEqual(project.trds, []);
+    assert.deepEqual(project.objectives, []);
+    assert.equal(project.metrics.rows, 0);
+    assert.equal(project.label, 'bare');
+  });
+});
+
+describe('57-02 discoverProjects', () => {
+  function layout() {
+    const parent = tmpDir();
+    for (const name of ['p2', 'p1', '.hidden']) fs.mkdirSync(path.join(parent, name, '.planning', 'objectives'), { recursive: true });
+    fs.mkdirSync(path.join(parent, 'notes'));
+    return { parent, p1: path.join(parent, 'p1'), p2: path.join(parent, 'p2') };
+  }
+
+  test('12: a path that is a project returns itself', () => {
+    const { p1 } = layout();
+    assert.deepEqual(ci.discoverProjects([p1]), [p1]);
+  });
+
+  test('12: a parent returns its non-hidden child projects, sorted, and skips plain directories', () => {
+    const { parent, p1, p2 } = layout();
+    assert.deepEqual(ci.discoverProjects([parent]), [p1, p2]);
+  });
+
+  test('12: the parent together with a child dedupes, and a missing path is skipped', () => {
+    const { parent, p1, p2 } = layout();
+    assert.deepEqual(ci.discoverProjects([p2, parent, p1]), [p1, p2]);
+    assert.deepEqual(ci.discoverProjects([path.join(parent, 'absent'), p2]), [p2]);
+    assert.deepEqual(ci.discoverProjects([]), []);
+    assert.deepEqual(ci.discoverProjects([path.join(parent, 'notes')]), []);
+  });
+
+  test('12: a symlink to a project resolves to the same realpath and dedupes', () => {
+    const { parent, p1, p2 } = layout();
+    fs.symlinkSync(p1, path.join(parent, 'link'));
+    assert.deepEqual(ci.discoverProjects([parent]), [p1, p2]);
+  });
+});
