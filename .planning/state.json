@@ -905,6 +905,11 @@
       "objective": "62",
       "summary": "builtin-audit groupOf returns null for an unpinned path (legacy workflow or unowned file) instead of a default group, so 62-03 can see it",
       "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-02: bare Options: list heads cannot be quoted in a 12-character Before, so each is covered by the neighbouring prompt row that deletes it; free-text lines the scanner window already passes use keep, not a marker",
+      "rationale": null
     }
   ],
   "blockers": [],

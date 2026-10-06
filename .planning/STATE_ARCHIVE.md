@@ -168,6 +168,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 61]: site/data/devflow.json stays a release-time artifact: gen-docs-data.cjs writes a hard-coded repo path, so it was proven against a scratch copy of the tree
 - [Objective 62]: ExitPlanMode is forbidden in skill allowed-tools and never reported as missing: its permission prompt is the plan approval, so pre-approving it could approve the draft the user should review
 - [Objective 62]: builtin-audit groupOf returns null for an unpinned path (legacy workflow or unowned file) instead of a default group, so 62-03 can see it
+- [Objective 62]: 62-02: bare Options: list heads cannot be quoted in a 12-character Before, so each is covered by the neighbouring prompt row that deletes it; free-text lines the scanner window already passes use keep, not a marker
 
 ## Performance Metrics
 
@@ -274,4 +275,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 61 P08 | 8min | 2 tasks | 5 files |
 | Objective 61 P09 | 11min | 3 tasks | 7 files |
 | Objective 62 P01 | 7min | 3 tasks | 3 files |
+| Objective 62 P02 | 14min | 2 tasks | 2 files |
 
