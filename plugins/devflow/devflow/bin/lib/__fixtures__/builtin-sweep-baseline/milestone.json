@@ -1,57 +1,6 @@
 {
   "group": "milestone",
-  "prompts": [
-    {
-      "file": "plugins/devflow/devflow/workflows/complete-milestone.md",
-      "kind": "header-too-long",
-      "text": "AskUserQuestion(header=\"Archive Objectives\", question=\"Archive objective directories to milestones/?\", options: \"Yes — move to milestones/v[X.Y]-objectives/\" | \"Skip — keep objectives in place\")"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/complete-milestone.md",
-      "kind": "prose-choice",
-      "text": "(yes / wait / adjust scope)"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/complete-milestone.md",
-      "kind": "prose-choice",
-      "text": "6. Offer to create next milestone inline"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/complete-milestone.md",
-      "kind": "prose-choice",
-      "text": "Ask: \"Push tag to remote? (y/n)\""
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/complete-milestone.md",
-      "kind": "prose-choice",
-      "text": "MUST present 3 options:"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/complete-milestone.md",
-      "kind": "prose-choice",
-      "text": "Wait for confirmation."
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/new-milestone.md",
-      "kind": "prose-choice",
-      "text": "Does this capture what you're building? (yes / adjust)"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/plan-milestone-gaps.md",
-      "kind": "prose-choice",
-      "text": "Create these {X} objectives? (yes / adjust / defer all optional)"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/plan-milestone-gaps.md",
-      "kind": "prose-choice",
-      "text": "Plan every objective needed to close gaps identified by `/devflow:milestone audit`. Reads MILESTONE-AUDIT.md, groups gaps into logical objectives, registers them (ROADMAP.md entries in local mode, `df-tools objective add` in store mode), and offers to plan each objective. One command covers all fix objectives — no manual `/devflow:objective add` per gap."
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/plan-milestone-gaps.md",
-      "kind": "prose-choice",
-      "text": "Wait for user confirmation."
-    }
-  ],
+  "prompts": [],
   "progress": [],
   "plan_mode": [],
   "allowed_tools_missing": [],
