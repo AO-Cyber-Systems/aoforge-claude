@@ -32,16 +32,8 @@
       "text": "Offer: 1) Force proceed, 2) Provide guidance and retry, 3) Abandon"
     }
   ],
-  "progress": [
-    "build",
-    "plan-objective"
-  ],
+  "progress": [],
   "plan_mode": [],
-  "allowed_tools_missing": [
-    "plan-objective:TaskCreate",
-    "plan-objective:TaskUpdate"
-  ],
-  "allowed_tools_forbidden": [
-    "build:ExitPlanMode"
-  ]
+  "allowed_tools_missing": [],
+  "allowed_tools_forbidden": []
 }
