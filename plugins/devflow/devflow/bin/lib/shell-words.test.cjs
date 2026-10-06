@@ -26,14 +26,13 @@ const {
 const segWords = (cmd) => parseCommand(cmd).segments.map((s) => s.words.map((w) => w.masked).join(' '));
 
 describe('1. identity: one definition, re-exported', () => {
-  // Task 3 switches gate-commits.js and session-audit.cjs to require this module.
-  test('gate-commits re-exports the shell-words functions', { todo: 'Task 3' }, () => {
+  test('gate-commits re-exports the shell-words functions', () => {
     const gate = require('../../../hooks/gate-commits.js');
     assert.equal(gate.stripHeredocs, shellWords.stripHeredocs);
     assert.equal(gate.stripQuoted, shellWords.stripQuoted);
   });
 
-  test('session-audit re-exports stripHeredocBodies', { todo: 'Task 3' }, () => {
+  test('session-audit re-exports stripHeredocBodies', () => {
     const audit = require('./session-audit.cjs');
     assert.equal(audit.stripHeredocBodies, shellWords.stripHeredocBodies);
   });

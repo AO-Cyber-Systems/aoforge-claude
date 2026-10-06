@@ -103,15 +103,8 @@ const OVERRIDE_PHRASES = [
 /** A Bash call that starts a skill marker is a route into the sanctioned path. */
 const SKILL_ACTIVE_RE = /\bskill-active\s+--start\b/;
 
-/**
- * Heredoc body + terminator. Adapted from hooks/gate-commits.js stripHeredocs,
- * but it keeps the OPENER LINE (`$1` is `<<'EOF'`, `$4` is the rest of that
- * line), so `cat <<'EOF' > src/a.go` still exposes `> src/a.go`. Only the body
- * and the terminator are dropped, which is what keeps `see > src/a.go` inside a
- * heredoc body from reading as a write.
- */
-const HEREDOC_BODY_RE = /(<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2)([^\n]*)\n[\s\S]*?^[ \t]*\3[ \t]*$/gm;
-const stripHeredocBodies = cmd => String(cmd).replace(HEREDOC_BODY_RE, '$1$4');
+// Heredoc bodies and terminators, keeping the opener line: lib/shell-words.cjs (TRD 60-01).
+const { stripHeredocBodies } = require('./shell-words.cjs');
 
 /** Redirect targets that are never files worth tracking. */
 const IGNORED_TARGETS = new Set(['/dev/null', '/dev/stdout', '/dev/stderr']);

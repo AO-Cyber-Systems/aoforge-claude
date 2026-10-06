@@ -45,12 +45,21 @@
  * was documented here but never implemented. Comment corrected in TRD 27-04
  * rather than silently widening the gate; add it deliberately if wanted.
  *
+ * The shell-text primitives (stripHeredocs, stripQuoted, maskQuoted, unquoteWord,
+ * resolvePathWord) live in devflow/bin/lib/shell-words.cjs (TRD 60-01), where the
+ * Bash write detector and the session audit share them.
+ *
  * Non-DevFlow repos: pass through unchanged.
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+
+// Fail open: if the shared primitives cannot load, run() is a no-op. The plugin
+// always ships devflow/ beside hooks/, so this only happens on a broken install.
+let shell = null;
+try { shell = require(path.join(__dirname, '..', 'devflow', 'bin', 'lib', 'shell-words.cjs')); } catch { /* fail open */ }
+const { stripHeredocs, stripQuoted, maskQuoted, resolvePathWord } = shell || {};
 
 function readStdin() {
   try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
@@ -63,31 +72,6 @@ function findPlanningDir(start) {
     dir = path.dirname(dir);
   }
   return null;
-}
-
-/**
- * Remove heredoc BODIES from a command string (TRD 27-04).
- *
- * `cat > f <<'EOF' ... EOF` bodies are file content, not commands. Leaving them
- * in meant any script, doc, or test fixture whose text merely mentioned the raw
- * commit phrase was refused — reproduced live while writing the 2026-08-18
- * audit, where an analysis script containing it as a regex literal was blocked.
- */
-function stripHeredocs(cmd) {
-  return cmd.replace(
-    /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[\s\S]*?^\s*\2\s*$/gm,
-    ' <<HEREDOC '
-  );
-}
-
-/**
- * Blank out quoted string contents so a mention inside an argument (echo,
- * grep pattern, commit message body) is not read as an invocation.
- */
-function stripQuoted(cmd) {
-  return cmd
-    .replace(/'[^']*'/g, "''")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""');
 }
 
 /**
@@ -112,60 +96,6 @@ function invokesGitCommit(cmd) {
 // ---------------------------------------------------------------------------
 // Objective 44 (AUT-04) — per-invocation parsing
 // ---------------------------------------------------------------------------
-
-/**
- * Blank quoted-string CONTENTS without moving anything: the quote characters
- * stay and every character between them becomes `_`. Offsets into the result
- * are offsets into the input, so a word can be located in the masked text
- * (where quoting can neither fake a separator nor an invocation, exactly as
- * with stripQuoted) and then read back verbatim from the unmasked text.
- */
-function maskQuoted(cmd) {
-  return cmd.replace(
-    /'[^']*'|"(?:[^"\\]|\\[\s\S])*"/g,
-    (m) => m[0] + '_'.repeat(m.length - 2) + m[m.length - 1]
-  );
-}
-
-/** Remove one level of shell quoting from a single word (best effort). */
-function unquoteWord(word) {
-  let out = '';
-  for (let i = 0; i < word.length; i++) {
-    const c = word[i];
-    if (c === "'") {
-      const j = word.indexOf("'", i + 1);
-      const end = j === -1 ? word.length : j;
-      out += word.slice(i + 1, end);
-      i = end;
-    } else if (c === '"') {
-      let j = i + 1;
-      while (j < word.length && word[j] !== '"') {
-        if (word[j] === '\\' && '$`"\\'.includes(word[j + 1] || '')) j++;
-        out += word[j];
-        j++;
-      }
-      i = j;
-    } else if (c === '\\' && i + 1 < word.length) {
-      out += word[++i];
-    } else {
-      out += c;
-    }
-  }
-  return out;
-}
-
-/**
- * Resolve a raw (still-quoted) path word against `base`. Returns null when the
- * word can't be resolved statically — any `$` or backtick expansion — so the
- * caller treats the target as unknown rather than guessing.
- */
-function resolvePathWord(raw, base) {
-  if (typeof raw !== 'string' || /[$`]/.test(raw)) return null;
-  let p = unquoteWord(raw);
-  if (p === '') return null;
-  if (raw === '~' || raw.startsWith('~/')) p = path.join(os.homedir(), p.slice(1));
-  return path.resolve(base, p);
-}
 
 /**
  * Every git-commit invocation in `cmd`, one entry per invocation.
@@ -470,6 +400,9 @@ function main() {
 }
 
 function run() {
+  // The shared shell-text primitives did not load (a broken install): fail open.
+  if (!shell) return;
+
   if (process.env.DEVFLOW_ALLOW_RAW_COMMIT === '1') return;
 
   let input;
