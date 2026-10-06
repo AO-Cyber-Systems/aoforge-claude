@@ -19,7 +19,27 @@ Find current objective directory from most recently modified files:
 ls -lt .planning/objectives/*/JOB.md 2>/dev/null | head -1 | grep -oP 'objectives/\K[^/]+'
 ```
 
-If no active objective detected, ask user which objective they're pausing work on.
+If no active objective is detected, list the objective directories under `.planning/objectives/`, most recently
+modified first, and ask which one the pause is for:
+
+```
+AskUserQuestion([
+  {
+    header: "Objective",
+    question: "Which objective are you pausing work on? Under Other, type its number.",
+    multiSelect: false,
+    options: [
+      { label: "{NN-name 1}", description: "Last modified {age}" },
+      { label: "{NN-name 2}", description: "Last modified {age}" },
+      { label: "{NN-name 3}", description: "Last modified {age}" },
+      { label: "{NN-name 4}", description: "Last modified {age}" }
+    ]
+  }
+])
+```
+
+Runtime-list rule: up to 4 objectives become the options (at least 2; with exactly one, `Pause {NN-name} (Recommended)`
+/ `Cancel`). With more than 4, print the numbered list, offer the 4 most recent and the user types a number under Other.
 </step>
 
 <step name="gather">

@@ -11,6 +11,7 @@ allowed-tools:
   - Write
   - Bash
   - Glob
+  - AskUserQuestion
 ---
 
 <objective>

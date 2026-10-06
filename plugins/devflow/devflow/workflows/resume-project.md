@@ -29,7 +29,25 @@ INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init resume)
 Parse JSON for: `state_exists`, `roadmap_exists`, `project_exists`, `planning_exists`, `has_interrupted_agent`, `interrupted_agent_id`, `commit_docs`.
 
 **If `state_exists` is true:** Proceed to load_state
-**If `state_exists` is false but `roadmap_exists` or `project_exists` is true:** Offer to reconstruct STATE.md
+**If `state_exists` is false but `roadmap_exists` or `project_exists` is true:** ask whether to rebuild it:
+
+```
+AskUserQuestion([
+  {
+    header: "Rebuild?",
+    question: "STATE.md is missing, but the project has other planning files. Reconstruct STATE.md from them?",
+    multiSelect: false,
+    options: [
+      { label: "Reconstruct (Recommended)", description: "Rebuild STATE.md from PROJECT.md, ROADMAP.md, summaries and todos" },
+      { label: "Continue without", description: "Resume from the files that exist; STATE.md stays missing" }
+    ]
+  }
+])
+```
+
+On "Reconstruct", follow <reconstruction>, then proceed to load_state. On "Continue without", skip the STATE.md
+read in load_state and carry on from PROJECT.md and ROADMAP.md.
+
 **If `planning_exists` is false:** This is a new project - route to /devflow:new-project
 </step>
 
@@ -175,36 +193,43 @@ Based on project state, determine the most logical next action:
 </step>
 
 <step name="offer_options">
-Present contextual options based on project state:
+Ask for the next step with AskUserQuestion, built from the state determine_next_action found. The options are the
+4 actions most relevant to that state, the primary action first with ` (Recommended)`:
+
+- **Primary action**, by state: Resume interrupted agent [if interrupted agent found]; Execute objective
+  (`/devflow:execute-objective {objective}`); Discuss Objective 3 context (`/devflow:discuss-objective 3`) [if
+  CONTEXT.md missing]; or Plan Objective 3 (`/devflow:plan-objective 3`) [if CONTEXT.md exists or discuss was declined].
+- **The other three**: Review current objective status, Check pending todos ([N] pending) and Review brief alignment.
+  Drop one that does not apply (no pending todos, alignment already ✓) and put the state's alternative from
+  determine_next_action in its place (Start fresh, Abandon and move on, Plan directly, Review roadmap, Review the job
+  first).
+
+"Something else" is not an option: the user types it under Other.
 
 ```
-What would you like to do?
-
-[Primary action based on state - e.g.:]
-1. Resume interrupted agent [if interrupted agent found]
-   OR
-1. Execute objective (/devflow:execute-objective {objective})
-   OR
-1. Discuss Objective 3 context (/devflow:discuss-objective 3) [if CONTEXT.md missing]
-   OR
-1. Plan Objective 3 (/devflow:plan-objective 3) [if CONTEXT.md exists or discuss option declined]
-
-[Secondary options:]
-2. Review current objective status
-3. Check pending todos ([N] pending)
-4. Review brief alignment
-5. Something else
+AskUserQuestion([
+  {
+    header: "Next step",
+    question: "What would you like to do? Pick one, or type something else under Other.",
+    multiSelect: false,
+    options: [
+      { label: "{primary action} (Recommended)", description: "{the command it runs, or what it resumes}" },
+      { label: "Review objective status", description: "Current objective's TRDs and their summaries" },
+      { label: "Check pending todos", description: "{N} pending" },
+      { label: "Review brief alignment", description: "Compare PROJECT.md with where the project stands" }
+    ]
+  }
+])
 ```
 
-**Note:** When offering objective planning, check for CONTEXT.md existence first:
+**Note:** When choosing between discuss and plan for the primary action, check for CONTEXT.md existence first:
 
 ```bash
 ls .planning/objectives/XX-name/*-CONTEXT.md 2>/dev/null
 ```
 
-If missing, suggest discuss-objective before plan. If exists, offer plan directly.
-
-Wait for user selection.
+If missing, the primary action is discuss-objective (with Plan directly among the others). If it exists, the primary
+action is plan-objective.
 </step>
 
 <step name="route_to_workflow">
@@ -247,7 +272,7 @@ Based on user selection, route to appropriate workflow:
 - **Transition** → ./transition.md
 - **Check todos** → Read .planning/todos/pending/, present summary
 - **Review alignment** → Read PROJECT.md, compare to current state
-- **Something else** → Ask what they need
+- **Something else** (typed under Other) → act on what they typed, or ask what they need
 </step>
 
 <step name="update_session">

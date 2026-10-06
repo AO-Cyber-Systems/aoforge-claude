@@ -950,6 +950,11 @@
       "objective": "62",
       "summary": "62-08: subagent-run prompts return checkpoint:decision (discovery-objective); execute-trd's plan confirmation keeps an allow marker so interactive gating is unchanged",
       "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-09: health.md GitHub store question puts Not now (Recommended) first per built-ins.md; handoff rejected-command question follows inventory BS-101 (Run it myself / Extend allowlist, no Retry)",
+      "rationale": null
     }
   ],
   "blockers": [],
