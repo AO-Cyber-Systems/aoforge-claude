@@ -53,6 +53,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── constants ──────────────────────────────────────────────────────────────────────
 
@@ -306,7 +307,7 @@ const _unquote = (s) => s.replace(/^(["'])(.*)\1$/, '$2');
  */
 function parseToolList(frontmatter, key) {
   const lines = String(frontmatter).split(/\r?\n/);
-  const re = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')}\\s*:\\s*(.*)$`);
+  const re = new RegExp(`^${escapeRegExp(key)}\\s*:\\s*(.*)$`);
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(re);
     if (!m) continue;
