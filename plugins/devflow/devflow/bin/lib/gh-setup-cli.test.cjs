@@ -319,7 +319,7 @@ describe('gh setup command (tests 1, 2, 3, 4, 6, 7, 8)', () => {
     const r = run(['--apply']);
     assert.equal(exitOf(r), 0, r.stdout + r.stderr);
     assert.ok(r.stdout.includes(`  git push -u origin devflow-setup\n${PR_CREATE}\n`), r.stdout);
-    assert.doesNotMatch(r.stdout, /then open a pull request for that branch/);
+    assert.doesNotMatch(r.stdout, /then open a pull request/);
   });
 
   test('61-06 test 13. a store-mode dry run previews the store form: the logged escape, then gh pr create, then the gh pr start route', () => {

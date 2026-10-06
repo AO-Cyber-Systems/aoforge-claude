@@ -20,6 +20,8 @@
 // The commit follow-up for the written files comes from commit-steps.cjs (TRD 52-01): a branch sequence in every mode
 // (the ruleset makes a pull request mandatory either way), with the logged gate escape and the `gh pr start` route
 // added in store mode, where objective 50's gate refuses a bare `df-tools commit` on the default or an unlinked branch.
+// The sequence ends in a runnable `gh pr create --head devflow-setup --fill` (61-06, STOR-01), and the dry run previews
+// it (`After --apply: ...`) whenever the plan would write the workflow or the PR template.
 
 const setupLib = require('./gh-setup.cjs');
 const client = require('./gh-client.cjs');
@@ -106,14 +108,20 @@ function mergeMethodOf(cwd) {
  * What to do with the files apply wrote, and why the order of the merge matters. The commit follow-up is the commit-steps
  * builder's sequence (TRD 52-01), runnable as printed: the store form (logged escape, `gh pr start` route) when `cwd` is
  * in store mode, the plain branch sequence otherwise.
+ *
+ * `{ preview: true }` (61-06) is the dry run's form: the same sequence, but its first line says what `--apply` WILL do
+ * rather than what it did. Only that line differs, so the apply wording is byte-identical.
  */
-function filesLines(cwd, files, outcomes) {
+function filesLines(cwd, files, outcomes, { preview = false } = {}) {
   const steps = branchCommitSteps({
     branch: SETUP_BRANCH,
     command: commitCommand(SETUP_COMMIT_MESSAGE, files),
     reason: planningMode.isStoreMode(cwd) ? 'gh setup workflow' : null,
   });
-  const lines = ['', `Written to the working tree, not committed: ${files.join(', ')}.`, 'Commit them through a pull request:', steps];
+  const first = preview
+    ? `After --apply: it writes ${files.join(', ')} to the working tree, not committed.`
+    : `Written to the working tree, not committed: ${files.join(', ')}.`;
+  const lines = ['', first, 'Commit them through a pull request:', steps];
   const ruleset = outcomes.find((o) => o.kind === 'ruleset');
   if (ruleset && ['created', 'updated', 'exists'].includes(ruleset.status)) {
     lines.push('The ruleset requires devflow/linked-issue and devflow/planning-consistency, and those checks exist only once the workflow is on the default branch.',
@@ -126,14 +134,31 @@ function filesLines(cwd, files, outcomes) {
 
 // ─── The command ─────────────────────────────────────────────────────────────
 
-function dryRun(state, actions, requireWiki) {
+/** A plan action's status as the apply outcome it would become, so filesLines reads a plan the way it reads an apply. */
+const PLANNED_OUTCOME = { create: 'created', update: 'updated' };
+
+/**
+ * The follow-up steps a dry run previews (61-06): what `--apply` would write to the working tree and how to get it
+ * merged. Empty when the plan writes no local file, so a current workflow and PR template print nothing extra.
+ */
+function previewLines(cwd, actions) {
+  const files = actions
+    .filter((a) => (a.kind === 'workflow' || a.kind === 'pr-template') && (a.status === 'create' || a.status === 'update'))
+    .map((a) => a.target);
+  if (files.length === 0) return [];
+  const outcomes = actions.map((a) => ({ kind: a.kind, target: a.target, status: PLANNED_OUTCOME[a.status] || a.status }));
+  return filesLines(cwd, files, outcomes, { preview: true });
+}
+
+function dryRun(cwd, state, actions, requireWiki) {
   const conflicts = actions.filter((a) => a.status === 'conflict');
   const ready = wikiReady(actions);
   const problems = [];
   if (conflicts.length > 0) problems.push(`${conflicts.length} local file conflict${conflicts.length === 1 ? '' : 's'}: apply would leave ${conflicts.length === 1 ? 'it' : 'them'} alone and exit 1.`);
   if (requireWiki && !ready) problems.push(wikiNote(actions));
   const lines = [setupLib.renderPlan(actions).trimEnd(), '',
-    `Dry run for ${state.repo}: nothing was changed. Run \`df-tools gh setup --apply\` to apply this plan.`, ...problems];
+    `Dry run for ${state.repo}: nothing was changed. Run \`df-tools gh setup --apply\` to apply this plan.`,
+    ...previewLines(cwd, actions), ...problems];
   const payload = { ok: problems.length === 0, apply: false, repo: state.repo, actions, wiki_ready: ready };
   return result(problems.length === 0 ? EXIT.OK : EXIT.ERROR, payload, lines.join('\n'));
 }
@@ -177,7 +202,7 @@ function runSetup(cwd, args) {
   } catch (e) {
     return failure(`could not plan the setup: ${e.message}`);
   }
-  if (!parsed.apply) return dryRun(read.state, actions, parsed.requireWiki);
+  if (!parsed.apply) return dryRun(cwd, read.state, actions, parsed.requireWiki);
 
   const outcome = setupLib.applySetup(cwd, actions, { repo: read.state.repo, refresh: parsed.refresh });
   return applied(cwd, read.state, outcome, parsed.requireWiki);

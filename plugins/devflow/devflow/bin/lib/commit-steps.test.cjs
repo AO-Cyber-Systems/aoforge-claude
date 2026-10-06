@@ -284,8 +284,8 @@ describe('52-01 the plain form and the gh shim (tests 4-5)', () => {
 
 describe('52-01 the builder (tests 6-7)', () => {
   // The first four lines of the 51-04 store-mode text, copied from migration 0010 and doctor check 20 as they were
-  // before 52-01. Line 5 was the prose `then open a pull request for that branch` until 61-06 (STOR-01) made it a
-  // command, so only lines 1-4 are historical; line 5 is asserted on its own below.
+  // before 52-01. Line 5 was prose (an instruction to open a pull request, with no command) until 61-06 (STOR-01) made
+  // it a command, so only lines 1-4 are historical; line 5 is asserted on its own below.
   const HISTORICAL_0010_LINES_1_TO_4 = [
     'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
       'branches), then merge it through a pull request:',
@@ -360,7 +360,7 @@ describe('52-01 the builder (tests 6-7)', () => {
       const pr = lines.filter((l) => l.includes('gh pr create'));
       assert.deepEqual(pr, ['  gh pr create --head devflow-setup --fill'], `reason ${reason}: ${out}`);
       assert.ok(lines.indexOf(pr[0]) > lines.indexOf('  git push -u origin devflow-setup'), `after the push, reason ${reason}`);
-      assert.ok(!out.includes('then open a pull request for that branch'), out);
+      assert.ok(!out.includes('then open a pull request'), out);
     }
   });
 
