@@ -1191,3 +1191,100 @@ describe('renderTemplates, devflow-ref follows a pinned checks_workflow (55-01)'
     assert.equal(same.status, 'exists', 'a workflow already at this version is left alone');
   });
 });
+
+// ─── 61-06: the plan shows the workflow pins ─────────────────────────────────
+
+describe('renderPlan, the workflow pins (61-06)', () => {
+  const REUSABLE = 'AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml';
+  const pinLines = (ref) => [`uses: ${REUSABLE}@${ref}`, `devflow-ref: ${ref}`];
+  const stateWith = (templates, workflow, over = {}) => satisfiedState({
+    templates,
+    local: { workflow, prTemplate: templates.prTemplate, otherWorkflows: [] },
+    ...over,
+  });
+  /** The render lines from the workflow action line up to (not including) the next action line. */
+  const workflowBlock = (text) => {
+    const lines = text.split('\n');
+    const at = lines.findIndex((l) => l.includes(`] workflow ${WORKFLOW_PATH}`));
+    assert.ok(at >= 0, 'the workflow action line is printed');
+    const rest = lines.slice(at + 1);
+    const end = rest.findIndex((l) => !l.startsWith('    '));
+    return rest.slice(0, end < 0 ? rest.length : end);
+  };
+
+  test('test 1. a create carries the pins; renderPlan prints them under the write line, indented four spaces', () => {
+    const templates = setup.renderTemplates({}, '2.14.0');
+    const wf = pick(setup.planSetup(baseState({ templates })), 'workflow');
+    assert.equal(wf.status, 'create');
+    assert.deepEqual(wf.pins, pinLines('v2.14.0'));
+    assert.equal(wf.previous_pins, undefined);
+
+    const block = workflowBlock(setup.renderPlan(setup.planSetup(baseState({ templates }))));
+    assert.deepEqual(block, [
+      `    write ${WORKFLOW_PATH} (${templates.workflow.split('\n').length - 1} lines)`,
+      `    ${pinLines('v2.14.0')[0]}`,
+      `    ${pinLines('v2.14.0')[1]}`,
+    ]);
+  });
+
+  test('test 2. an update carries previous_pins; renderPlan prints the new pins, then the was lines', () => {
+    const older = setup.renderTemplates({}, '2.13.1');
+    const newer = setup.renderTemplates({}, '2.14.0');
+    const wf = pick(setup.planSetup(stateWith(newer, older.workflow)), 'workflow');
+    assert.equal(wf.status, 'update');
+    assert.deepEqual(wf.pins, pinLines('v2.14.0'));
+    assert.deepEqual(wf.previous_pins, pinLines('v2.13.1'));
+
+    const block = workflowBlock(setup.renderPlan(setup.planSetup(stateWith(newer, older.workflow))));
+    assert.deepEqual(block.slice(1), [
+      `    ${pinLines('v2.14.0')[0]}`,
+      `    ${pinLines('v2.14.0')[1]}`,
+      `    was ${pinLines('v2.13.1')[0]}`,
+      `    was ${pinLines('v2.13.1')[1]}`,
+    ]);
+  });
+
+  test('test 3. an exists prints the two pin lines and nothing else', () => {
+    const templates = setup.renderTemplates({}, '2.14.0');
+    const plan = setup.planSetup(stateWith(templates, templates.workflow));
+    const wf = pick(plan, 'workflow');
+    assert.equal(wf.status, 'exists');
+    assert.deepEqual(wf.pins, pinLines('v2.14.0'));
+    assert.equal(wf.file, undefined);
+
+    const block = workflowBlock(setup.renderPlan(plan));
+    assert.deepEqual(block, [`    ${pinLines('v2.14.0')[0]}`, `    ${pinLines('v2.14.0')[1]}`]);
+  });
+
+  test('test 4. a configured checks_workflow pins its own ref, shown as @main and devflow-ref: main', () => {
+    const templates = setup.renderTemplates({ checks_workflow: 'me/fork/.github/workflows/devflow-checks.yml@main' }, '2.14.0');
+    const wf = pick(setup.planSetup(baseState({ templates })), 'workflow');
+    assert.deepEqual(wf.pins, ['uses: me/fork/.github/workflows/devflow-checks.yml@main', 'devflow-ref: main']);
+    const text = setup.renderPlan(setup.planSetup(baseState({ templates })));
+    assert.ok(text.includes('    uses: me/fork/.github/workflows/devflow-checks.yml@main'), text);
+    assert.ok(text.includes('    devflow-ref: main'), text);
+  });
+
+  test('test 5. a conflict (unmanaged local file) shows no pins: the file will not be touched', () => {
+    const templates = setup.renderTemplates({}, '2.14.0');
+    const mine = 'name: my own ci\non: push\njobs:\n  x:\n    uses: o/r/.github/workflows/x.yml@v1\n';
+    const plan = setup.planSetup(stateWith(templates, mine));
+    const wf = pick(plan, 'workflow');
+    assert.equal(wf.status, 'conflict');
+    assert.equal(wf.pins, undefined);
+    assert.equal(wf.previous_pins, undefined);
+    assert.deepEqual(workflowBlock(setup.renderPlan(plan)), []);
+  });
+
+  test('test 6. a workflow with no pin lines carries no pins field, and no other action changes', () => {
+    const wf = pick(setup.planSetup(baseState()), 'workflow');
+    assert.equal(wf.status, 'create');
+    assert.equal('pins' in wf, false, 'an empty pins list is omitted, not printed as []');
+
+    const plan = setup.planSetup(baseState({ templates: setup.renderTemplates({}, '2.14.0') }));
+    for (const a of plan.filter((x) => x.kind !== 'workflow')) {
+      assert.equal('pins' in a, false, `${a.kind} ${a.target}`);
+      assert.equal('previous_pins' in a, false, `${a.kind} ${a.target}`);
+    }
+  });
+});

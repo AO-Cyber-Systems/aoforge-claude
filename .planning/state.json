@@ -1,6 +1,6 @@
 {
   "current_objective": "61",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 9,
   "progress_pct": 99,
   "status": "executing",
@@ -864,6 +864,11 @@
     {
       "objective": "61",
       "summary": "61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape",
+      "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "61-06: a conflict workflow prints no pins; gh pr create carries no --base (the default branch is gh's default); the dry-run preview maps plan statuses to outcome statuses so filesLines is reused with only its first line changed",
       "rationale": null
     }
   ],

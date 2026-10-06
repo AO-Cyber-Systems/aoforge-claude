@@ -65,7 +65,7 @@ No arguments: `status` in store mode, `--all` with the store off. `objectives` m
    git switch -c devflow-store-cache
    DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration" node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
    git push -u origin devflow-store-cache
-   then open a pull request for that branch
+   gh pr create --head devflow-store-cache --fill
    ```
    Run them only when the user asks; do not run a raw `git commit`. Store mode refuses commits on the default branch and on unlinked branches, so the escape is needed once; it is logged (gate `gh`, `.planning/.override-log.jsonl`).
 

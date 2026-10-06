@@ -32,7 +32,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 
 ### Store-mode rough edges (STOR)
 
-- [ ] **STOR-01**: The `gh setup` dry run shows the pinned `uses:` / `devflow-ref:` lines, and its printed steps include a PR-create command.
+- [x] **STOR-01**: The `gh setup` dry run shows the pinned `uses:` / `devflow-ref:` lines, and its printed steps include a PR-create command.
 - [x] **STOR-02**: Objective PR titles use the objective name, the same as issue titles, not the directory slug.
 - [x] **STOR-03**: `doctor` and `validate health` warn when a repo's checks workflow is pinned to a DevFlow ref older than the installed plugin.
 - [ ] **STOR-04**: A skill can declare `requires:` (gh, docker, …) in its frontmatter; invoking it without the tool is refused with a doctor-backed remediation message.
@@ -98,7 +98,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | ONUM-02 | Objective 56 | Complete |
 | ONUM-03 | Objective 56 | Complete |
 | ONUM-04 | Objective 56 | Complete |
-| STOR-01 | Objective 61 | Pending |
+| STOR-01 | Objective 61 | Complete |
 | STOR-02 | Objective 61 | Complete |
 | STOR-03 | Objective 61 | Complete |
 | STOR-04 | Objective 61 | Pending |
