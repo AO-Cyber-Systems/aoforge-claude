@@ -16,5 +16,5 @@ affects: [60-03, 60-04, 60-05]
 Checkpoint draft: not complete.
 
 ## Progress
-- [x] Task 1: Shell forms (redirect, tee, sed -i, perl -i, cp/mv, cd tracking, wrappers, shell recursion, mayWrite) — 08b48c13 (RED), (this commit) (GREEN)
-- [ ] Task 2: Inline python and node writes — next step: remove the `todo` on the python/node table rows in bash-write-detect.test.cjs, add tests 11-12, then implement inlineWrites and the interpreter arm in bash-write-detect.cjs
+- [x] Task 1: Shell forms (redirect, tee, sed -i, perl -i, cp/mv, cd tracking, wrappers, shell recursion, mayWrite) — 08b48c13 (RED), 8fc1d82b (GREEN)
+- [x] Task 2: Inline python and node writes — 15614664 (RED), (this commit) (GREEN)

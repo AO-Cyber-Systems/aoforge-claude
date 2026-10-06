@@ -26,8 +26,8 @@
  *     read from the MASKED words of shell-words.parseCommand, so text inside
  *     quotes or a heredoc body cannot be mistaken for syntax.
  *   - Executed text is not a mention. The program text of an interpreter is
- *     parsed: the operand of `bash -c`, a heredoc fed to a shell, and (python and
- *     node, TRD 60-02 Task 2) the `-c` / `-e` code or a heredoc on stdin. Shell
+ *     parsed: the operand of `bash -c`, a heredoc fed to a shell, and, for python
+ *     and node, the `-c` / `-e` code or a heredoc on stdin (inlineWrites). Shell
  *     recursion stops at depth 3.
  *   - Nothing is guessed. A target that cannot be resolved statically is
  *     reported with `path: null`; an ambiguous form is reported as no write.
@@ -35,13 +35,21 @@
  * Accepted false negatives (this is a routing nudge, not a sandbox): a `>` in
  * the middle of a word (`a>b`), git operations (`git mv`, `git checkout -- f`,
  * `git apply`), `patch`, `rm`, `dd`, `install`, and writes made by awk, xargs or
- * `find -exec`. A `tee` or `cp` operand that is a glob is reported as written.
+ * `find -exec`, and a heredoc that reaches an interpreter through a pipe
+ * (`cat <<EOF | python3 -`: the heredoc belongs to `cat`). A `tee` or `cp`
+ * operand that is a glob is reported as written.
  *
  * Working directory: `cd` and `pushd` change the base for LATER simple commands
  * of the same command string. Subshell scoping `(cd x; ...)` is not modelled,
  * so a `cd` inside parentheses leaks to what follows. The error direction is a
- * wrong path, which the gate's tracked-file check absorbs. `popd`, `cd -` and a
- * `cd` argument that does not resolve make the base unknown (null).
+ * wrong path, which the gate's tracked-file check absorbs. `popd`, `cd -`, a
+ * `pushd` with no argument (it swaps) and a `cd` argument that does not resolve
+ * make the base unknown (null).
+ *
+ * cp and mv: `into` is true when the destination ends in `/`, is `.` or `..`, or
+ * came from `-t` / `--target-directory`. Whether a plain `cp a b` lands in an
+ * existing directory `b` needs the filesystem, so the module leaves that to the
+ * caller (an injected isDirectory).
  */
 
 const os = require('os');
@@ -402,9 +410,221 @@ function shellProgram(args, seg) {
   return heredocBody(seg);
 }
 
-/** inlineWrites is filled in by Task 2: the stub keeps the export stable. */
-function inlineWrites() {
-  return [];
+/**
+ * The program text an interpreter executes, or null.
+ *
+ *   python: `-c CODE` (including clusters such as `-uc`)
+ *   node:   `-e|--eval|-p|--print CODE` (and `-pe`)
+ *
+ * Without a code operand, a heredoc on stdin is the program when the operand is
+ * `-` or there is no script operand at all. A script file operand (`python3
+ * gen.py`, `node build.js`) means there is no inline code to read, even when a
+ * heredoc is attached: that body is the script's stdin, which is data.
+ */
+function interpreterProgram(lang, args, seg) {
+  for (let i = 0; i < args.length; i++) {
+    const m = args[i].masked;
+    if (m === '-') return heredocBody(seg);
+    if (lang === 'python') {
+      if (/^-[A-Za-z]*c$/.test(m)) return i + 1 < args.length ? unquoteWord(args[i + 1].raw) : null;
+      if (m === '-m') return null;
+      if (m === '-W' || m === '-X' || m === '-Q') {
+        i++;
+        continue;
+      }
+    } else {
+      if (/^(?:-e|-p|-pe|-ep|--eval|--print)$/.test(m)) {
+        return i + 1 < args.length ? unquoteWord(args[i + 1].raw) : null;
+      }
+      if (m === '-r' || m === '--require' || m === '--import' || m === '--loader') {
+        i++;
+        continue;
+      }
+    }
+    if (isOption(args[i])) continue;
+    return null;
+  }
+  return heredocBody(seg);
+}
+
+// ---------------------------------------------------------------------------
+// inlineWrites: python and node program text
+// ---------------------------------------------------------------------------
+
+const PY_LITERAL = /^([rRbBuU]{0,2})(['"])((?:\\.|(?!\2)[^\\])*)\2$/;
+const JS_LITERAL = /^(['"`])((?:\\.|(?!\1)[^\\])*)\1$/;
+const NAME = /^[A-Za-z_$][\w$]*$/;
+
+/** Index just past the string that opens at `i`, or -1 when it never closes. */
+function skipString(code, i) {
+  const quote = code[i];
+  for (let j = i + 1; j < code.length; j++) {
+    if (code[j] === '\\') j++;
+    else if (code[j] === quote) return j + 1;
+  }
+  return -1;
+}
+
+/**
+ * One call argument starting at `pos`: its trimmed text and the index of the
+ * `,` or closing bracket that ends it. Strings and balanced brackets are skipped
+ * whole, so `os.path.join(a, 'b')` is one argument. null when the code ends first.
+ */
+function readArg(code, pos) {
+  let i = pos;
+  while (i < code.length && /\s/.test(code[i])) i++;
+  const start = i;
+  let depth = 0;
+  while (i < code.length) {
+    const c = code[i];
+    if (c === '"' || c === "'" || c === '`') {
+      i = skipString(code, i);
+      if (i < 0) return null;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') {
+      if (depth === 0) break;
+      depth--;
+    } else if (c === ',' && depth === 0) break;
+    i++;
+  }
+  if (i >= code.length) return null;
+  return { text: code.slice(start, i).trim(), end: i };
+}
+
+/**
+ * A string literal's value, or undefined when `text` is not one. A literal with a
+ * backslash, an f-string and a template literal with `${` are not literals: we
+ * cannot say what path they name.
+ */
+function literalValue(text, lang) {
+  const m = (lang === 'python' ? PY_LITERAL : JS_LITERAL).exec(text);
+  if (!m) return undefined;
+  const quote = lang === 'python' ? m[2] : m[1];
+  const value = lang === 'python' ? m[3] : m[2];
+  if (value.includes('\\')) return undefined;
+  if (lang === 'node' && quote === '`' && value.includes('${')) return undefined;
+  return value;
+}
+
+/** A literal path against the base: absolute stays, relative needs a base, `$` and backticks are expansions. */
+function literalPath(value, base) {
+  if (value === '' || /[$`]/.test(value)) return null;
+  if (path.isAbsolute(value)) return path.resolve(value);
+  return base == null ? null : path.resolve(base, value);
+}
+
+/**
+ * name -> the one literal it is bound to, or null when it is bound to two
+ * different literals or to anything that is not a literal. A binding is a
+ * statement start (line start or after `;`) of `NAME = value`; python also takes
+ * `NAME = Path('lit')`, node also takes a `const|let|var` prefix. A compound
+ * assignment, a `for NAME in` and an `as NAME` make the name unresolvable.
+ */
+function bindingsOf(lang, code) {
+  const seen = new Map();
+  const note = (name, value) => {
+    if (!seen.has(name)) seen.set(name, new Set());
+    seen.get(name).add(value);
+  };
+  const re =
+    lang === 'python'
+      ? /(?:^|;)[ \t]*([A-Za-z_]\w*)[ \t]*(\*\*|\/\/|>>|<<|[-+*\/%@|&^])?=(?!=)[ \t]*([^;\n]*)/gm
+      : /(?:^|;)[ \t]*(?:(?:const|let|var)[ \t]+)?([A-Za-z_$][\w$]*)[ \t]*(\*\*|>>>?|<<|\|\||&&|\?\?|[-+*\/%&|^])?=(?![=>])[ \t]*([^;\n]*)/gm;
+  for (const m of code.matchAll(re)) {
+    const [, name, op, rhs] = m;
+    if (op) {
+      note(name, null);
+      continue;
+    }
+    let value = literalValue(rhs.trim(), lang);
+    if (value === undefined && lang === 'python') {
+      const cut = /^([\s\S]*?)[ \t]*(?:#.*)?$/.exec(rhs.trim());
+      value = literalValue(cut[1], lang);
+      if (value === undefined) {
+        const p = /^(?:pathlib\.)?Path\([ \t]*([\s\S]*?)[ \t]*\)$/.exec(cut[1]);
+        if (p) value = literalValue(p[1], lang);
+      }
+    }
+    note(name, value === undefined ? null : value);
+  }
+  if (lang === 'python') {
+    for (const m of code.matchAll(/\bfor[ \t]+([A-Za-z_]\w*)[ \t]+in\b/g)) note(m[1], null);
+    for (const m of code.matchAll(/\bas[ \t]+([A-Za-z_]\w*)/g)) note(m[1], null);
+  }
+  const out = new Map();
+  for (const [name, values] of seen) out.set(name, values.size === 1 ? [...values][0] : null);
+  return out;
+}
+
+/** The path an argument names: a literal, or a name bound to exactly one literal; otherwise null. */
+function argPath(text, lang, binds, base) {
+  const value = literalValue(text, lang);
+  if (value !== undefined) return literalPath(value, base);
+  if (NAME.test(text) && binds.get(text) != null) return literalPath(binds.get(text), base);
+  return null;
+}
+
+/**
+ * Writes made by python or node program text.
+ *
+ *   python  open(ARG, MODE) or open(ARG, mode=MODE) with a w, a, x or + mode;
+ *           Path(ARG).write_text( / .write_bytes( ; NAME.write_text( / .write_bytes(
+ *   node    writeFileSync | appendFileSync | writeFile | appendFile |
+ *           createWriteStream ( ARG
+ *
+ * ARG is a string literal or a name bound to one literal. Any other expression
+ * (concatenation, f-string, os.path.join, a template with `${`) is a write with
+ * `path: null`. A mode that is not a literal is no write: we cannot tell.
+ *
+ * @param {'python'|'node'} lang
+ * @param {string} code
+ * @param {string|null} base working directory the relative literals resolve against
+ * @returns {Array<{form: string, path: string|null, raw: string}>} in code order
+ */
+function inlineWrites(lang, code, base) {
+  if ((lang !== 'python' && lang !== 'node') || typeof code !== 'string') return [];
+  const binds = bindingsOf(lang, code);
+  const found = [];
+  const push = (index, text) => found.push({ index, form: lang, path: argPath(text, lang, binds, base), raw: text });
+
+  if (lang === 'node') {
+    const re = /\b(?:writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream)\s*\(/g;
+    for (const m of code.matchAll(re)) {
+      const a = readArg(code, m.index + m[0].length);
+      if (a) push(m.index, a.text);
+    }
+  } else {
+    for (const m of code.matchAll(/\bopen\(/g)) {
+      const a = readArg(code, m.index + m[0].length);
+      if (!a || code[a.end] !== ',') continue;
+      const second = readArg(code, a.end + 1);
+      if (!second) continue;
+      const kw = /^mode[ \t]*=[ \t]*([\s\S]*)$/.exec(second.text);
+      const mode = literalValue(kw ? kw[1] : second.text, 'python');
+      if (mode !== undefined && /[wax+]/.test(mode)) push(m.index, a.text);
+    }
+    const pathCalls = new Map();
+    for (const m of code.matchAll(/\bPath\(/g)) {
+      const a = readArg(code, m.index + m[0].length);
+      if (!a || code[a.end] !== ')') continue;
+      const rest = code.slice(a.end + 1);
+      const ws = /^\s*/.exec(rest)[0].length;
+      if (rest[ws] === '.') pathCalls.set(a.end + 1 + ws, a.text);
+    }
+    for (const m of code.matchAll(/\.\s*write_(?:text|bytes)\s*\(/g)) {
+      if (pathCalls.has(m.index)) {
+        push(m.index, pathCalls.get(m.index));
+        continue;
+      }
+      const receiver = /(?<![\w.])([A-Za-z_]\w*)\s*$/.exec(code.slice(0, m.index));
+      push(m.index, receiver ? receiver[1] : '');
+    }
+  }
+  return found
+    .sort((a, b) => a.index - b.index)
+    .map(({ form, path: p, raw }) => ({ form, path: p, raw }));
 }
 
 // ---------------------------------------------------------------------------
@@ -466,7 +686,11 @@ function detectBashWrites(cmd, opts) {
         }
       }
     } else if (INTERPRETER_RE.test(name)) {
-      // Inline python and node code: TRD 60-02 Task 2.
+      const lang = name === 'node' ? 'node' : 'python';
+      const program = interpreterProgram(lang, args, seg);
+      if (program !== null) {
+        for (const w of inlineWrites(lang, program, base)) emit(w.form, w.path, w.raw);
+      }
     }
   }
   return out;
