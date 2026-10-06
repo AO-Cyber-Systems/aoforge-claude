@@ -513,7 +513,7 @@ describe('summarize() edit_gate_bypass', () => {
     assert.ok(!Number.isNaN(g.bypass_rate));
   });
 
-  test('S-5: existing keys come first and unchanged; edit_gate_bypass is last', () => {
+  test('S-5: existing keys come first and unchanged; edit_gate_bypass, then bash_edit_gate, are last', () => {
     const keys = Object.keys(summarize(newAccumulator()));
     // TRD 60-05 appends bash_edit_gate after edit_gate_bypass; the original ten keys and edit_gate_bypass keep their places.
     assert.deepEqual(keys.slice(0, -2), [
