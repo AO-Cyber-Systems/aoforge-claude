@@ -54,22 +54,39 @@ Pending Todos:
 1. Add auth token refresh (api, 2d ago)
 2. Fix modal z-index issue (ui, 1d ago)
 3. Refactor database connection pool (database, 5h ago)
-
----
-
-Reply with a number to view details, or:
-- `/devflow:todo list [area]` to filter by area
-- `q` to exit
 ```
 
 Format age as relative time from created timestamp.
 </step>
 
 <step name="handle_selection">
-Wait for user to reply with a number.
+Ask which todo to open with AskUserQuestion. The pending todos are the options, label the title (cut to 5 words),
+description its area and age. Runtime-list rule: with more than 4 todos, offer the first 4 and the user types any
+number from the printed list under Other.
 
-If valid: load selected todo, proceed.
-If invalid: "Invalid selection. Reply with a number (1-[N]) or `q` to exit."
+```
+AskUserQuestion([
+  {
+    header: "Todo",
+    question: "Which todo? Pick one, or under Other type its number, an area to filter by, or q to exit.",
+    multiSelect: false,
+    options: [
+      { label: "{title 1}", description: "{area}, {age}" },
+      { label: "{title 2}", description: "{area}, {age}" },
+      { label: "{title 3}", description: "{area}, {age}" },
+      { label: "{title 4}", description: "{area}, {age}" }
+    ]
+  }
+])
+```
+
+With fewer todos, fewer options (at least 2). With exactly one todo, the options are `Open it (Recommended)` / `Exit`.
+
+Route the answer:
+- A todo (picked, or its number typed under Other): load it, proceed.
+- An area typed under Other: filter to that area, as `/devflow:todo list [area]` does, and return to list_todos.
+- `q` typed under Other, or `Exit`: exit.
+- A typed answer that matches no todo, number or area: ask again with the same AskUserQuestion.
 </step>
 
 <step name="load_context">
