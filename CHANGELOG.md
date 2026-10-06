@@ -69,6 +69,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and `state.json` and STATE_ARCHIVE.md merged cleanly, and on a scratch clone two branches that each ran `state
   add-decision` and `state record-metric` merged with exit 0, no unmerged path, both decisions and both archive rows kept.
 - `exec-context worktree` prints `preflight`, the exact `--cwd` check command for the new worktree.
+- `requires:` in SKILL.md frontmatter (a tool name or a list) declares the external tools a skill cannot run without.
+  `hooks/gate-skill-requires.js`, on `UserPromptExpansion` and `PreToolUse(Skill)`, refuses to start a `/devflow:<skill>`
+  whose declared tool is not on PATH: a typed command is blocked and a Skill call is denied, each with the install hint and
+  a pointer to `/devflow:doctor`. `/devflow:gh-sync` declares `gh`. Not project-scoped, fails open; escape
+  `DEVFLOW_SKIP_SKILL_REQUIRES=1`. Doctor check 14 `skill-requires` reports the same declarations. Needs an installed
+  plugin carrying objective 61.
+- `validate health` W062 and doctor check 26 `checks-workflow-pin` warn when the managed `.github/workflows/devflow.yml`
+  pins DevFlow (`devflow-ref:`, and the `uses:` ref when it is DevFlow's own reusable workflow) to a release older than
+  the installed plugin. Branches, SHAs, forks and an unmanaged file never warn. The fix is `gh setup --apply`.
+- `validate health` W063 and doctor check 13 flag a `model-profiles.json` model id that `model-rates.json` shows
+  superseded by a newer version of its family, or does not price at all. A repository test fails the day the rate table
+  and the pins disagree.
+- `telemetry --scan [--limit N] [--since YYYY-MM-DD] [--root dir]` adds a fresh transcript audit of blocking events
+  (`blocks` and `scan` in the JSON, a `scan:` line under `--raw`) to the telemetry view. It works outside a DevFlow project.
+- A SessionStart transcript export: `upgrade-project.js` starts a detached background `df-tools transcript-export` at most
+  once per 24 h, claimed by a stamp under `~/.claude/devflow/state/transcript-export/`, so the per-session index keeps up
+  without anyone remembering to run it. Escape `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`, independent of
+  `DEVFLOW_SKIP_UPGRADE=1` and `DEVFLOW_SKIP_PRUNE=1`.
+- The `gh setup` dry run prints the managed workflow's pinned `uses:` and `devflow-ref:` lines (and a `was` line for each
+  pin it would replace), and previews the commit and pull-request steps when it would write the workflow or the template.
 
 ### Changed
 - The shell-text primitives (heredoc extraction, quote masking, word unquoting, path resolution) moved from `gate-commits.js`
@@ -97,6 +117,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `objective_numbers`, `cancelled`, `absent` and `scope_source` (`milestone bullet`, `roadmap sections` or `objective
   directories`). On a scratch copy of this repository's `.planning/`, `milestone complete v1.4` reports 13 objectives
   (42-54) and 158 TRDs, the numbers in the hand-written v1.4 entry.
+- `model-profiles.json` pins `claude-opus-5-5` and `claude-sonnet-5-5` (`resolve-model` reports them), and the tier table
+  in `model-profiles.md` matches.
+- The branch-and-pull-request steps `gh setup --apply`, migration 0010 and doctor checks 20 and 21 print now end with a
+  runnable `gh pr create --head <branch> --fill` instead of the prose "then open a pull request for that branch".
 
 ### Fixed
 - Objective lookups match the exact directory. `4.1` no longer resolves to a `04.10-*` directory in `find-objective`,
@@ -125,6 +149,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   elements (the `<tasks>` wrapper is not a task), and `state_updated` says whether STATE.md changed. `objective remove` and
   `objective complete` report `roadmap_updated` from a before/after comparison and write ROADMAP.md only when it changed, so
   a repeated `objective complete` reports `false`.
+- `telemetry` silently ignored `--scan` and every other flag. It now runs the scan, and a flag it does not know (or
+  `--limit`, `--since` or `--root` without `--scan`) exits 1 with the reason.
+- On a fresh store, `gh pr start` titled an objective's pull request with the directory slug (`Objective 2: goodbye-cli`)
+  beside an issue titled after the objective (`[Objective 2] Goodbye CLI`). Both now take the name from the ROADMAP, then the
+  OBJECTIVE.md heading, then the slug.
+- The missing objective 9 TRD 03 SUMMARY (the I001 `validate health` reported) exists again, as a marked backfill.
 
 ## [2.13.2] - 2026-10-05
 

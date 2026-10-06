@@ -54,7 +54,12 @@ df-tools telemetry --scan --limit 150
 ```
 
 One status-facing view with advisories, combining planning state with session
-analysis. `--scan` includes a fresh session audit rather than cached data.
+analysis. `--scan` adds a fresh session audit of blocking events (the `blocks`
+block, and a `scan` block recording the root, limit and `--since` date used).
+`--limit`, `--since YYYY-MM-DD` and `--root` only mean something to the scan, so
+they are rejected without it, and an unknown flag is an error instead of being
+ignored. With `--raw` the first line reads
+`scan: <n> transcripts, <n> blocks (<n> DevFlow-owned)`.
 
 ## Transcript export
 
@@ -66,8 +71,12 @@ df-tools transcript-export --out ~/devflow-index.jsonl --full ~/transcript-archi
 Writes a compact per-session index before retention deletes the underlying
 transcripts. Default output is `~/.claude/devflow/transcript-index.jsonl`.
 
-Run it periodically if you care about longitudinal measurement — transcripts age
-out, and the index is what survives.
+You do not need to remember to run it. A DevFlow session start runs it in a
+detached background process at most once every 24 hours, with the default paths and
+no raw copy, so the index keeps up with transcripts as they age out. Set
+`DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1` in the environment Claude Code is launched from
+to turn that off. Run the command yourself with `--full <dir>` when you also want
+a raw copy of the transcripts, which the automatic run never makes.
 
 ## Override log
 
