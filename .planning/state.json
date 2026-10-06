@@ -1,6 +1,6 @@
 {
   "current_objective": "61",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 9,
   "progress_pct": 99,
   "status": "executing",
@@ -864,6 +864,11 @@
     {
       "objective": "61",
       "summary": "61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape",
+      "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "61-08: gate-skill-requires.js registered on UserPromptExpansion (no matcher; filtering in code) and PreToolUse(Skill); UserPromptExpansion confirmed accepted by Claude Code 2.1.292 (plugin validate plus binary event table); gate is not project-scoped and fails open",
       "rationale": null
     }
   ],
