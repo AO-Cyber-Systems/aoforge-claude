@@ -24,6 +24,26 @@ const path = require('path');
 const { readOverrides } = require('./override.cjs');
 const store = require('./progress-guard-store.cjs');
 
+/** The `blocks` section of the result, from a session-audit report. */
+function summarizeBlocks(sessionReport) {
+  return {
+    total: sessionReport.total_events,
+    devflow_owned: sessionReport.devflow_owned_events,
+    sessions_with_blocks_pct: sessionReport.sessions_with_blocks_pct,
+    top: Object.entries(sessionReport.by_category || {}).slice(0, 5)
+      .map(([category, n]) => ({ category, events: n })),
+  };
+}
+
+/** The advisory sentences a session-audit report contributes. */
+function blockAdvisories(sessionReport) {
+  if (!(sessionReport.devflow_owned_events > 0)) return [];
+  return [
+    `${sessionReport.devflow_owned_events} DevFlow-owned blocks in this window — ` +
+    `objectives 27/30 target these; re-check after the plugin cache re-syncs`,
+  ];
+}
+
 /**
  * @param {object} opts
  * @param {string|null} opts.planningDir
@@ -34,7 +54,13 @@ const store = require('./progress-guard-store.cjs');
  */
 function collect({ planningDir, sessionReport, userHome = null, progressGuardDir = store.stateDir() }) {
   const out = { overrides: null, progress_guard: null, blocks: null, docs: null, advisories: [] };
-  if (!planningDir) return { ...out, advisories: ['no .planning/ — not a DevFlow project'] };
+  if (!planningDir) {
+    const notProject = 'no .planning/ — not a DevFlow project';
+    // Blocks come from transcripts, not .planning/, so a scan outside a project still reports them.
+    // Without a report this early return is byte-identical to what it always was.
+    if (!sessionReport) return { ...out, advisories: [notProject] };
+    return { ...out, blocks: summarizeBlocks(sessionReport), advisories: [notProject, ...blockAdvisories(sessionReport)] };
+  }
 
   // --- overrides -----------------------------------------------------------
   const ov = readOverrides({ planningDir, limit: 5 });
@@ -67,19 +93,8 @@ function collect({ planningDir, sessionReport, userHome = null, progressGuardDir
 
   // --- blocking events (opt-in; caller supplies the scan) ------------------
   if (sessionReport) {
-    out.blocks = {
-      total: sessionReport.total_events,
-      devflow_owned: sessionReport.devflow_owned_events,
-      sessions_with_blocks_pct: sessionReport.sessions_with_blocks_pct,
-      top: Object.entries(sessionReport.by_category || {}).slice(0, 5)
-        .map(([category, n]) => ({ category, events: n })),
-    };
-    if (sessionReport.devflow_owned_events > 0) {
-      out.advisories.push(
-        `${sessionReport.devflow_owned_events} DevFlow-owned blocks in this window — ` +
-        `objectives 27/30 target these; re-check after the plugin cache re-syncs`
-      );
-    }
+    out.blocks = summarizeBlocks(sessionReport);
+    out.advisories.push(...blockAdvisories(sessionReport));
   }
 
   // --- documentation staleness (TRD 38-11) ----------------------------------

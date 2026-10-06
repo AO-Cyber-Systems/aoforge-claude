@@ -855,6 +855,11 @@
       "objective": "61",
       "summary": "[61-03] Objective issue and PR titles share one name chain (objective-name.cjs: ROADMAP name, OBJECTIVE.md heading, bare slug); PR titles stay create-only, existing PRs are not renamed",
       "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "telemetry --scan implemented (not rejected); every unrecognised telemetry flag, and --limit/--since/--root without --scan, exits 1",
+      "rationale": null
     }
   ],
   "blockers": [],

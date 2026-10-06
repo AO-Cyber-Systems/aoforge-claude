@@ -867,15 +867,15 @@ async function main() {
     }
 
     case 'telemetry': {
-      // df-tools telemetry [--raw] — read-only summary (TRD 31-01 module, wired in TRD 38-11)
-      const fs = require('fs');
-      const path = require('path');
+      // df-tools telemetry [--scan [--limit N] [--since D] [--root R]] [--raw] — read-only summary
+      // (TRD 31-01 module, wired in TRD 38-11, --scan and strict flags in TRD 61-04). Flag handling
+      // lives in audit-cli.runTelemetry: every token is understood or an error.
       const os = require('os');
       const { output: outputTelemetry } = require('./lib/helpers.cjs');
-      const { collect } = require('./lib/telemetry.cjs');
-      const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
-      const r = collect({ planningDir, userHome: os.homedir() });
-      outputTelemetry(r, raw, r.advisories.join('\n'));
+      const { runTelemetry } = require('./lib/audit-cli.cjs');
+      const r = runTelemetry({ argv: args.slice(1), cwd, userHome: os.homedir() });
+      if (!r.ok) error(r.message);
+      outputTelemetry(r.result, raw, r.text);
       break;
     }
 
