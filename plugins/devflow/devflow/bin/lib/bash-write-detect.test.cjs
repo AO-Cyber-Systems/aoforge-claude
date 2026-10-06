@@ -35,13 +35,9 @@ function project(writes) {
 
 const detect = (cmd, opts) => project(detectBashWrites(cmd, { cwd: CWD, ...opts }));
 
-/** Task 2 builds the python and node arm; those table rows stay todo until then. */
-const isInline = (c) => c.writes.some((w) => w.form === 'python' || w.form === 'node');
-
 describe('1. WRITE_CASES', () => {
   for (const c of WRITE_CASES) {
-    const opts = isInline(c) ? { todo: 'Task 2' } : {};
-    test(c.name, opts, () => {
+    test(c.name, () => {
       assert.deepStrictEqual(project(detectBashWrites(c.cmd, { cwd: c.cwd })), project(c.writes));
     });
   }
@@ -207,6 +203,128 @@ describe('8-10. wrappers and per-command operands', () => {
   test('a redirect before the command word, and a bare redirect with no target', () => {
     assert.deepStrictEqual(detect('> out.txt echo x'), [{ form: 'redirect', path: '/repo/out.txt' }]);
     assert.deepStrictEqual(detect('echo x >'), []);
+  });
+});
+
+describe('11-12. inline interpreter writes', () => {
+  test('11. a name bound to two different literals is unresolvable', () => {
+    assert.deepStrictEqual(detect("python3 - <<'EOF'\np='a.py'\np='b.py'\nopen(p,'w')\nEOF"), [
+      { form: 'python', path: null },
+    ]);
+  });
+
+  test('11b. a name bound to the same literal twice still resolves', () => {
+    assert.deepStrictEqual(detect("python3 - <<'EOF'\np='a.py'\np='a.py'\nopen(p,'w')\nEOF"), [
+      { form: 'python', path: '/repo/a.py' },
+    ]);
+  });
+
+  test('11c. a name rebound to something that is not a literal is unresolvable', () => {
+    assert.deepStrictEqual(detect("python3 - <<'EOF'\np='a.py'\np=p+'x'\nopen(p,'w')\nEOF"), [
+      { form: 'python', path: null },
+    ]);
+  });
+
+  test('12. a template literal with an expansion is unresolvable', () => {
+    assert.deepStrictEqual(
+      detect('node -e "require(\'fs\').writeFileSync(\\`${d}/a.json\\`, \'\')"'),
+      [{ form: 'node', path: null }]
+    );
+  });
+
+  test('12b. a template literal without an expansion is a literal', () => {
+    assert.deepStrictEqual(
+      detect('node -e "require(\'fs\').writeFileSync(\\`src/a.json\\`, \'\')"'),
+      [{ form: 'node', path: '/repo/src/a.json' }]
+    );
+  });
+
+  test('python modes: only w, a, x and + write', () => {
+    for (const mode of ['r', 'rb', 'rt']) {
+      assert.deepStrictEqual(detect(`python3 -c "open('f', '${mode}')"`), [], mode);
+    }
+    for (const mode of ['w', 'wb', 'a', 'ab', 'x', 'r+']) {
+      assert.deepStrictEqual(detect(`python3 -c "open('f', '${mode}')"`), [
+        { form: 'python', path: '/repo/f' },
+      ], mode);
+    }
+    assert.deepStrictEqual(detect('python3 -c "open(\'f\', encoding=\'utf8\')"'), []);
+  });
+
+  test('python: a mode that is not a literal is no write, a path that is not a literal is null', () => {
+    assert.deepStrictEqual(detect('python3 -c "open(\'f\', m)"'), []);
+    assert.deepStrictEqual(detect('python3 -c "open(os.path.join(d, \'f\'), \'w\')"'), [
+      { form: 'python', path: null },
+    ]);
+    assert.deepStrictEqual(detect('python3 -c "open(f\'{d}/a\', \'w\')"'), [
+      { form: 'python', path: null },
+    ]);
+    assert.deepStrictEqual(detect('python3 -c "open(d + \'/a\', \'w\')"'), [
+      { form: 'python', path: null },
+    ]);
+  });
+
+  test('python: a Path bound to a name, write_bytes, and an unbound receiver', () => {
+    assert.deepStrictEqual(
+      detect("python3 - <<'EOF'\nfrom pathlib import Path\np = Path('src/a.py')\np.write_bytes(b'x')\nEOF"),
+      [{ form: 'python', path: '/repo/src/a.py' }]
+    );
+    assert.deepStrictEqual(detect('python3 -c "target.write_text(\'x\')"'), [
+      { form: 'python', path: null },
+    ]);
+  });
+
+  test('python and node program text is only the interpreter operand, never a script file', () => {
+    assert.deepStrictEqual(detect("python3 tools/gen.py <<'EOF'\nopen('f','w')\nEOF"), []);
+    assert.deepStrictEqual(detect("node scripts/build.js <<'EOF'\nrequire('fs').writeFileSync('f','')\nEOF"), []);
+  });
+
+  test('python -c code beats a heredoc, and node -p and --eval take code', () => {
+    assert.deepStrictEqual(detect("python3 -c \"open('a','w')\" <<'EOF'\nopen('b','w')\nEOF"), [
+      { form: 'python', path: '/repo/a' },
+    ]);
+    assert.deepStrictEqual(detect('node -p "require(\'fs\').appendFileSync(\'f\', \'\')"'), [
+      { form: 'node', path: '/repo/f' },
+    ]);
+    assert.deepStrictEqual(detect('node --eval "require(\'fs\').createWriteStream(\'f\')"'), [
+      { form: 'node', path: '/repo/f' },
+    ]);
+  });
+
+  test('node: a name bound by const, and a path that is not a literal', () => {
+    assert.deepStrictEqual(
+      detect('node -e "const f = \'a.json\'; require(\'fs\').writeFileSync(f, \'\')"'),
+      [{ form: 'node', path: '/repo/a.json' }]
+    );
+    assert.deepStrictEqual(
+      detect('node -e "require(\'fs\').writeFileSync(path.join(d, \'a\'), \'\')"'),
+      [{ form: 'node', path: null }]
+    );
+    assert.deepStrictEqual(detect('node -e "require(\'fs\').readFileSync(\'f\')"'), []);
+  });
+
+  test('inline code resolves against the cd-tracked base, and a null base gives null', () => {
+    assert.deepStrictEqual(detect('cd sub && python3 -c "open(\'a\',\'w\')"'), [
+      { form: 'python', path: '/repo/sub/a' },
+    ]);
+    assert.deepStrictEqual(detect('cd "$D" && python3 -c "open(\'a\',\'w\')"'), [
+      { form: 'python', path: null },
+    ]);
+    assert.deepStrictEqual(detect('cd "$D" && python3 -c "open(\'/abs/a\',\'w\')"'), [
+      { form: 'python', path: '/abs/a' },
+    ]);
+  });
+
+  test('inline writes carry the segment and the argument text', () => {
+    const [w] = detectBashWrites('ls; python3 -c "open(\'a\',\'w\')"', { cwd: CWD });
+    assert.strictEqual(w.segment, 1);
+    assert.strictEqual(w.raw, "'a'");
+  });
+
+  test('an interpreter inside bash -c is parsed', () => {
+    assert.deepStrictEqual(detect("bash -c \"python3 -c \\\"open('a','w')\\\"\""), [
+      { form: 'python', path: '/repo/a' },
+    ]);
   });
 });
 
