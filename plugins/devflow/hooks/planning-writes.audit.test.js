@@ -436,6 +436,17 @@ const RUNS = {
       payload: (ctx) => preTool('Edit', { file_path: path.join(ctx.world.root, 'src', 'x.js') })(ctx),
     },
   ],
+  'gate-bash-writes.js': [
+    {
+      label: 'ambient Bash write to a tracked file',
+      payload: (ctx) => preTool('Bash', { command: "sed -i 's/1/2/' src/x.js" })(ctx),
+    },
+    {
+      label: 'override armed and consumed by a gated write',
+      world: { editOverride: true },
+      payload: (ctx) => preTool('Bash', { command: 'echo 2 > src/x.js' })(ctx),
+    },
+  ],
   'guard-no-progress.js': [
     { label: 'repeated read', payload: preTool('Read', { file_path: '/nonexistent/file' }) },
   ],

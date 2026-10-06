@@ -10,7 +10,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 ### Edit gate (GATE): DECISION-001 option-a
 
 - [x] **GATE-01**: A Bash command that writes to a tracked repo source file (redirection, `tee`, `sed -i`, `cp`/`mv` onto a file, inline python/node writes) is denied in ambient mode, the same as `Edit`/`Write`.
-- [ ] **GATE-02**: Text that only mentions a write (heredoc bodies, quoted arguments, `echo` to stdout) is never gated; detection is invocation-aware, as in gate-commits.
+- [x] **GATE-02**: Text that only mentions a write (heredoc bodies, quoted arguments, `echo` to stdout) is never gated; detection is invocation-aware, as in gate-commits.
 - [x] **GATE-03**: Writes to `.planning/`, `.md`, out-of-repo, tmp and scratchpad paths, and to untracked files, are never gated by the Bash rule.
 - [x] **GATE-04**: Every existing escape lets the write through: live skill marker, `devflow:*` agent, override phrase, `DEVFLOW_SKIP_EDIT_GATE=1`, and `gates.editGate` warn/off.
 - [x] **GATE-05**: `session-audit` reports the Bash-gate false-positive rate. The rule ships as default `strict` only if that rate is ≤2% of Bash calls in ambient sessions, and as `warn` otherwise.
@@ -85,7 +85,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | Requirement | Objective | Status |
 |-------------|-----------|--------|
 | GATE-01 | Objective 60 | Complete |
-| GATE-02 | Objective 60 | Pending |
+| GATE-02 | Objective 60 | Complete |
 | GATE-03 | Objective 60 | Complete |
 | GATE-04 | Objective 60 | Complete |
 | GATE-05 | Objective 60 | Complete |
