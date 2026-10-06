@@ -24,7 +24,7 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 - [x] Objective 6: Unified check-todos (4/4 plans)
 - [x] Objective 7: Handoff watcher (shipped via PR #19)
 - [x] Objective 8: Program-aware TUI viewer (3/3 plans)
-- [x] Objective 9: Roadmap ↔ disk reconciliation (3/3 delivered; 09-03 SUMMARY.md missing — docs gap only)
+- [x] Objective 9: Roadmap ↔ disk reconciliation (3/3 delivered; 09-03 SUMMARY backfilled 2026-10-06, objective 61)
 - [x] Objective 24: Natural-language routing trigger fixes (3/3 plans)
 
 </details>
