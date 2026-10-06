@@ -48,7 +48,9 @@ and does not read git state itself.
 3. **Decide whether to fix.**
    - `--fix` appeared in $ARGUMENTS: run the same command with `--fix` added (still with `--json`).
    - Otherwise, when `summary.fixable` is greater than 0, ask with AskUserQuestion whether to apply
-     the fixable repairs, naming each fixable check. Apply only on a yes. In yolo mode
+     the fixable repairs, naming each fixable check in the question: header "Repair", options
+     **Apply fixes (Recommended)** (run `--fix`) and **Skip** (leave everything as it is). Apply only
+     on Apply fixes. In yolo mode
      (`node ~/.claude/devflow/bin/df-tools.cjs config-get mode` prints `yolo`) apply without asking.
    - When `summary.fixable` is 0, or the user declines, do not run `--fix`.
    A bare invocation never applies a fix on its own.
