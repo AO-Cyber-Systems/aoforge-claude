@@ -17,6 +17,8 @@ const path = require('path');
 const cli = require('./gh-setup-cli.cjs');
 const steps = require('./commit-steps.cjs');
 const setup = require('./gh-setup.cjs');
+const helpers = require('./helpers.cjs');
+const { parseWorkflowPins } = require('./checks-pin.cjs');
 const client = require('./gh-client.cjs');
 const wiki = require('./gh-wiki.cjs');
 const configLib = require('./config.cjs');
@@ -267,6 +269,82 @@ describe('gh setup command (tests 1, 2, 3, 4, 6, 7, 8)', () => {
     assert.equal(exitOf(r), 0);
     assert.match(r.stdout, /nothing to change|already in place/i);
     assert.doesNotMatch(r.stdout, /not committed/i);
+  });
+
+  // ─── 61-06: the dry run shows the pins and previews the follow-up, ending in a runnable gh pr create ───
+
+  const PR_CREATE = '  gh pr create --head devflow-setup --fill';
+  /** The two pin lines the workflow this checkout's version renders carries, read by the one pin reader. */
+  const expectedPins = () => parseWorkflowPins(setup.renderTemplates({}, helpers.pluginVersion()).workflow).lines;
+
+  test('61-06 test 10. a bare dry run prints the pins and previews the follow-up steps, still with zero writes', () => {
+    install();
+    project();
+    const r = run([]);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    const pins = expectedPins();
+    assert.equal(pins.length, 2, 'the rendered workflow carries a uses: and a devflow-ref: line');
+    for (const line of pins) assert.ok(r.stdout.includes(`    ${line}\n`), `${line}\n${r.stdout}`);
+    assert.ok(pins[0].startsWith('uses: ') && pins[1].startsWith('devflow-ref: '), 'uses: first, then devflow-ref:');
+    assert.ok(r.stdout.indexOf(pins[0]) < r.stdout.indexOf(pins[1]), 'printed in that order');
+    assert.ok(r.stdout.includes('After --apply: it writes'), r.stdout);
+    assert.ok(r.stdout.includes(`${WORKFLOW}, ${PR_TEMPLATE} to the working tree, not committed.`), r.stdout);
+    assert.ok(r.stdout.includes('  git switch -c devflow-setup'), r.stdout);
+    assert.ok(r.stdout.includes(PR_CREATE), r.stdout);
+    assert.match(r.stdout, SETUP_COMMIT_RE);
+    assert.ok(r.stdout.indexOf('Dry run for o/r') < r.stdout.indexOf('After --apply'), 'the preview follows the Dry run line');
+    // test 1 again: still read-only
+    assert.deepEqual(fake.writes(), [], 'zero GitHub writes');
+    assert.equal(exists('.github'), false, 'a dry run writes no local file');
+    assert.equal(r.stderr, '');
+  });
+
+  test('61-06 test 11. a dry run with the workflow and the PR template already current has no preview block and no gh pr create', () => {
+    install();
+    project();
+    assert.equal(exitOf(run(['--apply'])), 0);
+    const writes = fake.writes().length;
+    const r = run([]);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /After --apply/);
+    assert.doesNotMatch(r.stdout, /gh pr create/);
+    assert.doesNotMatch(r.stdout, /git switch -c/);
+    for (const line of expectedPins()) assert.ok(r.stdout.includes(`    ${line}\n`), `an exists workflow still shows ${line}`);
+    assert.equal(fake.writes().length, writes, 'the dry run wrote nothing');
+  });
+
+  test('61-06 test 12. --apply ends its commit steps with gh pr create and no longer says to open a pull request in prose', () => {
+    install();
+    project();
+    const r = run(['--apply']);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    assert.ok(r.stdout.includes(`  git push -u origin devflow-setup\n${PR_CREATE}\n`), r.stdout);
+    assert.doesNotMatch(r.stdout, /then open a pull request for that branch/);
+  });
+
+  test('61-06 test 13. a store-mode dry run previews the store form: the logged escape, then gh pr create, then the gh pr start route', () => {
+    install();
+    project({ store: true });
+    const r = run([]);
+    assert.equal(exitOf(r), 0, r.stdout + r.stderr);
+    const escape = r.stdout.indexOf('DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="gh setup workflow"');
+    const create = r.stdout.indexOf(PR_CREATE);
+    const start = r.stdout.indexOf('df-tools gh pr start <objective>');
+    assert.ok(escape > 0 && create > escape && start > create, `${escape} < ${create} < ${start}\n${r.stdout}`);
+    assert.deepEqual(fake.writes(), []);
+    assert.equal(exists('.github'), false);
+  });
+
+  test('61-06 test 14. --raw on a dry run carries the pins on the workflow action', () => {
+    install();
+    project();
+    const r = run([], true);
+    assert.equal(exitOf(r), 0);
+    const workflow = json(r).actions.find((a) => a.kind === 'workflow');
+    assert.equal(workflow.status, 'create');
+    assert.deepEqual(workflow.pins, expectedPins());
+    assert.equal(workflow.previous_pins, undefined);
+    assert.deepEqual(fake.writes(), []);
   });
 
   test('4. merge queue unavailable: exit 0, the fact is reported, a second apply is write-free and --refresh tries again', () => {

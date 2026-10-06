@@ -10,9 +10,10 @@
  *   4  mirror mode (`github.enabled: true`, `store: false`) on `main`: the plain form lands on the new branch and carries
  *      no DEVFLOW_SKIP_GH_GATE
  *   5  the fixture makes zero `gh` calls: the failing shim is first on PATH (proved here) and its log stays empty
- *   6  branchCommitSteps: the store form's lines 1-5 are the 51-04 text of migration 0010 and doctor check 20 with the
- *      branch, reason and command substituted; line 6 names `df-tools gh pr start <objective>` and ends with the bare
- *      command; the plain form; the TypeErrors
+ *   6  branchCommitSteps: the store form's lines 1-4 are the 51-04 text of migration 0010 and doctor check 20 with the
+ *      branch, reason and command substituted; line 5 is `gh pr create --head <branch> --fill` (61-06, STOR-01); line 6
+ *      names `df-tools gh pr start <objective>` and ends with the bare command; the plain form; the TypeErrors
+ *   9  both forms: `gh pr create` appears once, after the `git push` line (61-06)
  *   7  commitCommand('m', ['a', 'b']) is exactly `node ~/.claude/devflow/bin/df-tools.cjs commit "m" --files a b`
  *  11  the four real emitters (migration 0010 STORE_COMMIT_STEPS, doctor 20 and 21 commitNote, gh setup filesLines),
  *      each run as printed in a fresh store-mode fixture from `main` (scenario 1) and on the linked branch (scenario 3)
@@ -282,36 +283,37 @@ describe('52-01 the plain form and the gh shim (tests 4-5)', () => {
 });
 
 describe('52-01 the builder (tests 6-7)', () => {
-  // The 51-04 store-mode text, copied from migration 0010 and doctor check 20 as they were before 52-01.
-  const TEXT_0010_51_04 = [
+  // The first four lines of the 51-04 store-mode text, copied from migration 0010 and doctor check 20 as they were
+  // before 52-01. Line 5 was the prose `then open a pull request for that branch` until 61-06 (STOR-01) made it a
+  // command, so only lines 1-4 are historical; line 5 is asserted on its own below.
+  const HISTORICAL_0010_LINES_1_TO_4 = [
     'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
       'branches), then merge it through a pull request:',
     '  git switch -c devflow-store-cache',
     '  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration" node ~/.claude/devflow/bin/df-tools.cjs ' +
       'commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/',
     '  git push -u origin devflow-store-cache',
-    '  then open a pull request for that branch',
   ].join('\n');
   const DOCTOR20_COMMAND =
     'node ~/.claude/devflow/bin/df-tools.cjs commit "chore: untrack DevFlow runtime state" --files .gitignore .planning/.progress-guard.json';
-  const TEXT_DOCTOR20_51_04 = [
+  const HISTORICAL_DOCTOR20_LINES_1_TO_4 = [
     'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
       'branches), then merge it through a pull request:',
     '  git switch -c devflow-untrack-runtime-state',
     `  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="untrack DevFlow runtime state" ${DOCTOR20_COMMAND}`,
     '  git push -u origin devflow-untrack-runtime-state',
-    '  then open a pull request for that branch',
   ].join('\n');
   // 0010-store-gitignore.test.cjs ESCAPED_COMMIT_RE: the escaped line must stay the only one it matches.
   const ESCAPED_LINE_RE = /^\s*DEVFLOW_SKIP_GH_GATE=1 /gm;
 
-  test('6a. store form: lines 1-5 are the 51-04 0010 text; line 6 names gh pr start and ends with the bare command', () => {
+  test('6a. store form: lines 1-4 are the 51-04 0010 text; line 5 is gh pr create; line 6 names gh pr start and ends with the bare command', () => {
     const { branchCommitSteps, commitCommand } = load();
     const command = commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.planning/']);
     const out = branchCommitSteps({ branch: 'devflow-store-cache', reason: 'store migration', command });
     const lines = out.split('\n');
     assert.equal(lines.length, 6, out);
-    assert.equal(lines.slice(0, 5).join('\n'), TEXT_0010_51_04);
+    assert.equal(lines.slice(0, 4).join('\n'), HISTORICAL_0010_LINES_1_TO_4);
+    assert.equal(lines[4], '  gh pr create --head devflow-store-cache --fill');
     assert.equal(lines[5],
       "  or, on an objective's linked branch (`df-tools gh pr start <objective>`), commit there with: " +
       'node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/');
@@ -320,30 +322,46 @@ describe('52-01 the builder (tests 6-7)', () => {
     assert.equal(out.match(ESCAPED_LINE_RE).length, 1, 'only line 3 starts with the escape');
   });
 
-  test('6b. store form: lines 1-5 are the 51-04 doctor-20 text for its branch, reason and command', () => {
+  test('6b. store form: lines 1-4 are the 51-04 doctor-20 text for its branch, reason and command; line 5 is gh pr create', () => {
     const { branchCommitSteps } = load();
     const out = branchCommitSteps({
       branch: 'devflow-untrack-runtime-state', reason: 'untrack DevFlow runtime state', command: DOCTOR20_COMMAND,
     });
     const lines = out.split('\n');
     assert.equal(lines.length, 6, out);
-    assert.equal(lines.slice(0, 5).join('\n'), TEXT_DOCTOR20_51_04);
+    assert.equal(lines.slice(0, 4).join('\n'), HISTORICAL_DOCTOR20_LINES_1_TO_4);
+    assert.equal(lines[4], '  gh pr create --head devflow-untrack-runtime-state --fill');
     assert.ok(lines[5].includes('`df-tools gh pr start <objective>`'));
     assert.ok(lines[5].endsWith(`commit there with: ${DOCTOR20_COMMAND}`));
   });
 
-  test('6c. plain form (reason null or undefined): new branch, bare command, push, pull request; no escape, no gh pr start', () => {
+  test('6c. plain form (reason null or undefined): new branch, bare command, push, gh pr create; no escape, no gh pr start', () => {
     const { branchCommitSteps } = load();
     const expected = [
       'commit on a new branch, then merge it through a pull request:',
       '  git switch -c devflow-setup',
       '  node ~/.claude/devflow/bin/df-tools.cjs commit "m" --files a b',
       '  git push -u origin devflow-setup',
-      '  then open a pull request for that branch',
+      '  gh pr create --head devflow-setup --fill',
     ].join('\n');
     const command = 'node ~/.claude/devflow/bin/df-tools.cjs commit "m" --files a b';
-    assert.equal(branchCommitSteps({ branch: 'devflow-setup', command, reason: null }), expected);
+    const plain = branchCommitSteps({ branch: 'devflow-setup', command, reason: null });
+    assert.equal(plain, expected);
+    assert.equal(plain.split('\n').length, 5);
     assert.equal(branchCommitSteps({ branch: 'devflow-setup', command }), expected);
+  });
+
+  test('9. in both forms `gh pr create` appears exactly once, after the push line, and the old prose is gone', () => {
+    const { branchCommitSteps } = load();
+    const command = 'node ~/.claude/devflow/bin/df-tools.cjs commit "m" --files a b';
+    for (const reason of [null, 'store migration']) {
+      const out = branchCommitSteps({ branch: 'devflow-setup', command, reason });
+      const lines = out.split('\n');
+      const pr = lines.filter((l) => l.includes('gh pr create'));
+      assert.deepEqual(pr, ['  gh pr create --head devflow-setup --fill'], `reason ${reason}: ${out}`);
+      assert.ok(lines.indexOf(pr[0]) > lines.indexOf('  git push -u origin devflow-setup'), `after the push, reason ${reason}`);
+      assert.ok(!out.includes('then open a pull request for that branch'), out);
+    }
   });
 
   test('6d. a missing or non-string branch or command, or an unusable reason, is a TypeError', () => {
