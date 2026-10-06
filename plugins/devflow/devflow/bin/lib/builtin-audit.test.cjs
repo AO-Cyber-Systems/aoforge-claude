@@ -555,3 +555,82 @@ describe('scanSet and groups', () => {
     for (const p of all) assert.equal(groupOf(p), Object.keys(GROUP_PATHS).find((g) => GROUP_PATHS[g].includes(p)));
   });
 });
+
+// ─── inventory-derived cases (TRD 62-03) ────────────────────────────────────────────
+// docs/built-in-sweep.md rows the 62-01 literals did not already cover. Each line is copied by
+// hand from the real file named in its row; the scanner must flag it (the inventory's `scan`
+// Detect value means exactly this) and the reconcile found no row it missed, so these pin the
+// agreement rather than drive a change.
+describe('inventory-derived real lines (62-03)', () => {
+  const proseLines = [
+    // BS-004 quick.md
+    'Display gap summary, offer: 1) Re-run executor to fix gaps, 2) Accept as-is.',
+    // BS-015 build.md
+    'Display research results and wait for confirmation before proceeding.',
+    // BS-019 plan-objective.md
+    'Display blocker, offer: 1) Provide context, 2) Skip research, 3) Abort',
+    // BS-046 plan-milestone-gaps.md
+    'and offers to plan each objective',
+    // BS-064 execute-trd.md
+    'Present plan identification, wait for confirmation.',
+    // BS-071 transition.md
+    'Ask: "Objective [X] complete — all [Y] plans finished. Ready to mark done and move to Objective [X+1]?"',
+    // BS-077 check-todos.md
+    'Wait for user to reply with a number.',
+    // BS-085 pause-work.md
+    "If no active objective detected, ask user which objective they're pausing work on.",
+    // BS-090 resume-project.md
+    'Offer to reconstruct STATE.md',
+    // BS-094 workstreams-setup.md
+    'Offer to view status instead.',
+    // BS-109 research-objective.md
+    'Display summary, offer: Plan/Dig deeper/Review/Done',
+    // BS-114 settings.md
+    '- [ ] User offered to save as global defaults',
+  ];
+  for (const literal of proseLines) {
+    test(`prose-choice: ${literal.slice(0, 60)}`, () => {
+      const r = scanPrompts(literal);
+      assert.deepEqual(
+        r.findings.map((f) => f.kind),
+        ['prose-choice'],
+        JSON.stringify(r.findings),
+      );
+    });
+  }
+
+  test('BS-001: a one-line AskUserQuestion call with no options is ask-without-options', () => {
+    const line = 'AskUserQuestion(header: "Micro Task", question: "One-line description of the change?")';
+    assert.deepEqual(
+      scanPrompts(line).findings.map((f) => f.kind),
+      ['ask-without-options'],
+    );
+  });
+
+  test('BS-002: a bare AskUserQuestion( opener whose block has no options is ask-without-options with the opener as text', () => {
+    const r = scanPrompts('AskUserQuestion(\n  header: "Quick",\n  question: "What do you want to do?"\n)');
+    assert.deepEqual(r.findings, [{ line: 1, kind: 'ask-without-options', text: 'AskUserQuestion(' }]);
+  });
+
+  test('BS-002: the same opener with an options list is clean', () => {
+    const text = 'AskUserQuestion(\n  header: "Plan check",\n  question: "Proceed?",\n  options: [{ label: "Go" }, { label: "Stop" }]\n)';
+    assert.deepEqual(scanPrompts(text).findings, []);
+  });
+
+  test('BS-025: a header over 12 characters is header-too-long', () => {
+    assert.deepEqual(
+      scanPrompts('header: "Default work type",').findings.map((f) => f.kind),
+      ['header-too-long'],
+    );
+  });
+
+  test('a bare Options: list head is a finding alone and satisfied by an AskUserQuestion mention within the window', () => {
+    // execute-objective.md, security-audit.md, transition.md and workstreams-merge.md carry one;
+    // the inventory covers each through a neighbouring row (see the repo test's proximity rule).
+    assert.deepEqual(
+      scanPrompts('Options:\n- retry').findings.map((f) => f.kind),
+      ['prose-choice'],
+    );
+    assert.deepEqual(scanPrompts('Options:\n- retry\nUse AskUserQuestion to ask.').findings, []);
+  });
+});
