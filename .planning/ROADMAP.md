@@ -255,7 +255,7 @@ TRDs:
 
 TRDs:
 - [ ] 61-01-checks-pin-health-TRD.md — (W1) STOR-03: `checks-pin.cjs` (pin parser, release-ref compare, owns the workflow constants), `validate health` Check 17 W062, doctor check 26 `checks-workflow-pin`, 22 defers W062
-- [ ] 61-02-skill-requires-lib-TRD.md — (W1) STOR-04: `requires:` skill frontmatter, `skill-requires.cjs` (stat-only PATH lookup, refusal text naming `/devflow:doctor`), doctor check 14 `skill-requires`, gh-sync requires gh
+- [x] 61-02-skill-requires-lib-TRD.md — (W1) STOR-04: `requires:` skill frontmatter, `skill-requires.cjs` (stat-only PATH lookup, refusal text naming `/devflow:doctor`), doctor check 14 `skill-requires`, gh-sync requires gh
 - [ ] 61-03-pr-title-objective-name-TRD.md — (W1) STOR-02: one name chain in `objective-name.cjs` for issue and PR titles; fresh-store PR titled after OBJECTIVE.md, titles stay create-only
 - [ ] 61-04-telemetry-scan-and-09-03-backfill-TRD.md — (W1) OBS-02: `telemetry --scan [--limit|--since|--root]` via `runTelemetry`, unknown flags are errors; OBS-04: 09-03 SUMMARY backfilled from history, I001 clears
 - [ ] 61-05-transcript-export-schedule-TRD.md — (W1) OBS-03: upgrade-project.js step 0b starts a detached `transcript-export` at most once per 24 h (claim-then-spawn stamp in `~/.claude/devflow/state/`), `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`
@@ -312,7 +312,7 @@ TRDs:
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
-| 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
+| 61. Store-mode rough edges and observability | v1.5 | 1/9 | In Progress | - |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |
