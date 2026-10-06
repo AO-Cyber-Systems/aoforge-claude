@@ -820,6 +820,16 @@
       "objective": "60",
       "summary": "Bash write gate is a separate PreToolUse(Bash) hook (gate-bash-writes.js) that reuses gate-edits.js helpers, leaving the Edit/Write path byte-identical and failing open on its own",
       "rationale": null
+    },
+    {
+      "objective": "60",
+      "summary": "60-05: the Bash gate replay counts every would-deny as a false positive (an upper bound); recommended_default is computed from the reported 6-decimal rate",
+      "rationale": null
+    },
+    {
+      "objective": "60",
+      "summary": "60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)",
+      "rationale": null
     }
   ],
   "blockers": [],

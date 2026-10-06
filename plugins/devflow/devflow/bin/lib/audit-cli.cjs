@@ -112,8 +112,9 @@ function formatContextRaw(summary) {
 
 /**
  * 2 fixed lines (TRD 39-01) + the edit_gate line (quick 31); the by-period and
- * sample lines appear only when denials > 0. `\n`-joined. A summary without
- * `edit_gate_bypass` is treated as zeros.
+ * sample lines appear only when denials > 0; the bash_edit_gate line (TRD 60-05)
+ * is always last. `\n`-joined, so 4 lines with no denials. A summary without
+ * `edit_gate_bypass` or `bash_edit_gate` is treated as zeros.
  */
 function formatSessionAuditRaw(summary) {
   const g = summary.edit_gate_bypass || {};
@@ -138,6 +139,15 @@ function formatSessionAuditRaw(summary) {
       lines.push(`edit_gate_bypass_sample: ${s.file} <- ${String(s.command).slice(0, 120)}`);
     }
   }
+  const b = summary.bash_edit_gate || {};
+  const bn = k => Number(b[k]) || 0;
+  const rate = typeof b.false_positive_rate === 'number' ? b.false_positive_rate : 'n/a';
+  const threshold = typeof b.threshold === 'number' ? b.threshold : 0.02;
+  const mode = b.recommended_default || 'warn';
+  lines.push(
+    `bash_edit_gate: ambient_bash_calls ${bn('ambient_bash_calls')}, would_deny ${bn('would_deny')}, `
+    + `false_positive_rate ${rate} (upper bound), threshold ${threshold}, recommended_default ${mode}`
+  );
   return lines.join('\n');
 }
 

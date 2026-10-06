@@ -151,6 +151,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 60]: bash-write-detect: ambiguity resolves to path null or no write; pushd with no argument is unknown (it swaps), and a cp/mv destination of . or .. counts as a directory (into: true)
 - [Objective 60]: gitTrackedSet takes an optional env so hermetic tests run git without mutating process.env; the hook never passes it — Keeps process-wide env mutation out of the tests; one test still runs the default-env path under applyGitTestEnv
 - [Objective 60]: Bash write gate is a separate PreToolUse(Bash) hook (gate-bash-writes.js) that reuses gate-edits.js helpers, leaving the Edit/Write path byte-identical and failing open on its own
+- [Objective 60]: 60-05: the Bash gate replay counts every would-deny as a false positive (an upper bound); recommended_default is computed from the reported 6-decimal rate
+- [Objective 60]: 60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)
 
 ## Performance Metrics
 
@@ -244,4 +246,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 60 P02 | 25min | 2 tasks | 2 files |
 | Objective 60 P03 | 5min | 3 tasks | 3 files |
 | Objective 60 P04 | 5min | 2 tasks | 5 files |
+| Objective 60 P05 | 8min | 3 tasks | 5 files |
 
