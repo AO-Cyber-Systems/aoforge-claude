@@ -1,10 +1,10 @@
 {
   "current_objective": "60",
-  "current_job": 2,
+  "current_job": 3,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
-  "last_activity": "2026-10-05",
+  "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -810,6 +810,11 @@
       "objective": "60",
       "summary": "bash-write-detect: ambiguity resolves to path null or no write; pushd with no argument is unknown (it swaps), and a cp/mv destination of . or .. counts as a directory (into: true)",
       "rationale": null
+    },
+    {
+      "objective": "60",
+      "summary": "gitTrackedSet takes an optional env so hermetic tests run git without mutating process.env; the hook never passes it",
+      "rationale": "Keeps process-wide env mutation out of the tests; one test still runs the default-env path under applyGitTestEnv"
     }
   ],
   "blockers": [],
