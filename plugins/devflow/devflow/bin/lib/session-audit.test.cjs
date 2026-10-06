@@ -11,13 +11,22 @@
  * structured failed tool_result.
  */
 
-const { describe, test } = require('node:test');
+const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const {
   classify, accumulate, summarize, newAccumulator, DEVFLOW_OWNED,
   bashWriteTargets, targetMatches, OVERRIDE_PHRASES,
+  analyze, newHistoryTracker,
 } = require('./session-audit.cjs');
+const { bashGateReason } = require('./bash-write-gate.cjs');
+const { makeTrackedRepo } = require('./__fixtures__/tracked-repo.cjs');
+const { applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
+const {
+  bashRow, skillToolRow, gateDenialRow, writeTranscriptTree, REPLAY_HISTORY,
+} = require('./__fixtures__/bash-replay-fixtures.cjs');
 
 // Built at runtime so this source file does not itself contain the raw-commit
 // phrase — the commit gate matches on it (see TRD 27-04, which fixed exactly
@@ -506,11 +515,449 @@ describe('summarize() edit_gate_bypass', () => {
 
   test('S-5: existing keys come first and unchanged; edit_gate_bypass is last', () => {
     const keys = Object.keys(summarize(newAccumulator()));
-    assert.deepEqual(keys.slice(0, -1), [
+    // TRD 60-05 appends bash_edit_gate after edit_gate_bypass; the original ten keys and edit_gate_bypass keep their places.
+    assert.deepEqual(keys.slice(0, -2), [
       'files_scanned', 'sessions', 'sessions_with_blocks', 'sessions_with_blocks_pct',
       'total_events', 'sidechain_pct', 'by_category', 'by_period',
       'devflow_owned_events', 'verdict',
     ]);
-    assert.equal(keys[keys.length - 1], 'edit_gate_bypass');
+    assert.equal(keys[keys.length - 2], 'edit_gate_bypass');
+    assert.equal(keys[keys.length - 1], 'bash_edit_gate');
+  });
+});
+
+// ─── Bash write gate replay (TRD 60-05) ─────────────────────────────────────
+// Every Bash call in a transcript runs through the hook's own evaluateBashWrites in dry-run. The project is a
+// hand-built hermetic repo (makeTrackedRepo, REPLAY_HISTORY): src/a.js added 2026-09-01, src/late.js added
+// 2026-09-10, src/gone.js added 2026-09-01 and removed 2026-09-15. Transcripts are hand-built trees on disk.
+describe('bash_edit_gate replay', () => {
+  let repo;
+  let restoreEnv;
+  let gitHome;
+  const tmpDirs = [];
+  let seq = 0;
+
+  before(() => {
+    gitHome = fs.mkdtempSync(path.join(os.tmpdir(), 'df-replay-home-'));
+    restoreEnv = applyGitTestEnv(gitHome);
+    repo = makeTrackedRepo({ history: REPLAY_HISTORY });
+  });
+  after(() => {
+    repo.cleanup();
+    restoreEnv();
+    for (const d of [gitHome, ...tmpDirs]) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  const mkTmp = (prefix) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    tmpDirs.push(d);
+    return d;
+  };
+  /** One main-thread Bash row in the fixture project. */
+  const br = (command, ts, extra = {}) => bashRow({ id: `b${++seq}`, command, ts, cwd: repo.root, ...extra });
+  /** Write `spec` as a transcript tree and replay it. */
+  const replay = (spec, opts) => analyze([writeTranscriptTree(mkTmp('df-replay-tree-'), spec)], opts).bash_edit_gate;
+
+  const D = (day) => `2026-09-${day}T00:00:00Z`;
+  const WRITE_A = 'echo x > src/a.js';
+  const START = 'node ~/.claude/devflow/bin/df-tools.cjs skill-active --start quick';
+  const END = 'node ~/.claude/devflow/bin/df-tools.cjs skill-active --end';
+
+  describe('1-4: history-accurate tracking', () => {
+    test('1: an ambient redirect into a tracked file would be denied', () => {
+      const g = replay({ sessions: { s1: [br(WRITE_A, D('05'))] } });
+      assert.equal(g.bash_calls, 1);
+      assert.equal(g.ambient_bash_calls, 1);
+      assert.equal(g.would_deny, 1);
+      assert.equal(g.by_form.redirect, 1);
+      assert.equal(g.false_positive_rate, 1);
+      assert.equal(g.recommended_default, 'warn');
+    });
+
+    test('2: the same command before the file was added would pass (untracked then)', () => {
+      const g = replay({ sessions: { s1: [br(WRITE_A, '2026-08-20T00:00:00Z')] } });
+      assert.equal(g.ambient_bash_calls, 1);
+      assert.equal(g.would_deny, 0);
+    });
+
+    test('3: a file added later is untracked before the add and tracked after it', () => {
+      const before10 = replay({ sessions: { s1: [br('echo x > src/late.js', D('05'))] } });
+      assert.equal(before10.would_deny, 0);
+      const after10 = replay({ sessions: { s1: [br('echo x > src/late.js', D('12'))] } });
+      assert.equal(after10.would_deny, 1);
+    });
+
+    test('4: a file later removed is tracked before the delete and untracked after it', () => {
+      const cmd = "sed -i 's/a/b/' src/gone.js";
+      assert.equal(replay({ sessions: { s1: [br(cmd, D('12'))] } }).would_deny, 1);
+      assert.equal(replay({ sessions: { s1: [br(cmd, D('20'))] } }).would_deny, 0);
+      assert.equal(replay({ sessions: { s1: [br(cmd, D('12'))] } }).by_form['sed-i'], 1);
+    });
+
+    test('4b: a row with no timestamp sees the latest state', () => {
+      const g = replay({ sessions: { s1: [
+        br('echo x > src/gone.js', undefined),
+        br('echo x > src/late.js', undefined),
+      ] } });
+      assert.equal(g.ambient_bash_calls, 2);
+      assert.equal(g.would_deny, 1);
+    });
+  });
+
+  describe('5: what is not ambient', () => {
+    test('5a: a row attributed to a devflow skill is excluded', () => {
+      const g = replay({ sessions: { s1: [br(WRITE_A, D('05'), { attributionSkill: 'devflow:quick' })] } });
+      assert.equal(g.bash_calls, 1);
+      assert.equal(g.excluded.devflow_skill, 1);
+      assert.equal(g.ambient_bash_calls, 0);
+      assert.equal(g.would_deny, 0);
+    });
+
+    test('5a2: a row attributed to a non-devflow skill is still ambient', () => {
+      const g = replay({ sessions: { s1: [br(WRITE_A, D('05'), { attributionSkill: 'superpowers:brainstorming' })] } });
+      assert.equal(g.excluded.devflow_skill, 0);
+      assert.equal(g.ambient_bash_calls, 1);
+      assert.equal(g.would_deny, 1);
+    });
+
+    test('5b: a devflow:* subagent transcript (sibling .meta.json) is excluded', () => {
+      const g = replay({
+        sessions: { s1: [] },
+        subagents: { s1: [{ id: 'agent-1', agentType: 'devflow:executor', rows: [br(WRITE_A, D('05'), { isSidechain: true })] }] },
+      });
+      assert.equal(g.excluded.devflow_agent, 1);
+      assert.equal(g.ambient_bash_calls, 0);
+    });
+
+    test('5c: a general-purpose subagent is ambient', () => {
+      const g = replay({
+        sessions: { s1: [] },
+        subagents: { s1: [{ id: 'agent-1', agentType: 'general-purpose', rows: [br(WRITE_A, D('05'), { isSidechain: true })] }] },
+      });
+      assert.equal(g.excluded.devflow_agent, 0);
+      assert.equal(g.ambient_bash_calls, 1);
+      assert.equal(g.would_deny, 1);
+    });
+
+    test('5c2: a subagent transcript with no .meta.json is ambient', () => {
+      const g = replay({
+        sessions: { s1: [] },
+        subagents: { s1: [{ id: 'agent-1', rows: [br(WRITE_A, D('05'), { isSidechain: true })] }] },
+      });
+      assert.equal(g.ambient_bash_calls, 1);
+    });
+
+    test('5d: rows from skill-active --start to --end are excluded, inclusive; the next row is ambient', () => {
+      const g = replay({ sessions: { s1: [
+        br(START, D('05')), br(WRITE_A, D('05')), br(END, D('05')), br(WRITE_A, D('06')),
+      ] } });
+      assert.equal(g.bash_calls, 4);
+      assert.equal(g.excluded.devflow_skill, 3);
+      assert.equal(g.ambient_bash_calls, 1);
+      assert.equal(g.would_deny, 1);
+    });
+
+    test('5d2: an open window does not leak into the next session', () => {
+      const g = replay({ sessions: {
+        s1: [br(START, D('05')), br(WRITE_A, D('05'))],
+        s2: [br(WRITE_A, D('06'))],
+      } });
+      assert.equal(g.excluded.devflow_skill, 2);
+      assert.equal(g.ambient_bash_calls, 1);
+    });
+
+    test('5e: a devflow Skill call opens the window for the rest of the session, until --end', () => {
+      const skill = skillToolRow({ id: 'sk1', skill: 'devflow:build', ts: D('05'), cwd: repo.root });
+      const g = replay({ sessions: { s1: [
+        br(WRITE_A, D('04')), skill, br(WRITE_A, D('05')), br(WRITE_A, D('06')), br(END, D('07')), br(WRITE_A, D('08')),
+      ] } });
+      assert.equal(g.bash_calls, 5);
+      assert.equal(g.excluded.devflow_skill, 3);
+      assert.equal(g.ambient_bash_calls, 2);
+      assert.equal(g.would_deny, 2);
+    });
+
+    test('5e2: a non-devflow Skill call does not open the window', () => {
+      const skill = skillToolRow({ id: 'sk1', skill: 'superpowers:brainstorming', ts: D('05'), cwd: repo.root });
+      const g = replay({ sessions: { s1: [skill, br(WRITE_A, D('05'))] } });
+      assert.equal(g.excluded.devflow_skill, 0);
+      assert.equal(g.ambient_bash_calls, 1);
+    });
+  });
+
+  describe('6: where the project is', () => {
+    test('6a: a cwd with no .planning/ ancestor is not a devflow project', () => {
+      const loose = mkTmp('df-replay-loose-');
+      const g = replay({ sessions: { s1: [bashRow({ id: 'x', command: WRITE_A, ts: D('05'), cwd: loose })] } });
+      assert.equal(g.bash_calls, 1);
+      assert.equal(g.excluded.not_devflow_project, 1);
+      assert.equal(g.ambient_bash_calls, 0);
+    });
+
+    test('6b: a row with no absolute cwd is not a devflow project', () => {
+      const g = replay({ sessions: { s1: [bashRow({ id: 'x', command: WRITE_A, ts: D('05'), cwd: undefined })] } });
+      assert.equal(g.excluded.not_devflow_project, 1);
+    });
+
+    test('6c: a .planning/ project that is not a git repository has no history', () => {
+      const proj = mkTmp('df-replay-nogit-');
+      fs.mkdirSync(path.join(proj, '.planning'));
+      const g = replay({ sessions: { s1: [bashRow({ id: 'x', command: WRITE_A, ts: D('05'), cwd: proj })] } });
+      assert.equal(g.excluded.history_unavailable, 1);
+      assert.equal(g.ambient_bash_calls, 0);
+    });
+
+    test('6d: a cwd inside a subdirectory of the project resolves to the project root', () => {
+      const g = replay({ sessions: { s1: [
+        bashRow({ id: 'x', command: 'echo x > ../src/a.js', ts: D('05'), cwd: path.join(repo.root, 'src') }),
+      ] } });
+      assert.equal(g.ambient_bash_calls, 1);
+      assert.equal(g.would_deny, 1);
+      assert.deepEqual(g.sample[0].gated, ['src/a.js']);
+    });
+  });
+
+  describe('7: ambient rows that never gate', () => {
+    test('7: heredoc mention, markdown, planning, outside-project and ls are ambient with would_deny 0', () => {
+      const g = replay({ sessions: { s1: [
+        br("cat <<'EOF'\necho x > src/a.js\nEOF", D('05')),
+        br('echo x >> README.md', D('05')),
+        br('echo {} > .planning/x.json', D('05')),
+        br('echo x > /tmp/x', D('05')),
+        br('ls', D('05')),
+      ] } });
+      assert.equal(g.bash_calls, 5);
+      assert.equal(g.ambient_bash_calls, 5);
+      assert.equal(g.would_deny, 0);
+      assert.equal(g.false_positive_rate, 0);
+      assert.equal(g.recommended_default, 'strict');
+    });
+  });
+
+  describe('8: rate and recommendation', () => {
+    const ls = (n) => Array.from({ length: n }, () => br('ls', D('05')));
+
+    test('8a: 1 would-deny and 49 ls is 0.02, which is strict', () => {
+      const g = replay({ sessions: { s1: [br(WRITE_A, D('05')), ...ls(49)] } });
+      assert.equal(g.ambient_bash_calls, 50);
+      assert.equal(g.would_deny, 1);
+      assert.equal(g.false_positive_rate, 0.02);
+      assert.equal(g.recommended_default, 'strict');
+    });
+
+    test('8b: 2 would-denies and 48 ls is 0.04, which is warn', () => {
+      const g = replay({ sessions: { s1: [br(WRITE_A, D('05')), br(WRITE_A, D('06')), ...ls(48)] } });
+      assert.equal(g.false_positive_rate, 0.04);
+      assert.equal(g.recommended_default, 'warn');
+    });
+
+    test('8c: no ambient rows is a null rate and warn, never NaN', () => {
+      const loose = mkTmp('df-replay-loose-');
+      const g = replay({ sessions: { s1: [bashRow({ id: 'x', command: 'ls', ts: D('05'), cwd: loose })] } });
+      assert.equal(g.ambient_bash_calls, 0);
+      assert.equal(g.false_positive_rate, null);
+      assert.equal(g.recommended_default, 'warn');
+      const empty = summarize(newAccumulator()).bash_edit_gate;
+      assert.equal(empty.false_positive_rate, null);
+      assert.equal(empty.recommended_default, 'warn');
+    });
+
+    test('8d: the threshold is 0.02 and the basis names the upper bound', () => {
+      const g = replay({ sessions: { s1: [br('ls', D('05'))] } });
+      assert.equal(g.threshold, 0.02);
+      assert.match(g.false_positive_basis, /upper bound/);
+    });
+
+    test('8e: the rate is rounded to 6 decimals', () => {
+      const acc = newAccumulator({ trackedAt: (root, list) => new Set(list) });
+      accumulate(acc, br(WRITE_A, D('05')), 's1');
+      for (let i = 0; i < 2; i += 1) accumulate(acc, br('ls', D('05')), 's1');
+      assert.equal(summarize(acc).bash_edit_gate.false_positive_rate, 0.333333);
+    });
+  });
+
+  describe('9: one git history read per project root', () => {
+    const LOG = '@1788220800\nA\tsrc/a.js\n';
+    const okSpawn = () => {
+      const calls = [];
+      const spawn = (cmd, args, opts) => {
+        calls.push({ cmd, args, opts });
+        return { status: 0, stdout: LOG, stderr: '' };
+      };
+      return { spawn, calls };
+    };
+
+    test('9: three rows in one root plus one in a second root spawn git twice, read-only', () => {
+      const { spawn, calls } = okSpawn();
+      const t = newHistoryTracker({ spawn });
+      const rootA = repo.root;
+      const rootB = mkTmp('df-replay-second-');
+      const abs = (root) => [path.join(root, 'src', 'a.js')];
+      for (let i = 0; i < 3; i += 1) t.trackedAt(rootA, abs(rootA), '2026-09-05T00:00:00Z');
+      t.trackedAt(rootB, abs(rootB), '2026-09-05T00:00:00Z');
+      assert.equal(calls.length, 2);
+      assert.equal(calls[0].cmd, 'git');
+      for (const w of ['-C', 'log', '--no-renames', '--relative', '--diff-filter=AD', '--name-status']) {
+        assert.ok(calls[0].args.includes(w), `git args include ${w}: ${calls[0].args.join(' ')}`);
+      }
+      assert.equal(calls[0].opts.env.GIT_OPTIONAL_LOCKS, '0');
+    });
+
+    test('9b: the answer follows the parsed history', () => {
+      const t = newHistoryTracker({ spawn: okSpawn().spawn });
+      const a = path.join(repo.root, 'src', 'a.js');
+      const b = path.join(repo.root, 'src', 'b.js');
+      const asOf = (ts) => t.trackedAt(repo.root, [a, b], ts);
+      assert.deepEqual([...asOf(new Date(1788220800 * 1000 + 1000).toISOString())], [a]);
+      assert.deepEqual([...asOf(new Date(1788220800 * 1000 - 1000).toISOString())], []);
+      assert.deepEqual([...asOf(undefined)], [a]);
+    });
+
+    test('9c: a failing git is an unavailable root (null), asked once', () => {
+      let n = 0;
+      const t = newHistoryTracker({ spawn: () => { n += 1; return { status: 128, stdout: '', stderr: 'fatal' }; } });
+      assert.equal(t.trackedAt(repo.root, [], D('05')), null);
+      assert.equal(t.trackedAt(repo.root, [], D('06')), null);
+      assert.equal(t.available(repo.root), false);
+      assert.equal(n, 1);
+    });
+
+    test('9d: an add then a delete in the same history is untracked after the delete', () => {
+      const log = '@300\nD\tsrc/a.js\n@100\nA\tsrc/a.js\n';
+      const t = newHistoryTracker({ spawn: () => ({ status: 0, stdout: log, stderr: '' }) });
+      const a = path.join(repo.root, 'src', 'a.js');
+      const at = (sec) => new Date(sec * 1000).toISOString();
+      assert.equal(t.trackedAt(repo.root, [a], at(200)).has(a), true);
+      assert.equal(t.trackedAt(repo.root, [a], at(400)).has(a), false);
+      assert.equal(t.trackedAt(repo.root, [a], at(50)).has(a), false);
+    });
+  });
+
+  describe('10: a real Bash-gate denial is its own category', () => {
+    const root = '/work/proj';
+    const strictText = bashGateReason([`${root}/src/a.js`], root, 'strict');
+    const warnText = bashGateReason([`${root}/src/a.js`], root, 'warn');
+
+    test('10a: the strict and warn texts classify as devflow-bash-edit-gate', () => {
+      assert.equal(classify(strictText), 'devflow-bash-edit-gate');
+      assert.equal(classify(warnText), 'devflow-bash-edit-gate');
+    });
+
+    test('10b: it is DevFlow-owned, and the Edit/Write denial text keeps its own category', () => {
+      assert.ok(DEVFLOW_OWNED.has('devflow-bash-edit-gate'));
+      assert.equal(classify('DevFlow ambient mode active — direct Edit/Write/MultiEdit denied.'), 'devflow-edit-gate');
+    });
+
+    test('10c: it opens no edit-gate denial, so edit_gate_bypass stays at zero', () => {
+      const acc = newAccumulator();
+      accumulate(acc, br(WRITE_A, D('05')), 's1');
+      accumulate(acc, gateDenialRow({ toolUseId: 'b1', text: strictText, ts: D('05') }), 's1');
+      accumulate(acc, br(WRITE_A, D('05')), 's1');
+      const s = summarize(acc);
+      assert.equal(s.by_category['devflow-bash-edit-gate'], 1);
+      assert.equal(s.by_category['devflow-edit-gate'], undefined);
+      assert.equal(s.edit_gate_bypass.denials, 0);
+      assert.equal(s.edit_gate_bypass.bypasses, 0);
+      assert.equal(s.devflow_owned_events, 1);
+    });
+  });
+
+  describe('11: by_period and sample', () => {
+    test('11a: by_period counts ambient and would_deny per month', () => {
+      const g = replay({ sessions: { s1: [
+        br(WRITE_A, D('05')), br('ls', D('06')), br(WRITE_A, '2026-08-20T00:00:00Z'),
+      ] } });
+      assert.deepEqual(g.by_period['2026-09'], { ambient: 2, would_deny: 1 });
+      assert.deepEqual(g.by_period['2026-08'], { ambient: 1, would_deny: 0 });
+    });
+
+    test('11b: sample holds at most 10 entries, one-line commands cut to 200, gated paths relative', () => {
+      const rows = Array.from({ length: 12 }, (_, i) => br(
+        i === 0 ? `\necho \t ${'y'.repeat(300)} >\tsrc/a.js\n` : 'echo  yyy >\tsrc/a.js\ntrue',
+        `2026-09-05T00:00:${String(i).padStart(2, '0')}Z`));
+      const g = replay({ sessions: { s1: rows } });
+      assert.equal(g.would_deny, 12);
+      assert.equal(g.sample.length, 10);
+      const first = g.sample[0];
+      assert.deepEqual(Object.keys(first), ['ts', 'command', 'gated']);
+      assert.equal(first.ts, '2026-09-05T00:00:00Z');
+      assert.equal(first.command.length, 200);
+      assert.ok(!/\s{2}|[\n\t]/.test(first.command), 'whitespace is collapsed to single spaces');
+      assert.ok(first.command.startsWith('echo yyy'));
+      assert.deepEqual(first.gated, ['src/a.js']);
+      assert.equal(g.sample[1].command, 'echo yyy > src/a.js true');
+    });
+  });
+
+  describe('shape, errors and purity', () => {
+    test('the report carries its keys in the documented order, appended last', () => {
+      const s = summarize(newAccumulator());
+      assert.deepEqual(Object.keys(s.bash_edit_gate), [
+        'bash_calls', 'ambient_bash_calls', 'excluded', 'would_deny', 'by_form', 'false_positive_rate',
+        'false_positive_basis', 'threshold', 'recommended_default', 'by_period', 'sample',
+      ]);
+      assert.deepEqual(Object.keys(s.bash_edit_gate.excluded), [
+        'devflow_agent', 'devflow_skill', 'not_devflow_project', 'history_unavailable', 'error',
+      ]);
+      assert.deepEqual(Object.keys(s.bash_edit_gate.by_form), [
+        'redirect', 'tee', 'sed-i', 'perl-i', 'cp', 'mv', 'python', 'node',
+      ]);
+      assert.equal(Object.keys(s).pop(), 'bash_edit_gate');
+    });
+
+    test('a throw while replaying one row is counted in excluded.error and the audit goes on', () => {
+      let calls = 0;
+      const acc = newAccumulator({ trackedAt: (root, list) => { calls += 1; if (calls === 2) throw new Error('boom'); return new Set(list); } });
+      assert.doesNotThrow(() => {
+        accumulate(acc, br(WRITE_A, D('05')), 's1');
+        accumulate(acc, br(WRITE_A, D('05')), 's1');
+        accumulate(acc, br(WRITE_A, D('05')), 's1');
+      });
+      const g = summarize(acc).bash_edit_gate;
+      assert.equal(g.bash_calls, 3);
+      assert.equal(g.excluded.error, 1);
+      // The failed row is skipped, not half counted: bash_calls = ambient + every exclusion.
+      assert.equal(g.ambient_bash_calls, 2);
+      assert.equal(g.would_deny, 2);
+      const excluded = Object.values(g.excluded).reduce((a, n) => a + n, 0);
+      assert.equal(g.bash_calls, g.ambient_bash_calls + excluded);
+    });
+
+    test('malformed rows never reach the replay', () => {
+      const acc = newAccumulator();
+      for (const row of [null, 'x', {}, { type: 'assistant' }, { type: 'assistant', message: { content: 'text' } },
+        { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: {} }, null] } }]) {
+        assert.doesNotThrow(() => accumulate(acc, row, 's1'));
+      }
+      assert.equal(summarize(acc).bash_edit_gate.bash_calls, 0);
+    });
+
+    test('a fileCtx 4th argument carries the agent type; the 3-argument form still works', () => {
+      const acc = newAccumulator({ trackedAt: (root, list) => new Set(list) });
+      accumulate(acc, br(WRITE_A, D('05')), 's1', { agentType: 'devflow:planner' });
+      accumulate(acc, br(WRITE_A, D('05')), 's2');
+      const g = summarize(acc).bash_edit_gate;
+      assert.equal(g.excluded.devflow_agent, 1);
+      assert.equal(g.ambient_bash_calls, 1);
+    });
+
+    test('the replay never writes: the command is not run and the repository is untouched', () => {
+      const file = path.join(repo.root, 'src', 'a.js');
+      const beforeContent = fs.readFileSync(file, 'utf8');
+      const beforeStatus = repo.git(['status', '--porcelain']);
+      const g = replay({ sessions: { s1: [br('echo CHANGED > src/a.js', D('05')), br('rm -f src/a.js', D('06'))] } });
+      assert.equal(g.would_deny, 1);
+      assert.equal(fs.readFileSync(file, 'utf8'), beforeContent);
+      assert.equal(repo.git(['status', '--porcelain']), beforeStatus);
+    });
+
+    test('the injected trackedAt replaces the git history reader', () => {
+      const seen = [];
+      const g = replay({ sessions: { s1: [br(WRITE_A, D('05'))] } }, {
+        trackedAt: (root, list, ts) => { seen.push(ts); return new Set(list); },
+      });
+      assert.equal(g.would_deny, 1);
+      assert.ok(seen.includes(D('05')));
+    });
   });
 });
