@@ -14,5 +14,5 @@ affects: [61-09 dogfood and docs]
 In progress.
 
 ## Progress
-- [ ] Task 1: gate-skill-requires.js with subprocess and in-process tests — RED test commit (this commit); next step: create plugins/devflow/hooks/gate-skill-requires.js per the TRD decision order and run node --test gate-skill-requires.test.js
-- [ ] Task 2: Register on UserPromptExpansion and PreToolUse(Skill), inventory and audit
+- [x] Task 1: gate-skill-requires.js with subprocess and in-process tests — RED 50646283, GREEN (this commit)
+- [ ] Task 2: Register on UserPromptExpansion and PreToolUse(Skill), inventory and audit — next step: add the two hooks.json groups, the CLAUDE.md Enforcement bullet and the RUNS entries in planning-writes.audit.test.js

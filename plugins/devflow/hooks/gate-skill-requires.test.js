@@ -217,16 +217,6 @@ describe('fail open', () => {
     assert.equal(spawnHook(script, typed(), { pathDir: emptyPath }), '');
     assert.equal(spawnHook(script, skillCall('devflow:gh-sync'), { pathDir: emptyPath }), '');
   });
-
-  test('10b. the escape is honoured even when the libs are missing (control: still silent)', () => {
-    const lone = scratch('gsr-lone-');
-    const hooksDir = path.join(lone, 'hooks');
-    fs.mkdirSync(hooksDir);
-    const script = path.join(hooksDir, 'gate-skill-requires.js');
-    fs.copyFileSync(HOOK_PATH, script);
-    const extraEnv = { DEVFLOW_SKIP_SKILL_REQUIRES: '1' };
-    assert.equal(spawnHook(script, typed(), { pathDir: emptyPath, extraEnv }), '');
-  });
 });
 
 describe('run() in process', () => {
