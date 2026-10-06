@@ -51,6 +51,9 @@
  * cannot reach the user (its questions return to the orchestrator as checkpoints).
  */
 
+const fs = require('fs');
+const path = require('path');
+
 // ─── constants ──────────────────────────────────────────────────────────────────────
 
 const MIN_REASON = 20;
@@ -60,6 +63,8 @@ const MAX_OPTIONS = 4;
 const MAX_HEADER = 12;
 const BLOCK_LINES = 40;
 const NEGATION_CHARS = 24;
+const SKIP_WINDOW = 20;
+const CALL_CHARS = 400;
 
 const BUILTINS = [
   'AskUserQuestion',
@@ -249,6 +254,387 @@ function scanPrompts(text) {
   return { findings, allowed, badMarkers };
 }
 
+// ─── frontmatter and tool lists ─────────────────────────────────────────────────────
+
+const FRONTMATTER_RE = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
+
+/**
+ * Split a SKILL.md / workflow into its `---` frontmatter and its body.
+ * @param {string} text
+ * @returns {{frontmatter: string, body: string, bodyStartLine: number}} bodyStartLine is the
+ *   1-based line of the first body line (1 when there is no frontmatter).
+ */
+function splitFrontmatter(text) {
+  const t = String(text);
+  const m = t.match(FRONTMATTER_RE);
+  if (!m) return { frontmatter: '', body: t, bodyStartLine: 1 };
+  const newlines = (m[0].match(/\n/g) || []).length;
+  return {
+    frontmatter: m[1] || '',
+    body: t.slice(m[0].length),
+    bodyStartLine: newlines + (m[0].endsWith('\n') ? 1 : 2),
+  };
+}
+
+/** Split an inline tool list on commas and whitespace, never inside parentheses (`Bash(git add:*)`). */
+function _splitTools(s) {
+  const out = [];
+  let cur = '';
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (depth === 0 && (ch === ',' || /\s/.test(ch))) {
+      if (cur) out.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+const _unquote = (s) => s.replace(/^(["'])(.*)\1$/, '$2');
+
+/**
+ * Read a tool list from frontmatter text: a YAML list, an inline comma list or a space-separated
+ * list. The key is matched at line start, so `allowed-tools` never reads `disallowed-tools`.
+ * @param {string} frontmatter
+ * @param {string} key  e.g. 'allowed-tools'
+ * @returns {string[]} [] when the key is absent
+ */
+function parseToolList(frontmatter, key) {
+  const lines = String(frontmatter).split(/\r?\n/);
+  const re = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')}\\s*:\\s*(.*)$`);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(re);
+    if (!m) continue;
+    const rest = m[1].trim();
+    if (rest) return _splitTools(rest.replace(/^\[|\]$/g, '')).map(_unquote);
+    const out = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === '') continue;
+      const item = lines[j].match(/^\s*-\s*(\S.*?)\s*$/);
+      if (!item) break;
+      out.push(_unquote(item[1]));
+    }
+    return out;
+  }
+  return [];
+}
+
+// ─── built-ins used, workflow references, coverage ──────────────────────────────────
+
+/** AskUserQuestion is named in directive form; every other built-in needs the call form `Tool(`. */
+const TOOL_RES = Object.fromEntries(
+  BUILTINS.map((t) => [t, new RegExp(t === 'AskUserQuestion' ? String.raw`\bAskUserQuestion\b` : String.raw`\b${t}\(`, 'g')]),
+);
+
+function _hasTool(maskedLine, tool) {
+  const re = TOOL_RES[tool];
+  re.lastIndex = 0;
+  let m;
+  while ((m = re.exec(maskedLine)) !== null) {
+    if (!_negated(maskedLine, m.index)) return true;
+  }
+  return false;
+}
+
+/**
+ * The built-ins a text uses, sorted. A negated mention ("Never call AskUserQuestion") is not a use.
+ * @param {string} body
+ * @returns {string[]}
+ */
+function builtinsUsed(body) {
+  const used = new Set();
+  for (const raw of String(body).split(/\r?\n/)) {
+    const line = _maskMarker(raw);
+    for (const tool of BUILTINS) {
+      if (!used.has(tool) && _hasTool(line, tool)) used.add(tool);
+    }
+  }
+  return [...used].sort();
+}
+
+/**
+ * Workflow names a text references (`.../workflows/<name>.md`), once each, in first-seen order.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function workflowRefs(text) {
+  const out = [];
+  const re = /\bworkflows\/([A-Za-z0-9][\w-]*)\.md\b/g;
+  let m;
+  while ((m = re.exec(String(text))) !== null) {
+    if (!out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+/**
+ * Which built-ins a skill uses (in its body and every workflow it reaches, transitively) that its
+ * `allowed-tools` does not declare, and whether it declares a forbidden one. Reads the filesystem,
+ * read-only. A referenced workflow with no file is skipped; a cycle is walked once.
+ * @param {{skillsDir: string, workflowsDir: string, name: string}} opts
+ * @returns {{declared: string[], disallowed: string[], used: string[], missing: string[],
+ *            forbidden: string[], via: Object<string, string[]>}} `via[tool]` lists the files that use it.
+ */
+function skillCoverage({ skillsDir, workflowsDir, name }) {
+  const skillPath = path.join(skillsDir, name, 'SKILL.md');
+  const { frontmatter, body } = splitFrontmatter(fs.readFileSync(skillPath, 'utf-8'));
+  const via = {};
+  const note = (tools, file) => {
+    for (const t of tools) {
+      if (!via[t]) via[t] = [];
+      if (!via[t].includes(file)) via[t].push(file);
+    }
+  };
+  note(builtinsUsed(body), skillPath);
+
+  const queue = workflowRefs(body);
+  const seen = new Set();
+  while (queue.length > 0) {
+    const n = queue.shift();
+    if (seen.has(n)) continue;
+    seen.add(n);
+    const file = path.join(workflowsDir, `${n}.md`);
+    if (!fs.existsSync(file)) continue;
+    const wBody = splitFrontmatter(fs.readFileSync(file, 'utf-8')).body;
+    note(builtinsUsed(wBody), file);
+    queue.push(...workflowRefs(wBody));
+  }
+
+  const declared = parseToolList(frontmatter, 'allowed-tools');
+  const disallowed = parseToolList(frontmatter, 'disallowed-tools');
+  const used = Object.keys(via).sort();
+  const missing = used.filter(
+    (t) => !declared.includes(t) && !disallowed.includes(t) && !FORBIDDEN_ALLOWED.includes(t),
+  );
+  const forbidden = FORBIDDEN_ALLOWED.filter((t) => declared.includes(t));
+  return { declared, disallowed, used, missing, forbidden, via };
+}
+
+// ─── progress and plan mode ─────────────────────────────────────────────────────────
+
+/** The text of the call whose `(` is at `open`, up to the matching `)` or CALL_CHARS characters. */
+function _callText(text, open) {
+  let depth = 0;
+  const end = Math.min(text.length, open + CALL_CHARS);
+  for (let i = open; i < end; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')' && --depth === 0) return text.slice(open, i + 1);
+  }
+  return text.slice(open, end);
+}
+
+/**
+ * Progress wiring across flow texts: TaskCreate( calls, and TaskUpdate( calls whose arguments set
+ * `status` to completed or in_progress (either `status="x"` or `status: "x"`, on one line or several).
+ * @param {string[]} texts
+ * @returns {{creates: number, completes: number, inProgress: number}}
+ */
+function progressCounts(texts) {
+  let creates = 0;
+  let completes = 0;
+  let inProgress = 0;
+  for (const raw of texts) {
+    const text = String(raw);
+    creates += (text.match(/\bTaskCreate\(/g) || []).length;
+    const re = /\bTaskUpdate\(/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const s = _callText(text, m.index + m[0].length - 1).match(/\bstatus\s*[:=]\s*["'`]?(completed|in_progress)\b/);
+      if (!s) continue;
+      if (s[1] === 'completed') completes++;
+      else inProgress++;
+    }
+  }
+  return { creates, completes, inProgress };
+}
+
+/**
+ * EnterPlanMode() ... ExitPlanMode() spans in a text. Each span reports the 1-based enter line, the
+ * exit line (null when no ExitPlanMode follows before the next EnterPlanMode), whether a line from
+ * enter to exit (or to the next span, or the end) mentions a draft, and the nearest line within
+ * SKIP_WINDOW lines above the enter that names `--auto` (the skip rule), or null.
+ * @param {string} text
+ * @returns {{enterLine: number, exitLine: number|null, mentionsDraft: boolean, skipLine: number|null}[]}
+ */
+function planModeSpans(text) {
+  const lines = String(text).split(/\r?\n/).map(_maskMarker);
+  const enters = [];
+  const exits = [];
+  lines.forEach((l, i) => {
+    if (_hasTool(l, 'EnterPlanMode')) enters.push(i);
+    if (_hasTool(l, 'ExitPlanMode')) exits.push(i);
+  });
+  return enters.map((enter, k) => {
+    const nextEnter = k + 1 < enters.length ? enters[k + 1] : lines.length;
+    const exit = exits.find((x) => x > enter && x < nextEnter);
+    const end = exit !== undefined ? exit : nextEnter - 1;
+    let mentionsDraft = false;
+    for (let j = enter; j <= end && !mentionsDraft; j++) mentionsDraft = /\bdraft/i.test(lines[j]);
+    let skipLine = null;
+    for (let j = enter - 1; j >= Math.max(0, enter - SKIP_WINDOW); j--) {
+      if (lines[j].includes('--auto')) {
+        skipLine = j + 1;
+        break;
+      }
+    }
+    return { enterLine: enter + 1, exitLine: exit !== undefined ? exit + 1 : null, mentionsDraft, skipLine };
+  });
+}
+
+// ─── scan set and groups ────────────────────────────────────────────────────────────
+
+const SKILLS_DIR = 'plugins/devflow/skills/';
+const WORKFLOWS_DIR = 'plugins/devflow/devflow/workflows/';
+
+function _list(dir) {
+  return fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : [];
+}
+
+function _isLegacy(text) {
+  const m = splitFrontmatter(text).frontmatter.match(/^status:\s*(\S+)/m);
+  return m !== null && m[1] === 'legacy';
+}
+
+/**
+ * Every file the sweep scans: skills (plugins/devflow/skills/<name>/SKILL.md) and active workflows
+ * (plugins/devflow/devflow/workflows/*.md, minus `status: legacy`). Agents, references and templates
+ * are out of scope. Read-only.
+ * @param {string} repoRoot
+ * @returns {{rel: string, text: string}[]} sorted by rel (POSIX)
+ */
+function scanSet(repoRoot) {
+  const out = [];
+  for (const e of _list(path.join(repoRoot, SKILLS_DIR))) {
+    if (!e.isDirectory()) continue;
+    const rel = `${SKILLS_DIR}${e.name}/SKILL.md`;
+    const abs = path.join(repoRoot, rel);
+    if (fs.existsSync(abs)) out.push({ rel, text: fs.readFileSync(abs, 'utf-8') });
+  }
+  for (const e of _list(path.join(repoRoot, WORKFLOWS_DIR))) {
+    if (!e.isFile() || !e.name.endsWith('.md')) continue;
+    const rel = `${WORKFLOWS_DIR}${e.name}`;
+    const text = fs.readFileSync(path.join(repoRoot, rel), 'utf-8');
+    if (!_isLegacy(text)) out.push({ rel, text });
+  }
+  return out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+}
+
+/**
+ * Pinned partition of the sweep between the conversion TRDs (62-04..62-09 and 62-11): one owner per
+ * file. Skills map to plugins/devflow/skills/<name>/SKILL.md, workflows to
+ * plugins/devflow/devflow/workflows/<name>.md. `todo-status-objective` predates workstreams joining
+ * it; the name is kept. 62-03's repo test checks the table against the real tree.
+ */
+const GROUPS = {
+  'micro-quick-debug': {
+    skills: ['micro', 'quick', 'debug'],
+    workflows: ['micro', 'quick'],
+  },
+  'verify-work': {
+    skills: ['verify-work'],
+    workflows: ['verify-work', 'diagnose-issues', 'verify-objective'],
+  },
+  'plan-build': {
+    skills: ['plan-objective', 'build'],
+    workflows: ['plan-objective', 'build'],
+  },
+  'new-project': {
+    skills: ['new-project'],
+    workflows: ['new-project'],
+  },
+  milestone: {
+    skills: ['milestone'],
+    workflows: ['complete-milestone', 'new-milestone', 'audit-milestone', 'plan-milestone-gaps'],
+  },
+  'execute-and-map': {
+    skills: ['execute-objective', 'discuss-objective', 'map-codebase', 'adopt'],
+    workflows: [
+      'execute-objective',
+      'transition',
+      'execute-trd',
+      'discuss-objective',
+      'discovery-objective',
+      'map-codebase',
+      'adopt',
+    ],
+  },
+  'todo-status-objective': {
+    skills: ['todo', 'status', 'objective', 'decide', 'handoff', 'workstreams'],
+    workflows: [
+      'add-todo',
+      'check-todos',
+      'health',
+      'pause-work',
+      'progress',
+      'resume-project',
+      'add-objective',
+      'remove-objective',
+      'workstreams-merge',
+      'workstreams-run',
+      'workstreams-setup',
+      'workstreams-status',
+    ],
+  },
+  remaining: {
+    skills: [
+      'security-audit',
+      'cleanup',
+      'settings',
+      'set-profile',
+      'help',
+      'design-review',
+      'ui-eval',
+      'research-objective',
+      'list-objective-assumptions',
+      'flow',
+      'gh-sync',
+      'doctor',
+      'awareness',
+      'initiatives',
+      'sync-roadmap',
+      'tui',
+    ],
+    workflows: [
+      'security-audit',
+      'cleanup',
+      'settings',
+      'set-profile',
+      'help',
+      'design-review',
+      'ui-eval',
+      'research-objective',
+      'list-objective-assumptions',
+    ],
+  },
+};
+
+/** GROUPS expanded to repo-relative paths, per group (skills first, then workflows). */
+const GROUP_PATHS = Object.fromEntries(
+  Object.entries(GROUPS).map(([group, t]) => [
+    group,
+    [...t.skills.map((n) => `${SKILLS_DIR}${n}/SKILL.md`), ...t.workflows.map((n) => `${WORKFLOWS_DIR}${n}.md`)],
+  ]),
+);
+
+/**
+ * The conversion group that owns a repo-relative path, or null when the table does not pin it
+ * (a legacy workflow, or a file outside the scan set).
+ * @param {string} relPath
+ * @returns {string|null}
+ */
+function groupOf(relPath) {
+  const rel = String(relPath).split(path.sep).join('/');
+  for (const [group, paths] of Object.entries(GROUP_PATHS)) {
+    if (paths.includes(rel)) return group;
+  }
+  return null;
+}
+
 module.exports = {
   MIN_REASON,
   WINDOW_ABOVE,
@@ -259,5 +645,16 @@ module.exports = {
   FORBIDDEN_ALLOWED,
   MARKER_RE,
   CHOICE_PATTERNS,
+  GROUPS,
+  GROUP_PATHS,
   scanPrompts,
+  splitFrontmatter,
+  parseToolList,
+  builtinsUsed,
+  workflowRefs,
+  skillCoverage,
+  progressCounts,
+  planModeSpans,
+  scanSet,
+  groupOf,
 };
