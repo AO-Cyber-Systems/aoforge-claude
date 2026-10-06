@@ -155,6 +155,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 60]: 60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)
 - [Objective 60]: 60-06: Bash edit gate ships default warn; measured upper-bound false-positive rate 633/17957 = 0.035251 exceeds the 0.02 threshold (references/bash-edit-gate-evidence.json); 0 detector misparses found
 - [Objective 60]: Docs word DEVFLOW_SKIP_EDIT_GATE=1 as valid only in the environment Claude Code was launched from, never as an inline Bash prefix (hooks run in Claude Code's own process); S10b dogfood row proves the prefix is denied
+- [Objective 61]: 61-01: checks-pin.cjs (fs and path only) owns WORKFLOW_PATH, MANAGED_HEADER and DEFAULT_CHECKS_WORKFLOW; gh-setup imports them. W062 (validate Check 17) and doctor check 26 both render checks-pin.collectPinFindings; check 22 defers W062. Only release-shaped devflow-ref and the default reusable workflow's @ref are compared, as integers.
 
 ## Performance Metrics
 
@@ -251,4 +252,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 60 P05 | 8min | 3 tasks | 5 files |
 | Objective 60 P06 | 8min | 2 tasks | 3 files |
 | Objective 60 P07 | 13min | 3 tasks | 4 files |
+| Objective 61 P01 | 10min | 3 tasks | 10 files |
 

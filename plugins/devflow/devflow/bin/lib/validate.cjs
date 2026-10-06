@@ -744,6 +744,21 @@ function cmdValidateHealth(cwd, options, raw) {
     );
   }
 
+  // ─── Check 17: Stale checks workflow pin (objective 61, STOR-03) ───────────
+  // `.github/workflows/devflow.yml`, written by `gh setup --apply`, pins DevFlow's reusable workflow and its
+  // devflow-ref to the release that ran setup, and nothing re-pins it after an upgrade. W062: the managed workflow pins
+  // a release older than the installed plugin (checks-pin.cjs owns the parse and the decision; a branch or SHA pin, a
+  // fork's own @ref and an unmanaged file are never stale). The comparison version is the installed plugin
+  // (installedVer, Check 11), else the running engine (runningVer). A local file read with no gh or git call. A warning
+  // and never repairable: re-pinning is `gh setup --apply` plus a pull request, which a repair must never do. A check
+  // that cannot run is never silent: it reports under its own code, like Check 12b.
+  try {
+    const r = require('./checks-pin.cjs').collectPinFindings({ projectRoot: cwd, installedVersion: installedVer || runningVer });
+    for (const f of r.findings) addIssue('warning', f.code, f.message, f.fix, false);
+  } catch (e) {
+    addIssue('warning', 'W062', `checks-pin-check-failed: ${e.message}`, 'Run `df-tools doctor` to see why', false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
