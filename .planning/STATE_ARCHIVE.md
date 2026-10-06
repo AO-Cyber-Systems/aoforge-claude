@@ -160,6 +160,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 61]: [61-03] Objective issue and PR titles share one name chain (objective-name.cjs: ROADMAP name, OBJECTIVE.md heading, bare slug); PR titles stay create-only, existing PRs are not renamed
 - [Objective 61]: telemetry --scan implemented (not rejected); every unrecognised telemetry flag, and --limit/--since/--root without --scan, exits 1
 - [Objective 61]: 61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape
+- [Objective 61]: 61-06: a conflict workflow prints no pins; gh pr create carries no --base (the default branch is gh's default); the dry-run preview maps plan statuses to outcome statuses so filesLines is reused with only its first line changed
 
 ## Performance Metrics
 
@@ -261,4 +262,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 61 P03 | 5min | 2 tasks | 5 files |
 | Objective 61 P04 | 5min | 2 tasks | 8 files |
 | Objective 61 P05 | 6min | 2 tasks | 4 files |
+| Objective 61 P06 | 7min | 2 tasks | 7 files |
 
