@@ -166,6 +166,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 61]: 61-08: gate-skill-requires.js registered on UserPromptExpansion (no matcher; filtering in code) and PreToolUse(Skill); UserPromptExpansion confirmed accepted by Claude Code 2.1.292 (plugin validate plus binary event table); gate is not project-scoped and fails open
 - [Objective 61]: Live skill-gate check runs with a scratch HOME and cwd so sync-runtime never touches the real ~/.claude/devflow mirror; it blocked a typed /devflow:gh-sync status in Claude Code 2.1.292
 - [Objective 61]: site/data/devflow.json stays a release-time artifact: gen-docs-data.cjs writes a hard-coded repo path, so it was proven against a scratch copy of the tree
+- [Objective 62]: 62-02: bare Options: list heads cannot be quoted in a 12-character Before, so each is covered by the neighbouring prompt row that deletes it; free-text lines the scanner window already passes use keep, not a marker
 
 ## Performance Metrics
 
@@ -271,4 +272,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 61 P07 | 10min | 3 tasks | 11 files |
 | Objective 61 P08 | 8min | 2 tasks | 5 files |
 | Objective 61 P09 | 11min | 3 tasks | 7 files |
+| Objective 62 P02 | 14min | 2 tasks | 2 files |
 

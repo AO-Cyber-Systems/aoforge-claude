@@ -1,9 +1,9 @@
 {
-  "current_objective": "61",
-  "current_job": 9,
-  "total_jobs": 9,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "62",
+  "current_job": 1,
+  "total_jobs": 11,
+  "progress_pct": 98,
+  "status": "executing",
   "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
@@ -894,6 +894,11 @@
     {
       "objective": "61",
       "summary": "site/data/devflow.json stays a release-time artifact: gen-docs-data.cjs writes a hard-coded repo path, so it was proven against a scratch copy of the tree",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-02: bare Options: list heads cannot be quoted in a 12-character Before, so each is covered by the neighbouring prompt row that deletes it; free-text lines the scanner window already passes use keep, not a marker",
       "rationale": null
     }
   ],
