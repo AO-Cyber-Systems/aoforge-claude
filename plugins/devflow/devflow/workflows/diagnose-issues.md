@@ -78,13 +78,14 @@ This runs in parallel - all gaps investigated simultaneously.
 <step name="spawn_agents">
 **Progress tracking (if available):**
 
-For each gap, create a progress task:
+For each gap, create a progress task and set it in_progress as its agent is spawned (all agents start at once):
 ```
 TaskCreate(
   subject="Diagnose: {truth_short}",
   description="Investigating root cause of: {truth}",
   activeForm="Diagnosing {truth_short}"
 )
+TaskUpdate(taskId=gap_task_id, status="in_progress")
 ```
 
 **Spawn debug agents in parallel:**
@@ -150,6 +151,7 @@ If agent returns `## INVESTIGATION INCONCLUSIVE`:
 - root_cause: "Investigation inconclusive - manual review needed"
 - Note which issue needs manual attention
 - Include remaining possibilities from agent return
+- Progress tracking (if available): `TaskUpdate(taskId=gap_task_id, status="completed", description="Inconclusive: manual review needed")`
 </step>
 
 <step name="update_uat">

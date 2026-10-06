@@ -128,7 +128,7 @@ Build test list from extracted deliverables.
 
 **Progress tracking (if available):**
 
-Create a progress task for each test/deliverable upfront:
+Create a progress task for each test/deliverable upfront. Each goes in_progress when its box is shown (`present_test`) and completed with its result (`process_response`):
 ```
 For each test (1..N):
   TaskCreate(
@@ -196,6 +196,11 @@ Proceed to `present_test`.
 **Present current test to user:**
 
 Read Current Test section from UAT file.
+
+**Progress tracking (if available):** before showing this test's box:
+```
+TaskUpdate(taskId=test_task_id, status="in_progress")
+```
 
 **Browser pre-verification (for UI tests):**
 
@@ -319,9 +324,9 @@ Append to Gaps section (structured YAML for plan-objective --gaps):
 
 **After any response:**
 
-**Update progress (if available):**
+**Progress tracking (if available):** complete the test's task with its result: `pass`, `issue: {severity}` or `skipped`.
 ```
-TaskUpdate(taskId=test_task_id, status="completed")
+TaskUpdate(taskId=test_task_id, status="completed", description="{pass | issue: severity | skipped}")
 ```
 
 Update Summary counts.
@@ -341,6 +346,12 @@ node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{phase
 ```
 
 Find first test with `result: [pending]`.
+
+**Progress tracking (if available):** a resumed session starts with no tasks for these tests. Make a task again only for each test still `result: [pending]`; answered tests (pass, issue, skipped) get none:
+```
+For each pending test:
+  TaskCreate(subject="Test {n}/{total}: {test_name}", description="UAT: {expected_behavior}", activeForm="Testing {test_name}")
+```
 
 Announce:
 ```
@@ -412,6 +423,7 @@ TaskCreate(
   description="Spawning parallel debug agents to investigate root causes",
   activeForm="Diagnosing UAT issues"
 )
+TaskUpdate(taskId=diagnose_task_id, status="in_progress")
 ```
 
 ```
@@ -427,6 +439,7 @@ Spawning parallel debug agents to investigate each issue.
 - Spawn parallel debug agents for each issue
 - Collect root causes
 - Record root causes in the UAT gaps (draft + `df-tools doc put`, as diagnose-issues does)
+- Progress tracking (if available), only once the root causes are recorded: `TaskUpdate(taskId=diagnose_task_id, status="completed")`
 - Proceed to `plan_gap_closure`
 
 Diagnosis runs automatically - no user prompt. Parallel agents investigate simultaneously, so overhead is minimal and fixes are more accurate.
@@ -434,6 +447,12 @@ Diagnosis runs automatically - no user prompt. Parallel agents investigate simul
 
 <step name="plan_gap_closure">
 **Auto-plan fixes from diagnosed gaps:**
+
+**Progress tracking (if available):** one task for planning and checking the fixes; it completes once the plans are checked (`verify_gap_plans` or `revision_loop`).
+```
+TaskCreate(subject="Plan gap closure", description="Planning and checking fixes for the diagnosed UAT gaps", activeForm="Planning gap closure")
+TaskUpdate(taskId=gap_plan_task_id, status="in_progress")
+```
 
 Display:
 ```
@@ -478,7 +497,7 @@ Plans must be executable prompts.
 
 On return:
 - **PLANNING COMPLETE:** Proceed to `verify_gap_plans`
-- **PLANNING INCONCLUSIVE:** Report and offer manual intervention
+- **PLANNING INCONCLUSIVE:** Report and offer manual intervention; `TaskUpdate(taskId=gap_plan_task_id, status="completed", description="Planning inconclusive")` (if available)
 </step>
 
 <step name="verify_gap_plans">
@@ -523,7 +542,7 @@ Return one of:
 ```
 
 On return:
-- **VERIFICATION PASSED:** Proceed to `present_ready`
+- **VERIFICATION PASSED:** `TaskUpdate(taskId=gap_plan_task_id, status="completed")` (if available), proceed to `present_ready`
 - **ISSUES FOUND:** Proceed to `revision_loop`
 </step>
 

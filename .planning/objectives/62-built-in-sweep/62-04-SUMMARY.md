@@ -7,5 +7,5 @@ trd: "04"
 
 ## Progress
 - [x] Task 1: micro, quick and debug — progress, plain-text descriptions, AskUserQuestion choices — RED fc90671e, GREEN 9ad824d4
-- [ ] Task 2: verify-work progress through in_progress and completed — RED (this commit); next step: GREEN — add AskUserQuestion, TaskCreate, TaskUpdate after Task in skills/verify-work allowed-tools; in verify-work.md add in_progress before each test box, result description on completion, resume re-creation for [pending] tests, Diagnose in_progress/completed, Plan gap closure task
-- [ ] Task 3: The verify group's prompts
+- [x] Task 2: verify-work progress through in_progress and completed — RED 43a880e5, GREEN (this commit)
+- [ ] Task 3: The verify group's prompts — next step: RED — empty the `prompts` array of verify-work.json, run builtin-sweep.repo.test.cjs (fails naming the 8 entries), commit test(62-04): verify prompts leave the baseline
