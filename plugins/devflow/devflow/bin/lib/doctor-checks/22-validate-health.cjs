@@ -7,9 +7,11 @@
 // with HOME=ctx.userHome, so a test's fake home is what it sees — and its JSON is parsed (never its
 // human output). Large output arrives as `@file:<tmp path>`, which is followed.
 //
-// Codes another doctor check owns are DEFERRED, never double-reported: E020 / I022 (mirror vs.
-// installed plugin — the runtime-mirror check), W040 (project behind — pending-migrations) and
-// W057-W061 (store sync health — gh-store-sync, TRD 50-07).
+// Codes another doctor check owns are DEFERRED, never double-reported. One line per owner:
+//   E020 / I022  mirror vs. installed plugin — runtime-mirror
+//   W040         project behind — pending-migrations
+//   W057-W061    store sync health — gh-store-sync, TRD 50-07
+//   W062         checks-workflow pin — checks-workflow-pin, TRD 61-01
 // They are listed in details.deferred and never set the severity.
 //
 //   remaining errors → error; remaining warnings → warn; else ok
@@ -22,7 +24,7 @@ const { spawnSync } = require('child_process');
 const dg = require('../doctor-git.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
 
-const DEFERRED = ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061'];
+const DEFERRED = ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062'];
 const DF_TOOLS = 'node ~/.claude/devflow/bin/df-tools.cjs';
 const HEALTH_COMMAND = `${DF_TOOLS} validate health`;
 const REPAIR_COMMAND = `${DF_TOOLS} validate health --repair`;
