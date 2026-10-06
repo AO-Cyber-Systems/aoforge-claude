@@ -925,6 +925,11 @@
       "objective": "62",
       "summary": "62-04: verify-work with more than 4 active UAT sessions takes another session's objective under Other, not a row number (an objective number already means start new)",
       "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "plan-objective plan-mode review is step 13.5 (a half step, no renumbering); the planner is told not to push when the review will run and 13.5 pushes after approval; build keeps its single strategy approval and pushes right away",
+      "rationale": null
     }
   ],
   "blockers": [],

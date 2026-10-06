@@ -172,6 +172,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 62]: 62-03: A bare list head (Options:) is covered by any inventory row in the same file within 12 lines; an ask-misuse row is resolved when no ask-without-options finding holds its text
 - [Objective 62]: 62-04: debug CHECKPOINT REACHED follows inventory row BS-008 (human-verify asks Verify: Approved / Issues found) over the TRD error_recovery note
 - [Objective 62]: 62-04: verify-work with more than 4 active UAT sessions takes another session's objective under Other, not a row number (an objective number already means start new)
+- [Objective 62]: plan-objective plan-mode review is step 13.5 (a half step, no renumbering); the planner is told not to push when the review will run and 13.5 pushes after approval; build keeps its single strategy approval and pushes right away
 
 ## Performance Metrics
 
@@ -281,4 +282,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P02 | 14min | 2 tasks | 2 files |
 | Objective 62 P03 | 10min | 2 tasks | 12 files |
 | Objective 62 P04 | 8min | 3 tasks | 10 files |
+| Objective 62 P05 | 8min | 3 tasks | 4 files |
 

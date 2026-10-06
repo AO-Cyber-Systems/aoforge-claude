@@ -13,16 +13,17 @@ allowed-tools:
   - Glob
   - Grep
   - Task
+  - TaskCreate
+  - TaskUpdate
   - WebFetch
   - EnterPlanMode
-  - ExitPlanMode
   - AskUserQuestion
   - mcp__context7__*
 ---
 <objective>
 Create executable objective prompts (JOB.md files) for a roadmap objective with integrated research and verification.
 
-**Default flow:** Research (if needed) → Plan → Verify → Done
+**Default flow:** Research (if needed) → Plan → Verify → Review the TRD drafts in plan mode → Done
 
 **Orchestrator role:** Parse arguments, validate objective, research domain (unless skipped), spawn planner, verify with job-checker, iterate until pass or max iterations, present results.
 </objective>
@@ -30,6 +31,7 @@ Create executable objective prompts (JOB.md files) for a roadmap objective with 
 <execution_context>
 @~/.claude/devflow/workflows/plan-objective.md
 @~/.claude/devflow/references/ui-brand.md
+@~/.claude/devflow/references/built-ins.md
 </execution_context>
 
 <context>
