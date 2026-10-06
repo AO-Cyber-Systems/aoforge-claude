@@ -142,8 +142,11 @@ const VALID_BASH_MODES = new Set(['strict', 'warn', 'off']);
  * What `gates.bashEditGate` means when it is unset or invalid.
  *
  * Set by TRD 60-06 from `recommendDefault(false_positive_rate)` of the
- * session-audit replay. The evidence is references/bash-edit-gate-evidence.json,
- * and the agreement is pinned by a test.
+ * session-audit replay over every retained transcript. The evidence is
+ * references/bash-edit-gate-evidence.json: 633/17957 = 0.035251 (an upper bound),
+ * threshold 0.02, so the measured recommendation is warn. The agreement of this
+ * constant, the evidence and recommendDefault is pinned by a test, so a new
+ * measurement that supports strict must change all three together.
  */
 const BASH_EDIT_GATE_DEFAULT = 'warn';
 
