@@ -281,7 +281,7 @@ TRDs:
 - [x] 62-03-sweep-ratchet-repo-test-TRD.md — (W2) reconcile scanner with inventory; `builtin-sweep.repo.test.cjs` CI ratchet with eight per-group baselines
 - [x] 62-04-micro-quick-debug-verify-work-TRD.md — (W3) BLTN-01 progress tasks and AskUserQuestion in micro, quick, debug, verify-work
 - [ ] 62-05-plan-objective-and-build-TRD.md — (W3) BLTN-02 plan-objective TRD draft review in plan mode (push after approval); progress in plan-objective and build; their prompts
-- [ ] 62-06-new-project-drafts-TRD.md — (W3) BLTN-02 PROJECT.md, requirements and roadmap drafts in plan mode; schema fixes and prompts
+- [x] 62-06-new-project-drafts-TRD.md — (W3) BLTN-02 PROJECT.md, requirements and roadmap drafts in plan mode; schema fixes and prompts
 - [ ] 62-07-milestone-drafts-TRD.md — (W3) BLTN-02 milestone complete entry and PROJECT.md drafts in plan mode; milestone workflow prompts
 - [ ] 62-08-execute-and-map-prompts-TRD.md — (W3) prompts in execute-objective, transition, discuss/discovery, map-codebase; adopt `disallowed-tools: AskUserQuestion`
 - [ ] 62-09-todo-status-workstreams-prompts-TRD.md — (W3) prompts in todo, status, objective, decide, handoff and workstreams

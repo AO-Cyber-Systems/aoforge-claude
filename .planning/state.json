@@ -930,6 +930,11 @@
       "objective": "62",
       "summary": "plan-objective plan-mode review is step 13.5 (a half step, no renumbering); the planner is told not to push when the review will run and 13.5 pushes after approval; build keeps its single strategy approval and pushes right away",
       "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "new-project keys its plan-mode reviews on --auto only, never workflow.auto_advance (it writes auto_advance true into every config)",
+      "rationale": null
     }
   ],
   "blockers": [],
