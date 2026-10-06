@@ -1,0 +1,81 @@
+{
+  "group": "execute-and-map",
+  "prompts": [
+    {
+      "file": "plugins/devflow/devflow/workflows/discovery-objective.md",
+      "kind": "prose-choice",
+      "text": "These may affect implementation. Acknowledge and proceed? (yes / address first)\""
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/execute-objective.md",
+      "kind": "prose-choice",
+      "text": "- `status: gaps_found` OR `status: human_needed` → escalate to user. Present the checkpoint using the standard \"Present to user\" format (step 4 of standard flow below) PLUS append a `### Verifier Report` section with the verifier's full evidence output. Wait for user response before spawning continuation agent."
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/execute-objective.md",
+      "kind": "prose-choice",
+      "text": "Options:"
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/execute-trd.md",
+      "kind": "prose-choice",
+      "text": "Present plan identification, wait for confirmation."
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/map-codebase.md",
+      "kind": "prose-choice",
+      "text": "Otherwise show the draft and ask: \"Write this as .planning/STACK.md? (yes / edit / skip)\"."
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/map-codebase.md",
+      "kind": "prose-choice",
+      "text": "Pausing before commit. Reply \"safe to proceed\" if the flagged content is not actually sensitive, or edit the files first."
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/map-codebase.md",
+      "kind": "prose-choice",
+      "text": "Wait for user confirmation before continuing to commit_codebase_map."
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/map-codebase.md",
+      "kind": "prose-choice",
+      "text": "Wait for user response."
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/transition.md",
+      "kind": "prose-choice",
+      "text": "Ask: \"Objective [X] complete — all [Y] plans finished. Ready to mark done and move to Objective [X+1]?\""
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/transition.md",
+      "kind": "prose-choice",
+      "text": "Options:"
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/transition.md",
+      "kind": "prose-choice",
+      "text": "Options:"
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/transition.md",
+      "kind": "prose-choice",
+      "text": "Wait for confirmation before proceeding."
+    },
+    {
+      "file": "plugins/devflow/devflow/workflows/transition.md",
+      "kind": "prose-choice",
+      "text": "Wait for user decision."
+    },
+    {
+      "file": "plugins/devflow/skills/map-codebase/SKILL.md",
+      "kind": "prose-choice",
+      "text": "1. Check if .planning/codebase/ already exists (offer to refresh or skip)"
+    }
+  ],
+  "progress": [],
+  "plan_mode": [],
+  "allowed_tools_missing": [
+    "execute-objective:TaskUpdate"
+  ],
+  "allowed_tools_forbidden": []
+}
