@@ -1,37 +1,6 @@
 {
   "group": "plan-build",
-  "prompts": [
-    {
-      "file": "plugins/devflow/devflow/workflows/build.md",
-      "kind": "prose-choice",
-      "text": "If `--pause` flag: Display TRD summary and wait for confirmation."
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/build.md",
-      "kind": "prose-choice",
-      "text": "If `--pause` flag: Display research results and wait for confirmation before proceeding."
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/plan-objective.md",
-      "kind": "prose-choice",
-      "text": "**If exists:** Offer: 1) Add more TRDs, 2) View existing, 3) Replan from scratch."
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/plan-objective.md",
-      "kind": "prose-choice",
-      "text": "- **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/plan-objective.md",
-      "kind": "prose-choice",
-      "text": "- **`## RESEARCH BLOCKED`:** Display blocker, offer: 1) Provide context, 2) Skip research, 3) Abort"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/plan-objective.md",
-      "kind": "prose-choice",
-      "text": "Offer: 1) Force proceed, 2) Provide guidance and retry, 3) Abandon"
-    }
-  ],
+  "prompts": [],
   "progress": [],
   "plan_mode": [],
   "allowed_tools_missing": [],
