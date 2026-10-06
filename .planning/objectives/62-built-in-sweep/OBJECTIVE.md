@@ -1,6 +1,6 @@
 ---
 work: feature
-status: verifying
+status: complete
 ---
 
 # Built-in sweep
