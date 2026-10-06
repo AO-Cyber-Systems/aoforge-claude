@@ -390,7 +390,21 @@ Initialize with any decisions made during questioning:
 
 Do not compress. Capture everything gathered.
 
-**Commit PROJECT.md:**
+**Review the draft (plan mode):**
+
+**Skip if:** `--auto` (auto mode approves the draft, as before). new-project does not key on
+`workflow.auto_advance`: it writes that key as true for every project (references/built-ins.md).
+
+EnterPlanMode()
+
+Put in the plan: the full PROJECT.md draft, then "On approval: publish with `doc put PROJECT.md` and commit".
+
+ExitPlanMode()
+
+Approved → apply any edits the user made to the draft in the plan, then publish. "No, keep planning" → add
+`## Requested changes`, ExitPlanMode again; on approval apply them to the draft and present it again.
+
+**Commit PROJECT.md (after approval or auto mode):**
 
 ```bash
 mkdir -p .planning
@@ -935,9 +949,15 @@ Reject vague requirements. Push for specificity:
 - "Handle authentication" → "User can log in with email/password and stay logged in across sessions"
 - "Support sharing" → "User can share post via link that opens in recipient's browser"
 
-**Present full requirements list (interactive mode only):**
+**Review the requirements draft (plan mode, interactive mode only):**
 
-Show every requirement (not counts) for user confirmation:
+**Skip if:** `--auto` (auto mode approves the draft, as before). new-project does not key on
+`workflow.auto_advance`: it writes that key as true for every project (references/built-ins.md).
+
+EnterPlanMode()
+
+Put in the plan: every requirement of the draft (not counts), in this shape, then "On approval: publish with
+`doc put REQUIREMENTS.md` and commit":
 
 ```
 ## v1 Requirements
@@ -952,15 +972,15 @@ Show every requirement (not counts) for user confirmation:
 - [ ] **CONT-02**: User can edit their own posts
 
 [... full list ...]
-
----
-
-Does this capture what you're building? (yes / adjust)
 ```
 
-If "adjust": Return to scoping.
+ExitPlanMode()
 
-**Commit requirements:**
+Approved → apply any edits the user made to the draft in the plan, then publish. "No, keep planning" → add
+`## Requested changes`, ExitPlanMode again; on approval return to scoping with the changes (the same path "adjust"
+took), update the draft and present it again.
+
+**Commit requirements (after approval or auto mode):**
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs doc put REQUIREMENTS.md --from "$DRAFT"
@@ -1031,7 +1051,8 @@ TaskUpdate(taskId=roadmap_task_id, status="completed")
 
 **If `## ROADMAP CREATED`:**
 
-Read the created ROADMAP.md and present it nicely inline:
+Read the created ROADMAP.md and build the proposed roadmap from it, in this shape. Interactive mode puts it in the
+plan below; auto mode needs no review:
 
 ```
 ---
@@ -1071,26 +1092,28 @@ Success criteria:
 
 **If auto mode:** Skip approval gate — auto-approve and commit directly.
 
-**CRITICAL: Ask for approval before committing (interactive mode only):**
+**CRITICAL: Review the roadmap before committing (plan mode, interactive mode only):**
 
-Use AskUserQuestion:
-- header: "Roadmap"
-- question: "Does this roadmap structure work for you?"
-- options:
-  - "Approve" — Commit and continue
-  - "Adjust objectives" — Tell me what to change
-  - "Review full file" — Show raw ROADMAP.md
+**Skip if:** `--auto` (auto mode approves the roadmap, as before). new-project does not key on
+`workflow.auto_advance`: it writes that key as true for every project (references/built-ins.md).
 
-**If "Approve":** Continue to commit.
+EnterPlanMode()
 
-**If "Adjust objectives":**
-- Get user's adjustment notes
-- Re-spawn roadmapper with revision context:
+Put in the plan: the Proposed Roadmap above (the summary table and every objective's details) with the path
+`.planning/ROADMAP.md` for the full file, then "On approval: commit ROADMAP.md, STATE.md and REQUIREMENTS.md". The
+roadmapper has already persisted the roadmap draft; nothing is committed until approval.
+
+ExitPlanMode()
+
+**If approved:** Continue to commit.
+
+**If "No, keep planning":** add `## Requested changes` to the plan stating the user's notes concretely, and
+ExitPlanMode again. On approval, re-spawn the roadmapper with the revision context:
   ```
   Task(prompt="
   <revision>
   User feedback on roadmap:
-  [user's notes]
+  [the Requested changes]
 
   Current ROADMAP.md: @.planning/ROADMAP.md
 
@@ -1099,10 +1122,7 @@ Use AskUserQuestion:
   </revision>
   ", subagent_type="roadmapper", model="{roadmapper_model}", description="Revise roadmap")
   ```
-- Present revised roadmap
-- Loop until user approves
-
-**If "Review full file":** Display raw `cat .planning/ROADMAP.md`, then re-ask.
+Then put the revised roadmap draft in the plan and review it again. Loop until the user approves.
 
 **Commit roadmap (after approval or auto mode):**
 

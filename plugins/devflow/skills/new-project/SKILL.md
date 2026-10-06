@@ -11,6 +11,9 @@ allowed-tools:
   - Write
   - Task
   - AskUserQuestion
+  - TaskCreate
+  - TaskUpdate
+  - EnterPlanMode
 ---
 <context>
 **Flags:**
@@ -35,6 +38,7 @@ Initialize a new project through unified flow: questioning → research (optiona
 @~/.claude/devflow/workflows/new-project.md
 @~/.claude/devflow/references/questioning.md
 @~/.claude/devflow/references/ui-brand.md
+@~/.claude/devflow/references/built-ins.md
 @~/.claude/devflow/templates/project.md
 @~/.claude/devflow/templates/requirements.md
 </execution_context>
