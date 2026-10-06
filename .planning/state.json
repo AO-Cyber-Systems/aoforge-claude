@@ -1,6 +1,6 @@
 {
   "current_objective": "62",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 11,
   "progress_pct": 98,
   "status": "executing",
@@ -914,6 +914,11 @@
     {
       "objective": "62",
       "summary": "62-03: A bare list head (Options:) is covered by any inventory row in the same file within 12 lines; an ask-misuse row is resolved when no ask-without-options finding holds its text",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-07: milestone complete reviews the MILESTONES entry and PROJECT.md drafts in one plan-mode step (review_drafts); the tag push is behind its own AskUserQuestion with Keep local recommended",
       "rationale": null
     }
   ],

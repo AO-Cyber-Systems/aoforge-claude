@@ -170,6 +170,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 62]: builtin-audit groupOf returns null for an unpinned path (legacy workflow or unowned file) instead of a default group, so 62-03 can see it
 - [Objective 62]: 62-02: bare Options: list heads cannot be quoted in a 12-character Before, so each is covered by the neighbouring prompt row that deletes it; free-text lines the scanner window already passes use keep, not a marker
 - [Objective 62]: 62-03: A bare list head (Options:) is covered by any inventory row in the same file within 12 lines; an ask-misuse row is resolved when no ask-without-options finding holds its text
+- [Objective 62]: 62-07: milestone complete reviews the MILESTONES entry and PROJECT.md drafts in one plan-mode step (review_drafts); the tag push is behind its own AskUserQuestion with Keep local recommended
 
 ## Performance Metrics
 
@@ -278,4 +279,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P01 | 7min | 3 tasks | 3 files |
 | Objective 62 P02 | 14min | 2 tasks | 2 files |
 | Objective 62 P03 | 10min | 2 tasks | 12 files |
+| Objective 62 P07 | 4min | 2 tasks | 5 files |
 
