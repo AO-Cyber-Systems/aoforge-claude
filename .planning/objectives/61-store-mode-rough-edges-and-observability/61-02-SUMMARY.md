@@ -11,5 +11,5 @@ requirements-completed: []
 In progress.
 
 ## Progress
-- [x] Task 1: skill-requires.cjs, the frontmatter field, skill-name resolution, PATH lookup and refusal text (tests 1-7) — (this commit)
-- [ ] Task 2: doctor check 14-skill-requires, the gh-sync declaration and the repo contract (tests 8-18) — next step: write plugins/devflow/devflow/bin/lib/doctor-checks/14-skill-requires.test.cjs and skill-requires.repo.test.cjs, run them RED, then commit
+- [x] Task 1: skill-requires.cjs, the frontmatter field, skill-name resolution, PATH lookup and refusal text (tests 1-7) — e9629f0b (RED), 0994be40 (GREEN)
+- [x] Task 2: doctor check 14-skill-requires, the gh-sync declaration and the repo contract (tests 8-18) — a9e8cfc8 (RED), (this commit) (GREEN)

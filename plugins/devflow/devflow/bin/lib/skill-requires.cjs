@@ -267,4 +267,5 @@ module.exports = {
   findOnPath,
   missingTools,
   refusalReason,
+  hintFor,
 };
