@@ -236,7 +236,7 @@ TRDs:
 - [x] 60-02-bash-write-detector-TRD.md — (W2) GATE-01/02: pure `detectBashWrites` (redirect, tee, sed -i, perl -i, cp/mv, inline python/node, `sh -c`, `cd` tracking); mentions are data
 - [x] 60-03-bash-write-gate-TRD.md — (W3) GATE-01/03/04/05: `evaluateBashWrites` (tracked, in-project, non-md, non-.planning), `gitTrackedSet`, `gates.bashEditGate` least-of `gates.editGate`, `recommendDefault` (≤0.02 → strict)
 - [ ] 60-04-bash-gate-hook-TRD.md — (W4) GATE-01..04: `hooks/gate-bash-writes.js` on PreToolUse(Bash), reusing gate-edits' escapes; lazy override consumption; registration + inventory/audit entries
-- [ ] 60-05-replay-false-positives-TRD.md — (W4) GATE-05: `session-audit` `bash_edit_gate` replay through the hook's decision (ambient signals, history-accurate tracked check, upper-bound rate) + raw line + `devflow-bash-edit-gate` category
+- [x] 60-05-replay-false-positives-TRD.md — (W4) GATE-05: `session-audit` `bash_edit_gate` replay through the hook's decision (ambient signals, history-accurate tracked check, upper-bound rate) + raw line + `devflow-bash-edit-gate` category
 - [ ] 60-06-measure-and-set-default-TRD.md — (W5) GATE-05: real-corpus `session-audit --limit 0`, triage and test-first misparse fixes, evidence JSON, `BASH_EDIT_GATE_DEFAULT` from the measurement, CI agreement test
 - [ ] 60-07-dogfood-and-docs-TRD.md — (W6) scratch-clone stdin smoke S1-S13 + best-effort live Claude Code check; CHANGELOG/CLAUDE.md/USER-GUIDE/gen-docs-data; full `npm test`
 
@@ -300,7 +300,7 @@ TRDs:
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
-| 60. Edit gate enforces the action | v1.5 | 3/7 | In Progress | - |
+| 60. Edit gate enforces the action | v1.5 | 4/7 | In Progress | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |

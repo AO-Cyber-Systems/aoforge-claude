@@ -50,7 +50,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 57 — Estimation data foundation (completed 2026-10-05, 7/7 TRDs)
 **Objective complete:** 58 — Estimation engine and surfacing (completed 2026-10-05, 10/10 TRDs)
 **Objective complete:** 59 — State and merge plumbing (completed 2026-10-05, 7/7 TRDs)
-**Status:** Executing objective 60 — 3/7 TRDs complete
+**Status:** Executing objective 60 — 4/7 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -267,6 +267,6 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-06T18:12:01.266Z
+Last session: 2026-10-06T18:21:17.288Z
 Resume file: `None`
-Stopped at: Completed 60-03-bash-write-gate-TRD.md
+Stopped at: Completed 60-05-replay-false-positives-TRD.md

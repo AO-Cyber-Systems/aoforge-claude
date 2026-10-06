@@ -1,6 +1,6 @@
 {
   "current_objective": "60",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -815,6 +815,16 @@
       "objective": "60",
       "summary": "gitTrackedSet takes an optional env so hermetic tests run git without mutating process.env; the hook never passes it",
       "rationale": "Keeps process-wide env mutation out of the tests; one test still runs the default-env path under applyGitTestEnv"
+    },
+    {
+      "objective": "60",
+      "summary": "60-05: the Bash gate replay counts every would-deny as a false positive (an upper bound); recommended_default is computed from the reported 6-decimal rate",
+      "rationale": null
+    },
+    {
+      "objective": "60",
+      "summary": "60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)",
+      "rationale": null
     }
   ],
   "blockers": [],
