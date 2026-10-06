@@ -148,6 +148,7 @@ TaskCreate(
   description="Researching implementation approach for Objective {objective_number}: {objective_name}",
   activeForm="Researching Objective {X}"
 )
+TaskUpdate(taskId=research_task_id, status="in_progress")
 ```
 
 **Complexity assessment for model selection:**
@@ -436,6 +437,7 @@ TaskCreate(
   description="Creating executable plans for Objective {objective_number}: {objective_name}",
   activeForm="Planning Objective {X}"
 )
+TaskUpdate(taskId=plan_task_id, status="in_progress")
 ```
 
 **Model selection for gap-closure mode:**
@@ -528,13 +530,14 @@ Display banner:
 ◆ Spawning plan checker...
 ```
 
-**Progress tracking (if available):**
+**Progress tracking (if available):** create the task on the first spawn only; when the revision loop spawns the checker again, just set the same task back to `in_progress`.
 ```
 TaskCreate(
   subject="Verify Objective {X} plans",
   description="Checking plans against objective goal and requirements",
   activeForm="Verifying Objective {X} plans"
 )
+TaskUpdate(taskId=checker_task_id, status="in_progress")
 ```
 
 ```bash
@@ -578,9 +581,9 @@ Task(
 
 ## 12. Handle Checker Return
 
-**Update progress (if available):**
+**Progress tracking (if available):** Verify plans ends on the final verdict, either `## VERIFICATION PASSED` or `## ISSUES FOUND` with no revision left (iteration 3). While a revision is still coming, leave it in progress.
 ```
-TaskUpdate(taskId=checker_task_id, status="completed")
+TaskUpdate(taskId=checker_task_id, status="completed", description="Checker verdict: {passed | issues remain}")
 ```
 
 - **`## VERIFICATION PASSED`:** Display confirmation. If checker output contains low-confidence plans (score <7 in Confidence Assessment table), display a note: `Note: Plan(s) {NN} scored below 7/10 confidence. Consider /devflow:research-objective for [topic] before execution.` Don't block — just inform. Proceed to step 13.5.
@@ -594,9 +597,9 @@ Track `iteration_count` (starts at 1 after initial plan + check).
 
 Display: `Sending back to planner for revision... (iteration {N}/3)`
 
-**Update progress (if available):**
+**Update progress (if available):** the revision loop reuses the Plan task, so reopen it:
 ```
-TaskUpdate(taskId=plan_task_id, description="Revision iteration {N}/3 — addressing checker issues")
+TaskUpdate(taskId=plan_task_id, status="in_progress", description="Revision iteration {N}/3 — addressing checker issues")
 ```
 
 **Model upgrade on 3rd iteration:**
@@ -640,7 +643,7 @@ Task(
 )
 ```
 
-After planner returns -> spawn checker again (step 11), increment iteration_count.
+After planner returns, **update progress (if available):** `TaskUpdate(taskId=plan_task_id, status="completed")`. Then spawn checker again (step 11, which sets the Verify plans task back to in progress), increment iteration_count.
 
 **If iteration_count >= 3:**
 
@@ -685,7 +688,7 @@ ExitPlanMode()
 Never push, spawn the planner or commit while in plan mode: approval exits it first. Then, on the user's answer:
 
 - **Approved.** If the approved plan carries edits the user made to it (Ctrl+G opens the plan in an editor), apply them first: spawn the planner in revision mode with step 13's revision prompt, `**User review changes:**` holding those edits, and no `**Push:**` line, so it pushes the revised TRDs itself (it ends with `plan push`); with no edits, push now with `node ~/.claude/devflow/bin/df-tools.cjs plan push "${objective_number}"`. Then `TaskUpdate(taskId=review_task_id, status="completed")` (if available) and continue to step 14.
-- **"No, keep planning" with feedback.** Add a `## Requested changes` section to the plan stating the feedback concretely, one item per change and naming the TRD, and call `ExitPlanMode()` again. Approving that plan authorises the changes. Spawn the planner in revision mode with step 13's revision prompt, `**User review changes:**` holding the Requested changes in place of the checker issues, and the `**Push:**` line. When it returns, re-run the checker if it is enabled (steps 11 and 12, with `iteration_count` reset to 1: a user-requested change does not use up the checker's iterations), then return to the top of this step and present the revised drafts again.
+- **"No, keep planning" with feedback.** Add a `## Requested changes` section to the plan stating the feedback concretely, one item per change and naming the TRD, and call `ExitPlanMode()` again. Approving that plan authorises the changes. Spawn the planner in revision mode with step 13's revision prompt (reopen the Plan task as step 13 does), `**User review changes:**` holding the Requested changes in place of the checker issues, and the `**Push:**` line. When it returns, re-run the checker if it is enabled (steps 11 and 12, with `iteration_count` reset to 1: a user-requested change does not use up the checker's iterations), then return to the top of this step and present the revised drafts again.
 
 ## 14. Present Final Status
 

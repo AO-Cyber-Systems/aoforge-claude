@@ -110,9 +110,19 @@ Store any user answers as inline context for the planner (no CONTEXT.md file nee
 
 Once the user approves the plan, proceed to research.
 
+**Progress tracking (if available):** right after step 3 (also when step 3 was skipped), create one task per pipeline stage. Delete the Research task when step 4 is skipped and the Check task when `job_checker_enabled` is false. Each stage sets its task `in_progress` as it starts and `completed` as it ends.
+
+```
+TaskCreate(subject="Research Objective {X}", description="Researching the approach for {objective_name}", activeForm="Researching Objective {X}")
+TaskCreate(subject="Plan Objective {X}", description="Generating TRDs for {objective_name}", activeForm="Planning Objective {X}")
+TaskCreate(subject="Check Objective {X} plans", description="Validating the TRDs", activeForm="Checking Objective {X} plans")
+TaskCreate(subject="Execute Objective {X}", description="Executing the TRDs wave by wave", activeForm="Executing Objective {X}")
+TaskCreate(subject="Verify Objective {X}", description="Verifying the objective goal", activeForm="Verifying Objective {X}")
+```
+
 ## 4. Research
 
-**Skip if:** `--skip-research` flag, `research_enabled` is false, or `has_research` is true (existing research).
+**Skip if:** `--skip-research` flag, `research_enabled` is false, or `has_research` is true (existing research). When skipped, delete the Research task (if available): `TaskUpdate(taskId=research_task_id, status="deleted")`.
 
 Display banner:
 ```
@@ -121,7 +131,11 @@ Display banner:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Spawn objective-researcher (same as plan-objective step 6).
+**Progress tracking (if available):** `TaskUpdate(taskId=research_task_id, status="in_progress")`
+
+Spawn objective-researcher (same as plan-objective step 6; use the Research task from step 3 instead of creating another).
+
+**Progress tracking (if available):** `TaskUpdate(taskId=research_task_id, status="completed")`
 
 If `--pause` flag: Display research results and wait for confirmation before proceeding.
 
@@ -134,13 +148,21 @@ Display banner:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
+**Progress tracking (if available):** `TaskUpdate(taskId=plan_task_id, status="in_progress")`
+
 Spawn planner with full context (same as plan-objective step 9). Handle its return as in plan-objective step 10 (including `## RESEARCH NEEDED`).
 
 Pass any inline discussion answers as additional context in the planner prompt.
 
+Push right away (build has no draft review: that is plan-objective step 13.5, which build does not run). Leave the `**Push:**` line out of the planner prompt, so the planner pushes the TRDs itself, and if its return says `**Pushed:** no`, run `node ~/.claude/devflow/bin/df-tools.cjs plan push "${OBJECTIVE_NUMBER}"` (in local mode it reports `local mode` and does nothing).
+
+**Progress tracking (if available):** `TaskUpdate(taskId=plan_task_id, status="completed")`
+
 If `--pause` flag: Display TRD summary and wait for confirmation.
 
 ## 6. Verify TRDs (quick validation)
+
+**Progress tracking (if available):** when `job_checker_enabled` is false, delete the Check task (`TaskUpdate(taskId=check_task_id, status="deleted")`); otherwise `TaskUpdate(taskId=check_task_id, status="in_progress")`.
 
 Quick validation — NOT the full job-checker loop unless `job_checker_enabled` is true:
 
@@ -151,7 +173,7 @@ for trd in "${OBJECTIVE_DIR}"/*-TRD.md; do
 done
 ```
 
-If `job_checker_enabled` is true: Spawn job-checker (same as plan-objective step 11).
+If `job_checker_enabled` is true: Spawn job-checker (same as plan-objective step 11; use the Check task from step 3 instead of creating another), then `TaskUpdate(taskId=check_task_id, status="completed")` (if available).
 
 ## 7. Execute TRDs
 
@@ -161,6 +183,8 @@ Display banner:
  DF ► EXECUTING OBJECTIVE {X}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+**Progress tracking (if available):** `TaskUpdate(taskId=execute_task_id, status="in_progress")`
 
 Delegate to execute-objective workflow (same as /devflow:execute-objective). The execute-objective workflow handles:
 - Wave-based parallel execution
@@ -191,6 +215,8 @@ If `--pause` flag: Execute one wave at a time, pausing between waves.
 
 After execute-objective returns:
 
+**Progress tracking (if available):** `TaskUpdate(taskId=execute_task_id, status="completed")`, then `TaskUpdate(taskId=verify_task_id, status="in_progress")`.
+
 **First, spawn dedicated verifier as backstop.**
 
 The execute-objective trampoline (§ 7) delegates verification to execute-objective.md's `verify_objective_goal` step, but that path is unreliable — the trampoline subagent can return without reaching deep workflow steps. To guarantee a `VERIFICATION.md` is produced for every `/devflow:build` run, spawn the dedicated verifier here as well. The verifier agent is idempotent: if execute-objective.md already produced a VERIFICATION.md with `gaps:` section, Step 0 switches to fast re-verification mode; otherwise it runs full initial verification.
@@ -217,6 +243,8 @@ Read status:
 ```bash
 VERIFICATION_STATUS=$(grep "^status:" "${objective_dir}"/*-VERIFICATION.md | cut -d: -f2 | tr -d ' ')
 ```
+
+**Progress tracking (if available):** the Verify stage ends with the verifier's verdict, whatever it is: `TaskUpdate(taskId=verify_task_id, status="completed", description="Verification: {passed | gaps_found | human_needed}")`.
 
 Branch on `$VERIFICATION_STATUS`:
 - `passed` → continue to "If OBJECTIVE COMPLETE" display below
