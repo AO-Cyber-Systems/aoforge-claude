@@ -1,0 +1,18 @@
+---
+objective: 61-store-mode-rough-edges-and-observability
+job: "08"
+subsystem: hooks
+tags: [hook, UserPromptExpansion, PreToolUse, skill-requires, fail-open]
+requires: ["61-02"]
+provides:
+  - "hooks/gate-skill-requires.js: UserPromptExpansion + PreToolUse(Skill) gate; exports run(input, {env, skillsDir})"
+affects: [61-09 dogfood and docs]
+---
+
+# Objective 61 TRD 08: The `requires:` gate hook Summary
+
+In progress.
+
+## Progress
+- [ ] Task 1: gate-skill-requires.js with subprocess and in-process tests — RED test commit (this commit); next step: create plugins/devflow/hooks/gate-skill-requires.js per the TRD decision order and run node --test gate-skill-requires.test.js
+- [ ] Task 2: Register on UserPromptExpansion and PreToolUse(Skill), inventory and audit
