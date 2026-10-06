@@ -109,7 +109,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - [x] **Objective 57: Estimation data foundation** - Token data in SUMMARYs, historical backfill, `df-tools calibrate` (completed 2026-10-05)
 - [x] **Objective 58: Estimation engine and surfacing** - `df-tools estimate`, plan-objective table, build and status-line estimates (completed 2026-10-05)
 - [x] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats (completed 2026-10-05)
-- [ ] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships
+- [x] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships (completed 2026-10-06)
 - [ ] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene
 - [ ] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows
 - [ ] **Objective 63: Todo store, hook coexistence and built-in inventory** - TodoWrite-backed `/devflow:todo`, coexistence test, living inventory
@@ -238,7 +238,7 @@ TRDs:
 - [x] 60-04-bash-gate-hook-TRD.md — (W4) GATE-01..04: `hooks/gate-bash-writes.js` on PreToolUse(Bash), reusing gate-edits' escapes; lazy override consumption; registration + inventory/audit entries
 - [x] 60-05-replay-false-positives-TRD.md — (W4) GATE-05: `session-audit` `bash_edit_gate` replay through the hook's decision (ambient signals, history-accurate tracked check, upper-bound rate) + raw line + `devflow-bash-edit-gate` category
 - [x] 60-06-measure-and-set-default-TRD.md — (W5) GATE-05: real-corpus `session-audit --limit 0`, triage and test-first misparse fixes, evidence JSON, `BASH_EDIT_GATE_DEFAULT` from the measurement, CI agreement test
-- [ ] 60-07-dogfood-and-docs-TRD.md — (W6) scratch-clone stdin smoke S1-S13 + best-effort live Claude Code check; CHANGELOG/CLAUDE.md/USER-GUIDE/gen-docs-data; full `npm test`
+- [x] 60-07-dogfood-and-docs-TRD.md — (W6) scratch-clone stdin smoke S1-S13 + best-effort live Claude Code check; CHANGELOG/CLAUDE.md/USER-GUIDE/gen-docs-data; full `npm test`
 
 ### Objective 61: Store-mode rough edges and observability
 
@@ -300,7 +300,7 @@ TRDs:
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
-| 60. Edit gate enforces the action | v1.5 | 6/7 | In Progress | - |
+| 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
