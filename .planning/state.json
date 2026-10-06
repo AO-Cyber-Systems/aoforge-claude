@@ -1,9 +1,9 @@
 {
   "current_objective": "62",
-  "current_job": 10,
+  "current_job": 11,
   "total_jobs": 11,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
@@ -964,6 +964,11 @@
     {
       "objective": "62",
       "summary": "62-11: gh-sync migrate question gets header GitHub store with Not now (Recommended) first, per built-ins.md order; token, labels and routing unchanged",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "Built-in sweep ratchet closed (62-10): no baseline directory and no exceptions list; manual inventory rows are resolved by their Conversion cell (text gone, keep, named AskUserQuestion headers present in the file, or a bare list head reworded)",
       "rationale": null
     }
   ],

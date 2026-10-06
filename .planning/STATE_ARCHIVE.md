@@ -180,6 +180,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 62]: 62-09: health.md GitHub store question puts Not now (Recommended) first per built-ins.md; handoff rejected-command question follows inventory BS-101 (Run it myself / Extend allowlist, no Retry)
 - [Objective 62]: 62-11: cleanup declares only AskUserQuestion in its new allowed-tools (allowed-tools pre-approves, so adding Bash would pre-approve the directory moves)
 - [Objective 62]: 62-11: gh-sync migrate question gets header GitHub store with Not now (Recommended) first, per built-ins.md order; token, labels and routing unchanged
+- [Objective 62]: Built-in sweep ratchet closed (62-10): no baseline directory and no exceptions list; manual inventory rows are resolved by their Conversion cell (text gone, keep, named AskUserQuestion headers present in the file, or a bare list head reworded)
 
 ## Performance Metrics
 
@@ -295,4 +296,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P08 | 12min | 2 tasks | 10 files |
 | Objective 62 P09 | 7m | 2 tasks | 11 files |
 | Objective 62 P11 | 6min | 2 tasks | 14 files |
+| Objective 62 P10 | 17min | 3 tasks | 6 files |
 

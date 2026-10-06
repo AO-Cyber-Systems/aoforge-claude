@@ -111,7 +111,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - [x] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats (completed 2026-10-05)
 - [x] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships (completed 2026-10-06)
 - [x] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene (completed 2026-10-06)
-- [ ] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows
+- [x] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows (completed 2026-10-06)
 - [ ] **Objective 63: Todo store, hook coexistence and built-in inventory** - TodoWrite-backed `/devflow:todo`, coexistence test, living inventory
 - [ ] **Objective 64: Estimate accuracy validation** - Close EST-08 against five executed objectives
 
@@ -286,7 +286,7 @@ TRDs:
 - [x] 62-08-execute-and-map-prompts-TRD.md — (W3) prompts in execute-objective, transition, discuss/discovery, map-codebase; adopt `disallowed-tools: AskUserQuestion`
 - [x] 62-09-todo-status-workstreams-prompts-TRD.md — (W3) prompts in todo, status, objective, decide, handoff and workstreams
 - [x] 62-11-remaining-skill-prompts-TRD.md — (W3) prompts in security-audit, cleanup, research, assumptions, help and every other remaining skill
-- [ ] 62-10-close-ratchet-dogfood-and-docs-TRD.md — (W4) baseline directory gone, inventory closed; dogfood incl. live micro and ExitPlanMode probe; CHANGELOG/USER-GUIDE/help/CLAUDE.md; full `npm test`
+- [x] 62-10-close-ratchet-dogfood-and-docs-TRD.md — (W4) baseline directory gone, inventory closed; dogfood incl. live micro and ExitPlanMode probe; CHANGELOG/USER-GUIDE/help/CLAUDE.md; full `npm test`
 
 ### Objective 63: Todo store, hook coexistence and built-in inventory
 
@@ -326,6 +326,6 @@ TRDs:
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
 | 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
-| 62. Built-in sweep | v1.5 | 10/11 | In Progress | - |
+| 62. Built-in sweep | v1.5 | 11/11 | Complete | 2026-10-06 |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |
