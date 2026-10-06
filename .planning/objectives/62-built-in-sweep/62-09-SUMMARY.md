@@ -10,9 +10,9 @@ tags: [built-ins, AskUserQuestion, BLTN-03]
 ## Progress
 - [x] Task 1 RED: todo and status entries leave the baseline — a73a1a21
 - [x] Task 1 GREEN (todo): check-todos asks with AskUserQuestion — 4eeae608
-- [x] Task 1 GREEN (status): health, pause-work, resume-project — (this commit)
-- [ ] Task 2 RED: objective, decide, handoff, workstreams entries leave the baseline — next step: delete the remaining 9 prompt entries from plugins/devflow/devflow/bin/lib/__fixtures__/builtin-sweep-baseline/todo-status-objective.json, run builtin-sweep.repo.test.cjs (expect test 2 and 9a to fail), commit test(62-09)
-- [ ] Task 2 GREEN (objective): remove-objective
+- [x] Task 1 GREEN (status): health, pause-work, resume-project — ecf4b7f5
+- [x] Task 2 RED: objective, decide, handoff, workstreams entries leave the baseline — (this commit)
+- [ ] Task 2 GREEN (objective): remove-objective — next step: in plugins/devflow/devflow/workflows/remove-objective.md replace `Proceed? (y/n)` / `Wait for confirmation.` with the "Remove?" AskUserQuestion (Cancel first, BS-087/088) and the executed-work confirmation with "Executed" (BS-089); add AskUserQuestion to skills/objective/SKILL.md allowed-tools
 - [ ] Task 2 GREEN (decide)
 - [ ] Task 2 GREEN (handoff)
 - [ ] Task 2 GREEN (workstreams) and baseline deleted
