@@ -278,7 +278,7 @@ TRDs:
 TRDs:
 - [x] 62-01-builtin-audit-scanner-TRD.md — (W1) `builtin-audit.cjs`: prose-choice and AskUserQuestion schema scanner with allow marker, skill built-in coverage (ExitPlanMode never pre-approved), progress counts, plan-mode spans, eight-group table
 - [x] 62-02-sweep-inventory-and-conventions-TRD.md — (W1) BLTN-03 inventory `docs/built-in-sweep.md` (every prompt, planned conversion, progress/plan-mode/allowed-tools plans); conventions `references/built-ins.md`
-- [ ] 62-03-sweep-ratchet-repo-test-TRD.md — (W2) reconcile scanner with inventory; `builtin-sweep.repo.test.cjs` CI ratchet with eight per-group baselines
+- [x] 62-03-sweep-ratchet-repo-test-TRD.md — (W2) reconcile scanner with inventory; `builtin-sweep.repo.test.cjs` CI ratchet with eight per-group baselines
 - [ ] 62-04-micro-quick-debug-verify-work-TRD.md — (W3) BLTN-01 progress tasks and AskUserQuestion in micro, quick, debug, verify-work
 - [ ] 62-05-plan-objective-and-build-TRD.md — (W3) BLTN-02 plan-objective TRD draft review in plan mode (push after approval); progress in plan-objective and build; their prompts
 - [ ] 62-06-new-project-drafts-TRD.md — (W3) BLTN-02 PROJECT.md, requirements and roadmap drafts in plan mode; schema fixes and prompts
@@ -326,6 +326,6 @@ TRDs:
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
 | 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
-| 62. Built-in sweep | v1.5 | 2/11 | In Progress | - |
+| 62. Built-in sweep | v1.5 | 3/11 | In Progress | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |
