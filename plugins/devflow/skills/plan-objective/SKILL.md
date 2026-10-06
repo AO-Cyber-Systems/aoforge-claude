@@ -15,7 +15,6 @@ allowed-tools:
   - Task
   - WebFetch
   - EnterPlanMode
-  - ExitPlanMode
   - AskUserQuestion
   - mcp__context7__*
 ---
@@ -30,6 +29,7 @@ Create executable objective prompts (JOB.md files) for a roadmap objective with 
 <execution_context>
 @~/.claude/devflow/workflows/plan-objective.md
 @~/.claude/devflow/references/ui-brand.md
+@~/.claude/devflow/references/built-ins.md
 </execution_context>
 
 <context>
