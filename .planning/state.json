@@ -860,6 +860,11 @@
       "objective": "61",
       "summary": "telemetry --scan implemented (not rejected); every unrecognised telemetry flag, and --limit/--since/--root without --scan, exits 1",
       "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape",
+      "rationale": null
     }
   ],
   "blockers": [],

@@ -258,7 +258,7 @@ TRDs:
 - [ ] 61-02-skill-requires-lib-TRD.md — (W1) STOR-04: `requires:` skill frontmatter, `skill-requires.cjs` (stat-only PATH lookup, refusal text naming `/devflow:doctor`), doctor check 14 `skill-requires`, gh-sync requires gh
 - [x] 61-03-pr-title-objective-name-TRD.md — (W1) STOR-02: one name chain in `objective-name.cjs` for issue and PR titles; fresh-store PR titled after OBJECTIVE.md, titles stay create-only
 - [ ] 61-04-telemetry-scan-and-09-03-backfill-TRD.md — (W1) OBS-02: `telemetry --scan [--limit|--since|--root]` via `runTelemetry`, unknown flags are errors; OBS-04: 09-03 SUMMARY backfilled from history, I001 clears
-- [ ] 61-05-transcript-export-schedule-TRD.md — (W1) OBS-03: upgrade-project.js step 0b starts a detached `transcript-export` at most once per 24 h (claim-then-spawn stamp in `~/.claude/devflow/state/`), `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`
+- [x] 61-05-transcript-export-schedule-TRD.md — (W1) OBS-03: upgrade-project.js step 0b starts a detached `transcript-export` at most once per 24 h (claim-then-spawn stamp in `~/.claude/devflow/state/`), `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`
 - [ ] 61-06-setup-dry-run-pins-and-pr-step-TRD.md — (W2) STOR-01: dry run prints `uses:` / `devflow-ref:` (and `was` pins on a re-pin) plus the follow-up preview; every printed sequence ends `gh pr create --head <branch> --fill`
 - [ ] 61-07-current-model-ids-TRD.md — (W2) OBS-01: pins `claude-opus-5-5` / `claude-sonnet-5-5`; `model-currency.cjs` derives currency from model-rates.json; doctor check 13 stale ids, validate health W063, CI guard
 - [ ] 61-08-skill-requires-hook-TRD.md — (W2) STOR-04: `hooks/gate-skill-requires.js` on UserPromptExpansion (block) and PreToolUse(Skill) (deny), fails open; registration, inventory, audit
