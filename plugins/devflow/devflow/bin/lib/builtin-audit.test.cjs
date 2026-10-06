@@ -24,10 +24,24 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('path');
 
 const audit = require('./builtin-audit.cjs');
-const { scanPrompts } = audit;
-const { askCall, askProse } = require('./__fixtures__/builtin-audit-fixtures.cjs');
+const {
+  scanPrompts,
+  splitFrontmatter,
+  parseToolList,
+  builtinsUsed,
+  workflowRefs,
+  skillCoverage,
+  progressCounts,
+  planModeSpans,
+  scanSet,
+  groupOf,
+  GROUPS,
+  GROUP_PATHS,
+} = audit;
+const { askCall, askProse, skillMd, workflowMd, makeTree } = require('./__fixtures__/builtin-audit-fixtures.cjs');
 
 const kinds = (text) => scanPrompts(text).findings.map((f) => f.kind);
 const filler = (n, at) => {
@@ -263,5 +277,281 @@ describe('scanPrompts: AskUserQuestion schema', () => {
         [10, 'header-too-long'],
       ],
     );
+  });
+});
+
+describe('frontmatter and tool lists', () => {
+  test('12a. splitFrontmatter returns the frontmatter, the body and the 1-based first body line', () => {
+    const text = '---\nname: a\nallowed-tools: Read\n---\nline one\nline two';
+    assert.deepEqual(splitFrontmatter(text), {
+      frontmatter: 'name: a\nallowed-tools: Read',
+      body: 'line one\nline two',
+      bodyStartLine: 5,
+    });
+  });
+
+  test('12b. no frontmatter gives an empty frontmatter and bodyStartLine 1', () => {
+    assert.deepEqual(splitFrontmatter('just text\nmore'), {
+      frontmatter: '',
+      body: 'just text\nmore',
+      bodyStartLine: 1,
+    });
+  });
+
+  test('13a. parseToolList reads a YAML list', () => {
+    const fm = 'name: a\nallowed-tools:\n  - Read\n  - Bash\n  - AskUserQuestion\ndescription: x';
+    assert.deepEqual(parseToolList(fm, 'allowed-tools'), ['Read', 'Bash', 'AskUserQuestion']);
+  });
+
+  test('13b. parseToolList reads an inline comma list', () => {
+    assert.deepEqual(parseToolList('allowed-tools: Read, Write, TaskCreate', 'allowed-tools'), [
+      'Read',
+      'Write',
+      'TaskCreate',
+    ]);
+  });
+
+  test('13c. parseToolList reads a space-separated list', () => {
+    assert.deepEqual(parseToolList('allowed-tools: Read Bash', 'allowed-tools'), ['Read', 'Bash']);
+  });
+
+  test('13d. parseToolList returns [] when the key is absent', () => {
+    assert.deepEqual(parseToolList('name: a\ndescription: x', 'allowed-tools'), []);
+  });
+
+  test('13e. disallowed-tools is its own key and never read as allowed-tools', () => {
+    const fm = 'disallowed-tools: AskUserQuestion\nallowed-tools:\n  - Read';
+    assert.deepEqual(parseToolList(fm, 'disallowed-tools'), ['AskUserQuestion']);
+    assert.deepEqual(parseToolList(fm, 'allowed-tools'), ['Read']);
+  });
+
+  test('13f. a fixture skill in either shape round-trips through splitFrontmatter and parseToolList', () => {
+    const inline = skillMd({ name: 'a', allowed: ['Read', 'Write', 'TaskCreate'], inline: true });
+    const list = skillMd({ name: 'a', allowed: ['Read', 'Bash'] });
+    assert.deepEqual(parseToolList(splitFrontmatter(inline).frontmatter, 'allowed-tools'), [
+      'Read',
+      'Write',
+      'TaskCreate',
+    ]);
+    assert.deepEqual(parseToolList(splitFrontmatter(list).frontmatter, 'allowed-tools'), ['Read', 'Bash']);
+  });
+});
+
+describe('builtinsUsed and workflowRefs', () => {
+  test('14a. call form is required for every built-in but AskUserQuestion', () => {
+    assert.deepEqual(builtinsUsed('TaskCreate(subject="x")'), ['TaskCreate']);
+    assert.deepEqual(builtinsUsed('create a progress task with TaskCreate'), []);
+  });
+
+  test('14b. AskUserQuestion counts in directive form, and a negated mention does not', () => {
+    assert.deepEqual(builtinsUsed('Use AskUserQuestion:'), ['AskUserQuestion']);
+    assert.deepEqual(builtinsUsed('Never call AskUserQuestion.'), []);
+  });
+
+  test('14c. EnterPlanMode() and ExitPlanMode() are both reported, a backticked name is not', () => {
+    assert.deepEqual(builtinsUsed('EnterPlanMode()\nExitPlanMode()'), ['EnterPlanMode', 'ExitPlanMode']);
+    assert.deepEqual(builtinsUsed('built-in plan mode (`EnterPlanMode`)'), []);
+  });
+
+  test('15. workflowRefs finds each referenced workflow once, in order', () => {
+    const text = [
+      '@~/.claude/devflow/workflows/micro.md',
+      'Read and follow ~/.claude/devflow/workflows/transition.md',
+      'Then micro again: ~/.claude/devflow/workflows/micro.md',
+    ].join('\n');
+    assert.deepEqual(workflowRefs(text), ['micro', 'transition']);
+  });
+});
+
+describe('skillCoverage', () => {
+  const REF = (n) => `~/.claude/devflow/workflows/${n}.md`;
+  const build = () =>
+    makeTree({
+      skills: {
+        a: skillMd({ name: 'a', allowed: ['Read'], body: `Follow @${REF('w1')}` }),
+        b: skillMd({ name: 'b', allowed: ['Read'], disallowed: 'AskUserQuestion', body: `Follow @${REF('w1')}` }),
+        c: skillMd({ name: 'c', allowed: ['Read'], body: 'ExitPlanMode()' }),
+        d: skillMd({ name: 'd', allowed: ['Read', 'ExitPlanMode'], body: 'ExitPlanMode()' }),
+      },
+      workflows: {
+        w1: workflowMd({ body: `TaskCreate(subject="x")\nThen ${REF('w2')}` }),
+        // w2 closes a cycle back to w1 and points at w9, which has no file.
+        w2: workflowMd({ body: `Use AskUserQuestion:\nSee ${REF('w1')} and ${REF('w9')}` }),
+      },
+    });
+
+  test('16a. follows workflow references transitively, survives a cycle and a missing file', () => {
+    const t = build();
+    try {
+      const r = skillCoverage({ skillsDir: t.skillsDir, workflowsDir: t.workflowsDir, name: 'a' });
+      assert.deepEqual(r.declared, ['Read']);
+      assert.deepEqual(r.missing, ['AskUserQuestion', 'TaskCreate']);
+      assert.deepEqual(r.used, ['AskUserQuestion', 'TaskCreate']);
+      assert.deepEqual(r.via.TaskCreate, [path.join(t.workflowsDir, 'w1.md')]);
+      assert.deepEqual(r.via.AskUserQuestion, [path.join(t.workflowsDir, 'w2.md')]);
+      assert.deepEqual(r.forbidden, []);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  test('16b. disallowed-tools removes a tool from missing', () => {
+    const t = build();
+    try {
+      const r = skillCoverage({ skillsDir: t.skillsDir, workflowsDir: t.workflowsDir, name: 'b' });
+      assert.deepEqual(r.disallowed, ['AskUserQuestion']);
+      assert.deepEqual(r.missing, ['TaskCreate']);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  test('16c. ExitPlanMode used but not declared is not missing', () => {
+    const t = build();
+    try {
+      const r = skillCoverage({ skillsDir: t.skillsDir, workflowsDir: t.workflowsDir, name: 'c' });
+      assert.deepEqual(r.used, ['ExitPlanMode']);
+      assert.deepEqual(r.missing, []);
+      assert.deepEqual(r.forbidden, []);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  test('16d. ExitPlanMode declared in allowed-tools is forbidden', () => {
+    const t = build();
+    try {
+      const r = skillCoverage({ skillsDir: t.skillsDir, workflowsDir: t.workflowsDir, name: 'd' });
+      assert.deepEqual(r.forbidden, ['ExitPlanMode']);
+      assert.deepEqual(r.missing, []);
+    } finally {
+      t.cleanup();
+    }
+  });
+});
+
+describe('progressCounts', () => {
+  test('17a. counts TaskCreate calls and completed / in_progress TaskUpdate calls across texts', () => {
+    const t1 = 'TaskCreate(subject="a")\nTaskCreate(subject="b")\nTaskUpdate(taskId=a, status="completed")';
+    const t2 = 'TaskUpdate(\n  taskId=b,\n  status="in_progress")';
+    assert.deepEqual(progressCounts([t1, t2]), { creates: 2, completes: 1, inProgress: 1 });
+  });
+
+  test('17b. the colon form counts as complete', () => {
+    assert.deepEqual(progressCounts(['TaskUpdate({ taskId: c, status: "completed" })']), {
+      creates: 0,
+      completes: 1,
+      inProgress: 0,
+    });
+  });
+
+  test('17c. a TaskUpdate with another status counts as neither', () => {
+    assert.deepEqual(progressCounts(['TaskUpdate(taskId=a, status="deleted")']), {
+      creates: 0,
+      completes: 0,
+      inProgress: 0,
+    });
+  });
+});
+
+describe('planModeSpans', () => {
+  const SKIP = '**Skip if:** `--auto` flag or config `workflow.auto_advance` is true.';
+
+  test('18a. a span with a skip rule, a draft and an exit reports all four fields', () => {
+    const text = [
+      'Intro.',
+      SKIP,
+      'Step detail.',
+      'Step detail.',
+      'EnterPlanMode()',
+      'Put the REQUIREMENTS draft in the plan.',
+      'ExitPlanMode()',
+    ].join('\n');
+    assert.deepEqual(planModeSpans(text), [{ enterLine: 5, exitLine: 7, mentionsDraft: true, skipLine: 2 }]);
+  });
+
+  test('18b. the skip line must be within the 20 lines above', () => {
+    const at20 = filler(21, { 1: SKIP, 21: 'EnterPlanMode()' });
+    const at21 = filler(22, { 1: SKIP, 22: 'EnterPlanMode()' });
+    assert.equal(planModeSpans(at20)[0].skipLine, 1);
+    assert.equal(planModeSpans(at21)[0].skipLine, null);
+  });
+
+  test('18c. no draft between enter and exit means mentionsDraft false', () => {
+    const r = planModeSpans('EnterPlanMode()\nShow the plan.\nExitPlanMode()');
+    assert.deepEqual(r, [{ enterLine: 1, exitLine: 3, mentionsDraft: false, skipLine: null }]);
+  });
+
+  test('18d. no ExitPlanMode after means exitLine null', () => {
+    const r = planModeSpans('EnterPlanMode()\nPut the draft in the plan.');
+    assert.deepEqual(r, [{ enterLine: 1, exitLine: null, mentionsDraft: true, skipLine: null }]);
+  });
+
+  test('18e. two spans close independently, and text with no plan mode has none', () => {
+    const text = 'EnterPlanMode()\ndraft one\nExitPlanMode()\nStep detail.\nEnterPlanMode()\nExitPlanMode()';
+    assert.deepEqual(
+      planModeSpans(text).map((s) => [s.enterLine, s.exitLine, s.mentionsDraft]),
+      [
+        [1, 3, true],
+        [5, 6, false],
+      ],
+    );
+    assert.deepEqual(planModeSpans('Nothing here.'), []);
+  });
+});
+
+describe('scanSet and groups', () => {
+  test('19. scanSet lists skills and active workflows with POSIX rel paths, sorted, with text', () => {
+    const t = makeTree({
+      repoLayout: true,
+      skills: {
+        a: skillMd({ name: 'a', allowed: ['Read'], body: 'Body A' }),
+        b: skillMd({ name: 'b', allowed: ['Read'], body: 'Body B' }),
+      },
+      workflows: {
+        w1: workflowMd({ body: 'Workflow one' }),
+        old: workflowMd({ status: 'legacy', body: 'Retired' }),
+      },
+    });
+    try {
+      const set = scanSet(t.root);
+      assert.deepEqual(
+        set.map((f) => f.rel),
+        [
+          'plugins/devflow/devflow/workflows/w1.md',
+          'plugins/devflow/skills/a/SKILL.md',
+          'plugins/devflow/skills/b/SKILL.md',
+        ],
+      );
+      assert.ok(set[0].text.includes('Workflow one'));
+      assert.ok(set[1].text.includes('Body A'));
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  test('20a. groupOf maps skills and workflows to their group, and a legacy workflow to null', () => {
+    assert.equal(groupOf('plugins/devflow/skills/micro/SKILL.md'), 'micro-quick-debug');
+    assert.equal(groupOf('plugins/devflow/devflow/workflows/complete-milestone.md'), 'milestone');
+    assert.equal(groupOf('plugins/devflow/devflow/workflows/insert-objective.md'), null);
+  });
+
+  test('20b. GROUPS has the eight group names in order', () => {
+    assert.deepEqual(Object.keys(GROUPS), [
+      'micro-quick-debug',
+      'verify-work',
+      'plan-build',
+      'new-project',
+      'milestone',
+      'execute-and-map',
+      'todo-status-objective',
+      'remaining',
+    ]);
+  });
+
+  test('20c. no path appears in two groups', () => {
+    const all = Object.values(GROUP_PATHS).flat();
+    assert.equal(new Set(all).size, all.length);
+    for (const p of all) assert.equal(groupOf(p), Object.keys(GROUP_PATHS).find((g) => GROUP_PATHS[g].includes(p)));
   });
 });
