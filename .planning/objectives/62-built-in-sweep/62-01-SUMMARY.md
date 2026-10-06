@@ -3,6 +3,6 @@
 In progress.
 
 ## Progress
-- [x] Task 1: Hand-built fixture builders — (this commit)
-- [ ] Task 2: scanPrompts — prose prompts, schema checks, markers (tests 1-11) — next step: write tests 1-11 in plugins/devflow/devflow/bin/lib/builtin-audit.test.cjs and run `node --test` to see RED
+- [x] Task 1: Hand-built fixture builders — 809c25d6
+- [ ] Task 2: scanPrompts — prose prompts, schema checks, markers (tests 1-11) — RED committed (this commit); next step: create plugins/devflow/devflow/bin/lib/builtin-audit.cjs with scanPrompts and run `node --test` on builtin-audit.test.cjs until tests 1-11 pass
 - [ ] Task 3: Declarations, progress, plan mode, scan set and groups (tests 12-20) — next step: add tests 12-20 to builtin-audit.test.cjs
