@@ -499,3 +499,75 @@ describe('10. evaluateBashWrites with live predicates', { skip: !hasGit && 'git 
     assert.deepStrictEqual(reasons(result), ['planning']);
   });
 });
+
+describe('11. shipped default agrees with the measurement', () => {
+  const EVIDENCE_PATH = path.join(__dirname, '..', '..', 'references', 'bash-edit-gate-evidence.json');
+  // The rounding session-audit applies to the rate it reports.
+  const round6 = (x) => +x.toFixed(6);
+  const loadEvidence = () => JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'));
+
+  /** Every key and every string value of a JSON tree, with its path. */
+  function walk(node, trail, visit) {
+    if (Array.isArray(node)) {
+      node.forEach((v, i) => walk(v, `${trail}[${i}]`, visit));
+    } else if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) {
+        visit({ trail: `${trail}.${k}`, key: k });
+        walk(v, `${trail}.${k}`, visit);
+      }
+    } else if (typeof node === 'string') {
+      visit({ trail, string: node });
+    }
+  }
+
+  test('the evidence uses the same threshold as the rule', () => {
+    assert.strictEqual(loadEvidence().threshold, FP_THRESHOLD);
+  });
+
+  test('the recommended default is what recommendDefault says of the recorded rate', () => {
+    const e = loadEvidence();
+    assert.strictEqual(e.recommended_default, recommendDefault(e.false_positive_rate));
+  });
+
+  test('the evidence default is the recommendation, and the shipped constant is the evidence default', () => {
+    const e = loadEvidence();
+    assert.strictEqual(e.default, e.recommended_default);
+    assert.strictEqual(BASH_EDIT_GATE_DEFAULT, e.default);
+  });
+
+  test('the corpus is big enough to be evidence', () => {
+    assert.ok(loadEvidence().ambient_bash_calls >= 1000);
+  });
+
+  test('would_deny is within ambient_bash_calls and the rate is would_deny / ambient_bash_calls', () => {
+    const e = loadEvidence();
+    assert.ok(e.would_deny >= 0 && e.would_deny <= e.ambient_bash_calls);
+    assert.strictEqual(e.false_positive_rate, round6(e.would_deny / e.ambient_bash_calls));
+  });
+
+  test('the counts are consistent: every Bash call is ambient or excluded, every would-deny has a form', () => {
+    const e = loadEvidence();
+    const excluded = Object.values(e.excluded).reduce((a, b) => a + b, 0);
+    assert.strictEqual(e.bash_calls, e.ambient_bash_calls + excluded);
+    assert.strictEqual(Object.values(e.by_form).reduce((a, b) => a + b, 0), e.would_deny);
+  });
+
+  test('the record names its run: a date, the exact command, a corpus and the fixes made', () => {
+    const e = loadEvidence();
+    assert.match(e.measured_at, /^\d{4}-\d{2}-\d{2}$/);
+    assert.strictEqual(e.command, 'df-tools session-audit --limit 0');
+    assert.ok(Number.isInteger(e.corpus.files_scanned) && e.corpus.files_scanned > 0);
+    assert.ok(Number.isInteger(e.corpus.sessions) && e.corpus.sessions > 0);
+    assert.ok(Array.isArray(e.detector_fixes) && e.detector_fixes.every((s) => typeof s === 'string'));
+  });
+
+  test('the file is aggregates only: no sample, no absolute home path, no multi-line string', () => {
+    const offenders = [];
+    walk(loadEvidence(), '$', (item) => {
+      if (item.key === 'sample') offenders.push(`${item.trail}: a sample key`);
+      if (typeof item.string === 'string' && item.string.includes('/Users/')) offenders.push(`${item.trail}: /Users/`);
+      if (typeof item.string === 'string' && /[\r\n]/.test(item.string)) offenders.push(`${item.trail}: a newline`);
+    });
+    assert.deepStrictEqual(offenders, []);
+  });
+});
