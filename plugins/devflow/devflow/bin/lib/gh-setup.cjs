@@ -34,6 +34,8 @@ const client = require('./gh-client.cjs');
 const capability = require('./gh-capability.cjs');
 const ghProject = require('./gh-project.cjs');
 const outbox = require('./gh-outbox.cjs');
+// One definition of the workflow path, the managed header and DevFlow's reusable workflow (TRD 61-01).
+const { WORKFLOW_PATH, MANAGED_HEADER, DEFAULT_CHECKS_WORKFLOW } = require('./checks-pin.cjs');
 
 // ─── The desired default-branch ruleset ───────────────────────────────────────
 
@@ -222,9 +224,7 @@ function unionRuleset(existing, desired) {
 
 // ─── planSetup ────────────────────────────────────────────────────────────────
 
-const WORKFLOW_PATH = '.github/workflows/devflow.yml';
 const PR_TEMPLATE_PATH = '.github/pull_request_template.md';
-const MANAGED_HEADER = /^#\s*devflow:managed\b/;
 const PR_START = '<!-- devflow:pr-template:start -->';
 const PR_END = '<!-- devflow:pr-template:end -->';
 
@@ -703,7 +703,6 @@ function readSetupState(root, { refresh = false, env = process.env } = {}) {
 // ─── renderTemplates ──────────────────────────────────────────────────────────
 
 const TEMPLATE_DIR = path.join(__dirname, '..', '..', 'templates', 'github');
-const DEFAULT_CHECKS_WORKFLOW = 'AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml';
 
 /**
  * The two local files setup writes, rendered from `templates/github/` (read relative to this module, so the plugin
