@@ -1,9 +1,9 @@
 {
   "current_objective": "61",
-  "current_job": 8,
+  "current_job": 9,
   "total_jobs": 9,
-  "progress_pct": 99,
-  "status": "executing",
+  "progress_pct": 100,
+  "status": "ready_for_verification",
   "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
@@ -884,6 +884,16 @@
     {
       "objective": "61",
       "summary": "61-08: gate-skill-requires.js registered on UserPromptExpansion (no matcher; filtering in code) and PreToolUse(Skill); UserPromptExpansion confirmed accepted by Claude Code 2.1.292 (plugin validate plus binary event table); gate is not project-scoped and fails open",
+      "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "Live skill-gate check runs with a scratch HOME and cwd so sync-runtime never touches the real ~/.claude/devflow mirror; it blocked a typed /devflow:gh-sync status in Claude Code 2.1.292",
+      "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "site/data/devflow.json stays a release-time artifact: gen-docs-data.cjs writes a hard-coded repo path, so it was proven against a scratch copy of the tree",
       "rationale": null
     }
   ],

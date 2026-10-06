@@ -36,12 +36,12 @@ requirements-completed: [STOR-01, STOR-02, STOR-03, STOR-04, OBS-01, OBS-02, OBS
 
 verification:
   gates_defined: 1
-  gates_passed: 0
+  gates_passed: 1
   auto_fix_cycles: 0
   tdd_evidence: false
   test_pairing: false
 
-duration: pending
+duration: 11min
 completed: 2026-10-06
 ---
 
@@ -51,8 +51,8 @@ completed: 2026-10-06
 
 ## Progress
 - [x] Task 1: Dogfood every success criterion (D1-D8) — no commit (scratchpad only)
-- [x] Task 2: CHANGELOG, CLAUDE.md, USER-GUIDE, docs-site data and the telemetry guide — (this commit)
-- [ ] Task 3: Full test suite — next step: run `npm test` from /Users/justin/dev/devflow-claude (background, 900 s), then match each failing file to a run at d7b9c938 in a scratch worktree
+- [x] Task 2: CHANGELOG, CLAUDE.md, USER-GUIDE, docs-site data and the telemetry guide — eec1145c
+- [x] Task 3: Full test suite — no commit (10373 tests, 2 failures, both reproduced at the base commit d7b9c938)
 
 ## Dogfood (Task 1)
 
@@ -67,7 +67,7 @@ Scratch work lived under the session scratchpad, with scratch HOMEs; this checko
 | D5 | 4 | PASS | Stdin smoke, `PATH=<dir> node hooks/gate-skill-requires.js < payload`, exit 0 and empty stderr every time. `UserPromptExpansion` `/devflow:gh-sync status`, no `gh` on PATH -> `{"decision":"block","reason":"/devflow:gh-sync needs gh on PATH, and it is not installed: install the GitHub CLI (https://cli.github.com), then run gh auth login. Run /devflow:doctor to check every DevFlow skill's required tools (check skill-requires). To bypass, set DEVFLOW_SKIP_SKILL_REQUIRES=1 in the environment Claude Code is launched from."}`. `PreToolUse` Skill `devflow:gh-sync`, no `gh` -> `hookSpecificOutput` with `permissionDecision: "deny"` and the same reason. With a `gh` symlink on PATH: empty stdout for both. `/devflow:status` (no gh), `/review` (no gh) and `DEVFLOW_SKIP_SKILL_REQUIRES=1` (no gh): empty stdout. Doctor: `HOME=<scratch> DEVFLOW_DOCTOR_PLUGIN_ROOT=<checkout>/plugins/devflow PATH=<gh-less> doctor --global --json` -> `skill-requires` `warn`, `required tool(s) not on PATH: gh (needed by /devflow:gh-sync)`, fix `install the GitHub CLI (https://cli.github.com), then run gh auth login`. **Live check: PASS.** `claude -p --plugin-dir <checkout>/plugins/devflow "/devflow:gh-sync status"` (Claude Code 2.1.292, PATH holding only `node` and `claude`, a scratch HOME so sync-runtime wrote the scratch home, scratch cwd) printed `UserPromptExpansion operation blocked by hook:` then the reason above, then `Original prompt: /devflow:gh-sync status`, exit 0. This closes 61-08's "not exercised: a live typed `/devflow:gh-sync`". |
 | D6 | 5 | PASS | `telemetry --scan --limit 20` (JSON, the default) -> `"blocks": {"total": 23, "devflow_owned": 0, "sessions_with_blocks_pct": 60, "top": [other-tool-error 21, file-not-found 2]}` and `"scan": {"root": "~/.claude/projects", "limit": 20, "since": null, "files_scanned": 20}`. With `--raw` it is text: `scan: 20 transcripts, 23 blocks (0 DevFlow-owned)` then `nothing needs attention`. `telemetry --scna` -> `Error: unknown flag: --scna`, exit 1. |
 | D7 | 5 | PASS | Scratch HOMEs seeded with `projects/-tmp-demo/s1.jsonl` (two literal records). Run 1, `HOME=<home-a> DEVFLOW_SKIP_UPGRADE=1 node hooks/upgrade-project.js < /dev/null`: stdout empty; stamp `{"last_run_at":"2026-10-06T19:53:33.254Z"}` at `.claude/devflow/state/transcript-export/last-run.json`; index `transcript-index.jsonl` appeared within the poll with one row `{"session":"s1","project":"-tmp-demo",...,"turns":{"user":1,"assistant":1,"sidechain":0},"models":{"claude-opus-5-5":1},"bytes":374}`. Run 2 immediately again: stdout empty, stamp bytes identical, still one index row. Run 3, fresh `<home-b>` with `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1` added: stdout empty, no stamp and no index written (the only file in the home is the seeded transcript). `git status --porcelain` in this checkout unchanged. |
-| D8 | 5 | PASS | `validate health --raw` in this checkout: no I001 for the 09-03 SUMMARY. The one I001 listed during the dogfood was `61-09-dogfood-and-docs-TRD.md has no SUMMARY.md` (this TRD, in progress); see the re-run after the checkpoint below. |
+| D8 | 5 | PASS | `validate health --raw` in this checkout, first run: no I001 for the 09-03 SUMMARY; the only I001 was `61-09-dogfood-and-docs-TRD.md has no SUMMARY.md` (this TRD, in progress). Re-run after the Task 2 checkpoint put this TRD's SUMMARY in place: `info` holds only `I022 mirror-ahead` (no I001 at all); warnings are W006 x3 (objectives 62-64 are in ROADMAP.md with no directory yet), W021 and W040, none from objective 61. |
 
 Scratch clones, homes, bin dirs and the generator copy were removed at the end.
 
@@ -76,3 +76,85 @@ Scratch clones, homes, bin dirs and the generator copy were removed at the end.
 - `telemetry --scan` prints JSON by default and text only with `--raw`; the TRD's `--raw` invocation printed the text form, so the JSON shape was observed on the same command without `--raw`. Documented that way.
 - `site/data/devflow.json` is tracked and was last regenerated by release commits. `scripts/gen-docs-data.cjs` writes it to a hard-coded path under the repository, so it was run against a scratch copy of the tree (symlinked `plugins/` and `package.json`): `site/data/devflow.json v2.13.2 skills=34 agents=13 hooks=21 ...`, with `gate-skill-requires.js` in group `Enforcement` (escape `DEVFLOW_SKIP_SKILL_REQUIRES=1`) and `upgrade-project.js` listing `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`. The tracked file was not regenerated; the next release does that.
 - Observation, not touched: the same generated data lists `gh-flush.js` under group `Other` with an empty purpose, because `HOOK_DOCS` has no entry for it. A pre-existing docs-site gap outside this objective's scope.
+
+## Documentation (Task 2)
+
+Commit `eec1145c`. Surfaces, each describing only what the dogfood observed:
+
+- `CHANGELOG.md` `[Unreleased]`: Added (`requires:` + `gate-skill-requires.js` + doctor check 14; W062 + check 26; W063 + check 13; `telemetry --scan`; the SessionStart transcript export; the setup dry run's pin lines and preview), Changed (model ids; the runnable `gh pr create --head <branch> --fill` step in setup, migration 0010 and doctor checks 20 and 21), Fixed (`telemetry` ignoring flags; slug PR titles on a fresh store; the missing 09-03 SUMMARY).
+- `CLAUDE.md`: edits to five existing bullets and no new lines (Telemetry & audit gains `--scan`; the Doctor bullet names checks 13, 14, 26 and `validate health` Checks 17 and 18 with W062 and W063; the model-profiles paragraph gains the one currency sentence; `upgrade-project.js` gains the background export and `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`; `gate-skill-requires.js` gains "needs an installed plugin carrying objective 61").
+- `docs/USER-GUIDE.md`: hooks table (new `gate-skill-requires.js` row, new escape on `upgrade-project.js`); new sections **Telemetry** with **Automatic transcript export**, **Skills that need a tool (`requires:`)**, **Stale checks-workflow pins (W062)**, **Model ids (W063)**; **Opening the workflow pull request** and migration step 5 rewritten around `gh pr create --head <branch> --fill`; **Picking up a fixed checks workflow** now says the dry run prints the pins; the dry-run pins and missing-PR-command Known-issues bullets removed (the stale-local-branch half and the create-only title note stay, the title bullet now describes the shipped PR title).
+- `scripts/gen-docs-data.cjs`: `HOOK_DOCS['gate-skill-requires.js']` and the extended `upgrade-project.js` entry (checked against a scratch run, above).
+- `site/content/docs/guides/telemetry.md`: "Run it periodically" replaced by the automatic daily export, the skip env and `--full` for a raw copy; the `--scan` paragraph now states the shipped flags and the unknown-flag error.
+- Follow-ups from the earlier waves, outside this TRD's file list but requested by the orchestrator: `plugins/devflow/skills/gh-sync/SKILL.md` step 6 (the stale "dry run does not print" and "steps end at then open a pull request" sentences), and `plugins/devflow/devflow/bin/lib/doctor-checks/README.md` (checks 13 and 14 recorded; 26 and its W062 ownership were already there from 61-01).
+
+## Full test suite (Task 3)
+
+`npm --prefix /Users/justin/dev/devflow-claude test`, run twice (a second time after the roadmap and state updates):
+
+| Run | tests | pass | fail | skipped | suites |
+|-----|-------|------|------|---------|--------|
+| 1 (SUMMARY at checkpoint, ROADMAP line 61-09 unticked) | 10373 | 10338 | 3 | 32 | 1680 |
+| 2 (after `roadmap update-job-progress 61` and the state commands) | 10373 | 10339 | 2 | 32 | 1680 |
+
+Failures, each compared with the objective's base commit `d7b9c938` (the parent of 61-01's first commit) in a scratch `git worktree add --detach` (removed afterwards; `node_modules` linked in so node-pty loads):
+
+- `handoff-e2e.test.cjs` MA-7 (`doctl auth init with unset DIGITALOCEAN_TOKEN`): **fails at base too**, the identical assertion (`stderr should match arch-gap, resolution-failure, or timeout+detector-msg path; got: {"status":"done","exit_code":0,"stderr":""}`). Known environmental failure from objectives 35 and 44. (Without `node_modules` linked the test skips at base for `node-pty unavailable`, which is why the link was needed.)
+- `stack-drafter-fleet.test.cjs` `github-enterprise-migration: draft has no unaccepted conflict with the committed STACK.md`: **fails at base too**, the same two conflicts (`lint` and `test`, committed command vs draft `discover`). It reads a repository outside this checkout (`~/dev/github-enterprise-migration`), so it is environmental.
+- `roadmap-reconcile.test.cjs` E2E1 (run 1 only): not a regression. The test reads this repository's own ROADMAP.md by absolute path, so a run at the base worktree reads the same live file and fails identically; the drift it reported was only `- [ ] 61-09-...` while this TRD's SUMMARY existed. `roadmap update-job-progress 61` ticked the line, and E2E1 passes in run 2.
+
+No regression from objective 61. `devflow-watch.test.cjs` and the other daemon tests passed in the main checkout, as the earlier TRDs' worktree-only failures predicted.
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Dogfood D1-D8 | the D1-D8 commands above | 0 each (D6's `--scna` exits 1 by design) | PASS |
+| 2: Docs | `node --test plugins/devflow/devflow/bin/lib/hook-inventory.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs` | 0 (19 tests) | PASS |
+| 2: Docs | `node --test` on gh-sync-skill.repo, planning-writes.repo, df-tools-deprecations.repo, rg-flag-guard, doctor-checks/14-skill-requires, skill-requires.repo | 0 (56 tests) | PASS |
+| 2: Docs | `rg -c "gate-skill-requires"` over CHANGELOG, CLAUDE.md, USER-GUIDE, gen-docs-data | 1, 1, 2, 1 matches | PASS |
+| 2: Docs | `rg -c "W062\|W063\|DEVFLOW_SKIP_TRANSCRIPT_EXPORT\|telemetry --scan" docs/USER-GUIDE.md` | 8 lines | PASS |
+| 2: Docs | `rg -n "then open a pull request for that branch" docs/USER-GUIDE.md plugins/devflow` | 1 (no output) | PASS |
+| 3: Full suite | `npm --prefix /Users/justin/dev/devflow-claude test` | 1 (10339 pass, 2 fail, 32 skipped) | PASS apart from the 2 proven pre-existing failures |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test (objective) | `npm test` | 1 (10339 pass, 2 fail, 32 skipped) | PASS: both failures reproduce at base `d7b9c938` |
+
+## Deviations from Plan
+
+**1. [Scope] Two files outside the TRD's `files_modified` were edited**
+- **Found during:** Task 2
+- **Issue:** the orchestrator's dispatch carried two follow-ups from earlier waves: `plugins/devflow/skills/gh-sync/SKILL.md` step 6 still said the dry run prints no pins and that the printed steps end in prose (stale after 61-06), and `doctor-checks/README.md` did not record checks 13 and 14.
+- **Fix:** prose-only edits to both, no production code. Committed with the rest of Task 2.
+- **Files modified:** `plugins/devflow/skills/gh-sync/SKILL.md`, `plugins/devflow/devflow/bin/lib/doctor-checks/README.md`
+- **Commit:** eec1145c
+
+**2. [Method] The live skill-gate check used a scratch HOME**
+- The TRD's gotcha runs `claude -p --plugin-dir` with the real HOME; the dispatch forbids running `sync-runtime` against the real `~/.claude`. The run used `HOME=<scratch>`, a scratch cwd and a PATH holding only `node` and `claude`, so every SessionStart hook wrote the scratch home. It worked and the gate blocked.
+
+**3. [Method] `telemetry --scan` JSON needs no `--raw`**
+- The D6 command in the TRD carries `--raw`, which prints the text form. The JSON `blocks` and `scan` objects were observed on the same command without it, and the docs say so.
+
+**4. [Method] The roadmap and state commands ran before the final suite run**
+- So that run 2 saw the repository in its finished state. `record-metric` takes `--job`, not the `--trd` the agent prompt shows; `requirements mark-complete` reported all eight ids `not_found` because earlier waves had already ticked them (all eight are `[x]` and `Complete` in REQUIREMENTS.md).
+
+No production code was changed, and no defect was found in the dogfood, so there are no gaps for the verifier.
+
+## Discovered commands
+
+None. The stack profile supplied `test` (`npm test`, scoped `node --test {files}`).
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 5/5 (each success criterion observed through the shipped commands; CHANGELOG records every change; CLAUDE.md states the final gate and upgrade-project behaviour with a net of zero new lines; USER-GUIDE documents `requires:`, W062, W063, `telemetry --scan` and the automatic export and no longer lists the three fixed Known issues; the full suite passes except two failures proven pre-existing)
+- Gate failures: None attributable to this objective
+
+## Self-Check: PASSED
+
+- FOUND: CHANGELOG.md, CLAUDE.md, docs/USER-GUIDE.md, scripts/gen-docs-data.cjs, site/content/docs/guides/telemetry.md, plugins/devflow/skills/gh-sync/SKILL.md, plugins/devflow/devflow/bin/lib/doctor-checks/README.md (all modified in eec1145c)
+- FOUND commit: eec1145c
+- Scratch clone, homes, bin dirs, generator copy and the base worktree removed; `git worktree list` shows no scratch entry; `git status --porcelain` shows only the nine pre-existing untracked `.gitkeep` files besides this TRD's own changes

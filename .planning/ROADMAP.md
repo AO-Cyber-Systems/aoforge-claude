@@ -110,7 +110,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - [x] **Objective 58: Estimation engine and surfacing** - `df-tools estimate`, plan-objective table, build and status-line estimates (completed 2026-10-05)
 - [x] **Objective 59: State and merge plumbing** - Accurate Status, conflict-free wave merges, worktree preflight, milestone stats (completed 2026-10-05)
 - [x] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships (completed 2026-10-06)
-- [ ] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene
+- [x] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene (completed 2026-10-06)
 - [ ] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows
 - [ ] **Objective 63: Todo store, hook coexistence and built-in inventory** - TodoWrite-backed `/devflow:todo`, coexistence test, living inventory
 - [ ] **Objective 64: Estimate accuracy validation** - Close EST-08 against five executed objectives
@@ -262,7 +262,7 @@ TRDs:
 - [x] 61-06-setup-dry-run-pins-and-pr-step-TRD.md — (W2) STOR-01: dry run prints `uses:` / `devflow-ref:` (and `was` pins on a re-pin) plus the follow-up preview; every printed sequence ends `gh pr create --head <branch> --fill`
 - [x] 61-07-current-model-ids-TRD.md — (W2) OBS-01: pins `claude-opus-5-5` / `claude-sonnet-5-5`; `model-currency.cjs` derives currency from model-rates.json; doctor check 13 stale ids, validate health W063, CI guard
 - [x] 61-08-skill-requires-hook-TRD.md — (W2) STOR-04: `hooks/gate-skill-requires.js` on UserPromptExpansion (block) and PreToolUse(Skill) (deny), fails open; registration, inventory, audit
-- [ ] 61-09-dogfood-and-docs-TRD.md — (W3) dogfood D1-D8 (read-only live setup dry run, scratch projects and homes, stdin smoke, best-effort live gate); CHANGELOG/CLAUDE.md/USER-GUIDE/gen-docs-data/telemetry guide; full `npm test`
+- [x] 61-09-dogfood-and-docs-TRD.md — (W3) dogfood D1-D8 (read-only live setup dry run, scratch projects and homes, stdin smoke, best-effort live gate); CHANGELOG/CLAUDE.md/USER-GUIDE/gen-docs-data/telemetry guide; full `npm test`
 
 ### Objective 62: Built-in sweep
 
@@ -312,7 +312,7 @@ TRDs:
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
-| 61. Store-mode rough edges and observability | v1.5 | 8/9 | In Progress | - |
+| 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |
