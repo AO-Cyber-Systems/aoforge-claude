@@ -40,9 +40,9 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 ### Observability and model ids (OBS)
 
 - [ ] **OBS-01**: `model-profiles.json` pins current model ids (`claude-opus-5-5`, `claude-sonnet-5-5`), and doctor flags a stale pinned id.
-- [ ] **OBS-02**: `telemetry --scan` either works or is rejected with an error, never silently ignored.
+- [x] **OBS-02**: `telemetry --scan` either works or is rejected with an error, never silently ignored.
 - [ ] **OBS-03**: `transcript-export` runs automatically at SessionStart, throttled like the backup prune, with its own skip env.
-- [ ] **OBS-04**: The 09-03 SUMMARY is backfilled, clearing the last I001.
+- [x] **OBS-04**: The 09-03 SUMMARY is backfilled, clearing the last I001.
 
 ### Claude Code built-ins (BLTN): Phase J, devflow-claude#35
 
@@ -103,9 +103,9 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | STOR-03 | Objective 61 | Pending |
 | STOR-04 | Objective 61 | Pending |
 | OBS-01 | Objective 61 | Pending |
-| OBS-02 | Objective 61 | Pending |
+| OBS-02 | Objective 61 | Complete |
 | OBS-03 | Objective 61 | Pending |
-| OBS-04 | Objective 61 | Pending |
+| OBS-04 | Objective 61 | Complete |
 | BLTN-01 | Objective 62 | Pending |
 | BLTN-02 | Objective 62 | Pending |
 | BLTN-03 | Objective 62 | Pending |
