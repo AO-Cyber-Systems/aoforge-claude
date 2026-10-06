@@ -39,7 +39,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 
 ### Observability and model ids (OBS)
 
-- [ ] **OBS-01**: `model-profiles.json` pins current model ids (`claude-opus-5-5`, `claude-sonnet-5-5`), and doctor flags a stale pinned id.
+- [x] **OBS-01**: `model-profiles.json` pins current model ids (`claude-opus-5-5`, `claude-sonnet-5-5`), and doctor flags a stale pinned id.
 - [x] **OBS-02**: `telemetry --scan` either works or is rejected with an error, never silently ignored.
 - [x] **OBS-03**: `transcript-export` runs automatically at SessionStart, throttled like the backup prune, with its own skip env.
 - [x] **OBS-04**: The 09-03 SUMMARY is backfilled, clearing the last I001.
@@ -102,7 +102,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | STOR-02 | Objective 61 | Complete |
 | STOR-03 | Objective 61 | Complete |
 | STOR-04 | Objective 61 | Pending |
-| OBS-01 | Objective 61 | Pending |
+| OBS-01 | Objective 61 | Complete |
 | OBS-02 | Objective 61 | Complete |
 | OBS-03 | Objective 61 | Complete |
 | OBS-04 | Objective 61 | Complete |

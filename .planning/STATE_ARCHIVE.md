@@ -160,6 +160,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 61]: [61-03] Objective issue and PR titles share one name chain (objective-name.cjs: ROADMAP name, OBJECTIVE.md heading, bare slug); PR titles stay create-only, existing PRs are not renamed
 - [Objective 61]: telemetry --scan implemented (not rejected); every unrecognised telemetry flag, and --limit/--since/--root without --scan, exits 1
 - [Objective 61]: 61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape
+- [Objective 61]: 61-07: model id currency is derived from references/model-rates.json (newest priced version per family), never a hard-coded list; doctor check 13 owns W063 and check 22 defers it
+- [Objective 61]: 61-07: doctor check 13 reads the rate table beside the profiles copy in use (mirror, else installed), else the engine's; it judges only well-formed ids so a malformed id is reported once
 
 ## Performance Metrics
 
@@ -261,4 +263,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 61 P03 | 5min | 2 tasks | 5 files |
 | Objective 61 P04 | 5min | 2 tasks | 8 files |
 | Objective 61 P05 | 6min | 2 tasks | 4 files |
+| Objective 61 P07 | 10min | 3 tasks | 11 files |
 
