@@ -8,6 +8,7 @@ argument-hint: "[<decision-id> <choice>]"
 allowed-tools:
   - Bash
   - Read
+  - AskUserQuestion
 ---
 
 <objective>
@@ -35,14 +36,49 @@ Otherwise format each decision for the user:
 ```
 DECISION-NNN: <title>
   Recommendation: <recommendation>
-  Options: <option names joined by " | ">
+  Choices: <option names joined by " | ">
   Blocks: <blocks array or "none">
   Context: <context field>
 
 To resolve: /devflow:decide DECISION-NNN <option>
 ```
 
-Ask the user which decision they want to resolve and which option to pick.
+Then ask with AskUserQuestion, first for the decision, then for its option. The decision question follows the
+runtime-list rule: up to 4 pending decisions become the options; with more, offer the first 4 and the user types any
+listed id under Other. With exactly one pending decision, skip it and ask only for the option.
+
+```
+AskUserQuestion([
+  {
+    header: "Decision",
+    question: "Which decision do you want to resolve? Under Other, type any decision id from the list.",
+    multiSelect: false,
+    options: [
+      { label: "{DECISION-NNN 1}", description: "{title}" },
+      { label: "{DECISION-NNN 2}", description: "{title}" }
+    ]
+  }
+])
+```
+
+Then that decision's options, the recommendation first. With more than 4 options, offer the recommendation and the
+next 3, and the user types any other option name under Other.
+
+```
+AskUserQuestion([
+  {
+    header: "Option",
+    question: "{title}: which option?",
+    multiSelect: false,
+    options: [
+      { label: "{recommended option name} (Recommended)", description: "{its label; pros}" },
+      { label: "{option name 2}", description: "{its label; pros}" }
+    ]
+  }
+])
+```
+
+Resolve the chosen decision with the chosen option name (without ` (Recommended)`) as in Step 2.
 
 **Step 2 — With arguments: resolve and report**
 
@@ -103,6 +139,7 @@ recommendation: option-a
 
 **Context:** [Why this matters]
 
+<!-- builtin-audit: allow the DECISION file format decision-queue.cjs writes; this label is data, not a prompt -->
 **Options:**
 
 1. **option-a** — [Name]
