@@ -148,13 +148,23 @@ This project is behind DevFlow. Run: /devflow:status check --migrate
    to step 6. If `failed` is non-empty, show each `id`/`phase`/`error` and stop — a
    check that could not run is never treated as nothing to do.
 
-3. **Automatic migrations.** If `pending` is non-empty, ask:
+3. **Automatic migrations.** If `pending` is non-empty, ask with AskUserQuestion:
 
    ```
-   Apply N automatic migrations? (a backup is taken outside the repo first)
+   AskUserQuestion([
+     {
+       header: "Migrations",
+       question: "Apply N automatic migrations? (a backup is taken outside the repo first)",
+       multiSelect: false,
+       options: [
+         { label: "Apply (Recommended)", description: "Run df-tools upgrade --apply for the automatic migrations" },
+         { label: "Skip", description: "Leave them pending; W040 keeps reporting them" }
+       ]
+     }
+   ])
    ```
 
-   On yes:
+   On "Apply":
 
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply
@@ -162,23 +172,68 @@ This project is behind DevFlow. Run: /devflow:status check --migrate
 
    Show `applied` (ids), `changed_files` and `backup`. A non-zero exit means a
    migration failed: show `failed`, point at `backup`, and stop (nothing later ran).
-   On no, skip to step 4 anyway — confirm migrations are independent.
+   On "Skip", go to step 4 anyway — confirm migrations are independent.
 
 4. **Confirm migrations.** For each entry in `pending_confirm`, one at a time:
-   - **0006** (project kind / default work): ask the user to choose `kind` —
-     `api | app | library | ui-lib | cli | plugin` — and a default `work` —
-     `feature | port | refactor | foundation | bugfix | prototype | spike`. Never
-     guess the kind. Then run:
+   - **0006** (project kind / default work): ask for the `kind` and a default `work`
+     in one AskUserQuestion call. The six kinds are `api | app | library | ui-lib | cli | plugin`
+     and the seven work types `feature | port | refactor | foundation | bugfix | prototype | spike`;
+     each question offers four and names the rest for Other.
+
+     ```
+     AskUserQuestion([
+       {
+         header: "Kind",
+         question: "What kind of project is this? Pick one, or type ui-lib or plugin under Other.",
+         multiSelect: false,
+         options: [
+           { label: "api", description: "Clients call it over HTTP or RPC" },
+           { label: "app", description: "Humans use it through a UI" },
+           { label: "library", description: "Other code calls its API" },
+           { label: "cli", description: "Humans use it from a terminal" }
+         ]
+       },
+       {
+         header: "Work type",
+         question: "Default work type for objectives that do not declare one? Pick one, or type foundation, bugfix, prototype or spike under Other.",
+         multiSelect: false,
+         options: [
+           { label: "Skip (Recommended)", description: "No default work type; objectives declare their own" },
+           { label: "feature", description: "Net-new behaviour" },
+           { label: "port", description: "Re-implement existing behaviour on a new substrate" },
+           { label: "refactor", description: "Restructure without changing user-facing behaviour" }
+         ]
+       }
+     ])
+     ```
+
+     Never guess the kind: if the Kind answer is not one of the six kinds, ask again.
+     Then run:
 
      ```bash
      node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only 0006 --kind <kind> --default-work <work>
      ```
 
-     (Omit `--default-work <work>` if the user declines to pick one.)
+     (Omit `--default-work <work>` if the Work type answer is "Skip".)
    - **0011** (GitHub store backfill): describe the backfill from its `reason` (the
      objective and TRD counts, the history closes and the GitHub request estimate),
-     then ask with three options: **Migrate now** / **Not now** / **Keep mirror mode**
-     ("don't ask again"). Never apply 0011 inline here.
+     then ask. Never apply 0011 inline here.
+
+     ```
+     AskUserQuestion([
+       {
+         header: "GitHub store",
+         question: "Migrate this project's planning onto the GitHub store?",
+         multiSelect: false,
+         options: [
+           { label: "Not now (Recommended)", description: "Leave 0011 pending; W040 keeps reporting it" },
+           { label: "Migrate now", description: "Hand off to /devflow:gh-sync migrate, which shows the plan and asks again" },
+           { label: "Keep mirror mode", description: "Don't ask again: record github.mirror_only in the config" }
+         ]
+       }
+     ])
+     ```
+
      - **Migrate now:** hand off to `/devflow:gh-sync migrate`, which shows the full
        plan, asks for approval, applies, drains and prints the commit steps.
      - **Not now:** leave it pending.
@@ -190,7 +245,9 @@ This project is behind DevFlow. Run: /devflow:status check --migrate
        ```
 
        0011 is then skipped while the store is off, so W040 stops reporting it.
-   - **Any other id:** describe it using its `title` and `reason`, ask, and on yes run
+   - **Any other id:** describe it using its `title` and `reason`, then ask with
+     AskUserQuestion, header "Migration", options "Apply (Recommended)" (run it) and
+     "Skip" (leave it pending). On "Apply" run
      `node ~/.claude/devflow/bin/df-tools.cjs upgrade --apply --only <id>`.
 
    Declined migrations stay pending; W040 will keep reporting them, except 0011 when
@@ -230,17 +287,42 @@ This project is behind DevFlow. Run: /devflow:status check --migrate
 <step name="offer_repair">
 **If repairable issues exist and --repair was NOT used:**
 
-Ask user if they want to run repairs:
-
 ```
-Would you like to run /devflow:status check --repair to fix N issues automatically?
+AskUserQuestion([
+  {
+    header: "Repair",
+    question: "N issues can be fixed automatically with /devflow:status check --repair. Run the repairs?",
+    multiSelect: false,
+    options: [
+      { label: "Run repairs (Recommended)", description: "Re-run the health check with --repair" },
+      { label: "Not now", description: "Leave the issues as reported" }
+    ]
+  }
+])
 ```
 
-If yes, re-run with --repair flag and display results.
+On "Run repairs", re-run with --repair flag and display results.
 
 **Stack profile (Check 12) is never auto-repaired.** For I030 (and whenever
-`--migrate` is passed), offer: preview with `node ~/.claude/devflow/bin/df-tools.cjs
-stack init --raw`, and on the user's yes run `stack init --write`. For W030/W031/E030,
+`--migrate` is passed), ask first, then preview:
+
+```
+AskUserQuestion([
+  {
+    header: "Stack",
+    question: "Preview a stack profile drafted from this repo's CI, runners and manifests? Nothing is written yet.",
+    multiSelect: false,
+    options: [
+      { label: "Preview draft (Recommended)", description: "Run stack init --raw; nothing is written" },
+      { label: "Skip", description: "Keep the general profile" }
+    ]
+  }
+])
+```
+
+On "Preview draft", show the output of `node ~/.claude/devflow/bin/df-tools.cjs stack init --raw`,
+then ask again with header "Stack", options "Write it (Recommended)" (run `stack init --write`) and
+"Skip" (write nothing). For W030/W031/E030,
 show `node ~/.claude/devflow/bin/df-tools.cjs stack validate` output and let the user
 edit `.planning/STACK.md`. If `stack` is an unknown command (older mirror), say so and
 skip.

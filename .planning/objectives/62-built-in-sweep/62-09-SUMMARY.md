@@ -9,9 +9,9 @@ tags: [built-ins, AskUserQuestion, BLTN-03]
 
 ## Progress
 - [x] Task 1 RED: todo and status entries leave the baseline — a73a1a21
-- [x] Task 1 GREEN (todo): check-todos asks with AskUserQuestion — (this commit)
-- [ ] Task 1 GREEN (status): health, pause-work, resume-project — next step: in plugins/devflow/devflow/workflows/health.md convert BS-079..084 (Migrations, Kind/Work type, GitHub store, Migration, Repair, Stack), then pause-work.md BS-085 (Objective) and resume-project.md BS-090..092 (Rebuild?, Next step); run the sweep repo test until green
-- [ ] Task 2 RED: objective, decide, handoff, workstreams entries leave the baseline
+- [x] Task 1 GREEN (todo): check-todos asks with AskUserQuestion — 4eeae608
+- [x] Task 1 GREEN (status): health, pause-work, resume-project — (this commit)
+- [ ] Task 2 RED: objective, decide, handoff, workstreams entries leave the baseline — next step: delete the remaining 9 prompt entries from plugins/devflow/devflow/bin/lib/__fixtures__/builtin-sweep-baseline/todo-status-objective.json, run builtin-sweep.repo.test.cjs (expect test 2 and 9a to fail), commit test(62-09)
 - [ ] Task 2 GREEN (objective): remove-objective
 - [ ] Task 2 GREEN (decide)
 - [ ] Task 2 GREEN (handoff)
