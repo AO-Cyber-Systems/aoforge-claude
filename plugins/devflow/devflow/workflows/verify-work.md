@@ -53,18 +53,50 @@ Display inline:
 |---|-------|--------|--------------|----------|
 | 1 | 04-comments | testing | 3. Reply to Comment | 2/6 |
 | 2 | 05-auth | testing | 1. Login Form | 0/4 |
-
-Reply with a number to resume, or provide an objective number to start new.
 ```
 
-Wait for user response.
+Then ask, one option per active session (label: the objective, e.g. `04-comments`; description: current test and progress), up to 4:
 
-- If user replies with number (1, 2) → Load that file, go to `resume_from_file`
-- If user replies with objective number → Treat as new session, go to `create_uat_file`
+```
+AskUserQuestion([
+  {
+    header: "UAT session",
+    question: "Resume an active UAT session, or type an objective number under Other to start a new one.",
+    multiSelect: false,
+    options: [
+      { label: "{objective 1}", description: "Test {n}: {current test} — {progress}" },
+      { label: "{objective 2}", description: "Test {n}: {current test} — {progress}" }
+    ]
+  }
+])
+```
+
+With more than 4 sessions, the table above lists them all: offer the first 4, and the user may type another session's objective under Other.
+
+- A listed session, or an active session's objective typed under Other → Load that file, go to `resume_from_file`
+- Any other objective number under Other → Treat as new session, go to `create_uat_file`
 
 **If active sessions exist AND $ARGUMENTS provided:**
 
-Check if session exists for that objective. If yes, offer to resume or restart.
+Check if a session exists for that objective. If yes, ask:
+
+```
+AskUserQuestion([
+  {
+    header: "UAT session",
+    question: "Objective {N} already has a UAT session at Test {n} ({progress}). Resume it or restart?",
+    multiSelect: false,
+    options: [
+      { label: "Resume (Recommended)", description: "Continue from the first pending test" },
+      { label: "Restart", description: "Start again from Test 1; the earlier results are replaced" }
+    ]
+  }
+])
+```
+
+- If "Resume" → Load that file, go to `resume_from_file`
+- If "Restart" → go to `create_uat_file`
+
 If no, continue to `create_uat_file`.
 
 **If no active sessions AND no $ARGUMENTS:**
@@ -245,7 +277,7 @@ If the test involves a UI feature and a dev server is running (or can be started
 
 Please verify the visual quality and UX:
 ──────────────────────────────────────────────────────────────
-→ Type "pass" or describe what's wrong
+→ Pass, or describe what's wrong
 ──────────────────────────────────────────────────────────────
 ```
 
@@ -261,10 +293,11 @@ Please verify the visual quality and UX:
 {expected}
 
 ──────────────────────────────────────────────────────────────
-→ Type "pass" or describe what's wrong
+→ Pass, or describe what's wrong
 ──────────────────────────────────────────────────────────────
 ```
 
+<!-- builtin-audit: allow free-text: the answer is pass or an open description of what differs; severity is inferred from the user's words -->
 Wait for user response (plain text, no AskUserQuestion).
 </step>
 
@@ -589,12 +622,24 @@ Increment iteration_count
 
 Display: `Max iterations reached. {N} issues remain.`
 
-Offer options:
-1. Force proceed (execute despite issues)
-2. Provide guidance (user gives direction, retry)
-3. Abandon (exit, user runs /devflow:plan-objective manually)
+```
+AskUserQuestion([
+  {
+    header: "Max retries",
+    question: "The checker still reports {N} issues after 3 revisions. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Force proceed", description: "Execute the fix plans despite the remaining issues" },
+      { label: "Provide guidance", description: "You give direction and the planner retries" },
+      { label: "Abandon", description: "Stop here; run /devflow:plan-objective manually" }
+    ]
+  }
+])
+```
 
-Wait for user response.
+- **If "Force proceed":** `TaskUpdate(taskId=gap_plan_task_id, status="completed", description="Forced past {N} remaining issues")` (if available), proceed to `present_ready`.
+- **If "Provide guidance":** take the direction in plain text, add it to the revision prompt above, spawn the planner again, then the checker (verify_gap_plans logic).
+- **If "Abandon":** `TaskUpdate(taskId=gap_plan_task_id, status="completed", description="Abandoned; plan manually")` (if available), exit; the user runs /devflow:plan-objective manually.
 </step>
 
 <step name="present_ready">
