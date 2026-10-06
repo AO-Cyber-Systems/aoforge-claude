@@ -147,7 +147,8 @@ Use AskUserQuestion:
   - "Skip" — Use existing context as-is
 
 If "Update": Load existing, continue to analyze_objective
-If "View": Display CONTEXT.md, then ask again (revise it or skip)
+If "View it": Display CONTEXT.md, then ask the "Context" AskUserQuestion again (same routing)
+with two options, "Update it" and "Skip"
 If "Skip": Exit workflow
 
 **If doesn't exist:**
@@ -163,7 +164,7 @@ Use AskUserQuestion:
   - "Cancel" — Skip discuss-objective
 
 If "Continue and replan after": Continue to analyze_objective.
-If "View existing jobs": Display job files, then offer "Continue" / "Cancel".
+If "View existing jobs": Display job files, then ask the "Plans exist" AskUserQuestion again with two options, "Continue and replan after" and "Cancel" (same routing).
 If "Cancel": Exit workflow.
 
 **If `has_jobs` is false:** Continue to analyze_objective.

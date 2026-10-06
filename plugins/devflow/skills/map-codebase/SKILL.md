@@ -12,6 +12,7 @@ allowed-tools:
   - Grep
   - Write
   - Task
+  - AskUserQuestion
   - mcp__gopls__*
   - mcp__dart__*
 ---
@@ -54,7 +55,7 @@ Check for .planning/STATE.md - loads context if project already initialized
 </when_to_use>
 
 <process>
-1. Check if .planning/codebase/ already exists (offer to refresh or skip)
+1. Check if .planning/codebase/ already exists (ask Refresh / Update / Skip with AskUserQuestion, as map-codebase.md does)
 2. Resolve draft paths (`df-tools planning draft codebase/<NAME>.md`); nothing is created under `.planning/` by hand
 3. Spawn 4 parallel codebase-mapper agents, each writing drafts only:
    - Agent 1: tech focus → STACK.md, INTEGRATIONS.md drafts

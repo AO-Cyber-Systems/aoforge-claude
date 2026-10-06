@@ -19,6 +19,8 @@ allowed-tools:
   - Task
   - mcp__gopls__*
   - mcp__dart__*
+disallowed-tools:
+  - AskUserQuestion
 ---
 
 <objective>
