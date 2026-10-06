@@ -89,6 +89,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `DEVFLOW_SKIP_UPGRADE=1` and `DEVFLOW_SKIP_PRUNE=1`.
 - The `gh setup` dry run prints the managed workflow's pinned `uses:` and `devflow-ref:` lines (and a `was` line for each
   pin it would replace), and previews the commit and pull-request steps when it would write the workflow or the template.
+- The built-in sweep (objective 62): DevFlow's own prose uses Claude Code's built-ins instead of ad hoc text.
+  `bin/lib/builtin-audit.cjs` scans the 34 skills and 40 active workflows, and `builtin-sweep.repo.test.cjs` fails CI on a
+  discrete-choice prose prompt outside AskUserQuestion (`(y/n)`, "Reply with a number", "Wait for user response"), an
+  AskUserQuestion call with no options, a header over 12 characters or more than 4 options, a missing progress call in micro,
+  quick, build, debug, plan-objective or verify-work, a missing plan-mode draft review in plan-objective, new-project or
+  milestone complete, and a built-in a skill uses without declaring it in `allowed-tools`. There is no baseline and no
+  exceptions list: the baseline directory must not exist, and a line that is not a choice takes a
+  `<!-- builtin-audit: allow <reason> -->` marker. The conventions are `references/built-ins.md`, and
+  `docs/built-in-sweep.md` lists the 121 prompts and what each became. Needs an installed plugin carrying objective 62.
+- Plan-mode draft reviews: `/devflow:plan-objective` shows the TRD drafts (new step 13.5), `/devflow:new-project` shows
+  PROJECT.md, the requirements and the roadmap, and `/devflow:milestone complete` shows the MILESTONES entry and the
+  PROJECT.md update, each in plan mode before anything is published. "No, keep planning" with feedback produces a revised
+  draft and a second review. plan-objective skips the review under `--auto`, `--gaps` or `workflow.auto_advance`;
+  milestone complete under `--auto` or `workflow.auto_advance`; new-project under `--auto` only, because it writes
+  `workflow.auto_advance: true` into every new config.
+- Progress tasks (TaskCreate and TaskUpdate) in micro, quick, build, debug, plan-objective and verify-work: one task per
+  stage, `in_progress` when it starts and `completed` when it ends. The task tools are provided by default only on older
+  models; set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` for the rest (Claude Code v2.1.268 and later). With the tools absent each
+  flow carries on without the calls. A headless `claude -p` run listed TaskCreate and TaskUpdate with the variable set and
+  did not without it.
+- `skills/adopt` declares `disallowed-tools: AskUserQuestion`, so adopt stays unattended although the map-codebase flow it
+  runs now asks.
 
 ### Changed
 - The shell-text primitives (heredoc extraction, quote masking, word unquoting, path resolution) moved from `gate-commits.js`
@@ -121,6 +143,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   in `model-profiles.md` matches.
 - The branch-and-pull-request steps `gh setup --apply`, migration 0010 and doctor checks 20 and 21 print now end with a
   runnable `gh pr create --head <branch> --fill` instead of the prose "then open a pull request for that branch".
+- plan-objective step 5 prints the planning strategy instead of asking for a plan-mode approval, and the TRDs are pushed
+  after the draft review (step 13.5), which is the flow's one approval.
+- Every discrete-choice prompt in the skills and workflows is an AskUserQuestion with a header and the recommended option
+  first. Of the inventory's 121 rows, 92 are AskUserQuestion calls (82 with a header of their own, 10 folded into a neighbouring
+  one), 11 are reworded, 6 carry an allow marker, 4 stay prose on purpose, 3 are checkpoint returns from a subagent, and the
+  remaining 5 are plan-mode reviews, plain-text asks and a deleted question. Free-text answers (a description, a
+  correction) stay plain text.
+- `help.md` describes plan mode as the review of drafts in plan-objective, new-project and milestone complete, with build
+  still showing its strategy there.
 
 ### Fixed
 - Objective lookups match the exact directory. `4.1` no longer resolves to a `04.10-*` directory in `find-objective`,
@@ -155,6 +186,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   beside an issue titled after the objective (`[Objective 2] Goodbye CLI`). Both now take the name from the ROADMAP, then the
   OBJECTIVE.md heading, then the slug.
 - The missing objective 9 TRD 03 SUMMARY (the I001 `validate health` reported) exists again, as a marked backfill.
+- `AskUserQuestion` calls with no options in `micro` and `quick` (a free-text description) are plain-text asks. AskUserQuestion
+  headers over 12 characters (new-project's "Default work type", complete-milestone's "Archive Objectives") are shortened,
+  calls with no header have one, new-project's kind and work-type questions keep to 4 options, and settings asks its six
+  questions in two calls of three.
+- `build` and `plan-objective` no longer declare `ExitPlanMode` in `allowed-tools`: its permission prompt is the plan
+  approval, so pre-approving it could approve a plan the user never saw. No skill declares it, and the repo test fails if
+  one does.
 
 ## [2.13.2] - 2026-10-05
 

@@ -108,6 +108,7 @@ Create detailed execution plan for a specific objective.
 - Breaks objective into concrete, actionable tasks
 - Includes verification criteria and success measures
 - Multiple plans per objective supported (XX-01, XX-02, etc.)
+- Shows the TRD drafts in plan mode for your review before they are pushed (skipped with `--auto`, `--gaps` or `workflow.auto_advance`)
 
 Usage: `/devflow:plan-objective 1`
 Result: `.planning/objectives/01-foundation/01-01-<slug>-TRD.md`
