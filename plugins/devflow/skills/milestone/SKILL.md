@@ -12,6 +12,7 @@ allowed-tools:
   - Bash
   - Task
   - AskUserQuestion
+  - EnterPlanMode
   - Glob
   - Grep
 ---
@@ -31,6 +32,7 @@ Replaces 4 sibling skills: new-milestone, audit-milestone, complete-milestone, p
 @~/.claude/devflow/workflows/audit-milestone.md
 @~/.claude/devflow/workflows/complete-milestone.md
 @~/.claude/devflow/workflows/plan-milestone-gaps.md
+@~/.claude/devflow/references/built-ins.md
 </execution_context>
 
 <context>

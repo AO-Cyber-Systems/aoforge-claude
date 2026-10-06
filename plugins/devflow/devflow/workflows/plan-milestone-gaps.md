@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Plan every objective needed to close gaps identified by `/devflow:milestone audit`. Reads MILESTONE-AUDIT.md, groups gaps into logical objectives, registers them (ROADMAP.md entries in local mode, `df-tools objective add` in store mode), and offers to plan each objective. One command covers all fix objectives — no manual `/devflow:objective add` per gap.
+Plan every objective needed to close gaps identified by `/devflow:milestone audit`. Reads MILESTONE-AUDIT.md, groups gaps into logical objectives, registers them (ROADMAP.md entries in local mode, `df-tools objective add` in store mode), and prints the plan command for each objective (step 10 does). One command covers all fix objectives — no manual `/devflow:objective add` per gap.
 </purpose>
 
 <required_reading>
@@ -36,9 +36,27 @@ Group gaps by priority from REQUIREMENTS.md:
 |----------|--------|
 | `must` | Create objective, blocks milestone |
 | `should` | Create objective, recommended |
-| `nice` | Ask user: include or defer? |
+| `nice` | Include or defer, per the question below |
 
 For integration/flow gaps, infer priority from affected requirements.
+
+**Nice-to-have gaps:** when any exist, ask which to include with AskUserQuestion, `multiSelect: true`: one option per nice-to-have gap (the label is its REQ-ID or a short name, the description says what it closes). The tool takes up to 4 options per question and up to 4 questions per call: split a longer list across questions, never leaving a question with a single option, and group related gaps if there are more than 16. A lone nice-to-have gap is a plain Include / Defer question instead.
+
+```
+AskUserQuestion([
+  {
+    header: "Nice-to-have",
+    question: "Which of these optional gaps should get a fix objective now? Unselected gaps stay deferred.",
+    multiSelect: true,
+    options: [
+      { label: "{REQ-ID or short name}", description: "{what the gap closes}" },
+      { label: "{REQ-ID or short name}", description: "{what the gap closes}" }
+    ]
+  }
+])
+```
+
+Selected gaps are included in the objectives below; the rest are deferred and listed in the plan.
 
 ## 3. Group Gaps into Objectives
 
@@ -97,20 +115,35 @@ Closes:
 - Flow: {flow name}
 Tasks: {count}
 
-{If nice-to-have gaps exist:}
+{If nice-to-have gaps were deferred:}
 
 ### Deferred (nice-to-have)
 
-These gaps are optional. Include them?
+These gaps are optional and were not selected:
 - {gap description}
 - {gap description}
-
----
-
-Create these {X} objectives? (yes / adjust / defer all optional)
 ```
 
-Wait for user confirmation.
+Then confirm the plan with AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "Gap plan",
+    question: "Create these {X} objectives?",
+    multiSelect: false,
+    options: [
+      { label: "Create them (Recommended)", description: "Register the objectives and continue to step 6" },
+      { label: "Adjust", description: "Change the grouping, names or scope first" },
+      { label: "Defer optional", description: "Drop the optional gaps from the plan, then create the rest" }
+    ]
+  }
+])
+```
+
+- "Create them": continue to step 6.
+- "Adjust": ask what to change (plain prose), revise the plan, and present it again.
+- "Defer optional": remove the included nice-to-have gaps from the objectives, then continue to step 6. Leave this option out when no nice-to-have gap is included.
 
 ## 6. Register the New Objectives (ROADMAP.md in local mode)
 

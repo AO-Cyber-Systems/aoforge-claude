@@ -3,7 +3,7 @@ status: active
 ---
 <purpose>
 
-Mark a shipped version (v1.0, v1.1, v2.0) as complete. Records the historical MILESTONES.md entry (`df-tools milestone put`), performs full PROJECT.md evolution review, regroups ROADMAP.md by milestone, and tags the release in git.
+Mark a shipped version (v1.0, v1.1, v2.0) as complete. Records the historical MILESTONES.md entry (`df-tools milestone put`), performs full PROJECT.md evolution review, presents the entry and PROJECT.md drafts in plan mode before publishing either, regroups ROADMAP.md by milestone, and tags the release in git.
 
 </purpose>
 
@@ -26,8 +26,8 @@ When a milestone completes:
    (local: `df-tools milestone complete` builds both; store: each is published with `df-tools doc put milestones/v[X.Y]-<KIND>.md`)
 3. Collapse ROADMAP.md — replace milestone details with one-line summary
 4. Delete REQUIREMENTS.md (fresh one for next milestone)
-5. Perform full PROJECT.md evolution review
-6. Offer to create next milestone inline
+5. Perform full PROJECT.md evolution review; the MILESTONES entry and PROJECT.md drafts are presented in plan mode (review_drafts) before they are published
+6. Show the command that starts the next milestone (the offer_next step already prints it)
 
 **Context Efficiency:** Archives keep ROADMAP.md constant-size and REQUIREMENTS.md milestone-scoped.
 
@@ -84,12 +84,26 @@ Requirements: {N}/{M} v1 requirements checked off
 - [ ] {REQ-ID}: {description} (Objective {Y})
 ```
 
-MUST present 3 options:
-1. **Proceed anyway** — mark milestone complete with known gaps
-2. **Run audit first** — `/devflow:milestone audit` to assess gap severity
-3. **Abort** — return to development
+Ask how to continue with AskUserQuestion:
 
-If user selects "Proceed anyway": note incomplete requirements in MILESTONES.md under `### Known Gaps` with REQ-IDs and descriptions.
+```
+AskUserQuestion([
+  {
+    header: "Gaps",
+    question: "{M-N} v1 requirements are not checked off. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Run audit first (Recommended)", description: "/devflow:milestone audit to assess gap severity" },
+      { label: "Proceed anyway", description: "Mark the milestone complete with known gaps" },
+      { label: "Abort", description: "Return to development" }
+    ]
+  }
+])
+```
+
+If "Run audit first": stop and tell the user to run `/devflow:milestone audit`.
+If "Abort": stop; the user returns to development.
+If "Proceed anyway": note incomplete requirements in MILESTONES.md under `### Known Gaps` with REQ-IDs and descriptions.
 
 <config-check>
 
@@ -113,14 +127,26 @@ Proceed to gather_stats.
 
 <if mode="interactive" OR="custom with gates.confirm_milestone_scope true">
 
+Ask with AskUserQuestion:
+
 ```
-Ready to mark this milestone as shipped?
-(yes / wait / adjust scope)
+AskUserQuestion([
+  {
+    header: "Ship it?",
+    question: "Ready to mark this milestone as shipped?",
+    multiSelect: false,
+    options: [
+      { label: "Ship it", description: "Mark the milestone complete and continue to stats gathering" },
+      { label: "Wait", description: "Stop here; you return when ready" },
+      { label: "Adjust scope", description: "Change which objectives the milestone includes" }
+    ]
+  }
+])
 ```
 
-Wait for confirmation.
-- "adjust scope": Ask which objectives to include.
-- "wait": Stop, user returns when ready.
+- "Ship it": proceed to gather_stats.
+- "Adjust scope": ask which objectives to include (plain prose; the answer is a list the user types).
+- "Wait": stop, user returns when ready.
 
 </if>
 
@@ -179,7 +205,7 @@ Key accomplishments for this milestone:
 
 <step name="create_milestone_entry">
 
-Draft the full MILESTONES.md entry now; the archive_milestone step records it with `milestone put`. `node ~/.claude/devflow/bin/df-tools.cjs planning draft milestones/v[X.Y].md` prints the draft path. Follow `templates/milestone.md`: version, date, objective/job/task counts, accomplishments from the SUMMARY.md files, plus any user-provided "Delivered" summary, git range, LOC stats and — if the user proceeded with gaps — `### Known Gaps`.
+Draft the full MILESTONES.md entry now; the archive_milestone step records it with `milestone put`, after review_drafts has presented it. `node ~/.claude/devflow/bin/df-tools.cjs planning draft milestones/v[X.Y].md` prints the draft path (`$ENTRY_DRAFT` below; shell variables do not survive between Bash calls, so pass the printed path). Follow `templates/milestone.md`: version, date, objective/job/task counts, accomplishments from the SUMMARY.md files, plus any user-provided "Delivered" summary, git range, LOC stats and — if the user proceeded with gaps — `### Known Gaps`.
 
 In local mode `df-tools milestone complete` first adds a base entry with the counts and accomplishments; `milestone put` then replaces it, because both carry the same `## v[X.Y]` heading.
 
@@ -234,18 +260,14 @@ cat .planning/objectives/*-*/*-SUMMARY.md
 6. **Constraints check:**
    - Any constraints changed during development? Update as needed
 
-Make these PROJECT.md changes in the draft `node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md` prints (seeded with the current file). Set the "Last updated" footer:
+Make these PROJECT.md changes in the draft `node ~/.claude/devflow/bin/df-tools.cjs planning draft PROJECT.md` prints (seeded with the current file; `$PROJECT_DRAFT` below, passed as the printed path). Set the "Last updated" footer:
 
 ```markdown
 ---
 *Last updated: [date] after v[X.Y] milestone*
 ```
 
-When the review is done, publish the draft:
-
-```bash
-node ~/.claude/devflow/bin/df-tools.cjs doc put PROJECT.md --from "$DRAFT"
-```
+Leave the draft unpublished here: the review_drafts step presents it, with the MILESTONES entry, before `doc put PROJECT.md` runs.
 
 **Example full evolution (v1.0 → v1.1 prep):**
 
@@ -330,6 +352,42 @@ Initial user testing showed demand for shape tools.
 
 </step>
 
+<step name="review_drafts">
+
+Review the two drafts built above, the MILESTONES entry (`$ENTRY_DRAFT`) and the PROJECT.md evolution (`$PROJECT_DRAFT`), in one plan-mode review before either is published. Follow `@~/.claude/devflow/references/built-ins.md` section 2.
+
+**Skip if:** `--auto` was passed or config `workflow.auto_advance` is true (`node ~/.claude/devflow/bin/df-tools.cjs config-get workflow.auto_advance`). Then publish the PROJECT.md draft now and continue to reorganize_roadmap; archive_milestone records the entry as usual:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put PROJECT.md --from "$PROJECT_DRAFT"
+```
+
+Both drafts are finished and every command the review needs has run (plan mode blocks edits and prompts on shell commands outside the read-only set).
+
+EnterPlanMode()
+
+Put in the plan, as the drafts for review:
+
+- the MILESTONES entry draft (full text)
+- the PROJECT.md evolution: each section that changed, before → after (Validated, Active, Out of Scope, Key Decisions, Context, and "What This Is" if changed)
+- **On approval:**
+  1. publish the PROJECT.md draft (`doc put PROJECT.md --from`)
+  2. archive_milestone archives the roadmap and requirements, then records the entry (`milestone put`)
+
+ExitPlanMode()
+
+**Approved:** if the approved plan carries edits the user made, apply them to the two drafts first. Then publish the PROJECT.md draft (pass the printed draft path):
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs doc put PROJECT.md --from "$PROJECT_DRAFT"
+```
+
+Continue to reorganize_roadmap.
+
+**"No, keep planning":** add a `## Requested changes` section to the plan that states the feedback concretely, and call ExitPlanMode again. When that plan is approved, apply the changes to the drafts and present the revised drafts again from the top of this step.
+
+</step>
+
 <step name="reorganize_roadmap">
 
 Check `node ~/.claude/devflow/bin/df-tools.cjs planning mode`. **Store:** ROADMAP.md is a generated view — `gh pull --all` regroups it from the native milestones after archive_milestone; do not hand-edit it. **Local:** edit `.planning/ROADMAP.md` as today — group completed milestone objectives:
@@ -399,7 +457,7 @@ Verify: `✅ Milestone archived to .planning/milestones/`
 Then record the full entry drafted in create_milestone_entry; it replaces the CLI's base entry:
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$DRAFT"
+node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$ENTRY_DRAFT"
 ```
 
 **Store mode:** `milestone complete` closes the native milestone and publishes the archives already under `milestones/`; it does not build them. Draft each archive first (`planning draft milestones/v[X.Y]-<KIND>.md` prints a path): the ROADMAP archive is the milestone's objectives and details from the current ROADMAP.md and the REQUIREMENTS archive is REQUIREMENTS.md under the archive header from `templates/milestone-archive.md` (audit-milestone already published `milestones/v[X.Y]-MILESTONE-AUDIT.md` in store mode). Then:
@@ -407,7 +465,7 @@ node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$DRAFT"
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs doc put milestones/v[X.Y]-ROADMAP.md --from "$ROADMAP_DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs doc put milestones/v[X.Y]-REQUIREMENTS.md --from "$REQUIREMENTS_DRAFT"
-node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$DRAFT"
+node ~/.claude/devflow/bin/df-tools.cjs milestone put "v[X.Y]" --from "$ENTRY_DRAFT"
 node ~/.claude/devflow/bin/df-tools.cjs milestone complete "v[X.Y]"
 ```
 
@@ -415,7 +473,7 @@ The stats for the summary come from gather_stats.
 
 **Objective archival (optional):** After archival completes, ask the user:
 
-AskUserQuestion(header="Archive Objectives", question="Archive objective directories to milestones/?", options: "Yes — move to milestones/v[X.Y]-objectives/" | "Skip — keep objectives in place")
+AskUserQuestion(header="Archive", question="Archive objective directories to milestones/?", options: "Yes — move to milestones/v[X.Y]-objectives/ (Recommended)" | "Skip — keep objectives in place")
 
 If "Yes": move objective directories to the milestone archive:
 ```bash
@@ -532,14 +590,25 @@ MILESTONE_BRANCH=$(git branch --list "${BRANCH_PREFIX}*" 2>/dev/null | sed 's/^\
 
 Branching strategy: {objective/milestone}
 Branches: {list}
-
-Options:
-1. **Merge to main** — Merge branch(es) to main
-2. **Delete without merging** — Already merged or not needed
-3. **Keep branches** — Leave for manual handling
 ```
 
-AskUserQuestion with options: Squash merge (Recommended), Merge with history, Delete without merging, Keep branches.
+Then ask what to do with them:
+
+```
+AskUserQuestion([
+  {
+    header: "Branches",
+    question: "How should the {objective/milestone} branch(es) be handled?",
+    multiSelect: false,
+    options: [
+      { label: "Squash merge (Recommended)", description: "Merge each branch to main as one commit" },
+      { label: "Merge with history", description: "Merge each branch to main and keep its commits" },
+      { label: "Delete without merging", description: "Already merged or not needed" },
+      { label: "Keep branches", description: "Leave them for manual handling" }
+    ]
+  }
+])
+```
 
 **Squash merge:** run each step as its own Bash call. Never chain a merge with its commit in one call:
 gate-commits decides before a command runs, so it refuses a raw `git commit` chained after a merge.
@@ -662,9 +731,24 @@ See .planning/MILESTONES.md for full details."
 
 Confirm: "Tagged: v[X.Y]"
 
-Ask: "Push tag to remote? (y/n)"
+Ask whether to push the tag:
 
-If yes:
+```
+AskUserQuestion([
+  {
+    header: "Push tag",
+    question: "Push tag v[X.Y] to the remote?",
+    multiSelect: false,
+    options: [
+      { label: "Keep local (Recommended)", description: "Leave the tag on this machine; push it later yourself" },
+      { label: "Push to origin", description: "Run git push origin v[X.Y] now" }
+    ]
+  }
+])
+```
+
+Only "Push to origin" runs the push; "Keep local" (or any other answer) leaves the tag local:
+
 ```bash
 git push origin v[X.Y]
 ```

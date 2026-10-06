@@ -174,6 +174,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 62]: 62-04: verify-work with more than 4 active UAT sessions takes another session's objective under Other, not a row number (an objective number already means start new)
 - [Objective 62]: plan-objective plan-mode review is step 13.5 (a half step, no renumbering); the planner is told not to push when the review will run and 13.5 pushes after approval; build keeps its single strategy approval and pushes right away
 - [Objective 62]: new-project keys its plan-mode reviews on --auto only, never workflow.auto_advance (it writes auto_advance true into every config)
+- [Objective 62]: 62-07: milestone complete reviews the MILESTONES entry and PROJECT.md drafts in one plan-mode step (review_drafts); the tag push is behind its own AskUserQuestion with Keep local recommended
 
 ## Performance Metrics
 
@@ -285,4 +286,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P04 | 8min | 3 tasks | 10 files |
 | Objective 62 P05 | 8min | 3 tasks | 4 files |
 | Objective 62 P06 | 3min | 2 tasks | 3 files |
+| Objective 62 P07 | 4min | 2 tasks | 5 files |
 
