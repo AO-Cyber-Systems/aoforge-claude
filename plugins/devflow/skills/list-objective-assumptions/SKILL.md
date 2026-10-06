@@ -10,6 +10,7 @@ allowed-tools:
   - Bash
   - Grep
   - Glob
+  - AskUserQuestion
 ---
 
 <objective>

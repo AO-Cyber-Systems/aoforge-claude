@@ -126,6 +126,7 @@ Are these assumptions accurate? Let me know:
 - What I'm missing
 ```
 
+<!-- builtin-audit: allow free-text: the user corrects the assumptions in their own words, so this stays a plain-text question -->
 Wait for user response.
 </step>
 
@@ -152,21 +153,28 @@ Continue to offer_next.
 </step>
 
 <step name="offer_next">
-Present next steps:
+Ask for the next step:
 
 ```
-What's next?
-1. Discuss context (/devflow:discuss-objective ${OBJECTIVE}) - Let me ask you questions to build comprehensive context
-2. Plan this objective (/devflow:plan-objective ${OBJECTIVE}) - Create detailed execution plans
-3. Re-examine assumptions - I'll analyze again with your corrections
-4. Done for now
+AskUserQuestion([
+  {
+    header: "Next step",
+    question: "What's next for Objective ${OBJECTIVE}?",
+    multiSelect: false,
+    options: [
+      { label: "Plan this objective (Recommended)", description: "Create detailed execution plans (/devflow:plan-objective ${OBJECTIVE})" },
+      { label: "Discuss context", description: "I ask you questions to build comprehensive context (/devflow:discuss-objective ${OBJECTIVE})" },
+      { label: "Re-examine assumptions", description: "I analyze again with your corrections" },
+      { label: "Done for now", description: "Stop here" }
+    ]
+  }
+])
 ```
-
-Wait for user selection.
 
 If "Discuss context": Note that CONTEXT.md will incorporate any corrections discussed here
 If "Plan this objective": Proceed knowing assumptions are understood
-If "Re-examine": Return to analyze_objective with updated understanding
+If "Re-examine assumptions": Return to analyze_objective with updated understanding
+If "Done for now": Stop.
 </step>
 
 </process>
