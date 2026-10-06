@@ -150,6 +150,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 60]: scanShell finishes with maskTests, so arithmetic and [[ ]] masking is part of scanShell; the splitter and word scanner honour backslash escapes (\; and a\ b)
 - [Objective 60]: bash-write-detect: ambiguity resolves to path null or no write; pushd with no argument is unknown (it swaps), and a cp/mv destination of . or .. counts as a directory (into: true)
 - [Objective 60]: gitTrackedSet takes an optional env so hermetic tests run git without mutating process.env; the hook never passes it — Keeps process-wide env mutation out of the tests; one test still runs the default-env path under applyGitTestEnv
+- [Objective 60]: Bash write gate is a separate PreToolUse(Bash) hook (gate-bash-writes.js) that reuses gate-edits.js helpers, leaving the Edit/Write path byte-identical and failing open on its own
 
 ## Performance Metrics
 
@@ -242,4 +243,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 60 P01 | 10min | 3 tasks | 5 files |
 | Objective 60 P02 | 25min | 2 tasks | 2 files |
 | Objective 60 P03 | 5min | 3 tasks | 3 files |
+| Objective 60 P04 | 5min | 2 tasks | 5 files |
 

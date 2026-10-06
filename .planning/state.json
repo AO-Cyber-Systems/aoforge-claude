@@ -1,6 +1,6 @@
 {
   "current_objective": "60",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -815,6 +815,11 @@
       "objective": "60",
       "summary": "gitTrackedSet takes an optional env so hermetic tests run git without mutating process.env; the hook never passes it",
       "rationale": "Keeps process-wide env mutation out of the tests; one test still runs the default-env path under applyGitTestEnv"
+    },
+    {
+      "objective": "60",
+      "summary": "Bash write gate is a separate PreToolUse(Bash) hook (gate-bash-writes.js) that reuses gate-edits.js helpers, leaving the Edit/Write path byte-identical and failing open on its own",
+      "rationale": null
     }
   ],
   "blockers": [],
