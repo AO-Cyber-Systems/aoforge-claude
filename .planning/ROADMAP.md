@@ -229,7 +229,16 @@ TRDs:
   3. Writes to `.planning/`, `.md`, out-of-repo, tmp and scratchpad paths, and to untracked files, pass.
   4. A live skill marker, a `devflow:*` agent, an override phrase, `DEVFLOW_SKIP_EDIT_GATE=1`, and `gates.editGate` warn/off each let the write through.
   5. `session-audit` reports the Bash-gate false-positive rate, and the default is `strict` only if that rate is at most 2% of ambient Bash calls, otherwise `warn`.
-**TRDs**: TBD
+**TRDs:** 7 plans
+
+TRDs:
+- [ ] 60-01-shell-words-TRD.md — (W1) GATE-02: shell-text primitives move to `lib/shell-words.cjs` (shared by gate-commits and session-audit, no behaviour change) + `scanShell`/`parseCommand`; hand-built WRITE/MENTION/PATH case table
+- [ ] 60-02-bash-write-detector-TRD.md — (W2) GATE-01/02: pure `detectBashWrites` (redirect, tee, sed -i, perl -i, cp/mv, inline python/node, `sh -c`, `cd` tracking); mentions are data
+- [ ] 60-03-bash-write-gate-TRD.md — (W3) GATE-01/03/04/05: `evaluateBashWrites` (tracked, in-project, non-md, non-.planning), `gitTrackedSet`, `gates.bashEditGate` least-of `gates.editGate`, `recommendDefault` (≤0.02 → strict)
+- [ ] 60-04-bash-gate-hook-TRD.md — (W4) GATE-01..04: `hooks/gate-bash-writes.js` on PreToolUse(Bash), reusing gate-edits' escapes; lazy override consumption; registration + inventory/audit entries
+- [ ] 60-05-replay-false-positives-TRD.md — (W4) GATE-05: `session-audit` `bash_edit_gate` replay through the hook's decision (ambient signals, history-accurate tracked check, upper-bound rate) + raw line + `devflow-bash-edit-gate` category
+- [ ] 60-06-measure-and-set-default-TRD.md — (W5) GATE-05: real-corpus `session-audit --limit 0`, triage and test-first misparse fixes, evidence JSON, `BASH_EDIT_GATE_DEFAULT` from the measurement, CI agreement test
+- [ ] 60-07-dogfood-and-docs-TRD.md — (W6) scratch-clone stdin smoke S1-S13 + best-effort live Claude Code check; CHANGELOG/CLAUDE.md/USER-GUIDE/gen-docs-data; full `npm test`
 
 ### Objective 61: Store-mode rough edges and observability
 
