@@ -258,7 +258,7 @@ TRDs:
 - [ ] 61-02-skill-requires-lib-TRD.md — (W1) STOR-04: `requires:` skill frontmatter, `skill-requires.cjs` (stat-only PATH lookup, refusal text naming `/devflow:doctor`), doctor check 14 `skill-requires`, gh-sync requires gh
 - [ ] 61-03-pr-title-objective-name-TRD.md — (W1) STOR-02: one name chain in `objective-name.cjs` for issue and PR titles; fresh-store PR titled after OBJECTIVE.md, titles stay create-only
 - [ ] 61-04-telemetry-scan-and-09-03-backfill-TRD.md — (W1) OBS-02: `telemetry --scan [--limit|--since|--root]` via `runTelemetry`, unknown flags are errors; OBS-04: 09-03 SUMMARY backfilled from history, I001 clears
-- [ ] 61-05-transcript-export-schedule-TRD.md — (W1) OBS-03: upgrade-project.js step 0b starts a detached `transcript-export` at most once per 24 h (claim-then-spawn stamp in `~/.claude/devflow/state/`), `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`
+- [x] 61-05-transcript-export-schedule-TRD.md — (W1) OBS-03: upgrade-project.js step 0b starts a detached `transcript-export` at most once per 24 h (claim-then-spawn stamp in `~/.claude/devflow/state/`), `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`
 - [ ] 61-06-setup-dry-run-pins-and-pr-step-TRD.md — (W2) STOR-01: dry run prints `uses:` / `devflow-ref:` (and `was` pins on a re-pin) plus the follow-up preview; every printed sequence ends `gh pr create --head <branch> --fill`
 - [ ] 61-07-current-model-ids-TRD.md — (W2) OBS-01: pins `claude-opus-5-5` / `claude-sonnet-5-5`; `model-currency.cjs` derives currency from model-rates.json; doctor check 13 stale ids, validate health W063, CI guard
 - [ ] 61-08-skill-requires-hook-TRD.md — (W2) STOR-04: `hooks/gate-skill-requires.js` on UserPromptExpansion (block) and PreToolUse(Skill) (deny), fails open; registration, inventory, audit
@@ -312,7 +312,7 @@ TRDs:
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
-| 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
+| 61. Store-mode rough edges and observability | v1.5 | 1/9 | In Progress | - |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |

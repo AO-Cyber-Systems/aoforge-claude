@@ -1,9 +1,9 @@
 {
-  "current_objective": "60",
-  "current_job": 7,
-  "total_jobs": 7,
-  "progress_pct": 99,
-  "status": "ready_for_verification",
+  "current_objective": "61",
+  "current_job": 1,
+  "total_jobs": 9,
+  "progress_pct": 98,
+  "status": "executing",
   "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
@@ -839,6 +839,11 @@
     {
       "objective": "60",
       "summary": "Docs word DEVFLOW_SKIP_EDIT_GATE=1 as valid only in the environment Claude Code was launched from, never as an inline Bash prefix (hooks run in Claude Code's own process); S10b dogfood row proves the prefix is denied",
+      "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape",
       "rationale": null
     }
   ],

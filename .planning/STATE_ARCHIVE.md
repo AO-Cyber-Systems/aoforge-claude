@@ -155,6 +155,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 60]: 60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)
 - [Objective 60]: 60-06: Bash edit gate ships default warn; measured upper-bound false-positive rate 633/17957 = 0.035251 exceeds the 0.02 threshold (references/bash-edit-gate-evidence.json); 0 detector misparses found
 - [Objective 60]: Docs word DEVFLOW_SKIP_EDIT_GATE=1 as valid only in the environment Claude Code was launched from, never as an inline Bash prefix (hooks run in Claude Code's own process); S10b dogfood row proves the prefix is denied
+- [Objective 61]: 61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape
 
 ## Performance Metrics
 
@@ -251,4 +252,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 60 P05 | 8min | 3 tasks | 5 files |
 | Objective 60 P06 | 8min | 2 tasks | 3 files |
 | Objective 60 P07 | 13min | 3 tasks | 4 files |
+| Objective 61 P05 | 6min | 2 tasks | 4 files |
 
