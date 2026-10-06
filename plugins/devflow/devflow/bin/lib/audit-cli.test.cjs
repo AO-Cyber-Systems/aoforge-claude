@@ -87,6 +87,8 @@ const {
   parseAuditArgs, defaultTranscriptRoot, runContext, formatContextRaw,
   defaultIndexPath, runOverride,
 } = require('./audit-cli.cjs');
+const { makeTrackedRepo } = require('./__fixtures__/tracked-repo.cjs');
+const { bashRow, REPLAY_HISTORY } = require('./__fixtures__/bash-replay-fixtures.cjs');
 
 // ─── Unit tests (in-process, no spawn) — tests 12-15 ───────────────────────
 
@@ -319,8 +321,8 @@ describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
     }
   });
 
-  test('10. session-audit --raw: exactly 3 lines', () => {
-    // C-2: lines 1-2 are unchanged from TRD 39-01; quick 31 adds the edit_gate line.
+  test('10. session-audit --raw: exactly 4 lines', () => {
+    // C-2: lines 1-2 are unchanged from TRD 39-01; quick 31 adds the edit_gate line, TRD 60-05 the last one.
     const cwd = tmpCwd();
     const home = makeFixtureHome();
     try {
@@ -330,10 +332,14 @@ describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
       const r = runCli(['session-audit', '--raw'], cwd, home);
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
       const lines = r.stdout.split('\n');
-      assert.equal(lines.length, 3, `expected 3 lines, got: ${JSON.stringify(lines)}`);
+      assert.equal(lines.length, 4, `expected 4 lines, got: ${JSON.stringify(lines)}`);
       assert.match(lines[0], /^files_scanned: \d+, sessions: \d+, sessions_with_blocks: \d+ \(\d+(\.\d+)?%\)$/);
       assert.match(lines[1], /^verdict: /);
       assert.match(lines[2], /^edit_gate: denials 0, bypasses 0, routed 0, abandoned 0, bypass_rate 0$/);
+      assert.equal(
+        lines[3],
+        'bash_edit_gate: ambient_bash_calls 0, would_deny 0, false_positive_rate n/a (upper bound), threshold 0.02, recommended_default warn'
+      );
     } finally {
       cleanup(cwd, home);
     }
@@ -360,7 +366,7 @@ describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
     }
   });
 
-  test('C-3. session-audit --raw with a bypass: 5 lines (edit_gate, by_period, sample)', () => {
+  test('C-3. session-audit --raw with a bypass: 6 lines (edit_gate, by_period, sample, bash_edit_gate)', () => {
     const cwd = tmpCwd();
     const home = makeFixtureHome();
     try {
@@ -368,11 +374,65 @@ describe('df-tools context / session-audit (CLI) — TRD 39-01', () => {
       const r = runCli(['session-audit', '--raw'], cwd, home);
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
       const lines = r.stdout.split('\n');
-      assert.equal(lines.length, 5, `expected 5 lines, got: ${JSON.stringify(lines)}`);
+      assert.equal(lines.length, 6, `expected 6 lines, got: ${JSON.stringify(lines)}`);
       assert.equal(lines[2], 'edit_gate: denials 1, bypasses 1, routed 0, abandoned 0, bypass_rate 1');
       assert.equal(lines[3], 'edit_gate_by_period: 2026-08 1/1/0/0 (denials/bypasses/routed/abandoned)');
       assert.ok(lines[4].startsWith('edit_gate_bypass_sample: a.go <- cat > /repo/src/a.go'), lines[4]);
+      // The Bash row has no cwd, so it is not in a DevFlow project: counted in bash_calls, not ambient.
+      assert.equal(
+        lines[5],
+        'bash_edit_gate: ambient_bash_calls 0, would_deny 0, false_positive_rate n/a (upper bound), threshold 0.02, recommended_default warn'
+      );
     } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('C-5. session-audit JSON: bash_edit_gate has exactly the documented keys, in order, and is last', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', bypassRows());
+      const r = runCli(['session-audit'], cwd, home);
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const json = JSON.parse(r.stdout);
+      assert.deepEqual(Object.keys(json.bash_edit_gate), [
+        'bash_calls', 'ambient_bash_calls', 'excluded', 'would_deny', 'by_form', 'false_positive_rate',
+        'false_positive_basis', 'threshold', 'recommended_default', 'by_period', 'sample',
+      ]);
+      assert.equal(Object.keys(json).pop(), 'bash_edit_gate');
+      assert.equal(json.bash_edit_gate.bash_calls, 1);
+      assert.equal(json.bash_edit_gate.excluded.not_devflow_project, 1);
+    } finally {
+      cleanup(cwd, home);
+    }
+  });
+
+  test('C-4. session-audit replays a real git project: the JSON and --raw report the same measurement', () => {
+    const cwd = tmpCwd();
+    const home = makeFixtureHome();
+    const repo = makeTrackedRepo({ history: REPLAY_HISTORY });
+    try {
+      writeTranscript(home, 'proj-a', 'sess-1', [
+        bashRow({ id: 'g1', command: 'echo x > src/a.js', ts: '2026-09-05T00:00:00Z', cwd: repo.root }),
+        bashRow({ id: 'g2', command: 'ls', ts: '2026-09-05T00:00:01Z', cwd: repo.root }),
+        bashRow({ id: 'g3', command: 'echo x > src/late.js', ts: '2026-09-05T00:00:02Z', cwd: repo.root }),
+      ]);
+      const json = JSON.parse(runCli(['session-audit'], cwd, home).stdout);
+      const g = json.bash_edit_gate;
+      assert.equal(g.ambient_bash_calls, 3);
+      assert.equal(g.would_deny, 1, 'src/late.js was not tracked yet on 2026-09-05');
+      assert.equal(g.false_positive_rate, 0.333333);
+      assert.equal(g.recommended_default, 'warn');
+      assert.deepEqual(g.sample.map(s => s.gated), [['src/a.js']]);
+      const raw = runCli(['session-audit', '--raw'], cwd, home);
+      assert.equal(raw.status, 0, `stderr: ${raw.stderr}`);
+      assert.equal(
+        raw.stdout.split('\n').pop(),
+        'bash_edit_gate: ambient_bash_calls 3, would_deny 1, false_positive_rate 0.333333 (upper bound), threshold 0.02, recommended_default warn'
+      );
+    } finally {
+      repo.cleanup();
       cleanup(cwd, home);
     }
   });
