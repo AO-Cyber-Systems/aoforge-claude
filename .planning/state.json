@@ -1,9 +1,9 @@
 {
-  "current_objective": "61",
-  "current_job": 9,
-  "total_jobs": 9,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "62",
+  "current_job": 1,
+  "total_jobs": 11,
+  "progress_pct": 98,
+  "status": "executing",
   "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
@@ -894,6 +894,16 @@
     {
       "objective": "61",
       "summary": "site/data/devflow.json stays a release-time artifact: gen-docs-data.cjs writes a hard-coded repo path, so it was proven against a scratch copy of the tree",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "ExitPlanMode is forbidden in skill allowed-tools and never reported as missing: its permission prompt is the plan approval, so pre-approving it could approve the draft the user should review",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "builtin-audit groupOf returns null for an unpinned path (legacy workflow or unowned file) instead of a default group, so 62-03 can see it",
       "rationale": null
     }
   ],
