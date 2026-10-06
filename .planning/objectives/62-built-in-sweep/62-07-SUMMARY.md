@@ -3,5 +3,6 @@
 In progress.
 
 ## Progress
-- [x] Task 1: review_drafts in complete-milestone — RED a1b2d645; GREEN (this commit)
-- [ ] Task 2: The milestone workflows' prompts — next step: delete the remaining prompt entries from plugins/devflow/devflow/bin/lib/__fixtures__/builtin-sweep-baseline/milestone.json (RED), run the repo test, then convert BS-032..BS-049 in complete-milestone.md, new-milestone.md, plan-milestone-gaps.md (audit-milestone.md has no rows)
+- [x] Task 1: review_drafts in complete-milestone — a1b2d645 (RED), 4faafb57 (GREEN)
+- [x] Task 2: The milestone workflows' prompts — f7d089b1 (RED), (this commit) (GREEN)
+- [ ] Wrap-up: next step: self-check, then `summary post 62-07`, `state advance-job --objective 62`, `roadmap update-job-progress 62`, final docs commit

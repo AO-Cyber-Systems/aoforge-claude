@@ -37,7 +37,21 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 - Parse last version from MILESTONES.md
 - Suggest next version (v1.0 → v1.1, or v2.0 for major)
-- Confirm with user
+- Confirm it with AskUserQuestion: the suggestion first, the other bump second. A custom version is typed under Other.
+
+```
+AskUserQuestion([
+  {
+    header: "Version",
+    question: "Which version is this milestone?",
+    multiSelect: false,
+    options: [
+      { label: "{suggested version} (Recommended)", description: "The suggested next version, e.g. v1.0 → v1.1" },
+      { label: "{the other bump}", description: "The other bump, e.g. v2.0 for a major release" }
+    ]
+  }
+])
+```
 
 ## 4. Revise PROJECT.md
 
@@ -93,9 +107,19 @@ Extract from init JSON: `researcher_model`, `synthesizer_model`, `roadmapper_mod
 
 ## 8. Research Decision
 
-AskUserQuestion: "Research the domain ecosystem for new features before defining requirements?"
-- "Research first (Recommended)" — Discover patterns, features, architecture for NEW capabilities
-- "Skip research" — Go straight to requirements
+```
+AskUserQuestion([
+  {
+    header: "Research",
+    question: "Research the domain ecosystem for new features before defining requirements?",
+    multiSelect: false,
+    options: [
+      { label: "Research first (Recommended)", description: "Discover patterns, features, architecture for NEW capabilities" },
+      { label: "Skip research", description: "Go straight to requirements" }
+    ]
+  }
+])
+```
 
 **Persist choice to config** (so future `/devflow:plan-objective` honors it):
 
@@ -237,8 +261,20 @@ Present features by category:
 Track: Selected → this milestone. Unselected table stakes → future. Unselected differentiators → out of scope.
 
 **Identify gaps** via AskUserQuestion:
-- "No, research covered it" — Proceed
-- "Yes, let me add some" — Capture additions
+
+```
+AskUserQuestion([
+  {
+    header: "Gaps",
+    question: "Is anything you need missing from these categories?",
+    multiSelect: false,
+    options: [
+      { label: "No, research covered it", description: "Proceed" },
+      { label: "Yes, let me add some", description: "Capture additions" }
+    ]
+  }
+])
+```
 
 **Generate REQUIREMENTS.md:**
 - v1 Requirements grouped by category (checkboxes, REQ-IDs)
@@ -267,11 +303,25 @@ Present FULL requirements list for confirmation:
 
 ### [Category 2]
 - [ ] **CAT2-01**: User can do Z
-
-Does this capture what you're building? (yes / adjust)
 ```
 
-If "adjust": Return to scoping.
+Then confirm with AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "Scope",
+    question: "Does this capture what you're building?",
+    multiSelect: false,
+    options: [
+      { label: "Looks right (Recommended)", description: "Commit these requirements and continue" },
+      { label: "Adjust", description: "Return to scoping and change the list" }
+    ]
+  }
+])
+```
+
+If "Adjust": Return to scoping.
 
 **Commit requirements:**
 ```bash
@@ -341,12 +391,24 @@ Success criteria:
 ```
 
 **Ask for approval** via AskUserQuestion:
-- "Approve" — Commit and continue
-- "Adjust objectives" — Tell me what to change
-- "Review full file" — Show raw ROADMAP.md
 
-**If "Adjust":** Get notes, re-spawn roadmapper with revision context, loop until approved.
-**If "Review":** Display raw ROADMAP.md, re-ask.
+```
+AskUserQuestion([
+  {
+    header: "Roadmap",
+    question: "Approve this roadmap?",
+    multiSelect: false,
+    options: [
+      { label: "Approve (Recommended)", description: "Commit and continue" },
+      { label: "Adjust objectives", description: "Tell me what to change" },
+      { label: "Review full file", description: "Show raw ROADMAP.md" }
+    ]
+  }
+])
+```
+
+**If "Adjust objectives":** Get notes, re-spawn roadmapper with revision context, loop until approved.
+**If "Review full file":** Display raw ROADMAP.md, re-ask.
 
 **Commit roadmap** (after approval):
 ```bash
