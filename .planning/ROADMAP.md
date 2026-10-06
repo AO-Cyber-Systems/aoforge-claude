@@ -273,7 +273,19 @@ TRDs:
   1. Running micro, quick, build, debug, plan-objective or verify-work shows TaskCreate/TaskUpdate progress.
   2. plan-objective, new-project and milestone complete present their drafts in plan mode (EnterPlanMode/ExitPlanMode).
   3. Every discrete-choice prompt in skills and workflows uses AskUserQuestion, and the sweep lists each prompt it converted.
-**TRDs**: TBD
+**TRDs**: 10 plans
+
+TRDs:
+- [ ] 62-01-builtin-audit-scanner-TRD.md — (W1) `builtin-audit.cjs`: prose-choice and AskUserQuestion schema scanner with allow marker, skill built-in coverage (ExitPlanMode never pre-approved), progress counts, plan-mode spans, eight-group table
+- [ ] 62-02-sweep-inventory-and-conventions-TRD.md — (W1) BLTN-03 inventory `docs/built-in-sweep.md` (every prompt, planned conversion, progress/plan-mode/allowed-tools plans); conventions `references/built-ins.md`
+- [ ] 62-03-sweep-ratchet-repo-test-TRD.md — (W2) reconcile scanner with inventory; `builtin-sweep.repo.test.cjs` CI ratchet with eight per-group baselines
+- [ ] 62-04-micro-quick-debug-verify-work-TRD.md — (W3) BLTN-01 progress tasks and AskUserQuestion in micro, quick, debug, verify-work
+- [ ] 62-05-plan-objective-and-build-TRD.md — (W3) BLTN-02 plan-objective TRD draft review in plan mode (push after approval); progress in plan-objective and build; their prompts
+- [ ] 62-06-new-project-drafts-TRD.md — (W3) BLTN-02 PROJECT.md, requirements and roadmap drafts in plan mode; schema fixes and prompts
+- [ ] 62-07-milestone-drafts-TRD.md — (W3) BLTN-02 milestone complete entry and PROJECT.md drafts in plan mode; milestone workflow prompts
+- [ ] 62-08-execute-and-map-prompts-TRD.md — (W3) prompts in execute-objective, transition, discuss/discovery, map-codebase; adopt `disallowed-tools: AskUserQuestion`
+- [ ] 62-09-todo-status-and-remaining-prompts-TRD.md — (W3) prompts in todo, status, objective, decide, handoff and every remaining skill
+- [ ] 62-10-close-ratchet-dogfood-and-docs-TRD.md — (W4) baseline directory gone, inventory closed; dogfood incl. live micro and ExitPlanMode probe; CHANGELOG/USER-GUIDE/help/CLAUDE.md; full `npm test`
 
 ### Objective 63: Todo store, hook coexistence and built-in inventory
 
