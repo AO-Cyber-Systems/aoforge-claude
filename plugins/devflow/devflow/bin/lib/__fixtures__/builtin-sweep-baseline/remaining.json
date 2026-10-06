@@ -22,16 +22,6 @@
       "text": "- `## RESEARCH INCONCLUSIVE` — Show attempts, offer: Add context/Try different mode/Manual"
     },
     {
-      "file": "plugins/devflow/devflow/workflows/security-audit.md",
-      "kind": "prose-choice",
-      "text": "Options:"
-    },
-    {
-      "file": "plugins/devflow/devflow/workflows/security-audit.md",
-      "kind": "prose-choice",
-      "text": "Wait for user response."
-    },
-    {
       "file": "plugins/devflow/devflow/workflows/settings.md",
       "kind": "prose-choice",
       "text": "- [ ] User offered to save as global defaults (~/.devflow/defaults.json)"
@@ -44,9 +34,6 @@
   ],
   "progress": [],
   "plan_mode": [],
-  "allowed_tools_missing": [
-    "cleanup:AskUserQuestion",
-    "flow:AskUserQuestion"
-  ],
+  "allowed_tools_missing": [],
   "allowed_tools_forbidden": []
 }
