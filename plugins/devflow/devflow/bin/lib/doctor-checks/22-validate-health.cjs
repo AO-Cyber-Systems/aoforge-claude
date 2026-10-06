@@ -12,6 +12,7 @@
 //   W040         project behind — pending-migrations
 //   W057-W061    store sync health — gh-store-sync, TRD 50-07
 //   W062         checks-workflow pin — checks-workflow-pin, TRD 61-01
+//   W063         stale pinned model id — model-profiles (check 13), TRD 61-07
 // They are listed in details.deferred and never set the severity.
 //
 //   remaining errors → error; remaining warnings → warn; else ok
@@ -24,7 +25,7 @@ const { spawnSync } = require('child_process');
 const dg = require('../doctor-git.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
 
-const DEFERRED = ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062'];
+const DEFERRED = ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063'];
 const DF_TOOLS = 'node ~/.claude/devflow/bin/df-tools.cjs';
 const HEALTH_COMMAND = `${DF_TOOLS} validate health`;
 const REPAIR_COMMAND = `${DF_TOOLS} validate health --repair`;
