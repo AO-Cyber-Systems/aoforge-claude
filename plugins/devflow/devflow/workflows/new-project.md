@@ -279,35 +279,32 @@ Before writing PROJECT.md, identify what the project IS. This sets the project-l
 AskUserQuestion([
   {
     header: "Project kind",
-    question: "What is this project? (drives test/planning defaults for every future objective)",
+    question: "What is this project? (type ui-lib or plugin under Other)",
     multiSelect: false,
     options: [
       { label: "api", description: "backend API/service consumed by clients" },
       { label: "app", description: "end-user application (web, mobile, desktop)" },
       { label: "library", description: "code consumed by other code via API" },
-      { label: "ui-lib", description: "UI components consumed by other apps" },
-      { label: "cli", description: "command-line tool consumed by humans in a terminal" },
-      { label: "plugin", description: "extends a host system via plugin contract" }
+      { label: "cli", description: "command-line tool consumed by humans in a terminal" }
     ]
   },
   {
-    header: "Default work type",
-    question: "Will most objectives in this project be the same work type? (e.g., a Rails→Go port has 10+ sequential `port` objectives)",
+    header: "Work type",
+    question: "Will most objectives be the same work type? (type foundation, bugfix or prototype under Other)",
     multiSelect: false,
     options: [
-      { label: "Skip — work types vary", description: "most projects pick this" },
+      { label: "Skip — work types vary (Recommended)", description: "most projects pick this" },
       { label: "feature", description: "most objectives ship new behavior" },
       { label: "port", description: "most objectives re-implement existing behavior" },
-      { label: "refactor", description: "most objectives restructure without behavior change" },
-      { label: "foundation", description: "most objectives are scaffolding (rare for whole project)" },
-      { label: "bugfix", description: "most objectives are list-driven bug fixes" },
-      { label: "prototype", description: "most objectives are exploratory throwaways" }
+      { label: "refactor", description: "most objectives restructure without behavior change" }
     ]
   }
 ])
 ```
 
-If "Skip" is chosen, omit `default_work` from PROJECT.md frontmatter — the planner falls back to `feature` per objective. If a specific work type is chosen, write it as `default_work` in the frontmatter; the planner is louder about inheritance so users can override per objective when needed.
+The tool takes 4 options per question, so the rest are typed under Other: `ui-lib` ("UI components consumed by other apps") and `plugin` ("extends a host system via plugin contract") for the kind; `foundation` ("most objectives are scaffolding, rare for a whole project"), `bugfix` ("most objectives are list-driven bug fixes") and `prototype` ("most objectives are exploratory throwaways") for the work type. `kind` must be one of `api`, `app`, `library`, `ui-lib`, `cli`, `plugin`; if the Other answer is none of them, ask the kind question again. A work type typed under Other must be `foundation`, `bugfix` or `prototype`; anything else, ask again.
+
+If "Skip — work types vary" is chosen, omit `default_work` from PROJECT.md frontmatter — the planner falls back to `feature` per objective. If a specific work type is chosen, write it as `default_work` in the frontmatter; the planner is louder about inheritance so users can override per objective when needed.
 
 **In auto mode:** Infer `kind` from the provided document (heuristic: presence of "API"/"endpoints"/"backend" → `api`; "UI"/"app"/"mobile" → `app`; "library"/"package"/"npm"/"gem" → `library`; "components"/"design system" → `ui-lib`; "CLI"/"command-line" → `cli`; "plugin"/"extension" → `plugin`). If the document is ambiguous, default to `api` and surface a warning. Skip `default_work` in auto mode.
 
@@ -416,7 +413,7 @@ node ~/.claude/devflow/bin/df-tools.cjs commit "docs: initialize project" --file
 
 **If auto mode:** Skip — config was collected in Step 2a. Proceed to Step 5.5.
 
-**Smart defaults approach:** Show a single summary of defaults, then offer to customize.
+**Smart defaults approach:** Show a single summary of defaults, then ask whether to use them or customize.
 
 ```
 Using smart defaults:
@@ -429,9 +426,18 @@ Using smart defaults:
 Run `/devflow:settings` anytime to customize.
 ```
 
-**Check for `--interactive` flag:** If present, expand the full question flow below. Otherwise, use defaults.
+**Check for `--interactive` flag:** If present, skip the question below and expand the full question flow directly.
 
-**If `--interactive` flag OR user wants to customize:**
+Otherwise use AskUserQuestion:
+- header: "Settings"
+- question: "Use these defaults, or customize them?"
+- options:
+  - "Use defaults (Recommended)" — Continue with the defaults above
+  - "Customize" — Answer the full set of settings questions
+
+**If "Use defaults (Recommended)":** Use the defaults; skip the question flow below.
+
+**If `--interactive` flag OR "Customize":**
 
 Use AskUserQuestion:
 
@@ -827,8 +833,16 @@ node ~/.claude/devflow/bin/df-tools.cjs stack init --from research --raw
 ```
 
 If the command fails with "Unknown command" (an older DevFlow mirror), skip this step silently.
-Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".
-Only on **yes** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from research --write`.
+Otherwise show the draft, then use AskUserQuestion:
+- header: "Stack"
+- question: "Write this draft as .planning/STACK.md?"
+- options:
+  - "Write it (Recommended)" — Write the draft as shown
+  - "Edit first" — Tell me what to change, then show the draft again
+  - "Skip" — Do not write a stack profile now
+
+Only on **"Write it"** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from research --write`.
+On "Edit first", apply the user's changes and ask again. On "Skip", continue without writing it.
 STACK.md is prescriptive; research/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
 
 **If "Skip research":** Continue to Step 7.
@@ -887,6 +901,7 @@ Here are the features for [domain]:
 
 **If no research:** Gather requirements through conversation instead.
 
+<!-- builtin-audit: allow free-text: the answer is an open list of capabilities, not a choice -->
 Ask: "What are the main things users need to be able to do?"
 
 For each capability mentioned:
