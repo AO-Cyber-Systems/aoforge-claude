@@ -29,7 +29,7 @@ const BUNDLED = JSON.parse(
 ).version;
 const NOTICES_REL = '.planning/.devflow-notices.json';
 const SUBJECT = `chore(devflow): upgrade project to v${BUNDLED}`;
-const ESCAPES = ['DEVFLOW_SKIP_UPGRADE', 'DEVFLOW_SKIP_NOTICES', 'DEVFLOW_SKIP_HANDOFF_RESULTS'];
+const ESCAPES = ['DEVFLOW_SKIP_UPGRADE', 'DEVFLOW_SKIP_NOTICES', 'DEVFLOW_SKIP_HANDOFF_RESULTS', 'DEVFLOW_SKIP_TRANSCRIPT_EXPORT'];
 
 const cleanup = [];
 after(() => {
@@ -612,5 +612,136 @@ describe('objective 37 — backup prune', () => {
     cleanup.push(home, dir);
     runHook(dir, home);
     assert.ok(!fs.existsSync(path.join(home, '.claude', 'devflow')));
+  });
+});
+
+// ─── objective 61 (TRD 61-05, OBS-03): the throttled background transcript export ─────────────
+//
+// Tests 6-11 of the TRD. Every spawn has HOME = a fake home, so the stamp, the index and the
+// transcripts all live under it; nothing reads or writes the real ~/.claude. A test that lets the
+// detached child run waits for its index row before the temp home is removed (pollUntil, 15 s).
+
+describe('objective 61 — transcript export', () => {
+  const POLL_MS = 15000;
+
+  function stampFor(home) {
+    return path.join(home, '.claude', 'devflow', 'state', 'transcript-export', 'last-run.json');
+  }
+
+  function indexFor(home) {
+    return path.join(home, '.claude', 'devflow', 'transcript-index.jsonl');
+  }
+
+  /** One session, two literal JSONL records, under <home>/.claude/projects/-tmp-demo/s1.jsonl. */
+  function seedTranscript(home) {
+    const dir = path.join(home, '.claude', 'projects', '-tmp-demo');
+    fs.mkdirSync(dir, { recursive: true });
+    const records = [
+      { type: 'user', timestamp: '2026-10-01T00:00:00.000Z', cwd: '/tmp/demo', sessionId: 's1', version: '2.0.0',
+        message: { role: 'user', content: 'run the scoped tests' } },
+      { type: 'assistant', timestamp: '2026-10-01T00:00:05.000Z', cwd: '/tmp/demo', sessionId: 's1',
+        message: { role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Running them now.' }] } },
+    ];
+    fs.writeFileSync(path.join(dir, 's1.jsonl'), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  }
+
+  function indexRows(home) {
+    let raw;
+    try { raw = fs.readFileSync(indexFor(home), 'utf-8'); } catch { return []; }
+    const rows = [];
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try { rows.push(JSON.parse(line)); } catch { /* a half-written line is not a row yet */ }
+    }
+    return rows;
+  }
+
+  function waitForIndexedSession(home) {
+    return pollUntil(() => indexRows(home).some((r) => r.session === 's1'), POLL_MS);
+  }
+
+  function plainDir() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-txexport-plain-'));
+    cleanup.push(dir);
+    return dir;
+  }
+
+  function seededHome() {
+    const home = F.makeFakeHome();
+    cleanup.push(home);
+    seedTranscript(home);
+    return home;
+  }
+
+  test('6: non-DevFlow cwd + one transcript → stamp written, the background child indexes s1', () => {
+    const home = seededHome();
+    const dir = plainDir();
+    const r = runHook(dir, home);
+    assert.equal(r.stdout, '');
+    assert.ok(fs.existsSync(stampFor(home)), 'the window is claimed');
+    assert.ok(waitForIndexedSession(home), `index holds an s1 row within ${POLL_MS} ms`);
+    const rows = indexRows(home);
+    assert.equal(rows.length, 1, JSON.stringify(rows));
+    assert.equal(rows[0].session, 's1');
+  });
+
+  test('7: running again immediately → stamp bytes unchanged, still one s1 row', () => {
+    const home = seededHome();
+    const dir = plainDir();
+    runHook(dir, home);
+    assert.ok(waitForIndexedSession(home), 'first run indexed s1');
+    const before = fs.readFileSync(stampFor(home));
+    runHook(dir, home);
+    sleep(1000);
+    assert.ok(before.equals(fs.readFileSync(stampFor(home))), 'stamp bytes identical after an immediate second run');
+    const rows = indexRows(home).filter((row) => row.session === 's1');
+    assert.equal(rows.length, 1, 'no second export ran');
+  });
+
+  test('8: DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1 → no stamp, no index; the prune still runs', () => {
+    const home = seededHome();
+    const dir = plainDir();
+    seedPruneBackups(home, 'app-0123abcd', [30, 30, 30, 30, 30, 30, 30]);
+    runHook(dir, home, { DEVFLOW_SKIP_TRANSCRIPT_EXPORT: '1' });
+    sleep(500);
+    assert.ok(!fs.existsSync(stampFor(home)), 'no stamp');
+    assert.ok(!fs.existsSync(indexFor(home)), 'no index');
+    assert.ok(fs.existsSync(path.join(backupsRootFor(home), '.last-prune.json')), 'the prune is an independent step');
+  });
+
+  test('9: DEVFLOW_SKIP_PRUNE=1 and DEVFLOW_SKIP_UPGRADE=1 do not skip the export', () => {
+    const home = seededHome();
+    const dir = plainDir();
+    runHook(dir, home, { DEVFLOW_SKIP_PRUNE: '1', DEVFLOW_SKIP_UPGRADE: '1' });
+    assert.ok(fs.existsSync(stampFor(home)), 'stamp written');
+    assert.ok(waitForIndexedSession(home), 'the export ran and indexed s1');
+  });
+
+  test('10: no .claude/projects → no stamp, no index, no stderr line', () => {
+    const home = F.makeFakeHome();
+    cleanup.push(home);
+    const dir = plainDir();
+    const r = runHook(dir, home);
+    assert.equal(r.stderr, '');
+    assert.ok(!fs.existsSync(stampFor(home)));
+    assert.ok(!fs.existsSync(indexFor(home)));
+  });
+
+  test('11: state path blocked by a FILE → one stderr line, stdout empty, exit 0, the upgrade still applies', () => {
+    // Same shape as prune test 5: a current-shape project stamped at an OLD version, so apply() only
+    // advances the stamp and never collides with the blocked path.
+    const home = seededHome();
+    const root = F.makeStampedProject('0.0.1');
+    cleanup.push(root);
+    F.initGitFixture(root, home);
+    fs.mkdirSync(path.join(home, '.claude', 'devflow', 'state'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'devflow', 'state', 'transcript-export'), 'not a dir\n');
+    const r = runHook(root, home);
+    const lines = r.stderr.split('\n').filter((l) => l.includes('[devflow] transcript export skipped:'));
+    assert.equal(lines.length, 1, `exactly one skipped line (stderr: ${r.stderr})`);
+    assert.equal(r.stdout, '');
+    const cfg = readConfig(root);
+    assert.equal(cfg.devflow && cfg.devflow.version, BUNDLED,
+      'config.json stamped with the bundled version despite the blocked export state path');
   });
 });
