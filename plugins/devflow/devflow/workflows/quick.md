@@ -22,17 +22,7 @@ Parse `$ARGUMENTS` for:
 - `--full` flag → store as `$FULL_MODE` (true/false)
 - Remaining text → use as `$DESCRIPTION` if non-empty
 
-If `$DESCRIPTION` is empty after parsing, prompt user interactively:
-
-```
-AskUserQuestion(
-  header: "Quick Task",
-  question: "What do you want to do?",
-  followUp: null
-)
-```
-
-Store response as `$DESCRIPTION`.
+If `$DESCRIPTION` is empty after parsing, ask in plain text: "What do you want to do?" The answer is free text: store it as `$DESCRIPTION`.
 
 If still empty, re-prompt: "Please provide a task description."
 
@@ -96,15 +86,17 @@ Store `$QUICK_DIR` for use in orchestration.
 
 **Step 5: Spawn planner (quick mode)**
 
-**Progress tracking (if available):**
+**Progress tracking (if available):** one task per step, created here in order. `Check plan` and `Verify` exist only when `$FULL_MODE`.
 
 ```
-TaskCreate(
-  subject="Quick Task: ${DESCRIPTION}",
-  description="Planning and executing quick task: ${DESCRIPTION}",
-  activeForm="Executing quick task"
-)
+TaskCreate(subject="Plan: ${DESCRIPTION}", description="Planning the quick task", activeForm="Planning the quick task")
+TaskCreate(subject="Check plan", description="Checking the quick plan (--full)", activeForm="Checking the quick plan")
+TaskCreate(subject="Execute: ${DESCRIPTION}", description="Executing the quick task", activeForm="Executing the quick task")
+TaskCreate(subject="Verify", description="Verifying the quick task (--full)", activeForm="Verifying the quick task")
+TaskUpdate(taskId=plan_task_id, status="in_progress")
 ```
+
+Skip the `Check plan` and `Verify` creates when NOT `$FULL_MODE`.
 
 **If `$FULL_MODE`:** Use `quick-full` mode with stricter constraints.
 
@@ -151,6 +143,7 @@ After planner returns:
    ```
 2. Extract job count (typically 1 for quick tasks)
 3. Report: "Plan saved: ${QUICK_DIR}/${next_num}-JOB.md"
+4. **Progress tracking (if available):** `TaskUpdate(taskId=plan_task_id, status="completed")`
 
 If the draft is empty or `quick put` exits non-zero, error: "Planner did not produce ${next_num}-JOB.md"
 
@@ -159,6 +152,8 @@ If the draft is empty or `quick put` exits non-zero, error: "Planner did not pro
 **Step 5.5: Plan-checker loop (only when `$FULL_MODE`)**
 
 Skip this step entirely if NOT `$FULL_MODE`.
+
+**Progress tracking (if available):** `TaskUpdate(taskId=check_task_id, status="in_progress")`
 
 Display banner:
 ```
@@ -212,7 +207,7 @@ Task(
 
 **Handle checker return:**
 
-- **`## VERIFICATION PASSED`:** Display confirmation, proceed to step 6.
+- **`## VERIFICATION PASSED`:** Display confirmation, `TaskUpdate(taskId=check_task_id, status="completed")` (if available), proceed to step 6.
 - **`## ISSUES FOUND`:** Display issues, check iteration count, enter revision loop.
 
 **Revision loop (max 2 iterations):**
@@ -260,7 +255,24 @@ After planner returns → save the revision (`node ~/.claude/devflow/bin/df-tool
 
 Display: `Max iterations reached. ${N} issues remain:` + issue list
 
-Offer: 1) Force proceed, 2) Abort
+```
+AskUserQuestion([
+  {
+    header: "Plan check",
+    question: "The checker still reports issues after 2 iterations. How do you want to proceed?",
+    multiSelect: false,
+    options: [
+      { label: "Force proceed", description: "Execute the plan despite the remaining issues" },
+      { label: "Abort", description: "Stop here; fix the description and run /devflow:quick again" }
+    ]
+  }
+])
+```
+
+No option is recommended: either can be right.
+
+- **If "Force proceed":** `TaskUpdate(taskId=check_task_id, status="completed", description="Forced past ${N} remaining issues")` (if available), proceed to step 6.
+- **If "Abort":** stop without executing; the plan stays at `${QUICK_DIR}/${next_num}-JOB.md`. Progress tracking (if available): `TaskUpdate(taskId=check_task_id, status="completed", description="Aborted with ${N} issues remaining")`, then `TaskUpdate(taskId=execute_task_id, status="deleted")` and `TaskUpdate(taskId=verify_task_id, status="deleted")`.
 
 ---
 
@@ -269,6 +281,8 @@ Offer: 1) Force proceed, 2) Abort
 First read the repo root and the commit the work builds on, so the executor is told both
 rather than left to infer them (issue #86 — inferred isolation put an executor in a
 different repository and based it on the default branch):
+
+**Progress tracking (if available):** `TaskUpdate(taskId=execute_task_id, status="in_progress")`
 
 ```bash
 git rev-parse --show-toplevel
@@ -320,6 +334,7 @@ After executor returns:
    ```
 2. Extract commit hash from executor output
 3. Report completion status
+4. **Progress tracking (if available):** `TaskUpdate(taskId=execute_task_id, status="completed")`
 
 **Known Claude Code bug (classifyHandoffIfNeeded):** If executor reports "failed" with error `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Check whether the summary draft has content and git log shows commits. If so, treat as successful and save it as above.
 
@@ -332,6 +347,8 @@ Note: For quick tasks producing multiple jobs (rare), spawn executors in paralle
 **Step 6.5: Verification (only when `$FULL_MODE`)**
 
 Skip this step entirely if NOT `$FULL_MODE`.
+
+**Progress tracking (if available):** `TaskUpdate(taskId=verify_task_id, status="in_progress")`
 
 Display banner:
 ```
@@ -367,7 +384,28 @@ Store as `$VERIFICATION_STATUS`.
 |--------|--------|
 | `passed` | Store `$VERIFICATION_STATUS = "Verified"`, continue to step 7 |
 | `human_needed` | Display items needing manual check, store `$VERIFICATION_STATUS = "Needs Review"`, continue |
-| `gaps_found` | Display gap summary, offer: 1) Re-run executor to fix gaps, 2) Accept as-is. Store `$VERIFICATION_STATUS = "Gaps"` |
+| `gaps_found` | Display gap summary, store `$VERIFICATION_STATUS = "Gaps"`, then ask the Gaps question below |
+
+**Progress tracking (if available):** `TaskUpdate(taskId=verify_task_id, status="completed", description="${VERIFICATION_STATUS}")` once the status is stored (for `gaps_found`, after the Gaps answer below).
+
+On `gaps_found`:
+
+```
+AskUserQuestion([
+  {
+    header: "Gaps",
+    question: "Verification found gaps. Re-run the executor to fix them, or accept the task as it is?",
+    multiSelect: false,
+    options: [
+      { label: "Re-run executor (Recommended)", description: "Spawn the executor again with the gaps from ${next_num}-VERIFICATION.md, then verify again" },
+      { label: "Accept as-is", description: "Keep the result and record the task with Status Gaps" }
+    ]
+  }
+])
+```
+
+- **If "Re-run executor":** go back to step 6 with the gap list from `${QUICK_DIR}/${next_num}-VERIFICATION.md` added to the executor prompt, then run this step again. Steps 6 and 6.5 set their tasks `in_progress` again as they start.
+- **If "Accept as-is":** keep `$VERIFICATION_STATUS = "Gaps"`, continue to step 7.
 
 ---
 
@@ -449,11 +487,6 @@ Get final commit hash:
 commit_hash=$(git rev-parse --short HEAD)
 ```
 
-**Update progress (if available):**
-```
-TaskUpdate(taskId=quick_task_id, status="completed")
-```
-
 Display completion output:
 
 **If `$FULL_MODE`:**
@@ -493,8 +526,9 @@ Ready for next task: /devflow:quick
 
 <success_criteria>
 - [ ] ROADMAP.md validation passes
-- [ ] User provides task description
+- [ ] User provides task description (asked in plain text when missing)
 - [ ] `--full` flag parsed from arguments when present
+- [ ] (task tools available) Plan and Execute tasks, plus Check plan and Verify under --full, each go in_progress as their step starts and completed as it ends
 - [ ] Slug generated (lowercase, hyphens, max 40 chars)
 - [ ] Next number calculated (001, 002, 003...)
 - [ ] `${next_num}-JOB.md` saved with `quick put` from the planner's draft (it makes `.planning/quick/NNN-slug/`)
