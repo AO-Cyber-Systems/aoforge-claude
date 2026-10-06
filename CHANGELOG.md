@@ -8,6 +8,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - `session-audit` now reports what happened after each edit-gate denial (bypassed by a Bash write of the same file, routed through a skill/marker/override, or abandoned) as `edit_gate_bypass` in the JSON and an `edit_gate:` line under `--raw`, the measurement DECISION-001 waits on.
+- `hooks/gate-bash-writes.js` (PreToolUse(Bash)), the Bash side of the edit gate (DECISION-001): in a DevFlow project in
+  ambient mode, a Bash command that writes a tracked source file is denied (or asked, see `gates.bashEditGate`), the same as
+  the Edit or Write it replaces. It reads redirects (`>`, `>>`, a heredoc opener), `tee`, `sed -i`, `perl -i`, `cp`, `mv`
+  and inline `python` and `node` writes, with `cd` tracked for relative targets. It never gates a command that only mentions
+  a write (a heredoc body, a quoted argument), a write under `.planning/`, a `*.md` file, a file git does not track, a path
+  outside the project, or a target it cannot resolve statically (`$VAR`, backticks). The escapes are the Edit gate's own: a
+  live skill marker (this project's or the main checkout's), a `devflow:*` agent, an override phrase (the one-shot marker is
+  consumed only by a write that would otherwise be gated, so an `ls` never spends it), `gates.editGate` or
+  `gates.bashEditGate` set to `off`, and `DEVFLOW_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from. An
+  inline `DEVFLOW_SKIP_EDIT_GATE=1 sed -i ...` prefix does not bypass it: a hook runs in Claude Code's own process, so it
+  never sees a variable set inside the Bash command. Fail-open on every error. Needs an installed plugin carrying
+  objective 60.
+- `gates.bashEditGate` (`strict` | `warn` | `off`) in `.planning/config.json`, shipped default `warn`. The default is
+  measured, not chosen: replaying the hook's own decision over 2,263 retained transcripts found 633 would-denies in 17,957
+  ambient Bash calls, 633 / 17,957 = 0.035251, an upper bound that counts every would-deny as a false positive, against a
+  0.02 threshold, so the rule asks instead of denies until a project opts in with `gates.bashEditGate: strict`. The
+  severity is the least of `gates.editGate` and `gates.bashEditGate`: `gates.editGate: warn` softens a strict Bash rule to
+  ask and `gates.editGate: off` disables it. The default is `BASH_EDIT_GATE_DEFAULT` in `bin/lib/bash-write-gate.cjs`, and
+  a test fails CI when it, `references/bash-edit-gate-evidence.json` and `recommendDefault` disagree.
+- `session-audit` replays every Bash call through the hook's decision and reports it as `bash_edit_gate` in the JSON and as
+  a last `bash_edit_gate:` line under `--raw`: ambient calls, would-denies by form, the false-positive upper bound, the
+  0.02 threshold and the recommended default. Whether a file was tracked is read from git history at the call's timestamp,
+  and `devflow:*` agent transcripts, DevFlow skill windows and non-DevFlow directories are excluded and counted. The new
+  `devflow-bash-edit-gate` block category keeps a Bash-gate denial out of `edit_gate_bypass`. Re-measure with
+  `df-tools session-audit --limit 0`.
 - `df-tools tokens trd|stamp|backfill`: per-TRD executor token usage read from Claude Code transcripts and counted once per
   API message. `tokens backfill` is a dry run unless `--write`, and `--write` goes through `summary post` so only SUMMARY
   frontmatter changes. Run over this repository's 396 SUMMARYs it recovered 231 (163 unrecovered: 156 whose transcripts are
@@ -46,6 +71,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `exec-context worktree` prints `preflight`, the exact `--cwd` check command for the new worktree.
 
 ### Changed
+- The shell-text primitives (heredoc extraction, quote masking, word unquoting, path resolution) moved from `gate-commits.js`
+  into `bin/lib/shell-words.cjs`, now shared by `gate-commits.js`, `session-audit` and the Bash write detector, next to a
+  new left-to-right `scanShell` and `parseCommand`. No behaviour change: the gate-commits and session-audit suites pass
+  unchanged.
 - `df-tools calibrate` also measures agent overhead from the subagent transcripts (`--root <dir>` points at the projects
   directory, `--no-overhead` skips the scan): planner, job-checker, verifier, objective-researcher, integration-checker and
   roadmapper minutes, tokens and dollars. `calibration.json` is now version 2 and adds `agent_overhead`,

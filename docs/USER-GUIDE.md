@@ -712,7 +712,8 @@ DevFlow installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 |---|---|---|---|
 | `route-intent.js` | UserPromptSubmit | Detects DevFlow projects (`.planning/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-DevFlow repos and explicit `/devflow:` invocations |
 | `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in DevFlow projects; demands `df-tools commit` so atomic per-task commits and STATE.md stay consistent. Merge, rebase and cherry-pick completions are allowed automatically. | Inline `DEVFLOW_ALLOW_RAW_COMMIT=1 git commit …`, or `DEVFLOW_ALLOW_RAW_COMMIT=1` exported before launching Claude Code (see below) |
-| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.planning/.skill-active` marker exists (executor writes this), the editing agent is a DevFlow agent (`agent_type` `devflow:<name>`), user prompt contains an override phrase (`skip devflow`, `just edit`, `bypass devflow`, `force edit`), or env var is set. Always permits `.planning/**` and `*.md` paths. (Prior `DEVFLOW_STRICT_EDITS=1` behavior is now the default.) | `DEVFLOW_SKIP_EDIT_GATE=1` disables the gate entirely |
+| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.planning/.skill-active` marker exists (executor writes this), the editing agent is a DevFlow agent (`agent_type` `devflow:<name>`), user prompt contains an override phrase (`skip devflow`, `just edit`, `bypass devflow`, `force edit`), or env var is set. Always permits `.planning/**` and `*.md` paths. (Prior `DEVFLOW_STRICT_EDITS=1` behavior is now the default.) | `DEVFLOW_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
+| `gate-bash-writes.js` | PreToolUse (Bash) | Applies the Edit gate to Bash. In ambient mode, denies (`strict`) or asks (`warn`, the shipped default) when a command writes a tracked source file: a redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv` or inline python/node. Mentions, `.planning/`, `*.md`, untracked files and paths outside the project are never gated. Same escapes as `gate-edits.js`. Needs an installed plugin carrying objective 60. See [Bash writes and the edit gate](#bash-writes-and-the-edit-gate). | `DEVFLOW_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from (not as an inline prefix), `gates.bashEditGate: off` |
 | `changelog-on-tag.js` | PreToolUse (Bash) | Blocks `git tag -a vX.Y.Z` if `CHANGELOG.md` has no `## [X.Y.Z]` heading. Tells you to run `df-tools changelog update --version vX.Y.Z` first. | `DEVFLOW_SKIP_CHANGELOG_GATE=1` |
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
 | `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. | n/a (warning only) |
@@ -721,6 +722,92 @@ DevFlow installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 | `check-update.js` | SessionStart | Background npm registry check for newer DevFlow versions. | n/a |
 | `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits (the runtime-state files migration 0008 untracks don't count), or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade)) as the first step, DevFlow project or not. Notices are emitted once, on the next prompt, by `route-results.js`. | `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only) |
 | `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator and, while an objective builds, estimated time remaining (`⏱ 58 W7/7 ~20m left`) from the estimate run state. | n/a |
+
+### Bash writes and the edit gate
+
+`gate-edits.js` stops an Edit or Write of tracked source in ambient mode (a DevFlow project with no skill active). A Bash `sed -i`, `cat > file <<'EOF'` or `python3 -c "open(...,'w')"` used to do the same job unchecked. `gate-bash-writes.js` closes that gap (DECISION-001): the same rule, applied to the file a Bash command writes. It is a routing nudge, not a sandbox, and it ships with the next release: the installed plugin must carry objective 60, and an older plugin has no such hook.
+
+**What it gates.** A command that writes a file git tracks, through:
+
+- a redirect (`>`, `>>`, `>|`, with or without a file descriptor), including the redirect on a heredoc opener (`cat > f <<'EOF'`)
+- `tee`, `sed -i`, `perl -i` (and `perl -pi -e`), and the destination of `cp` and `mv` (into a directory it is judged on `<dir>/<name of the source>`)
+- inline interpreter code: python `open(path, 'w'|'a'|'x'|'+')`, `Path(...).write_text` and `write_bytes`, and node `writeFileSync`, `appendFileSync`, `writeFile`, `appendFile` and `createWriteStream`, whether given with `-c`/`-e` or as a heredoc on the interpreter's stdin
+- the same commands behind `env`, `command`, `sudo`, `nohup`, `time`, leading `NAME=value` words, or `bash|sh|zsh|dash -c '...'` (to depth 3)
+
+A relative target is resolved against the session's working directory, following `cd`, `pushd` and `popd` within the command.
+
+**What it never gates.**
+
+- A command that only mentions a write: a heredoc body, a quoted argument, a comment (`grep -n "> src/a.js" README.md`, `echo "x > y"`).
+- Anything under `.planning/`, and any `*.md` file.
+- A file git does not track (untracked or ignored). Git is asked once per command, and only when a candidate inside the project exists.
+- A path outside the project: `/tmp`, the session scratchpad, another repository.
+- A target that cannot be resolved statically (`$VAR`, backticks, `cd -`, an unknown working directory).
+- A directory with no `.planning/` above it (not a DevFlow project).
+
+**Escapes.** They are the Edit gate's own, because the hook calls the same functions:
+
+- a live `.planning/.skill-active` marker, in this project's `.planning/` or the main checkout's
+- a `devflow:*` agent
+- an override phrase in your prompt (`skip devflow`, `just edit`, `bypass devflow`, `force edit`). It is a one-shot marker, and the Bash hook consumes it only when a write would otherwise be gated, so an `ls` never spends it
+- `gates.editGate: off` or `gates.bashEditGate: off` in `.planning/config.json`
+- `DEVFLOW_SKIP_EDIT_GATE=1`, **only in the environment Claude Code was launched from**:
+
+```bash
+# In YOUR terminal, before starting Claude Code
+export DEVFLOW_SKIP_EDIT_GATE=1
+claude
+```
+
+A hook runs in Claude Code's own process, so it never sees a variable set inside the Bash command. `DEVFLOW_SKIP_EDIT_GATE=1 sed -i ...` typed as a prefix does not bypass the gate, and neither does an `export` run by the agent. (`gate-commits.js` differs: it reads an inline `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix out of the command text. The edit gates do not.)
+
+**Severity.** The effective rule is the least severe of `gates.editGate` and `gates.bashEditGate` (`off` < `warn` < `strict`). `strict` denies, `warn` asks you to approve, `off` allows. `gates.editGate` defaults to `strict` and an unknown value counts as `strict`. An unset or invalid `gates.bashEditGate` takes the default below.
+
+| `gates.editGate` | `gates.bashEditGate` | Bash write to a tracked file |
+|---|---|---|
+| `strict` (default) | unset | `ask` (the shipped default, `warn`) |
+| `strict` | `strict` | deny |
+| `strict` | `warn` | ask |
+| `strict` | `off` | allowed |
+| `warn` | `strict` | ask |
+| `warn` | `warn` | ask |
+| `warn` | `off` | allowed |
+| `off` | any | allowed |
+
+To opt in to denying, set `"gates": { "bashEditGate": "strict" }` in `.planning/config.json`.
+
+**The default and how it was decided.** The shipped default is `warn`, the constant `BASH_EDIT_GATE_DEFAULT` in `plugins/devflow/devflow/bin/lib/bash-write-gate.cjs`. The rule is code, not judgment: `strict` is recommended only when the false-positive rate is at most 2% (`FP_THRESHOLD = 0.02`, `recommendDefault`), otherwise `warn`. The rate was measured on 2026-10-06 by replaying the hook's own decision over every retained Claude Code transcript (`df-tools session-audit --limit 0`), with git history at each call's timestamp deciding whether a file was tracked:
+
+| Quantity | Value |
+|---|---|
+| Transcript files / sessions | 2,263 / 2,258 |
+| Bash calls | 138,304 |
+| Excluded (devflow agent / devflow skill / not a DevFlow project) | 81,522 / 29,162 / 9,663 |
+| Ambient Bash calls (the denominator) | 17,957 |
+| Would-deny | 633 (python 489, cp 54, redirect 41, sed-i 32, perl-i 14, mv 3, tee 0, node 0) |
+| False-positive rate | 633 / 17,957 = **0.035251** |
+| Threshold | 0.02 |
+| Recommended and shipped default | `warn` |
+
+The rate is an upper bound: every would-deny counts as a false positive, even where the write is exactly what the rule is meant to stop, so the true rate is lower. The detector needed no fix (`detector_fixes` is empty). The numbers live in `plugins/devflow/devflow/references/bash-edit-gate-evidence.json`, and a test fails CI when that file, the constant and `recommendDefault` disagree.
+
+**Re-measure.** Run `node ~/.claude/devflow/bin/df-tools.cjs session-audit --limit 0`. The `bash_edit_gate` key of the JSON carries the counts, and `--raw` prints it as the last line:
+
+```
+bash_edit_gate: ambient_bash_calls 17957, would_deny 633, false_positive_rate 0.035251 (upper bound), threshold 0.02, recommended_default warn
+```
+
+Transcripts are deleted under the retention window, so a later run covers different calls. When `recommended_default` turns `strict`, change `BASH_EDIT_GATE_DEFAULT` and the evidence file together.
+
+**Known false negatives.** The detector reads command text only:
+
+- a `>` in the middle of a word (`a>b`)
+- git operations (`git mv`, `git checkout -- file`, `git apply`), `patch`, `rm`, `dd` and `install`
+- writes made by `awk`, `xargs` or `find -exec`
+- a heredoc piped into an interpreter (`cat <<EOF | python3 -`), because the heredoc belongs to `cat`
+- a write made by a program the command merely runs (a script file, a formatter), because its code is not in the command
+
+**The `cd` approximation.** Subshell scoping is not modelled: after `(cd sub && echo a > f)`, a later `echo b > g` in the same command is resolved against `sub`. The error is a wrong path, and the tracked-file check usually absorbs it (a path that is not tracked passes).
 
 ### "DevFlow blocked my command — why?"
 
