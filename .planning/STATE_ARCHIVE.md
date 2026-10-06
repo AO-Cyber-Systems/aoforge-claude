@@ -178,6 +178,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 62]: 62-08: adopt stays unattended through disallowed-tools: AskUserQuestion in its skill frontmatter (claude plugin validate passes); ALLOWED_TOOLS_EXEMPT stays empty
 - [Objective 62]: 62-08: subagent-run prompts return checkpoint:decision (discovery-objective); execute-trd's plan confirmation keeps an allow marker so interactive gating is unchanged
 - [Objective 62]: 62-09: health.md GitHub store question puts Not now (Recommended) first per built-ins.md; handoff rejected-command question follows inventory BS-101 (Run it myself / Extend allowlist, no Retry)
+- [Objective 62]: 62-11: cleanup declares only AskUserQuestion in its new allowed-tools (allowed-tools pre-approves, so adding Bash would pre-approve the directory moves)
+- [Objective 62]: 62-11: gh-sync migrate question gets header GitHub store with Not now (Recommended) first, per built-ins.md order; token, labels and routing unchanged
 
 ## Performance Metrics
 
@@ -292,4 +294,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P07 | 4min | 2 tasks | 5 files |
 | Objective 62 P08 | 12min | 2 tasks | 10 files |
 | Objective 62 P09 | 7m | 2 tasks | 11 files |
+| Objective 62 P11 | 6min | 2 tasks | 14 files |
 

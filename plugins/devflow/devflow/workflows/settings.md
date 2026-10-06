@@ -36,7 +36,7 @@ Parse current values (default to `true` if not present):
 </step>
 
 <step name="present_settings">
-Use AskUserQuestion with current values pre-selected:
+Ask in two AskUserQuestion calls (the tool takes at most 4 questions per call), with current values pre-selected. First call: model and planning agents.
 
 ```
 AskUserQuestion([
@@ -67,7 +67,14 @@ AskUserQuestion([
       { label: "Yes", description: "Verify plans meet objective goals" },
       { label: "No", description: "Skip plan verification" }
     ]
-  },
+  }
+])
+```
+
+Second call: verification, pipeline and git.
+
+```
+AskUserQuestion([
   {
     question: "Spawn Execution Verifier? (verifies objective completion)",
     header: "Verifier",
@@ -200,6 +207,6 @@ Quick commands:
 - [ ] Current config read
 - [ ] User presented with 6 settings (profile + 4 workflow toggles + git branching)
 - [ ] Config updated with model_profile, workflow, and git sections
-- [ ] User offered to save as global defaults (~/.devflow/defaults.json)
+- [ ] Save-as-defaults question asked (~/.devflow/defaults.json)
 - [ ] Changes confirmed to user
 </success_criteria>

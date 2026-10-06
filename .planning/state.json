@@ -955,6 +955,16 @@
       "objective": "62",
       "summary": "62-09: health.md GitHub store question puts Not now (Recommended) first per built-ins.md; handoff rejected-command question follows inventory BS-101 (Run it myself / Extend allowlist, no Retry)",
       "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-11: cleanup declares only AskUserQuestion in its new allowed-tools (allowed-tools pre-approves, so adding Bash would pre-approve the directory moves)",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-11: gh-sync migrate question gets header GitHub store with Not now (Recommended) first, per built-ins.md order; token, labels and routing unchanged",
+      "rationale": null
     }
   ],
   "blockers": [],

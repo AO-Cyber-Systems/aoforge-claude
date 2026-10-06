@@ -239,7 +239,7 @@ Usage: `/devflow:todo list api`
 Validate built features through conversational UAT.
 
 - Extracts testable deliverables from SUMMARY.md files
-- Presents tests one at a time (yes/no responses)
+- Presents tests one at a time (pass, or describe what is wrong)
 - Automatically diagnoses failures and creates fix plans
 - Ready for re-execution if issues found
 
