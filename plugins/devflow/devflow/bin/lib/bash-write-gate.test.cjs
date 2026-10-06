@@ -323,7 +323,7 @@ describe('9. gitTrackedSet', { skip: !hasGit && 'git is not available' }, () => 
   let nested;
   before(() => {
     repo = makeTrackedRepo({
-      files: { 'src/a.js': 'a', 'src/[x].js': 'x' },
+      files: { 'src/a.js': 'a', 'src/[x].js': 'x', ':(top)magic.js': 'm' },
       untracked: { 'src/new.js': 'n' },
       ignored: { 'build/out.js': 'o' },
     });
@@ -349,6 +349,12 @@ describe('9. gitTrackedSet', { skip: !hasGit && 'git is not available' }, () => 
   test('a tracked name with glob characters matches literally', () => {
     const set = gitTrackedSet(repo.root, [at(repo.root, 'src/[x].js')], { env: repo.env });
     assert.ok(set.has(at(repo.root, 'src/[x].js')));
+  });
+
+  test('a name that looks like pathspec magic is a name, not magic', () => {
+    const target = at(repo.root, ':(top)magic.js');
+    const set = gitTrackedSet(repo.root, [target], { env: repo.env });
+    assert.ok(set.has(target));
   });
 
   test('a glob target is not reported as tracked', () => {
