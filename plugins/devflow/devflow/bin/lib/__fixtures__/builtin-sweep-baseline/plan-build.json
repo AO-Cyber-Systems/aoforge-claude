@@ -36,15 +36,12 @@
     "build",
     "plan-objective"
   ],
-  "plan_mode": [
-    "plan-objective"
-  ],
+  "plan_mode": [],
   "allowed_tools_missing": [
     "plan-objective:TaskCreate",
     "plan-objective:TaskUpdate"
   ],
   "allowed_tools_forbidden": [
-    "build:ExitPlanMode",
-    "plan-objective:ExitPlanMode"
+    "build:ExitPlanMode"
   ]
 }
