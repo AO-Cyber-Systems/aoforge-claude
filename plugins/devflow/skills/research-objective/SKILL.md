@@ -9,6 +9,7 @@ allowed-tools:
   - Read
   - Bash
   - Task
+  - AskUserQuestion
 ---
 
 <objective>
@@ -61,7 +62,26 @@ OBJECTIVE_INFO=$(node ~/.claude/devflow/bin/df-tools.cjs roadmap get-objective "
 ls .planning/objectives/${OBJECTIVE}-*/RESEARCH.md 2>/dev/null
 ```
 
-**If exists:** Offer: 1) Update research, 2) View existing, 3) Skip. Wait for response.
+**If exists:** ask:
+
+```
+AskUserQuestion([
+  {
+    header: "Research",
+    question: "RESEARCH.md already exists for this objective. What next?",
+    multiSelect: false,
+    options: [
+      { label: "View existing (Recommended)", description: "Show the current research" },
+      { label: "Update research", description: "Re-run the researcher and replace it" },
+      { label: "Skip", description: "Keep it and stop" }
+    ]
+  }
+])
+```
+
+- **View existing:** display RESEARCH.md and stop.
+- **Update research:** continue to step 2.5.
+- **Skip:** stop.
 
 **If doesn't exist:** Continue.
 
@@ -224,11 +244,53 @@ Task(
 
 ## 5. Handle Agent Return
 
-**`## RESEARCH COMPLETE`:** Display summary, offer: Plan objective, Dig deeper, Review full, Done.
+**`## RESEARCH COMPLETE`:** Display the summary, then ask:
 
-**`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation.
+```
+AskUserQuestion([
+  {
+    header: "Next step",
+    question: "Research for Objective {objective_number} is complete. What next?",
+    multiSelect: false,
+    options: [
+      { label: "Plan objective (Recommended)", description: "Plan it with /devflow:plan-objective {objective_number}" },
+      { label: "Dig deeper", description: "Continue the research on an area you name" },
+      { label: "Review full", description: "Show the full RESEARCH.md" },
+      { label: "Done", description: "Stop here" }
+    ]
+  }
+])
+```
 
-**`## RESEARCH INCONCLUSIVE`:** Show what was attempted, offer: Add context, Try different mode, Manual.
+- **Plan objective:** point the user to `/devflow:plan-objective {objective_number}`.
+- **Dig deeper:** ask in plain prose which area to dig into, then spawn a continuation (step 6) with that focus as the response.
+- **Review full:** display RESEARCH.md.
+- **Done:** stop.
+
+**`## CHECKPOINT REACHED`:** Present the checkpoint details to the user and get a response, then spawn the continuation (step 6).
+- **checkpoint:decision:** ask with AskUserQuestion, header "Checkpoint", the checkpoint's question and its options (label: option name, description: its pros and cons). Up to 4 options become the AskUserQuestion options; with more than 4, print the numbered list, offer the first 4, and say the user may type a number under Other.
+- **Any other checkpoint type:** the response is free text; ask for it in plain prose.
+
+**`## RESEARCH INCONCLUSIVE`:** Show what was attempted, then ask:
+
+```
+AskUserQuestion([
+  {
+    header: "Inconclusive",
+    question: "The research for Objective {objective_number} was inconclusive. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Add context", description: "You add context and the researcher continues" },
+      { label: "Try another mode", description: "Re-run as feasibility, implementation or comparison research" },
+      { label: "Manual", description: "Stop here and research it yourself" }
+    ]
+  }
+])
+```
+
+- **Add context:** ask in plain prose for the context, then spawn a continuation (step 6) with it as the response.
+- **Try another mode:** re-spawn the researcher (step 4) in the mode that fits what was missing (feasibility, implementation or comparison), and say which mode you chose.
+- **Manual:** stop.
 
 ## 6. Spawn Continuation Agent
 
