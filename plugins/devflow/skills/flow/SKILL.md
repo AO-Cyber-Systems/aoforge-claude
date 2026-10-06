@@ -9,6 +9,7 @@ allowed-tools:
   - Task
   - Read
   - Bash
+  - AskUserQuestion
 ---
 
 <objective>
