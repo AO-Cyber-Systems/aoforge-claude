@@ -850,6 +850,11 @@
       "objective": "61",
       "summary": "Skill requires: is enforced by a hook (61-08) on UserPromptExpansion and PreToolUse(Skill), not a df-tools preflight in each SKILL.md; skill-requires.cjs gives the hook a stat-only PATH lookup, DevFlow-namespaced skill-name resolution and the refusal text",
       "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "[61-03] Objective issue and PR titles share one name chain (objective-name.cjs: ROADMAP name, OBJECTIVE.md heading, bare slug); PR titles stay create-only, existing PRs are not renamed",
+      "rationale": null
     }
   ],
   "blockers": [],

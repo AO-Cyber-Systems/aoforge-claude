@@ -256,7 +256,7 @@ TRDs:
 TRDs:
 - [x] 61-01-checks-pin-health-TRD.md — (W1) STOR-03: `checks-pin.cjs` (pin parser, release-ref compare, owns the workflow constants), `validate health` Check 17 W062, doctor check 26 `checks-workflow-pin`, 22 defers W062
 - [ ] 61-02-skill-requires-lib-TRD.md — (W1) STOR-04: `requires:` skill frontmatter, `skill-requires.cjs` (stat-only PATH lookup, refusal text naming `/devflow:doctor`), doctor check 14 `skill-requires`, gh-sync requires gh
-- [ ] 61-03-pr-title-objective-name-TRD.md — (W1) STOR-02: one name chain in `objective-name.cjs` for issue and PR titles; fresh-store PR titled after OBJECTIVE.md, titles stay create-only
+- [x] 61-03-pr-title-objective-name-TRD.md — (W1) STOR-02: one name chain in `objective-name.cjs` for issue and PR titles; fresh-store PR titled after OBJECTIVE.md, titles stay create-only
 - [ ] 61-04-telemetry-scan-and-09-03-backfill-TRD.md — (W1) OBS-02: `telemetry --scan [--limit|--since|--root]` via `runTelemetry`, unknown flags are errors; OBS-04: 09-03 SUMMARY backfilled from history, I001 clears
 - [ ] 61-05-transcript-export-schedule-TRD.md — (W1) OBS-03: upgrade-project.js step 0b starts a detached `transcript-export` at most once per 24 h (claim-then-spawn stamp in `~/.claude/devflow/state/`), `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1`
 - [ ] 61-06-setup-dry-run-pins-and-pr-step-TRD.md — (W2) STOR-01: dry run prints `uses:` / `devflow-ref:` (and `was` pins on a re-pin) plus the follow-up preview; every printed sequence ends `gh pr create --head <branch> --fill`

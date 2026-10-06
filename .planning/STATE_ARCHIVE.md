@@ -157,6 +157,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 60]: Docs word DEVFLOW_SKIP_EDIT_GATE=1 as valid only in the environment Claude Code was launched from, never as an inline Bash prefix (hooks run in Claude Code's own process); S10b dogfood row proves the prefix is denied
 - [Objective 61]: 61-01: checks-pin.cjs (fs and path only) owns WORKFLOW_PATH, MANAGED_HEADER and DEFAULT_CHECKS_WORKFLOW; gh-setup imports them. W062 (validate Check 17) and doctor check 26 both render checks-pin.collectPinFindings; check 22 defers W062. Only release-shaped devflow-ref and the default reusable workflow's @ref are compared, as integers.
 - [Objective 61]: Skill requires: is enforced by a hook (61-08) on UserPromptExpansion and PreToolUse(Skill), not a df-tools preflight in each SKILL.md; skill-requires.cjs gives the hook a stat-only PATH lookup, DevFlow-namespaced skill-name resolution and the refusal text
+- [Objective 61]: [61-03] Objective issue and PR titles share one name chain (objective-name.cjs: ROADMAP name, OBJECTIVE.md heading, bare slug); PR titles stay create-only, existing PRs are not renamed
 
 ## Performance Metrics
 
@@ -255,4 +256,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 60 P07 | 13min | 3 tasks | 4 files |
 | Objective 61 P01 | 10min | 3 tasks | 10 files |
 | Objective 61 P02 | 8min | 2 tasks | 7 files |
+| Objective 61 P03 | 5min | 2 tasks | 5 files |
 
