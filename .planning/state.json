@@ -845,6 +845,11 @@
       "objective": "61",
       "summary": "61-01: checks-pin.cjs (fs and path only) owns WORKFLOW_PATH, MANAGED_HEADER and DEFAULT_CHECKS_WORKFLOW; gh-setup imports them. W062 (validate Check 17) and doctor check 26 both render checks-pin.collectPinFindings; check 22 defers W062. Only release-shaped devflow-ref and the default reusable workflow's @ref are compared, as integers.",
       "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "Skill requires: is enforced by a hook (61-08) on UserPromptExpansion and PreToolUse(Skill), not a df-tools preflight in each SKILL.md; skill-requires.cjs gives the hook a stat-only PATH lookup, DevFlow-namespaced skill-name resolution and the refusal text",
+      "rationale": null
     }
   ],
   "blockers": [],

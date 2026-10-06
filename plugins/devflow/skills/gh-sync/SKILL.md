@@ -4,6 +4,8 @@ description: |
   Operate the GitHub store, where GitHub is the system of record once `github.store` is on: migrate a project onto it (dry run first, then explicit approval), show store status, flush the outbox, pull the cache, set the repository up, generate release notes. With the store off, mirror objectives to GitHub issues.
   Triggers on: "migrate to github", "move planning to github", "github store", "flush the outbox", "sync to github", "push objectives to github", "github release notes", "sync objective".
 argument-hint: "[migrate [--dry-run]|status|flush|pull|setup [--apply]|release <tag>|<objective>|--all]"
+requires:
+  - gh
 allowed-tools:
   - Read
   - Bash
