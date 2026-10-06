@@ -1,6 +1,6 @@
 {
   "current_objective": "62",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 11,
   "progress_pct": 98,
   "status": "executing",
@@ -914,6 +914,16 @@
     {
       "objective": "62",
       "summary": "62-03: A bare list head (Options:) is covered by any inventory row in the same file within 12 lines; an ask-misuse row is resolved when no ask-without-options finding holds its text",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-04: debug CHECKPOINT REACHED follows inventory row BS-008 (human-verify asks Verify: Approved / Issues found) over the TRD error_recovery note",
+      "rationale": null
+    },
+    {
+      "objective": "62",
+      "summary": "62-04: verify-work with more than 4 active UAT sessions takes another session's objective under Other, not a row number (an objective number already means start new)",
       "rationale": null
     }
   ],

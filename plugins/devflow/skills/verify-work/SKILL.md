@@ -13,6 +13,9 @@ allowed-tools:
   - Edit
   - Write
   - Task
+  - AskUserQuestion
+  - TaskCreate
+  - TaskUpdate
   - mcp__plugin_playwright_playwright__browser_navigate
   - mcp__plugin_playwright_playwright__browser_snapshot
   - mcp__plugin_playwright_playwright__browser_take_screenshot

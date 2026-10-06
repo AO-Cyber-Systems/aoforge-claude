@@ -53,18 +53,50 @@ Display inline:
 |---|-------|--------|--------------|----------|
 | 1 | 04-comments | testing | 3. Reply to Comment | 2/6 |
 | 2 | 05-auth | testing | 1. Login Form | 0/4 |
-
-Reply with a number to resume, or provide an objective number to start new.
 ```
 
-Wait for user response.
+Then ask, one option per active session (label: the objective, e.g. `04-comments`; description: current test and progress), up to 4:
 
-- If user replies with number (1, 2) → Load that file, go to `resume_from_file`
-- If user replies with objective number → Treat as new session, go to `create_uat_file`
+```
+AskUserQuestion([
+  {
+    header: "UAT session",
+    question: "Resume an active UAT session, or type an objective number under Other to start a new one.",
+    multiSelect: false,
+    options: [
+      { label: "{objective 1}", description: "Test {n}: {current test} — {progress}" },
+      { label: "{objective 2}", description: "Test {n}: {current test} — {progress}" }
+    ]
+  }
+])
+```
+
+With more than 4 sessions, the table above lists them all: offer the first 4, and the user may type another session's objective under Other.
+
+- A listed session, or an active session's objective typed under Other → Load that file, go to `resume_from_file`
+- Any other objective number under Other → Treat as new session, go to `create_uat_file`
 
 **If active sessions exist AND $ARGUMENTS provided:**
 
-Check if session exists for that objective. If yes, offer to resume or restart.
+Check if a session exists for that objective. If yes, ask:
+
+```
+AskUserQuestion([
+  {
+    header: "UAT session",
+    question: "Objective {N} already has a UAT session at Test {n} ({progress}). Resume it or restart?",
+    multiSelect: false,
+    options: [
+      { label: "Resume (Recommended)", description: "Continue from the first pending test" },
+      { label: "Restart", description: "Start again from Test 1; the earlier results are replaced" }
+    ]
+  }
+])
+```
+
+- If "Resume" → Load that file, go to `resume_from_file`
+- If "Restart" → go to `create_uat_file`
+
 If no, continue to `create_uat_file`.
 
 **If no active sessions AND no $ARGUMENTS:**
@@ -128,7 +160,7 @@ Build test list from extracted deliverables.
 
 **Progress tracking (if available):**
 
-Create a progress task for each test/deliverable upfront:
+Create a progress task for each test/deliverable upfront. Each goes in_progress when its box is shown (`present_test`) and completed with its result (`process_response`):
 ```
 For each test (1..N):
   TaskCreate(
@@ -197,6 +229,11 @@ Proceed to `present_test`.
 
 Read Current Test section from UAT file.
 
+**Progress tracking (if available):** before showing this test's box:
+```
+TaskUpdate(taskId=test_task_id, status="in_progress")
+```
+
 **Browser pre-verification (for UI tests):**
 
 If the test involves a UI feature and a dev server is running (or can be started):
@@ -240,7 +277,7 @@ If the test involves a UI feature and a dev server is running (or can be started
 
 Please verify the visual quality and UX:
 ──────────────────────────────────────────────────────────────
-→ Type "pass" or describe what's wrong
+→ Pass, or describe what's wrong
 ──────────────────────────────────────────────────────────────
 ```
 
@@ -256,10 +293,11 @@ Please verify the visual quality and UX:
 {expected}
 
 ──────────────────────────────────────────────────────────────
-→ Type "pass" or describe what's wrong
+→ Pass, or describe what's wrong
 ──────────────────────────────────────────────────────────────
 ```
 
+<!-- builtin-audit: allow free-text: the answer is pass or an open description of what differs; severity is inferred from the user's words -->
 Wait for user response (plain text, no AskUserQuestion).
 </step>
 
@@ -319,9 +357,9 @@ Append to Gaps section (structured YAML for plan-objective --gaps):
 
 **After any response:**
 
-**Update progress (if available):**
+**Progress tracking (if available):** complete the test's task with its result: `pass`, `issue: {severity}` or `skipped`.
 ```
-TaskUpdate(taskId=test_task_id, status="completed")
+TaskUpdate(taskId=test_task_id, status="completed", description="{pass | issue: severity | skipped}")
 ```
 
 Update Summary counts.
@@ -341,6 +379,12 @@ node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{phase
 ```
 
 Find first test with `result: [pending]`.
+
+**Progress tracking (if available):** a resumed session starts with no tasks for these tests. Make a task again only for each test still `result: [pending]`; answered tests (pass, issue, skipped) get none:
+```
+For each pending test:
+  TaskCreate(subject="Test {n}/{total}: {test_name}", description="UAT: {expected_behavior}", activeForm="Testing {test_name}")
+```
 
 Announce:
 ```
@@ -412,6 +456,7 @@ TaskCreate(
   description="Spawning parallel debug agents to investigate root causes",
   activeForm="Diagnosing UAT issues"
 )
+TaskUpdate(taskId=diagnose_task_id, status="in_progress")
 ```
 
 ```
@@ -427,6 +472,7 @@ Spawning parallel debug agents to investigate each issue.
 - Spawn parallel debug agents for each issue
 - Collect root causes
 - Record root causes in the UAT gaps (draft + `df-tools doc put`, as diagnose-issues does)
+- Progress tracking (if available), only once the root causes are recorded: `TaskUpdate(taskId=diagnose_task_id, status="completed")`
 - Proceed to `plan_gap_closure`
 
 Diagnosis runs automatically - no user prompt. Parallel agents investigate simultaneously, so overhead is minimal and fixes are more accurate.
@@ -434,6 +480,12 @@ Diagnosis runs automatically - no user prompt. Parallel agents investigate simul
 
 <step name="plan_gap_closure">
 **Auto-plan fixes from diagnosed gaps:**
+
+**Progress tracking (if available):** one task for planning and checking the fixes; it completes once the plans are checked (`verify_gap_plans` or `revision_loop`).
+```
+TaskCreate(subject="Plan gap closure", description="Planning and checking fixes for the diagnosed UAT gaps", activeForm="Planning gap closure")
+TaskUpdate(taskId=gap_plan_task_id, status="in_progress")
+```
 
 Display:
 ```
@@ -478,7 +530,7 @@ Plans must be executable prompts.
 
 On return:
 - **PLANNING COMPLETE:** Proceed to `verify_gap_plans`
-- **PLANNING INCONCLUSIVE:** Report and offer manual intervention
+- **PLANNING INCONCLUSIVE:** Report and offer manual intervention; `TaskUpdate(taskId=gap_plan_task_id, status="completed", description="Planning inconclusive")` (if available)
 </step>
 
 <step name="verify_gap_plans">
@@ -523,7 +575,7 @@ Return one of:
 ```
 
 On return:
-- **VERIFICATION PASSED:** Proceed to `present_ready`
+- **VERIFICATION PASSED:** `TaskUpdate(taskId=gap_plan_task_id, status="completed")` (if available), proceed to `present_ready`
 - **ISSUES FOUND:** Proceed to `revision_loop`
 </step>
 
@@ -570,12 +622,24 @@ Increment iteration_count
 
 Display: `Max iterations reached. {N} issues remain.`
 
-Offer options:
-1. Force proceed (execute despite issues)
-2. Provide guidance (user gives direction, retry)
-3. Abandon (exit, user runs /devflow:plan-objective manually)
+```
+AskUserQuestion([
+  {
+    header: "Max retries",
+    question: "The checker still reports {N} issues after 3 revisions. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Force proceed", description: "Execute the fix plans despite the remaining issues" },
+      { label: "Provide guidance", description: "You give direction and the planner retries" },
+      { label: "Abandon", description: "Stop here; run /devflow:plan-objective manually" }
+    ]
+  }
+])
+```
 
-Wait for user response.
+- **If "Force proceed":** `TaskUpdate(taskId=gap_plan_task_id, status="completed", description="Forced past {N} remaining issues")` (if available), proceed to `present_ready`.
+- **If "Provide guidance":** take the direction in plain text, add it to the revision prompt above, spawn the planner again, then the checker (verify_gap_plans logic).
+- **If "Abandon":** `TaskUpdate(taskId=gap_plan_task_id, status="completed", description="Abandoned; plan manually")` (if available), exit; the user runs /devflow:plan-objective manually.
 </step>
 
 <step name="present_ready">
