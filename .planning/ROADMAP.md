@@ -285,7 +285,7 @@ TRDs:
 - [ ] 62-07-milestone-drafts-TRD.md — (W3) BLTN-02 milestone complete entry and PROJECT.md drafts in plan mode; milestone workflow prompts
 - [ ] 62-08-execute-and-map-prompts-TRD.md — (W3) prompts in execute-objective, transition, discuss/discovery, map-codebase; adopt `disallowed-tools: AskUserQuestion`
 - [ ] 62-09-todo-status-workstreams-prompts-TRD.md — (W3) prompts in todo, status, objective, decide, handoff and workstreams
-- [ ] 62-11-remaining-skill-prompts-TRD.md — (W3) prompts in security-audit, cleanup, research, assumptions, help and every other remaining skill
+- [x] 62-11-remaining-skill-prompts-TRD.md — (W3) prompts in security-audit, cleanup, research, assumptions, help and every other remaining skill
 - [ ] 62-10-close-ratchet-dogfood-and-docs-TRD.md — (W4) baseline directory gone, inventory closed; dogfood incl. live micro and ExitPlanMode probe; CHANGELOG/USER-GUIDE/help/CLAUDE.md; full `npm test`
 
 ### Objective 63: Todo store, hook coexistence and built-in inventory
@@ -326,6 +326,6 @@ TRDs:
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
 | 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
-| 62. Built-in sweep | v1.5 | 3/11 | In Progress | - |
+| 62. Built-in sweep | v1.5 | 4/11 | In Progress | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |
