@@ -61,7 +61,7 @@ Purpose: SC2 for new-project and its part of SC3. Output: prose edits and an emp
 
 ## Binding rules
 
-- Your files are exactly `files_modified` (group `new-project`). Five other conversion TRDs run in parallel: never touch
+- Your files are exactly `files_modified` (group `new-project`). Six other conversion TRDs run in parallel: never touch
   their files or baselines. Do not edit `agents/roadmapper.md`.
 - Read first: `plugins/devflow/devflow/references/built-ins.md` and the `new-project` rows of `docs/built-in-sweep.md`.
   Do not edit the inventory; record deviations in the SUMMARY.

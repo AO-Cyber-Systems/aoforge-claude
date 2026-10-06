@@ -79,7 +79,7 @@ Purpose: this group's part of SC3. Output: prose edits and an emptied, deleted b
 
 ## Binding rules
 
-- Your files are exactly `files_modified` (group `execute-and-map`). Five other conversion TRDs run in parallel: never
+- Your files are exactly `files_modified` (group `execute-and-map`). Six other conversion TRDs run in parallel: never
   touch their files or baselines. You may change `builtin-sweep.repo.test.cjs` only to add one ALLOWED_TOOLS_EXEMPT
   entry, and only on the fallback in error_recovery.
 - Read first: `plugins/devflow/devflow/references/built-ins.md` and the `execute-and-map` rows of

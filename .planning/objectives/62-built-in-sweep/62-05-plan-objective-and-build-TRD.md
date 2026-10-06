@@ -76,7 +76,7 @@ emptied, deleted baseline.
 
 ## Binding rules
 
-- Your files are exactly `files_modified` (group `plan-build`). Five other conversion TRDs run in parallel: never touch
+- Your files are exactly `files_modified` (group `plan-build`). Six other conversion TRDs run in parallel: never touch
   their files or baselines. Do not edit `agents/planner.md`.
 - Read first: `plugins/devflow/devflow/references/built-ins.md` and the `plan-build` rows of `docs/built-in-sweep.md`.
   Do not edit the inventory; record deviations in the SUMMARY.

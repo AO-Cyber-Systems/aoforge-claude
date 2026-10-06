@@ -61,7 +61,7 @@ baseline.
 
 ## Binding rules
 
-- Your files are exactly `files_modified` (group `milestone`). Five other conversion TRDs run in parallel: never touch
+- Your files are exactly `files_modified` (group `milestone`). Six other conversion TRDs run in parallel: never touch
   their files or baselines.
 - Read first: `plugins/devflow/devflow/references/built-ins.md` and the `milestone` rows of `docs/built-in-sweep.md`.
   Do not edit the inventory; record deviations in the SUMMARY.

@@ -75,7 +75,7 @@ baselines.
 
 ## Binding rules
 
-- Your files are exactly `files_modified` (groups `micro-quick-debug` and `verify-work`). Five other conversion TRDs
+- Your files are exactly `files_modified` (groups `micro-quick-debug` and `verify-work`). Six other conversion TRDs
   run in parallel on their own files and baselines: never touch theirs. Do not edit agents.
 - Read first: `plugins/devflow/devflow/references/built-ins.md` (the rules) and your groups' rows of
   `docs/built-in-sweep.md` (the work list; each Conversion cell is the spec). Do not edit the inventory. If a planned

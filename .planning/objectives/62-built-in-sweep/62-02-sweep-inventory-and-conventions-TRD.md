@@ -19,11 +19,11 @@ must_haves:
     - path: docs/built-in-sweep.md
       provides: "the BLTN-03 inventory and conversion list (machine-checked by 62-03's repo test, closed by 62-10)"
     - path: plugins/devflow/devflow/references/built-ins.md
-      provides: "the conventions every conversion TRD (62-04..62-09) and future prose follows"
+      provides: "the conventions every conversion TRD (62-04..62-09, 62-11) and future prose follows"
   key_links:
     - "Prompts table columns, in order: ID | Group | File | Detect | Kind | Before | Conversion (62-03 parses it)"
     - "Group names match builtin-audit.cjs GROUPS (62-01) exactly"
-    - "Each group's rows are the work list of its conversion TRD (62-04..62-09)"
+    - "Each group's rows are the work list of its conversion TRD (62-04..62-09, 62-11)"
 ---
 
 # TRD 62-02: Inventory the sweep and write the conventions
@@ -33,7 +33,7 @@ BLTN-03 requires "the sweep lists each prompt it converted", produced by an inve
 plus the rule set the conversions follow.
 
 1. **Inventory** (`docs/built-in-sweep.md`). Read every candidate prompt in the 34 skills and 40 active workflows,
-   classify it, and decide its conversion now, concretely (header, question, option labels), so the six conversion
+   classify it, and decide its conversion now, concretely (header, question, option labels), so the seven conversion
    TRDs in wave 3 are mechanical. Also record the planned progress tasks (BLTN-01), plan-mode draft reviews (BLTN-02)
    and allowed-tools changes.
 2. **Conventions** (`plugins/devflow/devflow/references/built-ins.md`). One short reference for progress, plan mode and
@@ -107,10 +107,10 @@ candidate lines. Known items the inventory must cover, by group:
   pause-work.md `ask user which objective they're pausing work on`, `Ask user for clarifications if needed`;
   resume-project.md `Offer to reconstruct STATE.md`, `[Secondary options:]` + `Wait for user selection.`;
   remove-objective.md `Proceed? (y/n)`; skills/decide `Ask the user which decision they want to resolve`,
-  `**Options:**`; skills/handoff `ask the user what they'd like to do`.
-- `remaining`: workstreams-merge.md `Options:` + `Wait for user decision.`; workstreams-setup.md
-  `Offer to view status instead.`, `Wait for user confirmation before creating worktrees.`; security-audit.md
-  `Options:` + `Wait for user response.`; skills/research-objective `Offer: 1) Update research, 2) View existing, 3) Skip.`;
+  `**Options:**`; skills/handoff `ask the user what they'd like to do`; workstreams-merge.md `Options:` +
+  `Wait for user decision.`; workstreams-setup.md `Offer to view status instead.`,
+  `Wait for user confirmation before creating worktrees.` (workstreams belongs to this group).
+- `remaining`: security-audit.md `Options:` + `Wait for user response.`; skills/research-objective `Offer: 1) Update research, 2) View existing, 3) Skip.`;
   research-objective.md (2 hits); list-objective-assumptions.md `Wait for user response.`, `Wait for user selection.`;
   help.md `Presents tests one at a time (yes/no responses)` (explanatory) and the plan-mode paragraph
   (`EnterPlanMode` ... "present the execution strategy", ~line 483, explanatory, reworded by 62-10).
@@ -189,7 +189,7 @@ Current progress wiring (creates / completed updates / in_progress updates): mic
   - `## Out of scope`: agents (list each agent you checked with `rg -n -i "AskUserQuestion|ask the user|wait for user|\(y/n\)" plugins/devflow/agents`
     and why it stays: subagents return checkpoints), `references/` and `templates/` (they explain or are copied into
     projects), `workflows/insert-objective.md` (`status: legacy`).
-  - A first line under the title: `Status: inventory (TRD 62-02). Conversions: TRDs 62-04 to 62-09. Closed: TRD 62-10.`
+  - A first line under the title: `Status: inventory (TRD 62-02). Conversions: TRDs 62-04 to 62-09 and 62-11. Closed: TRD 62-10.`
 - **references/built-ins.md** sections, each a few short paragraphs or a list, the whole file under ~120 lines:
   1. *Progress.* TaskCreate when a stage starts (or all stages up front when the list is known), TaskUpdate
      `in_progress` as it starts and `completed` when it ends, delete a skipped stage's task. Subject imperative,

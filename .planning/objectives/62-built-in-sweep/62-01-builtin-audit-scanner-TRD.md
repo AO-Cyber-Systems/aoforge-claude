@@ -46,7 +46,7 @@ Build the pure scanner that makes the built-in sweep enforceable. It answers fou
 4. **Plan mode (BLTN-02).** Where does a flow enter and exit plan mode, does that span present a draft, and is it
    preceded by a skip rule naming `--auto`?
 
-Plus the scan set and the group table that partitions the sweep's files between the conversion TRDs (62-04..62-09).
+Plus the scan set and the group table that partitions the sweep's files between the conversion TRDs (62-04..62-09 and 62-11).
 
 This TRD writes no prose and touches no skill. 62-03 turns the scanner into the CI ratchet.
 
@@ -271,12 +271,13 @@ Use AskUserQuestion:
   - `milestone`: skill milestone; workflows complete-milestone, new-milestone, audit-milestone, plan-milestone-gaps.
   - `execute-and-map`: skills execute-objective, discuss-objective, map-codebase, adopt; workflows execute-objective,
     transition, execute-trd, discuss-objective, discovery-objective, map-codebase, adopt.
-  - `todo-status-objective`: skills todo, status, objective, decide, handoff; workflows add-todo, check-todos, health,
-    pause-work, progress, resume-project, add-objective, remove-objective.
-  - `remaining`: skills workstreams, security-audit, cleanup, settings, set-profile, help, design-review, ui-eval,
+  - `todo-status-objective`: skills todo, status, objective, decide, handoff, workstreams; workflows add-todo,
+    check-todos, health, pause-work, progress, resume-project, add-objective, remove-objective, workstreams-merge,
+    workstreams-run, workstreams-setup, workstreams-status. (The name predates workstreams joining; keep it.)
+  - `remaining`: skills security-audit, cleanup, settings, set-profile, help, design-review, ui-eval,
     research-objective, list-objective-assumptions, flow, gh-sync, doctor, awareness, initiatives, sync-roadmap, tui;
-    workflows workstreams-merge, workstreams-run, workstreams-setup, workstreams-status, security-audit, cleanup,
-    settings, set-profile, help, design-review, ui-eval, research-objective, list-objective-assumptions.
+    workflows security-audit, cleanup, settings, set-profile, help, design-review, ui-eval, research-objective,
+    list-objective-assumptions.
   Skills map to `plugins/devflow/skills/<name>/SKILL.md`, workflows to `plugins/devflow/devflow/workflows/<name>.md`.
   The table covers all 34 skills and the 40 active workflows (insert-objective.md is legacy). 62-03's repo test checks
   that against the real tree; this TRD's test 20 checks only shape and uniqueness.

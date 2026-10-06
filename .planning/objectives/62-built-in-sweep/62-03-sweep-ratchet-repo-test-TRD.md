@@ -35,7 +35,7 @@ must_haves:
   key_links:
     - "builtin-sweep.repo.test.cjs -> builtin-audit.cjs (scanSet, scanPrompts, skillCoverage, progressCounts, planModeSpans, groupOf, GROUPS)"
     - "builtin-sweep.repo.test.cjs -> docs/built-in-sweep.md (## Prompts table)"
-    - "62-04..62-09 own the eight baseline files (one or two groups each); 62-10 deletes the directory and makes its absence a test"
+    - "62-04..62-09 and 62-11 own the eight baseline files (one or two groups each); 62-10 deletes the directory and makes its absence a test"
 ---
 
 # TRD 62-03: The sweep ratchet
@@ -50,7 +50,7 @@ last TRD deletes the baseline directory.
    finding an inventory row, and settle the inventory's `Detect` column.
 2. **Ratchet.** Write `builtin-sweep.repo.test.cjs` and the eight baseline files that make it pass today.
 
-Purpose: BLTN-01..03 become enforceable, and wave 3 can run six conversion TRDs (eight groups) in parallel without touching each
+Purpose: BLTN-01..03 become enforceable, and wave 3 can run seven conversion TRDs (eight groups) in parallel without touching each
 other's files. Output: the repo test, the baselines, scanner refinements, the reconciled inventory.
 </objective>
 

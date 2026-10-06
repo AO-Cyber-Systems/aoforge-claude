@@ -3,7 +3,7 @@ objective: 62-built-in-sweep
 trd: "10"
 type: standard
 wave: 4
-depends_on: ["62-04", "62-05", "62-06", "62-07", "62-08", "62-09"]
+depends_on: ["62-04", "62-05", "62-06", "62-07", "62-08", "62-09", "62-11"]
 files_modified:
   - plugins/devflow/devflow/bin/lib/builtin-sweep.repo.test.cjs
   - docs/built-in-sweep.md
@@ -37,7 +37,7 @@ must_haves:
 <objective>
 Close objective 62.
 
-1. **Close the ratchet.** The six conversion TRDs deleted the eight group baseline files. Make the directory's absence a
+1. **Close the ratchet.** The seven conversion TRDs deleted the eight group baseline files. Make the directory's absence a
    test (as 48-23 did for planning-writes), drop the pending branches so every check fails outright, and check the
    inventory's `manual` rows too. Mark the inventory closed and make each Conversion cell say what shipped.
 2. **Dogfood.** Observe each success criterion outside the unit tests: static measurements on the real flows, plus two
@@ -169,7 +169,7 @@ RED: rewrite the test to test-list items 1-6 (absence test; no pending branches;
 fails, the failures are gaps from wave 3: record and stop. If it passes at once (wave 3 left nothing), say so in the
 commit body. Commit `test(62-10): close the built-in sweep ratchet`.
 2. docs/built-in-sweep.md: status line `Status: closed (TRD 62-10). Every row below is converted or marked.`; update
-   each Conversion cell whose wave-3 SUMMARY recorded a deviation (read the deviation lists in the SUMMARYs of 62-04 to 62-09); add a
+   each Conversion cell whose wave-3 SUMMARY recorded a deviation (read the deviation lists in the SUMMARYs of 62-04 to 62-09 and 62-11); add a
    one-line count per kind under `## Prompts`. Run the repo test (test 9 must pass for every row). Commit
    `docs(62-10): the built-in sweep inventory is closed`.
   </action>
