@@ -1,5 +1,6 @@
 ---
 work: feature
+status: verifying
 ---
 
 # Store-mode rough edges and observability
