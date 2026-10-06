@@ -44,14 +44,55 @@ const HOOKS_JSON = {
 // A literal model-profiles.json with the real file's shape: tier → model id, agent → tier per profile.
 const MODEL_PROFILES_JSON = {
   models: {
-    opus: 'claude-opus-5',
-    sonnet: 'claude-sonnet-5',
+    opus: 'claude-opus-5-5',
+    sonnet: 'claude-sonnet-5-5',
     haiku: 'claude-haiku-4-5',
   },
   agents: {
     planner: { quality: 'opus', balanced: 'opus', budget: 'sonnet' },
     executor: { quality: 'opus', balanced: 'sonnet', budget: 'sonnet' },
     verifier: { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku' },
+  },
+};
+
+// A literal model-rates.json with the real file's shape (every rate field, an https source and an as_of on each
+// entry, so calibration-inputs.loadRates accepts it). Against it, MODEL_PROFILES_JSON's ids are current.
+const RATES_SOURCE = 'https://platform.claude.com/docs/en/about-claude/pricing';
+const MODEL_RATES_JSON = {
+  currency: 'USD',
+  unit: 'per_million_tokens',
+  models: {
+    'claude-fable-5-1': {
+      input: 10, cache_write_5m: 12.5, cache_write_1h: 20, cache_read: 0.25, output: 50,
+      source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+    'claude-opus-5-5': {
+      input: 4, cache_write_5m: 5, cache_write_1h: 8, cache_read: 0.2, output: 20,
+      source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+    'claude-opus-5': {
+      input: 5, cache_write_5m: 6.25, cache_write_1h: 10, cache_read: 0.5, output: 25,
+      source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+    'claude-opus-4-8': {
+      input: 5, cache_write_5m: 6.25, cache_write_1h: 10, cache_read: 0.5, output: 25,
+      source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+    'claude-sonnet-5-5': {
+      input: 2, cache_write_5m: 2.5, cache_write_1h: 4, cache_read: 0.2, output: 10,
+      source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+    'claude-sonnet-5': {
+      input: 2, cache_write_5m: 2.5, cache_write_1h: 4, cache_read: 0.2, output: 10,
+      source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+    'claude-haiku-4-5-20251001': {
+      input: 1, cache_write_5m: 1.25, cache_write_1h: 2, cache_read: 0.1, output: 5,
+      source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+  },
+  aliases: {
+    'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
   },
 };
 
@@ -433,6 +474,7 @@ module.exports = {
   PLUGIN_KEY,
   HOOKS_JSON,
   MODEL_PROFILES_JSON,
+  MODEL_RATES_JSON,
   DF_TOOLS_STUB,
   pluginCacheRoot,
   installedPluginsPath,

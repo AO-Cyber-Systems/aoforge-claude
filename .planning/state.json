@@ -870,6 +870,16 @@
       "objective": "61",
       "summary": "61-06: a conflict workflow prints no pins; gh pr create carries no --base (the default branch is gh's default); the dry-run preview maps plan statuses to outcome statuses so filesLines is reused with only its first line changed",
       "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "61-07: model id currency is derived from references/model-rates.json (newest priced version per family), never a hard-coded list; doctor check 13 owns W063 and check 22 defers it",
+      "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "61-07: doctor check 13 reads the rate table beside the profiles copy in use (mirror, else installed), else the engine's; it judges only well-formed ids so a malformed id is reported once",
+      "rationale": null
     }
   ],
   "blockers": [],
