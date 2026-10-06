@@ -1,6 +1,6 @@
 {
   "current_objective": "60",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -829,6 +829,11 @@
     {
       "objective": "60",
       "summary": "60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)",
+      "rationale": null
+    },
+    {
+      "objective": "60",
+      "summary": "60-06: Bash edit gate ships default warn; measured upper-bound false-positive rate 633/17957 = 0.035251 exceeds the 0.02 threshold (references/bash-edit-gate-evidence.json); 0 detector misparses found",
       "rationale": null
     }
   ],

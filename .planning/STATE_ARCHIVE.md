@@ -153,6 +153,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 60]: Bash write gate is a separate PreToolUse(Bash) hook (gate-bash-writes.js) that reuses gate-edits.js helpers, leaving the Edit/Write path byte-identical and failing open on its own
 - [Objective 60]: 60-05: the Bash gate replay counts every would-deny as a false positive (an upper bound); recommended_default is computed from the reported 6-decimal rate
 - [Objective 60]: 60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)
+- [Objective 60]: 60-06: Bash edit gate ships default warn; measured upper-bound false-positive rate 633/17957 = 0.035251 exceeds the 0.02 threshold (references/bash-edit-gate-evidence.json); 0 detector misparses found
 
 ## Performance Metrics
 
@@ -247,4 +248,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 60 P03 | 5min | 3 tasks | 3 files |
 | Objective 60 P04 | 5min | 2 tasks | 5 files |
 | Objective 60 P05 | 8min | 3 tasks | 5 files |
+| Objective 60 P06 | 8min | 2 tasks | 3 files |
 
