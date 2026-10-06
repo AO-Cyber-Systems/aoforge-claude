@@ -880,6 +880,11 @@
       "objective": "61",
       "summary": "61-07: doctor check 13 reads the rate table beside the profiles copy in use (mirror, else installed), else the engine's; it judges only well-formed ids so a malformed id is reported once",
       "rationale": null
+    },
+    {
+      "objective": "61",
+      "summary": "61-08: gate-skill-requires.js registered on UserPromptExpansion (no matcher; filtering in code) and PreToolUse(Skill); UserPromptExpansion confirmed accepted by Claude Code 2.1.292 (plugin validate plus binary event table); gate is not project-scoped and fails open",
+      "rationale": null
     }
   ],
   "blockers": [],

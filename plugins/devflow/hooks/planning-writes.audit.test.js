@@ -447,6 +447,22 @@ const RUNS = {
       payload: (ctx) => preTool('Bash', { command: 'echo 2 > src/x.js' })(ctx),
     },
   ],
+  // gate-skill-requires.js (TRD 61-08): read-only, not project-scoped. The audit's PATH may or may not hold `gh`,
+  // so these variants prove only that the hook writes nothing, whichever way the decision goes.
+  'gate-skill-requires.js': [
+    {
+      label: 'typed /devflow:gh-sync',
+      payload: (ctx) =>
+        envelope('UserPromptExpansion', ctx, {
+          expansion_type: 'slash_command',
+          command_name: 'devflow:gh-sync',
+          command_args: 'status',
+          command_source: 'plugin',
+          prompt: '/devflow:gh-sync status',
+        }),
+    },
+    { label: 'Skill tool devflow:gh-sync', payload: (ctx) => preTool('Skill', { skill: 'devflow:gh-sync' })(ctx) },
+  ],
   'guard-no-progress.js': [
     { label: 'repeated read', payload: preTool('Read', { file_path: '/nonexistent/file' }) },
   ],

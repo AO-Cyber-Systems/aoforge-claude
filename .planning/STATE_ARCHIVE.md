@@ -163,6 +163,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 61]: 61-06: a conflict workflow prints no pins; gh pr create carries no --base (the default branch is gh's default); the dry-run preview maps plan statuses to outcome statuses so filesLines is reused with only its first line changed
 - [Objective 61]: 61-07: model id currency is derived from references/model-rates.json (newest priced version per family), never a hard-coded list; doctor check 13 owns W063 and check 22 defers it
 - [Objective 61]: 61-07: doctor check 13 reads the rate table beside the profiles copy in use (mirror, else installed), else the engine's; it judges only well-formed ids so a malformed id is reported once
+- [Objective 61]: 61-08: gate-skill-requires.js registered on UserPromptExpansion (no matcher; filtering in code) and PreToolUse(Skill); UserPromptExpansion confirmed accepted by Claude Code 2.1.292 (plugin validate plus binary event table); gate is not project-scoped and fails open
 
 ## Performance Metrics
 
@@ -266,4 +267,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 61 P05 | 6min | 2 tasks | 4 files |
 | Objective 61 P06 | 7min | 2 tasks | 7 files |
 | Objective 61 P07 | 10min | 3 tasks | 11 files |
+| Objective 61 P08 | 8min | 2 tasks | 5 files |
 
