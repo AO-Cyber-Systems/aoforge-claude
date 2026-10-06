@@ -5,7 +5,9 @@
  *
  * Thin CLI front-end for `df-tools context` and `df-tools session-audit`,
  * wiring `lib/context-audit.cjs` (TRD 29-04) and `lib/session-audit.cjs`
- * (TRD 31-03) into the dispatcher for the first time.
+ * (TRD 31-03) into the dispatcher for the first time. It also fronts
+ * `df-tools telemetry` (TRD 61-04): `--scan` feeds a session audit into
+ * `lib/telemetry.cjs`, and any flag it does not understand is an error.
  *
  * `output()`/`error()` (lib/helpers.cjs) call `process.exit`, so logic that
  * needs those semantics can only be tested by spawning a child process. This
@@ -27,8 +29,9 @@ const contextAudit = require('./context-audit.cjs');
 const sessionAudit = require('./session-audit.cjs');
 const transcriptExport = require('./transcript-export.cjs');
 const overrideLib = require('./override.cjs');
+const telemetry = require('./telemetry.cjs');
 
-/** `--limit` default for both commands when the flag is omitted. */
+/** `--limit` default for the scanning commands when the flag is omitted. */
 const DEFAULT_LIMIT = 150;
 
 /**
@@ -192,6 +195,54 @@ function runSessionAudit({ argv = [] } = {}) {
 }
 
 /**
+ * `df-tools telemetry` — the read-only project view (overrides, stuck-loop state, documentation
+ * staleness) and, with `--scan`, a session audit of blocking events folded into it.
+ *
+ * Every token is either understood or an error, never dropped: `--limit`, `--since` and `--root`
+ * only mean something to the scan, so they are rejected without it. Without `--scan` this is
+ * exactly `collect({planningDir, userHome})`: `blocks` stays null, there is no `scan` key and no
+ * transcript is read, so a status view that calls plain `telemetry` stays fast.
+ *
+ * `--scan` reads transcripts, not `.planning/`, so it still reports blocks outside a DevFlow
+ * project (`collect` handles the null `planningDir`).
+ *
+ * @param {{argv?: string[], cwd: string, userHome?: string}} opts
+ * @returns {{ok:true, result:object, text:string} | {ok:false, message:string}}
+ */
+function runTelemetry({ argv = [], cwd, userHome = os.homedir() }) {
+  const parsed = parseAuditArgs(argv, { values: ['--limit', '--root', '--since'], bools: ['--scan'] });
+  if (!parsed.ok) return parsed;
+  if (!parsed.scan && (parsed.limit !== undefined || parsed.root !== undefined || parsed.since !== undefined)) {
+    return { ok: false, message: '--limit, --since and --root need --scan' };
+  }
+
+  const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
+
+  if (!parsed.scan) {
+    const result = telemetry.collect({ planningDir, userHome });
+    return { ok: true, result, text: result.advisories.join('\n') };
+  }
+
+  const limitCheck = validateLimit(parsed.limit);
+  if (!limitCheck.ok) return limitCheck;
+  if (parsed.since !== undefined && !/^\d{4}-\d{2}-\d{2}/.test(String(parsed.since))) {
+    return { ok: false, message: '--since must be an ISO date (YYYY-MM-DD)' };
+  }
+  const rootResult = resolveRoot(parsed);
+  if (!rootResult.ok) return rootResult;
+  const limit = parsed.limit === undefined ? DEFAULT_LIMIT : parsed.limit;
+  const since = parsed.since === undefined ? null : String(parsed.since);
+
+  const report = sessionAudit.analyze([rootResult.root], { limit: limit || undefined, since: since || undefined });
+  const result = telemetry.collect({ planningDir, sessionReport: report, userHome });
+  result.scan = { root: rootResult.root, limit, since, files_scanned: report.files_scanned };
+  const scanLine =
+    `scan: ${report.files_scanned} transcripts, ${report.total_events} blocks ` +
+    `(${report.devflow_owned_events} DevFlow-owned)`;
+  return { ok: true, result, text: [scanLine, ...result.advisories].join('\n') };
+}
+
+/**
  * Default `transcript-export` index path. Read at CALL time (same reasoning
  * as `defaultTranscriptRoot`) — HOME-isolated tests depend on it.
  */
@@ -299,6 +350,7 @@ module.exports = {
   resolveRoot,
   runContext,
   runSessionAudit,
+  runTelemetry,
   formatContextRaw,
   formatSessionAuditRaw,
   DEFAULT_LIMIT,

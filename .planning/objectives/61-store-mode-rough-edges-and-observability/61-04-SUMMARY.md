@@ -9,6 +9,6 @@ subsystem: observability
 In progress.
 
 ## Progress
-- [x] Task 1 (RED): telemetry-cli tests — (this commit)
-- [ ] Task 1 (GREEN): runTelemetry in audit-cli.cjs, collect() blocks outside a project, dispatcher and help — next step: add runTelemetry to /Users/justin/dev/.df-worktrees/devflow-claude/61-04-telemetry-scan-and-09-03-backfill/plugins/devflow/devflow/bin/lib/audit-cli.cjs and wire the `telemetry` case in df-tools.cjs
-- [ ] Task 2: backfill the 09-03 SUMMARY and clear I001
+- [x] Task 1 (RED): telemetry-cli tests — 9a147ebd
+- [x] Task 1 (GREEN): runTelemetry in audit-cli.cjs, collect() blocks outside a project, dispatcher and help — (this commit)
+- [ ] Task 2: backfill the 09-03 SUMMARY and clear I001 — next step: record the validate health and calibrate --dry-run baselines, then `git show --stat e4a112d4 d1e70c74 d48d60e7` for the evidence

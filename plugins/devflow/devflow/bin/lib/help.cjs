@@ -237,8 +237,8 @@ const COMMANDS = {
     details: 'Read-only by default. --fix applies only safe, reversible fixes (backups per upgrade conventions) and refuses index-changing fixes when unrelated changes are staged. --global runs only machine-level checks.',
   },
   'telemetry': {
-    usage: 'df-tools telemetry [--raw]',
-    summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories.',
+    usage: 'df-tools telemetry [--scan [--limit N] [--since YYYY-MM-DD] [--root <dir>]] [--raw]',
+    summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories. `--scan` adds a session audit of blocking events (default root ~/.claude/projects, --limit 150; 0 = all).',
   },
   'context': {
     usage: 'df-tools context [--limit N] [--root <dir>] [--raw]',

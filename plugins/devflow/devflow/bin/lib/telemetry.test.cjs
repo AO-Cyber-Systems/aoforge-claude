@@ -286,7 +286,7 @@ describe('df-tools telemetry (CLI) — objective 38', () => {
       const before = fs.readdirSync(cliDir);
       const r = runTelemetry(['--help'], cliDir, cliHome);
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-      assert.match(r.stdout, /df-tools telemetry \[--raw\]/);
+      assert.match(r.stdout, /df-tools telemetry \[--scan .*\] \[--raw\]/);
       assert.deepEqual(fs.readdirSync(cliDir), before, 'no side effects');
     } finally {
       fs.rmSync(cliDir, { recursive: true, force: true });
