@@ -1,8 +1,8 @@
 {
   "current_objective": "60",
-  "current_job": 1,
+  "current_job": 2,
   "total_jobs": 7,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "executing",
   "last_activity": "2026-10-05",
   "metrics": {
@@ -804,6 +804,11 @@
     {
       "objective": "60",
       "summary": "scanShell finishes with maskTests, so arithmetic and [[ ]] masking is part of scanShell; the splitter and word scanner honour backslash escapes (\\; and a\\ b)",
+      "rationale": null
+    },
+    {
+      "objective": "60",
+      "summary": "bash-write-detect: ambiguity resolves to path null or no write; pushd with no argument is unknown (it swaps), and a cp/mv destination of . or .. counts as a directory (into: true)",
       "rationale": null
     }
   ],
