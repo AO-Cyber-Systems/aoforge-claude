@@ -147,6 +147,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 59]: 59-05: objective remove and complete report roadmap_updated from a before/after text comparison and write ROADMAP.md only on a change (TOOL-02 rule); objective.test.cjs 48-14 case 1d pins the old defect and needs roadmap_updated: false
 - [Objective 59]: Merge driver install lives in execute-objective step 0 only, and a failed install is reported while the wave continues; the Branch merge protocol resolves state.json and STATE_ARCHIVE.md with merge-driver resolve; the post-wave regeneration is unconditional
 - [Objective 59]: 59-07: Known issues note replaces the wave-merge bullet and lists two dogfood-found open defects (objective remove rewrites NN-NN dates; milestone complete appends a duplicate MILESTONES.md entry on a re-run) rather than fixing them in a docs TRD
+- [Objective 60]: scanShell finishes with maskTests, so arithmetic and [[ ]] masking is part of scanShell; the splitter and word scanner honour backslash escapes (\; and a\ b)
 
 ## Performance Metrics
 
@@ -236,4 +237,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 59 P05 | 9min | 2 tasks | 3 files |
 | Objective 59 P06 | 25min | 2 tasks | 6 files |
 | Objective 59 P07 | 10min | 3 tasks | 4 files |
+| Objective 60 P01 | 10min | 3 tasks | 5 files |
 

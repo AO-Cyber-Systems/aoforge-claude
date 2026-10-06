@@ -232,7 +232,7 @@ TRDs:
 **TRDs:** 7 plans
 
 TRDs:
-- [ ] 60-01-shell-words-TRD.md — (W1) GATE-02: shell-text primitives move to `lib/shell-words.cjs` (shared by gate-commits and session-audit, no behaviour change) + `scanShell`/`parseCommand`; hand-built WRITE/MENTION/PATH case table
+- [x] 60-01-shell-words-TRD.md — (W1) GATE-02: shell-text primitives move to `lib/shell-words.cjs` (shared by gate-commits and session-audit, no behaviour change) + `scanShell`/`parseCommand`; hand-built WRITE/MENTION/PATH case table
 - [ ] 60-02-bash-write-detector-TRD.md — (W2) GATE-01/02: pure `detectBashWrites` (redirect, tee, sed -i, perl -i, cp/mv, inline python/node, `sh -c`, `cd` tracking); mentions are data
 - [ ] 60-03-bash-write-gate-TRD.md — (W3) GATE-01/03/04/05: `evaluateBashWrites` (tracked, in-project, non-md, non-.planning), `gitTrackedSet`, `gates.bashEditGate` least-of `gates.editGate`, `recommendDefault` (≤0.02 → strict)
 - [ ] 60-04-bash-gate-hook-TRD.md — (W4) GATE-01..04: `hooks/gate-bash-writes.js` on PreToolUse(Bash), reusing gate-edits' escapes; lazy override consumption; registration + inventory/audit entries
@@ -300,7 +300,7 @@ TRDs:
 | 57. Estimation data foundation | v1.5 | 7/7 | Complete | 2026-10-05 |
 | 58. Estimation engine and surfacing | v1.5 | 10/10 | Complete | 2026-10-05 |
 | 59. State and merge plumbing | v1.5 | 7/7 | Complete | 2026-10-05 |
-| 60. Edit gate enforces the action | v1.5 | 0/0 | Not started | - |
+| 60. Edit gate enforces the action | v1.5 | 1/7 | In Progress | - |
 | 61. Store-mode rough edges and observability | v1.5 | 0/0 | Not started | - |
 | 62. Built-in sweep | v1.5 | 0/0 | Not started | - |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 0/0 | Not started | - |

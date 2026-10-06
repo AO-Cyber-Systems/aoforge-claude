@@ -1,9 +1,9 @@
 {
-  "current_objective": "59",
-  "current_job": 7,
+  "current_objective": "60",
+  "current_job": 1,
   "total_jobs": 7,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "progress_pct": 98,
+  "status": "executing",
   "last_activity": "2026-10-05",
   "metrics": {
     "jobs_completed": 0,
@@ -799,6 +799,11 @@
     {
       "objective": "59",
       "summary": "59-07: Known issues note replaces the wave-merge bullet and lists two dogfood-found open defects (objective remove rewrites NN-NN dates; milestone complete appends a duplicate MILESTONES.md entry on a re-run) rather than fixing them in a docs TRD",
+      "rationale": null
+    },
+    {
+      "objective": "60",
+      "summary": "scanShell finishes with maskTests, so arithmetic and [[ ]] masking is part of scanShell; the splitter and word scanner honour backslash escapes (\\; and a\\ b)",
       "rationale": null
     }
   ],
