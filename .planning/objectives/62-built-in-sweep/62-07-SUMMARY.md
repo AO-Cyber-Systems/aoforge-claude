@@ -3,5 +3,5 @@
 In progress.
 
 ## Progress
-- [ ] Task 1: review_drafts in complete-milestone — next step: add the `review_drafts` step after `evolve_project_full_review` in plugins/devflow/devflow/workflows/complete-milestone.md, move `doc put PROJECT.md` into it, declare EnterPlanMode and the built-ins.md reference in plugins/devflow/skills/milestone/SKILL.md (RED commit done: milestone-complete removed from the baseline plan_mode)
-- [ ] Task 2: The milestone workflows' prompts — next step: delete the remaining entries from milestone.json (RED), then convert each BS-032..BS-049 row
+- [x] Task 1: review_drafts in complete-milestone — RED a1b2d645; GREEN (this commit)
+- [ ] Task 2: The milestone workflows' prompts — next step: delete the remaining prompt entries from plugins/devflow/devflow/bin/lib/__fixtures__/builtin-sweep-baseline/milestone.json (RED), run the repo test, then convert BS-032..BS-049 in complete-milestone.md, new-milestone.md, plan-milestone-gaps.md (audit-milestone.md has no rows)
