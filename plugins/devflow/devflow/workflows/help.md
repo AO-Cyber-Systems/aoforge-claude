@@ -478,9 +478,9 @@ DevFlow works alongside Claude Code's built-in features:
 
 Use `/loop` during long `/devflow:execute-objective` runs to track progress without switching context.
 
-**Plan Mode — Pre-build alignment:**
+**Plan Mode — Review before it is published:**
 
-Claude Code's built-in plan mode (`EnterPlanMode`) is used by `/devflow:build` and `/devflow:plan-objective` to present the execution strategy before spawning expensive agent pipelines. This lets you review and approve the approach (objective scope, agent assignments, research decisions) before any work begins.
+Plan mode (`EnterPlanMode`, then `ExitPlanMode`) is where DevFlow asks you to approve a draft before anything is published. `/devflow:plan-objective` shows the TRD drafts there, `/devflow:new-project` shows PROJECT.md, the requirements and the roadmap, and `/devflow:milestone complete` shows the milestone entry and the PROJECT.md update. Approve to publish, or choose "No, keep planning" and give feedback to get a revised draft and a second review. `--auto` skips the review (so does `workflow.auto_advance` for plan-objective and milestone complete, and `--gaps` for plan-objective). `/devflow:build` still shows its pipeline strategy in plan mode before spawning agents. Approving a plan switches Claude Code's permission mode to the one you pick.
 
 ## Getting Help
 
