@@ -42,13 +42,8 @@
       "text": "→ Type \"pass\" or describe what's wrong"
     }
   ],
-  "progress": [
-    "verify-work"
-  ],
+  "progress": [],
   "plan_mode": [],
-  "allowed_tools_missing": [
-    "verify-work:TaskCreate",
-    "verify-work:TaskUpdate"
-  ],
+  "allowed_tools_missing": [],
   "allowed_tools_forbidden": []
 }
