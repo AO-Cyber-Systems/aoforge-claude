@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Produce executable objective prompts (TRD.md files, published by the planner with `plan put-trd`) for a roadmap objective with optional inline discussion, integrated research, and verification. Default flow: Discuss (brief, optional) -> Research (if needed) -> Plan -> Verify -> Done. Orchestrates objective-researcher, planner, and job-checker agents with a revision loop (max 3 iterations).
+Produce executable objective prompts (TRD.md files, published by the planner with `plan put-trd`) for a roadmap objective with optional inline discussion, integrated research, and verification. Default flow: Discuss (brief, optional) -> Research (if needed) -> Plan -> Verify -> Review the TRD drafts in plan mode (interactive runs) -> Done. Orchestrates objective-researcher, planner, and job-checker agents with a revision loop (max 3 iterations).
 </purpose>
 
 <required_reading>
@@ -217,7 +217,26 @@ TaskUpdate(taskId=research_task_id, status="completed")
 ```
 
 - **`## RESEARCH COMPLETE`:** Display confirmation, continue to step 7
-- **`## RESEARCH BLOCKED`:** Display blocker, offer: 1) Provide context, 2) Skip research, 3) Abort
+- **`## RESEARCH BLOCKED`:** Display the blocker, then call AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "Research",
+    question: "Research is blocked: {blocker}. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Provide context (Recommended)", description: "You give the missing context and the researcher retries" },
+      { label: "Skip research", description: "Plan without research" },
+      { label: "Abort", description: "Stop here without planning" }
+    ]
+  }
+])
+```
+
+  - If "Provide context": ask for the context in plain prose, append it to the research prompt's `<additional_context>`, and spawn the researcher again.
+  - If "Skip research": continue to step 6.5 with no RESEARCH.md.
+  - If "Abort": stop and display `Research blocked: planning aborted.`
 
 ## 6.5 Run Duplicate-Work Detection (plan-time)
 
@@ -372,7 +391,26 @@ Note: `df-tools dup-detect resolve` already calls `recordResolution`, so a JSONL
 ls "${OBJECTIVE_DIR}"/*-TRD.md "${OBJECTIVE_DIR}"/*-JOB.md 2>/dev/null
 ```
 
-**If exists:** Offer: 1) Add more TRDs, 2) View existing, 3) Replan from scratch.
+**If exists:** call AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "TRDs exist",
+    question: "Objective {X} already has {job_count} TRD(s). What do you want to do?",
+    multiSelect: false,
+    options: [
+      { label: "Add more TRDs", description: "Keep the existing TRDs and plan what is missing" },
+      { label: "View existing", description: "List the existing TRDs, then choose again" },
+      { label: "Replan from scratch", description: "Replace the existing TRDs with a fresh plan" }
+    ]
+  }
+])
+```
+
+- If "Add more TRDs": continue to step 8; the planner numbers the new TRDs after the existing ones.
+- If "View existing": list each TRD file with its objective in one line, then ask this question again.
+- If "Replan from scratch": continue to step 8 and tell the planner the existing TRDs are replaced.
 
 ## 8. Use Context Files from INIT
 
@@ -515,9 +553,48 @@ TaskUpdate(taskId=plan_task_id, status="completed")
 ```
 
 - **`## PLANNING COMPLETE`:** Display TRD count and the return's `**Estimate:**` block as is. If the return says `**Pushed:** no` and step 13.5 will be skipped (`--auto`, `--gaps` or `workflow.auto_advance`), push now: `node ~/.claude/devflow/bin/df-tools.cjs plan push "${objective_number}"` (in local mode it reports `local mode` and does nothing). When step 13.5 will run, push nothing yet: step 13.5 pushes after the user approves the drafts. If `--skip-verify` or `job_checker_enabled` is false (from init): skip to step 13.5. Otherwise: step 11.
-- **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation (step 12)
-- **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual
+- **`## CHECKPOINT REACHED`:** Present it to the user, get the response, then spawn a continuation of the planner with that response. A `decision` checkpoint is asked with the Checkpoint question below; other types are free text.
+- **`## PLANNING INCONCLUSIVE`:** Show the attempts, then ask with the Inconclusive question below.
 - **`## RESEARCH NEEDED`:** The planner detected a novel domain with no research and wrote no TRDs. It is a subagent and cannot spawn the researcher, so you do. Spawn objective-researcher exactly as in step 6 (same banner, prompt and spawn call; handle its return as in step 6), appending the returned **Signals** to the research prompt's `<additional_context>` as `**Novel-domain signals (why research was triggered):** {signals}`. Then re-run the step 1 init so `has_research` and `research_content` are refreshed, and re-spawn the planner (step 9) with the new research. Allow at most one re-spawn: a second `## RESEARCH NEEDED` is handled as `## PLANNING INCONCLUSIVE`. If `--skip-research` was passed, the planner never emits this (step 9 passes the flag); if it does anyway, handle it as `## PLANNING INCONCLUSIVE` rather than overriding the flag.
+
+**Checkpoint question (a `decision` checkpoint only):** one option per option the checkpoint lists, up to 4. With more than 4, print the numbered list, offer the first 4 and say the user may type a number under Other. Use the checkpoint's own option names and descriptions:
+
+```
+AskUserQuestion([
+  {
+    header: "Checkpoint",
+    question: "{the checkpoint's decision}",
+    multiSelect: false,
+    options: [
+      { label: "{option 1}", description: "{its trade-off}" },
+      { label: "{option 2}", description: "{its trade-off}" }
+    ]
+  }
+])
+```
+
+The planner continues with the chosen option. A `human-verify` or `human-action` checkpoint is free text: show what it asks and take the user's reply as the response.
+
+**Inconclusive question:**
+
+```
+AskUserQuestion([
+  {
+    header: "Inconclusive",
+    question: "The planner could not finish after {N} attempts. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Retry (Recommended)", description: "Spawn the planner again with the same context" },
+      { label: "Add context", description: "You give more context and the planner retries with it" },
+      { label: "Manual", description: "Stop here and plan manually" }
+    ]
+  }
+])
+```
+
+- If "Retry": spawn the planner again (step 9) with the same context.
+- If "Add context": ask for the context in plain prose, add it to the planner prompt's objective context, and spawn the planner again.
+- If "Manual": stop and display that planning stopped; the research and context files stay in place.
 
 ## 11. Spawn job-checker Agent
 
@@ -619,7 +696,7 @@ Revision prompt:
 
 **Existing TRDs:** {plans_content}
 **Checker issues:** {structured_issues_from_checker}
-**User review changes:** {only when step 13.5 sent the drafts back: the `## Requested changes` text, in place of the checker issues; otherwise omit this line}
+**User review changes:** {only when step 13.5 sent the drafts back (the `## Requested changes` text, in place of the checker issues) or the user gave guidance at the max-retries question (their guidance); otherwise omit this line}
 **Push:** {only when step 13.5 will run: "Do not run `plan push`; the orchestrator pushes after the user reviews the drafts." Otherwise omit this line}
 
 **Objective Context/Preferences:**
@@ -649,9 +726,26 @@ After planner returns, **update progress (if available):** `TaskUpdate(taskId=pl
 
 Display: `Max iterations reached. {N} issues remain:` + issue list
 
-Offer: 1) Force proceed, 2) Provide guidance and retry, 3) Abandon
+Then call AskUserQuestion:
 
-Force proceed continues to step 13.5.
+```
+AskUserQuestion([
+  {
+    header: "Max retries",
+    question: "The checker still reports issues after 3 revisions. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Provide guidance (Recommended)", description: "You give direction and the planner retries" },
+      { label: "Force proceed", description: "Continue despite the remaining issues" },
+      { label: "Abandon", description: "Stop here and plan manually" }
+    ]
+  }
+])
+```
+
+- If "Provide guidance": ask for the guidance in plain prose, spawn the planner with the revision prompt above (the guidance goes in `**User review changes:**`), then spawn the checker again (step 11). Step 12 routes as usual, and with issues still open this question is asked again.
+- If "Force proceed": continue to step 13.5 and note the remaining issues in the plan (`Verification: Passed with override` in `<offer_next>`).
+- If "Abandon": stop and display that planning was abandoned; the TRDs written so far stay in place.
 
 ## 13.5 Review TRD Drafts (plan mode)
 
@@ -823,6 +917,7 @@ this block is strictly conditional on the gate being on.
 - [ ] Plans created (PLANNING COMPLETE or CHECKPOINT handled)
 - [ ] job-checker spawned with CONTEXT.md
 - [ ] Verification passed OR user override OR max iterations with user decision
+- [ ] TRD drafts approved in plan mode, then pushed (step 13.5; skipped under `--auto`, `--gaps` or `workflow.auto_advance`)
 - [ ] User sees status between agent spawns
 - [ ] User knows next steps
 </success_criteria>

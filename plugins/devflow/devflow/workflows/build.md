@@ -137,7 +137,23 @@ Spawn objective-researcher (same as plan-objective step 6; use the Research task
 
 **Progress tracking (if available):** `TaskUpdate(taskId=research_task_id, status="completed")`
 
-If `--pause` flag: Display research results and wait for confirmation before proceeding.
+If `--pause` flag: display the research results, then call AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "Pause",
+    question: "Research is done. Continue to planning?",
+    multiSelect: false,
+    options: [
+      { label: "Continue (Recommended)", description: "Go on to generating the TRDs" },
+      { label: "Stop here", description: "Stop the build; resume with /devflow:build {X}" }
+    ]
+  }
+])
+```
+
+If "Stop here": print the command to resume, `/devflow:build ${OBJECTIVE_NUMBER}` (the research is kept, so the build starts at planning), and stop. Without `--pause` there is no question.
 
 ## 5. Generate TRDs
 
@@ -158,7 +174,23 @@ Push right away (build has no draft review: that is plan-objective step 13.5, wh
 
 **Progress tracking (if available):** `TaskUpdate(taskId=plan_task_id, status="completed")`
 
-If `--pause` flag: Display TRD summary and wait for confirmation.
+If `--pause` flag: display the TRD summary, then call AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "Pause",
+    question: "The TRDs are ready. Continue to verification and execution?",
+    multiSelect: false,
+    options: [
+      { label: "Continue (Recommended)", description: "Go on to verify and execute the TRDs" },
+      { label: "Stop here", description: "Stop the build; resume with /devflow:execute-objective {X}" }
+    ]
+  }
+])
+```
+
+If "Stop here": print the command to resume, `/devflow:execute-objective ${OBJECTIVE_NUMBER}` (the TRDs are published, so execution can start from them), and stop. Without `--pause` there is no question.
 
 ## 6. Verify TRDs (quick validation)
 

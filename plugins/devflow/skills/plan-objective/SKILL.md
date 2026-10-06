@@ -23,7 +23,7 @@ allowed-tools:
 <objective>
 Create executable objective prompts (JOB.md files) for a roadmap objective with integrated research and verification.
 
-**Default flow:** Research (if needed) → Plan → Verify → Done
+**Default flow:** Research (if needed) → Plan → Verify → Review the TRD drafts in plan mode → Done
 
 **Orchestrator role:** Parse arguments, validate objective, research domain (unless skipped), spawn planner, verify with job-checker, iterate until pass or max iterations, present results.
 </objective>
