@@ -31,8 +31,8 @@
 // hide a real choice.
 //
 // THE INVENTORY. docs/built-in-sweep.md lists every prompt with what it became. Test 8 holds it to
-// the tree, `scan` rows and `manual` rows alike (see checkInventoryRows and checkManualRow), and
-// every current finding needs a row.
+// the tree, `scan` rows and `manual` rows alike (see checkInventoryRows and checkManualRow), every
+// current finding needs a row, and the counts it states are the table's.
 //
 // Test list:
 //  1.  The real tree is found: 70 or more scanned files, every one in exactly one group, every
@@ -44,8 +44,9 @@
 //  6.  allowed-tools: no missing and no forbidden pair; ALLOWED_TOOLS_EXEMPT entries (none today)
 //      need a reason and must exempt a real failure.
 //  7.  Zero bad (short or stale) allow markers.
-//  8.  The inventory is closed and matches the tree: its status line says so, every row, manual rows
-//      included, is resolved in its file (8a, 8b), and every finding has a row (8c).
+//  8.  The inventory is closed and matches the tree: its status line says so (8a), every row, manual
+//      rows included, is resolved in its file (8b), every finding has a row (8c), and the counts it
+//      states match its table (8d).
 //  9.  Sensitivity: an appended `Proceed? (y/n)` or a bad AskUserQuestion call is caught, and the
 //      manual-row check names an unresolved row.
 // 10.  The flow tables are the objective's.
@@ -288,7 +289,7 @@ function checkManualRow(r, scan) {
   return `${where}: manual row is unresolved: "${r.before}" is still at line ${left.join(', ')} and its Conversion ("${r.conversion.slice(0, 60)}") is not a keep, a header present in the file, or a bare list head reworded`;
 }
 
-/** Test 8a and 8b: every row against the real tree. There is no pending state. */
+/** Test 8b: every row against the real tree. There is no pending state. */
 function checkInventoryRows(rows, scans) {
   const errors = [];
   const ids = new Set();
@@ -452,6 +453,11 @@ describe('builtin-sweep.repo.test.cjs', { skip: SKIP }, () => {
   describe('8. the inventory (docs/built-in-sweep.md)', () => {
     const inventory = () => parseInventory(fs.readFileSync(INVENTORY_PATH, 'utf-8'));
 
+    test('8a. the status line says the sweep is closed', () => {
+      const text = fs.readFileSync(INVENTORY_PATH, 'utf-8');
+      assert.match(text, /^Status: closed \(TRD 62-10\)\./m, 'the inventory must say `Status: closed (TRD 62-10).`');
+    });
+
     test('8b. every row, scan and manual, parses, names a real file in its group, and is resolved in that file', () => {
       const { rows, errors } = inventory();
       assert.ok(rows.length >= 120, `parsed ${rows.length} rows from the ## Prompts table; expected at least 120`);
@@ -464,6 +470,24 @@ describe('builtin-sweep.repo.test.cjs', { skip: SKIP }, () => {
       const { rows } = inventory();
       const errors = checkFindingsHaveRows(realFindings(), rows, real().scans);
       assert.deepEqual(errors, [], fail('findings with no inventory row (add a row, or narrow the pattern)', errors));
+    });
+
+    test('8d. the row, kind and group counts the document states match its table', () => {
+      const text = fs.readFileSync(INVENTORY_PATH, 'utf-8');
+      const { rows } = inventory();
+      const tally = (key) => rows.reduce((m, r) => ({ ...m, [r[key]]: (m[r[key]] || 0) + 1 }), {});
+      const total = text.match(/^(\d+) rows \((\d+) `scan`, (\d+) `manual`\)/m);
+      assert.ok(total, 'the ## Prompts section must open with "N rows (A `scan`, B `manual`)"');
+      const detect = tally('detect');
+      assert.deepEqual([+total[1], +total[2], +total[3]], [rows.length, detect.scan, detect.manual], 'the stated row counts');
+      const kinds = text.match(/^Rows per kind: (.+)\.$/m);
+      assert.ok(kinds, 'missing the "Rows per kind:" line');
+      const statedKinds = Object.fromEntries(kinds[1].split(', ').map((p) => [p.split(' ')[0], +p.split(' ')[1]]));
+      assert.deepEqual(statedKinds, tally('kind'), 'the stated rows per kind');
+      const groups = text.match(/^Rows per group: (.+)\.$/m);
+      assert.ok(groups, 'missing the "Rows per group:" line');
+      const statedGroups = Object.fromEntries([...groups[1].matchAll(/([\w-]+) (\d+) \(TRD/g)].map((m) => [m[1], +m[2]]));
+      assert.deepEqual(statedGroups, tally('group'), 'the stated rows per group');
     });
   });
 
