@@ -33,7 +33,23 @@ Omit whichever half did not apply. Print nothing when neither applied.
 
 **If `objective_found` is false:** Error — objective directory not found.
 **If `job_count` is 0:** Error — no plans found in objective.
-**If `state_exists` is false but `.planning/` exists:** Offer reconstruct or continue.
+**If `state_exists` is false but `.planning/` exists:**
+
+```
+AskUserQuestion([
+  {
+    header: "Rebuild?",
+    question: "STATE.md is missing but .planning/ exists. Reconstruct it before executing?",
+    multiSelect: false,
+    options: [
+      { label: "Reconstruct (Recommended)", description: "Regenerate STATE.md from the roadmap, then execute" },
+      { label: "Continue without", description: "Execute without STATE.md" }
+    ]
+  }
+])
+```
+
+If "Reconstruct": run `node ~/.claude/devflow/bin/df-tools.cjs validate health --repair` (it regenerates a missing STATE.md, E004), then continue. If "Continue without": continue.
 
 When `parallelization` is false, plans within a wave execute sequentially.
 </step>
@@ -203,7 +219,23 @@ Note: `df-tools dup-detect resolve` calls `recordResolution` internally. No sepa
 
 - **coordinate** OR **proceed-anyway** → Coordination Note has been appended to CONTEXT.md by `df-tools dup-detect resolve`. Continue to `discover_and_group_plans`. Executor agents will read CONTEXT.md transitively via their job context.
 
-**Error recovery:** If `df-tools dup-detect resolve` exits non-zero, display the error and ask: "Continue without recording (Y) or retry (R)?" Recommended fallback: log via `dup-detect log` directly + continue to `discover_and_group_plans`.
+**Error recovery:** If `df-tools dup-detect resolve` exits non-zero, display the error, then:
+
+```
+AskUserQuestion([
+  {
+    header: "Dup log",
+    question: "Recording the duplicate-work resolution failed. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Continue without recording (Recommended)", description: "Log via dup-detect log directly and continue to discover_and_group_plans" },
+      { label: "Retry", description: "Run df-tools dup-detect resolve again" }
+    ]
+  }
+])
+```
+
+If "Continue without recording" (the recommended fallback): log via `dup-detect log` directly + continue to `discover_and_group_plans`. If "Retry": run the resolve command again.
 </step>
 
 <step name="discover_and_group_plans">
@@ -715,7 +747,23 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    - Check `git log --oneline --all --grep="{objective}-{job}"` returns ≥1 commit
    - Check for `## Self-Check: FAILED` marker
 
-   If ANY spot-check fails: report which plan failed, route to failure handler. If `MODE` is `"autonomous"`, apply the autonomous failure protocol in step 7 directly (do not prompt). Otherwise ask "Retry plan?" or "Continue with remaining waves?"
+   If ANY spot-check fails: report which plan failed, route to failure handler. If `MODE` is `"autonomous"`, apply the autonomous failure protocol in step 7 directly (do not prompt). Otherwise:
+
+   ```
+   AskUserQuestion([
+     {
+       header: "TRD failed",
+       question: "{plan_id} failed its spot-check: {which check failed}. How do you want to continue?",
+       multiSelect: false,
+       options: [
+         { label: "Retry (Recommended)", description: "Re-spawn a fresh executor for {plan_id}" },
+         { label: "Continue with remaining waves", description: "Leave {plan_id} failed and go on with the next waves" }
+       ]
+     }
+   ])
+   ```
+
+   If "Retry": re-spawn a fresh executor for the plan. If "Continue with remaining waves": go on to the next wave.
 
    If pass:
    ```
@@ -784,7 +832,23 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
    **Non-autonomous failure handling (when `MODE` is NOT `"autonomous"`):**
 
-   For real failures: report which plan failed → ask "Continue?" or "Stop?" → if continue, dependent plans may also fail. If stop, partial completion report.
+   For real failures: report which plan failed, then:
+
+   ```
+   AskUserQuestion([
+     {
+       header: "TRD failed",
+       question: "{plan_id} failed: {last error summary}. Continue with the remaining plans?",
+       multiSelect: false,
+       options: [
+         { label: "Continue (Recommended)", description: "Go on with the remaining plans; plans that depend on {plan_id} may also fail" },
+         { label: "Stop", description: "End execution here with a partial completion report" }
+       ]
+     }
+   ])
+   ```
+
+   If "Continue": dependent plans may also fail. If "Stop": partial completion report.
 
 8. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
@@ -848,7 +912,7 @@ When executor returns a checkpoint AND `MODE` is `"autonomous"`:
   **On verifier return:**
 
   - `status: passed` → spawn continuation agent with `{user_response}` = `"approved (verifier evidence: {one-line summary})"`. Log `⚡ Verifier-approved: [checkpoint]`.
-  - `status: gaps_found` OR `status: human_needed` → escalate to user. Present the checkpoint using the standard "Present to user" format (step 4 of standard flow below) PLUS append a `### Verifier Report` section with the verifier's full evidence output. Wait for user response before spawning continuation agent.
+  - `status: gaps_found` OR `status: human_needed` → escalate to user. Present the checkpoint using the standard "Present to user" format (step 4 of standard flow below) PLUS append a `### Verifier Report` section with the verifier's full evidence output. Wait for user response before spawning continuation agent. <!-- builtin-audit: allow free-text: a human-verify checkpoint is answered with "approved" or an open description of the issue -->
   - Verifier timeout or ambiguous return → treat as `human_needed` and escalate to user. Never approve on ambiguity.
 
 - **decision** → PARK, NOTIFY, CONTINUE INDEPENDENT.
@@ -904,7 +968,20 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
    [Checkpoint Details from agent return]
    [Awaiting section from agent return]
    ```
-5. User responds: "approved"/"done" | issue description | decision selection
+5. **Get the response.** For human-verify and human-action the user answers in plain text: "approved"/"done", or a description of the issue. For a decision, ask:
+   ```
+   AskUserQuestion([
+     {
+       header: "Checkpoint",
+       question: "{decision context from the checkpoint details}",
+       multiSelect: false,
+       options: [
+         { label: "{option name}", description: "{option pros and cons}" }
+       ]
+     }
+   ])
+   ```
+   One option per checkpoint option, the executor's recommended option first with ` (Recommended)`. With more than 4 options, print the numbered list, offer the first 4 and say the user may type a number under Other.
 6. **Spawn continuation agent (NOT resume)** using continuation-prompt.md template:
    - `{completed_tasks_table}`: From checkpoint return
    - `{resume_task_number}` + `{resume_task_name}`: Current task
@@ -1151,7 +1228,7 @@ MAX_GAP_CYCLES=2
 
 Auto-fix could not resolve all gaps. Manual intervention needed.
 
-Options:
+Next steps:
 - `/devflow:plan-objective {X} --gaps` — Manual gap closure planning
 - `/devflow:verify-work {X}` — Manual testing
 - `cat {objective_dir}/{phase_num}-VERIFICATION.md` — Full report
@@ -1273,10 +1350,51 @@ Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling (Task bloc
 <failure_handling>
 - **classifyHandoffIfNeeded false failure:** Agent reports "failed" but error is `classifyHandoffIfNeeded is not defined` → Claude Code bug, not DevFlow. Spot-check (SUMMARY exists, commits present) → if pass, treat as success
 - **Truncated executor (turn limit / partial result) → INCOMPLETE → SendMessage resume (≤3), never a failure.** Its dependents wait; they are never skipped (items 5c, 5d, 7)
-- **Agent fails mid-plan:** Missing SUMMARY.md → classify first (5c). With COMMITS < TRD_TASKS it is INCOMPLETE, so resume it (5d). Otherwise, or once the resumes are spent, report and ask the user how to proceed
-- **Dependency chain breaks:** Wave 1 fails → Wave 2 dependents likely fail → user chooses attempt or skip
+- **Agent fails mid-plan:** Missing SUMMARY.md → classify first (5c). With COMMITS < TRD_TASKS it is INCOMPLETE, so resume it (5d). Otherwise, or once the resumes are spent, report the failure. When `MODE` is not `"autonomous"` (step 7's autonomous protocol never asks), then:
+  ```
+  AskUserQuestion([
+    {
+      header: "TRD failed",
+      question: "{plan_id} failed: {last error summary}. How do you want to proceed?",
+      multiSelect: false,
+      options: [
+        { label: "Retry (Recommended)", description: "Re-spawn a fresh executor for {plan_id}" },
+        { label: "Skip this TRD", description: "Go on without {plan_id}; its dependents are affected (next item)" },
+        { label: "Stop", description: "End execution here with a partial completion report" }
+      ]
+    }
+  ])
+  ```
+- **Dependency chain breaks:** Wave 1 fails → Wave 2 dependents likely fail. When `MODE` is not `"autonomous"` (autonomous skips the dependent set, step 7), then:
+  ```
+  AskUserQuestion([
+    {
+      header: "Dependents",
+      question: "{failed plan_id} failed and {N} plans depend on it. Attempt them anyway?",
+      multiSelect: false,
+      options: [
+        { label: "Attempt them (Recommended)", description: "Run the dependent plans; they may fail too" },
+        { label: "Skip them", description: "Report them ⏭ Skipped, blocked by {failed plan_id}" }
+      ]
+    }
+  ])
+  ```
 - **All agents in wave fail:** Systemic issue → stop, report for investigation
-- **Checkpoint unresolvable:** "Skip this job?" or "Abort objective execution?" → record partial progress in STATE.md
+- **Checkpoint unresolvable:**
+  ```
+  AskUserQuestion([
+    {
+      header: "Unresolved",
+      question: "The checkpoint in {plan_id} cannot be resolved. How do you want to proceed?",
+      multiSelect: false,
+      options: [
+        { label: "Stop execution (Recommended)", description: "Abort the objective's execution here" },
+        { label: "Skip this TRD", description: "Go on without {plan_id}" }
+      ]
+    }
+  ])
+  ```
+  Either way, record partial progress in STATE.md.
 </failure_handling>
 
 <resumption>

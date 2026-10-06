@@ -72,17 +72,53 @@ ls -la .planning/codebase/
 ```
 .planning/codebase/ already exists with these documents:
 [List files found]
-
-What's next?
-1. Refresh - Delete existing and remap codebase
-2. Update - Keep existing, only update specific documents
-3. Skip - Use existing codebase map as-is
 ```
 
-Wait for user response.
+```
+AskUserQuestion([
+  {
+    header: "Codebase map",
+    question: ".planning/codebase/ already exists. What should happen to it?",
+    multiSelect: false,
+    options: [
+      { label: "Update", description: "Keep existing, update only the documents you pick" },
+      { label: "Refresh", description: "Delete existing and remap the codebase" },
+      { label: "Skip", description: "Use the existing map as-is" }
+    ]
+  }
+])
+```
 
 If "Refresh": Delete .planning/codebase/, continue to create_structure
-If "Update": Ask which documents to update, continue to spawn_agents (filtered)
+If "Update": pick the documents, then continue to spawn_agents (filtered: spawn only the mappers that own a picked document):
+
+```
+AskUserQuestion([
+  {
+    header: "Docs (1/2)",
+    question: "Which of these documents should be updated?",
+    multiSelect: true,
+    options: [
+      { label: "STACK", description: "Languages, runtime, frameworks, dependencies (tech mapper)" },
+      { label: "INTEGRATIONS", description: "External APIs, databases, auth providers (tech mapper)" },
+      { label: "ARCHITECTURE", description: "Patterns, layers, data flow (arch mapper)" },
+      { label: "STRUCTURE", description: "Directory layout, key locations (arch mapper)" }
+    ]
+  },
+  {
+    header: "Docs (2/2)",
+    question: "And which of these?",
+    multiSelect: true,
+    options: [
+      { label: "CONVENTIONS", description: "Coding style, naming, error handling (quality mapper)" },
+      { label: "TESTING", description: "Framework, structure, test patterns (quality mapper)" },
+      { label: "PATTERNS", description: "Representative code examples (quality mapper)" },
+      { label: "CONCERNS", description: "Tech debt, bugs, security, fragile areas (concerns mapper)" }
+    ]
+  }
+])
+```
+
 If "Skip": Exit workflow
 
 **If doesn't exist:**
@@ -266,7 +302,8 @@ anything is published — the same patterns as scan_for_secrets:
 grep -E '(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]+|sk_test_[a-zA-Z0-9]+|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9_-]+|AKIA[A-Z0-9]{16}|xox[baprs]-[a-zA-Z0-9-]+|-----BEGIN.*PRIVATE KEY|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.)' <draft paths from the confirmations>
 ```
 
-On any hit, show it and pause exactly as scan_for_secrets does ("safe to proceed", or edit the draft first).
+On any hit, show it and ask the same "Secrets" AskUserQuestion as scan_for_secrets: "Stop, I'll edit"
+means edit the draft first, "Safe to proceed" publishes it.
 
 **Publish each map, one at a time** — never in parallel, and never from a mapper agent:
 
@@ -295,8 +332,26 @@ node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --raw
 ```
 
 If the command fails with "Unknown command" (an older DevFlow mirror), skip this step silently.
-Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".
-Only on **yes** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --write`.
+Otherwise show the draft, then:
+
+```
+AskUserQuestion([
+  {
+    header: "Stack",
+    question: "Write this draft as .planning/STACK.md?",
+    multiSelect: false,
+    options: [
+      { label: "Write it (Recommended)", description: "Write the draft as the project stack profile" },
+      { label: "Edit first", description: "Write it with the changes you describe applied" },
+      { label: "Skip", description: "Write no STACK.md now" }
+    ]
+  }
+])
+```
+
+On **Write it** run `node ~/.claude/devflow/bin/df-tools.cjs stack init --from codebase --write`.
+On **Edit first**, get the changes in plain text, run the same write command, apply the changes to
+`.planning/STACK.md` and show the result. On **Skip**, write nothing.
 STACK.md is prescriptive; codebase/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
 
 Continue to confirm_stack_profile.
@@ -401,10 +456,24 @@ This would expose credentials if committed.
 2. If these are real secrets, they must be removed before committing
 3. Consider adding sensitive files to Claude Code "Deny" permissions
 
-Pausing before commit. Reply "safe to proceed" if the flagged content is not actually sensitive, or edit the files first.
+Pausing before commit.
 ```
 
-Wait for user confirmation before continuing to commit_codebase_map.
+```
+AskUserQuestion([
+  {
+    header: "Secrets",
+    question: "Potential secrets were flagged in the codebase documents. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Stop, I'll edit (Recommended)", description: "Edit the flagged files first; nothing is committed" },
+      { label: "Safe to proceed", description: "The flagged content is not actually sensitive; commit it" }
+    ]
+  }
+])
+```
+
+If "Safe to proceed": continue to commit_codebase_map. If "Stop, I'll edit": stop before the commit; once the files are edited, run scan_for_secrets again.
 
 **If SECRETS_FOUND=false:**
 

@@ -14,6 +14,7 @@ allowed-tools:
   - Bash
   - Task
   - TaskCreate
+  - TaskUpdate
   - AskUserQuestion
 ---
 <objective>

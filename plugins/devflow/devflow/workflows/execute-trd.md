@@ -50,6 +50,7 @@ Auto-approve: `Execute {plan-file} [Plan X of Y for Objective Z]` → parse_segm
 </if>
 
 <if mode="interactive" OR="custom with gates.execute_next_job true">
+<!-- builtin-audit: allow subagent: this flow runs inside the executor subagent, which cannot reach the user; execute-objective owns the plan confirmation -->
 Present plan identification, wait for confirmation.
 </if>
 </step>
