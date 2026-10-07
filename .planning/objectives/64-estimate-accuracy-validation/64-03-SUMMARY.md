@@ -10,18 +10,33 @@ requires:
   - objective: 57-estimation-data-foundation
     provides: tokens backfill (EST-07), calibration-inputs, token-usage
 provides:
-  - "Provenance evidence for the frozen calibration and 63's prospective run state"
-affects: [64-04, 64-05]
+  - "Provenance evidence: frozen calibration 5cf42c4b (live and copy identical, older than 59's first commit) and 63's run state 08f88f9f"
+  - "Estimator drift list cce70b30..HEAD: objective path unchanged in every function estimate objective --all executes"
+  - "63 reproduction: 12 of 12 wall/wave p50/P90 cells reproduced exactly from the frozen calibration"
+  - "Token fields (tokens_source backfill) on 40 SUMMARYs: 58-01, 58-04..09 and the 33 unstamped TRDs of 59-63"
+  - "Forward-stamp gap: 8 live / 33 backfill of 41; installed executor agent prompts lack the tokens stamp step"
+  - "Actuals audit: SUMMARY minutes / executor transcript span median 0.91 over 41 TRDs; one outlier (60-02, idle gap)"
+affects: [64-01, 64-04, 64-05, 64-06]
 
 tech-stack:
   added: []
   patterns: []
 
 key-files:
-  created: []
-  modified: []
+  created:
+    - .planning/objectives/64-estimate-accuracy-validation/64-03-SUMMARY.md
+  modified:
+    - ".planning/objectives/58-estimation-engine-and-surfacing/58-0{1,4,5,6,7,8,9}-SUMMARY.md (token lines only)"
+    - ".planning/objectives/59-state-and-merge-plumbing/59-0{1..7}-SUMMARY.md (token lines only)"
+    - ".planning/objectives/60-edit-gate-enforces-the-action/60-0{1..7}-SUMMARY.md (token lines only)"
+    - ".planning/objectives/61-store-mode-rough-edges-and-observability/61-0{1,3,6,7,8,9}-SUMMARY.md (token lines only)"
+    - ".planning/objectives/62-built-in-sweep/62-{02,03,04,06,07,09,10,11}-SUMMARY.md (token lines only)"
+    - ".planning/objectives/63-todo-store-hook-coexistence-and-built-in-inventory/63-0{3..7}-SUMMARY.md (token lines only)"
 
-key-decisions: []
+key-decisions:
+  - "64-03's own in-flight SUMMARY, recovered by the backfill with a running executor's partial tokens, was reverted out of the backfill commit; its tokens come from the forward stamp before summary post"
+  - "Run state estimate.wall_minutes is the execution wall (96.6/290.4); the printed line shows the total incl. verifier overhead (102.8/304.2): prospective comparisons must name which"
+  - "Minute actuals stay on the SUMMARY basis (like for like with the calibration); the ~0.91 SUMMARY/transcript ratio is reported beside them, raw transcript spans are not usable as actuals (idle gaps)"
 
 patterns-established: []
 
@@ -29,23 +44,37 @@ requirements-completed: []
 
 verification:
   gates_defined: 1
-  gates_passed: 0
+  gates_passed: 0           # npm test exit 1 in the worktree: 10 failures, all triaged as not caused by this TRD (see Validation Gate Results)
   auto_fix_cycles: 0
   tdd_evidence: false
   test_pairing: true
 
-duration: 0min
+duration: 19min
 completed: 2026-10-07
+tokens_input: 9860991
+tokens_output: 55508
+tokens_cache_read: 9687189
+tokens_cache_write: 173636
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 64 TRD 03: Frozen inputs and token backfill Summary
 
-**In progress.**
+**Frozen calibration 5cf42c4b proven older than 59 and unchanged, 63's prospective estimate reproduced 12/12 cells from it, token fields backfilled onto 40 SUMMARYs (all 41 of 59-63 now priced: 8 live, 33 backfill), and SUMMARY minutes measured at a median 0.91 of executor transcript time.**
+
+## Performance
+
+- **Duration:** 19 min
+- **Started:** 2026-10-07T11:47:36Z
+- **Completed:** 2026-10-07T12:06:21Z
+- **Tasks:** 3 of 3
+- **Files modified:** 41 (40 backfilled SUMMARYs, token lines only, plus this SUMMARY); no production code
 
 ## Progress
 - [x] Task 1: Provenance of the frozen calibration and 63's run state, the drift list, and the 63 reproduction — 482535cc
 - [x] Task 2: Backfill the token history of 58-63 (dry run, write, guard, commit, idempotence) — c0d1f157
-- [x] Task 3: Audit the actuals (SUMMARY minutes vs executor transcript spans for 59-63) — (this commit)
+- [x] Task 3: Audit the actuals (SUMMARY minutes vs executor transcript spans for 59-63) — 3568c47e
 
 ## Provenance
 
@@ -302,3 +331,85 @@ bias: an estimate that matches SUMMARY actuals will undershoot measured wall tim
 against measured wave time (63's run state) should expect the estimate to read about 10% low for that reason alone.
 64-05 should state the minute comparison on the SUMMARY basis (like for like with the calibration) and quote this
 ratio beside it; the token/cost actuals are unaffected (they come from transcripts directly).
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] The backfill stamped this TRD's own in-flight SUMMARY with partial tokens**
+- **Found during:** Task 2 (dry run recovered 41, not the expected 40)
+- **Issue:** Task 1's checkpoint commit created `64-03-SUMMARY.md` without token fields, and the transcript index already
+  identifies this running executor, so `tokens backfill --write` stamped it (`tokens_input: 2321210`,
+  `tokens_source: "backfill"`): a partial count for a TRD still executing, recorded as if it were history.
+- **Fix:** `git restore` on that single path after the first guard run, so the backfill commit carries only the 40
+  SUMMARYs of 58-63; this SUMMARY gets its tokens from the forward stamp (`tokens stamp 64-03 --draft`) before
+  `summary post`. The second guard run shows `files: 40, outside_58_63: []`.
+- **Consequence for the TRD's checks:** the post-commit idempotence dry run reported `recovered 1` (64-03 only,
+  `already_stamped` 285 = 245 + 40); every 58-63 SUMMARY recovers 0. A final dry run after `summary post` is recorded
+  under Post-TRD Verification.
+- **Files modified:** none beyond the revert. **Commit:** c0d1f157 (excludes the partial stamp)
+
+**2. [Rule 3 - Blocking] The 57-07 diff guard runs `git diff` in its cwd**
+- **Found during:** Task 2. Bash calls start in the main checkout, not this worktree, so the guard as written would have
+  inspected the wrong tree.
+- **Fix:** the same guard with `'-C', '<checkout>'` prepended to each `git` argument list; logic and output unchanged.
+
+No production code, estimator code, threshold or input was changed. `calibrate` was not run.
+`~/.claude/devflow/calibration.json` was not written.
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Provenance, drift, 63 reproduction | `shasum -a 256` (live, frozen, 63 history); `stat -f '%m'`; `git log -1 401a9145`; `git log`/`git diff --stat cce70b30..HEAD` (objective path); `estimate objective 63 --all --calibration <frozen>` + comparison | 0 | PASS: both 5cf42c4b, mtime 1791229680 < 1791236515, 63 history 08f88f9f, 12/12 cells reproduced |
+| 2: Token backfill 58-63 | `tokens backfill --raw`, `--write --raw`, diff guard, `df-tools commit`, second dry run, `rg --files-without-match '^tokens_input:'` over 59-63 | 0 | PASS: written 41/failed 0, guard `bad_count 0, non_summary []`, 41/41 of 59-63 carry tokens, 58-63 recover 0 after commit |
+| 3: Actuals audit | `node <scratchpad>/actuals-audit.cjs /Users/justin/dev/devflow-claude`; `git status --short` (worktree and main) | 0 | PASS: 41 rows, median 0.91, outlier 60-02, 63 wave comparison; no repository file changed |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test (TRD gate and stack `gates.task`) | `npm --prefix <checkout> test` | 1 | FAIL in the worktree: 10835 tests, 10775 pass, 10 fail, 50 skipped (400 s). None caused by this TRD (no code changed); triage below |
+| triage: daemon tests | `node --test devflow-watch.test.cjs handoff-e2e.test.cjs` in the main checkout (identical code at WAVE_BASE, node-pty installed) | 0 | PASS: 35 tests, 32 pass, 3 skipped (documented architectural-gap skips), 0 fail |
+| triage: roadmap self-test | `node --test --test-name-pattern E2E1 lib/roadmap-reconcile.test.cjs` in the worktree, after `roadmap update-job-progress 64` | 0 | PASS |
+
+The 10 failures:
+- **9 daemon tests** (devflow-watch start (foreground) + stop x3, multi-project C-1, handoff pipeline end-to-end x5;
+  C-2 also fails in an isolated worktree re-run and passes only when its poll wins the race against the PID-file
+  cleanup): the daemon exits 3 with `failed to spawn shell: node-pty not installed … Cannot find module 'node-pty'`. The
+  provisioned worktree has no `node_modules` (`ls <checkout>/node_modules`: no such file); the main checkout has
+  `node_modules/node-pty`, and there every one of these tests passes.
+- **1 roadmap self-test** (E2E1 `reconcile dry-run … shows zero drift`): `trd_summary_exists` for 64-03, i.e. this TRD's
+  SUMMARY existed while ROADMAP's checkbox was still unticked, the normal in-flight state before
+  `roadmap update-job-progress`. After the update it passes.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 5/5 (frozen calibration identified and preserved; 63 run state preserved and reproduced 12/12;
+  drift listed file by file; 41/41 SUMMARYs of 59-63 carry token fields after a guarded backfill, 58-63 recover 0;
+  actuals audited with median ratio, outliers and the live/backfill count)
+- Gate failures: `npm test` exit 1 in the worktree, environmental (node-pty absent) plus in-flight roadmap drift; see
+  Validation Gate Results
+- End-of-run hashes: live calibration and frozen copy still `5cf42c4b…1fbea`; 63 history still `08f88f9f…fdee`
+- `requirements-completed: []` by design: 64-05 decides EST-08; `requirements mark-complete` was not run
+
+## Issues for the orchestrator
+
+1. **Fresh worktrees have no `node_modules`.** `npm test` in a provisioned `.df-worktrees/…` checkout fails the 9
+   node-pty daemon tests. Run the wave/objective test gate in the main checkout (or `npm ci` in the worktree) and do not
+   read those 9 as regressions.
+2. **Forward stamp missing from every installed executor prompt** (Forward-stamp gap above): only a release of the
+   current `agents/executor.md` closes EST-06's gap; 64-05 should report the 8/41 figure as a defect.
+3. **Run state `wall_minutes` is execution-only**, while the printed estimate line is the total (with verifier
+   overhead): 64-04's prospective comparison must name which one it compares.
+4. **Raw transcript spans include idle gaps** (60-02: 16.7 h after a stream-watchdog stall). Any consumer using
+   `transcriptSpanMinutes` as an actual must cap or exclude idle gaps.
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/objectives/64-estimate-accuracy-validation/64-03-SUMMARY.md`
+- FOUND: 482535cc, c0d1f157, 3568c47e (`git log 20a4f37d..HEAD`)
+- FOUND: c0d1f157 contains 40 SUMMARYs of 58-63 (token lines only, guard-verified) plus this SUMMARY's checkpoint
+- FOUND: `~/.claude/devflow/state/backtest/calibration-5cf42c4b.json` (sha256 5cf42c4b…), 63 history file (08f88f9f…)
+- FOUND: `rg --files-without-match '^tokens_input:'` over the five 59-63 directories prints nothing

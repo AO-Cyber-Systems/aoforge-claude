@@ -189,6 +189,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 63]: 63-04: Work on it now with task tools sets the session task in_progress and leaves the archive todo pending until the session task completes; without task tools it completes the archive todo at once
 - [Objective 63]: Built-in inventory test has no clock check; review cadence lives in the document's dates and procedure, and REQUIRED_TOOLS/REQUIRED_EVENTS are pinned in the test and updated together with the document
 - [Objective 63]: 63-07: live Claude Code runs need an authenticated account; a scratch HOME cannot reach the macOS login keychain, so they are UAT items rather than part of the suite. handoff-e2e drops the ambient DIGITALOCEAN_ACCESS_TOKEN so MA-6 and MA-7 do not depend on the developer shell.
+- [Objective 64]: 64-03: minute actuals stay on the SUMMARY basis (like for like with the calibration); SUMMARY/transcript median 0.91 is reported beside them, raw transcript spans are not actuals (idle gaps, e.g. 60-02)
+- [Objective 64]: 64-03: run state estimate.wall_minutes is the execution wall (63: 96.6/290.4); the printed line is the total incl. verifier overhead (102.8/304.2); prospective comparisons name which
+- [Objective 64]: 64-03: the backfill's partial stamp of 64-03's own in-flight SUMMARY was reverted out of the backfill commit; in-flight TRDs take tokens from the forward stamp only
 
 ## Performance Metrics
 
@@ -312,4 +315,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 63 P04 | 6min | 2 tasks | 7 files |
 | Objective 63 P06 | 45min | 2 tasks | 2 files |
 | Objective 63 P07 | 14min | 3 tasks | 6 files |
+| Objective 64 P03 | 19min | 3 tasks | 41 files |
 
