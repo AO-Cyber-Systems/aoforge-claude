@@ -10,10 +10,17 @@
 
 const { describe, test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const store = require('./estimate-run-store.cjs');
+const {
+  OBJECTIVE_63_SHA256,
+  objective63Run,
+  finishedRun,
+  liveRun,
+} = require('./__fixtures__/estimate-run-fixtures.cjs');
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -402,6 +409,216 @@ describe('13. findProjectRoot and stateRoot', () => {
     const p = store.statePath(ghost, opts);
     assert.equal(path.dirname(p), stateDir);
     assert.equal(path.basename(p), 'no_such_dir_.json');
+  });
+});
+
+describe('14. run history paths (TRD 64-02, EST-08)', () => {
+  test('14a. historyDir is <stateRoot>/history/<repoKey>, outside the project', () => {
+    const dir = store.historyDir(root, opts);
+    assert.equal(dir, path.join(stateDir, 'history', path.basename(store.statePath(root, opts), '.json')));
+    const rel = path.relative(fs.realpathSync(root), path.resolve(dir));
+    assert.ok(rel.startsWith('..') || path.isAbsolute(rel), 'history must not sit under the project root');
+  });
+
+  test('14b. historyDir follows an injected home when there is no state-dir override', () => {
+    const dir = store.historyDir(root, { env: {}, home: '/h' });
+    assert.equal(path.dirname(dir), path.join('/h', '.claude', 'devflow', 'state', 'estimates', 'history'));
+  });
+
+  test("14c. historyPath for Objective 63's real run is 63-2026-10-06T23_55_36_062Z.json", () => {
+    const file = store.historyPath(root, objective63Run(), opts);
+    assert.equal(path.dirname(file), store.historyDir(root, opts));
+    assert.equal(path.basename(file), '63-2026-10-06T23_55_36_062Z.json');
+  });
+
+  test('14d. a hostile objective or started_at cannot leave the history directory', () => {
+    for (const hostile of ['../x', '../../etc/passwd', 'a/b', '..']) {
+      const file = store.historyPath(root, finishedRun({ objective: hostile, started_at: hostile }), opts);
+      assert.equal(path.dirname(file), store.historyDir(root, opts), hostile);
+      assert.match(path.basename(file), /^[A-Za-z0-9_-]+\.json$/, hostile);
+    }
+  });
+});
+
+describe('15. archiveRunState', () => {
+  test('15a. writes JSON.stringify(state, null, 2) + newline atomically and reports written', () => {
+    const state = finishedRun({ objective: '80' });
+    const res = store.archiveRunState(root, state, opts);
+    assert.deepEqual(res, { path: store.historyPath(root, state, opts), written: true });
+    assert.equal(fs.readFileSync(res.path, 'utf8'), `${JSON.stringify(state, null, 2)}\n`);
+    assert.deepEqual(
+      fs.readdirSync(store.historyDir(root, opts)).filter((f) => f.endsWith('.tmp')),
+      []
+    );
+  });
+
+  test('15b. a second call with the same state does not rewrite the file', () => {
+    const state = finishedRun();
+    const first = store.archiveRunState(root, state, opts);
+    const old = new Date('2020-01-01T00:00:00Z');
+    fs.utimesSync(first.path, old, old);
+    const second = store.archiveRunState(root, JSON.parse(JSON.stringify(state)), opts);
+    assert.deepEqual(second, { path: first.path, written: false });
+    assert.equal(fs.statSync(first.path).mtimeMs, old.getTime());
+  });
+
+  test('15c. a different finished state under the same name is replaced', () => {
+    const state = finishedRun();
+    const first = store.archiveRunState(root, state, opts);
+    const later = { ...state, updated_at: '2026-10-01T11:00:00.000Z', finished_at: '2026-10-01T11:00:00.000Z' };
+    const second = store.archiveRunState(root, later, opts);
+    assert.deepEqual(second, { path: first.path, written: true });
+    assert.deepEqual(JSON.parse(fs.readFileSync(first.path, 'utf8')), later);
+  });
+
+  test('15d. an unfinished state is not archived and nothing is created', () => {
+    const res = store.archiveRunState(root, liveRun(), opts);
+    assert.deepEqual(res, { path: null, written: false, reason: 'not finished' });
+    assert.equal(fs.existsSync(store.historyDir(root, opts)), false);
+  });
+
+  test('15e. a value that is not a run state is refused with a reason', () => {
+    for (const bad of [null, undefined, 'x', 3, [], {}, { ...finishedRun(), version: 2 }, { ...finishedRun(), waves: 'no' }]) {
+      assert.deepEqual(store.archiveRunState(root, bad, opts), {
+        path: null,
+        written: false,
+        reason: 'not a run state',
+      });
+    }
+    assert.equal(fs.existsSync(store.historyDir(root, opts)), false);
+  });
+
+  test('15f. a filesystem error removes the temp file and throws', () => {
+    const state = finishedRun();
+    const dir = store.historyDir(root, opts);
+    fs.mkdirSync(dir, { recursive: true });
+    // a directory where the archive file belongs: the rename fails, the .tmp must not stay
+    fs.mkdirSync(store.historyPath(root, state, opts));
+    assert.throws(() => store.archiveRunState(root, state, opts));
+    assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), []);
+  });
+
+  test("15g. archiving Objective 63's run reproduces the planner's copy byte for byte", () => {
+    const res = store.archiveRunState(root, objective63Run(), opts);
+    assert.equal(res.written, true);
+    assert.equal(path.basename(res.path), '63-2026-10-06T23_55_36_062Z.json');
+    const sha = crypto.createHash('sha256').update(fs.readFileSync(res.path)).digest('hex');
+    assert.equal(sha, OBJECTIVE_63_SHA256);
+    assert.equal(sha, '08f88f9f9a108e10e6804603bb900f37145258415005d858cfac131fa664fdee');
+  });
+});
+
+describe('16. listRunHistory', () => {
+  function writeHistoryRaw(name, text) {
+    const dir = store.historyDir(root, opts);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), text);
+  }
+
+  test('16a. a missing history directory gives []', () => {
+    assert.deepEqual(store.listRunHistory(root, opts), []);
+  });
+
+  test('16b. valid states come back sorted by started_at, whatever the archive order', () => {
+    const b = finishedRun({ objective: '82', started_at: '2026-10-03T10:00:00.000Z' });
+    const a = finishedRun({ objective: '80', started_at: '2026-10-01T10:00:00.000Z' });
+    const c = finishedRun({ objective: '81', started_at: '2026-10-02T10:00:00.000Z' });
+    for (const s of [b, a, c]) store.archiveRunState(root, s, opts);
+    assert.deepEqual(store.listRunHistory(root, opts), [a, c, b]);
+  });
+
+  test('16c. a malformed file, a version 2 file, a non-run JSON file and a .tmp file are skipped', () => {
+    const good = finishedRun();
+    store.archiveRunState(root, good, opts);
+    writeHistoryRaw('bad-json.json', '{not json');
+    writeHistoryRaw('empty.json', '');
+    writeHistoryRaw('v2.json', JSON.stringify({ ...finishedRun({ objective: '90' }), version: 2 }));
+    writeHistoryRaw('array.json', '[]');
+    writeHistoryRaw('stranded.json.tmp', JSON.stringify(finishedRun({ objective: '91' })));
+    writeHistoryRaw('notes.txt', JSON.stringify(finishedRun({ objective: '92' })));
+    assert.deepEqual(store.listRunHistory(root, opts), [good]);
+  });
+
+  test('16d. a directory named like an archive is skipped, and nothing throws', () => {
+    store.archiveRunState(root, finishedRun(), opts);
+    fs.mkdirSync(path.join(store.historyDir(root, opts), 'sub.json'));
+    assert.equal(store.listRunHistory(root, opts).length, 1);
+  });
+
+  test('16e. history is per project: another project sees none of it', () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'ers-other-'));
+    try {
+      store.archiveRunState(root, finishedRun(), opts);
+      assert.deepEqual(store.listRunHistory(other, opts), []);
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  test('16f. an unreadable path (the history directory is a file) gives []', () => {
+    fs.mkdirSync(path.dirname(store.historyDir(root, opts)), { recursive: true });
+    fs.writeFileSync(store.historyDir(root, opts), 'not a directory');
+    assert.deepEqual(store.listRunHistory(root, opts), []);
+  });
+});
+
+describe('17. latestRun', () => {
+  test('17a. null when there is no history and no current run', () => {
+    assert.equal(store.latestRun(root, '63', opts), null);
+  });
+
+  test('17b. the newest finished run for the objective from the history', () => {
+    const older = finishedRun({ objective: '63', started_at: '2026-10-01T10:00:00.000Z' });
+    const newer = finishedRun({ objective: '63', started_at: '2026-10-05T10:00:00.000Z' });
+    const other = finishedRun({ objective: '64', started_at: '2026-10-06T10:00:00.000Z' });
+    for (const s of [newer, other, older]) store.archiveRunState(root, s, opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), newer);
+  });
+
+  test('17c. a numeric objective argument matches the string objective', () => {
+    store.archiveRunState(root, objective63Run(), opts);
+    assert.deepEqual(store.latestRun(root, 63, opts), objective63Run());
+  });
+
+  test('17d. the current run file counts when it is finished and newer than the history', () => {
+    const archived = finishedRun({ objective: '63', started_at: '2026-10-01T10:00:00.000Z' });
+    const current = finishedRun({ objective: '63', started_at: '2026-10-06T10:00:00.000Z' });
+    store.archiveRunState(root, archived, opts);
+    store.writeRunState(root, current, opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), current);
+  });
+
+  test('17e. on equal started_at the current file wins over the archived copy', () => {
+    const archived = finishedRun({ objective: '63' });
+    const current = { ...archived, updated_at: '2026-10-01T10:45:00.000Z', finished_at: '2026-10-01T10:45:00.000Z' };
+    store.archiveRunState(root, archived, opts);
+    store.writeRunState(root, current, opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), current);
+  });
+
+  test('17f. an unfinished current run is ignored, in favour of an older finished one', () => {
+    const archived = finishedRun({ objective: '63', started_at: '2026-10-01T10:00:00.000Z' });
+    store.archiveRunState(root, archived, opts);
+    store.writeRunState(root, liveRun({ objective: '63', started_at: '2026-10-07T10:00:00.000Z' }), opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), archived);
+  });
+
+  test('17g. only an unfinished current run for the objective gives null', () => {
+    store.writeRunState(root, liveRun({ objective: '63' }), opts);
+    assert.equal(store.latestRun(root, '63', opts), null);
+  });
+
+  test('17h. a current run for a different objective is not returned', () => {
+    store.writeRunState(root, finishedRun({ objective: '80' }), opts);
+    assert.equal(store.latestRun(root, '63', opts), null);
+  });
+
+  test('17i. never throws, whatever the objective argument', () => {
+    store.archiveRunState(root, finishedRun(), opts);
+    for (const bad of [undefined, null, '', {}, NaN]) {
+      assert.doesNotThrow(() => store.latestRun(root, bad, opts));
+      assert.equal(store.latestRun(root, bad, opts), null);
+    }
   });
 });
 

@@ -22,7 +22,7 @@
 // to a temp file, the run-state directory is a temp directory (DEVFLOW_ESTIMATE_STATE_DIR) and every spawned process gets
 // HOME=<temp dir>. Nothing here reads or writes the real ~/.claude.
 
-const { describe, test, before, after } = require('node:test');
+const { describe, test, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -30,7 +30,10 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { runEstimate, USAGE } = require('./estimate-cli.cjs');
+const est = require('./estimate.cjs');
+const rollup = require('./estimate-rollup.cjs');
 const store = require('./estimate-run-store.cjs');
+const { finishedRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
 const {
   CAL_V2,
   MILESTONE_SPEC,
@@ -297,6 +300,18 @@ describe('6: estimate objective', () => {
     assert.match(table.text, /\nNote: figures come from 30 past objectives because the objective has no TRDs yet\./);
   });
 
+  test('objective 82 --all renders the estimate of the done objective, in both text forms (TRD 64-02)', () => {
+    const line = ok(run(['objective', '82', '--all', '--line'])).text;
+    assert.match(line, /^Objective 82 estimate: .* · 1 TRD estimated in 1 wave · confidence \w+$/, line);
+    const table = ok(run(['objective', '82', '--all', '--table'])).text;
+    assert.match(table, /^\| Objective 82 \(1 TRD estimated, 1 wave\) \| Median \| P90 \|\n/, table);
+    const json = ok(run(['objective', '82', '--all'])).result;
+    assert.equal(json.all, true);
+    assert.equal(json.line, line);
+    // without --all a done objective is still one line
+    assert.equal(ok(run(['objective', '82', '--table'])).text, 'Objective 82: all TRDs done (1 of 1)');
+  });
+
   test('objective 82 is done, 99 does not exist', () => {
     assert.equal(ok(run(['objective', '82', '--line'])).text, 'Objective 82: all TRDs done (1 of 1)');
     assert.deepEqual(run(['objective', '99']), { ok: false, message: 'objective 99 not found' });
@@ -559,9 +574,14 @@ describe('8-11: estimate start, wave, finish (one run, one state dir)', () => {
     assert.equal(state.waves.length, 2);
   });
 
-  test('the run verbs wrote only under the state directory', () => {
+  test('the run verbs wrote only under the state directory, history included, and left no .tmp anywhere', () => {
     assert.deepEqual(listTree(root), treeBefore);
-    assert.deepEqual(fs.readdirSync(runDir).filter((f) => f.endsWith('.tmp')), []);
+    const written = listTree(runDir);
+    assert.deepEqual(written.filter((f) => f.endsWith('.tmp')), []);
+    // the run file, plus the archive of the run test 11 finished (and nothing else): history/<repo-key>/80-<started_at>.json
+    const archives = written.filter((f) => f.startsWith(`history${path.sep}`) && f.endsWith('.json'));
+    assert.deepEqual(archives, [path.join('history', path.basename(store.historyDir(root, { env: opts().env })), `80-${sane(iso(T0))}.json`)]);
+    assert.equal(written.length, 4, `state file, history, <repo-key> and one archive: ${JSON.stringify(written)}`);
   });
 });
 
@@ -656,6 +676,185 @@ describe('10: no run state', () => {
       assert.equal(r.ok, false, JSON.stringify(argv));
       assert.match(r.message, /\nUsage: df-tools estimate /, JSON.stringify(argv));
     }
+  });
+});
+
+// ─── 12: run history (TRD 64-02, EST-08) ──────────────────────────────────────
+
+/** The sanitized form of an ISO stamp, as the run store names a history file. */
+const sane = (text) => text.replace(/[^A-Za-z0-9_-]/g, '_');
+
+describe('12: run history (TRD 64-02, EST-08)', () => {
+  let dir;
+  let counter = 0;
+  const env = () => ({ DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: dir });
+  const step = (argv, at, extra = {}) => ok(run(argv, { env: env(), now: at, ...extra }));
+  const live = () => store.readRunState(root, { env: env() });
+  const historyDir = () => store.historyDir(root, { env: env() });
+  const historyFiles = () => {
+    try {
+      return fs.readdirSync(historyDir()).sort();
+    } catch {
+      return [];
+    }
+  };
+  const historyFile = (objective, startedAt) => path.join(historyDir(), `${objective}-${sane(iso(startedAt))}.json`);
+
+  beforeEach(() => {
+    dir = path.join(scratch, `run-state-history-${counter++}`);
+  });
+
+  test('1: finish 80 archives the finished run, and a second finish does not rewrite it', () => {
+    step(['start', '80'], T0);
+    step(['wave', '80', '1', '--start'], T0 + MIN);
+    step(['wave', '80', '1', '--done'], T0 + 14 * MIN);
+    assert.deepEqual(historyFiles(), [], 'an unfinished run is not archived');
+
+    const first = step(['finish', '80'], T0 + 30 * MIN);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`]);
+    const file = historyFile('80', T0);
+    const bytes = fs.readFileSync(file, 'utf8');
+    assert.deepEqual(JSON.parse(bytes), live());
+    assert.equal(bytes, fs.readFileSync(store.statePath(root, { env: env() }), 'utf8'));
+
+    const old = new Date('2020-01-01T00:00:00Z');
+    fs.utimesSync(file, old, old);
+    const second = step(['finish', '80'], T0 + 60 * MIN);
+    assert.equal(second.text, first.text);
+    assert.equal(fs.statSync(file).mtimeMs, old.getTime(), 'the archive was not rewritten');
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`]);
+  });
+
+  test('2: start after finish leaves the archive alone; start archives a finished run that never was (a pre-64 run)', () => {
+    step(['start', '80'], T0);
+    step(['finish', '80'], T0 + 30 * MIN);
+    const archived = historyFile('80', T0);
+    const bytes = fs.readFileSync(archived, 'utf8');
+
+    step(['start', '80'], T0 + 40 * MIN);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`], 'a new run adds nothing until it finishes');
+    assert.equal(fs.readFileSync(archived, 'utf8'), bytes);
+    assert.equal(live().started_at, iso(T0 + 40 * MIN));
+    assert.equal(live().finished_at, null);
+
+    // A finished state written straight through the store, as a run from before the history existed.
+    const pre = finishedRun({ objective: '80', started_at: iso(T0 + 100 * MIN), finished_at: iso(T0 + 130 * MIN) });
+    store.writeRunState(root, pre, { env: env() });
+    step(['start', '81'], T0 + 200 * MIN);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`, `80-${sane(iso(T0 + 100 * MIN))}.json`]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(historyFile('80', T0 + 100 * MIN), 'utf8')), pre);
+    assert.equal(live().objective, '81');
+    assert.equal(live().started_at, iso(T0 + 200 * MIN));
+  });
+
+  test('3: an unfinished run for another objective is overwritten by start without being archived', () => {
+    step(['start', '81'], T0);
+    step(['start', '80'], T0 + MIN);
+    assert.deepEqual(historyFiles(), []);
+    assert.equal(live().objective, '80');
+    assert.equal(fs.existsSync(historyDir()), false);
+  });
+
+  test('4: wave --start that begins a new run archives the finished previous run like start', () => {
+    const pre = finishedRun({ objective: '80', started_at: iso(T0), finished_at: iso(T0 + 30 * MIN) });
+    store.writeRunState(root, pre, { env: env() });
+
+    const begun = step(['wave', '80', '1', '--start'], T0 + 40 * MIN);
+    assert.equal(begun.result.run_state.created, true);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(historyFile('80', T0), 'utf8')), pre);
+    assert.equal(live().started_at, iso(T0 + 40 * MIN));
+    assert.equal(live().finished_at, null);
+  });
+
+  test('4b: wave --start on a live run archives nothing; a stale unfinished run is replaced without archiving', () => {
+    step(['start', '80'], T0);
+    step(['wave', '80', '1', '--start'], T0 + MIN);
+    assert.deepEqual(historyFiles(), []);
+
+    step(['wave', '80', '2', '--start'], T0 + 13 * 60 * MIN);
+    assert.equal(live().started_at, iso(T0 + 13 * 60 * MIN));
+    assert.deepEqual(historyFiles(), []);
+  });
+
+  test('4c: a run that cannot be archived is reported and the previous run is not overwritten', () => {
+    const pre = finishedRun({ objective: '80', started_at: iso(T0), finished_at: iso(T0 + 30 * MIN) });
+    store.writeRunState(root, pre, { env: env() });
+    // a regular file where the history directory belongs: the archive cannot be written
+    fs.mkdirSync(path.dirname(historyDir()), { recursive: true });
+    fs.writeFileSync(historyDir(), 'not a directory');
+
+    const failed = run(['start', '81'], { env: env(), now: T0 + 40 * MIN });
+    assert.equal(failed.ok, false);
+    assert.match(failed.message, /could not archive the run history/);
+    assert.deepEqual(live(), pre);
+  });
+});
+
+describe('12b: what a new run records of its estimate (TRD 64-02, EST-08)', () => {
+  let dir;
+  let counter = 0;
+  const env = () => ({ DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: dir });
+  const live = () => store.readRunState(root, { env: env() });
+  const unrounded = (block) => JSON.parse(JSON.stringify(block));
+
+  beforeEach(() => {
+    dir = path.join(scratch, `run-state-enriched-${counter++}`);
+  });
+
+  test('5: start 80 records execution, total and the calibration identity', () => {
+    ok(run(['start', '80'], { env: env(), now: T0 }));
+    const cal = est.loadCalibration(calFile, {}).calibration;
+    const expected = rollup.estimateObjective(cal, root, '80');
+    const recorded = live().estimate;
+
+    assert.deepEqual(recorded.execution, unrounded(expected.execution));
+    assert.deepEqual(recorded.total, unrounded(expected.total));
+    for (const block of [recorded.execution, recorded.total]) {
+      assert.deepEqual(Object.keys(block).sort(), ['agent_minutes', 'cost_usd', 'tokens_input', 'tokens_output', 'wall_minutes']);
+    }
+    assert.deepEqual(recorded.calibration, {
+      path: calFile,
+      version: 2,
+      data_as_of: '2026-10-05',
+      samples: CAL_V2.samples,
+      inputs_digest: null,
+    });
+    // what the run already recorded is unchanged
+    assert.deepEqual(recorded.wall_minutes, recorded.execution.wall_minutes);
+    assert.equal(recorded.confidence, 'medium');
+    assert.equal(typeof recorded.line, 'string');
+  });
+
+  test('5b: the calibration identity carries its inputs_digest and the path of the file used', () => {
+    const digested = writeCalibrationFile(path.join(scratch, 'cal-digest'), { ...CAL_V2, inputs_digest: 'sha256-0123abcd' });
+    ok(run(['start', '80', '--calibration', digested], { env: env(), now: T0 }));
+    assert.equal(live().estimate.calibration.path, digested);
+    assert.equal(live().estimate.calibration.inputs_digest, 'sha256-0123abcd');
+  });
+
+  test('5c: with no usable calibration the three are null and the run still records its waves', () => {
+    ok(run(['start', '80', '--calibration', path.join(scratch, 'absent.json')], { env: env(), now: T0 }));
+    const recorded = live().estimate;
+    assert.equal(recorded.execution, null);
+    assert.equal(recorded.total, null);
+    assert.equal(recorded.calibration, null);
+    assert.equal(recorded.wall_minutes, null);
+    assert.equal(recorded.confidence, 'none');
+    assert.deepEqual(live().waves.map((w) => w.trds), [['80-01', '80-02'], ['80-03']]);
+  });
+
+  test('5d: wave --start that begins a run records them too, and the old state shape still reads', () => {
+    ok(run(['wave', '80', '1', '--start'], { env: env(), now: T0 }));
+    assert.deepEqual(Object.keys(live().estimate.execution).sort(), ['agent_minutes', 'cost_usd', 'tokens_input', 'tokens_output', 'wall_minutes']);
+    assert.equal(live().estimate.calibration.version, 2);
+
+    // a state written before 64-02 has none of the new keys and is still a run the verbs continue
+    const old = { ...live(), estimate: { line: 'x', wall_minutes: { p50: 1, p90: 2 }, confidence: 'low' } };
+    store.writeRunState(root, old, { env: env() });
+    ok(run(['wave', '80', '1', '--done'], { env: env(), now: T0 + 5 * MIN }));
+    assert.deepEqual(live().estimate, old.estimate);
   });
 });
 

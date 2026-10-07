@@ -25,6 +25,13 @@
  * estimate, `finish` closes the run and prints the execution time against the execution estimate. They work without a
  * calibration too (the estimates are then null and the text says why), and a verb with nothing to report is exit 0.
  *
+ * Run history (TRD 64-02): `finish` archives the run it closes, and `start` (or a `wave --start` that begins a new run)
+ * archives a finished previous run before overwriting it, to <state dir>/history/<repo-key>/<objective>-<started_at>.json
+ * (estimate-run-store.archiveRunState; idempotent, and an unfinished run is never archived). If the archive cannot be
+ * written the verb fails with `could not archive the run history: ...` and the previous run state is left as it was. The
+ * `estimate` block of a new run also records the unrounded `execution` and `total` estimates and the `calibration` they
+ * came from (`{path, version, data_as_of, samples, inputs_digest}`), all null when there is no usable calibration.
+ *
  * Exit 0 for every estimate, including "no estimate": a missing, unreadable or mismatched calibration is
  * `{available: false, reason, calibration_path}` and the text `No estimate: <reason>`, never a number. Exit 1 (an
  * `{ok: false, message}` here) for usage errors and for an objective, TRD or milestone that does not exist.
@@ -273,14 +280,23 @@ function planObjective(base, objective, loaded) {
   if (!loaded.ok) {
     const waves = wavesFromFrontmatter(rollup.remainingTrds(base, objective).trds);
     const line = `No estimate: ${loaded.reason}`;
-    return { waves, line, estimate: { line, wall_minutes: null, confidence: 'none' }, output: null };
+    const estimate = { line, wall_minutes: null, confidence: 'none', execution: null, total: null, calibration: null };
+    return { waves, line, estimate, output: null };
   }
   const result = rollup.estimateObjective(loaded.cal, base, objective);
   const output = objectiveOutput(result, loaded, false);
   return {
     waves: result.waves.map((w) => newWave(w.wave, w.trds, w.wall_minutes)),
     line: output.line,
-    estimate: { line: output.line, wall_minutes: result.execution ? result.execution.wall_minutes : null, confidence: result.confidence },
+    estimate: {
+      line: output.line,
+      wall_minutes: result.execution ? result.execution.wall_minutes : null,
+      confidence: result.confidence,
+      // Unrounded, so a later accuracy check compares against what the estimator said, not a rounded display.
+      execution: result.execution || null,
+      total: result.total || null,
+      calibration: { ...loaded.meta, inputs_digest: loaded.cal.inputs_digest || null },
+    },
     output,
   };
 }
@@ -306,6 +322,28 @@ function isLive(state, objective, now) {
   return Number.isFinite(updated) && now - updated <= store.STALE_MS;
 }
 
+/**
+ * Archive a finished run into the history (estimate-run-store.archiveRunState), naming the failure when the archive cannot be written.
+ * @throws {Error} `could not archive the run history: <cause>`
+ */
+function archiveFinished(root, state, env) {
+  try {
+    return store.archiveRunState(root, state, { env });
+  } catch (err) {
+    throw new Error(`could not archive the run history: ${err.message}`);
+  }
+}
+
+/**
+ * Write `next` as the run state, first archiving `previous` when it is a finished run, so a later run never destroys an
+ * earlier outcome. An unfinished previous run (abandoned) is simply overwritten. When the archive fails nothing is written.
+ * @throws {Error} `could not archive the run history: <cause>`
+ */
+function replaceRun(root, previous, next, env) {
+  if (previous && previous.finished_at) archiveFinished(root, previous, env);
+  return store.writeRunState(root, next, { env });
+}
+
 function minutesOrNull(p50, p90) {
   return p50 === null || p50 === undefined ? null : { p50, p90 };
 }
@@ -315,7 +353,8 @@ function runStart(parsed, env, base, now) {
   const loaded = loadCal(parsed.flags, env, base);
   const plan = planObjective(base, objective, loaded);
   const state = newRunState(objective, plan, now);
-  const written = store.writeRunState(runRoot(base), state, { env });
+  const root = runRoot(base);
+  const written = replaceRun(root, store.readRunState(root, { env }), state, env);
   const runState = { path: written.path, waves: state.waves.length };
 
   if (!loaded.ok) {
@@ -358,7 +397,8 @@ function waveStart({ objective, waveNo, root, state, parsed, env, base, now }) {
   }
   if (!wave.started_at) wave.started_at = isoOf(now);
   run.updated_at = isoOf(now);
-  const written = store.writeRunState(root, run, { env });
+  // A new run replaces whatever was there (`state`): archive it first if it finished. A continued run just updates.
+  const written = created ? replaceRun(root, state, run, env) : store.writeRunState(root, run, { env });
 
   const text = fmt.waveStartLine({ wave: waveNo, p50: wave.p50, p90: wave.p90 });
   const result = {
@@ -415,6 +455,8 @@ function runFinish(parsed, env, base, now) {
     state.updated_at = isoOf(now);
     store.writeRunState(root, state, { env });
   }
+  // Idempotent: a run finished before the history existed is archived by its next finish too.
+  archiveFinished(root, state, env);
   const started = Date.parse(state.started_at);
   const finished = Date.parse(state.finished_at);
   const actual = Number.isFinite(started) && Number.isFinite(finished) ? Math.max(0, (finished - started) / MS_PER_MINUTE) : null;

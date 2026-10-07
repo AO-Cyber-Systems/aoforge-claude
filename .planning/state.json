@@ -1020,6 +1020,11 @@
       "objective": "64",
       "summary": "SC3 is insufficient, not fail, when no TRD comparison exists to judge TRD-level coverage; EST-08 verdict constants (band 0.30, coverage 0.80, min objectives 3, min class tasks 3) are exports, never parameters",
       "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "Run history archives only finished runs, at <state dir>/history/<repo-key>/<objective>-<started_at>.json; run schema version stays 1 with optional execution, total and calibration keys",
+      "rationale": null
     }
   ],
   "blockers": [],
