@@ -604,3 +604,83 @@ describe('8: backtestLine', () => {
     assert.equal(fmt.backtestLine({ available: false, reason: 'no calibration file' }), 'No estimate: no calibration file');
   });
 });
+
+describe('10: roundResult on a backtest result', () => {
+  const RAW = {
+    available: true,
+    band: 0.3,
+    coverage_target: 0.8,
+    objectives: [{
+      objective: '90',
+      trds: 2,
+      agent_minutes: {
+        p50: 12.3456, p90: 25.5555, actual: 10.04567, ratio: 1.2345678, within_band: true, covered: true, source: 'prospective', excluded: null,
+      },
+      cost_usd: {
+        p50: 2.252340725, p90: 3.63914042, actual: 1.6800004, ratio: 1.340678, within_band: false, covered: true, source: 'reconstructed', excluded: null,
+      },
+      wall_minutes: {
+        source: 'prospective',
+        actual: 96.61616,
+        prospective: { p50: 96.5, p90: 290.5, actual: 96.61616, ratio: 0.99879, covered: true },
+        waves: [{ wave: 1, trds: ['90-01'], p50: 19.738206, p90: 67.316435, actual: 18.572133, ratio: 1.06278 }],
+      },
+      trd_rows: [{ id: '90-01', minutes: { p50: 6.04, p90: 18.04, actual: 5.55555, ratio: 1.08717 }, cost_usd: { p50: 1.4, actual: 1.68000004, ratio: 0.83333 } }],
+    }],
+    summary: {
+      agent_minutes: {
+        compared: 5, median_ratio: 1.51234, pooled_ratio: 1.49812, in_band: 2, coverage: 0.83333333, under_median_share: 0.66666667, trd_compared: 41, trd_coverage: 0.975609, sc2: 'fail',
+      },
+      cost_usd: { compared: 5, median_ratio: 0.98765, pooled_ratio: 0.98111, in_band: 5, coverage: 1, under_median_share: 0.4, trd_compared: 41, trd_coverage: 1, sc2: 'pass' },
+      wall_minutes: { compared: 1, median_ratio: 0.99879, coverage: 1, waves: { compared: 5, coverage: 0.8 } },
+    },
+    classes: { minutes: [{ class: 'code_tdd', tasks: 10, median_ratio: 1.62345, coverage: 0.99999, under_median_share: 0.1234567, flags: ['biased_high'], verdict: 'miscalibrated' }], cost_usd: [] },
+    verdict: { est08: 'not met', miscalibrated: [{ metric: 'agent_minutes', class: 'code_tdd', median_ratio: 1.62345, coverage: 0.99999, tasks: 10 }] },
+  };
+
+  test('ratios take 3 decimals and shares 4, each by its own key, wherever they sit', () => {
+    const r = fmt.roundResult(RAW);
+    const cell = r.objectives[0].agent_minutes;
+    assert.equal(cell.ratio, 1.235);
+    assert.equal(r.objectives[0].cost_usd.ratio, 1.341);
+    assert.equal(r.objectives[0].wall_minutes.prospective.ratio, 0.999);
+    assert.equal(r.objectives[0].wall_minutes.waves[0].ratio, 1.063);
+    assert.equal(r.objectives[0].trd_rows[0].minutes.ratio, 1.087);
+    assert.equal(r.objectives[0].trd_rows[0].cost_usd.ratio, 0.833);
+
+    const s = r.summary.agent_minutes;
+    assert.deepEqual([s.median_ratio, s.pooled_ratio], [1.512, 1.498]);
+    assert.deepEqual([s.coverage, s.trd_coverage, s.under_median_share], [0.8333, 0.9756, 0.6667]);
+    assert.deepEqual([r.summary.cost_usd.median_ratio, r.summary.cost_usd.pooled_ratio], [0.988, 0.981]);
+    assert.deepEqual([r.summary.wall_minutes.median_ratio, r.summary.wall_minutes.waves.coverage], [0.999, 0.8]);
+
+    const klass = r.classes.minutes[0];
+    assert.deepEqual([klass.median_ratio, klass.coverage, klass.under_median_share], [1.623, 1, 0.1235]);
+    assert.deepEqual([r.verdict.miscalibrated[0].median_ratio, r.verdict.miscalibrated[0].coverage], [1.623, 1]);
+  });
+
+  test('an actual takes the rule of the metric it sits under: one decimal for minutes, four for dollars', () => {
+    const r = fmt.roundResult(RAW);
+    const row = r.objectives[0];
+    assert.equal(row.agent_minutes.actual, 10);
+    assert.equal(row.agent_minutes.p50, 12.3);
+    assert.equal(row.cost_usd.actual, 1.68);
+    assert.equal(row.cost_usd.p50, 2.2523);
+    assert.equal(row.wall_minutes.actual, 96.6);
+    assert.equal(row.wall_minutes.prospective.actual, 96.6);
+    assert.equal(row.wall_minutes.waves[0].actual, 18.6);
+    assert.equal(row.trd_rows[0].minutes.actual, 5.6);
+    assert.equal(row.trd_rows[0].cost_usd.actual, 1.68);
+  });
+
+  test('counts, booleans, strings and nulls are untouched, and the input is not changed', () => {
+    const before = JSON.stringify(RAW);
+    const r = fmt.roundResult(RAW);
+    assert.equal(JSON.stringify(RAW), before);
+    const row = r.objectives[0];
+    assert.deepEqual([row.trds, row.wall_minutes.waves[0].wave, r.summary.agent_minutes.compared, r.summary.agent_minutes.in_band, r.classes.minutes[0].tasks], [2, 1, 5, 2, 10]);
+    assert.deepEqual([row.agent_minutes.within_band, row.agent_minutes.covered, row.agent_minutes.excluded], [true, true, null]);
+    assert.deepEqual([row.agent_minutes.source, r.verdict.est08, r.summary.agent_minutes.sc2], ['prospective', 'not met', 'fail']);
+    assert.deepEqual([r.band, r.coverage_target], [0.3, 0.8], 'the thresholds are not rounded');
+  });
+});
