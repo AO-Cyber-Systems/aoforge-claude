@@ -193,6 +193,10 @@ function transcriptOf(...groups) {
 const CASSETTES = {
   taskTools: path.join(__dirname, 'todo-transcripts', 'task-tools.cassette.jsonl'),
   todoWrite: path.join(__dirname, 'todo-transcripts', 'todowrite.cassette.jsonl'),
+  // One TodoWrite family run of its own: a single item in_progress, then completed, then an empty list. It records that
+  // the host's `oldTodos` forgets an all-completed list (so replay never reads it) and that `newTodos` still carries the
+  // completed item as written.
+  todoWriteClear: path.join(__dirname, 'todo-transcripts', 'todowrite-clear.cassette.jsonl'),
 };
 
 module.exports = {

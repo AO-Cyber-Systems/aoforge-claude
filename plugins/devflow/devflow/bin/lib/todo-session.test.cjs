@@ -70,6 +70,17 @@ describe('63-01 host contract: recorded cassettes', () => {
   });
 });
 
+describe('63-01 host contract: a finished list that the model then clears', () => {
+  cassetteTest('29: an item completed and then dropped by an empty TodoWrite stays completed', fx.CASSETTES.todoWriteClear, (text) => {
+    const { items, stats } = session.replayTranscript(text);
+    assert.equal(items.length, 1, JSON.stringify(items));
+    assert.equal(items[0].stem, '2026-10-06-probe-epsilon');
+    assert.equal(items[0].status, 'completed', 'finished work cleared from the list is not a deletion');
+    assert.equal(stats.todowrites, 3);
+    assert.equal(stats.unresolved_uses, 0);
+  });
+});
+
 describe('63-01 task tools (TaskCreate / TaskUpdate)', () => {
   test('3: a TaskCreate with metadata.devflow_todo gives one pending item with the id and time of its result', () => {
     fx.resetIds();
@@ -320,6 +331,17 @@ describe('63-01 TodoWrite', () => {
     assert.equal(back[1].status, 'pending', 'an item written again after a deletion is live again');
   });
 
+  test('30: a completed item that drops out of the next snapshot stays completed; only unfinished ones become deleted', () => {
+    fx.resetIds();
+    const done = 'Todo: Finished [todo:2026-10-06-finished]';
+    const open = 'Todo: Abandoned [todo:2026-10-06-abandoned]';
+    const { items } = replay(
+      fx.todoWrite({ todos: [todoEntry(done, 'completed'), todoEntry(open, 'in_progress')], ts: fx.ts(0) }),
+      fx.todoWrite({ todos: [], ts: fx.ts(10) }),
+    );
+    assert.deepEqual(items.map((i) => [i.stem, i.status]), [['2026-10-06-finished', 'completed'], ['2026-10-06-abandoned', 'deleted']]);
+  });
+
   test('18: content without a suffix gets a derived stem from the first snapshot that held it', () => {
     fx.resetIds();
     const one = fx.todoWrite({ todos: [todoEntry('Todo: Write the docs')], ts: fx.ts(0) });
@@ -403,7 +425,7 @@ describe('63-01 both families and robustness', () => {
     const { items, stats } = session.replayTranscript(text);
     assert.equal(items.length, 1);
     assert.equal(stats.malformed_lines, 1);
-    assert.equal(stats.records, 6);
+    assert.equal(stats.records, 5, 'user prompt, attachment, assistant text, and the call with its result');
     assert.equal(stats.task_creates, 1);
   });
 
