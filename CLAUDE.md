@@ -120,6 +120,7 @@ Node.js hooks declared in `plugins/devflow/hooks/hooks.json` and auto-registered
 - `verify-commits.js` — SubagentStop; warns on no commits in last 10min
 - Their autonomous retry and resume markers live in `~/.claude/devflow/state/hook-markers/<repo-key>/` (`lib/hook-marker-store.cjs`; override `DEVFLOW_HOOK_MARKER_DIR`). `hooks/planning-writes.audit.test.js` fails CI if any hook writes a runtime dotfile into `.planning/`; the allowlist is `.skill-active`, `.edit-override` and `.devflow-notices.json`.
 - `gh-flush.js` — PostToolUse(Bash) + Stop; store mode only: flushes the outbox after `df-tools commit` and at Stop, reports pending/halted writes on both and cache drift (W055) at Stop only; never blocks, fails open. Escape: `DEVFLOW_SKIP_GH_FLUSH_HOOK=1`
+- `todo-sync.js` — Stop; merges the session's `/devflow:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with `todo sync`'s library (`.planning/todos/`, or queued for the GitHub store); idempotent, never blocks, keeps no state, fails open. Escape: `DEVFLOW_SKIP_TODO_SYNC=1`
 
 **Enforcement (active gates):**
 - `route-intent.js` — UserPromptSubmit; injects skill-routing reminders when DevFlow project is detected

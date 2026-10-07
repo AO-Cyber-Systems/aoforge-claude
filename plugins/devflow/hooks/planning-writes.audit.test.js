@@ -44,6 +44,7 @@ const { spawnSync, execFileSync } = require('child_process');
 
 const HOOKS_DIR = __dirname;
 const PLUGIN_ROOT = path.resolve(__dirname, '..');
+const todoTranscripts = require(path.join(PLUGIN_ROOT, 'devflow', 'bin', 'lib', '__fixtures__', 'todo-transcript-fixtures.cjs'));
 const PLUGIN_VERSION = JSON.parse(
   fs.readFileSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8')
 ).version;
@@ -475,6 +476,33 @@ const RUNS = {
     },
     { label: 'session stop', payload: stop() },
   ],
+  // todo-sync.js (TRD 63-03): at Stop it merges the session's todos into `.planning/todos/` through the todo verbs, so
+  // this run DOES write files under `.planning/`: todo files (`pending/<stem>.md`, then `completed/<stem>.md`), never a
+  // dotfile. It keeps no state of its own, which is what this entry pins; there is deliberately no `expectChanged`.
+  // `expectStdout` proves the hook reached its merge, so the audit cannot pass on a transcript it never read.
+  'todo-sync.js': [
+    {
+      label: 'session todo archived and completed',
+      payload: (ctx) => {
+        const file = path.join(ctx.world.home, 'todo-transcript.jsonl');
+        todoTranscripts.resetIds();
+        fs.writeFileSync(
+          file,
+          todoTranscripts.transcriptOf(
+            todoTranscripts.taskCreate({
+              subject: 'Todo: Audit the todo sync hook',
+              metadata: { devflow_todo: '2026-10-06-audit-the-todo-sync-hook' },
+              taskId: 1,
+              ts: todoTranscripts.ts(0),
+            }),
+            todoTranscripts.taskUpdate({ taskId: 1, status: 'completed', ts: todoTranscripts.ts(5) })
+          )
+        );
+        return stop({ transcript_path: file })(ctx);
+      },
+      expectStdout: /archived 1 todo\(s\)/,
+    },
+  ],
   'statusline.js': [
     {
       label: 'status render',
@@ -581,6 +609,13 @@ describe('SC1 behavioral audit: no hook writes a runtime dotfile into .planning/
               'block',
               `${script} [${run.label}] did not reach its block branch, so this audit proves nothing for it.\n` +
                 `stdout: ${result.stdout}\nstderr: ${result.stderr}`
+            );
+          }
+          if (run.expectStdout) {
+            assert.match(
+              result.stdout,
+              run.expectStdout,
+              `${script} [${run.label}] did not reach the branch this audit needs.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
             );
           }
           if (run.inProcess === 'awareness-populate') {

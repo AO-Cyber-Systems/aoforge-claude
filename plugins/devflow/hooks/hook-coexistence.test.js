@@ -26,6 +26,7 @@ const path = require('path');
 
 const runner = require('./__fixtures__/hook-runner.js');
 const fx = require('./__fixtures__/coexistence-fixtures.js');
+const todoTranscripts = require('../devflow/bin/lib/__fixtures__/todo-transcript-fixtures.cjs');
 
 // ─── 1. The composition model ────────────────────────────────────────────────
 
@@ -346,6 +347,27 @@ function matcherFires(matcher, toolName) {
 /** A PATH with nothing on it, so a skill that requires `gh` is refused whatever this machine has installed. */
 const noToolsOnPath = (world) => ({ PATH: path.join(world.base, 'empty-bin') });
 
+/**
+ * A session transcript holding one `/devflow:todo` item, written into the world's home; returns its path. The todo
+ * carries an explicit stem, so the hook's message names the same relative path in every world.
+ */
+function todoTranscript(world) {
+  const file = path.join(world.home, 'todo-transcript.jsonl');
+  todoTranscripts.resetIds();
+  fs.writeFileSync(
+    file,
+    todoTranscripts.transcriptOf(
+      todoTranscripts.taskCreate({
+        subject: 'Todo: Coexist with the user hooks',
+        metadata: { devflow_todo: '2026-10-06-coexist-with-the-user-hooks' },
+        taskId: 1,
+        ts: todoTranscripts.ts(0),
+      })
+    )
+  );
+  return file;
+}
+
 const RUNS = {
   'sync-runtime.js@SessionStart': {
     label: 'session start on a warm runtime mirror',
@@ -390,6 +412,14 @@ const RUNS = {
     label: 'session stop, local mode',
     expect: 'silent',
     payload: fx.stop(),
+  },
+  'todo-sync.js@Stop': {
+    label: 'session todo archived, local mode',
+    // Archives the todo and says so in one systemMessage. The message holds only paths relative to the project
+    // (`.planning/todos/pending/<stem>.md`), so it needs no `normalize`. It never blocks, so a user deny or block
+    // beside it is the user's alone.
+    expect: 'context',
+    payload: (ctx) => fx.stop({ transcript_path: todoTranscript(ctx.world) })(ctx),
   },
   'verify-commits.js@SubagentStop': {
     label: 'autonomous, mid-execution, no recent commits',
