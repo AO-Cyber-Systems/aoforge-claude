@@ -113,7 +113,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - [x] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene (completed 2026-10-06)
 - [x] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows (completed 2026-10-06)
 - [x] **Objective 63: Todo store, hook coexistence and built-in inventory** - TodoWrite-backed `/devflow:todo`, coexistence test, living inventory (completed 2026-10-07)
-- [ ] **Objective 64: Estimate accuracy validation** - Close EST-08 against five executed objectives
+- [x] **Objective 64: Estimate accuracy validation** - Close EST-08 against five executed objectives (completed 2026-10-07)
 
 ### Objective 55: Store live-smoke fixes
 
@@ -325,7 +325,7 @@ TRDs:
 - [x] 64-03-frozen-inputs-and-token-backfill-TRD.md — (W1) frozen pre-59 calibration and 63's run state preserved, estimator drift and 63 reproduction, diff-guarded token backfill of 58-63, actuals audit against transcript spans
 - [x] 64-04-estimate-backtest-verb-TRD.md — (W2) `df-tools estimate backtest <N[,N...]>`: JSON and markdown report, prospective run lookup from the main checkout, help
 - [x] 64-05-out-of-sample-backtest-report-TRD.md — (W3) EST-08: primary backtest of 59-63 on the frozen calibration, rolling leave-future-out and window diagnostics, 64-ACCURACY-REPORT.md, EST-08 status, follow-up todo
-- [ ] 64-06-docs-and-full-suite-TRD.md — (W4) CHANGELOG, USER-GUIDE Estimates (backtest, run history, measured result), CLAUDE.md; full `npm test`
+- [x] 64-06-docs-and-full-suite-TRD.md — (W4) CHANGELOG, USER-GUIDE Estimates (backtest, run history, measured result), CLAUDE.md; full `npm test`
 
 ## Progress
 
@@ -345,4 +345,4 @@ TRDs:
 | 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
 | 62. Built-in sweep | v1.5 | 11/11 | Complete | 2026-10-06 |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 7/7 | Complete | 2026-10-07 |
-| 64. Estimate accuracy validation | v1.5 | 5/6 | In Progress | - |
+| 64. Estimate accuracy validation | v1.5 | 6/6 | Complete | 2026-10-07 |

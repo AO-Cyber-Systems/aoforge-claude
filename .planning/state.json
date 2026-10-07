@@ -1,9 +1,9 @@
 {
   "current_objective": "64",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 6,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-07",
   "metrics": {
     "jobs_completed": 0,
@@ -1049,6 +1049,11 @@
     {
       "objective": "64",
       "summary": "EST-08 not met on out-of-sample evidence (agent minutes median ratio 1.51); no estimator code, threshold or input changed to pass it; follow-up todos recorded",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "Docs quote the primary EST-08 verdict only (not met); the 42-58 window diagnostic is not presented as a result",
       "rationale": null
     }
   ],
