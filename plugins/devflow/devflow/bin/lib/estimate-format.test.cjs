@@ -9,12 +9,19 @@
 //   15 objectiveTable, objectiveLine, milestoneTable and milestoneLine equal the literal strings
 //   plus the task, TRD, unplanned, done, unavailable, wave and finish forms
 //
+// Test list (TRD 64-04, EST-08): the backtest renderers, over results buildBacktest returns for hand-built inputs.
+//   8  backtestLine: the exact line for five objectives, `insufficient (2 objectives)`, and the no-estimate form
+//   9  backtestReport: the sections in order, an excluded metric, `none recorded` wall time, miscalibrated classes, footer
+//   10 roundResult on a backtest result: ratio and median_ratio 3 decimals, coverage 4, actual by its enclosing metric
+//
 // Pure functions, literal inputs and literal expected strings. Nothing here reads a file or the clock.
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const fmt = require('./estimate-format.cjs');
+const backtest = require('./estimate-backtest.cjs');
+const fx = require('./__fixtures__/backtest-fixtures.cjs');
 
 // ─── Literals ─────────────────────────────────────────────────────────────────
 
@@ -509,5 +516,91 @@ describe('wave and finish lines', () => {
       fmt.finishLine({ objective: '80', actual: 30, wall: null }),
       'Objective 80 execution: actual 30 min · no estimate',
     );
+  });
+});
+
+// ─── Backtest renderers (TRD 64-04, EST-08) ───────────────────────────────────
+
+// One TRD per objective, measured at 100 minutes and $1.68 (1,000,000 input of which 600,000 cache read and 200,000 cache
+// write, 10,000 output on the fixture model). An objective estimated at `agent` minutes P50 has ratio agent / 100; its
+// cost P50 is `cost` x $1.68. The minutes P90 is `p90` (default 400) and the cost P90 four times the cost P50, so every
+// actual is covered unless a test lowers it. The TRD's two code_tdd tasks carry half of each estimate.
+const PRICED = {
+  tokens_input: 1000000, tokens_cache_read: 600000, tokens_cache_write: 200000, tokens_output: 10000, token_model: 'test-model',
+};
+const TRD_COST = backtest.objectiveActuals(
+  fx.projectRecord([fx.trdRecord({ id: '90-01', minutes: 100, tokens: PRICED })]), '90-alpha', fx.testRates(),
+).cost_usd.value;
+
+function measured(specs, extra = {}) {
+  const trds = [];
+  const estimates = specs.map((spec, i) => {
+    const num = 90 + i;
+    const id = `${num}-01`;
+    const dir = `${num}-o${i}`;
+    const p90 = spec.p90 === undefined ? 400 : spec.p90;
+    const costP50 = TRD_COST * spec.cost;
+    trds.push(fx.trdRecord({ id, dir, minutes: spec.noMinutes ? null : 100, tokens: PRICED }));
+    const half = fx.taskEstimate({ cls: 'code_tdd', minutes: fx.stat(spec.agent / 2, p90 / 2), cost: fx.stat(costP50 / 2, costP50 * 2) });
+    return fx.objectiveEstimate({
+      objective: String(num),
+      dir,
+      execution: { agent_minutes: fx.stat(spec.agent, p90), cost_usd: fx.stat(costP50, costP50 * 4) },
+      trds: [fx.trdEstimate({ id, minutes: fx.stat(spec.agent, p90), cost: fx.stat(costP50, costP50 * 4), tasks: [half, half] })],
+    });
+  });
+  return { estimates, project: fx.projectRecord(trds), rates: fx.testRates(), ...extra };
+}
+
+const ON_TARGET = { agent: 100, cost: 1 };
+const CALIBRATION = {
+  path: '/tmp/frozen/calibration.json', version: 2, data_as_of: '2026-10-05',
+  samples: { trds: 50, tasks: 120, with_tokens: 40 }, inputs_digest: 'abc123',
+};
+
+/** buildBacktest over `specs`, with the `available` flag and calibration the CLI adds. */
+function backtestResult(specs, extra) {
+  return { available: true, ...backtest.buildBacktest(measured(specs, extra)), calibration: CALIBRATION };
+}
+
+// Agent minutes ratios 1.29 1.51 2.11 1.63 0.95 (median 1.51, two in band) and cost on target.
+const FIVE = backtestResult([129, 151, 211, 163, 95].map((agent) => ({ agent, cost: 1 })));
+
+describe('8: backtestLine', () => {
+  test('five objectives print each primary metric once, the first with its labels in full, and the EST-08 verdict', () => {
+    assert.equal(
+      fmt.backtestLine(FIVE),
+      'Backtest 90, 91, 92, 93, 94: agent minutes median ratio 1.51 (2 of 5 in ±30%, P90 covers 5 of 5 objectives, 5 of 5 TRDs)'
+        + ' · cost median ratio 1.00 (5 of 5, P90 5 of 5, 5 of 5) · EST-08 not met',
+    );
+  });
+
+  test('a metric with fewer than the minimum objectives is `insufficient (2 objectives)`, and one objective is singular', () => {
+    assert.equal(
+      fmt.backtestLine(backtestResult([ON_TARGET, ON_TARGET])),
+      'Backtest 90, 91: agent minutes insufficient (2 objectives) · cost insufficient (2 objectives) · EST-08 not met',
+    );
+    assert.equal(
+      fmt.backtestLine(backtestResult([ON_TARGET])),
+      'Backtest 90: agent minutes insufficient (1 objective) · cost insufficient (1 objective) · EST-08 not met',
+    );
+  });
+
+  test('a metric that does print numbers while the other is insufficient labels itself in full', () => {
+    const noMinutes = [ON_TARGET, ON_TARGET, { ...ON_TARGET, noMinutes: true }, { ...ON_TARGET, noMinutes: true }];
+    assert.equal(
+      fmt.backtestLine(backtestResult(noMinutes)),
+      'Backtest 90, 91, 92, 93: agent minutes insufficient (2 objectives)'
+        + ' · cost median ratio 1.00 (4 of 4 in ±30%, P90 covers 4 of 4 objectives, 4 of 4 TRDs) · EST-08 not met',
+    );
+  });
+
+  test('five objectives on target say `EST-08 met`', () => {
+    const met = backtestResult([ON_TARGET, ON_TARGET, ON_TARGET, ON_TARGET, ON_TARGET]);
+    assert.ok(fmt.backtestLine(met).endsWith(' · EST-08 met'), fmt.backtestLine(met));
+  });
+
+  test('a result with no usable calibration is `No estimate: <reason>`', () => {
+    assert.equal(fmt.backtestLine({ available: false, reason: 'no calibration file' }), 'No estimate: no calibration file');
   });
 });
