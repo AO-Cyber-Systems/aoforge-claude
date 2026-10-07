@@ -301,7 +301,7 @@ TRDs:
 
 TRDs:
 - [x] 63-01-session-todo-replay-TRD.md — (W1) `todo-session.cjs`: replay TaskCreate/TaskUpdate and TodoWrite calls from a session transcript into stable-stem todo items; hand-built record builders plus live host cassettes
-- [ ] 63-05-hook-coexistence-suite-TRD.md — (W1) BLTN-05: cited model of Claude Code's hook composition, every registered hook beside nine user-hook behaviours, degraded input, duplicate copies; null-payload guards in five hooks
+- [x] 63-05-hook-coexistence-suite-TRD.md — (W1) BLTN-05: cited model of Claude Code's hook composition, every registered hook beside nine user-hook behaviours, degraded input, duplicate copies; null-payload guards in five hooks
 - [ ] 63-02-todo-sync-merge-and-cli-TRD.md — (W2) `todo-sync.cjs` + `df-tools todo sync`: forward-only, idempotent merge into the archive through `todo add`/`todo complete` (local and store mode)
 - [ ] 63-03-todo-sync-stop-hook-TRD.md — (W3) `hooks/todo-sync.js` Stop hook (never blocks, no state, `DEVFLOW_SKIP_TODO_SYNC=1`), registration, CLAUDE.md/audit/coexistence entries
 - [ ] 63-04-todo-skill-on-task-list-TRD.md — (W3) `/devflow:todo` add/list on the session task list (TaskCreate/TaskList or TodoWrite) with archive fallback; builtin-audit counts TodoWrite; built-ins.md §5; contract repo test
@@ -336,5 +336,5 @@ TRDs:
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
 | 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
 | 62. Built-in sweep | v1.5 | 11/11 | Complete | 2026-10-06 |
-| 63. Todo store, hook coexistence and built-in inventory | v1.5 | 1/7 | In Progress | - |
+| 63. Todo store, hook coexistence and built-in inventory | v1.5 | 2/7 | In Progress | - |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |
