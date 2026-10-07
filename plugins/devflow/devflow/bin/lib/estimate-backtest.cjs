@@ -62,6 +62,34 @@ function median(values) {
   return n % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// ─── One comparison ───────────────────────────────────────────────────────────
+
+/**
+ * Compares one estimate with one actual. `ratio` is p50 / actual. The comparison is excluded, with a reason and no
+ * number, when the estimate has no p50 ('no estimate', checked first) or the actual is missing, zero or negative
+ * ('no actual'); a ratio over a zero actual would be infinite and over a missing one a guess.
+ * @param {?{p50:?number, p90:?number}} stat the estimate
+ * @param {?number} actual
+ */
+function compareMetric(stat, actual) {
+  const known = isFiniteNumber(actual) ? actual : null;
+  if (!stat || !isFiniteNumber(stat.p50)) return { estimate: null, actual: known, excluded: 'no estimate' };
+  const p50 = stat.p50;
+  const p90 = isFiniteNumber(stat.p90) ? stat.p90 : null;
+  if (known === null || known <= 0) return { p50, p90, actual: known, excluded: 'no actual' };
+  const ratio = p50 / known;
+  return {
+    p50,
+    p90,
+    actual: known,
+    ratio,
+    within_band: ratio >= 1 - BAND && ratio <= 1 + BAND,
+    covered: p90 === null ? null : known <= p90,
+    at_or_under_median: known <= p50,
+    excluded: null,
+  };
+}
+
 module.exports = {
   BAND,
   COVERAGE_TARGET,
@@ -70,4 +98,5 @@ module.exports = {
   PRIMARY_METRICS,
   REPRODUCE_TOLERANCE,
   median,
+  compareMetric,
 };
