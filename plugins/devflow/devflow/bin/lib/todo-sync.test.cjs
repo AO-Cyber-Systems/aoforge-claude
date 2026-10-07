@@ -596,3 +596,221 @@ describe('63-02 syncTodos in store mode', () => {
     assert.equal(fs.existsSync(outbox.journalPath(S.root)), false);
   });
 });
+
+// ─── The CLI: df-tools todo sync ─────────────────────────────────────────────
+
+/** Run df-tools in `root` with a hermetic HOME and no inherited config dir. */
+function cli(root, args) {
+  const env = { ...process.env, HOME: scratch(), NOTIFIER_DISABLE: '1' };
+  delete env.CLAUDE_CONFIG_DIR;
+  return spawnSync(process.execPath, [DF_TOOLS, ...args], { cwd: root, encoding: 'utf8', env });
+}
+
+const syncRaw = (root, args) => {
+  const r = cli(root, ['todo', 'sync', ...args, '--raw']);
+  let json = null;
+  try {
+    json = JSON.parse(r.stdout);
+  } catch {
+    json = null;
+  }
+  return { r, json };
+};
+
+describe('63-02 df-tools todo sync', () => {
+  test('1: --transcript archives a metadata todo as todos/pending/<stem>.md holding exactly buildTodoText(item)', () => {
+    const p = project();
+    const text = fx.transcriptOf(created(TITLE, STEM, { description: 'Tokens expire mid-session.' }));
+    const t = af.writeTranscript(scratch(), `${SESSION}.jsonl`, text);
+
+    const { r, json } = syncRaw(p.root, ['--transcript', t]);
+
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(json.added, [STEM]);
+    assert.deepEqual(json.completed, []);
+    const replayed = session.replayTranscript(text).items[0];
+    assert.equal(read(p.root, 'todos', 'pending', `${STEM}.md`), sync.buildTodoText(replayed, { sessionId: SESSION }));
+  });
+
+  test('2: the same command again exits 0, adds and completes nothing, and leaves the file bytes and mtime alone', () => {
+    const p = project();
+    const t = transcriptFile(scratch(), `${SESSION}.jsonl`, created(TITLE, STEM));
+    assert.equal(syncRaw(p.root, ['--transcript', t]).r.status, 0);
+    const file = planningPath(p.root, 'todos', 'pending', `${STEM}.md`);
+    const aged = new Date('2026-01-01T00:00:00.000Z');
+    fs.utimesSync(file, aged, aged);
+    const before = fs.readFileSync(file, 'utf8');
+
+    const { r, json } = syncRaw(p.root, ['--transcript', t]);
+
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual([json.added, json.completed], [[], []]);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+    assert.equal(fs.statSync(file).mtimeMs, aged.getTime());
+  });
+
+  test('3: a transcript that completes an archived todo moves the file to completed/ with the bytes `todo complete` writes', () => {
+    const todos = [{ stem: STEM, title: TITLE, state: 'pending' }];
+    const viaSync = project({ todos });
+    const viaComplete = project({ todos });
+    const t = transcriptFile(scratch(), `${SESSION}.jsonl`, created(TITLE, STEM), completedUpdate(1));
+
+    const { r, json } = syncRaw(viaSync.root, ['--transcript', t]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(json.completed, [STEM]);
+    const done = cli(viaComplete.root, ['todo', 'complete', `${STEM}.md`]);
+    assert.equal(done.status, 0, done.stderr);
+
+    assert.equal(present(viaSync.root, 'todos', 'pending', `${STEM}.md`), false);
+    assert.equal(read(viaSync.root, 'todos', 'completed', `${STEM}.md`), read(viaComplete.root, 'todos', 'completed', `${STEM}.md`));
+  });
+
+  test('4: --dry-run reports the same added and completed lists and writes nothing', () => {
+    const p = project();
+    const t = transcriptFile(scratch(), `${SESSION}.jsonl`, created(TITLE, STEM), completedUpdate(1));
+
+    const dry = syncRaw(p.root, ['--transcript', t, '--dry-run']);
+
+    assert.equal(dry.r.status, 0, dry.r.stderr);
+    assert.equal(dry.json.dry_run, true);
+    assert.deepEqual([dry.json.added, dry.json.completed], [[STEM], [STEM]]);
+    assert.equal(present(p.root, 'todos'), false, 'nothing was written');
+
+    const real = syncRaw(p.root, ['--transcript', t]);
+    assert.deepEqual([real.json.added, real.json.completed], [dry.json.added, dry.json.completed], 'the real run does what the dry run said');
+  });
+
+  test('5: --session <id> --projects-root <dir> finds <dir>/<project-dir>/<id>.jsonl', () => {
+    const p = project();
+    const found = af.makeProjectsRoot(SESSION, fx.transcriptOf(created(TITLE, STEM)));
+    cleanups.push(found.cleanup);
+
+    const { r, json } = syncRaw(p.root, ['--session', SESSION, '--projects-root', found.root]);
+
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(json.added, [STEM]);
+    assert.match(read(p.root, 'todos', 'pending', `${STEM}.md`), /^title: Add auth token refresh$/m);
+  });
+
+  test('5: an unsubstituted ${CLAUDE_SESSION_ID} exits 1 naming the placeholder; an unknown id exits 1 saying the transcript is not found', () => {
+    const p = project();
+    const found = af.makeProjectsRoot(SESSION, fx.transcriptOf(created(TITLE, STEM)));
+    cleanups.push(found.cleanup);
+
+    const placeholder = cli(p.root, ['todo', 'sync', '--session', '${CLAUDE_SESSION_ID}', '--projects-root', found.root]);
+    assert.equal(placeholder.status, 1);
+    assert.match(placeholder.stderr, /session id was not substituted: \$\{CLAUDE_SESSION_ID\}/);
+
+    const unknown = cli(p.root, ['todo', 'sync', '--session', 'sess9999-zzzz', '--projects-root', found.root]);
+    assert.equal(unknown.status, 1);
+    assert.match(unknown.stderr, /transcript not found for session sess9999-zzzz/);
+    assert.equal(present(p.root, 'todos'), false);
+  });
+
+  test('6: pending_commit lists the new and moved todo paths in a git project with commit_docs true, and is [] with commit_docs false', () => {
+    const archive = [{ stem: '2026-10-05-old-one', title: 'Old one', state: 'pending' }];
+    const t = transcriptFile(scratch(), `${SESSION}.jsonl`,
+      created('Old one', '2026-10-05-old-one', { taskId: 1 }), completedUpdate(1),
+      created(TITLE, STEM, { taskId: 2, at: fx.ts(5) }));
+
+    const on = project({ git: true, todos: archive });
+    const listed = syncRaw(on.root, ['--transcript', t]);
+    assert.equal(listed.r.status, 0, listed.r.stderr);
+    assert.deepEqual([...listed.json.pending_commit].sort(), [
+      '.planning/todos/completed/2026-10-05-old-one.md',
+      '.planning/todos/pending/2026-10-05-old-one.md',
+      `.planning/todos/pending/${STEM}.md`,
+    ].sort());
+
+    const off = project({ git: true, commitDocs: false, todos: archive });
+    assert.deepEqual(syncRaw(off.root, ['--transcript', t]).json.pending_commit, []);
+  });
+
+  test('7: human output is one headline, `added N, completed M`, and the pending-commit paths', () => {
+    const t = transcriptFile(scratch(), `${SESSION}.jsonl`, created(TITLE, STEM));
+
+    const tracked = project({ git: true });
+    const out = cli(tracked.root, ['todo', 'sync', '--transcript', t]);
+    assert.equal(out.status, 0, out.stderr);
+    const lines = out.stdout.trimEnd().split('\n');
+    assert.match(lines[0], /^todo sync: /);
+    assert.equal(lines[1], 'added 1, completed 0');
+    assert.equal(lines[2], `uncommitted: .planning/todos/pending/${STEM}.md`);
+    assert.equal(lines.length, 3, out.stdout);
+
+    const plain = project();
+    const noGit = cli(plain.root, ['todo', 'sync', '--transcript', t]);
+    assert.equal(noGit.status, 0, noGit.stderr);
+    assert.deepEqual(noGit.stdout.trimEnd().split('\n').slice(1), ['added 1, completed 0']);
+  });
+
+  test('7: with nothing to merge the headline says so and nothing is written', () => {
+    const p = project();
+    const t = af.writeTranscript(scratch(), `${SESSION}.jsonl`, fx.transcriptOf(fx.userText('hello')));
+
+    const out = cli(p.root, ['todo', 'sync', '--transcript', t]);
+
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(out.stdout.trimEnd(), 'todo sync: nothing to do (no session todos).');
+    assert.equal(present(p.root, 'todos'), false);
+  });
+
+  test('7: a failed write prints the warning and the error on stderr and exits 1', () => {
+    const p = project();
+    // A directory where the todo file must go: the add cannot write, and the sync says so instead of throwing.
+    fs.mkdirSync(planningPath(p.root, 'todos', 'pending', `${STEM}.md`), { recursive: true });
+    const t = transcriptFile(scratch(), `${SESSION}.jsonl`, created(TITLE, STEM));
+
+    const out = cli(p.root, ['todo', 'sync', '--transcript', t]);
+
+    assert.equal(out.status, 1, out.stdout);
+    assert.match(out.stderr, /Warning: add /);
+    assert.match(out.stderr, /Error: 1 of 1 todo write\(s\) failed/);
+  });
+
+  test('8: --transcript may repeat, and the --flag=value spelling works', () => {
+    const p = project();
+    const dir = scratch();
+    const one = transcriptFile(dir, 'sess0001-one.jsonl', created('First thing', '2026-10-06-first-thing'));
+    const two = transcriptFile(dir, 'sess0001-two.jsonl', created('Second thing', '2026-10-06-second-thing'));
+
+    const { r, json } = syncRaw(p.root, ['--transcript', one, `--transcript=${two}`]);
+
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual([...json.added].sort(), ['2026-10-06-first-thing', '2026-10-06-second-thing']);
+    assert.equal(json.transcripts, 2);
+  });
+
+  test('8: no --transcript and no --session is a usage error naming both', () => {
+    const p = project();
+    const out = cli(p.root, ['todo', 'sync']);
+    assert.equal(out.status, 1);
+    assert.match(out.stderr, /usage: df-tools todo sync \(--transcript <path>\.\.\. \| --session <id>\)/);
+  });
+
+  test('8: todo add and todo complete print and write what they always did; an unknown subcommand lists add, complete, sync', () => {
+    const p = project();
+    const draft = af.writeTranscript(scratch(), 'todo.md', af.todoFileText({ title: 'Fix thing', created: '2026-10-06T10:00:00.000Z' }));
+
+    const add = cli(p.root, ['todo', 'add', '--from', draft, '--stem', 'fix-thing']);
+    assert.equal(add.status, 0, add.stderr);
+    assert.equal(add.stdout.trimEnd(), 'todo add: wrote .planning/todos/pending/fix-thing.md (local mode).');
+    assert.equal(read(p.root, 'todos', 'pending', 'fix-thing.md'), fs.readFileSync(draft, 'utf8'));
+
+    const complete = cli(p.root, ['todo', 'complete', 'fix-thing']);
+    assert.equal(complete.status, 0, complete.stderr);
+    assert.equal(present(p.root, 'todos', 'completed', 'fix-thing.md'), true);
+
+    const bogus = cli(p.root, ['todo', 'bogus']);
+    assert.equal(bogus.status, 1);
+    assert.match(bogus.stderr, /Unknown todo subcommand: bogus\. Available: add, complete, sync/);
+  });
+
+  test('8: the help for todo names the sync form', () => {
+    const p = project();
+    const out = cli(p.root, ['todo', '--help']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /todo sync \(--transcript <path>\.\.\. \| --session <id>\) \[--projects-root <dir>\] \[--dry-run\] \[--no-flush\] \[--no-wait\]/);
+    assert.match(out.stdout, /merge a session's task-list todos into the archive/);
+  });
+});
