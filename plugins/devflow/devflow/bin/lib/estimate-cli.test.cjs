@@ -34,6 +34,7 @@ const est = require('./estimate.cjs');
 const rollup = require('./estimate-rollup.cjs');
 const store = require('./estimate-run-store.cjs');
 const { finishedRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
+const { makeBacktestProject, removeBacktestProject } = require('./__fixtures__/backtest-fixtures.cjs');
 const {
   CAL_V2,
   MILESTONE_SPEC,
@@ -383,8 +384,8 @@ describe('7: estimate milestone', () => {
 // ─── usage and calibration resolution ─────────────────────────────────────────
 
 describe('usage and calibration resolution', () => {
-  test('USAGE names all seven forms', () => {
-    for (const form of ['task', 'trd', 'objective', 'milestone', 'start', 'wave', 'finish']) {
+  test('USAGE names all eight forms', () => {
+    for (const form of ['task', 'trd', 'objective', 'milestone', 'start', 'wave', 'finish', 'backtest']) {
       assert.ok(USAGE.includes(`df-tools estimate ${form} `), `USAGE lacks ${form}`);
     }
   });
@@ -884,5 +885,57 @@ describe('spawned run verbs', () => {
     });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout, 'Wave 1: actual unknown (no run state)');
+  });
+});
+
+// ─── 13: backtest (TRD 64-04, EST-08) ─────────────────────────────────────────
+
+describe('13: backtest usage (TRD 64-04, EST-08)', () => {
+  let project;
+
+  before(() => {
+    project = makeBacktestProject();
+  });
+
+  after(() => {
+    removeBacktestProject(project);
+  });
+
+  const backtest = (argv) => runEstimate({
+    argv: ['backtest', ...argv],
+    cwd: project,
+    env: { DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: path.join(scratch, 'backtest-usage-state') },
+    now: T0,
+  });
+
+  test('6: no list, an empty piece, a non-number, two lists and an unknown flag are usage errors', () => {
+    for (const argv of [[], ['59,,60'], [',90'], ['90,'], ['abc'], ['90,x'], ['90', '91'], ['90', '--bogus'], ['90', '--calibration']]) {
+      const r = backtest(argv);
+      assert.equal(r.ok, false, JSON.stringify(argv));
+      assert.match(r.message, /\nUsage: df-tools estimate /, JSON.stringify(argv));
+    }
+  });
+
+  test('6b: a malformed list names the piece that is wrong', () => {
+    assert.match(backtest(['59,,60']).message, /objective list/);
+    assert.match(backtest(['abc']).message, /"abc"/);
+  });
+
+  test('6c: an unknown objective exits 1 with `objective 99 not found`', () => {
+    assert.deepEqual(backtest(['90,99']), { ok: false, message: 'objective 99 not found' });
+  });
+
+  test('6d: spawned, a usage error and an unknown objective both exit 1', () => {
+    const bad = spawnSync(process.execPath, [DF_TOOLS, '--cwd', project, 'estimate', 'backtest', 'abc'], {
+      encoding: 'utf-8', env: { ...process.env, HOME: fakeHome }, timeout: 30000,
+    });
+    assert.equal(bad.status, 1, bad.stdout);
+    assert.match(bad.stderr, /Usage: df-tools estimate /);
+
+    const missing = spawnSync(process.execPath, [DF_TOOLS, '--cwd', project, 'estimate', 'backtest', '99', '--calibration', calFile], {
+      encoding: 'utf-8', env: { ...process.env, HOME: fakeHome }, timeout: 30000,
+    });
+    assert.equal(missing.status, 1, missing.stdout);
+    assert.match(missing.stderr, /objective 99 not found/);
   });
 });
