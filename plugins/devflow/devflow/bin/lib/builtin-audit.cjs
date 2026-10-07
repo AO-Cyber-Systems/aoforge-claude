@@ -38,8 +38,12 @@
  * without asking permission during the turn that invokes this skill". The tools reference marks
  * ExitPlanMode "Permission required: Yes", and its permission prompt IS the plan approval.
  * Pre-approving it risks approving the very draft the user is meant to review. EnterPlanMode,
- * AskUserQuestion, TaskCreate and TaskUpdate need no permission, so declaring them is harmless.
- * For that reason ExitPlanMode is never reported as "missing" either.
+ * AskUserQuestion, TaskCreate, TaskUpdate, TaskList and TodoWrite need no permission, so declaring
+ * them is harmless. For that reason ExitPlanMode is never reported as "missing" either.
+ *
+ * TodoWrite (TRD 63-04, BLTN-04) is the session todo store of `/devflow:todo`: with the Task tools
+ * switched off (`CLAUDE_CODE_ENABLE_TASKS=0`) the session task list is written through it. Like the
+ * Task tools it is counted only in call form (`TodoWrite(`), so a bare mention is not a use.
  *
  * Progress and plan mode. progressCounts totals TaskCreate(/TaskUpdate( wiring across flow files.
  * planModeSpans finds EnterPlanMode()...ExitPlanMode() spans, whether each presents a draft, and
@@ -73,6 +77,7 @@ const BUILTINS = [
   'TaskUpdate',
   'TaskList',
   'TaskGet',
+  'TodoWrite',
   'EnterPlanMode',
   'ExitPlanMode',
 ];

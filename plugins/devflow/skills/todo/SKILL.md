@@ -11,6 +11,10 @@ allowed-tools:
   - Write
   - Bash
   - AskUserQuestion
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
+  - TodoWrite
 ---
 
 <objective>
@@ -19,6 +23,14 @@ Manage todos. Routes by first argument:
 - `list [--all|--lane|--refresh|--raw]` — Morning standup view across 5 sources
 
 Replaces 2 sibling skills: add-todo, check-todos.
+
+The session task list (TaskCreate, TaskUpdate and TaskList, or TodoWrite) is the in-session store of a todo; the todo
+files (or GitHub issues in store mode) are the durable archive. `add` puts the todo in the session list first, then
+writes the archive. `list` merges the session list into the archive, then shows the archive with each todo's
+in-session status. The todo-sync Stop hook and `df-tools todo sync` carry session todos into the archive, so a turn cut
+off between the two writes loses nothing. Without task tools in the session (newer models without
+`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`) the flows are archive-only, exactly as before. Convention:
+`@~/.claude/devflow/references/built-ins.md` section 5.
 
 Todo files go through the verbs. Never write, edit or move a file under `.planning/todos/` directly. Add with
 `node ~/.claude/devflow/bin/df-tools.cjs todo add --from <draft>` (draft path from `planning draft todos/pending/<stem>.md`)
@@ -29,10 +41,12 @@ and complete with `node ~/.claude/devflow/bin/df-tools.cjs todo complete <filena
 <execution_context>
 @~/.claude/devflow/workflows/add-todo.md
 @~/.claude/devflow/workflows/check-todos.md
+@~/.claude/devflow/references/built-ins.md
 </execution_context>
 
 <context>
 Subcommand: $ARGUMENTS
+Session: ${CLAUDE_SESSION_ID}
 
 @.planning/STATE.md
 </context>
