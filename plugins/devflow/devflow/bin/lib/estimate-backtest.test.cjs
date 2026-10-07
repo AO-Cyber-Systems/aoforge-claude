@@ -312,3 +312,133 @@ test('classRows: the cost table reads each task\'s cost estimate and the TRD\'s 
   assert.strictEqual(out.cost_usd[0].median_ratio, 0.5);
   assert.strictEqual(out.cost_usd[0].tasks, 2);
 });
+
+// ─── summarize ────────────────────────────────────────────────────────────────
+
+const cmp = (p50, p90, actual) => backtest.compareMetric(fx.stat(p50, p90), actual);
+
+/** An objective row as summarize reads it: the objective-level comparisons and the TRD comparisons per metric. */
+function summaryRow(objective, { agent = null, cost = null, wall = null, trdMinutes = [], trdCost = [] } = {}) {
+  return {
+    objective,
+    agent_minutes: agent,
+    cost_usd: cost,
+    wall_minutes: wall || { source: null, excluded: 'no run state recorded' },
+    trd_rows: [
+      ...trdMinutes.map((m, i) => ({ id: `${objective}-0${i + 1}`, tasks: [], minutes: m, cost_usd: { excluded: 'no actual' } })),
+      ...trdCost.map((c, i) => ({ id: `${objective}-1${i + 1}`, tasks: [], minutes: { excluded: 'no actual' }, cost_usd: c })),
+    ],
+  };
+}
+
+const EXCLUDED = (reason, trds) => ({ source: 'reconstructed', excluded: reason, trds });
+
+test('summarize: ratios, pooled ratio, band count, coverage and under-median share over compared objectives', () => {
+  const rows = [
+    // 10 vs 8: ratio 1.25, in band, covered, at or under median
+    summaryRow('1', { agent: cmp(10, 30, 8), trdMinutes: [cmp(5, 9, 4), cmp(5, 9, 5), { excluded: 'no actual' }] }),
+    // 10 vs 10: ratio 1.0
+    summaryRow('2', { agent: cmp(10, 30, 10) }),
+    // 10 vs 20: ratio 0.5, out of band, over P90 12, over the median
+    summaryRow('3', { agent: cmp(10, 12, 20), trdMinutes: [cmp(5, 6, 9)] }),
+    summaryRow('4', { agent: EXCLUDED('incomplete actuals', ['4-02']) }),
+  ];
+  const s = backtest.summarize(rows, { minutes: [], cost_usd: [] }).agent_minutes;
+  assert.strictEqual(s.compared, 3);
+  assert.strictEqual(s.median_ratio, 1);
+  assert.strictEqual(s.pooled_ratio, 30 / 38, 'sum(p50) / sum(actual) = 30 / 38');
+  assert.strictEqual(s.in_band, 2);
+  assert.strictEqual(s.coverage, 2 / 3);
+  assert.strictEqual(s.under_median_share, 2 / 3);
+  assert.deepStrictEqual(s.excluded, [{ objective: '4', reason: 'incomplete actuals', trds: ['4-02'] }]);
+  // TRD rows whose metric is not excluded: two covered (4 and 5 are under P90 9) and one not (9 is over P90 6)
+  assert.strictEqual(s.trd_compared, 3);
+  assert.strictEqual(s.trd_coverage, 2 / 3);
+  assert.strictEqual(s.sc2, 'pass', 'the median ratio is 1.0');
+  assert.strictEqual(s.sc3, 'fail', 'coverage 2/3 is below 0.8');
+});
+
+test('summarize: fewer than 3 compared objectives is insufficient for both criteria', () => {
+  const rows = [summaryRow('1', { agent: cmp(10, 30, 10) }), summaryRow('2', { agent: cmp(10, 30, 10) })];
+  const s = backtest.summarize(rows, { minutes: [], cost_usd: [] }).agent_minutes;
+  assert.strictEqual(s.compared, 2);
+  assert.strictEqual(s.sc2, 'insufficient');
+  assert.strictEqual(s.sc3, 'insufficient');
+});
+
+test('summarize: SC2 is the median ratio within the band, inclusive', () => {
+  const at = (ratioActual) => backtest.summarize(
+    ['1', '2', '3'].map((o) => summaryRow(o, { agent: cmp(13, 40, ratioActual) })), { minutes: [], cost_usd: [] }).agent_minutes;
+  assert.strictEqual(at(10).median_ratio, 1.3);
+  assert.strictEqual(at(10).sc2, 'pass', '1.30 is the boundary');
+  assert.strictEqual(at(9.9).sc2, 'fail', '13 / 9.9 is above 1.30');
+  const low = backtest.summarize(
+    ['1', '2', '3'].map((o) => summaryRow(o, { agent: cmp(7, 40, 10) })), { minutes: [], cost_usd: [] }).agent_minutes;
+  assert.strictEqual(low.sc2, 'pass', '0.70 is the boundary');
+});
+
+test('summarize: SC3 needs P90 to cover 80% of the objectives and of the TRDs', () => {
+  const covered = cmp(10, 30, 10);
+  const uncovered = cmp(10, 12, 20);
+  const fiveObjectives = (trdFor) => ['1', '2', '3', '4', '5'].map((o, i) => summaryRow(o, {
+    agent: i < 4 ? covered : uncovered,
+    trdMinutes: trdFor(i),
+  }));
+  const none = { minutes: [], cost_usd: [] };
+
+  // objectives 4 of 5 = 0.8, TRDs 4 of 5 = 0.8
+  const pass = backtest.summarize(fiveObjectives((i) => [i < 4 ? covered : uncovered]), none).agent_minutes;
+  assert.deepStrictEqual([pass.coverage, pass.trd_coverage, pass.sc3], [0.8, 0.8, 'pass']);
+
+  // objectives 0.8 but TRDs 3 of 5 = 0.6
+  const narrowTrds = backtest.summarize(fiveObjectives((i) => [i < 3 ? covered : uncovered]), none).agent_minutes;
+  assert.deepStrictEqual([narrowTrds.coverage, narrowTrds.trd_coverage, narrowTrds.sc3], [0.8, 0.6, 'fail']);
+
+  // objectives pass with no TRD comparison at all: the TRD half cannot be judged
+  const noTrds = backtest.summarize(fiveObjectives(() => []), none).agent_minutes;
+  assert.deepStrictEqual([noTrds.trd_compared, noTrds.trd_coverage, noTrds.sc3], [0, null, 'insufficient']);
+});
+
+test('summarize: cost_usd is judged on its own comparisons and counts the miscalibrated classes', () => {
+  const rows = ['1', '2', '3'].map((o) => summaryRow(o, {
+    agent: cmp(10, 30, 10), cost: cmp(2, 4, 1), trdCost: [cmp(1, 2, 1)],
+  }));
+  const classes = {
+    minutes: [{ class: 'a', verdict: 'miscalibrated' }],
+    cost_usd: [{ class: 'a', verdict: 'miscalibrated' }, { class: 'b', verdict: 'ok' }, { class: 'c', verdict: 'miscalibrated' }],
+  };
+  const out = backtest.summarize(rows, classes);
+  assert.strictEqual(out.cost_usd.median_ratio, 2, '2 / 1');
+  assert.strictEqual(out.cost_usd.sc2, 'fail');
+  assert.strictEqual(out.cost_usd.trd_compared, 3);
+  assert.strictEqual(out.cost_usd.miscalibrated_classes, 2);
+  assert.strictEqual(out.agent_minutes.miscalibrated_classes, 1);
+  assert.strictEqual(out.agent_minutes.median_ratio, 1);
+});
+
+test('summarize: wall time is informational, with no SC2 or SC3', () => {
+  const wall = (p50, p90, actual, waves) => ({
+    source: 'prospective', actual, prospective: cmp(p50, p90, actual), waves,
+  });
+  const rows = [
+    summaryRow('1', { wall: wall(100, 300, 80, [cmp(20, 60, 18), cmp(10, 30, 50)]) }),
+    summaryRow('2'),
+  ];
+  const s = backtest.summarize(rows, { minutes: [], cost_usd: [] }).wall_minutes;
+  assert.strictEqual(s.compared, 1);
+  assert.strictEqual(s.median_ratio, 1.25);
+  assert.strictEqual(s.coverage, 1);
+  assert.deepStrictEqual(s.waves, { compared: 2, coverage: 0.5 });
+  assert.ok(!('sc2' in s) && !('sc3' in s), 'one objective can never reach the minimum, so it is not judged');
+});
+
+test('summarize: with no compared objective every figure is null, never zero', () => {
+  const s = backtest.summarize([summaryRow('1', { agent: EXCLUDED('no estimate', []) })], { minutes: [], cost_usd: [] });
+  assert.deepStrictEqual(
+    [s.agent_minutes.compared, s.agent_minutes.median_ratio, s.agent_minutes.pooled_ratio, s.agent_minutes.coverage,
+      s.agent_minutes.under_median_share, s.agent_minutes.sc2],
+    [0, null, null, null, null, 'insufficient'],
+  );
+  assert.strictEqual(s.wall_minutes.compared, 0);
+  assert.strictEqual(s.wall_minutes.median_ratio, null);
+});
