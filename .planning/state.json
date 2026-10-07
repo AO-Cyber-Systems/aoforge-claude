@@ -1,8 +1,8 @@
 {
   "current_objective": "64",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 6,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-07",
   "metrics": {
@@ -1039,6 +1039,11 @@
     {
       "objective": "64",
       "summary": "64-03: the backfill's partial stamp of 64-03's own in-flight SUMMARY was reverted out of the backfill commit; in-flight TRDs take tokens from the forward stamp only",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "64-04: estimate backtest joins actuals on the directory name (estimateObjective dir is a relative path); duplicate objectives in the list are a usage error; the wall section compares the execution-only estimate.wall_minutes",
       "rationale": null
     }
   ],
