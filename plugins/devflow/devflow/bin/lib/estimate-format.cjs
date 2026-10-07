@@ -379,10 +379,64 @@ function finishLine({ objective, actual, wall }) {
   return parts.join(' · ');
 }
 
-// ─── Backtest (TRD 64-04) ─────────────────────────────────────────────────────
+// ─── Backtest (TRD 64-04, EST-08) ─────────────────────────────────────────────
 
-// Placeholders until the renderers land in this TRD's second task; nothing prints them yet.
-const backtestLine = () => '';
+// The renderers print a result of estimate-backtest.buildBacktest (plus the `available` flag and `calibration` the CLI adds).
+// They decide nothing: every verdict, median and share is read off the result, and the counts printed beside them are
+// counted from its rows. Text rounds once as it prints, ratios to two decimals; the JSON keeps three (DECIMALS).
+
+// The two primary metrics, by their key on an objective row, on that row's TRD rows, and in the class tables.
+const BACKTEST_METRICS = Object.freeze([
+  Object.freeze({ key: 'agent_minutes', label: 'Agent minutes', short: 'agent minutes', trdKey: 'minutes', classKey: 'minutes', tag: 'minutes', show: formatMinutes }),
+  Object.freeze({ key: 'cost_usd', label: 'Cost', short: 'cost', trdKey: 'cost_usd', classKey: 'cost_usd', tag: 'cost', show: formatUsd }),
+]);
+
+const ratioText = (x) => (isNum(x) ? x.toFixed(2) : 'n/a');
+const ofText = (n, m) => `${n} of ${m}`;
+const withShare = (n, m) => (m === 0 ? ofText(n, m) : `${ofText(n, m)} (${formatPercent(n / m)})`);
+const bandText = (band) => `±${Math.round(band * 100)}%`;
+const yesNo = (flag) => (flag === true ? 'yes' : flag === false ? 'no' : 'n/a');
+const wasCompared = (cell) => Boolean(cell) && !cell.excluded;
+
+/** How many compared objectives and TRDs had their actual at or under P90 (and under the median), counted from the rows. */
+function backtestCounts(result, metric) {
+  const rows = Array.isArray(result.objectives) ? result.objectives : [];
+  const cells = rows.map((row) => row[metric.key]).filter(wasCompared);
+  const trdCells = rows.flatMap((row) => (row.trd_rows || []).map((trdRow) => trdRow[metric.trdKey])).filter(wasCompared);
+  const count = (list, test) => list.filter(test).length;
+  return {
+    objectives: cells.length,
+    covered: count(cells, (c) => c.covered === true),
+    atOrUnder: count(cells, (c) => c.at_or_under_median === true),
+    trds: trdCells.length,
+    trdCovered: count(trdCells, (c) => c.covered === true),
+  };
+}
+
+/**
+ * One line: `Backtest 59, 60, 61: agent minutes median ratio 1.51 (2 of 5 in ±30%, P90 covers 5 of 5 objectives, 40 of 41
+ * TRDs) · cost median ratio 0.98 (5 of 5, P90 5 of 5, 41 of 41) · EST-08 not met`. The first metric that prints numbers
+ * names what they count; the next is shortened. A metric below the minimum is `insufficient (2 objectives)`.
+ */
+function backtestLine(r) {
+  if (unavailable(r)) return noEstimate(r && r.reason);
+  let first = true;
+  const parts = BACKTEST_METRICS.map((metric) => {
+    const s = r.summary[metric.key];
+    if (s.sc2 === 'insufficient') return `${metric.short} insufficient (${plural(s.compared, 'objective')})`;
+    const c = backtestCounts(r, metric);
+    const inBand = first ? `${ofText(s.in_band, s.compared)} in ${bandText(r.band)}` : ofText(s.in_band, s.compared);
+    const objectives = first ? `P90 covers ${ofText(c.covered, c.objectives)} objectives` : `P90 ${ofText(c.covered, c.objectives)}`;
+    const trds = first ? `${ofText(c.trdCovered, c.trds)} TRDs` : ofText(c.trdCovered, c.trds);
+    first = false;
+    return `${metric.short} median ratio ${ratioText(s.median_ratio)} (${inBand}, ${objectives}, ${trds})`;
+  });
+  parts.push(`EST-08 ${r.verdict.est08}`);
+  const objectives = (r.objectives || []).map((o) => o.objective).join(', ');
+  return `Backtest ${objectives}: ${parts.join(' · ')}`;
+}
+
+// Placeholder until the report renderer lands, in this TRD's next commit.
 const backtestReport = () => '';
 
 module.exports = {
