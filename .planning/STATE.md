@@ -54,7 +54,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 61 — Store-mode rough edges and observability (completed 2026-10-06, 9/9 TRDs)
 **Objective complete:** 62 — Built-in sweep (completed 2026-10-06, 11/11 TRDs)
 **Objective complete:** 63 — Todo store, hook coexistence and built-in inventory (completed 2026-10-07, 7/7 TRDs)
-**Status:** Executing objective 64 — 1/6 TRDs complete
+**Status:** Executing objective 64 — 3/6 TRDs complete
 
 ## Branch State (post-merge)
 

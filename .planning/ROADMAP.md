@@ -321,7 +321,7 @@ TRDs:
 
 TRDs:
 - [x] 64-01-backtest-comparison-library-TRD.md — (W1) `estimate-backtest.cjs`: actuals (SUMMARY minutes, metric fallback, priced tokens, exclusions named), ratio/band/coverage, class flags, the EST-08 verdict rules pinned as constants
-- [ ] 64-02-run-history-and-all-text-TRD.md — (W1) finished runs archived to `<state dir>/history/<repo-key>/`, richer run-state estimate (execution, total, calibration), done-objective `--all` text fix
+- [x] 64-02-run-history-and-all-text-TRD.md — (W1) finished runs archived to `<state dir>/history/<repo-key>/`, richer run-state estimate (execution, total, calibration), done-objective `--all` text fix
 - [x] 64-03-frozen-inputs-and-token-backfill-TRD.md — (W1) frozen pre-59 calibration and 63's run state preserved, estimator drift and 63 reproduction, diff-guarded token backfill of 58-63, actuals audit against transcript spans
 - [ ] 64-04-estimate-backtest-verb-TRD.md — (W2) `df-tools estimate backtest <N[,N...]>`: JSON and markdown report, prospective run lookup from the main checkout, help
 - [ ] 64-05-out-of-sample-backtest-report-TRD.md — (W3) EST-08: primary backtest of 59-63 on the frozen calibration, rolling leave-future-out and window diagnostics, 64-ACCURACY-REPORT.md, EST-08 status, follow-up todo
@@ -345,4 +345,4 @@ TRDs:
 | 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
 | 62. Built-in sweep | v1.5 | 11/11 | Complete | 2026-10-06 |
 | 63. Todo store, hook coexistence and built-in inventory | v1.5 | 7/7 | Complete | 2026-10-07 |
-| 64. Estimate accuracy validation | v1.5 | 1/6 | In Progress | - |
+| 64. Estimate accuracy validation | v1.5 | 3/6 | In Progress | - |
