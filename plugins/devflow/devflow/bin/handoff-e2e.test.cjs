@@ -495,6 +495,10 @@ describe('handoff pipeline — PTY-path mock auth (TRD 19-05)', () => {
       DIGITALOCEAN_API_URL: `http://127.0.0.1:${mockDoctlPort}/`,
       DIGITALOCEAN_TOKEN: doToken == null ? '' : doToken,
     };
+    // Hermetic: doctl reads DIGITALOCEAN_ACCESS_TOKEN from the environment and, when it is set, `doctl auth init`
+    // finishes without prompting (exit 0). A developer shell that exports it turned MA-7's "no token" case into a
+    // success. The mocks carry their own token via DIGITALOCEAN_TOKEN, so the ambient one is never wanted here.
+    delete env.DIGITALOCEAN_ACCESS_TOKEN;
     const child = spawn('node', [CLI, 'start',
       '--project', project,
       '--shell', 'bash',
