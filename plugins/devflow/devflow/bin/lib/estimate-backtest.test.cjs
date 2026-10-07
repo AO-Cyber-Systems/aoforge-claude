@@ -220,3 +220,95 @@ test('objectiveActuals: reads what collectProject builds from a real tree (the f
     fx.removeBacktestProject(root);
   }
 });
+
+// ─── classRows ────────────────────────────────────────────────────────────────
+
+// An objective row as classRows reads it: only `trd_rows[].tasks` and each TRD's actual per metric.
+function trdRow(id, actual, tasks, excluded = null) {
+  return { id, wave: 1, tasks, minutes: { actual, excluded }, cost_usd: { actual, excluded } };
+}
+
+function objectiveRow(trdRows) {
+  return { objective: '90', trd_rows: trdRows };
+}
+
+/** n tasks of one class, each estimated at {p50, p90} minutes. */
+function tasksOf(cls, n, stat, p90Overrides = []) {
+  return Array.from({ length: n }, (_, i) => fx.taskEstimate({
+    cls, minutes: fx.stat(stat[0], p90Overrides[i] === undefined ? stat[1] : p90Overrides[i]),
+  }));
+}
+
+test('classRows: a TRD actual is split equally across its non-checkpoint tasks, and a checkpoint is neither share nor sample', () => {
+  const tasks = [
+    fx.taskEstimate({ cls: 'code_tdd', minutes: fx.stat(15, 20) }),
+    fx.taskEstimate({ cls: 'code_tdd', minutes: fx.stat(7.5, 20) }),
+    fx.taskEstimate({ cls: 'checkpoint' }),
+  ];
+  const { minutes } = backtest.classRows([objectiveRow([trdRow('90-01', 30, tasks)])]);
+  assert.deepStrictEqual(minutes.map((c) => c.class), ['code_tdd'], 'the checkpoint is not a class');
+  const [code] = minutes;
+  assert.strictEqual(code.tasks, 2);
+  // each share is 30 / 2 = 15: ratios 15 / 15 = 1 and 7.5 / 15 = 0.5
+  assert.strictEqual(code.median_ratio, 0.75);
+  assert.strictEqual(code.coverage, 1);
+  assert.strictEqual(code.under_median_share, 0.5, '15 is at or under a p50 of 15 but over a p50 of 7.5');
+});
+
+test('classRows: flags bias and a narrow P90 only for a class with at least 3 tasks', () => {
+  const rows = [objectiveRow([
+    trdRow('90-01', 20, tasksOf('code_tdd', 4, [10, 30])), // share 5, ratio 2.0, covered
+    trdRow('90-02', 20, tasksOf('doc', 4, [2.5, 30])), // ratio 0.5, covered
+    trdRow('90-03', 20, tasksOf('prompt', 4, [5, 6], [undefined, undefined, 4, 4])), // ratio 1.0, 2 of 4 covered
+    trdRow('90-04', 20, tasksOf('test', 4, [2.5, 4])), // ratio 0.5 and no actual under P90
+    trdRow('90-05', 10, tasksOf('config', 2, [10, 30])), // share 5, ratio 2.0, but only 2 tasks
+  ])];
+  const { minutes } = backtest.classRows(rows);
+  const by = Object.fromEntries(minutes.map((c) => [c.class, c]));
+
+  assert.deepStrictEqual([by.code_tdd.median_ratio, by.code_tdd.flags, by.code_tdd.verdict], [2, ['biased_high'], 'miscalibrated']);
+  assert.deepStrictEqual([by.doc.median_ratio, by.doc.flags], [0.5, ['biased_low']]);
+  assert.deepStrictEqual([by.prompt.median_ratio, by.prompt.coverage, by.prompt.flags], [1, 0.5, ['p90_too_narrow']]);
+  assert.deepStrictEqual(by.test.flags, ['biased_low', 'p90_too_narrow'], 'flags combine');
+  assert.deepStrictEqual([by.config.tasks, by.config.verdict, by.config.flags], [2, 'too_few', []]);
+  assert.strictEqual(by.config.median_ratio, 2, 'a too_few class still reports its numbers, it is just not judged');
+
+  assert.deepStrictEqual(minutes.map((c) => c.class), ['code_tdd', 'doc', 'prompt', 'test', 'config'],
+    'sorted by task count descending, then class name');
+});
+
+test('classRows: the band and the coverage target are inclusive', () => {
+  const rows = [objectiveRow([
+    trdRow('90-01', 20, tasksOf('code_tdd', 4, [6.5, 30])), // 6.5 / 5 = 1.3
+    trdRow('90-02', 20, tasksOf('doc', 4, [3.5, 30])), // 3.5 / 5 = 0.7
+    trdRow('90-03', 25, tasksOf('prompt', 5, [5, 6], [undefined, undefined, undefined, undefined, 4])), // 4 of 5 covered
+  ])];
+  const { minutes } = backtest.classRows(rows);
+  for (const c of minutes) assert.deepStrictEqual([c.class, c.flags, c.verdict], [c.class, [], 'ok']);
+  assert.strictEqual(minutes.find((c) => c.class === 'prompt').coverage, 0.8);
+});
+
+test('classRows: a TRD with no actual and a task with no estimate contribute no sample', () => {
+  const noEstimate = fx.taskEstimate({ cls: 'doc', minutes: null });
+  const rows = [objectiveRow([
+    trdRow('90-01', null, tasksOf('code_tdd', 3, [5, 10]), 'no actual'),
+    trdRow('90-02', 10, [noEstimate, fx.taskEstimate({ cls: 'doc', minutes: fx.stat(5, 10) })]),
+  ])];
+  const { minutes } = backtest.classRows(rows);
+  assert.deepStrictEqual(minutes.map((c) => [c.class, c.tasks]), [['doc', 1]]);
+});
+
+test('classRows: the cost table reads each task\'s cost estimate and the TRD\'s cost actual', () => {
+  const tasks = [
+    fx.taskEstimate({ cls: 'code_tdd', cost: fx.stat(2, 5) }),
+    fx.taskEstimate({ cls: 'code_tdd', cost: fx.stat(2, 5) }),
+  ];
+  const row = trdRow('90-01', 0, tasks);
+  row.minutes = { actual: null, excluded: 'no actual' };
+  row.cost_usd = { actual: 8, excluded: null }; // share 4, ratio 0.5
+  const out = backtest.classRows([objectiveRow([row])]);
+  assert.deepStrictEqual(out.minutes, [], 'the minutes table has no sample: the TRD has no minutes actual');
+  assert.strictEqual(out.cost_usd[0].class, 'code_tdd');
+  assert.strictEqual(out.cost_usd[0].median_ratio, 0.5);
+  assert.strictEqual(out.cost_usd[0].tasks, 2);
+});
