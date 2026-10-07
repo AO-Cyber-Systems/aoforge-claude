@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T13:59:08.143Z",
+  "generatedAt": "2026-10-07T01:36:19.261Z",
   "version": "2.13.2",
   "packageVersion": "2.13.2",
   "repo": "AO-Cyber-Systems/devflow-claude",
@@ -7,11 +7,11 @@
   "counts": {
     "skills": 34,
     "agents": 13,
-    "hooks": 19,
+    "hooks": 22,
     "workflows": 41,
-    "references": 36,
+    "references": 37,
     "templates": 31,
-    "dfToolsCommands": 79
+    "dfToolsCommands": 83
   },
   "skills": [
     {
@@ -99,8 +99,7 @@
         "TaskUpdate",
         "TaskList",
         "AskUserQuestion",
-        "EnterPlanMode",
-        "ExitPlanMode"
+        "EnterPlanMode"
       ],
       "agent": null,
       "userOnly": false
@@ -115,7 +114,9 @@
       ],
       "triggers": [],
       "args": "",
-      "tools": [],
+      "tools": [
+        "AskUserQuestion"
+      ],
       "agent": null,
       "userOnly": true
     },
@@ -140,7 +141,9 @@
         "Read",
         "Bash",
         "Task",
-        "AskUserQuestion"
+        "AskUserQuestion",
+        "TaskCreate",
+        "TaskUpdate"
       ],
       "agent": null,
       "userOnly": false
@@ -167,7 +170,8 @@
       "args": "[<decision-id> <choice>]",
       "tools": [
         "Bash",
-        "Read"
+        "Read",
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": false
@@ -285,6 +289,7 @@
         "Bash",
         "Task",
         "TaskCreate",
+        "TaskUpdate",
         "AskUserQuestion"
       ],
       "agent": null,
@@ -313,7 +318,8 @@
         "Skill",
         "Task",
         "Read",
-        "Bash"
+        "Bash",
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": false
@@ -360,7 +366,8 @@
       "args": "<command to run interactively or via user shell>",
       "tools": [
         "Bash",
-        "Write"
+        "Write",
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": false
@@ -419,7 +426,8 @@
         "Read",
         "Bash",
         "Grep",
-        "Glob"
+        "Glob",
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": true
@@ -447,6 +455,7 @@
         "Grep",
         "Write",
         "Task",
+        "AskUserQuestion",
         "mcp__gopls__*",
         "mcp__dart__*"
       ],
@@ -473,7 +482,9 @@
         "Write",
         "Edit",
         "Bash",
-        "AskUserQuestion"
+        "AskUserQuestion",
+        "TaskCreate",
+        "TaskUpdate"
       ],
       "agent": null,
       "userOnly": false
@@ -495,6 +506,7 @@
         "Bash",
         "Task",
         "AskUserQuestion",
+        "EnterPlanMode",
         "Glob",
         "Grep"
       ],
@@ -522,7 +534,10 @@
         "Bash",
         "Write",
         "Task",
-        "AskUserQuestion"
+        "AskUserQuestion",
+        "TaskCreate",
+        "TaskUpdate",
+        "EnterPlanMode"
       ],
       "agent": null,
       "userOnly": false
@@ -543,7 +558,8 @@
         "Read",
         "Write",
         "Bash",
-        "Glob"
+        "Glob",
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": false
@@ -572,9 +588,10 @@
         "Glob",
         "Grep",
         "Task",
+        "TaskCreate",
+        "TaskUpdate",
         "WebFetch",
         "EnterPlanMode",
-        "ExitPlanMode",
         "AskUserQuestion",
         "mcp__context7__*"
       ],
@@ -607,7 +624,9 @@
         "Grep",
         "Bash",
         "Task",
-        "AskUserQuestion"
+        "AskUserQuestion",
+        "TaskCreate",
+        "TaskUpdate"
       ],
       "agent": null,
       "userOnly": false
@@ -630,7 +649,8 @@
       "tools": [
         "Read",
         "Bash",
-        "Task"
+        "Task",
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": false
@@ -657,7 +677,8 @@
         "Glob",
         "Grep",
         "Write",
-        "Task"
+        "Task",
+        "AskUserQuestion"
       ],
       "agent": null,
       "userOnly": false
@@ -779,7 +800,11 @@
         "Read",
         "Write",
         "Bash",
-        "AskUserQuestion"
+        "AskUserQuestion",
+        "TaskCreate",
+        "TaskUpdate",
+        "TaskList",
+        "TodoWrite"
       ],
       "agent": null,
       "userOnly": false
@@ -864,6 +889,9 @@
         "Edit",
         "Write",
         "Task",
+        "AskUserQuestion",
+        "TaskCreate",
+        "TaskUpdate",
         "mcp__plugin_playwright_playwright__browser_navigate",
         "mcp__plugin_playwright_playwright__browser_snapshot",
         "mcp__plugin_playwright_playwright__browser_take_screenshot",
@@ -1268,6 +1296,18 @@
       "note": null
     },
     {
+      "file": "gate-bash-writes.js",
+      "name": "gate-bash-writes",
+      "group": "Enforcement",
+      "purpose": "Denies a Bash write to a tracked source file in ambient mode (redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv`, inline python/node), the same as Edit/Write. Commands that only mention a write (heredoc bodies, quoted arguments) and writes to `.planning/`, `*.md`, untracked files, paths outside the project and unresolvable targets are never gated. Same escapes as the Edit gate (live skill marker, `devflow:<name>` agent, override phrase, which only a write that would be gated consumes). Severity is the least of `gates.editGate` and `gates.bashEditGate` (`strict` deny, `warn` ask, `off`). With no `bashEditGate` key the default is `warn`, measured at 633/17,957 = 0.035251 of ambient Bash calls (an upper bound, above the 0.02 threshold), so `strict` is opt-in; `gates.editGate` `warn` softens it to ask and `off` disables it. The env escape works only in the environment Claude Code was launched from, never as an inline command prefix. Needs an installed plugin carrying objective 60.",
+      "escape": "DEVFLOW_SKIP_EDIT_GATE=1",
+      "events": [
+        "PreToolUse (Bash)"
+      ],
+      "registered": true,
+      "note": null
+    },
+    {
       "file": "gate-commits.js",
       "name": "gate-commits",
       "group": "Enforcement",
@@ -1283,7 +1323,7 @@
       "file": "gate-edits.js",
       "name": "gate-edits",
       "group": "Enforcement",
-      "purpose": "Strict DENY by default in ambient mode. Allows edits when a live `.planning/.skill-active` marker exists (resolved from both the local and the main checkout, so worktree-isolated agents are not denied by a marker they cannot see), when the PreToolUse payload's `agent_type` is a DevFlow agent (`devflow:<name>`), when the prompt carries an override phrase, or when the env escape is set. Targets outside the project root are never gated. Severity is per-project via `gates.editGate`.",
+      "purpose": "Strict DENY by default in ambient mode. Allows edits when a live `.planning/.skill-active` marker exists (resolved from both the local and the main checkout, so worktree-isolated agents are not denied by a marker they cannot see), when the PreToolUse payload's `agent_type` is a DevFlow agent (`devflow:<name>`), when the prompt carries an override phrase, or when the env escape is set. Targets outside the project root are never gated. Severity is per-project via `gates.editGate`. Bash writes to the same files are gated by `gate-bash-writes.js`.",
       "escape": "DEVFLOW_SKIP_EDIT_GATE=1",
       "events": [
         "PreToolUse (Edit|Write|MultiEdit)"
@@ -1311,6 +1351,19 @@
       "escape": null,
       "events": [
         "PreToolUse (Bash)"
+      ],
+      "registered": true,
+      "note": null
+    },
+    {
+      "file": "gate-skill-requires.js",
+      "name": "gate-skill-requires",
+      "group": "Enforcement",
+      "purpose": "Refuses to start a `/devflow:<skill>` whose SKILL.md `requires:` names a tool that is not on PATH (today only `/devflow:gh-sync`, which needs `gh`). A typed command is blocked on UserPromptExpansion and a Skill tool call is denied on PreToolUse, each with the install hint and a pointer to `/devflow:doctor` (check `skill-requires`). Not project-scoped, and the PATH lookup only stats files, so nothing is spawned. Anything that is not a DevFlow skill with a declared tool is allowed, and any error fails open. The env escape works only in the environment Claude Code was launched from. Needs an installed plugin carrying objective 61.",
+      "escape": "DEVFLOW_SKIP_SKILL_REQUIRES=1",
+      "events": [
+        "UserPromptExpansion",
+        "PreToolUse (Skill)"
       ],
       "registered": true,
       "note": null
@@ -1388,7 +1441,7 @@
       "file": "statusline.js",
       "name": "statusline",
       "group": "Observability",
-      "purpose": "Renders model, current task, directory, and context usage in the Claude Code status line.",
+      "purpose": "Renders model, current task, directory, and context usage in the Claude Code status line, plus estimated time remaining while an objective builds.",
       "escape": null,
       "events": [],
       "registered": false,
@@ -1407,11 +1460,23 @@
       "note": null
     },
     {
+      "file": "todo-sync.js",
+      "name": "todo-sync",
+      "group": "Observability",
+      "purpose": "At every Stop, merges the session's `/devflow:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with the library behind `df-tools todo sync`: `.planning/todos/` in local mode, a queued `devflow:todo` issue in store mode. Idempotent: a second Stop over the same transcript changes nothing and prints nothing. Says what it did in one message (archived, completed, uncommitted todo files, or a failure line), never commits, never blocks, keeps no state and fails open.",
+      "escape": "DEVFLOW_SKIP_TODO_SYNC=1",
+      "events": [
+        "Stop"
+      ],
+      "registered": true,
+      "note": null
+    },
+    {
       "file": "upgrade-project.js",
       "name": "upgrade-project",
       "group": "Session context",
-      "purpose": "Upgrades a behind DevFlow project in place at session start: applies the safe migrations, then commits exactly the changed files in a detached background process (skipped during rebase/merge/cherry-pick/bisect, on a detached HEAD, over uncommitted edits other than the gitignored runtime-state files, or if signing fails). Notices are emitted once on the next prompt. It also prunes ~/.claude/devflow/backups at most once per 24 h (older than 14 days, keeping the newest 5 per repo).",
-      "escape": "DEVFLOW_SKIP_UPGRADE=1, DEVFLOW_SKIP_PRUNE=1",
+      "purpose": "Upgrades a behind DevFlow project in place at session start: applies the safe migrations, then commits exactly the changed files in a detached background process (skipped during rebase/merge/cherry-pick/bisect, on a detached HEAD, over uncommitted edits other than the gitignored runtime-state files, or if signing fails). Notices are emitted once on the next prompt. It also prunes ~/.claude/devflow/backups at most once per 24 h (older than 14 days, keeping the newest 5 per repo). It also starts a background `df-tools transcript-export` at most once per 24 h, in every session, which keeps the per-session index under `~/.claude/devflow/` current before Claude Code deletes old transcripts.",
+      "escape": "DEVFLOW_SKIP_UPGRADE=1, DEVFLOW_SKIP_PRUNE=1, DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1",
       "events": [
         "SessionStart"
       ],
@@ -1454,6 +1519,10 @@
     },
     {
       "command": "benchmark",
+      "subcommands": []
+    },
+    {
+      "command": "calibrate",
       "subcommands": []
     },
     {
@@ -1531,6 +1600,10 @@
     },
     {
       "command": "dup-detect",
+      "subcommands": []
+    },
+    {
+      "command": "estimate",
       "subcommands": []
     },
     {
@@ -1634,6 +1707,10 @@
     },
     {
       "command": "list-todos",
+      "subcommands": []
+    },
+    {
+      "command": "merge-driver",
       "subcommands": []
     },
     {
@@ -1810,6 +1887,10 @@
     },
     {
       "command": "todo",
+      "subcommands": []
+    },
+    {
+      "command": "tokens",
       "subcommands": []
     },
     {
@@ -2057,6 +2138,7 @@
   "references": [
     "anti-patterns",
     "auto-behaviors",
+    "built-ins",
     "checkpoints",
     "context-discipline",
     "continuation-format",
@@ -2126,8 +2208,8 @@
     "workstream-marker.json"
   ],
   "models": {
-    "opus": "claude-opus-5",
-    "sonnet": "claude-sonnet-5",
+    "opus": "claude-opus-5-5",
+    "sonnet": "claude-sonnet-5-5",
     "haiku": "claude-haiku-4-5"
   },
   "profiles": [
