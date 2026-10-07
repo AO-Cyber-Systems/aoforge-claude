@@ -196,3 +196,27 @@ test('objectiveActuals: each TRD record carries its auto-task count (checkpoints
   assert.strictEqual(trds[0].duration_source, 'summary');
   assert.strictEqual(trds[0].minutes, 9);
 });
+
+test('objectiveActuals: reads what collectProject builds from a real tree (the fixture project 64-04 reuses)', () => {
+  const ci = require('./calibration-inputs.cjs');
+  const rates = ci.loadRates();
+  assert.strictEqual(rates.ok, true);
+  const root = fx.makeBacktestProject();
+  try {
+    const project = ci.collectProject(root);
+    const alpha = backtest.objectiveActuals(project, '90-alpha', rates);
+    assert.strictEqual(alpha.minutes.value, 30, 'SUMMARY durations 10min + 20min');
+    assert.strictEqual(alpha.minutes.complete, true);
+    assert.deepStrictEqual(alpha.minutes.sources, { summary: 2, metric: 0 });
+    assert.strictEqual(alpha.cost_usd.complete, true);
+    assert.ok(alpha.cost_usd.value > 0);
+
+    const beta = backtest.objectiveActuals(project, '91-beta', rates);
+    assert.strictEqual(beta.minutes.value, null, '91-02 has no duration and no metric row');
+    assert.deepStrictEqual(beta.minutes.missing, ['91-02']);
+    assert.strictEqual(beta.cost_usd.complete, true, 'but every TRD of 91-beta is priced');
+    assert.ok(beta.cost_usd.value > 0);
+  } finally {
+    fx.removeBacktestProject(root);
+  }
+});
