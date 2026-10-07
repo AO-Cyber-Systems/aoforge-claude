@@ -263,6 +263,90 @@ function classRows(rows) {
   return { minutes: classTable(list, 'minutes'), cost_usd: classTable(list, 'cost_usd') };
 }
 
+// ─── Summary ──────────────────────────────────────────────────────────────────
+
+// A primary metric's name on an objective row, its key on that row's TRD rows and tasks, and its class table.
+const METRIC_KEYS = Object.freeze({
+  agent_minutes: Object.freeze({ trd: 'minutes', classes: 'minutes' }),
+  cost_usd: Object.freeze({ trd: 'cost_usd', classes: 'cost_usd' }),
+});
+
+function isCompared(cell) {
+  return Boolean(cell) && !cell.excluded;
+}
+
+function inBand(ratio) {
+  return isFiniteNumber(ratio) && ratio >= 1 - BAND && ratio <= 1 + BAND;
+}
+
+function excludedEntry(row, cell) {
+  return { objective: row.objective, reason: cell ? cell.excluded : 'not compared', trds: cell && Array.isArray(cell.trds) ? [...cell.trds] : [] };
+}
+
+/** The numbers and the SC2 / SC3 verdicts for one primary metric over the objective rows. */
+function summarizeMetric(rows, metric, classes) {
+  const keys = METRIC_KEYS[metric];
+  const compared = rows.map((row) => row[metric]).filter(isCompared);
+  const trdCells = rows.flatMap((row) => (row.trd_rows || []).map((trdRow) => trdRow[keys.trd])).filter(isCompared);
+
+  const medianRatio = median(compared.map((c) => c.ratio));
+  const coverage = shareOf(compared, (c) => c.covered === true);
+  const trdCoverage = shareOf(trdCells, (c) => c.covered === true);
+  const enough = compared.length >= MIN_OBJECTIVES;
+  const sumActual = sumOf(compared.map((c) => c.actual));
+
+  let sc3;
+  if (!enough || trdCells.length === 0) sc3 = 'insufficient';
+  else sc3 = coverage >= COVERAGE_TARGET && trdCoverage >= COVERAGE_TARGET ? 'pass' : 'fail';
+
+  return {
+    compared: compared.length,
+    excluded: rows.filter((row) => !isCompared(row[metric])).map((row) => excludedEntry(row, row[metric])),
+    median_ratio: medianRatio,
+    pooled_ratio: compared.length === 0 || sumActual === 0 ? null : sumOf(compared.map((c) => c.p50)) / sumActual,
+    in_band: compared.filter((c) => c.within_band).length,
+    coverage,
+    under_median_share: shareOf(compared, (c) => c.at_or_under_median),
+    trd_compared: trdCells.length,
+    trd_coverage: trdCoverage,
+    miscalibrated_classes: ((classes && classes[keys.classes]) || []).filter((c) => c.verdict === 'miscalibrated').length,
+    sc2: !enough ? 'insufficient' : inBand(medianRatio) ? 'pass' : 'fail',
+    sc3,
+  };
+}
+
+/** Wall time, informational only: the prospective comparisons, and the per-wave comparisons of every run state. */
+function summarizeWall(rows) {
+  const walls = rows.map((row) => ({ row, wall: row.wall_minutes || null }));
+  const compared = walls.map(({ wall }) => wall && wall.prospective).filter(isCompared);
+  const waves = walls.flatMap(({ wall }) => (wall && wall.waves) || []).filter(isCompared);
+  return {
+    compared: compared.length,
+    excluded: walls.filter(({ wall }) => !(wall && isCompared(wall.prospective)))
+      .map(({ row, wall }) => ({ objective: row.objective, reason: (wall && (wall.excluded || (wall.prospective && wall.prospective.excluded))) || 'not compared' })),
+    median_ratio: median(compared.map((c) => c.ratio)),
+    coverage: shareOf(compared, (c) => c.covered === true),
+    waves: { compared: waves.length, coverage: shareOf(waves, (c) => c.covered === true) },
+  };
+}
+
+/**
+ * The figures and verdicts over the objective rows (as compareObjective returns them) and the class tables (classRows).
+ * Per primary metric: how many objectives were compared and which were excluded (with reason and TRD ids), the median
+ * and pooled (sum p50 / sum actual) ratios, how many medians were in band, P90 coverage over objectives and over TRDs,
+ * the share of actuals at or under the median, and the two verdicts. `sc2` and `sc3` are `insufficient` below
+ * MIN_OBJECTIVES compared objectives (SC3 also when no TRD was compared). A figure with nothing behind it is null.
+ * `wall_minutes` has no verdict.
+ */
+function summarize(rows, classes) {
+  const list = Array.isArray(rows) ? rows : [];
+  return {
+    agent_minutes: summarizeMetric(list, 'agent_minutes', classes),
+    cost_usd: summarizeMetric(list, 'cost_usd', classes),
+    wall_minutes: summarizeWall(list),
+  };
+}
+
 module.exports = {
   BAND,
   COVERAGE_TARGET,
@@ -274,4 +358,5 @@ module.exports = {
   objectiveActuals,
   compareMetric,
   classRows,
+  summarize,
 };
