@@ -189,6 +189,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 63]: 63-04: Work on it now with task tools sets the session task in_progress and leaves the archive todo pending until the session task completes; without task tools it completes the archive todo at once
 - [Objective 63]: Built-in inventory test has no clock check; review cadence lives in the document's dates and procedure, and REQUIRED_TOOLS/REQUIRED_EVENTS are pinned in the test and updated together with the document
 - [Objective 63]: 63-07: live Claude Code runs need an authenticated account; a scratch HOME cannot reach the macOS login keychain, so they are UAT items rather than part of the suite. handoff-e2e drops the ambient DIGITALOCEAN_ACCESS_TOKEN so MA-6 and MA-7 do not depend on the developer shell.
+- [Objective 64]: Run history archives only finished runs, at <state dir>/history/<repo-key>/<objective>-<started_at>.json; run schema version stays 1 with optional execution, total and calibration keys
 
 ## Performance Metrics
 
@@ -312,4 +313,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 63 P04 | 6min | 2 tasks | 7 files |
 | Objective 63 P06 | 45min | 2 tasks | 2 files |
 | Objective 63 P07 | 14min | 3 tasks | 6 files |
+| Objective 64 P02 | 18min | 2 tasks | 7 files |
 

@@ -1,10 +1,10 @@
 {
-  "current_objective": "63",
-  "current_job": 7,
-  "total_jobs": 7,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
-  "last_activity": "2026-10-06",
+  "current_objective": "64",
+  "current_job": 1,
+  "total_jobs": 6,
+  "progress_pct": 99,
+  "status": "executing",
+  "last_activity": "2026-10-07",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -1009,6 +1009,11 @@
     {
       "objective": "63",
       "summary": "63-07: live Claude Code runs need an authenticated account; a scratch HOME cannot reach the macOS login keychain, so they are UAT items rather than part of the suite. handoff-e2e drops the ambient DIGITALOCEAN_ACCESS_TOKEN so MA-6 and MA-7 do not depend on the developer shell.",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "Run history archives only finished runs, at <state dir>/history/<repo-key>/<objective>-<started_at>.json; run schema version stays 1 with optional execution, total and calibration keys",
       "rationale": null
     }
   ],
