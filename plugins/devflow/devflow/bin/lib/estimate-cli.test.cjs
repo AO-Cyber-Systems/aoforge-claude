@@ -300,6 +300,18 @@ describe('6: estimate objective', () => {
     assert.match(table.text, /\nNote: figures come from 30 past objectives because the objective has no TRDs yet\./);
   });
 
+  test('objective 82 --all renders the estimate of the done objective, in both text forms (TRD 64-02)', () => {
+    const line = ok(run(['objective', '82', '--all', '--line'])).text;
+    assert.match(line, /^Objective 82 estimate: .* · 1 TRD estimated in 1 wave · confidence \w+$/, line);
+    const table = ok(run(['objective', '82', '--all', '--table'])).text;
+    assert.match(table, /^\| Objective 82 \(1 TRD estimated, 1 wave\) \| Median \| P90 \|\n/, table);
+    const json = ok(run(['objective', '82', '--all'])).result;
+    assert.equal(json.all, true);
+    assert.equal(json.line, line);
+    // without --all a done objective is still one line
+    assert.equal(ok(run(['objective', '82', '--table'])).text, 'Objective 82: all TRDs done (1 of 1)');
+  });
+
   test('objective 82 is done, 99 does not exist', () => {
     assert.equal(ok(run(['objective', '82', '--line'])).text, 'Objective 82: all TRDs done (1 of 1)');
     assert.deepEqual(run(['objective', '99']), { ok: false, message: 'objective 99 not found' });

@@ -325,6 +325,33 @@ describe('objective text for the other states', () => {
     assert.equal(fmt.objectiveTable(done), 'Objective 82: all TRDs done (1 of 1)');
   });
 
+  test('done with all renders the estimate (line and table); without all it stays the one done line (TRD 64-02)', () => {
+    const doneAll = { ...OBJ_RESULT, status: 'done', all: true, trds: { total: 4, done: 4, remaining: 4 } };
+    assert.equal(
+      fmt.objectiveLine(doneAll),
+      fmt.objectiveLine({ ...OBJ_RESULT, all: true, trds: { total: 4, done: 4, remaining: 4 } }),
+      'a done objective renders like any other once --all asks for the estimate',
+    );
+    assert.match(fmt.objectiveLine(doneAll), /^Objective 80 estimate: .* · 4 TRDs estimated in 2 waves · confidence medium$/);
+    assert.match(fmt.objectiveTable(doneAll), /^\| Objective 80 \(4 TRDs estimated, 2 waves\) \| Median \| P90 \|\n/);
+
+    for (const off of [{ all: false }, { all: undefined }, {}]) {
+      const done = { ...doneAll, ...off };
+      if (!('all' in off)) delete done.all;
+      assert.equal(fmt.objectiveLine(done), 'Objective 80: all TRDs done (4 of 4)');
+      assert.equal(fmt.objectiveTable(done), 'Objective 80: all TRDs done (4 of 4)');
+    }
+  });
+
+  test('done with all but no minutes in the estimate says so instead of printing a number', () => {
+    const doneAll = { objective: '82', status: 'done', all: true, trds: { total: 1, done: 1, remaining: 1 }, total: null };
+    assert.equal(
+      fmt.objectiveLine(doneAll),
+      'No estimate: objective 82 has no minutes data in the calibration; run df-tools calibrate',
+    );
+    assert.equal(fmt.objectiveTable(doneAll), fmt.objectiveLine(doneAll));
+  });
+
   test('unavailable calibration: No estimate with the reason', () => {
     const r = { available: false, reason: 'no calibration file at /x/calibration.json; run df-tools calibrate to build it' };
     const text = 'No estimate: no calibration file at /x/calibration.json; run df-tools calibrate to build it';
