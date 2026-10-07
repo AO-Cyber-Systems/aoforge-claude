@@ -14,6 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const store = require('./estimate-run-store.cjs');
+const { objective63Run, finishedRun, liveRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -402,6 +403,34 @@ describe('13. findProjectRoot and stateRoot', () => {
     const p = store.statePath(ghost, opts);
     assert.equal(path.dirname(p), stateDir);
     assert.equal(path.basename(p), 'no_such_dir_.json');
+  });
+});
+
+describe('14. run history paths (TRD 64-02, EST-08)', () => {
+  test('14a. historyDir is <stateRoot>/history/<repoKey>, outside the project', () => {
+    const dir = store.historyDir(root, opts);
+    assert.equal(dir, path.join(stateDir, 'history', path.basename(store.statePath(root, opts), '.json')));
+    const rel = path.relative(fs.realpathSync(root), path.resolve(dir));
+    assert.ok(rel.startsWith('..') || path.isAbsolute(rel), 'history must not sit under the project root');
+  });
+
+  test('14b. historyDir follows an injected home when there is no state-dir override', () => {
+    const dir = store.historyDir(root, { env: {}, home: '/h' });
+    assert.equal(path.dirname(dir), path.join('/h', '.claude', 'devflow', 'state', 'estimates', 'history'));
+  });
+
+  test("14c. historyPath for Objective 63's real run is 63-2026-10-06T23_55_36_062Z.json", () => {
+    const file = store.historyPath(root, objective63Run(), opts);
+    assert.equal(path.dirname(file), store.historyDir(root, opts));
+    assert.equal(path.basename(file), '63-2026-10-06T23_55_36_062Z.json');
+  });
+
+  test('14d. a hostile objective or started_at cannot leave the history directory', () => {
+    for (const hostile of ['../x', '../../etc/passwd', 'a/b', '..']) {
+      const file = store.historyPath(root, finishedRun({ objective: hostile, started_at: hostile }), opts);
+      assert.equal(path.dirname(file), store.historyDir(root, opts), hostile);
+      assert.match(path.basename(file), /^[A-Za-z0-9_-]+\.json$/, hostile);
+    }
   });
 });
 
