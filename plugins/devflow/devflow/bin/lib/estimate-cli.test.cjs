@@ -30,6 +30,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { runEstimate, USAGE } = require('./estimate-cli.cjs');
+const est = require('./estimate.cjs');
+const rollup = require('./estimate-rollup.cjs');
 const store = require('./estimate-run-store.cjs');
 const { finishedRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
 const {
@@ -770,6 +772,72 @@ describe('12: run history (TRD 64-02, EST-08)', () => {
     assert.equal(failed.ok, false);
     assert.match(failed.message, /could not archive the run history/);
     assert.deepEqual(live(), pre);
+  });
+});
+
+describe('12b: what a new run records of its estimate (TRD 64-02, EST-08)', () => {
+  let dir;
+  let counter = 0;
+  const env = () => ({ DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: dir });
+  const live = () => store.readRunState(root, { env: env() });
+  const unrounded = (block) => JSON.parse(JSON.stringify(block));
+
+  beforeEach(() => {
+    dir = path.join(scratch, `run-state-enriched-${counter++}`);
+  });
+
+  test('5: start 80 records execution, total and the calibration identity', () => {
+    ok(run(['start', '80'], { env: env(), now: T0 }));
+    const cal = est.loadCalibration(calFile, {}).calibration;
+    const expected = rollup.estimateObjective(cal, root, '80');
+    const recorded = live().estimate;
+
+    assert.deepEqual(recorded.execution, unrounded(expected.execution));
+    assert.deepEqual(recorded.total, unrounded(expected.total));
+    for (const block of [recorded.execution, recorded.total]) {
+      assert.deepEqual(Object.keys(block).sort(), ['agent_minutes', 'cost_usd', 'tokens_input', 'tokens_output', 'wall_minutes']);
+    }
+    assert.deepEqual(recorded.calibration, {
+      path: calFile,
+      version: 2,
+      data_as_of: '2026-10-05',
+      samples: CAL_V2.samples,
+      inputs_digest: null,
+    });
+    // what the run already recorded is unchanged
+    assert.equal(recorded.wall_minutes, recorded.execution.wall_minutes);
+    assert.equal(recorded.confidence, 'medium');
+    assert.equal(typeof recorded.line, 'string');
+  });
+
+  test('5b: the calibration identity carries its inputs_digest and the path of the file used', () => {
+    const digested = writeCalibrationFile(path.join(scratch, 'cal-digest'), { ...CAL_V2, inputs_digest: 'sha256-0123abcd' });
+    ok(run(['start', '80', '--calibration', digested], { env: env(), now: T0 }));
+    assert.equal(live().estimate.calibration.path, digested);
+    assert.equal(live().estimate.calibration.inputs_digest, 'sha256-0123abcd');
+  });
+
+  test('5c: with no usable calibration the three are null and the run still records its waves', () => {
+    ok(run(['start', '80', '--calibration', path.join(scratch, 'absent.json')], { env: env(), now: T0 }));
+    const recorded = live().estimate;
+    assert.equal(recorded.execution, null);
+    assert.equal(recorded.total, null);
+    assert.equal(recorded.calibration, null);
+    assert.equal(recorded.wall_minutes, null);
+    assert.equal(recorded.confidence, 'none');
+    assert.deepEqual(live().waves.map((w) => w.trds), [['80-01', '80-02'], ['80-03']]);
+  });
+
+  test('5d: wave --start that begins a run records them too, and the old state shape still reads', () => {
+    ok(run(['wave', '80', '1', '--start'], { env: env(), now: T0 }));
+    assert.deepEqual(Object.keys(live().estimate.execution).sort(), ['agent_minutes', 'cost_usd', 'tokens_input', 'tokens_output', 'wall_minutes']);
+    assert.equal(live().estimate.calibration.version, 2);
+
+    // a state written before 64-02 has none of the new keys and is still a run the verbs continue
+    const old = { ...live(), estimate: { line: 'x', wall_minutes: { p50: 1, p90: 2 }, confidence: 'low' } };
+    store.writeRunState(root, old, { env: env() });
+    ok(run(['wave', '80', '1', '--done'], { env: env(), now: T0 + 5 * MIN }));
+    assert.deepEqual(live().estimate, old.estimate);
   });
 });
 
