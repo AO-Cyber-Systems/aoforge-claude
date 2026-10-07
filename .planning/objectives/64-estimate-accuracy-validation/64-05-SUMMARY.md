@@ -11,26 +11,66 @@ requires:
     provides: the `estimate backtest` verb
 
 provides:
-  - "EST-08 verdict (not met) on out-of-sample evidence, from one rerunnable verb"
+  - "EST-08 verdict (not met) on out-of-sample evidence, from one rerunnable verb: agent minutes median ratio 1.51 (SC2 fail), cost 0.86 (pass), P90 coverage passes for both"
+  - "64-ACCURACY-REPORT.md: per-objective and per-TRD tables, flagged classes, rolling and window diagnostics, defects, reproduce commands"
+  - "Two pending todos: recalibrate estimate minutes; ship the executor token stamp"
+
+affects: [64-06 docs, EST-08 traceability, objective 64 completion]
+
+tech-stack:
+  added: []
+  patterns: []
 
 key-files:
-  created: []
-  modified: []
+  created:
+    - .planning/objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md
+    - .planning/todos/pending/recalibrate-estimate-minutes-est-08-not-met.md
+    - .planning/todos/pending/ship-executor-token-stamp-forward-stamp-8-of-41.md
+  modified:
+    - .planning/REQUIREMENTS.md
+
+key-decisions:
+  - "The verdict is the frozen-calibration run alone; the rolling and window runs are labelled secondary because those calibrations never existed at the time (the window run prints EST-08 met and is not the verdict)"
+  - "No estimator code, threshold or input was changed; the miscalibrated classes and follow-ups are recorded instead"
+  - "EST-08 stays unchecked with a traceability status naming the report and the todo; requirements mark-complete was not run"
+
+patterns-established: []
 
 requirements-completed: []  # EST-08 not met: no mark-complete
 
-duration: in progress
+verification:
+  gates_defined: 1
+  gates_passed: 1           # npm test exit 0 (10963 tests, 0 fail)
+  auto_fix_cycles: 0
+  tdd_evidence: false
+  test_pairing: false
+
+duration: 9min
 completed: 2026-10-07
+tokens_input: 14176770
+tokens_output: 77274
+tokens_cache_read: 13797682
+tokens_cache_write: 378900
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 64 TRD 05: Out-of-sample backtest and accuracy report Summary
 
-**In progress.**
+**EST-08 is not met: on the five objectives built after the engine shipped, the agent-minute median estimate runs 1.51 times the actual (SC2 fail), cost passes (0.86), P90 covers both (minutes 5 of 5 objectives and 40 of 41 TRDs; cost 4 of 5 and 34 of 41), and the report names the miscalibrated classes with two follow-up todos.**
+
+## Performance
+
+- **Duration:** about 9 min of execution (plus the full `npm test` gate in the main checkout)
+- **Started:** 2026-10-07T12:30:29Z (preflight claim)
+- **Completed:** 2026-10-07
+- **Tasks:** 3 of 3
+- **Files modified:** 4 repository files (the report, REQUIREMENTS.md, two todos) plus this SUMMARY; no production code
 
 ## Progress
 - [x] Task 1: Primary out-of-sample backtest of 59-63 on the frozen calibration, plus the in-sample reference — 489d7b76
 - [x] Task 2: Rolling leave-future-out and window diagnostics from git snapshots — c4e923a3
-- [x] Task 3: Write 64-ACCURACY-REPORT.md, set EST-08's status, record the follow-up, commit — (this commit)
+- [x] Task 3: Write 64-ACCURACY-REPORT.md, set EST-08's status, record the follow-up, commit — 81e3d01c
 
 ## Primary result
 
@@ -146,3 +186,111 @@ specified; no other window was tried.
   window cannot separate recency from that offsetting.
 - 63's wall row `Reproduced: no` (the reconstruction from this calibration is 1h 23m / 3h 34m against the recorded
   1h 37m / 4h 50m), as expected for a calibration other than the frozen one.
+
+## Report, status and follow-up (Task 3)
+
+- `64-ACCURACY-REPORT.md` written through `planning draft` + Write + `doc put` (`verdict: not met`; sections Verdict, What
+  was compared, Results (the verb's `--raw` report pasted unedited), Miscalibrated classes and follow-up, Secondary
+  analyses (rolling, window, in-sample, actuals), Defects found, Status, Reproduce). Every figure is labelled
+  reconstructed or prospective; the only prospective figure is 63's wall time.
+- `REQUIREMENTS.md` via `doc put`: EST-08 stays `- [ ]` with ` (validated 2026-10-07 against objectives 59-63: not met,
+  see 64-ACCURACY-REPORT.md)` and the traceability row reads `Not met: see objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md; follow-up todo recalibrate-estimate-minutes-est-08-not-met`.
+  `requirements mark-complete` was not run.
+- Todos via `todo add --from`: `recalibrate-estimate-minutes-est-08-not-met` (per-class numbers, the diagnostics,
+  three options, next check on the next five objectives) and `ship-executor-token-stamp-forward-stamp-8-of-41`
+  (8 of 41 forward-stamped; release the current `agents/executor.md`).
+- Extra scratch analyses beyond the TRD list, to give the todo a concrete cause, read-only on the primary JSON: per-class
+  median actual share per task against the calibration's p50 (code_tdd 3.3 min against 6.0), and TRD time against task
+  count (24 TRDs with two tasks, 17 with three; correlation of actual minutes with task count 0.00, of the estimate 0.76;
+  3-task TRDs ratio 1.80, 2-task 1.21). Two task counts is thin evidence and the report says so.
+
+Calibrations built: five rolling (`cal-cut-N.json`, 324 to 358 TRDs) and one window (`cal-win.json`, 186 TRDs), all in the
+scratchpad. The live `~/.claude/devflow/calibration.json`, the frozen copy and 63's history file were never written;
+hashes re-checked at the end of each task (see Post-TRD Verification).
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] The REQUIREMENTS.md `planning draft` was stale**
+- **Found during:** Task 3 (reading the draft before the Edit)
+- **Issue:** `planning draft REQUIREMENTS.md` returned an existing draft (a draft is never replaced) that predates the
+  current file: EST-07 unchecked and EST-06/EST-07 `Pending`, where the repository file has them `[x]` and `Complete`. A
+  `doc put` from it would have reverted those rows.
+- **Fix:** copied the current `.planning/REQUIREMENTS.md` into the scratchpad, edited the two EST-08 lines there and ran
+  `doc put REQUIREMENTS.md --from <scratch copy>`. A diff against the current file showed exactly the two intended lines.
+  The stale draft was left in place, untouched (see Issues for the orchestrator).
+- **Files modified:** `.planning/REQUIREMENTS.md` (two lines)
+- **Commit:** 81e3d01c
+
+**2. [Rule 3 - Blocking] Large `estimate backtest` JSON is returned as an `@file:` pointer**
+- **Found during:** Task 1 (parsing `bt-primary.json`)
+- **Issue:** the default (JSON) output of the five-objective run is above df-tools' inline limit, so redirecting it to a
+  file captured `@file:/var/folders/.../df-<ms>.json`, not the JSON.
+- **Fix:** copied the referenced file into the scratchpad (`bt-primary-data.json`) before use. The rolling per-objective
+  JSONs were small enough to come back inline. The report's Reproduce section says so.
+- **Files modified:** none
+
+No production code, estimator code, threshold or input was changed. The `todo add` stems carry no date prefix (they were
+passed as `--stem`), unlike the older pending todos.
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Primary backtest and in-sample reference | `df-tools estimate backtest 59,60,61,62,63 --calibration <frozen> [--raw]`; `... 55,56,57 --raw`; `shasum -a 256` x3 | 0 | PASS: `verdict.est08` `"not met"` in the JSON (copied from the `@file:`), quoted verbatim above; hashes unchanged |
+| 2: Rolling and window diagnostics | five x (`git archive`, `tar -xf`, `calibrate --paths --no-overhead --out`, `estimate backtest N --calibration`); window `calibrate` and `estimate backtest ... --raw`; `shasum -a 256 ~/.claude/devflow/calibration.json` | 0 | PASS: five `cal-cut-N.json` and five `bt-roll-N.json` exist and are recorded, window recorded, live calibration still `5cf42c4b…` |
+| 3: Report, status, todos | `rg -n "^verdict:|^## Verdict|^## What was compared|^## Results|^## Secondary analyses|^## Reproduce"` on the report; `rg -n "EST-08" .planning/REQUIREMENTS.md`; `df-tools commit` | 0 | PASS: every section found (`verdict: not met`), EST-08 status matches the report, commit `81e3d01c` lists the report, REQUIREMENTS.md, both todos and the SUMMARY |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test (TRD gate and stack `gates.task`) | `npm --prefix /Users/justin/dev/devflow-claude test` (main checkout, run after `roadmap update-job-progress 64`) | 0 | PASS: 10963 tests, 10929 pass, 0 fail, 34 skipped, 143 s |
+
+The suite was run in the main checkout, where `node_modules` (node-pty) exists, so the nine daemon tests that fail in a
+fresh worktree (64-02, 64-03) pass here. It was run after the ROADMAP box for 64-05 was ticked, so the `roadmap-reconcile`
+E2E1 drift test (64-03, 64-04) did not trip. No code changed in this TRD.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 6/6 (rows for 59-63 with executor minutes and cost per objective and per TRD, plus 63's wall time and
+  waves from the prospective run state; the verdict quoted from `estimate backtest` with the numbers behind each criterion
+  and no threshold changed; every figure labelled reconstructed or prospective with the frozen sha256, the 63
+  reproduction, the drift list and the current-code caveat; SC2 fails for minutes so the classes and a follow-up todo are
+  named and no estimator code changed; EST-08 left unchecked with a traceability status naming the report and the todo;
+  the rolling, window, in-sample and actuals analyses are present and labelled secondary)
+- Gate failures: None
+- End-of-run hashes: `~/.claude/devflow/calibration.json` and the frozen copy `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea`; 63 history `08f88f9f9a108e10e6804603bb900f37145258415005d858cfac131fa664fdee`; the live estimate run state for objective 64 was never touched (no `estimate start|wave|finish`)
+- No scratch file committed (`git show --stat 81e3d01c`: the report, REQUIREMENTS.md, two todos, this SUMMARY); the extracted snapshots and tars were deleted, the JSON and markdown results kept in the scratchpad
+- `requirements-completed: []`: `requirements mark-complete EST-08` was not run
+
+## Issues for the orchestrator
+
+1. **EST-08 is not met; the local `objective complete 64` will tick `- [ ] **EST-08**` automatically.** The traceability
+   status (`Not met: see ...`) survives it, the checkbox does not. Whoever completes Objective 64 must re-open that
+   checkbox or record the decision to accept the verdict. Objective 64's own success criteria: 1 met (report), 2 failed for
+   agent minutes (1.51), 3 passed (P90 covers); the follow-up todos satisfy the "names the classes and the follow-up" clause.
+2. **A stale `REQUIREMENTS.md` draft exists** at `/var/folders/j2/r369kq256wd5qg5yn51x376m0000gn/T/devflow-drafts/devflow-claude-d3dccfe9/REQUIREMENTS.md`
+   (EST-07 unchecked, EST-06 and EST-07 `Pending`). `planning draft REQUIREMENTS.md` never replaces an existing draft, so
+   any TRD (64-06 included) that edits REQUIREMENTS.md from that path and runs `doc put` would revert those rows. 64-05 used
+   a fresh copy instead. Delete that draft, or re-seed it from the repository file, before 64-06 touches REQUIREMENTS.md.
+3. **For 64-06 (docs):** the report's headline is the verdict above; describe EST-08 as not met on reconstructed
+   estimates, the one prospective figure being 63's wall time. The default JSON of `estimate backtest` (five
+   objectives, 141 KB) is returned as an `@file:<temp path>` pointer, not inline; use `--raw` for the report.
+4. **The window diagnostic prints `EST-08: met`** (minutes median 1.27, pooled 1.34). It is labelled secondary in the
+   report and must not be quoted as the verdict: that calibration never existed at the time and was tried after the frozen
+   run failed.
+5. **Forward token stamp reached 8 of 41 SUMMARYs;** no installed executor prompt carries the step. Todo
+   `ship-executor-token-stamp-forward-stamp-8-of-41`; the fix is a release of the current `agents/executor.md`.
+6. **Two pending todos were created:** `recalibrate-estimate-minutes-est-08-not-met` and `ship-executor-token-stamp-forward-stamp-8-of-41`
+   (no date prefix, unlike the older ones).
+
+## Self-Check: PASSED
+
+- FOUND: .planning/objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md (verdict: not met)
+- FOUND: .planning/todos/pending/recalibrate-estimate-minutes-est-08-not-met.md and .planning/todos/pending/ship-executor-token-stamp-forward-stamp-8-of-41.md
+- FOUND: 489d7b76, c4e923a3, 81e3d01c (git log 810dbe47..HEAD)
+- FOUND: EST-08 unchecked in .planning/REQUIREMENTS.md with the Not met traceability status
+- FOUND: live calibration, frozen copy and 63 history file with their recorded sha256
