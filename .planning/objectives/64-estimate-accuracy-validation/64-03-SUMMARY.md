@@ -44,8 +44,8 @@ completed: 2026-10-07
 
 ## Progress
 - [x] Task 1: Provenance of the frozen calibration and 63's run state, the drift list, and the 63 reproduction — 482535cc
-- [x] Task 2: Backfill the token history of 58-63 (dry run, write, guard, commit, idempotence) — (this commit)
-- [ ] Task 3: Audit the actuals (SUMMARY minutes vs executor transcript spans for 59-63) — next step: write `<scratchpad>/actuals-audit.cjs` (collectProject + indexExecutorTranscripts + tokensForTrd + transcriptSpanMinutes over 59-63) and run it with `node <scratchpad>/actuals-audit.cjs /Users/justin/dev/devflow-claude`, then add the `## Actuals audit` table.
+- [x] Task 2: Backfill the token history of 58-63 (dry run, write, guard, commit, idempotence) — c0d1f157
+- [x] Task 3: Audit the actuals (SUMMARY minutes vs executor transcript spans for 59-63) — (this commit)
 
 ## Provenance
 
@@ -196,3 +196,109 @@ has it**: `rg -l "tokens stamp"` over `~/.claude/plugins/cache/aocyber/devflow/{
 and `~/.claude/plugins/marketplaces/aocyber/plugins/devflow/agents/executor.md` matches none. The spawned executor
 therefore stamps only when it happens to follow the @-referenced workflow or template text. The fix is a release that
 ships the current `agents/executor.md` (the repository already has the step), not a code change; noted for 64-05/64-06.
+
+## Actuals audit
+
+Scratch script `<scratchpad>/actuals-audit.cjs` (not committed), run as
+`node <scratchpad>/actuals-audit.cjs /Users/justin/dev/devflow-claude`: `calibration-inputs.collectProject` for SUMMARY
+minutes and their source, `token-usage.indexExecutorTranscripts` + `tokensForTrd` for each TRD's executor
+transcript(s), `agent-overhead.transcriptSpanMinutes` (first to last record) for the measured span, summed over a TRD's
+transcripts. Ratio = SUMMARY minutes / transcript minutes.
+
+| TRD | SUMMARY min | source | transcripts | transcript min | ratio |
+|---|---|---|---|---|---|
+| 59-01 | 12 | summary | 1 | 12.5 | 0.96 |
+| 59-02 | 8 | summary | 1 | 7.6 | 1.06 |
+| 59-03 | 10 | summary | 1 | 10.5 | 0.95 |
+| 59-04 | 10 | summary | 1 | 10.8 | 0.93 |
+| 59-05 | 9 | summary | 1 | 10.8 | 0.84 |
+| 59-06 | 25 | summary | 1 | 30.8 | 0.81 |
+| 59-07 | 10 | summary | 1 | 11 | 0.91 |
+| 60-01 | 10 | summary | 1 | 11.7 | 0.85 |
+| 60-02 | 25 | summary | 1 | 1035.7 | 0.02 (outlier) |
+| 60-03 | 5 | summary | 1 | 5.5 | 0.9 |
+| 60-04 | 5 | summary | 1 | 5.6 | 0.89 |
+| 60-05 | 8 | summary | 1 | 8.6 | 0.93 |
+| 60-06 | 8 | summary | 1 | 6.9 | 1.16 |
+| 60-07 | 13 | summary | 1 | 12.8 | 1.01 |
+| 61-01 | 10 | summary | 1 | 12 | 0.84 |
+| 61-02 | 8 | summary | 1 | 9 | 0.89 |
+| 61-03 | 5 | metric | 1 | 8.7 | 0.58 |
+| 61-04 | 5 | summary | 1 | 5.1 | 0.98 |
+| 61-05 | 6 | summary | 1 | 6.7 | 0.9 |
+| 61-06 | 7 | summary | 1 | 7.3 | 0.96 |
+| 61-07 | 10 | summary | 1 | 10.7 | 0.93 |
+| 61-08 | 8 | summary | 1 | 7.1 | 1.12 |
+| 61-09 | 11 | summary | 1 | 13.4 | 0.82 |
+| 62-01 | 7 | summary | 1 | 7.8 | 0.9 |
+| 62-02 | 14 | metric | 1 | 14.8 | 0.95 |
+| 62-03 | 10 | summary | 1 | 10.6 | 0.95 |
+| 62-04 | 8 | metric | 1 | 9.4 | 0.85 |
+| 62-05 | 8 | summary | 1 | 7.2 | 1.11 |
+| 62-06 | 3 | summary | 1 | 3.9 | 0.76 |
+| 62-07 | 4 | summary | 1 | 4.6 | 0.87 |
+| 62-08 | 12 | summary | 1 | 13.5 | 0.89 |
+| 62-09 | 7 | metric | 1 | 8.8 | 0.79 |
+| 62-10 | 17 | summary | 1 | 18.3 | 0.93 |
+| 62-11 | 6 | summary | 1 | 7.5 | 0.8 |
+| 63-01 | 11 | summary | 1 | 14.6 | 0.75 |
+| 63-02 | 11 | summary | 1 | 11.9 | 0.92 |
+| 63-03 | 8 | summary | 1 | 8 | 1 |
+| 63-04 | 6 | summary | 1 | 5.9 | 1.02 |
+| 63-05 | 17 | summary | 1 | 17.8 | 0.96 |
+| 63-06 | 45 | summary | 1 | 50.4 | 0.89 |
+| 63-07 | 14 | summary | 1 | 19 | 0.74 |
+
+**Coverage:** 41 of 41 TRDs have a transcript (none `no transcript`); every TRD has exactly one executor transcript
+(none resumed into a second one). Minute source: 37 `summary`, 4 `metric` (61-03, 62-02, 62-04, 62-09: the four with
+a nested or missing SUMMARY `duration`, as the TRD predicted).
+
+**Totals and spread:**
+
+| Measure | Value |
+|---|---|
+| median ratio (41 TRDs) | **0.91** (P25 0.83, P75 0.96) |
+| sum SUMMARY minutes / sum transcript minutes, raw | 436 / 1494.8 = 0.29 (dominated by 60-02) |
+| same, 60-02 span with its idle gap removed (33.3) | 436 / 492.4 = **0.89** |
+| same, 60-02 excluded | 411 / 459.1 = 0.90 |
+| outliers (\|ratio - 1\| > 0.5) | **60-02** only (61-03, 0.58, is the nearest miss) |
+
+Per objective (raw spans; 60 corrected in brackets):
+
+| Objective | TRDs | SUMMARY min | transcript min | median ratio | aggregate ratio |
+|---|---|---|---|---|---|
+| 59 | 7 | 84 | 94.0 | 0.93 | 0.89 |
+| 60 | 7 | 74 | 1086.8 [84.4] | 0.91 | 0.07 [0.88] |
+| 61 | 9 | 70 | 80.0 | 0.90 | 0.88 |
+| 62 | 11 | 96 | 106.4 | 0.89 | 0.90 |
+| 63 | 7 | 112 | 127.6 | 0.92 | 0.88 |
+
+**The outlier, 60-02.** Its transcript (`5eaa8cbb…/subagents/agent-aaa2db569973ca156.jsonl`) runs from
+2026-10-06T00:50:43Z to 18:06:23Z. At 01:23:01 the run was interrupted (`[Request interrupted by user]`, after a 15.4-min
+stall in which nothing was recorded; the orchestrator's later message calls it a stream-watchdog stall). It sat idle
+for 1,002.4 minutes (16.7 h) and was resumed at 18:05:24 by an orchestrator SendMessage; it then finished in about one
+minute (verify, SUMMARY post, docs commit). Span without the idle gap: 33.3 min (ratio 0.75); without the stall as
+well, about 18 min. The SUMMARY's 25 min sits between the two. This is a transcript-span artefact, not a bad SUMMARY:
+a first-to-last span counts any idle wait inside one transcript, so 64-05 must not use raw spans as actuals.
+
+**Objective 63, measured wave time vs the TRDs in the wave** (run state `actual_minutes`, timed by `estimate wave` from
+wave start to wave finish, so it includes merge and orchestration):
+
+| Wave | TRDs | measured wave min | max SUMMARY min | SUMMARY / measured | max transcript min | transcript / measured |
+|---|---|---|---|---|---|---|
+| 1 | 63-01, 63-05 | 18.6 | 17 | 0.92 | 17.8 | 0.96 |
+| 2 | 63-02 | 12.2 | 11 | 0.90 | 11.9 | 0.98 |
+| 3 | 63-03, 63-04 | 8.4 | 8 | 0.95 | 8.0 | 0.95 |
+| 4 | 63-06 | 50.6 | 45 | 0.89 | 50.4 | 1.00 |
+| 5 | 63-07 | 19.3 | 14 | 0.73 | 19.0 | 0.98 |
+| total | | 109.1 | 95 | 0.87 | 107.1 | 0.98 |
+
+**What it means.** The median ratio is 0.91, not 1: SUMMARY durations are whole minutes reported by the executor and
+run about 9-11% below the measured executor time (aggregate 0.89 with 60-02's idle gap removed, the same 0.88-0.90 in
+every objective). On 63, the transcript span is within 0-5% of the independently measured wave time, while the SUMMARY
+minutes are 13% short in total and 27% short on wave 5. So the SUMMARY "actual" is a consistent ~10% undercount of real
+executor wall time, not noise. Because the calibration is built from the same SUMMARY field, the estimates share that
+bias: an estimate that matches SUMMARY actuals will undershoot measured wall time by roughly 10%, and a comparison
+against measured wave time (63's run state) should expect the estimate to read about 10% low for that reason alone.
+64-05 should state the minute comparison on the SUMMARY basis (like for like with the calibration) and quote this
+ratio beside it; the token/cost actuals are unaffected (they come from transcripts directly).
