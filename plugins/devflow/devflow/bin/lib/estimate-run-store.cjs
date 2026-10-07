@@ -191,6 +191,35 @@ function writeRunState(projectRoot, state, opts) {
   return { path: file };
 }
 
+/**
+ * Archive a FINISHED run to historyPath, atomically and idempotently. Only `df-tools estimate`
+ * calls this. An unfinished run is never archived (its partial waves are not an outcome); a
+ * file already holding the same bytes is not rewritten. Throws on a genuine filesystem error,
+ * after removing the half-written temp file.
+ * @returns {{path: string|null, written: boolean, reason?: string}}
+ */
+function archiveRunState(projectRoot, state, opts) {
+  if (!isRunState(state)) return { path: null, written: false, reason: 'not a run state' };
+  if (!state.finished_at) return { path: null, written: false, reason: 'not finished' };
+  const file = historyPath(projectRoot, state, opts);
+  const text = `${JSON.stringify(state, null, 2)}\n`;
+  try {
+    if (fs.readFileSync(file, 'utf8') === text) return { path: file, written: false };
+  } catch {
+    // no archive yet (or an unreadable one): write it below
+  }
+  const tmp = `${file}.tmp`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  try {
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+  return { path: file, written: true };
+}
+
 /** Remove the run state (and a stranded temp file). A missing file is not an error. */
 function clearRunState(projectRoot, opts) {
   const file = statePath(projectRoot, opts);
@@ -296,6 +325,7 @@ module.exports = {
   findProjectRoot,
   readRunState,
   writeRunState,
+  archiveRunState,
   clearRunState,
   remainingMinutes,
   formatStatusSegment,
