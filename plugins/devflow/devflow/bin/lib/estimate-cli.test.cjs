@@ -38,6 +38,7 @@ const { makeBacktestProject, removeBacktestProject } = require('./__fixtures__/b
 const {
   CAL_V2,
   MILESTONE_SPEC,
+  makeCalibration,
   makeEstimateProject,
   removeEstimateProject,
   writeCalibrationFile,
@@ -937,5 +938,108 @@ describe('13: backtest usage (TRD 64-04, EST-08)', () => {
     });
     assert.equal(missing.status, 1, missing.stdout);
     assert.match(missing.stderr, /objective 99 not found/);
+  });
+});
+
+describe('13b: backtest JSON (TRD 64-04, EST-08)', () => {
+  let project;
+  let stateDirBacktest;
+
+  before(() => {
+    project = makeBacktestProject();
+    stateDirBacktest = path.join(scratch, 'backtest-json-state');
+  });
+
+  after(() => {
+    removeBacktestProject(project);
+  });
+
+  const backtest = (argv, over = {}) => runEstimate({
+    argv: ['backtest', ...argv],
+    cwd: project,
+    env: { DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: stateDirBacktest },
+    now: T0,
+    ...over,
+  });
+
+  test('2: the result carries the calibration identity, one row per objective and a verdict', () => {
+    const r = ok(backtest(['90,91']));
+    assert.equal(r.exit, 0);
+    const result = r.result;
+    assert.equal(result.available, true);
+    assert.deepEqual(result.objectives.map((o) => o.objective), ['90', '91']);
+    assert.deepEqual(Object.keys(result.calibration).sort(), ['data_as_of', 'inputs_digest', 'path', 'samples', 'version']);
+    assert.equal(result.calibration.path, calFile);
+    assert.equal(result.calibration.version, 2);
+    assert.equal(result.calibration.data_as_of, '2026-10-05');
+    assert.equal(result.calibration.inputs_digest, null, 'CAL_V2 is hand-built and has no digest');
+    assert.equal(result.verdict.est08, 'not met', 'two objectives are below the minimum of three');
+    assert.deepEqual(result.verdict.sc2, { agent_minutes: 'insufficient', cost_usd: 'insufficient' });
+    for (const key of ['band', 'coverage_target', 'primary_metrics', 'classes', 'summary']) assert.ok(key in result, key);
+  });
+
+  test('2b: the objectives are measured: 90 has 30 minutes on record, 91 lacks the minutes of its TRD 91-02', () => {
+    const { objectives } = ok(backtest(['90,91'])).result;
+    assert.equal(objectives[0].agent_minutes.actual, 30);
+    assert.equal(objectives[0].agent_minutes.excluded, null);
+    assert.equal(objectives[1].agent_minutes.excluded, 'incomplete actuals');
+    assert.deepEqual(objectives[1].agent_minutes.trds, ['91-02']);
+    assert.equal(objectives[1].cost_usd.excluded, null, 'every TRD of 91 has priced tokens');
+    assert.deepEqual(objectives[0].trd_rows.map((t) => t.id), ['90-01', '90-02']);
+  });
+
+  test('2c: numbers are rounded once at output, and within_band was decided on the unrounded ratio', () => {
+    // One TRD, one code_tdd task estimated at 13.004 minutes and measured at 10: ratio 1.3004, just outside the 30% band.
+    const spec = {
+      name: 'rounding',
+      objectives: [{
+        dir: '92-gamma',
+        trds: [{
+          nn: '01', slug: 'one', frontmatter: { type: 'standard' },
+          tasks: [{ name: 'Task 1: code', type: 'auto', tdd: true, files: ['lib/g.cjs', 'lib/g.test.cjs'] }],
+          summary: {
+            duration: '10min', completed: '2026-10-06',
+            tokens_input: 1000000, tokens_output: 10000, tokens_cache_read: 600000, tokens_cache_write: 200000,
+            token_model: 'claude-opus-5-5',
+          },
+        }],
+      }],
+    };
+    const tight = makeBacktestProject(spec);
+    try {
+      const file = writeCalibrationFile(path.join(scratch, 'cal-1-3004'), makeCalibration({ task_classes: { code_tdd: { minutes: { p50: 13.004 } } } }));
+      const r = ok(runEstimate({ argv: ['backtest', '92', '--calibration', file], cwd: tight, env: { DEVFLOW_ESTIMATE_STATE_DIR: stateDirBacktest }, now: T0 }));
+      const cell = r.result.objectives[0].agent_minutes;
+      assert.equal(cell.ratio, 1.3, 'the JSON ratio has three decimals');
+      assert.equal(cell.within_band, false, '1.3004 is outside the band even though 1.3 would be inside');
+      assert.equal(cell.p50, 13, 'minutes have one decimal');
+      assert.equal(cell.actual, 10);
+      const cost = r.result.objectives[0].cost_usd;
+      assert.equal(Number.isInteger(Math.round(cost.p50 * 1e4 * 1e6) / 1e6), true, 'dollars have at most four decimals');
+      assert.equal(r.result.summary.agent_minutes.median_ratio, 1.3);
+    } finally {
+      removeBacktestProject(tight);
+    }
+  });
+
+  test('5: with no usable calibration it is `No estimate: <reason>`, exit 0, and not a number', () => {
+    const r = ok(backtest(['90,91', '--calibration', path.join(scratch, 'no-such-calibration.json')]));
+    assert.equal(r.exit, 0);
+    assert.equal(r.result.available, false);
+    assert.match(r.text, /^No estimate: /);
+    assert.equal(r.result.line, r.text);
+    assert.equal('objectives' in r.result, false);
+  });
+
+  test('5b: an unreadable model-rates file is a failure, not a number', () => {
+    const r = backtest(['90,91'], { ratesFile: path.join(scratch, 'no-such-rates.json') });
+    assert.equal(r.ok, false);
+    assert.match(r.message, /cannot read model rates /);
+  });
+
+  test('2d: a duplicate objective in the list is a usage error, so a median cannot count one twice', () => {
+    const r = backtest(['90,91,90']);
+    assert.equal(r.ok, false);
+    assert.match(r.message, /objective 90 is listed twice/);
   });
 });
