@@ -131,6 +131,24 @@ function makeWorld(opts = {}) {
     }
     if (opts.routeRecommendation) fs.writeFileSync(path.join(dir, '.route-recommendation'), '/devflow:build');
   }
+  if (opts.changelog) {
+    // A tracked-tree CHANGELOG.md with no entry for the tag the payload asks for (changelog-on-tag denies).
+    fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n## [1.0.0]\n\n- seed\n');
+  }
+  if (opts.stuckGuard) {
+    // Four identical prior calls in this session, so the hook's own call is the fifth: guard-no-progress asks.
+    const lib = path.join(PLUGIN_ROOT, 'devflow', 'bin', 'lib');
+    const guard = require(path.join(lib, 'progress-guard.cjs'));
+    const store = require(path.join(lib, 'progress-guard-store.cjs'));
+    let state = null;
+    for (let i = 0; i < 4; i++) state = guard.record(state, opts.stuckGuard).state;
+    const dir = store.stateDir({ DEVFLOW_PROGRESS_GUARD_DIR: path.join(home, 'progress-guard') });
+    store.writeSession(store.sessionFile(dir, 'coexist-session'), {
+      guard: state,
+      updated: Date.now(),
+      project: fs.realpathSync(root),
+    });
+  }
   if (opts.notices) {
     const notices = require(path.join(PLUGIN_ROOT, 'devflow', 'bin', 'lib', 'notices.cjs'));
     for (const rel of ['.', 'flutter']) {
