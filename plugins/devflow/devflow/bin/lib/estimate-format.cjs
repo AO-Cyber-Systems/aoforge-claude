@@ -226,7 +226,8 @@ const trdsLeft = (r) => `${plural(r.trds.remaining, 'TRD')} ${r.all ? 'estimated
 /** `Objective 80 estimate: 26 min median (P90 1h 09m) wall · $6.80 (P90 $10.90) · 3 TRDs left in 2 waves · confidence medium`. */
 function objectiveLine(r) {
   if (unavailable(r)) return noEstimate(r && r.reason);
-  if (r.status === 'done') return `Objective ${r.objective}: all TRDs done (${r.trds.done} of ${r.trds.total})`;
+  // `all` asks for the estimate of the TRDs already done (the backtest), so a done objective renders like any other then.
+  if (r.status === 'done' && !r.all) return `Objective ${r.objective}: all TRDs done (${r.trds.done} of ${r.trds.total})`;
   const wall = r.total && r.total.wall_minutes;
   if (!wall) return objectiveNoMinutes(r);
   const basis = r.status === 'unplanned'
@@ -240,7 +241,7 @@ const UNPLANNED_BASIS_NOTE = /^unplanned: estimated from /;
 /** The markdown table the planner and execute-objective paste; see the TRD for the literal layout. */
 function objectiveTable(r) {
   if (unavailable(r)) return noEstimate(r && r.reason);
-  if (r.status === 'done') return objectiveLine(r);
+  if (r.status === 'done' && !r.all) return objectiveLine(r);
   const total = r.total || {};
   if (!total.wall_minutes) return objectiveNoMinutes(r);
 

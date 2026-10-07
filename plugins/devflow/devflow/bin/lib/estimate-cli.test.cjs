@@ -574,9 +574,14 @@ describe('8-11: estimate start, wave, finish (one run, one state dir)', () => {
     assert.equal(state.waves.length, 2);
   });
 
-  test('the run verbs wrote only under the state directory', () => {
+  test('the run verbs wrote only under the state directory, history included, and left no .tmp anywhere', () => {
     assert.deepEqual(listTree(root), treeBefore);
-    assert.deepEqual(fs.readdirSync(runDir).filter((f) => f.endsWith('.tmp')), []);
+    const written = listTree(runDir);
+    assert.deepEqual(written.filter((f) => f.endsWith('.tmp')), []);
+    // the run file, plus the archive of the run test 11 finished (and nothing else): history/<repo-key>/80-<started_at>.json
+    const archives = written.filter((f) => f.startsWith(`history${path.sep}`) && f.endsWith('.json'));
+    assert.deepEqual(archives, [path.join('history', path.basename(store.historyDir(root, { env: opts().env })), `80-${sane(iso(T0))}.json`)]);
+    assert.equal(written.length, 4, `state file, history, <repo-key> and one archive: ${JSON.stringify(written)}`);
   });
 });
 

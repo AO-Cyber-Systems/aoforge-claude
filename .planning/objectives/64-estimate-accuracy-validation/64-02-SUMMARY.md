@@ -12,5 +12,5 @@ started: 2026-10-07T11:47:13Z
 **In progress.**
 
 ## Progress
-- [x] Task 1: Run-state fixture builders, then the history store API — (this commit)
-- [ ] Task 2: Archive in the run verbs, enrich the estimate block, render a done objective's --all estimate — next step: write the RED format tests (items 7-8): estimate-format.test.cjs objectiveLine/objectiveTable with all: true on a done objective, and estimate-cli.test.cjs `objective 82 --all --line`; GREEN is `r.status === 'done' && !r.all` in the two short-circuits of estimate-format.cjs; then extend the tree/no-.tmp test (item 6) to recurse into history/. Done so far: finish archives, start/wave --start archive a finished previous run, enriched estimate block (5f13f400, 8f8a704e, this commit)
+- [x] Task 1: Run-state fixture builders, then the history store API — e5d6884e
+- [x] Task 2: Archive in the run verbs, enrich the estimate block, render a done objective's --all estimate — (this commit)
