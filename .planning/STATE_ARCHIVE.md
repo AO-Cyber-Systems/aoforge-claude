@@ -181,6 +181,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 62]: 62-11: cleanup declares only AskUserQuestion in its new allowed-tools (allowed-tools pre-approves, so adding Bash would pre-approve the directory moves)
 - [Objective 62]: 62-11: gh-sync migrate question gets header GitHub store with Not now (Recommended) first, per built-ins.md order; token, labels and routing unchanged
 - [Objective 62]: Built-in sweep ratchet closed (62-10): no baseline directory and no exceptions list; manual inventory rows are resolved by their Conversion cell (text gone, keep, named AskUserQuestion headers present in the file, or a bare list head reworded)
+- [Objective 63]: 63-05: model Claude Code's documented hook composition once (hook-runner.js, doc sentence per rule) and run every registered hook through it beside nine user-hook stubs; a registration with no RUNS entry fails the suite
 
 ## Performance Metrics
 
@@ -297,4 +298,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P09 | 7m | 2 tasks | 11 files |
 | Objective 62 P11 | 6min | 2 tasks | 14 files |
 | Objective 62 P10 | 17min | 3 tasks | 6 files |
+| Objective 63 P05 | 17min | 3 tasks | 8 files |
 

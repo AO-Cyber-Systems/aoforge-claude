@@ -50,7 +50,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 - [x] **BLTN-02**: plan-objective, new-project and milestone complete present their drafts in plan mode (EnterPlanMode/ExitPlanMode).
 - [x] **BLTN-03**: Every discrete-choice prompt in skills and workflows uses AskUserQuestion; the sweep lists each prompt it converted.
 - [ ] **BLTN-04**: `/devflow:todo` uses TodoWrite as its in-session store, with a durable archive (on disk, or the GitHub store) that a Stop-hook sync merges into.
-- [ ] **BLTN-05**: A coexistence test shows DevFlow hooks degrade gracefully, compose output and isolate errors when a user-level hook fires on the same event.
+- [x] **BLTN-05**: A coexistence test shows DevFlow hooks degrade gracefully, compose output and isolate errors when a user-level hook fires on the same event.
 - [ ] **BLTN-06**: `docs/built-in-integration-status.md` keeps a living inventory of Claude Code built-ins and DevFlow's adoption of each.
 
 ### Estimation engine (EST): Phase K, devflow-claude#36
@@ -110,7 +110,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | BLTN-02 | Objective 62 | Complete |
 | BLTN-03 | Objective 62 | Complete |
 | BLTN-04 | Objective 63 | Pending |
-| BLTN-05 | Objective 63 | Pending |
+| BLTN-05 | Objective 63 | Complete |
 | BLTN-06 | Objective 63 | Pending |
 | EST-01 | Objective 57 | Complete |
 | EST-02 | Objective 58 | Complete |

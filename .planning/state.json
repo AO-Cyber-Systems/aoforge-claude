@@ -1,9 +1,9 @@
 {
-  "current_objective": "62",
-  "current_job": 11,
-  "total_jobs": 11,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "63",
+  "current_job": 1,
+  "total_jobs": 7,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
@@ -969,6 +969,11 @@
     {
       "objective": "62",
       "summary": "Built-in sweep ratchet closed (62-10): no baseline directory and no exceptions list; manual inventory rows are resolved by their Conversion cell (text gone, keep, named AskUserQuestion headers present in the file, or a bare list head reworded)",
+      "rationale": null
+    },
+    {
+      "objective": "63",
+      "summary": "63-05: model Claude Code's documented hook composition once (hook-runner.js, doc sentence per rule) and run every registered hook through it beside nine user-hook stubs; a registration with no RUNS entry fails the suite",
       "rationale": null
     }
   ],
