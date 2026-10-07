@@ -10,11 +10,17 @@
 
 const { describe, test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const store = require('./estimate-run-store.cjs');
-const { objective63Run, finishedRun, liveRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
+const {
+  OBJECTIVE_63_SHA256,
+  objective63Run,
+  finishedRun,
+  liveRun,
+} = require('./__fixtures__/estimate-run-fixtures.cjs');
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -431,6 +437,74 @@ describe('14. run history paths (TRD 64-02, EST-08)', () => {
       assert.equal(path.dirname(file), store.historyDir(root, opts), hostile);
       assert.match(path.basename(file), /^[A-Za-z0-9_-]+\.json$/, hostile);
     }
+  });
+});
+
+describe('15. archiveRunState', () => {
+  test('15a. writes JSON.stringify(state, null, 2) + newline atomically and reports written', () => {
+    const state = finishedRun({ objective: '80' });
+    const res = store.archiveRunState(root, state, opts);
+    assert.deepEqual(res, { path: store.historyPath(root, state, opts), written: true });
+    assert.equal(fs.readFileSync(res.path, 'utf8'), `${JSON.stringify(state, null, 2)}\n`);
+    assert.deepEqual(
+      fs.readdirSync(store.historyDir(root, opts)).filter((f) => f.endsWith('.tmp')),
+      []
+    );
+  });
+
+  test('15b. a second call with the same state does not rewrite the file', () => {
+    const state = finishedRun();
+    const first = store.archiveRunState(root, state, opts);
+    const old = new Date('2020-01-01T00:00:00Z');
+    fs.utimesSync(first.path, old, old);
+    const second = store.archiveRunState(root, JSON.parse(JSON.stringify(state)), opts);
+    assert.deepEqual(second, { path: first.path, written: false });
+    assert.equal(fs.statSync(first.path).mtimeMs, old.getTime());
+  });
+
+  test('15c. a different finished state under the same name is replaced', () => {
+    const state = finishedRun();
+    const first = store.archiveRunState(root, state, opts);
+    const later = { ...state, updated_at: '2026-10-01T11:00:00.000Z', finished_at: '2026-10-01T11:00:00.000Z' };
+    const second = store.archiveRunState(root, later, opts);
+    assert.deepEqual(second, { path: first.path, written: true });
+    assert.deepEqual(JSON.parse(fs.readFileSync(first.path, 'utf8')), later);
+  });
+
+  test('15d. an unfinished state is not archived and nothing is created', () => {
+    const res = store.archiveRunState(root, liveRun(), opts);
+    assert.deepEqual(res, { path: null, written: false, reason: 'not finished' });
+    assert.equal(fs.existsSync(store.historyDir(root, opts)), false);
+  });
+
+  test('15e. a value that is not a run state is refused with a reason', () => {
+    for (const bad of [null, undefined, 'x', 3, [], {}, { ...finishedRun(), version: 2 }, { ...finishedRun(), waves: 'no' }]) {
+      assert.deepEqual(store.archiveRunState(root, bad, opts), {
+        path: null,
+        written: false,
+        reason: 'not a run state',
+      });
+    }
+    assert.equal(fs.existsSync(store.historyDir(root, opts)), false);
+  });
+
+  test('15f. a filesystem error removes the temp file and throws', () => {
+    const state = finishedRun();
+    const dir = store.historyDir(root, opts);
+    fs.mkdirSync(dir, { recursive: true });
+    // a directory where the archive file belongs: the rename fails, the .tmp must not stay
+    fs.mkdirSync(store.historyPath(root, state, opts));
+    assert.throws(() => store.archiveRunState(root, state, opts));
+    assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), []);
+  });
+
+  test("15g. archiving Objective 63's run reproduces the planner's copy byte for byte", () => {
+    const res = store.archiveRunState(root, objective63Run(), opts);
+    assert.equal(res.written, true);
+    assert.equal(path.basename(res.path), '63-2026-10-06T23_55_36_062Z.json');
+    const sha = crypto.createHash('sha256').update(fs.readFileSync(res.path)).digest('hex');
+    assert.equal(sha, OBJECTIVE_63_SHA256);
+    assert.equal(sha, '08f88f9f9a108e10e6804603bb900f37145258415005d858cfac131fa664fdee');
   });
 });
 
