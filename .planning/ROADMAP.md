@@ -317,7 +317,15 @@ TRDs:
   1. A report compares estimate with actual for the five executed objectives after the engine shipped.
   2. The median estimate is within ±30% of actual.
   3. P90 covers at least 80% of outcomes, or the report names the miscalibrated classes and the follow-up.
-**TRDs**: TBD
+**TRDs**: 6 plans
+
+TRDs:
+- [ ] 64-01-backtest-comparison-library-TRD.md — (W1) `estimate-backtest.cjs`: actuals (SUMMARY minutes, metric fallback, priced tokens, exclusions named), ratio/band/coverage, class flags, the EST-08 verdict rules pinned as constants
+- [ ] 64-02-run-history-and-all-text-TRD.md — (W1) finished runs archived to `<state dir>/history/<repo-key>/`, richer run-state estimate (execution, total, calibration), done-objective `--all` text fix
+- [ ] 64-03-frozen-inputs-and-token-backfill-TRD.md — (W1) frozen pre-59 calibration and 63's run state preserved, estimator drift and 63 reproduction, diff-guarded token backfill of 58-63, actuals audit against transcript spans
+- [ ] 64-04-estimate-backtest-verb-TRD.md — (W2) `df-tools estimate backtest <N[,N...]>`: JSON and markdown report, prospective run lookup from the main checkout, help
+- [ ] 64-05-out-of-sample-backtest-report-TRD.md — (W3) EST-08: primary backtest of 59-63 on the frozen calibration, rolling leave-future-out and window diagnostics, 64-ACCURACY-REPORT.md, EST-08 status, follow-up todo
+- [ ] 64-06-docs-and-full-suite-TRD.md — (W4) CHANGELOG, USER-GUIDE Estimates (backtest, run history, measured result), CLAUDE.md; full `npm test`
 
 ## Progress
 
