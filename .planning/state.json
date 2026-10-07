@@ -1,6 +1,6 @@
 {
   "current_objective": "63",
-  "current_job": 2,
+  "current_job": 3,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -984,6 +984,11 @@
     {
       "objective": "63",
       "summary": "63-05: model Claude Code's documented hook composition once (hook-runner.js, doc sentence per rule) and run every registered hook through it beside nine user-hook stubs; a registration with no RUNS entry fails the suite",
+      "rationale": null
+    },
+    {
+      "objective": "63",
+      "summary": "63-02: todo sync folds items by stem (furthest status wins) and lists every changed todo .md as pending_commit, so a no-op rerun still names what the Stop hook left uncommitted",
       "rationale": null
     }
   ],

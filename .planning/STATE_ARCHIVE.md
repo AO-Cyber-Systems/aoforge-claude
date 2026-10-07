@@ -184,6 +184,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 63]: 63-01: a completed TodoWrite item that drops out of the next snapshot stays completed; only unfinished items become deleted (live probe: the host forgets an all-completed list)
 - [Objective 63]: 63-01: todo identity is the stem (metadata devflow_todo, then [todo:stem] suffix, then UTC-date-of-record plus slug), never the host task id; two replayed items can share a stem so 63-02 must fold by stem
 - [Objective 63]: 63-05: model Claude Code's documented hook composition once (hook-runner.js, doc sentence per rule) and run every registered hook through it beside nine user-hook stubs; a registration with no RUNS entry fails the suite
+- [Objective 63]: 63-02: todo sync folds items by stem (furthest status wins) and lists every changed todo .md as pending_commit, so a no-op rerun still names what the Stop hook left uncommitted
 
 ## Performance Metrics
 
@@ -302,4 +303,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P10 | 17min | 3 tasks | 6 files |
 | Objective 63 P01 | 11min | 2 tasks | 7 files |
 | Objective 63 P05 | 17min | 3 tasks | 8 files |
+| Objective 63 P02 | 11min | 3 tasks | 6 files |
 
