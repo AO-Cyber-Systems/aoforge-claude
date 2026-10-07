@@ -21,6 +21,7 @@
 // 12.  splitFrontmatter.   13. parseToolList.   14. builtinsUsed.   15. workflowRefs.
 // 16.  skillCoverage (temp tree).   17. progressCounts.   18. planModeSpans.
 // 19.  scanSet (temp tree).   20. groupOf and GROUPS.
+// 14d. (63-04) TodoWrite( counts as a built-in use, the session todo store of /devflow:todo.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -351,6 +352,13 @@ describe('builtinsUsed and workflowRefs', () => {
   test('14c. EnterPlanMode() and ExitPlanMode() are both reported, a backticked name is not', () => {
     assert.deepEqual(builtinsUsed('EnterPlanMode()\nExitPlanMode()'), ['EnterPlanMode', 'ExitPlanMode']);
     assert.deepEqual(builtinsUsed('built-in plan mode (`EnterPlanMode`)'), []);
+  });
+
+  test('14d. TodoWrite( is a built-in use (63-04); a negated call and a bare mention are not', () => {
+    assert.deepEqual(builtinsUsed('TodoWrite(todos=[...])'), ['TodoWrite']);
+    assert.deepEqual(builtinsUsed('Never call TodoWrite(todos=[])'), []);
+    assert.deepEqual(builtinsUsed('the session list (TodoWrite) holds the todo'), []);
+    assert.deepEqual(builtinsUsed('TaskList()\nTodoWrite(todos=[])'), ['TaskList', 'TodoWrite']);
   });
 
   test('15. workflowRefs finds each referenced workflow once, in order', () => {
