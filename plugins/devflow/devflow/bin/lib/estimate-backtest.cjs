@@ -192,6 +192,77 @@ function compareMetric(stat, actual) {
   };
 }
 
+// ─── Task classes ─────────────────────────────────────────────────────────────
+
+/** The share of `items` for which `test` holds, or null when there are none. */
+function shareOf(items, test) {
+  return items.length === 0 ? null : items.filter(test).length / items.length;
+}
+
+function compareStrings(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * One class table for one metric: every task of every TRD whose actual is known, compared with its share of that
+ * actual. A TRD's actual is split equally across its non-checkpoint tasks, the calibrator's own rule (a checkpoint is a
+ * human wait: not a share and not a sample). A TRD with no actual, and a task with no estimate, contribute no sample.
+ */
+function classTable(rows, metric) {
+  const byClass = new Map();
+  for (const row of rows) {
+    for (const trdRow of row.trd_rows || []) {
+      const outcome = trdRow[metric];
+      if (!outcome || outcome.excluded || !isFiniteNumber(outcome.actual)) continue;
+      const auto = (trdRow.tasks || []).filter((task) => !task.human_wait && task.class !== 'checkpoint');
+      if (auto.length === 0) continue;
+      const share = outcome.actual / auto.length;
+      for (const task of auto) {
+        const comparison = compareMetric(task[metric], share);
+        if (comparison.excluded) continue;
+        const name = task.class || 'unclassified';
+        if (!byClass.has(name)) byClass.set(name, []);
+        byClass.get(name).push(comparison);
+      }
+    }
+  }
+
+  const table = [];
+  for (const [name, comparisons] of byClass) {
+    const medianRatio = median(comparisons.map((c) => c.ratio));
+    const coverage = shareOf(comparisons, (c) => c.covered === true);
+    const judged = comparisons.length >= MIN_CLASS_TASKS;
+    const flags = [];
+    if (judged) {
+      if (medianRatio > 1 + BAND) flags.push('biased_high');
+      if (medianRatio < 1 - BAND) flags.push('biased_low');
+      if (coverage < COVERAGE_TARGET) flags.push('p90_too_narrow');
+    }
+    table.push({
+      class: name,
+      tasks: comparisons.length,
+      median_ratio: medianRatio,
+      coverage,
+      under_median_share: shareOf(comparisons, (c) => c.at_or_under_median),
+      flags,
+      verdict: !judged ? 'too_few' : flags.length > 0 ? 'miscalibrated' : 'ok',
+    });
+  }
+  return table.sort((a, b) => b.tasks - a.tasks || compareStrings(a.class, b.class));
+}
+
+/**
+ * Per-class accuracy over every compared TRD of the given objective rows (each `{trd_rows: [...]}` as compareObjective
+ * returns it). `minutes` is the agent-minutes table. A class with fewer than MIN_CLASS_TASKS tasks is `too_few` and is
+ * never flagged; otherwise it is flagged `biased_high` (median ratio above 1 + BAND), `biased_low` (below 1 - BAND)
+ * and/or `p90_too_narrow` (coverage below COVERAGE_TARGET).
+ * @returns {{minutes: object[], cost_usd: object[]}}
+ */
+function classRows(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  return { minutes: classTable(list, 'minutes'), cost_usd: classTable(list, 'cost_usd') };
+}
+
 module.exports = {
   BAND,
   COVERAGE_TARGET,
@@ -202,4 +273,5 @@ module.exports = {
   median,
   objectiveActuals,
   compareMetric,
+  classRows,
 };
