@@ -1,6 +1,6 @@
 {
   "current_objective": "63",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 7,
   "progress_pct": 100,
   "status": "executing",
@@ -999,6 +999,11 @@
     {
       "objective": "63",
       "summary": "63-04: Work on it now with task tools sets the session task in_progress and leaves the archive todo pending until the session task completes; without task tools it completes the archive todo at once",
+      "rationale": null
+    },
+    {
+      "objective": "63",
+      "summary": "Built-in inventory test has no clock check; review cadence lives in the document's dates and procedure, and REQUIRED_TOOLS/REQUIRED_EVENTS are pinned in the test and updated together with the document",
       "rationale": null
     }
   ],
