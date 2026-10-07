@@ -12,5 +12,5 @@ started: 2026-10-07T11:47:13Z
 **In progress.**
 
 ## Progress
-- [ ] Task 1: Run-state fixture builders, then the history store API — next step: add historyDir/historyPath to estimate-run-store.cjs so the 14a-14d RED tests pass (RED for item 9 committed in this commit)
+- [ ] Task 1: Run-state fixture builders, then the history store API — next step: write RED tests 15a-15e (archiveRunState, plus the byte-exact sha256 of Objective 63's archive) in estimate-run-store.test.cjs; history paths (item 9) done: RED 1014b150, GREEN (this commit)
 - [ ] Task 2: Archive in the run verbs, enrich the estimate block, render a done objective's --all estimate — next step: write the RED estimate-cli tests for items 1-5 in estimate-cli.test.cjs

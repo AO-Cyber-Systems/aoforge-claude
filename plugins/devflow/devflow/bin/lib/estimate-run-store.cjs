@@ -95,6 +95,28 @@ function statePath(projectRoot, opts) {
   return path.join(stateRoot(env, home), `${repoKeyOf(projectRoot)}.json`);
 }
 
+/**
+ * <stateRoot>/history/<repo-key>, where finished runs are archived. Same repo key as statePath.
+ * @param {string} projectRoot the directory that CONTAINS `.planning/`
+ * @param {{env?: NodeJS.ProcessEnv, home?: string}} [opts]
+ */
+function historyDir(projectRoot, opts) {
+  const { env, home } = opts || {};
+  return path.join(stateRoot(env, home), 'history', repoKeyOf(projectRoot));
+}
+
+/**
+ * The archive file for a run: `<objective>-<started_at>.json` inside historyDir, both parts
+ * through sanitize, so an objective such as `../x` cannot leave the directory.
+ * @param {string} projectRoot
+ * @param {{objective: string, started_at: string}} state
+ * @param {{env?: NodeJS.ProcessEnv, home?: string}} [opts]
+ */
+function historyPath(projectRoot, state, opts) {
+  const name = `${sanitize(state && state.objective)}-${sanitize(state && state.started_at)}.json`;
+  return path.join(historyDir(projectRoot, opts), name);
+}
+
 /** True when `p` is an existing directory. A path that cannot be examined is simply not one. */
 function isDirectory(p) {
   try {
@@ -269,6 +291,8 @@ module.exports = {
   STALE_MS,
   stateRoot,
   statePath,
+  historyDir,
+  historyPath,
   findProjectRoot,
   readRunState,
   writeRunState,
