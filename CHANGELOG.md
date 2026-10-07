@@ -136,6 +136,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   did not without it.
 - `skills/adopt` declares `disallowed-tools: AskUserQuestion`, so adopt stays unattended although the map-codebase flow it
   runs now asks.
+- `df-tools estimate backtest <N[,N...]> [--calibration <file>] [--raw]` (`lib/estimate-backtest.cjs`, objective 64): compares
+  each objective's estimate with its measured executor minutes (SUMMARY durations, else the STATE_ARCHIVE row) and its
+  priced SUMMARY tokens, takes the estimate from the objective's archived run state when that run recorded one and rebuilds
+  it with `estimate objective N --all` otherwise, and prints the EST-08 verdict from fixed rules: median ratio within 0.70
+  to 1.30, and P90 covering at least 80% of objectives and of TRDs, for agent minutes and for cost. Wall time is reported,
+  never judged. Each row is marked `prospective` or `reconstructed`, an exclusion names its TRD ids, and the JSON carries
+  the calibration's path, version and `inputs_digest`. `--raw` prints the markdown report; the JSON for five objectives is
+  large and comes back as an `@file:` pointer.
+- Run history for the estimate run state (`lib/estimate-run-store.cjs`, objective 64): `estimate finish` archives a finished
+  run to `~/.claude/devflow/state/estimates/history/<repo-key>/<objective>-<started_at>.json`, and `estimate start` (or a
+  `wave --start` that begins a new run) archives a finished previous run before it replaces it, so a later run no longer
+  destroys the earlier run's prospective estimate. A new run also records the execution and total estimates and the
+  calibration's identity. Never written inside the repository.
+- Objective 64's out-of-sample test of the estimate method (`.planning/objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md`):
+  EST-08 is **not met**. Across objectives 59 to 63 (41 TRDs, on the calibration built before 59 started, reconstructed and
+  not prospective) the agent-minutes median ratio was 1.51 with 2 of 5 objectives within +-30%, so the estimate runs about
+  1.5 times high; the cost median ratio was 0.86 with 4 of 5 within +-30%. The P90 covered 5 of 5 objectives and 40 of 41
+  TRDs for agent minutes, and 4 of 5 objectives and 34 of 41 TRDs for cost. No threshold, input or estimator code was
+  changed after the data was seen. The follow-ups are the todos `recalibrate-estimate-minutes-est-08-not-met` and
+  `ship-executor-token-stamp-forward-stamp-8-of-41`.
+- Token fields were backfilled with `tokens backfill --write` onto 40 SUMMARYs (58-01, 58-04 to 58-09 and the 33 unstamped
+  TRDs of 59 to 63): only 8 of the 41 executor SUMMARYs of 59 to 63 had been stamped live, because no installed executor
+  prompt carries the `tokens stamp` step yet.
 
 ### Changed
 - `/devflow:todo add` writes the session item first and the archive second, so a turn cut off between the two is recovered
@@ -228,6 +251,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `build` and `plan-objective` no longer declare `ExitPlanMode` in `allowed-tools`: its permission prompt is the plan
   approval, so pre-approving it could approve a plan the user never saw. No skill declares it, and the repo test fails if
   one does.
+- `df-tools estimate objective N --all --line|--table` on an objective whose TRDs are all done prints the estimate; it printed
+  `all TRDs done`, so a completed objective's backtest could only be read from the JSON.
 
 ## [2.13.2] - 2026-10-05
 
