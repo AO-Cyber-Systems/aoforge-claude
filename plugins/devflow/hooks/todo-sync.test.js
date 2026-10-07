@@ -32,7 +32,8 @@ const outbox = require(path.join(LIB, 'gh-outbox.cjs'));
 const SESSION = 'sess-hook-0001';
 const TITLE = 'Add auth token refresh';
 const STEM = '2026-10-06-add-auth-token-refresh';
-const CREATED_AT = '2026-10-06T12:00:00.000Z';
+// The replay stamps a todo with its creation RESULT's timestamp, which the 63-01 builders place 50 ms after the call.
+const CREATED_AT = '2026-10-06T12:00:00.050Z';
 
 const cleanups = [];
 after(() => {
