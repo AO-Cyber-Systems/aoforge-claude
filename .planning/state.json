@@ -980,6 +980,11 @@
       "objective": "63",
       "summary": "63-01: todo identity is the stem (metadata devflow_todo, then [todo:stem] suffix, then UTC-date-of-record plus slug), never the host task id; two replayed items can share a stem so 63-02 must fold by stem",
       "rationale": null
+    },
+    {
+      "objective": "63",
+      "summary": "63-05: model Claude Code's documented hook composition once (hook-runner.js, doc sentence per rule) and run every registered hook through it beside nine user-hook stubs; a registration with no RUNS entry fails the suite",
+      "rationale": null
     }
   ],
   "blockers": [],
