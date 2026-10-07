@@ -68,3 +68,16 @@ AskUserQuestion([
 ## 4. Enforcement
 
 `plugins/devflow/devflow/bin/lib/builtin-audit.cjs` finds prose choice prompts, AskUserQuestion schema breaks, undeclared built-ins and plan-mode spans. `plugins/devflow/devflow/bin/lib/builtin-sweep.repo.test.cjs` runs it over every skill and active workflow in CI. The list of prompts, their planned conversions and the progress and plan-mode plans is `docs/built-in-sweep.md`.
+
+## 5. Todo store
+
+`/devflow:todo` keeps the session task list as the in-session store of a todo and the todo files (or GitHub issues in store mode) as the durable archive. Only the todo flows put a todo in the session list, and they do it in one form so the replay can find it again.
+
+- **Subject.** `Todo: <title>`. The prefix is what marks a task as a todo: a progress task never uses it, and a todo task is never a progress task. The todo flows create no progress tasks.
+- **Identity.** The stem is the archive file stem, `<YYYY-MM-DD>-<slug>`. TaskCreate carries it as metadata `{devflow_todo: "<stem>"}`; TodoWrite carries it as the suffix ` [todo:<stem>]` on the item's content (`Todo: <title> [todo:<stem>]`). A todo with neither is matched by its title and its creation date.
+- **Lifecycle.** `add` creates the item `pending`, then writes the archive. "Work on it now" sets it `in_progress` and leaves the archive todo pending. Completion is `TaskUpdate` with `status="completed"` (or the TodoWrite item `completed`): the todo-sync Stop hook, or `df-tools todo sync` when `list` runs, carries it into the archive.
+- **Merge direction.** The merge only moves forward: a session item missing from the archive is added, a completed one completes its archive todo. A deleted session item never removes an archive todo, a pending one never reopens a completed todo, and a second sync changes nothing.
+- **Who writes.** The session list is read from the transcript, so subagents do not create todos: their lists are not the user's session list.
+- **No task tools.** On newer models without `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` neither TaskCreate nor TodoWrite exists. The flows then skip the session calls and are archive-only, and "Work on it now" completes the todo at once.
+
+The skill declares `TaskCreate`, `TaskUpdate`, `TaskList` and `TodoWrite`. `plugins/devflow/devflow/bin/lib/todo-skill.repo.test.cjs` holds the todo flows to this convention.

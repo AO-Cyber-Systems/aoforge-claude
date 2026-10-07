@@ -12,6 +12,20 @@ Read all files referenced by the invoking prompt's execution_context before star
 <process>
 
 <step name="init_context">
+Merge this session's task-list todos into the archive first, so the list below is current. Use the Session line of
+the skill context; skip this when it is empty or starts with `$`.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs todo sync --session <session id> --raw
+```
+
+If `pending_commit` lists paths (local mode), commit exactly those. In store mode the planning cache is ignored and
+the list is empty:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs commit "docs: sync session todos" --files <each pending_commit path>
+```
+
 Load todo context:
 
 ```bash
@@ -19,8 +33,20 @@ INIT=$(node ~/.claude/devflow/bin/df-tools.cjs init todos)
 ```
 
 Extract from init JSON: `todo_count`, `todos`, `pending_dir`.
+</step>
 
-If `todo_count` is 0:
+<step name="session_view">
+Read this session's todos, to show their in-session status next to the archive.
+
+**Session task list (if available):**
+
+TaskList()
+
+Keep the tasks whose subject starts with `Todo: ` (id, title, status). With TodoWrite instead of the Task tools,
+read the `Todo: ` items of the current list; the `[todo:<stem>]` suffix names the archive file stem. With neither
+(newer models without CLAUDE_CODE_ENABLE_TODO_TOOLS=1), skip the reading: every todo is archive-only.
+
+If `todo_count` is 0 and no `Todo: ` item was read:
 ```
 No pending todos.
 
@@ -52,11 +78,16 @@ Parse and display as numbered list:
 Pending Todos:
 
 1. Add auth token refresh (api, 2d ago)
-2. Fix modal z-index issue (ui, 1d ago)
+2. Fix modal z-index issue (ui, 1d ago) (in progress this session)
 3. Refactor database connection pool (database, 5h ago)
 ```
 
 Format age as relative time from created timestamp.
+
+An archive todo whose session item is `in_progress` shows `(in progress this session)`. Match the session item to the
+archive todo by title (ignoring the `Todo: ` prefix and any `[todo:<stem>]` suffix, case and spacing), or by that stem:
+TaskList returns no metadata. Session `Todo: ` items that match no archive title are listed after the archive list under
+`This session, not archived yet:` (they appear only when the sync was skipped).
 </step>
 
 <step name="handle_selection">
@@ -125,7 +156,7 @@ Use AskUserQuestion:
 - header: "Action"
 - question: "This todo relates to Objective [N]: [name]. What would you like to do?"
 - options:
-  - "Work on it now" — mark it complete, start working
+  - "Work on it now" — start working on it
   - "Add to objective plan" — include when planning Objective [N]
   - "Brainstorm approach" — think through before deciding
   - "Put it back" — return to list
@@ -136,7 +167,7 @@ Use AskUserQuestion:
 - header: "Action"
 - question: "What would you like to do with this todo?"
 - options:
-  - "Work on it now" — mark it complete, start working
+  - "Work on it now" — start working on it
   - "Create an objective" — /devflow:objective add with this scope
   - "Brainstorm approach" — think through before deciding
   - "Put it back" — return to list
@@ -144,12 +175,33 @@ Use AskUserQuestion:
 
 <step name="execute_action">
 **Work on it now:**
+
+**Session task list (if available):** if the session list has this todo (subject "Todo: [title]"), mark it in progress:
+
+TaskUpdate(taskId=[its id], status="in_progress")
+
+Otherwise add it, then mark it in progress:
+
+TaskCreate(subject="Todo: [title]", description="[problem, one line]", activeForm="Working on [title]", metadata={devflow_todo: "[stem]"})
+
+TaskUpdate(taskId=[new id], status="in_progress")
+
+The archive todo stays pending. When the work is done, TaskUpdate(taskId=[id], status="completed") closes the session
+task, and the todo-sync Stop hook carries the completion into the archive when that turn ends (the next list does too).
+Do not run update_state or git_commit now: nothing in the archive changed.
+
+With TodoWrite instead of the Task tools, write the list with the item in progress, and with the same item `completed`
+when the work is done:
+
+TodoWrite(todos=[...current items, {content: "Todo: [title] [todo:[stem]]", status: "in_progress", activeForm: "Working on [title]"}])
+
+With neither tool, complete it now, as before:
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs todo complete [filename]
 ```
 The verb moves the todo to `.planning/todos/completed/` and stamps `completed: <date>`; with `github.store` on it also
-closes the todo issue. Never move todo files by hand. Then run the update_state step, present the problem/solution
-context, and begin work or ask how to proceed.
+closes the todo issue. Never move todo files by hand. Then run the update_state step, run the git_commit step, present
+the problem/solution context, and begin work or ask how to proceed.
 
 **Add to objective plan:**
 Note todo reference in objective planning notes. Keep in pending. Return to list or exit.
@@ -192,7 +244,9 @@ Confirm: "Committed: docs: start work on todo - [title]"
 </process>
 
 <success_criteria>
+- [ ] Session todos merged into the archive before listing
 - [ ] All pending todos listed with title, area, age
+- [ ] In-session status shown
 - [ ] Area filter applied if specified
 - [ ] Selected todo's full context loaded
 - [ ] Roadmap context checked for objective match
