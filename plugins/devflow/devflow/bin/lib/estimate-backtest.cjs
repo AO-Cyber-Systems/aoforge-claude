@@ -26,6 +26,8 @@
 // comparison carries a reason and is never given a number. A TRD with no SUMMARY has no recorded outcome, so its minutes
 // are missing even when a STATE_ARCHIVE metric row exists. The metric-row fallback applies to a SUMMARY with no duration.
 
+const calibrator = require('./calibrator.cjs');
+
 // ─── The fixed verdict rules ──────────────────────────────────────────────────
 
 /** A median is in band when 1 - BAND <= p50 / actual <= 1 + BAND (within ±30% of actual). */
@@ -60,6 +62,106 @@ function median(values) {
   if (n === 0) return null;
   const mid = Math.floor(n / 2);
   return n % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// ─── Actuals ──────────────────────────────────────────────────────────────────
+
+function isCheckpoint(task) {
+  return Boolean(task) && typeof task.type === 'string' && task.type.startsWith('checkpoint');
+}
+
+/**
+ * What one TRD's SUMMARY recorded, with the reason for each metric it lacks. Minutes follow the calibrator's rule: a TRD
+ * that waited for a human reports wall-clock time that is not work, so it has none ('human_wait'); its tokens still count.
+ * Minutes are `trd.minutes` exactly as collectProject resolved them (SUMMARY duration, else the STATE_ARCHIVE metric row)
+ * but only for a TRD that has a SUMMARY: without one there is no recorded outcome ('no_summary').
+ */
+function trdActual(trd, rates) {
+  const summary = trd.summary || null;
+  const autonomous = Boolean(trd.autonomous);
+
+  let minutesReason = null;
+  if (!autonomous) minutesReason = 'human_wait';
+  else if (summary === null) minutesReason = 'no_summary';
+  else if (!isFiniteNumber(trd.minutes)) minutesReason = 'no_minutes';
+
+  let cost = null;
+  let costReason = null;
+  if (summary === null) costReason = 'no_summary';
+  else if (!isFiniteNumber(summary.tokens_input) || !isFiniteNumber(summary.tokens_output)) costReason = 'no_tokens';
+  else {
+    cost = calibrator.sampleCost(summary, rates);
+    if (cost === null) costReason = 'unpriced';
+  }
+
+  const minutes = minutesReason === null ? trd.minutes : null;
+  return {
+    id: trd.id,
+    autonomous,
+    minutes,
+    duration_source: minutes === null ? null : trd.duration_source || null,
+    cost_usd: cost,
+    auto_tasks: (Array.isArray(trd.tasks) ? trd.tasks : []).filter((task) => !isCheckpoint(task)).length,
+    minutes_reason: minutesReason,
+    cost_reason: costReason,
+  };
+}
+
+function idsWhere(records, key, reasons) {
+  return records.filter((r) => reasons.includes(r[key])).map((r) => r.id);
+}
+
+function sumOf(values) {
+  return values.reduce((total, v) => total + v, 0);
+}
+
+/**
+ * The executor minutes and dollars an objective's SUMMARYs recorded, from the project record collectProject returns.
+ * A metric is the sum over every TRD of the objective or null, never a partial sum: the TRDs that lack it are named.
+ *   minutes   {value, complete, trds, with, missing, human_wait, sources}  missing = no SUMMARY or no minutes
+ *   cost_usd  {value, complete, trds, with, missing, unpriced}             missing = no SUMMARY or no tokens
+ *   trds      [{id, autonomous, minutes, duration_source, cost_usd, auto_tasks, minutes_reason, cost_reason}]
+ * Cost is priced with calibrator.sampleCost, the same pricing `calibrate` uses; a model with no rate is `unpriced`.
+ * @param {{trds: object[]}} project
+ * @param {string} dir the objective directory name
+ * @param {object} rates calibration-inputs.loadRates()
+ */
+function objectiveActuals(project, dir, rates) {
+  const records = ((project && project.trds) || []).filter((trd) => trd.objective_dir === dir).map((trd) => trdActual(trd, rates));
+
+  const minuteMissing = idsWhere(records, 'minutes_reason', ['no_summary', 'no_minutes']);
+  const humanWait = idsWhere(records, 'minutes_reason', ['human_wait']);
+  const withMinutes = records.filter((r) => r.minutes !== null);
+  const minutesComplete = records.length > 0 && minuteMissing.length === 0 && humanWait.length === 0;
+
+  const costMissing = idsWhere(records, 'cost_reason', ['no_summary', 'no_tokens']);
+  const unpriced = idsWhere(records, 'cost_reason', ['unpriced']);
+  const withCost = records.filter((r) => r.cost_usd !== null);
+  const costComplete = records.length > 0 && costMissing.length === 0 && unpriced.length === 0;
+
+  return {
+    minutes: {
+      value: minutesComplete ? sumOf(withMinutes.map((r) => r.minutes)) : null,
+      complete: minutesComplete,
+      trds: records.length,
+      with: withMinutes.length,
+      missing: minuteMissing,
+      human_wait: humanWait,
+      sources: {
+        summary: withMinutes.filter((r) => r.duration_source === 'summary').length,
+        metric: withMinutes.filter((r) => r.duration_source === 'metric').length,
+      },
+    },
+    cost_usd: {
+      value: costComplete ? sumOf(withCost.map((r) => r.cost_usd)) : null,
+      complete: costComplete,
+      trds: records.length,
+      with: withCost.length,
+      missing: costMissing,
+      unpriced,
+    },
+    trds: records,
+  };
 }
 
 // ─── One comparison ───────────────────────────────────────────────────────────
@@ -98,5 +200,6 @@ module.exports = {
   PRIMARY_METRICS,
   REPRODUCE_TOLERANCE,
   median,
+  objectiveActuals,
   compareMetric,
 };
