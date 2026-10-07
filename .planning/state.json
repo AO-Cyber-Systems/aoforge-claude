@@ -1,9 +1,9 @@
 {
-  "current_objective": "62",
-  "current_job": 11,
-  "total_jobs": 11,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "63",
+  "current_job": 1,
+  "total_jobs": 7,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-06",
   "metrics": {
     "jobs_completed": 0,
@@ -969,6 +969,16 @@
     {
       "objective": "62",
       "summary": "Built-in sweep ratchet closed (62-10): no baseline directory and no exceptions list; manual inventory rows are resolved by their Conversion cell (text gone, keep, named AskUserQuestion headers present in the file, or a bare list head reworded)",
+      "rationale": null
+    },
+    {
+      "objective": "63",
+      "summary": "63-01: a completed TodoWrite item that drops out of the next snapshot stays completed; only unfinished items become deleted (live probe: the host forgets an all-completed list)",
+      "rationale": null
+    },
+    {
+      "objective": "63",
+      "summary": "63-01: todo identity is the stem (metadata devflow_todo, then [todo:stem] suffix, then UTC-date-of-record plus slug), never the host task id; two replayed items can share a stem so 63-02 must fold by stem",
       "rationale": null
     }
   ],

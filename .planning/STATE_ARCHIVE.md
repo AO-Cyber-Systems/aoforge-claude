@@ -181,6 +181,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 62]: 62-11: cleanup declares only AskUserQuestion in its new allowed-tools (allowed-tools pre-approves, so adding Bash would pre-approve the directory moves)
 - [Objective 62]: 62-11: gh-sync migrate question gets header GitHub store with Not now (Recommended) first, per built-ins.md order; token, labels and routing unchanged
 - [Objective 62]: Built-in sweep ratchet closed (62-10): no baseline directory and no exceptions list; manual inventory rows are resolved by their Conversion cell (text gone, keep, named AskUserQuestion headers present in the file, or a bare list head reworded)
+- [Objective 63]: 63-01: a completed TodoWrite item that drops out of the next snapshot stays completed; only unfinished items become deleted (live probe: the host forgets an all-completed list)
+- [Objective 63]: 63-01: todo identity is the stem (metadata devflow_todo, then [todo:stem] suffix, then UTC-date-of-record plus slug), never the host task id; two replayed items can share a stem so 63-02 must fold by stem
 
 ## Performance Metrics
 
@@ -297,4 +299,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 62 P09 | 7m | 2 tasks | 11 files |
 | Objective 62 P11 | 6min | 2 tasks | 14 files |
 | Objective 62 P10 | 17min | 3 tasks | 6 files |
+| Objective 63 P01 | 11min | 2 tasks | 7 files |
 

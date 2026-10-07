@@ -40,13 +40,19 @@ requirements-completed: [BLTN-04]
 
 verification:
   gates_defined: 2
-  gates_passed: 2
+  gates_passed: 1           # scoped test passes; the full `npm test` has 10 environmental daemon/handoff failures unrelated to this TRD
   auto_fix_cycles: 0
   tdd_evidence: true
   test_pairing: true
 
 duration: 11min
 completed: 2026-10-06
+tokens_input: 13079905
+tokens_output: 85957
+tokens_cache_read: 12848404
+tokens_cache_write: 231329
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 63 TRD 01: Session todo replay Summary
@@ -55,7 +61,7 @@ completed: 2026-10-06
 
 ## Progress
 - [x] Task 1: Record the host contract and build the transcript fixture builders — 59cb2f10
-- [x] Task 2: replayTranscript and the todo subject grammar (RED then GREEN) — (this commit)
+- [x] Task 2: replayTranscript and the todo subject grammar (RED then GREEN) — bb1466d5 (RED), d83fc48d (GREEN)
 
 ## Host contract (observed, Claude Code 2.1.292, model claude-sonnet-5-5)
 
@@ -116,18 +122,19 @@ Cassettes (sanitized: `sessionId` -> `cassette-session`, scratch path -> `/tmp/t
 
 1. **Task 1: cassettes and fixture builders** - `59cb2f10` (test)
 2. **Task 2 RED: failing replay suite** - `bb1466d5` (test)
-3. **Task 2 GREEN: replayTranscript and grammar** - GREEN_HASH (feat)
+3. **Task 2 GREEN: replayTranscript and grammar** - `d83fc48d` (feat)
 
 ## Validation Gate Results
 
 | Gate | Command | Exit Code | Status |
 |---|---|---|---|
 | test (scoped) | `node --test plugins/devflow/devflow/bin/lib/todo-session.test.cjs` | 0 | PASS (30/30) |
-| test (full) | `npm --prefix <worktree> test` | 1 | PASS for this TRD: 10516 tests, 10455 pass, 50 skipped, 11 fail; see below |
+| test (full, run 1) | `npm --prefix <worktree> test` | 1 | 10516 tests, 10455 pass, 50 skipped, 11 fail (2 mine, fixed; 9 environmental) |
+| test (full, run 2, final tree) | `npm --prefix <worktree> test` | 1 | 10516 tests, 10456 pass, 50 skipped, 10 fail, all in `devflow-watch.test.cjs` and `handoff-e2e.test.cjs` (environmental, none touches this TRD) |
 
 The 11 failures of the first full run, by cause:
-- **2 caused by this TRD, fixed before the commit** (Rule 1): `gh-project.test.cjs` X2 (a repo guard that rejects any lib module whose text contains `__fixtures__`; my header comment named the directory, reworded; the file now passes 35/35), and `roadmap-reconcile.test.cjs` E2E1 (the ROADMAP line for 63-01 was unchecked while a SUMMARY checkpoint existed; resolved by the roadmap update at the end of the run, see Post-TRD Verification).
-- **9 environmental, not touching any file of this TRD**: 4 in `devflow-watch.test.cjs` and 5 in `handoff-e2e.test.cjs` (daemon start/stop, handoff pipeline, daemon reaping). In this worktree the daemon exits 3 with `failed to spawn shell` before writing its PID file; the same `devflow-watch.test.cjs` passes 22/22 in the main checkout at the same base. Not investigated further; flagged for 63-07's full-suite pass.
+- **2 caused by this TRD, fixed before the commit** (Rule 1): `gh-project.test.cjs` X2 (a repo guard that rejects any lib module whose text contains `__fixtures__`; my header comment named the directory, reworded; the file now passes 35/35), and `roadmap-reconcile.test.cjs` E2E1 (the ROADMAP line for 63-01 was unchecked while its SUMMARY existed; `roadmap update-job-progress 63` ticked it and the file now passes 63/63). A second full run after the fixes is recorded under Post-TRD Verification.
+- **9 (run 1) or 10 (run 2) environmental, not touching any file of this TRD**: 3 or 4 in `devflow-watch.test.cjs` and 6 in `handoff-e2e.test.cjs` (daemon start/stop, handoff pipeline, daemon reaping); the exact count of the first group varies run to run. In this worktree the daemon exits 3 with `failed to spawn shell` before writing its PID file; the same `devflow-watch.test.cjs` passes 22/22 in the main checkout at the same base. Not investigated further; flagged for 63-07's full-suite pass.
 
 ## TDD Evidence
 
@@ -142,7 +149,7 @@ No REFACTOR commit: nothing to clean once green.
 
 - **Auto-fix cycles used:** 1 (the X2 guard)
 - **Must-haves verified:** 6/6 (both families replay; todo marker rules; stable stems and idempotent replay; only non-error results applied; never throws; shapes checked against the real host)
-- **Gate failures:** 9 environmental daemon/handoff tests, unrelated (see above)
+- **Gate failures:** none from this TRD. Run 2 on the final tree: 10 environmental daemon/handoff tests (see Validation Gate Results); `todo-session.test.cjs` 30/30, `gh-project.test.cjs` 35/35 and `roadmap-reconcile.test.cjs` 63/63 pass.
 
 ## Files Created/Modified
 - `plugins/devflow/devflow/bin/lib/todo-session.cjs` - the pure replay, the subject grammar and `deriveStem`
@@ -176,11 +183,17 @@ See `key-decisions`. For 63-02: an item's `key` is `task:<id>` or `todowrite:<st
 - A todo that has no explicit stem and whose record has no usable timestamp is skipped and counted in `stats.no_stem_skipped` instead of being emitted with a null stem (test 28).
 - The SDK stream spelling `tool_use_result` is read like `toolUseResult` (test 26).
 
+**4. [Rule 1 - Bug] `requirements mark-complete BLTN-04` ran too early and was reverted**
+- **Found during:** state updates after the SUMMARY post
+- **Issue:** this TRD is "BLTN-04, part 1" (the replay parser). BLTN-04 as written (`/devflow:todo` on the task list with a Stop-hook sync into a durable archive) is also carried by 63-02, 63-03, 63-04 and 63-07, so ticking it here would show a requirement as Complete with the sync and the skill still unbuilt.
+- **Fix:** reverted the uncommitted `.planning/REQUIREMENTS.md` tick; BLTN-04 stays Pending until the last TRD that carries it (63-07) marks it. `requirements-completed: [BLTN-04]` in the frontmatter records this TRD's contribution only.
+- **Files modified:** none committed.
+
 Also: `replayTranscript(text)` takes no `opts` (the plan's signature had one that nothing used), and TodoWrite items have `source: 'todowrite'`, `task_id: null`.
 
 ---
 
-**Total deviations:** 3 auto-fixed (1 Rule 1, 2 Rule 2). **Impact on plan:** all necessary for correctness; no scope creep beyond one extra cassette and seven extra tests.
+**Total deviations:** 4 auto-fixed (2 Rule 1, 2 Rule 2). **Impact on plan:** all necessary for correctness; no scope creep beyond one extra cassette and seven extra tests.
 
 ## Issues Encountered
 - `Monitor` is disabled in this session, so long waits used a foreground until-loop with a timeout.
@@ -194,6 +207,12 @@ None - no external service configuration required.
 
 ## Next Objective Readiness
 63-02 can import `replayTranscript` and `deriveStem` as is. The only open risk is the one the TRD already names: the Stop hook may read a transcript missing the final result line, which replay reports as `unresolved_uses` and picks up at the next Stop.
+
+## Self-Check: PASSED
+
+- Created files all present: `todo-session.cjs`, `todo-session.test.cjs`, `todo-transcript-fixtures.cjs`, and the three `*.cassette.jsonl`.
+- Commits found: `59cb2f10`, `bb1466d5`, `d83fc48d`.
+- No `/Users/` in the cassettes; no `__fixtures__`, `fs` or `child_process` reference in `todo-session.cjs`.
 
 ---
 *Objective: 63-todo-store-hook-coexistence-and-built-in-inventory*
