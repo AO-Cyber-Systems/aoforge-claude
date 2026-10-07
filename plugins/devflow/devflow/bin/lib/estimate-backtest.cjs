@@ -443,6 +443,56 @@ function summarize(rows, classes) {
   };
 }
 
+// ─── The backtest ─────────────────────────────────────────────────────────────
+
+/**
+ * Backtests the estimates of several objectives against what their SUMMARYs recorded, and judges EST-08.
+ *   objectives  one compareObjective row per estimate, in the order given
+ *   classes     classRows over those rows
+ *   summary     summarize over rows and classes
+ *   verdict     `sc2` and `sc3` per primary metric, `est08` ('met' only when all four pass, else 'not met'),
+ *               `miscalibrated` (the classes the tables flagged, named by primary metric) and `follow_up_required`
+ * There are no options: the band, the coverage target and the minimum sample are the constants above, and the arguments
+ * are read, never modified.
+ * @param {{estimates: object[], project: object, rates: object, runs?: Object<string, object>}} input
+ *   `runs` is keyed by the objective string the estimate carries ('63'), not by the number
+ */
+function buildBacktest({ estimates, project, rates, runs = {} }) {
+  const runOf = (estimate) => (runs && Object.prototype.hasOwnProperty.call(runs, estimate.objective) ? runs[estimate.objective] : null);
+  const rows = (Array.isArray(estimates) ? estimates : []).map((estimate) => compareObjective({
+    estimate,
+    actuals: objectiveActuals(project, estimate.dir, rates),
+    run: runOf(estimate),
+  }));
+  const classes = classRows(rows);
+  const summary = summarize(rows, classes);
+
+  const sc2 = {};
+  const sc3 = {};
+  const miscalibrated = [];
+  for (const metric of PRIMARY_METRICS) {
+    sc2[metric] = summary[metric].sc2;
+    sc3[metric] = summary[metric].sc3;
+    for (const c of classes[METRIC_KEYS[metric].classes]) {
+      if (c.verdict !== 'miscalibrated') continue;
+      miscalibrated.push({
+        metric, class: c.class, flags: [...c.flags], tasks: c.tasks, median_ratio: c.median_ratio, coverage: c.coverage,
+      });
+    }
+  }
+  const est08 = PRIMARY_METRICS.every((metric) => sc2[metric] === 'pass' && sc3[metric] === 'pass') ? 'met' : 'not met';
+
+  return {
+    band: BAND,
+    coverage_target: COVERAGE_TARGET,
+    primary_metrics: [...PRIMARY_METRICS],
+    objectives: rows,
+    classes,
+    summary,
+    verdict: { sc2, sc3, est08, miscalibrated, follow_up_required: est08 !== 'met' },
+  };
+}
+
 module.exports = {
   BAND,
   COVERAGE_TARGET,
@@ -456,4 +506,5 @@ module.exports = {
   compareObjective,
   classRows,
   summarize,
+  buildBacktest,
 };
