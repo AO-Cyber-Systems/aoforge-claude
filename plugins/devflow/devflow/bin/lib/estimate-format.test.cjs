@@ -701,7 +701,7 @@ describe('9: backtestReport', () => {
     const from = all.indexOf(heading);
     assert.notEqual(from, -1, `no ${heading}`);
     const rest = all.slice(from + 1);
-    const next = rest.findIndex((line) => line.startsWith('### '));
+    const next = rest.findIndex((line) => line.startsWith('### ') || line === '---');
     return (next === -1 ? rest : rest.slice(0, next)).join('\n').trim();
   };
 
@@ -797,7 +797,7 @@ describe('9: backtestReport', () => {
     assert.ok(body.includes([
       '| Objective | Wave | TRDs | Estimate p50 / P90 | Actual | Ratio | <= P90 |',
       '|---|---|---|---|---|---|---|',
-      '| 90 Alpha | 1 | 90-01 | 50 min / 2h 30m | 1h 40m | 1.00 | yes |',
+      '| 90 Alpha | 1 | 90-01 | 50 min / 2h 30m | 1h 40m | 0.50 | yes |',
     ].join('\n')), body);
     assert.ok(body.endsWith('No finished run state: 91, 92 (no run state recorded).'), body);
   });

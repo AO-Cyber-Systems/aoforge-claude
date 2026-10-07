@@ -12,6 +12,8 @@
 // No data, no number: a result that says `{available: false, reason}` prints `No estimate: <reason>`, and so does one
 // whose headline metric is null.
 
+const { MIN_OBJECTIVES, REPRODUCE_TOLERANCE } = require('./estimate-backtest.cjs');
+
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -403,6 +405,8 @@ const BACKTEST_METRICS = Object.freeze([
 const ratioText = (x) => (isNum(x) ? x.toFixed(2) : 'n/a');
 const ofText = (n, m) => `${n} of ${m}`;
 const withShare = (n, m) => (m === 0 ? ofText(n, m) : `${ofText(n, m)} (${formatPercent(n / m)})`);
+/** `5 of 5 objectives (100%)`: the count, what was counted, then the share. */
+const coverText = (n, m, noun) => `${ofText(n, m)} ${noun}${m === 0 ? '' : ` (${formatPercent(n / m)})`}`;
 const bandText = (band) => `±${Math.round(band * 100)}%`;
 const yesNo = (flag) => (flag === true ? 'yes' : flag === false ? 'no' : 'n/a');
 const wasCompared = (cell) => Boolean(cell) && !cell.excluded;
@@ -445,8 +449,176 @@ function backtestLine(r) {
   return `Backtest ${objectives}: ${parts.join(' · ')}`;
 }
 
-// Placeholder until the report renderer lands, in this TRD's next commit.
-const backtestReport = () => '';
+const cellText = (text) => String(text).replace(/\|/g, '\\|');
+const tableRow = (cells) => `| ${cells.join(' | ')} |`;
+const tableRule = (columns) => `|${'---|'.repeat(columns)}`;
+const objectiveLabel = (o) => cellText(o.name ? `${o.objective} ${o.name}` : o.objective);
+const percentOrNa = (share) => (isNum(share) ? formatPercent(share) : 'n/a');
+const showOrNa = (show, value) => (isNum(value) ? show(value) : 'n/a');
+/** `1h 40m / 5h 00m` for a stat with a median, `n/a` without one. */
+const pairOrNa = (stat, show) => (stat && isNum(stat.p50) ? `${show(stat.p50)} / ${show(stat.p90)}` : 'n/a');
+
+/** `- Agent minutes: SC2 fail (...) · SC3 pass (...)`: both verdicts and the numbers behind them. */
+function verdictLine(r, metric) {
+  const s = r.summary[metric.key];
+  const c = backtestCounts(r, metric);
+  const needed = `${plural(s.compared, 'objective')} compared, ${MIN_OBJECTIVES} needed`;
+  const sc2 = s.sc2 === 'insufficient'
+    ? `SC2 insufficient (${needed})`
+    : `SC2 ${s.sc2} (median ratio ${ratioText(s.median_ratio)}, ${ofText(s.in_band, s.compared)} objectives in ${bandText(r.band)})`;
+  let sc3;
+  if (s.sc3 === 'insufficient') sc3 = `SC3 insufficient (${s.compared < MIN_OBJECTIVES ? needed : 'no TRD compared'})`;
+  else sc3 = `SC3 ${s.sc3} (P90 covers ${coverText(c.covered, c.objectives, 'objectives')} and ${coverText(c.trdCovered, c.trds, 'TRDs')}; target ${formatPercent(r.coverage_target)})`;
+  return `- ${metric.label}: ${sc2} · ${sc3}`;
+}
+
+/** The four cells one executor metric takes in an objective row: estimate, actual (or why there is none), ratio, actual <= P90. */
+function executorCells(cell, metric) {
+  if (!cell) return ['n/a', 'n/a', 'n/a', 'n/a'];
+  const estimate = pairOrNa(cell, metric.show);
+  if (cell.excluded) {
+    const ids = Array.isArray(cell.trds) && cell.trds.length > 0 ? ` (${cell.trds.join(', ')})` : '';
+    return [estimate, `excluded: ${cell.excluded}${ids}`, 'n/a', 'n/a'];
+  }
+  return [estimate, metric.show(cell.actual), ratioText(cell.ratio), yesNo(cell.covered)];
+}
+
+/** `prospective` or `reconstructed` when both metrics agree, else `minutes prospective, cost reconstructed`. */
+function sourceText(o) {
+  const minutes = o.agent_minutes && o.agent_minutes.source;
+  const cost = o.cost_usd && o.cost_usd.source;
+  return minutes === cost ? String(minutes || 'n/a') : `minutes ${minutes}, cost ${cost}`;
+}
+
+function executorSection(r) {
+  const [minutes, cost] = BACKTEST_METRICS;
+  const lines = [
+    tableRow(['Objective', 'TRDs', 'Source', 'Agent min p50 / P90', 'Actual', 'Ratio', '<= P90', 'Cost p50 / P90', 'Actual', 'Ratio', '<= P90']),
+    tableRule(11),
+  ];
+  for (const o of r.objectives || []) {
+    lines.push(tableRow([objectiveLabel(o), o.trds, sourceText(o), ...executorCells(o.agent_minutes, minutes), ...executorCells(o.cost_usd, cost)]));
+  }
+  lines.push('', tableRow(['Metric', 'Compared', 'Median ratio', 'Pooled ratio', 'In band', 'P90 covers objectives', 'P90 covers TRDs', 'At or under median']), tableRule(8));
+  for (const metric of BACKTEST_METRICS) {
+    const s = r.summary[metric.key];
+    const c = backtestCounts(r, metric);
+    lines.push(tableRow([
+      metric.label, s.compared, ratioText(s.median_ratio), ratioText(s.pooled_ratio), ofText(s.in_band, s.compared),
+      withShare(c.covered, c.objectives), withShare(c.trdCovered, c.trds), withShare(c.atOrUnder, c.objectives),
+    ]));
+  }
+  return lines;
+}
+
+const WALL_INTRO = 'Compares `estimate.wall_minutes` of the run state (execution only: the waves, not the verifier or planning, so not the total '
+  + 'the estimate line prints) with the measured time from `estimate start` to `estimate finish`. Reproduced: the estimate rebuilt now from this '
+  + `calibration matches the recorded one within ${REPRODUCE_TOLERANCE} minutes. Reported, never judged.`;
+
+function wallSection(r) {
+  const objectives = r.objectives || [];
+  const measuredRuns = objectives.filter((o) => o.wall_minutes && o.wall_minutes.source === 'prospective');
+  if (measuredRuns.length === 0) return ['none recorded'];
+
+  const lines = [WALL_INTRO, '',
+    tableRow(['Objective', 'Estimate p50 / P90', 'Reconstructed p50 / P90', 'Actual', 'Ratio', '<= P90', 'Reproduced']), tableRule(7)];
+  for (const o of measuredRuns) {
+    const w = o.wall_minutes;
+    const p = w.prospective || {};
+    lines.push(tableRow([
+      objectiveLabel(o), pairOrNa(p, formatMinutes), pairOrNa(w.reconstructed, formatMinutes), showOrNa(formatMinutes, w.actual),
+      ratioText(p.ratio), yesNo(p.covered), yesNo(w.reproduced),
+    ]));
+  }
+
+  const waveRows = [];
+  for (const o of measuredRuns) {
+    for (const wave of o.wall_minutes.waves || []) {
+      const actual = wave.excluded === 'no actual' ? 'excluded: no actual' : showOrNa(formatMinutes, wave.actual);
+      waveRows.push(tableRow([objectiveLabel(o), wave.wave, (wave.trds || []).join(', '), pairOrNa(wave, formatMinutes), actual, ratioText(wave.ratio), yesNo(wave.covered)]));
+    }
+  }
+  if (waveRows.length > 0) {
+    lines.push('', tableRow(['Objective', 'Wave', 'TRDs', 'Estimate p50 / P90', 'Actual', 'Ratio', '<= P90']), tableRule(7), ...waveRows);
+  }
+
+  const byReason = new Map();
+  for (const o of objectives) {
+    if (measuredRuns.includes(o)) continue;
+    const reason = (o.wall_minutes && o.wall_minutes.excluded) || 'not compared';
+    if (!byReason.has(reason)) byReason.set(reason, []);
+    byReason.get(reason).push(o.objective);
+  }
+  if (byReason.size > 0) {
+    const missing = [...byReason].map(([reason, numbers]) => `${numbers.join(', ')} (${reason})`).join('; ');
+    lines.push('', `No finished run state: ${missing}.`);
+  }
+  return lines;
+}
+
+function classSection(r) {
+  const table = (rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) return ['none'];
+    return [
+      tableRow(['Class', 'Tasks', 'Median ratio', 'P90 coverage', 'Verdict']),
+      tableRule(5),
+      ...rows.map((c) => tableRow([
+        cellText(c.class), c.tasks, ratioText(c.median_ratio), percentOrNa(c.coverage),
+        c.verdict === 'miscalibrated' ? `miscalibrated: ${(c.flags || []).join(', ')}` : c.verdict,
+      ])),
+    ];
+  };
+  const classes = r.classes || {};
+  const [minutes, cost] = BACKTEST_METRICS;
+  return [`**${minutes.label}**`, '', ...table(classes[minutes.classKey]), '', `**${cost.label}**`, '', ...table(classes[cost.classKey])];
+}
+
+function miscalibratedSection(r) {
+  const entries = (r.verdict && r.verdict.miscalibrated) || [];
+  if (entries.length === 0) return ['none'];
+  return entries.map((m) => {
+    const metric = BACKTEST_METRICS.find((candidate) => candidate.key === m.metric);
+    return `- ${m.class} (${metric ? metric.tag : m.metric}): ${(m.flags || []).join(', ')}, median ratio ${ratioText(m.median_ratio)}, coverage ${percentOrNa(m.coverage)}`;
+  });
+}
+
+function exclusionSection(r) {
+  const lines = [];
+  for (const metric of BACKTEST_METRICS) {
+    for (const e of r.summary[metric.key].excluded || []) {
+      const ids = Array.isArray(e.trds) && e.trds.length > 0 ? ` (${e.trds.join(', ')})` : '';
+      lines.push(`- ${metric.label}, objective ${e.objective}: ${e.reason}${ids}`);
+    }
+  }
+  return lines.length > 0 ? lines : ['none'];
+}
+
+function calibrationFooter(r) {
+  const cal = r.calibration || {};
+  const samples = cal.samples || {};
+  const count = (n) => (isNum(n) ? n : 'n/a');
+  return `Calibration ${cal.path || 'n/a'}, data as of ${cal.data_as_of || 'n/a'}, samples ${count(samples.trds)} TRDs / ${count(samples.tasks)} tasks / ${count(samples.with_tokens)} with tokens, `
+    + `inputs_digest ${cal.inputs_digest || 'none'}. Band ${bandText(r.band)}, coverage target ${formatPercent(r.coverage_target)}.`;
+}
+
+/**
+ * The markdown report 64-05 pastes into the accuracy report: the verdict, the executor estimates against actuals (with a
+ * summary row per metric), the wall time of prospective run states, the task classes, the miscalibrated classes and the
+ * exclusions, then the calibration it ran against.
+ */
+function backtestReport(r) {
+  if (unavailable(r)) return noEstimate(r && r.reason);
+  const block = (heading, lines) => [heading, '', ...lines].join('\n');
+  return [
+    block('### Verdict', [...BACKTEST_METRICS.map((metric) => verdictLine(r, metric)), '', `EST-08: ${r.verdict.est08}`]),
+    block('### Executor estimates against actuals', executorSection(r)),
+    block('### Wall time (prospective run states)', wallSection(r)),
+    block('### Task classes', classSection(r)),
+    block('### Miscalibrated classes', miscalibratedSection(r)),
+    block('### Exclusions', exclusionSection(r)),
+    ['---', '', calibrationFooter(r)].join('\n'),
+  ].join('\n\n');
+}
 
 module.exports = {
   formatMinutes,
