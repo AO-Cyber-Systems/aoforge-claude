@@ -112,7 +112,7 @@ Sequencing: ONUM first (everything after it touches objective lookups). The esti
 - [x] **Objective 60: Edit gate enforces the action** - Bash writes to tracked source gated, measured before strict ships (completed 2026-10-06)
 - [x] **Objective 61: Store-mode rough edges and observability** - gh setup and PR polish, requires: gate, model ids, telemetry and transcript hygiene (completed 2026-10-06)
 - [x] **Objective 62: Built-in sweep** - Task progress, plan mode and AskUserQuestion across skills and workflows (completed 2026-10-06)
-- [ ] **Objective 63: Todo store, hook coexistence and built-in inventory** - TodoWrite-backed `/devflow:todo`, coexistence test, living inventory
+- [x] **Objective 63: Todo store, hook coexistence and built-in inventory** - TodoWrite-backed `/devflow:todo`, coexistence test, living inventory (completed 2026-10-07)
 - [ ] **Objective 64: Estimate accuracy validation** - Close EST-08 against five executed objectives
 
 ### Objective 55: Store live-smoke fixes
@@ -306,7 +306,7 @@ TRDs:
 - [x] 63-03-todo-sync-stop-hook-TRD.md — (W3) `hooks/todo-sync.js` Stop hook (never blocks, no state, `DEVFLOW_SKIP_TODO_SYNC=1`), registration, CLAUDE.md/audit/coexistence entries
 - [x] 63-04-todo-skill-on-task-list-TRD.md — (W3) `/devflow:todo` add/list on the session task list (TaskCreate/TaskList or TodoWrite) with archive fallback; builtin-audit counts TodoWrite; built-ins.md §5; contract repo test
 - [x] 63-06-built-in-integration-inventory-TRD.md — (W4) BLTN-06 `docs/built-in-integration-status.md` (46 tools, 33 hook events, other surfaces, candidates, review procedure) and its repo test
-- [ ] 63-07-dogfood-docs-and-full-suite-TRD.md — (W5) dogfood incl. live todo and user-hook runs, UAT list; CHANGELOG/USER-GUIDE/help/CLAUDE.md; full `npm test`
+- [x] 63-07-dogfood-docs-and-full-suite-TRD.md — (W5) dogfood incl. live todo and user-hook runs, UAT list; CHANGELOG/USER-GUIDE/help/CLAUDE.md; full `npm test`
 
 ### Objective 64: Estimate accuracy validation
 
@@ -336,5 +336,5 @@ TRDs:
 | 60. Edit gate enforces the action | v1.5 | 7/7 | Complete | 2026-10-06 |
 | 61. Store-mode rough edges and observability | v1.5 | 9/9 | Complete | 2026-10-06 |
 | 62. Built-in sweep | v1.5 | 11/11 | Complete | 2026-10-06 |
-| 63. Todo store, hook coexistence and built-in inventory | v1.5 | 6/7 | In Progress | - |
+| 63. Todo store, hook coexistence and built-in inventory | v1.5 | 7/7 | Complete | 2026-10-07 |
 | 64. Estimate accuracy validation | v1.5 | 0/0 | Not started | - |
