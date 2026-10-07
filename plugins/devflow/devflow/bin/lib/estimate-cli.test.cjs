@@ -31,6 +31,7 @@ const { spawnSync } = require('node:child_process');
 
 const { runEstimate, USAGE } = require('./estimate-cli.cjs');
 const store = require('./estimate-run-store.cjs');
+const { finishedRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
 const {
   CAL_V2,
   MILESTONE_SPEC,
@@ -704,6 +705,71 @@ describe('12: run history (TRD 64-02, EST-08)', () => {
     assert.equal(fs.statSync(file).mtimeMs, old.getTime(), 'the archive was not rewritten');
     assert.equal(fs.readFileSync(file, 'utf8'), bytes);
     assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`]);
+  });
+
+  test('2: start after finish leaves the archive alone; start archives a finished run that never was (a pre-64 run)', () => {
+    step(['start', '80'], T0);
+    step(['finish', '80'], T0 + 30 * MIN);
+    const archived = historyFile('80', T0);
+    const bytes = fs.readFileSync(archived, 'utf8');
+
+    step(['start', '80'], T0 + 40 * MIN);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`], 'a new run adds nothing until it finishes');
+    assert.equal(fs.readFileSync(archived, 'utf8'), bytes);
+    assert.equal(live().started_at, iso(T0 + 40 * MIN));
+    assert.equal(live().finished_at, null);
+
+    // A finished state written straight through the store, as a run from before the history existed.
+    const pre = finishedRun({ objective: '80', started_at: iso(T0 + 100 * MIN), finished_at: iso(T0 + 130 * MIN) });
+    store.writeRunState(root, pre, { env: env() });
+    step(['start', '81'], T0 + 200 * MIN);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`, `80-${sane(iso(T0 + 100 * MIN))}.json`]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(historyFile('80', T0 + 100 * MIN), 'utf8')), pre);
+    assert.equal(live().objective, '81');
+    assert.equal(live().started_at, iso(T0 + 200 * MIN));
+  });
+
+  test('3: an unfinished run for another objective is overwritten by start without being archived', () => {
+    step(['start', '81'], T0);
+    step(['start', '80'], T0 + MIN);
+    assert.deepEqual(historyFiles(), []);
+    assert.equal(live().objective, '80');
+    assert.equal(fs.existsSync(historyDir()), false);
+  });
+
+  test('4: wave --start that begins a new run archives the finished previous run like start', () => {
+    const pre = finishedRun({ objective: '80', started_at: iso(T0), finished_at: iso(T0 + 30 * MIN) });
+    store.writeRunState(root, pre, { env: env() });
+
+    const begun = step(['wave', '80', '1', '--start'], T0 + 40 * MIN);
+    assert.equal(begun.result.run_state.created, true);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(historyFile('80', T0), 'utf8')), pre);
+    assert.equal(live().started_at, iso(T0 + 40 * MIN));
+    assert.equal(live().finished_at, null);
+  });
+
+  test('4b: wave --start on a live run archives nothing; a stale unfinished run is replaced without archiving', () => {
+    step(['start', '80'], T0);
+    step(['wave', '80', '1', '--start'], T0 + MIN);
+    assert.deepEqual(historyFiles(), []);
+
+    step(['wave', '80', '2', '--start'], T0 + 13 * 60 * MIN);
+    assert.equal(live().started_at, iso(T0 + 13 * 60 * MIN));
+    assert.deepEqual(historyFiles(), []);
+  });
+
+  test('4c: a run that cannot be archived is reported and the previous run is not overwritten', () => {
+    const pre = finishedRun({ objective: '80', started_at: iso(T0), finished_at: iso(T0 + 30 * MIN) });
+    store.writeRunState(root, pre, { env: env() });
+    // a regular file where the history directory belongs: the archive cannot be written
+    fs.mkdirSync(path.dirname(historyDir()), { recursive: true });
+    fs.writeFileSync(historyDir(), 'not a directory');
+
+    const failed = run(['start', '81'], { env: env(), now: T0 + 40 * MIN });
+    assert.equal(failed.ok, false);
+    assert.match(failed.message, /could not archive the run history/);
+    assert.deepEqual(live(), pre);
   });
 });
 
