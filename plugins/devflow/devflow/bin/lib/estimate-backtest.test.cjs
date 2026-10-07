@@ -442,3 +442,186 @@ test('summarize: with no compared objective every figure is null, never zero', (
   assert.strictEqual(s.wall_minutes.compared, 0);
   assert.strictEqual(s.wall_minutes.median_ratio, null);
 });
+
+// ─── compareObjective ─────────────────────────────────────────────────────────
+
+// Objective 90: two TRDs estimated at 10 and 20 minutes (30 together) and $2 and $3 ($5), measured at 25 and 35 minutes
+// (60) and $1.68 each ($3.36). Wall time was estimated at {96.6, 290.4}.
+function alphaEstimate(execution) {
+  return fx.objectiveEstimate({
+    objective: '90',
+    dir: '90-alpha',
+    execution: execution === undefined
+      ? { wall_minutes: fx.stat(96.6, 290.4), agent_minutes: fx.stat(30, 90), cost_usd: fx.stat(5, 10) }
+      : execution,
+    trds: [
+      fx.trdEstimate({ id: '90-01', wave: 1, minutes: fx.stat(10, 30), cost: fx.stat(2, 4) }),
+      fx.trdEstimate({ id: '90-02', wave: 2, minutes: fx.stat(20, 60), cost: fx.stat(3, 6) }),
+    ],
+  });
+}
+
+function alphaProject(overrides = {}) {
+  return fx.projectRecord([
+    fx.trdRecord({ id: '90-01', minutes: 25, tokens: PRICED, ...(overrides['90-01'] || {}) }),
+    fx.trdRecord({ id: '90-02', minutes: 35, tokens: PRICED, ...(overrides['90-02'] || {}) }),
+  ]);
+}
+
+function compareAlpha({ estimate = alphaEstimate(), project = alphaProject(), run = null } = {}) {
+  const actuals = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  return backtest.compareObjective({ estimate, actuals, run });
+}
+
+// Objective 63's real run state: started 2026-10-06T23:55:36.062Z, finished 2026-10-07T01:46:41.099Z, no
+// `estimate.execution` (it was recorded before 64-02 added that field).
+function run63() {
+  return fx.runState({
+    objective: '63',
+    wall: fx.stat(96.61616043566684, 290.40059551531397),
+    waves: [
+      { wave: 1, trds: ['63-01', '63-05'], p50: 19.738206139394915, p90: 67.31643574086333,
+        started_at: '2026-10-06T23:56:09.280Z', finished_at: '2026-10-07T00:14:43.608Z', actual_minutes: 18.572133333333333 },
+      { wave: 4, trds: ['63-06'], p50: 9.500000000000002, p90: 36.60000000000001,
+        started_at: '2026-10-07T00:35:54.113Z', finished_at: '2026-10-07T01:26:30.878Z', actual_minutes: 50.61275 },
+    ],
+  });
+}
+
+test('compareObjective: with no run state the executor metrics are reconstructed and the TRDs are compared by id', () => {
+  const row = compareAlpha();
+  assert.deepStrictEqual([row.objective, row.name, row.dir, row.trds], ['90', 'Alpha', '90-alpha', 2]);
+
+  assert.strictEqual(row.agent_minutes.source, 'reconstructed');
+  assert.deepStrictEqual([row.agent_minutes.p50, row.agent_minutes.p90, row.agent_minutes.actual], [30, 90, 60]);
+  assert.strictEqual(row.agent_minutes.ratio, 0.5);
+  assert.strictEqual(row.agent_minutes.within_band, false);
+  assert.strictEqual(row.agent_minutes.covered, true);
+  assert.strictEqual(row.cost_usd.source, 'reconstructed');
+  near(row.cost_usd.actual, 3.36);
+  near(row.cost_usd.ratio, 5 / 3.36);
+
+  assert.deepStrictEqual(row.trd_rows.map((t) => [t.id, t.wave]), [['90-01', 1], ['90-02', 2]]);
+  assert.strictEqual(row.trd_rows[0].minutes.ratio, 10 / 25);
+  assert.strictEqual(row.trd_rows[1].minutes.ratio, 20 / 35);
+  near(row.trd_rows[0].cost_usd.ratio, 2 / 1.68);
+  assert.strictEqual(row.trd_rows[0].tasks.length, 2, 'the task estimates travel with the TRD row for classRows');
+});
+
+test('compareObjective: an objective with no run state has no wall time', () => {
+  assert.deepStrictEqual(compareAlpha().wall_minutes, { source: null, excluded: 'no run state recorded' });
+});
+
+test('compareObjective: a persisted estimate.execution is preferred and labelled prospective, TRD rows stay reconstructed', () => {
+  const run = fx.runState({
+    objective: '90',
+    finished_at: null,
+    execution: { agent_minutes: fx.stat(55, 100), cost_usd: fx.stat(3, 6) },
+  });
+  const row = compareAlpha({ run });
+  assert.strictEqual(row.agent_minutes.source, 'prospective');
+  assert.deepStrictEqual([row.agent_minutes.p50, row.agent_minutes.p90], [55, 100]);
+  assert.strictEqual(row.agent_minutes.ratio, 55 / 60);
+  assert.strictEqual(row.cost_usd.source, 'prospective');
+  assert.strictEqual(row.cost_usd.p50, 3);
+  assert.strictEqual(row.trd_rows[0].minutes.p50, 10, 'a TRD estimate is never persisted, so it is reconstructed');
+});
+
+test('compareObjective: a persisted metric that is missing falls back to the reconstructed one, per metric', () => {
+  const run = fx.runState({ objective: '90', finished_at: null, execution: { agent_minutes: fx.stat(55, 100) } });
+  const row = compareAlpha({ run });
+  assert.strictEqual(row.agent_minutes.source, 'prospective');
+  assert.strictEqual(row.cost_usd.source, 'reconstructed');
+  assert.strictEqual(row.cost_usd.p50, 5);
+});
+
+test('compareObjective: a finished run state without estimate.execution gives prospective wall time (Objective 63\'s shape)', () => {
+  const estimate = fx.objectiveEstimate({
+    objective: '63', dir: '63-todo-store',
+    execution: { wall_minutes: fx.stat(96.6, 290.4), agent_minutes: fx.stat(30, 90), cost_usd: fx.stat(5, 10) },
+    trds: [fx.trdEstimate({ id: '63-01' })],
+  });
+  const actuals = backtest.objectiveActuals(fx.projectRecord([]), '63-todo-store', fx.testRates());
+  const row = backtest.compareObjective({ estimate, actuals, run: run63() });
+
+  assert.strictEqual(row.agent_minutes.source, 'reconstructed', 'there is no persisted execution to prefer');
+  assert.strictEqual(row.cost_usd.source, 'reconstructed');
+
+  const wall = row.wall_minutes;
+  assert.strictEqual(wall.source, 'prospective');
+  assert.strictEqual(wall.started_at, '2026-10-06T23:55:36.062Z');
+  assert.strictEqual(wall.finished_at, '2026-10-07T01:46:41.099Z');
+  // 01:46:41.099 the next day - 23:55:36.062 = 1h 51m 5.037s = 6665.037 s
+  near(wall.actual, 6665.037 / 60);
+  assert.ok(wall.actual > 111.0839 && wall.actual < 111.0840);
+  assert.strictEqual(wall.prospective.p50, 96.61616043566684);
+  assert.strictEqual(wall.prospective.ratio, 96.61616043566684 / wall.actual);
+  assert.deepStrictEqual(wall.reconstructed, fx.stat(96.6, 290.4));
+  assert.strictEqual(wall.reproduced, true, '|96.616 - 96.6| = 0.016 and |290.4006 - 290.4| = 0.0006, both within 0.05');
+
+  assert.deepStrictEqual(wall.waves.map((w) => [w.wave, w.trds]), [[1, ['63-01', '63-05']], [4, ['63-06']]]);
+  assert.strictEqual(wall.waves[0].actual, 18.572133333333333);
+  assert.strictEqual(wall.waves[0].p50, 19.738206139394915);
+  assert.strictEqual(wall.waves[0].covered, true);
+  assert.strictEqual(wall.waves[1].covered, false, 'wave 4 took 50.6 minutes, over its P90 of 36.6');
+  assert.strictEqual(wall.waves[1].ratio, 9.500000000000002 / 50.61275);
+});
+
+test('compareObjective: reproduced is false when either percentile of the reconstructed wall estimate differs by more than 0.05', () => {
+  const wallOf = (reconstructed) => compareAlpha({
+    estimate: alphaEstimate({ wall_minutes: reconstructed, agent_minutes: fx.stat(30, 90), cost_usd: fx.stat(5, 10) }),
+    run: run63(),
+  }).wall_minutes;
+  assert.strictEqual(wallOf(fx.stat(96.0, 290.4)).reproduced, false, 'p50 differs by 0.616');
+  assert.strictEqual(wallOf(fx.stat(96.6, 291.4)).reproduced, false, 'p90 differs by 1.0');
+  assert.strictEqual(wallOf(null).reproduced, null, 'nothing to reproduce against');
+});
+
+test('compareObjective: a run that has not finished, or has unparseable times, never throws', () => {
+  const running = compareAlpha({ run: fx.runState({ objective: '90', finished_at: null }) });
+  assert.deepStrictEqual(running.wall_minutes, { source: null, excluded: 'run not finished' });
+
+  const garbled = compareAlpha({ run: fx.runState({ objective: '90', started_at: 'yesterday', finished_at: 'later' }) });
+  assert.strictEqual(garbled.wall_minutes.source, 'prospective');
+  assert.strictEqual(garbled.wall_minutes.actual, null);
+  assert.strictEqual(garbled.wall_minutes.prospective.excluded, 'no actual');
+});
+
+test('compareObjective: a TRD without minutes excludes the agent minutes with its id, but cost still compares', () => {
+  const row = compareAlpha({ project: alphaProject({ '90-02': { minutes: null } }) });
+  assert.strictEqual(row.agent_minutes.excluded, 'incomplete actuals');
+  assert.deepStrictEqual(row.agent_minutes.trds, ['90-02']);
+  assert.strictEqual(row.agent_minutes.source, 'reconstructed');
+  assert.ok(!('ratio' in row.agent_minutes));
+  assert.strictEqual(row.cost_usd.excluded, null, 'every TRD is priced');
+  assert.strictEqual(row.trd_rows[0].minutes.excluded, null);
+  assert.strictEqual(row.trd_rows[1].minutes.excluded, 'no actual', 'the TRD-level comparison names the same gap');
+  assert.strictEqual(row.trd_rows[1].cost_usd.excluded, null);
+});
+
+test('compareObjective: a human-wait TRD or an unpriced one is named in the exclusion', () => {
+  const waiting = compareAlpha({ project: alphaProject({ '90-01': { autonomous: false } }) });
+  assert.strictEqual(waiting.agent_minutes.excluded, 'incomplete actuals');
+  assert.deepStrictEqual(waiting.agent_minutes.trds, ['90-01']);
+  assert.strictEqual(waiting.cost_usd.excluded, null, 'a human wait still has tokens');
+
+  const unknown = compareAlpha({ project: alphaProject({ '90-02': { tokens: { ...PRICED, token_model: 'unknown-model' } } }) });
+  assert.strictEqual(unknown.cost_usd.excluded, 'incomplete actuals');
+  assert.deepStrictEqual(unknown.cost_usd.trds, ['90-02']);
+  assert.strictEqual(unknown.agent_minutes.excluded, null);
+});
+
+test('compareObjective: an objective the calibration cannot estimate has both metrics excluded as no estimate', () => {
+  const row = compareAlpha({ estimate: alphaEstimate(null) });
+  assert.strictEqual(row.agent_minutes.excluded, 'no estimate');
+  assert.strictEqual(row.cost_usd.excluded, 'no estimate');
+  assert.strictEqual(row.agent_minutes.source, 'reconstructed');
+});
+
+test('compareObjective: a TRD estimate with no matching SUMMARY has no actual', () => {
+  const project = fx.projectRecord([fx.trdRecord({ id: '90-01', minutes: 25, tokens: PRICED })]);
+  const row = compareAlpha({ project });
+  assert.strictEqual(row.trd_rows[1].minutes.excluded, 'no actual');
+  assert.strictEqual(row.trd_rows[1].cost_usd.excluded, 'no actual');
+  assert.strictEqual(row.trd_rows[0].minutes.excluded, null);
+});
