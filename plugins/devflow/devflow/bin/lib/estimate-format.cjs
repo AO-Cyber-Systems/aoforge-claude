@@ -379,6 +379,12 @@ function finishLine({ objective, actual, wall }) {
   return parts.join(' · ');
 }
 
+// ─── Backtest (TRD 64-04) ─────────────────────────────────────────────────────
+
+// Placeholders until the renderers land in this TRD's second task; nothing prints them yet.
+const backtestLine = () => '';
+const backtestReport = () => '';
+
 module.exports = {
   formatMinutes,
   formatTokens,
@@ -394,4 +400,6 @@ module.exports = {
   waveStartLine,
   waveDoneLine,
   finishLine,
+  backtestLine,
+  backtestReport,
 };

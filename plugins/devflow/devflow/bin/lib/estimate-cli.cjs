@@ -10,6 +10,7 @@
  *   df-tools estimate objective <N> [--all] [--table|--line]
  *   df-tools estimate milestone [vX.Y] [--table|--line]
  *   df-tools estimate start <N> | wave <N> <wave> (--start|--done) | finish <N>      (the run verbs, below)
+ *   df-tools estimate backtest <N[,N...]>                                              (the accuracy check, below)
  *
  * Every form but `finish` takes `[--calibration <file>]`, and every form `[--raw]`. The calibration is `--calibration` (relative to cwd), else
  * DEVFLOW_CALIBRATION_PATH, else ~/.claude/devflow/calibration.json.
@@ -32,6 +33,12 @@
  * `estimate` block of a new run also records the unrounded `execution` and `total` estimates and the `calibration` they
  * came from (`{path, version, data_as_of, samples, inputs_digest}`), all null when there is no usable calibration.
  *
+ * Backtest (TRD 64-04, EST-08): `backtest 59,60,61` estimates every TRD of each listed objective as the engine would before
+ * execution (`estimateObjective` with `all: true`), reads what the checkout recorded (`collectProject`), prices it with the
+ * shipped rates file and hands all of it, with each objective's last finished run state from the MAIN checkout's run history
+ * (so a backtest from a worktree finds it), to estimate-backtest.buildBacktest. JSON by default, the markdown report with
+ * `--raw`. The verdicts are decided there, on unrounded numbers; this file only rounds once at output and renders.
+ *
  * Exit 0 for every estimate, including "no estimate": a missing, unreadable or mismatched calibration is
  * `{available: false, reason, calibration_path}` and the text `No estimate: <reason>`, never a number. Exit 1 (an
  * `{ok: false, message}` here) for usage errors and for an objective, TRD or milestone that does not exist.
@@ -46,8 +53,10 @@ const path = require('path');
 const ci = require('./calibration-inputs.cjs');
 const calibrator = require('./calibrator.cjs');
 const est = require('./estimate.cjs');
+const backtest = require('./estimate-backtest.cjs');
 const fmt = require('./estimate-format.cjs');
 const milestone = require('./estimate-milestone.cjs');
+const planningMode = require('./planning-mode.cjs');
 const rollup = require('./estimate-rollup.cjs');
 const store = require('./estimate-run-store.cjs');
 
@@ -59,6 +68,7 @@ const FORMS = [
   'df-tools estimate start <N> [--calibration <file>] [--raw]',
   'df-tools estimate wave <N> <wave> (--start|--done) [--calibration <file>] [--raw]',
   'df-tools estimate finish <N> [--raw]',
+  'df-tools estimate backtest <N[,N...]> [--calibration <file>] [--raw]',
 ];
 const USAGE = FORMS.join('\n       ');
 
@@ -71,6 +81,7 @@ const SPECS = {
   start: { values: ['calibration'], bools: [], min: 1, max: 1, what: 'an objective number' },
   wave: { values: ['calibration'], bools: ['start', 'done'], min: 2, max: 2, what: 'an objective number and a wave number' },
   finish: { values: [], bools: [], min: 1, max: 1, what: 'an objective number' },
+  backtest: { values: ['calibration'], bools: [], min: 1, max: 1, what: 'objective numbers, comma separated (59,60,61)' },
 };
 
 const OBJECTIVE_NUMBER = /^\d+(?:\.\d+)?$/;
@@ -148,6 +159,15 @@ function validate(parsed) {
   }
   if (['objective', 'start', 'wave', 'finish'].includes(sub) && !OBJECTIVE_NUMBER.test(positionals[0])) {
     return usageError(`objective number must look like 58 or 4.1, got ${JSON.stringify(positionals[0])}`);
+  }
+  if (sub === 'backtest') {
+    const pieces = positionals[0].split(',');
+    const bad = pieces.find((piece) => !OBJECTIVE_NUMBER.test(piece));
+    if (bad !== undefined) {
+      return usageError(`objective list must be objective numbers separated by commas, like 59,60,61; ${JSON.stringify(bad)} is not one (in ${JSON.stringify(positionals[0])})`);
+    }
+    const twice = pieces.find((piece, i) => pieces.indexOf(piece) !== i);
+    if (twice !== undefined) return usageError(`objective ${twice} is listed twice in ${JSON.stringify(positionals[0])}`);
   }
   if (sub === 'milestone' && positionals.length === 1 && !MILESTONE_VERSION.test(positionals[0])) {
     return usageError(`milestone version must look like v1.0, got ${JSON.stringify(positionals[0])}`);
@@ -474,6 +494,49 @@ function runFinish(parsed, env, base, now) {
   return { ok: true, result: fmt.roundResult(result), text, exit: 0 };
 }
 
+// ─── Backtest ─────────────────────────────────────────────────────────────────
+
+/**
+ * The directory whose run history to read: the MAIN checkout (planning-mode.resolveMainRoot). `estimate start` runs there
+ * and the history is keyed by that path, so a backtest from a linked worktree must not key its own path and miss every
+ * run. Falls back to runRoot(base) when no main checkout can be resolved. `deps.resolveMainRoot` is the test seam.
+ */
+function backtestRunRoot(base, deps = {}) {
+  const resolveMain = deps.resolveMainRoot || planningMode.resolveMainRoot;
+  return resolveMain(base) || runRoot(base);
+}
+
+/**
+ * Compares each listed objective's estimate (every TRD, as before execution) with what the checkout recorded and judges
+ * EST-08 (estimate-backtest.buildBacktest). Verdicts are decided there on unrounded numbers; this rounds once, at output.
+ * The rates are the shipped model-rates file (`deps.ratesFile` is the test seam); the calibration is the only thing
+ * `--calibration` and DEVFLOW_CALIBRATION_PATH choose.
+ * @throws {Error} `objective <N> not found`
+ */
+function runBacktest(parsed, env, base, now, deps = {}) {
+  const loaded = loadCal(parsed.flags, env, base);
+  if (!loaded.ok) return noEstimateResult(loaded, false);
+
+  const estimates = parsed.positionals[0].split(',').map((n) => rollup.estimateObjective(loaded.cal, base, n, { all: true }));
+  const project = ci.collectProject(runRoot(base));
+  const rates = ci.loadRates(deps.ratesFile);
+  if (!rates.ok) return { ok: false, message: rates.error };
+
+  const historyRoot = backtestRunRoot(base, deps);
+  const runs = {};
+  for (const estimate of estimates) {
+    const run = store.latestRun(historyRoot, estimate.objective, { env });
+    if (run) runs[estimate.objective] = run;
+  }
+
+  const result = backtest.buildBacktest({ estimates, project, rates, runs });
+  const calibration = { ...loaded.meta, inputs_digest: loaded.cal.inputs_digest || null };
+  const full = { available: true, ...result, calibration };
+  const line = fmt.backtestLine(full);
+  const report = fmt.backtestReport(full);
+  return { ok: true, result: { ...fmt.roundResult(full), line, report }, text: report, exit: 0 };
+}
+
 const HANDLERS = {
   task: runTask,
   trd: runTrd,
@@ -482,15 +545,17 @@ const HANDLERS = {
   start: runStart,
   wave: runWave,
   finish: runFinish,
+  backtest: runBacktest,
 };
 
 /**
  * @param {{argv?: string[], cwd?: string, env?: object, now?: number}} opts
  *   argv: everything after `estimate`. cwd: the project root (default process.cwd()). env: the environment (default
- *   process.env), read for DEVFLOW_CALIBRATION_PATH and DEVFLOW_ESTIMATE_STATE_DIR. now: epoch ms.
+ *   process.env), read for DEVFLOW_CALIBRATION_PATH and DEVFLOW_ESTIMATE_STATE_DIR. now: epoch ms. ratesFile: the model-rates
+ *   file `backtest` prices with (default the shipped references/model-rates.json; a test seam).
  * @returns {{ok: true, result: object, text: string, exit: number} | {ok: false, message: string}}
  */
-function runEstimate({ argv = [], cwd = process.cwd(), env = process.env, now = Date.now() } = {}) {
+function runEstimate({ argv = [], cwd = process.cwd(), env = process.env, now = Date.now(), ratesFile } = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) return parsed;
   const invalid = validate(parsed);
@@ -498,10 +563,10 @@ function runEstimate({ argv = [], cwd = process.cwd(), env = process.env, now = 
 
   const base = path.resolve(cwd);
   try {
-    return HANDLERS[parsed.sub](parsed, env, base, now);
+    return HANDLERS[parsed.sub](parsed, env, base, now, { ratesFile });
   } catch (err) {
     return { ok: false, message: err.message };
   }
 }
 
-module.exports = { runEstimate, parseArgs, USAGE };
+module.exports = { runEstimate, parseArgs, backtestRunRoot, USAGE };

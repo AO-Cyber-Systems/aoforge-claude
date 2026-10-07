@@ -178,6 +178,8 @@
  *   estimate wave <N> <wave> (--start|--done)
  *                                      Record a wave's timing; --done prints actual against the estimate with a verdict
  *   estimate finish <N>                Print the objective's execution time against its estimate (idempotent)
+ *   estimate backtest <N[,N...]>       Compare each listed objective's estimate with its measured actuals and print the EST-08 verdict
+ *                                      (JSON, or the markdown report with --raw; finished runs come from the run history)
  *     (every estimate verb: [--calibration f] [--raw]; default calibration: DEVFLOW_CALIBRATION_PATH or
  *      ~/.claude/devflow/calibration.json; run state: DEVFLOW_ESTIMATE_STATE_DIR or ~/.claude/devflow/state/estimates;
  *      exit 0 even when there is no estimate (`No estimate: <reason>`), exit 1 for usage errors and unknown objectives/TRDs)
@@ -925,7 +927,7 @@ async function main() {
     }
 
     case 'estimate': {
-      // df-tools estimate <task|trd|objective|milestone|start|wave|finish> ... — TRD 58-08
+      // df-tools estimate <task|trd|objective|milestone|start|wave|finish|backtest> ... — TRD 58-08, backtest TRD 64-04
       const { output: outputEstimate } = require('./lib/helpers.cjs');
       const { runEstimate } = require('./lib/estimate-cli.cjs');
       const r = runEstimate({ argv: args.slice(1), cwd, env: process.env, now: Date.now() });

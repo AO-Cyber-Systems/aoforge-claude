@@ -169,8 +169,8 @@ describe('estimate surfacing (TRD 58-09)', { skip: !IS_DEVFLOW_CHECKOUT ? 'not a
   test('5. every estimate call uses a real subcommand, is one plain command, and is fail-soft', () => {
     assert.deepEqual(
       [...SUBCOMMANDS].sort(),
-      ['finish', 'milestone', 'objective', 'start', 'task', 'trd', 'wave'],
-      'estimate-cli.cjs USAGE no longer names the seven subcommands this test expects'
+      ['backtest', 'finish', 'milestone', 'objective', 'start', 'task', 'trd', 'wave'],
+      'estimate-cli.cjs USAGE no longer names the eight subcommands this test expects'
     );
     for (const rel of Object.values(FILES)) {
       const src = read(rel);
