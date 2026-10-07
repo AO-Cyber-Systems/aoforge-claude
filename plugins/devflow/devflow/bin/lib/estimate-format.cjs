@@ -58,6 +58,14 @@ const DECIMALS = Object.freeze({
   tokens_output: 0,
   cost_usd: 4,
   probability: 4,
+  // The backtest (TRD 64-04): ratios to 3 decimals, shares to 4. An `actual` has no entry of its own: it takes the one
+  // of the metric it sits under (agent_minutes 1, cost_usd 4, wall_minutes 1).
+  ratio: 3,
+  median_ratio: 3,
+  pooled_ratio: 3,
+  coverage: 4,
+  trd_coverage: 4,
+  under_median_share: 4,
 });
 
 const roundTo = (x, decimals) => Number(x.toFixed(decimals));
@@ -80,7 +88,8 @@ function walk(value, decimals) {
 
 /**
  * A deep copy of an estimate result with every figure rounded once, for the JSON output: minutes to 1 decimal, tokens
- * to whole numbers, dollars and probabilities to 4 decimals. Every other key is copied as is; the input is not changed.
+ * to whole numbers, dollars and probabilities to 4 decimals, backtest ratios to 3 and shares to 4. Every other key is
+ * copied as is; the input is not changed.
  */
 function roundResult(value) {
   return walk(value, null);
