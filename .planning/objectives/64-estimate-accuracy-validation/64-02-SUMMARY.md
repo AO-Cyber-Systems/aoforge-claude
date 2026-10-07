@@ -13,4 +13,4 @@ started: 2026-10-07T11:47:13Z
 
 ## Progress
 - [x] Task 1: Run-state fixture builders, then the history store API — (this commit)
-- [ ] Task 2: Archive in the run verbs, enrich the estimate block, render a done objective's --all estimate — next step: write the RED estimate-cli tests for items 1-5 in estimate-cli.test.cjs (runStart/waveStart/runFinish archive via store.archiveRunState; planObjective gains execution/total/calibration)
+- [ ] Task 2: Archive in the run verbs, enrich the estimate block, render a done objective's --all estimate — next step: write the RED test 5 in estimate-cli.test.cjs (start 80 records estimate.execution/total/calibration; null with no calibration), then GREEN in planObjective; then the format fix (items 7-8) and extending the tree/no-.tmp test (item 6). Done so far: finish archives (RED cfc3a5e8, GREEN), start/wave --start archive a finished previous run (RED eeb80870, GREEN this commit)

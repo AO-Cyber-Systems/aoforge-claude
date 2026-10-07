@@ -318,6 +318,16 @@ function archiveFinished(root, state, env) {
   }
 }
 
+/**
+ * Write `next` as the run state, first archiving `previous` when it is a finished run, so a later run never destroys an
+ * earlier outcome. An unfinished previous run (abandoned) is simply overwritten. When the archive fails nothing is written.
+ * @throws {Error} `could not archive the run history: <cause>`
+ */
+function replaceRun(root, previous, next, env) {
+  if (previous && previous.finished_at) archiveFinished(root, previous, env);
+  return store.writeRunState(root, next, { env });
+}
+
 function minutesOrNull(p50, p90) {
   return p50 === null || p50 === undefined ? null : { p50, p90 };
 }
@@ -327,7 +337,8 @@ function runStart(parsed, env, base, now) {
   const loaded = loadCal(parsed.flags, env, base);
   const plan = planObjective(base, objective, loaded);
   const state = newRunState(objective, plan, now);
-  const written = store.writeRunState(runRoot(base), state, { env });
+  const root = runRoot(base);
+  const written = replaceRun(root, store.readRunState(root, { env }), state, env);
   const runState = { path: written.path, waves: state.waves.length };
 
   if (!loaded.ok) {
@@ -370,7 +381,8 @@ function waveStart({ objective, waveNo, root, state, parsed, env, base, now }) {
   }
   if (!wave.started_at) wave.started_at = isoOf(now);
   run.updated_at = isoOf(now);
-  const written = store.writeRunState(root, run, { env });
+  // A new run replaces whatever was there (`state`): archive it first if it finished. A continued run just updates.
+  const written = created ? replaceRun(root, state, run, env) : store.writeRunState(root, run, { env });
 
   const text = fmt.waveStartLine({ wave: waveNo, p50: wave.p50, p90: wave.p90 });
   const result = {
