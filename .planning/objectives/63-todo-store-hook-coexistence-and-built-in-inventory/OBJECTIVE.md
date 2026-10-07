@@ -1,6 +1,6 @@
 ---
 work: feature
-status: verifying
+status: complete
 ---
 
 # Todo store, hook coexistence and built-in inventory
