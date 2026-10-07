@@ -22,7 +22,7 @@
 // to a temp file, the run-state directory is a temp directory (DEVFLOW_ESTIMATE_STATE_DIR) and every spawned process gets
 // HOME=<temp dir>. Nothing here reads or writes the real ~/.claude.
 
-const { describe, test, before, after } = require('node:test');
+const { describe, test, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -656,6 +656,54 @@ describe('10: no run state', () => {
       assert.equal(r.ok, false, JSON.stringify(argv));
       assert.match(r.message, /\nUsage: df-tools estimate /, JSON.stringify(argv));
     }
+  });
+});
+
+// ─── 12: run history (TRD 64-02, EST-08) ──────────────────────────────────────
+
+/** The sanitized form of an ISO stamp, as the run store names a history file. */
+const sane = (text) => text.replace(/[^A-Za-z0-9_-]/g, '_');
+
+describe('12: run history (TRD 64-02, EST-08)', () => {
+  let dir;
+  let counter = 0;
+  const env = () => ({ DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: dir });
+  const step = (argv, at, extra = {}) => ok(run(argv, { env: env(), now: at, ...extra }));
+  const live = () => store.readRunState(root, { env: env() });
+  const historyDir = () => store.historyDir(root, { env: env() });
+  const historyFiles = () => {
+    try {
+      return fs.readdirSync(historyDir()).sort();
+    } catch {
+      return [];
+    }
+  };
+  const historyFile = (objective, startedAt) => path.join(historyDir(), `${objective}-${sane(iso(startedAt))}.json`);
+
+  beforeEach(() => {
+    dir = path.join(scratch, `run-state-history-${counter++}`);
+  });
+
+  test('1: finish 80 archives the finished run, and a second finish does not rewrite it', () => {
+    step(['start', '80'], T0);
+    step(['wave', '80', '1', '--start'], T0 + MIN);
+    step(['wave', '80', '1', '--done'], T0 + 14 * MIN);
+    assert.deepEqual(historyFiles(), [], 'an unfinished run is not archived');
+
+    const first = step(['finish', '80'], T0 + 30 * MIN);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`]);
+    const file = historyFile('80', T0);
+    const bytes = fs.readFileSync(file, 'utf8');
+    assert.deepEqual(JSON.parse(bytes), live());
+    assert.equal(bytes, fs.readFileSync(store.statePath(root, { env: env() }), 'utf8'));
+
+    const old = new Date('2020-01-01T00:00:00Z');
+    fs.utimesSync(file, old, old);
+    const second = step(['finish', '80'], T0 + 60 * MIN);
+    assert.equal(second.text, first.text);
+    assert.equal(fs.statSync(file).mtimeMs, old.getTime(), 'the archive was not rewritten');
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes);
+    assert.deepEqual(historyFiles(), [`80-${sane(iso(T0))}.json`]);
   });
 });
 
