@@ -684,3 +684,186 @@ describe('10: roundResult on a backtest result', () => {
     assert.deepEqual([r.band, r.coverage_target], [0.3, 0.8], 'the thresholds are not rounded');
   });
 });
+
+describe('9: backtestReport', () => {
+  const HEADINGS = [
+    '### Verdict',
+    '### Executor estimates against actuals',
+    '### Wall time (prospective run states)',
+    '### Task classes',
+    '### Miscalibrated classes',
+    '### Exclusions',
+  ];
+  const headingsOf = (text) => text.split('\n').filter((line) => line.startsWith('### '));
+  const lines = (text) => text.split('\n');
+  const section = (text, heading) => {
+    const all = lines(text);
+    const from = all.indexOf(heading);
+    assert.notEqual(from, -1, `no ${heading}`);
+    const rest = all.slice(from + 1);
+    const next = rest.findIndex((line) => line.startsWith('### '));
+    return (next === -1 ? rest : rest.slice(0, next)).join('\n').trim();
+  };
+
+  test('starts with the verdict and holds the six sections in order', () => {
+    const report = fmt.backtestReport(FIVE);
+    assert.ok(report.startsWith('### Verdict\n'), report.slice(0, 40));
+    assert.deepEqual(headingsOf(report), HEADINGS);
+  });
+
+  test('the verdict names SC2 and SC3 with the numbers behind them, per primary metric, then EST-08', () => {
+    assert.equal(section(fmt.backtestReport(FIVE), '### Verdict'), [
+      '- Agent minutes: SC2 fail (median ratio 1.51, 2 of 5 objectives in ±30%)'
+        + ' · SC3 pass (P90 covers 5 of 5 objectives (100%) and 5 of 5 TRDs (100%); target 80%)',
+      '- Cost: SC2 pass (median ratio 1.00, 5 of 5 objectives in ±30%)'
+        + ' · SC3 pass (P90 covers 5 of 5 objectives (100%) and 5 of 5 TRDs (100%); target 80%)',
+      '',
+      'EST-08: not met',
+    ].join('\n'));
+  });
+
+  test('a metric below the minimum is insufficient and says how many objectives were compared against how many are needed', () => {
+    const verdict = section(fmt.backtestReport(backtestResult([ON_TARGET, ON_TARGET])), '### Verdict');
+    assert.ok(verdict.includes('- Agent minutes: SC2 insufficient (2 objectives compared, 3 needed) · SC3 insufficient (2 objectives compared, 3 needed)'), verdict);
+    assert.ok(verdict.endsWith('EST-08: not met'), verdict);
+    const met = section(fmt.backtestReport(backtestResult([ON_TARGET, ON_TARGET, ON_TARGET])), '### Verdict');
+    assert.ok(met.endsWith('EST-08: met'), met);
+  });
+
+  test('one row per objective with its estimates, actuals, ratios and P90 cover, then a summary row per metric', () => {
+    const body = section(fmt.backtestReport(FIVE), '### Executor estimates against actuals');
+    const rows = lines(body);
+    assert.equal(rows[0], '| Objective | TRDs | Source | Agent min p50 / P90 | Actual | Ratio | <= P90 | Cost p50 / P90 | Actual | Ratio | <= P90 |');
+    assert.equal(rows[1], '|---|---|---|---|---|---|---|---|---|---|---|');
+    assert.equal(rows[2], '| 90 Alpha | 1 | reconstructed | 2h 09m / 6h 40m | 1h 40m | 1.29 | yes | $1.68 / $6.72 | $1.68 | 1.00 | yes |');
+    assert.equal(rows[6], '| 94 Alpha | 1 | reconstructed | 1h 35m / 6h 40m | 1h 40m | 0.95 | yes | $1.68 / $6.72 | $1.68 | 1.00 | yes |');
+    assert.deepEqual(rows.slice(7), [
+      '',
+      '| Metric | Compared | Median ratio | Pooled ratio | In band | P90 covers objectives | P90 covers TRDs | At or under median |',
+      '|---|---|---|---|---|---|---|---|',
+      '| Agent minutes | 5 | 1.51 | 1.50 | 2 of 5 | 5 of 5 (100%) | 5 of 5 (100%) | 4 of 5 (80%) |',
+      '| Cost | 5 | 1.00 | 1.00 | 5 of 5 | 5 of 5 (100%) | 5 of 5 (100%) | 5 of 5 (100%) |',
+    ]);
+  });
+
+  test('an excluded metric shows its reason and the TRDs behind it in its cells, and is listed under Exclusions', () => {
+    const result = backtestResult([ON_TARGET, { ...ON_TARGET, noMinutes: true }, ON_TARGET, ON_TARGET]);
+    const report = fmt.backtestReport(result);
+    assert.ok(
+      report.includes('| 91 Alpha | 1 | reconstructed | 1h 40m / 6h 40m | excluded: incomplete actuals (91-01) | n/a | n/a | $1.68 / $6.72 | $1.68 | 1.00 | yes |'),
+      report,
+    );
+    assert.equal(section(report, '### Exclusions'), '- Agent minutes, objective 91: incomplete actuals (91-01)');
+    assert.ok(section(report, '### Verdict').includes('SC2 pass (median ratio 1.00, 3 of 3 objectives in ±30%)'), 'the three compared objectives carry the verdict');
+  });
+
+  test('an objective with nothing to estimate is excluded from both metrics with no ids, and no class table has rows', () => {
+    const empty = { available: true, calibration: CALIBRATION, ...backtest.buildBacktest({
+      estimates: [fx.objectiveEstimate({ objective: '95', dir: '95-empty', execution: null, trds: [] })], project: fx.projectRecord([]), rates: fx.testRates(),
+    }) };
+    const report = fmt.backtestReport(empty);
+    assert.ok(report.includes('| 95 Alpha | 0 | reconstructed | n/a | excluded: no estimate | n/a | n/a | n/a | excluded: no estimate | n/a | n/a |'), report);
+    assert.equal(section(report, '### Exclusions'), '- Agent minutes, objective 95: no estimate\n- Cost, objective 95: no estimate');
+    assert.equal(section(report, '### Miscalibrated classes'), 'none');
+    assert.equal(section(report, '### Task classes'), '**Agent minutes**\n\nnone\n\n**Cost**\n\nnone');
+  });
+
+  test('wall time says `none recorded` when no objective has a finished run state, and nothing else', () => {
+    assert.equal(section(fmt.backtestReport(FIVE), '### Wall time (prospective run states)'), 'none recorded');
+  });
+
+  test('wall time lists each run state against its estimate, says which wall figure it compares, then the waves', () => {
+    const set = measured([ON_TARGET, ON_TARGET, ON_TARGET]);
+    set.estimates[0].execution.wall_minutes = fx.stat(100, 300);
+    set.runs = {
+      90: fx.runState({
+        objective: '90',
+        started_at: '2026-10-06T23:00:00.000Z',
+        finished_at: '2026-10-07T00:40:00.000Z',
+        wall: fx.stat(100, 300),
+        waves: [{ wave: 1, trds: ['90-01'], p50: 50, p90: 150, actual_minutes: 100 }],
+      }),
+    };
+    const result = { available: true, calibration: CALIBRATION, ...backtest.buildBacktest(set) };
+    const body = section(fmt.backtestReport(result), '### Wall time (prospective run states)');
+    assert.ok(body.includes('`estimate.wall_minutes`'), body);
+    assert.ok(body.includes('execution only'), 'the report says the wall estimate excludes the verifier');
+    assert.ok(body.includes('Reported, never judged.'), body);
+    assert.ok(body.includes([
+      '| Objective | Estimate p50 / P90 | Reconstructed p50 / P90 | Actual | Ratio | <= P90 | Reproduced |',
+      '|---|---|---|---|---|---|---|',
+      '| 90 Alpha | 1h 40m / 5h 00m | 1h 40m / 5h 00m | 1h 40m | 1.00 | yes | yes |',
+    ].join('\n')), body);
+    assert.ok(body.includes([
+      '| Objective | Wave | TRDs | Estimate p50 / P90 | Actual | Ratio | <= P90 |',
+      '|---|---|---|---|---|---|---|',
+      '| 90 Alpha | 1 | 90-01 | 50 min / 2h 30m | 1h 40m | 1.00 | yes |',
+    ].join('\n')), body);
+    assert.ok(body.endsWith('No finished run state: 91, 92 (no run state recorded).'), body);
+  });
+
+  test('a run state that carries the executor estimate makes the row prospective, one that carries only minutes makes it mixed', () => {
+    const run = (execution) => fx.runState({ objective: '90', started_at: '2026-10-06T23:00:00.000Z', finished_at: '2026-10-07T00:40:00.000Z', execution });
+    const prospective = backtest.buildBacktest({ ...measured([ON_TARGET, ON_TARGET, ON_TARGET]), runs: {
+      90: run({ agent_minutes: fx.stat(200, 500), cost_usd: fx.stat(TRD_COST * 2, TRD_COST * 8) }),
+    } });
+    assert.ok(
+      fmt.backtestReport({ available: true, calibration: CALIBRATION, ...prospective })
+        .includes('| 90 Alpha | 1 | prospective | 3h 20m / 8h 20m | 1h 40m | 2.00 | yes | $3.36 / $13.44 | $1.68 | 2.00 | yes |'),
+    );
+    const mixed = backtest.buildBacktest({ ...measured([ON_TARGET, ON_TARGET, ON_TARGET]), runs: { 90: run({ agent_minutes: fx.stat(200, 500) }) } });
+    assert.ok(
+      fmt.backtestReport({ available: true, calibration: CALIBRATION, ...mixed })
+        .includes('| 90 Alpha | 1 | minutes prospective, cost reconstructed | 3h 20m / 8h 20m |'),
+    );
+  });
+
+  test('a run state without a wall estimate still prints its measured time, with n/a where there is nothing to compare', () => {
+    const set = measured([ON_TARGET, ON_TARGET, ON_TARGET]);
+    set.runs = { 90: fx.runState({ objective: '90', started_at: '2026-10-06T23:00:00.000Z', finished_at: '2026-10-07T00:40:00.000Z', wall: null }) };
+    const body = section(fmt.backtestReport({ available: true, calibration: CALIBRATION, ...backtest.buildBacktest(set) }), '### Wall time (prospective run states)');
+    assert.ok(body.includes('| 90 Alpha | n/a | n/a | 1h 40m | n/a | n/a | n/a |'), body);
+  });
+
+  test('class tables give each class its tasks, median ratio, coverage and verdict; miscalibrated ones are listed with their flags', () => {
+    const report = fmt.backtestReport(FIVE);
+    assert.equal(section(report, '### Task classes'), [
+      '**Agent minutes**',
+      '',
+      '| Class | Tasks | Median ratio | P90 coverage | Verdict |',
+      '|---|---|---|---|---|',
+      '| code_tdd | 10 | 1.51 | 100% | miscalibrated: biased_high |',
+      '',
+      '**Cost**',
+      '',
+      '| Class | Tasks | Median ratio | P90 coverage | Verdict |',
+      '|---|---|---|---|---|',
+      '| code_tdd | 10 | 1.00 | 100% | ok |',
+    ].join('\n'));
+    assert.equal(section(report, '### Miscalibrated classes'), '- code_tdd (minutes): biased_high, median ratio 1.51, coverage 100%');
+  });
+
+  test('a cost class that is too high and too narrow lists both flags, and none is `none`', () => {
+    const high = backtestResult([1, 2, 3, 4].map(() => ({ agent: 100, cost: 2 })));
+    assert.equal(section(fmt.backtestReport(high), '### Miscalibrated classes'), '- code_tdd (cost): biased_high, median ratio 2.00, coverage 100%');
+    assert.equal(section(fmt.backtestReport(backtestResult([ON_TARGET, ON_TARGET, ON_TARGET])), '### Miscalibrated classes'), 'none');
+  });
+
+  test('the footer names the calibration it ran against and the thresholds', () => {
+    const report = fmt.backtestReport(FIVE);
+    assert.equal(lines(report).pop(), 'Calibration /tmp/frozen/calibration.json, data as of 2026-10-05, samples 50 TRDs / 120 tasks / 40 with tokens, inputs_digest abc123. Band ±30%, coverage target 80%.');
+    const noDigest = fmt.backtestReport({ ...FIVE, calibration: { ...CALIBRATION, inputs_digest: null } });
+    assert.ok(lines(noDigest).pop().includes('inputs_digest none.'), lines(noDigest).pop());
+  });
+
+  test('a result with no usable calibration is `No estimate: <reason>`', () => {
+    assert.equal(fmt.backtestReport({ available: false, reason: 'no calibration file' }), 'No estimate: no calibration file');
+  });
+
+  test('the report does not change its input', () => {
+    const before = JSON.stringify(FIVE);
+    fmt.backtestReport(FIVE);
+    fmt.backtestLine(FIVE);
+    assert.equal(JSON.stringify(FIVE), before);
+  });
+});
