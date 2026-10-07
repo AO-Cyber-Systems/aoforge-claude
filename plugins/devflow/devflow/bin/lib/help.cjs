@@ -281,8 +281,8 @@ const COMMANDS = {
     summary: 'Render roadmap progress.',
   },
   'todo': {
-    usage: 'df-tools todo add --from <path|-> [--stem <stem>] | todo complete <stem|filename> [--raw]',
-    summary: 'Add a todo, or move one from pending to completed.',
+    usage: 'df-tools todo add --from <path|-> [--stem <stem>] | todo complete <stem|filename> | todo sync (--transcript <path>... | --session <id>) [--projects-root <dir>] [--dry-run] [--no-flush] [--no-wait] [--raw]',
+    summary: 'Add a todo, move one to completed, or merge a session\'s task-list todos into the archive.',
     mutates: true,
     details: VERB_DETAILS,
   },

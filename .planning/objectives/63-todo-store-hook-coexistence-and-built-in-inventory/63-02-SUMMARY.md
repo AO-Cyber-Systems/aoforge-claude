@@ -12,4 +12,4 @@ In progress.
 ## Progress
 - [x] Task 1: Archive fixture builders — 9a96ba3d
 - [x] Task 2: todo-sync.cjs (planSync, readArchive, buildTodoText, syncTodos) RED then GREEN — fe49ee19 (RED), 52b51b2a (GREEN)
-- [ ] Task 3: `df-tools todo sync` CLI and help (RED then GREEN) — RED committed (this commit); next step: add the `sync` branch to cmdTodoVerb in plugins/devflow/devflow/bin/lib/planning-verbs-cli.cjs, the usage and summary in help.cjs and the header line in df-tools.cjs until todo-sync.test.cjs passes
+- [x] Task 3: `df-tools todo sync` CLI and help (RED then GREEN) — 421ee769 (RED), (this commit) (GREEN)

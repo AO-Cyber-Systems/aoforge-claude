@@ -72,6 +72,7 @@
  *
  * Todos:
  *   todo complete <filename>           Move todo from pending to completed
+ *   todo sync --session <id>           Merge a session's todos into the archive
  *
  * Scaffolding:
  *   scaffold context --objective <N>       Create CONTEXT.md template
