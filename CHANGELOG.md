@@ -7,6 +7,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `/devflow:todo` keeps its todos in the session task list (objective 63). `add` puts a `Todo: <title>` item in the list
+  with TaskCreate (or TodoWrite when `CLAUDE_CODE_ENABLE_TASKS=0` brings it back) and then writes the archive; `list` reads
+  the in-session status. The todo files under `.planning/todos/` (or the `devflow:todo` GitHub issues in store mode) stay
+  the durable archive. With neither tool the flow is unchanged. The task tools are on by default only on older models, so
+  turn them on with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` (see the USER-GUIDE).
+- `df-tools todo sync (--transcript <path>... | --session <id>) [--projects-root dir] [--dry-run] [--no-flush] [--raw]`
+  (`lib/todo-session.cjs`, `lib/todo-sync.cjs`): replays a session transcript's task-list calls and merges its todos into
+  the archive through `todo add` and `todo complete`. The merge is forward-only and idempotent: a second run adds nothing,
+  a deleted session task never removes an archive todo and a completed todo is never reopened. Local mode writes the same
+  bytes as the verbs; store mode queues the writes for gh-flush. The replay is checked against three recordings of Claude
+  Code 2.1.292.
+- `hooks/todo-sync.js` (Stop): runs the same merge at every Stop in a DevFlow project, with no user action. It says what it
+  did in one `systemMessage` (archived, completed, files not committed yet) and prints nothing on a rerun. It never
+  commits, never blocks, keeps no state and fails open. Escape: `DEVFLOW_SKIP_TODO_SYNC=1` in the environment Claude Code
+  was launched from.
+- `hooks/hook-coexistence.test.js` (with `hooks/__fixtures__/hook-runner.js` and `coexistence-fixtures.js`): a cited model
+  of how Claude Code composes the hooks registered on one event, and a matrix that runs every registered DevFlow hook alone
+  and beside nine user-hook behaviours (context, allow, deny, plain text, exit 1, exit 2, garbage JSON, slow, never reads
+  stdin). It proves DevFlow's output does not change beside a user hook, that DevFlow never lifts a user deny or block, that
+  every DevFlow run exits 0 and prints nothing or one valid JSON object, and that degraded input and two copies at once do
+  not corrupt a state file. A registration with no entry in the table fails the suite.
+- `docs/built-in-integration-status.md` and `builtin-status.repo.test.cjs`: an inventory of Claude Code's 46 tools, 33 hook
+  events and 18 other surfaces, each marked adopted, partial, candidate, not adopted or n/a with the files that show it,
+  a review procedure and the adoption history of objectives 62 and 63. The test holds the document to the tree and to
+  pinned name lists, so adding a hook or built-in fails CI until the inventory is updated.
 - `session-audit` now reports what happened after each edit-gate denial (bypassed by a Bash write of the same file, routed through a skill/marker/override, or abandoned) as `edit_gate_bypass` in the JSON and an `edit_gate:` line under `--raw`, the measurement DECISION-001 waits on.
 - `hooks/gate-bash-writes.js` (PreToolUse(Bash)), the Bash side of the edit gate (DECISION-001): in a DevFlow project in
   ambient mode, a Bash command that writes a tracked source file is denied (or asked, see `gates.bashEditGate`), the same as
@@ -113,6 +138,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   runs now asks.
 
 ### Changed
+- `/devflow:todo add` writes the session item first and the archive second, so a turn cut off between the two is recovered
+  by the Stop-hook sync. `/devflow:todo list` syncs the session into the archive first, commits exactly the files the sync
+  changed through `df-tools commit`, shows `(in progress this session)` and lists session todos not yet archived; "Work on
+  it now" puts the session task in progress when the session has task tools and completes the archive todo at once when it
+  has none. `builtin-audit` counts `TodoWrite(` as a built-in use, and `references/built-ins.md` section 5 states the todo
+  convention (the `Todo: ` subject, the `devflow_todo` metadata, the `[todo:<stem>]` suffix, who writes what).
 - The shell-text primitives (heredoc extraction, quote masking, word unquoting, path resolution) moved from `gate-commits.js`
   into `bin/lib/shell-words.cjs`, now shared by `gate-commits.js`, `session-audit` and the Bash write detector, next to a
   new left-to-right `scanShell` and `parseCommand`. No behaviour change: the gate-commits and session-audit suites pass
@@ -154,6 +185,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   still showing its strategy there.
 
 ### Fixed
+- `route-intent.js`, `changelog-on-tag.js`, `gate-interactive.js`, `gate-edits.js` and `guard-no-progress.js` no longer exit
+  1 when a hook payload parses to something that is not an object (`null`, an array, a string). Each crashed with a
+  TypeError, which Claude Code shows as a hook error notice beside the user's own hooks. They now exit 0 and print nothing.
+  The coexistence suite found them and fails if another hook does the same.
 - Objective lookups match the exact directory. `4.1` no longer resolves to a `04.10-*` directory in `find-objective`,
   `objectives list --objective`, `objective-job-index` and every command that resolves an objective, and an archived `04.1-*`
   is found when only `04.10-*` is current.

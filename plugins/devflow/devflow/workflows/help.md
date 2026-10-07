@@ -226,8 +226,8 @@ Usage: `/devflow:debug` (resume active session)
 **`/devflow:todo <add|list>`**
 Capture todos and view morning standup.
 
-- `add [description]` — Capture idea or task from conversation context (or use provided description); files it under `.planning/todos/pending/` with `df-tools todo add --from <draft>`; checks for duplicates
-- `list [area]` — List pending todos, select one to work on; optional area filter; routes to work now / add to objective / brainstorm
+- `add [description]` — Capture idea or task from conversation context (or use provided description); also adds a `Todo:` item to the session task list when the session has task tools; files it under `.planning/todos/pending/` with `df-tools todo add --from <draft>`; checks for duplicates
+- `list [area]` — Merge the session's task-list todos into the archive first (`df-tools todo sync`), then list pending todos with their in-session status, select one to work on; optional area filter; routes to work now / add to objective / brainstorm. A Stop hook runs the same merge at the end of every turn
 
 Usage: `/devflow:todo add` (infers from conversation)
 Usage: `/devflow:todo add "Add auth token refresh"`
@@ -348,6 +348,7 @@ Content comes from `--from <path|->`; `df-tools planning draft <rel>` prints a d
 - `df-tools doc put <rel> --from <path|->` — any other planning doc (CONTEXT, RESEARCH, `codebase/`, `research/`, ...)
 - `df-tools decision open <trd-id> --question <text|@path>` / `decision answer <id> --from <path|->` — record a decision
 - `df-tools todo add --from <path|->` / `todo complete <stem>` — capture and close todos
+- `df-tools todo sync (--session <id> | --transcript <path>)` — merge a session's task-list todos into the archive
 - `df-tools debug put <slug> --from <path|->` / `debug resolve <slug>` — debug sessions
 - `df-tools quick put <N> <slug> --from <path|->` / `quick summary <N> --from <path|->` — quick tasks
 - `df-tools milestone put <version> --from <path|->` / `milestone complete <version>` — milestones

@@ -9,8 +9,8 @@ status: in-progress
 # Objective 63 TRD 07: Dogfood, document, full suite Summary
 
 ## Progress
-- [x] Task 1: Dogfood (scratchpad only) — (this commit)
-- [ ] Task 2: Documentation — next step: edit CHANGELOG.md [Unreleased] (Added/Changed/Fixed entries for objective 63), then docs/USER-GUIDE.md, CLAUDE.md `todo add|complete|sync`, help.md Todo Management
+- [x] Task 1: Dogfood (scratchpad only) — 37bbd537 (SUMMARY checkpoint only: the task changes no repo file)
+- [x] Task 2: Documentation — (this commit)
 - [ ] Task 3: Full suite — next step: run `npm test`, prove each failure on the base commit in a temporary worktree, regenerate site/data/devflow.json
 
 ## Dogfood evidence (Task 1)
