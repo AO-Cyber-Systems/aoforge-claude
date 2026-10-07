@@ -508,6 +508,60 @@ describe('15. archiveRunState', () => {
   });
 });
 
+describe('16. listRunHistory', () => {
+  function writeHistoryRaw(name, text) {
+    const dir = store.historyDir(root, opts);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), text);
+  }
+
+  test('16a. a missing history directory gives []', () => {
+    assert.deepEqual(store.listRunHistory(root, opts), []);
+  });
+
+  test('16b. valid states come back sorted by started_at, whatever the archive order', () => {
+    const b = finishedRun({ objective: '82', started_at: '2026-10-03T10:00:00.000Z' });
+    const a = finishedRun({ objective: '80', started_at: '2026-10-01T10:00:00.000Z' });
+    const c = finishedRun({ objective: '81', started_at: '2026-10-02T10:00:00.000Z' });
+    for (const s of [b, a, c]) store.archiveRunState(root, s, opts);
+    assert.deepEqual(store.listRunHistory(root, opts), [a, c, b]);
+  });
+
+  test('16c. a malformed file, a version 2 file, a non-run JSON file and a .tmp file are skipped', () => {
+    const good = finishedRun();
+    store.archiveRunState(root, good, opts);
+    writeHistoryRaw('bad-json.json', '{not json');
+    writeHistoryRaw('empty.json', '');
+    writeHistoryRaw('v2.json', JSON.stringify({ ...finishedRun({ objective: '90' }), version: 2 }));
+    writeHistoryRaw('array.json', '[]');
+    writeHistoryRaw('stranded.json.tmp', JSON.stringify(finishedRun({ objective: '91' })));
+    writeHistoryRaw('notes.txt', JSON.stringify(finishedRun({ objective: '92' })));
+    assert.deepEqual(store.listRunHistory(root, opts), [good]);
+  });
+
+  test('16d. a directory named like an archive is skipped, and nothing throws', () => {
+    store.archiveRunState(root, finishedRun(), opts);
+    fs.mkdirSync(path.join(store.historyDir(root, opts), 'sub.json'));
+    assert.equal(store.listRunHistory(root, opts).length, 1);
+  });
+
+  test('16e. history is per project: another project sees none of it', () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'ers-other-'));
+    try {
+      store.archiveRunState(root, finishedRun(), opts);
+      assert.deepEqual(store.listRunHistory(other, opts), []);
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  test('16f. an unreadable path (the history directory is a file) gives []', () => {
+    fs.mkdirSync(path.dirname(store.historyDir(root, opts)), { recursive: true });
+    fs.writeFileSync(store.historyDir(root, opts), 'not a directory');
+    assert.deepEqual(store.listRunHistory(root, opts), []);
+  });
+});
+
 describe('module hygiene', () => {
   test('requires only node builtins and ./upgrade.cjs', () => {
     const src = fs.readFileSync(path.join(__dirname, 'estimate-run-store.cjs'), 'utf8');
