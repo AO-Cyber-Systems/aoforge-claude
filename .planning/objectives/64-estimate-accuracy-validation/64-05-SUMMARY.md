@@ -28,8 +28,8 @@ completed: 2026-10-07
 **In progress.**
 
 ## Progress
-- [x] Task 1: Primary out-of-sample backtest of 59-63 on the frozen calibration, plus the in-sample reference — (this commit)
-- [ ] Task 2: Rolling leave-future-out and window diagnostics from git snapshots — next step: `git archive --format=tar -o <scratch>/b5/cut-59.tar 401a9145^ .planning`, extract, `calibrate --paths ... --no-overhead --out <scratch>/b5/cal-cut-59.json`, then `estimate backtest 59 --calibration` that file
+- [x] Task 1: Primary out-of-sample backtest of 59-63 on the frozen calibration, plus the in-sample reference — 489d7b76
+- [x] Task 2: Rolling leave-future-out and window diagnostics from git snapshots — (this commit)
 - [ ] Task 3: Write 64-ACCURACY-REPORT.md, set EST-08's status, record the follow-up, commit — next step: `planning draft objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md`, write it, `doc put`
 
 ## Primary result
@@ -92,3 +92,57 @@ when every TRD has minutes (55 is excluded because of 55-06) and reads 56 at 36 
 Verdict block of the in-sample run: agent minutes `insufficient (2 objectives compared, 3 needed)`, cost SC2 pass (median
 1.01, 3 of 3 in band) and SC3 pass (3 of 3 objectives, 20 of 20 TRDs). Even in sample, minutes run high (median 1.80 over
 two objectives; code_tdd 1.64 and doc 2.67 flagged biased_high).
+
+## Rolling leave-future-out (secondary, not the verdict)
+
+For each N: `git archive --format=tar -o <scratch>/cut-N.tar <first>^ .planning`, extract, `calibrate --paths <scratch>/cut-N
+--no-overhead --out <scratch>/cal-cut-N.json --raw`, `estimate backtest N --calibration <scratch>/cal-cut-N.json`.
+Every calibrate exit 0; every backtest exit 0; the live calibration stayed `5cf42c4b…` after each step. These
+calibrations never existed at the time (built with today's `calibrate` over the old data, and the snapshots carry only
+the token fields stamped at that moment: 59 and 60 have none, so 237 to 243 TRDs with tokens throughout).
+
+| Obj | Cutoff (first commit^) | Calibration | Agent min p50 / P90 | Actual | Ratio | In band | Covered | Cost p50 / P90 | Actual | Ratio | In band | Covered | TRDs covered (min / cost) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 59 | 401a9145^ | 324 TRDs, 749 tasks | 108.4 / 334.3 | 84 | 1.291 | yes | yes | $20.04 / $28.48 | $23.88 | 0.839 | yes | yes | 7 of 7 / 6 of 7 |
+| 60 | 05a5b5f4^ | 331 TRDs, 766 tasks | 99.8 / 288.0 | 74 | 1.348 | no | yes | $21.19 / $29.63 | $19.79 | 1.071 | yes | yes | 7 of 7 / 7 of 7 |
+| 61 | d7b9c938^ | 338 TRDs, 784 tasks | 123.0 / 383.9 | 70 | 1.758 | no | yes | $27.37 / $39.61 | $27.57 | 0.993 | yes | yes | 9 of 9 / 8 of 9 |
+| 62 | 9ad19b1c^ | 347 TRDs, 805 tasks | 141.6 / 403.9 | 96 | 1.475 | no | yes | $29.13 / $41.16 | $45.75 | 0.637 | no | no | 11 of 11 / 6 of 11 |
+| 63 | 26e4e57f^ | 358 TRDs, 831 tasks | 82.8 / 294.1 | 112 | 0.739 | yes | yes | $19.43 / $29.51 | $27.16 | 0.715 | yes | yes | 6 of 7 / 5 of 7 |
+
+Aggregate of the five rolling rows (`estimate-backtest.cjs` `summarize(rows, classRows(rows))` in a scratch script; the
+rows were rounded at output, so medians are at 3-decimal precision; the SC labels are what the code-pinned rules give
+these rows, shown for comparison only):
+
+| Metric | Median ratio | Pooled | In band | P90 covers objectives | P90 covers TRDs | SC2 | SC3 | Flagged classes |
+|---|---|---|---|---|---|---|---|---|
+| Agent minutes | 1.348 | 1.274 | 2 of 5 | 5 of 5 | 40 of 41 (97.6%) | fail | pass | code_tdd (41, 1.59, high), prompt_tdd (19, 1.88, high), prompt (3, 0.53, low) |
+| Cost | 0.839 | 0.813 | 4 of 5 | 4 of 5 (80%) | 32 of 41 (78.0%) | pass | fail | prompt_tdd (19, 0.78, 68%), test (13, 0.78, 69%), code (6, 0.70, 17%), test_tdd (5, 0.65, low), prompt (3, 0.27, 33%) |
+
+Reading: recalibrating before every objective would have lowered the minutes median from 1.51 to 1.35 and still failed
+SC2 (the same two objectives, 59 and 63, are in band and 60, 61 and 62 stay outside it); and it would have made cost SC3 fail (TRD coverage
+32 of 41 = 78.0%, against 34 of 41 on the frozen calibration), because 62's eleven TRDs are priced low in both. So
+fresher data of the same kind does not cure the minutes bias, and the rolling run is not evidence that EST-08 would
+have been met. The `Reproduced` column of the 63 wall row is not meaningful in these runs (and was not used).
+
+## Window 42-58 (secondary, not the verdict)
+
+The pre-59 snapshot restricted to objectives 42-58 (v1.4 onward; `cut-59/.planning/objectives/4[2-9]-*` and `5[0-8]-*`
+plus STATE_ARCHIVE.md): `calibrate --paths <scratch>/win-42-58 --no-overhead --out <scratch>/cal-win.json --raw` read
+186 TRDs, 449 tasks, 179 with tokens (inputs_digest `sha256:bf347cbd91eed15f2dd0a54c60f11d33652dde47390f87a41caaadb6695bd19a`),
+then `estimate backtest 59,60,61,62,63 --calibration <scratch>/cal-win.json --raw`. This is the one window the TRD
+specified; no other window was tried.
+
+- Agent minutes: SC2 pass (median ratio 1.27, 3 of 5 in band), SC3 pass (5 of 5 objectives, 40 of 41 TRDs); pooled ratio 1.34.
+- Cost: SC2 pass (median 0.91, 5 of 5 in band), SC3 pass (5 of 5 objectives, 35 of 41 TRDs = 85%).
+- The verb printed `EST-08: met` for this calibration. It is a diagnostic: a calibration that never existed at the
+  time, selected after the frozen run failed, and it is inside the band by 0.03 on the median (the pooled ratio, 1.34,
+  is outside it). It is reported as information and does not change the verdict.
+- Per objective, agent min ratio / cost ratio: 59 1.08 / 0.91, 60 1.27 / 1.19, 61 1.77 / 1.08, 62 1.91 / 0.71, 63 0.82 / 0.81.
+- Classes still flagged in the window: minutes code_tdd 1.65 (high), prompt_tdd 2.63 (high), code 1.44 (high), test 0.41
+  (low); cost prompt_tdd (68%), test (69%), test_tdd 0.65, prompt 0.44 (33%). The window lowers the objective p50s
+  (59: 1h 31m against 1h 48m on the frozen calibration) while the class tables still flag the same large classes, and
+  prompt_tdd (1.88 to 2.63) and test (0.68 to 0.41) get worse. So old history does not explain the class-level bias; a
+  recency window moves the objective median inside the band, with the per-class errors in opposite directions. One
+  window cannot separate recency from that offsetting.
+- 63's wall row `Reproduced: no` (the reconstruction from this calibration is 1h 23m / 3h 34m against the recorded
+  1h 37m / 4h 50m), as expected for a calibration other than the frozen one.
