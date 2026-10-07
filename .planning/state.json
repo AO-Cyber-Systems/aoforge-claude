@@ -1,6 +1,6 @@
 {
   "current_objective": "63",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -989,6 +989,11 @@
     {
       "objective": "63",
       "summary": "63-02: todo sync folds items by stem (furthest status wins) and lists every changed todo .md as pending_commit, so a no-op rerun still names what the Stop hook left uncommitted",
+      "rationale": null
+    },
+    {
+      "objective": "63",
+      "summary": "63-04: Work on it now with task tools sets the session task in_progress and leaves the archive todo pending until the session task completes; without task tools it completes the archive todo at once",
       "rationale": null
     }
   ],
