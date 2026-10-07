@@ -49,6 +49,12 @@ verification:
 
 duration: 6min
 completed: 2026-10-07
+tokens_input: 6889970
+tokens_output: 39757
+tokens_cache_read: 6753557
+tokens_cache_write: 136311
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 63 TRD 04: Todo skill on the task list Summary

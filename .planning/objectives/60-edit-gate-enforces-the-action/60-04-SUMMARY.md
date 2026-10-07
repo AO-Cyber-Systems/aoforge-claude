@@ -47,6 +47,12 @@ verification:
 
 duration: 5min
 completed: 2026-10-06
+tokens_input: 7907444
+tokens_output: 47838
+tokens_cache_read: 7761139
+tokens_cache_write: 146191
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 60 TRD 04: The PreToolUse(Bash) hook gate-bash-writes.js Summary

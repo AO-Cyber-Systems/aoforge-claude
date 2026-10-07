@@ -43,6 +43,12 @@ verification:
 
 duration: 5min
 completed: 2026-10-06
+tokens_input: 5675419
+tokens_output: 49049
+tokens_cache_read: 5552791
+tokens_cache_write: 122526
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 60 TRD 03: The Bash write gate decision Summary

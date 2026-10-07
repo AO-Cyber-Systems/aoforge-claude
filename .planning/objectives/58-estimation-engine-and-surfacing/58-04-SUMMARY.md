@@ -47,6 +47,12 @@ verification:
 
 duration: 9min
 completed: 2026-10-05
+tokens_input: 7963543
+tokens_output: 50823
+tokens_cache_read: 7840871
+tokens_cache_write: 122538
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 58 TRD 04: Estimate run state and the status line Summary

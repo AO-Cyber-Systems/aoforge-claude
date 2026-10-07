@@ -45,6 +45,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-05
+tokens_input: 5903574
+tokens_output: 41401
+tokens_cache_read: 5793150
+tokens_cache_write: 110316
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 59 TRD 02: advance-job from disk Summary

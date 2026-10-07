@@ -41,6 +41,12 @@ verification:
 
 duration: 25min
 completed: 2026-10-06
+tokens_input: 6483081
+tokens_output: 80690
+tokens_cache_read: 6181332
+tokens_cache_write: 301659
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 60 TRD 02: Bash write detector Summary

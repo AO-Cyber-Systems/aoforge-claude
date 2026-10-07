@@ -192,6 +192,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 64]: A TRD with no SUMMARY has no recorded outcome: its minutes are missing even when a STATE_ARCHIVE metric row exists; the metric-row fallback applies only to a SUMMARY with no duration (estimate-backtest.objectiveActuals)
 - [Objective 64]: SC3 is insufficient, not fail, when no TRD comparison exists to judge TRD-level coverage; EST-08 verdict constants (band 0.30, coverage 0.80, min objectives 3, min class tasks 3) are exports, never parameters
 - [Objective 64]: Run history archives only finished runs, at <state dir>/history/<repo-key>/<objective>-<started_at>.json; run schema version stays 1 with optional execution, total and calibration keys
+- [Objective 64]: 64-03: minute actuals stay on the SUMMARY basis (like for like with the calibration); SUMMARY/transcript median 0.91 is reported beside them, raw transcript spans are not actuals (idle gaps, e.g. 60-02)
+- [Objective 64]: 64-03: run state estimate.wall_minutes is the execution wall (63: 96.6/290.4); the printed line is the total incl. verifier overhead (102.8/304.2); prospective comparisons name which
+- [Objective 64]: 64-03: the backfill's partial stamp of 64-03's own in-flight SUMMARY was reverted out of the backfill commit; in-flight TRDs take tokens from the forward stamp only
 
 ## Performance Metrics
 
@@ -317,4 +320,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 63 P07 | 14min | 3 tasks | 6 files |
 | Objective 64 P01 | 25min | 2 tasks | 3 files |
 | Objective 64 P02 | 18min | 2 tasks | 7 files |
+| Objective 64 P03 | 19min | 3 tasks | 41 files |
 

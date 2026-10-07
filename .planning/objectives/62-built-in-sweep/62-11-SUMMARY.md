@@ -48,6 +48,12 @@ requirements-completed: []
 
 duration: 6min
 completed: 2026-10-06
+tokens_input: 11107362
+tokens_output: 51545
+tokens_cache_read: 10943534
+tokens_cache_write: 163662
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 11: Questions in the remaining skills and workflows Summary

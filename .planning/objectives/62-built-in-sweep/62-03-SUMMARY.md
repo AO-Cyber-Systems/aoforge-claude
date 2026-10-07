@@ -50,6 +50,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-06
+tokens_input: 9966314
+tokens_output: 66780
+tokens_cache_read: 9801507
+tokens_cache_write: 164679
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 03: The sweep ratchet Summary

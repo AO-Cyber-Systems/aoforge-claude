@@ -35,6 +35,12 @@ decisions:
 metrics:
   duration: 8min
   completed: 2026-10-06
+tokens_input: 10146387
+tokens_output: 59961
+tokens_cache_read: 9923518
+tokens_cache_write: 222723
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 04: Progress and questions in micro, quick, debug and verify-work Summary

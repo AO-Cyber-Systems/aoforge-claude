@@ -52,6 +52,12 @@ verification:
 
 duration: 17min
 completed: 2026-10-07
+tokens_input: 18832221
+tokens_output: 124039
+tokens_cache_read: 18608864
+tokens_cache_write: 223145
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 63 TRD 05: Hook coexistence suite Summary

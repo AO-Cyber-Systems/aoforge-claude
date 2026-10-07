@@ -46,6 +46,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-06
+tokens_input: 9638258
+tokens_output: 78879
+tokens_cache_read: 9469789
+tokens_cache_write: 168345
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 60 TRD 05: Replay false positives Summary

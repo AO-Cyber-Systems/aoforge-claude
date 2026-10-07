@@ -47,6 +47,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-07
+tokens_input: 12598274
+tokens_output: 52992
+tokens_cache_read: 12416525
+tokens_cache_write: 181597
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 63 TRD 03: The todo-sync Stop hook Summary

@@ -34,6 +34,12 @@ decisions:
 metrics:
   duration: 7m
   completed: 2026-10-06
+tokens_input: 11485915
+tokens_output: 59738
+tokens_cache_read: 11318204
+tokens_cache_write: 167551
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 09: Questions in todo, status, objective, decide, handoff and workstreams Summary

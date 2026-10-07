@@ -43,6 +43,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-06
+tokens_input: 7349716
+tokens_output: 38809
+tokens_cache_read: 7216470
+tokens_cache_write: 133122
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 61 TRD 08: The `requires:` gate hook Summary

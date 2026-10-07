@@ -50,6 +50,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-06
+tokens_input: 13840046
+tokens_output: 63758
+tokens_cache_read: 13630247
+tokens_cache_write: 209613
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 61 TRD 07: Current model ids, and stale-id detection from data Summary

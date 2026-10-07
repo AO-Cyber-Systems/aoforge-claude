@@ -45,6 +45,12 @@ verification:
 
 duration: 25min
 completed: 2026-10-05
+tokens_input: 8676555
+tokens_output: 46776
+tokens_cache_read: 8422653
+tokens_cache_write: 253770
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 59 TRD 06: Merge and state wiring Summary

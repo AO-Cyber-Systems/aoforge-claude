@@ -1025,6 +1025,21 @@
       "objective": "64",
       "summary": "Run history archives only finished runs, at <state dir>/history/<repo-key>/<objective>-<started_at>.json; run schema version stays 1 with optional execution, total and calibration keys",
       "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "64-03: minute actuals stay on the SUMMARY basis (like for like with the calibration); SUMMARY/transcript median 0.91 is reported beside them, raw transcript spans are not actuals (idle gaps, e.g. 60-02)",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "64-03: run state estimate.wall_minutes is the execution wall (63: 96.6/290.4); the printed line is the total incl. verifier overhead (102.8/304.2); prospective comparisons name which",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "64-03: the backfill's partial stamp of 64-03's own in-flight SUMMARY was reverted out of the backfill commit; in-flight TRDs take tokens from the forward stamp only",
+      "rationale": null
     }
   ],
   "blockers": [],
