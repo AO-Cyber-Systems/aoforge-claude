@@ -220,6 +220,40 @@ function archiveRunState(projectRoot, state, opts) {
   return { path: file, written: true };
 }
 
+/**
+ * Every archived run for a project, oldest `started_at` first (file name breaks a tie). A
+ * missing or unreadable directory gives []; a malformed, wrong-version or non-run file, a
+ * `.tmp` file and anything not ending in `.json` is skipped. Never throws.
+ * @returns {object[]}
+ */
+function listRunHistory(projectRoot, opts) {
+  let dir;
+  let names;
+  try {
+    dir = historyDir(projectRoot, opts);
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const runs = [];
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+      if (isRunState(parsed)) runs.push({ name, state: parsed });
+    } catch {
+      // a broken archive file must look like "not there"
+    }
+  }
+  runs.sort((a, b) => {
+    const left = String(a.state.started_at);
+    const right = String(b.state.started_at);
+    if (left !== right) return left < right ? -1 : 1;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+  return runs.map((r) => r.state);
+}
+
 /** Remove the run state (and a stranded temp file). A missing file is not an error. */
 function clearRunState(projectRoot, opts) {
   const file = statePath(projectRoot, opts);
@@ -326,6 +360,7 @@ module.exports = {
   readRunState,
   writeRunState,
   archiveRunState,
+  listRunHistory,
   clearRunState,
   remainingMinutes,
   formatStatusSegment,
