@@ -29,6 +29,12 @@ key-decisions:
 requirements-completed: [PLMB-04, PLMB-05]
 duration: 10min
 completed: 2026-10-05
+tokens_input: 12672954
+tokens_output: 63158
+tokens_cache_read: 12509863
+tokens_cache_write: 162911
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 59 TRD 04: milestone complete scope Summary

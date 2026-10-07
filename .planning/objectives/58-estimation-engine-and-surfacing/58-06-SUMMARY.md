@@ -45,6 +45,12 @@ verification:
 
 duration: 35min
 completed: 2026-10-05
+tokens_input: 6535836
+tokens_output: 66628
+tokens_cache_read: 6289089
+tokens_cache_write: 246643
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 58 TRD 06: Objective rollup Summary

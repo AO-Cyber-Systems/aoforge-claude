@@ -41,6 +41,12 @@ verification:
 
 duration: 25min
 completed: 2026-10-05
+tokens_input: 6898069
+tokens_output: 71143
+tokens_cache_read: 6748384
+tokens_cache_write: 149581
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 58 TRD 05: Task and TRD estimates Summary

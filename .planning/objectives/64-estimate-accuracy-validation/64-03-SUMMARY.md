@@ -43,9 +43,9 @@ completed: 2026-10-07
 **In progress.**
 
 ## Progress
-- [x] Task 1: Provenance of the frozen calibration and 63's run state, the drift list, and the 63 reproduction — (this commit)
-- [ ] Task 2: Backfill the token history of 58-63 — next step: run `df-tools tokens backfill --raw` (dry run) from the 64-03 checkout, record counts by reason, then `--write`, run the 57-07 diff guard, commit the changed SUMMARY paths from `git diff --name-only`.
-- [ ] Task 3: Audit the actuals (SUMMARY minutes vs executor transcript spans for 59-63)
+- [x] Task 1: Provenance of the frozen calibration and 63's run state, the drift list, and the 63 reproduction — 482535cc
+- [x] Task 2: Backfill the token history of 58-63 (dry run, write, guard, commit, idempotence) — (this commit)
+- [ ] Task 3: Audit the actuals (SUMMARY minutes vs executor transcript spans for 59-63) — next step: write `<scratchpad>/actuals-audit.cjs` (collectProject + indexExecutorTranscripts + tokensForTrd + transcriptSpanMinutes over 59-63) and run it with `node <scratchpad>/actuals-audit.cjs /Users/justin/dev/devflow-claude`, then add the `## Actuals audit` table.
 
 ## Provenance
 
@@ -133,3 +133,66 @@ only planning-time commits: each objective's `docs(NN): create objective TRDs` p
 execution started (`725c38b4` fix(59): revise TRDs based on checker feedback, 17:46 on 2026-10-05, five minutes after
 `401a9145`; `6ca818a8` fix(62): split 62-09 into 62-09 and 62-11, 4 minutes after `9ad19b1c`). No TRD of 59-63 was
 edited during or after execution.
+
+## Token backfill
+
+All runs from the 64-03 checkout with the repository df-tools (`--cwd <checkout>`): the backfill matched transcripts
+against the main checkout (`repo: /Users/justin/dev/devflow-claude`) and read and wrote SUMMARYs in the 64-03 checkout.
+
+**Dry run** (`tokens backfill --raw`):
+
+```
+summaries 450 · already stamped 245 · recovered 41 · unrecovered 164 (no_transcript 157, unkeyed 7)
+executor transcripts 944 (identified 295, unidentified 81, ambiguous 3, foreign 565)
+```
+
+Recovered ids (JSON form): 58-01 58-04 58-05 58-06 58-07 58-08 58-09 · 59-01..59-07 · 60-01..60-07 · 61-01 61-03 61-06
+61-07 61-08 61-09 · 62-02 62-03 62-04 62-06 62-07 62-09 62-10 62-11 · 63-03 63-04 63-05 63-06 63-07 · **64-03**.
+That is the expected 40 plus 64-03: this TRD's own SUMMARY, which exists since Task 1's checkpoint commit and whose live
+transcript the index already identifies. No TRD of 58-64 is unrecovered; the 164 unrecovered are all older history
+(no_transcript 157, unkeyed 7).
+
+**Write** (`tokens backfill --write --raw`):
+
+```
+summaries 450 · already stamped 245 · recovered 41 · unrecovered 164 (no_transcript 157, unkeyed 7)
+executor transcripts 944 (identified 295, unidentified 81, ambiguous 3, foreign 565)
+written 41 · unchanged 0 · skipped 0 · failed 0
+```
+
+**Diff guard (57-07), first run, on the full write:**
+
+```json
+{"files":41,"non_summary":[],"outside_58_63":[".planning/objectives/64-estimate-accuracy-validation/64-03-SUMMARY.md"],"bad_count":0,"bad":[]}
+```
+
+The one file outside 58-63 was 64-03's own in-flight checkpoint, stamped with the partial tokens of a still-running
+executor (`tokens_input: 2321210`, `tokens_source: "backfill"`). That is wrong data for this TRD, so it was reverted
+with `git restore` on that one path (see Deviations); its final token fields come from the forward stamp
+(`tokens stamp --draft`) right before `summary post`.
+
+**Diff guard, second run, after the revert (the state committed):**
+
+```json
+{"files":40,"non_summary":[],"outside_58_63":[],"bad_count":0,"bad":[]}
+```
+
+**Coverage after the write** over the 41 SUMMARYs of 59-63: `rg --files-without-match '^tokens_input:'` over the five
+directories prints nothing. Every one of the 41 carries token fields.
+
+## Forward-stamp gap
+
+| tokens_source | Count (59-63) | TRDs |
+|---|---|---|
+| `"live"` (EST-06 forward stamp) | 8 | 61-02, 61-04, 61-05, 62-01, 62-05, 62-08, 63-01, 63-02 |
+| `"backfill"` (EST-07, this TRD) | 33 | the other 33 |
+| none | 0 | |
+
+**Defect finding:** EST-06 forward-stamped 8 of 41 executor SUMMARYs (19.5%) in the five objectives built after the
+engine shipped, and none at all in 59 or 60. Likely cause, found while recording this: the stamp step is in the
+repository's `agents/executor.md` (line 1066, `tokens stamp … --draft`), in the mirrored
+`~/.claude/devflow/workflows/execute-trd.md` and in `templates/summary.md`, but **no installed executor agent prompt
+has it**: `rg -l "tokens stamp"` over `~/.claude/plugins/cache/aocyber/devflow/{2.7.1,2.10.1,2.11.0,2.12.0,2.13.1}/agents/executor.md`
+and `~/.claude/plugins/marketplaces/aocyber/plugins/devflow/agents/executor.md` matches none. The spawned executor
+therefore stamps only when it happens to follow the @-referenced workflow or template text. The fix is a release that
+ships the current `agents/executor.md` (the repository already has the step), not a code change; noted for 64-05/64-06.

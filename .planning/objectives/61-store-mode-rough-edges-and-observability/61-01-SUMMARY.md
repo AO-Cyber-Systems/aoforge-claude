@@ -48,6 +48,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-06
+tokens_input: 12103510
+tokens_output: 63881
+tokens_cache_read: 11890038
+tokens_cache_write: 213308
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 61 TRD 01: Stale checks-workflow pins in validate health and doctor Summary

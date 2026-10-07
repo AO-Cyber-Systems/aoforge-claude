@@ -46,6 +46,12 @@ verification:
 
 duration: 14min
 completed: 2026-10-05
+tokens_input: 13981196
+tokens_output: 118568
+tokens_cache_read: 13736798
+tokens_cache_write: 244260
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 58 TRD 08: `df-tools estimate` Summary

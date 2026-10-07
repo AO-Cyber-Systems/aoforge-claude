@@ -48,6 +48,12 @@ verification:
 
 duration: 7min
 completed: 2026-10-06
+tokens_input: 6177216
+tokens_output: 40134
+tokens_cache_read: 6048693
+tokens_cache_write: 128417
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 61 TRD 06: setup dry run pins and PR step Summary

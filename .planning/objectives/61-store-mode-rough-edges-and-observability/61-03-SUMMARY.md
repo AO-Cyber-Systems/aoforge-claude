@@ -24,6 +24,12 @@ requirements-completed: [STOR-02]
 metrics:
   duration: "about 5 minutes"
   completed: 2026-10-06
+tokens_input: 6790940
+tokens_output: 36045
+tokens_cache_read: 6685433
+tokens_cache_write: 105381
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 61 TRD 03: Objective PR titles use the objective name Summary

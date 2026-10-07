@@ -23,6 +23,12 @@ key-decisions:
 metrics:
   duration: 14 min
   completed: 2026-10-06
+tokens_input: 20678746
+tokens_output: 124792
+tokens_cache_read: 20416112
+tokens_cache_write: 262418
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 02: Sweep inventory and conventions Summary

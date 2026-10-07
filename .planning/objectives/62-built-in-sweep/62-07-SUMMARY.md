@@ -45,6 +45,12 @@ verification:
 
 duration: 4min
 completed: 2026-10-06
+tokens_input: 8134637
+tokens_output: 39292
+tokens_cache_read: 7989050
+tokens_cache_write: 145453
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 07: milestone complete presents its drafts in plan mode Summary

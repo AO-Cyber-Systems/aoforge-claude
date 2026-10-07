@@ -48,6 +48,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-06
+tokens_input: 9007660
+tokens_output: 79453
+tokens_cache_read: 8823391
+tokens_cache_write: 184145
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 60 TRD 01: Shared shell-text primitives and hand-built command cases Summary

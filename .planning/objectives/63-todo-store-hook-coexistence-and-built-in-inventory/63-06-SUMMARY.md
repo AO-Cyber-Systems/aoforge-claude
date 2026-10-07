@@ -41,6 +41,12 @@ verification:
 
 duration: 45min
 completed: 2026-10-07
+tokens_input: 10086717
+tokens_output: 73202
+tokens_cache_read: 9388860
+tokens_cache_write: 697721
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 63 TRD 06: The built-in integration inventory Summary

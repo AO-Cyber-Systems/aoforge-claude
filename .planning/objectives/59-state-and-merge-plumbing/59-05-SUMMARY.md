@@ -39,6 +39,12 @@ verification:
 
 duration: 9min
 completed: 2026-10-05
+tokens_input: 20031307
+tokens_output: 66538
+tokens_cache_read: 19864117
+tokens_cache_write: 166910
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 59 TRD 05: objective change flags Summary

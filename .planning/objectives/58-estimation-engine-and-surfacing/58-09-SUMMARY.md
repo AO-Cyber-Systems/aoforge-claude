@@ -44,6 +44,12 @@ verification:
 
 duration: 14min
 completed: 2026-10-05
+tokens_input: 6690954
+tokens_output: 40132
+tokens_cache_read: 6482809
+tokens_cache_write: 208023
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 58 TRD 09: Planning and build surfacing Summary

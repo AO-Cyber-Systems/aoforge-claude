@@ -45,6 +45,12 @@ verification:
 
 duration: 9min
 completed: 2026-10-05
+tokens_input: 6328277
+tokens_output: 61520
+tokens_cache_read: 6120255
+tokens_cache_write: 207918
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 58 TRD 07: Milestone rollup Summary

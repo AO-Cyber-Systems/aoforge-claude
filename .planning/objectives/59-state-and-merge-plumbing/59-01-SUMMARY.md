@@ -47,6 +47,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-05
+tokens_input: 14656242
+tokens_output: 88756
+tokens_cache_read: 14453212
+tokens_cache_write: 202824
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 59 TRD 01: State merge driver Summary

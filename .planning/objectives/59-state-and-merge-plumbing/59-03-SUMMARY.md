@@ -46,6 +46,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-05
+tokens_input: 9427897
+tokens_output: 49113
+tokens_cache_read: 9275221
+tokens_cache_write: 152534
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 59 TRD 03: Worktree preflight Summary

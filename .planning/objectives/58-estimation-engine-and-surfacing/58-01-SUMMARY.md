@@ -41,6 +41,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-05
+tokens_input: 3778337
+tokens_output: 32649
+tokens_cache_read: 3695803
+tokens_cache_write: 82450
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 58 TRD 01: Composition math for estimates Summary

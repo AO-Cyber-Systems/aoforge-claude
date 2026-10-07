@@ -44,6 +44,12 @@ verification:
 
 duration: 14min
 completed: 2026-10-07
+tokens_input: 16333344
+tokens_output: 60297
+tokens_cache_read: 16147856
+tokens_cache_write: 185280
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 63 TRD 07: Dogfood, document, full suite Summary

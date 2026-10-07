@@ -42,6 +42,12 @@ verification:
 
 duration: 3min
 completed: 2026-10-06
+tokens_input: 6776268
+tokens_output: 33408
+tokens_cache_read: 6662133
+tokens_cache_write: 114015
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 06: new-project presents its drafts in plan mode Summary

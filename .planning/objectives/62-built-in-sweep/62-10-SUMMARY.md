@@ -39,6 +39,12 @@ requirements-completed: []
 
 duration: 17min
 completed: 2026-10-06
+tokens_input: 31840572
+tokens_output: 120167
+tokens_cache_read: 31509258
+tokens_cache_write: 331038
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 62 TRD 10: Close the ratchet, dogfood, document, full suite Summary

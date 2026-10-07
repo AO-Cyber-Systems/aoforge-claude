@@ -41,6 +41,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-06
+tokens_input: 8636419
+tokens_output: 51392
+tokens_cache_read: 8478080
+tokens_cache_write: 158211
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 60 TRD 06: Measure and set default Summary
