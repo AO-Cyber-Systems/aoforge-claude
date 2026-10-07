@@ -805,7 +805,7 @@ describe('12b: what a new run records of its estimate (TRD 64-02, EST-08)', () =
       inputs_digest: null,
     });
     // what the run already recorded is unchanged
-    assert.equal(recorded.wall_minutes, recorded.execution.wall_minutes);
+    assert.deepEqual(recorded.wall_minutes, recorded.execution.wall_minutes);
     assert.equal(recorded.confidence, 'medium');
     assert.equal(typeof recorded.line, 'string');
   });

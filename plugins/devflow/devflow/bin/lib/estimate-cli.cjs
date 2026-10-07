@@ -25,6 +25,13 @@
  * estimate, `finish` closes the run and prints the execution time against the execution estimate. They work without a
  * calibration too (the estimates are then null and the text says why), and a verb with nothing to report is exit 0.
  *
+ * Run history (TRD 64-02): `finish` archives the run it closes, and `start` (or a `wave --start` that begins a new run)
+ * archives a finished previous run before overwriting it, to <state dir>/history/<repo-key>/<objective>-<started_at>.json
+ * (estimate-run-store.archiveRunState; idempotent, and an unfinished run is never archived). If the archive cannot be
+ * written the verb fails with `could not archive the run history: ...` and the previous run state is left as it was. The
+ * `estimate` block of a new run also records the unrounded `execution` and `total` estimates and the `calibration` they
+ * came from (`{path, version, data_as_of, samples, inputs_digest}`), all null when there is no usable calibration.
+ *
  * Exit 0 for every estimate, including "no estimate": a missing, unreadable or mismatched calibration is
  * `{available: false, reason, calibration_path}` and the text `No estimate: <reason>`, never a number. Exit 1 (an
  * `{ok: false, message}` here) for usage errors and for an objective, TRD or milestone that does not exist.
@@ -273,14 +280,23 @@ function planObjective(base, objective, loaded) {
   if (!loaded.ok) {
     const waves = wavesFromFrontmatter(rollup.remainingTrds(base, objective).trds);
     const line = `No estimate: ${loaded.reason}`;
-    return { waves, line, estimate: { line, wall_minutes: null, confidence: 'none' }, output: null };
+    const estimate = { line, wall_minutes: null, confidence: 'none', execution: null, total: null, calibration: null };
+    return { waves, line, estimate, output: null };
   }
   const result = rollup.estimateObjective(loaded.cal, base, objective);
   const output = objectiveOutput(result, loaded, false);
   return {
     waves: result.waves.map((w) => newWave(w.wave, w.trds, w.wall_minutes)),
     line: output.line,
-    estimate: { line: output.line, wall_minutes: result.execution ? result.execution.wall_minutes : null, confidence: result.confidence },
+    estimate: {
+      line: output.line,
+      wall_minutes: result.execution ? result.execution.wall_minutes : null,
+      confidence: result.confidence,
+      // Unrounded, so a later accuracy check compares against what the estimator said, not a rounded display.
+      execution: result.execution || null,
+      total: result.total || null,
+      calibration: { ...loaded.meta, inputs_digest: loaded.cal.inputs_digest || null },
+    },
     output,
   };
 }
