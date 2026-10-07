@@ -29,12 +29,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { runEstimate, USAGE } = require('./estimate-cli.cjs');
+const { runEstimate, backtestRunRoot, USAGE } = require('./estimate-cli.cjs');
 const est = require('./estimate.cjs');
 const rollup = require('./estimate-rollup.cjs');
 const store = require('./estimate-run-store.cjs');
 const { finishedRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
 const { makeBacktestProject, removeBacktestProject } = require('./__fixtures__/backtest-fixtures.cjs');
+const { gitAvailable, gitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
 const {
   CAL_V2,
   MILESTONE_SPEC,
@@ -1041,5 +1042,113 @@ describe('13b: backtest JSON (TRD 64-04, EST-08)', () => {
     const r = backtest(['90,91,90']);
     assert.equal(r.ok, false);
     assert.match(r.message, /objective 90 is listed twice/);
+  });
+});
+
+describe('13c: backtest reads the run history (TRD 64-04, EST-08)', () => {
+  let project;
+  let counter = 0;
+
+  before(() => {
+    project = makeBacktestProject();
+  });
+
+  after(() => {
+    removeBacktestProject(project);
+  });
+
+  /** A fresh state directory and the env that reaches it. */
+  function freshState() {
+    const dir = path.join(scratch, `backtest-history-${counter++}`);
+    return { dir, env: { DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: dir } };
+  }
+
+  /** A finished run for objective 90, estimated at 20 min wall (P90 60) and measured at 30. `execution` is the persisted executor estimate. */
+  function run90(execution) {
+    const estimate = { line: 'Objective 90 estimate', wall_minutes: { p50: 20, p90: 60 }, confidence: 'low' };
+    if (execution) estimate.execution = execution;
+    return finishedRun({ objective: '90', estimate, waves: [{ wave: 1, trds: ['90-01', '90-02'], p50: 20, p90: 60, started_at: '2026-10-01T10:00:00.000Z', finished_at: '2026-10-01T10:30:00.000Z', actual_minutes: 30 }] });
+  }
+
+  test('3: a finished run state of objective 90 gives it prospective wall time, and its persisted execution estimate is used', () => {
+    const { env } = freshState();
+    const persisted = { agent_minutes: { p50: 45, p90: 90 }, cost_usd: { p50: 3, p90: 9 }, wall_minutes: { p50: 20, p90: 60 } };
+    store.archiveRunState(project, run90(persisted), { env });
+
+    const { objectives } = ok(runEstimate({ argv: ['backtest', '90,91'], cwd: project, env, now: T0 })).result;
+    const [alpha, beta] = objectives;
+    assert.equal(alpha.wall_minutes.source, 'prospective');
+    assert.equal(alpha.wall_minutes.actual, 30);
+    assert.equal(alpha.wall_minutes.prospective.within_band, false, '20 against 30 is 0.667, below the band, whatever the rounding prints');
+    assert.equal(alpha.agent_minutes.source, 'prospective');
+    assert.equal(alpha.agent_minutes.p50, 45);
+    assert.equal(alpha.agent_minutes.ratio, 1.5, '45 estimated against 30 measured');
+    assert.equal(alpha.cost_usd.source, 'prospective');
+    assert.equal(beta.wall_minutes.excluded, 'no run state recorded');
+    assert.equal(beta.cost_usd.source, 'reconstructed');
+  });
+
+  test('3b: a run state with no persisted execution estimate (as Objective 63 has) is prospective for wall time only', () => {
+    const { env } = freshState();
+    store.archiveRunState(project, run90(null), { env });
+    const [alpha] = ok(runEstimate({ argv: ['backtest', '90'], cwd: project, env, now: T0 })).result.objectives;
+    assert.equal(alpha.wall_minutes.source, 'prospective');
+    assert.equal(alpha.agent_minutes.source, 'reconstructed');
+    assert.equal(alpha.cost_usd.source, 'reconstructed');
+  });
+
+  test('3c: a run still in progress is not a result: `run not finished`', () => {
+    const { env } = freshState();
+    store.writeRunState(project, { ...run90(null), finished_at: null }, { env });
+    const [alpha] = ok(runEstimate({ argv: ['backtest', '90'], cwd: project, env, now: T0 })).result.objectives;
+    assert.deepEqual(alpha.wall_minutes, { source: null, excluded: 'no run state recorded' }, 'latestRun ignores an unfinished run');
+  });
+
+  test('4: from a git worktree of the project the run archived under the main checkout is still found', (t) => {
+    if (!gitAvailable()) return t.skip('git is not available');
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-backtest-wt-')));
+    try {
+      const home = path.join(base, 'home');
+      fs.mkdirSync(home, { recursive: true });
+      const gitEnv = { ...process.env, ...gitTestEnv(home) };
+      for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete gitEnv[k];
+      const git = (cwd, ...args) => {
+        const r = spawnSync('git', args, { cwd, env: gitEnv, encoding: 'utf-8' });
+        assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+        return r.stdout;
+      };
+
+      const main = makeBacktestProject();
+      try {
+        git(main, 'init', '-q');
+        git(main, 'config', 'commit.gpgsign', 'false');
+        git(main, 'add', '-A');
+        git(main, 'commit', '-q', '-m', 'fixture');
+        const wt = path.join(base, 'wt');
+        git(main, 'worktree', 'add', '-q', '-b', 'df/exec-90-01', wt);
+        assert.ok(fs.existsSync(path.join(wt, '.planning', 'objectives', '90-alpha')), 'the worktree carries the committed planning tree');
+
+        const { env } = freshState();
+        store.archiveRunState(main, run90(null), { env });
+        assert.equal(store.latestRun(fs.realpathSync(wt), '90', { env }), null, 'the worktree itself has no history of its own');
+
+        const fromMain = ok(runEstimate({ argv: ['backtest', '90'], cwd: main, env, now: T0 })).result.objectives[0];
+        const fromWorktree = ok(runEstimate({ argv: ['backtest', '90'], cwd: wt, env, now: T0 })).result.objectives[0];
+        assert.equal(fromMain.wall_minutes.source, 'prospective');
+        assert.equal(fromWorktree.wall_minutes.source, 'prospective', 'found through the main checkout');
+        assert.equal(fromWorktree.wall_minutes.actual, 30);
+      } finally {
+        removeBacktestProject(main);
+      }
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('4b: backtestRunRoot takes the main checkout when it resolves one, else the project root', () => {
+    assert.equal(backtestRunRoot(project, { resolveMainRoot: () => '/the/main/checkout' }), '/the/main/checkout');
+    assert.equal(backtestRunRoot(project, { resolveMainRoot: () => null }), project);
+    const nested = path.join(project, '.planning');
+    assert.equal(backtestRunRoot(nested, { resolveMainRoot: () => null }), project, 'the directory that holds .planning, found upward');
   });
 });
