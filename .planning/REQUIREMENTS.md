@@ -62,7 +62,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 - [x] **EST-05**: `/devflow:build` shows a one-line estimate at start, the status line shows estimated time remaining, and wave reports show actual vs estimate.
 - [x] **EST-06**: Executor SUMMARY frontmatter records `tokens_input` / `tokens_output`.
 - [x] **EST-07**: A retroactive pass backfills token data for historical TRDs from transcripts, reusing the `df-tools context` parser.
-- [ ] **EST-08**: Across the next 5 executed objectives after the engine ships, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes.
+- [ ] **EST-08**: Across the next 5 executed objectives after the engine ships, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes. (validated 2026-10-07 against objectives 59-63: not met, see 64-ACCURACY-REPORT.md)
 
 ## Future Requirements
 
@@ -119,7 +119,7 @@ Objective 55 (store live-smoke fixes, 55-1..55-6) shipped first in 2.13.2 and ke
 | EST-05 | Objective 58 | Complete |
 | EST-06 | Objective 57 | Complete |
 | EST-07 | Objective 57 | Complete |
-| EST-08 | Objective 64 | Pending |
+| EST-08 | Objective 64 | Not met: see objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md; follow-up todo recalibrate-estimate-minutes-est-08-not-met |
 
 ---
 *Last updated: 2026-10-05 at v1.5 start*

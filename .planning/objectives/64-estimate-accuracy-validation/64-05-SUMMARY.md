@@ -29,8 +29,8 @@ completed: 2026-10-07
 
 ## Progress
 - [x] Task 1: Primary out-of-sample backtest of 59-63 on the frozen calibration, plus the in-sample reference — 489d7b76
-- [x] Task 2: Rolling leave-future-out and window diagnostics from git snapshots — (this commit)
-- [ ] Task 3: Write 64-ACCURACY-REPORT.md, set EST-08's status, record the follow-up, commit — next step: `planning draft objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md`, write it, `doc put`
+- [x] Task 2: Rolling leave-future-out and window diagnostics from git snapshots — c4e923a3
+- [x] Task 3: Write 64-ACCURACY-REPORT.md, set EST-08's status, record the follow-up, commit — (this commit)
 
 ## Primary result
 
