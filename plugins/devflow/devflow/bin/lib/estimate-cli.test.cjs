@@ -33,6 +33,7 @@ const { runEstimate, backtestRunRoot, USAGE } = require('./estimate-cli.cjs');
 const est = require('./estimate.cjs');
 const rollup = require('./estimate-rollup.cjs');
 const store = require('./estimate-run-store.cjs');
+const fmt = require('./estimate-format.cjs');
 const { finishedRun } = require('./__fixtures__/estimate-run-fixtures.cjs');
 const { makeBacktestProject, removeBacktestProject } = require('./__fixtures__/backtest-fixtures.cjs');
 const { gitAvailable, gitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
@@ -979,6 +980,19 @@ describe('13b: backtest JSON (TRD 64-04, EST-08)', () => {
     for (const key of ['band', 'coverage_target', 'primary_metrics', 'classes', 'summary']) assert.ok(key in result, key);
   });
 
+  test('2a: `line` and `report` are the renderers over the unrounded result, and --raw prints the report', () => {
+    const r = ok(backtest(['90,91']));
+    assert.equal(r.text, r.result.report);
+    assert.ok(r.result.report.startsWith('### Verdict\n'), r.result.report.slice(0, 40));
+    assert.equal(r.result.line, 'Backtest 90, 91: agent minutes insufficient (1 objective) · cost insufficient (2 objectives) · EST-08 not met');
+
+    // The same renderers over the same inputs: nothing is rounded before the text is made.
+    const again = ok(backtest(['90,91']));
+    assert.equal(again.result.line, r.result.line);
+    assert.equal(again.result.report, r.result.report);
+    assert.equal(fmt.backtestLine({ available: false, reason: 'x' }), 'No estimate: x');
+  });
+
   test('2b: the objectives are measured: 90 has 30 minutes on record, 91 lacks the minutes of its TRD 91-02', () => {
     const { objectives } = ok(backtest(['90,91'])).result;
     assert.equal(objectives[0].agent_minutes.actual, 30);
@@ -1080,6 +1094,7 @@ describe('13c: backtest reads the run history (TRD 64-04, EST-08)', () => {
     assert.equal(alpha.wall_minutes.source, 'prospective');
     assert.equal(alpha.wall_minutes.actual, 30);
     assert.equal(alpha.wall_minutes.prospective.within_band, false, '20 against 30 is 0.667, below the band, whatever the rounding prints');
+    assert.equal(alpha.wall_minutes.prospective.ratio, 0.667, 'ratios are rounded to three decimals, wherever they sit');
     assert.equal(alpha.agent_minutes.source, 'prospective');
     assert.equal(alpha.agent_minutes.p50, 45);
     assert.equal(alpha.agent_minutes.ratio, 1.5, '45 estimated against 30 measured');
@@ -1150,5 +1165,48 @@ describe('13c: backtest reads the run history (TRD 64-04, EST-08)', () => {
     assert.equal(backtestRunRoot(project, { resolveMainRoot: () => null }), project);
     const nested = path.join(project, '.planning');
     assert.equal(backtestRunRoot(nested, { resolveMainRoot: () => null }), project, 'the directory that holds .planning, found upward');
+  });
+});
+
+describe('13d: spawned backtest (TRD 64-04, EST-08)', () => {
+  let project;
+
+  before(() => {
+    project = makeBacktestProject();
+  });
+
+  after(() => {
+    removeBacktestProject(project);
+  });
+
+  const spawnBacktest = (argv) => {
+    const env = { ...process.env, HOME: fakeHome, DEVFLOW_ESTIMATE_STATE_DIR: path.join(scratch, 'backtest-spawn-state') };
+    delete env.DEVFLOW_CALIBRATION_PATH;
+    return spawnSync(process.execPath, [DF_TOOLS, '--cwd', project, 'estimate', 'backtest', ...argv], { encoding: 'utf-8', env, timeout: 30000 });
+  };
+
+  test('1: backtest 90,91 --calibration <file> --raw prints the report: not met on two objectives, 91-02 excluded', () => {
+    const r = spawnBacktest(['90,91', '--calibration', calFile, '--raw']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(r.stdout.startsWith('### Verdict\n'), r.stdout.slice(0, 60));
+    assert.match(r.stdout, /EST-08: not met/);
+    const exclusions = r.stdout.slice(r.stdout.indexOf('### Exclusions'));
+    assert.match(exclusions, /- Agent minutes, objective 91: incomplete actuals \(91-02\)/);
+    assert.match(r.stdout, /Calibration .*calibration\.json, data as of 2026-10-05, samples 50 TRDs/);
+  });
+
+  test('1b: without --raw it prints the JSON, whose line and report match what --raw prints', () => {
+    const json = spawnBacktest(['90,91', '--calibration', calFile]);
+    assert.equal(json.status, 0, json.stderr);
+    const parsed = JSON.parse(json.stdout);
+    const raw = spawnBacktest(['90,91', '--calibration', calFile, '--raw']);
+    assert.equal(raw.stdout, parsed.report);
+    assert.equal(parsed.verdict.est08, 'not met');
+  });
+
+  test('1c: with DEVFLOW_CALIBRATION_PATH and no file it prints `No estimate:` and exits 0', () => {
+    const r = spawnBacktest(['90', '--raw']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^No estimate: /);
   });
 });
