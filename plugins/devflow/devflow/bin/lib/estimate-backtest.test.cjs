@@ -76,3 +76,123 @@ test('compareMetric: a missing estimate or actual is excluded with a reason and 
   }
   assert.strictEqual(backtest.compareMetric(null, null).excluded, 'no estimate', 'the missing estimate is reported first');
 });
+
+// ─── objectiveActuals ─────────────────────────────────────────────────────────
+
+// 1,000,000 input of which 600,000 cache read and 200,000 cache write, 10,000 output, on the fixture model:
+// fresh 200,000 x 3 + 200,000 x 3.75 + 600,000 x 0.3 + 10,000 x 15 = 1,680,000 / 1e6 = 1.68 USD.
+const PRICED = {
+  tokens_input: 1000000, tokens_cache_read: 600000, tokens_cache_write: 200000, tokens_output: 10000, token_model: 'test-model',
+};
+
+function near(actual, expected) {
+  assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
+}
+
+test('objectiveActuals: sums SUMMARY minutes, and a metric-row duration counts the same', () => {
+  const project = fx.projectRecord([
+    fx.trdRecord({ id: '90-01', minutes: 10 }),
+    fx.trdRecord({ id: '90-02', minutes: 20 }),
+    fx.trdRecord({ id: '90-03', minutes: 30, source: 'metric' }),
+  ]);
+  const { minutes } = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  assert.strictEqual(minutes.value, 60);
+  assert.strictEqual(minutes.complete, true);
+  assert.deepStrictEqual(minutes.missing, []);
+  assert.deepStrictEqual(minutes.human_wait, []);
+  assert.deepStrictEqual([minutes.trds, minutes.with], [3, 3]);
+  assert.deepStrictEqual(minutes.sources, { summary: 2, metric: 1 });
+});
+
+test('objectiveActuals: prices a TRD with the calibrator and sums cost over TRDs', () => {
+  const project = fx.projectRecord([
+    fx.trdRecord({ id: '90-01', minutes: 10, tokens: PRICED }),
+    fx.trdRecord({ id: '90-02', minutes: 20, tokens: PRICED }),
+  ]);
+  const { cost_usd: cost, trds } = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  near(trds[0].cost_usd, 1.68);
+  near(cost.value, 3.36);
+  assert.strictEqual(cost.complete, true);
+  assert.deepStrictEqual(cost.missing, []);
+  assert.deepStrictEqual(cost.unpriced, []);
+});
+
+test('objectiveActuals: a TRD with no SUMMARY, no minutes or a human wait makes minutes null and is named', () => {
+  const project = fx.projectRecord([
+    fx.trdRecord({ id: '90-01', minutes: 10 }),
+    fx.trdRecord({ id: '90-02', noSummary: true }),
+    fx.trdRecord({ id: '90-03', minutes: null }),
+    fx.trdRecord({ id: '90-04', minutes: 40, autonomous: false }),
+  ]);
+  const { minutes, trds } = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  assert.strictEqual(minutes.value, null, 'the undercounted sum of 10 is never reported');
+  assert.strictEqual(minutes.complete, false);
+  assert.deepStrictEqual(minutes.missing, ['90-02', '90-03']);
+  assert.deepStrictEqual(minutes.human_wait, ['90-04']);
+  assert.deepStrictEqual([minutes.trds, minutes.with], [4, 1]);
+  assert.strictEqual(trds[3].minutes, null, 'a human-wait TRD reports wall-clock time that is not work');
+  assert.strictEqual(trds[3].autonomous, false);
+});
+
+test('objectiveActuals: a TRD with no SUMMARY is missing even when a metric row gave it minutes', () => {
+  const project = fx.projectRecord([
+    fx.trdRecord({ id: '90-01', minutes: 10 }),
+    fx.trdRecord({ id: '90-02', minutes: 5, source: 'metric', noSummary: true }),
+  ]);
+  const { minutes } = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  assert.strictEqual(minutes.value, null);
+  assert.deepStrictEqual(minutes.missing, ['90-02']);
+});
+
+test('objectiveActuals: a TRD without tokens, or on a model with no rate, makes cost null and is named', () => {
+  const project = fx.projectRecord([
+    fx.trdRecord({ id: '90-01', minutes: 10, tokens: PRICED }),
+    fx.trdRecord({ id: '90-02', minutes: 20 }),
+    fx.trdRecord({ id: '90-03', minutes: 30, tokens: { ...PRICED, token_model: 'unknown-model' } }),
+    fx.trdRecord({ id: '90-04', noSummary: true }),
+  ]);
+  const { cost_usd: cost, trds } = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  assert.strictEqual(cost.value, null);
+  assert.strictEqual(cost.complete, false);
+  assert.deepStrictEqual(cost.missing, ['90-02', '90-04']);
+  assert.deepStrictEqual(cost.unpriced, ['90-03']);
+  assert.deepStrictEqual([cost.trds, cost.with], [4, 1]);
+  assert.strictEqual(trds[2].cost_usd, null, 'another model\'s rate is never substituted');
+});
+
+test('objectiveActuals: a human-wait TRD keeps its tokens, so it still prices', () => {
+  const project = fx.projectRecord([fx.trdRecord({ id: '90-01', minutes: 40, autonomous: false, tokens: PRICED })]);
+  const { cost_usd: cost } = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  near(cost.value, 1.68);
+  assert.strictEqual(cost.complete, true);
+});
+
+test('objectiveActuals: reads only the TRDs of the named objective, and an empty one is null', () => {
+  const project = fx.projectRecord([
+    fx.trdRecord({ id: '90-01', dir: '90-alpha', minutes: 10 }),
+    fx.trdRecord({ id: '91-01', dir: '91-beta', minutes: 99 }),
+  ]);
+  const alpha = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  assert.strictEqual(alpha.minutes.value, 10);
+  assert.deepStrictEqual(alpha.trds.map((t) => t.id), ['90-01']);
+
+  const none = backtest.objectiveActuals(project, '92-gamma', fx.testRates());
+  assert.strictEqual(none.minutes.value, null);
+  assert.strictEqual(none.cost_usd.value, null);
+  assert.strictEqual(none.minutes.complete, false);
+  assert.strictEqual(none.minutes.trds, 0);
+  assert.deepStrictEqual(none.trds, []);
+});
+
+test('objectiveActuals: each TRD record carries its auto-task count (checkpoints are not tasks)', () => {
+  const tasks = [
+    { name: 'Task 1: a', type: 'auto', tdd: true, files: ['a.cjs'] },
+    { name: 'Task 2: b', type: 'auto', files: ['b.md'] },
+    { name: 'Task 3: c', type: 'checkpoint:human-verify', files: [] },
+  ];
+  const project = fx.projectRecord([fx.trdRecord({ id: '90-01', minutes: 9, tasks, tokens: PRICED })]);
+  const { trds } = backtest.objectiveActuals(project, '90-alpha', fx.testRates());
+  assert.strictEqual(trds[0].auto_tasks, 2);
+  assert.strictEqual(trds[0].duration_source, 'summary');
+  assert.strictEqual(trds[0].minutes, 9);
+});
