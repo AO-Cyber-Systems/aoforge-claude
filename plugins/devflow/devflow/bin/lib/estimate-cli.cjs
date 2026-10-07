@@ -306,6 +306,18 @@ function isLive(state, objective, now) {
   return Number.isFinite(updated) && now - updated <= store.STALE_MS;
 }
 
+/**
+ * Archive a finished run into the history (estimate-run-store.archiveRunState), naming the failure when the archive cannot be written.
+ * @throws {Error} `could not archive the run history: <cause>`
+ */
+function archiveFinished(root, state, env) {
+  try {
+    return store.archiveRunState(root, state, { env });
+  } catch (err) {
+    throw new Error(`could not archive the run history: ${err.message}`);
+  }
+}
+
 function minutesOrNull(p50, p90) {
   return p50 === null || p50 === undefined ? null : { p50, p90 };
 }
@@ -415,6 +427,8 @@ function runFinish(parsed, env, base, now) {
     state.updated_at = isoOf(now);
     store.writeRunState(root, state, { env });
   }
+  // Idempotent: a run finished before the history existed is archived by its next finish too.
+  archiveFinished(root, state, env);
   const started = Date.parse(state.started_at);
   const finished = Date.parse(state.finished_at);
   const actual = Number.isFinite(started) && Number.isFinite(finished) ? Math.max(0, (finished - started) / MS_PER_MINUTE) : null;
