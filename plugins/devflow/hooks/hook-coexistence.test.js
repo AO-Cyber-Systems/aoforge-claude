@@ -205,30 +205,31 @@ describe('composition model', () => {
 
   test('8. runParallel starts handlers at once, feeds each the same stdin and bounds every one', async () => {
     const env = { PATH: process.env.PATH };
-    const echoAfter = (name, ms) => ({
+    // Prints when it started, when it finished and the stdin it read.
+    const stamped = (name, ms) => ({
       name,
       args: [
         '-e',
-        `let b='';process.stdin.on('data',d=>b+=d).on('end',()=>setTimeout(()=>process.stdout.write(b),${ms}))`,
+        `const start=Date.now();let b='';process.stdin.on('data',d=>b+=d).on('end',()=>setTimeout(()=>process.stdout.write(JSON.stringify({start,end:Date.now(),body:b})),${ms}))`,
       ],
     });
 
-    // Two 300 ms sleepers finish in well under 600 ms: they ran concurrently.
+    // Two 400 ms sleepers overlap in time: neither waited for the other to finish. Overlap, not a
+    // wall-clock bound, so a loaded machine (the full suite runs many files at once) cannot flake it.
     const payload = { hook_event_name: 'Stop', n: 7 };
-    const t0 = Date.now();
-    const both = await runParallel([echoAfter('a', 300), echoAfter('b', 300)], payload, { cwd: process.cwd(), env });
-    const elapsed = Date.now() - t0;
-    assert.ok(elapsed < 600, `two 300 ms handlers took ${elapsed} ms: they ran one after the other`);
+    const both = await runParallel([stamped('a', 400), stamped('b', 400)], payload, { cwd: process.cwd(), env });
     assert.deepEqual(both.map((r) => r.name), ['a', 'b'], 'results come back in handler order');
-    for (const r of both) {
+    const [a, b] = both.map((r) => JSON.parse(r.stdout));
+    assert.ok(a.start < b.end && b.start < a.end, `the handlers ran one after the other: ${JSON.stringify([a, b])}`);
+    for (const [i, r] of both.entries()) {
       assert.equal(r.code, 0);
       assert.equal(r.timedOut, false);
-      assert.equal(r.stdout, JSON.stringify(payload), 'each handler reads the same stdin payload');
+      assert.equal([a, b][i].body, JSON.stringify(payload), 'each handler reads the same stdin payload');
     }
 
     // A raw string payload is written as is (degraded-input runs rely on this).
-    const [raw] = await runParallel([echoAfter('raw', 0)], '{bad json', { cwd: process.cwd(), env });
-    assert.equal(raw.stdout, '{bad json');
+    const [raw] = await runParallel([stamped('raw', 0)], '{bad json', { cwd: process.cwd(), env });
+    assert.equal(JSON.parse(raw.stdout).body, '{bad json');
 
     // A child that never reads stdin must not hang the runner or throw EPIPE.
     const big = { blob: 'x'.repeat(1024 * 1024) };
@@ -338,7 +339,9 @@ function matcherFires(matcher, toolName) {
 // puts the solo run and every paired run on one HOME, and `warmup` runs the hook once unscored
 // first: sync-runtime mirrors 14 MB of runtime the first time it meets a HOME. `normalize` maps
 // run-dependent text in stdout to a stable form before runs are compared. `readsStdin: false`
-// marks a hook that ignores its payload; it still gets the degraded inputs.
+// marks a hook that ignores its payload; it still gets the degraded inputs. `writesState: true`
+// marks a hook that leaves a JSON state file behind, so test 14's "the shared file still parses"
+// check is known to have something to look at.
 
 /** A PATH with nothing on it, so a skill that requires `gh` is refused whatever this machine has installed. */
 const noToolsOnPath = (world) => ({ PATH: path.join(world.base, 'empty-bin') });
@@ -374,6 +377,7 @@ const RUNS = {
   'verify-completion.js@Stop': {
     label: 'autonomous, mid-execution',
     expect: 'block',
+    writesState: true, // the resume counter under hook-markers/
     payload: fx.stop(),
   },
   'auto-continue.js@Stop': {
@@ -394,6 +398,7 @@ const RUNS = {
     // model its nudge composes to nothing. Its own tests pin the nested shape, so it is left alone here
     // and recorded in the SUMMARY. 'output' proves the hook reached its branch and spoke.
     expect: 'output',
+    writesState: true, // the retry marker under hook-markers/
     payload: fx.subagentStop(),
   },
   'gate-executor-stop.js@SubagentStop': {
@@ -409,6 +414,7 @@ const RUNS = {
   'route-results.js@UserPromptSubmit': {
     label: 'pending upgrade notice',
     expect: 'context',
+    writesState: true, // marks the seeded notice consumed in .devflow-notices.json
     world: { notices: true },
     payload: fx.prompt('continue'),
     readsStdin: false,
@@ -456,6 +462,7 @@ const RUNS = {
   'guard-no-progress.js@PreToolUse': {
     label: 'fifth identical read in a session',
     expect: 'ask',
+    writesState: true, // the per-session file under progress-guard/
     world: { stuckGuard: { tool: 'Read', args: { file_path: '/nonexistent/file' } } },
     payload: fx.preTool('Read', { file_path: '/nonexistent/file' }),
   },
@@ -711,7 +718,15 @@ const rank = (d) => (d ? runner.PRECEDENCE.length - runner.PRECEDENCE.indexOf(d)
 
 // ─── JSON state files (test 14) ──────────────────────────────────────────────
 
-const STATE_DIRS = ['hook-markers', 'progress-guard', 'awareness', 'outbox', path.join('.claude', 'devflow', 'state')];
+// `all`: every file in the directory must parse as JSON. The retry markers are bare counters (`3`, an epoch in
+// milliseconds), which are valid JSON, and a torn or empty write is not.
+const STATE_DIRS = [
+  { rel: 'hook-markers', all: true },
+  { rel: 'progress-guard', all: false },
+  { rel: 'awareness', all: false },
+  { rel: 'outbox', all: false },
+  { rel: path.join('.claude', 'devflow', 'state'), all: false },
+];
 const PLANNING_STATE_FILES = ['.skill-active', '.edit-override', '.devflow-notices.json', '.progress-guard.json', '.awareness-cache.json'];
 
 function walkFiles(dir) {
@@ -727,7 +742,9 @@ function walkFiles(dir) {
 /** Every JSON state file a hook may have written in a world: its HOME stores and its .planning dotfiles. */
 function stateFilesOf(world) {
   const files = [];
-  for (const rel of STATE_DIRS) files.push(...walkFiles(path.join(world.home, rel)).filter((f) => f.endsWith('.json')));
+  for (const { rel, all } of STATE_DIRS) {
+    files.push(...walkFiles(path.join(world.home, rel)).filter((f) => all || f.endsWith('.json')));
+  }
   for (const f of walkFiles(world.root)) {
     if (f.includes(`${path.sep}.planning${path.sep}`) && PLANNING_STATE_FILES.includes(path.basename(f))) files.push(f);
   }
@@ -771,8 +788,10 @@ describe('coexistence matrix', () => {
         matcher: 'Bash',
         hooks: [{ type: 'command', command: 'node ${CLAUDE_PLUGIN_ROOT}/hooks/gate-edits.js' }],
       });
+      // Relative to the real file, so this test does not also fail when the real table is the one with a gap.
+      const already = tableGaps(REGS, RUNS).missing;
       const gaps = tableGaps(registrations(copy), RUNS);
-      assert.deepEqual(gaps.missing, ['a-future-hook.js@Stop']);
+      assert.deepEqual(gaps.missing, [...already, 'a-future-hook.js@Stop'], 'a second registration of a known script and event is not a new pair');
       assert.deepEqual(tableGaps(REGS, { ...RUNS, 'gone.js@Stop': {} }).stale, ['gone.js@Stop']);
     });
 
@@ -898,6 +917,9 @@ describe('coexistence matrix', () => {
           for (const r of results) {
             const n = normalized(r, world, run);
             assert.deepEqual(contractProblems(reg.event, n), [], `${reg.key} ${r.name}\nstdout: ${n.stdout}\nstderr: ${n.stderr}`);
+          }
+          if (run.writesState) {
+            assert.ok(stateFilesOf(world).length > 0, `${reg.key}: marked writesState but left no state file to check`);
           }
           assert.deepEqual(unparseableStateFiles(world), [], `${reg.key}: a state file the two copies share no longer parses`);
         });

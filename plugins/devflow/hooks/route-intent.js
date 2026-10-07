@@ -419,6 +419,8 @@ function renderAdoptReminder() {
 function main() {
   let input;
   try { input = JSON.parse(readStdin() || '{}'); } catch { return; }
+  // `null`, an array or a string parses fine but is not a payload (TRD 63-05): exit 0 and say nothing.
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return;
   const prompt = (input.prompt || '').trim();
   if (!prompt) return;
 
