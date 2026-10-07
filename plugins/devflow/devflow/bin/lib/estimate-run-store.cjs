@@ -7,9 +7,9 @@
  * objective builds". The status line renders on every turn, so it computes nothing: it reads
  * the one small JSON file defined here and turns it into one segment.
  *
- * WRITER RULE: only `df-tools estimate start|wave|finish` (TRD 58-08) writes this file. The
- * status line and everything else only reads it. A corrupt or half-written file must look
- * like "no run", so reading never throws.
+ * WRITER RULE: only `df-tools estimate start|wave|finish` (TRD 58-08) writes this file and the
+ * run history below. The status line and everything else only reads them. A corrupt or
+ * half-written file must look like "no run", so reading never throws.
  *
  * Location: $DEVFLOW_ESTIMATE_STATE_DIR, else <home>/.claude/devflow/state/estimates/, then one
  * file per project named `<upgrade.repoKey(<dir that contains .planning>)>.json`
@@ -17,6 +17,19 @@
  * inside the project: runtime state in `.planning/` shows up as a dirty repo (see
  * hook-marker-store.cjs, same lineage). The file is written atomically (`<file>.tmp` then
  * rename), so a render never sees half a file.
+ *
+ * Run history (objective 64, TRD 64-02): the run file holds ONE run, and the next `estimate
+ * start` overwrites it, which used to destroy an earlier objective's prospective estimate. A
+ * FINISHED run is therefore archived (archiveRunState) to
+ *
+ *   <state dir>/history/<repo-key>/<objective>-<started_at>.json
+ *
+ * with both name parts through sanitize (only [A-Za-z0-9_-] survives, so Objective 63's run is
+ * `63-2026-10-06T23_55_36_062Z.json`). Same bytes as the run file, written atomically, and
+ * idempotent: archiving the same state twice writes once. Unfinished runs are never archived.
+ * listRunHistory and latestRun read it; neither throws, and a malformed, wrong-version or
+ * `.tmp` file is skipped. The status line never touches the history: readRunState and
+ * formatStatusSegment read only the one run file above.
  *
  * Run state, schema version 1:
  *
@@ -41,6 +54,14 @@
  *
  * `estimate` and a wave's `p50`/`p90` may be null (no calibration yet): the run still records
  * timings, and the segment shows the wave without a time.
+ *
+ * A run started after TRD 64-02 also records, inside `estimate` (all optional, the schema
+ * version stays 1, old states still read and the status line ignores them):
+ *   "execution", "total"  the estimate's `{wall_minutes, agent_minutes, tokens_input,
+ *                         tokens_output, cost_usd}` blocks, each `{p50, p90}` or null, unrounded
+ *   "calibration"         `{path, version, data_as_of, samples, inputs_digest}` of the calibration
+ *                         the estimate came from
+ * so the next accuracy check compares against a prospective executor estimate.
  *
  * Loaded from a hook, so node builtins plus ./upgrade.cjs only (which itself loads only
  * fs/path/crypto and reads nothing at module load). os.homedir() is read when a path is
@@ -254,6 +275,27 @@ function listRunHistory(projectRoot, opts) {
   return runs.map((r) => r.state);
 }
 
+/**
+ * The newest FINISHED run for an objective, from the archive and the current run file
+ * together. The current file wins a tie on `started_at` (it is the same run, possibly updated
+ * after it was archived). An unfinished run is ignored. Null when there is none. Never throws.
+ * @param {string} projectRoot
+ * @param {string|number} objective compared as a string with the run's `objective`
+ * @param {{env?: NodeJS.ProcessEnv, home?: string}} [opts]
+ * @returns {object|null}
+ */
+function latestRun(projectRoot, objective, opts) {
+  const wanted = String(objective);
+  // the current file goes last so `>=` below lets it win an equal started_at
+  const candidates = [...listRunHistory(projectRoot, opts), readRunState(projectRoot, opts)];
+  let best = null;
+  for (const run of candidates) {
+    if (!run || run.objective !== wanted || !run.finished_at) continue;
+    if (best === null || String(run.started_at) >= String(best.started_at)) best = run;
+  }
+  return best;
+}
+
 /** Remove the run state (and a stranded temp file). A missing file is not an error. */
 function clearRunState(projectRoot, opts) {
   const file = statePath(projectRoot, opts);
@@ -361,6 +403,7 @@ module.exports = {
   writeRunState,
   archiveRunState,
   listRunHistory,
+  latestRun,
   clearRunState,
   remainingMinutes,
   formatStatusSegment,
