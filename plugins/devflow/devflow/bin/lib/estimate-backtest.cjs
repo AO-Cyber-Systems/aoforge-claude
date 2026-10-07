@@ -192,6 +192,102 @@ function compareMetric(stat, actual) {
   };
 }
 
+// ─── One objective ────────────────────────────────────────────────────────────
+
+/** The estimate to judge for one executor metric: the run state's persisted one when it has it, else the reconstructed one. */
+function pickEstimate(estimate, persisted, metric) {
+  if (persisted && persisted[metric] && isFiniteNumber(persisted[metric].p50)) {
+    return { stat: persisted[metric], source: 'prospective' };
+  }
+  return { stat: (estimate.execution && estimate.execution[metric]) || null, source: 'reconstructed' };
+}
+
+/** One executor metric of one objective. An actual that is not fully measured names the TRDs that lack it. */
+function compareExecution(picked, actual, lacking) {
+  const comparison = compareMetric(picked.stat, actual.value);
+  const out = { ...comparison, source: picked.source };
+  if (comparison.excluded === 'no actual' && !actual.complete) {
+    out.excluded = 'incomplete actuals';
+    out.trds = [...lacking];
+  }
+  return out;
+}
+
+function minutesBetween(startedAt, finishedAt) {
+  const start = Date.parse(startedAt);
+  const end = Date.parse(finishedAt);
+  return Number.isFinite(start) && Number.isFinite(end) ? (end - start) / 60000 : null;
+}
+
+/** True when the reconstructed wall estimate matches the persisted one within REPRODUCE_TOLERANCE minutes (p50 and p90). */
+function wallReproduced(persisted, reconstructed) {
+  if (!persisted || !reconstructed || !isFiniteNumber(persisted.p50) || !isFiniteNumber(reconstructed.p50)) return null;
+  if (Math.abs(persisted.p50 - reconstructed.p50) > REPRODUCE_TOLERANCE) return false;
+  const [a, b] = [persisted.p90, reconstructed.p90];
+  if (isFiniteNumber(a) && isFiniteNumber(b)) return Math.abs(a - b) <= REPRODUCE_TOLERANCE;
+  return !isFiniteNumber(a) && !isFiniteNumber(b);
+}
+
+/** Measured execution wall time of a finished run state, against the estimate it recorded before execution. */
+function compareWall(estimate, run) {
+  if (!run || typeof run !== 'object') return { source: null, excluded: 'no run state recorded' };
+  if (!run.finished_at) return { source: null, excluded: 'run not finished' };
+  const actual = minutesBetween(run.started_at, run.finished_at);
+  const persisted = (run.estimate && run.estimate.wall_minutes) || null;
+  const reconstructed = (estimate.execution && estimate.execution.wall_minutes) || null;
+  return {
+    source: 'prospective',
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    actual,
+    prospective: compareMetric(persisted, actual),
+    reconstructed,
+    reproduced: wallReproduced(persisted, reconstructed),
+    waves: (Array.isArray(run.waves) ? run.waves : []).map((wave) => ({
+      wave: wave.wave,
+      trds: Array.isArray(wave.trds) ? [...wave.trds] : [],
+      ...compareMetric({ p50: wave.p50, p90: wave.p90 }, wave.actual_minutes),
+    })),
+  };
+}
+
+/**
+ * Compares one objective's estimate with what its SUMMARYs recorded.
+ *   agent_minutes, cost_usd  the executor metrics, from the run state's persisted `estimate.execution` when it has one
+ *                            (`source: 'prospective'`), else from the reconstructed estimate (`source: 'reconstructed'`)
+ *   trd_rows                 every TRD estimate against its own actual, joined on the `NN-MM` id, with its task estimates
+ *   wall_minutes             the measured execution wall time of a finished run state and of each of its waves, whether
+ *                            the reconstructed wall estimate `reproduced` the persisted one, or why there is none
+ * @param {{estimate: object, actuals: object, run?: ?object}} input actuals is objectiveActuals(...); run is a run state
+ */
+function compareObjective({ estimate, actuals, run = null }) {
+  const persisted = (run && run.estimate && run.estimate.execution) || null;
+  const byId = new Map(actuals.trds.map((trd) => [trd.id, trd]));
+  const trdEstimates = Array.isArray(estimate.trd_estimates) ? estimate.trd_estimates : [];
+
+  return {
+    objective: estimate.objective,
+    name: estimate.name,
+    dir: estimate.dir,
+    trds: estimate.trds ? estimate.trds.total : trdEstimates.length,
+    agent_minutes: compareExecution(pickEstimate(estimate, persisted, 'agent_minutes'), actuals.minutes,
+      [...actuals.minutes.missing, ...actuals.minutes.human_wait]),
+    cost_usd: compareExecution(pickEstimate(estimate, persisted, 'cost_usd'), actuals.cost_usd,
+      [...actuals.cost_usd.missing, ...actuals.cost_usd.unpriced]),
+    wall_minutes: compareWall(estimate, run),
+    trd_rows: trdEstimates.map((trdEstimate) => {
+      const actual = byId.get(trdEstimate.id) || null;
+      return {
+        id: trdEstimate.id,
+        wave: trdEstimate.wave,
+        tasks: Array.isArray(trdEstimate.tasks) ? trdEstimate.tasks : [],
+        minutes: compareMetric(trdEstimate.minutes, actual && actual.minutes),
+        cost_usd: compareMetric(trdEstimate.cost_usd, actual && actual.cost_usd),
+      };
+    }),
+  };
+}
+
 // ─── Task classes ─────────────────────────────────────────────────────────────
 
 /** The share of `items` for which `test` holds, or null when there are none. */
@@ -357,6 +453,7 @@ module.exports = {
   median,
   objectiveActuals,
   compareMetric,
+  compareObjective,
   classRows,
   summarize,
 };
