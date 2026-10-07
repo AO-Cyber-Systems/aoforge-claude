@@ -446,6 +446,15 @@ function summarize(rows, classes) {
 // ─── The backtest ─────────────────────────────────────────────────────────────
 
 /**
+ * The objective directory's own name (`90-alpha`). estimateObjective carries `dir` as the relative path it found the
+ * objective at (`.planning/objectives/90-alpha`), while collectProject keys a TRD by the bare name; a bare name stays as is.
+ */
+function directoryName(dir) {
+  const parts = String(dir === undefined || dir === null ? '' : dir).split('/').filter((part) => part !== '');
+  return parts.length === 0 ? '' : parts[parts.length - 1];
+}
+
+/**
  * Backtests the estimates of several objectives against what their SUMMARYs recorded, and judges EST-08.
  *   objectives  one compareObjective row per estimate, in the order given
  *   classes     classRows over those rows
@@ -461,7 +470,7 @@ function buildBacktest({ estimates, project, rates, runs = {} }) {
   const runOf = (estimate) => (runs && Object.prototype.hasOwnProperty.call(runs, estimate.objective) ? runs[estimate.objective] : null);
   const rows = (Array.isArray(estimates) ? estimates : []).map((estimate) => compareObjective({
     estimate,
-    actuals: objectiveActuals(project, estimate.dir, rates),
+    actuals: objectiveActuals(project, directoryName(estimate.dir), rates),
     run: runOf(estimate),
   }));
   const classes = classRows(rows);
