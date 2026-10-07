@@ -562,6 +562,66 @@ describe('16. listRunHistory', () => {
   });
 });
 
+describe('17. latestRun', () => {
+  test('17a. null when there is no history and no current run', () => {
+    assert.equal(store.latestRun(root, '63', opts), null);
+  });
+
+  test('17b. the newest finished run for the objective from the history', () => {
+    const older = finishedRun({ objective: '63', started_at: '2026-10-01T10:00:00.000Z' });
+    const newer = finishedRun({ objective: '63', started_at: '2026-10-05T10:00:00.000Z' });
+    const other = finishedRun({ objective: '64', started_at: '2026-10-06T10:00:00.000Z' });
+    for (const s of [newer, other, older]) store.archiveRunState(root, s, opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), newer);
+  });
+
+  test('17c. a numeric objective argument matches the string objective', () => {
+    store.archiveRunState(root, objective63Run(), opts);
+    assert.deepEqual(store.latestRun(root, 63, opts), objective63Run());
+  });
+
+  test('17d. the current run file counts when it is finished and newer than the history', () => {
+    const archived = finishedRun({ objective: '63', started_at: '2026-10-01T10:00:00.000Z' });
+    const current = finishedRun({ objective: '63', started_at: '2026-10-06T10:00:00.000Z' });
+    store.archiveRunState(root, archived, opts);
+    store.writeRunState(root, current, opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), current);
+  });
+
+  test('17e. on equal started_at the current file wins over the archived copy', () => {
+    const archived = finishedRun({ objective: '63' });
+    const current = { ...archived, updated_at: '2026-10-01T10:45:00.000Z', finished_at: '2026-10-01T10:45:00.000Z' };
+    store.archiveRunState(root, archived, opts);
+    store.writeRunState(root, current, opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), current);
+  });
+
+  test('17f. an unfinished current run is ignored, in favour of an older finished one', () => {
+    const archived = finishedRun({ objective: '63', started_at: '2026-10-01T10:00:00.000Z' });
+    store.archiveRunState(root, archived, opts);
+    store.writeRunState(root, liveRun({ objective: '63', started_at: '2026-10-07T10:00:00.000Z' }), opts);
+    assert.deepEqual(store.latestRun(root, '63', opts), archived);
+  });
+
+  test('17g. only an unfinished current run for the objective gives null', () => {
+    store.writeRunState(root, liveRun({ objective: '63' }), opts);
+    assert.equal(store.latestRun(root, '63', opts), null);
+  });
+
+  test('17h. a current run for a different objective is not returned', () => {
+    store.writeRunState(root, finishedRun({ objective: '80' }), opts);
+    assert.equal(store.latestRun(root, '63', opts), null);
+  });
+
+  test('17i. never throws, whatever the objective argument', () => {
+    store.archiveRunState(root, finishedRun(), opts);
+    for (const bad of [undefined, null, '', {}, NaN]) {
+      assert.doesNotThrow(() => store.latestRun(root, bad, opts));
+      assert.equal(store.latestRun(root, bad, opts), null);
+    }
+  });
+});
+
 describe('module hygiene', () => {
   test('requires only node builtins and ./upgrade.cjs', () => {
     const src = fs.readFileSync(path.join(__dirname, 'estimate-run-store.cjs'), 'utf8');
