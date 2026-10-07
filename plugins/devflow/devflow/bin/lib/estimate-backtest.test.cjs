@@ -785,3 +785,16 @@ test('buildBacktest: an objective with nothing to compare still has a row and a 
   assert.deepStrictEqual(result.summary.agent_minutes.excluded, [{ objective: '95', reason: 'no estimate', trds: [] }]);
   assert.strictEqual(result.verdict.est08, 'not met');
 });
+
+test('buildBacktest: an estimate\'s dir is the relative path estimateObjective returns, and still joins its TRDs on the directory name', () => {
+  const set = measuredSet([ONES]);
+  const [estimate] = set.estimates;
+  assert.strictEqual(estimate.dir, '90-o0');
+  set.estimates = [{ ...estimate, dir: '.planning/objectives/90-o0' }];
+  const [row] = backtest.buildBacktest(set).objectives;
+  assert.strictEqual(row.dir, '.planning/objectives/90-o0', 'the row keeps the dir the estimate carried');
+  assert.strictEqual(row.agent_minutes.excluded, null, 'the 100 measured minutes were found');
+  assert.strictEqual(row.agent_minutes.actual, 100);
+  assert.strictEqual(row.agent_minutes.ratio, 1);
+  assert.strictEqual(row.cost_usd.excluded, null);
+});
