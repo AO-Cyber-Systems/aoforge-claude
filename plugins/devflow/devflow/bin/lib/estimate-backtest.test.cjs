@@ -625,3 +625,163 @@ test('compareObjective: a TRD estimate with no matching SUMMARY has no actual', 
   assert.strictEqual(row.trd_rows[1].cost_usd.excluded, 'no actual');
   assert.strictEqual(row.trd_rows[0].minutes.excluded, null);
 });
+
+// ─── buildBacktest ────────────────────────────────────────────────────────────
+
+function deepFreeze(value) {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const key of Object.keys(value)) deepFreeze(value[key]);
+  }
+  return value;
+}
+
+// One TRD per objective, measured at 100 minutes and COST dollars. Every objective is estimated at `agent` minutes P50
+// (ratio agent / 100) and `cost` x COST dollars P50, with a P90 far above the actual, so a ratio of 1.0 is exact and
+// every actual is covered. The TRD's two code_tdd tasks each carry half of both estimates, so a class ratio equals the
+// objective ratio. `p90` overrides the minutes P90 (default 400) where a test wants an uncovered actual.
+const COST = backtest.objectiveActuals(
+  fx.projectRecord([fx.trdRecord({ id: '90-01', minutes: 100, tokens: PRICED })]), '90-alpha', fx.testRates(),
+).cost_usd.value;
+
+function measuredSet(specs, extra = {}) {
+  const trds = [];
+  const estimates = specs.map((spec, i) => {
+    const num = 90 + i;
+    const id = `${num}-01`;
+    const dir = `${num}-o${i}`;
+    const p90 = spec.p90 === undefined ? 400 : spec.p90;
+    const costP50 = COST * spec.cost;
+    trds.push(fx.trdRecord({ id, dir, minutes: spec.noMinutes ? null : 100, tokens: PRICED }));
+    const half = (p50, hi) => fx.taskEstimate({ cls: 'code_tdd', minutes: fx.stat(spec.agent / 2, p90 / 2), cost: fx.stat(p50 / 2, hi / 2) });
+    return fx.objectiveEstimate({
+      objective: String(num),
+      dir,
+      execution: { agent_minutes: fx.stat(spec.agent, p90), cost_usd: fx.stat(costP50, costP50 * 4) },
+      trds: [fx.trdEstimate({
+        id, minutes: fx.stat(spec.agent, p90), cost: fx.stat(costP50, costP50 * 4),
+        tasks: [half(costP50, costP50 * 4), half(costP50, costP50 * 4)],
+      })],
+    });
+  });
+  return { estimates, project: fx.projectRecord(trds), rates: fx.testRates(), ...extra };
+}
+
+const ONES = { agent: 100, cost: 1 };
+
+test('buildBacktest: two measured objectives give the documented shape, reconstructed sources and insufficient verdicts', () => {
+  const result = backtest.buildBacktest(measuredSet([ONES, ONES]));
+  assert.deepStrictEqual(Object.keys(result).sort(),
+    ['band', 'classes', 'coverage_target', 'objectives', 'primary_metrics', 'summary', 'verdict']);
+  assert.strictEqual(result.band, 0.3);
+  assert.strictEqual(result.coverage_target, 0.8);
+  assert.deepStrictEqual(result.primary_metrics, ['agent_minutes', 'cost_usd']);
+  assert.strictEqual(result.objectives.length, 2);
+  for (const row of result.objectives) {
+    assert.strictEqual(row.agent_minutes.source, 'reconstructed');
+    assert.strictEqual(row.cost_usd.source, 'reconstructed');
+    assert.strictEqual(row.agent_minutes.ratio, 1);
+  }
+  assert.deepStrictEqual(Object.keys(result.classes).sort(), ['cost_usd', 'minutes']);
+  assert.strictEqual(result.summary.agent_minutes.compared, 2);
+  assert.strictEqual(result.summary.agent_minutes.sc2, 'insufficient', '2 < MIN_OBJECTIVES');
+  assert.strictEqual(result.summary.agent_minutes.sc3, 'insufficient');
+  assert.strictEqual(result.verdict.est08, 'not met');
+  assert.strictEqual(result.verdict.follow_up_required, true);
+});
+
+test('buildBacktest: five objectives on target pass SC2 and SC3 for both metrics and meet EST-08', () => {
+  const result = backtest.buildBacktest(measuredSet([ONES, ONES, ONES, ONES, ONES]));
+  assert.strictEqual(result.summary.agent_minutes.compared, 5);
+  assert.strictEqual(result.summary.cost_usd.compared, 5);
+  assert.deepStrictEqual(result.verdict.sc2, { agent_minutes: 'pass', cost_usd: 'pass' });
+  assert.deepStrictEqual(result.verdict.sc3, { agent_minutes: 'pass', cost_usd: 'pass' });
+  assert.strictEqual(result.verdict.est08, 'met');
+  assert.strictEqual(result.verdict.follow_up_required, false);
+  assert.deepStrictEqual(result.verdict.miscalibrated, []);
+});
+
+test('buildBacktest: a median ratio of 1.51 fails SC2 while covered P90s pass SC3, so EST-08 is not met', () => {
+  const specs = [1.29, 1.51, 2.11, 1.63, 0.95].map((r) => ({ agent: Math.round(r * 100), cost: 1 }));
+  assert.deepStrictEqual(specs.map((s) => s.agent), [129, 151, 211, 163, 95]);
+  const result = backtest.buildBacktest(measuredSet(specs));
+  const s = result.summary.agent_minutes;
+  assert.strictEqual(s.median_ratio, 1.51);
+  assert.strictEqual(s.in_band, 2, '1.29 and 0.95 are in band');
+  assert.strictEqual(s.sc2, 'fail');
+  assert.strictEqual(s.sc3, 'pass', 'every actual is under P90, objective and TRD level');
+  assert.deepStrictEqual([result.summary.cost_usd.sc2, result.summary.cost_usd.sc3], ['pass', 'pass']);
+  assert.strictEqual(result.verdict.est08, 'not met');
+  assert.strictEqual(result.verdict.follow_up_required, true);
+  assert.deepStrictEqual(result.verdict.miscalibrated.map((m) => [m.metric, m.class, m.flags, m.tasks, m.median_ratio]),
+    [['agent_minutes', 'code_tdd', ['biased_high'], 10, 1.51]]);
+});
+
+test('buildBacktest: a miscalibrated cost class is named with the primary metric\'s name', () => {
+  const result = backtest.buildBacktest(measuredSet([1, 2, 3, 4].map(() => ({ agent: 100, cost: 2 }))));
+  assert.deepStrictEqual(result.verdict.miscalibrated.map((m) => [m.metric, m.class, m.flags, m.tasks, m.median_ratio, m.coverage]),
+    [['cost_usd', 'code_tdd', ['biased_high'], 8, 2, 1]]);
+  assert.strictEqual(result.summary.cost_usd.miscalibrated_classes, 1);
+  assert.strictEqual(result.summary.agent_minutes.miscalibrated_classes, 0);
+});
+
+test('buildBacktest: a run state is matched by the objective string and prefers its persisted executor estimate', () => {
+  const set = measuredSet([ONES, ONES, ONES]);
+  const run = fx.runState({
+    objective: '91',
+    finished_at: null,
+    execution: { agent_minutes: fx.stat(200, 500), cost_usd: fx.stat(COST * 2, COST * 8) },
+  });
+  const result = backtest.buildBacktest({ ...set, runs: { 91: run } });
+  const [a, b, c] = result.objectives;
+  assert.deepStrictEqual([a.agent_minutes.source, b.agent_minutes.source, c.agent_minutes.source],
+    ['reconstructed', 'prospective', 'reconstructed']);
+  assert.strictEqual(b.agent_minutes.ratio, 2);
+  assert.strictEqual(b.cost_usd.source, 'prospective');
+  assert.strictEqual(b.trd_rows[0].minutes.p50, 100, 'TRD rows stay reconstructed');
+  assert.deepStrictEqual(a.wall_minutes, { source: null, excluded: 'no run state recorded' });
+  assert.deepStrictEqual(b.wall_minutes, { source: null, excluded: 'run not finished' });
+});
+
+test('buildBacktest: a finished run state adds measured wall time, which is reported and never judged', () => {
+  const set = measuredSet([ONES, ONES, ONES]);
+  const run = fx.runState({
+    objective: '90',
+    wall: fx.stat(100, 300),
+    waves: [{ wave: 1, trds: ['90-01'], p50: 50, p90: 150, actual_minutes: 100 }],
+  });
+  const result = backtest.buildBacktest({ ...set, runs: { 90: run } });
+  assert.strictEqual(result.objectives[0].wall_minutes.source, 'prospective');
+  assert.strictEqual(result.summary.wall_minutes.compared, 1);
+  assert.deepStrictEqual(result.summary.wall_minutes.waves, { compared: 1, coverage: 1 });
+  assert.ok(!('sc2' in result.summary.wall_minutes));
+  assert.deepStrictEqual(result.verdict.sc2, { agent_minutes: 'pass', cost_usd: 'pass' }, 'wall time is not part of the verdict');
+});
+
+test('buildBacktest: an objective whose TRD lacks minutes is excluded from agent minutes with the TRD id, not from cost', () => {
+  const set = measuredSet([ONES, ONES, ONES, { ...ONES, noMinutes: true }]);
+  const result = backtest.buildBacktest(set);
+  assert.strictEqual(result.summary.agent_minutes.compared, 3);
+  assert.deepStrictEqual(result.summary.agent_minutes.excluded, [{ objective: '93', reason: 'incomplete actuals', trds: ['93-01'] }]);
+  assert.strictEqual(result.summary.cost_usd.compared, 4, 'every TRD of objective 93 is priced');
+  assert.deepStrictEqual(result.summary.cost_usd.excluded, []);
+  assert.strictEqual(result.verdict.est08, 'met', 'the three compared objectives are on target');
+});
+
+test('buildBacktest: the thresholds are constants a caller cannot loosen, and the inputs are not modified', () => {
+  const set = measuredSet([2, 2, 2].map(() => ({ agent: 200, cost: 1 })));
+  const plain = backtest.buildBacktest(deepFreeze(set));
+  const loosened = backtest.buildBacktest({ ...set, band: 5, coverage_target: 0, min_objectives: 1 });
+  assert.deepStrictEqual(loosened, plain);
+  assert.strictEqual(plain.summary.agent_minutes.sc2, 'fail', 'a ratio of 2.0 is outside the 30% band');
+  assert.deepStrictEqual(backtest.buildBacktest(set), plain, 'the same inputs give the same result');
+});
+
+test('buildBacktest: an objective with nothing to compare still has a row and a named reason', () => {
+  const result = backtest.buildBacktest({ estimates: [fx.objectiveEstimate({ objective: '95', dir: '95-empty', execution: null, trds: [] })],
+    project: fx.projectRecord([]), rates: fx.testRates() });
+  const [row] = result.objectives;
+  assert.strictEqual(row.agent_minutes.excluded, 'no estimate');
+  assert.deepStrictEqual(result.summary.agent_minutes.excluded, [{ objective: '95', reason: 'no estimate', trds: [] }]);
+  assert.strictEqual(result.verdict.est08, 'not met');
+});
