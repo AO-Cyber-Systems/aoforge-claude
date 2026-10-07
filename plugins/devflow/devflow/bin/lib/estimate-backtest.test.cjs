@@ -331,7 +331,7 @@ function summaryRow(objective, { agent = null, cost = null, wall = null, trdMinu
   };
 }
 
-const EXCLUDED = (reason, trds) => ({ source: 'reconstructed', excluded: reason, trds });
+const excludedCell = (reason, trds) => ({ source: 'reconstructed', excluded: reason, trds });
 
 test('summarize: ratios, pooled ratio, band count, coverage and under-median share over compared objectives', () => {
   const rows = [
@@ -341,7 +341,7 @@ test('summarize: ratios, pooled ratio, band count, coverage and under-median sha
     summaryRow('2', { agent: cmp(10, 30, 10) }),
     // 10 vs 20: ratio 0.5, out of band, over P90 12, over the median
     summaryRow('3', { agent: cmp(10, 12, 20), trdMinutes: [cmp(5, 6, 9)] }),
-    summaryRow('4', { agent: EXCLUDED('incomplete actuals', ['4-02']) }),
+    summaryRow('4', { agent: excludedCell('incomplete actuals', ['4-02']) }),
   ];
   const s = backtest.summarize(rows, { minutes: [], cost_usd: [] }).agent_minutes;
   assert.strictEqual(s.compared, 3);
@@ -433,7 +433,7 @@ test('summarize: wall time is informational, with no SC2 or SC3', () => {
 });
 
 test('summarize: with no compared objective every figure is null, never zero', () => {
-  const s = backtest.summarize([summaryRow('1', { agent: EXCLUDED('no estimate', []) })], { minutes: [], cost_usd: [] });
+  const s = backtest.summarize([summaryRow('1', { agent: excludedCell('no estimate', []) })], { minutes: [], cost_usd: [] });
   assert.deepStrictEqual(
     [s.agent_minutes.compared, s.agent_minutes.median_ratio, s.agent_minutes.pooled_ratio, s.agent_minutes.coverage,
       s.agent_minutes.under_median_share, s.agent_minutes.sc2],
