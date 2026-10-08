@@ -318,10 +318,10 @@ describe('validate-health: contract', () => {
     assert.deepEqual(doctor.contractIssues(health), []);
     // Codes another check owns, so the validate-health check defers them: E020/I022 (10-runtime-mirror),
     // W040 (21-pending-migrations), W057-W061 (25-gh-store-sync, TRD 50-07), W062 (26-checks-workflow-pin, TRD 61-01),
-    // W063 (13-model-profiles, TRD 61-07).
+    // W063 (13-model-profiles, TRD 61-07), E006 / W064 (23-skill-markers, TRD 69-04).
     assert.deepEqual(
       health.DEFERRED,
-      ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063'],
+      ['E006', 'E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063', 'W064'],
     );
   });
 });

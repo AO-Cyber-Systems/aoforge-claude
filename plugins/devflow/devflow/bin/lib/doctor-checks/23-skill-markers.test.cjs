@@ -12,9 +12,11 @@ const fs = require('fs');
 const path = require('path');
 
 const markers = require('./23-skill-markers.cjs');
+const health = require('./22-validate-health.cjs');
 const doctor = require('../doctor.cjs');
 const skillActive = require('../skill-active.cjs');
 const { makeDoctorProject, PLUGIN_ROOT } = require('../__fixtures__/doctor-fixtures.cjs');
+const { makeMarkerProject, MARKER_REL } = require('../__fixtures__/skill-marker-fixtures.cjs');
 const { gitEnv } = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const NOW = new Date('2026-09-30T12:00:00.000Z');
@@ -192,5 +194,156 @@ describe('skill-markers: .edit-override (test 18)', () => {
     assert.deepEqual(r.details.stale.map((s) => s.file), ['.planning/.skill-active', '.planning/.edit-override']);
     const res = markers.fix(ctx, r);
     assert.deepEqual(res.changed.sort(), ['.planning/.edit-override', '.planning/.skill-active']);
+  });
+});
+
+// ─── TRD 69-04: tracked markers (TOOL-09, doctor side) ────────────────────────
+//
+// Projects come from makeMarkerProject (a stamped git project with a hand-built marker). Every git call
+// runs under its fake home; this repository's own live marker is never read.
+
+function markerCtx(p, extra = {}) {
+  return Object.assign(doctor.buildContext({ projectRoot: p.root, userHome: p.home, env: p.env, now: p.now }), extra);
+}
+
+function findById(list, id) {
+  return (list || []).find((item) => item.id === id);
+}
+
+describe('skill-markers: tracked and git markers (69-04 tests 1-6, 8)', () => {
+  test('1. whole engine: a tracked expired marker is reported once (check 23); --fix untracks and removes only it', () => {
+    const p = makeMarkerProject({ marker: 'expired', tracked: true });
+    try {
+      const base = { projectRoot: p.root, userHome: p.home, env: p.env, now: p.now, checks: [health, markers] };
+
+      const before = doctor.runDoctor(base);
+      const c23 = findById(before.checks, 'skill-markers');
+      const c22 = findById(before.checks, 'validate-health');
+      assert.equal(c23.severity, 'error', c23.finding);
+      assert.deepEqual(c23.details.codes, ['E006']);
+      assert.deepEqual(c23.details.tracked, [MARKER_REL]);
+      assert.equal(c23.fixable, true, c23.finding);
+      assert.ok(c22.details.deferred.includes('E006'), JSON.stringify(c22.details));
+      assert.doesNotMatch(c22.finding, /E006/);
+      assert.deepEqual(c22.details.codes.filter((code) => code === 'E006' || code === 'W064'), []);
+
+      const after = doctor.runDoctor({ ...base, fix: true });
+      assert.equal(findById(after.checks, 'skill-markers').severity, 'ok', findById(after.checks, 'skill-markers').finding);
+      assert.equal(p.porcelain(), `D  ${MARKER_REL}\n`);
+      const fixEntry = findById(after.fixes, 'skill-markers');
+      assert.equal(fixEntry.applied, true, JSON.stringify(fixEntry));
+      assert.deepEqual(fixEntry.changed, [MARKER_REL]);
+      assert.match(fixEntry.notes, /--files \.planning\/\.skill-active/);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('2. a tracked live ignored marker → error, fixable; the fix untracks it and the file is byte-identical', () => {
+    const p = makeMarkerProject({ marker: 'live', tracked: true, ignored: true });
+    try {
+      const ctx = markerCtx(p);
+      const bytes = fs.readFileSync(p.markerPath);
+
+      const r = markers.run(ctx);
+      assert.equal(r.severity, 'error', r.finding);
+      assert.equal(r.fixable, true, r.finding);
+      assert.deepEqual(r.details.codes, ['E006']);
+      assert.match(r.finding, /E006/);
+      assert.deepEqual(r.details.stale, []);
+
+      const res = markers.fix(ctx, r);
+      assert.equal(res.applied, true, JSON.stringify(res));
+      assert.deepEqual(res.changed, [MARKER_REL]);
+      assert.deepEqual(p.tracked(), []);
+      assert.deepEqual(fs.readFileSync(p.markerPath), bytes);
+      assert.equal(markers.run(markerCtx(p)).severity, 'ok');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('3. a tracked live marker that is not ignored → error, not fixable, names .gitignore; fix() applies nothing', () => {
+    const p = makeMarkerProject({ marker: 'live', tracked: true });
+    try {
+      const ctx = markerCtx(p);
+      const bytes = fs.readFileSync(p.markerPath);
+
+      const r = markers.run(ctx);
+      assert.equal(r.severity, 'error', r.finding);
+      assert.equal(r.fixable, false);
+      assert.match(r.fix_command, /\.gitignore/);
+      assert.match(r.finding, /skill marker fix refused/);
+
+      const res = markers.fix(ctx, r);
+      assert.equal(res.applied, false);
+      assert.deepEqual(p.tracked(), [MARKER_REL]);
+      assert.deepEqual(fs.readFileSync(p.markerPath), bytes);
+      assert.equal(p.porcelain(), '');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('4. a tracked expired marker with an unrelated staged file is refused; the doctor\'s own change lifts it', () => {
+    const p = makeMarkerProject({ marker: 'expired', tracked: true, stagedOther: true });
+    try {
+      const refused = markers.run(markerCtx(p));
+      assert.equal(refused.severity, 'error', refused.finding);
+      assert.equal(refused.fixable, false);
+      assert.match(refused.finding, /staged changes present/);
+      assert.match(refused.fix_command, /commit or unstage your changes/);
+      assert.match(refused.fix_command, /doctor --fix/);
+
+      const own = markers.run(markerCtx(p, { changedThisRun: new Set(['notes.txt']) }));
+      assert.equal(own.fixable, true, own.finding);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('5. guard refused: fix() never unlinks the tracked marker', () => {
+    const p = makeMarkerProject({ marker: 'expired', tracked: true, stagedOther: true });
+    try {
+      const ctx = markerCtx(p);
+      const res = markers.fix(ctx, markers.run(ctx));
+      assert.equal(res.applied, false);
+      assert.match(res.refused, /staged changes present/);
+      assert.equal(fs.existsSync(p.markerPath), true, 'the tracked marker must still be on disk');
+      assert.doesNotMatch(p.porcelain(), /^.D /m, 'no working-tree deletion of a tracked file');
+      assert.deepEqual(p.tracked(), [MARKER_REL]);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('6. an untracked stale marker in a git project → warn W064; the fix removes only it', () => {
+    const p = makeMarkerProject({ marker: 'expired' });
+    try {
+      const ctx = markerCtx(p);
+      const before = p.snapshot();
+
+      const r = markers.run(ctx);
+      assert.equal(r.severity, 'warn', r.finding);
+      assert.equal(r.fixable, true);
+      assert.deepEqual(r.details.codes, ['W064']);
+      assert.deepEqual(r.details.tracked, []);
+      assert.match(r.finding, /^stale edit-gate marker\(s\) holding the gate open: \.planning\/\.skill-active \(expired at /);
+
+      const res = markers.fix(ctx, r);
+      assert.equal(res.applied, true, JSON.stringify(res));
+      assert.deepEqual(res.changed, [MARKER_REL]);
+      const after = p.snapshot();
+      before.delete(MARKER_REL);
+      assert.deepEqual([...after].sort(), [...before].sort(), 'only the marker file changed');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('8. check 23 keeps no local copy of the skill-active classification', () => {
+    const src = fs.readFileSync(path.join(__dirname, '23-skill-markers.cjs'), 'utf-8');
+    assert.doesNotMatch(src, /function classifySkillActive/);
+    assert.match(src, /skill-marker-health\.cjs/);
   });
 });
