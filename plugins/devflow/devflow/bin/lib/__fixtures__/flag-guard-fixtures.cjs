@@ -222,6 +222,7 @@ const PROBES = {
   'validate consistency': ['validate', 'consistency'],
   'validate health': ['validate', 'health'],
   'validate docs': ['validate', 'docs'],
+  'validate requirements': ['validate', 'requirements'],
   'skill-active': ['skill-active', '--status'],
   'micro start': ['micro', 'start', 'a small task'],
   'micro commit': ['micro', 'commit'],
