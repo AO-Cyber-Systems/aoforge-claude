@@ -33,7 +33,14 @@ verification:
   auto_fix_cycles: 0
   tdd_evidence: true
   test_pairing: true
+duration: 8min
 completed: 2026-10-08
+tokens_input: 12419819
+tokens_output: 57568
+tokens_cache_read: 12244943
+tokens_cache_write: 174712
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 71 TRD 02: Fleet tables and guards Summary
@@ -42,7 +49,7 @@ The fleet harness now records what TRD 71-01's two rules closed and guards both 
 
 ## Progress
 - [x] Task 1: `selfTestDrafts` guard and refresh-pending OPEN rows, on synthetic data — 8c779238 (RED), e7be13cf (GREEN)
-- [x] Task 2: Tables updated, per-repo self-test guard wired, real-fleet run green — b5aab54c (RED), (this commit) (GREEN)
+- [x] Task 2: Tables updated, per-repo self-test guard wired, real-fleet run green — b5aab54c (RED), 9317a233 (GREEN)
 
 ## What changed
 
@@ -82,4 +89,43 @@ Refreshing the committed `.planning/STACK.md` in **justinforme** and **smartWell
 | GREEN (Task 1) | same plus stack-drafter-realshape.test.cjs, 34 tests | 0 | PASS (correct) |
 | RED (Task 2) | `node --test stack-drafter-fleet.test.cjs` against `~/dev`: justinforme and smartWellness `new conflict: lint`, `ACCEPTED_ROWS` pin still holds `aodex.audit` (3 failures) | 1 | FAIL (correct) |
 | GREEN (Task 2) | same, 50 tests | 0 | PASS (correct) |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test (scoped, Task 1) | `DEVFLOW_SKIP_FLEET_HARNESS=1 node --test stack-drafter-fleet.test.cjs stack-drafter-realshape.test.cjs` | 0 | PASS (34 tests) |
+| test (scoped, Task 2) | `node --test stack-drafter-fleet.test.cjs` against `~/dev` (run twice, once more under full-suite load) | 0 | PASS (50 tests: 49 pass, 1 per-repo skip) |
+| test (full, worktree, fleet harness NOT skipped) | `npm --prefix <worktree> test -- --test-skip-pattern=<the micro suites>` | 1 | 11497 tests, 11434 pass, 12 fail, 51 skipped (see below) |
+
+The 12 full-suite failures are outside this TRD's files:
+- 11 are environmental: `devflow-watch.test.cjs` (5: the foreground start/stop and multi-project CLI cases) and `handoff-e2e.test.cjs` (6). The daemon never starts in this worktree because it has no `node_modules`; the same files pass in the main checkout (see TRD 71-01). Not chased.
+- 1 is the 70-03 baseline, `roadmap-reconcile.test.cjs` E2E1. It reports `trd_summary_exists` for `71-02` (the checkpoint SUMMARY exists while the ROADMAP row is still `[ ]`) and clears after `roadmap update-job-progress`, which runs in the state step below.
+
+The fleet harness ran inside that full run and passed (all four of its describe blocks). `micro.test.cjs` was excluded by test name (`startMicro`, `commitMicro`, `abortMicro`, `cmdMicro`, `micro commit through df-tools`, `micro.cjs commits only`), as the TRD advises for signing hangs; no hang occurred in the other suites.
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+None.
+
+### Interpretation notes (no behaviour change to the specified cases)
+
+- **Bare-string drafted entry (case 12).** The TRD lists "a drafted entry as a bare string ... -> `[]`, never a throw". `selfTestDrafts` treats a bare string as a run, as `compareDrift`'s `scoped()` does, so a hand-edited profile cannot hide a self-test. The test pins a lone bare string with no gate as `[]`. The drafter itself always writes `{ run, cwd }` objects (checked on aodex and dfip), so no fleet draft is affected.
+- **Task runners.** Beyond the TRD's skeleton (shells only), the word after `make|gmake|just|task|rake|mage` is also an entry point, never a self-test argument. Without it `make selftest` would depend on the evidence naming the target. The evidence rule (a word an item names as `target.name` / `invokedName` is never a marker) is kept as well.
+- **Header wording.** The harness header said OPEN "is empty today"; it now says the real OPEN rows all drift today, which is why the ratchet's failing branch is covered on synthetic tables.
+- **Not tabled.** `trades: more specific: typecheck: committed discover vs draft npx tsc --noEmit` appears as a plain more-specific note in the harness output. It predates this TRD, is never a failure, and 71-01 did not classify it, so it was left alone.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 6/6 (`aodex.audit` gone and `ACCEPTED_ROWS` pinned at 12 with every other ACCEPTED row byte-identical; OPEN holds exactly the two `pending: 'refresh'` lint rows; refresh-pending is a diagnostic while drifting and `remove it from OPEN` once it stops; per-repo `selfTestDrafts` guard wired and checked against real aodex evidence; `selfTestDrafts` and the refresh classification covered by synthetic tests with no fleet repo; harness green against `~/dev` with every repo's HEAD and work tree unchanged)
+- Gate failures: None in scope (11 environmental, 1 documented baseline transient)
+
+## Self-Check: PASSED
+
+- FOUND: `stack-drift-compare.cjs`, `stack-fleet-tables.cjs`, `stack-drafter-fleet.test.cjs`
+- FOUND commits: 8c779238, e7be13cf, b5aab54c, 9317a233 (`git log 488289f1..HEAD`)
+- `rg "aodex"` in the tables file shows the `lint` entry, FLEET and the header mentions only; `rg "pending: 'refresh'"` hits both OPEN entries; `rg "selfTestDrafts"` hits the per-repo guard and the synthetic tests
 
