@@ -1,9 +1,9 @@
 {
   "current_objective": "70",
-  "current_job": 2,
+  "current_job": 3,
   "total_jobs": 3,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1249,6 +1249,11 @@
     {
       "objective": "70",
       "summary": "70-02: verify-commits.js blocks with a top-level {decision, reason} scoped to agent_type devflow:executor; hooks/__fixtures__/hook-output-schema.js models the Stop/SubagentStop schema and the coexistence contract runs it over every Stop-family hook",
+      "rationale": null
+    },
+    {
+      "objective": "70",
+      "summary": "70-03: SC-4 before column taken from the installed 2.15.0 hook output; the live SubagentStop is a post-release check tracked as a todo, not a pass",
       "rationale": null
     }
   ],

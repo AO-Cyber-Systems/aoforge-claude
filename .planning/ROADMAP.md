@@ -121,7 +121,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on (completed 2026-10-08)
 - [x] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection (completed 2026-10-08)
 - [x] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check (completed 2026-10-08)
-- [ ] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema
+- [x] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema (completed 2026-10-08)
 - [ ] **Objective 71: Stack drafter and verify policy** - govulncheck gate preference, buf lint drafting, `stack verify --run` policy for services and artifacts
 - [ ] **Objective 72: Install and naming cleanup** - No legacy `df-*` remnants, doctor flags a reappearance, a repo test on old command forms
 - [ ] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration
@@ -242,7 +242,7 @@ TRDs:
 TRDs:
 - [x] 70-01-cli-defects-TRD.md — (W1) fixture builders; `state update-progress` rewrites the plain line, inserts under `## Current Position` or exits 1; `verify trd-pre` resolves from any cwd inside the project or a path, not-found exits 1; `objective-job-index` `gap_closure`
 - [x] 70-02-verify-commits-hook-shape-TRD.md — (W1) cited Stop/SubagentStop schema model (`hooks/__fixtures__/hook-output-schema.js`); top-level `{decision, reason}` scoped to `devflow:executor`; shape-pinning test; coexistence contract uses the model
-- [ ] 70-03-dogfood-and-docs-TRD.md — (W2) SC-1..SC-4 before/after on scratch copies and read-only live commands; CHANGELOG, CLAUDE.md, USER-GUIDE, job-checker; live-SubagentStop todo; full suite
+- [x] 70-03-dogfood-and-docs-TRD.md — (W2) SC-1..SC-4 before/after on scratch copies and read-only live commands; CHANGELOG, CLAUDE.md, USER-GUIDE, job-checker; live-SubagentStop todo; full suite
 
 ### Objective 71: Stack drafter and verify policy
 
@@ -317,7 +317,7 @@ TRDs:
 | 67. Minutes recalibration | v1.6 | 9/9 | Complete | 2026-10-08 |
 | 68. Milestone and objective verbs | v1.6 | 7/7 | Complete | 2026-10-08 |
 | 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
-| 70. CLI defects and hook shape | v1.6 | 2/3 | In Progress | - |
+| 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 0/? | Not started | - |
 | 72. Install and naming cleanup | v1.6 | 0/? | Not started | - |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
