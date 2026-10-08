@@ -54,7 +54,7 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 61 — Store-mode rough edges and observability (completed 2026-10-06, 9/9 TRDs)
 **Objective complete:** 62 — Built-in sweep (completed 2026-10-06, 11/11 TRDs)
 **Objective complete:** 63 — Todo store, hook coexistence and built-in inventory (completed 2026-10-07, 7/7 TRDs)
-**Status:** Executing objective 64 — 7/10 TRDs complete
+**Status:** Executing objective 64 — 8/10 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -271,6 +271,6 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-08T00:50:27.139Z
+Last session: 2026-10-08T01:09:58.699Z
 Resume file: `None`
-Stopped at: Completed 64-07-diagnose-and-freeze-window-TRD.md
+Stopped at: Completed 64-08-calibrate-window-and-rolling-harness-TRD.md

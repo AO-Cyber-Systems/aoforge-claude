@@ -1,8 +1,8 @@
 {
   "current_objective": "64",
-  "current_job": 7,
+  "current_job": 8,
   "total_jobs": 10,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-07",
   "metrics": {
@@ -1059,6 +1059,11 @@
     {
       "objective": "64",
       "summary": "64-07 frozen: decision build_window, window_objectives 10 (pre-registered rolling-origin rule on pre-59 objectives 46-58; weak evidence, non-monotone sweep); selection_output_sha256 fdf60e66...",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "64-08: calibrate --window is opt-in (null default); the window is applied to a filtered copy of each project right after collectProject and leaves no trace (key, note, digest) when it drops nothing; the rolling harness requires --new to name the same objectives as --old",
       "rationale": null
     }
   ],
