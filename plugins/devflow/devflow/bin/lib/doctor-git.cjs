@@ -18,6 +18,7 @@
 // (the 0008 pattern), so a doctor run from inside a git hook can only ever look at `root`.
 // Read-only apart from `rmCached`, which the legacy fix calls only after `indexChangeGuard` passed.
 
+const os = require('os');
 const { spawnSync } = require('child_process');
 
 // Env vars that would point git at some OTHER repository than `root`.
@@ -36,7 +37,7 @@ function git(root, args, opts = {}) {
   const r = spawnSync('git', args, {
     cwd: root,
     env: gitEnv(opts.env),
-    input: '',
+    input: opts.input || '',
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -133,6 +134,25 @@ function worktreeGuard(root, pathspecs, opts = {}) {
 }
 
 /**
+ * checkIgnored(root, paths, {env}) -> Set of the `paths` an ignore rule of THIS repository covers
+ * (project-relative posix paths in, the same strings out). Two switches decide what "ignored" means:
+ * `--no-index` ignores the index, so a TRACKED file still reports the rule that would ignore it (the
+ * question is whether untracking it keeps it out), and `core.excludesFile` is pointed at the null
+ * device so the user's global excludes never answer for the repository (the 42-14 D5 lesson in
+ * migration 0008's header: a rule only on this machine protects nobody else's clone). check-ignore
+ * exits 1 when nothing matches; that is a normal answer. Callers check `isGitRepo` first.
+ */
+function checkIgnored(root, paths, opts = {}) {
+  if (!paths.length) return new Set();
+  const r = git(root, ['-c', `core.excludesFile=${os.devNull}`, 'check-ignore', '--no-index', '--stdin', '-z'], {
+    ...opts,
+    input: paths.map((p) => `${p}\0`).join(''),
+  });
+  if (r.status !== 0 && r.status !== 1) throw new Error(`git check-ignore failed: ${r.err || r.status}`);
+  return new Set(splitZ(r.out));
+}
+
+/**
  * rmCached(root, paths) — drop `paths` from the INDEX only. --force: a staged copy that differs
  * from both HEAD and the working file must not make it refuse; with --cached that only drops the
  * index entry. --literal-pathspecs: these are exact paths git listed. Callers guard first.
@@ -151,6 +171,7 @@ module.exports = {
   dirtyPaths,
   indexChangeGuard,
   worktreeGuard,
+  checkIgnored,
   rmCached,
   toExcluder,
 };
