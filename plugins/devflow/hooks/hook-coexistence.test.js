@@ -23,6 +23,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const runner = require('./__fixtures__/hook-runner.js');
 const fx = require('./__fixtures__/coexistence-fixtures.js');
@@ -262,6 +263,68 @@ describe('composition model', () => {
     assert.equal(mixed[1].stdout, 'done');
     assert.equal(mixed[2].stdout, '{}');
     assert.equal(typeof mixed[2].ms, 'number');
+  });
+
+  test('8. runParallel keeps output that drains after the child exits', async () => {
+    const env = { PATH: process.env.PATH };
+    // The child writes 'A' and exits. A grandchild on the inherited stdout writes 200000 bytes 400 ms later, after the
+    // child's exit event. 200000 bytes are more than a 64 KB pipe buffer, so draining them takes several reads.
+    const child = `process.stdout.write('A');require('child_process').spawn(process.execPath,['-e',"setTimeout(()=>process.stdout.write('B'.repeat(200000)),400)"],{stdio:['ignore','inherit','inherit']}).unref();`;
+    const [r] = await runParallel([{ name: 'late', args: ['-e', child] }], {}, { cwd: process.cwd(), env, timeoutMs: 10000 });
+    // Length first, so a failure message stays short.
+    assert.equal(r.stdout.length, 200001, `only ${r.stdout.length} of 200001 bytes were kept`);
+    assert.equal(r.stdout, 'A' + 'B'.repeat(200000));
+    assert.equal(r.code, 0);
+    assert.equal(r.timedOut, false);
+  });
+
+  test('8. a pipe leaked to a detached grandchild is released after the drain grace', async () => {
+    const GRACE = runner.EXIT_DRAIN_GRACE_MS;
+    // The handler writes 'early', starts a detached grandchild that holds the inherited stdout/stderr for 10 s, reports
+    // the grandchild's pid on stderr and exits.
+    const LEAK = `process.stdout.write('early');const g=require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{detached:true,stdio:['ignore','inherit','inherit']});process.stderr.write(String(g.pid));g.unref();`;
+    // A subprocess runs the runner, so that a pipe the runner still holds keeps that subprocess alive and shows in the
+    // wall time. It exits naturally: process.exit() right after a pipe write can truncate the write.
+    const script =
+      `const m=require(${JSON.stringify(path.join(__dirname, '__fixtures__', 'hook-runner.js'))});` +
+      `m.runParallel([{name:'leak',args:['-e',${JSON.stringify(LEAK)}]}],{},` +
+      `{cwd:process.cwd(),env:{PATH:process.env.PATH},timeoutMs:20000})` +
+      `.then(([r])=>process.stdout.write(JSON.stringify(r)));`;
+
+    const t0 = Date.now();
+    const out = await new Promise((resolve) => {
+      execFile(process.execPath, ['-e', script], { timeout: 20000, env: { PATH: process.env.PATH } }, (err, stdout, stderr) =>
+        resolve({ err, stdout, stderr })
+      );
+    });
+    const wall = Date.now() - t0;
+
+    let r = null;
+    try {
+      r = JSON.parse(out.stdout);
+    } catch {
+      // asserted below
+    }
+    try {
+      assert.equal(out.err, null, `the subprocess failed: ${out.err && out.err.message}; stderr: ${out.stderr}`);
+      assert.ok(r, `the subprocess printed no result: ${JSON.stringify(out.stdout)}`);
+      // Only upper bounds, with margin: the grandchild sleeps 10 s, so a runner that still holds the pipe fails this.
+      assert.ok(wall < GRACE + 4000, `the subprocess took ${wall} ms: the runner kept the leaked pipe`);
+      assert.equal(r.stdout, 'early');
+      assert.equal(r.code, 0);
+      assert.equal(r.timedOut, false);
+      assert.ok(r.ms < GRACE + 3000, `the handler settled after ${r.ms} ms`);
+    } finally {
+      // The grandchild must not outlive the test, pass or fail.
+      const pid = r ? Number.parseInt(r.stderr, 10) : NaN;
+      if (Number.isInteger(pid) && pid > 0) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // already gone
+        }
+      }
+    }
   });
 });
 

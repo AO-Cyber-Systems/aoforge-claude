@@ -22,6 +22,9 @@
 
 const { spawn } = require('child_process');
 
+/** How long to wait after a hook exits for its stdout/stderr to end, for a hook that leaks a pipe to a process that outlives it. */
+const EXIT_DRAIN_GRACE_MS = 2000;
+
 /**
  * "Plain-text stdout becomes context only on UserPromptSubmit, UserPromptExpansion,
  * SessionStart and PostModelSwitch" (the JSON-output section's plain-text rule).
@@ -328,6 +331,7 @@ function runParallel(handlers, payload, opts = {}) {
 }
 
 module.exports = {
+  EXIT_DRAIN_GRACE_MS,
   CONTEXT_EVENTS,
   KNOWN_FIELDS,
   EXIT2_BLOCKS,
