@@ -208,7 +208,8 @@ function rollingSweep({ snapshotRoot, evalObjectives, windows, scratchDir }) {
       try {
         cutProject({ snapshotRoot, before, window, dest, project });
         // The cut is already windowed; `window: null` keeps the calibrator's default (10 since TRD 64-10) off the cut.
-        const cal = calibrator.buildCalibration({ paths: [dest], transcriptsRoot: null, window: null });
+        // pinned: 64's frozen selection used the per-task sum (67-02)
+        const cal = calibrator.buildCalibration({ paths: [dest], transcriptsRoot: null, window: null, minutes: 'task_sum' });
         const rows = trdRows(cal, snapshotRoot, project, objective);
         objectives.push({ objective, rows, row: objectiveRow(rows) });
       } finally {
@@ -445,7 +446,8 @@ function cutClassCounts({ snapshotRoot, before, window, project }) {
   const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-cut-'));
   try {
     cutProject({ snapshotRoot, before, window, dest, project });
-    return classCounts(calibrator.buildCalibration({ paths: [dest], transcriptsRoot: null, window: null }));
+    // pinned: 64's frozen selection used the per-task sum (67-02)
+    return classCounts(calibrator.buildCalibration({ paths: [dest], transcriptsRoot: null, window: null, minutes: 'task_sum' }));
   } finally {
     fs.rmSync(dest, { recursive: true, force: true });
   }
@@ -461,7 +463,8 @@ function report({ snapshotRoot, evalObjectives, windows, label }) {
 
   // In sample: the whole snapshot's calibration against its own TRDs (suspects S1, S2, S4, S5, S6).
   // `window: null`: the whole snapshot, not the calibrator's default of the latest 10 objectives (TRD 64-10).
-  const inCal = calibrator.buildCalibration({ paths: [snapshotRoot], transcriptsRoot: null, window: null });
+  // pinned: 64's frozen selection used the per-task sum (67-02)
+  const inCal = calibrator.buildCalibration({ paths: [snapshotRoot], transcriptsRoot: null, window: null, minutes: 'task_sum' });
   const inRows = [];
   const inObjectiveRows = [];
   for (const dir of rankObjectives(project.objectives)) {

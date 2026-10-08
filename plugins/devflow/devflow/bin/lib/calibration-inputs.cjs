@@ -435,12 +435,19 @@ function compareStrings(a, b) {
 /**
  * Every TRD of one project joined with its SUMMARY frontmatter and its Performance Metrics row.
  * Every list in the result is sorted (objective directory, then TRD number), so 57-05 can build a byte-identical file.
+ *
+ * `options.through` (TRD 67-02) cuts the project at an objective number: a directory numbered above it, or with no
+ * number, is dropped before any file in it is read, and a metric row for such an objective is dropped before any metric
+ * is counted or joined. A later objective therefore cannot change anything this returns. Absent, it changes nothing.
  */
-function collectProject(root) {
+function collectProject(root, options = {}) {
+  const through = options && options.through !== undefined ? options.through : null;
+  assertThrough(through);
   const base = realpathOrNull(root) || path.resolve(String(root));
   const objectivesDir = path.join(base, '.planning', 'objectives');
   const dirNames = isDir(objectivesDir)
-    ? fs.readdirSync(objectivesDir).filter((name) => isDir(path.join(objectivesDir, name))).sort()
+    ? fs.readdirSync(objectivesDir).filter((name) => isDir(path.join(objectivesDir, name)))
+      .filter((name) => withinThrough(name, through)).sort()
     : [];
   const counts = { summaries: 0, summaries_without_trd: 0, unkeyed: 0, task_files_misaligned: 0, duplicate_trds: 0 };
   const trds = [];
@@ -497,7 +504,7 @@ function collectProject(root) {
     || (Number(a.trd) - Number(b.trd)) || compareStrings(a.id, b.id));
 
   const byKey = new Map(trds.map((t) => [`${t.objective_dir}/${t.trd}`, t]));
-  const rows = readMetricRows(base);
+  const rows = readMetricRows(base).filter((row) => withinThrough(row.objective, through));
   const metrics = { rows: rows.length, joined: 0, ambiguous: 0, unparsed_trd: 0, unparsed_duration: 0, unmatched: 0, superseded: 0 };
   const winners = new Map();
   for (const row of rows) {
@@ -547,6 +554,22 @@ const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 function objectiveNumber(dir) {
   const m = /^(\d+(?:\.\d+)?)/.exec(String(dir));
   return m ? Number(m[1]) : null;
+}
+
+/** Throws unless `through` is null, undefined or a finite number of at least 0 (the cutoff option, TRD 67-02). */
+function assertThrough(through) {
+  if (through === undefined || through === null) return;
+  if (!isFiniteNumber(through) || through < 0) throw new Error('through must be a non-negative number or null');
+}
+
+/**
+ * True when `token` (an objective directory name such as `66-c`, or a metric row's objective token such as `66`) is at or
+ * below the cutoff. No cutoff keeps everything; under a cutoff a token with no number is out.
+ */
+function withinThrough(token, through) {
+  if (through === null || through === undefined) return true;
+  const number = objectiveNumber(token);
+  return number !== null && number <= through;
 }
 
 /** Directory names ordered by (numeric prefix, name); a name with no number sorts last. Returns a new array. */
@@ -599,6 +622,8 @@ function windowObjectives(project, window) {
 module.exports = {
   objectiveNumber,
   rankObjectives,
+  assertThrough,
+  withinThrough,
   hasOutcome,
   windowObjectives,
   RATES_PATH,

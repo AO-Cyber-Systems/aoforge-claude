@@ -410,6 +410,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    `summary post` removes the label and refreshes the PR when the TRD completes, so do neither yourself.
    The executor agent and its prompt are unchanged.
 
+   **Two ids, never mixed.** `{plan_id}` is the id `objective-job-index` reports, and it carries the slug (`66-03-continuation-prompt-and-inline-rule`). It names worktrees and branches and is the `--id` of `exec-context`, so it must match the id the worktree was provisioned under. `{trd_id}` is the short TRD id, `{objective_number}-{plan_number}` (`66-03`). The `PLAN_ID:` line, `tokens stamp` and `summary post` take `{trd_id}`. The identifier that attributes an executor's transcript to its TRD rejects a slug on a `PLAN_ID:` line, and an executor it cannot attribute is never stamped and never checked by the stop gate.
+
    ```
    Task(
      subagent_type="executor",
@@ -440,7 +442,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        <repo_and_base>
        REPO_ROOT:  {REPO_ROOT}
        WAVE_BASE:  {WAVE_BASE}
-       PLAN_ID:    {plan_id}
+       PLAN_ID:    {trd_id}
        CHECKOUT:   {CHECKOUT}
 
        Before anything else, prove you are where you are supposed to be:
@@ -863,6 +865,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 <step name="checkpoint_handling">
 Plans with `autonomous: false` require user interaction.
 
+**Every TRD runs in an executor, checkpoints included.** Never execute a TRD's tasks yourself, even when it is made only of `checkpoint:human-action` gates and the executor's first act is to return the first checkpoint. Spawn the executor (execute_waves item 4), present each `## CHECKPOINT REACHED`, and spawn a continuation executor (Branch 3, step 6) with the user's literal reply. Never write a TRD's SUMMARY yourself. The executor's `tokens stamp` reads the executor's own transcript: a TRD run inline has no transcript, so its SUMMARY can never be stamped (65-02 and 65-03, EST-09).
+
 **Mode-aware checkpoint handling:**
 
 Read mode and auto-advance config:
@@ -911,7 +915,7 @@ When executor returns a checkpoint AND `MODE` is `"autonomous"`:
 
   **On verifier return:**
 
-  - `status: passed` → spawn continuation agent with `{user_response}` = `"approved (verifier evidence: {one-line summary})"`. Log `⚡ Verifier-approved: [checkpoint]`.
+  - `status: passed` → spawn continuation agent (Branch 3, step 6 prompt) with `{user_response}` = `"approved (verifier evidence: {one-line summary})"`. Log `⚡ Verifier-approved: [checkpoint]`.
   - `status: gaps_found` OR `status: human_needed` → escalate to user. Present the checkpoint using the standard "Present to user" format (step 4 of standard flow below) PLUS append a `### Verifier Report` section with the verifier's full evidence output. Wait for user response before spawning continuation agent. <!-- builtin-audit: allow free-text: a human-verify checkpoint is answered with "approved" or an open description of the issue -->
   - Verifier timeout or ambiguous return → treat as `human_needed` and escalate to user. Never approve on ambiguity.
 
@@ -949,8 +953,8 @@ When executor returns a checkpoint AND `MODE` is `"autonomous"`:
 **Branch 2 — Legacy yolo (`MODE` is NOT `"autonomous"` AND `AUTO_CFG` is `"true"`):**
 
 When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CFG` is `"true"`:
-- **human-verify** → Auto-spawn continuation agent with `{user_response}` = `"approved"`. Log `⚡ Auto-approved checkpoint`.
-- **decision** → Auto-spawn continuation agent with `{user_response}` = first option from checkpoint details. Log `⚡ Auto-selected: [option]`.
+- **human-verify** → Auto-spawn continuation agent (Branch 3, step 6 prompt) with `{user_response}` = `"approved"`. Log `⚡ Auto-approved checkpoint`.
+- **decision** → Auto-spawn continuation agent (Branch 3, step 6 prompt) with `{user_response}` = first option from checkpoint details. Log `⚡ Auto-selected: [option]`.
 - **human-action** → Present to user (existing behavior below). Auth gates cannot be automated.
 
 **Branch 3 — Standard interactive flow (not auto-mode, or human-action type):**
@@ -982,11 +986,100 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
    ])
    ```
    One option per checkpoint option, the executor's recommended option first with ` (Recommended)`. With more than 4 options, print the numbered list, offer the first 4 and say the user may type a number under Other.
-6. **Spawn continuation agent (NOT resume)** using continuation-prompt.md template:
-   - `{completed_tasks_table}`: From checkpoint return
-   - `{resume_task_number}` + `{resume_task_name}`: Current task
-   - `{user_response}`: What user provided
-   - `{resume_instructions}`: Based on checkpoint type
+6. **Spawn continuation agent (NOT resume).** Spawn a fresh executor with the prompt below, filled from the checkpoint return and the user's reply. It reuses item 4's `<execution_context>`, `<plan_content>`, `<repo_and_base>` and `<worktree_protocol>` blocks, so a continuation runs under the same isolation and publish contract. The prompt holds no double quote character, so a test can cut it at the closing one.
+
+   ```
+   Task(
+     subagent_type="executor",
+     model="{resolved_executor_model}",
+     description="Execute TRD {trd_id} (continuation)",
+     prompt="
+       <objective>
+       Execute TRD {trd_id} of objective {objective_number}-{objective_name}: continuation after a checkpoint.
+       Resume at Task {resume_task_number} ({resume_task_name}). Do not redo committed tasks.
+       Commit each task atomically. Publish the SUMMARY with `df-tools summary checkpoint` (per task) and
+       `df-tools summary post` (once). Record state with the `df-tools state` and `roadmap update-job-progress` commands.
+       </objective>
+
+       <checkpoint_reply>
+       {user_response}
+       </checkpoint_reply>
+
+       <completed_tasks>
+       {completed_tasks_table}
+       </completed_tasks>
+
+       <resume_instructions>
+       {resume_instructions}
+       </resume_instructions>
+
+       <execution_context>
+       @~/.claude/devflow/workflows/execute-trd.md
+       @~/.claude/devflow/templates/summary.md
+       @~/.claude/devflow/references/checkpoints.md
+       @~/.claude/devflow/references/tdd.md
+       @~/.claude/devflow/references/anti-patterns.md
+       </execution_context>
+
+       <plan_content>
+       The full TRD content is embedded below because you may be running in an isolated
+       worktree where .planning/ files from the parent tree are not visible.
+       --- BEGIN TRD ---
+       {TRD_CONTENT}
+       --- END TRD ---
+       </plan_content>
+
+       <repo_and_base>
+       REPO_ROOT:  {REPO_ROOT}
+       WAVE_BASE:  {WAVE_BASE}
+       PLAN_ID:    {trd_id}
+       CHECKOUT:   {CHECKOUT}
+
+       Before anything else, prove you are where you are supposed to be:
+
+         node ~/.claude/devflow/bin/df-tools.cjs --cwd {CHECKOUT} exec-context check --repo {REPO_ROOT} --base {WAVE_BASE} --id {plan_id}
+
+       Your Bash calls start in the session's directory, not in CHECKOUT. Pass `--cwd {CHECKOUT}` to
+       every df-tools call and `git -C {CHECKOUT}` to every git call, and use absolute paths under
+       CHECKOUT for everything else.
+
+       Exit 1 means WRONG REPOSITORY, BASE NOT VISIBLE or SHARED INDEX — all are hard stops. Report
+       which fired, quote the output, and end your turn without writing anything. Do not
+       try the paths anyway: a wrong-repo spawn cannot land a single commit where it is
+       being looked for, and it fails silently if you let it. WRONG CHECKOUT is the one
+       recoverable case: nothing was written and no claim was taken, so run the command it prints.
+       </repo_and_base>
+
+       <worktree_protocol>
+       - You may be in a git worktree the orchestrator provisioned for you. Commit to your
+         current branch as normal.
+       - Publish the SUMMARY only through `node ~/.claude/devflow/bin/df-tools.cjs summary checkpoint` (per task) and
+         `summary post` (once), from a `planning draft` path. In local mode the verbs write the
+         checkout you are in, so from a worktree the SUMMARY lands in YOUR worktree: commit it with
+         your task commits, and the wave merge delivers it. In store mode the verbs write the main
+         checkout's gitignored cache and no commit carries the SUMMARY.
+       - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job --objective {objective_number}`
+         (and the other `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
+         your commits; conflicts are resolved at merge time by the orchestrator.
+       </worktree_protocol>
+
+       <success_criteria>
+       - [ ] Remaining tasks executed, each committed individually
+       - [ ] SUMMARY ## Progress kept current via `df-tools summary checkpoint`; the finished SUMMARY has ## Self-Check, token usage stamped with `node ~/.claude/devflow/bin/df-tools.cjs tokens stamp {trd_id} --draft <draft path>`, then published once with `node ~/.claude/devflow/bin/df-tools.cjs summary post {trd_id} --from <draft path>`
+       - [ ] STATE.md position and decisions recorded via the `df-tools state` commands, and roadmap progress via `df-tools roadmap update-job-progress`, once the TRD completes
+       - [ ] If another checkpoint is reached: return ## CHECKPOINT REACHED with ALL completed tasks (previous + new)
+       </success_criteria>
+     "
+   )
+   ```
+
+   Fill it from these values:
+   - `{completed_tasks_table}`: the Completed Tasks table from the checkpoint return
+   - `{resume_task_number}` + `{resume_task_name}`: the Current Task of the checkpoint return
+   - `{user_response}`: what the user provided, word for word (in Branch 1 and Branch 2, the auto-approved or auto-selected value)
+   - `{resume_instructions}`: based on the checkpoint type. After human-action, verify the action worked. After human-verify, continue with the next task. After a decision, implement the selected option
+   - `{TRD_CONTENT}`, `{REPO_ROOT}`, `{WAVE_BASE}`, `{CHECKOUT}`, `{plan_id}`, `{trd_id}`: the values the first executor of this TRD was given. Do not re-read `WAVE_BASE` and do not provision a new worktree: the continuation works in the same tree, and `exec-context check` accepts a claim that is already its own
+   - The `PLAN_ID:` line carries `{trd_id}`, so the transcript is attributed to the TRD and the continuation's `tokens stamp` covers the initial executor and every continuation
 7. Continuation agent verifies previous commits, continues from resume point
 8. Repeat until plan completes or user stops
 
@@ -998,13 +1091,14 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
 </step>
 
 <step name="aggregate_results">
-After all waves:
+After all waves, print the report below. Its **Token stamp:** line is the share of this objective's TRDs whose SUMMARY carries a live token stamp. A `missing` entry is reported as it is, with its reason. The orchestrator never runs `tokens backfill --write` to raise the number: EST-09 counts only live stamps made at publish time, and a miss is worth seeing the day it happens.
 
 ```markdown
 ## Objective {X}: {Name} Execution Complete
 
 **Waves:** {N} | **Jobs:** {M}/{total} complete
 **Time:** {output of `node ~/.claude/devflow/bin/df-tools.cjs estimate finish ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails}
+**Token stamp:** {output of `node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --objective ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails or the runtime has no `tokens coverage`}
 
 | Wave | Plans | Status |
 |------|-------|--------|

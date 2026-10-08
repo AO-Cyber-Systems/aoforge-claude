@@ -16,6 +16,7 @@ const {
   EMPTY_STAT,
   CAL_V2,
   makeCalibration,
+  makeCalibrationV3,
   writeCalibrationFile,
 } = require('./__fixtures__/estimate-fixtures.cjs');
 
@@ -89,6 +90,71 @@ test('1b. loadCalibration with no file argument reads the path from the injected
   const absent = est.loadCalibration(undefined, { DEVFLOW_CALIBRATION_PATH: path.join(dir, 'absent.json') });
   assert.equal(absent.ok, false);
   assert.match(absent.reason, /absent\.json/);
+});
+
+test('1c. makeCalibrationV3 is CAL_V2 as version 3 with the method block, and trdMinutes replaces the TRD-level minutes', () => {
+  const v3 = makeCalibrationV3({ minutes: 'trd_level' });
+  assert.equal(v3.version, 3);
+  assert.deepEqual(v3.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+  assert.deepEqual(v3.trd_level, CAL_V2.trd_level);
+  assert.equal(v3.task_classes.all.samples, CAL_V2.task_classes.all.samples);
+  assert.equal(makeCalibrationV3({ minutes: 'task_sum' }).method.minutes, 'task_sum');
+  assert.equal(Object.isFrozen(v3), false);
+
+  const thin = makeCalibrationV3({ minutes: 'trd_level', trdMinutes: { n: 7, p50: 12, p90: 45 } });
+  assert.equal(thin.trd_level.minutes.n, 7);
+  assert.equal(thin.trd_level.minutes.p50, 12);
+
+  const empty = makeCalibrationV3({ minutes: 'trd_level', trdMinutes: EMPTY_STAT });
+  assert.deepEqual(empty.trd_level.minutes, EMPTY_STAT);
+  assert.equal(CAL_V2.trd_level.minutes.n, 40, 'the frozen CAL_V2 is not changed');
+});
+
+test('1d. loadCalibration reads version 3 when its minutes method is known, and says why otherwise', (t) => {
+  const dir = tmpDir(t);
+
+  for (const minutes of ['trd_level', 'task_sum']) {
+    const file = writeCalibrationFile(path.join(dir, minutes), makeCalibrationV3({ minutes }));
+    const loaded = est.loadCalibration(file);
+    assert.equal(loaded.ok, true, minutes);
+    assert.equal(loaded.calibration.method.minutes, minutes);
+  }
+
+  const median = writeCalibrationFile(
+    path.join(dir, 'median'),
+    { ...makeCalibrationV3({ minutes: 'trd_level' }), method: { minutes: 'median' } },
+  );
+  const unknown = est.loadCalibration(median);
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.reason, /minutes method "median"/);
+  assert.match(unknown.reason, /df-tools calibrate/);
+
+  const noMethod = writeCalibrationFile(path.join(dir, 'no-method'), makeCalibration({ version: 3 }));
+  const missing = est.loadCalibration(noMethod);
+  assert.equal(missing.ok, false);
+  assert.match(missing.reason, /version 3 without a method block/);
+  assert.match(missing.reason, /df-tools calibrate/);
+
+  const arrayMethod = writeCalibrationFile(path.join(dir, 'array-method'), { ...makeCalibration({ version: 3 }), method: ['trd_level'] });
+  assert.match(est.loadCalibration(arrayMethod).reason, /version 3 without a method block/);
+
+  const v4 = writeCalibrationFile(path.join(dir, 'v4'), makeCalibration({ version: 4 }));
+  const future = est.loadCalibration(v4);
+  assert.equal(future.ok, false);
+  assert.match(future.reason, /reads versions 1, 2 and 3/);
+  assert.match(future.reason, /df-tools calibrate/);
+
+  const v2 = writeCalibrationFile(path.join(dir, 'v2'), CAL_V2);
+  assert.equal(est.loadCalibration(v2).ok, true, 'version 2 needs no method block');
+});
+
+test('1e. minutesMethod is the calibration\'s minutes method, task_sum when it has none', () => {
+  assert.equal(est.minutesMethod(CAL_V2), 'task_sum');
+  assert.equal(est.minutesMethod(makeCalibrationV3({ minutes: 'trd_level' })), 'trd_level');
+  assert.equal(est.minutesMethod(makeCalibrationV3({ minutes: 'task_sum' })), 'task_sum');
+  assert.equal(est.minutesMethod(makeCalibration({ version: 1 })), 'task_sum');
+  assert.deepEqual(est.KNOWN_MINUTES_METHODS, ['task_sum', 'trd_level']);
+  assert.equal(Object.isFrozen(est.KNOWN_MINUTES_METHODS), true);
 });
 
 test('2. confidenceFor maps sample counts to labels and CONFIDENCE_LEVELS is ordered weakest first', () => {
@@ -510,4 +576,138 @@ test('10. estimateTrd finds a TRD by NN-MM or by path and says plainly when it i
   assert.throws(() => est.estimateTrd(CAL, root, '99-01'), /TRD 99-01 not found/);
   assert.throws(() => est.estimateTrd(CAL, root, '.planning/objectives/80-alpha/80-07-gone-TRD.md'), /not found/);
   assert.throws(() => est.estimateTrd(CAL, root, 'banana'), /NN-MM/);
+});
+
+// ─── TRD-level minutes (TRD 67-03, EST-10) ────────────────────────────────────
+
+// A standard TRD with `count` auto code_tdd tasks (1 to 3), each a tdd="true" task over a code file.
+function trdWithTasks(count) {
+  const files = ['lib/a.cjs, lib/a.test.cjs', 'lib/b.cjs', 'lib/c.cjs'];
+  let tasks = '';
+  for (let i = 0; i < count; i++) {
+    tasks += `<task type="auto" tdd="true">\n  <name>Task ${i + 1}: t${i + 1}</name>\n  <files>${files[i]}</files>\n  <action>Do.</action>\n</task>\n\n`;
+  }
+  return `---\nobjective: 80-alpha\ntrd: "05"\ntype: standard\nwave: 1\ndepends_on: []\n---\n\n<tasks>\n\n${tasks}</tasks>\n`;
+}
+
+const TRD_LEVEL_NOTE = 'minutes from TRD-level history (n=40 TRDs), not the sum of task minutes';
+
+test('11. trd_level: a TRD with auto tasks gets exactly the TRD-level minutes, and says where they came from', () => {
+  const trdLevelCal = makeCalibrationV3({ minutes: 'trd_level' });
+  const taskSumCal = makeCalibrationV3({ minutes: 'task_sum' });
+
+  const level = est.estimateTrdText(trdLevelCal, trdWithTasks(3));
+  assert.deepEqual(level.minutes, { p50: 12, p90: 45 }, 'the exact values, not refitted');
+  assert.equal(level.minutes_basis, 'trd_level');
+  assert.equal(level.minutes_samples, 40);
+  assert.ok(level.notes.includes(TRD_LEVEL_NOTE), level.notes.join(' | '));
+  assert.deepEqual(level.missing, []);
+  assert.equal(level.tasks.length, 3);
+  assert.deepEqual(level.tasks.map((t) => t.minutes.p50), [6, 6, 6], 'task estimates keep their class minutes');
+
+  const sum = est.estimateTrdText(taskSumCal, trdWithTasks(3));
+  nearPair(sum.minutes, 18, 54, 'task_sum minutes');
+  assert.equal(sum.minutes_basis, 'task_sum');
+  assert.equal(sum.minutes_samples, null);
+  assert.deepEqual(sum.notes, []);
+});
+
+test('12. trd_level: a one-task TRD and a three-task TRD get the same minutes', () => {
+  const cal = makeCalibrationV3({ minutes: 'trd_level' });
+  const one = est.estimateTrdText(cal, trdWithTasks(1));
+  const two = est.estimateTrdText(cal, trdWithTasks(2));
+  const three = est.estimateTrdText(cal, trdWithTasks(3));
+  assert.deepEqual(one.minutes, three.minutes);
+  assert.deepEqual(two.minutes, three.minutes);
+  assert.deepEqual(one.minutes, { p50: 12, p90: 45 });
+});
+
+test('13. tokens and cost of a TRD are the per-task sum under both minutes methods', () => {
+  const level = est.estimateTrdText(makeCalibrationV3({ minutes: 'trd_level' }), trdWithTasks(3));
+  const sum = est.estimateTrdText(makeCalibrationV3({ minutes: 'task_sum' }), trdWithTasks(3));
+  assert.deepEqual(level.tokens_input, sum.tokens_input);
+  assert.deepEqual(level.tokens_output, sum.tokens_output);
+  assert.deepEqual(level.cost_usd, sum.cost_usd);
+  nearPair(level.tokens_input, 10800000, 19200000, 'tokens_input');
+  nearPair(level.cost_usd, 4.2, 6.6, 'cost_usd');
+});
+
+test('14. a version 2 calibration estimates a TRD exactly as before, plus minutes_basis task_sum and minutes_samples null', () => {
+  const trd = est.estimateTrdText(CAL_V2, trdWithTasks(3));
+  nearPair(trd.minutes, 17.999999999999996, 53.99999999999996, 'minutes');
+  nearPair(trd.tokens_input, 10799999.999999985, 19199999.999999933, 'tokens_input');
+  nearPair(trd.tokens_output, 86999.99999999997, 143999.99999999985, 'tokens_output');
+  nearPair(trd.cost_usd, 4.199999999999999, 6.6000000000000005, 'cost_usd');
+  assert.equal(trd.confidence, 'high');
+  assert.deepEqual(trd.weakest, { name: 'Task 1: t1', label: 'high', p50: 6, class: 'code_tdd', n: 30 });
+  assert.deepEqual(trd.notes, []);
+  assert.deepEqual(trd.missing, []);
+  assert.equal(trd.minutes_basis, 'task_sum');
+  assert.equal(trd.minutes_samples, null);
+
+  // The version 3 task_sum calibration differs from version 2 only in its method block: same estimate, whole.
+  assert.deepEqual(est.estimateTrdText(makeCalibrationV3({ minutes: 'task_sum' }), trdWithTasks(3)), trd);
+});
+
+test('15. trd_level with no TRD-level minutes samples: minutes is null and missing, never the task sum', () => {
+  const cal = makeCalibrationV3({ minutes: 'trd_level', trdMinutes: EMPTY_STAT });
+  const trd = est.estimateTrdText(cal, trdWithTasks(3));
+  assert.equal(trd.minutes, null);
+  assert.ok(trd.missing.includes('minutes'), trd.missing.join(','));
+  assert.ok(trd.notes.includes('no samples for minutes'), trd.notes.join(' | '));
+  assert.ok(!trd.notes.some((n) => n.startsWith('minutes from TRD-level history')), trd.notes.join(' | '));
+  assert.equal(trd.minutes_basis, 'trd_level');
+  assert.equal(trd.minutes_samples, null);
+  assert.equal(trd.tokens_input.p50 > 0, true, 'the other metrics are still estimated');
+  assert.equal(trd.confidence, 'high', 'with no TRD-level stat the cap has nothing to apply');
+});
+
+test('16. trd_level: a TRD with only checkpoint tasks has no minutes and says there are no auto tasks, as today', () => {
+  const cal = makeCalibrationV3({ minutes: 'trd_level' });
+  const trd = est.estimateTrdText(cal, TRD_CHECKPOINT_ONLY);
+  assert.equal(trd.minutes, null);
+  assert.ok(trd.notes.includes('no auto tasks'), trd.notes.join(' | '));
+  assert.ok(!trd.notes.some((n) => n.startsWith('minutes from TRD-level history')), trd.notes.join(' | '));
+  assert.equal(trd.confidence, 'none');
+  assert.equal(trd.minutes_basis, 'trd_level');
+  assert.equal(trd.minutes_samples, null);
+  assert.deepEqual(trd.missing, ['minutes', 'tokens_input', 'tokens_output', 'cost_usd']);
+});
+
+test('17. trd_level caps the TRD confidence at what its TRD-level minutes sample count supports', () => {
+  const thin = est.estimateTrdText(
+    makeCalibrationV3({ minutes: 'trd_level', trdMinutes: { n: 7, p50: 12, p90: 45 } }),
+    trdWithTasks(3),
+  );
+  assert.equal(thin.confidence, 'low');
+  assert.deepEqual(thin.weakest, { name: 'TRD-level minutes', label: 'low', p50: 12, class: null, n: 7 });
+  assert.deepEqual(thin.minutes, { p50: 12, p90: 45 });
+  assert.equal(thin.minutes_samples, 7);
+
+  const middle = est.estimateTrdText(
+    makeCalibrationV3({ minutes: 'trd_level', trdMinutes: { n: 15, p50: 12, p90: 45 } }),
+    trdWithTasks(3),
+  );
+  assert.equal(middle.confidence, 'medium');
+  assert.equal(middle.weakest.name, 'TRD-level minutes');
+  assert.equal(middle.weakest.n, 15);
+
+  const full = est.estimateTrdText(makeCalibrationV3({ minutes: 'trd_level' }), trdWithTasks(3));
+  const sum = est.estimateTrdText(makeCalibrationV3({ minutes: 'task_sum' }), trdWithTasks(3));
+  assert.equal(full.confidence, sum.confidence, 'with n 40 the tasks decide, as under task_sum');
+  assert.deepEqual(full.weakest, sum.weakest);
+
+  const taskSumThin = est.estimateTrdText(
+    makeCalibrationV3({ minutes: 'task_sum', trdMinutes: { n: 7, p50: 12, p90: 45 } }),
+    trdWithTasks(3),
+  );
+  assert.equal(taskSumThin.confidence, 'high', 'task_sum never looks at the TRD-level sample count');
+});
+
+test('18. a task estimate does not change with the minutes method', () => {
+  const task = { files: ['lib/a.cjs', 'lib/a.test.cjs'], tdd: true, type: 'auto' };
+  assert.deepEqual(
+    est.estimateTask(makeCalibrationV3({ minutes: 'trd_level' }), task),
+    est.estimateTask(makeCalibrationV3({ minutes: 'task_sum' }), task),
+  );
 });

@@ -203,6 +203,19 @@ STATE.md stays lean; this file grows over time.
 - [Objective 64]: 64-09: frozen rolling validation on 59-63 ran once: new method (window 10) EST-08 not met (cost SC3 32/41 TRDs under P90 unchanged), minutes median 1.348 to 1.238, ship rule ship_default true
 - [Objective 64]: Ship rule applied as recorded (ship_default true): calibrate defaults to a 10-objective window and the live calibration was regenerated, but EST-08 stays not met (cost SC3 32 of 41 TRDs, 78%)
 - [Objective 65]: 65-01: release 2.14.0 dated 2026-10-07 (local date +%F); lead paragraph only restates [Unreleased]/MILESTONES facts; REL-01 stays open until the merge and tag (65-02, 65-03)
+- [Objective 65]: 65-04: installed 2.14.0 verified after update and restart; remaining doctor warnings (plugin-cache, legacy-runtime-state, guard-state, W006 66-75) classified as unrelated to mirror lag and left in report mode
+- [Objective 66]: tokens coverage counts a SUMMARY with no token fields as missing whether or not it has a Self-Check; only a Progress checkpoint without Self-Check is in_progress (listed, not counted)
+- [Objective 66]: The SubagentStop gate checks token field presence in a final SUMMARY's frontmatter (not source) and blocks once via stop_hook_active; no marker file
+- [Objective 66]: PLAN_ID: lines in executor spawn prompts carry the short {trd_id} ({objective_number}-{plan_number}); the slug {plan_id} stays on exec-context --id, worktree and branch names
+- [Objective 66]: EST-09 stays Pending: measured v1.6 forward-stamp coverage is 5/7 = 0.714285 (target 95% not met); 65-02 and 65-03 ran inline and can never be stamped, so 95% needs at least 40 counted TRDs with 38 live
+- [Objective 67]: DECISION-003: frozen minutes method is TRD-level minutes (window 10, through objective 66), task-sum as pre-registered fallback; chosen by the planner agent, not the user
+- [Objective 67]: Calibration v3 method block records the requested minutes method, window and cutoff (even when nothing is dropped) and is part of inputs_digest; the calibrator computes the same statistics for task_sum and trd_level.
+- [Objective 67]: The through cutoff is applied inside collectProject (directories and metric rows, before any read or count); a directory with no number is out under a cutoff; the window applies after it.
+- [Objective 67]: 67-03: minutes_basis names the calibration's minutes method on every TRD estimate (even one with no minutes); minutes_samples is the TRD-level count only when a stat exists
+- [Objective 67]: 67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence
+- [Objective 67]: 67-04: the pre-registered ship rule returned ship_default true (reason: the new method meets EST-08; improved false, minutes median 1.021 old vs 1.051 new), so the frozen minutes method is trd_level, window 10, through objective 66
+- [Objective 67]: 67-05: calibrate default minutes method is trd_level, set by 67-VALIDATION.md (ship_default true, method_selected trd_level); the docs state that the rule fired on the new method's verdict, not on the median (1.021 task_sum, 1.051 trd_level)
+- [Objective 67]: Release 2.15.0 lead paragraph restates the CHANGELOG's own wording (pre-registered rule, installed plugin at 2.15.0) instead of inventing a /plugin update instruction; release commit carries exactly five files, SUMMARY goes in the docs commit
 
 ## Performance Metrics
 
@@ -337,4 +350,15 @@ STATE.md stays lean; this file grows over time.
 | Objective 64 P09 | 7min | 2 tasks | 1 files |
 | Objective 64 P10 | 15min | 3 tasks | 13 files |
 | Objective 65 P01 | 13min | 2 tasks | 5 files |
+| Objective 65 P04 | 8min | 2 tasks | 1 files |
+| Objective 66 P01 | 14min | 3 tasks | 7 files |
+| Objective 66 P02 | 11min | 3 tasks | 4 files |
+| Objective 66 P03 | 8min | 2 tasks | 2 files |
+| Objective 66 P04 | 9min | 2 tasks | 4 files |
+| Objective 67 P01 | 3min | 2 tasks | 1 files |
+| Objective 67 P02 | 23min | 3 tasks | 10 files |
+| Objective 67 P03 | 10min | 3 tasks | 8 files |
+| Objective 67 P04 | 9min | 3 tasks | 1 files |
+| Objective 67 P05 | 12min | 2 tasks | 9 files |
+| Objective 67 P06 | 14min | 2 tasks | 5 files |
 

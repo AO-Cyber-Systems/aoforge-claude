@@ -41,6 +41,7 @@ const {
   CAL_V2,
   MILESTONE_SPEC,
   makeCalibration,
+  makeCalibrationV3,
   makeEstimateProject,
   removeEstimateProject,
   writeCalibrationFile,
@@ -823,6 +824,7 @@ describe('12b: what a new run records of its estimate (TRD 64-02, EST-08)', () =
       version: 2,
       data_as_of: '2026-10-05',
       samples: CAL_V2.samples,
+      method: null,
       inputs_digest: null,
     });
     // what the run already recorded is unchanged
@@ -859,6 +861,84 @@ describe('12b: what a new run records of its estimate (TRD 64-02, EST-08)', () =
     store.writeRunState(root, old, { env: env() });
     ok(run(['wave', '80', '1', '--done'], { env: env(), now: T0 + 5 * MIN }));
     assert.deepEqual(live().estimate, old.estimate);
+  });
+});
+
+describe('12c: the minutes method in every result, the run state and the text (TRD 67-03, EST-10)', () => {
+  const METHOD = { minutes: 'trd_level', window_objectives: 10, through_objective: 66 };
+  let dir;
+  let counter = 0;
+  let trdLevelFile;
+  const env = () => ({ DEVFLOW_CALIBRATION_PATH: calFile, DEVFLOW_ESTIMATE_STATE_DIR: dir });
+  const live = () => store.readRunState(root, { env: env() });
+
+  before(() => {
+    trdLevelFile = writeCalibrationFile(path.join(scratch, 'cal-v3-trd-level'), makeCalibrationV3({ minutes: 'trd_level' }));
+  });
+
+  beforeEach(() => {
+    dir = path.join(scratch, `run-state-method-${counter++}`);
+  });
+
+  test('12: estimate trd under a trd_level calibration carries calibration.method and the TRD-level minutes', () => {
+    const r = ok(run(['trd', '80-02', '--calibration', trdLevelFile]));
+    assert.deepEqual(r.result.calibration.method, METHOD);
+    assert.equal(r.result.calibration.version, 3);
+    assert.equal(r.result.minutes.p50, 12);
+    assert.equal(r.result.minutes.p90, 45);
+    assert.equal(r.result.minutes_basis, 'trd_level');
+    assert.equal(r.result.minutes_samples, 40);
+    assert.ok(r.text.startsWith('TRD 80-02: 12 min (P90 45 min)'), r.text);
+
+    // The same carries through the other estimate verbs.
+    assert.deepEqual(ok(run(['task', '--class', 'code_tdd', '--calibration', trdLevelFile])).result.calibration.method, METHOD);
+    assert.deepEqual(ok(run(['objective', '80', '--calibration', trdLevelFile])).result.calibration.method, METHOD);
+    assert.deepEqual(ok(run(['milestone', '--calibration', trdLevelFile])).result.calibration.method, METHOD);
+  });
+
+  test('13: a version 2 calibration has calibration.method null and today\'s minutes', () => {
+    const r = ok(run(['trd', '80-01']));
+    assert.equal(r.result.calibration.method, null);
+    assert.equal(r.result.minutes.p50, 12);
+    assert.equal(r.result.minutes.p90, 36);
+    assert.equal(r.result.minutes_basis, 'task_sum');
+    assert.equal(r.result.minutes_samples, null);
+    assert.equal(ok(run(['task', '--class', 'code_tdd'])).result.calibration.method, null);
+    assert.equal(ok(run(['objective', '80'])).result.calibration.method, null);
+  });
+
+  test('14: estimate start records the method beside inputs_digest', () => {
+    const digested = writeCalibrationFile(path.join(scratch, 'cal-v3-digest'), { ...makeCalibrationV3({ minutes: 'trd_level' }), inputs_digest: 'sha256-0123abcd' });
+    ok(run(['start', '80', '--calibration', digested], { env: env(), now: T0 }));
+    const recorded = live().estimate.calibration;
+    assert.deepEqual(recorded.method, METHOD);
+    assert.equal(recorded.inputs_digest, 'sha256-0123abcd');
+    assert.equal(recorded.version, 3);
+  });
+
+  test('15: the objective table names the minutes method in its calibration sentence', () => {
+    const table = ok(run(['objective', '80', '--table', '--raw', '--calibration', trdLevelFile]));
+    assert.match(table.text, / Calibration 2026-10-05, 50 TRDs, minutes trd_level \(window 10, through objective 66\)\.$/m);
+
+    const taskSum = writeCalibrationFile(
+      path.join(scratch, 'cal-v3-task-sum'),
+      makeCalibrationV3({ minutes: 'task_sum' }),
+    );
+    const withNulls = writeCalibrationFile(
+      path.join(scratch, 'cal-v3-nulls'),
+      { ...makeCalibrationV3({ minutes: 'task_sum' }), method: { minutes: 'task_sum', window_objectives: null, through_objective: null } },
+    );
+    assert.match(ok(run(['objective', '80', '--table', '--raw', '--calibration', withNulls])).text, / Calibration 2026-10-05, 50 TRDs, minutes task_sum\.$/m);
+    assert.match(ok(run(['objective', '80', '--table', '--raw', '--calibration', taskSum])).text, /minutes task_sum \(window 10, through objective 66\)\.$/m);
+
+    // A version 2 calibration reads as before.
+    assert.match(ok(run(['objective', '80', '--table', '--raw'])).text, / Calibration 2026-10-05, 50 TRDs\.$/m);
+  });
+
+  test('15b: spawned df-tools prints the same sentence', () => {
+    const r = spawnEstimate(['objective', '80', '--table', '--raw'], { calibration: trdLevelFile });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, / Calibration 2026-10-05, 50 TRDs, minutes trd_level \(window 10, through objective 66\)\.$/m);
   });
 });
 
@@ -970,7 +1050,7 @@ describe('13b: backtest JSON (TRD 64-04, EST-08)', () => {
     const result = r.result;
     assert.equal(result.available, true);
     assert.deepEqual(result.objectives.map((o) => o.objective), ['90', '91']);
-    assert.deepEqual(Object.keys(result.calibration).sort(), ['data_as_of', 'inputs_digest', 'path', 'samples', 'version']);
+    assert.deepEqual(Object.keys(result.calibration).sort(), ['data_as_of', 'inputs_digest', 'method', 'path', 'samples', 'version']);
     assert.equal(result.calibration.path, calFile);
     assert.equal(result.calibration.version, 2);
     assert.equal(result.calibration.data_as_of, '2026-10-05');
@@ -978,6 +1058,18 @@ describe('13b: backtest JSON (TRD 64-04, EST-08)', () => {
     assert.equal(result.verdict.est08, 'not met', 'two objectives are below the minimum of three');
     assert.deepEqual(result.verdict.sc2, { agent_minutes: 'insufficient', cost_usd: 'insufficient' });
     for (const key of ['band', 'coverage_target', 'primary_metrics', 'classes', 'summary']) assert.ok(key in result, key);
+  });
+
+  test('2b: the calibration identity carries the minutes method, null for a calibration without one (TRD 67-03)', () => {
+    const v3 = writeCalibrationFile(path.join(scratch, 'cal-v3-backtest'), makeCalibrationV3({ minutes: 'trd_level' }));
+    const named = ok(backtest(['90,91', '--calibration', v3]));
+    assert.deepEqual(named.result.calibration.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+    assert.equal(named.result.calibration.version, 3);
+    assert.match(named.result.report, /samples 50 TRDs \/ 120 tasks \/ 40 with tokens, minutes trd_level, inputs_digest none\. Band /);
+
+    const plain = ok(backtest(['90,91']));
+    assert.equal(plain.result.calibration.method, null);
+    assert.ok(!/minutes (trd_level|task_sum)/.test(plain.result.report.split('\n').pop()), plain.result.report.split('\n').pop());
   });
 
   test('2a: `line` and `report` are the renderers over the unrounded result, and --raw prints the report', () => {

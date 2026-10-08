@@ -55,7 +55,9 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 62 — Built-in sweep (completed 2026-10-06, 11/11 TRDs)
 **Objective complete:** 63 — Todo store, hook coexistence and built-in inventory (completed 2026-10-07, 7/7 TRDs)
 **Objective complete:** 64 — Estimate accuracy validation (completed 2026-10-08, 10/10 TRDs)
-**Status:** Executing objective 65 — 1/4 TRDs complete
+**Objective complete:** 65 — Release v1.5 (completed 2026-10-08, 4/4 TRDs)
+**Objective complete:** 66 — Executor token stamp (completed 2026-10-08, 4/4 TRDs)
+**Status:** Executing objective 67 — 6/9 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -274,6 +276,6 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-08T02:49:50.425Z
+Last session: 2026-10-08T14:35:24.606Z
 Resume file: `None`
-Stopped at: Completed 65-01-release-artifacts-and-validation-TRD.md (release commit fad0442b, local only; 65-02 push/PR needs approval)
+Stopped at: Completed 67-06-release-artifacts-and-validation-TRD.md

@@ -6,6 +6,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-10-08
+
+Milestone v1.6, objectives 66 and 67 (objective 65 shipped 2.14.0). Executor SUMMARYs stamp their own token usage: the
+SubagentStop gate sends an executor back once when its final SUMMARY has no `tokens_input`/`tokens_output`,
+`execute-objective` runs every TRD in an executor, and `tokens coverage` reports forward-stamp coverage (EST-09). The
+minutes method is chosen by a pre-registered rule (EST-10): `calibrate --minutes` and `--through`, calibration version 3
+with a `method` block, and `trd_level` as the default minutes method, where the rule returned `ship_default: true`.
+EST-11, on objectives 68 to 72, is the prospective test. The 2.14.0 runtime refuses a version 3 calibration, and entries
+that need an installed plugin take effect once the installed plugin is at 2.15.0.
+
+Objectives 66 (EST-09, forward-stamp coverage) and 67 (EST-10, minutes recalibration). Entries that need an installed
+plugin take effect once the installed plugin carries the objective; the 2.14.0 runtime has none of them, and it
+refuses a version 3 calibration.
+
+### Added
+- `df-tools calibrate --minutes <task_sum|trd_level>` and `--through <N>` (objective 67, EST-10; `lib/calibrator.cjs`,
+  `lib/calibration-inputs.cjs`, `lib/calibrate-cli.cjs`). Calibration version 3 adds a `method` block,
+  `{minutes, window_objectives, through_objective}`, the parameters the build was asked for, and puts it inside
+  `inputs_digest`, so two builds that differ in method never share a digest. `--through` drops objectives numbered
+  above N, and their STATE_ARCHIVE and `state.json` metric rows, before anything is read or counted (agent overhead
+  comes from transcripts and is not cut), so a later objective cannot change the file. The summary line and the
+  result JSON name the minutes method and the cutoff. Needs an installed plugin carrying objective 67.
+- `df-tools tokens coverage [--milestone <v> | --objective <N>]` (objective 66, EST-09; `lib/token-coverage.cjs`). It
+  reports forward-stamp coverage (`tokens_source: "live"` over the counted TRD SUMMARYs) as an exact fraction and a
+  decimal floored at 6 places, and checks the 95% target with integers. It separates backfilled, unlabeled, missing and
+  in-progress SUMMARYs, gives each missing one a reason (`stamp_skipped` when an executor transcript exists, otherwise
+  `no_transcript`), and is read-only. The default scope is the current milestone.
+
+### Changed
+- The estimator reads calibration versions 1 to 3 (objective 67, EST-10; `lib/estimate.cjs`). With
+  `method.minutes: trd_level` a TRD's minutes are the calibration's `trd_level.minutes` distribution whatever its task
+  count; tokens and cost stay the per-task sum. Every `estimate` result carries `calibration.method`, the run state of
+  `estimate start` records it, and the text names the minutes method. A version 3 file with no `method` block, or one
+  naming a method the estimator does not know, is refused with a reason that names `df-tools calibrate`.
+- The default minutes method of `calibrate` is `trd_level` (objective 67, EST-10). `67-VALIDATION.md` scored
+  `task_sum` against `trd_level` once, on leave-future-out calibrations of objectives 46 to 66, and the pre-registered
+  ship rule returned `ship_default: true`. It fired on its first clause (the new method's own verdict is `met`), not on
+  an improvement of the centre: the agent-minutes median ratio is 1.021 for `task_sum` and 1.051 for `trd_level`, while
+  the P90 covers 160 of 165 TRDs against 152 of 165. `--minutes task_sum` keeps the previous behaviour. This is a
+  retrospective reconstruction; EST-11, on objectives 68 to 72, is the prospective test. The EST-11 calibration is built
+  once, with `--through 66`, and is frozen: it is not rebuilt until objective 75 has scored 68 to 72.
+- `gate-executor-stop.js` also blocks a `devflow:executor` once when its final SUMMARY (the one with `## Self-Check`)
+  has no `tokens_input`/`tokens_output`, naming the exact `planning draft`, `tokens stamp` and `summary post` commands
+  (objective 66; the 64-09 and 64-10 executors skipped the stamp). A checkpoint SUMMARY, a stamped or backfilled final
+  and a second stop (`stop_hook_active`) stay silent. Needs an installed plugin carrying objective 66.
+- `execute-objective` runs every TRD in an executor, checkpoint-only TRDs included, and never writes a TRD's SUMMARY
+  itself (objective 66; 65-02 and 65-03 ran inline, so `tokens stamp` can never recover their usage). The objective
+  report gains a `**Token stamp:**` line from `tokens coverage --objective <N> --raw`, and the orchestrator never runs
+  `tokens backfill --write` to raise it. Needs an installed plugin carrying objective 66.
+- `agents/executor.md` `<self_check>` tells the executor that the SubagentStop gate sends it back once if the stamp was
+  skipped (objective 66).
+
+### Fixed
+- `execute-objective` pointed continuation spawns at a `continuation-prompt.md` template that does not exist (objective
+  66). The continuation prompt is now inline and carries `PLAN_ID:` and `REPO_ROOT:`, so a continuation's tokens count
+  toward its TRD and the stop gate recognises it.
+- The `PLAN_ID:` line of the executor and continuation prompts carried the slug id (`66-01-tokens-coverage-command`),
+  which `trd-identify.identifyTrd` cannot read, so the stop gate failed open and the stamp could not be attributed
+  (objective 66). The line now takes the short `{trd_id}` (`{objective_number}-{plan_number}`); `exec-context --id` keeps
+  the slug. Needs an installed plugin carrying objective 66.
+
 ## [2.14.0] - 2026-10-07
 
 Milestone v1.5 Gate & Plumbing (objectives 56–64; objective 55 shipped in 2.13.2). The edit gate now covers Bash writes

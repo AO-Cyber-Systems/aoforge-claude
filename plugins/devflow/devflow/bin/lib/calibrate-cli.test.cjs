@@ -28,7 +28,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const {
-  makeCalibrationProject, removeCalibrationProject, ALPHA_SPEC,
+  makeCalibrationProject, removeCalibrationProject, ALPHA_SPEC, FUTURE_SPEC,
 } = require('./__fixtures__/calibration-fixtures.cjs');
 const fx = require('./__fixtures__/transcript-fixtures.cjs');
 
@@ -188,7 +188,9 @@ describe('df-tools calibrate (end to end)', () => {
 
     assert.ok(fs.existsSync(out), 'the file exists');
     const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
-    assert.equal(written.version, 2);
+    assert.equal(written.version, 3);
+    assert.deepEqual(written.method, { minutes: 'trd_level', window_objectives: 10, through_objective: null });
+    assert.deepEqual(result.method, written.method);
     assert.equal(written.samples.trds, 5);
     assert.equal(written.inputs_digest, result.inputs_digest);
   });
@@ -362,7 +364,8 @@ describe('df-tools calibrate (end to end)', () => {
     const beta = project(BETA_SPEC);
     const out = path.join(sb.tmp, 'c.json');
     // The fake HOME has no ~/.claude/projects, so the overhead scan runs and finds nothing.
-    const tail = '5 TRDs, 7 tasks, 1 with tokens · classes code_tdd 5, doc 1, prompt 1 · overhead none';
+    // 67-02: the summary always ends with the minutes method.
+    const tail = '5 TRDs, 7 tasks, 1 with tokens · classes code_tdd 5, doc 1, prompt 1 · overhead none · minutes trd_level';
     const oneLine = (r) => {
       assert.equal(r.status, 0, r.stderr);
       const text = r.stdout.replace(/\n$/, '');
@@ -436,7 +439,7 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
 
     const raw = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--raw']);
     assert.equal(raw.status, 0, raw.stderr);
-    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead none'), raw.stdout);
+    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead none · minutes trd_level'), raw.stdout);
   });
 
   test('58-03/2. --root reads that projects root: matched spawns by agent, the foreign one counted, and the file carries them', () => {
@@ -459,7 +462,7 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
     assert.equal(raw.status, 0, raw.stderr);
     const line = raw.stdout.replace(/\n$/, '');
     assert.equal(line.includes('\n'), false, 'one line');
-    assert.ok(line.endsWith(' · overhead planner 1, verifier 1'), line);
+    assert.ok(line.endsWith(' · overhead planner 1, verifier 1 · minutes trd_level'), line);
   });
 
   test('58-03/2b. a relative --root resolves against cwd', () => {
@@ -501,7 +504,7 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
 
     const raw = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--no-overhead', '--raw']);
     assert.equal(raw.status, 0, raw.stderr);
-    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead skipped'), raw.stdout);
+    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead skipped · minutes trd_level'), raw.stdout);
   });
 
   test('58-03/5. the same --root twice gives byte-identical files and changed:false', () => {
@@ -597,7 +600,14 @@ describe('df-tools calibrate --window (end to end)', () => {
     assert.equal(result.samples.trds, 4);
   });
 
-  test('12. --window all and no flag write byte-identical files, and the text has no window part', () => {
+  // Calibration v3 (TRD 67-02) names the REQUESTED window in `method` and in `inputs_digest`, so files built with a
+  // different request differ there and nowhere else.
+  const withoutIdentity = (file) => {
+    const { method, inputs_digest: digest, ...rest } = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return rest;
+  };
+
+  test('12. --window all and no flag write the same statistics, and the text has no window part', () => {
     const sb = sandbox();
     const slope = project(SLOPE_SPEC);
     const plain = path.join(sb.tmp, 'plain.json');
@@ -605,7 +615,10 @@ describe('df-tools calibrate --window (end to end)', () => {
 
     const plainResult = okJson(sb, sb.tmp, ['--paths', slope, '--no-overhead', '--out', plain]);
     const allResult = okJson(sb, sb.tmp, ['--paths', slope, '--window', 'all', '--no-overhead', '--out', all]);
-    assert.equal(fs.readFileSync(all, 'utf-8'), fs.readFileSync(plain, 'utf-8'));
+    assert.deepEqual(withoutIdentity(all), withoutIdentity(plain));
+    assert.equal(JSON.parse(fs.readFileSync(plain, 'utf-8')).method.window_objectives, 10);
+    assert.equal(JSON.parse(fs.readFileSync(all, 'utf-8')).method.window_objectives, null);
+    assert.equal(allResult.method.window_objectives, null);
     assert.equal(plainResult.window, null);
     assert.equal(allResult.window, null);
     assert.equal(allResult.samples.trds, 14);
@@ -615,14 +628,16 @@ describe('df-tools calibrate --window (end to end)', () => {
     assert.equal(text.includes('window'), false);
   });
 
-  test('12b. a window large enough to drop nothing is the same file as no flag', () => {
+  test('12b. a window large enough to drop nothing has the statistics of no flag, and names the window it was asked for', () => {
     const sb = sandbox();
     const slope = project(SLOPE_SPEC);
     const plain = path.join(sb.tmp, 'plain.json');
     const big = path.join(sb.tmp, 'big.json');
     okJson(sb, sb.tmp, ['--paths', slope, '--no-overhead', '--out', plain]);
     const result = okJson(sb, sb.tmp, ['--paths', slope, '--window', '50', '--no-overhead', '--out', big]);
-    assert.equal(fs.readFileSync(big, 'utf-8'), fs.readFileSync(plain, 'utf-8'));
+    assert.deepEqual(withoutIdentity(big), withoutIdentity(plain));
+    assert.equal(result.method.window_objectives, 50);
+    assert.equal(fs.readFileSync(big, 'utf-8') === fs.readFileSync(plain, 'utf-8'), false, 'the request is part of the file');
     assert.equal(result.window, null);
   });
 
@@ -734,5 +749,165 @@ describe('df-tools calibrate default window (end to end)', () => {
     assert.match(COMMANDS.calibrate.details, /--window all/);
     const header = fs.readFileSync(DF_TOOLS, 'utf-8').split('\n').slice(0, 260).join('\n');
     assert.match(header, /default: the most recent 10 objectives/);
+  });
+});
+
+// ─── 67-02: --minutes and --through ──────────────────────────────────────────
+//   15 --minutes trd_level --through 66 on FUTURE: exit 0, the text names both, the file's method and samples agree
+//   16 the same command again is unchanged; the JSON form reports changed:false and carries method
+//   17 --minutes task_sum and no --minutes write byte-identical files
+//   18 usage errors exit 1, name the flag and write nothing
+//   19 --dry-run writes nothing and the result carries method
+//   20 help, USAGE, the df-tools.cjs header and the case comment name both flags
+describe('df-tools calibrate --minutes and --through (end to end)', () => {
+  const NO_FILE = 'wrote a file';
+
+  test('67-02/15. --minutes trd_level --through 66 reads only 64-66, writes the method and names both in the summary', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+
+    const raw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--minutes', 'trd_level', '--through', '66', '--out', out, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.ok(raw.stdout.includes('minutes trd_level'), raw.stdout);
+    assert.ok(raw.stdout.includes('through objective 66'), raw.stdout);
+    assert.ok(raw.stdout.includes('3 TRDs, 6 tasks'), raw.stdout);
+    assert.equal(raw.stdout.replace(/\n$/, '').includes('\n'), false, '--raw is still one line');
+
+    const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
+    assert.deepEqual(written.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+    assert.equal(written.samples.trds, 3);
+    assert.equal(written.data_as_of, '2026-10-03');
+  });
+
+  test('67-02/16. the same command again is unchanged, and the JSON form reports changed:false with the method', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    const args = ['--paths', future, '--no-overhead', '--minutes', 'trd_level', '--through', '66', '--out', out];
+
+    assert.equal(run(sb, sb.tmp, [...args, '--raw']).status, 0);
+    const first = fs.readFileSync(out);
+    const again = run(sb, sb.tmp, [...args, '--raw']);
+    assert.equal(again.status, 0, again.stderr);
+    assert.ok(again.stdout.includes('unchanged'), again.stdout);
+    assert.ok(again.stdout.includes('through objective 66'), again.stdout);
+
+    const result = okJson(sb, sb.tmp, args);
+    assert.equal(result.changed, false);
+    assert.deepEqual(result.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+    assert.ok(first.equals(fs.readFileSync(out)), 'bytes are identical');
+  });
+
+  // 67-05: the default is trd_level, so the byte-identity is with --minutes trd_level (it was --minutes task_sum before).
+  test('67-02/17. --minutes trd_level and no --minutes write byte-identical files, and the text names trd_level', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const plain = path.join(sb.tmp, 'plain.json');
+    const named = path.join(sb.tmp, 'named.json');
+    const plainRaw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--through', '66', '--out', plain, '--raw']);
+    const namedRaw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--through', '66', '--minutes', 'trd_level', '--out', named, '--raw']);
+    assert.equal(plainRaw.status, 0, plainRaw.stderr);
+    assert.equal(namedRaw.status, 0, namedRaw.stderr);
+    assert.ok(fs.readFileSync(plain).equals(fs.readFileSync(named)));
+    assert.ok(plainRaw.stdout.includes('minutes trd_level'), plainRaw.stdout);
+    assert.equal(plainRaw.stdout.includes('through objective'), true);
+
+    const open = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--out', path.join(sb.tmp, 'open.json'), '--raw']);
+    assert.equal(open.status, 0, open.stderr);
+    assert.equal(open.stdout.includes('through objective'), false, 'no cutoff, no cutoff text');
+    assert.ok(open.stdout.includes('minutes trd_level'), open.stdout);
+  });
+
+  test('67-05/1. no --minutes writes the trd_level method, byte-identical to --minutes trd_level; --minutes task_sum differs', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const plain = path.join(sb.tmp, 'plain.json');
+    const level = path.join(sb.tmp, 'level.json');
+    const sum = path.join(sb.tmp, 'sum.json');
+    const plainRaw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--out', plain, '--raw']);
+    const levelRaw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--minutes', 'trd_level', '--out', level, '--raw']);
+    const sumRaw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--minutes', 'task_sum', '--out', sum, '--raw']);
+    for (const r of [plainRaw, levelRaw, sumRaw]) assert.equal(r.status, 0, r.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(plain, 'utf-8')).method.minutes, 'trd_level',
+      '67-VALIDATION.md ship_default true: the default is the shipped method');
+    assert.ok(fs.readFileSync(plain).equals(fs.readFileSync(level)), 'no --minutes is --minutes trd_level');
+    assert.equal(fs.readFileSync(plain).equals(fs.readFileSync(sum)), false, '--minutes task_sum is a different calibration');
+    assert.equal(JSON.parse(fs.readFileSync(sum, 'utf-8')).method.minutes, 'task_sum');
+    assert.ok(plainRaw.stdout.includes('minutes trd_level'), plainRaw.stdout);
+    assert.ok(sumRaw.stdout.includes('minutes task_sum'), sumRaw.stdout);
+  });
+
+  test('67-02/18. a bad --minutes or --through exits 1, names the flag and the usage line, and writes nothing', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    const cases = [
+      [['--minutes'], '--minutes', /--minutes needs a value/],
+      [['--minutes', 'trd-level'], '--minutes', /--minutes must be task_sum or trd_level, got "trd-level"/],
+      [['--minutes', 'all'], '--minutes', /--minutes must be task_sum or trd_level, got "all"/],
+      [['--through'], '--through', /--through needs a value/],
+      [['--through', '-1'], '--through', /--through must be an objective number \(for example 66\), got "-1"/],
+      [['--through', 'abc'], '--through', /--through must be an objective number \(for example 66\), got "abc"/],
+      [['--through', '6x'], '--through', /--through must be an objective number \(for example 66\), got "6x"/],
+    ];
+    for (const [bad, flag, message] of cases) {
+      const r = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--out', out, ...bad]);
+      assert.equal(r.status, 1, `${bad.join(' ')}: ${r.stdout}`);
+      assert.ok(r.stderr.includes(flag), bad.join(' '));
+      assert.match(r.stderr, message, bad.join(' '));
+      assert.match(r.stderr, USAGE, bad.join(' '));
+      assert.equal(/unknown flag/.test(r.stderr), false, `${bad.join(' ')}: ${flag} is a known flag`);
+      assert.equal(fs.existsSync(out), false, `${bad.join(' ')} ${NO_FILE}`);
+    }
+    assert.equal(fs.existsSync(sb.defaultOut), false);
+  });
+
+  test('67-02/18b. a decimal --through is an objective number', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const result = okJson(sb, sb.tmp, ['--paths', future, '--no-overhead', '--through', '65.5', '--out', path.join(sb.tmp, 'c.json')]);
+    assert.equal(result.method.through_objective, 65.5);
+    assert.equal(result.samples.trds, 2);
+  });
+
+  test('67-02/19. --dry-run --minutes trd_level --through 66 writes nothing and the result carries the method', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    const result = okJson(sb, sb.tmp, ['--paths', future, '--no-overhead', '--minutes', 'trd_level', '--through', '66', '--out', out, '--dry-run']);
+    assert.equal(result.dry_run, true);
+    assert.equal(result.changed, true);
+    assert.deepEqual(result.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+    assert.equal(result.samples.trds, 3);
+    assert.equal(fs.existsSync(out), false);
+    assert.equal(fs.existsSync(sb.defaultOut), false);
+  });
+
+  test('67-02/20. help, USAGE, the df-tools.cjs header and the case comment name --minutes <task_sum|trd_level> and --through <N>', () => {
+    const { COMMANDS } = require('./help.cjs');
+    const cli = require('./calibrate-cli.cjs');
+    const lines = fs.readFileSync(DF_TOOLS, 'utf-8').split('\n');
+    const header = lines.slice(0, 260).join('\n');
+    const caseComment = lines.find((line) => line.trim().startsWith('// df-tools calibrate '));
+    assert.ok(caseComment, 'the case comment exists');
+    for (const [where, text] of [
+      ['USAGE', cli.USAGE], ['help usage', COMMANDS.calibrate.usage], ['df-tools.cjs header', header], ['case comment', caseComment],
+    ]) {
+      assert.ok(text.includes('--minutes <task_sum|trd_level>'), `${where} names --minutes`);
+      assert.ok(text.includes('--through <N>'), `${where} names --through`);
+    }
+    assert.ok(COMMANDS.calibrate.details.includes('--minutes'), 'details explain --minutes');
+    assert.ok(COMMANDS.calibrate.details.includes('--through'), 'details explain --through');
+    assert.match(COMMANDS.calibrate.details, /trd_level/);
+    assert.match(COMMANDS.calibrate.details, /task_sum/);
+
+    const sb = sandbox();
+    const help = spawnSync(process.execPath, [DF_TOOLS, '--cwd', sb.tmp, 'calibrate', '--help'], {
+      cwd: sb.tmp, env: { ...process.env, HOME: sb.home }, encoding: 'utf-8', timeout: 60000,
+    });
+    assert.equal(help.status, 0, help.stderr);
+    assert.ok(help.stdout.includes('--minutes <task_sum|trd_level>'), help.stdout);
+    assert.ok(help.stdout.includes('--through <N>'), help.stdout);
   });
 });

@@ -15,6 +15,13 @@
 //     11 executor.md <self_check>: tokens stamp before summary post   12 execute-trd.md create_summary_with_evidence
 //     13 templates/summary.md documents the fields                    14 executor.md record-metric passes --job, not --trd
 //
+// TRD 66-01 adds `tokens coverage` (EST-09): its tests are the last describe in this file, named `66-01 1.` onwards.
+//   66-01 1. default scope is the current milestone      2. --raw text: the summary line, then one line per non-live entry
+//   66-01 3. --milestone v1.5 reads the archived dirs    4. --objective 65 scopes to one objective directory
+//   66-01 5. missing reasons from transcripts; --root and --repo honored
+//   66-01 6. usage errors exit 1 with the USAGE line     7. read-only: no file under the repo or the projects root changes
+//   extra: the help usage lists coverage; readRootFor picks main in store mode and the checkout in local mode
+//
 // Hermetic: every repo, home and draft is an fs.mkdtemp directory (realpath'd). Spawned runs get HOME=<fake home>, so
 // the real ~/.claude is never read; in-process calls pass `root` explicitly, or set HOME and restore it. Transcripts
 // come from __fixtures__/transcript-fixtures.cjs; SUMMARY and TRD text is literal below. No generated data.
@@ -29,6 +36,7 @@ const { spawnSync } = require('node:child_process');
 const {
   makeFakeHome, projectKeyFor, assistantRecords, executorPrompt, writeSubagentTranscript, THREE_MESSAGES,
 } = require('./__fixtures__/transcript-fixtures.cjs');
+const { makeCoverageProject, V16_FIXTURE } = require('./__fixtures__/token-coverage-fixtures.cjs');
 
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 const USAGE = /df-tools tokens /;
@@ -668,5 +676,230 @@ describe('df-tools tokens backfill (end to end, TRD 57-06)', () => {
     } finally {
       p.cleanup();
     }
+  });
+});
+
+// ─── TRD 66-01: tokens coverage (EST-09) ─────────────────────────────────────
+
+const V16_LINE_1 = 'v1.6 forward-stamped 2/6 = 0.333333 (target 95%: not met) · live 2 · backfill 1 · unlabeled 1 · missing 2 · in progress 1 (not counted)';
+
+/** Run df-tools (no --raw: JSON), assert exit 0 and return the parsed stdout. */
+function coverageJson(p, args) {
+  const r = p.run(['tokens', 'coverage', ...args]);
+  assert.equal(r.status, 0, `df-tools tokens coverage ${args.join(' ')}\n${r.stdout}\n${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
+
+/** Run df-tools with --raw, assert exit 0 and return the stdout without its final newline. */
+function coverageText(p, args) {
+  const r = p.run(['tokens', 'coverage', ...args, '--raw']);
+  assert.equal(r.status, 0, `df-tools tokens coverage ${args.join(' ')} --raw\n${r.stdout}\n${r.stderr}`);
+  return r.stdout.replace(/\n$/, '');
+}
+
+describe('66-01 tokens coverage (end to end)', () => {
+  test('66-01 1. with no flag the scope is the current milestone: only 65-* and 66-*, counted from the fixture', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    try {
+      const r = coverageJson(p, []);
+      assert.equal(r.scope.kind, 'milestone');
+      assert.equal(r.scope.version, 'v1.6');
+      assert.deepEqual(r.entries.map((e) => [e.id, e.class]), [
+        ['65-01', 'live'], ['65-02', 'missing'], ['65-03', 'missing'], ['65-04', 'live'],
+        ['66-01', 'backfill'], ['66-02', 'unlabeled'], ['66-03', 'in_progress'],
+      ]);
+      assert.deepEqual(r.counts, { summaries: 7, counted: 6, live: 2, backfill: 1, unlabeled: 1, missing: 2, in_progress: 1 });
+      assert.equal(r.forward.numerator, 2);
+      assert.equal(r.forward.denominator, 6);
+      assert.equal(r.forward.ratio_text, '0.333333');
+      assert.equal(r.forward.met, false);
+      assert.equal(r.forward.target_percent, 95);
+      assert.deepEqual(r.scope.objectives.map((o) => o.number), ['65', '66']);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('66-01 2. --raw prints the summary line, then one line per non-live entry in id order', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    try {
+      assert.equal(coverageText(p, []), [
+        V16_LINE_1,
+        '  65-02 missing (no_transcript)',
+        '  65-03 missing (no_transcript)',
+        '  66-01 backfill',
+        '  66-02 unlabeled',
+        '  66-03 in progress',
+      ].join('\n'));
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('66-01 3. --milestone v1.5 (or 1.5) reads the archived objective directory', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    try {
+      const r = coverageJson(p, ['--milestone', 'v1.5']);
+      assert.equal(r.scope.kind, 'milestone');
+      assert.equal(r.scope.version, 'v1.5');
+      assert.deepEqual(r.entries.map((e) => [e.id, e.class, e.path]), [
+        ['64-01', 'live', '.planning/milestones/v1.5-objectives/64-old/64-01-SUMMARY.md'],
+      ]);
+      assert.equal(r.forward.ratio_text, '1');
+      assert.equal(r.forward.met, true);
+
+      const bare = coverageJson(p, ['--milestone', '1.5']);
+      assert.equal(bare.scope.version, 'v1.5');
+      assert.deepEqual(bare.entries.map((e) => e.id), ['64-01']);
+      assert.equal(
+        coverageText(p, ['--milestone', 'v1.5']),
+        'v1.5 forward-stamped 1/1 = 1 (target 95%: met) · live 1 · backfill 0 · unlabeled 0 · missing 0 · in progress 0 (not counted)',
+      );
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('66-01 4. --objective 65 scopes to that objective directory only', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    try {
+      const r = coverageJson(p, ['--objective', '65']);
+      assert.equal(r.scope.kind, 'objective');
+      assert.equal(r.scope.objective, '65');
+      assert.deepEqual(r.entries.map((e) => e.id), ['65-01', '65-02', '65-03', '65-04']);
+      assert.deepEqual(r.scope.objectives, [{ number: '65', dir: '.planning/objectives/65-release' }]);
+      assert.ok(
+        coverageText(p, ['--objective', '65']).startsWith('objective 65 forward-stamped 2/4 = 0.5 (target 95%: not met)'),
+      );
+
+      const archived = coverageJson(p, ['--objective', '64']);
+      assert.deepEqual(archived.entries.map((e) => e.id), ['64-01'], 'an archived objective is found too');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('66-01 5. a missing SUMMARY with an executor transcript is stamp_skipped; --root and --repo are honored', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    const empty = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-coverage-empty-')));
+    try {
+      p.transcript('65-03', '65-release');
+
+      const reasons = (r) => Object.fromEntries(r.entries.filter((e) => e.class === 'missing').map((e) => [e.id, e.reason]));
+      assert.deepEqual(reasons(coverageJson(p, [])), { '65-02': 'no_transcript', '65-03': 'stamp_skipped' },
+        'the default root is HOME/.claude/projects');
+      assert.deepEqual(reasons(coverageJson(p, ['--root', p.projectsRoot])), { '65-02': 'no_transcript', '65-03': 'stamp_skipped' });
+      assert.deepEqual(reasons(coverageJson(p, ['--root', empty])), { '65-02': 'no_transcript', '65-03': 'no_transcript' },
+        'another --root has no transcript');
+      assert.deepEqual(reasons(coverageJson(p, ['--repo', p.repo])), { '65-02': 'no_transcript', '65-03': 'stamp_skipped' });
+      assert.deepEqual(reasons(coverageJson(p, ['--repo', empty])), { '65-02': 'no_transcript', '65-03': 'no_transcript' },
+        'transcripts of another repository do not count');
+      assert.ok(coverageText(p, []).split('\n').includes('  65-03 missing (stamp_skipped)'));
+      assert.ok(coverageText(p, []).split('\n').includes('  65-02 missing (no_transcript)'));
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true });
+      p.cleanup();
+    }
+  });
+
+  test('66-01 5b. from outside a project, --repo names the project to read', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-coverage-outside-')));
+    try {
+      const run = (args) => spawnSync(process.execPath, [DF_TOOLS, '--cwd', outside, 'tokens', 'coverage', ...args], {
+        cwd: p.tmp, env: { ...process.env, HOME: p.home, NOTIFIER_DISABLE: '1' }, encoding: 'utf-8', timeout: 60000,
+      });
+      const none = run([]);
+      assert.equal(none.status, 1);
+      assert.match(none.stderr, /no DevFlow project/);
+      assert.match(none.stderr, /pass --repo/);
+
+      const ok = run(['--repo', p.repo, '--raw']);
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.equal(ok.stdout.split('\n')[0], V16_LINE_1);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+      p.cleanup();
+    }
+  });
+
+  test('66-01 6. usage errors exit 1 with the USAGE line on stderr and name what is wrong', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    const bare = makeCoverageProject({ objectives: { '65-release': [{ id: '65-01', kind: 'live' }] } });
+    try {
+      const before = p.hashTree(p.repo);
+      const cases = [
+        [['--milestone', 'v1.6', '--objective', '65'], /not both|only one|either/i],
+        [['65-01'], /takes no TRD id/],
+        [['--since', '65'], /unknown flag --since/],
+        [['--write'], /only valid for tokens backfill/],
+        [['--objective', 'x1'], /--objective/],
+        [['--milestone', 'v9.9'], /milestone v9\.9 not in ROADMAP\.md/],
+        [['--objective', '99'], /no objective directory/i],
+        [['--milestone'], /needs a value/],
+      ];
+      for (const [args, want] of cases) {
+        const r = p.run(['tokens', 'coverage', ...args]);
+        assert.equal(r.status, 1, `tokens coverage ${args.join(' ')} should exit 1\n${r.stdout}\n${r.stderr}`);
+        assert.match(r.stderr, USAGE, `tokens coverage ${args.join(' ')} prints a usage line`);
+        assert.match(r.stderr, want, `tokens coverage ${args.join(' ')}`);
+        assert.doesNotMatch(r.stderr, /Unknown command/);
+      }
+
+      const noRoadmap = bare.run(['tokens', 'coverage']);
+      assert.equal(noRoadmap.status, 1, 'the default scope needs a ROADMAP.md');
+      assert.match(noRoadmap.stderr, /ROADMAP\.md not found/);
+      assert.match(noRoadmap.stderr, USAGE);
+      assert.equal(bare.run(['tokens', 'coverage', '--objective', '65']).status, 0, '--objective needs no ROADMAP.md');
+
+      assert.deepEqual(p.hashTree(p.repo), before, 'a usage error writes nothing');
+    } finally {
+      bare.cleanup();
+      p.cleanup();
+    }
+  });
+
+  test('66-01 7. a report writes nothing: every file under the repo and the projects root is byte-identical', () => {
+    const p = makeCoverageProject(V16_FIXTURE);
+    try {
+      p.transcript('65-03', '65-release');
+      const repoBefore = p.hashTree(p.repo);
+      const rootBefore = p.hashTree(p.projectsRoot);
+      assert.ok(repoBefore.length > 0 && rootBefore.length > 0);
+
+      const r = coverageJson(p, []);
+      assert.equal(r.counts.missing, 2, 'the run had missing entries, so the transcript index was consulted');
+      coverageText(p, []);
+      coverageJson(p, ['--objective', '65']);
+      coverageJson(p, ['--milestone', 'v1.5']);
+
+      assert.deepEqual(p.hashTree(p.repo), repoBefore);
+      assert.deepEqual(p.hashTree(p.projectsRoot), rootBefore);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('66-01 8. the tokens help usage lists coverage and --milestone / --objective', () => {
+    const { COMMANDS } = require('./help.cjs');
+    assert.match(COMMANDS.tokens.usage, /coverage \[--milestone <v> \| --objective <N>\]/);
+    assert.match(COMMANDS.tokens.summary, /coverage/);
+    assert.match(COMMANDS.tokens.details, /live\/counted/);
+
+    const p = makeCoverageProject(V16_FIXTURE);
+    try {
+      const r = p.run(['tokens', '--help']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /coverage/);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('66-01 9. readRootFor reads the main checkout in store mode and the checkout holding cwd in local mode', () => {
+    const { readRootFor } = require('./tokens-cli.cjs');
+    assert.equal(readRootFor({ mode: 'store', main: '/m', checkout: '/w' }), '/m');
+    assert.equal(readRootFor({ mode: 'local', main: '/m', checkout: '/w' }), '/w');
+    assert.equal(readRootFor({ mode: 'local', main: '/m', checkout: null }), '/m');
   });
 });

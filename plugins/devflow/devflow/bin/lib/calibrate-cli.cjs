@@ -5,10 +5,11 @@
  *
  * Thin CLI front end for the calibrator (lib/calibrator.cjs, TRD 57-05):
  *
- *   df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--dry-run] [--raw]
+ *   df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--minutes <task_sum|trd_level>] [--through <N>] [--dry-run] [--raw]
  *       Builds the per-task-class medians and P90s (minutes, tokens, dollars) from SUMMARY frontmatter, STATE_ARCHIVE
  *       metrics and model-rates.json, and writes calibration.json. Version 2 also measures what one spawn of each
- *       non-executor agent costs (planner, verifier, ...) from subagent transcripts.
+ *       non-executor agent costs (planner, verifier, ...) from subagent transcripts. Version 3 (TRD 67-02) names the
+ *       method it was built with in a `method` block: the minutes method, the window and the cutoff.
  *
  *   paths   --paths (comma separated), else DEVFLOW_CALIBRATE_PATHS (path.delimiter separated), else the checkout
  *           holding cwd. A path is a project (has .planning/objectives) or a directory of projects. Relative paths
@@ -23,6 +24,14 @@
  *           overhead is not windowed. Default (TRD 64-10): the most recent 10 objectives with samples per project when
  *           the flag is absent, and `--window all` keeps all history; a window that drops nothing (a project of 10 or
  *           fewer objectives) leaves no trace in the file. N is a positive integer: anything else is a usage error.
+ *   minutes --minutes <task_sum|trd_level> (TRD 67-02): how an estimate builds a TRD's minutes, recorded in `method` and
+ *           in the digest. `task_sum` adds the per-task class distributions of its auto tasks; `trd_level` (default since
+ *           objective 67) takes `trd_level.minutes` whatever the task count. The statistics in the file are the same
+ *           either way: the estimator applies the method. Anything else is a usage error.
+ *   through --through <N> (TRD 67-02): objectives numbered above N, and directories with no number, are not read, and
+ *           their STATE_ARCHIVE and state.json metric rows are not counted, so a later objective cannot change the file.
+ *           The window then applies to what is left. N is an objective number (digits, optionally a decimal part).
+ *           Agent overhead comes from transcripts and is not cut. Absent: no cutoff.
  *
  * Deterministic: unchanged inputs give a byte-identical file and `changed: false`; the file is then not rewritten.
  * `--dry-run` builds and reports but writes nothing. stdout is a summary, never the calibration object: the file is
@@ -39,9 +48,9 @@ const path = require('path');
 const calibrator = require('./calibrator.cjs');
 const planningMode = require('./planning-mode.cjs');
 
-const USAGE = 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--dry-run] [--raw]';
+const USAGE = 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--minutes <task_sum|trd_level>] [--through <N>] [--dry-run] [--raw]';
 
-const VALUE_FLAGS = ['paths', 'out', 'rates', 'root', 'window'];
+const VALUE_FLAGS = ['paths', 'out', 'rates', 'root', 'window', 'minutes', 'through'];
 const BOOL_FLAGS = ['dry-run', 'no-overhead'];
 
 function usageError(message) {
@@ -55,7 +64,11 @@ function usageError(message) {
  * `window` is undefined without the flag (the library default of 10 objectives applies), null for `all` (explicitly no window) and a
  * positive integer otherwise; any other value is a usage error naming the flag.
  *
- * @returns {{ok:true, flags: Object<string,string>, dryRun: boolean, noOverhead: boolean, window: (undefined|null|number)} | {ok:false, message:string}}
+ * `minutes` is undefined without the flag (the library default applies) and otherwise one of the calibrator's
+ * MINUTES_METHODS; `through` is undefined without the flag (no cutoff) and otherwise a non-negative number (digits with an
+ * optional decimal part, safe to represent). Any other value is a usage error naming the flag.
+ *
+ * @returns {{ok:true, flags: Object<string,string>, dryRun: boolean, noOverhead: boolean, window: (undefined|null|number), minutes: (undefined|string), through: (undefined|number)} | {ok:false, message:string}}
  */
 function parseArgs(argv) {
   const flags = {};
@@ -88,7 +101,22 @@ function parseArgs(argv) {
       return usageError(`--window must be a positive integer or all, got ${JSON.stringify(flags.window)}`);
     }
   }
-  return { ok: true, flags, dryRun: bools['dry-run'] === true, noOverhead: bools['no-overhead'] === true, window };
+  let minutes;
+  if (flags.minutes !== undefined) {
+    if (!calibrator.MINUTES_METHODS.includes(flags.minutes)) {
+      return usageError(`--minutes must be task_sum or trd_level, got ${JSON.stringify(flags.minutes)}`);
+    }
+    minutes = flags.minutes;
+  }
+  let through;
+  if (flags.through !== undefined) {
+    const number = /^\d+(?:\.\d+)?$/.test(flags.through) ? Number(flags.through) : NaN;
+    if (!Number.isFinite(number) || number > Number.MAX_SAFE_INTEGER) {
+      return usageError(`--through must be an objective number (for example 66), got ${JSON.stringify(flags.through)}`);
+    }
+    through = number;
+  }
+  return { ok: true, flags, dryRun: bools['dry-run'] === true, noOverhead: bools['no-overhead'] === true, window, minutes, through };
 }
 
 /** Non-empty trimmed pieces of `text` split on `sep`, each resolved against `base`. */
@@ -145,6 +173,11 @@ function windowText(block) {
   return ` · window ${block.objectives} objectives (dropped ${dropped} TRDs)`;
 }
 
+/** ` · minutes trd_level` always, then ` · through objective 66` when a cutoff was asked for. */
+function methodText(method) {
+  return ` · minutes ${method.minutes}${method.through_objective === null ? '' : ` · through objective ${method.through_objective}`}`;
+}
+
 /** Would writing `obj` to `file` change it? True when the file is absent or its bytes differ. */
 function wouldChange(file, obj) {
   try {
@@ -163,7 +196,7 @@ function wouldChange(file, obj) {
 function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) return parsed;
-  const { flags, dryRun, noOverhead, window } = parsed;
+  const { flags, dryRun, noOverhead, window, minutes, through } = parsed;
 
   const base = path.resolve(cwd);
   const where = resolvePaths(flags, env, base);
@@ -182,7 +215,7 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
 
   let calibration;
   try {
-    calibration = calibrator.buildCalibration({ paths: where.paths, ratesPath, transcriptsRoot, window });
+    calibration = calibrator.buildCalibration({ paths: where.paths, ratesPath, transcriptsRoot, window, minutes, through });
   } catch (err) {
     return { ok: false, message: err.message };
   }
@@ -225,13 +258,14 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
     sources: calibration.sources,
     data_as_of: calibration.data_as_of,
     window: calibration.window || null,
+    method: calibration.method,
     inputs_digest: calibration.inputs_digest,
     unpriced_models: calibration.unpriced_models,
     overhead,
   };
   const slot = dryRun ? 'dry run' : changed ? 'changed' : 'unchanged';
   const s = calibration.samples;
-  const text = `calibration ${out}: ${slot} · ${s.trds} TRDs, ${s.tasks} tasks, ${s.with_tokens} with tokens · classes ${classList(classes)} · overhead ${src.scanned ? classList(agents) : 'skipped'}${windowText(calibration.window)}`;
+  const text = `calibration ${out}: ${slot} · ${s.trds} TRDs, ${s.tasks} tasks, ${s.with_tokens} with tokens · classes ${classList(classes)} · overhead ${src.scanned ? classList(agents) : 'skipped'}${windowText(calibration.window)}${methodText(calibration.method)}`;
   return { ok: true, result, text, exit: 0 };
 }
 

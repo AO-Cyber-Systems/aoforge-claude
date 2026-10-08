@@ -21,6 +21,17 @@
  *       the main checkout (--repo, default resolveMainRoot(cwd)); SUMMARYs are read and written in the checkout holding
  *       cwd. Unrecoverable history (retention deleted the transcript) is the normal outcome: exit 0.
  *
+ *   df-tools tokens coverage [--milestone <v> | --objective <N>] [--repo <path>] [--root <dir>]
+ *       TRD 66-01 (EST-09). Read-only. Forward-stamp coverage: of the TRD SUMMARYs in a scope, how many carry tokens stamped
+ *       at write time (tokens_source "live"), as live / counted with an exact fraction, a decimal floored at 6 places and an
+ *       integer check against the 95% target (lib/token-coverage.cjs). The scope is the current milestone of ROADMAP.md,
+ *       else --milestone <v> or --objective <N> (not both). Every SUMMARY is one of live, backfill, unlabeled, missing (no
+ *       token fields, whether or not it has a Self-Check) or in_progress (a Progress checkpoint only; listed, not counted);
+ *       each missing one carries a reason (stamp_skipped when an executor transcript of the TRD exists, else why none).
+ *       SUMMARYs are read in the checkout holding cwd (the main checkout in store mode), transcripts for --repo (default
+ *       the main checkout). It writes no file. A report exits 0 whatever the coverage; exit 1 only for a usage error, an
+ *       unknown milestone, a missing ROADMAP.md or an objective with no directory.
+ *
  * Never blocks publication: no matching transcript (retention, an older runtime, another harness) is
  * `stamped:false` with exit 0 and the draft untouched. Only usage errors and a `.planning/` draft exit 1.
  *
@@ -33,14 +44,19 @@ const path = require('path');
 const planningMode = require('./planning-mode.cjs');
 const tokenUsage = require('./token-usage.cjs');
 const tokenBackfill = require('./token-backfill.cjs');
+const tokenCoverage = require('./token-coverage.cjs');
+const { selectMilestoneObjectives } = require('./milestone-scope.cjs');
+const { getArchivedObjectiveDirs } = require('./objective.cjs');
+const { normalizeObjectiveName, objectiveDirMatches } = require('./helpers.cjs');
 
 const USAGE =
-  'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path> | backfill [--write] [--force]> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]';
+  'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path> | backfill [--write] [--force] | coverage [--milestone <v> | --objective <N>]> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]';
 
 const VALUE_FLAGS = {
   trd: ['objective-dir', 'repo', 'root'],
   stamp: ['draft', 'objective-dir', 'repo', 'root'],
   backfill: ['repo', 'root'],
+  coverage: ['milestone', 'objective', 'repo', 'root'],
 };
 
 /** Boolean flags per subcommand. `--write` and `--force` exist for `backfill` only. */
@@ -48,6 +64,7 @@ const BOOL_FLAGS = {
   trd: [],
   stamp: [],
   backfill: ['write', 'force'],
+  coverage: [],
 };
 const BACKFILL_ONLY = ['write', 'force'];
 
@@ -65,9 +82,9 @@ function usageError(message) {
  */
 function parseArgs(argv) {
   const sub = argv[0];
-  if (sub === undefined) return usageError('tokens needs a subcommand: trd, stamp or backfill');
+  if (sub === undefined) return usageError('tokens needs a subcommand: trd, stamp, backfill or coverage');
   if (!Object.prototype.hasOwnProperty.call(VALUE_FLAGS, sub)) {
-    return usageError(`unknown tokens subcommand ${JSON.stringify(sub)}; expected trd, stamp or backfill`);
+    return usageError(`unknown tokens subcommand ${JSON.stringify(sub)}; expected trd, stamp, backfill or coverage`);
   }
   const allowed = VALUE_FLAGS[sub];
   const bools = BOOL_FLAGS[sub];
@@ -89,6 +106,18 @@ function parseArgs(argv) {
   if (sub === 'backfill') {
     if (positionals.length > 0) {
       return usageError(`tokens backfill takes no TRD id or argument, got ${JSON.stringify(positionals[0])}; it covers every SUMMARY`);
+    }
+    return { ok: true, sub, id: null, flags };
+  }
+  if (sub === 'coverage') {
+    if (positionals.length > 0) {
+      return usageError(`tokens coverage takes no TRD id; use --objective <N> or --milestone <v> (got ${JSON.stringify(positionals[0])})`);
+    }
+    if (flags.milestone !== undefined && flags.objective !== undefined) {
+      return usageError('tokens coverage takes either --milestone <v> or --objective <N>, not both');
+    }
+    if (flags.objective !== undefined && !/^\d+(?:\.\d+)?$/.test(flags.objective)) {
+      return usageError(`--objective needs an objective number such as 65 or 4.1, got ${JSON.stringify(flags.objective)}`);
     }
     return { ok: true, sub, id: null, flags };
   }
@@ -183,6 +212,98 @@ function runBackfill({ flags, cwd, root }) {
 }
 
 /**
+ * The tree whose SUMMARYs `tokens coverage` reads: the main checkout in store mode (its `.planning/` is the cache), else
+ * the checkout holding cwd (a local-mode worktree reads its own SUMMARYs), else the main checkout. Same rule as
+ * planning-verbs.summaryWriteRoot, so coverage reads where `summary post` writes.
+ *
+ * @param {{mode: string, main: string, checkout?: string|null}} where
+ * @returns {string}
+ */
+function readRootFor({ mode, main, checkout }) {
+  if (mode === planningMode.STORE) return main;
+  return checkout || main;
+}
+
+/** An objective number as the ROADMAP.md names it: no leading zeros on the integer part (`04` is `4`, `4.1` stays). */
+function canonicalNumber(text) {
+  const [int, dec] = String(text).split('.');
+  return dec === undefined ? String(parseInt(int, 10)) : `${parseInt(int, 10)}.${dec}`;
+}
+
+/** `[{number, dir}]` of the current and archived directories of objective `number` under `readRoot` (`dir` relative, forward slashes). */
+function objectiveScopeDirs(readRoot, number) {
+  const want = normalizeObjectiveName(number);
+  const out = [];
+  let names = [];
+  try {
+    names = fs.readdirSync(path.join(readRoot, '.planning', 'objectives'), { withFileTypes: true })
+      .filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch {
+    names = [];
+  }
+  for (const name of names) {
+    if (objectiveDirMatches(name, want)) out.push({ number, dir: `.planning/objectives/${name}` });
+  }
+  for (const a of getArchivedObjectiveDirs(readRoot)) {
+    if (objectiveDirMatches(a.name, want)) out.push({ number, dir: path.join(a.basePath, a.name).split(path.sep).join('/') });
+  }
+  return out;
+}
+
+/**
+ * `tokens coverage`: forward-stamp coverage of a milestone (default: the current one) or of one objective. Read-only. A
+ * report always exits 0; only a usage error, an unknown milestone, a missing ROADMAP.md or an objective with no directory
+ * is `{ok:false}`.
+ *
+ * @returns {{ok: true, result: object, text: string, exit: number} | {ok: false, message: string}}
+ */
+function runCoverage({ flags, cwd, root }) {
+  const base = path.resolve(cwd);
+  const found = planningMode.resolveMainRoot(base);
+  if (!flags.repo && !found) {
+    return usageError(`no DevFlow project at ${base}; run tokens coverage inside one or pass --repo <path>`);
+  }
+  const repoRoot = flags.repo ? realOrResolved(path.resolve(base, flags.repo)) : found;
+  const main = found || repoRoot;
+  const checkout = planningMode.resolveCheckoutRoot(base) || repoRoot;
+  const readRoot = readRootFor({ mode: planningMode.planningMode(main).mode, main, checkout });
+  const transcriptRoot = flags.root ? path.resolve(base, flags.root) : (root || tokenUsage.defaultTranscriptRoot());
+
+  let scope;
+  if (flags.objective !== undefined) {
+    const number = canonicalNumber(flags.objective);
+    const dirs = objectiveScopeDirs(readRoot, number);
+    if (dirs.length === 0) return usageError(`no objective directory for objective ${number} under ${readRoot}`);
+    scope = { kind: 'objective', objective: number, dirs };
+  } else {
+    let selected;
+    try {
+      selected = selectMilestoneObjectives(readRoot, flags.milestone === undefined ? {} : { version: flags.milestone });
+    } catch (err) {
+      return usageError(err.message);
+    }
+    scope = {
+      kind: 'milestone',
+      version: selected.version,
+      dirs: selected.objectives.filter((o) => o.dir).map((o) => ({ number: o.number, dir: o.dir })),
+    };
+  }
+
+  let report;
+  try {
+    report = tokenCoverage.buildCoverage({
+      readRoot,
+      scope,
+      indexFactory: () => tokenUsage.indexExecutorTranscripts({ root: transcriptRoot, repoRoot }),
+    });
+  } catch (err) {
+    return { ok: false, message: `tokens coverage failed: ${err.message}` };
+  }
+  const result = { ...report, repo: repoRoot, transcripts_root: transcriptRoot };
+  return { ok: true, result, text: tokenCoverage.formatCoverage(report), exit: 0 };
+}
+
+/**
  * @param {{argv: string[], cwd?: string, root?: string}} opts
  *   argv: everything after `tokens`. cwd: the project cwd (default process.cwd()). root: the transcripts root
  *   (`--root` wins; default `os.homedir()/.claude/projects`, read at call time).
@@ -193,6 +314,7 @@ function runTokens({ argv = [], cwd = process.cwd(), root } = {}) {
   if (!parsed.ok) return parsed;
   const { sub, id, flags } = parsed;
   if (sub === 'backfill') return runBackfill({ flags, cwd, root });
+  if (sub === 'coverage') return runCoverage({ flags, cwd, root });
 
   const base = path.resolve(cwd);
   const repo = flags.repo
@@ -266,4 +388,4 @@ function runTokens({ argv = [], cwd = process.cwd(), root } = {}) {
   };
 }
 
-module.exports = { runTokens, parseArgs, USAGE };
+module.exports = { runTokens, parseArgs, readRootFor, USAGE };

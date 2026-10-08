@@ -1,10 +1,10 @@
 {
-  "current_objective": "65",
-  "current_job": 1,
-  "total_jobs": 4,
+  "current_objective": "67",
+  "current_job": 6,
+  "total_jobs": 9,
   "progress_pct": 99,
   "status": "executing",
-  "last_activity": "2026-10-07",
+  "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -1079,6 +1079,71 @@
     {
       "objective": "65",
       "summary": "65-01: release 2.14.0 dated 2026-10-07 (local date +%F); lead paragraph only restates [Unreleased]/MILESTONES facts; REL-01 stays open until the merge and tag (65-02, 65-03)",
+      "rationale": null
+    },
+    {
+      "objective": "65",
+      "summary": "65-04: installed 2.14.0 verified after update and restart; remaining doctor warnings (plugin-cache, legacy-runtime-state, guard-state, W006 66-75) classified as unrelated to mirror lag and left in report mode",
+      "rationale": null
+    },
+    {
+      "objective": "66",
+      "summary": "tokens coverage counts a SUMMARY with no token fields as missing whether or not it has a Self-Check; only a Progress checkpoint without Self-Check is in_progress (listed, not counted)",
+      "rationale": null
+    },
+    {
+      "objective": "66",
+      "summary": "The SubagentStop gate checks token field presence in a final SUMMARY's frontmatter (not source) and blocks once via stop_hook_active; no marker file",
+      "rationale": null
+    },
+    {
+      "objective": "66",
+      "summary": "PLAN_ID: lines in executor spawn prompts carry the short {trd_id} ({objective_number}-{plan_number}); the slug {plan_id} stays on exec-context --id, worktree and branch names",
+      "rationale": null
+    },
+    {
+      "objective": "66",
+      "summary": "EST-09 stays Pending: measured v1.6 forward-stamp coverage is 5/7 = 0.714285 (target 95% not met); 65-02 and 65-03 ran inline and can never be stamped, so 95% needs at least 40 counted TRDs with 38 live",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "DECISION-003: frozen minutes method is TRD-level minutes (window 10, through objective 66), task-sum as pre-registered fallback; chosen by the planner agent, not the user",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "Calibration v3 method block records the requested minutes method, window and cutoff (even when nothing is dropped) and is part of inputs_digest; the calibrator computes the same statistics for task_sum and trd_level.",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "The through cutoff is applied inside collectProject (directories and metric rows, before any read or count); a directory with no number is out under a cutoff; the window applies after it.",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-03: minutes_basis names the calibration's minutes method on every TRD estimate (even one with no minutes); minutes_samples is the TRD-level count only when a stat exists",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-04: the pre-registered ship rule returned ship_default true (reason: the new method meets EST-08; improved false, minutes median 1.021 old vs 1.051 new), so the frozen minutes method is trd_level, window 10, through objective 66",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-05: calibrate default minutes method is trd_level, set by 67-VALIDATION.md (ship_default true, method_selected trd_level); the docs state that the rule fired on the new method's verdict, not on the median (1.021 task_sum, 1.051 trd_level)",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "Release 2.15.0 lead paragraph restates the CHANGELOG's own wording (pre-registered rule, installed plugin at 2.15.0) instead of inventing a /plugin update instruction; release commit carries exactly five files, SUMMARY goes in the docs commit",
       "rationale": null
     }
   ],

@@ -213,6 +213,31 @@ describe('15: objective and milestone renderers', () => {
     assert.equal(fmt.milestoneLine(MS_RESULT), MS_LINE);
   });
 
+  test('the calibration sentence names the minutes method (TRD 67-03), and only when the calibration has one', () => {
+    const withMethod = (method) => ({ ...OBJ_RESULT, overhead: [], gap_closure: null, weakest: null, calibration: { ...OBJ_RESULT.calibration, method } });
+    const tail = (r) => fmt.objectiveTable(r).split('\n').pop();
+
+    assert.equal(
+      tail(withMethod({ minutes: 'trd_level', window_objectives: 10, through_objective: 66 })),
+      'Confidence: medium. Calibration 2026-10-05, 50 TRDs, minutes trd_level (window 10, through objective 66).',
+    );
+    assert.equal(
+      tail(withMethod({ minutes: 'task_sum', window_objectives: null, through_objective: null })),
+      'Confidence: medium. Calibration 2026-10-05, 50 TRDs, minutes task_sum.',
+    );
+    assert.match(tail(withMethod({ minutes: 'trd_level', window_objectives: 10, through_objective: null })), /, minutes trd_level \(window 10\)\.$/);
+    assert.match(tail(withMethod({ minutes: 'trd_level', window_objectives: null, through_objective: 66 })), /, minutes trd_level \(through objective 66\)\.$/);
+    assert.match(tail(withMethod({ minutes: 'trd_level' })), /, minutes trd_level\.$/, 'absent parts are as null');
+
+    // A calibration without a method block (version 1 or 2) reads exactly as before.
+    assert.equal(fmt.objectiveTable({ ...OBJ_RESULT, calibration: { ...OBJ_RESULT.calibration, method: null } }), OBJ_TABLE);
+    assert.equal(fmt.objectiveTable(OBJ_RESULT), OBJ_TABLE);
+    assert.match(
+      fmt.milestoneTable({ ...MS_RESULT, calibration: { data_as_of: '2026-10-05', samples: { trds: 50 }, method: { minutes: 'trd_level', window_objectives: 10, through_objective: 66 } } }),
+      /\(weakest: 81 unplanned\)\. Calibration 2026-10-05, 50 TRDs, minutes trd_level \(window 10, through objective 66\)\.$/,
+    );
+  });
+
   test('singular nouns: 1 TRD left in 1 wave, 1 objective left', () => {
     const one = {
       ...OBJ_RESULT,
@@ -854,6 +879,17 @@ describe('9: backtestReport', () => {
     assert.equal(lines(report).pop(), 'Calibration /tmp/frozen/calibration.json, data as of 2026-10-05, samples 50 TRDs / 120 tasks / 40 with tokens, inputs_digest abc123. Band ±30%, coverage target 80%.');
     const noDigest = fmt.backtestReport({ ...FIVE, calibration: { ...CALIBRATION, inputs_digest: null } });
     assert.ok(lines(noDigest).pop().includes('inputs_digest none.'), lines(noDigest).pop());
+  });
+
+  test('the footer names the minutes method when the calibration has one, and is unchanged when it has none (TRD 67-03)', () => {
+    const method = { minutes: 'trd_level', window_objectives: 10, through_objective: 66 };
+    const named = fmt.backtestReport({ ...FIVE, calibration: { ...CALIBRATION, method } });
+    assert.equal(
+      lines(named).pop(),
+      'Calibration /tmp/frozen/calibration.json, data as of 2026-10-05, samples 50 TRDs / 120 tasks / 40 with tokens, minutes trd_level, inputs_digest abc123. Band ±30%, coverage target 80%.',
+    );
+    assert.equal(lines(fmt.backtestReport({ ...FIVE, calibration: { ...CALIBRATION, method: null } })).pop(), lines(fmt.backtestReport(FIVE)).pop());
+    assert.ok(!lines(fmt.backtestReport(FIVE)).pop().includes('minutes'), lines(fmt.backtestReport(FIVE)).pop());
   });
 
   test('a result with no usable calibration is `No estimate: <reason>`', () => {
