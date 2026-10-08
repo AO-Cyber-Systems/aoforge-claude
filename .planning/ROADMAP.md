@@ -317,7 +317,7 @@ TRDs:
   1. A report compares estimate with actual for the five executed objectives after the engine shipped.
   2. The median estimate is within ±30% of actual.
   3. P90 covers at least 80% of outcomes, or the report names the miscalibrated classes and the follow-up.
-**TRDs**: 6 plans
+**TRDs**: 10 plans
 
 TRDs:
 - [x] 64-01-backtest-comparison-library-TRD.md — (W1) `estimate-backtest.cjs`: actuals (SUMMARY minutes, metric fallback, priced tokens, exclusions named), ratio/band/coverage, class flags, the EST-08 verdict rules pinned as constants
@@ -326,6 +326,10 @@ TRDs:
 - [x] 64-04-estimate-backtest-verb-TRD.md — (W2) `df-tools estimate backtest <N[,N...]>`: JSON and markdown report, prospective run lookup from the main checkout, help
 - [x] 64-05-out-of-sample-backtest-report-TRD.md — (W3) EST-08: primary backtest of 59-63 on the frozen calibration, rolling leave-future-out and window diagnostics, 64-ACCURACY-REPORT.md, EST-08 status, follow-up todo
 - [x] 64-06-docs-and-full-suite-TRD.md — (W4) CHANGELOG, USER-GUIDE Estimates (backtest, run history, measured result), CLAUDE.md; full `npm test`
+- [ ] 64-07-diagnose-and-freeze-window-TRD.md — (W5, gap closure) pre-59 diagnosis of why agent minutes run high, pre-registered rolling-origin selection of a `calibrate` recency window, committed 64-DIAGNOSIS.md (decision, window, validation protocol, ship rule); no estimator code
+- [ ] 64-08-calibrate-window-and-rolling-harness-TRD.md — (W6, gap closure) `calibrate --window <N|all>` (off by default), `scripts/estimate-rolling-backtest.cjs` with the ship rule as tested code
+- [ ] 64-09-rolling-validation-of-59-63-TRD.md — (W7, gap closure) the frozen protocol run once on 59-63: old-method positive control, new-method score, 64-VALIDATION.md (`est08`, `ship_default`)
+- [ ] 64-10-ship-decision-report-and-full-suite-TRD.md — (W8, gap closure) apply the ship rule (default flip and live calibration regeneration only if shipped), before/after in the accuracy report, EST-08 status per the honest result, CHANGELOG, USER-GUIDE, CLAUDE.md; full `npm test`
 
 ## Progress
 
