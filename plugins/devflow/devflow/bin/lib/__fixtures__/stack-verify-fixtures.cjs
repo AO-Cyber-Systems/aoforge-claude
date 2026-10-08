@@ -295,6 +295,52 @@ function gitDartRepo({ preDirty = false, files = {} } = {}) {
   return root;
 }
 
+/**
+ * gitRepo({ files = {}, modes = {} }) -> a git work tree with one commit holding exactly `files`.
+ *
+ * The same init sequence as `gitDartRepo` (no Dart files, no ignored `.dart_tool`): `files` and `modes`
+ * go to `makeRepo` as they are, so a test controls every tracked file. The work tree is clean after it.
+ */
+function gitRepo({ files = {}, modes = {} } = {}) {
+  const root = makeRepo(files, { modes });
+  gitIn(root, ['init', '-q']);
+  gitIn(root, ['config', 'user.email', 'guard@example.invalid']);
+  gitIn(root, ['config', 'user.name', 'Guard Fixture']);
+  gitIn(root, ['config', 'commit.gpgsign', 'false']);
+  gitIn(root, ['config', 'core.autocrlf', 'false']);
+  gitIn(root, ['add', '-A']);
+  gitIn(root, ['commit', '-q', '-m', 'fixture']);
+  return root;
+}
+
+/**
+ * serviceWorkflow({ job, services, env, defaultsCwd, runs }) -> the text of a one-job GitHub workflow.
+ *
+ * `services` is a list of container names, each written as a block `services:` child with an `image:`
+ * and its own `env:` (`<NAME>_USER`), so a reader can tell a job service apart from the job's env.
+ * `env` becomes the job-level `env:` block with its values written verbatim (pass `${{ secrets.DB }}`
+ * to get a runtime value). `defaultsCwd` sets `defaults.run.working-directory`. `runs` is one `- run:`
+ * step per entry, after a `uses: actions/checkout@v4` step.
+ */
+function serviceWorkflow({ job = 'suite', services = [], env = {}, defaultsCwd = null, runs = [] } = {}) {
+  const lines = ['name: CI', 'on: [push]', 'jobs:', `  ${job}:`, '    runs-on: ubuntu-latest'];
+  if (defaultsCwd) lines.push('    defaults:', '      run:', `        working-directory: ${defaultsCwd}`);
+  if (services.length) {
+    lines.push('    services:');
+    for (const name of services) {
+      lines.push(`      ${name}:`, `        image: ${name}:16`, '        env:', `          ${name.toUpperCase()}_USER: app`);
+    }
+  }
+  const envKeys = Object.keys(env);
+  if (envKeys.length) {
+    lines.push('    env:');
+    for (const k of envKeys) lines.push(`      ${k}: ${env[k]}`);
+  }
+  lines.push('    steps:', '      - uses: actions/checkout@v4');
+  for (const cmd of runs) lines.push(`      - run: ${cmd}`);
+  return `${lines.join('\n')}\n`;
+}
+
 module.exports = {
   makeRepo,
   cleanup,
@@ -307,5 +353,7 @@ module.exports = {
   mutatingToolBin,
   stubCalls,
   gitDartRepo,
+  gitRepo,
+  serviceWorkflow,
   PRE_DIRTY_LINE,
 };
