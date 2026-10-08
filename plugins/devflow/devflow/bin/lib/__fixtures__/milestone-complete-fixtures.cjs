@@ -14,6 +14,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { snapshot } = require('./upgrade-fixtures.cjs');
+
 /** One auto task element, the same shape `taskElement` in estimate-fixtures.cjs writes. */
 function taskElement(index) {
   return [
@@ -99,6 +101,59 @@ const STATE_NARRATIVE = [
 
 const REQUIREMENTS = ['# Requirements', '', '- [ ] User auth', '- [ ] Dashboard', ''].join('\n');
 
+// MILESTONES.md texts a test seeds through `opts.files` (TRD 68-01). Hand-written, not generated.
+
+// What `milestone put` leaves: the same `## v<X.Y>` heading `milestone complete` writes, with richer hand-written notes.
+const MILESTONES_WITH_PUT_ENTRY = [
+  '# Milestones',
+  '',
+  '## v1.0 Now',
+  '',
+  'Shipped the dry-run preview and the re-run guard.',
+  '',
+  '**Highlights:**',
+  '- A plan that is printed before it is executed',
+  '- One entry per version, however often the verb runs',
+  '',
+  '**Upgrade notes:** none.',
+  '',
+  '---',
+  '',
+].join('\n');
+
+// A pre-`v` entry: the heading carries the bare digits, as an older release wrote it.
+const MILESTONES_LEGACY_UNPREFIXED = [
+  '# Milestones',
+  '',
+  '## 1.0 Old (Shipped: 2025-01-01)',
+  '',
+  '**Objectives completed:** 3 objectives (1, 2, 3), 3 plans, 3 tasks',
+  '',
+  '**Key accomplishments:**',
+  '- Old A shipped',
+  '',
+  '---',
+  '',
+].join('\n');
+
+// Only a patch release is recorded: its heading starts with the digits of v1.0 but names a different version.
+const MILESTONES_PATCH_ONLY = [
+  '# Milestones',
+  '',
+  '## v1.0.1 Patch (Shipped: 2025-02-01)',
+  '',
+  '**Objectives completed:** 1 objectives (8), 1 plans, 1 tasks',
+  '',
+  '**Key accomplishments:**',
+  '- Patch shipped',
+  '',
+  '---',
+  '',
+].join('\n');
+
+// A milestone audit report as `.planning/v1.0-MILESTONE-AUDIT.md` holds it before completion moves it.
+const AUDIT_V1_0 = ['# Milestone Audit: v1.0', '', '**Verdict:** PASSED', '', '- Objective 4: verified', '- Objective 5: verified', ''].join('\n');
+
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -132,10 +187,12 @@ const TWO_MILESTONE_SPEC = deepFreeze({
  * Writes the spec into a temp project and returns `{root, read(rel), exists(rel), write(rel, text), cleanup()}`; `rel` is
  * relative to the project root.
  * @param {object} [spec]  see TWO_MILESTONE_SPEC
- * @param {{roadmap?: boolean|string, state?: boolean|string}} [opts]  `roadmap`/`state`: true (default) writes the spec's
- *   text, a string writes that text instead, false writes no file
+ * @param {{roadmap?: boolean|string, state?: boolean|string, files?: Object<string, string>}} [opts]  `roadmap`/`state`:
+ *   true (default) writes the spec's text, a string writes that text instead, false writes no file. `files` maps a path
+ *   relative to the project root to its text, written last (parents created), so a test can seed MILESTONES.md, an audit
+ *   file, an existing archive or an already-archived objective directory.
  */
-function makeMilestoneProject(spec = TWO_MILESTONE_SPEC, { roadmap = true, state = true } = {}) {
+function makeMilestoneProject(spec = TWO_MILESTONE_SPEC, { roadmap = true, state = true, files = {} } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-milestone-complete-')));
   const planning = path.join(root, '.planning');
   const objectivesDir = path.join(planning, 'objectives');
@@ -163,6 +220,12 @@ function makeMilestoneProject(spec = TWO_MILESTONE_SPEC, { roadmap = true, state
   optional(state, spec.state, 'STATE.md');
   if (typeof spec.requirements === 'string') fs.writeFileSync(path.join(planning, 'REQUIREMENTS.md'), spec.requirements);
 
+  for (const [rel, text] of Object.entries(files)) {
+    const abs = path.join(root, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text);
+  }
+
   return {
     root,
     read: (rel) => fs.readFileSync(path.join(root, rel), 'utf-8'),
@@ -175,6 +238,26 @@ function makeMilestoneProject(spec = TWO_MILESTONE_SPEC, { roadmap = true, state
   };
 }
 
+/**
+ * The project's `.planning/` tree as `{files, dirs}`: `files` is `snapshot()`'s sha1-per-file map and `dirs` the sorted
+ * directory paths, both relative to `<root>/.planning` and POSIX-separated. `snapshot` records files only, so a directory
+ * a command created and left empty (`.planning/milestones/`) shows up only in `dirs`.
+ */
+function planningTree(root) {
+  const planning = path.join(root, '.planning');
+  const dirs = [];
+  const walk = (dir, rel) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '.git' || !entry.isDirectory()) continue;
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+      dirs.push(relPath);
+      walk(path.join(dir, entry.name), relPath);
+    }
+  };
+  walk(planning, '');
+  return { files: snapshot(planning), dirs: dirs.sort() };
+}
+
 module.exports = {
   trdWithTasks,
   templateSummary,
@@ -184,6 +267,11 @@ module.exports = {
   ROADMAP_SECTIONS_ONLY,
   STATE_NARRATIVE,
   REQUIREMENTS,
+  MILESTONES_WITH_PUT_ENTRY,
+  MILESTONES_LEGACY_UNPREFIXED,
+  MILESTONES_PATCH_ONLY,
+  AUDIT_V1_0,
   TWO_MILESTONE_SPEC,
   makeMilestoneProject,
+  planningTree,
 };
