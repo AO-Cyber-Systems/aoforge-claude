@@ -28,7 +28,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const {
-  makeCalibrationProject, removeCalibrationProject, ALPHA_SPEC,
+  makeCalibrationProject, removeCalibrationProject, ALPHA_SPEC, FUTURE_SPEC,
 } = require('./__fixtures__/calibration-fixtures.cjs');
 const fx = require('./__fixtures__/transcript-fixtures.cjs');
 
@@ -734,5 +734,145 @@ describe('df-tools calibrate default window (end to end)', () => {
     assert.match(COMMANDS.calibrate.details, /--window all/);
     const header = fs.readFileSync(DF_TOOLS, 'utf-8').split('\n').slice(0, 260).join('\n');
     assert.match(header, /default: the most recent 10 objectives/);
+  });
+});
+
+// ─── 67-02: --minutes and --through ──────────────────────────────────────────
+//   15 --minutes trd_level --through 66 on FUTURE: exit 0, the text names both, the file's method and samples agree
+//   16 the same command again is unchanged; the JSON form reports changed:false and carries method
+//   17 --minutes task_sum and no --minutes write byte-identical files
+//   18 usage errors exit 1, name the flag and write nothing
+//   19 --dry-run writes nothing and the result carries method
+//   20 help, USAGE, the df-tools.cjs header and the case comment name both flags
+describe('df-tools calibrate --minutes and --through (end to end)', () => {
+  const NO_FILE = 'wrote a file';
+
+  test('67-02/15. --minutes trd_level --through 66 reads only 64-66, writes the method and names both in the summary', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+
+    const raw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--minutes', 'trd_level', '--through', '66', '--out', out, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.ok(raw.stdout.includes('minutes trd_level'), raw.stdout);
+    assert.ok(raw.stdout.includes('through objective 66'), raw.stdout);
+    assert.ok(raw.stdout.includes('3 TRDs, 6 tasks'), raw.stdout);
+    assert.equal(raw.stdout.replace(/\n$/, '').includes('\n'), false, '--raw is still one line');
+
+    const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
+    assert.deepEqual(written.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+    assert.equal(written.samples.trds, 3);
+    assert.equal(written.data_as_of, '2026-10-03');
+  });
+
+  test('67-02/16. the same command again is unchanged, and the JSON form reports changed:false with the method', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    const args = ['--paths', future, '--no-overhead', '--minutes', 'trd_level', '--through', '66', '--out', out];
+
+    assert.equal(run(sb, sb.tmp, [...args, '--raw']).status, 0);
+    const first = fs.readFileSync(out);
+    const again = run(sb, sb.tmp, [...args, '--raw']);
+    assert.equal(again.status, 0, again.stderr);
+    assert.ok(again.stdout.includes('unchanged'), again.stdout);
+    assert.ok(again.stdout.includes('through objective 66'), again.stdout);
+
+    const result = okJson(sb, sb.tmp, args);
+    assert.equal(result.changed, false);
+    assert.deepEqual(result.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+    assert.ok(first.equals(fs.readFileSync(out)), 'bytes are identical');
+  });
+
+  test('67-02/17. --minutes task_sum and no --minutes write byte-identical files, and the text names task_sum', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const plain = path.join(sb.tmp, 'plain.json');
+    const named = path.join(sb.tmp, 'named.json');
+    const plainRaw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--through', '66', '--out', plain, '--raw']);
+    const namedRaw = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--through', '66', '--minutes', 'task_sum', '--out', named, '--raw']);
+    assert.equal(plainRaw.status, 0, plainRaw.stderr);
+    assert.equal(namedRaw.status, 0, namedRaw.stderr);
+    assert.ok(fs.readFileSync(plain).equals(fs.readFileSync(named)));
+    assert.ok(plainRaw.stdout.includes('minutes task_sum'), plainRaw.stdout);
+    assert.equal(plainRaw.stdout.includes('through objective'), true);
+
+    const open = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--out', path.join(sb.tmp, 'open.json'), '--raw']);
+    assert.equal(open.status, 0, open.stderr);
+    assert.equal(open.stdout.includes('through objective'), false, 'no cutoff, no cutoff text');
+    assert.ok(open.stdout.includes('minutes task_sum'), open.stdout);
+  });
+
+  test('67-02/18. a bad --minutes or --through exits 1, names the flag and the usage line, and writes nothing', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    const cases = [
+      [['--minutes'], '--minutes', /--minutes needs a value/],
+      [['--minutes', 'trd-level'], '--minutes', /--minutes must be task_sum or trd_level, got "trd-level"/],
+      [['--minutes', 'all'], '--minutes', /--minutes must be task_sum or trd_level, got "all"/],
+      [['--through'], '--through', /--through needs a value/],
+      [['--through', '-1'], '--through', /--through must be an objective number \(for example 66\), got "-1"/],
+      [['--through', 'abc'], '--through', /--through must be an objective number \(for example 66\), got "abc"/],
+      [['--through', '6x'], '--through', /--through must be an objective number \(for example 66\), got "6x"/],
+    ];
+    for (const [bad, flag, message] of cases) {
+      const r = run(sb, sb.tmp, ['--paths', future, '--no-overhead', '--out', out, ...bad]);
+      assert.equal(r.status, 1, `${bad.join(' ')}: ${r.stdout}`);
+      assert.ok(r.stderr.includes(flag), bad.join(' '));
+      assert.match(r.stderr, message, bad.join(' '));
+      assert.match(r.stderr, USAGE, bad.join(' '));
+      assert.equal(/unknown flag/.test(r.stderr), false, `${bad.join(' ')}: ${flag} is a known flag`);
+      assert.equal(fs.existsSync(out), false, `${bad.join(' ')} ${NO_FILE}`);
+    }
+    assert.equal(fs.existsSync(sb.defaultOut), false);
+  });
+
+  test('67-02/18b. a decimal --through is an objective number', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const result = okJson(sb, sb.tmp, ['--paths', future, '--no-overhead', '--through', '65.5', '--out', path.join(sb.tmp, 'c.json')]);
+    assert.equal(result.method.through_objective, 65.5);
+    assert.equal(result.samples.trds, 2);
+  });
+
+  test('67-02/19. --dry-run --minutes trd_level --through 66 writes nothing and the result carries the method', () => {
+    const sb = sandbox();
+    const future = project(FUTURE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    const result = okJson(sb, sb.tmp, ['--paths', future, '--no-overhead', '--minutes', 'trd_level', '--through', '66', '--out', out, '--dry-run']);
+    assert.equal(result.dry_run, true);
+    assert.equal(result.changed, true);
+    assert.deepEqual(result.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+    assert.equal(result.samples.trds, 3);
+    assert.equal(fs.existsSync(out), false);
+    assert.equal(fs.existsSync(sb.defaultOut), false);
+  });
+
+  test('67-02/20. help, USAGE, the df-tools.cjs header and the case comment name --minutes <task_sum|trd_level> and --through <N>', () => {
+    const { COMMANDS } = require('./help.cjs');
+    const cli = require('./calibrate-cli.cjs');
+    const lines = fs.readFileSync(DF_TOOLS, 'utf-8').split('\n');
+    const header = lines.slice(0, 260).join('\n');
+    const caseComment = lines.find((line) => line.trim().startsWith('// df-tools calibrate '));
+    assert.ok(caseComment, 'the case comment exists');
+    for (const [where, text] of [
+      ['USAGE', cli.USAGE], ['help usage', COMMANDS.calibrate.usage], ['df-tools.cjs header', header], ['case comment', caseComment],
+    ]) {
+      assert.ok(text.includes('--minutes <task_sum|trd_level>'), `${where} names --minutes`);
+      assert.ok(text.includes('--through <N>'), `${where} names --through`);
+    }
+    assert.ok(COMMANDS.calibrate.details.includes('--minutes'), 'details explain --minutes');
+    assert.ok(COMMANDS.calibrate.details.includes('--through'), 'details explain --through');
+    assert.match(COMMANDS.calibrate.details, /trd_level/);
+    assert.match(COMMANDS.calibrate.details, /task_sum/);
+
+    const sb = sandbox();
+    const help = spawnSync(process.execPath, [DF_TOOLS, '--cwd', sb.tmp, 'calibrate', '--help'], {
+      cwd: sb.tmp, env: { ...process.env, HOME: sb.home }, encoding: 'utf-8', timeout: 60000,
+    });
+    assert.equal(help.status, 0, help.stderr);
+    assert.ok(help.stdout.includes('--minutes <task_sum|trd_level>'), help.stdout);
+    assert.ok(help.stdout.includes('--through <N>'), help.stdout);
   });
 });
