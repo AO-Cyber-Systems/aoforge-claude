@@ -181,7 +181,7 @@ TRDs:
 - [x] 67-03-estimator-trd-level-minutes-TRD.md — (W2) estimator reads v3; trd_level TRD minutes independent of task count; `calibration.method` in results, run state and text
 - [x] 67-04-positive-controls-and-validation-run-TRD.md — (W3) PC1 (fdf60e66) and PC2 (64-09 rows) reproduce, then one score of task_sum vs trd_level on `--through N-1` cuts of 46-66; 64's shipRule selects; 67-VALIDATION.md
 - [x] 67-05-ship-default-and-docs-TRD.md — (W4) `calibrate` default minutes method from the ship rule; method lists tied by a test; CHANGELOG/USER-GUIDE/CLAUDE.md/help
-- [ ] 67-06-release-artifacts-and-validation-TRD.md — (W5) 2.15.0 bump, CHANGELOG promotion, docs data, suite, tag-gate dry run, merge-tree (local only)
+- [x] 67-06-release-artifacts-and-validation-TRD.md — (W5) 2.15.0 bump, CHANGELOG promotion, docs data, suite, tag-gate dry run, merge-tree (local only)
 - [ ] 67-07-push-branch-and-open-release-pr-TRD.md — (W6) approval gate: push; approval gate: open the release PR; PR CI recorded
 - [ ] 67-08-merge-tag-and-github-release-TRD.md — (W7) approval gate: merge (merge commit); approval gate: annotated tag v2.15.0; release.yml and main runs verified
 - [ ] 67-09-install-and-freeze-calibration-TRD.md — (W8) human action: plugin update + restart; installed `calibrate --minutes <selected> --window 10 --through 66` builds the frozen EST-11 calibration; SC-2/SC-3/SC-4 proven on the installed runtime; 67-FREEZE.md + STATE.md blocker
@@ -292,7 +292,7 @@ TRDs:
 | 55–64 (10 objectives) | v1.5 | 81/81 | Complete (EST-08 not met, accepted) | 2026-10-08 |
 | 65. Release v1.5 | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
-| 67. Minutes recalibration | v1.6 | 5/9 | In Progress | - |
+| 67. Minutes recalibration | v1.6 | 6/9 | In Progress | - |
 | 68. Milestone and objective verbs | v1.6 | 0/? | Not started | - |
 | 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |
 | 70. CLI defects and hook shape | v1.6 | 0/? | Not started | - |
