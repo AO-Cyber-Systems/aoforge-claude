@@ -10,4 +10,4 @@ tags: [stack-verify, run-policy, build-outputs, effect-guard]
 ## Progress
 - [x] Task 1: Fixture builder for a root build beside a Flutter component — aea0da13
 - [x] Task 2: Build outputs are restored, reported and do not halt (in-process) — RED 0752c625, GREEN 5d31ce74
-- [ ] Task 3: The CLI shows build outputs and runs the other component's gate — RED (this commit); next step: in `rawTable` of `stack-verify.cjs` append ` build_outputs=<n>` after the ` mutated=<n>` part and update its doc comment, then commit GREEN
+- [x] Task 3: The CLI shows build outputs and runs the other component's gate — RED c869f273, GREEN (this commit)
