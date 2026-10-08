@@ -1,9 +1,9 @@
 {
-  "current_objective": "69",
-  "current_job": 6,
-  "total_jobs": 6,
+  "current_objective": "70",
+  "current_job": 1,
+  "total_jobs": 3,
   "progress_pct": 100,
-  "status": "ready_for_verification",
+  "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1235,6 +1235,16 @@
       "objective": "69",
       "summary": "Health-check docs for E006/W064 and W065 live in one USER-GUIDE section after Upgrading a Project in Place; the guide has no validate row, so validate requirements is on the /devflow:status check row",
       "rationale": null
+    },
+    {
+      "objective": "70",
+      "summary": "setProgressLine is a pure helper: bold (file-wide), then plain inside ## Current Position, then insertion; null means exit 1 before any write",
+      "rationale": "update-progress must never exit 0 without changing the figure; a Progress line in another section is never rewritten"
+    },
+    {
+      "objective": "70",
+      "summary": "verify trd-pre walks up with the exported findProjectRoot inside its own resolveTarget; findObjectiveInternal and normalizeObjectiveName stay cwd-based",
+      "rationale": "those two have about 20 other callers; project_root is added to the not-found result only so the 48-03 success JSON is unchanged"
     }
   ],
   "blockers": [
