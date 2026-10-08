@@ -1,6 +1,6 @@
 {
   "current_objective": "66",
-  "current_job": 2,
+  "current_job": 3,
   "total_jobs": 4,
   "progress_pct": 100,
   "status": "executing",
@@ -1094,6 +1094,11 @@
     {
       "objective": "66",
       "summary": "The SubagentStop gate checks token field presence in a final SUMMARY's frontmatter (not source) and blocks once via stop_hook_active; no marker file",
+      "rationale": null
+    },
+    {
+      "objective": "66",
+      "summary": "PLAN_ID: lines in executor spawn prompts carry the short {trd_id} ({objective_number}-{plan_number}); the slug {plan_id} stays on exec-context --id, worktree and branch names",
       "rationale": null
     }
   ],

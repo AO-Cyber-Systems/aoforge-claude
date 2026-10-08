@@ -206,6 +206,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 65]: 65-04: installed 2.14.0 verified after update and restart; remaining doctor warnings (plugin-cache, legacy-runtime-state, guard-state, W006 66-75) classified as unrelated to mirror lag and left in report mode
 - [Objective 66]: tokens coverage counts a SUMMARY with no token fields as missing whether or not it has a Self-Check; only a Progress checkpoint without Self-Check is in_progress (listed, not counted)
 - [Objective 66]: The SubagentStop gate checks token field presence in a final SUMMARY's frontmatter (not source) and blocks once via stop_hook_active; no marker file
+- [Objective 66]: PLAN_ID: lines in executor spawn prompts carry the short {trd_id} ({objective_number}-{plan_number}); the slug {plan_id} stays on exec-context --id, worktree and branch names
 
 ## Performance Metrics
 
@@ -343,4 +344,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 65 P04 | 8min | 2 tasks | 1 files |
 | Objective 66 P01 | 14min | 3 tasks | 7 files |
 | Objective 66 P02 | 11min | 3 tasks | 4 files |
+| Objective 66 P03 | 8min | 2 tasks | 2 files |
 
