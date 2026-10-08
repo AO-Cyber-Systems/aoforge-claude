@@ -1,6 +1,6 @@
 ---
 work: feature
-status: verifying
+status: complete
 ---
 
 # Drafts, health and doctor
