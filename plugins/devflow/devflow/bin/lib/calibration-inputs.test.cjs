@@ -579,3 +579,71 @@ describe('57-02 discoverProjects', () => {
     assert.deepEqual(ci.discoverProjects([parent]), [p1, p2]);
   });
 });
+
+describe('64-08 recency window helpers', () => {
+  // A hand-built project: only the fields the helpers read (objective_dir, minutes, summary).
+  const trd = (dir, over = {}) => ({ objective_dir: dir, id: `${dir}/01`, minutes: null, summary: null, ...over });
+  const withMinutes = (dir) => trd(dir, { minutes: 10 });
+  const projectOf = (...trds) => ({ label: 'p', trds });
+
+  test('9: objectiveNumber reads the numeric prefix, decimals included, else null', () => {
+    assert.equal(ci.objectiveNumber('58-engine'), 58);
+    assert.equal(ci.objectiveNumber('12.1-x'), 12.1);
+    assert.equal(ci.objectiveNumber('foo'), null);
+  });
+
+  test('9: rankObjectives orders by number then name, a name with no number last, input untouched', () => {
+    const ordered = ['9-a', '10-b', '10-c', '10.5-d', '11-e', 'foo'];
+    assert.deepEqual(ci.rankObjectives(ordered), ordered);
+    const shuffled = ['foo', '11-e', '10.5-d', '10-c', '9-a', '10-b'];
+    assert.deepEqual(ci.rankObjectives(shuffled), ordered);
+    assert.deepEqual(shuffled, ['foo', '11-e', '10.5-d', '10-c', '9-a', '10-b'], 'a new array, the input is not sorted in place');
+  });
+
+  test('9: hasOutcome is true for minutes, or for both token counts, and false for one count or none', () => {
+    assert.equal(ci.hasOutcome(trd('1-a', { minutes: 12 })), true);
+    assert.equal(ci.hasOutcome(trd('1-a', { minutes: 0 })), true, 'zero minutes is still an outcome');
+    assert.equal(ci.hasOutcome(trd('1-a', { summary: { tokens_input: 100, tokens_output: 10 } })), true);
+    assert.equal(ci.hasOutcome(trd('1-a', { summary: { tokens_input: 100, tokens_output: null } })), false);
+    assert.equal(ci.hasOutcome(trd('1-a', { summary: { tokens_input: null, tokens_output: 10 } })), false);
+    assert.equal(ci.hasOutcome(trd('1-a', { summary: { tokens_input: 100 } })), false);
+    assert.equal(ci.hasOutcome(trd('1-a', { summary: { tokens_input: NaN, tokens_output: 10 } })), false);
+    assert.equal(ci.hasOutcome(trd('1-a')), false);
+  });
+
+  test('9: windowObjectives keeps everything for null, "all" or a window at least the count of objectives with outcomes', () => {
+    const project = projectOf(withMinutes('1-a'), trd('2-b'), withMinutes('3-c'), withMinutes('4-d'));
+    const all = { kept: ['1-a', '2-b', '3-c', '4-d'], dropped: [], cutoff: null };
+    assert.deepEqual(ci.windowObjectives(project, null), all);
+    assert.deepEqual(ci.windowObjectives(project, 'all'), all);
+    assert.deepEqual(ci.windowObjectives(project, 3), all, 'three objectives have outcomes, so a window of 3 drops nothing');
+    assert.deepEqual(ci.windowObjectives(project, 99), all);
+  });
+
+  test('9: windowObjectives cuts at the window-th most recent objective with an outcome, empty ones before it included', () => {
+    const project = projectOf(withMinutes('1-a'), trd('2-b'), withMinutes('3-c'), withMinutes('4-d'));
+    assert.deepEqual(ci.windowObjectives(project, 2), { kept: ['3-c', '4-d'], dropped: ['1-a', '2-b'], cutoff: '3-c' });
+    assert.deepEqual(ci.windowObjectives(project, 1), { kept: ['4-d'], dropped: ['1-a', '2-b', '3-c'], cutoff: '4-d' });
+  });
+
+  test('9: windowObjectives keeps an objective with no outcome that sits after the cutoff', () => {
+    const project = projectOf(withMinutes('1-a'), withMinutes('2-b'), withMinutes('3-c'), trd('4-d'));
+    assert.deepEqual(ci.windowObjectives(project, 2), { kept: ['2-b', '3-c', '4-d'], dropped: ['1-a'], cutoff: '2-b' });
+  });
+
+  test('9: windowObjectives ranks numerically, ties by name, and ignores the order of the TRD list', () => {
+    const project = projectOf(withMinutes('11-c'), withMinutes('9-a'), withMinutes('10-z'), withMinutes('10-b'));
+    assert.deepEqual(ci.windowObjectives(project, 2), { kept: ['10-z', '11-c'], dropped: ['9-a', '10-b'], cutoff: '10-z' });
+  });
+
+  test('9: windowObjectives of an empty project is empty', () => {
+    assert.deepEqual(ci.windowObjectives(projectOf(), 3), { kept: [], dropped: [], cutoff: null });
+  });
+
+  test('9: windowObjectives does not modify the project', () => {
+    const project = projectOf(withMinutes('3-c'), withMinutes('1-a'));
+    const before = JSON.stringify(project);
+    ci.windowObjectives(project, 1);
+    assert.equal(JSON.stringify(project), before);
+  });
+});

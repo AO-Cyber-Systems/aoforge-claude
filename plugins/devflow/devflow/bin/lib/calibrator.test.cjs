@@ -16,7 +16,7 @@ const calibrator = require('./calibrator.cjs');
 
 const {
   nearestRank, statBlock, sampleCost, buildCalibration,
-  stableStringify, writeCalibration, defaultCalibrationPath, CALIBRATION_VERSION,
+  stableStringify, writeCalibration, defaultCalibrationPath, CALIBRATION_VERSION, DEFAULT_WINDOW_OBJECTIVES,
 } = calibrator;
 
 const projects = [];
@@ -777,5 +777,209 @@ describe('58-03 objective_level in calibration v2', () => {
     assert.equal(level.samples, 0);
     assert.deepEqual(level.trds, EMPTY_STAT);
     assert.deepEqual(level.minutes, EMPTY_STAT);
+  });
+});
+
+// ─── 64-08: the recency window ───────────────────────────────────────────────
+
+// SLOPE: objectives 1-a to 7-g, TRDs 01 and 02 each, two auto code_tdd tasks per TRD. Objectives 1-5 took 40min per TRD
+// (task share 20), objectives 6-7 took 10min (share 5). Unwindowed there are 28 shares, eight of 5 and twenty of 20, so the
+// nearest-rank p50 is 20; a window of 2 keeps 6-f and 7-g and every share is 5.
+const SLOPE_DIRS = ['1-a', '2-b', '3-c', '4-d', '5-e', '6-f', '7-g'];
+
+function slopeTrd(nn, duration, completed) {
+  return {
+    nn, slug: 'work',
+    tasks: [
+      { name: 'Task 1: x', type: 'auto', tdd: true, files: ['lib/x.cjs', 'lib/x.test.cjs'] },
+      { name: 'Task 2: y', type: 'auto', tdd: true, files: ['lib/x.cjs', 'lib/x.test.cjs'] },
+    ],
+    summary: { duration, completed },
+  };
+}
+
+function slopeSpec(name = 'slope', dirs = SLOPE_DIRS) {
+  return {
+    name,
+    objectives: dirs.map((dir) => {
+      const n = Number(dir.split('-')[0]);
+      const duration = n <= 5 ? '40min' : '10min';
+      const completed = `2026-09-0${n}`;
+      return { dir, trds: [slopeTrd('01', duration, completed), slopeTrd('02', duration, completed)] };
+    }),
+  };
+}
+
+// An objective of two code_tdd TRDs with the given duration and no tokens.
+function plainObjective(dir, duration, completed = '2026-09-01') {
+  return { dir, trds: [slopeTrd('01', duration, completed), slopeTrd('02', duration, completed)] };
+}
+
+describe('64-08 buildCalibration window', () => {
+  const build = (paths, extra = {}) => buildCalibration({ paths, ratesPath: ci.RATES_PATH, transcriptsRoot: null, ...extra });
+
+  test('1: window 2 keeps the two latest objectives and every statistic follows', () => {
+    const slope = makeProject(slopeSpec());
+    const full = build([slope]);
+    assert.equal(full.task_classes.code_tdd.minutes.p50, 20);
+    assert.equal(full.samples.trds, 14);
+
+    const cal = build([slope], { window: 2 });
+    assert.equal(cal.task_classes.code_tdd.minutes.p50, 5);
+    assert.equal(cal.samples.trds, 4);
+    assert.equal(cal.trd_level.samples, 4);
+    assert.deepEqual(cal.window, {
+      objectives: 2,
+      projects: [{ project: 'slope', first: '6-f', last: '7-g', kept_objectives: 2, dropped_objectives: 5, dropped_trds: 10 }],
+    });
+    assert.equal(cal.notes.length, full.notes.length + 1);
+    assert.deepEqual(cal.notes.slice(0, full.notes.length), full.notes, 'the window note is appended, the others are untouched');
+    assert.equal(cal.notes[cal.notes.length - 1],
+      'Window: only the 2 most recent objectives with samples (by objective number) are read per project; older objectives are dropped before every statistic. agent_overhead is not windowed.');
+    assert.notEqual(cal.inputs_digest, full.inputs_digest);
+    assert.equal(cal.version, 2);
+  });
+
+  test('2: a window that drops nothing leaves no trace: same bytes, no key, same notes', () => {
+    const slope = makeProject(slopeSpec());
+    const baseline = stableStringify(build([slope]));
+    assert.equal(stableStringify(build([slope], { window: null })), baseline);
+    assert.equal(stableStringify(build([slope], { window: 7 })), baseline);
+    assert.equal(stableStringify(build([slope], { window: 99 })), baseline);
+    const cal = build([slope], { window: 99 });
+    assert.equal(Object.keys(cal).includes('window'), false);
+    assert.equal(cal.notes.length, build([slope]).notes.length);
+    assert.equal(DEFAULT_WINDOW_OBJECTIVES, null, 'the default stays off in this TRD');
+    assert.equal(stableStringify(buildCalibration({ paths: [slope], ratesPath: ci.RATES_PATH })), baseline,
+      'omitting transcriptsRoot and window is the same call');
+  });
+
+  test('3: objectives are ranked by number, not lexically (9, 10, 11)', () => {
+    const numeric = makeProject({
+      name: 'numeric',
+      objectives: [plainObjective('9-a', '10min'), plainObjective('10-b', '20min'), plainObjective('11-c', '30min')],
+    });
+    const cal = build([numeric], { window: 2 });
+    assert.equal(cal.window.projects[0].first, '10-b');
+    assert.equal(cal.window.projects[0].last, '11-c');
+    assert.equal(cal.window.projects[0].dropped_objectives, 1);
+    // 10-b and 11-c: each TRD 2 tasks, shares 10 and 15.
+    assert.equal(cal.task_classes.code_tdd.minutes.min, 10);
+    assert.equal(cal.task_classes.code_tdd.minutes.max, 15);
+  });
+
+  test('4: an objective with no outcome consumes no window slot', () => {
+    const noOutcome = {
+      dir: '2-b',
+      trds: [
+        { nn: '01', slug: 'work', tasks: [{ name: 'Task 1: x', type: 'auto', files: ['lib/x.cjs'] }], summary: null },
+        { nn: '02', slug: 'work', tasks: [{ name: 'Task 1: x', type: 'auto', files: ['lib/x.cjs'] }], summary: null },
+      ],
+    };
+    const root = makeProject({
+      name: 'gappy',
+      objectives: [plainObjective('1-a', '40min'), noOutcome, plainObjective('3-c', '10min'), plainObjective('4-d', '10min')],
+    });
+    const two = build([root], { window: 2 });
+    assert.equal(two.window.projects[0].first, '3-c');
+    assert.equal(two.window.projects[0].last, '4-d');
+    assert.equal(two.window.projects[0].kept_objectives, 2);
+    assert.equal(two.window.projects[0].dropped_objectives, 2, '1-a and the empty 2-b are both dropped');
+    assert.equal(two.window.projects[0].dropped_trds, 4);
+    assert.equal(two.samples.trds, 4);
+
+    const three = build([root], { window: 3 });
+    assert.equal(Object.keys(three).includes('window'), false, 'three objectives have outcomes: nothing is dropped');
+    assert.equal(stableStringify(three), stableStringify(build([root])));
+    assert.equal(three.sources[0].trds, 8, '2-b stays between the others, untouched');
+    assert.equal(three.sources[0].no_outcome, 2);
+  });
+
+  test('5: sources, samples, objective level, probabilities and data_as_of follow the retained TRDs', () => {
+    const slope = makeProject(slopeSpec());
+    const full = build([slope]);
+    const cal = build([slope], { window: 3 });
+    assert.equal(cal.sources[0].trds, 6);
+    assert.equal(cal.sources[0].summaries, 6);
+    assert.equal(cal.sources[0].with_minutes, 6);
+    assert.equal(cal.samples.trds, 6);
+    assert.equal(cal.samples.tasks, 12);
+    assert.equal(cal.objective_level.samples, 3);
+    assert.equal(cal.probabilities.gap_closure.n, 3);
+    assert.equal(cal.probabilities.checkpoint.n, 6);
+    assert.equal(cal.data_as_of, full.data_as_of, 'the newest objective is retained');
+    assert.equal(cal.data_as_of, '2026-09-07');
+
+    assert.equal(build([slope], { window: 3 }).inputs_digest, cal.inputs_digest, 'two builds, one digest');
+    assert.notEqual(build([slope], { window: 2 }).inputs_digest, cal.inputs_digest, 'windows 2 and 3 differ');
+  });
+
+  test('5: data_as_of follows the retained TRDs when the newest completion is in a dropped objective', () => {
+    const odd = makeProject({
+      name: 'odd',
+      objectives: [plainObjective('1-a', '10min', '2026-10-01'), plainObjective('2-b', '10min', '2026-09-01')],
+    });
+    assert.equal(build([odd]).data_as_of, '2026-10-01');
+    assert.equal(build([odd], { window: 1 }).data_as_of, '2026-09-01');
+  });
+
+  test('5: the whole-history metric counts in sources are not windowed', () => {
+    const rows = ['| Objective 1 P01 | 40min | 2 tasks | 2 files |'];
+    const root = makeProject({ ...slopeSpec('metrics'), stateArchiveRows: rows });
+    const full = build([root]);
+    const cal = build([root], { window: 2 });
+    assert.equal(cal.sources[0].metric_rows, full.sources[0].metric_rows);
+    assert.equal(cal.sources[0].metric_rows_joined, full.sources[0].metric_rows_joined);
+  });
+
+  test('6: the window is per project: each project keeps its own latest objectives', () => {
+    const left = makeProject(slopeSpec('left', ['3-c', '4-d']));
+    const right = makeProject(slopeSpec('right', ['1-a', '2-b']));
+    const cal = build([left, right], { window: 1 });
+    assert.deepEqual(cal.window.projects, [
+      { project: 'left', first: '4-d', last: '4-d', kept_objectives: 1, dropped_objectives: 1, dropped_trds: 2 },
+      { project: 'right', first: '2-b', last: '2-b', kept_objectives: 1, dropped_objectives: 1, dropped_trds: 2 },
+    ]);
+    assert.equal(cal.samples.trds, 4);
+    assert.deepEqual(cal.sources.map((s) => [s.project, s.trds]), [['left', 2], ['right', 2]]);
+  });
+
+  test('6: a project with fewer objectives than the window is kept whole while another is cut', () => {
+    const small = makeProject(slopeSpec('small', ['1-a']));
+    const big = makeProject(slopeSpec('big', ['1-a', '2-b', '3-c']));
+    const cal = build([small, big], { window: 2 });
+    assert.deepEqual(cal.window.projects.map((p) => p.project), ['big'], 'only a project that dropped something is listed');
+    assert.equal(cal.sources.find((s) => s.project === 'small').trds, 2);
+    assert.equal(cal.sources.find((s) => s.project === 'big').trds, 4);
+  });
+
+  test('7: an invalid window throws and names the rule', () => {
+    const slope = makeProject(slopeSpec());
+    for (const bad of [0, -1, 1.5, '2', NaN, Infinity, true]) {
+      assert.throws(() => build([slope], { window: bad }), /window must be a positive integer or null/, String(bad));
+    }
+  });
+
+  test('8: a windowed calibration equals a calibration over a directory holding only the retained objectives', () => {
+    const slope = makeProject(slopeSpec());
+    const kept = makeProject({ name: 'kept', objectives: [] });
+    for (const dir of ['5-e', '6-f', '7-g']) {
+      fs.cpSync(path.join(slope, '.planning', 'objectives', dir), path.join(kept, '.planning', 'objectives', dir), { recursive: true });
+    }
+    const windowed = build([slope], { window: 3 });
+    const copied = build([kept]);
+    for (const block of ['samples', 'trd_level', 'task_classes', 'objective_level', 'probabilities', 'data_as_of']) {
+      assert.deepEqual(windowed[block], copied[block], block);
+    }
+  });
+
+  test('9: agent_overhead is not windowed', () => {
+    const beta = makeProject(BETA_SPEC);
+    const troot = overheadRoot(beta);
+    const full = build([beta], { transcriptsRoot: troot });
+    const cal = build([beta], { transcriptsRoot: troot, window: 1 });
+    assert.deepEqual(Object.keys(cal).includes('window'), true, 'the window did cut 70-a');
+    assert.deepEqual(cal.agent_overhead, full.agent_overhead);
+    assert.deepEqual(cal.agent_overhead_sources, full.agent_overhead_sources);
   });
 });
