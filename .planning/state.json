@@ -1,6 +1,6 @@
 {
   "current_objective": "67",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 9,
   "progress_pct": 99,
   "status": "executing",
@@ -1129,6 +1129,11 @@
     {
       "objective": "67",
       "summary": "67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-04: the pre-registered ship rule returned ship_default true (reason: the new method meets EST-08; improved false, minutes median 1.021 old vs 1.051 new), so the frozen minutes method is trd_level, window 10, through objective 66",
       "rationale": null
     }
   ],
