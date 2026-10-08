@@ -9,6 +9,12 @@
  *   agent_type, hook_event_name, stop_hook_active, agent_transcript_path,
  *   last_assistant_message, background_tasks
  *
+ * TRD 66-02 adds `summaryText(kind, id)` and the `summaryKinds` option of
+ * `makePlanningRepo`: `checkpoint` (the default), `final_stamped`,
+ * `final_backfill`, `final_unstamped`, `final_template_comments` and
+ * `final_input_only`. They let the token branch of the gate be tested against a
+ * final SUMMARY with and without `tokens_input` / `tokens_output`.
+ *
  * No dependencies beyond node core.
  */
 
@@ -201,20 +207,108 @@ function writeAgentTranscript(dir, firstPrompt, { contentAsArray = false, leadin
   return file;
 }
 
+/** The six summaryText kinds (TRD 66-02). */
+const SUMMARY_KINDS = [
+  'checkpoint',
+  'final_stamped',
+  'final_backfill',
+  'final_unstamped',
+  'final_template_comments',
+  'final_input_only',
+];
+
+/**
+ * The token frontmatter lines of a stamped SUMMARY: the exact serialisation of
+ * `token-usage.tokenFrontmatterFields` (invented numbers).
+ */
+function tokenLines(source) {
+  return [
+    'tokens_input: 140747',
+    'tokens_output: 1370',
+    'tokens_cache_read: 121144',
+    'tokens_cache_write: 19596',
+    'token_model: "claude-opus-5-5"',
+    `tokens_source: "${source}"`,
+  ];
+}
+
+/**
+ * Literal SUMMARY text for one fixture kind (TRD 66-02). Hand-built, never
+ * generated from a real SUMMARY.
+ *
+ *   checkpoint              `## Progress` only, no Self-Check, no tokens. Exactly the
+ *                           text `makePlanningRepo` has always written.
+ *   final_stamped           final (`## Self-Check`), live token fields
+ *   final_backfill          final, token fields with `tokens_source: "backfill"`
+ *   final_unstamped         final, no token fields
+ *   final_template_comments final, only the template's COMMENTED `# tokens_*` lines
+ *   final_input_only        final, `tokens_input` but no `tokens_output`
+ *
+ * @param {string} kind  one of SUMMARY_KINDS
+ * @param {string} id    plan id such as `77-02`
+ * @returns {string}
+ */
+function summaryText(kind, id) {
+  if (kind === 'checkpoint') {
+    return [
+      `# TRD ${id} Summary`,
+      '',
+      '## Progress',
+      '',
+      '- Task 1: done (abc1234)',
+      '- Next: Task 2',
+      '',
+    ].join('\n');
+  }
+  if (!SUMMARY_KINDS.includes(kind)) throw new Error(`unknown summary kind: ${kind}`);
+
+  const parts = splitPlanId(id) || { objectiveNum: '0', trd: '00' };
+  let tokens;
+  switch (kind) {
+    case 'final_stamped': tokens = tokenLines('live'); break;
+    case 'final_backfill': tokens = tokenLines('backfill'); break;
+    case 'final_template_comments': tokens = ['# tokens_input: N', '# tokens_output: N']; break;
+    case 'final_input_only': tokens = ['tokens_input: 140747']; break;
+    default: tokens = []; // final_unstamped
+  }
+  return [
+    '---',
+    `objective: ${parts.objectiveNum}-x`,
+    `trd: "${parts.trd}"`,
+    'subsystem: fixture',
+    ...tokens,
+    'completed: 2026-10-08',
+    '---',
+    '',
+    `# TRD ${id} Summary: fixture`,
+    '',
+    '## Progress',
+    '',
+    '- [x] Task 1: do the fixture thing - abc1234',
+    '',
+    '## Self-Check: PASSED',
+    '',
+  ].join('\n');
+}
+
 /**
  * Create a DevFlow-shaped fixture project under `root`:
  * `.planning/objectives/<objectiveDir>/<id>-TRD.md` for each `trdIds` entry and
- * `<id>-SUMMARY.md` for each `summaries` entry. A SUMMARY carries only a
- * `## Progress` checkpoint (no Self-Check) — the gate must treat that as present.
+ * `<id>-SUMMARY.md` for each `summaries` entry. By default a SUMMARY carries only
+ * a `## Progress` checkpoint (no Self-Check) — the gate must treat that as present
+ * and never as unstamped. `summaryKinds` (`{ '77-02': 'final_unstamped' }`) picks
+ * another `summaryText` kind per id (TRD 66-02); an id it does not name keeps the
+ * checkpoint text, byte for byte.
  *
  * @param {string} root
  * @param {object} [opts]
  * @param {string} [opts.objectiveDir]
  * @param {string[]} [opts.trdIds]
  * @param {string[]} [opts.summaries]
+ * @param {Object<string,string>} [opts.summaryKinds]
  * @returns {string} root
  */
-function makePlanningRepo(root, { objectiveDir = '77-x', trdIds = ['77-02'], summaries = [] } = {}) {
+function makePlanningRepo(root, { objectiveDir = '77-x', trdIds = ['77-02'], summaries = [], summaryKinds = {} } = {}) {
   const objDir = path.join(root, '.planning', 'objectives', objectiveDir);
   fs.mkdirSync(objDir, { recursive: true });
 
@@ -239,15 +333,7 @@ function makePlanningRepo(root, { objectiveDir = '77-x', trdIds = ['77-02'], sum
   for (const id of summaries) {
     fs.writeFileSync(
       path.join(objDir, `${id}-SUMMARY.md`),
-      [
-        `# TRD ${id} Summary`,
-        '',
-        '## Progress',
-        '',
-        '- Task 1: done (abc1234)',
-        '- Next: Task 2',
-        '',
-      ].join('\n'),
+      summaryText(summaryKinds[id] || 'checkpoint', id),
       'utf8',
     );
   }
@@ -260,4 +346,5 @@ module.exports = {
   executorPrompt,
   writeAgentTranscript,
   makePlanningRepo,
+  summaryText,
 };

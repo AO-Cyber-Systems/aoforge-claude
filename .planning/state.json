@@ -1090,6 +1090,11 @@
       "objective": "66",
       "summary": "tokens coverage counts a SUMMARY with no token fields as missing whether or not it has a Self-Check; only a Progress checkpoint without Self-Check is in_progress (listed, not counted)",
       "rationale": null
+    },
+    {
+      "objective": "66",
+      "summary": "The SubagentStop gate checks token field presence in a final SUMMARY's frontmatter (not source) and blocks once via stop_hook_active; no marker file",
+      "rationale": null
     }
   ],
   "blockers": [],
