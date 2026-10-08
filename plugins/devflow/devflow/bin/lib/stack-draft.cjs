@@ -119,6 +119,14 @@
 // sqlc gen-sdk`, which also runs `dart pub get` and `dart analyze`, loses codegen to `make proto`; a one-shot
 // `task init` that also tidies loses deps to the CI install line. With no pure candidate nothing changes.
 //
+// Self-test steps (TRD 71-01, SDR-09). Before ranking, for every key, a candidate whose command passes a
+// self-test argument (`--self-test`, `--selftest`, a `--selftest-<case>` / `--self-test=<x>` variant, or a bare
+// `selftest` word; never the program, a shell's script or the runner target name) to an entry point that
+// another candidate of the same tier runs WITHOUT one, at the same cwd, is a `self_test` note: it checks the
+// gate's own fixtures and scans nothing, so it never fills the key while the gate step exists. A declared row is
+// the user's own. With no such gate sibling the self-test stays a candidate (an offline self-test may be the
+// only gate a repo has).
+//
 // Partial drift checks (TRD 43-11). R5 above holds only for a check of the GENERATOR: G = the best-ranked
 // codegen generator, and a check whose writer (stack-evidence `driftWriter`) is one of G's legs (`target.legs`)
 // rather than G itself is a `partial_check` note; it neither fills run nor turns G into apply.
@@ -384,6 +392,52 @@ function writesAs(writer, item) {
     ? item.bodyInvocations
     : [item.command, item.resolvesTo].filter(Boolean);
   return body.some((b) => bare(b) === want);
+}
+
+// TRD 71-01 (SDR-09): an argument that asks a gate script to test itself rather than gate.
+const SELF_TEST_ARG = /^(?:--?self-?test(?:[-=].*)?|self-?test)$/i;
+/** Programs that run a script file: the word after them is the script, never an argument. */
+const SCRIPT_SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
+
+/** The words of an item's command with redirections removed, never empty. */
+const commandWords = (item) => bare(item.command).split(' ').filter(Boolean);
+
+/**
+ * selfTestIndexes(item) -> the positions (in commandWords) of the self-test words of the item's command: never
+ * the program, a shell's script, or a word equal to the runner target / script name (`make selftest`, `bash
+ * t0-conformance/selftest.sh` are entry points, not self-test arguments). Surrounding quotes are ignored.
+ */
+function selfTestIndexes(item) {
+  const words = commandWords(item);
+  const first = words[0] ? words[0].split('/').pop() : '';
+  const name = nameOf(item);
+  const found = [];
+  for (let i = SCRIPT_SHELLS.has(first) ? 2 : 1; i < words.length; i++) {
+    const w = words[i].replace(/^["']+|["']+$/g, '');
+    if (name && w === name) continue;
+    if (SELF_TEST_ARG.test(w)) found.push(i);
+  }
+  return found;
+}
+
+/** selfTestArgs(item) -> the self-test words of the item's command (see selfTestIndexes). */
+function selfTestArgs(item) {
+  const words = commandWords(item);
+  return selfTestIndexes(item).map((i) => words[i].replace(/^["']+|["']+$/g, ''));
+}
+
+/**
+ * sameEntryPoint(a, b) -> true when `a` and `b` run the same entry point at the same cwd: the same named
+ * target or script (nameOf), else the same command once a's self-test words are removed (TRD 71-01).
+ */
+function sameEntryPoint(a, b) {
+  if (trimDir(a.cwd) !== trimDir(b.cwd)) return false;
+  const na = nameOf(a);
+  const nb = nameOf(b);
+  if (na && nb) return na === nb;
+  const drop = new Set(selfTestIndexes(a));
+  const stripped = commandWords(a).filter((_, i) => !drop.has(i)).join(' ');
+  return stripped === bare(b.command);
 }
 
 /**
@@ -851,6 +905,22 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         return false;
       });
     }
+    // A self-test step (TRD 71-01, SDR-09): a candidate passing a self-test argument to an entry point that a
+    // sibling candidate runs WITHOUT one is a test of that gate, not the gate. A `self_test` note; a declared row
+    // is the user's own; with no gate sibling nothing changes (an offline self-test may be the only gate a repo has).
+    const gates = pool.filter((c) => !selfTestArgs(c).length);
+    const selfTestSeen = new Set();
+    pool = pool.filter((c) => {
+      if (c.source === 'declared' || !selfTestArgs(c).length) return true;
+      const gate = gates.find((g) => sameEntryPoint(c, g));
+      if (!gate) return true;
+      if (!selfTestSeen.has(c.command)) {
+        selfTestSeen.add(c.command);
+        const label = nameOf(c) || commandWords(c)[0];
+        notes.push(note(c, key, 'self_test', `a self-test of \`${label}\` (${selfTestArgs(c).join(' ')}); the step \`${gate.command}\` runs it as the gate, so this never fills ${key}`));
+      }
+      return false;
+    });
     // The governing default's tool decides the dedicated-linter rank for lint (TRD 43-12, linterOf).
     const formTool = defaultToolOf(formRun);
     let ranked = rank(pool, key, formTool);
