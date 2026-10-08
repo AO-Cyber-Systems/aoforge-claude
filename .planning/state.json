@@ -1,6 +1,6 @@
 {
   "current_objective": "68",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -1175,6 +1175,11 @@
       "objective": "68",
       "summary": "Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case",
       "rationale": "Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer"
+    },
+    {
+      "objective": "68",
+      "summary": "objective remove TRD-reference rule is bounded ((?<![\\w.-])NN-(\\d{2})(?!\\d|-\\d)); nextObjective picks the smallest later number over directories and ROADMAP sections, cancelled directories excluded, directory spelling wins",
+      "rationale": null
     }
   ],
   "blockers": [

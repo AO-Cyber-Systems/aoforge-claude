@@ -222,6 +222,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 68]: milestone-scope counts a directory as objective N only when objectiveDirMatches(name, normalizeObjectiveName(N)) holds, so unpadded 4-d and hyphen-less 04x are not objectives (find-objective parity, TOOL-05)
 - [Objective 68]: Single decimals in a milestone bullet match by text, not float, so Objectives 4.1 does not select 04.10-ten; ranges and sort order stay numeric (float 4.10 == 4.1 deferred)
 - [Objective 68]: Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case — Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer
+- [Objective 68]: objective remove TRD-reference rule is bounded ((?<![\w.-])NN-(\d{2})(?!\d|-\d)); nextObjective picks the smallest later number over directories and ROADMAP sections, cancelled directories excluded, directory spelling wins
 
 ## Performance Metrics
 
@@ -373,4 +374,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 68 P01 | 11min | 3 tasks | 7 files |
 | Objective 68 P02 | 7min | 3 tasks | 5 files |
 | Objective 68 P03 | 15min | 3 tasks | 6 files |
+| Objective 68 P04 | 9min | 3 tasks | 4 files |
 

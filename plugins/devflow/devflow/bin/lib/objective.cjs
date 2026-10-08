@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, normalizeObjectiveName, objectiveDirMatches, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
+const { output, error, normalizeObjectiveName, objectiveDirMatches, generateSlugInternal, findPlanFiles, trdKey, parseObjectiveDirName, canonicalObjectiveNumber } = require('./helpers.cjs');
+const { extractFrontmatter } = require('./frontmatter.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const planningMode = require('./planning-mode.cjs');
 const { escapeRegExp, objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
@@ -362,17 +363,71 @@ function storeObjectiveAdd(root, description, raw) {
   output(result, raw, paddedNum, r.exit);
 }
 
-/** The first objective directory numbered after `objectiveNum`: `{num, name}` or null (the local body's scan). */
-function nextObjectiveDir(objectivesDir, objectiveNum) {
+// True when the objective directory's OBJECTIVE.md frontmatter says `status: cancelled` (the rule milestone-scope.cjs uses).
+function dirIsCancelled(objectivesDir, name) {
+  let text;
   try {
-    const dirs = fs.readdirSync(objectivesDir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
-    const currentFloat = parseFloat(objectiveNum);
-    for (const dir of dirs) {
-      const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
-      if (dm && parseFloat(dm[1]) > currentFloat) return { num: dm[1], name: dm[2] || null };
+    text = fs.readFileSync(path.join(objectivesDir, name, 'OBJECTIVE.md'), 'utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return false;
+    throw new Error(`cannot read ${path.join(objectivesDir, name, 'OBJECTIVE.md')}: ${err.message}`);
+  }
+  const status = extractFrontmatter(text).status;
+  return typeof status === 'string' && status.trim().toLowerCase() === 'cancelled';
+}
+
+/**
+ * The next objective after `objectiveNum`: `{num, name}` or null when it is the last one (TOOL-04). Candidates are the
+ * current objective directories and the `### Objective M:` sections of ROADMAP.md, because the later objectives of a
+ * milestone usually have no directory until they are planned. A directory whose OBJECTIVE.md says `status: cancelled`
+ * removes that number from the candidates. The smallest number above `objectiveNum` wins, compared as numbers (99 before
+ * 100). `num` is the directory's number as written when a directory exists (`'05'`), else the section's (`'5'`); `name`
+ * is the directory slug, else the slug of the section title. Local and store-mode `objective complete` both use this.
+ *
+ * @param {string} root  project root (the main checkout in store mode)
+ */
+function nextObjective(root, objectiveNum) {
+  // milestone-scope.cjs requires this module at load, so the require is lazy (roadmap.cjs does the same).
+  const { roadmapSections } = require('./milestone-scope.cjs');
+  const objectivesDir = path.join(root, '.planning', 'objectives');
+  const current = parseFloat(objectiveNum);
+  // canonical number -> {num, name, n}, or null for a cancelled number
+  const candidates = new Map();
+
+  let dirNames = [];
+  try {
+    dirNames = fs.readdirSync(objectivesDir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  for (const name of dirNames) {
+    const parsed = parseObjectiveDirName(name);
+    // parseObjectiveDirName proposes the number; objectiveDirMatches confirms the directory belongs to it, as find-objective does.
+    if (!parsed || !objectiveDirMatches(name, normalizeObjectiveName(parsed.number))) continue;
+    const key = canonicalObjectiveNumber(parsed.number);
+    if (dirIsCancelled(objectivesDir, name)) {
+      candidates.set(key, null);
+      continue;
     }
-  } catch {}
-  return null;
+    if (!candidates.has(key)) candidates.set(key, { num: parsed.number, name: parsed.slug, n: parseFloat(parsed.number) });
+  }
+
+  let roadmapText = '';
+  try {
+    roadmapText = fs.readFileSync(path.join(root, '.planning', 'ROADMAP.md'), 'utf-8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  for (const [key, title] of roadmapSections(roadmapText)) {
+    if (!candidates.has(key)) candidates.set(key, { num: key, name: generateSlugInternal(title) || null, n: parseFloat(key) });
+  }
+
+  let best = null;
+  for (const c of candidates.values()) {
+    if (c === null || !(c.n > current)) continue;
+    if (best === null || c.n < best.n) best = c;
+  }
+  return best ? { num: best.num, name: best.name } : null;
 }
 
 /**
@@ -386,7 +441,7 @@ function storeObjectiveComplete(root, objectiveNum, raw) {
     error(`Objective ${objectiveNum} not found`);
   }
   const r = require('./planning-verbs.cjs').objectiveSetStatus(root, { id: objectiveNum, status: 'complete' });
-  const next = nextObjectiveDir(path.join(root, '.planning', 'objectives'), objectiveNum);
+  const next = nextObjective(root, objectiveNum);
   const result = {
     completed: r.ok === true,
     completed_objective: objectiveNum,
@@ -622,6 +677,64 @@ function renderPlanText(target, plan) {
   return lines.join('\n') + '\n';
 }
 
+/**
+ * ROADMAP.md text with every integer objective above `removedInt` moved down by one: headings, checkboxes, progress-table
+ * numbers, `**Depends on**` lines and `NN-MM` TRD references. Pure; the removed objective's own section, checkbox and row
+ * are deleted by the caller before this runs. Dates, statuses, plan counts, milestone cells and requirement IDs are not
+ * touched (TOOL-03).
+ */
+function renumberRoadmapText(text, removedInt) {
+  let roadmapContent = text;
+
+  // Collect all integer objectives > removedInt. Ascending: each number moves down by one exactly once. A descending
+  // pass renamed 5 -> 4 and then 4 -> 3 on the next iteration, collapsing every later objective onto the removed one.
+  const maxObjective = 99; // reasonable upper bound
+  const dependsOnLine = new RegExp(`^[^\\n]*${boldLabelPattern('Depends on')}[^\\n]*$`, 'gim');
+  for (let oldNum = removedInt + 1; oldNum <= maxObjective; oldNum++) {
+    const newNum = oldNum - 1;
+    const oldStr = String(oldNum);
+    const newStr = String(newNum);
+    const oldPad = oldStr.padStart(2, '0');
+    const newPad = newStr.padStart(2, '0');
+
+    // Objective headings: ## Objective 18: or ### Objective 18: → ## Objective 17: or ### Objective 17:
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(#{2,4}\\s*Objective\\s+)${oldStr}(\\s*:)`, 'gi'),
+      `$1${newStr}$2`
+    );
+
+    // Checkbox items: - [ ] **Objective 18:** → - [ ] **Objective 17:**
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(Objective\\s+)${oldStr}([:\\s])`, 'g'),
+      `$1${newStr}$2`
+    );
+
+    // Job references: 18-01 → 17-01. Bounded (TOOL-03): the old unbounded `${oldPad}-(\d{2})` also matched inside dates, so
+    // removing objective 1 turned a progress row's `2026-03-15` into `2025-02-15` (59-05 Deferred Issues) and any objective
+    // numbered 26 rewrote every `2026-` date. No word character, `.` or `-` may precede the reference (`2026-`, `v1.18-01`,
+    // `AUTH-18-01`), and no digit or `-<digit>` may follow it (`18-0123`, `03-15-2026`). `18-01-slug-TRD.md`, `/18-01-`,
+    // `(18-01)`, `` `18-01` `` and `18-01's` still match.
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(?<![\\w.-])${oldPad}-(\\d{2})(?!\\d|-\\d)`, 'g'),
+      `${newPad}-$1`
+    );
+
+    // Table rows: | 18. → | 17.
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(\\|\\s*)${oldStr}\\.\\s`, 'g'),
+      `$1${newStr}. `
+    );
+
+    // Depends on references: every `Objective N` on a `**Depends on:**` or `**Depends on**:` line, including list
+    // items the rule above cannot see (`Objective 4, Objective 5, ...`: a comma is not `[:\s]`).
+    roadmapContent = roadmapContent.replace(dependsOnLine, (line) =>
+      line.replace(new RegExp(`(Objective\\s+)${oldStr}(?!\\.?\\d)`, 'gi'), `$1${newStr}`)
+    );
+  }
+
+  return roadmapContent;
+}
+
 function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   if (!targetObjective) {
     error('objective number required for objective remove');
@@ -760,49 +873,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
 
   // Renumber references in ROADMAP for subsequent objectives
   if (!isDecimal) {
-    const removedInt = parseInt(normalized, 10);
-
-    // Collect all integer objectives > removedInt. Ascending: each number moves down by one exactly once. A descending
-    // pass renamed 5 -> 4 and then 4 -> 3 on the next iteration, collapsing every later objective onto the removed one.
-    const maxObjective = 99; // reasonable upper bound
-    const dependsOnLine = new RegExp(`^[^\\n]*${boldLabelPattern('Depends on')}[^\\n]*$`, 'gim');
-    for (let oldNum = removedInt + 1; oldNum <= maxObjective; oldNum++) {
-      const newNum = oldNum - 1;
-      const oldStr = String(oldNum);
-      const newStr = String(newNum);
-      const oldPad = oldStr.padStart(2, '0');
-      const newPad = newStr.padStart(2, '0');
-
-      // Objective headings: ## Objective 18: or ### Objective 18: → ## Objective 17: or ### Objective 17:
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(#{2,4}\\s*Objective\\s+)${oldStr}(\\s*:)`, 'gi'),
-        `$1${newStr}$2`
-      );
-
-      // Checkbox items: - [ ] **Objective 18:** → - [ ] **Objective 17:**
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(Objective\\s+)${oldStr}([:\\s])`, 'g'),
-        `$1${newStr}$2`
-      );
-
-      // Job references: 18-01 → 17-01
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`${oldPad}-(\\d{2})`, 'g'),
-        `${newPad}-$1`
-      );
-
-      // Table rows: | 18. → | 17.
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(\\|\\s*)${oldStr}\\.\\s`, 'g'),
-        `$1${newStr}. `
-      );
-
-      // Depends on references: every `Objective N` on a `**Depends on:**` or `**Depends on**:` line, including list
-      // items the rule above cannot see (`Objective 4, Objective 5, ...`: a comma is not `[:\s]`).
-      roadmapContent = roadmapContent.replace(dependsOnLine, (line) =>
-        line.replace(new RegExp(`(Objective\\s+)${oldStr}(?!\\.?\\d)`, 'gi'), `$1${newStr}`)
-      );
-    }
+    roadmapContent = renumberRoadmapText(roadmapContent, parseInt(normalized, 10));
   }
 
   // roadmap_updated follows the same rule as state_updated below: it reports an actual write, decided by comparing the
@@ -866,7 +937,6 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
 
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
   const statePath = path.join(cwd, '.planning', 'STATE.md');
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
   const normalized = normalizeObjectiveName(objectiveNum);
   const today = new Date().toISOString().split('T')[0];
 
@@ -953,30 +1023,11 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     }
   }
 
-  // Find next objective
-  let nextObjectiveNum = null;
-  let nextObjectiveName = null;
-  let isLastObjective = true;
-
-  try {
-    const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
-    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    const currentFloat = parseFloat(objectiveNum);
-
-    // Find the next objective directory after current
-    for (const dir of dirs) {
-      const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
-      if (dm) {
-        const dirFloat = parseFloat(dm[1]);
-        if (dirFloat > currentFloat) {
-          nextObjectiveNum = dm[1];
-          nextObjectiveName = dm[2] || null;
-          isLastObjective = false;
-          break;
-        }
-      }
-    }
-  } catch {}
+  // Find next objective: the smallest later number among the objective directories and the ROADMAP.md sections.
+  const nextInfo = nextObjective(cwd, objectiveNum);
+  const nextObjectiveNum = nextInfo ? nextInfo.num : null;
+  const nextObjectiveName = nextInfo ? nextInfo.name : null;
+  const isLastObjective = nextInfo === null;
 
   // Update STATE.md. Two schemas, told apart by **Current Objective:** — the
   // legacy template's anchor field (still documented in workflows/transition.md).
@@ -1128,4 +1179,6 @@ module.exports = {
   cmdObjectiveInsert,
   cmdObjectiveRemove,
   cmdObjectiveComplete,
+  renumberRoadmapText,
+  nextObjective,
 };
