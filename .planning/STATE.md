@@ -55,7 +55,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 62 — Built-in sweep (completed 2026-10-06, 11/11 TRDs)
 **Objective complete:** 63 — Todo store, hook coexistence and built-in inventory (completed 2026-10-07, 7/7 TRDs)
 **Objective complete:** 64 — Estimate accuracy validation (completed 2026-10-08, 10/10 TRDs)
-**Status:** Executing objective 65 — 1/4 TRDs complete
+**Status:** Executing objective 65 — 3/4 TRDs complete
 
 ## Branch State (post-merge)
 

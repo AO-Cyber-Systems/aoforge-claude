@@ -9,7 +9,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Release (REL)
 
-- [ ] **REL-01**: The v1.5 work ships. The three version files are bumped in step, CHANGELOG `[Unreleased]` becomes the release section, `feat/stack-profile-loader` merges to `main`, and the next plugin semver tag sits on the merge commit. Each live step runs only after explicit approval.
+- [x] **REL-01**: The v1.5 work ships. The three version files are bumped in step, CHANGELOG `[Unreleased]` becomes the release section, `feat/stack-profile-loader` merges to `main`, and the next plugin semver tag sits on the merge commit. Each live step runs only after explicit approval.
 - [ ] **REL-02**: After the release and a session restart, the installed runtime mirror carries the v1.5 libs and hooks (todo-sync, checks-pin, estimate-backtest, skill-requires, builtin-audit, gate-bash-writes, gate-skill-requires, todo-sync Stop hook). `doctor` and `validate health` report no mirror lag.
 
 ### Estimation (EST): carries EST-08 forward
@@ -72,7 +72,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 | Requirement | Objective | Status |
 |---|---|---|
-| REL-01 | Objective 65 | Pending |
+| REL-01 | Objective 65 | Complete |
 | REL-02 | Objective 65 | Pending |
 | EST-09 | Objective 66 | Pending |
 | EST-10 | Objective 67 | Pending |
