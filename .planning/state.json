@@ -1,9 +1,9 @@
 {
-  "current_objective": "67",
-  "current_job": 9,
-  "total_jobs": 9,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "68",
+  "current_job": 1,
+  "total_jobs": 7,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1154,6 +1154,16 @@
     {
       "objective": "67",
       "summary": "EST-11 calibration frozen by the installed 2.15.0 runtime (trd_level, window 10, through 66, sha256 f4d1ffa9); state add-blocker/resolve-blocker now accept a spaced '## Blockers / Concerns' heading via a shared BLOCKERS_SECTION_RE instead of hand-editing STATE.md",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "milestone-scope counts a directory as objective N only when objectiveDirMatches(name, normalizeObjectiveName(N)) holds, so unpadded 4-d and hyphen-less 04x are not objectives (find-objective parity, TOOL-05)",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "Single decimals in a milestone bullet match by text, not float, so Objectives 4.1 does not select 04.10-ten; ranges and sort order stay numeric (float 4.10 == 4.1 deferred)",
       "rationale": null
     }
   ],
