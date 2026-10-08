@@ -6,7 +6,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 **Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** v1.6 Hardening & Release: roadmap defined (Objectives 65-75); Objective 65 (Release v1.5) is next
+**Current focus:** v1.6 Hardening & Release: Objectives 65-67 complete (2.15.0 released); Objective 68 (first EST-11 scored objective) is next
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
 
 ## Current Position
@@ -57,7 +57,8 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 64 — Estimate accuracy validation (completed 2026-10-08, 10/10 TRDs)
 **Objective complete:** 65 — Release v1.5 (completed 2026-10-08, 4/4 TRDs)
 **Objective complete:** 66 — Executor token stamp (completed 2026-10-08, 4/4 TRDs)
-**Status:** Objective 67 executed — 9/9 TRDs complete, ready for verification
+**Objective complete:** 67 — Minutes recalibration (completed 2026-10-08, 9/9 TRDs)
+**Status:** Objective 67 complete (verified 4/4, EST-10); EST-11 calibration frozen (67-FREEZE.md). Objective 68 (Milestone and objective verbs) is next — not yet planned
 
 ## Branch State (post-merge)
 
