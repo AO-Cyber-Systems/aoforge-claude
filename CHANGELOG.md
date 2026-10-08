@@ -6,10 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Objective 66 (EST-09, forward-stamp coverage). Entries that need an installed plugin take effect once the installed
-plugin carries objective 66; the 2.14.0 runtime has none of them.
+Objectives 66 (EST-09, forward-stamp coverage) and 67 (EST-10, minutes recalibration). Entries that need an installed
+plugin take effect once the installed plugin carries the objective; the 2.14.0 runtime has none of them, and it
+refuses a version 3 calibration.
 
 ### Added
+- `df-tools calibrate --minutes <task_sum|trd_level>` and `--through <N>` (objective 67, EST-10; `lib/calibrator.cjs`,
+  `lib/calibration-inputs.cjs`, `lib/calibrate-cli.cjs`). Calibration version 3 adds a `method` block,
+  `{minutes, window_objectives, through_objective}`, the parameters the build was asked for, and puts it inside
+  `inputs_digest`, so two builds that differ in method never share a digest. `--through` drops objectives numbered
+  above N, and their STATE_ARCHIVE and `state.json` metric rows, before anything is read or counted (agent overhead
+  comes from transcripts and is not cut), so a later objective cannot change the file. The summary line and the
+  result JSON name the minutes method and the cutoff. Needs an installed plugin carrying objective 67.
 - `df-tools tokens coverage [--milestone <v> | --objective <N>]` (objective 66, EST-09; `lib/token-coverage.cjs`). It
   reports forward-stamp coverage (`tokens_source: "live"` over the counted TRD SUMMARYs) as an exact fraction and a
   decimal floored at 6 places, and checks the 95% target with integers. It separates backfilled, unlabeled, missing and
@@ -17,6 +25,18 @@ plugin carries objective 66; the 2.14.0 runtime has none of them.
   `no_transcript`), and is read-only. The default scope is the current milestone.
 
 ### Changed
+- The estimator reads calibration versions 1 to 3 (objective 67, EST-10; `lib/estimate.cjs`). With
+  `method.minutes: trd_level` a TRD's minutes are the calibration's `trd_level.minutes` distribution whatever its task
+  count; tokens and cost stay the per-task sum. Every `estimate` result carries `calibration.method`, the run state of
+  `estimate start` records it, and the text names the minutes method. A version 3 file with no `method` block, or one
+  naming a method the estimator does not know, is refused with a reason that names `df-tools calibrate`.
+- The default minutes method of `calibrate` is `trd_level` (objective 67, EST-10). `67-VALIDATION.md` scored
+  `task_sum` against `trd_level` once, on leave-future-out calibrations of objectives 46 to 66, and the pre-registered
+  ship rule returned `ship_default: true`. It fired on its first clause (the new method's own verdict is `met`), not on
+  an improvement of the centre: the agent-minutes median ratio is 1.021 for `task_sum` and 1.051 for `trd_level`, while
+  the P90 covers 160 of 165 TRDs against 152 of 165. `--minutes task_sum` keeps the previous behaviour. This is a
+  retrospective reconstruction; EST-11, on objectives 68 to 72, is the prospective test. The EST-11 calibration is built
+  once, with `--through 66`, and is frozen: it is not rebuilt until objective 75 has scored 68 to 72.
 - `gate-executor-stop.js` also blocks a `devflow:executor` once when its final SUMMARY (the one with `## Self-Check`)
   has no `tokens_input`/`tokens_output`, naming the exact `planning draft`, `tokens stamp` and `summary post` commands
   (objective 66; the 64-09 and 64-10 executors skipped the stamp). A checkpoint SUMMARY, a stamped or backfilled final
