@@ -1,9 +1,9 @@
 {
-  "current_objective": "70",
-  "current_job": 3,
-  "total_jobs": 3,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "71",
+  "current_job": 1,
+  "total_jobs": 5,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1254,6 +1254,21 @@
     {
       "objective": "70",
       "summary": "70-03: SC-4 before column taken from the installed 2.15.0 hook output; the live SubagentStop is a post-release check tracked as a todo, not a pass",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "buf lint is recognised by stack-classify linterToolOf via AUX_LINTERS only, never in CLASSIFY_TABLE, so stack-evidence unitKeys and the mixed-aggregate codegen pick are unchanged",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "A self-test step is filtered only when a sibling runs the same named entry point at the same cwd without the argument; a lone self-test and a declared row still fill their key",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "A lint target adding linters is the entry point only when every extra line is an unconditional (no ||) linter of a tool other than the default's; optional linters keep lint inherited",
       "rationale": null
     }
   ],
