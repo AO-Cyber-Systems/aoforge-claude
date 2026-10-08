@@ -1,9 +1,9 @@
 {
   "current_objective": "65",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 4,
-  "progress_pct": 99,
-  "status": "executing",
+  "progress_pct": 100,
+  "status": "ready_for_verification",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1079,6 +1079,11 @@
     {
       "objective": "65",
       "summary": "65-01: release 2.14.0 dated 2026-10-07 (local date +%F); lead paragraph only restates [Unreleased]/MILESTONES facts; REL-01 stays open until the merge and tag (65-02, 65-03)",
+      "rationale": null
+    },
+    {
+      "objective": "65",
+      "summary": "65-04: installed 2.14.0 verified after update and restart; remaining doctor warnings (plugin-cache, legacy-runtime-state, guard-state, W006 66-75) classified as unrelated to mirror lag and left in report mode",
       "rationale": null
     }
   ],

@@ -29,8 +29,14 @@ key-decisions:
 
 requirements-completed: [REL-02]
 
-duration: in progress
+duration: 8min
 completed: 2026-10-08
+tokens_input: 3631376
+tokens_output: 27289
+tokens_cache_read: 3522540
+tokens_cache_write: 108750
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 65 TRD 04: Installed runtime verification Summary
@@ -39,7 +45,7 @@ completed: 2026-10-08
 
 ## Progress
 - [x] Task 1: Human action: update the installed plugin to 2.14.0 and restart Claude Code — 11a360a9
-- [x] Task 2: Verify the installed runtime carries the v1.5 libs and hooks, and doctor and health report no mirror lag — (this commit)
+- [x] Task 2: Verify the installed runtime carries the v1.5 libs and hooks, and doctor and health report no mirror lag — 18a775a4
 
 ## Task 1 pre-check (already done, found at pre-check)
 
@@ -209,7 +215,7 @@ None of these is mirror lag:
 | Gate | Command | Exit Code | Status |
 |---|---|---|---|
 | test (task gate, before the Task 2 commit) | `npm test` | 1 (tests 11075, pass 11040, fail 1, skipped 34) | FAIL, transient. The one failure is `E2E1: SELF-TEST — reconcile dry-run against this repo ROADMAP shows zero drift`, with a single drift entry: ROADMAP line 146, `- [ ] 65-04-installed-runtime-verification-TRD.md` → `[x]`. Cause: the Task 1 checkpoint SUMMARY (11a360a9) exists, while the ROADMAP line is ticked only at completion. See Deferred Issues. |
-| test (after the roadmap update) | `npm test` | pending | runs after `roadmap update-job-progress 65` |
+| test (after the roadmap update) | `npm test` | 0 (tests 11075, pass 11041, fail 0, skipped 34) | PASS. `roadmap update-job-progress 65` ticked the 65-04 line (`trd_checkboxes_ticked: 1`), and E2E1 passes again |
 
 ## Deviations from Plan
 
@@ -223,5 +229,13 @@ None. The TRD executed as written. Task 1 was found done at pre-check, and Task 
 
 - Auto-fix cycles used: 0
 - Must-haves verified: 6/6 (installed record 2.14.0; .plugin-version 2.14.0; six v1.5 libs; three v1.5 hooks registered; doctor engine 2.14.0 with runtime-mirror, hooks-registry (20) and model-profiles ok plus skill-requires and checks-workflow-pin present; health engine 2.14.0 with no E020/W021/I022)
-- Gate failures: `npm test` E2E1, transient roadmap drift from the checkpoint SUMMARY (see Validation Gate Results and Deferred Issues)
+- Gate failures: `npm test` E2E1 failed once before the Task 2 commit. That was transient roadmap drift from the checkpoint SUMMARY, and it cleared after `roadmap update-job-progress 65` (re-run: fail 0). See Validation Gate Results and Deferred Issues.
 - Not pushed (per instructions).
+- State: `roadmap update-job-progress 65` set objective 65 to Complete (4/4). `state advance-job --objective 65` → "Objective 65 executed — 4/4 TRDs complete, ready for verification". `requirements mark-complete REL-02` → marked. `state update-progress` → `updated: false`, "Progress field not found in STATE.md" (no progress field in this repo's STATE.md, not an error).
+
+## Self-Check: PASSED
+
+- FOUND: commits 11a360a9 (Task 1), 18a775a4 (Task 2), 2db21cbf (SessionStart stamp)
+- FOUND: /Users/justin/dev/devflow-claude/.planning/objectives/65-release-v1-5/65-04-SUMMARY.md
+- FOUND: the six mirror libs under /Users/justin/.claude/devflow/bin/lib/ (todo-sync, todo-session, checks-pin, estimate-backtest, skill-requires, builtin-audit)
+- FOUND: the three installed hooks under /Users/justin/.claude/plugins/cache/aocyber/devflow/2.14.0/hooks/ (gate-bash-writes.js, gate-skill-requires.js, todo-sync.js)
