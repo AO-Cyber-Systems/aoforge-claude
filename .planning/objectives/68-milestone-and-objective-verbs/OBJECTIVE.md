@@ -1,5 +1,6 @@
 ---
 work: feature
+status: verifying
 ---
 
 # Milestone and objective verbs

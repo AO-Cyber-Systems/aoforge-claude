@@ -58,6 +58,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 65 — Release v1.5 (completed 2026-10-08, 4/4 TRDs)
 **Objective complete:** 66 — Executor token stamp (completed 2026-10-08, 4/4 TRDs)
 **Objective complete:** 67 — Minutes recalibration (completed 2026-10-08, 9/9 TRDs)
+**Objective complete:** 68 — Milestone and objective verbs (completed 2026-10-08, 7/7 TRDs)
 **Status:** Objective 68 executed — 7/7 TRDs complete, ready for verification
 
 ## Branch State (post-merge)
