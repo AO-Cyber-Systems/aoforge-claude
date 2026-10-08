@@ -426,10 +426,13 @@ test('13. classifyToken refuses a glued or unknown spelling', () => {
   assert.strictEqual(classifyToken('devFlow').action, 'unclassified');
 });
 
-test('13. classifyToken honours file-scoped manual entries', () => {
-  const rel = 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js';
-  assert.strictEqual(classifyToken('.devflow', rel).action, 'manual');
-  assert.strictEqual(classifyToken('.devflow', 'lib/other.cjs').action, 'rename');
+test('13. classifyToken honours file-scoped entries, which match the quoted form', () => {
+  const doctor = 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js';
+  assert.strictEqual(classifyToken("'.devflow'", doctor).action, 'manual');
+  assert.strictEqual(classifyToken("'.devflow'", 'lib/other.cjs').action, 'rename');
+  const fleet = 'plugins/devflow/devflow/bin/lib/__fixtures__/stack-fleet-tables.cjs';
+  assert.strictEqual(classifyToken("'devflow-test'", fleet).action, 'preserve');
+  assert.strictEqual(classifyToken("'devflow-test'", 'lib/other.cjs').action, 'rename');
 });
 
 test('13. classifyToken for the planning rules', () => {
