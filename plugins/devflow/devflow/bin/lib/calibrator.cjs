@@ -14,6 +14,10 @@ const { OVERHEAD_AGENTS, collectOverhead } = require('./agent-overhead.cjs');
 
 const CALIBRATION_VERSION = 2;
 
+// The recency window `buildCalibration` applies when its caller passes none: null means all history. Objective 64
+// froze a candidate (64-DIAGNOSIS.md); whether it becomes the default is decided by the pre-registered ship rule (64-10).
+const DEFAULT_WINDOW_OBJECTIVES = null;
+
 const NOTES = Object.freeze([
   "Task values split each TRD's outcome equally across its auto tasks and include the executor's per-TRD overhead pro rata; do not add executor overhead on top.",
   'Minutes exclude autonomous:false TRDs (human wait); their tokens still count.',
@@ -97,9 +101,9 @@ function sortedUnique(list) {
 
 /** One TRD-level sample, or null when the TRD has neither minutes nor both token counts. */
 function trdSample(project, trd, rates, unpricedModels) {
+  if (!ci.hasOutcome(trd)) return null;
   const summary = trd.summary;
   const hasTokens = summary !== null && hasNumber(summary.tokens_input) && hasNumber(summary.tokens_output);
-  if (trd.minutes === null && !hasTokens) return null;
 
   let cost = null;
   if (hasTokens) {
@@ -240,6 +244,49 @@ function objectiveLevelBlock(projectList, samples) {
   };
 }
 
+// ─── Recency window ───────────────────────────────────────────────────────────
+
+/** A window is null (all history) or a positive integer; anything else is a caller error. */
+function assertWindow(window) {
+  if (window === null) return;
+  if (!Number.isInteger(window) || window < 1) throw new Error('window must be a positive integer or null');
+}
+
+/**
+ * Keeps, per project, the TRDs of the `window` most recent objectives that have a sample (calibration-inputs
+ * `windowObjectives`). A project is replaced by a filtered COPY, never mutated: its `metrics` and `counts` describe the
+ * whole history. `block` is null when no project dropped anything, so a window that cuts nothing leaves no trace.
+ * @returns {{projects: object[], block: ?{objectives:number, projects:object[]}}}
+ */
+function applyWindow(projectList, window) {
+  if (window === null) return { projects: projectList, block: null };
+  const entries = [];
+  const projects = projectList.map((project) => {
+    const w = ci.windowObjectives(project, window);
+    if (w.dropped.length === 0) return project;
+    const kept = new Set(w.kept);
+    const trds = project.trds.filter((trd) => kept.has(trd.objective_dir));
+    const keptWithOutcome = w.kept.filter((dir) => trds.some((trd) => trd.objective_dir === dir && ci.hasOutcome(trd)));
+    entries.push({
+      project: project.label,
+      first: w.cutoff,
+      last: keptWithOutcome[keptWithOutcome.length - 1],
+      kept_objectives: keptWithOutcome.length,
+      dropped_objectives: w.dropped.length,
+      dropped_trds: project.trds.length - trds.length,
+    });
+    return { ...project, trds };
+  });
+  return {
+    projects,
+    block: entries.length === 0 ? null : { objectives: window, projects: entries.sort((a, b) => compareStrings(a.project, b.project)) },
+  };
+}
+
+function windowNote(window) {
+  return `Window: only the ${window} most recent objectives with samples (by objective number) are read per project; older objectives are dropped before every statistic. agent_overhead is not windowed.`;
+}
+
 // ─── Agent overhead ───────────────────────────────────────────────────────────
 
 const NO_OVERHEAD_COUNTS = Object.freeze({ spawns: 0, matched: 0, foreign: 0, quick: 0, unreadable: 0 });
@@ -340,7 +387,7 @@ function normalizedOverhead(overheadSamples, counts) {
   };
 }
 
-function inputsDigest(projectList, rates, sources, overhead) {
+function inputsDigest(projectList, rates, sources, overhead, windowBlock = null) {
   const trds = projectList
     .flatMap((project) => project.trds.map((trd) => normalizedTrd(project.label, trd)))
     .sort((a, b) => compareStrings(a.project, b.project)
@@ -352,6 +399,8 @@ function inputsDigest(projectList, rates, sources, overhead) {
     sources, // metric rows that joined no TRD change the output, so they belong to the inputs too
     overhead, // null when no transcripts root was scanned
   };
+  // Only a window that dropped something is an input: an absent key keeps the digest of an unwindowed build.
+  if (windowBlock !== null) payload.window = { objectives: windowBlock.objectives };
   return `sha256:${crypto.createHash('sha256').update(stableStringify(payload)).digest('hex')}`;
 }
 
@@ -363,14 +412,22 @@ function inputsDigest(projectList, rates, sources, overhead) {
  *
  * Subagent transcripts are read only when `transcriptsRoot` is a string (the CLI resolves the default root); without it
  * `agent_overhead` is present and empty and `agent_overhead_sources.scanned` is false.
- * @param {{paths:string[], ratesPath?:string, transcriptsRoot?:?string}} options
+ *
+ * `window` keeps, per project, only the N most recent objectives that have a sample (undefined: DEFAULT_WINDOW_OBJECTIVES,
+ * null: all history). It is applied right after the projects are collected, so every block below describes the retained
+ * TRDs; agent overhead comes from transcripts and is not windowed. A window that drops nothing changes nothing.
+ * @param {{paths:string[], ratesPath?:string, transcriptsRoot?:?string, window?:?number}} options
  */
-function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = null } = {}) {
+function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = null, window } = {}) {
+  const effectiveWindow = window === undefined ? DEFAULT_WINDOW_OBJECTIVES : window;
+  assertWindow(effectiveWindow);
   const rates = ci.loadRates(ratesPath);
   if (!rates.ok) throw new Error(rates.error);
 
   const projectRoots = ci.discoverProjects(paths);
-  const projectList = projectRoots.map((root) => ci.collectProject(root));
+  const windowed = applyWindow(projectRoots.map((root) => ci.collectProject(root)), effectiveWindow);
+  const projectList = windowed.projects;
+  const windowBlock = windowed.block;
   const unpricedModels = new Set();
   const samples = [];
   for (const project of projectList) {
@@ -420,13 +477,13 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = 
     unreadable: overhead.counts.unreadable,
   };
 
-  return {
+  const calibration = {
     version: CALIBRATION_VERSION,
     classifier_version: ci.CLASSIFIER_VERSION,
     data_as_of: latestCompleted(projectList),
     inputs_digest: inputsDigest(projectList, rates, sources,
-      scanned ? normalizedOverhead(overheadSamples, overheadSources) : null),
-    notes: [...NOTES],
+      scanned ? normalizedOverhead(overheadSamples, overheadSources) : null, windowBlock),
+    notes: windowBlock === null ? [...NOTES] : [...NOTES, windowNote(windowBlock.objectives)],
     samples: {
       trds: samples.length,
       tasks: tasks.length,
@@ -454,6 +511,8 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = 
     rates_as_of: rates.as_of,
     unpriced_models: sortedUnique([...unpricedModels]),
   };
+  if (windowBlock !== null) calibration.window = windowBlock;
+  return calibration;
 }
 
 // ─── Where it is written ──────────────────────────────────────────────────────
@@ -494,6 +553,7 @@ function writeCalibration(outPath, obj) {
 
 module.exports = {
   CALIBRATION_VERSION,
+  DEFAULT_WINDOW_OBJECTIVES,
   nearestRank,
   statBlock,
   sampleCost,

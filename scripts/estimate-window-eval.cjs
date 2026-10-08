@@ -52,48 +52,25 @@ function inBand(ratio) {
 }
 
 // ─── Ranking and cuts ─────────────────────────────────────────────────────────
+// The ranking, the outcome rule and the window itself are the library's (calibration-inputs.cjs, TRD 64-08): the
+// calibrator's `window` option and this tool select objectives with the same code, so a calibration with `window: W`
+// equals a calibration over a directory cut here.
 
 /** The numeric prefix of an objective directory name (`12.1-x` is 12.1), or null when it has none. */
-function objectiveNumber(name) {
-  const m = /^(\d+(?:\.\d+)?)/.exec(String(name));
-  return m ? Number(m[1]) : null;
-}
-
-/** Directory names ordered by (numeric prefix, name); a name with no number sorts last. The input is not modified. */
-function rankObjectives(names) {
-  return [...names].sort((a, b) => {
-    const na = objectiveNumber(a);
-    const nb = objectiveNumber(b);
-    if (na === null && nb === null) return compareStrings(a, b);
-    if (na === null) return 1;
-    if (nb === null) return -1;
-    return na - nb || compareStrings(a, b);
-  });
-}
-
-/** The rule `calibrator.trdSample` returns null on: neither minutes nor both token counts. */
-function trdBearsSample(trd) {
-  const summary = trd.summary;
-  const hasTokens = Boolean(summary) && isNum(summary.tokens_input) && isNum(summary.tokens_output);
-  return trd.minutes !== null || hasTokens;
-}
+const { objectiveNumber, rankObjectives } = ci;
 
 /** Objective directories (ranked) with at least one sample-bearing TRD. A directory of TRDs with no SUMMARY is not one. */
 function sampleObjectives(project) {
-  const dirs = new Set();
-  for (const trd of project.trds) {
-    if (trdBearsSample(trd)) dirs.add(trd.objective_dir);
-  }
-  return rankObjectives([...dirs]);
+  return rankObjectives([...new Set(project.trds.filter(ci.hasOutcome).map((trd) => trd.objective_dir))]);
 }
 
-/** The last `window` of the ranked objectives; `null` or 'all' keeps all, and a window above the count is all. */
+/**
+ * The last `window` of the ranked objectives; `null` or 'all' keeps all, and a window above the count is all. The cut is
+ * the library's `windowObjectives`, applied to a project whose every listed objective has an outcome.
+ */
 function recentObjectives(ranked, window) {
-  if (window === null || window === undefined || window === 'all') return [...ranked];
-  if (!Number.isInteger(window) || window < 1) {
-    throw new Error(`window must be 'all' or a positive integer, got ${String(window)}`);
-  }
-  return window >= ranked.length ? [...ranked] : ranked.slice(ranked.length - window);
+  const project = { trds: ranked.map((dir) => ({ objective_dir: dir, minutes: 0, summary: null })) };
+  return ci.windowObjectives(project, window).kept;
 }
 
 /**
@@ -106,11 +83,15 @@ function recentObjectives(ranked, window) {
  */
 function cutProject({ snapshotRoot, before, window, dest, project = null }) {
   const proj = project || ci.collectProject(snapshotRoot);
-  const below = sampleObjectives(proj).filter((dir) => {
-    const n = objectiveNumber(dir);
-    return n !== null && n < before;
-  });
-  const kept = recentObjectives(below, window);
+  const below = {
+    ...proj,
+    trds: proj.trds.filter((trd) => {
+      const n = objectiveNumber(trd.objective_dir);
+      return n !== null && n < before;
+    }),
+  };
+  const sampled = new Set(sampleObjectives(below));
+  const kept = ci.windowObjectives(below, window).kept.filter((dir) => sampled.has(dir));
   const planning = path.join(dest, '.planning');
   fs.mkdirSync(path.join(planning, 'objectives'), { recursive: true });
   for (const dir of kept) {

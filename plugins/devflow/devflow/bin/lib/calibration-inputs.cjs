@@ -537,7 +537,70 @@ function collectProject(root) {
   };
 }
 
+// ─── Recency window (TRD 64-08) ───────────────────────────────────────────────
+// Pure helpers over a collected project, shared by the calibrator's `window` option and by the evaluation scripts, so the
+// ranking and the cut exist once.
+
+const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/** The numeric prefix of an objective directory name (`12.1-x` is 12.1), or null when it has none. */
+function objectiveNumber(dir) {
+  const m = /^(\d+(?:\.\d+)?)/.exec(String(dir));
+  return m ? Number(m[1]) : null;
+}
+
+/** Directory names ordered by (numeric prefix, name); a name with no number sorts last. Returns a new array. */
+function rankObjectives(dirs) {
+  return [...dirs].sort((a, b) => {
+    const na = objectiveNumber(a);
+    const nb = objectiveNumber(b);
+    if (na === null && nb === null) return compareStrings(a, b);
+    if (na === null) return 1;
+    if (nb === null) return -1;
+    return na - nb || compareStrings(a, b);
+  });
+}
+
+/**
+ * True when a TRD yields a calibration sample: it has minutes, or both token counts. This is the one predicate the
+ * calibrator's `trdSample` returns null on, so the window and the samples cannot disagree about which objectives count.
+ * @param {{minutes:?number, summary:?{tokens_input:?number, tokens_output:?number}}} trd
+ */
+function hasOutcome(trd) {
+  const summary = trd.summary;
+  const hasTokens = Boolean(summary) && isFiniteNumber(summary.tokens_input) && isFiniteNumber(summary.tokens_output);
+  return (trd.minutes !== null && trd.minutes !== undefined) || hasTokens;
+}
+
+/**
+ * Which objective directories a recency window keeps. `ranked` is every distinct `objective_dir` of the project in
+ * rank order; `withOutcome` are those with at least one TRD that has an outcome (an objective of TRDs with no SUMMARY
+ * consumes no slot). `window` null, undefined or 'all', or no more than `window` objectives with outcomes, keeps all.
+ * Otherwise the cutoff is the `window`-th most recent objective with an outcome; every ranked directory before it is
+ * dropped (with or without outcomes) and the rest is kept.
+ * @param {{trds: Array<{objective_dir:string, minutes:?number, summary:?object}>}} project
+ * @param {?(number|string)} window
+ * @returns {{kept:string[], dropped:string[], cutoff:?string}}
+ */
+function windowObjectives(project, window) {
+  const everything = window === null || window === undefined || window === 'all';
+  if (!everything && !(Number.isInteger(window) && window >= 1)) {
+    throw new Error("window must be a positive integer, 'all' or null");
+  }
+  const ranked = rankObjectives([...new Set(project.trds.map((trd) => trd.objective_dir))]);
+  const sampled = new Set(project.trds.filter(hasOutcome).map((trd) => trd.objective_dir));
+  const withOutcome = ranked.filter((dir) => sampled.has(dir));
+  if (everything || withOutcome.length <= window) return { kept: ranked, dropped: [], cutoff: null };
+  const cutoff = withOutcome[withOutcome.length - window];
+  const at = ranked.indexOf(cutoff);
+  return { kept: ranked.slice(at), dropped: ranked.slice(0, at), cutoff };
+}
+
 module.exports = {
+  objectiveNumber,
+  rankObjectives,
+  hasOutcome,
+  windowObjectives,
   RATES_PATH,
   loadRates,
   normalizeModelId,
