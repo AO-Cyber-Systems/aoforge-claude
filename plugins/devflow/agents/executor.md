@@ -1072,6 +1072,8 @@ node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <d
 
 `tokens stamp` reads your own executor transcript and adds `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, `token_model` and `tokens_source` to the draft's frontmatter (EST-06). If it reports `stamped: false`, or the command is unknown in an older runtime, post without them. Never type token numbers by hand.
 
+If you skip the stamp, the SubagentStop gate sends you back once to run it on a draft of the posted SUMMARY; a `stamped: false` result ends that.
+
 A non-zero exit is a blocker to report in your return, never a reason to put the file in place yourself.
 
 Do NOT skip. Do NOT proceed to state updates if self-check fails.
