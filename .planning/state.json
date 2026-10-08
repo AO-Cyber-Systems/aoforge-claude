@@ -1325,6 +1325,11 @@
       "objective": "72",
       "summary": "compat.cjs destructures the planning-directory key so the literal source guard holds; findProjectRoot treats ENOTDIR as absence",
       "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings",
+      "rationale": null
     }
   ],
   "blockers": [

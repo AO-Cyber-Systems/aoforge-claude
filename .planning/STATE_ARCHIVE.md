@@ -252,6 +252,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: Run state for 72 already recorded at TRD start (2026-10-08T22:24:56.615Z); estimate line reads No estimate but per-wave p50/P90 exist; no requirement marked complete by 72-01
 - [Objective 72]: 72-01 correction: objective 72 accepted as unscored for EST-11 (user reply: unscored); the earlier 'run state already recorded' entry came from the orchestrator's wave-start call and had no objective estimate
 - [Objective 72]: compat.cjs destructures the planning-directory key so the literal source guard holds; findProjectRoot treats ENOTDIR as absence
+- [Objective 72]: Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings
 
 ## Performance Metrics
 
@@ -423,4 +424,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 71 P05 | 8min | 2 tasks | 7 files |
 | Objective 72 P01 | 3min | 3 tasks | 2 files |
 | Objective 72 P02 | 7min | 3 tasks | 5 files |
+| Objective 72 P03 | 30min | 3 tasks | 3 files |
 
