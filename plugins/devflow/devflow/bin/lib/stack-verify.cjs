@@ -25,6 +25,7 @@ const { spawnSync } = require('child_process');
 
 const { normalizeScript, splitTopLevel, splitWords, findHeredocs } = require('./stack-shell.cjs');
 const runners = require('./stack-runners.cjs');
+const { parseWorkflows } = require('./stack-ci.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── Binary lookup ────────────────────────────────────────────────────────────
@@ -482,6 +483,23 @@ function verifyCommand(command, { root, cwd = '', env = process.env, home = os.h
 //
 // The deny list is text, deliberately loose (`git` ... `push` anywhere on the line): over-refusing
 // is safe, under-refusing is not.
+//
+// Service-backed gates (TRD 71-03, SDR-10). The effect guard below snapshots only the WORK TREE, so it cannot
+// see a database write: in the objective 43 follow-up run trades' `test` (`npx vitest --run`) ran against
+// whatever was listening on 127.0.0.1:5432. A gate that needs a service is therefore never run silently: it is
+// skipped `env_required`, and `--allow-services` (only with `--run`) is the explicit opt-in. An allowed run is
+// marked: JSON `run.services_allowed` lists the signals and `--raw` appends ` services=allowed`. Three layers
+// of signal, all STATIC (nothing here connects to a port or probes a host):
+//
+//   1. the gate's own text: the command, a runner body one level deep, a wrapper script. A service URL scheme
+//      (`postgres://`), a service variable (`DATABASE_URL`, `*_DSN`, ...) or a loopback host:port;
+//   2. the CI job that runs the SAME command in the same directory: it declares `services:`, or env names of
+//      that kind (an exact-command match: a hand-edited command that differs from CI is not matched);
+//   3. for `test` and `e2e` only, a `.env.test` / `.env.test.local` / `.env.testing` at the root or the gate's
+//      directory that sets such a variable. A repo-level test env file says nothing about `lint` or `build`.
+//
+// A skip detail names the signal (file, job, service, variable, scheme, host:port) and the flag, and never
+// echoes a URL, a password or an env value. A deny (`git push`, port 8080, ...) still outranks `env_required`.
 
 /** `<tool> ... <verb>` on one shell line: stops at a pipe, `;`, `&` or newline. */
 const toolVerb = (tool, verbs) => new RegExp(`\\b(?:${tool})\\b[^|;&\\n]*?\\b(?:${verbs})\\b`);
@@ -493,6 +511,14 @@ const EFFECT_REASONS = Object.freeze({
   unproven: 'side-effect-unproven', // not a git work tree, so a Dart/Flutter gate's effect cannot be undone
   needsPubGet: 'needs-pub-get',     // `flutter --no-pub` has no resolved package config, and we never run pub get
 });
+
+// A service URL scheme, a service variable name and a loopback host:port (TRD 71-03). `SERVICE_ENV_NAME` takes an
+// optional prefix (`TEST_DATABASE_URL`, `MIGRATIONS_TEST_DSN`); the loopback lookbehind keeps `[::1]` matchable
+// after a space and refuses a longer host name (`db.localhost:5432`).
+const SERVICE_SCHEMES = Object.freeze(['postgres', 'postgresql', 'mysql', 'mariadb', 'mongodb', 'mongodb+srv', 'redis', 'rediss', 'amqp', 'amqps', 'nats', 'kafka', 'clickhouse']);
+const SERVICE_URL = new RegExp(`(?:^|[^A-Za-z0-9+.-])(${SERVICE_SCHEMES.map(escapeRegExp).join('|')})://`, 'i');
+const LOOPBACK_PORT = /(?<![A-Za-z0-9.-])(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(\d{2,5})\b/;
+const SERVICE_ENV_NAME = /^(?:[A-Z][A-Z0-9_]*_)?(?:DATABASE_URL|DATABASE_URI|DB_URL|DSN|POSTGRES_URL|PG_URL|PGHOST|MYSQL_URL|MONGO_URL|MONGO_URI|MONGODB_URL|MONGODB_URI|REDIS_URL|REDIS_ADDR|AMQP_URL|RABBITMQ_URL|NATS_URL|KAFKA_BROKERS)$/;
 
 const RUN_POLICY = Object.freeze({
   defaultKeys: Object.freeze(['format', 'lint', 'typecheck', 'build']),
@@ -528,6 +554,16 @@ const RUN_POLICY = Object.freeze({
   skip: Object.freeze([
     { re: toolVerb('docker|docker-compose|podman|buildah|nerdctl', 'build|buildx'), reason: 'container-build' },
   ]),
+  // TRD 71-03: the service-backed gate policy (see the header paragraph above). `envFileKeys` are the only keys a
+  // test env file is read for.
+  services: Object.freeze({
+    reason: 'env_required',
+    optIn: '--allow-services',
+    schemes: SERVICE_SCHEMES,
+    envName: SERVICE_ENV_NAME,
+    envFiles: Object.freeze(['.env.test', '.env.test.local', '.env.testing']),
+    envFileKeys: Object.freeze(['test', 'e2e']),
+  }),
 });
 
 // A runner TARGET named for a release or a server is refused by name (its body may not say so).
@@ -551,16 +587,50 @@ function logicalLines(text) {
     .filter((l) => l !== '' && !l.startsWith('#'));
 }
 
-/** scanText(text) -> { deny: {reason, line}|null, skip: {reason, line}|null }. Deny outranks skip. */
+// A `$NAME` / `${NAME}` / `$(NAME)` reference and a `NAME=` assignment (also after `export` or `-e`).
+const ENV_REFERENCE = /\$[({]?([A-Za-z_][A-Za-z0-9_]*)/g;
+const ENV_ASSIGNMENT = /(?:^|[\s;&|("'`])(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\+?=/g;
+
+/**
+ * serviceIn(line) -> what names a service on this shell line, or null. NEVER the line itself, a URL, a password
+ * or a value: the first of a service variable referenced or assigned (`references NAME`), a service URL scheme
+ * (`a postgres:// URL`) and a loopback host:port (`127.0.0.1:6379`).
+ */
+function serviceIn(line) {
+  const names = [];
+  for (const re of [ENV_REFERENCE, ENV_ASSIGNMENT]) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(line)) !== null) names.push({ at: m.index, name: m[1] });
+  }
+  names.sort((a, b) => a.at - b.at);
+  const hit = names.find((n) => SERVICE_ENV_NAME.test(n.name));
+  if (hit) return `references ${hit.name}`;
+  const url = SERVICE_URL.exec(line);
+  if (url) return `a ${url[1].toLowerCase()}:// URL`;
+  const loop = LOOPBACK_PORT.exec(line);
+  if (loop) return `${loop[1]}:${loop[2]}`;
+  return null;
+}
+
+/**
+ * scanText(text) -> { deny: {reason, line}|null, skip: {reason, line}|null, service: {what}|null }.
+ * Deny outranks skip, and a deny is returned alone (`service: null`): a refusal is never softened to a skip.
+ */
 function scanText(text) {
   const lines = logicalLines(text);
   for (const line of lines) {
-    for (const d of RUN_POLICY.deny) if (d.re.test(line)) return { deny: { reason: d.reason, line }, skip: null };
+    for (const d of RUN_POLICY.deny) if (d.re.test(line)) return { deny: { reason: d.reason, line }, skip: null, service: null };
+  }
+  let service = null;
+  for (const line of lines) {
+    const what = serviceIn(line);
+    if (what !== null) { service = { what }; break; }
   }
   for (const line of lines) {
-    for (const s of RUN_POLICY.skip) if (s.re.test(line)) return { deny: null, skip: { reason: s.reason, line } };
+    for (const s of RUN_POLICY.skip) if (s.re.test(line)) return { deny: null, skip: { reason: s.reason, line }, service };
   }
-  return { deny: null, skip: null };
+  return { deny: null, skip: null, service };
 }
 
 const WRAPPER_WORDS = new Set(['sudo', 'time', 'env', 'nohup', 'exec', 'command', 'builtin', 'if', 'elif', 'while', 'until', 'then', 'do', 'else', '!', '{', '}']);
@@ -738,7 +808,7 @@ const unv = (detail) => ({ type: 'unverifiable', reason: 'unverifiable-body', de
  * `mode`: 'command' (the gate command itself: runners AND scripts it names are expanded),
  * 'runner-body' (a runner target's body: a wrapper it references is expanded, a runner is not),
  * 'script' (a wrapper script's text: nothing it references is expanded). A finding is
- * { type: deny|name-deny|unverifiable|skip, reason, detail }.
+ * { type: deny|name-deny|unverifiable|service|skip, reason, detail }.
  */
 function analyzeText(text, cwd, ctx, { mode, label, scanExtra = null }) {
   const out = [];
@@ -748,6 +818,8 @@ function analyzeText(text, cwd, ctx, { mode, label, scanExtra = null }) {
     const scan = scanText(scanned);
     if (scan.deny) out.push({ type: 'deny', reason: `${prefix}${scan.deny.reason}`, detail: `${label}: ${scan.deny.line}` });
     if (scan.skip) out.push({ type: 'skip', reason: `${prefix}${scan.skip.reason}`, detail: `${label}: ${scan.skip.line}` });
+    // TRD 71-03: the reason is exactly `env_required` (no `body:` prefix), and the detail is the signal, not the line.
+    if (scan.service) out.push({ type: 'service', reason: RUN_POLICY.services.reason, detail: `${label}: ${scan.service.what}` });
   }
   const refs = referencesIn(text, cwd);
   for (const o of refs.opaque) out.push(unv(`${label}: ${o}`));
@@ -816,7 +888,7 @@ function analyzeRunner(d, ctx) {
   return out;
 }
 
-const FINDING_ORDER = ['deny', 'name-deny', 'unverifiable', 'skip'];
+const FINDING_ORDER = ['deny', 'name-deny', 'unverifiable', 'service', 'skip'];
 
 function pickFinding(findings) {
   for (const type of FINDING_ORDER) {
@@ -1145,6 +1217,85 @@ const haltedDetail = (halted) => (halted.path
   ? `an earlier command in this root changed tracked or untracked files: ${halted.path}`
   : 'an earlier command in this root left the work tree in an unverifiable state');
 
+// ─── Service signals outside the gate's own text (TRD 71-03) ─────────────────
+
+const squash = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+/** `''` is the repo root: `null`, `.`, `./` and a trailing slash all mean it. */
+const rootRelative = (c) => (c == null ? '' : String(c).replace(/^\.\/+/, '').replace(/\/+$/, '').replace(/^\.$/, ''));
+const SERVICE_HINT = ` (pass ${RUN_POLICY.services.optIn} to run it against whatever service is listening)`;
+
+/** The workflow steps of the repo, read once per run; a reader failure is "no CI signal", never a crash. */
+function ciStepsOf(ctx) {
+  if (ctx.ciSteps === null || ctx.ciSteps === undefined) {
+    try {
+      ctx.ciSteps = parseWorkflows(ctx.root);
+    } catch (_) {
+      ctx.ciSteps = [];
+    }
+  }
+  return ctx.ciSteps;
+}
+
+/** CI signals: the job that runs EXACTLY this command in this directory declares services or service env names. */
+function ciSignals(item, ctx) {
+  const want = squash(item.command);
+  const wantCwd = rootRelative(item.cwd);
+  const out = [];
+  for (const step of ciStepsOf(ctx)) {
+    const runsIt = (step.invocations || []).some((inv) => !inv.external && squash(inv.text) === want && rootRelative(inv.cwd) === wantCwd);
+    if (!runsIt) continue;
+    const where = `CI job \`${step.job}\` (${step.file}) runs it with`;
+    if (Array.isArray(step.services) && step.services.length) out.push(`${where} services ${step.services.join(', ')}`);
+    const names = (step.envNames || []).filter((n) => RUN_POLICY.services.envName.test(n));
+    if (names.length) out.push(`${where} env ${names.join(', ')}`);
+  }
+  return out;
+}
+
+/** Names of the service variables a test env file sets (`NAME=...`, `export NAME=...`); values are never kept. */
+function envFileNames(abs, ctx) {
+  let text;
+  try {
+    if (!ctx.fs.statSync(abs).isFile()) return [];
+    text = ctx.fs.readFileSync(abs, 'utf-8');
+  } catch (_) {
+    return [];
+  }
+  const names = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(raw);
+    if (m && RUN_POLICY.services.envName.test(m[1]) && !names.includes(m[1])) names.push(m[1]);
+  }
+  return names;
+}
+
+/** Env-file signals, for `test` and `e2e` only: a test env file at the repo root or the gate's own directory. */
+function envFileSignals(item, ctx) {
+  if (!RUN_POLICY.services.envFileKeys.includes(item.key)) return [];
+  const dirs = [...new Set(['', rootRelative(item.cwd)])];
+  const out = [];
+  for (const dir of dirs) {
+    for (const file of RUN_POLICY.services.envFiles) {
+      const rel = dir ? path.posix.join(dir, file) : file;
+      const names = envFileNames(path.join(ctx.root, rel), ctx);
+      if (names.length) out.push(`${rel} sets ${names.join(', ')}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * serviceSignals(item, ctx) -> [detail]
+ *
+ * The signals that do NOT come from the gate's own text: the CI job that runs the same command, then (for the
+ * keys in `RUN_POLICY.services.envFileKeys`) a test env file. `ctx` is `{ root, fs }` (+ a `ciSteps` cache that
+ * is filled on first use). Each detail names a file, job, service or variable, and never a value.
+ */
+function serviceSignals(item, ctx) {
+  if (!item || typeof item.command !== 'string' || item.command === '') return [];
+  return [...new Set([...ciSignals(item, ctx), ...envFileSignals(item, ctx)])];
+}
+
 function runOne(it, ctx, opts) {
   if (!it || typeof it.command !== 'string' || it.command === '') {
     return withSkip(it, 'no-command', `no command to run (${(it && it.resolve && it.resolve.status) || 'none'})`);
@@ -1159,8 +1310,14 @@ function runOne(it, ctx, opts) {
   if (back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back)) {
     return withSkip(it, 'cwd-outside-repo', `cwd ${it.cwd} is outside the repository`);
   }
-  const finding = pickFinding(analyzeText(it.command, it.cwd || '', ctx, { mode: 'command', label: 'command' }));
-  if (finding) return withSkip(it, finding.reason, finding.detail);
+  const findings = analyzeText(it.command, it.cwd || '', ctx, { mode: 'command', label: 'command' });
+  const finding = pickFinding(opts.allowServices ? findings.filter((f) => f.type !== 'service') : findings);
+  if (finding && finding.type !== 'service') return withSkip(it, finding.reason, finding.detail);
+
+  // Service-backed gates (TRD 71-03): the text signals found above plus CI and test env files. Without
+  // `--allow-services` any signal skips the gate `env_required`; with it the gate runs and the run lists them.
+  const signals = [...new Set([...findings.filter((f) => f.type === 'service').map((f) => f.detail), ...serviceSignals(it, ctx)])];
+  if (signals.length && !opts.allowServices) return withSkip(it, RUN_POLICY.services.reason, `${signals.join('; ')}${SERVICE_HINT}`);
 
   // The effect guard. Only a Dart/Flutter gate is refused by it (`pub get`, lockfiles and analyzer options
   // are what those tools rewrite); every other tool is merely bracketed and restored.
@@ -1200,6 +1357,7 @@ function runOne(it, ctx, opts) {
   };
   if (r.error && !timedOut) run.error = String(r.error.message || r.error);
   if (rewritten !== null) run.rewritten = rewritten;
+  if (signals.length) run.services_allowed = signals;
   if (before !== null) guardEffects(it, ctx, opts, before, run);
   return { ...it, run };
 }
@@ -1246,10 +1404,14 @@ function guardEffects(it, ctx, opts, before, run) {
  * Dart/Flutter items for this root are skipped `side-effect-unsafe`. Outside a git work tree a
  * Dart/Flutter item is refused `side-effect-unproven`. `git` (default spawnSync) runs the snapshots and is
  * separate from `spawn`, which only ever runs the gate commands.
+ *
+ * Service-backed gates (71-03): a gate whose text, CI job or (test/e2e) env file names a service is skipped
+ * `env_required` and never spawned, unless `allowServices` is true; then it runs and `run.services_allowed`
+ * lists the signals. The CI workflows are read once per call, and only when an item gets that far.
  */
-function runCommands(items, { root, include = [], keys = null, timeoutS = null, spawn = spawnSync, git = spawnSync, env = process.env, fs = nodeFs } = {}) {
-  const ctx = { root: path.resolve(String(root)), fs, runnerList: null, halted: null };
-  const opts = { include: include || [], keys: keys && keys.length ? keys : null, timeoutS, spawn, git, env };
+function runCommands(items, { root, include = [], keys = null, timeoutS = null, spawn = spawnSync, git = spawnSync, env = process.env, fs = nodeFs, allowServices = false } = {}) {
+  const ctx = { root: path.resolve(String(root)), fs, runnerList: null, halted: null, ciSteps: null };
+  const opts = { include: include || [], keys: keys && keys.length ? keys : null, timeoutS, spawn, git, env, allowServices: allowServices === true };
   return items.map((it) => runOne(it, ctx, opts));
 }
 
@@ -1258,22 +1420,26 @@ function runCommands(items, { root, include = [], keys = null, timeoutS = null, 
 const PROBE_FILE = '__probe__';
 
 const VERIFY_FLAGS_WITH_VALUE = new Set(['--include', '--keys', '--timeout']);
-const VERIFY_FLAGS = new Set(['--run', '--draft', ...VERIFY_FLAGS_WITH_VALUE]);
+const VERIFY_FLAGS = new Set(['--run', '--draft', '--allow-services', ...VERIFY_FLAGS_WITH_VALUE]);
 
 class UsageError extends Error {}
 
-/** Parse `stack verify` args (everything after the subcommand). Unknown flags and positionals throw. */
+/**
+ * Parse `stack verify` args (everything after the subcommand). Unknown flags and positionals throw, and so does
+ * `--allow-services` without `--run`: it opts a RUN into service-backed gates, so there is nothing to opt into.
+ */
 function parseVerifyArgs(args) {
-  const opts = { run: false, draft: false, include: [], keys: null, timeoutS: null };
+  const opts = { run: false, draft: false, allowServices: false, include: [], keys: null, timeoutS: null };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (!VERIFY_FLAGS.has(a)) {
       throw new UsageError(a.startsWith('-')
-        ? `unknown flag ${a}. stack verify takes: --run, --include a,b, --keys a,b, --timeout <seconds>, --draft`
+        ? `unknown flag ${a}. stack verify takes: --run, --allow-services (with --run), --include a,b, --keys a,b, --timeout <seconds>, --draft`
         : `stack verify takes no positional argument (got "${a}")`);
     }
     if (a === '--run') opts.run = true;
     else if (a === '--draft') opts.draft = true;
+    else if (a === '--allow-services') opts.allowServices = true;
     else {
       const value = args[i + 1];
       if (value === undefined || value.startsWith('--')) throw new UsageError(`${a} needs a value`);
@@ -1289,6 +1455,7 @@ function parseVerifyArgs(args) {
       }
     }
   }
+  if (opts.allowServices && !opts.run) throw new UsageError('--allow-services needs --run');
   return opts;
 }
 
@@ -1312,13 +1479,13 @@ function summarize(results) {
 }
 
 /**
- * verifyStack({ projectRoot, userHome, draft, run, include, keys, timeoutS, env, spawn, which, fs })
+ * verifyStack({ projectRoot, userHome, draft, run, allowServices, include, keys, timeoutS, env, spawn, which, fs })
  *   -> { result: { profile_source, profile_file, results, summary }, exitCode }
  *
  * Read-only: `.planning/STACK.md` is only read, and `--draft` verifies `initProfile(write:false)`.
  * Exported so 42-11 can call it without a subprocess.
  */
-function verifyStack({ projectRoot, userHome = null, draft = false, run = false, include = [], keys = null, timeoutS = null, env = process.env, spawn = spawnSync, which = null, fs = nodeFs } = {}) {
+function verifyStack({ projectRoot, userHome = null, draft = false, run = false, allowServices = false, include = [], keys = null, timeoutS = null, env = process.env, spawn = spawnSync, which = null, fs = nodeFs } = {}) {
   // Required here, not at load time: stack-profile requires this module lazily, and the
   // extensions require stack-profile, so a top-level require would be a cycle.
   const sp = require('./stack-profile.cjs');
@@ -1370,7 +1537,7 @@ function verifyStack({ projectRoot, userHome = null, draft = false, run = false,
   }
 
   const finalResults = run
-    ? runCommands(results, { root, include, keys, timeoutS, spawn, env, fs })
+    ? runCommands(results, { root, include, keys, timeoutS, spawn, env, fs, allowServices })
     : results;
   for (const r of finalResults) delete r.form;
 
@@ -1388,12 +1555,14 @@ function verifyStack({ projectRoot, userHome = null, draft = false, run = false,
  * The compact `--raw` table: `key[@component] status` (a run appends ` run=<exit>` or ` skipped=<reason>`).
  * A run that changed the work tree adds ` mutated=<n>` (` restored=false` when it could not be put back), or
  * ` mutated=unknown` when the after-state could not be read: a change must never be invisible in this view.
+ * A run that `--allow-services` let reach a service adds ` services=allowed` right after `run=` (TRD 71-03).
  */
 function rawTable(result) {
   const lines = result.results.map((r) => {
     let line = `${r.key}${r.component ? `@${r.component}` : ''} ${r.resolve.status}`;
     if (r.run) {
       line += r.run.skipped !== undefined ? ` skipped=${r.run.skipped}` : ` run=${r.run.timed_out ? 'timeout' : r.run.exit_code}`;
+      if (r.run.services_allowed) line += ' services=allowed';
       if (r.run.mutated) line += ` mutated=${r.run.mutated.length}${r.run.restored ? '' : ' restored=false'}`;
       else if (r.run.mutated_unknown) line += ' mutated=unknown';
     }
@@ -1403,9 +1572,10 @@ function rawTable(result) {
 }
 
 /**
- * cli(cwd, args, raw, { userHome }) — `df-tools stack verify [--run] [--include a,b] [--keys a,b]
- * [--timeout <s>] [--draft]`. `args` excludes the `verify` token (the STACK_EXTENSIONS contract).
- * Prints JSON, or the compact table under `--raw`. Exit 1 when any command is missing or any run failed.
+ * cli(cwd, args, raw, { userHome }) — `df-tools stack verify [--run [--allow-services]] [--include a,b]
+ * [--keys a,b] [--timeout <s>] [--draft]`. `args` excludes the `verify` token (the STACK_EXTENSIONS contract).
+ * Prints JSON, or the compact table under `--raw`. Exit 1 when any command is missing or any run failed;
+ * a gate skipped `env_required` (it needs a service) is a skip, not a failure.
  */
 function cli(cwd, args, raw, { userHome = null } = {}) {
   const { output, error } = require('./helpers.cjs');
@@ -1432,6 +1602,7 @@ module.exports = {
   describeInvocation,
   MISSING_STATUSES,
   runCommands,
+  serviceSignals,
   RUN_POLICY,
   verifyStack,
   parseVerifyArgs,

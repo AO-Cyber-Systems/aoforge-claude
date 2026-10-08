@@ -324,7 +324,7 @@ const FLAG_SPEC = deepFreeze({
       validate: { values: ['--profile'] },
       command: { values: ['--file', '--files', '--packages'], bools: ['--apply'] },
       init: { values: ['--from', '--extends'], bools: ['--write', '--force'] },
-      verify: { values: ['--include', '--keys', '--timeout'], bools: ['--run', '--draft'] },
+      verify: { values: ['--include', '--keys', '--timeout'], bools: ['--run', '--draft', '--allow-services'] },
       report: {
         ownParser: true,
         reason: 'stack-report.cjs rejects an unknown flag (it takes --write and --draft) before it drafts or writes STACK-REPORT.md',
