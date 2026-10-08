@@ -178,7 +178,7 @@ const COMMANDS = {
     ],
   },
   'milestone': {
-    usage: 'df-tools milestone put <version> --from <path|-> | milestone complete <version> [--name ...] [--archive-objectives] [--raw]',
+    usage: 'df-tools milestone put <version> --from <path|-> | milestone complete <version> [--name ...] [--archive-objectives] [--dry-run] [--raw]',
     summary: 'Write a MILESTONES.md entry (put) or archive a milestone (complete).',
     mutates: true,
     details: VERB_DETAILS,

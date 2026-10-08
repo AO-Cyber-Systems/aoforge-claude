@@ -410,7 +410,7 @@ function cmdMilestoneVerb(cwd, args, raw, io = {}) {
     if (planningMode.isStoreMode(cwd)) {
       return report('milestone complete', entity.milestoneComplete(cwd, { version: args[1], ...flushOpts(rest) }), raw);
     }
-    const options = { name: milestoneName(args), archiveObjectives: has(args, '--archive-objectives') };
+    const options = { name: milestoneName(args), archiveObjectives: has(args, '--archive-objectives'), dryRun: has(args, '--dry-run') };
     return require('./roadmap.cjs').cmdMilestoneComplete(cwd, args[1], options, raw);
   }
   return unknown('milestone', sub, 'complete, put', raw);

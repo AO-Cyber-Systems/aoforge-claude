@@ -1,6 +1,7 @@
 'use strict';
 // lib/text-escape.cjs — dependency-free escapes shared by lib modules and hooks (objective 54).
-// objectiveNumPattern (leading-zero tolerant, objective 56) and boldLabelPattern build RegExp fragments for ROADMAP text.
+// objectiveNumPattern (leading-zero tolerant, objective 56) and boldLabelPattern build RegExp fragments for ROADMAP text;
+// milestoneHeadingPattern builds the heading rule shared by the MILESTONES.md writers (objective 68).
 //
 // Requires nothing on purpose: hooks load this on every call, and helpers.cjs reads the model-profiles
 // JSON at require time.
@@ -36,4 +37,14 @@ function mdCell(value) {
   return s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
-module.exports = { escapeRegExp, objectiveNumPattern, boldLabelPattern, mdCell };
+/**
+ * The one rule for a version's `## ` heading in MILESTONES.md, shared by the writers of that file (`milestone complete`,
+ * `milestone put`): a RegExp source for the heading line, no flags (callers add `m`). `v1.0` and `1.0` name the same
+ * milestone, so a legacy `## 1.0 ...` entry counts; the version must end at whitespace or the end of the line, so
+ * `v1.0` never matches `## v1.0.1`, `## v1.00` or `## v10.0`, and the dot is a literal dot.
+ */
+function milestoneHeadingPattern(version) {
+  return `^## +v?${escapeRegExp(String(version).replace(/^v/i, ''))}(?=\\s|$)`;
+}
+
+module.exports = { escapeRegExp, objectiveNumPattern, boldLabelPattern, mdCell, milestoneHeadingPattern };

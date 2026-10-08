@@ -218,6 +218,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 67]: Release 2.15.0 lead paragraph restates the CHANGELOG's own wording (pre-registered rule, installed plugin at 2.15.0) instead of inventing a /plugin update instruction; release commit carries exactly five files, SUMMARY goes in the docs commit
 - [Objective 67]: 67-08: Docs site deploy failure on MERGE_SHA (Cloudflare Pages project devflow-docs not found, code 8000007) recorded as an objective 74 OPS-03 follow-up, not rolled back
 - [Objective 67]: EST-11 calibration frozen by the installed 2.15.0 runtime (trd_level, window 10, through 66, sha256 f4d1ffa9); state add-blocker/resolve-blocker now accept a spaced '## Blockers / Concerns' heading via a shared BLOCKERS_SECTION_RE instead of hand-editing STATE.md
+- [Objective 68]: milestone complete is a read-only plan plus an executor of that plan; an existing archive file or MILESTONES.md heading is kept on a re-run, never refreshed
 
 ## Performance Metrics
 
@@ -366,4 +367,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 67 P07 | 10min | 3 tasks | 0 files |
 | Objective 67 P08 | 15min | 3 tasks | 0 files |
 | Objective 67 P09 | 14min | 3 tasks | 6 files |
+| Objective 68 P01 | 11min | 3 tasks | 7 files |
 
