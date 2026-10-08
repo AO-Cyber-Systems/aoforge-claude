@@ -49,7 +49,7 @@ Skill `@path` references (`@~/.claude/devflow/...`) do not interpolate `${CLAUDE
 The central CLI utility used by ~50 skill and agent files. CommonJS module invoked as `node ~/.claude/devflow/bin/df-tools.cjs <command> [args]` (skills resolve the path via the home mirror). A global `--cwd <dir>` flag, valid before any command name, `chdir`s before dispatch so a command can target a path other than the caller's cwd (used by `/devflow:adopt [path]`). Provides:
 
 - **State operations** — `state load`, `state update`, `state get`, `state patch`, `state-snapshot`, `state advance-job [--objective N]` (with `--objective`, position and Status come from the objective's TRD and SUMMARY files on disk)
-- **Objective operations** — `objective next-decimal`, `objective add/insert/remove/complete`
+- **Objective operations** — `objective next-decimal`, `objective add/insert/remove/complete`; `milestone complete <v> --dry-run` previews and a re-run keeps the existing entry and archives. Every writing command rejects an unknown flag with exit 1 before it runs (`lib/flag-guard.cjs` + `lib/flag-spec.cjs`, kept complete by `flag-spec.repo.test.cjs`).
 - **Roadmap operations** — `roadmap get-objective`, `roadmap analyze`, `roadmap update-job-progress`
 - **Compound init commands** — `init execute-objective`, `init plan-objective`, `init new-project`, etc.
 - **Model resolution** — `resolve-model <agent-type>` returns the model for an agent based on the active profile (quality/balanced/budget)

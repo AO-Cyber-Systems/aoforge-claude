@@ -1,3 +1,4 @@
+completed: 2026-10-08
 ---
 title: objective complete reports is_last_objective for v1.5
 area: df-tools

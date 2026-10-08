@@ -7,6 +7,7 @@
  * Centralizes: config parsing, model resolution, objective lookup, git commits, summary verification.
  *
  * Usage: node df-tools.cjs <command> [args] [--raw]
+ *   A writing command exits 1 on an unknown flag, before it runs (lib/flag-guard.cjs, lib/flag-spec.cjs).
  *
  * Help:
  *   df-tools --help                    List every command (writing ones marked *)
@@ -57,6 +58,7 @@
  *   milestone complete <version>       Archive milestone, create MILESTONES.md
  *     [--name <name>]
  *     [--archive-objectives]               Move objective dirs to milestones/vX.Y-objectives/
+ *     [--dry-run]                          Print the plan, write nothing
  *
  * Workstreams:
  *   workstreams analyze                 Analyze ROADMAP.md deps for parallel workstreams

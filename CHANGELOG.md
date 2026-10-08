@@ -6,6 +6,54 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Objective 68 (TOOL-01 to TOOL-05): the milestone and objective verbs stop doing damage on a repeat, a typo or a date.
+`milestone complete` can be previewed and re-run, a misspelled flag on any writing command is refused before anything
+runs, `objective remove` no longer rewrites dates, and `objective complete` sees an objective that exists only in
+ROADMAP.md. Entries that need an installed plugin take effect once the installed plugin carries objective 68.
+
+### Added
+- `milestone complete --dry-run` (`milestone complete <version> --dry-run`; objective 68, TOOL-01; `lib/roadmap.cjs`,
+  `lib/planning-entity-verbs.cjs`). `milestone complete` is now a read-only plan (`planMilestoneComplete`) and an
+  executor of that plan (`applyMilestonePlan`), so the dry run and the real run cannot drift. The dry run prints
+  `DRY RUN — nothing has been modified.` and the plan to stderr and returns `dry_run: true`, `would_write`,
+  `would_move`, `would_keep`, the exact `milestone_entry` and `warnings`; nothing is written, not even
+  `.planning/milestones/`. A real run reports `written`, `moved`, `kept` (each with a reason), `milestones_reason` and
+  `warnings` beside the existing keys. In store mode the dry run previews the GitHub milestone close and the archives
+  it would publish (`would_close`, `would_publish`) with no `gh` call, so it exits 0 offline. Needs an installed plugin
+  carrying objective 68.
+- A writing command rejects an unknown flag with exit 1 before anything runs (objective 68, TOOL-01;
+  `lib/flag-guard.cjs`, `lib/flag-spec.cjs`, `lib/flag-spec.repo.test.cjs`). `FLAG_SPEC` covers the 51 commands
+  `help.cjs` marks `mutates: true`, the dispatcher checks it once, and the error names the flag and what the command
+  accepts (`unknown flag --dry-runn for \`milestone complete\`; nothing was written (accepted: ...)`). Nine commands
+  that parse their own flags (`upgrade`, `doctor`, `tokens`, `calibrate`, `estimate`, `transcript-export`, `override`,
+  `stack report`, `stack mcp`) are rejected by their own module and probed the same way. `flag-spec.repo.test.cjs`
+  fails CI when a writing command has no spec entry, when a switched-off rule has no reason, and when a documented
+  `df-tools` invocation in the plugin's own prose uses a flag the spec does not accept. `--help` still prints usage.
+  Needs an installed plugin carrying objective 68.
+
+### Fixed
+- `milestone complete` run twice for one version no longer leaves two MILESTONES.md entries or overwrites its archives
+  (objective 68, TOOL-02). An existing archive file is kept (`exists`), an existing entry is kept byte for byte
+  (`entry_exists`, whether it came from an earlier run, from `milestone put` or from a legacy `## 1.0` heading), and an
+  audit file or objective directory whose destination already exists stays where it is (`destination_exists`, with a
+  warning), which also removes an ENOTEMPTY crash. `1.0` and `v1.0` are one version and `v1.0.1` is another
+  (`text-escape.milestoneHeadingPattern`); `milestone put` finds a version's entry with the same rule, so it replaces a
+  legacy `## 1.0` section instead of adding a second entry.
+- `objective remove` no longer rewrites dates and metadata when it renumbers ROADMAP.md (objective 68, TOOL-03;
+  `objective.renumberRoadmapText`). The TRD-reference rule is bounded, `(?<![\w.-])NN-(\d{2})(?!\d|-\d)`, so a progress
+  row dated `2026-03-15` no longer becomes `2025-02-15` when objective 1 is removed, and removing objective 26 no
+  longer touches every `2026-` date. Versions (`v1.18-01`), ticket ids (`AUTH-18-01`), `03-15-2026`, statuses, plan
+  counts and `Shipped:` lines are unchanged.
+- `objective complete` finds a next objective that exists only in ROADMAP.md (objective 68, TOOL-04;
+  `objective.nextObjective`, local and store mode). It reads the objective directories and the `### Objective M:`
+  sections of ROADMAP.md, drops a cancelled directory's number and takes the smallest later number, so
+  `is_last_objective` is `false` while a later objective is planned only in the roadmap, a legacy STATE.md moves to
+  `Ready to plan`, and `99-y` comes before `100-z`.
+- `milestone-scope.cjs` resolves objective directories through the shared helpers (objective 68, TOOL-05). It lost its
+  own parser (`DIR_RE`, `canonical`) and proposes a number with `helpers.parseObjectiveDirName`, then confirms it with
+  `objectiveDirMatches`, so `milestone complete`, `estimate milestone` and `tokens coverage --milestone` no longer
+  count an unpadded or hyphen-less directory where `find-objective` cannot find it, and decimals resolve the same way.
+
 ## [2.15.0] - 2026-10-08
 
 Milestone v1.6, objectives 66 and 67 (objective 65 shipped 2.14.0). Executor SUMMARYs stamp their own token usage: the
