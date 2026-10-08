@@ -60,7 +60,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 67 — Minutes recalibration (completed 2026-10-08, 9/9 TRDs)
 **Objective complete:** 68 — Milestone and objective verbs (completed 2026-10-08, 7/7 TRDs)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
-**Status:** Executing objective 70 — 1/3 TRDs complete
+**Status:** Executing objective 70 — 2/3 TRDs complete
 
 ## Branch State (post-merge)
 
