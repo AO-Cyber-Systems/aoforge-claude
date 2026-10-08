@@ -164,13 +164,17 @@
  *   tokens coverage [--milestone v | --objective N]  Forward-stamp coverage (live/counted) of TRD SUMMARYs; read-only
  *     [--repo p] [--root dir]            (default scope: the current milestone; exit 0 for every report)
  *   calibrate [--paths a,b] [--out f]  Build per-task-class medians/P90s (minutes, tokens, dollars) into calibration.json
- *     [--rates f] [--root dir | --no-overhead] [--window <N|all>] [--dry-run]
+ *     [--rates f] [--root dir | --no-overhead] [--window <N|all>]
+ *     [--minutes <task_sum|trd_level>] [--through <N>] [--dry-run]
  *                                      (default out: DEVFLOW_CALIBRATION_PATH or ~/.claude/devflow/calibration.json;
  *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS;
  *                                       --root: transcripts for agent overhead, default ~/.claude/projects;
  *                                       --no-overhead skips that scan;
  *                                       --window <N|all>: keep only the N most recent objectives with samples per project;
- *                                       default: the most recent 10 objectives, --window all keeps all history)
+ *                                       default: the most recent 10 objectives, --window all keeps all history;
+ *                                       --minutes <task_sum|trd_level>: how an estimate builds a TRD's minutes (default task_sum);
+ *                                       --through <N>: drop objectives numbered above N before anything is read or counted;
+ *                                       the file names both in its `method` block)
  *   estimate task (--files a[,b] [--tdd] [--trd-type t] | --class c | --checkpoint)
  *                                      Median and P90 minutes, tokens and dollars for one task, with sample count and confidence
  *   estimate trd <trd-id|path>         The composed estimate of one TRD
@@ -921,7 +925,7 @@ async function main() {
     }
 
     case 'calibrate': {
-      // df-tools calibrate [--paths a,b] [--out file] [--rates file] [--root dir | --no-overhead] [--window <N|all>] [--dry-run] — TRD 57-06, 58-03, 64-08
+      // df-tools calibrate [--paths a,b] [--out file] [--rates file] [--root dir | --no-overhead] [--window <N|all>] [--minutes <task_sum|trd_level>] [--through <N>] [--dry-run] — TRD 57-06, 58-03, 64-08, 67-02
       const { output: outputCalibrate } = require('./lib/helpers.cjs');
       const { runCalibrate } = require('./lib/calibrate-cli.cjs');
       const r = runCalibrate({ argv: args.slice(1), cwd, env: process.env });

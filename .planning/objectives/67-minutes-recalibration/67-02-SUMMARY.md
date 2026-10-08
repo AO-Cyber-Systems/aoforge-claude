@@ -10,5 +10,5 @@ In progress.
 
 ## Progress
 - [x] Task 1: FUTURE_SPEC fixture builder and the collection cutoff in calibration-inputs — RED 9b08035b, GREEN 0f9f40a4
-- [x] Task 2: Calibration v3 method block, minutes and through options, digest and notes; pin the 64 selection script — RED a4b95176, GREEN (this commit)
-- [ ] Task 3: calibrate --minutes and --through flags, summary text, help and header — next step: write test 15 (spawned `calibrate --minutes trd_level --through 66`) in calibrate-cli.test.cjs, then flip its line-191 `written.version, 2` to 3
+- [x] Task 2: Calibration v3 method block, minutes and through options, digest and notes; pin the 64 selection script — RED a4b95176, GREEN 58f01e34
+- [x] Task 3: calibrate --minutes and --through flags, summary text, help and header — RED 29804229, GREEN (this commit)

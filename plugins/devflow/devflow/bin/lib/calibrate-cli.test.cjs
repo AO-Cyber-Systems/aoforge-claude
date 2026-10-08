@@ -188,7 +188,9 @@ describe('df-tools calibrate (end to end)', () => {
 
     assert.ok(fs.existsSync(out), 'the file exists');
     const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
-    assert.equal(written.version, 2);
+    assert.equal(written.version, 3);
+    assert.deepEqual(written.method, { minutes: 'task_sum', window_objectives: 10, through_objective: null });
+    assert.deepEqual(result.method, written.method);
     assert.equal(written.samples.trds, 5);
     assert.equal(written.inputs_digest, result.inputs_digest);
   });
@@ -362,7 +364,8 @@ describe('df-tools calibrate (end to end)', () => {
     const beta = project(BETA_SPEC);
     const out = path.join(sb.tmp, 'c.json');
     // The fake HOME has no ~/.claude/projects, so the overhead scan runs and finds nothing.
-    const tail = '5 TRDs, 7 tasks, 1 with tokens · classes code_tdd 5, doc 1, prompt 1 · overhead none';
+    // 67-02: the summary always ends with the minutes method.
+    const tail = '5 TRDs, 7 tasks, 1 with tokens · classes code_tdd 5, doc 1, prompt 1 · overhead none · minutes task_sum';
     const oneLine = (r) => {
       assert.equal(r.status, 0, r.stderr);
       const text = r.stdout.replace(/\n$/, '');
@@ -436,7 +439,7 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
 
     const raw = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--raw']);
     assert.equal(raw.status, 0, raw.stderr);
-    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead none'), raw.stdout);
+    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead none · minutes task_sum'), raw.stdout);
   });
 
   test('58-03/2. --root reads that projects root: matched spawns by agent, the foreign one counted, and the file carries them', () => {
@@ -459,7 +462,7 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
     assert.equal(raw.status, 0, raw.stderr);
     const line = raw.stdout.replace(/\n$/, '');
     assert.equal(line.includes('\n'), false, 'one line');
-    assert.ok(line.endsWith(' · overhead planner 1, verifier 1'), line);
+    assert.ok(line.endsWith(' · overhead planner 1, verifier 1 · minutes task_sum'), line);
   });
 
   test('58-03/2b. a relative --root resolves against cwd', () => {
@@ -501,7 +504,7 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
 
     const raw = run(sb, sb.tmp, ['--paths', beta, '--out', out, '--no-overhead', '--raw']);
     assert.equal(raw.status, 0, raw.stderr);
-    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead skipped'), raw.stdout);
+    assert.ok(raw.stdout.replace(/\n$/, '').endsWith(' · overhead skipped · minutes task_sum'), raw.stdout);
   });
 
   test('58-03/5. the same --root twice gives byte-identical files and changed:false', () => {
@@ -597,7 +600,14 @@ describe('df-tools calibrate --window (end to end)', () => {
     assert.equal(result.samples.trds, 4);
   });
 
-  test('12. --window all and no flag write byte-identical files, and the text has no window part', () => {
+  // Calibration v3 (TRD 67-02) names the REQUESTED window in `method` and in `inputs_digest`, so files built with a
+  // different request differ there and nowhere else.
+  const withoutIdentity = (file) => {
+    const { method, inputs_digest: digest, ...rest } = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return rest;
+  };
+
+  test('12. --window all and no flag write the same statistics, and the text has no window part', () => {
     const sb = sandbox();
     const slope = project(SLOPE_SPEC);
     const plain = path.join(sb.tmp, 'plain.json');
@@ -605,7 +615,10 @@ describe('df-tools calibrate --window (end to end)', () => {
 
     const plainResult = okJson(sb, sb.tmp, ['--paths', slope, '--no-overhead', '--out', plain]);
     const allResult = okJson(sb, sb.tmp, ['--paths', slope, '--window', 'all', '--no-overhead', '--out', all]);
-    assert.equal(fs.readFileSync(all, 'utf-8'), fs.readFileSync(plain, 'utf-8'));
+    assert.deepEqual(withoutIdentity(all), withoutIdentity(plain));
+    assert.equal(JSON.parse(fs.readFileSync(plain, 'utf-8')).method.window_objectives, 10);
+    assert.equal(JSON.parse(fs.readFileSync(all, 'utf-8')).method.window_objectives, null);
+    assert.equal(allResult.method.window_objectives, null);
     assert.equal(plainResult.window, null);
     assert.equal(allResult.window, null);
     assert.equal(allResult.samples.trds, 14);
@@ -615,14 +628,16 @@ describe('df-tools calibrate --window (end to end)', () => {
     assert.equal(text.includes('window'), false);
   });
 
-  test('12b. a window large enough to drop nothing is the same file as no flag', () => {
+  test('12b. a window large enough to drop nothing has the statistics of no flag, and names the window it was asked for', () => {
     const sb = sandbox();
     const slope = project(SLOPE_SPEC);
     const plain = path.join(sb.tmp, 'plain.json');
     const big = path.join(sb.tmp, 'big.json');
     okJson(sb, sb.tmp, ['--paths', slope, '--no-overhead', '--out', plain]);
     const result = okJson(sb, sb.tmp, ['--paths', slope, '--window', '50', '--no-overhead', '--out', big]);
-    assert.equal(fs.readFileSync(big, 'utf-8'), fs.readFileSync(plain, 'utf-8'));
+    assert.deepEqual(withoutIdentity(big), withoutIdentity(plain));
+    assert.equal(result.method.window_objectives, 50);
+    assert.equal(fs.readFileSync(big, 'utf-8') === fs.readFileSync(plain, 'utf-8'), false, 'the request is part of the file');
     assert.equal(result.window, null);
   });
 
