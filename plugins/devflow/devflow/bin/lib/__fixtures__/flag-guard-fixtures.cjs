@@ -228,4 +228,21 @@ const PROBES = {
   'micro abort': ['micro', 'abort'],
 };
 
-module.exports = { flagProbeProject, PROBES, DF_TOOLS };
+/**
+ * The probe-able entries of a FLAG_SPEC: `[{ label, rule }]`, one per subcommand, one per flags-only command and one per
+ * `default` rule of a subcommand-taking command. The label is `command` or `command subcommand`, the key of PROBES.
+ */
+function specEntries(spec) {
+  const out = [];
+  for (const [command, entry] of Object.entries(spec)) {
+    if (!entry.subcommands) {
+      out.push({ label: command, rule: entry });
+      continue;
+    }
+    for (const [sub, rule] of Object.entries(entry.subcommands)) out.push({ label: `${command} ${sub}`, rule });
+    if (entry.default) out.push({ label: command, rule: entry.default });
+  }
+  return out;
+}
+
+module.exports = { flagProbeProject, PROBES, specEntries, DF_TOOLS };
