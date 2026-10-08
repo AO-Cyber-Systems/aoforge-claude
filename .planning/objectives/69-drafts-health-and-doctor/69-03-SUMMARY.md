@@ -12,5 +12,5 @@ requirements-completed: [TOOL-10]
 
 ## Progress
 - [x] Task 1: Requirements-project fixture builders — 92875c01
-- [ ] Task 2: requirements-agreement.cjs (tests 1-10) — RED tests committed (this commit); next step: create plugins/devflow/devflow/bin/lib/requirements-agreement.cjs until `node --test requirements-agreement.test.cjs` is green
-- [ ] Task 3: Repository test and objective 58 correction (test 11) — next step: write requirements-agreement.repo.test.cjs, see EST-02/EST-04 findings, then correct the eight 58 SUMMARYs via planning draft + summary post
+- [x] Task 2: requirements-agreement.cjs (tests 1-10) — efc123a5 (RED tests), (this commit) (GREEN module)
+- [ ] Task 3: Repository test and objective 58 correction (test 11) — next step: create plugins/devflow/devflow/bin/lib/requirements-agreement.repo.test.cjs (RED: EST-02 and EST-04 for objective 58), then correct the eight 58 SUMMARYs one by one via planning draft + summary post
