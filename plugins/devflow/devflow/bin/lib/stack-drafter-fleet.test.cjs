@@ -17,8 +17,8 @@
 //                    ACCEPTED is exactly the user-accepted rows, each with kind, reason, date and
 //                    by: 'user' (the accepted HAND_ONLY keys are imported, not copied); OPEN entries
 //                    have keys and a reason
-//  16  assess        the classification (`assess`) is checked on synthetic tables, because OPEN is empty
-//                    today and its ratchet would otherwise never run. An OPEN entry with `pending: 'refresh'`
+//  16  assess        the classification (`assess`) is checked on synthetic tables, because the real OPEN rows
+//                    all drift today and the ratchet's failing branch would otherwise never run. An OPEN entry with `pending: 'refresh'`
 //                    is reported as "refresh pending" (TRD 71-02): a drafter rule closed the gap and the repo's
 //                    committed STACK.md predates it. It is tolerated while it drifts and fails once it stops
 //  17  self-test     per repo, no drafted command carries a self-test argument while the draft's evidence
