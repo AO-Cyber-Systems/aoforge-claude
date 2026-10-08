@@ -12,7 +12,7 @@
 //   store   6 put ×3 --no-push + plan push   7 budget refusal   8 frozen / offline freeze state
 //           9 summary post   10 summary checkpoint   11 verification post   12 doc put -> wiki
 //           13 set-status complete / cancelled   14 --no-flush, then `gh outbox flush` settles
-//           15 a worktree writes the MAIN checkout   16 draftPath
+//           15 a worktree writes the MAIN checkout   16 draftPath   18 doc put refuses a stale draft (TRD 69-01)
 //
 // Hermetic: hermeticEnv() temp HOME / outbox / cache dirs, the fake installed through the gh-client seam, a fake
 // clock, the wiki is a local bare repo over file://. No real GitHub, no network, no port, never ~/.claude.
@@ -219,7 +219,7 @@ describe('draftPath (D-13)', () => {
 
     fs.writeFileSync(p, 'my edit\n');
     assert.equal(verbs.draftPath(S.root, rel), p);
-    assert.equal(fs.readFileSync(p, 'utf8'), 'my edit\n', 'an existing draft is never overwritten');
+    assert.equal(fs.readFileSync(p, 'utf8'), 'my edit\n', 'an edited draft whose base is current is never overwritten');
 
     const fresh = verbs.draftPath(S.root, `${OBJ_REL}/07-09-new-TRD.md`);
     assert.equal(fs.existsSync(fresh), false, 'no cache file -> no seed');
@@ -514,6 +514,36 @@ describe('store mode: doc put -> wiki pages', () => {
     assert.equal(S.remote.readRemotePage('Objective-7-store-demo-Context'), context);
     assert.deepEqual(ledgerEntries(), {});
     assert.equal(outbox.readCacheIndex(S.root)['research/a.md'], ghTrd.contentHash(research));
+  });
+
+  test('18. a stale draft is refused: nothing written, no gh call, no outbox op (TOOL-06)', () => {
+    if (S.skipped) return;
+    const rel = 'research/a.md';
+    S.extra.push(path.join(os.tmpdir(), 'devflow-drafts', outbox.repoKey(fs.realpathSync(S.root))));
+    const first = verbs.docPut(S.root, { rel, text: '# Research note a\n\nv1\n' });
+    assert.equal(first.ok, true, JSON.stringify(first));
+
+    const draft = verbs.draftPath(S.root, rel);
+    assert.equal(fs.readFileSync(draft, 'utf8'), '# Research note a\n\nv1\n');
+    fs.writeFileSync(draft, '# Research note a\n\nmy edit of v1\n');
+
+    // Another writer changes the cache file after the draft was seeded.
+    const elsewhere = path.join(S.envh.root, 'elsewhere.md');
+    const changed = '# Research note a\n\nv2 from someone else\n';
+    fs.writeFileSync(elsewhere, changed);
+    const second = verbs.docPut(S.root, { rel, text: changed, from: elsewhere });
+    assert.equal(second.ok, true, JSON.stringify(second));
+
+    const calls = S.fake.calls().length;
+    const ops = outbox.readJournal(S.root).journal.ops.length;
+    const res = verbs.docPut(S.root, { rel, text: fs.readFileSync(draft, 'utf8'), from: draft });
+    assert.equal(res.ok, false, JSON.stringify(res));
+    assert.equal(res.refused, 'stale draft');
+    assert.match(res.error, /planning draft research\/a\.md/);
+    assert.equal(readRel(rel), changed, 'the cache file is unchanged');
+    assert.equal(S.remote.readRemotePage('Research-a'), changed, 'the wiki page is unchanged');
+    assert.equal(S.fake.calls().length, calls, 'no gh call');
+    assert.equal(outbox.readJournal(S.root).journal.ops.length, ops, 'no outbox op');
   });
 });
 
