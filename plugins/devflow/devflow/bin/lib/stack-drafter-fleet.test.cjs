@@ -18,7 +18,12 @@
 //                    by: 'user' (the accepted HAND_ONLY keys are imported, not copied); OPEN entries
 //                    have keys and a reason
 //  16  assess        the classification (`assess`) is checked on synthetic tables, because OPEN is empty
-//                    today and its ratchet would otherwise never run
+//                    today and its ratchet would otherwise never run. An OPEN entry with `pending: 'refresh'`
+//                    is reported as "refresh pending" (TRD 71-02): a drafter rule closed the gap and the repo's
+//                    committed STACK.md predates it. It is tolerated while it drifts and fails once it stops
+//  17  self-test     per repo, no drafted command carries a self-test argument while the draft's evidence
+//      guard         holds the gate that runs the same entry point without one (`selfTestDrafts`, TRD 71-02,
+//                    guarding the 71-01 rule). Its predicate is written apart from the drafter's on purpose
 //
 // Real environment on purpose: process.env (the real PATH and HOME) reaches `stack init` and the tier
 // resolution, as in the 43-07 dry run. The golden and realshape suites use stubs; this one does not.
@@ -129,7 +134,12 @@ function assess(repo, rows, { accepted = {}, open = {} } = {}) {
     if (acc) {
       notes.push(`${repo}: accepted by ${acc.by} ${acc.decided} (${row.kind}): ${formatRow(row)}`);
     } else if (openEntries.some((entry) => entry.keys.includes(row.key))) {
-      notes.push(`${repo}: OPEN (${row.kind}): ${formatRow(row)}`);
+      // A refresh-pending row is a follow-up (a drafter rule closed the gap; the repo's committed file predates it),
+      // not a drafter gap. It is tolerated exactly like any OPEN row, and the ratchet below still applies.
+      const open = openEntries.find((entry) => entry.keys.includes(row.key));
+      notes.push(open.pending === 'refresh'
+        ? `${repo}: OPEN, refresh pending (${row.kind}): ${formatRow(row)}`
+        : `${repo}: OPEN (${row.kind}): ${formatRow(row)}`);
     } else if (row.kind === 'conflict') {
       problems.push(`new conflict: ${formatRow(row)}`);
     } else {
@@ -368,7 +378,7 @@ describe('selfTestDrafts: a drafted self-test beside its gate (TRD 71-01 guard, 
     assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ key: 'lint' })] }), []);
     // null, '' and a missing cwd are all the repo root, and `./go/` is `go`.
     assert.equal(selfTestDrafts({ commands: draft(run, null), evidence: [gateItem({ cwd: '' })] }).length, 1);
-    assert.equal(selfTestDrafts({ commands: draft(run, undefined), evidence: [gateItem({ cwd: null })] }).length, 1);
+    assert.equal(selfTestDrafts({ commands: { audit: { run } }, evidence: [gateItem({ cwd: null })] }).length, 1);
     assert.equal(selfTestDrafts({ commands: draft(run, './go/'), evidence: [gateItem()] }).length, 1);
   });
 

@@ -121,4 +121,65 @@ function formatRow(row) {
   return `${row.key}: committed \`${renderEntry(row.committed)}\` vs draft \`${renderEntry(row.draft)}\``;
 }
 
-module.exports = { compareDrift, formatRow, scoped, sortComponents };
+// A self-test argument (TRD 71-02, guarding TRD 71-01's rule). Written here on purpose, not imported from stack-draft:
+// the guard must not share the drafter's predicate, or a broken predicate would hide its own regression.
+const SELF_TEST_WORD = /^(?:--?self-?test(?:[-=].*)?|self-?test)$/i;
+// Programs whose next word is the script they run (`bash t0/selftest.sh`) or the target they build (`make selftest`):
+// an entry point, never an argument.
+const SCRIPT_SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
+const TASK_RUNNERS = new Set(['make', 'gmake', 'just', 'task', 'rake', 'mage']);
+
+const squash = (s) => String(s).trim().split(/\s+/).filter(Boolean).join(' ');
+
+/** A cwd as a comparable key: null, '', '.' are the repo root; `./go/` is `go`. */
+function cwdKey(cwd) {
+  if (typeof cwd !== 'string') return '';
+  const trimmed = cwd.trim().replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+  return trimmed === '.' ? '' : trimmed;
+}
+
+/**
+ * selfTestDrafts({ commands, evidence }) -> [{ key, run, gate }]
+ * A drafted own command whose run passes a self-test argument (any word after the program, and after the script when
+ * the program is bash|sh|zsh|dash or a task runner, that is not an evidence item's target name) while `evidence` holds
+ * an item for the same key, at the same cwd (null and '' are the root), whose command equals the drafted run with
+ * those words removed (whitespace squashed). That item is the gate the drafter should have picked. A bare string is
+ * a run, as in compareDrift. `discover`, `none` and any shape that is not a run are never judged. Never throws.
+ */
+function selfTestDrafts({ commands, evidence } = {}) {
+  const found = [];
+  const items = (Array.isArray(evidence) ? evidence : [])
+    .filter((item) => item && typeof item === 'object' && typeof item.command === 'string');
+  const own = commands && typeof commands === 'object' && !Array.isArray(commands) ? commands : {};
+
+  for (const [key, entry] of Object.entries(own)) {
+    const obj = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : null;
+    const run = typeof entry === 'string' ? entry : obj ? obj.run : undefined;
+    if (typeof run !== 'string' || !squash(run) || squash(run) === DISCOVER || squash(run) === 'none') continue;
+
+    const cwd = cwdKey(obj ? obj.cwd : undefined);
+    const siblings = items.filter((item) => item.key === key && cwdKey(item.cwd) === cwd);
+    const names = new Set(
+      siblings
+        .flatMap((item) => [item.target && item.target.name, item.invokedName])
+        .filter((name) => typeof name === 'string' && name),
+    );
+
+    const words = squash(run).split(' ');
+    const program = words[0].split('/').pop();
+    const first = SCRIPT_SHELLS.has(program) || TASK_RUNNERS.has(program) ? 2 : 1;
+    const marks = [];
+    for (let i = first; i < words.length; i++) {
+      const word = words[i].replace(/^["']+|["']+$/g, '');
+      if (!names.has(word) && SELF_TEST_WORD.test(word)) marks.push(i);
+    }
+    if (!marks.length) continue;
+
+    const gateCommand = words.filter((_, i) => !marks.includes(i)).join(' ');
+    const gate = siblings.find((item) => squash(item.command) === gateCommand);
+    if (gate) found.push({ key, run, gate: gate.command });
+  }
+  return found;
+}
+
+module.exports = { compareDrift, formatRow, scoped, sortComponents, selfTestDrafts };
