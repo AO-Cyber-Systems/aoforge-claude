@@ -6,12 +6,12 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 **Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** Planning next milestone (`/devflow:milestone new`); release v1.5 work (merge to `main`, tag next plugin semver)
+**Current focus:** v1.6 Hardening & Release: defining requirements and roadmap
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
 
 ## Current Position
 
-**Milestone:** v1.5 Gate & Plumbing — complete 2026-10-08 (archived to .planning/milestones/v1.5-*; audit gaps_found: EST-08 not met, accepted). No milestone in progress.
+**Milestone:** v1.6 Hardening & Release — started 2026-10-08; defining requirements (objectives start at 65). v1.5 complete 2026-10-08 (archived to .planning/milestones/v1.5-*; EST-08 not met, accepted).
 **Branch:** `feat/stack-profile-loader` (merged to `main` via #121, #122, #123)
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
@@ -55,7 +55,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 62 — Built-in sweep (completed 2026-10-06, 11/11 TRDs)
 **Objective complete:** 63 — Todo store, hook coexistence and built-in inventory (completed 2026-10-07, 7/7 TRDs)
 **Objective complete:** 64 — Estimate accuracy validation (completed 2026-10-08, 10/10 TRDs)
-**Status:** v1.5 milestone complete
+**Status:** Defining requirements
 
 ## Branch State (post-merge)
 

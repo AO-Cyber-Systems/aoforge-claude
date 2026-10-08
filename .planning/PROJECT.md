@@ -15,9 +15,17 @@ DevFlow is a meta-prompting, context engineering, and spec-driven development sy
 
 AI workflow orchestration for Claude Code sessions — skills, hooks, MCP integration, planning state, and program-aware coordination across the AO-Cyber-Systems org.
 
-## Current Milestone
+## Current Milestone: v1.6 Hardening & Release
 
-None. v1.5 Gate & Plumbing completed 2026-10-08. Start the next one with `/devflow:milestone new`.
+**Goal:** Ship v1.5 to users, close everything v1.5 left open, and clear the accumulated backlog: estimate accuracy re-tested prospectively, df-tools correctness debt, stack-drafter policy gaps, the remaining handoff and install friction, and the three long-open operational decisions.
+
+**Target features:**
+- Release: v1.5 work merged to `main` and tagged at the next plugin semver, with the installed runtime carrying the v1.5 libs and hooks
+- Estimation: executor token stamp on every new SUMMARY, minutes recalibrated by a pre-registered method, EST-08's criterion re-tested prospectively on five objectives
+- df-tools correctness: `milestone complete` dry run and idempotence, `objective remove`/`objective complete` fixes, shared objective helpers in `milestone-scope.cjs`, stale `planning draft` protection, the small CLI defects the v1.5 audit listed, `verify-commits.js` output shape, health checks for tracked or stale skill markers
+- Stack drafter: govulncheck self-test and buf lint rules; a `stack verify --run` policy for service-backed tests and build artifacts
+- Handoff and install: the three known PTY handoff gaps and handoff-result injection; consistent slash-command naming with no legacy `df-*` remnants
+- Operations: the CI `ANTHROPIC` secret for the live visual judge, branch protection on `main`, and a working docs site deploy
 
 ## Requirements
 
@@ -29,7 +37,7 @@ The capability areas listed under `## Scope`: skills, subagents, hooks, `.planni
 
 ### Active
 
-None until the next milestone is defined. Carried forward: EST-08 (estimate accuracy; recalibrate minutes and retest prospectively over the next five objectives).
+v1.6 Hardening & Release: see `## Current Milestone` above and `.planning/REQUIREMENTS.md` for the REQ-IDs (EST-08 carried forward as EST-09..11).
 
 ### Out of Scope
 
@@ -168,4 +176,4 @@ Release step pending: merge to `main`, then tag the next plugin semver. The inst
 Objective 26 (GitHub issue auto-build monitor) was killed on 2026-10-01 (resolved; GMD-04).
 
 ---
-*Last updated: 2026-10-08 after v1.5 milestone*
+*Last updated: 2026-10-08 — v1.6 Hardening & Release started*
