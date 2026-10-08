@@ -409,3 +409,52 @@ describe('build outputs are restored and do not halt (TRD 71-04)', { skip: SKIP 
     assert.ok(Object.isFrozen(RUN_POLICY.buildOutputDirs));
   });
 });
+
+describe('CLI: build outputs (TRD 71-04)', { skip: SKIP }, () => {
+  /**
+   * An eden-circle-shaped scratch repo: the root `build` is `fakebuild` (writes the untracked, unignored
+   * `bin/app`) and `client/` is a Flutter component with a resolved package config. Non-mutating stubs
+   * `flutter` and `dart` record their calls. `df-tools --cwd <root> stack verify --run <extra>` runs on it.
+   */
+  function verifyRun(extra = []) {
+    const yaml = ['schema: 1', 'extends: general',
+      'commands:',
+      '  build: { run: "fakebuild" }',
+      'components:',
+      '  - { path: "client/", profile: flutter }'].join('\n');
+    const root = track(fx.componentRepo({ rootFiles: { '.planning/STACK.md': profileFx.profileMd({ yaml }) } }));
+    const buildBin = track(fx.mutatingToolBin('fakebuild', 'mkdir -p bin && echo x > bin/app'));
+    const flutterBin = track(fx.mutatingToolBin('flutter', ':'));
+    // The flutter tier's `format` gate is `dart format ...`: stub it so the run never needs a real Dart SDK.
+    const dartBin = track(fx.mutatingToolBin('dart', ':'));
+    const home = track(fx.fakeHome({}));
+    const statusBefore = porcelain(root);
+    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', root, 'stack', 'verify', '--run', ...extra], {
+      encoding: 'utf-8',
+      env: { ...process.env, PATH: [buildBin, flutterBin, dartBin, process.env.PATH].join(path.delimiter), HOME: home },
+      timeout: 60000,
+    });
+    return { root, flutterBin, r, statusBefore };
+  }
+
+  test('1. --raw: the build line shows `mutated=1 build_outputs=1`, the client gate runs, and the work tree is unchanged', () => {
+    const { root, flutterBin, r, statusBefore } = verifyRun(['--raw']);
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+    const lines = r.stdout.split('\n');
+    assert.ok(lines.includes('build resolved run=0 mutated=1 build_outputs=1'), r.stdout);
+    assert.ok(lines.includes('lint@client/ resolved run=0'), r.stdout);
+    assert.doesNotMatch(r.stdout, /side-effect-unsafe/);
+    assert.ok(fx.stubCalls(flutterBin, 'flutter').length >= 1, 'the client gate ran the stub flutter');
+    assert.equal(porcelain(root), statusBefore);
+    assert.equal(fs.existsSync(path.join(root, 'bin', 'app')), false);
+  });
+
+  test('2. the JSON: run.build_outputs, run.mutated and run.restored on the build result', () => {
+    const { r } = verifyRun();
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+    const build = JSON.parse(r.stdout).results.find((x) => x.key === 'build' && !x.component);
+    assert.deepEqual(build.run.build_outputs, ['bin/app']);
+    assert.deepEqual(build.run.mutated, [{ path: 'bin/app', change: 'added' }]);
+    assert.equal(build.run.restored, true);
+  });
+});
