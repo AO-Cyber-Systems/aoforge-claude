@@ -230,6 +230,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 69]: Draft staleness is decided by a per-draft sha256 base record (<draft>.base.json), with mtime only as the fallback for drafts that have no base; planning draft reseeds a stale draft and keeps the old one at <draft>.stale, doc put refuses it
 - [Objective 69]: 69-02: a tracked live marker the repository does not ignore is not repairable (untracking would leave it one git add -A from re-tracking, and the repair never edits .gitignore); a tracked stale marker is one E006 carrying the stale reason, never also W064
 - [Objective 69]: Requirements agreement check is scoped to IDs a REQUIREMENTS document defines; other satisfied IDs are reported as skipped, never as findings
+- [Objective 69]: validate requirements has no try/catch: an unreadable planning tree is a loud non-zero exit, while findings always exit 0; W065 doubles as requirements-check-failed in validate health
 
 ## Performance Metrics
 
@@ -388,4 +389,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 69 P01 | 9min | 3 tasks | 8 files |
 | Objective 69 P02 | 10min | 3 tasks | 7 files |
 | Objective 69 P03 | 9min | 3 tasks | 12 files |
+| Objective 69 P05 | 10min | 2 tasks | 6 files |
 
