@@ -118,7 +118,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 
 - [x] **Objective 65: Release v1.5** - Version bump, CHANGELOG release section, merge to `main`, tag, and the installed runtime carrying the v1.5 libs and hooks (completed 2026-10-08)
 - [x] **Objective 66: Executor token stamp** - Every new executor SUMMARY carries `tokens_input` / `tokens_output`, with measured forward-stamp coverage (completed 2026-10-08)
-- [ ] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on
+- [x] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on (completed 2026-10-08)
 - [ ] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection
 - [ ] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check
 - [ ] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema
@@ -184,7 +184,7 @@ TRDs:
 - [x] 67-06-release-artifacts-and-validation-TRD.md — (W5) 2.15.0 bump, CHANGELOG promotion, docs data, suite, tag-gate dry run, merge-tree (local only)
 - [x] 67-07-push-branch-and-open-release-pr-TRD.md — (W6) approval gate: push; approval gate: open the release PR; PR CI recorded
 - [x] 67-08-merge-tag-and-github-release-TRD.md — (W7) approval gate: merge (merge commit); approval gate: annotated tag v2.15.0; release.yml and main runs verified
-- [ ] 67-09-install-and-freeze-calibration-TRD.md — (W8) human action: plugin update + restart; installed `calibrate --minutes <selected> --window 10 --through 66` builds the frozen EST-11 calibration; SC-2/SC-3/SC-4 proven on the installed runtime; 67-FREEZE.md + STATE.md blocker
+- [x] 67-09-install-and-freeze-calibration-TRD.md — (W8) human action: plugin update + restart; installed `calibrate --minutes <selected> --window 10 --through 66` builds the frozen EST-11 calibration; SC-2/SC-3/SC-4 proven on the installed runtime; 67-FREEZE.md + STATE.md blocker
 
 ### Objective 68: Milestone and objective verbs
 
@@ -292,7 +292,7 @@ TRDs:
 | 55–64 (10 objectives) | v1.5 | 81/81 | Complete (EST-08 not met, accepted) | 2026-10-08 |
 | 65. Release v1.5 | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
-| 67. Minutes recalibration | v1.6 | 8/9 | In Progress | - |
+| 67. Minutes recalibration | v1.6 | 9/9 | Complete | 2026-10-08 |
 | 68. Milestone and objective verbs | v1.6 | 0/? | Not started | - |
 | 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |
 | 70. CLI defects and hook shape | v1.6 | 0/? | Not started | - |

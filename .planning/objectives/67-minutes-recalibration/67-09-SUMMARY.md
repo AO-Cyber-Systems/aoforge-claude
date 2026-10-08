@@ -1,16 +1,72 @@
 ---
 objective: 67-minutes-recalibration
 trd: "09"
-status: checkpoint
+subsystem: estimation-calibration
+tags: [calibration, freeze, installed-runtime, EST-10, EST-11, trd_level, through-66, SC-2, SC-3, SC-4, v2.15.0]
+
+requires:
+  - objective: 67-minutes-recalibration
+    provides: "67-08: v2.15.0 merged and tagged (MERGE_SHA 2f01cd77f5ad70518302ad53e35f5478b704fd5d); 67-VALIDATION.md method_selected trd_level"
+
+provides:
+  - "installed plugin and ~/.claude/devflow mirror at 2.15.0, mirrored estimation libs byte-identical to the v2.15.0 tag"
+  - "frozen EST-11 calibration ~/.claude/devflow/calibration.json: sha256 f4d1ffa9e83276f195870fe51e39148003a8c83ceef2523a2c84847a8fc28134, version 3, method {trd_level, window 10, through 66}, built by the installed runtime"
+  - "frozen copy calibration-f4d1ffa9.json and the previous live file kept as calibration-9ef7d108.json, both in ~/.claude/devflow/state/backtest/"
+  - "SC-2, SC-3 and SC-4 proven on the installed runtime"
+  - "67-FREEZE.md (method, sha256, inputs_digest, the do-not-calibrate rule, the objective 75 check) and the STATE.md blocker"
+  - "state add-blocker / resolve-blocker find a '## Blockers / Concerns' heading (spaces around the slash)"
+
+affects: [68, 69, 70, 71, 72, 75]
+
+tech-stack:
+  added: []
+  patterns:
+    - "frozen calibration: built once by the installed runtime with an explicit method and cutoff, byte-identical on a rebuild, copied beside a kept previous file"
+    - "synthetic-future snapshots with the same directory basename to prove a cutoff, with a no-cutoff control that must differ"
+
+key-files:
+  created:
+    - .planning/objectives/67-minutes-recalibration/67-FREEZE.md
+  modified:
+    - plugins/devflow/devflow/bin/lib/state.cjs
+    - plugins/devflow/devflow/bin/lib/state.test.cjs
+    - .planning/STATE.md
+    - .planning/state.json
+    - .planning/ROADMAP.md
+
+key-decisions:
+  - "The Blockers section pattern was fixed in the verb (shared BLOCKERS_SECTION_RE in state.cjs) instead of editing STATE.md by hand, because STATE.md may only be written through the verbs."
+  - "state.json was committed with the freeze: the verb mirrored the blocker into it, and the diff was exactly that one entry."
+  - "Nothing was pushed. The release is merged and tagged (67-08); the branch carries local commits that stay unpublished until a separately approved push."
+
+requirements-completed: [EST-10]
+
+verification:
+  gates_defined: 1
+  gates_passed: 1
+  auto_fix_cycles: 1
+  tdd_evidence: true
+  test_pairing: true
+
+duration: 14min
+completed: 2026-10-08
+tokens_input: 14333379
+tokens_output: 69519
+tokens_cache_read: 14115335
+tokens_cache_write: 217798
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
-# Objective 67 TRD 09: Install 2.15.0 and freeze the EST-11 calibration (checkpoint, not complete)
+# Objective 67 TRD 09: Install 2.15.0, build the frozen EST-11 calibration with the installed runtime, prove SC-2, SC-3, SC-4 Summary
+
+**The installed 2.15.0 runtime built the EST-11 calibration once (`calibrate --minutes trd_level --window 10 --through 66`), it rebuilds byte-identical, objectives 68-72 cannot reach it, `df-tools estimate` uses it and names its method, and the freeze is recorded in `67-FREEZE.md` and as a STATE.md blocker.** FROZEN_SHA `f4d1ffa9e83276f195870fe51e39148003a8c83ceef2523a2c84847a8fc28134`, PREV `9ef7d1082c6722b6ca783d6b8d192a0999da63ba620e2780dcc67ed98b5ad648`, inputs_digest `sha256:90dff7e9a38f0e4b66db873f2a668270ccc8a3ff764f078e3884e540c2faaac0`. Nothing was pushed.
 
 ## Progress
 - [x] Task 1: Human action: update the installed plugin to 2.15.0 and restart Claude Code — (this commit)
-- [x] Task 1: (see above) — 5a7a2c1e
+- [x] Task 1: Human action: update the installed plugin to 2.15.0 and restart Claude Code — 5a7a2c1e
 - [x] Task 2: Verify the mirror, build the frozen calibration with the installed runtime, prove SC-2 — 9e3cc964
-- [x] Task 3: Prove SC-3 and SC-4 on the installed runtime; record the freeze in 67-FREEZE.md and STATE.md — (this commit; the blocker verb fix is 58ae63e5 RED and 994b93ef GREEN)
+- [x] Task 3: Prove SC-3 and SC-4 on the installed runtime; record the freeze in 67-FREEZE.md and STATE.md — 3dc2255a (the blocker verb fix: 58ae63e5 RED, 994b93ef GREEN)
 
 ## Task 1 pre-check, first pass (2026-10-08, before the restart)
 
@@ -121,3 +177,93 @@ Consistency of `a.json` with the live file: `samples`, `sources`, `trd_level`, `
 - GREEN 994b93ef: `plugins/devflow/devflow/bin/lib/state.cjs` gained one shared `BLOCKERS_SECTION_RE` (spaces or tabs allowed around the slash), used by both verbs. `state.test.cjs`: 34/34 pass.
 - The re-run of the verb returned `added: true`. The fix is in the repository only; the installed 2.15.0 mirror still carries the old pattern until the next release.
 - Observation, not changed: `.planning/state.json` held `"blockers": []` while STATE.md already listed one bullet under the section, so the two had drifted before this TRD.
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] `state add-blocker` could not find this repo's `## Blockers / Concerns` heading**
+- **Found during:** Task 3, step 10
+- **Issue:** the verb returned `added: false, Blockers section not found in STATE.md`, so the freeze blocker the TRD requires could not be recorded through a verb.
+- **Fix:** test-first (RED then GREEN) change to a shared `BLOCKERS_SECTION_RE` in `state.cjs` that allows spaces or tabs around the slash; the verb then returned `added: true`. Detail under Task 3 above.
+- **Files modified:** `plugins/devflow/devflow/bin/lib/state.cjs`, `plugins/devflow/devflow/bin/lib/state.test.cjs`
+- **Commits:** 58ae63e5 (RED), 994b93ef (GREEN)
+
+**2. [Rule 3 - Blocking] E2E1 (roadmap-reconcile self-test) failed the first `npm test` run**
+- **Found during:** the task gate after Task 3
+- **Issue:** with 67-09's SUMMARY on disk, ROADMAP.md still showed `- [ ] 67-09-...`; E2E1 asserts zero drift. This is the failure 67-06 documented for an in-flight checkpoint SUMMARY, not a defect in this TRD's change (it was the only failure, 1 of 11188).
+- **Fix:** `sync-roadmap --dry-run` showed exactly one change (67-09 `[ ]` to `[x]`); `sync-roadmap` applied it; the 63 tests in `roadmap-reconcile.test.cjs` passed, and the full suite then passed (11188 tests, 11154 pass, 0 fail, 34 skipped). ROADMAP.md goes into the final docs commit.
+- **Files modified:** `.planning/ROADMAP.md`
+
+### Observations (no change made)
+
+- Plain `estimate objective 66 --all --raw` prints only the one-line summary; the method sentence the TRD names comes from `--table --raw`, and with `--all` a `Note:` line follows it, so "ends with" in the TRD is loose.
+- `df-tools frontmatter get` reads the nested integers in 67-FREEZE.md as strings; the FREEZE body tells objective 75 to compare numerically.
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: install 2.15.0 | installed record `node -e` read (version 2.15.0, installPath `.../devflow/2.15.0`); `cat ~/.claude/devflow/.plugin-version` printed 2.15.0 | 0 | PASS |
+| 2: mirror | `bash mirror.sh`: 8 of 8 libs EQUAL against `git show v2.15.0:...`; `doctor --json` runtime-mirror ok, engine 2.15.0, error 0 | 0 | PASS |
+| 2: SC-2 | rebuild printed `unchanged`; `shasum -a 256` before and after `f4d1ffa9e83276f195870fe51e39148003a8c83ceef2523a2c84847a8fc28134`; `cmp` live vs frozen copy clean | 0 | PASS |
+| 2: identity | `node identity.cjs` (assert.deepStrictEqual on method) printed version 3, method `{trd_level, 10, 66}`, last `66-executor-token-stamp`, sources only `devflow-claude` | 0 | PASS |
+| 3: SC-3 | `cmp a.json b.json` (through 66) no difference; control `cmp a-all.json b-all.json` differ (char 3636, line 199); `consistency.cjs` 0 TRD-derived blocks differ | 0 / 1 (control, expected) | PASS |
+| 3: SC-4 | `estimate objective 66 --all`: path live file, version 3, method frozen; `--table --raw` names `minutes trd_level (window 10, through objective 66)`; `estimate trd 66-01` minutes 10/19, basis `trd_level` | 0 | PASS |
+| 3: freeze record | `frontmatter get 67-FREEZE.md --field calibration_sha256` equals `shasum -a 256` of the live file; `rg -n "EST-11 calibration frozen" .planning/STATE.md` found line 229 | 0 | PASS |
+
+## Task Commits
+
+1. Task 1 (record of the install): `5a7a2c1e` docs(67-09): record 2.15.0 install and restart (Task 1)
+2. Task 2: `9e3cc964` docs(67-09): build and verify the frozen EST-11 calibration (Task 2)
+3. Task 3 deviation, RED: `58ae63e5` test(67-09): add failing test for add-blocker with a spaced Blockers / Concerns heading
+4. Task 3 deviation, GREEN: `994b93ef` fix(67-09): match a spaced Blockers / Concerns heading in add-blocker and resolve-blocker
+5. Task 3: `3dc2255a` docs(67-09): freeze the EST-11 calibration (EST-10)
+6. Final: see the docs(67-09) completion commit (SUMMARY, STATE.md, state.json, ROADMAP.md, REQUIREMENTS.md)
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test (scoped, inner loop) | `node --test plugins/devflow/devflow/bin/lib/state.test.cjs` | 0 (34 pass) | PASS |
+| test (task gate), first run | `npm test` | 1 (11188 tests, 11153 pass, 1 fail: E2E1) | FAIL, fixed by `sync-roadmap` (Deviation 2) |
+| test (task gate), re-run | `npm test` | 0 (11188 tests, 11154 pass, 0 fail, 34 skipped, duration_ms 94942) | PASS |
+
+## TDD Evidence
+
+The TRD is `type: standard`; the verb fix (Deviation 1) was written test-first.
+
+| Phase | Command | Exit Code | Expected |
+|---|---|---|---|
+| RED | `node --test --test-name-pattern "2f2" plugins/devflow/devflow/bin/lib/state.test.cjs` | 1 | FAIL (correct): `added: false, Blockers section not found in STATE.md` |
+| GREEN | `node --test --test-name-pattern "2e\|2f" plugins/devflow/devflow/bin/lib/state.test.cjs` | 0 | PASS (correct): 2e, 2f, 2f2 |
+| full file | `node --test plugins/devflow/devflow/bin/lib/state.test.cjs` | 0 | PASS: 34 of 34 |
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 1 (the verb fix); the E2E1 reconcile was one `sync-roadmap` run
+- Must-haves verified: 6/6 (installed record and `.plugin-version` 2.15.0 with the libs byte-identical to the tag; installed build with version 3 and the frozen method; SC-2 unchanged rebuild, frozen copy and kept previous file; SC-3 identical pair, differing control, live file last objective 66; SC-4 path, version, method, text and `trd_level` minutes; 67-FREEZE.md and the STATE.md blocker)
+- Gate failures: E2E1 on the first `npm test` run (resolved, see Deviation 2); none on the re-run
+- Writes outside the repository: the live calibration written exactly twice (build, identical rebuild); `calibration-9ef7d108.json` and `calibration-f4d1ffa9.json` in `~/.claude/devflow/state/backtest/`; scratch files only otherwise. No `doctor --fix`, no plugin cache directory removed, nothing pushed, port 8080 never used.
+
+## Decisions Made
+
+- The method is not chosen here: SELECTED = `trd_level`, read from `67-VALIDATION.md` `method_selected`.
+- The freeze rule: `df-tools calibrate` is not run in any form that writes the live file until objective 75 has scored 68-72; recovery is `cp` of the frozen copy and a sha256 check (full text in `67-FREEZE.md`).
+- The check objective 75 applies: for each of 68-72, the run-state history file under `~/.claude/devflow/state/estimates/history/devflow-claude-d3dccfe9/` must carry `estimate.calibration.inputs_digest` equal to the FREEZE `inputs_digest` and `estimate.calibration.method` equal to the frozen method.
+
+## Discovered commands
+
+None. Every command came from `.planning/STACK.md` (`test`: `npm test`, scoped `node --test {files}`).
+
+## Next Objective Readiness
+
+Objectives 68-72 can start: `estimate start|wave` for them will read the frozen calibration and record its `inputs_digest` and method in the run state. Objective 75 applies the check in `67-FREEZE.md` section 3. The repository changes from this TRD (and from 67-06 to 67-09) are local; `origin` has not been pushed. The `state.cjs` fix is not in the installed 2.15.0 mirror until the next release.
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/objectives/67-minutes-recalibration/67-FREEZE.md`
+- FOUND: `/Users/justin/.claude/devflow/calibration.json` (sha256 `f4d1ffa9e83276f195870fe51e39148003a8c83ceef2523a2c84847a8fc28134`)
+- FOUND: `/Users/justin/.claude/devflow/state/backtest/calibration-f4d1ffa9.json` (cmp equal to the live file)
+- FOUND: `/Users/justin/.claude/devflow/state/backtest/calibration-9ef7d108.json` (sha256 `9ef7d108...`)
+- FOUND: commits 5a7a2c1e, 9e3cc964, 58ae63e5, 994b93ef, 3dc2255a

@@ -15,7 +15,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 ### Estimation (EST): carries EST-08 forward
 
 - [ ] **EST-09**: Every new executor SUMMARY carries `tokens_input` / `tokens_output`. Forward-stamp coverage is ≥95% over the TRDs executed in v1.6, and the coverage is measured and reported.
-- [ ] **EST-10**: Minutes estimates are recalibrated by a method chosen and frozen before it is scored. The choice, its provenance and its validation protocol are recorded, and nothing is fitted to the objectives it is scored on.
+- [x] **EST-10**: Minutes estimates are recalibrated by a method chosen and frozen before it is scored. The choice, its provenance and its validation protocol are recorded, and nothing is fitted to the objectives it is scored on.
 - [ ] **EST-11**: EST-08's criterion is re-tested prospectively. Across the first five objectives executed after EST-10 ships, each with a run-state estimate recorded before execution, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes. The report gives the honest verdict either way.
 
 ### df-tools correctness (TOOL)
@@ -75,7 +75,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | REL-01 | Objective 65 | Complete |
 | REL-02 | Objective 65 | Complete |
 | EST-09 | Objective 66 (built; coverage 6/8 = 0.75, re-measured by 75) | Pending |
-| EST-10 | Objective 67 | Pending |
+| EST-10 | Objective 67 | Complete |
 | TOOL-01 | Objective 68 | Pending |
 | TOOL-02 | Objective 68 | Pending |
 | TOOL-03 | Objective 68 | Pending |
