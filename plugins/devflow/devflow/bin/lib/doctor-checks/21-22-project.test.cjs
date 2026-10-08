@@ -316,8 +316,13 @@ describe('validate-health: contract', () => {
     assert.equal(health.id, 'validate-health');
     assert.equal(health.scope, 'project');
     assert.deepEqual(doctor.contractIssues(health), []);
-    // W057-W061 belong to 25-gh-store-sync (TRD 50-07), so the validate-health check defers them.
-    assert.deepEqual(health.DEFERRED, ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061']);
+    // Codes another check owns, so the validate-health check defers them: E020/I022 (10-runtime-mirror),
+    // W040 (21-pending-migrations), W057-W061 (25-gh-store-sync, TRD 50-07), W062 (26-checks-workflow-pin, TRD 61-01),
+    // W063 (13-model-profiles, TRD 61-07).
+    assert.deepEqual(
+      health.DEFERRED,
+      ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063'],
+    );
   });
 });
 
@@ -424,6 +429,52 @@ describe('validate-health: spawn contract (test 14)', () => {
     const r = health.run(ctx);
     assert.equal(r.severity, 'ok');
     assert.deepEqual(r.details.deferred, ['E020', 'I022', 'W040']);
+  });
+
+  test('16. a stale checks workflow pin (W062) alone -> ok, deferred:[W062]: check 26 reports it, once', () => {
+    const home = makeDoctorHome();
+    const { root } = makeDoctorProject({ home, git: false });
+    const ctx = ctxFor(root, home);
+    ctx.exec = () => ({
+      status: 0,
+      stdout: healthJson({
+        status: 'degraded',
+        warnings: [{
+          code: 'W062',
+          message: 'checks-pin-stale: .github/workflows/devflow.yml pins DevFlow v2.13.1 (devflow-ref, uses), older than the installed plugin 2.14.0',
+          fix: 'Run `df-tools gh setup --apply` to re-pin it',
+          repairable: false,
+        }],
+      }),
+      stderr: '',
+    });
+    const r = health.run(ctx);
+    assert.equal(r.severity, 'ok', r.finding);
+    assert.deepEqual(r.details.deferred, ['W062']);
+    assert.deepEqual(r.details.codes, []);
+  });
+
+  test('16. a stale pinned model id (W063) alone -> ok, deferred:[W063]: check 13 reports it, once', () => {
+    const home = makeDoctorHome();
+    const { root } = makeDoctorProject({ home, git: false });
+    const ctx = ctxFor(root, home);
+    ctx.exec = () => ({
+      status: 0,
+      stdout: healthJson({
+        status: 'degraded',
+        warnings: [{
+          code: 'W063',
+          message: 'model-id-stale: models.opus = claude-opus-5 is superseded by claude-opus-5-5 (model-rates.json)',
+          fix: 'Update the plugin (`/plugin update devflow@aocyber`); in the DevFlow source, update models in references/model-profiles.json',
+          repairable: false,
+        }],
+      }),
+      stderr: '',
+    });
+    const r = health.run(ctx);
+    assert.equal(r.severity, 'ok', r.finding);
+    assert.deepEqual(r.details.deferred, ['W063']);
+    assert.deepEqual(r.details.codes, []);
   });
 
   test('a failing or unparseable spawn → error result, not a throw', () => {

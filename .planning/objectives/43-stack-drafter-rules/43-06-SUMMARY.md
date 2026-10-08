@@ -37,6 +37,12 @@ decisions:
 metrics:
   duration: "~65 min"
   completed: "2026-10-03"
+tokens_input: 51028482
+tokens_output: 223068
+tokens_cache_read: 50260685
+tokens_cache_write: 767461
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 06: Golden equivalence for all 11 override shapes Summary

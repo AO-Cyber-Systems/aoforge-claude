@@ -72,6 +72,7 @@
  *
  * Todos:
  *   todo complete <filename>           Move todo from pending to completed
+ *   todo sync --session <id>           Merge a session's todos into the archive
  *
  * Scaffolding:
  *   scaffold context --objective <N>       Create CONTEXT.md template
@@ -108,6 +109,13 @@
  *   skill-active --end                 Mark skill as ended (removes .planning/.skill-active)
  *   skill-active --status              Show active skill marker (or {active:false})
  *
+ * Merge Driver:
+ *   merge-driver install [--check]     Register the state.json (JSON-aware) and STATE_ARCHIVE.md (union)
+ *                                      merges in info/attributes + repo-local config (never committed)
+ *   merge-driver uninstall             Undo install (removes only the managed block and config section)
+ *   merge-driver resolve <path>        Resolve a stopped merge's state.json / STATE_ARCHIVE.md from the index
+ *   merge-driver state-json <b> <o> <t>  The git merge driver entry point (writes <o>)
+ *
  * Detection:
  *   detect novel-domain <objective>   Detect if objective crosses research boundary
  *     [--raw]                           Returns { novel, signals, recommendation }
@@ -132,7 +140,7 @@
  *     --objective N [--fields '{json}']
  *
  * State Progression:
- *   state advance-job                 Increment job counter
+ *   state advance-job [--objective <N>]   Record TRD progress (position from disk with --objective)
  *   state record-metric --objective N      Record execution metrics
  *     --job M --duration Xmin
  *     [--tasks N] [--files N]
@@ -144,6 +152,39 @@
  *   state record-session               Update session continuity
  *     --stopped-at "..."
  *     [--resume-file path]
+ *
+ * Estimation data:
+ *   tokens trd <trd-id>                Executor token totals of one TRD from transcripts
+ *     [--objective-dir d] [--repo p] [--root dir]   (read-only; exit 0 even when none is found)
+ *   tokens stamp <trd-id> --draft <path>  Write tokens_input/tokens_output/... into a SUMMARY draft
+ *     [--objective-dir d] [--repo p] [--root dir]   (a draft inside .planning/ is refused; run before summary post)
+ *   tokens backfill [--write] [--force]  Recover token usage for historical SUMMARYs from surviving transcripts
+ *     [--repo p] [--root dir]            (dry run unless --write: counts recovered/unrecovered by reason, changes no file;
+ *                                         --write stamps through summary post; --force restamps already stamped SUMMARYs)
+ *   calibrate [--paths a,b] [--out f]  Build per-task-class medians/P90s (minutes, tokens, dollars) into calibration.json
+ *     [--rates f] [--root dir | --no-overhead] [--window <N|all>] [--dry-run]
+ *                                      (default out: DEVFLOW_CALIBRATION_PATH or ~/.claude/devflow/calibration.json;
+ *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS;
+ *                                       --root: transcripts for agent overhead, default ~/.claude/projects;
+ *                                       --no-overhead skips that scan;
+ *                                       --window <N|all>: keep only the N most recent objectives with samples per project;
+ *                                       default: the most recent 10 objectives, --window all keeps all history)
+ *   estimate task (--files a[,b] [--tdd] [--trd-type t] | --class c | --checkpoint)
+ *                                      Median and P90 minutes, tokens and dollars for one task, with sample count and confidence
+ *   estimate trd <trd-id|path>         The composed estimate of one TRD
+ *   estimate objective <N> [--all] [--table|--line]
+ *                                      What is left of an objective: waves, verifier, gap-closure factor (--all also counts done TRDs)
+ *   estimate milestone [vX.Y] [--table|--line]
+ *                                      What is left of a milestone (default: the current one)
+ *   estimate start <N>                 Estimate an objective's remaining TRDs and record the run state the status line reads
+ *   estimate wave <N> <wave> (--start|--done)
+ *                                      Record a wave's timing; --done prints actual against the estimate with a verdict
+ *   estimate finish <N>                Print the objective's execution time against its estimate (idempotent)
+ *   estimate backtest <N[,N...]>       Compare each listed objective's estimate with its measured actuals and print the EST-08 verdict
+ *                                      (JSON, or the markdown report with --raw; finished runs come from the run history)
+ *     (every estimate verb: [--calibration f] [--raw]; default calibration: DEVFLOW_CALIBRATION_PATH or
+ *      ~/.claude/devflow/calibration.json; run state: DEVFLOW_ESTIMATE_STATE_DIR or ~/.claude/devflow/state/estimates;
+ *      exit 0 even when there is no estimate (`No estimate: <reason>`), exit 1 for usage errors and unknown objectives/TRDs)
  *
  * UI Metrics:
  *   ui metrics baseline [--since D] [--paths p1,p2] [--out f]  Fix/feat commit baseline JSON for UI paths
@@ -253,6 +294,7 @@ const { cmdProjectDecline, cmdProjectAccept } = require('./lib/decline-tracker.c
 const { cmdProjectState } = require('./lib/project-state.cjs');
 const { cmdGlobalConfig } = require('./lib/global-config.cjs');
 const { cmdExecContextRoute } = require('./lib/exec-context.cjs');
+const { cmdMergeDriver } = require('./lib/merge-driver-cli.cjs');
 const {
   hasTopLevelHelpFlag, ownsHelp, HELP_FLAGS, printHelp, topLevelUsage, COMMANDS: HELP_TABLE,
 } = require('./lib/help.cjs');
@@ -328,7 +370,12 @@ async function main() {
         }
         cmdStatePatch(cwd, patches, raw);
       } else if (subcommand === 'advance-job') {
-        cmdStateAdvanceJob(cwd, raw);
+        const objectiveIdx = args.indexOf('--objective');
+        const objective = objectiveIdx !== -1 ? args[objectiveIdx + 1] : null;
+        if (objectiveIdx !== -1 && (!objective || objective.startsWith('--'))) {
+          error('state advance-job --objective requires an objective number, e.g. --objective 59');
+        }
+        cmdStateAdvanceJob(cwd, { objective }, raw);
       } else if (subcommand === 'record-metric') {
         const objectiveIdx = args.indexOf('--objective');
         const jobIdx = args.indexOf('--job');
@@ -825,15 +872,15 @@ async function main() {
     }
 
     case 'telemetry': {
-      // df-tools telemetry [--raw] — read-only summary (TRD 31-01 module, wired in TRD 38-11)
-      const fs = require('fs');
-      const path = require('path');
+      // df-tools telemetry [--scan [--limit N] [--since D] [--root R]] [--raw] — read-only summary
+      // (TRD 31-01 module, wired in TRD 38-11, --scan and strict flags in TRD 61-04). Flag handling
+      // lives in audit-cli.runTelemetry: every token is understood or an error.
       const os = require('os');
       const { output: outputTelemetry } = require('./lib/helpers.cjs');
-      const { collect } = require('./lib/telemetry.cjs');
-      const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
-      const r = collect({ planningDir, userHome: os.homedir() });
-      outputTelemetry(r, raw, r.advisories.join('\n'));
+      const { runTelemetry } = require('./lib/audit-cli.cjs');
+      const r = runTelemetry({ argv: args.slice(1), cwd, userHome: os.homedir() });
+      if (!r.ok) error(r.message);
+      outputTelemetry(r.result, raw, r.text);
       break;
     }
 
@@ -858,6 +905,36 @@ async function main() {
       const r = runContext({ argv: args.slice(1) });
       if (!r.ok) error(r.message);
       outputAudit(r.result, raw, r.text);
+      break;
+    }
+
+    case 'tokens': {
+      // df-tools tokens <trd|stamp|backfill> ... — TRD 57-03, backfill TRD 57-06
+      const { output: outputTokens } = require('./lib/helpers.cjs');
+      const { runTokens } = require('./lib/tokens-cli.cjs');
+      const r = runTokens({ argv: args.slice(1), cwd });
+      if (!r.ok) error(r.message);
+      outputTokens(r.result, raw, r.text, r.exit || 0);
+      break;
+    }
+
+    case 'calibrate': {
+      // df-tools calibrate [--paths a,b] [--out file] [--rates file] [--root dir | --no-overhead] [--window <N|all>] [--dry-run] — TRD 57-06, 58-03, 64-08
+      const { output: outputCalibrate } = require('./lib/helpers.cjs');
+      const { runCalibrate } = require('./lib/calibrate-cli.cjs');
+      const r = runCalibrate({ argv: args.slice(1), cwd, env: process.env });
+      if (!r.ok) error(r.message);
+      outputCalibrate(r.result, raw, r.text, r.exit || 0);
+      break;
+    }
+
+    case 'estimate': {
+      // df-tools estimate <task|trd|objective|milestone|start|wave|finish|backtest> ... — TRD 58-08, backtest TRD 64-04
+      const { output: outputEstimate } = require('./lib/helpers.cjs');
+      const { runEstimate } = require('./lib/estimate-cli.cjs');
+      const r = runEstimate({ argv: args.slice(1), cwd, env: process.env, now: Date.now() });
+      if (!r.ok) error(r.message);
+      outputEstimate(r.result, raw, r.text, r.exit || 0);
       break;
     }
 
@@ -1359,6 +1436,15 @@ async function main() {
       // df-tools exec-context worktree --repo <path> --id <slug> [--base <ref>] [--path <dir>]
       // df-tools exec-context release --repo <path> [--id <slug>]
       cmdExecContextRoute(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'merge-driver': {
+      // df-tools merge-driver state-json <base> <ours> <theirs>   (the git merge driver entry point)
+      // df-tools merge-driver install [--check]
+      // df-tools merge-driver uninstall
+      // df-tools merge-driver resolve <path>
+      cmdMergeDriver(cwd, args.slice(1), raw);
       break;
     }
 

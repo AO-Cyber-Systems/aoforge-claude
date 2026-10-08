@@ -33,7 +33,23 @@ Omit whichever half did not apply. Print nothing when neither applied.
 
 **If `objective_found` is false:** Error — objective directory not found.
 **If `job_count` is 0:** Error — no plans found in objective.
-**If `state_exists` is false but `.planning/` exists:** Offer reconstruct or continue.
+**If `state_exists` is false but `.planning/` exists:**
+
+```
+AskUserQuestion([
+  {
+    header: "Rebuild?",
+    question: "STATE.md is missing but .planning/ exists. Reconstruct it before executing?",
+    multiSelect: false,
+    options: [
+      { label: "Reconstruct (Recommended)", description: "Regenerate STATE.md from the roadmap, then execute" },
+      { label: "Continue without", description: "Execute without STATE.md" }
+    ]
+  }
+])
+```
+
+If "Reconstruct": run `node ~/.claude/devflow/bin/df-tools.cjs validate health --repair` (it regenerates a missing STATE.md, E004), then continue. If "Continue without": continue.
 
 When `parallelization` is false, plans within a wave execute sequentially.
 </step>
@@ -203,7 +219,23 @@ Note: `df-tools dup-detect resolve` calls `recordResolution` internally. No sepa
 
 - **coordinate** OR **proceed-anyway** → Coordination Note has been appended to CONTEXT.md by `df-tools dup-detect resolve`. Continue to `discover_and_group_plans`. Executor agents will read CONTEXT.md transitively via their job context.
 
-**Error recovery:** If `df-tools dup-detect resolve` exits non-zero, display the error and ask: "Continue without recording (Y) or retry (R)?" Recommended fallback: log via `dup-detect log` directly + continue to `discover_and_group_plans`.
+**Error recovery:** If `df-tools dup-detect resolve` exits non-zero, display the error, then:
+
+```
+AskUserQuestion([
+  {
+    header: "Dup log",
+    question: "Recording the duplicate-work resolution failed. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Continue without recording (Recommended)", description: "Log via dup-detect log directly and continue to discover_and_group_plans" },
+      { label: "Retry", description: "Run df-tools dup-detect resolve again" }
+    ]
+  }
+])
+```
+
+If "Continue without recording" (the recommended fallback): log via `dup-detect log` directly + continue to `discover_and_group_plans`. If "Retry": run the resolve command again.
 </step>
 
 <step name="discover_and_group_plans">
@@ -262,7 +294,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    ```
 
    Note the two values down as literals (`REPO_ROOT`, `WAVE_BASE`) — a shell variable does
-   not survive into the next Bash call. Both go into every executor prompt in this wave.
+   not survive into the next Bash call. Both go into every executor prompt in this wave, with
+   a third, `CHECKOUT`, the tree that executor works in (below).
 
    **If `pr_lifecycle` is true:** `gh pr start` left this checkout on `objective_branch`, so the `HEAD`
    read above is the objective branch tip, and that tip is `WAVE_BASE` for every wave, sequential or
@@ -271,27 +304,54 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    it. Something switched branches mid-objective, and worktrees cut from there would build on the wrong base.
 
    **Sequential wave (`PARALLELIZATION=false`, or a single plan):** the executor runs in
-   `REPO_ROOT` itself, on the branch already checked out. `WAVE_BASE` is the current HEAD,
-   so the previous wave's commits are present by construction, and its preflight proves it.
+   `REPO_ROOT` itself, on the branch already checked out. `CHECKOUT` is `REPO_ROOT`.
+   `WAVE_BASE` is the current HEAD, so the previous wave's commits are present by
+   construction, and its preflight proves it.
 
-   **Parallel wave (2+ plans):** give each plan its own worktree, provisioned explicitly
-   from `WAVE_BASE` in the target repo — never from the default branch:
+   **Parallel wave (2+ plans):** once per objective run, before the first parallel wave's worktrees,
+   register the planning-file merge drivers from the main checkout (idempotent; it prints `changed: false`
+   on later runs):
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs merge-driver install
+   ```
+
+   `.planning/state.json` then merges JSON-aware and `.planning/STATE_ARCHIVE.md` by union, so neither stops a
+   wave merge. A failure, or `Unknown command` from an older runtime, is reported and the wave goes on: the
+   Branch merge protocol in step 5b still handles a conflict on either file. Run the install and every wave
+   merge in the main checkout, never inside an executor worktree: that worktree is removed after its merge, and
+   a driver recorded from it would be stranded. `merge-driver uninstall` reverses the install.
+
+   Then give each plan its own worktree, provisioned explicitly from `WAVE_BASE` in the target repo — never
+   from the default branch:
 
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs exec-context worktree --repo <REPO_ROOT> --id <plan_id> --base <WAVE_BASE>
    ```
 
-   Run one per plan. Each prints `worktree_path`, `branch`, `merge_back` and `remove`;
-   note them down. Pass `worktree_path` as that executor's working directory, and merge
-   the branches back in step 5b before the next wave reads `WAVE_BASE` again.
+   Run one per plan. Each prints `worktree_path`, `branch`, `merge_back`, `remove` and
+   `preflight`; note them down. Pass `worktree_path` as that executor's `CHECKOUT` (the Task
+   tool cannot set a working directory, and every Bash call starts in the session's
+   directory, not in the worktree), and merge the branches back in step 5b before the next
+   wave reads `WAVE_BASE` again. `preflight` is the exact `--cwd` check command for that
+   worktree: it is the preflight line the spawn prompt below carries, filled in.
 
 1. **Describe what's being built (BEFORE spawning):**
 
    Read each job's `<objective>`. Extract what's being built and why.
 
+   Record the wave start with one plain command, wave number written out:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs estimate wave ${OBJECTIVE_NUMBER} {N} --start --raw
+   ```
+
+   Put the line it prints under the `## Wave {N}` header. If the estimate command fails or prints `No estimate:`, show that line (or nothing) and carry on; an estimate never blocks planning or execution.
+
    ```
    ---
    ## Wave {N}
+   {wave estimate line}
 
    **{Plan ID}: {Plan Name}**
    {2-3 sentences: what this builds, technical approach, why it matters}
@@ -381,15 +441,21 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        REPO_ROOT:  {REPO_ROOT}
        WAVE_BASE:  {WAVE_BASE}
        PLAN_ID:    {plan_id}
+       CHECKOUT:   {CHECKOUT}
 
        Before anything else, prove you are where you are supposed to be:
 
-         node ~/.claude/devflow/bin/df-tools.cjs exec-context check --repo {REPO_ROOT} --base {WAVE_BASE} --id {plan_id}
+         node ~/.claude/devflow/bin/df-tools.cjs --cwd {CHECKOUT} exec-context check --repo {REPO_ROOT} --base {WAVE_BASE} --id {plan_id}
+
+       Your Bash calls start in the session's directory, not in CHECKOUT. Pass `--cwd {CHECKOUT}` to
+       every df-tools call and `git -C {CHECKOUT}` to every git call, and use absolute paths under
+       CHECKOUT for everything else.
 
        Exit 1 means WRONG REPOSITORY, BASE NOT VISIBLE or SHARED INDEX — all are hard stops. Report
        which fired, quote the output, and end your turn without writing anything. Do not
        try the paths anyway: a wrong-repo spawn cannot land a single commit where it is
-       being looked for, and it fails silently if you let it.
+       being looked for, and it fails silently if you let it. WRONG CHECKOUT is the one
+       recoverable case: nothing was written and no claim was taken, so run the command it prints.
        </repo_and_base>
 
        <worktree_protocol>
@@ -400,8 +466,8 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
          checkout you are in, so from a worktree the SUMMARY lands in YOUR worktree: commit it with
          your task commits, and the wave merge delivers it. In store mode the verbs write the main
          checkout's gitignored cache and no commit carries the SUMMARY.
-       - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job` (and the other
-         `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
+       - STATE.md / ROADMAP.md: change them only through `df-tools state advance-job --objective {objective_number}`
+         (and the other `state` commands) and `df-tools roadmap update-job-progress`, and include the files they touch in
          your commits; conflicts are resolved at merge time by the orchestrator.
        </worktree_protocol>
 
@@ -476,28 +542,37 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    merge with a commit, and never resolve a conflict in the merge's own call: a merge chained with a raw
    `git commit` is denied. gate-commits decides before a command runs, when `MERGE_HEAD` does not
    exist yet, so a completion commit chained after the merge looks like a raw commit. Run each step as its
-   own Bash call. Merge the plan's branch:
+   own Bash call. The merges run in the main checkout you are standing in, the integration checkout
+   `merge_back` names, and never inside an executor worktree. Merge the plan's branch:
    ```bash
    git merge --no-ff df/exec-{plan_id}
    ```
    A clean merge commits itself, so there is nothing more to run for that plan. File ownership is
    exclusive per wave (each TRD owns different files), so a conflict in a code file indicates a planning
    error. The planning files are the exception: every executor touches `.planning/STATE.md`,
-   `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (see the worktree protocol above), so the peers'
-   changes to them can conflict. When the merge stops on a conflict, list the unmerged paths:
+   `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (see the worktree protocol above), and records
+   its position and metrics in `.planning/state.json` and `.planning/STATE_ARCHIVE.md`, so the peers'
+   changes to them can conflict. With the merge driver from step 0 installed, the last two merge without
+   stopping. When the merge stops on a conflict, list the unmerged paths:
    ```bash
    git diff --name-only --diff-filter=U
    ```
-   If EVERY listed path is `.planning/STATE.md`, `.planning/ROADMAP.md` or `.planning/REQUIREMENTS.md`,
-   take the integration branch's copy of each one. Run these two commands as separate calls, once per
-   listed path (`<planning_path>` stands for one listed path):
+   Classify every listed path three ways. `.planning/STATE.md`, `.planning/ROADMAP.md` and
+   `.planning/REQUIREMENTS.md`: take the integration branch's copy of each one, as two separate calls,
+   once per listed path (`<planning_path>` stands for one listed path):
    ```bash
    git checkout --ours -- <planning_path>
    ```
    ```bash
    git add <planning_path>
    ```
-   When every path is added, finish the merge with the completion commit, as its own call. It is allowed
+   `.planning/state.json` and `.planning/STATE_ARCHIVE.md`: merge them rather than dropping a peer's
+   record. The command resolves the file (JSON-aware for state.json, by union for STATE_ARCHIVE.md) and
+   stages it; run it once per listed state.json or STATE_ARCHIVE.md path:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs merge-driver resolve <planning_path>
+   ```
+   When every path is resolved, finish the merge with the completion commit, as its own call. It is allowed
    on its own because the stopped merge left `MERGE_HEAD`:
    ```bash
    git commit --no-edit
@@ -509,13 +584,18 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    Route to the failure handler with: "Merge conflict on {branch} — planning error, two
    TRDs in the same wave modified the same file."
 
-   Taking ours is the same "take ours, regenerate" policy as workstreams-merge step 3, so after the wave's
-   merges, when a planning-file conflict was resolved above, regenerate what it dropped. `STATE.md` keeps the
-   integration branch's copy: `state update-progress` rebuilds its progress figure from the SUMMARYs now on
-   disk, and a decision or note a peer recorded only in its own `STATE.md` copy is not carried over (it is
-   still in that plan's SUMMARY). `ROADMAP.md` is recomputed from disk. For a conflicted
+   After EVERY parallel wave's merges, conflict or not, regenerate the position from disk: the merged
+   SUMMARYs change it, and `state advance-job --objective` is idempotent. Taking ours is the same "take
+   ours, regenerate" policy as workstreams-merge step 3, so a conflicted planning file loses nothing that
+   cannot be rebuilt. `STATE.md` keeps the integration branch's copy: the advance rewrites its Status and
+   counters from the TRDs and SUMMARYs now on disk, `state update-progress` rebuilds its progress figure,
+   and a decision or note a peer recorded only in its own `STATE.md` copy is not carried over (it is still
+   in that plan's SUMMARY). `ROADMAP.md` is recomputed from disk. For a conflicted
    `REQUIREMENTS.md`, re-run `node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete <ids>` with the
    `requirements:` of each plan whose copy lost. Then commit the result:
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs state advance-job --objective "${OBJECTIVE_NUMBER}"
+   ```
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs state update-progress
    ```
@@ -523,7 +603,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
    ```
    ```bash
-   node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .planning/ROADMAP.md .planning/STATE.md
+   node ~/.claude/devflow/bin/df-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .planning/ROADMAP.md .planning/STATE.md .planning/state.json
    ```
    <!-- merge-sequence:end -->
 
@@ -651,6 +731,12 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
 6. **Report completion — spot-check claims first:**
 
+   Record the wave end with one plain command, wave number written out. Keep the line it prints for the report below:
+
+   ```bash
+   node ~/.claude/devflow/bin/df-tools.cjs estimate wave ${OBJECTIVE_NUMBER} {N} --done --raw
+   ```
+
    **Update progress (if available):** For each completed plan:
    ```
    TaskUpdate(taskId=plan_task_id, status="completed")
@@ -661,12 +747,29 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    - Check `git log --oneline --all --grep="{objective}-{job}"` returns ≥1 commit
    - Check for `## Self-Check: FAILED` marker
 
-   If ANY spot-check fails: report which plan failed, route to failure handler. If `MODE` is `"autonomous"`, apply the autonomous failure protocol in step 7 directly (do not prompt). Otherwise ask "Retry plan?" or "Continue with remaining waves?"
+   If ANY spot-check fails: report which plan failed, route to failure handler. If `MODE` is `"autonomous"`, apply the autonomous failure protocol in step 7 directly (do not prompt). Otherwise:
+
+   ```
+   AskUserQuestion([
+     {
+       header: "TRD failed",
+       question: "{plan_id} failed its spot-check: {which check failed}. How do you want to continue?",
+       multiSelect: false,
+       options: [
+         { label: "Retry (Recommended)", description: "Re-spawn a fresh executor for {plan_id}" },
+         { label: "Continue with remaining waves", description: "Leave {plan_id} failed and go on with the next waves" }
+       ]
+     }
+   ])
+   ```
+
+   If "Retry": re-spawn a fresh executor for the plan. If "Continue with remaining waves": go on to the next wave.
 
    If pass:
    ```
    ---
    ## Wave {N} Complete
+   {actual vs estimate line}
 
    **{Plan ID}: {Plan Name}**
    {What was built — from SUMMARY.md}
@@ -729,7 +832,23 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
    **Non-autonomous failure handling (when `MODE` is NOT `"autonomous"`):**
 
-   For real failures: report which plan failed → ask "Continue?" or "Stop?" → if continue, dependent plans may also fail. If stop, partial completion report.
+   For real failures: report which plan failed, then:
+
+   ```
+   AskUserQuestion([
+     {
+       header: "TRD failed",
+       question: "{plan_id} failed: {last error summary}. Continue with the remaining plans?",
+       multiSelect: false,
+       options: [
+         { label: "Continue (Recommended)", description: "Go on with the remaining plans; plans that depend on {plan_id} may also fail" },
+         { label: "Stop", description: "End execution here with a partial completion report" }
+       ]
+     }
+   ])
+   ```
+
+   If "Continue": dependent plans may also fail. If "Stop": partial completion report.
 
 8. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
@@ -793,7 +912,7 @@ When executor returns a checkpoint AND `MODE` is `"autonomous"`:
   **On verifier return:**
 
   - `status: passed` → spawn continuation agent with `{user_response}` = `"approved (verifier evidence: {one-line summary})"`. Log `⚡ Verifier-approved: [checkpoint]`.
-  - `status: gaps_found` OR `status: human_needed` → escalate to user. Present the checkpoint using the standard "Present to user" format (step 4 of standard flow below) PLUS append a `### Verifier Report` section with the verifier's full evidence output. Wait for user response before spawning continuation agent.
+  - `status: gaps_found` OR `status: human_needed` → escalate to user. Present the checkpoint using the standard "Present to user" format (step 4 of standard flow below) PLUS append a `### Verifier Report` section with the verifier's full evidence output. Wait for user response before spawning continuation agent. <!-- builtin-audit: allow free-text: a human-verify checkpoint is answered with "approved" or an open description of the issue -->
   - Verifier timeout or ambiguous return → treat as `human_needed` and escalate to user. Never approve on ambiguity.
 
 - **decision** → PARK, NOTIFY, CONTINUE INDEPENDENT.
@@ -849,7 +968,20 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
    [Checkpoint Details from agent return]
    [Awaiting section from agent return]
    ```
-5. User responds: "approved"/"done" | issue description | decision selection
+5. **Get the response.** For human-verify and human-action the user answers in plain text: "approved"/"done", or a description of the issue. For a decision, ask:
+   ```
+   AskUserQuestion([
+     {
+       header: "Checkpoint",
+       question: "{decision context from the checkpoint details}",
+       multiSelect: false,
+       options: [
+         { label: "{option name}", description: "{option pros and cons}" }
+       ]
+     }
+   ])
+   ```
+   One option per checkpoint option, the executor's recommended option first with ` (Recommended)`. With more than 4 options, print the numbered list, offer the first 4 and say the user may type a number under Other.
 6. **Spawn continuation agent (NOT resume)** using continuation-prompt.md template:
    - `{completed_tasks_table}`: From checkpoint return
    - `{resume_task_number}` + `{resume_task_name}`: Current task
@@ -872,6 +1004,7 @@ After all waves:
 ## Objective {X}: {Name} Execution Complete
 
 **Waves:** {N} | **Jobs:** {M}/{total} complete
+**Time:** {output of `node ~/.claude/devflow/bin/df-tools.cjs estimate finish ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails}
 
 | Wave | Plans | Status |
 |------|-------|--------|
@@ -1095,7 +1228,7 @@ MAX_GAP_CYCLES=2
 
 Auto-fix could not resolve all gaps. Manual intervention needed.
 
-Options:
+Next steps:
 - `/devflow:plan-objective {X} --gaps` — Manual gap closure planning
 - `/devflow:verify-work {X}` — Manual testing
 - `cat {objective_dir}/{phase_num}-VERIFICATION.md` — Full report
@@ -1217,10 +1350,51 @@ Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling (Task bloc
 <failure_handling>
 - **classifyHandoffIfNeeded false failure:** Agent reports "failed" but error is `classifyHandoffIfNeeded is not defined` → Claude Code bug, not DevFlow. Spot-check (SUMMARY exists, commits present) → if pass, treat as success
 - **Truncated executor (turn limit / partial result) → INCOMPLETE → SendMessage resume (≤3), never a failure.** Its dependents wait; they are never skipped (items 5c, 5d, 7)
-- **Agent fails mid-plan:** Missing SUMMARY.md → classify first (5c). With COMMITS < TRD_TASKS it is INCOMPLETE, so resume it (5d). Otherwise, or once the resumes are spent, report and ask the user how to proceed
-- **Dependency chain breaks:** Wave 1 fails → Wave 2 dependents likely fail → user chooses attempt or skip
+- **Agent fails mid-plan:** Missing SUMMARY.md → classify first (5c). With COMMITS < TRD_TASKS it is INCOMPLETE, so resume it (5d). Otherwise, or once the resumes are spent, report the failure. When `MODE` is not `"autonomous"` (step 7's autonomous protocol never asks), then:
+  ```
+  AskUserQuestion([
+    {
+      header: "TRD failed",
+      question: "{plan_id} failed: {last error summary}. How do you want to proceed?",
+      multiSelect: false,
+      options: [
+        { label: "Retry (Recommended)", description: "Re-spawn a fresh executor for {plan_id}" },
+        { label: "Skip this TRD", description: "Go on without {plan_id}; its dependents are affected (next item)" },
+        { label: "Stop", description: "End execution here with a partial completion report" }
+      ]
+    }
+  ])
+  ```
+- **Dependency chain breaks:** Wave 1 fails → Wave 2 dependents likely fail. When `MODE` is not `"autonomous"` (autonomous skips the dependent set, step 7), then:
+  ```
+  AskUserQuestion([
+    {
+      header: "Dependents",
+      question: "{failed plan_id} failed and {N} plans depend on it. Attempt them anyway?",
+      multiSelect: false,
+      options: [
+        { label: "Attempt them (Recommended)", description: "Run the dependent plans; they may fail too" },
+        { label: "Skip them", description: "Report them ⏭ Skipped, blocked by {failed plan_id}" }
+      ]
+    }
+  ])
+  ```
 - **All agents in wave fail:** Systemic issue → stop, report for investigation
-- **Checkpoint unresolvable:** "Skip this job?" or "Abort objective execution?" → record partial progress in STATE.md
+- **Checkpoint unresolvable:**
+  ```
+  AskUserQuestion([
+    {
+      header: "Unresolved",
+      question: "The checkpoint in {plan_id} cannot be resolved. How do you want to proceed?",
+      multiSelect: false,
+      options: [
+        { label: "Stop execution (Recommended)", description: "Abort the objective's execution here" },
+        { label: "Skip this TRD", description: "Go on without {plan_id}" }
+      ]
+    }
+  ])
+  ```
+  Either way, record partial progress in STATE.md.
 </failure_handling>
 
 <resumption>

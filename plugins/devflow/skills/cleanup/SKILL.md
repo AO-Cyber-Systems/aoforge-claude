@@ -4,6 +4,8 @@ description: |
   Archive old objective directories from completed milestones to reduce clutter.
   Moves completed work to the milestones archive — use only when explicitly requested.
 disable-model-invocation: true
+allowed-tools:
+  - AskUserQuestion
 ---
 <objective>
 Archive objective directories from completed milestones into `.planning/milestones/v{X.Y}-objectives/`.

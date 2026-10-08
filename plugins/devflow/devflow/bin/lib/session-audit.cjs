@@ -23,16 +23,68 @@
  *   file-not-found        498   (mitigated in 30-03)
  *   tool-not-available    164   (fixed in 30-01)
  *   skill-not-invocable    68   (fixed in 30-02)
+ *
+ * What happened after each edit-gate denial (quick 31 — the measurement
+ * DECISION-001 waits on). `summarize()` appends `edit_gate_bypass`: every
+ * `devflow-edit-gate` denial gets exactly one outcome, so
+ * denials === bypasses + routed + abandoned === by_category['devflow-edit-gate'].
+ * Per transcript file (one session), decided by the first event after the denial:
+ *
+ *   bypass     a later Bash tool_use WRITES the denied path (redirect, heredoc,
+ *              tee, sed -i, cp/mv, perl -i, inline python/node). It counts the
+ *              ATTEMPT when the tool_use appears, whatever its tool_result says.
+ *   routed     a devflow:* Skill call, a `skill-active --start` Bash call, a typed
+ *              `/devflow:` slash command, or a user override phrase. A user
+ *              override counts as routed because it is a sanctioned path: the
+ *              user chose to let the edit through.
+ *   abandoned  still open when the corpus ends.
+ *
+ * Path match is basename-tolerant (a heuristic, so a same-named file elsewhere is
+ * a possible false positive). Like classification, tracking runs only on
+ * structured blocks (tool_use, tool_result, user text), never on raw text.
+ *
+ * Bash write gate replay (TRD 60-05, GATE-05). `summarize()` also appends
+ * `bash_edit_gate`: every Bash call in the transcripts is run through the hook's
+ * own decision (bash-write-gate.cjs evaluateBashWrites) in dry-run. Nothing is
+ * executed or written; git is only read, one `git log` per project root.
+ *
+ * Ambient means all four of: the row's cwd is inside a DevFlow project (an
+ * ancestor has `.planning/`); the transcript is not a devflow:* subagent (the
+ * sibling `.meta.json` agentType); the row is not attributed to a devflow:*
+ * skill (`attributionSkill`); and no skill-active window is open in that
+ * session (`skill-active --start` ... `--end`, or a devflow Skill call earlier
+ * in it, for rows older than `attributionSkill`). Override phrases are ignored:
+ * that counts more would-denies, never fewer, which is the safe direction.
+ *
+ * A target is tracked only if git history says it was tracked AT THE ROW'S
+ * TIMESTAMP (the last add or delete at or before it). Today's `git ls-files`
+ * would call every file a command created, and committed afterwards, tracked.
+ *
+ * A transcript cannot say whether a flagged command was a genuine write, so
+ * every would-deny counts as a false positive: false_positive_rate =
+ * would_deny / ambient_bash_calls, an UPPER BOUND. GATE-05: the Bash rule ships
+ * `strict` only if that bound is at most 2% (FP_THRESHOLD), otherwise `warn`
+ * (recommendDefault). The measured evidence and the chosen default are TRD
+ * 60-06's: references/bash-edit-gate-evidence.json.
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
+
+const {
+  evaluateBashWrites, recommendDefault, realpathDeep, BASH_GATE_CLASSIFIER, FP_THRESHOLD,
+} = require('./bash-write-gate.cjs');
 
 /**
  * Classifiers, applied ONLY to the content of a failed tool_result.
  * Order matters — first match wins, most specific first.
+ * The Bash rule's denial text starts with the same `DevFlow ambient mode active`
+ * as the Edit/Write one, so it must come first.
  */
 const RULES = [
+  ['devflow-bash-edit-gate', BASH_GATE_CLASSIFIER],
   ['devflow-edit-gate', /DevFlow ambient mode active|direct Edit\/Write\/MultiEdit denied/i],
   ['devflow-commit-gate', /Raw .?git commit.? is blocked|df-tools\.cjs commit.*so the commit is scoped/i],
   ['devflow-changelog-gate', /CHANGELOG\.md lacks|DEVFLOW_SKIP_CHANGELOG_GATE/i],
@@ -49,7 +101,7 @@ const RULES = [
 
 /** Categories DevFlow owns and this programme claims to have fixed. */
 const DEVFLOW_OWNED = new Set([
-  'devflow-edit-gate', 'devflow-commit-gate', 'devflow-changelog-gate',
+  'devflow-edit-gate', 'devflow-bash-edit-gate', 'devflow-commit-gate', 'devflow-changelog-gate',
   'skill-not-invocable', 'tool-not-available',
 ]);
 
@@ -64,17 +116,524 @@ function classify(text) {
   return 'other-tool-error';
 }
 
-function newAccumulator() {
-  return { events: [], sessions: new Set(), blockedSessions: new Set(), files: 0 };
+// ─── Edit-gate outcome tracking (quick 31) ──────────────────────────────────
+
+/** Tools the edit gate denies; the denied path is on their input. */
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+/**
+ * Copied from hooks/lib/edit-override.js (OVERRIDE_PHRASES). Do NOT require it:
+ * hooks/ is not mirrored to ~/.claude/devflow/, so the runtime copy would throw.
+ * session-audit.test.cjs (D-1) fails if the two lists drift.
+ */
+const OVERRIDE_PHRASES = [
+  'skip devflow',
+  'just edit',
+  'bypass devflow',
+  'force edit',
+];
+
+/** A Bash call that starts a skill marker is a route into the sanctioned path. */
+const SKILL_ACTIVE_RE = /\bskill-active\s+--start\b/;
+
+// Heredoc bodies and terminators, keeping the opener line: lib/shell-words.cjs (TRD 60-01).
+const { stripHeredocBodies } = require('./shell-words.cjs');
+
+/** Redirect targets that are never files worth tracking. */
+const IGNORED_TARGETS = new Set(['/dev/null', '/dev/stdout', '/dev/stderr']);
+
+const unquote = s => String(s).replace(/^(['"`])(.*)\1$/, '$2');
+
+/** Quotes and a leading `./` are noise when comparing a target to a path. */
+const cleanTarget = t => String(t).trim().replace(/^['"`]+|['"`]+$/g, '').replace(/^\.\//, '');
+
+/**
+ * Paths a Bash command writes, as written in the command (quotes stripped).
+ * A heuristic over shell text, not a parser: it covers the forms agents use to
+ * get around the edit gate. Reads and writes to other files yield other targets.
+ * @param {string} cmd
+ * @returns {string[]}
+ */
+function bashWriteTargets(cmd) {
+  if (typeof cmd !== 'string' || !cmd) return [];
+  const targets = [];
+
+  // Inline code: scan the FULL command, because heredoc bodies hold python/node source.
+  const inline = [
+    /\bopen\(\s*['"]([^'"\n]+)['"]\s*,\s*(?:mode\s*=\s*)?['"][^'"]*[wax]/g,
+    /\bPath\(\s*['"]([^'"\n]+)['"]\s*\)\.write_(?:text|bytes)\(/g,
+    /\b(?:writeFileSync|appendFileSync)\(\s*['"`]([^'"`\n]+)['"`]/g,
+  ];
+  for (const re of inline) {
+    for (const m of cmd.matchAll(re)) targets.push(m[1]);
+  }
+
+  // Shell: scan with heredoc bodies removed so text inside a body is not a write.
+  const stripped = stripHeredocBodies(cmd);
+  for (const m of stripped.matchAll(/(?<![<>=-])>{1,2}(?![>&=])\s*(['"]?)([^\s'"<>|;&()]+)\1/g)) {
+    targets.push(m[2]);
+  }
+
+  for (const seg of stripped.split(/&&|\|\||[;|\n]/)) {
+    const tokens = seg.trim().split(/\s+/).filter(Boolean).map(unquote);
+    while (tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens.shift();
+    if (!tokens.length) continue;
+    const rest = tokens.slice(1);
+    const args = rest.filter(t => !t.startsWith('-'));
+    switch (path.posix.basename(tokens[0])) {
+      case 'tee':
+        targets.push(...args);
+        break;
+      case 'sed':
+      case 'gsed':
+        if (rest.some(t => /^(-i|--in-place)/.test(t)) && rest.length > 1) targets.push(rest[rest.length - 1]);
+        break;
+      case 'perl':
+        // `-pi`, `-i.bak`: the `i` must close the flag cluster, so `-Mstrict` is not `-i`.
+        if (rest.some(t => /^-[A-Za-z]*i(\.\S+)?$/.test(t)) && rest.length > 1) targets.push(rest[rest.length - 1]);
+        break;
+      case 'cp':
+      case 'mv':
+        if (args.length >= 2) targets.push(args[args.length - 1]);
+        break;
+      default:
+    }
+  }
+
+  return targets
+    .map(cleanTarget)
+    .filter(t => t && !IGNORED_TARGETS.has(t));
+}
+
+/**
+ * Does a command's write target name the denied path? Basename-tolerant on
+ * purpose: `src/a.go`, `./src/a.go` and `"$REPO/src/a.go"` all hit `/repo/src/a.go`.
+ * @param {string} target
+ * @param {string} p
+ * @returns {boolean}
+ */
+function targetMatches(target, p) {
+  if (typeof target !== 'string' || typeof p !== 'string') return false;
+  const t = cleanTarget(target);
+  const q = cleanTarget(p);
+  if (!t || !q || IGNORED_TARGETS.has(t)) return false;
+  if (t === q) return true;
+  const base = path.posix.basename(t);
+  return base !== '' && base === path.posix.basename(q);
+}
+
+function newEditGate() {
+  // sessions: sid -> { editPaths: Map<toolUseId, path>, open: [{ path, ts }] }
+  return { sessions: new Map(), resolved: [], samples: [] };
+}
+
+function editGateSession(acc, sid) {
+  if (!acc.editGate) acc.editGate = newEditGate();
+  const key = sid || '';
+  let st = acc.editGate.sessions.get(key);
+  if (!st) {
+    st = { editPaths: new Map(), open: [] };
+    acc.editGate.sessions.set(key, st);
+  }
+  return st;
+}
+
+/** Close every open denial of a session with one outcome. */
+function resolveAll(acc, st, outcome) {
+  for (const d of st.open) acc.editGate.resolved.push({ outcome, ts: d.ts });
+  st.open = [];
+}
+
+/** A user's own words: a typed /devflow: command routes, as does an override phrase. */
+function trackUserText(acc, st, text, isMeta) {
+  if (typeof text !== 'string' || !st.open.length) return;
+  if (text.includes('<command-name>/devflow:')) { resolveAll(acc, st, 'routed'); return; }
+  if (isMeta) return; // skill-body injections are not the user's words
+  const lower = text.toLowerCase();
+  if (OVERRIDE_PHRASES.some(p => lower.includes(p))) resolveAll(acc, st, 'routed');
+}
+
+/**
+ * Per-session edit-gate denial tracker. Reads the row and writes ONLY
+ * `acc.editGate`; it never touches `acc.events`.
+ */
+function trackEditGate(acc, row, sid) {
+  const st = editGateSession(acc, sid);
+  const isUser = row.type === 'user';
+  const content = row.message && row.message.content;
+
+  if (isUser && typeof content === 'string') {
+    trackUserText(acc, st, content, row.isMeta === true);
+    return;
+  }
+  if (!Array.isArray(content)) return;
+
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+
+    if (block.type === 'tool_use') {
+      const input = block.input && typeof block.input === 'object' ? block.input : {};
+      if (EDIT_TOOLS.has(block.name)) {
+        const p = input.file_path || input.notebook_path;
+        if (block.id && typeof p === 'string') st.editPaths.set(block.id, p);
+      } else if (block.name === 'Skill') {
+        if (typeof input.skill === 'string' && input.skill.startsWith('devflow:')) resolveAll(acc, st, 'routed');
+      } else if (block.name === 'Bash' && typeof input.command === 'string') {
+        const cmd = input.command;
+        if (SKILL_ACTIVE_RE.test(cmd)) { resolveAll(acc, st, 'routed'); continue; }
+        if (!st.open.length) continue;
+        const targets = bashWriteTargets(cmd);
+        if (!targets.length) continue;
+        const hit = st.open.filter(d => d.path && targets.some(t => targetMatches(t, d.path)));
+        if (!hit.length) continue;
+        for (const d of hit) acc.editGate.resolved.push({ outcome: 'bypassed', ts: d.ts });
+        st.open = st.open.filter(d => !hit.includes(d));
+        // One bypassing command is one sample, however many retries it resolved.
+        if (acc.editGate.samples.length < 5) {
+          acc.editGate.samples.push({
+            ts: row.timestamp || null,
+            file: path.posix.basename(cleanTarget(hit[0].path)),
+            command: cmd.replace(/\s+/g, ' ').trim().slice(0, 200),
+          });
+        }
+      }
+    } else if (block.type === 'tool_result') {
+      if (block.is_error !== true) continue;
+      const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content || '');
+      if (classify(text) !== 'devflow-edit-gate') continue;
+      st.open.push({ path: st.editPaths.get(block.tool_use_id) || null, ts: row.timestamp || null });
+    } else if (block.type === 'text' && isUser) {
+      trackUserText(acc, st, block.text, row.isMeta === true);
+    }
+  }
+}
+
+/**
+ * Free what a finished transcript no longer needs. Open denials stay: they are
+ * counted as abandoned by `summarize()`.
+ */
+function endEditGateSession(acc, sid) {
+  const st = acc.editGate && acc.editGate.sessions.get(sid || '');
+  if (st) st.editPaths.clear();
+}
+
+function summarizeEditGate(acc) {
+  const eg = acc.editGate || newEditGate();
+  // Outcomes = resolved ones plus every still-open denial as abandoned. Nothing is mutated.
+  const all = eg.resolved.slice();
+  for (const st of eg.sessions.values()) {
+    for (const d of st.open) all.push({ outcome: 'abandoned', ts: d.ts });
+  }
+
+  const KEY = { bypassed: 'bypasses', routed: 'routed', abandoned: 'abandoned' };
+  const totals = { denials: 0, bypasses: 0, routed: 0, abandoned: 0 };
+  const periods = {};
+  for (const o of all) {
+    totals.denials += 1;
+    totals[KEY[o.outcome]] += 1;
+    if (!o.ts) continue;
+    const period = String(o.ts).slice(0, 7);
+    const p = periods[period] || (periods[period] = { denials: 0, bypasses: 0, routed: 0, abandoned: 0 });
+    p.denials += 1;
+    p[KEY[o.outcome]] += 1;
+  }
+
+  return {
+    ...totals,
+    bypass_rate: totals.denials ? +(totals.bypasses / totals.denials).toFixed(3) : 0,
+    by_period: Object.fromEntries(Object.entries(periods).sort((a, b) => (a[0] < b[0] ? -1 : 1))),
+    sample: eg.samples.map(s => ({ ...s })),
+  };
+}
+
+// ─── Bash write gate replay (TRD 60-05) ─────────────────────────────────────
+
+/** The forms detectBashWrites reports, in the order the report lists them. */
+const GATE_FORMS = ['redirect', 'tee', 'sed-i', 'perl-i', 'cp', 'mv', 'python', 'node'];
+const SKILL_END_RE = /\bskill-active\s+--end\b/;
+const SAMPLE_CAP = 10;
+const FP_BASIS = 'upper bound: every would-deny in the ambient replay counts as a false positive';
+
+const isDevflowName = v => typeof v === 'string' && v.startsWith('devflow:');
+
+/** The directory a cp or mv would write into, if it exists now. A read, like the hook's check. */
+function liveIsDirectory(abs) {
+  try { return fs.statSync(abs).isDirectory(); } catch { return false; }
+}
+
+/**
+ * The nearest ancestor of `cwd` (itself included) that has a `.planning/`
+ * directory, or null. `cache` maps every directory visited to its answer, so a
+ * corpus of rows in a few hundred directories stats each directory once.
+ * @param {string} cwd
+ * @param {Map<string, string|null>} cache
+ * @returns {string|null}
+ */
+function findPlanningRoot(cwd, cache) {
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return null;
+  const visited = [];
+  let found = null;
+  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+    if (cache.has(dir)) { found = cache.get(dir); break; }
+    visited.push(dir);
+    let planning = null;
+    try { planning = fs.statSync(path.join(dir, '.planning'), { throwIfNoEntry: false }); } catch { /* unreadable: no .planning here */ }
+    if (planning && planning.isDirectory()) { found = dir; break; }
+    if (path.dirname(dir) === dir) break;
+  }
+  for (const dir of visited) cache.set(dir, found);
+  return found;
+}
+
+/** git quotes a path with unusual characters; the plain `"..."` forms decode as JSON. */
+function unquoteGitPath(p) {
+  if (!p.startsWith('"') || !p.endsWith('"')) return p;
+  try { return JSON.parse(p); } catch { return p; }
+}
+
+/**
+ * `git log --name-status --format=@%ct` -> Map<relative path, [{ t, kind }]>,
+ * each list ascending in time. git prints newest first, so the list is reversed
+ * before a stable sort: events in the same second keep their commit order.
+ * @param {string} out
+ * @returns {Map<string, Array<{t: number, kind: 'A'|'D'}>>}
+ */
+function parseHistory(out) {
+  const events = [];
+  let t = NaN;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('@')) { t = Number(line.slice(1)); continue; }
+    const m = /^([AD])\t(.+)$/.exec(line);
+    if (m && Number.isFinite(t)) events.push({ t, kind: m[1], rel: unquoteGitPath(m[2]) });
+  }
+  events.reverse();
+  events.sort((a, b) => a.t - b.t);
+  const byPath = new Map();
+  for (const e of events) {
+    const list = byPath.get(e.rel);
+    if (list) list.push({ t: e.t, kind: e.kind }); else byPath.set(e.rel, [{ t: e.t, kind: e.kind }]);
+  }
+  return byPath;
+}
+
+/**
+ * Answers "was this file tracked at that moment?" from each project's git
+ * history. One `git log` per project root, read-only, cached by the root's real
+ * path. A root that git cannot read is unavailable: `trackedAt` returns null.
+ *
+ * @param {{spawn?: Function}} [opts] spawn replaces child_process.spawnSync (tests)
+ * @returns {{
+ *   trackedAt: (root: string, absPaths: string[], ts?: string) => Set<string>|null,
+ *   available: (root: string) => boolean,
+ * }}
+ */
+function newHistoryTracker({ spawn = spawnSync } = {}) {
+  const roots = new Map(); // realpathDeep(root) -> { key, events } | null
+  const keys = new Map(); // root as given -> realpathDeep(root), resolved once: it is asked once per Bash row
+
+  function load(root) {
+    let key = keys.get(root);
+    if (key === undefined) { key = realpathDeep(root); keys.set(root, key); }
+    if (roots.has(key)) return roots.get(key);
+    let entry = null;
+    try {
+      const r = spawn('git', [
+        '-c', 'core.quotePath=false', '-C', root, 'log',
+        '--no-renames', '--relative', '--diff-filter=AD', '--name-status', '--format=@%ct',
+      ], {
+        encoding: 'utf8',
+        maxBuffer: 256 << 20,
+        timeout: 60000,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      });
+      if (r && !r.error && r.status === 0 && typeof r.stdout === 'string') {
+        entry = { key, events: parseHistory(r.stdout) };
+      }
+    } catch { entry = null; /* git missing or the spawn failed: the root has no history */ }
+    roots.set(key, entry);
+    return entry;
+  }
+
+  /** The subset of `absPaths` tracked at `ts` (a row with no usable timestamp sees the latest state). */
+  function trackedAt(root, absPaths, ts) {
+    const entry = load(root);
+    if (!entry) return null;
+    const tracked = new Set();
+    const parsed = typeof ts === 'string' ? Date.parse(ts) / 1000 : NaN;
+    const when = Number.isFinite(parsed) ? parsed : Infinity;
+    for (const abs of absPaths || []) {
+      const rel = path.relative(entry.key, realpathDeep(abs)).split(path.sep).join('/');
+      if (rel === '' || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel)) continue;
+      let isTracked = false;
+      for (const e of entry.events.get(rel) || []) {
+        if (e.t > when) break;
+        isTracked = e.kind === 'A';
+      }
+      if (isTracked) tracked.add(abs);
+    }
+    return tracked;
+  }
+
+  return { trackedAt, available: root => load(root) !== null };
+}
+
+function newBashGate({ trackedAt } = {}) {
+  return {
+    // Injected for tests; otherwise the git history reader, built on first use.
+    trackedAt: typeof trackedAt === 'function' ? trackedAt : null,
+    rootCache: new Map(),
+    sessions: new Map(), // sid -> { window: boolean } — a devflow skill is active
+    bashCalls: 0,
+    ambient: 0,
+    excluded: { devflow_agent: 0, devflow_skill: 0, not_devflow_project: 0, history_unavailable: 0, error: 0 },
+    wouldDeny: 0,
+    byForm: Object.fromEntries(GATE_FORMS.map(f => [f, 0])),
+    periods: {},
+    sample: [],
+  };
+}
+
+function bashGateOf(acc) {
+  if (!acc.bashGate) acc.bashGate = newBashGate();
+  return acc.bashGate;
+}
+
+function trackedAtOf(bg) {
+  if (!bg.trackedAt) bg.trackedAt = newHistoryTracker().trackedAt;
+  return bg.trackedAt;
+}
+
+/** The form of the first write that produced the first gated path. */
+function gatedForm(writes, gatedAbs) {
+  const hit = writes.find(w => w.path === gatedAbs
+    || ((w.form === 'cp' || w.form === 'mv') && w.path && path.dirname(gatedAbs) === path.resolve(w.path)));
+  return (hit || writes[0] || {}).form;
+}
+
+/**
+ * One Bash call. Counters change only after the whole decision succeeded, so a
+ * throw leaves the call counted in `bashCalls` and nothing else, and the caller
+ * counts it as an error: bashCalls = ambient + every exclusion.
+ */
+function replayBashCall(bg, st, row, cmd, fileCtx) {
+  bg.bashCalls += 1;
+  if (SKILL_ACTIVE_RE.test(cmd)) { st.window = true; bg.excluded.devflow_skill += 1; return; }
+  if (SKILL_END_RE.test(cmd)) { st.window = false; bg.excluded.devflow_skill += 1; return; }
+  if (fileCtx && isDevflowName(fileCtx.agentType)) { bg.excluded.devflow_agent += 1; return; }
+  if (isDevflowName(row.attributionSkill) || st.window) { bg.excluded.devflow_skill += 1; return; }
+
+  const projectRoot = findPlanningRoot(row.cwd, bg.rootCache);
+  if (!projectRoot) { bg.excluded.not_devflow_project += 1; return; }
+
+  const trackedAt = trackedAtOf(bg);
+  const ts = row.timestamp;
+  if (trackedAt(projectRoot, [], ts) === null) { bg.excluded.history_unavailable += 1; return; }
+
+  const result = evaluateBashWrites(cmd, {
+    cwd: row.cwd,
+    projectRoot,
+    home: os.homedir(),
+    isDirectory: liveIsDirectory,
+    isTracked: abs => trackedAt(projectRoot, abs, ts) || new Set(),
+  });
+
+  bg.ambient += 1;
+  const period = ts ? String(ts).slice(0, 7) : null;
+  const p = period ? (bg.periods[period] || (bg.periods[period] = { ambient: 0, would_deny: 0 })) : null;
+  if (p) p.ambient += 1;
+  if (!result.gated.length) return;
+
+  bg.wouldDeny += 1;
+  if (p) p.would_deny += 1;
+  const form = gatedForm(result.writes, result.gated[0]);
+  if (form) bg.byForm[form] = (bg.byForm[form] || 0) + 1;
+  if (bg.sample.length < SAMPLE_CAP) {
+    bg.sample.push({
+      ts: ts || null,
+      command: cmd.replace(/\s+/g, ' ').trim().slice(0, 200),
+      gated: result.gated.map(abs => path.relative(projectRoot, abs)),
+    });
+  }
+}
+
+/**
+ * Replays every Bash tool_use of one assistant row through the Bash gate's
+ * decision. Reads the row and writes ONLY `acc.bashGate`. A throw while
+ * replaying one call is counted in `excluded.error` and the audit goes on.
+ *
+ * @param {object} acc
+ * @param {object} row
+ * @param {string} [sid]
+ * @param {{agentType?: string|null}|null} [fileCtx] from the transcript's sibling .meta.json
+ */
+function trackBashGate(acc, row, sid, fileCtx) {
+  if (row.type !== 'assistant') return;
+  const content = row.message && row.message.content;
+  if (!Array.isArray(content)) return;
+  const bg = bashGateOf(acc);
+  const key = sid || '';
+  let st = bg.sessions.get(key);
+  if (!st) { st = { window: false }; bg.sessions.set(key, st); }
+
+  for (const block of content) {
+    if (!block || block.type !== 'tool_use') continue;
+    const input = block.input && typeof block.input === 'object' ? block.input : {};
+    if (block.name === 'Skill') {
+      if (isDevflowName(input.skill)) st.window = true;
+    } else if (block.name === 'Bash' && typeof input.command === 'string') {
+      try {
+        replayBashCall(bg, st, row, input.command, fileCtx);
+      } catch {
+        bg.excluded.error += 1;
+      }
+    }
+  }
+}
+
+function summarizeBashGate(acc) {
+  const bg = acc.bashGate || newBashGate();
+  const rate = bg.ambient ? +(bg.wouldDeny / bg.ambient).toFixed(6) : null;
+  const periods = Object.entries(bg.periods).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  return {
+    bash_calls: bg.bashCalls,
+    ambient_bash_calls: bg.ambient,
+    excluded: { ...bg.excluded },
+    would_deny: bg.wouldDeny,
+    by_form: { ...bg.byForm },
+    false_positive_rate: rate,
+    false_positive_basis: FP_BASIS,
+    threshold: FP_THRESHOLD,
+    recommended_default: recommendDefault(rate),
+    by_period: Object.fromEntries(periods.map(([k, v]) => [k, { ...v }])),
+    sample: bg.sample.map(s => ({ ...s, gated: s.gated.slice() })),
+  };
+}
+
+function newAccumulator(opts = {}) {
+  return {
+    events: [], sessions: new Set(), blockedSessions: new Set(), files: 0,
+    editGate: newEditGate(),
+    bashGate: newBashGate({ trackedAt: opts.trackedAt }),
+  };
 }
 
 /**
  * Fold one transcript record into the accumulator.
  * Exported so aggregation is testable without disk.
+ *
+ * `fileCtx` is what the transcript's sibling `.meta.json` says about it
+ * (`{ agentType }`); the 3-argument form keeps working.
  */
-function accumulate(acc, row, sessionId) {
+function accumulate(acc, row, sessionId, fileCtx) {
   if (!row || typeof row !== 'object') return;
   if (sessionId) acc.sessions.add(sessionId);
+  // Before the array check below: typed slash commands and prompts are string content.
+  trackEditGate(acc, row, sessionId);
+  try {
+    trackBashGate(acc, row, sessionId, fileCtx);
+  } catch {
+    bashGateOf(acc).excluded.error += 1;
+  }
 
   const content = row.message && row.message.content;
   if (!Array.isArray(content)) return;
@@ -137,6 +696,9 @@ function summarize(acc) {
     verdict: devflowOwned === 0
       ? 'no DevFlow-owned blocks in this window'
       : `${devflowOwned} DevFlow-owned blocks remain — objectives 27/30 target these`,
+    // Appended last so every key above keeps its name, value and order.
+    edit_gate_bypass: summarizeEditGate(acc),
+    bash_edit_gate: summarizeBashGate(acc),
   };
 }
 
@@ -152,16 +714,33 @@ function collectTranscripts(dir, out = []) {
 }
 
 /**
+ * What a transcript's sibling `<name>.meta.json` says about it. Subagent
+ * transcripts have one (`{"agentType":"devflow:planner",...}`); main sessions do
+ * not, which is `null`.
+ * @param {string} file the .jsonl path
+ * @returns {{agentType: string|null}|null}
+ */
+function readAgentCtx(file) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8'));
+    return { agentType: meta && typeof meta.agentType === 'string' ? meta.agentType : null };
+  } catch {
+    return null; // no meta file, or an unreadable one: the transcript is not known to be an agent
+  }
+}
+
+/**
  * Scan transcripts and report blocking events.
  *
  * @param {string[]} roots
- * @param {{limit?: number, since?: string}} [opts] - `since` is an ISO date;
+ * @param {{limit?: number, since?: string, trackedAt?: Function}} [opts] - `since` is an ISO date;
  *   events before it are excluded, which is how you compare a window AFTER a
- *   fix against the baseline before it.
+ *   fix against the baseline before it. `trackedAt(root, absPaths, ts)` replaces
+ *   the git history reader of the Bash gate replay (tests).
  * @returns {object}
  */
 function analyze(roots, opts = {}) {
-  const acc = newAccumulator();
+  const acc = newAccumulator({ trackedAt: opts.trackedAt });
   let files = [];
   for (const r of roots) collectTranscripts(r, files);
   if (opts.limit && files.length > opts.limit) files = files.slice(0, opts.limit);
@@ -171,13 +750,15 @@ function analyze(roots, opts = {}) {
     let raw;
     try { raw = fs.readFileSync(file, 'utf8'); } catch { continue; }
     const sessionId = path.basename(file, '.jsonl');
+    const fileCtx = readAgentCtx(file);
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       let row;
       try { row = JSON.parse(line); } catch { continue; }
       if (opts.since && row.timestamp && String(row.timestamp) < opts.since) continue;
-      accumulate(acc, row, sessionId);
+      accumulate(acc, row, sessionId, fileCtx);
     }
+    endEditGateSession(acc, sessionId);
   }
   return summarize(acc);
 }
@@ -185,4 +766,6 @@ function analyze(roots, opts = {}) {
 module.exports = {
   analyze, accumulate, summarize, newAccumulator, classify,
   collectTranscripts, RULES, DEVFLOW_OWNED,
+  bashWriteTargets, targetMatches, stripHeredocBodies, OVERRIDE_PHRASES,
+  newHistoryTracker, summarizeBashGate, trackBashGate, findPlanningRoot,
 };

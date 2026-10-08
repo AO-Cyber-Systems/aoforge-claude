@@ -35,6 +35,12 @@ verification:
 
 duration: ~90min
 completed: 2026-09-28
+tokens_input: 7871939
+tokens_output: 39559
+tokens_cache_read: 7771688
+tokens_cache_write: 100081
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 11: Simulated `/devflow:adopt` run — Go service (E2E proof a) Summary

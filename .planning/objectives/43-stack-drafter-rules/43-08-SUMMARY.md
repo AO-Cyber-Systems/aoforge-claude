@@ -38,6 +38,12 @@ verification:
   test_pairing: true
 duration: 35min
 completed: 2026-10-03
+tokens_input: 6982645
+tokens_output: 54352
+tokens_cache_read: 6825797
+tokens_cache_write: 156726
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 08: Drift comparison helper and the real-fleet regression harness Summary

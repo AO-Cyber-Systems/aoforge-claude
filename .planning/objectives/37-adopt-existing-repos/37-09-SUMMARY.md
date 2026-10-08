@@ -50,6 +50,12 @@ verification:
 # Metrics
 duration: ~7min (commit-to-commit span; session spanned a context-compaction resume)
 completed: 2026-09-28
+tokens_input: 8738321
+tokens_output: 74148
+tokens_cache_read: 8548511
+tokens_cache_write: 189634
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 09: Adopt Skill + Workflow Summary

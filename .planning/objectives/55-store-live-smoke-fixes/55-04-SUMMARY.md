@@ -27,6 +27,12 @@ metrics:
   duration: ~20min
   completed: 2026-10-05
 requirements-completed: ["55-6"]
+tokens_input: 7388482
+tokens_output: 39419
+tokens_cache_read: 7250320
+tokens_cache_write: 138040
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 04: Store issue naming Summary

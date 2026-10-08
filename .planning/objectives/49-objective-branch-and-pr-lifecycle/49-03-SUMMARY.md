@@ -47,6 +47,12 @@ verification:
 
 duration: 14min
 completed: 2026-10-01
+tokens_input: 4562568
+tokens_output: 49914
+tokens_cache_read: 4443920
+tokens_cache_write: 118562
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 03: Scope-change acceptance, the pure half Summary

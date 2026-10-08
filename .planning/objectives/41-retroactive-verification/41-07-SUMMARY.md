@@ -39,6 +39,12 @@ metrics:
   duration: ~4m (excluding two full-suite runs)
   tasks: 2
   files: 8
+tokens_input: 2396945
+tokens_output: 20367
+tokens_cache_read: 2303234
+tokens_cache_write: 93645
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 41 TRD 07: Restore the 28-03 effort declarations and pin them to the reference — Summary

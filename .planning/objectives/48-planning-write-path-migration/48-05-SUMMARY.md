@@ -44,6 +44,12 @@ metrics:
   completed: "2026-10-01"
   tasks: 3
   files: 6
+tokens_input: 8489233
+tokens_output: 57990
+tokens_cache_read: 8334577
+tokens_cache_write: 154514
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 05: Wiki page rules and native milestone store Summary

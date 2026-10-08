@@ -17,6 +17,7 @@
  *   df-tools decision answer <trd-id>-d<k> --from <path|-> | --text <t>      (local ids are DECISION-NNN)
  *   df-tools todo add --from <path|-> [--stem <stem>]
  *   df-tools todo complete <stem|filename>
+ *   df-tools todo sync (--transcript <path>... | --session <id>) [--projects-root <dir>] [--dry-run] [--no-flush] [--no-wait]
  *   df-tools debug put <slug> --from <path|->          df-tools debug resolve <slug>
  *   df-tools quick put <N> <slug> --from <path|->      df-tools quick summary <N> --from <path|->
  *   df-tools milestone put <version> --from <path|->
@@ -59,6 +60,20 @@ function flagValue(args, flag) {
     if (args[i].startsWith(`${flag}=`)) return args[i].slice(flag.length + 1);
   }
   return undefined;
+}
+
+/** Every value of a repeated `--flag v` or `--flag=v`, in order; an empty value is dropped. */
+function flagValues(args, flag) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag) {
+      if (i + 1 < args.length && args[i + 1] !== '') out.push(args[i + 1]);
+      i += 1;
+    } else if (args[i].startsWith(`${flag}=`) && args[i].length > flag.length + 1) {
+      out.push(args[i].slice(flag.length + 1));
+    }
+  }
+  return out;
 }
 
 const has = (args, flag) => args.includes(flag);
@@ -304,7 +319,40 @@ function cmdTodoVerb(cwd, args, raw, io = {}) {
     if (planningMode.isStoreMode(cwd)) return report('todo complete', entity.todoComplete(cwd, { stem: args[1], ...flushOpts(rest) }), raw);
     return require('./misc.cjs').cmdTodoComplete(cwd, localTodoFile(cwd, args[1]), raw);
   }
-  return unknown('todo', sub, 'add, complete', raw);
+  if (sub === 'sync') return cmdTodoSync(cwd, rest, raw);
+  return unknown('todo', sub, 'add, complete, sync', raw);
+}
+
+const TODO_SYNC_USAGE =
+  'usage: df-tools todo sync (--transcript <path>... | --session <id>) [--projects-root <dir>] [--dry-run] [--no-flush] [--no-wait]';
+
+/**
+ * `todo sync`: merge a session's task-list todos into the archive (63-02). --raw prints the result as JSON; otherwise one
+ * headline, `added N, completed M` and the paths left to commit (the planning import report does the same: the generic
+ * headline would read the result's `skipped` list as a skip).
+ */
+function cmdTodoSync(cwd, args, raw) {
+  const todoSync = require('./todo-sync.cjs'); // loaded here so `todo add` / `todo complete` load nothing new
+  const transcripts = flagValues(args, '--transcript');
+  const sessionId = flagValue(args, '--session');
+  if (sessionId !== undefined) {
+    const found = todoSync.resolveSessionTranscript(sessionId, { projectsRoot: flagValue(args, '--projects-root') });
+    if (found.error) return report('todo sync', usageResult(found.error), raw);
+    transcripts.push(found.path);
+  }
+  if (transcripts.length === 0) return report('todo sync', usageResult(TODO_SYNC_USAGE), raw);
+
+  const res = todoSync.syncTodos(cwd, { transcripts, sessionId, dryRun: has(args, '--dry-run'), ...flushOpts(args) });
+  if (raw || !Array.isArray(res.added)) return report('todo sync', res, raw);
+
+  const n = res.todo_items;
+  const label = `todo sync${res.dry_run ? ' (dry run)' : ''}`;
+  if (typeof res.skipped === 'string') line('stdout', `${label}: nothing to do (${res.skipped}).`);
+  else line('stdout', `${label}: ${n} session todo${n === 1 ? '' : 's'} from ${res.transcripts} transcript${res.transcripts === 1 ? '' : 's'} (${res.mode} mode).`);
+  if (res.ok === false) line('stderr', `Error: ${res.error || 'todo sync failed'}`);
+  for (const w of res.warnings || []) line('stderr', `Warning: ${w}`);
+  if (res.prose) line('stdout', res.prose);
+  return finish(exitOf(res));
 }
 
 // ─── debug / quick ───────────────────────────────────────────────────────────

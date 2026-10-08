@@ -48,6 +48,12 @@ decisions:
 metrics:
   duration: "~90 min (including a continuation across a context compaction)"
   completed: 2026-09-27
+tokens_input: 14024698
+tokens_output: 116075
+tokens_cache_read: 13692330
+tokens_cache_write: 332140
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 04: Drafting — `df-tools stack init` Summary

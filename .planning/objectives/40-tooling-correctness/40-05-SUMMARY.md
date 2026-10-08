@@ -56,6 +56,12 @@ verification:
 # Metrics
 duration: 4min
 completed: 2026-09-28
+tokens_input: 4776012
+tokens_output: 32278
+tokens_cache_read: 4681957
+tokens_cache_write: 93947
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 40 TRD 05: ripgrep flag rule + CI guard, remove-objective integer wording, `.edit-override` gitignore + guard Summary

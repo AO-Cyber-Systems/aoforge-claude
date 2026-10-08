@@ -54,6 +54,12 @@ verification:
 
 duration: 25min
 completed: 2026-09-28
+tokens_input: 14559295
+tokens_output: 58925
+tokens_cache_read: 14315472
+tokens_cache_write: 243645
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 01: Validation fixes, local date, and stack-extension dispatch Summary

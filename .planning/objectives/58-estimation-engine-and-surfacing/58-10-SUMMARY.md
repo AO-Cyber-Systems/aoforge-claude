@@ -1,0 +1,250 @@
+---
+objective: 58-estimation-engine-and-surfacing
+job: "10"
+subsystem: estimation
+tags: [estimate, calibrate, dogfood, backtest, run-state, status-line, docs]
+
+requires: [58-09]
+provides:
+  - "Live evidence that calibrate writes a deterministic version 2 calibration.json with measured agent overhead on this repository"
+  - "Live df-tools estimate task|trd|objective|milestone output and an in-sample backtest of objectives 55-57 (information for Objective 64)"
+  - "Live run-state and status line smoke (start, wave, finish)"
+  - "CHANGELOG [Unreleased], CLAUDE.md, USER-GUIDE Estimates section and the statusline HOOK_DOCS text"
+affects: [Objective 64 estimate accuracy validation]
+
+key-files:
+  created: []
+  modified:
+    - CHANGELOG.md
+    - CLAUDE.md
+    - docs/USER-GUIDE.md
+    - scripts/gen-docs-data.cjs
+
+key-decisions:
+  - "The backtest compares like with like: executor-only `execution.agent_minutes` and `execution.cost_usd` against SUMMARY durations and priced SUMMARY tokens, since `total` adds verifier and gap-closure overhead no SUMMARY records"
+  - "The USER-GUIDE documents the done-objective `--all` text limit and the ROADMAP-only `estimate objective` limit as current behaviour, and the defects are reported in this SUMMARY for gap closure rather than fixed here"
+
+requirements-completed: []
+
+verification:
+  gates_defined: 2
+  gates_passed: 2
+  auto_fix_cycles: 0
+  tdd_evidence: false
+  test_pairing: true
+
+duration: 15min
+completed: 2026-10-05
+tokens_input: 8243745
+tokens_output: 45687
+tokens_cache_read: 7961153
+tokens_cache_write: 282454
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
+---
+
+# Objective 58 TRD 10: Dogfood the estimates on this repository, then document them Summary
+
+**A real calibrate over this repository writes a deterministic version 2 calibration.json (323 TRDs, measured overhead from 95 matched subagent spawns), live estimate task/trd/objective/milestone and a run-state and status line smoke work end to end, an in-sample backtest of objectives 55-57 is recorded for Objective 64, and CHANGELOG, CLAUDE.md, the USER-GUIDE Estimates section and the statusline hook text describe all of it; two live runs exposed gaps (a done objective's `--all` text, and `estimate objective` on a ROADMAP-only objective) reported below.**
+
+## Progress
+- [x] Task 1: Calibrate v2 and estimate this repository live, with an in-sample backtest — 6a538169
+- [x] Task 2: Run-state and status line smoke — 99f17080
+- [x] Task 3: CHANGELOG, CLAUDE.md, USER-GUIDE, hook doc; full test run — 4b043a44
+
+## Task 1 evidence (calibrate v2 and live estimates)
+
+### calibrate, twice (repo copy)
+
+```
+calibration /Users/justin/.claude/devflow/calibration.json: changed · 323 TRDs, 746 tasks, 236 with tokens · classes code_tdd 426, test_tdd 101, prompt 53, doc 51, prompt_tdd 44, schema_tdd 19, code 18, other 13, test 12, doc_tdd 5, config 3, schema 1 · overhead verifier 31, planner 26, job-checker 22, objective-researcher 11, integration-checker 4, roadmapper 1
+calibration /Users/justin/.claude/devflow/calibration.json: unchanged · (same line)
+```
+
+| Run | Result | `shasum -a 256 ~/.claude/devflow/calibration.json` |
+|---|---|---|
+| 1 | changed (the file 57-07 wrote was version 1) | `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea` |
+| 2 | unchanged | `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea` |
+
+File contents checked with a scratch script: `version` 2; top-level keys `agent_overhead, agent_overhead_sources, classifier_version, data_as_of, inputs_digest, model_aliases, models, notes, objective_level, probabilities, rates_as_of, samples, sources, task_classes, trd_level, unpriced_models, version`.
+
+Measured agent overhead (samples; p50 / P90 minutes; p50 / P90 cost):
+
+| Agent | Samples | Minutes p50 / P90 | Cost p50 / P90 |
+|---|---|---|---|
+| planner | 26 | 19.6 / 42.9 | $6.25 / $10.99 |
+| job-checker | 22 | 0.8 / 9.9 | $0.25 / $2.01 |
+| verifier | 31 | 3.1 / 5.0 | $0.87 / $1.76 |
+| objective-researcher | 11 | 6.7 / 14.5 | $1.84 / $3.27 |
+| integration-checker | 4 | 2.1 / 5.8 | $0.24 / $1.57 |
+| roadmapper | 1 | 1.5 / 1.5 | $0.32 / $0.32 |
+
+`agent_overhead_sources`: `{"foreign":344,"matched":95,"quick":36,"scanned":true,"spawns":475,"unreadable":0}`.
+
+`objective_level`: `samples` 48; minutes p50 54 / P90 134 (n=12); cost p50 $27.37 / P90 $49.05 (n=20); `trds` p50 7 / P90 15; `tasks` p50 15 / P90 32.
+
+### Live estimates (repo copy, `--raw`)
+
+`estimate task --files plugins/devflow/devflow/bin/lib/estimate.cjs,plugins/devflow/devflow/bin/lib/estimate.test.cjs --tdd --raw`
+
+```
+Task code_tdd: 6 min (P90 18 min) · tokens 3.6M in / 29K out · $1.35 (P90 $2.20) · n=332, confidence high
+```
+
+`estimate trd 58-05 --raw`
+
+```
+TRD 58-05: 10 min (P90 24 min) · $2.63 (P90 $4.36) · 2 tasks · confidence low
+```
+
+`estimate objective 57 --all --table --raw` (see Deviations 1: the formatter short-circuits on a done objective)
+
+```
+Objective 57: all TRDs done (7 of 7)
+```
+
+`estimate objective 59 --table --raw` (see Deviations 2: exit 1)
+
+```
+Error: objective 59 not found
+```
+
+`estimate milestone --table --raw`
+
+```
+| Objective | Status | Wall median | Wall P90 | Cost median | Confidence |
+|---|---|---|---|---|---|
+| 58 Estimation engine and surfacing | partial, 1 of 10 TRDs left | 25 min | 1h 25m | $4.83 | low |
+| 59 State and merge plumbing | unplanned | 1h 16m | 3h 24m | $35.34 | low |
+| 60 Edit gate enforces the action | unplanned | 1h 16m | 3h 24m | $35.34 | low |
+| 61 Store-mode rough edges and observability | unplanned | 1h 16m | 3h 24m | $35.34 | low |
+| 62 Built-in sweep | unplanned | 1h 16m | 3h 24m | $35.34 | low |
+| 63 Todo store, hook coexistence and built-in inventory | unplanned | 1h 16m | 3h 24m | $35.34 | low |
+| 64 Estimate accuracy validation | unplanned | 1h 16m | 3h 24m | $35.34 | low |
+| **v1.5 total (7 objectives left)** | | **8h 55m** | **20h 03m** | **$226.43** | **low** |
+
+Done: 55, 56, 57. Includes 1 integration-checker spawn. Confidence: low (weakest: 59 unplanned). Calibration 2026-10-05, 323 TRDs.
+Note: 59 (State and merge plumbing): in the ROADMAP but has no directory yet; estimated from 12 objectives of history, not from a plan
+(the same Note line for 60, 61, 62, 63 and 64)
+```
+
+`estimate objective 58 --all --line --raw`
+
+```
+Objective 58 estimate: 2h 19m median (P90 5h 42m) wall · $32.69 (P90 $48.34) · 10 TRDs estimated in 7 waves · confidence low
+```
+
+### In-sample backtest of objectives 55, 56, 57 (information for Objective 64, not a gate)
+
+These three objectives are inside the 323-TRD calibration, so every row is optimistic: the estimator has already seen the data it is compared with. Estimates are `estimate objective N --all` JSON `execution.agent_minutes` and `execution.cost_usd` (executor work only, like for like with SUMMARY durations and tokens; the verifier and gap-closure overhead in `total` is left out). Actuals are the sum of `parseDurationMinutes(duration)` over the objective's SUMMARYs and `calibrator.sampleCost` over their stamped token fields with `references/model-rates.json`, from a scratch script (not committed). Objectives 55 and 56 each have SUMMARYs without a parseable duration (6 of 8 and 4 of 5 TRDs carry minutes), so their actual minutes are an undercount.
+
+| Objective | TRDs (with minutes / priced) | Agent min estimate p50 / P90 | Actual agent min | Actual <= P90 | Median / actual | Cost estimate p50 / P90 | Actual cost | Actual <= P90 | Median / actual |
+|---|---|---|---|---|---|---|---|---|---|
+| 55 | 8 (6 / 8) | 133.6 / 395.7 | 68 | yes | 1.96 | $21.66 / $32.67 | $23.06 | yes | 0.94 |
+| 56 | 5 (4 / 5) | 74.6 / 218.5 | 27 | yes | 2.76 | $15.83 / $23.58 | $15.72 | yes | 1.01 |
+| 57 | 7 (7 / 7) | 109.5 / 302.7 | 72 | yes | 1.52 | $22.61 / $32.81 | $21.41 | yes | 1.06 |
+
+Reading for Objective 64: cost medians land within 6% of actual on all three, minutes medians run 1.5x to 2.8x high (the p50 sits well above what these executors took), and every actual is under its P90. All of it is in-sample.
+
+## Task 2 evidence (run state and status line smoke)
+
+Scratch HOME `<scratchpad>/smoke/home` held copies of `estimate-run-store.cjs` and `upgrade.cjs` under `.claude/devflow/bin/lib/`; scratch state dir `<scratchpad>/smoke/state`. Every `estimate` command ran with the inline prefix `env DEVFLOW_ESTIMATE_STATE_DIR=<scratch state>` and read the real calibration file (read only). The render script (scratch, not committed) spawned `plugins/devflow/hooks/statusline.js` with `HOME=<scratch home>`, the same state dir and `workspace.current_dir` = this repository.
+
+| Step | Command | Output |
+|---|---|---|
+| 1 | `estimate start 58 --raw` | `Objective 58 estimate: 25 min median (P90 1h 25m) wall · $4.83 (P90 $9.91) · 1 TRD left in 1 wave · confidence low` |
+| 2 | `estimate wave 58 7 --start --raw` | `Wave 7 estimate: 20 min median, P90 1h 09m` |
+| 3 | status line render (during the run) | `Smoke │ devflow-claude │ ⏱ 58 W7/7 ~20m left` (contains `⏱ 58`) |
+| 4 | `estimate wave 58 7 --done --raw` | `Wave 7: actual 0 min · estimate 20 min median, P90 1h 09m · at or under median` |
+| 5 | `estimate finish 58 --raw` | `Objective 58 execution: actual 0 min · estimate 20 min median, P90 1h 09m · at or under median` |
+| 6 | `estimate finish 58 --raw` (again) | identical to step 5 |
+| 7 | status line render (after finish) | `Smoke │ devflow-claude` (no `⏱`) |
+
+The wave ran for 0.1717 minutes (the commands were issued seconds apart), hence `actual 0 min`. The stored estimate is the execution wall (19.7 / 69.3), which is what `finish` compares against; the `start` line (25 min median) adds the verifier overhead.
+
+`~/.claude/devflow/state/estimates/` does not exist after the smoke: nothing was written under the real state directory.
+
+## Task 3 evidence (docs and full test run)
+
+Changed files (`git diff --stat`): CHANGELOG.md (+28/-2), CLAUDE.md (+2/-2), docs/USER-GUIDE.md (+39/-4), scripts/gen-docs-data.cjs (+1/-1).
+
+- **CHANGELOG [Unreleased].** Added: `estimate task|trd|objective|milestone` (with this repository's live figures), `estimate start|wave|finish` and the status line segment, the estimate surfacing in PLANNING COMPLETE, plan-objective, `/devflow:build` and the wave reports. Changed: `calibrate` measures agent overhead (`--root`, `--no-overhead`), calibration.json version 2 (`agent_overhead`, `agent_overhead_sources`, `objective_level`), with this repository's sample counts.
+- **CLAUDE.md.** The Estimation data bullet now covers agent overhead, version 2, the `estimate` verbs, the run-state location and override, and the eight new modules; the `statusline.js` hook line gains the estimated-time-remaining clause. Net growth: two lines edited, 746 characters (27,387 to 28,133).
+- **docs/USER-GUIDE.md.** The `calibrate` bullet, the `--root`/`--no-overhead` flags and the keys bullet are updated for version 2; a new `### Estimates (df-tools estimate)` section follows `### Estimation data` with the seven command forms, live output lines, the composition method, the confidence labels, where estimates appear, the run state, the status line segment and the rho 0.5 assumption; the hook table's `statusline.js` row is extended. The Table of Contents lists only top-level headings, so it needed no entry.
+- **scripts/gen-docs-data.cjs.** The `statusline.js` HOOK_DOCS sentence ends with ", plus estimated time remaining while an objective builds." `site/data/devflow.json` is not regenerated (the release does that).
+
+| Check | Command | Result |
+|---|---|---|
+| scoped doc tests | `node --test plugins/devflow/devflow/bin/lib/dispatch-completeness.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/hook-inventory.test.cjs` | 26 tests, 26 pass, 0 fail |
+| docs advisories | `df-tools validate docs --raw` (repo copy) | `no documentation advisories` |
+| full suite | `npm test` | exit 1: 9706 tests, 9671 pass, 3 fail, 32 skipped, 0 cancelled |
+
+The three `npm test` failures are the known baseline set, and the counts are identical to 58-09's run (this TRD adds no tests):
+
+1. `MA-7 doctl auth init with unset DIGITALOCEAN_TOKEN` (`handoff-e2e.test.cjs:795`, handoff pipeline PTY mock auth).
+2. `E2E1: SELF-TEST reconcile dry-run against this repo ROADMAP shows zero drift` (`roadmap-reconcile.test.cjs:1029`): it names `trd_summary_exists` for 58-10 itself, since the SUMMARY now exists while the ROADMAP box stays unticked until the orchestrator completes the objective.
+3. `github-enterprise-migration: draft has no unaccepted conflict with the committed STACK.md` (`stack init against the real fleet`, TRD 43-08).
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Calibrate v2 and live estimates | `df-tools calibrate --raw` twice (second says `unchanged`), `shasum -a 256 ~/.claude/devflow/calibration.json` after each (both `5cf42c4b...fbea`), `"version": 2`, `agent_overhead.planner.samples` 26; `estimate task` prints `Task code_tdd:` with `n=332, confidence high`; `estimate milestone --table --raw` prints the v1.5 table with 58 partial, 59-64 unplanned and a total row | 0 | PASS (test 3's `estimate objective 59` form failed, see Deviations 2) |
+| 2: Run-state and status line smoke | scratch `render.cjs` spawn of `statusline.js` with scratch HOME and `DEVFLOW_ESTIMATE_STATE_DIR`: first render contains `⏱ 58`, second has no `⏱`; both `finish` lines identical | 0 | PASS |
+| 3: Docs and full test run | `node --test dispatch-completeness.test.cjs doc-refs.repo.test.cjs hook-inventory.test.cjs` (26 tests); `df-tools validate docs --raw` (`no documentation advisories`); `npm test` (9706 tests, 9671 pass, 3 fail, 32 skipped, the 3 known baseline failures) | 0 / 0 / 1 | PASS against baseline |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test_scoped | `node --test plugins/devflow/devflow/bin/lib/dispatch-completeness.test.cjs plugins/devflow/devflow/bin/lib/doc-refs.repo.test.cjs plugins/devflow/devflow/bin/lib/hook-inventory.test.cjs` | 0 | PASS |
+| test | `npm test` | 1 (9706 tests, 9671 pass, 3 fail, 32 skipped) | PASS against baseline: MA-7 doctl handoff, roadmap-reconcile E2E1 (names 58-10 itself), stack-drafter-fleet github-enterprise-migration |
+
+Lint, build and format are `none` in the stack profile (`not_available`, not counted as passes).
+
+## Deviations from Plan
+
+No code was changed (the TRD forbids it). Two live commands did not behave as the TRD's test list expected. Both are recorded with their command and output and left for gap closure.
+
+**1. [Defect, reported not fixed] `estimate objective N --all` prints `all TRDs done` for a completed objective, so the backtest has no text form**
+- **Found during:** Task 1, `estimate objective 57 --all --table --raw` (TRD action 2 and test 3)
+- **Command and output:** `df-tools estimate objective 57 --all --table --raw` printed `Objective 57: all TRDs done (7 of 7)`; the JSON of the same command carries the full estimate (`all: true`, `execution`, `total`, 7 `trd_estimates`, the note `all: true estimates the done TRDs too (a backtest of 7 done TRDs)`) but its `table` and `line` fields are also the done sentence.
+- **Cause:** `objectiveLine` in `plugins/devflow/devflow/bin/lib/estimate-format.cjs` (line 229) returns the done sentence whenever `r.status === 'done'`, without checking `r.all`. `objective 58 --all --line` works because 58 is `partial`.
+- **Effect here:** the backtest read the JSON (`execution.agent_minutes`, `execution.cost_usd`) through a scratch script instead of the text table.
+- **Suggested fix:** let `r.all` skip the done short-circuit in `objectiveLine` and `objectiveTable`, with a test beside the existing `all` cases.
+
+**2. [Spec conflict, reported not fixed] `estimate objective 59 --table --raw` exits 1 with `Error: objective 59 not found`**
+- **Found during:** Task 1 (TRD test 3 expects an unplanned table for objective 59)
+- **Command and output:** `df-tools estimate objective 59 --table --raw` printed `Error: objective 59 not found`, exit 1.
+- **Cause:** objective 59 exists only as a ROADMAP section (no `.planning/objectives/59-*` directory). 58-08 made that "not found" for `estimate objective|start` on purpose and kept the ROADMAP fallback for `estimate milestone` only (58-08 SUMMARY, Deviations). 58-10's test 3 assumed the objective form also covers it. The unplanned table form (`| Objective N (unplanned) | Median | P90 |`) is reachable only for an objective directory with no TRDs.
+- **Evidence kept:** objective 59 as unplanned is shown live in the `estimate milestone --table --raw` row (`59 State and merge plumbing | unplanned | 1h 16m | 3h 24m | $35.34 | low`, with the Note line `in the ROADMAP but has no directory yet; estimated from 12 objectives of history, not from a plan`). No `59-*` directory was created to force the other path.
+- **Suggested resolution:** either give `estimate objective` the same ROADMAP fallback as `milestone`, or reword 58-10's test 3 and the OBJECTIVE success criterion to name the milestone row.
+
+### Notes (not deviations)
+
+- Tasks 1 and 2 changed no repository file, so their commits (6a538169, 99f17080) carry the SUMMARY checkpoint only.
+- Backtest actuals for objectives 55 and 56 are an undercount: 2 of 8 and 1 of 5 SUMMARYs carry no parseable duration, while the estimate covers every TRD.
+- The smoke's `actual 0 min` is the commands being run seconds apart (0.1717 min stored), not a clock error.
+- The `statusline.js` line in the USER-GUIDE hook table was extended as well as the HOOK_DOCS sentence, since both describe the same hook.
+
+## Issues Encountered
+
+- The earlier 58-09 observation `missing data: agent_overhead.planner; agent_overhead.verifier` is gone: the version 2 calibration now holds 26 planner and 31 verifier samples, and `estimate objective 58 --table --raw` now prints no `Note: missing data` line (its footer reads `Includes 1 verifier spawn and gap closure (8% likely, n=48; +36 min, +$10.27 if it happens). Confidence: low (weakest: 58-10 other, n=8). Calibration 2026-10-05, 323 TRDs.`).
+- The first calibrate run reported `changed` because the file 57-07 wrote was version 1; the second reported `unchanged` with the identical digest.
+
+## Discovered commands
+
+None. `test` and `test_scoped` came from `.planning/STACK.md` and the TRD's validation gates.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 5/5 (calibration v2 with measured overhead and a byte-identical rerun; live `estimate task|trd|objective|milestone` with median/P90, sample counts and confidence, with objective 59 shown unplanned through the milestone verb and not through `estimate objective`, see Deviations 2; live run-state smoke with the `⏱ 58` segment and the actual-vs-estimate lines; in-sample backtest recorded as information for Objective 64; docs updated and the full suite at baseline)
+- Gate failures: none beyond the three known baseline failures
+- Diff scope: the four doc files plus this SUMMARY; no code file changed
+
+## Self-Check: PASSED
+
+- FOUND: CHANGELOG.md, CLAUDE.md, docs/USER-GUIDE.md, scripts/gen-docs-data.cjs (see Task 3 diff stat)
+- FOUND: `~/.claude/devflow/calibration.json` at version 2 with `agent_overhead.planner.samples` 26
+- FOUND commits: 6a538169, 99f17080, 4b043a44

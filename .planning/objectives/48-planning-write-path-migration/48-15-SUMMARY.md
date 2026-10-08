@@ -57,6 +57,12 @@ verification:
 
 duration: 35min
 completed: 2026-10-01
+tokens_input: 8290867
+tokens_output: 87477
+tokens_cache_read: 8110453
+tokens_cache_write: 180298
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 15: CLI wiring for the planning verbs Summary

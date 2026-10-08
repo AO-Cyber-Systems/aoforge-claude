@@ -51,6 +51,12 @@ verification:
 # Metrics
 duration: 55min
 completed: 2026-09-28
+tokens_input: 6371466
+tokens_output: 84022
+tokens_cache_read: 6113421
+tokens_cache_write: 257929
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 03: Backup Retention Policy Summary

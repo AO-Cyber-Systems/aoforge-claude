@@ -3,10 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey, normalizeObjectiveName, generateSlugInternal } = require('./helpers.cjs');
+const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey, normalizeObjectiveName, objectiveDirMatches, generateSlugInternal } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getArchivedObjectiveDirs, findObjectiveInternal } = require('./objective.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 function cmdGenerateSlug(text, raw) {
   if (!text) {
@@ -241,7 +242,7 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
   try {
     const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    const match = dirs.find(d => d.startsWith(normalized));
+    const match = dirs.find(d => objectiveDirMatches(d, normalized));
     if (match) {
       objectiveDir = path.join(objectivesDir, match);
       objectiveDirName = match;
@@ -948,18 +949,19 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
     let found = false;
 
     // Update checkbox: - [ ] **REQ-ID** → - [x] **REQ-ID**
-    const checkboxPattern = new RegExp(`(-\\s*\\[)[ ](\\]\\s*\\*\\*${reqId}\\*\\*)`, 'gi');
+    const idSrc = escapeRegExp(reqId); // the id is CLI input: compile it literally (`.` is not a wildcard, `(` is not a group)
+    const checkboxPattern = new RegExp(`(-\\s*\\[)[ ](\\]\\s*\\*\\*${idSrc}\\*\\*)`, 'gi');
     if (checkboxPattern.test(reqContent)) {
       reqContent = reqContent.replace(checkboxPattern, '$1x$2');
       found = true;
     }
 
     // Update traceability table: | REQ-ID | Objective N | Pending | → | REQ-ID | Objective N | Complete |
-    const tablePattern = new RegExp(`(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi');
+    const tablePattern = new RegExp(`(\\|\\s*${idSrc}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi');
     if (tablePattern.test(reqContent)) {
       // Re-read since test() advances lastIndex for global regex
       reqContent = reqContent.replace(
-        new RegExp(`(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi'),
+        new RegExp(`(\\|\\s*${idSrc}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi'),
         '$1 Complete $2'
       );
       found = true;
@@ -999,4 +1001,5 @@ module.exports = {
   cmdTodoComplete,
   cmdScaffold,
   cmdRequirementsMarkComplete,
+  isCheckpointOnlySummary: _isCheckpointOnlySummary,
 };

@@ -46,6 +46,12 @@ verification:
 
 duration: 13min
 completed: 2026-09-30
+tokens_input: 9709588
+tokens_output: 97741
+tokens_cache_read: 9523051
+tokens_cache_write: 186409
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 02: Mapping v3, one objective id, migration 0009 Summary

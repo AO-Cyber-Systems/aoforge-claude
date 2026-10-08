@@ -744,6 +744,47 @@ function cmdValidateHealth(cwd, options, raw) {
     );
   }
 
+  // ─── Check 17: Stale checks workflow pin (objective 61, STOR-03) ───────────
+  // `.github/workflows/devflow.yml`, written by `gh setup --apply`, pins DevFlow's reusable workflow and its
+  // devflow-ref to the release that ran setup, and nothing re-pins it after an upgrade. W062: the managed workflow pins
+  // a release older than the installed plugin (checks-pin.cjs owns the parse and the decision; a branch or SHA pin, a
+  // fork's own @ref and an unmanaged file are never stale). The comparison version is the installed plugin
+  // (installedVer, Check 11), else the running engine (runningVer). A local file read with no gh or git call. A warning
+  // and never repairable: re-pinning is `gh setup --apply` plus a pull request, which a repair must never do. A check
+  // that cannot run is never silent: it reports under its own code, like Check 12b.
+  try {
+    const r = require('./checks-pin.cjs').collectPinFindings({ projectRoot: cwd, installedVersion: installedVer || runningVer });
+    for (const f of r.findings) addIssue('warning', f.code, f.message, f.fix, false);
+  } catch (e) {
+    addIssue('warning', 'W062', `checks-pin-check-failed: ${e.message}`, 'Run `df-tools doctor` to see why', false);
+  }
+
+  // ─── Check 18: Stale pinned model id (objective 61, OBS-01) ────────────────
+  // The running engine's references/model-profiles.json pins a concrete id per tier, and models{} is live (the vision
+  // judge sends it to the Messages API). Currency is derived from data, not a hard-coded list: model-currency judges each
+  // pin against references/model-rates.json, where a newer priced version of the same family supersedes it (W063
+  // model-id-stale) and an id the table does not price cannot be judged (W063 model-id-unknown). A local read with no
+  // network call. A warning and never repairable: the ids change in the plugin source and ship with a release. A check
+  // that cannot run is never silent (W063 model-id-check-failed). Doctor check 13 owns the code; check 22 defers it.
+  try {
+    const { MODEL_PROFILES_PATH } = require('./helpers.cjs');
+    const { loadRates, RATES_PATH } = require('./calibration-inputs.cjs');
+    const { staleModelIds } = require('./model-currency.cjs');
+    const profiles = JSON.parse(fs.readFileSync(options.modelProfilesPath || MODEL_PROFILES_PATH, 'utf-8'));
+    const rates = loadRates(options.modelRatesPath || RATES_PATH);
+    if (!rates.ok) throw new Error(rates.error);
+    const modelFix = 'Update the plugin (`/plugin update devflow@aocyber`); in the DevFlow source, update models in '
+      + 'references/model-profiles.json';
+    for (const s of staleModelIds(profiles.models, rates)) {
+      const message = s.reason === 'superseded'
+        ? `model-id-stale: models.${s.tier} = ${s.id} is superseded by ${s.current} (model-rates.json)`
+        : `model-id-unknown: models.${s.tier} = ${s.id} is not in model-rates.json, so its currency cannot be checked`;
+      addIssue('warning', 'W063', message, modelFix, false);
+    }
+  } catch (e) {
+    addIssue('warning', 'W063', `model-id-check-failed: ${e.message}`, 'Run `df-tools doctor` to see why', false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {

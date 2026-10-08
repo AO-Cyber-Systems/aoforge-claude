@@ -58,6 +58,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-01
+tokens_input: 10274005
+tokens_output: 57998
+tokens_cache_read: 10099520
+tokens_cache_write: 174317
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 20: Prose migration for todos, decisions, debug sessions, quick and micro Summary

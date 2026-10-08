@@ -36,6 +36,12 @@ verification:
 
 duration: ~45min
 completed: 2026-09-28
+tokens_input: 4081736
+tokens_output: 27418
+tokens_cache_read: 4008362
+tokens_cache_write: 73274
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 14: Simulated `/devflow:adopt` routing cases — DevFlow, empty, dirty, non-git (E2E proof a) Summary

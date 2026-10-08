@@ -32,6 +32,12 @@ metrics:
   tasks: 3
   files: 5
   completed: 2026-09-29
+tokens_input: 8762607
+tokens_output: 41703
+tokens_cache_read: 8598483
+tokens_cache_write: 163994
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 09: Register the new hooks, update the docs and changelog, and run the full suite — Summary

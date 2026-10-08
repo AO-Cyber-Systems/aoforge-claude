@@ -52,6 +52,12 @@ verification:
 
 duration: 1 session
 completed: 2026-10-01
+tokens_input: 7233450
+tokens_output: 72630
+tokens_cache_read: 6882150
+tokens_cache_write: 351192
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 11: Command surface for the store (`gh outbox`, `gh trd`, `gh orphans`) Summary

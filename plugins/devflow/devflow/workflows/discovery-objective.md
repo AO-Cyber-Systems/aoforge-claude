@@ -229,35 +229,32 @@ node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/XX-name/DISCOVERY.md 
 <step name="confidence_gate">
 After creating DISCOVERY.md, check confidence level.
 
-If confidence is LOW:
-Use AskUserQuestion:
+This flow runs inside the planner, a subagent that cannot reach the user. Where a gate needs the user, return `## CHECKPOINT REACHED` (type decision) with the question and its options, and stop. The orchestrator (plan-objective step 10) asks the user and spawns a continuation with the answer.
 
-- header: "Low Conf."
-- question: "Discovery confidence is LOW: [reason]. How would you like to proceed?"
-- options:
-  - "Dig deeper" - Do more research before planning
-  - "Proceed anyway" - Accept uncertainty, plan with caveats
-  - "Pause" - I need to think about this
+If confidence is LOW: return a decision checkpoint, header "Low Conf.", question "Discovery confidence is LOW: [reason]. How would you like to proceed?", with the options:
+- "Dig deeper": do more research before planning
+- "Proceed anyway": accept uncertainty, plan with caveats
+- "Pause": I need to think about this
 
-If confidence is MEDIUM:
-Inline: "Discovery complete (medium confidence). [brief reason]. Proceed to planning?"
+If confidence is MEDIUM: return a decision checkpoint, question "Discovery complete (medium confidence). [brief reason]. Proceed to planning?", with the options "Proceed (Recommended)" and "Dig deeper".
 
 If confidence is HIGH:
 Proceed directly, just note: "Discovery complete (high confidence)."
 </step>
 
 <step name="open_questions_gate">
-If DISCOVERY.md has open_questions:
+If DISCOVERY.md has open_questions, return a decision checkpoint that lists them:
 
-Present them inline:
 "Open questions from discovery:
 
 - [Question 1]
 - [Question 2]
 
-These may affect implementation. Acknowledge and proceed? (yes / address first)"
+These may affect implementation."
 
-If "address first": Gather user input on questions, revise the draft and run the same `doc put` again.
+with the options "Proceed" (plan with the questions still open) and "Address first" (answer them before planning). The orchestrator asks.
+
+If "Address first": the continuation carries the user's answers. Revise the draft with them and run the same `doc put` again.
 </step>
 
 <step name="offer_next">

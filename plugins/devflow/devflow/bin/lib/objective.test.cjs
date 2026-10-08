@@ -704,7 +704,9 @@ describe('48-14 characterization: objective ops in local mode', () => {
         next_objective_name: null,
         is_last_objective: true,
         date: todayIso(),
-        roadmap_updated: true,
+        // ROADMAP.md is byte-identical below, so nothing changed: roadmap_updated is false (PLMB-05; this pin
+        // recorded the old fs.existsSync defect).
+        roadmap_updated: false,
         state_updated: false,
         state_update_reason: 'state_missing',
       }, null, 2));
@@ -1067,5 +1069,276 @@ describe('54-06 objective remove / complete: a decimal number never reaches 4.10
     assert.match(after, /^- \[ \] \*\*Objective 4\.1\.2: Sub\*\*$/m, '4.1.2 stays unchecked');
     assert.match(after, /^- \[ \] \*\*Objective 4\.10: Ten\*\*$/m, '4.10 stays unchecked');
     assert.match(after, /^- \[x\] \*\*Objective 4\.1: One\*\* \(completed \d{4}-\d{2}-\d{2}\)$/m, '4.1 is checked');
+  });
+});
+
+// ─── 56-02: objective directory lookups are exact (ONUM-02) ──────────────────
+
+describe('56-02 objective directory lookups are exact', () => {
+  const { findObjectiveInternal } = require('./objective.cjs');
+  const { objectiveDirMatches } = require('./helpers.cjs');
+
+  // Hand-built tree: every directory and file name is written literally by the test.
+  //   current:  ['04.1-one', ...]                          under .planning/objectives/
+  //   archived: { 'v1.2': ['04.1-one', ...] }              under .planning/milestones/v1.2-objectives/
+  //   files:    { '04.10-ten': ['04.10-01-TRD.md'] }       empty named files inside a directory
+  function objectiveTree({ current = [], archived = {}, files = {} }) {
+    const project = tmpProject();
+    const objectives = path.join(project, '.planning', 'objectives');
+    for (const dir of current) fs.mkdirSync(path.join(objectives, dir), { recursive: true });
+    for (const [version, dirs] of Object.entries(archived)) {
+      for (const dir of dirs) {
+        fs.mkdirSync(path.join(project, '.planning', 'milestones', `${version}-objectives`, dir), { recursive: true });
+      }
+    }
+    for (const [dir, names] of Object.entries(files)) {
+      for (const name of names) fs.writeFileSync(path.join(objectives, dir, name), '');
+    }
+    return project;
+  }
+
+  test('1: only 04.10-ten exists: find-objective 4.1 is not found', () => {
+    const project = objectiveTree({ current: ['04.10-ten'] });
+    const r = run(['find-objective', '4.1'], project);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.found, false);
+    assert.equal(r.json.directory, null);
+  });
+
+  test('2: 04.1-one and 04.10-ten exist: find-objective 4.1 is 04.1-one', () => {
+    const project = objectiveTree({ current: ['04.1-one', '04.10-ten'] });
+    const r = run(['find-objective', '4.1'], project);
+    assert.equal(r.json.found, true);
+    assert.equal(r.json.directory, path.join('.planning', 'objectives', '04.1-one'));
+  });
+
+  test('3: only 04.1-x exists: find-objective 4 is not found', () => {
+    const project = objectiveTree({ current: ['04.1-x'] });
+    const r = run(['find-objective', '4'], project);
+    assert.equal(r.json.found, false);
+  });
+
+  test('4: only 045-x exists: find-objective 4 is not found', () => {
+    const project = objectiveTree({ current: ['045-x'] });
+    const r = run(['find-objective', '4'], project);
+    assert.equal(r.json.found, false);
+  });
+
+  test('5: a current 04.10-ten is skipped and the archived 04.1-one is returned by findObjectiveInternal', () => {
+    const project = objectiveTree({ current: ['04.10-ten'], archived: { 'v1.2': ['04.1-one'] } });
+    // find-objective reads the current directory only.
+    const r = run(['find-objective', '4.1'], project);
+    assert.equal(r.json.found, false);
+    const found = findObjectiveInternal(project, '4.1');
+    assert.ok(found, 'the archived 04.1-one is reached');
+    assert.ok(found.directory.endsWith(path.join('v1.2-objectives', '04.1-one')), found.directory);
+    assert.equal(found.archived, 'v1.2');
+  });
+
+  test('6: only 04.10-ten exists: objectives list --objective 4.1 is not found', () => {
+    const project = objectiveTree({ current: ['04.10-ten'] });
+    const r = run(['objectives', 'list', '--objective', '4.1', '--type', 'jobs'], project);
+    assert.equal(r.json.objective_dir, null);
+    assert.equal(r.json.error, 'Objective not found');
+  });
+
+  test('6b: --include-archived strips the [vX.Y] suffix: 04.1-one [v1.2] is selected, 04.10-ten [v1.2] is not', () => {
+    const only10 = objectiveTree({ archived: { 'v1.2': ['04.10-ten'] } });
+    const miss = run(['objectives', 'list', '--objective', '4.1', '--include-archived'], only10);
+    assert.equal(miss.json.error, 'Objective not found');
+    const with1 = objectiveTree({ archived: { 'v1.2': ['04.1-one'] } });
+    const hit = run(['objectives', 'list', '--objective', '4.1', '--include-archived'], with1);
+    assert.equal(hit.json.error, undefined);
+    assert.deepEqual(hit.json.directories, ['04.1-one [v1.2]']);
+  });
+
+  test('7: only 04.10-ten exists: objective-job-index 4.1 is not found', () => {
+    const project = objectiveTree({ current: ['04.10-ten'], files: { '04.10-ten': ['04.10-01-TRD.md'] } });
+    const r = run(['objective-job-index', '4.1'], project);
+    assert.equal(r.json.error, 'Objective not found');
+    assert.deepEqual(r.json.jobs, []);
+  });
+
+  test('8: the full directory name resolves to itself, and a non-numeric name still resolves', () => {
+    const project = objectiveTree({ current: ['04.1-one', '04.10-ten'] });
+    assert.equal(run(['find-objective', '04.1-one'], project).json.directory, path.join('.planning', 'objectives', '04.1-one'));
+    assert.equal(findObjectiveInternal(project, '04.1-one').directory, path.join('.planning', 'objectives', '04.1-one'));
+    const odd = objectiveTree({ current: ['a(-thing'] });
+    assert.equal(findObjectiveInternal(odd, 'a(').directory, path.join('.planning', 'objectives', 'a(-thing'));
+  });
+
+  test('9: no production lib file selects a directory with a bare startsWith(normalized|padded)', () => {
+    const libRoot = __dirname;
+    const offenders = [];
+    (function walk(dir) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === '__fixtures__' || entry.name === 'node_modules') continue;
+          walk(full);
+        } else if (entry.name.endsWith('.cjs') && !entry.name.endsWith('.test.cjs')) {
+          const lines = fs.readFileSync(full, 'utf-8').split('\n');
+          lines.forEach((line, i) => {
+            if (/\.startsWith\(\s*(normalized|padded)\s*\)/.test(line)) {
+              offenders.push(`${path.relative(libRoot, full)}:${i + 1}`);
+            }
+          });
+        }
+      }
+    })(libRoot);
+    assert.deepEqual(offenders, []);
+  });
+
+  test('10: objectiveDirMatches is the exact name or the name followed by a hyphen', () => {
+    assert.equal(objectiveDirMatches('04.1-one', '04.1'), true);
+    assert.equal(objectiveDirMatches('04.1', '04.1'), true);
+    assert.equal(objectiveDirMatches('04.10-ten', '04.1'), false);
+    assert.equal(objectiveDirMatches('04.1-one', '04'), false);
+    assert.equal(objectiveDirMatches('045-x', '04'), false);
+    assert.equal(objectiveDirMatches('04-a', '04'), true);
+  });
+});
+
+// ─── 56-03: requirement IDs and Depends-on renumbering (ONUM-04) ─────────────
+
+describe('56-03 objective complete reads `**Requirements**:` through requirement-ids', () => {
+  const REQUIREMENTS = `# Requirements
+
+- [ ] **R-1**: First
+- [ ] **R-2**: Second
+- [ ] **R-3**: Third
+
+## Traceability
+
+| Requirement | Objective | Status |
+|---|---|---|
+| R-1 | Objective 1 | Pending |
+| R-2 | Objective 1 | Pending |
+| R-3 | Objective 2 | Pending |
+`;
+
+  // Test 5. RED before the fix: the v1.5 label `**Requirements**:` (colon outside the bold) was never found,
+  // so completing the objective ticked nothing.
+  test('5: `**Requirements**: R-1, R-2` ticks R-1 and R-2 only', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), `# Roadmap
+
+### Objective 1: Auth
+
+**Goal**: Auth.
+**Requirements**: R-1, R-2
+**Jobs:** 1 jobs
+
+### Objective 2: API
+
+**Goal**: API.
+**Requirements**: R-3
+`, 'utf-8');
+    fs.writeFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), REQUIREMENTS, 'utf-8');
+    const dir = path.join(project, '.planning', 'objectives', '01-auth');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '01-01-TRD.md'), '# TRD\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '01-01-SUMMARY.md'), '# Summary\n', 'utf-8');
+
+    const r = run(['objective', 'complete', '1'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const req = fs.readFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    assert.match(req, /^- \[x\] \*\*R-1\*\*: First$/m, 'R-1 is ticked');
+    assert.match(req, /^- \[x\] \*\*R-2\*\*: Second$/m, 'R-2 is ticked');
+    assert.match(req, /^- \[ \] \*\*R-3\*\*: Third$/m, 'R-3 stays unticked');
+    assert.match(req, /^\| R-1 \| Objective 1 \| Complete \|$/m, 'R-1 row is Complete');
+    assert.match(req, /^\| R-2 \| Objective 1 \| Complete \|$/m, 'R-2 row is Complete');
+    assert.match(req, /^\| R-3 \| Objective 2 \| Pending \|$/m, 'R-3 row stays Pending');
+  });
+});
+
+describe('56-03 objective remove renumbers later objectives and their `**Depends on**:` lines', () => {
+  function removeProject(dirs, roadmap) {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    for (const dir of dirs) {
+      fs.mkdirSync(path.join(project, '.planning', 'objectives', dir), { recursive: true });
+    }
+    return project;
+  }
+
+  const SECTIONS = `# Roadmap
+
+### Objective 3: C
+
+**Goal**: c
+
+### Objective 4: D
+
+**Goal**: d
+
+### Objective 5: E
+
+**Goal**: e
+**Depends on**: Objective 4
+
+### Objective 6: F
+
+**Goal**: f
+**Depends on**: Objective 4, Objective 5
+`;
+
+  // The renumber loop used to run from 99 down, so a heading renamed 5 -> 4 was renamed again 4 -> 3 on the next pass
+  // and every later objective collapsed onto the removed number.
+  test('7a: removing 3 renames headings 4, 5, 6 to 3, 4, 5 once each', () => {
+    const project = removeProject(['03-c', '04-d', '05-e', '06-f'], SECTIONS);
+    const r = run(['objective', 'remove', '3', '--confirm'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.deepEqual(after.match(/^### Objective .*$/gm), [
+      '### Objective 3: D',
+      '### Objective 4: E',
+      '### Objective 5: F',
+    ]);
+  });
+
+  // Test 7. RED before the fix: `Objective 4,` (a comma is not `[:\s]`) was never renumbered, and the label with the
+  // colon outside the bold (`**Depends on**:`) did not match the Depends-on rule.
+  test('7: `**Depends on**: Objective 4, Objective 5` becomes `Objective 3, Objective 4`', () => {
+    const project = removeProject(['03-c', '04-d', '05-e', '06-f'], SECTIONS);
+    const r = run(['objective', 'remove', '3', '--confirm'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.match(after, /^\*\*Depends on\*\*: Objective 3$/m, 'objective 5 (now 4) depends on 4 (now 3)');
+    assert.match(after, /^\*\*Depends on\*\*: Objective 3, Objective 4$/m, 'objective 6 (now 5) depends on 4, 5 (now 3, 4)');
+  });
+
+  test('7b: a three-item list renumbers every item, in either colon placement', () => {
+    const project = removeProject(['03-c', '04-d', '05-e', '06-f', '07-g'], `# Roadmap
+
+### Objective 3: C
+
+**Goal**: c
+
+### Objective 4: D
+
+**Goal**: d
+
+### Objective 5: E
+
+**Goal**: e
+
+### Objective 6: F
+
+**Goal**: f
+
+### Objective 7: G
+
+**Goal**: g
+**Depends on:** Objective 4, Objective 5, Objective 6 (note, see 4.1)
+`);
+    const r = run(['objective', 'remove', '3', '--confirm'], project);
+    assert.equal(r.status, 0, r.stderr);
+
+    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.match(after, /^\*\*Depends on:\*\* Objective 3, Objective 4, Objective 5 \(note, see 4\.1\)$/m);
   });
 });

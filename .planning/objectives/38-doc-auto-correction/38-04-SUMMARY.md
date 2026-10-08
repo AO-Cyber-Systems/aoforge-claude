@@ -48,6 +48,12 @@ verification:
 
 duration: 5min
 completed: 2026-09-28
+tokens_input: 2554788
+tokens_output: 24270
+tokens_cache_read: 2454643
+tokens_cache_write: 100077
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 04: Workflow bodies of the consolidated skills (part A) Summary

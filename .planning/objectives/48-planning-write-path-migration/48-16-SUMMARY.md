@@ -63,6 +63,12 @@ verification:
 
 duration: 45min
 completed: 2026-10-01
+tokens_input: 7162241
+tokens_output: 58073
+tokens_cache_read: 7020701
+tokens_cache_write: 141412
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 16: Prose migration — plan, research, discuss Summary

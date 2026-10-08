@@ -49,14 +49,27 @@ Proceed to merge step.
 | {name} | ✗ Incomplete | {Y}/{Z} |
 
 ⚠️ Some workstreams are not complete.
-
-Options:
-1. Merge only completed workstreams (incomplete stay as worktrees)
-2. Wait for all to complete
-3. Force merge all (incomplete work included as-is)
 ```
 
-Wait for user decision.
+Then ask what to merge:
+
+```
+AskUserQuestion([
+  {
+    header: "Merge",
+    question: "Some workstreams are not complete. What do you want to merge?",
+    multiSelect: false,
+    options: [
+      { label: "Merge completed only (Recommended)", description: "Incomplete workstreams stay as worktrees" },
+      { label: "Wait for all", description: "Merge nothing now; run /devflow:workstreams merge again later" },
+      { label: "Force merge all", description: "Merge every workstream, incomplete work included as-is" }
+    ]
+  }
+])
+```
+
+On "Merge completed only", continue to merge_branches with the completed workstreams. On "Wait for all", stop
+without merging. On "Force merge all", continue to merge_branches with every workstream.
 
 </step>
 

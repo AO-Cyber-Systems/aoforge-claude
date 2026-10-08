@@ -34,9 +34,14 @@ defect, not a cosmetic one.
 
 | Tier | Model id |
 |------|----------|
-| `opus` | `claude-opus-5` |
-| `sonnet` | `claude-sonnet-5` |
+| `opus` | `claude-opus-5-5` |
+| `sonnet` | `claude-sonnet-5-5` |
 | `haiku` | `claude-haiku-4-5` |
+
+Doctor check 13 (`model-profiles`) and `validate health` W063 flag a pin that
+`references/model-rates.json` shows superseded (a newer version of the same
+family is priced there) or does not price at all, so the rate table and these
+pins cannot drift apart silently.
 
 The `opus` tier resolves to the Task alias `inherit`, so the agent keeps the
 session model rather than pinning one.

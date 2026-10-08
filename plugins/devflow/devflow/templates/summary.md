@@ -2,7 +2,7 @@
 
 Template for `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md` - task completion documentation with evidence.
 
-Fill it in a `df-tools planning draft` copy. The executor publishes it with `df-tools summary checkpoint` (per task) and `df-tools summary post` (once), never by putting the file in place itself.
+Fill it in a `df-tools planning draft` copy. The executor publishes it with `df-tools summary checkpoint` (per task) and `df-tools summary post` (once), never by putting the file in place itself. Right before `summary post`, `df-tools tokens stamp {objective}-{trd} --draft <draft path>` adds the token fields documented in the `# Metrics` block of the frontmatter.
 
 ---
 
@@ -53,6 +53,13 @@ verification:
 # Metrics
 duration: Xmin
 completed: YYYY-MM-DD
+# Token usage (added by `df-tools tokens stamp`; never typed by hand; left commented so a copy carries no fake numbers):
+# tokens_input: N             # input + cache read + cache write
+# tokens_output: N
+# tokens_cache_read: N
+# tokens_cache_write: N
+# token_model: "model-id"
+# tokens_source: "live"       # "live" from `tokens stamp`, "backfill" from `tokens backfill`
 ---
 
 # Objective [X]: [Name] Summary

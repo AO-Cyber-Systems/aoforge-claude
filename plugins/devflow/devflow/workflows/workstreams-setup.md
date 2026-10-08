@@ -44,7 +44,23 @@ If dirty: "Commit or stash changes before creating workstreams."
 ```bash
 cat .planning/workstreams.json 2>/dev/null
 ```
-If exists and status is "active": warn user that workstreams already exist. Offer to view status instead.
+If exists and status is "active": warn that workstreams already exist, then ask:
+
+```
+AskUserQuestion([
+  {
+    header: "Workstreams",
+    question: "Workstreams are already active. View their status, or set up new ones anyway?",
+    multiSelect: false,
+    options: [
+      { label: "View status (Recommended)", description: "Show the active workstreams with /devflow:workstreams status" },
+      { label: "Set up anyway", description: "Continue this setup alongside the active workstreams" }
+    ]
+  }
+])
+```
+
+On "View status", run the workstreams status flow and stop. On "Set up anyway", continue to analyze_dependencies.
 
 </step>
 
@@ -101,8 +117,6 @@ Present the workstream plan to the user:
 2. Copy .planning/ context (filtered per workstream)
 3. You open a terminal in each worktree and run normal DevFlow commands
 4. When done, run `/devflow:workstreams merge` from the main worktree
-
-Proceed with workstream setup?
 ```
 
 <config-check>
@@ -116,7 +130,24 @@ Auto-approve and proceed.
 </if>
 
 <if mode="interactive">
-Wait for user confirmation before creating worktrees.
+Ask before creating anything. Not yet is the recommended option: worktrees and branches are created on the user's
+yes only.
+
+```
+AskUserQuestion([
+  {
+    header: "Worktrees",
+    question: "Create a git worktree and branch for each of the {max_concurrent} workstreams above?",
+    multiSelect: false,
+    options: [
+      { label: "Not yet (Recommended)", description: "Stop here; nothing is created" },
+      { label: "Create them", description: "Create the worktrees and branches and copy the .planning/ context" }
+    ]
+  }
+])
+```
+
+On "Not yet", stop without creating anything. On "Create them", continue to create_worktrees.
 </if>
 
 </step>

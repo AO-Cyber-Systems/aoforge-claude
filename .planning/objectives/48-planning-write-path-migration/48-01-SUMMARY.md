@@ -55,6 +55,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-01
+tokens_input: 8858858
+tokens_output: 91775
+tokens_cache_read: 8684093
+tokens_cache_write: 174639
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 01: Planning mode switch, path classifier, verb-write ledger Summary

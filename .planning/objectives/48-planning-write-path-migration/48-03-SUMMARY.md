@@ -34,6 +34,12 @@ metrics:
   completed: 2026-10-01T11:54:12Z
   tasks: 3
   files: 5
+tokens_input: 7199672
+tokens_output: 57128
+tokens_cache_read: 7057823
+tokens_cache_write: 141723
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 03: TRD scope budget and linked-bulk checker Summary

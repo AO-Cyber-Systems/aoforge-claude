@@ -2,8 +2,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, findPlanFiles } = require('./helpers.cjs');
+const { output, error, findPlanFiles, localDate } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── State JSON Sidecar ───────────────────────────────────────────────────────
 // state.json holds machine-readable fields alongside the human-readable STATE.md.
@@ -97,13 +98,13 @@ function ensureArchive(cwd) {
 // ─── State Field Helpers (markdown) ──────────────────────────────────────────
 
 function stateExtractField(content, fieldName) {
-  const pattern = new RegExp(`\\*\\*${fieldName}:\\*\\*\\s*(.+)`, 'i');
+  const pattern = new RegExp(`\\*\\*${escapeRegExp(fieldName)}:\\*\\*\\s*(.+)`, 'i');
   const match = content.match(pattern);
   return match ? match[1].trim() : null;
 }
 
 function stateReplaceField(content, fieldName, newValue) {
-  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegExp(fieldName);
   const pattern = new RegExp(`(\\*\\*${escaped}:\\*\\*\\s*)(.*)`, 'i');
   if (pattern.test(content)) {
     return content.replace(pattern, `$1${newValue}`);
@@ -126,7 +127,7 @@ function sessionReplacePlainField(content, label, newValue) {
   const end = nextHeading === -1 ? content.length : start + nextHeading;
   const section = content.slice(start, end);
 
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegExp(label);
   const pattern = new RegExp(`^(${escaped}:[ \\t]*)(.*)$`, 'im');
   const hit = section.match(pattern);
   if (!hit) return null;
@@ -197,7 +198,7 @@ function cmdStateGet(cwd, section, raw) {
     }
 
     // Try to find markdown section or field
-    const fieldEscaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const fieldEscaped = escapeRegExp(section);
 
     // Check for **field:** value
     const fieldPattern = new RegExp(`\\*\\*${fieldEscaped}:\\*\\*\\s*(.*)`, 'i');
@@ -238,7 +239,7 @@ function cmdStatePatch(cwd, patches, raw) {
     const results = { updated: [], failed: [] };
 
     for (const [field, value] of Object.entries(patches)) {
-      const fieldEscaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const fieldEscaped = escapeRegExp(field);
       const pattern = new RegExp(`(\\*\\*${fieldEscaped}:\\*\\*\\s*)(.*)`, 'i');
 
       if (pattern.test(content)) {
@@ -273,7 +274,7 @@ function cmdStateUpdate(cwd, field, value) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   try {
     let content = fs.readFileSync(statePath, 'utf-8');
-    const fieldEscaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const fieldEscaped = escapeRegExp(field);
     const pattern = new RegExp(`(\\*\\*${fieldEscaped}:\\*\\*\\s*)(.*)`, 'i');
     if (pattern.test(content)) {
       content = content.replace(pattern, `$1${value}`);
@@ -287,7 +288,90 @@ function cmdStateUpdate(cwd, field, value) {
   }
 }
 
-function cmdStateAdvanceJob(cwd, raw) {
+// `07` -> `7`, `04.1` -> `4.1`. Local on purpose: objective.cjs's logObjectiveNumber is
+// not exported, and state.cjs must not take a load-time dependency on objective.cjs.
+function bareObjectiveNumber(n) {
+  return String(n).replace(/^0+(?=\d)/, '');
+}
+
+// The position as a fact read from disk (TRD 59-02, PLMB-01): count objective N's TRDs
+// and the TRDs that have a SUMMARY (the NN-MM pairing findObjectiveInternal does). The
+// result does not depend on any counter carried between calls, so it is idempotent and
+// a rerun after a wave merge reports the merged truth.
+function advanceFromDisk(cwd, objective, raw) {
+  const info = require('./objective.cjs').findObjectiveInternal(cwd, objective);
+  if (!info) error(`objective ${objective} not found under .planning/objectives`);
+
+  const total = info.jobs.length;
+  if (total === 0) {
+    output({ advanced: false, reason: 'no_trds', objective: info.objective_number }, raw, 'false');
+    return;
+  }
+  const done = total - info.incomplete_jobs.length;
+  const num = bareObjectiveNumber(info.objective_number);
+  const ready = done >= total;
+  const statusText = ready
+    ? `Objective ${num} executed — ${done}/${total} TRDs complete, ready for verification`
+    : `Executing objective ${num} — ${done}/${total} TRDs complete`;
+  const statusKey = ready ? 'ready_for_verification' : 'executing';
+  const today = localDate();
+
+  const prev = readStateJson(cwd);
+  const previous = prev && bareObjectiveNumber(prev.current_objective) === num ? (prev.current_job || 0) : 0;
+
+  const store = storeMode(cwd);
+  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  let stateMdUpdated = false;
+  if (!store && fs.existsSync(statePath)) {
+    const original = fs.readFileSync(statePath, 'utf-8');
+    let content = original;
+    // Fields are rewritten only where they already exist; none is ever added.
+    const fields = [
+      ['Status', statusText],
+      ['Current Job', String(done)],
+      ['Total Jobs in Objective', String(total)],
+      ['Last Activity', today],
+    ];
+    for (const [field, value] of fields) {
+      content = stateReplaceField(content, field, value) ?? content;
+    }
+    if (content !== original) {
+      fs.writeFileSync(statePath, content, 'utf-8');
+      stateMdUpdated = true;
+    }
+  }
+
+  writeStateJson(cwd, {
+    current_objective: info.objective_number,
+    current_job: done,
+    total_jobs: total,
+    status: statusKey,
+    last_activity: today,
+  });
+
+  const emit = store ? storeOutput : output;
+  emit({
+    advanced: done > previous,
+    objective: info.objective_number,
+    previous_job: previous,
+    current_job: done,
+    total_jobs: total,
+    status: statusKey,
+    status_text: statusText,
+    state_md_updated: stateMdUpdated,
+  }, raw, statusKey);
+}
+
+const NO_POSITION_HINT = "pass --objective <N> to derive the position from the objective's TRDs and SUMMARYs";
+
+// `cmdStateAdvanceJob(cwd, options, raw)`; the pre-59 `(cwd, raw)` call shape still works.
+function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
+  const [options, raw] = typeof optionsOrRaw === 'boolean' ? [{}, optionsOrRaw] : [optionsOrRaw || {}, maybeRaw];
+  if (options.objective != null) {
+    advanceFromDisk(cwd, String(options.objective), raw);
+    return;
+  }
+
   const store = storeMode(cwd);
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   const hasStateMd = fs.existsSync(statePath);
@@ -303,8 +387,10 @@ function cmdStateAdvanceJob(cwd, raw) {
   let currentJob = stateJson?.current_job ?? parseInt(stateExtractField(content, 'Current Job'), 10);
   let totalJobs  = stateJson?.total_jobs  ?? parseInt(stateExtractField(content, 'Total Jobs in Objective'), 10);
 
-  if (isNaN(currentJob) || isNaN(totalJobs)) {
-    output({ error: 'Cannot parse Current Job or Total Jobs in Objective from STATE.md or state.json' }, raw);
+  // No usable position (no counters, or state.json's 0/0): nothing to advance. Before this
+  // guard 0 >= 0 rewrote Status to "Objective complete" after the first TRD of every objective.
+  if (isNaN(currentJob) || isNaN(totalJobs) || totalJobs <= 0) {
+    output({ advanced: false, reason: 'no_position', hint: NO_POSITION_HINT }, raw, 'false');
     return;
   }
 
@@ -604,7 +690,7 @@ function cmdStateSnapshot(cwd, raw) {
 
   // Helper to extract **Field:** value patterns from markdown (fallback)
   const extractField = (fieldName) => {
-    const pattern = new RegExp(`\\*\\*${fieldName}:\\*\\*\\s*(.+)`, 'i');
+    const pattern = new RegExp(`\\*\\*${escapeRegExp(fieldName)}:\\*\\*\\s*(.+)`, 'i');
     const match = content.match(pattern);
     return match ? match[1].trim() : null;
   };

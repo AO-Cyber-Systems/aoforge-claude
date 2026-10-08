@@ -43,6 +43,12 @@ verification:
 
 duration: 12min
 completed: 2026-09-29
+tokens_input: 5327163
+tokens_output: 52845
+tokens_cache_read: 5219199
+tokens_cache_write: 107852
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 07: config-get documented defaults Summary

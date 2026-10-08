@@ -48,6 +48,12 @@ verification:
 
 duration: ~4min
 completed: 2026-10-01
+tokens_input: 3215629
+tokens_output: 33238
+tokens_cache_read: 3123579
+tokens_cache_write: 91982
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 07: `Refs #trd` trailer on DevFlow commits Summary

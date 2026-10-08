@@ -30,6 +30,12 @@ requirements-completed: [GSF-01, GSF-02, GSF-06, GSF-08]
 metrics:
   duration: "~10 min"
   completed: 2026-09-30
+tokens_input: 6122775
+tokens_output: 50339
+tokens_cache_read: 5944004
+tokens_cache_write: 178677
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 09: End-to-end push -> pull on one fake GitHub Summary

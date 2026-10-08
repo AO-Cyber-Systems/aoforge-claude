@@ -48,6 +48,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-01
+tokens_input: 6846205
+tokens_output: 70922
+tokens_cache_read: 6667580
+tokens_cache_write: 178535
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 07: Cache materialisation for todo, debug, quick, decision issues and MILESTONES.md Summary

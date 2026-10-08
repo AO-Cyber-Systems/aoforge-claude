@@ -56,6 +56,12 @@ verification:
 
 duration: 12min
 completed: 2026-09-30
+tokens_input: 9510360
+tokens_output: 76113
+tokens_cache_read: 9355433
+tokens_cache_write: 154783
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 04: Doctor core, check registry, CLI and dispatch Summary

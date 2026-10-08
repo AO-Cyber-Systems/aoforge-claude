@@ -47,6 +47,12 @@ verification:
 
 duration: 11min
 completed: 2026-10-01
+tokens_input: 6068086
+tokens_output: 65893
+tokens_cache_read: 5894583
+tokens_cache_write: 173417
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 06: Flusher and capability support for todo, debug and quick issues Summary

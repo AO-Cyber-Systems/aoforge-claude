@@ -24,6 +24,7 @@ const branchLib = require('./objective-branch.cjs');
 const wikiLib = require('./gh-wiki.cjs');
 const comments = require('./gh-comments.cjs');
 const trailer = require('./commit-trailer.cjs');
+const objectiveNameLib = require('./objective-name.cjs');
 const { loadConfig } = require('./config.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { getRoadmapObjectiveInternal } = require('./roadmap.cjs');
@@ -111,11 +112,20 @@ function closesFor(root, objArg) {
   return numbers;
 }
 
-/** The objective's display name for the PR title: ROADMAP's heading, else the directory slug. */
+/**
+ * The objective's display name for the PR title (STOR-02): ROADMAP's heading, then OBJECTIVE.md's title heading, then the
+ * directory slug without its number prefix, then `objective <id>`. It is the chain the objective issue's title uses
+ * (objective-name.cjs), so the two read alike; a fresh store has no ROADMAP entry, and the directory name is never the title.
+ */
 function objectiveName(root, id, info) {
   const fromRoadmap = getRoadmapObjectiveInternal(root, id);
-  if (fromRoadmap && fromRoadmap.objective_name) return fromRoadmap.objective_name;
-  return (info && info.objective_name) || `objective ${id}`;
+  const directory = info && info.directory ? info.directory : null;
+  return objectiveNameLib.objectiveDisplayName({
+    roadmapName: fromRoadmap && fromRoadmap.objective_name,
+    objDir: directory ? path.join(root, directory) : null,
+    dirName: directory ? path.basename(directory) : null,
+    number: id,
+  });
 }
 
 // ─── GitHub reads and the one write ──────────────────────────────────────────

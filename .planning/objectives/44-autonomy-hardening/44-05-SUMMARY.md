@@ -37,6 +37,12 @@ metrics:
   completed: 2026-09-29
   tasks: 3
   files: 3
+tokens_input: 3580515
+tokens_output: 65726
+tokens_cache_read: 3469363
+tokens_cache_write: 111078
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 05: Auto-continue Stop hook Summary

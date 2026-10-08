@@ -37,6 +37,12 @@ verification:
   test_pairing: true
 duration: 13min
 completed: 2026-10-04
+tokens_input: 15637805
+tokens_output: 62916
+tokens_cache_read: 15463126
+tokens_cache_write: 174463
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 52 TRD 05: Multi-line `decision answer` round-trips intact Summary

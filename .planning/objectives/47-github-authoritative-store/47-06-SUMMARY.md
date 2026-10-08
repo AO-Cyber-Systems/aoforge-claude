@@ -41,6 +41,12 @@ metrics:
   completed: "2026-10-01"
   tasks: 2
   files: 2
+tokens_input: 5846901
+tokens_output: 79820
+tokens_cache_read: 5688004
+tokens_cache_write: 158807
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 06: Capability detection and degraded-mode selection Summary

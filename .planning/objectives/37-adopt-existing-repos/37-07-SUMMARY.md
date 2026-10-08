@@ -25,6 +25,12 @@ decisions:
 metrics:
   duration: "~40 turns"
   completed: 2026-09-28
+tokens_input: 15799601
+tokens_output: 142958
+tokens_cache_read: 15278851
+tokens_cache_write: 520442
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 07: df-tools adopt scaffold Summary

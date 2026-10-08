@@ -49,6 +49,12 @@ verification:
 
 duration: 12min
 completed: 2026-09-30
+tokens_input: 6359563
+tokens_output: 70269
+tokens_cache_read: 6197367
+tokens_cache_write: 162080
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46: GitHub Sync Foundations, TRD 01: gh client Summary

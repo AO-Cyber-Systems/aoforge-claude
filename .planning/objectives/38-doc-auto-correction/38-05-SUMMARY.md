@@ -57,6 +57,12 @@ verification:
 # Metrics
 duration: 6min
 completed: 2026-09-28
+tokens_input: 2442439
+tokens_output: 22914
+tokens_cache_read: 2375131
+tokens_cache_write: 67240
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 05: Agents, references, templates, skills and remaining workflows (part B) Summary

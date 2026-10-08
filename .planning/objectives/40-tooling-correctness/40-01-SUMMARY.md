@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: 7min
 completed: 2026-09-28
+tokens_input: 5146584
+tokens_output: 44081
+tokens_cache_read: 4997531
+tokens_cache_write: 148957
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 40 TRD 01: Milestone version + nested TRD checkbox ticking (roadmap.cjs) Summary

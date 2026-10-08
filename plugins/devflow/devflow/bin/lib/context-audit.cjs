@@ -191,6 +191,28 @@ function collectTranscripts(dir, out = []) {
 }
 
 /**
+ * Read one JSONL transcript and call `fn(row)` for every parsed row, in file order.
+ * Blank and malformed lines are skipped. Returns false (without calling `fn`) when
+ * the file cannot be read, true otherwise. The one transcript parser shared by
+ * analyze() and the token reader (token-usage.cjs, TRD 57-01).
+ *
+ * @param {string} file
+ * @param {(row: any) => void} fn
+ * @returns {boolean}
+ */
+function forEachRecord(file, fn) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return false; }
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    fn(row);
+  }
+  return true;
+}
+
+/**
  * Analyze transcripts under one or more roots.
  *
  * @param {string[]} roots
@@ -206,14 +228,7 @@ function analyze(roots, opts = {}) {
   acc.files = files.length;
 
   for (const file of files) {
-    let raw;
-    try { raw = fs.readFileSync(file, 'utf8'); } catch { continue; }
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      let row;
-      try { row = JSON.parse(line); } catch { continue; }
-      accumulate(acc, row);
-    }
+    if (!forEachRecord(file, (row) => accumulate(acc, row))) continue;
     // tool_use ids are per-transcript; clearing avoids cross-file collisions
     acc.toolNameById = {};
   }
@@ -227,6 +242,7 @@ module.exports = {
   newAccumulator,
   tokensOfResult,
   collectTranscripts,
+  forEachRecord,
   CHARS_PER_TOKEN,
   TOKENS_PER_IMAGE,
 };

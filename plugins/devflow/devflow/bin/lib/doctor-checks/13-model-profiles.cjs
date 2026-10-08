@@ -9,18 +9,25 @@
  * structure of the copy the running engine uses (the mirror, else the installed plugin's), and flags
  * a mirror whose ids differ from the installed plugin's.
  *
- * It deliberately carries no "latest model" table: ids are reported structurally, so the check
- * cannot go stale the way a hard-coded list would. No fix(): the ids live in the plugin source and
- * change only with a release.
+ * Since TRD 61-07 (OBS-01) it also flags a pinned id that is not current, and it still carries no
+ * "latest model" table, because a hard-coded list goes stale itself. Currency comes from data:
+ * `references/model-rates.json`, the priced table kept current from the pricing page, read from the
+ * same copy as the profiles (else the installed plugin's, else the engine's own), through
+ * model-currency.staleModelIds. A pin is superseded when that table prices a newer version of its
+ * family, and unpriced when the table does not know it. Stale findings are appended after the
+ * structural and drift ones. No fix(): the ids live in the plugin source and change only with a release.
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const helpers = require('../helpers.cjs');
+const { loadRates, RATES_PATH } = require('../calibration-inputs.cjs');
+const { staleModelIds } = require('../model-currency.cjs');
 
 const MODEL_ID_RE = /^claude-[a-z]+-\d+(-\d+)*(\[1m\])?$/;
 const REL = path.join('references', 'model-profiles.json');
+const RATES_REL = path.join('references', 'model-rates.json');
 const MAX_LISTED_ISSUES = 6;
 
 const SOURCE_HINT = 'update models in plugins/devflow/devflow/references/model-profiles.json and release';
@@ -89,6 +96,27 @@ function sameModels(a, b) {
   return ka.length === kb.length && ka.every((k, i) => k === kb[i] && a[k] === b[k]);
 }
 
+/**
+ * The first rate table that loads, in order: `{ name, rates, errors }`. A copy without the file is
+ * skipped silently; a copy whose file exists but does not load is an error, and the next one is tried.
+ */
+function resolveRates(candidates) {
+  const errors = [];
+  for (const [name, file] of candidates) {
+    if (name !== 'engine' && !fs.existsSync(file)) continue;
+    const rates = loadRates(file);
+    if (rates.ok) return { name, rates, errors };
+    errors.push(`${name} model-rates.json could not be read (${rates.error})`);
+  }
+  return { name: null, rates: null, errors };
+}
+
+function staleMessage(s) {
+  return s.reason === 'superseded'
+    ? `models.${s.tier} = ${s.id} is superseded by ${s.current} (model-rates.json)`
+    : `models.${s.tier} = ${s.id} is not in model-rates.json, so its currency cannot be checked`;
+}
+
 module.exports = {
   id: 'model-profiles',
   title: 'model-profiles.json model ids are well-formed and current',
@@ -138,6 +166,26 @@ module.exports = {
       issues.push(
         `mirror model ids differ from installed plugin (mirror: ${idList(models)}; installed: ${idList(details.installed_models)})`
       );
+    }
+
+    // Currency (TRD 61-07): the rate table beside the copy in use, else the installed plugin's, else the engine's.
+    if (models) {
+      const candidates = [];
+      if (preferred.name === 'mirror') candidates.push(['mirror', path.join(ctx.paths.mirrorDir, RATES_REL)]);
+      if (installed && installed.installPath) {
+        candidates.push(['installed', path.join(installed.installPath, 'devflow', RATES_REL)]);
+      }
+      candidates.push(['engine', RATES_PATH]);
+      const resolved = resolveRates(candidates);
+      issues.push(...resolved.errors);
+      details.rates_source = resolved.name;
+      // A malformed id is already reported structurally above; judge only the well-formed ones.
+      const wellFormed = {};
+      for (const [tier, id] of Object.entries(models)) {
+        if (typeof id === 'string' && MODEL_ID_RE.test(id)) wellFormed[tier] = id;
+      }
+      details.stale = resolved.rates ? staleModelIds(wellFormed, resolved.rates) : [];
+      for (const s of details.stale) issues.push(`${preferred.name} model-profiles.json: ${staleMessage(s)}`);
     }
 
     if (issues.length === 0) {

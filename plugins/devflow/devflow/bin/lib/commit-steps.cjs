@@ -8,10 +8,13 @@
 // checks 20 and 21, and migration 0010 (whose STORE_COMMIT_STEPS 0011 prints again after a backfill).
 //
 //   store form (reason given)  new branch → commit with the logged escape (gate `gh` in .planning/.override-log.jsonl)
-//                              → push → pull request, plus the linked-branch alternative: on a branch
-//                              `df-tools gh pr start <objective>` linked, the bare command is accepted as is.
-//   plain form (reason null)   new branch → bare command → push → pull request. Mirror or local mode, where no gate
-//                              refuses the commit but the default-branch ruleset still wants a pull request.
+//                              → push → `gh pr create --head <branch> --fill`, plus the linked-branch alternative: on a
+//                              branch `df-tools gh pr start <objective>` linked, the bare command is accepted as is.
+//   plain form (reason null)   new branch → bare command → push → `gh pr create --head <branch> --fill`. Mirror or local
+//                              mode, where no gate refuses the commit but the default-branch ruleset still wants a PR.
+//
+// The pull-request step is a runnable command, not prose (61-06, STOR-01), so migration 0010, doctor check 20 and
+// `gh setup` print the same line and the USER-GUIDE no longer has to tell people to type it themselves.
 //
 // The text is static on purpose: it is read later, possibly from another branch, so it never evaluates the gate at
 // print time. The module is pure (no fs, no git, no config); callers choose the form with planningMode.isStoreMode(root).
@@ -35,9 +38,17 @@ function commitCommand(message, files) {
 }
 
 /**
+ * The pull-request step (61-06, STOR-01): `gh pr create --head <branch> --fill`. It runs after the push, so the branch is
+ * on the remote; it opens the PR against the repository's default branch (no `--base`: naming it would need a GitHub
+ * read this text does not do) with the title and body taken from the commit.
+ */
+const prCreateCommand = (branch) => `gh pr create --head ${branch} --fill`;
+
+/**
  * The printed follow-up for `command` (usually commitCommand's output), as a `\n`-joined string.
- *   reason: a non-empty string → the store form (six lines; line 3 carries the escape, line 6 the `gh pr start` route)
- *   reason: null or undefined  → the plain form (five lines, no escape)
+ *   reason: a non-empty string → the store form (six lines; line 3 carries the escape, line 5 the `gh pr create` step,
+ *                                line 6 the `gh pr start` route)
+ *   reason: null or undefined  → the plain form (five lines, no escape, line 5 the `gh pr create` step)
  * Throws TypeError when `branch` or `command` is not a non-empty string, or `reason` is neither absent nor usable.
  */
 function branchCommitSteps({ branch, command, reason } = {}) {
@@ -50,7 +61,7 @@ function branchCommitSteps({ branch, command, reason } = {}) {
       `  git switch -c ${branch}`,
       `  ${command}`,
       `  git push -u origin ${branch}`,
-      '  then open a pull request for that branch',
+      `  ${prCreateCommand(branch)}`,
     ].join('\n');
   }
 
@@ -63,7 +74,7 @@ function branchCommitSteps({ branch, command, reason } = {}) {
     `  git switch -c ${branch}`,
     `  DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="${reason}" ${command}`,
     `  git push -u origin ${branch}`,
-    '  then open a pull request for that branch',
+    `  ${prCreateCommand(branch)}`,
     `  or, on an objective's linked branch (\`df-tools gh pr start <objective>\`), commit there with: ${command}`,
   ].join('\n');
 }

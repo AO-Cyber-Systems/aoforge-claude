@@ -39,6 +39,12 @@ verification:
   test_pairing: true
 duration: about 50 min
 completed: 2026-10-01
+tokens_input: 11887520
+tokens_output: 98211
+tokens_cache_read: 11643519
+tokens_cache_write: 243869
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 06: Scope-change gate, confirm-scope and trd start Summary

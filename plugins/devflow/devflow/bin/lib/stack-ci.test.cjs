@@ -22,7 +22,7 @@
 const { describe, test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseWorkflows, _parseWorkflowText, normaliseWorkingDirectory } = require('./stack-ci.cjs');
+const { parseWorkflows, _parseWorkflowText, normaliseWorkingDirectory, expandsAny } = require('./stack-ci.cjs');
 const fx = require('./__fixtures__/stack-ci-fixtures.cjs');
 
 const roots = [];
@@ -729,5 +729,21 @@ describe('C16 step.runtimeVars (TRD 43-13 test 4)', () => {
   test('C16d: a uses-only step has no runtime names', () => {
     const doc = ['on: [push]', 'jobs:', '  j:', '    steps:', '      - name: s', '        uses: actions/checkout@v4', ''].join('\n');
     assert.deepEqual(byName(_parseWorkflowText(doc, 'x.yml'), 's').runtimeVars, []);
+  });
+});
+
+// TRD 56-01 (ONUM-01): expandsAny compiled each name into the regex source unescaped, so `.` was a wildcard.
+describe('C17 expandsAny matches a name literally (TRD 56-01 test 7)', () => {
+  test('C17a: a metacharacter in a name is literal', () => {
+    assert.equal(expandsAny('x $AxB', ['A.B']), false);
+    assert.equal(expandsAny('x ${AxB}', ['A.B']), false);
+  });
+
+  test('C17b: plain names expand as before, in both spellings, with the name boundary', () => {
+    assert.equal(expandsAny('x ${A}', ['A']), true);
+    assert.equal(expandsAny('x $A y', ['A']), true);
+    assert.equal(expandsAny('x $AB', ['A']), false);
+    assert.equal(expandsAny("x '$A'", ['A']), false);
+    assert.equal(expandsAny('x $A', []), false);
   });
 });

@@ -37,6 +37,12 @@ requirements-completed: [GSF-03, GSF-01, GSF-02, GSF-04, GSF-05, GSF-06, GSF-07,
 metrics:
   duration: "~45 min"
   completed: 2026-09-30
+tokens_input: 9117354
+tokens_output: 51685
+tokens_cache_read: 8978011
+tokens_cache_write: 139187
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 10: Post-execute sync reports failures; docs, deprecation guard, changelog Summary

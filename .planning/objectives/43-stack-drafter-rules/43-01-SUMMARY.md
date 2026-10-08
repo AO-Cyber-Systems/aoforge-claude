@@ -39,6 +39,12 @@ metrics:
   completed: 2026-10-03
   tasks: 2
   files: 7
+tokens_input: 10259650
+tokens_output: 63867
+tokens_cache_read: 10068720
+tokens_cache_write: 190786
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 01: Runner readers - Make variable expansion (D1) and internal Taskfile tasks (D5) Summary

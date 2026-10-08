@@ -26,6 +26,12 @@ key-decisions:
 metrics:
   duration: "~7 min"
   completed: 2026-09-27
+tokens_input: 6577358
+tokens_output: 45603
+tokens_cache_read: 6462613
+tokens_cache_write: 114617
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 36 TRD 03: `df-tools upgrade`, health W040, and a `--migrate` that migrates Summary

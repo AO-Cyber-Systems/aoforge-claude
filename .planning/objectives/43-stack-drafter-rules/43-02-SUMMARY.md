@@ -47,6 +47,12 @@ verification:
 
 duration: 14min
 completed: 2026-10-03
+tokens_input: 9334056
+tokens_output: 96456
+tokens_cache_read: 9129209
+tokens_cache_write: 204729
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 02: Effect-based `stack verify --run` guard Summary

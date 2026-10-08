@@ -46,6 +46,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-01
+tokens_input: 6524091
+tokens_output: 42792
+tokens_cache_read: 6387951
+tokens_cache_write: 136022
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 09: `/devflow:gh-sync` as the GitHub store operator Summary

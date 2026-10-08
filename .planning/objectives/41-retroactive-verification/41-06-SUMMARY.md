@@ -33,6 +33,12 @@ metrics:
   duration: ~19m (including one ~73s full-suite run)
   tasks: 2
   files: 3
+tokens_input: 5568779
+tokens_output: 29035
+tokens_cache_read: 5272083
+tokens_cache_write: 296582
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 41 TRD 06: Roll up 27–34 verdicts into ROADMAP, CHANGELOG decision, full-suite gate — Summary

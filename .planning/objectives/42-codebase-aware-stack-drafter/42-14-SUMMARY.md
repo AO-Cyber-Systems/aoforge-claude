@@ -41,6 +41,12 @@ decisions:
 metrics:
   duration: "~1 session (resumed once)"
   completed: 2026-09-29
+tokens_input: 20113535
+tokens_output: 90996
+tokens_cache_read: 19837572
+tokens_cache_write: 275749
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 14: Command cwd hygiene and the file-level ignore check Summary

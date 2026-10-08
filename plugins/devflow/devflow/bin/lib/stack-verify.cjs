@@ -25,6 +25,7 @@ const { spawnSync } = require('child_process');
 
 const { normalizeScript, splitTopLevel, splitWords, findHeredocs } = require('./stack-shell.cjs');
 const runners = require('./stack-runners.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── Binary lookup ────────────────────────────────────────────────────────────
 
@@ -652,8 +653,6 @@ function referencesIn(text, cwd) {
   return refs;
 }
 
-const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** Prerequisites named on a Makefile rule line for `name` (`build: gen lint`); order-only `|` ignored. */
 function makePrereqs(text, name) {
   const found = [];
@@ -673,7 +672,7 @@ function makePrereqs(text, name) {
 /** Dependencies on the justfile recipe line for `name` (`build: gen`). */
 function justPrereqs(text, name) {
   const found = [];
-  const re = new RegExp(`^@?${escapeRe(name)}\\b(?:\\s+[^:]*?)?\\s*:(?![=:])\\s*([^#]*)$`);
+  const re = new RegExp(`^@?${escapeRegExp(name)}\\b(?:\\s+[^:]*?)?\\s*:(?![=:])\\s*([^#]*)$`);
   for (const line of String(text).replace(/\r\n?/g, '\n').split('\n')) {
     if (/^\s/.test(line)) continue;
     const m = re.exec(line);
@@ -685,7 +684,7 @@ function justPrereqs(text, name) {
 /** A Taskfile task's raw YAML block (so `defer:` and friends are scanned) and whether it has `deps:`. */
 function taskBlock(text, name) {
   const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
-  const re = new RegExp(`^(\\s+)(?:${escapeRe(name)}|'${escapeRe(name)}'|"${escapeRe(name)}")\\s*:`);
+  const re = new RegExp(`^(\\s+)(?:${escapeRegExp(name)}|'${escapeRegExp(name)}'|"${escapeRegExp(name)}")\\s*:`);
   const blocks = [];
   let hasDeps = false;
   for (let i = 0; i < lines.length; i++) {

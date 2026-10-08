@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: ~20min
 completed: 2026-09-27
+tokens_input: 8958486
+tokens_output: 52679
+tokens_cache_read: 8833133
+tokens_cache_write: 125187
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 05: `validate health` Check 12 — the stack profile Summary

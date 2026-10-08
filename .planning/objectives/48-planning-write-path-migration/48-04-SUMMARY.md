@@ -40,6 +40,12 @@ metrics:
   completed: 2026-10-01T12:30:00Z
   tasks: 2
   files: 9
+tokens_input: 6007927
+tokens_output: 70558
+tokens_cache_read: 5728246
+tokens_cache_write: 279591
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 04: SC1 audit — planning-write ratchet over skills, workflows, agents, templates Summary

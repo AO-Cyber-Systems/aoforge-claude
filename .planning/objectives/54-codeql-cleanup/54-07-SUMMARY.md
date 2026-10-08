@@ -47,6 +47,12 @@ verification:
 
 duration: 5min
 completed: 2026-10-04
+tokens_input: 9676048
+tokens_output: 45969
+tokens_cache_read: 9534871
+tokens_cache_write: 141025
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 07: Objective and version regexes in detectors, bootstrap, changelog and the tag hook Summary

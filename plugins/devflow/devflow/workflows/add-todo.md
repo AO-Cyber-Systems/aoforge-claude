@@ -85,7 +85,8 @@ If overlapping, use AskUserQuestion:
 Use values from init context: `timestamp` and `date` are already available.
 
 Todo files are written only through `df-tools todo add`, never directly: in local mode the verb writes
-`.planning/todos/pending/<date>-<slug>.md`; with `github.store` on it also files the todo as a GitHub issue.
+`.planning/todos/pending/<date>-<slug>.md`; with `github.store` on it also files the todo as a GitHub issue. This step
+drafts the todo, the next step puts it in the session task list, and the archive_todo step writes the archive.
 
 Generate the slug for the title, then get a draft path for the todo (each command prints one value; note it as a
 literal, since shell variables do not survive between Bash calls):
@@ -113,8 +114,26 @@ files:
 
 [approach hints or "TBD"]
 ```
+</step>
 
-Then add the todo:
+<step name="session_item">
+Put the todo in the session task list first. The list is the in-session store; the archive write follows, and if the
+turn is cut off before it, the todo-sync Stop hook archives the session item when the turn ends. The stem
+`[date]-[slug]` is the file stem the archive will use (`date` and `slug` from the previous step).
+
+**Session task list (if available):** use the task tool the session has.
+
+TaskCreate(subject="Todo: [title]", description="[problem, one line]", activeForm="Capturing todo: [title]", metadata={devflow_todo: "[date]-[slug]"})
+
+With TodoWrite instead of the Task tools (sessions started with CLAUDE_CODE_ENABLE_TASKS=0), write the current list plus the new item:
+
+TodoWrite(todos=[...current items, {content: "Todo: [title] [todo:[date]-[slug]]", status: "pending", activeForm: "Capturing todo: [title]"}])
+
+With neither (newer models without CLAUDE_CODE_ENABLE_TODO_TOOLS=1), skip this step: the archive write is the whole record, as before.
+</step>
+
+<step name="archive_todo">
+Then add the todo to the archive:
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs todo add --from "$DRAFT"
@@ -174,6 +193,7 @@ Would you like to:
 
 <success_criteria>
 - [ ] Directory structure exists
+- [ ] Todo is in the session task list when the session has task tools
 - [ ] Todo added through `todo add --from <draft>`, with valid frontmatter
 - [ ] Problem section has enough context for future Claude
 - [ ] No duplicates (checked and resolved)

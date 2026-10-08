@@ -47,6 +47,12 @@ verification:
 # Metrics
 duration: 8min
 completed: 2026-09-28
+tokens_input: 3484561
+tokens_output: 25781
+tokens_cache_read: 3401369
+tokens_cache_write: 83116
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 12: Docs, dogfood and the final gate Summary

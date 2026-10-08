@@ -36,6 +36,12 @@ metrics:
   completed: 2026-10-03
   tasks: 3
   files: 7
+tokens_input: 8359882
+tokens_output: 67178
+tokens_cache_read: 8177499
+tokens_cache_write: 182255
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 03: must_haves parsing (D11), mixed Flutter/Dart MCP (D9), commit ignore probe (D7) Summary

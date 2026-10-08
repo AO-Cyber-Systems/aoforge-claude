@@ -47,6 +47,12 @@ verification:
 # Metrics
 duration: 9min
 completed: 2026-09-28
+tokens_input: 7123709
+tokens_output: 55578
+tokens_cache_read: 7005518
+tokens_cache_write: 118061
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 09: The CI gate — no stale command reference ships Summary

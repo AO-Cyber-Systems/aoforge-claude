@@ -2,10 +2,28 @@
 id: DECISION-001
 objective: 27
 trd: 27-03
-status: pending
+status: resolved
 raised: 2026-08-18
 blocks: []
 recommendation: option-c
+resolution: |-
+  option-a: enforce properly. Extend the edit gate from the tool name to the action, so writes to tracked repo source through Bash (redirection, tee, sed -i, cp/mv onto a file, inline python/node writes) are gated like Edit/Write.
+
+  Decided by the user on 2026-10-05, after a clarifying review:
+  - the gate's purpose is a routing nudge;
+  - the user's own small asks should still route through micro/quick;
+  - the decision sets the shipped default for every DevFlow user.
+
+  Evidence (quick-31 `session-audit` bypass counter, 2026-10-05):
+  - since 2.11.0 (2026-09-28): 36 denials, 0 bypasses, 31 routed, 5 abandoned;
+  - all retained history: 135 denials, 9 bypasses (6.7%, all 2026-09-06..14, before the 27-01/27-02 fixes).
+
+  Option A is therefore a preventive guarantee rather than a fix for current behaviour. Its main risk is false positives from a Bash content analyser (see the commit gate's substring history, 27-04). Implementing objectives must bound that risk with:
+  - invocation-aware parsing (strip heredoc bodies and quoted arguments);
+  - tracked-source scope only (never `.planning/`, `.md`, out-of-repo, tmp or scratchpad paths);
+  - the existing escapes (skill marker, devflow:* agent_type, override phrases, DEVFLOW_SKIP_EDIT_GATE) and gates.editGate severity;
+  - a measured false-positive rate via `session-audit` before it ships as default strict.
+resolved_at: "2026-10-05T15:07:04.769Z"
 ---
 
 # DECISION-001 — Edit-gate posture for source files

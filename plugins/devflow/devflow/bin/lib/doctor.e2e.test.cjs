@@ -115,6 +115,7 @@ const GLOBAL_IDS = [
   'plugin-cache',
   'hooks-registry',
   'model-profiles',
+  'skill-requires',
   'guard-state',
   'awareness-state',
   'backups',

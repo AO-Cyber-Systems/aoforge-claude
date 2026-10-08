@@ -115,6 +115,94 @@ STATE.md stays lean; this file grows over time.
 - [Objective 55]: 55-05: reconcile gates a local branch delete on ancestry, then on content (git merge-tree --write-tree of the default tip and the branch tip equals the default tip's own tree); an unknown (older git, missing object) keeps the branch
 - [Objective 55]: 55-06: push-branch (A, user answer relayed by orchestrator); smoke pins devflow-claude@d4147b8c1dd00af210b09a90c2af87dce0bf1010
 - [Objective 55]: 55-07: merge guard proven live with option B (ready PR + second unpushed commit); on a draft PR the draft check (gh-pr.cjs:975) runs before the unpushed guard (:980-982), so the merge refusal names verification, not gh pr sync
+- [Objective 56]: 56-01: regex-escape.repo.test.cjs exempts lib/text-escape.cjs by path, not basename; a copy of the canonical escape anywhere else fails CI
+- [Objective 56]: 56-01: every production regex escape goes through text-escape.cjs escapeRegExp (hooks via ../devflow/bin/lib/text-escape.cjs); test files keep their own local escapes
+- [Objective 56]: 56-03: requirement IDs come only from the leading token of ID-shaped list items (lib/requirement-ids.cjs); free text declares none
+- [Objective 56]: 56-03: objective remove renumbers the ROADMAP ascending (descending collapsed later objectives onto the removed number) and every item of a **Depends on** list
+- [Objective 56]: Changelog names the reconcile command sync-roadmap; dogfood ran through the repo CLI, not the ~/.claude/devflow mirror, so merged fixes were exercised
+- [Objective 57]: 57-01: executor token totals are deduped per API message (message.id) and scoped to one repo (REPO_ROOT, else cwd in the repo or its .df-worktrees, else a <repo>/.planning/ path) and, for a shared objective number, to the directory the prompt names; otherwise ambiguous_objective
+- [Objective 57]: 57-01: executor TRD identification lives in lib/trd-identify.cjs; hooks/gate-executor-stop.js requires and re-exports it (the runtime mirror ships no hooks/)
+- [Objective 57]: tokens stamp writes the SUMMARY draft, never .planning/; no transcript is exit 0 stamped:false so summary post is never blocked — Keeps the D-01 invariant (every planning write goes through summary post) and tolerates retention, older runtimes and non-Claude-Code harnesses
+- [Objective 57]: calibrate refuses (exit 1, nothing written) when no DevFlow project is found under the paths, so an empty history cannot overwrite a good calibration.json — 57-06: a typo in --paths would otherwise write zeros over ~/.claude/devflow/calibration.json
+- [Objective 58]: Estimate composition: percentiles never add except sumComonotonic (tasks in one TRD); correlated sums use Fenton-Wilkinson with DEFAULT_CORRELATION 0.5, an assumption Objective 64 (EST-08) tunes
+- [Objective 58]: 58-02: overhead agent types need the devflow: or df- prefix; Quick planner spawns are excluded and counted; samples carry per-model token splits and no paths
+- [Objective 58]: Estimate run state is schema v1 JSON outside the repo (~/.claude/devflow/state/estimates/<repo-key>.json); only df-tools estimate (58-08) writes it, the status line only reads it
+- [Objective 58]: Status line wave denominator is the highest wave number in the run state, so a resumed run holding waves 6 and 7 shows W6/7
+- [Objective 58]: calibration v2 inputs_digest hashes overhead samples plus counts; --no-overhead raw line says 'overhead skipped' not 'none'
+- [Objective 58]: overallConfidence ties go to the larger p50 then the earlier component; a null-p50 component has an unknown share and always counts; a TRD with no auto tasks is confidence none, nothing to judge is n/a
+- [Objective 58]: estimateTask confidence and samples cover only the metrics present; a metric with no samples anywhere is null and listed in missing, never defaulted
+- [Objective 58]: 58-06: a wave distribution (max when parallel, correlated sum when serial) is one member of the flat total list; the gap alternative appends planner, trd_level and a second verifier, mixed with the calibrated probability
+- [Objective 58]: 58-06: missing agent overhead is listed in missing and caps objective confidence at low; unplanned objectives use objective_level history with no gap mixture and are capped low
+- [Objective 58]: 58-07: milestone scope comes from the ROADMAP bullet via roadmap.cjs's own parser; numbers in the bounds with neither a directory nor a section are counted absent, and a bullet with no objective text falls back to every ### Objective section (range_source)
+- [Objective 58]: 58-07: the milestone total is one flat correlated sum of the remaining objectives' fitted totals plus one integration-checker spawn; a missing integration-checker history is listed in missing, adds nothing and caps confidence at low; an empty milestone has overhead [] and zero totals
+- [Objective 58]: 58-08: estimate wave --done and finish read only the stored run state (the wave's p50/p90 and the execution wall that start stored), so they need no calibration; a state for another objective, a finished one or one idle over 12 hours is no live run — The status line and the verdict must agree on one stored estimate even if the calibration file changes mid-run
+- [Objective 58]: 58-08: every estimate verb exits 0 with 'No estimate: <reason>' (available: false) when the calibration is unusable, never a number; the JSON is rounded once by roundResult from the raw result, the text by each formatter from the same raw result, with line on every result and table on objective and milestone — Rounding a rounded figure shifts edge cases; a missing calibration is an answer, not a failure
+- [Objective 58]: 58-09: estimate calls in prose are fail-soft one-liners that paste df-tools output verbatim; wave --done runs before spot-checks; build re-runs idempotent estimate finish
+- [Objective 58]: 58-10: in-sample backtest of 55-57 (execution agent minutes and cost vs SUMMARY actuals) recorded as information for Objective 64: cost medians within 6% of actual, minutes medians 1.5x-2.8x high, every actual under P90. Gaps for closure: estimate objective <done> --all prints 'all TRDs done'; estimate objective on a ROADMAP-only objective exits 1 (milestone covers it).
+- [Objective 59]: Metrics counters in state.json sum both deltas even when both sides ended at the same value (two parallel +1 jobs make base + 2); a counter absent from the base is kept once — The equal-values shortcut in the TRD pseudo-code lost a completed job (found by the end-to-end wave merge test)
+- [Objective 59]: merge-driver install records the realpath of the running df-tools.cjs, mapped to the main checkout's copy when run from a linked worktree (refuses if absent) — A wave worktree is removed after its merge; a driver pointing into it would be stranded
+- [Objective 59]: advance-job reports no_position (writes nothing) when no counters or total <= 0; --objective N derives position from disk
+- [Objective 59]: WRONG CHECKOUT is the one recoverable exec-context preflight failure: it fires before any claim, writes nothing and prints the --cwd command; the other three stay hard stops
+- [Objective 59]: milestone complete reads a SUMMARY one-liner from frontmatter or the first non-blank line under the H1 when it is a bold-only line (placeholders starting with [ skipped); its scope is the ROADMAP bullet selection shared with estimate milestone (milestone-scope.cjs)
+- [Objective 59]: 59-05: objective remove and complete report roadmap_updated from a before/after text comparison and write ROADMAP.md only on a change (TOOL-02 rule); objective.test.cjs 48-14 case 1d pins the old defect and needs roadmap_updated: false
+- [Objective 59]: Merge driver install lives in execute-objective step 0 only, and a failed install is reported while the wave continues; the Branch merge protocol resolves state.json and STATE_ARCHIVE.md with merge-driver resolve; the post-wave regeneration is unconditional
+- [Objective 59]: 59-07: Known issues note replaces the wave-merge bullet and lists two dogfood-found open defects (objective remove rewrites NN-NN dates; milestone complete appends a duplicate MILESTONES.md entry on a re-run) rather than fixing them in a docs TRD
+- [Objective 60]: scanShell finishes with maskTests, so arithmetic and [[ ]] masking is part of scanShell; the splitter and word scanner honour backslash escapes (\; and a\ b)
+- [Objective 60]: bash-write-detect: ambiguity resolves to path null or no write; pushd with no argument is unknown (it swaps), and a cp/mv destination of . or .. counts as a directory (into: true)
+- [Objective 60]: gitTrackedSet takes an optional env so hermetic tests run git without mutating process.env; the hook never passes it — Keeps process-wide env mutation out of the tests; one test still runs the default-env path under applyGitTestEnv
+- [Objective 60]: Bash write gate is a separate PreToolUse(Bash) hook (gate-bash-writes.js) that reuses gate-edits.js helpers, leaving the Edit/Write path byte-identical and failing open on its own
+- [Objective 60]: 60-05: the Bash gate replay counts every would-deny as a false positive (an upper bound); recommended_default is computed from the reported 6-decimal rate
+- [Objective 60]: 60-05: a row is excluded as a DevFlow skill only when attributionSkill starts with devflow:, so other plugins' skills stay ambient (only DevFlow skills set the live skill-active marker)
+- [Objective 60]: 60-06: Bash edit gate ships default warn; measured upper-bound false-positive rate 633/17957 = 0.035251 exceeds the 0.02 threshold (references/bash-edit-gate-evidence.json); 0 detector misparses found
+- [Objective 60]: Docs word DEVFLOW_SKIP_EDIT_GATE=1 as valid only in the environment Claude Code was launched from, never as an inline Bash prefix (hooks run in Claude Code's own process); S10b dogfood row proves the prefix is denied
+- [Objective 61]: 61-01: checks-pin.cjs (fs and path only) owns WORKFLOW_PATH, MANAGED_HEADER and DEFAULT_CHECKS_WORKFLOW; gh-setup imports them. W062 (validate Check 17) and doctor check 26 both render checks-pin.collectPinFindings; check 22 defers W062. Only release-shaped devflow-ref and the default reusable workflow's @ref are compared, as integers.
+- [Objective 61]: Skill requires: is enforced by a hook (61-08) on UserPromptExpansion and PreToolUse(Skill), not a df-tools preflight in each SKILL.md; skill-requires.cjs gives the hook a stat-only PATH lookup, DevFlow-namespaced skill-name resolution and the refusal text
+- [Objective 61]: [61-03] Objective issue and PR titles share one name chain (objective-name.cjs: ROADMAP name, OBJECTIVE.md heading, bare slug); PR titles stay create-only, existing PRs are not renamed
+- [Objective 61]: telemetry --scan implemented (not rejected); every unrecognised telemetry flag, and --limit/--since/--root without --scan, exits 1
+- [Objective 61]: 61-05: transcript export is a detached bundled-df-tools child started from upgrade-project.js step 0b, throttled to 24 h by a claim-then-spawn stamp under ~/.claude/devflow/state/transcript-export/, with its own DEVFLOW_SKIP_TRANSCRIPT_EXPORT escape
+- [Objective 61]: 61-06: a conflict workflow prints no pins; gh pr create carries no --base (the default branch is gh's default); the dry-run preview maps plan statuses to outcome statuses so filesLines is reused with only its first line changed
+- [Objective 61]: 61-07: model id currency is derived from references/model-rates.json (newest priced version per family), never a hard-coded list; doctor check 13 owns W063 and check 22 defers it
+- [Objective 61]: 61-07: doctor check 13 reads the rate table beside the profiles copy in use (mirror, else installed), else the engine's; it judges only well-formed ids so a malformed id is reported once
+- [Objective 61]: 61-08: gate-skill-requires.js registered on UserPromptExpansion (no matcher; filtering in code) and PreToolUse(Skill); UserPromptExpansion confirmed accepted by Claude Code 2.1.292 (plugin validate plus binary event table); gate is not project-scoped and fails open
+- [Objective 61]: Live skill-gate check runs with a scratch HOME and cwd so sync-runtime never touches the real ~/.claude/devflow mirror; it blocked a typed /devflow:gh-sync status in Claude Code 2.1.292
+- [Objective 61]: site/data/devflow.json stays a release-time artifact: gen-docs-data.cjs writes a hard-coded repo path, so it was proven against a scratch copy of the tree
+- [Objective 62]: ExitPlanMode is forbidden in skill allowed-tools and never reported as missing: its permission prompt is the plan approval, so pre-approving it could approve the draft the user should review
+- [Objective 62]: builtin-audit groupOf returns null for an unpinned path (legacy workflow or unowned file) instead of a default group, so 62-03 can see it
+- [Objective 62]: 62-02: bare Options: list heads cannot be quoted in a 12-character Before, so each is covered by the neighbouring prompt row that deletes it; free-text lines the scanner window already passes use keep, not a marker
+- [Objective 62]: 62-03: A bare list head (Options:) is covered by any inventory row in the same file within 12 lines; an ask-misuse row is resolved when no ask-without-options finding holds its text
+- [Objective 62]: 62-04: debug CHECKPOINT REACHED follows inventory row BS-008 (human-verify asks Verify: Approved / Issues found) over the TRD error_recovery note
+- [Objective 62]: 62-04: verify-work with more than 4 active UAT sessions takes another session's objective under Other, not a row number (an objective number already means start new)
+- [Objective 62]: plan-objective plan-mode review is step 13.5 (a half step, no renumbering); the planner is told not to push when the review will run and 13.5 pushes after approval; build keeps its single strategy approval and pushes right away
+- [Objective 62]: new-project keys its plan-mode reviews on --auto only, never workflow.auto_advance (it writes auto_advance true into every config)
+- [Objective 62]: 62-07: milestone complete reviews the MILESTONES entry and PROJECT.md drafts in one plan-mode step (review_drafts); the tag push is behind its own AskUserQuestion with Keep local recommended
+- [Objective 62]: 62-08: adopt stays unattended through disallowed-tools: AskUserQuestion in its skill frontmatter (claude plugin validate passes); ALLOWED_TOOLS_EXEMPT stays empty
+- [Objective 62]: 62-08: subagent-run prompts return checkpoint:decision (discovery-objective); execute-trd's plan confirmation keeps an allow marker so interactive gating is unchanged
+- [Objective 62]: 62-09: health.md GitHub store question puts Not now (Recommended) first per built-ins.md; handoff rejected-command question follows inventory BS-101 (Run it myself / Extend allowlist, no Retry)
+- [Objective 62]: 62-11: cleanup declares only AskUserQuestion in its new allowed-tools (allowed-tools pre-approves, so adding Bash would pre-approve the directory moves)
+- [Objective 62]: 62-11: gh-sync migrate question gets header GitHub store with Not now (Recommended) first, per built-ins.md order; token, labels and routing unchanged
+- [Objective 62]: Built-in sweep ratchet closed (62-10): no baseline directory and no exceptions list; manual inventory rows are resolved by their Conversion cell (text gone, keep, named AskUserQuestion headers present in the file, or a bare list head reworded)
+- [Objective 63]: 63-01: a completed TodoWrite item that drops out of the next snapshot stays completed; only unfinished items become deleted (live probe: the host forgets an all-completed list)
+- [Objective 63]: 63-01: todo identity is the stem (metadata devflow_todo, then [todo:stem] suffix, then UTC-date-of-record plus slug), never the host task id; two replayed items can share a stem so 63-02 must fold by stem
+- [Objective 63]: 63-05: model Claude Code's documented hook composition once (hook-runner.js, doc sentence per rule) and run every registered hook through it beside nine user-hook stubs; a registration with no RUNS entry fails the suite
+- [Objective 63]: 63-02: todo sync folds items by stem (furthest status wins) and lists every changed todo .md as pending_commit, so a no-op rerun still names what the Stop hook left uncommitted
+- [Objective 63]: 63-03: the todo-sync Stop hook reports uncommitted todo files only when the run wrote something, so a rerun over the same transcript is silent
+- [Objective 63]: 63-04: Work on it now with task tools sets the session task in_progress and leaves the archive todo pending until the session task completes; without task tools it completes the archive todo at once
+- [Objective 63]: Built-in inventory test has no clock check; review cadence lives in the document's dates and procedure, and REQUIRED_TOOLS/REQUIRED_EVENTS are pinned in the test and updated together with the document
+- [Objective 63]: 63-07: live Claude Code runs need an authenticated account; a scratch HOME cannot reach the macOS login keychain, so they are UAT items rather than part of the suite. handoff-e2e drops the ambient DIGITALOCEAN_ACCESS_TOKEN so MA-6 and MA-7 do not depend on the developer shell.
+- [Objective 64]: A TRD with no SUMMARY has no recorded outcome: its minutes are missing even when a STATE_ARCHIVE metric row exists; the metric-row fallback applies only to a SUMMARY with no duration (estimate-backtest.objectiveActuals)
+- [Objective 64]: SC3 is insufficient, not fail, when no TRD comparison exists to judge TRD-level coverage; EST-08 verdict constants (band 0.30, coverage 0.80, min objectives 3, min class tasks 3) are exports, never parameters
+- [Objective 64]: Run history archives only finished runs, at <state dir>/history/<repo-key>/<objective>-<started_at>.json; run schema version stays 1 with optional execution, total and calibration keys
+- [Objective 64]: 64-03: minute actuals stay on the SUMMARY basis (like for like with the calibration); SUMMARY/transcript median 0.91 is reported beside them, raw transcript spans are not actuals (idle gaps, e.g. 60-02)
+- [Objective 64]: 64-03: run state estimate.wall_minutes is the execution wall (63: 96.6/290.4); the printed line is the total incl. verifier overhead (102.8/304.2); prospective comparisons name which
+- [Objective 64]: 64-03: the backfill's partial stamp of 64-03's own in-flight SUMMARY was reverted out of the backfill commit; in-flight TRDs take tokens from the forward stamp only
+- [Objective 64]: 64-04: estimate backtest joins actuals on the directory name (estimateObjective dir is a relative path); duplicate objectives in the list are a usage error; the wall section compares the execution-only estimate.wall_minutes
+- [Objective 64]: EST-08 not met on out-of-sample evidence (agent minutes median ratio 1.51); no estimator code, threshold or input changed to pass it; follow-up todos recorded
+- [Objective 64]: Docs quote the primary EST-08 verdict only (not met); the 42-58 window diagnostic is not presented as a result
+- [Objective 64]: 64-07 frozen: decision build_window, window_objectives 10 (pre-registered rolling-origin rule on pre-59 objectives 46-58; weak evidence, non-monotone sweep); selection_output_sha256 fdf60e66...
+- [Objective 64]: 64-08: calibrate --window is opt-in (null default); the window is applied to a filtered copy of each project right after collectProject and leaves no trace (key, note, digest) when it drops nothing; the rolling harness requires --new to name the same objectives as --old
+- [Objective 64]: 64-09: frozen rolling validation on 59-63 ran once: new method (window 10) EST-08 not met (cost SC3 32/41 TRDs under P90 unchanged), minutes median 1.348 to 1.238, ship rule ship_default true
+- [Objective 64]: Ship rule applied as recorded (ship_default true): calibrate defaults to a 10-objective window and the live calibration was regenerated, but EST-08 stays not met (cost SC3 32 of 41 TRDs, 78%)
+- [Objective 65]: 65-01: release 2.14.0 dated 2026-10-07 (local date +%F); lead paragraph only restates [Unreleased]/MILESTONES facts; REL-01 stays open until the merge and tag (65-02, 65-03)
 
 ## Performance Metrics
 
@@ -180,4 +268,73 @@ STATE.md stays lean; this file grows over time.
 | Objective 55 P06 | 4min | 3 tasks | 0 files |
 | Objective 55 P07 | 10min | 2 tasks | 1 files |
 | Objective 55 P08 | 30min | 2 tasks | 4 files |
+| Objective 56 P01 | 11min | 3 tasks | 16 files |
+| Objective 56 P03 | 9min | 3 tasks | 8 files |
+| Objective 56 P05 | 4min | 2 tasks | 2 files |
+| Objective 57 P01 | 15min | 3 tasks | 8 files |
+| Objective 57 P03 | 13min | 2 tasks | 7 files |
+| Objective 57 P06 | 7min | 2 tasks | 6 files |
+| Objective 57 P07 | 4min | 3 tasks | 235 files |
+| Objective 58 P01 | 10min | 2 tasks | 2 files |
+| Objective 58 P02 | 10min | 2 tasks | 4 files |
+| Objective 58 P04 | 9min | 2 tasks | 4 files |
+| Objective 58 P03 | 6min | 3 tasks | 6 files |
+| Objective 58 P05 | 25min | 2 tasks | 3 files |
+| Objective 58 P06 | 35min | 2 tasks | 4 files |
+| Objective 58 P07 | 9min | 2 tasks | 5 files |
+| Objective 58 P08 | 14min | 3 tasks | 6 files |
+| Objective 58 P09 | 14min | 2 tasks | 5 files |
+| Objective 58 P10 | 15min | 3 tasks | 4 files |
+| Objective 59 P01 | 12min | 3 tasks | 7 files |
+| Objective 59 P02 | 8min | 2 tasks | 5 files |
+| Objective 59 P03 | 10min | 2 tasks | 6 files |
+| Objective 59 P04 | 10min | 3 tasks | 5 files |
+| Objective 59 P05 | 9min | 2 tasks | 3 files |
+| Objective 59 P06 | 25min | 2 tasks | 6 files |
+| Objective 59 P07 | 10min | 3 tasks | 4 files |
+| Objective 60 P01 | 10min | 3 tasks | 5 files |
+| Objective 60 P02 | 25min | 2 tasks | 2 files |
+| Objective 60 P03 | 5min | 3 tasks | 3 files |
+| Objective 60 P04 | 5min | 2 tasks | 5 files |
+| Objective 60 P05 | 8min | 3 tasks | 5 files |
+| Objective 60 P06 | 8min | 2 tasks | 3 files |
+| Objective 60 P07 | 13min | 3 tasks | 4 files |
+| Objective 61 P01 | 10min | 3 tasks | 10 files |
+| Objective 61 P02 | 8min | 2 tasks | 7 files |
+| Objective 61 P03 | 5min | 2 tasks | 5 files |
+| Objective 61 P04 | 5min | 2 tasks | 8 files |
+| Objective 61 P05 | 6min | 2 tasks | 4 files |
+| Objective 61 P06 | 7min | 2 tasks | 7 files |
+| Objective 61 P07 | 10min | 3 tasks | 11 files |
+| Objective 61 P08 | 8min | 2 tasks | 5 files |
+| Objective 61 P09 | 11min | 3 tasks | 7 files |
+| Objective 62 P01 | 7min | 3 tasks | 3 files |
+| Objective 62 P02 | 14min | 2 tasks | 2 files |
+| Objective 62 P03 | 10min | 2 tasks | 12 files |
+| Objective 62 P04 | 8min | 3 tasks | 10 files |
+| Objective 62 P05 | 8min | 3 tasks | 4 files |
+| Objective 62 P06 | 3min | 2 tasks | 3 files |
+| Objective 62 P07 | 4min | 2 tasks | 5 files |
+| Objective 62 P08 | 12min | 2 tasks | 10 files |
+| Objective 62 P09 | 7m | 2 tasks | 11 files |
+| Objective 62 P11 | 6min | 2 tasks | 14 files |
+| Objective 62 P10 | 17min | 3 tasks | 6 files |
+| Objective 63 P01 | 11min | 2 tasks | 7 files |
+| Objective 63 P05 | 17min | 3 tasks | 8 files |
+| Objective 63 P02 | 11min | 3 tasks | 6 files |
+| Objective 63 P03 | 8min | 2 tasks | 7 files |
+| Objective 63 P04 | 6min | 2 tasks | 7 files |
+| Objective 63 P06 | 45min | 2 tasks | 2 files |
+| Objective 63 P07 | 14min | 3 tasks | 6 files |
+| Objective 64 P01 | 25min | 2 tasks | 3 files |
+| Objective 64 P02 | 18min | 2 tasks | 7 files |
+| Objective 64 P03 | 19min | 3 tasks | 41 files |
+| Objective 64 P04 | 14min | 2 tasks | 9 files |
+| Objective 64 P05 | 9min | 3 tasks | 5 files |
+| Objective 64 P06 | 8min | 2 tasks | 3 files |
+| Objective 64 P07 | 20min | 3 tasks | 3 files |
+| Objective 64 P08 | 14min | 3 tasks | 11 files |
+| Objective 64 P09 | 7min | 2 tasks | 1 files |
+| Objective 64 P10 | 15min | 3 tasks | 13 files |
+| Objective 65 P01 | 13min | 2 tasks | 5 files |
 

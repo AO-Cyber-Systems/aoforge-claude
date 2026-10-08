@@ -30,6 +30,12 @@ key-decisions:
   - "makeStoreProject writes github.store only when store:true, as a strict boolean true, never false"
 duration: "~2 sessions (resumed once)"
 completed: 2026-09-30
+tokens_input: 7686653
+tokens_output: 86536
+tokens_cache_read: 7529112
+tokens_cache_write: 157425
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 02: Fake GitHub for the authoritative store Summary

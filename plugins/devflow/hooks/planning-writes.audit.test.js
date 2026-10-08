@@ -44,6 +44,7 @@ const { spawnSync, execFileSync } = require('child_process');
 
 const HOOKS_DIR = __dirname;
 const PLUGIN_ROOT = path.resolve(__dirname, '..');
+const todoTranscripts = require(path.join(PLUGIN_ROOT, 'devflow', 'bin', 'lib', '__fixtures__', 'todo-transcript-fixtures.cjs'));
 const PLUGIN_VERSION = JSON.parse(
   fs.readFileSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8')
 ).version;
@@ -436,6 +437,33 @@ const RUNS = {
       payload: (ctx) => preTool('Edit', { file_path: path.join(ctx.world.root, 'src', 'x.js') })(ctx),
     },
   ],
+  'gate-bash-writes.js': [
+    {
+      label: 'ambient Bash write to a tracked file',
+      payload: (ctx) => preTool('Bash', { command: "sed -i 's/1/2/' src/x.js" })(ctx),
+    },
+    {
+      label: 'override armed and consumed by a gated write',
+      world: { editOverride: true },
+      payload: (ctx) => preTool('Bash', { command: 'echo 2 > src/x.js' })(ctx),
+    },
+  ],
+  // gate-skill-requires.js (TRD 61-08): read-only, not project-scoped. The audit's PATH may or may not hold `gh`,
+  // so these variants prove only that the hook writes nothing, whichever way the decision goes.
+  'gate-skill-requires.js': [
+    {
+      label: 'typed /devflow:gh-sync',
+      payload: (ctx) =>
+        envelope('UserPromptExpansion', ctx, {
+          expansion_type: 'slash_command',
+          command_name: 'devflow:gh-sync',
+          command_args: 'status',
+          command_source: 'plugin',
+          prompt: '/devflow:gh-sync status',
+        }),
+    },
+    { label: 'Skill tool devflow:gh-sync', payload: (ctx) => preTool('Skill', { skill: 'devflow:gh-sync' })(ctx) },
+  ],
   'guard-no-progress.js': [
     { label: 'repeated read', payload: preTool('Read', { file_path: '/nonexistent/file' }) },
   ],
@@ -447,6 +475,33 @@ const RUNS = {
       payload: postTool('Bash', { command: 'node ~/.claude/devflow/bin/df-tools.cjs commit "feat(50-05): x" --files a.js' }),
     },
     { label: 'session stop', payload: stop() },
+  ],
+  // todo-sync.js (TRD 63-03): at Stop it merges the session's todos into `.planning/todos/` through the todo verbs, so
+  // this run DOES write files under `.planning/`: todo files (`pending/<stem>.md`, then `completed/<stem>.md`), never a
+  // dotfile. It keeps no state of its own, which is what this entry pins; there is deliberately no `expectChanged`.
+  // `expectStdout` proves the hook reached its merge, so the audit cannot pass on a transcript it never read.
+  'todo-sync.js': [
+    {
+      label: 'session todo archived and completed',
+      payload: (ctx) => {
+        const file = path.join(ctx.world.home, 'todo-transcript.jsonl');
+        todoTranscripts.resetIds();
+        fs.writeFileSync(
+          file,
+          todoTranscripts.transcriptOf(
+            todoTranscripts.taskCreate({
+              subject: 'Todo: Audit the todo sync hook',
+              metadata: { devflow_todo: '2026-10-06-audit-the-todo-sync-hook' },
+              taskId: 1,
+              ts: todoTranscripts.ts(0),
+            }),
+            todoTranscripts.taskUpdate({ taskId: 1, status: 'completed', ts: todoTranscripts.ts(5) })
+          )
+        );
+        return stop({ transcript_path: file })(ctx);
+      },
+      expectStdout: /archived 1 todo\(s\)/,
+    },
   ],
   'statusline.js': [
     {
@@ -554,6 +609,13 @@ describe('SC1 behavioral audit: no hook writes a runtime dotfile into .planning/
               'block',
               `${script} [${run.label}] did not reach its block branch, so this audit proves nothing for it.\n` +
                 `stdout: ${result.stdout}\nstderr: ${result.stderr}`
+            );
+          }
+          if (run.expectStdout) {
+            assert.match(
+              result.stdout,
+              run.expectStdout,
+              `${script} [${run.label}] did not reach the branch this audit needs.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
             );
           }
           if (run.inProcess === 'awareness-populate') {

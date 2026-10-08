@@ -34,6 +34,12 @@ metrics:
   tasks: 2
   files: 4
   completed: 2026-09-29
+tokens_input: 7429793
+tokens_output: 51468
+tokens_cache_read: 7145555
+tokens_cache_write: 284112
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 08: Checkpoint-aware job index and the legacy agent-path CI guard — Summary

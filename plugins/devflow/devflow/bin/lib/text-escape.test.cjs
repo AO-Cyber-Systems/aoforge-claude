@@ -6,7 +6,7 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { escapeRegExp, objectiveNumPattern, mdCell } = require('./text-escape.cjs');
+const { escapeRegExp, objectiveNumPattern, boldLabelPattern, mdCell } = require('./text-escape.cjs');
 
 // Splits a rendered GFM table row on pipes that are NOT escaped: a backslash skips the next char, so
 // an even run of backslashes before a pipe leaves the pipe live and an odd run protects it.
@@ -105,6 +105,72 @@ describe('objectiveNumPattern', () => {
     assert.equal(re.test('Objective 4.1'), false);
     assert.equal(re.test('Objective 41'), false);
     assert.ok(re.test('Objective 4:'));
+  });
+
+  // TRD 56-02 (ONUM-03): a ROADMAP heading may spell the number with or without the directory's leading zero.
+  test('TE-18 objectiveNumPattern: 04 and 4 each match Objective 4: and Objective 04:, and 4 matches 004:', () => {
+    const padded = rx('04');
+    assert.ok(padded.test('Objective 4:'));
+    assert.ok(padded.test('Objective 04:'));
+    const bare = rx('4');
+    assert.ok(bare.test('Objective 04:'));
+    assert.ok(bare.test('Objective 004:'));
+  });
+
+  test('TE-19 objectiveNumPattern: 04.1 matches 4.1: and 04.1:, never 4.10, 41 or 4.1.2', () => {
+    const re = rx('04.1');
+    assert.ok(re.test('Objective 4.1:'));
+    assert.ok(re.test('Objective 04.1:'));
+    assert.equal(re.test('Objective 4.10'), false);
+    assert.equal(re.test('Objective 41'), false);
+    assert.equal(re.test('Objective 4.1.2'), false);
+  });
+
+  test('TE-20 objectiveNumPattern: 4 and 04 never match 14, 40, 041 or 4.1, in a heading or a table row', () => {
+    for (const n of ['4', '04']) {
+      const heading = rx(n);
+      for (const text of ['Objective 14:', 'Objective 40', 'Objective 041:', 'Objective 4.1']) {
+        assert.equal(heading.test(text), false, `${n} must not match "${text}"`);
+      }
+      const row = new RegExp('\\|\\s*' + objectiveNumPattern(n));
+      for (const text of ['| 14. x', '| 40. x', '| 041. x', '| 4.1. x']) {
+        assert.equal(row.test(text), false, `${n} must not match table row "${text}"`);
+      }
+      assert.ok(row.test('| 4. x'));
+      assert.ok(row.test('| 04. x'));
+    }
+  });
+
+  test('TE-21 objectiveNumPattern: 0 matches 0: and 00:, never 05: or 10:', () => {
+    const re = rx('0');
+    assert.ok(re.test('Objective 0:'));
+    assert.ok(re.test('Objective 00:'));
+    assert.equal(re.test('Objective 05:'), false);
+    assert.equal(re.test('Objective 10:'), false);
+  });
+
+  test('TE-22 objectiveNumPattern: a non-numeric id stays literal, with no zero prefix', () => {
+    assert.equal(objectiveNumPattern('a('), escapeRegExp('a(') + '(?!\\.?\\d)');
+  });
+});
+
+describe('boldLabelPattern', () => {
+  const capture = (label) => new RegExp(boldLabelPattern(label) + '\\s*([^\\n]+)');
+
+  test('TE-23 boldLabelPattern: **Goal:** and **Goal**: both capture the value; near-misses do not match', () => {
+    const re = capture('Goal');
+    assert.equal(re.exec('**Goal:** X')[1], 'X');
+    assert.equal(re.exec('**Goal**: X')[1], 'X');
+    assert.equal(re.test('**Goals:** X'), false);
+    assert.equal(re.test('**Goal** X'), false);
+    assert.equal(re.test('Goal: X'), false);
+  });
+
+  test('TE-24 boldLabelPattern: a multi-word label matches, and the label is escaped', () => {
+    assert.ok(new RegExp(boldLabelPattern('Depends on')).test('**Depends on**: Objective 4'));
+    const re = new RegExp(boldLabelPattern('a(b'));
+    assert.ok(re.test('**a(b:** y'));
+    assert.equal(re.test('**ab:** y'), false);
   });
 });
 

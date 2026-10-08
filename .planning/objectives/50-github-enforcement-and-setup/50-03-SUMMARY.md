@@ -50,6 +50,12 @@ verification:
 
 duration: 6min
 completed: 2026-10-01
+tokens_input: 4792089
+tokens_output: 55894
+tokens_cache_read: 4673086
+tokens_cache_write: 118913
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 03: the required-check logic Summary

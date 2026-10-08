@@ -68,6 +68,12 @@ verification:
 
 duration: ~10 min (2 sessions; resumed once after a turn limit)
 completed: 2026-09-28
+tokens_input: 7123293
+tokens_output: 60055
+tokens_cache_read: 6989912
+tokens_cache_write: 133253
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 09: Skills + MCP wiring Summary

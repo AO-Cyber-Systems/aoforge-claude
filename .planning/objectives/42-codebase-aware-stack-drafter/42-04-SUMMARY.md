@@ -51,6 +51,12 @@ verification:
 
 duration: 30min
 completed: 2026-09-28
+tokens_input: 10562130
+tokens_output: 118467
+tokens_cache_read: 10356159
+tokens_cache_write: 205842
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 04: Task-runner reader (Make / Task / just / npm-family / conventional scripts) Summary

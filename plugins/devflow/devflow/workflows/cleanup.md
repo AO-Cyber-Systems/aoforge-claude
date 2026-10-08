@@ -96,9 +96,24 @@ No objective directories found to archive. Objectives may have been removed or a
 
 Stop here.
 
-AskUserQuestion: "Proceed with archiving?" with options: "Yes — archive listed objectives" | "Cancel"
+Ask before moving anything:
+
+```
+AskUserQuestion([
+  {
+    header: "Archive",
+    question: "Proceed with archiving the objective directories listed above?",
+    multiSelect: false,
+    options: [
+      { label: "Cancel (Recommended)", description: "Leave every objective directory where it is" },
+      { label: "Archive listed objectives", description: "Move them to .planning/milestones/v{X.Y}-objectives/" }
+    ]
+  }
+])
+```
 
 If "Cancel": Stop.
+If "Archive listed objectives": Continue to archive_objectives.
 
 </step>
 

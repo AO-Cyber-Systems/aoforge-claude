@@ -48,6 +48,12 @@ metrics:
   tasks: 2 (plus one follow-up fix from the dispatch note)
   files: 6
   tests-added: "gh-pr-reconcile.test.cjs 29 (16 reconcile, 13 merge); gh-pr-cli.test.cjs +12 (31 total, 13d updated)"
+tokens_input: 10214482
+tokens_output: 94996
+tokens_cache_read: 10007252
+tokens_cache_write: 207102
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 12: `gh pr merge` and `gh pr reconcile` Summary

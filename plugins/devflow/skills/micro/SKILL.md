@@ -10,6 +10,8 @@ allowed-tools:
   - Edit
   - Bash
   - AskUserQuestion
+  - TaskCreate
+  - TaskUpdate
 ---
 <objective>
 Execute sub-30-LOC, single-file changes with atomic-commit guarantees and STATE.md tracking (local mode), in a single context window.

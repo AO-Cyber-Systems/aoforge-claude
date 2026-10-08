@@ -113,3 +113,84 @@ No requirement is unsatisfied: 58/58. See `milestones/v1.4-MILESTONE-AUDIT.md` (
 - **Tooling:** `df-tools milestone complete` still counts every objective directory, so this entry was written by hand.
 
 ---
+
+## v1.5 Gate & Plumbing (Completed: 2026-10-08)
+
+**Objectives completed:** 10 objectives (55–64), 81 TRDs, all executed (64 includes one gap-closure cycle, 64-07 to 64-10).
+
+**Delivered:**
+- **Edit gate:** it now covers Bash writes to tracked source, not just `Edit`/`Write`.
+- **Plumbing and correctness:** cleared the debt that v1.4 and the live store smoke surfaced: objective lookups, state and merge, store-mode rough edges and observability.
+- **Built-in adoption (Phase J):** skills and workflows now use Claude Code's progress, plan-mode, question and todo built-ins.
+- **Estimation engine (Phase K):** an agentic engine prints time, token and dollar estimates with their confidence. It was then measured out of sample. It does **not** yet meet its own accuracy target on minutes (EST-08, accepted as not met).
+
+**Release:** **v2.13.2** carried Objective 55. Objectives 56–64 are in `[Unreleased]` on `feat/stack-profile-loader` and are not released yet.
+- **Git range:** `f88e283b` → `bb0558a6`.
+- **Volume:** 544 commits, 119 of them `feat(`. 681 files changed (+86,949 / −1,149); plugin files: 260 changed (+43,701 / −997).
+- **Tests:** 11,071 in total, 11,037 pass, 0 fail, 34 skipped.
+- **Timeline:** 2026-10-05 → 2026-10-08.
+
+**Key accomplishments:**
+- **Store live-smoke fixes (55, shipped in 2.13.2):**
+  - `gh setup` ruleset bypass actors and `references/` in the checks sparse-checkout.
+  - An unpushed-commit guard on verify, merge and reconcile.
+  - Wiki retry and store issue naming, proven against real GitHub.
+- **Objective-number correctness (56):**
+  - One `text-escape.cjs`, with a CI ratchet against hand-rolled escapes.
+  - `4.1` never selects `04.10-*`, and lookups tolerate leading zeros.
+  - Requirement IDs come only from ID-shaped tokens.
+- **Estimation engine (57–58, 64):**
+  - Token data stamped into SUMMARYs and backfilled from transcripts.
+  - `df-tools calibrate`: deterministic, measured agent overhead, and from 64 a recency window that defaults to 10 objectives.
+  - `df-tools estimate task|trd|objective|milestone|start|wave|finish|backtest`.
+  - Estimate tables in PLANNING COMPLETE, a one-line build estimate, a status-line ETA, and actual against estimate in wave reports.
+  - Run history archived per objective, so future validation is prospective.
+- **State and merge plumbing (59):**
+  - A JSON-aware merge driver for `state.json` and `STATE_ARCHIVE.md`.
+  - `state advance-job --objective` derives Status from disk.
+  - `--cwd` worktree preflight, `milestone complete` scoped to the milestone bullet, and truthful change flags.
+- **Edit gate on Bash writes (60):**
+  - `gate-bash-writes.js` covers redirects, `tee`, `sed -i`, `cp`/`mv` and inline interpreter writes. Mentions are never gated.
+  - The false-positive rate was measured by `session-audit` at ≤ 0.035 (an upper bound). The default therefore ships as `warn`, and `strict` is opt-in.
+- **Store-mode rough edges and observability (61):**
+  - A checks-workflow pin warning (W062).
+  - `requires:` skill gating through doctor.
+  - Current model ids, with a stale-id warning (W063).
+  - `telemetry --scan`.
+  - A throttled SessionStart `transcript-export`.
+  - Objective-named PR titles.
+- **Built-in sweep and todo store (62–63):**
+  - TaskCreate/TaskUpdate progress, plan-mode draft review, and AskUserQuestion in every skill and workflow, enforced by a CI ratchet.
+  - `/devflow:todo` on the session task list, with a Stop-hook sync into a durable archive.
+  - A hook coexistence suite.
+  - `docs/built-in-integration-status.md`.
+
+### Known Gaps
+
+The audit status is `gaps_found` (35/36 requirements, 10/10 objectives, integration 11/12, flows 4/4). See `milestones/v1.5-MILESTONE-AUDIT.md`.
+
+- **EST-08 (Objective 64), unsatisfied but accepted on 2026-10-08.** The requirement: across 59–63, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes.
+  - **Measured on the frozen pre-59 calibration:**
+    - Agent-minutes median ratio: 1.51, with 2/5 objectives in band.
+    - Cost: median ratio 0.86, 4/5 objectives in band.
+    - P90 covers 5/5 objectives on minutes.
+  - **After honest gap closure** (recency window 10, chosen on 46–58 and validated leave-future-out): the minutes ratio improved to 1.24, but still only 2/5 objectives are in band, and cost P90 coverage is 78% of TRDs.
+  - **Only prospective point:** objective 63 came in at 0.87× its pre-recorded wall estimate.
+  - **Follow-up:** todo `recalibrate-estimate-minutes-est-08-not-met`. Retest prospectively on the next five objectives.
+- **Not live locally.** The installed runtime is 2.13.2. It lacks the v1.5 libraries (todo-sync, checks-pin, estimate-backtest, skill-requires, builtin-audit) and the new hooks. They become live after a release from `main` and a session restart.
+- **Still open from earlier milestones:**
+  - CI `ANTHROPIC` secret (32/33).
+  - Branch protection on `main` (34).
+  - The docs site deploy: the Cloudflare Pages project `devflow-docs` is not found.
+- **Tech debt for the next milestone:**
+  - `milestone complete` has no `--dry-run` and silently ignores unknown flags.
+  - `milestone-scope.cjs` uses a local objective-directory parser instead of the 56 helpers.
+  - `milestone complete` re-run duplicates its MILESTONES entry.
+  - `objective remove` renumbering rewrites dates.
+  - 58's SUMMARY frontmatter omits EST-02 and EST-04.
+  - The executor token stamp is missing from the installed runtime (todo).
+  - `planning draft` can be staler than the live file.
+  - The `verify-commits.js` SubagentStop output shape.
+  - df-tools noise: a no-op `state update-progress`, `objective-job-index` showing gap_closure as null, and `verify trd-pre 64` returning "not found".
+
+---

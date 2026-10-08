@@ -59,6 +59,12 @@ verification:
 
 duration: 45min
 completed: 2026-09-29
+tokens_input: 12288986
+tokens_output: 178689
+tokens_cache_read: 11966799
+tokens_cache_write: 322062
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 03: Structured CI parsing, shell normalisation and semantic classification Summary

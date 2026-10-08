@@ -37,6 +37,12 @@ verification:
 
 duration: ~70min
 completed: 2026-09-28
+tokens_input: 4967063
+tokens_output: 31513
+tokens_cache_read: 4875204
+tokens_cache_write: 91749
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 12: Simulated `/devflow:adopt` run — Node CLI, then adopt again (E2E proof a) Summary

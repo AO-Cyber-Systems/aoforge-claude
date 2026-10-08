@@ -26,6 +26,12 @@ key-decisions:
   - "Engine version is read from plugins/devflow/.claude-plugin/plugin.json at test time; the project stamp is 2.0.0 so it is always behind."
 duration: 8m
 completed: 2026-09-30
+tokens_input: 7872089
+tokens_output: 45664
+tokens_cache_read: 7710403
+tokens_cache_write: 161572
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 08: Doctor end-to-end on an aodex-like fixture Summary

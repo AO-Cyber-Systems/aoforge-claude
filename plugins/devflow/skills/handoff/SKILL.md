@@ -8,6 +8,7 @@ argument-hint: <command to run interactively or via user shell>
 allowed-tools:
   - Bash
   - Write
+  - AskUserQuestion
 ---
 <objective>
 Route a command that needs the user's shell — either because it requires a TTY (auth flows, password prompts) or because it depends on the user's interactive shell env (aliases, mise/nvm/conda activations, sourced rc files) — through that shell without losing session context.
@@ -105,8 +106,44 @@ On the user's next turn:
 In either case:
 1. Read the output as if you had run the command yourself
 2. Continue with whatever follow-on work was queued (e.g. for `doctl auth init`, the next step would be `doctl account get` or `doctl apps list`)
-3. If the command failed (`exit_code != 0`) or was cancelled, ask the user what they'd like to do — do not silently retry
-4. If the daemon **rejected** the command (status: rejected), do NOT retry — the allowlist excluded it. Ask the user to either run it manually or extend the allowlist.
+3. If the command failed (`exit_code != 0`) or was cancelled, never retry it silently. Ask with AskUserQuestion:
+
+   ```
+   AskUserQuestion([
+     {
+       header: "Handoff",
+       question: "`{cmd}` failed (exit {exit_code}) or was cancelled. What next?",
+       multiSelect: false,
+       options: [
+         { label: "Retry", description: "Hand the command off again from record_pending" },
+         { label: "Run it myself", description: "You paste `! {cmd}` and I continue from its output" },
+         { label: "Stop", description: "Drop it and continue without the result" }
+       ]
+     }
+   ])
+   ```
+
+   On "Retry", go back to record_pending with the same command. On "Run it myself", print the Approach A paste
+   instruction. On "Stop", report what could not run and carry on with what does not depend on it.
+4. If the daemon **rejected** the command (status: rejected), do NOT retry — the allowlist excluded it. Ask with
+   AskUserQuestion, which offers no Retry:
+
+   ```
+   AskUserQuestion([
+     {
+       header: "Handoff",
+       question: "The devflow-watch allowlist rejected `{cmd}`. How do you want to run it?",
+       multiSelect: false,
+       options: [
+         { label: "Run it myself (Recommended)", description: "You paste `! {cmd}` and I continue from its output" },
+         { label: "Extend allowlist", description: "You add it to ~/.devflow/devflow-watch-allow.json; I do not retry it" }
+       ]
+     }
+   ])
+   ```
+
+   On "Run it myself", print the Approach A paste instruction. On "Extend allowlist", say where the file is and stop:
+   a new handoff is the user's call once the pattern is added.
 
 </step>
 

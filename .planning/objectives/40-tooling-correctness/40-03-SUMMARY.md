@@ -51,6 +51,12 @@ verification:
 # Metrics
 duration: 4min
 completed: 2026-09-28
+tokens_input: 3989972
+tokens_output: 30148
+tokens_cache_read: 3887250
+tokens_cache_write: 102632
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 40 TRD 03: `intent resolve --objective <N>` finds slugged objective directories Summary

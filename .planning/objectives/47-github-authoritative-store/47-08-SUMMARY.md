@@ -54,6 +54,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-01
+tokens_input: 8518557
+tokens_output: 87280
+tokens_cache_read: 8315944
+tokens_cache_write: 202497
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 08: SUMMARY / VERIFICATION comments, scope changes, freeze and fold Summary

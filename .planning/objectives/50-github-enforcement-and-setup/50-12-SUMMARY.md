@@ -43,6 +43,12 @@ verification:
 
 duration: ~10min
 completed: 2026-10-01
+tokens_input: 8716490
+tokens_output: 67394
+tokens_cache_read: 8529177
+tokens_cache_write: 187197
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50: GitHub Enforcement and Setup, TRD 12: Enforcement end to end and store-off parity Summary

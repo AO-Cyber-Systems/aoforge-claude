@@ -46,6 +46,12 @@ verification:
 
 duration: 15min
 completed: 2026-10-01
+tokens_input: 6214854
+tokens_output: 74562
+tokens_cache_read: 6034225
+tokens_cache_write: 180529
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50: GitHub Enforcement and Setup, TRD 01: Fake GitHub setup and check routes Summary

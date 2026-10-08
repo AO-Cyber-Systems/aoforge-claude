@@ -78,9 +78,22 @@ Proceed directly to cleanup_handoff step.
 
 <if mode="interactive" OR="custom with gates.confirm_transition true">
 
-Ask: "Objective [X] complete — all [Y] plans finished. Ready to mark done and move to Objective [X+1]?"
+```
+AskUserQuestion([
+  {
+    header: "Transition",
+    question: "Objective [X] complete: all [Y] plans finished. Mark it done and move on to Objective [X+1]?",
+    multiSelect: false,
+    options: [
+      { label: "Mark done (Recommended)", description: "Mark Objective [X] complete and advance to Objective [X+1]" },
+      { label: "Not yet", description: "Leave Objective [X] open and stop the transition here" }
+    ]
+  }
+])
+```
 
-Wait for confirmation before proceeding.
+- If "Mark done": proceed to cleanup_handoff step.
+- If "Not yet": stop. Nothing is marked done.
 
 </if>
 
@@ -98,14 +111,28 @@ Objective [X] has incomplete jobs:
 - {objective}-03-SUMMARY.md ✗ Missing
 
 ⚠️ Safety rail: Skipping plans requires confirmation (destructive action)
-
-Options:
-1. Continue current objective (execute remaining jobs)
-2. Mark complete anyway (skip remaining jobs)
-3. Review what's left
 ```
 
-Wait for user decision.
+Then ask, in every mode (yolo and autonomous included):
+
+```
+AskUserQuestion([
+  {
+    header: "Incomplete",
+    question: "Objective [X] has incomplete jobs. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Continue objective (Recommended)", description: "Stay on Objective [X] and execute the remaining jobs" },
+      { label: "Review what's left", description: "List the jobs that have no SUMMARY, then ask again" },
+      { label: "Mark complete anyway", description: "Skip the remaining jobs (destructive)" }
+    ]
+  }
+])
+```
+
+- If "Continue objective": stop the transition and execute the remaining jobs (`/devflow:execute-objective [X]`).
+- If "Review what's left": list each job without a SUMMARY with its one-line goal, then ask the same question again.
+- If "Mark complete anyway": apply "If marking complete with incomplete jobs" from `<partial_completion>`, then proceed to cleanup_handoff step.
 
 </step>
 
@@ -515,14 +542,27 @@ If user wants to move on but objective isn't fully complete:
 Objective [X] has incomplete jobs:
 - {objective}-02-JOB.md (not executed)
 - {objective}-03-JOB.md (not executed)
+```
 
-Options:
-1. Mark complete anyway (plans weren't needed)
-2. Defer work to later objective
-3. Stay and finish current objective
+```
+AskUserQuestion([
+  {
+    header: "Partial",
+    question: "Objective [X] still has incomplete jobs. How do you want to move on?",
+    multiSelect: false,
+    options: [
+      { label: "Stay and finish (Recommended)", description: "Stay on Objective [X] and execute the remaining jobs" },
+      { label: "Mark complete anyway", description: "The remaining plans weren't needed" },
+      { label: "Defer to later objective", description: "Move the remaining work to a later objective" }
+    ]
+  }
+])
 ```
 
 Respect user judgment — they know if work matters.
+
+- If "Stay and finish": stop the transition. Nothing is marked done.
+- If "Mark complete anyway" or "Defer to later objective": apply the rules below. For a deferral, the transition message names the objective that takes the deferred work.
 
 **If marking complete with incomplete jobs:**
 

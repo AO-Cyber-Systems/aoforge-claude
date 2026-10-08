@@ -3,7 +3,7 @@
   "depth": "standard",
   "job_checker_enabled": true,
   "workflow": {
-    "research": true,
+    "research": false,
     "job_check": true,
     "verifier": true,
     "auto_advance": true,
@@ -75,11 +75,12 @@
     "status_line": false
   },
   "devflow": {
-    "version": "2.12.0",
+    "version": "2.13.1",
     "migrations_applied": [
       "0001",
-      "0004"
+      "0004",
+      "0009"
     ],
-    "upgraded_at": "2026-10-03T15:29:02.765Z"
+    "upgraded_at": "2026-10-05T15:07:42.776Z"
   }
 }

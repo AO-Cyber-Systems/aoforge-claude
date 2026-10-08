@@ -33,6 +33,12 @@ verification:
   test_pairing: true
 duration: 30min (this continuation; Task 1 ran in an earlier session)
 completed: 2026-10-03
+tokens_input: 27096278
+tokens_output: 234982
+tokens_cache_read: 26148753
+tokens_cache_write: 947145
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 07: Fleet `stack verify --run` Summary

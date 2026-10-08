@@ -46,6 +46,12 @@ verification:
 
 duration: 6min
 completed: 2026-10-05
+tokens_input: 5973213
+tokens_output: 37717
+tokens_cache_read: 5855359
+tokens_cache_write: 117744
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 05: objective put hint and reconcile by content Summary

@@ -31,6 +31,12 @@ metrics:
   tasks: 2
   files: 4
   completed: 2026-09-29
+tokens_input: 5560001
+tokens_output: 39867
+tokens_cache_read: 5451752
+tokens_cache_write: 108129
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 01: Uncap executor/verifier and make truncation a resumable INCOMPLETE outcome — Summary

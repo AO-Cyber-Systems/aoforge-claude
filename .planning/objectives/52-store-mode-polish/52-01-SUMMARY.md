@@ -54,6 +54,12 @@ verification:
 
 duration: 15min
 completed: 2026-10-04
+tokens_input: 15276448
+tokens_output: 81962
+tokens_cache_read: 15063673
+tokens_cache_write: 212581
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 52 TRD 01: Gate-aware printed commit follow-ups Summary

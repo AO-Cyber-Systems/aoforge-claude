@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error, safeReadFile } = require('./helpers.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── YAML Frontmatter Parser ──────────────────────────────────────────────────
 
@@ -219,7 +220,6 @@ function spliceFrontmatter(content, newObj) {
 
 // ─── Comment-preserving scalar setter (TRD 46-06) ─────────────────────────────
 
-const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const unquote = (s) => String(s).trim().replace(/^(["'])(.*)\1$/, '$2');
 
 /**
@@ -266,7 +266,7 @@ function setFrontmatterField(filePath, key, value, opts = {}) {
 
   let nextBlock;
   const lines = block.split('\n');
-  const keyRe = new RegExp('^' + escapeRe(k) + ':[ \\t]*(.*)(\\r?)$');
+  const keyRe = new RegExp('^' + escapeRegExp(k) + ':[ \\t]*(.*)(\\r?)$');
   let at = -1;
   let inline = '';
   let cr = '';
@@ -329,7 +329,7 @@ function parseMustHavesBlock(content, blockName) {
 
   // Find the block header (e.g. "truths:", "artifacts:", "key_links:") at the child indent.
   // With no column-0 `must_haves:` (a fixture that indents it), the old 4-space search stands.
-  const header = new RegExp(`^ {${childIndent}}${blockName}:\\s*$`);
+  const header = new RegExp(`^ {${childIndent}}${escapeRegExp(blockName)}:\\s*$`);
   let headerAt = -1;
   for (let i = from; i < to; i++) {
     if (header.test(lines[i])) { headerAt = i; break; }

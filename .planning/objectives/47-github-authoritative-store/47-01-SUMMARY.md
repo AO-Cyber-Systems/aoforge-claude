@@ -53,6 +53,12 @@ verification:
 
 duration: 13min
 completed: 2026-10-01
+tokens_input: 4379590
+tokens_output: 81020
+tokens_cache_read: 4227665
+tokens_cache_write: 151847
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 01: TRD codec, scope budget, scope comments, fold, spec-rev Summary

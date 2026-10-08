@@ -51,17 +51,22 @@ If both scope and filter provided, pass scope to the filtered agent(s).
 </step>
 
 <step name="check_existing">
-If `existing_report` is true:
+If `existing_report` is true, ask:
 
 ```
-A previous SECURITY-AUDIT.md exists at {report_path}.
-
-Options:
-1. Re-scan — Run fresh audit (overwrites previous report)
-2. Cancel — Keep existing report
+AskUserQuestion([
+  {
+    header: "Audit scope",
+    question: "A previous SECURITY-AUDIT.md exists at {report_path}. Run a fresh audit?",
+    multiSelect: false,
+    options: [
+      { label: "Re-scan (Recommended)", description: "Run a fresh audit and overwrite the previous report" },
+      { label: "Cancel", description: "Keep the existing report and stop" }
+    ]
+  }
+])
 ```
 
-Wait for user response.
 If "Re-scan": Continue to cleanup_stale.
 If "Cancel": Exit workflow.
 

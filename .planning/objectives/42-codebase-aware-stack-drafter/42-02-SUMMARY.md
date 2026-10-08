@@ -61,6 +61,12 @@ verification:
 
 duration: 45min
 completed: 2026-09-28
+tokens_input: 12074062
+tokens_output: 74672
+tokens_cache_read: 11706602
+tokens_cache_write: 367299
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 02: Ship fixed go/dart/flutter as bundled tier-2 profiles Summary

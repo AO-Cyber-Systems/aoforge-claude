@@ -56,6 +56,12 @@ metrics:
 verification:
   gates_defined: 3
   gates_passed: 3
+tokens_input: 15448868
+tokens_output: 102494
+tokens_cache_read: 15201251
+tokens_cache_write: 247461
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 10: Autonomous hook markers leave `.planning/`, plus the SC1 audit Summary

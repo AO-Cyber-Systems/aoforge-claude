@@ -48,6 +48,12 @@ requirements-completed: ["UPG-08"]
 # Metrics
 duration: 4min
 completed: 2026-09-27
+tokens_input: 4035482
+tokens_output: 29516
+tokens_cache_read: 3945372
+tokens_cache_write: 90014
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 36 TRD 08: Dogfood the upgrade on this repo; document what shipped Summary

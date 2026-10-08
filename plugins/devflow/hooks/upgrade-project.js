@@ -16,6 +16,19 @@
  *      1-4) comes AFTER this call, so the prune is not skipped along with them. The call is wrapped
  *      in its own try/catch: any error writes one `[devflow] backup prune skipped: <msg>` line to
  *      stderr and the hook continues; stdout stays empty; exit code stays 0.
+ *   0b. Transcript export (objective 61, OBS-03): `transcript-export-schedule.runScheduled` starts
+ *      `df-tools transcript-export` at most once per 24 h, in EVERY session, right after the prune
+ *      and before the same early returns. The export preserves a compact per-session index at
+ *      ~/.claude/devflow/transcript-index.jsonl before Claude Code's retention deletes the
+ *      transcripts (the 2026-08-18 audit lost 164 sessions); nothing ran it. It is a DETACHED
+ *      child (unref'd, stdio ignored) running the BUNDLED df-tools, never the mirror: a first run
+ *      reads every transcript (gigabytes) and must not hold up session start, and the export is
+ *      incremental, so later runs are cheap. The 24 h window is CLAIMED (stamp written to
+ *      ~/.claude/devflow/state/transcript-export/last-run.json) BEFORE the spawn, so sessions that
+ *      start together start one export; a child that dies leaves the window claimed and the next
+ *      window catches up. No ~/.claude/projects → nothing spawned, nothing written. Own try/catch:
+ *      any error writes one `[devflow] transcript export skipped: <msg>` line to stderr and the
+ *      hook continues; stdout stays empty; exit code stays 0.
  *   1. Fast path: `.planning/config.json` `devflow.version` equals the bundled plugin version →
  *      exit. One small JSON read; nothing else is required or written.
  *   2. Apply: run the `auto` migrations synchronously via the BUNDLED upgrade.cjs (never the
@@ -31,8 +44,8 @@
  *   node upgrade-project.js                                   SessionStart hook
  *   node upgrade-project.js --commit-child <root> <ver> <f…>  the detached commit child
  *
- * Escape hatches: DEVFLOW_SKIP_UPGRADE=1 (steps 1-4; the prune still runs),
- * DEVFLOW_SKIP_PRUNE=1 (step 0 only; the upgrade still runs).
+ * Escape hatches, each independent of the others: DEVFLOW_SKIP_UPGRADE=1 (steps 1-4),
+ * DEVFLOW_SKIP_PRUNE=1 (step 0), DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1 (step 0b).
  * Contract: stdout stays empty (SessionStart stdout becomes context), never throws, exit 0.
  */
 
@@ -249,6 +262,17 @@ function skipReason(state, changedFiles) {
 
 // ─── the hook ─────────────────────────────────────────────────────────────────
 
+/**
+ * The export child: a detached, unref'd `node <bundled df-tools> transcript-export …` with its stdio
+ * ignored, so SessionStart never waits for it (a first run reads every transcript). The `error`
+ * listener keeps an asynchronous spawn failure from becoming an uncaught exception.
+ */
+function spawnTranscriptExport(args) {
+  const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore', env: process.env });
+  child.on('error', () => {});
+  child.unref();
+}
+
 function main() {
   // Objective 37 (ADP-05): prune ~/.claude/devflow/backups at most once per 24 h. Runs first so it
   // happens in EVERY session (sync-runtime.js exits at its version fast path, so it does not).
@@ -257,6 +281,23 @@ function main() {
       require(path.join(LIB, 'backup-prune.cjs')).runThrottled({ userHome: os.homedir(), now: new Date() });
     } catch (e) {
       process.stderr.write(`[devflow] backup prune skipped: ${e.message}\n`);
+    }
+  }
+
+  // Objective 61 (OBS-03): start `df-tools transcript-export` in the background at most once per
+  // 24 h. Same placement and independence as the prune: before the upgrade early returns, skipped
+  // only by its own escape.
+  if (process.env.DEVFLOW_SKIP_TRANSCRIPT_EXPORT !== '1') {
+    try {
+      require(path.join(LIB, 'transcript-export-schedule.cjs')).runScheduled({
+        userHome: os.homedir(),
+        now: new Date(),
+        env: process.env,
+        dfTools: DF_TOOLS,
+        spawnChild: spawnTranscriptExport,
+      });
+    } catch (e) {
+      process.stderr.write(`[devflow] transcript export skipped: ${e.message}\n`);
     }
   }
 

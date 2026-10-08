@@ -51,6 +51,12 @@ metrics:
   completed: 2026-09-29T15:12:25Z
   tasks: 2
   files_modified: 4
+tokens_input: 5131108
+tokens_output: 36047
+tokens_cache_read: 5004427
+tokens_cache_write: 126591
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 44 TRD 10: gap closure (stale REBASE_HEAD, SUMMARY path in gate reason) Summary

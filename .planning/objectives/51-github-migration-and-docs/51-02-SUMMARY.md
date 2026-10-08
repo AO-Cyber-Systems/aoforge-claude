@@ -40,6 +40,12 @@ verification:
 
 duration: 25min
 completed: 2026-10-01
+tokens_input: 11292290
+tokens_output: 79822
+tokens_cache_read: 11115118
+tokens_cache_write: 177002
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 02: The 20-objective backfill fixture Summary

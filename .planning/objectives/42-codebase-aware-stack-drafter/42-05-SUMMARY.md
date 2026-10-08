@@ -59,6 +59,12 @@ requirements-completed: [SDR-01, SDR-04]
 
 duration: ~45min
 completed: 2026-09-28
+tokens_input: 10876077
+tokens_output: 77089
+tokens_cache_read: 10656926
+tokens_cache_write: 219009
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 05: Codebase detection, Dart-vs-Flutter, and usable components Summary

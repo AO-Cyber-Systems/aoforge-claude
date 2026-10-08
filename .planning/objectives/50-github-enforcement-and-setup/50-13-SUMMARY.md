@@ -40,6 +40,12 @@ verification:
 
 duration: ~35min
 completed: 2026-10-01
+tokens_input: 9483305
+tokens_output: 47451
+tokens_cache_read: 9324656
+tokens_cache_write: 158513
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50: GitHub Enforcement and Setup, TRD 13: Docs and the full suite Summary

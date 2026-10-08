@@ -27,6 +27,12 @@ metrics:
   duration: 23min
   completed: 2026-10-04
 requirements: ["53-1"]
+tokens_input: 10560959
+tokens_output: 56835
+tokens_cache_read: 10233335
+tokens_cache_write: 327472
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 53 TRD 01: Summary verbs write the checkout that commits them

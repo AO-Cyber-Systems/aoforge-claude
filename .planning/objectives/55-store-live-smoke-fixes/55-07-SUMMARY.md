@@ -43,6 +43,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-05
+tokens_input: 11772961
+tokens_output: 51787
+tokens_cache_read: 11651157
+tokens_cache_write: 121594
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 55 TRD 07: Live objective-2 lifecycle Summary

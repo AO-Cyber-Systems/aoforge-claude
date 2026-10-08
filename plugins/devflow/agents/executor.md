@@ -33,37 +33,47 @@ Your job: Execute the TRD completely, commit each task, publish the SUMMARY thro
 <step name="repo_base_preflight" priority="first">
 **Run this before anything else — before reading the TRD, before any edit, before any commit.**
 
-Your dispatch names the repository you are working in (`REPO_ROOT`) and the commit your
-work must build on (`WAVE_BASE` — the previous wave's tip, or the objective branch tip).
-Prove both before you do any work:
+Your dispatch names the repository you are working in (`REPO_ROOT`), the commit your
+work must build on (`WAVE_BASE` — the previous wave's tip, or the objective branch tip) and
+the tree you work in (`CHECKOUT` — your provisioned worktree for a parallel wave, `REPO_ROOT`
+for a sequential one). Prove all three before you do any work:
 
 ```bash
-# One plain command. Substitute the literal absolute path and ref from your dispatch —
+# One plain command. Substitute the literal absolute paths and ref from your dispatch —
 # a shell variable set here does NOT survive into the next Bash call.
-node ~/.claude/devflow/bin/df-tools.cjs exec-context check --repo <REPO_ROOT> --base <WAVE_BASE> --id <plan_id>
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <CHECKOUT> exec-context check --repo <REPO_ROOT> --base <WAVE_BASE> --id <plan_id>
 ```
+
+**Every Bash call starts in the session's directory, not in your worktree.** For a parallel
+wave that directory is the MAIN checkout, so a check without `--cwd <CHECKOUT>` inspects the
+wrong tree (thirteen earlier SUMMARYs record that detour).
+If your dispatch names no `CHECKOUT`, use `REPO_ROOT`.
 
 **Exit 0** — the JSON reports `checkout`, `repo_root`, `branch`, `head_sha`,
 `base_visible: true`.
 
 Note **`checkout`** down as a literal absolute path: that is the tree you are standing in,
-and every path you write is absolute from it. **Not `repo_root`** — `repo_root` names the
+and every path you write is absolute from it. Because each Bash call starts in the session's
+directory, every later df-tools call takes `--cwd <checkout>` and every git call takes
+`git -C <checkout>`. **Not `repo_root`** — `repo_root` names the
 REPOSITORY, and when `is_worktree` is `true` it is the MAIN checkout, which is the tree the
 orchestrator and every other wave share (issue #100 finding 1). A parallel wave provisioned
 into `.df-worktrees/<repo>/<id>` that writes "absolute from `repo_root`" writes into that
 shared tree — exactly the collision explicit provisioning exists to prevent.
 
 **Exit 1 — STOP. Do not proceed, do not "try the paths anyway", do not create files.**
-The three failures it reports are the two halves of issue #86, plus the shared-index race of issue #98:
+The failures it reports are the two halves of issue #86, the shared-index race of issue #98, and a check run outside your worktree:
 
 | Message | What happened | What to do |
 |---|---|---|
 | `WRONG REPOSITORY` | You are rooted in a different repo from the one you were given. Every path in your TRD points somewhere you cannot see. | Report it and stop. The dispatch must be re-issued with the working directory inside the named repo, or with a worktree from `exec-context worktree`. Nothing you write here can land. |
 | `BASE NOT VISIBLE` | Your HEAD does not contain the base you were given — you are branched from the default branch rather than from the previous wave's output. | Report it and stop. Re-dispatch from a tree based on `WAVE_BASE`; building on a missing base silently re-does or contradicts the previous wave. |
 | `SHARED INDEX` | Another executor with a different plan id already claimed this checkout for this base — you are a parallel sibling sharing its git index. Commits would interleave. | Report it and stop. Each parallel TRD must be re-dispatched into its own tree from `exec-context worktree --repo <REPO_ROOT> --id <plan_id> --base <WAVE_BASE>`. Only if the other executor is known dead: `exec-context release`. |
+| `WRONG CHECKOUT` | A worktree was provisioned for your plan id and the check ran elsewhere (usually the main checkout). Nothing was claimed or written. | Run the `--cwd` command it prints, then continue. |
 
-All three are hard stops. Say which one fired, quote the command's output, and end your turn —
-a failed preflight is a dispatch defect, not something to work around.
+The first three are hard stops. Say which one fired, quote the command's output, and end your
+turn — a failed preflight is a dispatch defect, not something to work around. `WRONG CHECKOUT`
+is the exception: it is corrected by the re-run, because nothing was written and no claim was taken.
 
 If your dispatch gave you no `REPO_ROOT`, **you cannot run the check at all** — checking
 against your own working directory compares the repository you are in with the repository
@@ -944,7 +954,7 @@ TaskUpdate(taskId=task_id, status="completed")
 </task_commit_protocol>
 
 <summary_creation>
-After all tasks complete, finish the SUMMARY in your draft: the `planning draft` path from the first task. It already holds `## Progress`. The self-check below adds `## Self-Check` and then publishes it once:
+After all tasks complete, finish the SUMMARY in your draft: the `planning draft` path from the first task. It already holds `## Progress`. The self-check below adds `## Self-Check`, stamps your token usage and then publishes it once:
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>
@@ -956,7 +966,7 @@ node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <d
 
 **Use template:** @~/.claude/devflow/templates/summary.md
 
-**Frontmatter:** objective, trd (or legacy job), subsystem, tags, dependency graph (requires/provides/affects), tech-stack (added/patterns), key-files (created/modified), decisions, metrics (duration, completed date).
+**Frontmatter:** objective, trd (or legacy job), subsystem, tags, dependency graph (requires/provides/affects), tech-stack (added/patterns), key-files (created/modified), decisions, metrics (duration, completed date), token usage (stamped by `df-tools tokens stamp`, never typed).
 
 **Title:** `# Objective [X] TRD [Y]: [Name] Summary`
 
@@ -1050,11 +1060,17 @@ After finishing the SUMMARY draft, verify its claims before you publish it.
 git log --oneline --all | grep -q "{hash}" && echo "FOUND: {hash}" || echo "MISSING: {hash}"
 ```
 
-**3. Add the result to the draft, then post it once:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed, then:
+**3. Add the result to the draft, stamp your token usage into it, then post it once:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed. Then the stamp and the post, two separate commands:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs tokens stamp {objective}-{trd} --draft <draft path>
+```
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>
 ```
+
+`tokens stamp` reads your own executor transcript and adds `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, `token_model` and `tokens_source` to the draft's frontmatter (EST-06). If it reports `stamped: false`, or the command is unknown in an older runtime, post without them. Never type token numbers by hand.
 
 A non-zero exit is a blocker to report in your return, never a reason to put the file in place yourself.
 
@@ -1064,42 +1080,44 @@ Do NOT skip. Do NOT proceed to state updates if self-check fails.
 <state_updates>
 After posting the SUMMARY, record state through the df-tools `state` commands. They are store-aware; never touch STATE.md by hand:
 
+Every call below passes `--cwd <checkout>`: each Bash call starts in the session's directory, so without it the command updates the wrong tree. `<checkout>` is the literal path your preflight reported.
+
 ```bash
-# Advance TRD counter (handles edge cases automatically)
-node ~/.claude/devflow/bin/df-tools.cjs state advance-job
+# Derive Current/Total TRDs and Status from the objective's TRD and SUMMARY files on disk
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state advance-job --objective "${OBJECTIVE_NUMBER}"
 
 # Recalculate progress bar from disk state
-node ~/.claude/devflow/bin/df-tools.cjs state update-progress
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state update-progress
 
 # Record execution metrics
-node ~/.claude/devflow/bin/df-tools.cjs state record-metric \
-  --objective "${OBJECTIVE}" --trd "${TRD}" --duration "${DURATION}" \
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state record-metric \
+  --objective "${OBJECTIVE}" --job "${TRD}" --duration "${DURATION}" \
   --tasks "${TASK_COUNT}" --files "${FILE_COUNT}"
 
 # Add decisions (extract from SUMMARY.md key-decisions)
 for decision in "${DECISIONS[@]}"; do
-  node ~/.claude/devflow/bin/df-tools.cjs state add-decision \
+  node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state add-decision \
     --objective "${OBJECTIVE}" --summary "${decision}"
 done
 
 # Update session info
-node ~/.claude/devflow/bin/df-tools.cjs state record-session \
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state record-session \
   --stopped-at "Completed ${OBJECTIVE}-${TRD}-TRD.md"
 ```
 
 ```bash
-# Update ROADMAP.md progress for this objective (TRD counts, status)
-node ~/.claude/devflow/bin/df-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
+# Recompute this objective's roadmap progress row (TRD counts, status)
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> roadmap update-job-progress "${OBJECTIVE_NUMBER}"
 
 # Mark completed requirements from TRD.md frontmatter
 # Extract the `requirements` array from the TRD's frontmatter, then mark each complete
-node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete ${REQ_IDS}
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> requirements mark-complete ${REQ_IDS}
 ```
 
 **Requirement IDs:** Extract from the TRD.md frontmatter `requirements:` field (e.g., `requirements: [AUTH-01, AUTH-02]`). Pass all IDs to `requirements mark-complete`. If the TRD has no requirements field, skip this step.
 
 **State command behaviors:**
-- `state advance-job`: Increments Current TRD, detects last-plan edge case, sets status
+- `state advance-job --objective N`: derives Current/Total TRDs and Status from the objective's TRD and SUMMARY files; never says ready for verification until every TRD has a SUMMARY
 - `state update-progress`: Recalculates the progress bar from the summary counts on disk
 - `state record-metric`: Appends to Performance Metrics table in STATE_ARCHIVE.md
 - `state add-decision`: Adds to Decisions section in STATE_ARCHIVE.md
@@ -1111,7 +1129,7 @@ node ~/.claude/devflow/bin/df-tools.cjs requirements mark-complete ${REQ_IDS}
 
 **For blockers found during execution:**
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs state add-blocker "Blocker description"
+node ~/.claude/devflow/bin/df-tools.cjs --cwd <checkout> state add-blocker "Blocker description"
 ```
 </state_updates>
 

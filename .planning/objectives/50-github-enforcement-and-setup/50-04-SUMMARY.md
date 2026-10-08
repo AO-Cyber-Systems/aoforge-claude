@@ -45,6 +45,12 @@ verification:
 
 duration: ~30min
 completed: 2026-10-01
+tokens_input: 7482918
+tokens_output: 63574
+tokens_cache_read: 7316516
+tokens_cache_write: 166284
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 04: Store Health Collector Summary

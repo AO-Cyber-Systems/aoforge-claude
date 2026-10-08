@@ -41,6 +41,12 @@ verification:
 # Metrics
 duration: ~20min
 completed: 2026-09-28
+tokens_input: 9665285
+tokens_output: 91472
+tokens_cache_read: 9440821
+tokens_cache_write: 224272
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 07: `lib/doc-staleness.cjs` — the four advisories Summary

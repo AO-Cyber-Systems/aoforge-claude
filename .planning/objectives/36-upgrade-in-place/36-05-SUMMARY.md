@@ -26,6 +26,12 @@ key-decisions:
 metrics:
   duration: "~25 min"
   completed: 2026-09-27
+tokens_input: 5659532
+tokens_output: 49025
+tokens_cache_read: 5546054
+tokens_cache_write: 113368
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 36 TRD 05: SessionStart upgrade hook, detached commit, one-shot notices Summary

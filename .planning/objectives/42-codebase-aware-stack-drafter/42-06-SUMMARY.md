@@ -52,6 +52,12 @@ verification:
 
 duration: 2 sessions (turn-limited; resumed once)
 completed: 2026-09-28
+tokens_input: 9778470
+tokens_output: 159667
+tokens_cache_read: 9459121
+tokens_cache_write: 319230
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 42 TRD 06: Command verification (`stack verify [--run]`) Summary

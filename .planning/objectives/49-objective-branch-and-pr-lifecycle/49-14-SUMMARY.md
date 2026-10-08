@@ -49,6 +49,12 @@ metrics:
   tasks: 2
   files: 1
   tests-added: "gh-pr-e2e.test.cjs 8 (6 lifecycle, 1 merge-queue, 1 store-off parity)"
+tokens_input: 7072184
+tokens_output: 56121
+tokens_cache_read: 6891362
+tokens_cache_write: 180716
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 14: Lifecycle end to end and store-off parity Summary

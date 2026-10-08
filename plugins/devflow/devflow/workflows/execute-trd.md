@@ -50,6 +50,7 @@ Auto-approve: `Execute {plan-file} [Plan X of Y for Objective Z]` → parse_segm
 </if>
 
 <if mode="interactive" OR="custom with gates.execute_next_job true">
+<!-- builtin-audit: allow subagent: this flow runs inside the executor subagent, which cannot reach the user; execute-objective owns the plan confirmation -->
 Present plan identification, wait for confirmation.
 </if>
 </step>
@@ -171,7 +172,7 @@ After all tasks complete, run a verification loop:
 </step>
 
 <step name="create_summary_with_evidence">
-Finish the SUMMARY in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path), then publish it once with `node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
+Finish the SUMMARY in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path). Stamp your token usage into the draft's frontmatter with `node ~/.claude/devflow/bin/df-tools.cjs tokens stamp {objective}-{trd} --draft <draft path>` (its own command; it reads your executor transcript, and if it reports `stamped: false` or is unknown in an older runtime you carry on without the fields; never type token numbers by hand), then publish it once with `node ~/.claude/devflow/bin/df-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
 
 **Use template:** @~/.claude/devflow/templates/summary.md
 
@@ -215,10 +216,10 @@ Finish the SUMMARY in a draft (`node ~/.claude/devflow/bin/df-tools.cjs planning
 </step>
 
 <step name="state_updates">
-Record state only through the store-aware commands, never by hand: `df-tools state advance-job` / `state update-progress` / `state record-metric` / `state add-decision` / `state record-session`, `df-tools roadmap update-job-progress <objective>`, and `df-tools requirements mark-complete <ids>`. Keep the SUMMARY path in the commit below in a worktree too (local mode): the summary verbs wrote your own checkout, so the commit puts it on your branch and the wave merge delivers it.
+Record state only through the store-aware commands, never by hand: `df-tools state advance-job --objective "${OBJECTIVE_NUMBER}"` / `state update-progress` / `state record-metric` / `state add-decision` / `state record-session`, `df-tools roadmap update-job-progress <objective>`, and `df-tools requirements mark-complete <ids>`. Keep the SUMMARY path in the commit below in a worktree too (local mode): the summary verbs wrote your own checkout, so the commit puts it on your branch and the wave merge delivers it.
 
 ```bash
-node ~/.claude/devflow/bin/df-tools.cjs state advance-job
+node ~/.claude/devflow/bin/df-tools.cjs state advance-job --objective "${OBJECTIVE_NUMBER}"
 node ~/.claude/devflow/bin/df-tools.cjs state update-progress
 node ~/.claude/devflow/bin/df-tools.cjs state record-metric \
   --objective "${OBJECTIVE}" --job "${TRD}" --duration "${DURATION}" \

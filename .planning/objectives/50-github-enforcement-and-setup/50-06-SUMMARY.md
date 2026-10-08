@@ -54,6 +54,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-01
+tokens_input: 7234739
+tokens_output: 61425
+tokens_cache_read: 7062073
+tokens_cache_write: 172560
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50: GitHub Enforcement and Setup, TRD 06: Commit gate wiring Summary

@@ -49,6 +49,12 @@ verification:
 
 duration: 55min
 completed: 2026-10-01
+tokens_input: 7756308
+tokens_output: 96082
+tokens_cache_read: 7543837
+tokens_cache_write: 212373
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 09: `gh setup` plan (read + plan half) Summary

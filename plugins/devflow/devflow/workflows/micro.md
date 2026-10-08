@@ -8,11 +8,7 @@ Execute sub-30-LOC, single-file changes with atomic-commit guarantees in a singl
 <process>
 **Step 1: Get the description**
 
-Parse `$ARGUMENTS` as `$DESCRIPTION`. If empty, prompt:
-```
-AskUserQuestion(header: "Micro Task", question: "One-line description of the change?")
-```
-Re-prompt if still empty.
+Parse `$ARGUMENTS` as `$DESCRIPTION`. If empty, ask in plain text: "One-line description of the change?" The answer is free text, so take it as `$DESCRIPTION`. Re-prompt if still empty.
 
 **Step 2: Start**
 
@@ -24,10 +20,19 @@ Parse JSON: `next_num`, `slug`. The `.planning/.skill-active` marker is written 
 
 Display: `DF ► MICRO #${next_num}: ${DESCRIPTION}`
 
+**Progress tracking (if available):** one task for the whole change, created only after `micro start` returns `ok`.
+
+```
+TaskCreate(subject="Micro: ${DESCRIPTION}", description="Single-file micro change", activeForm="Making the micro change")
+TaskUpdate(taskId=micro_task_id, status="in_progress")
+```
+
 **Step 3: Make the edit (inline, no agent spawn)**
 
 Make the code change with Edit/Write/Read/Bash directly, with no agents.
 Micro produces no planning artifacts (no JOB.md, no SUMMARY.md). Scope: ≤30 LOC, single file. If the change grows larger, run `node ~/.claude/devflow/bin/df-tools.cjs micro abort` and re-route to `/devflow:quick` or `/devflow:build`.
+
+**On `micro abort` (here or after a failed commit), progress tracking (if available):** `TaskUpdate(taskId=micro_task_id, status="deleted")`
 
 **Step 4: Commit**
 
@@ -47,14 +52,17 @@ If commit fails: surface error. Marker stays active — fix the cause and re-run
 
 **Step 5: Done**
 
+**Progress tracking (if available):** `TaskUpdate(taskId=micro_task_id, status="completed")` once `micro commit` succeeds.
+
 Display: `DF ► MICRO COMPLETE — ${commit_hash} chore(micro): ${DESCRIPTION}`
 
 No SUMMARY.md. No further ceremony.
 </process>
 
 <success_criteria>
-- [ ] Description provided or prompted
+- [ ] Description provided or asked for in plain text
 - [ ] `df-tools micro start` writes the marker
+- [ ] (task tools available) One `Micro:` task: in_progress after `micro start`, completed after `micro commit`, deleted on `micro abort`
 - [ ] Single-file edit made inline (no agent spawn)
 - [ ] `df-tools micro commit` produces `chore(micro): ${DESCRIPTION}`
 - [ ] Marker removed on success; retained on failure with retry instructions

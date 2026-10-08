@@ -47,6 +47,12 @@ verification:
   test_pairing: true
 duration: 21min
 completed: 2026-10-03
+tokens_input: 30931586
+tokens_output: 164952
+tokens_cache_read: 30555371
+tokens_cache_write: 375965
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 10: Primary component and scope in multi-stack roots Summary

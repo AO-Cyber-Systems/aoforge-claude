@@ -14,6 +14,8 @@ allowed-tools:
   - Bash
   - Task
   - AskUserQuestion
+  - TaskCreate
+  - TaskUpdate
 ---
 <objective>
 Execute small features with DevFlow guarantees (atomic commits, STATE.md tracking) at the small-feature tier of the DevFlow ladder.

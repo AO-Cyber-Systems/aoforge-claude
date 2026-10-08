@@ -52,6 +52,12 @@ verification:
 
 duration: ~10min
 completed: 2026-10-01
+tokens_input: 9529455
+tokens_output: 60196
+tokens_cache_read: 9341880
+tokens_cache_write: 187445
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50 TRD 05: post-commit and Stop outbox flush hook Summary

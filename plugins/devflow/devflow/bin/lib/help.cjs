@@ -30,7 +30,7 @@ const VERB_DETAILS = [
 // name → { usage, summary, mutates?, details? }
 const COMMANDS = {
   'state': {
-    usage: 'df-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session] [--raw]',
+    usage: 'df-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job [--objective <N>]|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session] [--raw]',
     summary: 'Read or update .planning/STATE.md.',
     mutates: true,
   },
@@ -237,8 +237,8 @@ const COMMANDS = {
     details: 'Read-only by default. --fix applies only safe, reversible fixes (backups per upgrade conventions) and refuses index-changing fixes when unrelated changes are staged. --global runs only machine-level checks.',
   },
   'telemetry': {
-    usage: 'df-tools telemetry [--raw]',
-    summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories.',
+    usage: 'df-tools telemetry [--scan [--limit N] [--since YYYY-MM-DD] [--root <dir>]] [--raw]',
+    summary: 'One read-only view of gate overrides, stuck-loop state and documentation staleness, with advisories. `--scan` adds a session audit of blocking events (default root ~/.claude/projects, --limit 150; 0 = all).',
   },
   'context': {
     usage: 'df-tools context [--limit N] [--root <dir>] [--raw]',
@@ -253,6 +253,24 @@ const COMMANDS = {
     summary: 'Append a compact per-session index of transcripts (default ~/.claude/devflow/transcript-index.jsonl); incremental.',
     mutates: true,
   },
+  'tokens': {
+    usage: 'df-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path> | backfill [--write] [--force]> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]',
+    summary: 'Executor token usage of one TRD from Claude Code transcripts; `stamp` writes it into a SUMMARY draft before `summary post`; `backfill` recovers it for historical SUMMARYs.',
+    mutates: true,
+    details: 'trd is read-only; stamp writes only the draft you name (tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model, tokens_source: "live"), never a file under .planning/. Transcripts are read from --root, default ~/.claude/projects, for the repository at --repo (default: the main checkout). Exit 0 even when no transcript is found (stamped: false, the draft is left byte-identical); exit 1 for usage errors or a draft inside .planning/. backfill covers every SUMMARY of the checkout holding cwd and is a dry run by default: it prints recovered and unrecovered counts (by reason) and changes no file. --write stamps each recovered SUMMARY through `summary post` (tokens_source: "backfill"); a second --write writes nothing. --force also restamps a SUMMARY that already has token values. Unrecoverable history is the normal outcome (exit 0); exit 1 only for usage errors or a failed write.',
+  },
+  'calibrate': {
+    usage: 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--dry-run] [--raw]',
+    summary: 'Build per-task-class medians/P90s (minutes, tokens, dollars), per-agent overhead and objective-level history from SUMMARY frontmatter, STATE_ARCHIVE metrics, subagent transcripts and model-rates.json into ~/.claude/devflow/calibration.json.',
+    mutates: true,
+    details: 'Default paths: the checkout holding cwd (or DEVFLOW_CALIBRATE_PATHS, path.delimiter separated). Default out: DEVFLOW_CALIBRATION_PATH, else ~/.claude/devflow/calibration.json. Agent overhead (planner, plan checker, verifier, researcher, integration checker, roadmapper) is measured per spawn from Claude Code subagent transcripts under --root, default ~/.claude/projects (resolved when the command runs); --no-overhead skips that scan and cannot be combined with --root. --window <N|all> keeps, per project, only the N most recent objectives that have samples (by objective number) and drops older ones before every statistic, agent overhead excepted; `--window all` keeps all history; with no flag the window is on (default: the most recent 10 objectives with samples per project, objective 64). A window that drops nothing (a project of 10 or fewer objectives) leaves the file unchanged. Deterministic: unchanged inputs give a byte-identical file and changed:false. --dry-run builds and reports but writes nothing. Refuses (exit 1) when no project is found, so an empty history never overwrites a good file.',
+  },
+  'estimate': {
+    usage: 'df-tools estimate <task (--files <a[,b]> [--tdd] [--trd-type <t>] | --class <name> | --checkpoint) | trd <trd-id|path> | objective <N> [--all] [--table|--line] | milestone [vX.Y] [--table|--line] | start <N> | wave <N> <wave> (--start|--done) | finish <N> | backtest <N[,N...]>> [--calibration <file>] [--raw]',
+    summary: 'Estimate time, tokens and dollars from the calibration (median and P90, with sample count and confidence): one task, a TRD, what is left of an objective or a milestone; start/wave/finish record the run state the status line reads and print actual against estimate.',
+    mutates: true,
+    details: 'Needs the calibration df-tools calibrate writes: --calibration <file>, else DEVFLOW_CALIBRATION_PATH, else ~/.claude/devflow/calibration.json. Without a usable calibration every estimate verb exits 0 and prints `No estimate: <reason>` naming df-tools calibrate, never a number. JSON by default (rounded; objective and milestone results carry `line` and `table`); --raw prints the text (--table for the table, otherwise one line). objective --all also estimates the done TRDs (a backtest). start <N> writes the run state (objective, waves with their estimates) to DEVFLOW_ESTIMATE_STATE_DIR, else ~/.claude/devflow/state/estimates, never into the repository; wave <N> <wave> --start|--done records one wave and --done prints actual against the estimate with a verdict; finish <N> prints the objective execution time against its estimate and is idempotent, and archives the finished run to <state dir>/history/<repo-key>/ so a later start cannot destroy it. backtest <N[,N...]> compares the estimate of each listed objective (every TRD, as before execution) with its measured executor minutes (SUMMARY duration, else the STATE_ARCHIVE row) and priced SUMMARY tokens, uses the last finished run state of the objective when the run history holds one (prospective), and prints the EST-08 verdict: median within ±30%, P90 covering at least 80% of objectives and TRDs; --raw prints the markdown report. Exit 0 for every estimate, including "no estimate"; exit 1 for usage errors and an objective, TRD or milestone that does not exist.',
+  },
   'override': {
     usage: 'df-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]',
     summary: 'Record a structured, logged gate override in .planning/.override-log.jsonl, or list recent overrides.',
@@ -263,8 +281,8 @@ const COMMANDS = {
     summary: 'Render roadmap progress.',
   },
   'todo': {
-    usage: 'df-tools todo add --from <path|-> [--stem <stem>] | todo complete <stem|filename> [--raw]',
-    summary: 'Add a todo, or move one from pending to completed.',
+    usage: 'df-tools todo add --from <path|-> [--stem <stem>] | todo complete <stem|filename> | todo sync (--transcript <path>... | --session <id>) [--projects-root <dir>] [--dry-run] [--no-flush] [--no-wait] [--raw]',
+    summary: 'Add a todo, move one to completed, or merge a session\'s task-list todos into the archive.',
     mutates: true,
     details: VERB_DETAILS,
   },
@@ -420,6 +438,19 @@ const COMMANDS = {
     summary: 'The micro workflow: start, commit, abort.',
     mutates: true,
   },
+  'merge-driver': {
+    usage: 'df-tools merge-driver <install [--check]|uninstall|resolve <path>|state-json <base> <ours> <theirs>> [--raw]',
+    summary: 'Merge .planning/state.json (JSON-aware) and STATE_ARCHIVE.md (union) without conflicts in wave merges.',
+    mutates: true,
+    details: [
+      '  install      Register the state.json driver and the attributes in info/attributes and',
+      '               repo-local config (never committed); idempotent. --check writes nothing.',
+      '  uninstall    The undo for install: removes only the managed block and config section.',
+      '  resolve      Resolve a merge that already stopped on state.json or STATE_ARCHIVE.md from',
+      '               the index stages and stage the result; any other path is refused.',
+      '  state-json   The git merge driver entry point: 3-way merges <ours> in place (git runs it).',
+    ],
+  },
   'exec-context': {
     usage: 'df-tools exec-context <check|worktree|release> --repo <path> [--base <ref>] [--id <slug>] [--path <dir>] [--raw]',
     summary: 'Prove a spawn is in the intended repo on an explicit base; provision a worktree from that base.',
@@ -440,12 +471,16 @@ const COMMANDS = {
       '            it is a parallel sibling sharing one git index (issue #98). The',
       '            same id re-checking, or a later wave on a new base, passes; claims',
       '            expire after 4h (DEVFLOW_EXEC_CLAIM_TTL_MS). No --id: no claim.',
+      '            With --id, check fails WRONG CHECKOUT when a worktree was provisioned',
+      '            for that id and the check ran somewhere else (no claim is taken): run',
+      '            the `--cwd <worktree>` command it prints.',
       '  worktree  Provision isolation explicitly, in --repo, from --base (default: the',
       '            tip YOU are standing on — never the default branch, and never the',
       '            main checkout\'s HEAD when you dispatch from a worktree). Prints the path,',
       '            branch, and the merge-back and removal commands. `merge_back`',
       '            targets the checkout YOU are standing in (`merge_into`), not the',
-      '            main checkout\'s current branch.',
+      '            main checkout\'s current branch. `preflight` is the exact `--cwd` check',
+      '            command for the new worktree.',
       '  release   Clear this checkout\'s shared-index claims — all of them, or only',
       '            those held by --id. For a claim left behind by a dead executor.',
       '',

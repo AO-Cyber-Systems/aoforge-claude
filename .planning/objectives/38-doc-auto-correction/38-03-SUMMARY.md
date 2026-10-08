@@ -42,6 +42,12 @@ verification:
 # Metrics
 duration: 15min
 completed: 2026-09-28
+tokens_input: 4119036
+tokens_output: 19198
+tokens_cache_read: 4056793
+tokens_cache_write: 62125
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 03: Dead statusline update segment and the init todo preview Summary

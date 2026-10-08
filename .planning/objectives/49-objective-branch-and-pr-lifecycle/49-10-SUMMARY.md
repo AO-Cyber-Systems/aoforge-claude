@@ -40,6 +40,12 @@ metrics:
   tasks: 2
   files: 4
   tests-added: "outbox +7 (schemas) and 1a extended to 15 kinds; flusher +21"
+tokens_input: 6974669
+tokens_output: 63990
+tokens_cache_read: 6814367
+tokens_cache_write: 160186
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 49 TRD 10: Outbox ops for verification status, PR comments, merge and branch delete Summary

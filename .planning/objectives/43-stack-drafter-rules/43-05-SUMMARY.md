@@ -36,6 +36,12 @@ metrics:
   completed: 2026-10-03
   tasks: 3
   files: 7
+tokens_input: 25760151
+tokens_output: 126356
+tokens_cache_read: 25458434
+tokens_cache_write: 301475
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 05: Multi-stack and manifest-less roots, primary component placement (D3, D6, D2) Summary

@@ -41,6 +41,12 @@ verification:
   test_pairing: true
 duration: ~20min (continuation after the checkpoint; Task 1 ran in the earlier session)
 completed: 2026-10-03
+tokens_input: 11285898
+tokens_output: 88674
+tokens_cache_read: 11044229
+tokens_cache_write: 241471
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 15: Final fleet dry run, residual decision, and docs Summary

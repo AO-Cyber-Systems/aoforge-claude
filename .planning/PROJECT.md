@@ -15,17 +15,29 @@ DevFlow is a meta-prompting, context engineering, and spec-driven development sy
 
 AI workflow orchestration for Claude Code sessions — skills, hooks, MCP integration, planning state, and program-aware coordination across the AO-Cyber-Systems org.
 
+## Current Milestone: v1.6 Hardening & Release
+
+**Goal:** Ship v1.5 to users, close everything v1.5 left open, and clear the accumulated backlog: estimate accuracy re-tested prospectively, df-tools correctness debt, stack-drafter policy gaps, the remaining handoff and install friction, and the three long-open operational decisions.
+
+**Target features:**
+- Release: v1.5 work merged to `main` and tagged at the next plugin semver, with the installed runtime carrying the v1.5 libs and hooks
+- Estimation: executor token stamp on every new SUMMARY, minutes recalibrated by a pre-registered method, EST-08's criterion re-tested prospectively on five objectives
+- df-tools correctness: `milestone complete` dry run and idempotence, `objective remove`/`objective complete` fixes, shared objective helpers in `milestone-scope.cjs`, stale `planning draft` protection, the small CLI defects the v1.5 audit listed, `verify-commits.js` output shape, health checks for tracked or stale skill markers
+- Stack drafter: govulncheck self-test and buf lint rules; a `stack verify --run` policy for service-backed tests and build artifacts
+- Handoff and install: the three known PTY handoff gaps and handoff-result injection; consistent slash-command naming with no legacy `df-*` remnants
+- Operations: the CI `ANTHROPIC` secret for the live visual judge, branch protection on `main`, and a working docs site deploy
+
 ## Requirements
 
 Requirement IDs live in each objective's `OBJECTIVE.md`; there is no `REQUIREMENTS.md`.
 
 ### Validated
 
-The capability areas listed under `## Scope`: skills, subagents, hooks, `.planning/` templates and `df-tools.cjs`; the program-aware coordination layer (v1.1+); the project lifecycle (v1.3+); self-measurement (v1.3+); GitHub as an opt-in system of record (v1.4+); and environment diagnosis and repair (v1.4+). v1.2 shipped 2026-07-22, v1.3 completed 2026-09-28 and v1.4 completed 2026-10-05, with all 58 v1.4 requirement IDs satisfied (see `## Context`).
+The capability areas listed under `## Scope`: skills, subagents, hooks, `.planning/` templates and `df-tools.cjs`; the program-aware coordination layer (v1.1+); the project lifecycle (v1.3+); self-measurement (v1.3+); GitHub as an opt-in system of record (v1.4+); and environment diagnosis and repair (v1.4+). v1.2 shipped 2026-07-22, v1.3 completed 2026-09-28, v1.4 completed 2026-10-05 (58/58 requirement IDs) and v1.5 completed 2026-10-08 (35/36; EST-08 not met, accepted). v1.5 added: the edit gate on Bash writes, objective-number correctness, state and merge plumbing, store-mode observability, Claude Code built-in adoption and the estimation engine (see `## Context`).
 
 ### Active
 
-None. v1.4 is complete and v1.5 is not yet planned. The ROADMAP `v1.5 candidates` section lists the carried items: live store-mode smoke, Docs site deploy, and v1.4 tech debt.
+v1.6 Hardening & Release: see `## Current Milestone` above and `.planning/REQUIREMENTS.md` for the REQ-IDs (EST-08 carried forward as EST-09..11).
 
 ### Out of Scope
 
@@ -53,6 +65,8 @@ devflow-claude owns:
   - one linked branch and PR per objective, enforced locally and by required checks, with `gh setup` to configure a repo;
   - in-place migration (0011, `/devflow:gh-sync migrate`).
 - **Environment diagnosis** (v1.4+): `df-tools doctor` / `/devflow:doctor`, and the codebase-aware stack drafter (`stack init|verify|report|mcp`)
+- **Estimation** (v1.5+): `df-tools calibrate` and `df-tools estimate` (task to milestone, run state, status-line ETA, backtest), measured out of sample against real executions
+- **Claude Code built-in integration** (v1.5+): task progress, plan mode, AskUserQuestion and the todo task list across skills and workflows, with a CI ratchet and a living inventory (`docs/built-in-integration-status.md`)
 
 ## Out of Scope
 
@@ -78,7 +92,8 @@ When Claude hits a command it can't run itself (TTY-interactive, shell-flow, pas
 Since v1.3, claims that DevFlow is better are backed by repeatable measurements rather than stated:
 - `session-audit` classifies blocking events;
 - `context` measures context composition;
-- every objective carries an independent VERIFICATION.md, and v1.3 retro-verified 27–34.
+- every objective carries an independent VERIFICATION.md, and v1.3 retro-verified 27–34;
+- since v1.5, gate defaults are set from measured false-positive rates (the Bash edit gate ships `warn` because its measured upper bound was 0.035 > 0.02), and the estimator is judged by an out-of-sample backtest with pre-registered thresholds. A failed measurement is reported as failed (EST-08), not tuned until it passes.
 
 The fixes to DevFlow's own gates count as done only when the post-release audit shows the blocking categories have collapsed.
 
@@ -143,18 +158,22 @@ devflow-claude/
 
 ## Context
 
-v1.4 completed on 2026-10-05 with 13 objectives (42–54), all 158 TRDs executed, and objective 26 killed. It shipped as plugin 2.13.0 and 2.13.1, and `feat/stack-profile-loader` is merged to `main`. The milestone ended with CodeQL at 0 open alerts on `main`. v1.3 (27–41, plugin 2.11.0) completed 2026-09-28, and v1.2 shipped 2026-07-22.
+v1.5 Gate & Plumbing completed on 2026-10-08 with 10 objectives (55–64) and 81 TRDs. Objective 55 shipped as plugin 2.13.2. Objectives 56–64 are on `feat/stack-profile-loader`, under `[Unreleased]`, and not yet released. v1.4 (42–54, plugin 2.13.0/2.13.1) completed 2026-10-05, v1.3 (27–41, plugin 2.11.0) completed 2026-09-28, and v1.2 shipped 2026-07-22.
 
-Test suite: 9,088 tests, 1 known failure (MA-7 handoff-e2e, which fails on any machine with a real `doctl`), 32 skipped. CI is green on `main`.
+Test suite: 11,071 tests, 11,037 pass, 0 fail, 34 skipped.
 
-Open decisions carried to v1.5:
-- DECISION-001 (edit-gate posture);
+The estimation engine works, but its minute estimates run high: 1.24× actual after the recency-window fix, with only 2 of 5 objectives within ±30%. Cost estimates are close (0.80–0.86×). EST-08 is accepted as not met. Run history is now archived per objective, so the next five objectives give a genuinely prospective retest.
+
+Open decisions carried to the next milestone:
 - the CI Anthropic secret for the live visual judge;
-- `main` branch protection.
+- `main` branch protection;
+- the Docs site deploy (Cloudflare Pages project `devflow-docs` not found).
 
-Also open: the live store-mode smoke on a real GitHub repo (every store test uses a fake GitHub), and the Docs site deploy (Cloudflare Pages project `devflow-docs` not found).
+DECISION-001 (edit-gate posture) was resolved in v1.5 (Objective 60, option-a, with a measured `warn` default).
+
+Release step pending: merge to `main`, then tag the next plugin semver. The installed runtime (2.13.2) lacks the v1.5 libs and hooks until then.
 
 Objective 26 (GitHub issue auto-build monitor) was killed on 2026-10-01 (resolved; GMD-04).
 
 ---
-*Last updated: 2026-10-05 after v1.4 milestone*
+*Last updated: 2026-10-08 — v1.6 Hardening & Release started*

@@ -44,6 +44,12 @@ verification:
 
 duration: 2 sessions (resumed once)
 completed: 2026-10-01
+tokens_input: 8340651
+tokens_output: 68411
+tokens_cache_read: 8158220
+tokens_cache_write: 182317
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 47 TRD 13: End-to-end store scenario, SC1 to SC5 Summary

@@ -5,7 +5,7 @@ description: |
   Use when the user wants to build something, implement a feature, or work on an objective end-to-end.
   Triggers on: "build this", "build objective", "let's build", "implement this", "ship this", "make this work", "build the", "work on objective", "start building", "let's implement"
 argument-hint: "<objective-number-or-description> [--pause] [--skip-research] [--work TYPE] [--tdd POSTURE] [--depth LEVEL] [--model PROFILE]"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TaskCreate, TaskUpdate, TaskList, AskUserQuestion, EnterPlanMode, ExitPlanMode
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TaskCreate, TaskUpdate, TaskList, AskUserQuestion, EnterPlanMode
 ---
 
 <objective>
@@ -27,6 +27,7 @@ Usage:
 <execution_context>
 @~/.claude/devflow/workflows/build.md
 @~/.claude/devflow/references/ui-brand.md
+@~/.claude/devflow/references/built-ins.md
 </execution_context>
 
 <context>

@@ -108,6 +108,7 @@ Create detailed execution plan for a specific objective.
 - Breaks objective into concrete, actionable tasks
 - Includes verification criteria and success measures
 - Multiple plans per objective supported (XX-01, XX-02, etc.)
+- Shows the TRD drafts in plan mode for your review before they are pushed (skipped with `--auto`, `--gaps` or `workflow.auto_advance`)
 
 Usage: `/devflow:plan-objective 1`
 Result: `.planning/objectives/01-foundation/01-01-<slug>-TRD.md`
@@ -225,8 +226,8 @@ Usage: `/devflow:debug` (resume active session)
 **`/devflow:todo <add|list>`**
 Capture todos and view morning standup.
 
-- `add [description]` — Capture idea or task from conversation context (or use provided description); files it under `.planning/todos/pending/` with `df-tools todo add --from <draft>`; checks for duplicates
-- `list [area]` — List pending todos, select one to work on; optional area filter; routes to work now / add to objective / brainstorm
+- `add [description]` — Capture idea or task from conversation context (or use provided description); also adds a `Todo:` item to the session task list when the session has task tools; files it under `.planning/todos/pending/` with `df-tools todo add --from <draft>`; checks for duplicates
+- `list [area]` — Merge the session's task-list todos into the archive first (`df-tools todo sync`), then list pending todos with their in-session status, select one to work on; optional area filter; routes to work now / add to objective / brainstorm. A Stop hook runs the same merge at the end of every turn
 
 Usage: `/devflow:todo add` (infers from conversation)
 Usage: `/devflow:todo add "Add auth token refresh"`
@@ -239,7 +240,7 @@ Usage: `/devflow:todo list api`
 Validate built features through conversational UAT.
 
 - Extracts testable deliverables from SUMMARY.md files
-- Presents tests one at a time (yes/no responses)
+- Presents tests one at a time (pass, or describe what is wrong)
 - Automatically diagnoses failures and creates fix plans
 - Ready for re-execution if issues found
 
@@ -347,6 +348,7 @@ Content comes from `--from <path|->`; `df-tools planning draft <rel>` prints a d
 - `df-tools doc put <rel> --from <path|->` — any other planning doc (CONTEXT, RESEARCH, `codebase/`, `research/`, ...)
 - `df-tools decision open <trd-id> --question <text|@path>` / `decision answer <id> --from <path|->` — record a decision
 - `df-tools todo add --from <path|->` / `todo complete <stem>` — capture and close todos
+- `df-tools todo sync (--session <id> | --transcript <path>)` — merge a session's task-list todos into the archive
 - `df-tools debug put <slug> --from <path|->` / `debug resolve <slug>` — debug sessions
 - `df-tools quick put <N> <slug> --from <path|->` / `quick summary <N> --from <path|->` — quick tasks
 - `df-tools milestone put <version> --from <path|->` / `milestone complete <version>` — milestones
@@ -478,9 +480,9 @@ DevFlow works alongside Claude Code's built-in features:
 
 Use `/loop` during long `/devflow:execute-objective` runs to track progress without switching context.
 
-**Plan Mode — Pre-build alignment:**
+**Plan Mode — Review before it is published:**
 
-Claude Code's built-in plan mode (`EnterPlanMode`) is used by `/devflow:build` and `/devflow:plan-objective` to present the execution strategy before spawning expensive agent pipelines. This lets you review and approve the approach (objective scope, agent assignments, research decisions) before any work begins.
+Plan mode (`EnterPlanMode`, then `ExitPlanMode`) is where DevFlow asks you to approve a draft before anything is published. `/devflow:plan-objective` shows the TRD drafts there, `/devflow:new-project` shows PROJECT.md, the requirements and the roadmap, and `/devflow:milestone complete` shows the milestone entry and the proposed PROJECT.md changes. Approve to publish, or choose "No, keep planning" and give feedback to get a revised draft and a second review. `--auto` skips the review (so does `workflow.auto_advance` for plan-objective and milestone complete, and `--gaps` for plan-objective). `/devflow:build` still shows its pipeline strategy in plan mode before spawning agents. Approving a plan switches Claude Code's permission mode to the one you pick.
 
 ## Getting Help
 

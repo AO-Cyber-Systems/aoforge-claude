@@ -53,6 +53,12 @@ verification:
 
 duration: 35min
 completed: 2026-10-01
+tokens_input: 7183612
+tokens_output: 89255
+tokens_cache_read: 6967663
+tokens_cache_write: 215849
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 48 TRD 12: Entity verbs and planning import Summary

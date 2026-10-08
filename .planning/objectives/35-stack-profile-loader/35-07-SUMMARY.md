@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: 15min
 completed: 2026-09-27
+tokens_input: 2350676
+tokens_output: 16688
+tokens_cache_read: 2298889
+tokens_cache_write: 51715
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 07: Verifier, debugger and integration-checker read the stack profile Summary

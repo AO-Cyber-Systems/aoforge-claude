@@ -51,6 +51,12 @@ verification:
 
 duration: ~50min
 completed: 2026-09-30
+tokens_input: 13087344
+tokens_output: 64733
+tokens_cache_read: 12872654
+tokens_cache_write: 214512
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 45 TRD 01: Awareness cache leaves the repo Summary

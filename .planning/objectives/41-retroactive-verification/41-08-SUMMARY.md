@@ -39,6 +39,12 @@ metrics:
   duration: ~3m (excluding one full-suite run)
   tasks: 2
   files: 5
+tokens_input: 2692489
+tokens_output: 21363
+tokens_cache_read: 2627534
+tokens_cache_write: 64881
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 41 TRD 08: Planner signals RESEARCH NEEDED instead of spawning the researcher — Summary

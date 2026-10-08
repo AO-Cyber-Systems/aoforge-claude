@@ -10,6 +10,8 @@ allowed-tools:
   - Bash
   - Task
   - AskUserQuestion
+  - TaskCreate
+  - TaskUpdate
 ---
 
 <objective>
@@ -45,13 +47,28 @@ DEBUGGER_MODEL=$(node ~/.claude/devflow/bin/df-tools.cjs resolve-model debugger 
 ## 1. Check Active Sessions
 
 If active sessions exist AND no $ARGUMENTS:
-- List sessions with status, hypothesis, next action
-- User picks number to resume OR describes new issue
+- List sessions, numbered, with status, hypothesis, next action
+- Use AskUserQuestion:
+  - header: "Session"
+  - question: "Resume a debug session, or describe a new issue under Other?"
+  - multiSelect: false
+  - options: one per active session, up to 4 (label: the slug; description: status and next action), e.g.
+    - "{slug}" — {status}; next: {next action}
+  - More than 4 sessions: the numbered list above shows them all; offer the first 4, and the user may type a number under Other.
+- A session (or its number under Other): resume it. Create the `Investigate: {slug}` task as in step 3, then run a continuation round (step 5) on its debug file.
+- Any other text under Other: that is the new issue.
 
 If $ARGUMENTS provided OR user describes new issue:
 - Continue to symptom gathering
 
 ## 2. Gather Symptoms (if new issue)
+
+**Progress tracking (if available):** the first time through step 2, create the task; on a return to step 2 ("Add more detail", "Add more context"), only set it in_progress again.
+
+```
+TaskCreate(subject="Gather symptoms", description="Collecting what happens, its impact, expected behavior, errors and reproduction", activeForm="Gathering symptoms")
+TaskUpdate(taskId=symptoms_task_id, status="in_progress")
+```
 
 **Step 2a: What happens? (structured)**
 
@@ -89,9 +106,27 @@ Ask inline: "Any error messages? Paste them or describe what you see."
 
 Ask inline: "How do you trigger this? What steps reproduce the issue?"
 
-After all gathered, confirm ready to investigate.
+**Step 2f: Ready to investigate**
+
+After all gathered, use AskUserQuestion:
+- header: "Ready?"
+- question: "Symptoms recorded. Start the investigation?"
+- multiSelect: false
+- options:
+  - "Investigate (Recommended)" — Spawn the debugger with these symptoms
+  - "Add more detail" — Add or correct symptoms before investigating
+
+- **If "Investigate":** `TaskUpdate(taskId=symptoms_task_id, status="completed")` (if available), continue to step 3.
+- **If "Add more detail":** return to step 2 and update the symptoms the user names.
 
 ## 3. Spawn debugger Agent
+
+**Progress tracking (if available):** set the task in_progress as the agent is spawned. On a re-spawn after "Add more context" the task already exists: only set it in_progress.
+
+```
+TaskCreate(subject="Investigate: {slug}", description="Debugger investigation of {slug}", activeForm="Investigating {slug}")
+TaskUpdate(taskId=investigate_task_id, status="in_progress")
+```
 
 Fill prompt and spawn:
 
@@ -131,26 +166,52 @@ Task(
 
 ## 4. Handle Agent Return
 
+**Progress tracking (if available):** if this return ends a continuation round, `TaskUpdate(taskId=hypothesis_task_id, status="completed")` first, whatever the return type.
+
 **If `## ROOT CAUSE FOUND`:**
 - Display root cause and evidence summary
-- Offer options:
-  - "Fix now" - spawn fix subagent
-  - "Plan fix" - suggest /devflow:plan-objective --gaps
-  - "Manual fix" - done
+- `TaskUpdate(taskId=investigate_task_id, status="completed", description="Root cause: {one line}")` (if available)
+- Use AskUserQuestion:
+  - header: "Root cause"
+  - question: "Root cause found. How do you want to fix it?"
+  - multiSelect: false
+  - options:
+    - "Fix now (Recommended)" — Spawn a fix subagent for this root cause
+    - "Plan fix" — Plan the fix with /devflow:plan-objective --gaps
+    - "Manual fix" — Stop here; you fix it yourself
+- **If "Fix now":** spawn the fix subagent. Progress tracking (if available): `TaskCreate(subject="Fix: {slug}", description="Fixing the root cause of {slug}", activeForm="Fixing {slug}")`, `TaskUpdate(taskId=fix_task_id, status="in_progress")` at spawn, `TaskUpdate(taskId=fix_task_id, status="completed")` when the fix ends.
+- **If "Plan fix":** suggest /devflow:plan-objective --gaps.
+- **If "Manual fix":** done.
 
 **If `## CHECKPOINT REACHED`:**
-- Present checkpoint details to user
-- Get user response
-- Spawn continuation agent (see step 5)
+- Present checkpoint details to user, then get the response by checkpoint type:
+  - `checkpoint:decision`: AskUserQuestion, header "Checkpoint", the checkpoint's options as the options (up to 4; with more, print them all numbered, offer the first 4, and the user may type a number under Other).
+  - `checkpoint:human-verify`: AskUserQuestion, header "Verify", question "{what was built}: does it behave as expected?", options "Approved (Recommended)" (it works) / "Issues found" (then take the user's description in plain text).
+  - `checkpoint:human-action`: ask in plain text for the action's result; the answer is free text.
+- Spawn continuation agent with the response (see step 5)
 
 **If `## INVESTIGATION INCONCLUSIVE`:**
 - Show what was checked and eliminated
-- Offer options:
-  - "Continue investigating" - spawn new agent with additional context
-  - "Manual investigation" - done
-  - "Add more context" - gather more symptoms, spawn again
+- Use AskUserQuestion:
+  - header: "Next step"
+  - question: "The investigation is inconclusive. What next?"
+  - multiSelect: false
+  - options:
+    - "Continue investigating (Recommended)" — Spawn a new agent with additional context
+    - "Add more context" — Gather more symptoms, then spawn again
+    - "Manual investigation" — Stop here; you investigate yourself
+- **If "Continue investigating":** spawn a new agent with additional context, as a continuation round (step 5).
+- **If "Add more context":** gather more symptoms (step 2), spawn again.
+- **If "Manual investigation":** `TaskUpdate(taskId=investigate_task_id, status="completed", description="Inconclusive; continued manually")` (if available), done.
 
 ## 5. Spawn Continuation Agent (After Checkpoint)
+
+Each continuation agent is one hypothesis round. **Progress tracking (if available):** as the round starts, take the hypothesis from the agent's last return or from the `hypothesis:` line under the debug file's Current Focus, and create its task; step 4 completes it when the round returns.
+
+```
+TaskCreate(subject="Hypothesis: {hypothesis}", description="Testing a hypothesis for {slug}", activeForm="Testing a hypothesis")
+TaskUpdate(taskId=hypothesis_task_id, status="in_progress")
+```
 
 When user responds to checkpoint, spawn fresh agent:
 
@@ -186,7 +247,8 @@ Task(
 
 <success_criteria>
 - [ ] Active sessions checked
-- [ ] Symptoms gathered (if new)
+- [ ] Symptoms gathered (if new); every discrete choice asked with AskUserQuestion, free-text symptoms in prose
+- [ ] (task tools available) Gather symptoms, Investigate, one Hypothesis per continuation round and Fix tracked as tasks
 - [ ] debugger spawned with context
 - [ ] Checkpoints handled correctly
 - [ ] Root cause confirmed before fixing

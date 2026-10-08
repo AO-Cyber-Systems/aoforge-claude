@@ -62,7 +62,7 @@ Exit.
 </step>
 
 <step name="confirm_removal">
-Present removal summary and confirm:
+Present the removal summary:
 
 ```
 Removing Objective {target}: {Name}
@@ -71,11 +71,25 @@ This will:
 - Delete: .planning/objectives/{target}-{slug}/
 - Renumber all subsequent objectives
 - Revise: ROADMAP.md, STATE.md
-
-Proceed? (y/n)
 ```
 
-Wait for confirmation.
+Then confirm. Cancel is the recommended option: removal deletes the directory and renumbers every later objective.
+
+```
+AskUserQuestion([
+  {
+    header: "Remove?",
+    question: "Remove Objective {target} ({Name})? Its directory is deleted and every later objective is renumbered.",
+    multiSelect: false,
+    options: [
+      { label: "Cancel (Recommended)", description: "Keep the roadmap as it is" },
+      { label: "Remove objective {target}", description: "Preview the removal plan, then delete and renumber" }
+    ]
+  }
+])
+```
+
+On "Cancel", exit without changing anything. On "Remove objective {target}", continue to preview_removal.
 </step>
 
 <step name="preview_removal">
@@ -90,6 +104,22 @@ node ~/.claude/devflow/bin/df-tools.cjs objective remove "${target}"
 The plan names the directory that would be deleted and every `old -> new` directory and file rename. Show it to the user verbatim — this is what backs the confirmation above with a machine-checked preview instead of a narrated one.
 
 If the objective has executed jobs (SUMMARY.md files), df-tools errors here regardless of `--confirm`. Add `--force` only if the user confirms removing executed work:
+
+```
+AskUserQuestion([
+  {
+    header: "Executed",
+    question: "Objective {target} has executed jobs with SUMMARY.md files. Remove it and its executed work anyway?",
+    multiSelect: false,
+    options: [
+      { label: "Cancel (Recommended)", description: "Keep the objective and its executed work" },
+      { label: "Force remove", description: "Re-run the preview with --force, then remove with --force --confirm" }
+    ]
+  }
+])
+```
+
+On "Cancel", exit without changing anything. On "Force remove":
 
 ```bash
 node ~/.claude/devflow/bin/df-tools.cjs objective remove "${target}" --force

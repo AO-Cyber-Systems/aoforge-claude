@@ -28,6 +28,12 @@ decisions:
 metrics:
   duration: "~35 turns (continuation from a prior run that left Task 1 committed and Task 2's test file drafted)"
   completed: 2026-09-28
+tokens_input: 17897107
+tokens_output: 216740
+tokens_cache_read: 17423633
+tokens_cache_write: 473122
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 08: `adopt report` + the E2E structural checker Summary

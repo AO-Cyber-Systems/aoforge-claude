@@ -22,6 +22,9 @@
 //   request  `{args, input?}`: the gh argv and the exact stdin (`--input -`, compact JSON text) the apply step
 //            sends through gh-client, so the dry-run prints exactly what apply sends
 //   file     `{path, content}` for a local file the apply step writes into the working tree (never committed)
+//   pins     the workflow action only (61-06): the literal `uses:` and `devflow-ref:` lines the file will carry (create,
+//            update) or carries (exists); omitted when empty and for a conflict, which setup never touches
+//   previous_pins  the workflow update only: the same two lines as they stand in the file now
 //
 // The read and plan functions never write anything. `applySetup` is the one writer: every GitHub write goes through
 // `client.ghWrite` with the action's own `request` (what the dry-run printed is what is sent), and the seam guard lists
@@ -34,6 +37,8 @@ const client = require('./gh-client.cjs');
 const capability = require('./gh-capability.cjs');
 const ghProject = require('./gh-project.cjs');
 const outbox = require('./gh-outbox.cjs');
+// One definition of the workflow path, the managed header and DevFlow's reusable workflow (TRD 61-01).
+const { WORKFLOW_PATH, MANAGED_HEADER, DEFAULT_CHECKS_WORKFLOW, parseWorkflowPins } = require('./checks-pin.cjs');
 
 // ─── The desired default-branch ruleset ───────────────────────────────────────
 
@@ -222,9 +227,7 @@ function unionRuleset(existing, desired) {
 
 // ─── planSetup ────────────────────────────────────────────────────────────────
 
-const WORKFLOW_PATH = '.github/workflows/devflow.yml';
 const PR_TEMPLATE_PATH = '.github/pull_request_template.md';
-const MANAGED_HEADER = /^#\s*devflow:managed\b/;
 const PR_START = '<!-- devflow:pr-template:start -->';
 const PR_END = '<!-- devflow:pr-template:end -->';
 
@@ -361,15 +364,27 @@ function planIssueFields(state) {
 
 const localText = (state, key) => (isObject(state.local) && typeof state.local[key] === 'string' ? state.local[key] : null);
 
+/** The `pins` / `previous_pins` fields for a workflow action: each present only when it has lines (61-06). */
+function pinFields(want, have) {
+  const fields = {};
+  const pins = parseWorkflowPins(want).lines;
+  if (pins.length > 0) fields.pins = pins;
+  if (have !== undefined) {
+    const previous = parseWorkflowPins(have).lines;
+    if (previous.length > 0) fields.previous_pins = previous;
+  }
+  return fields;
+}
+
 function planWorkflow(state) {
   const want = state.templates.workflow;
   const have = localText(state, 'workflow');
   if (have === null) {
-    return action('workflow', WORKFLOW_PATH, 'create', 'add the DevFlow checks workflow', { file: { path: WORKFLOW_PATH, content: want } });
+    return action('workflow', WORKFLOW_PATH, 'create', 'add the DevFlow checks workflow', { file: { path: WORKFLOW_PATH, content: want }, ...pinFields(want) });
   }
-  if (have === want) return action('workflow', WORKFLOW_PATH, 'exists', 'the DevFlow checks workflow is current');
+  if (have === want) return action('workflow', WORKFLOW_PATH, 'exists', 'the DevFlow checks workflow is current', pinFields(have));
   if (have.split(/\r?\n/).slice(0, 5).some((line) => MANAGED_HEADER.test(line))) {
-    return action('workflow', WORKFLOW_PATH, 'update', 'refresh the managed DevFlow checks workflow', { file: { path: WORKFLOW_PATH, content: want } });
+    return action('workflow', WORKFLOW_PATH, 'update', 'refresh the managed DevFlow checks workflow', { file: { path: WORKFLOW_PATH, content: want }, ...pinFields(want, have) });
   }
   return action('workflow', WORKFLOW_PATH, 'conflict',
     `${WORKFLOW_PATH} exists without the "# devflow:managed" header, so it is left alone; merge the DevFlow checks workflow into it by hand or remove it and re-run`);
@@ -515,19 +530,29 @@ const lineCount = (text) => text.split('\n').length - (text.endsWith('\n') ? 1 :
 
 /**
  * The dry-run text: one line per action (`[status] kind target - desc`) and, under every create or update, the gh
- * command that apply will run, its exact JSON body (pretty-printed) and the local file it will write. Pure.
+ * command that apply will run, its exact JSON body (pretty-printed) and the local file it will write. The workflow
+ * action also prints its `uses:` / `devflow-ref:` pins (create, update, exists) and, on an update, the previous pins
+ * as `was` lines (61-06). Pure.
  */
 function renderPlan(actions) {
   if (!Array.isArray(actions) || actions.length === 0) return 'No setup actions.\n';
   const lines = ['DevFlow repository setup plan', ''];
   for (const a of actions) {
     lines.push(`[${a.status}] ${a.kind} ${a.target} - ${a.desc}`);
-    if (a.status !== 'create' && a.status !== 'update') continue;
-    if (a.request) lines.push(`    gh ${a.request.args.map(shellWord).join(' ')}`);
-    if (a.payload !== undefined) {
-      for (const l of JSON.stringify(a.payload, null, 2).split('\n')) lines.push(`    ${l}`);
+    const writes = a.status === 'create' || a.status === 'update';
+    if (writes) {
+      if (a.request) lines.push(`    gh ${a.request.args.map(shellWord).join(' ')}`);
+      if (a.payload !== undefined) {
+        for (const l of JSON.stringify(a.payload, null, 2).split('\n')) lines.push(`    ${l}`);
+      }
+      if (a.file) lines.push(`    write ${a.file.path} (${lineCount(a.file.content)} lines)`);
     }
-    if (a.file) lines.push(`    write ${a.file.path} (${lineCount(a.file.content)} lines)`);
+    // The workflow's pinned lines (61-06), so the ref the checks will run is visible before --apply. An exists action
+    // prints them too; a conflict action has none because setup leaves that file alone.
+    if (writes || a.status === 'exists') {
+      for (const l of Array.isArray(a.pins) ? a.pins : []) lines.push(`    ${l}`);
+      for (const l of Array.isArray(a.previous_pins) ? a.previous_pins : []) lines.push(`    was ${l}`);
+    }
   }
   const counts = STATUS_ORDER
     .map((status) => [status, actions.filter((a) => a.status === status).length])
@@ -703,7 +728,6 @@ function readSetupState(root, { refresh = false, env = process.env } = {}) {
 // ─── renderTemplates ──────────────────────────────────────────────────────────
 
 const TEMPLATE_DIR = path.join(__dirname, '..', '..', 'templates', 'github');
-const DEFAULT_CHECKS_WORKFLOW = 'AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml';
 
 /**
  * The two local files setup writes, rendered from `templates/github/` (read relative to this module, so the plugin

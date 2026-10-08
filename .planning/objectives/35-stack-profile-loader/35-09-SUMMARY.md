@@ -59,6 +59,12 @@ verification:
 # Metrics
 duration: ~70min
 completed: 2026-09-27
+tokens_input: 10532876
+tokens_output: 61351
+tokens_cache_read: 10338169
+tokens_cache_write: 194531
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 09: Detectors know Dart/Kotlin/Swift and read org-profile markers Summary

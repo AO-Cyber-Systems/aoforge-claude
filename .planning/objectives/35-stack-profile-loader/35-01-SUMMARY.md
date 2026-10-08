@@ -43,6 +43,12 @@ verification:
 # Metrics
 duration: ~18min
 completed: 2026-09-27
+tokens_input: 8716928
+tokens_output: 58742
+tokens_cache_read: 8558726
+tokens_cache_write: 158040
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 01: Extract the schema walker into json-schema-lite.cjs Summary

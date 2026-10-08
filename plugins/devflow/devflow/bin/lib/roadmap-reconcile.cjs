@@ -17,6 +17,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { objectiveNumPattern } = require('./text-escape.cjs');
 
 // ─── TRD 09-01: Constants ─────────────────────────────────────────────────────
 
@@ -318,11 +319,10 @@ function _updateProgressTable(lines, objectiveNum, today) {
     // Stop at next ## heading (but not the header line itself)
     if (/^## /.test(line)) break;
 
-    // Match table row: starts with '|', contains objectiveNum as first cell
-    // Accepts both bare number and zero-padded number
-    const paddedNum = String(objectiveNum).padStart(2, '0');
+    // Match table row: starts with '|', contains objectiveNum as first cell, bare or as 'Objective N'.
+    // objectiveNumPattern accepts any leading zeros and never matches a longer number (5 vs 15 or 50).
     const objMatch = line.match(
-      new RegExp(`^\\s*\\|\\s*(Objective\\s+${objectiveNum}|Objective\\s+${paddedNum}|${objectiveNum}|${paddedNum})\\s*\\|`, 'i'),
+      new RegExp(`^\\s*\\|\\s*(?:Objective\\s+)?${objectiveNumPattern(objectiveNum)}\\s*\\|`, 'i'),
     );
     if (!objMatch) continue;
 

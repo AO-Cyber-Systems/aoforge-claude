@@ -37,6 +37,12 @@ verification:
 
 duration: ~10min
 completed: 2026-10-01
+tokens_input: 5538707
+tokens_output: 26324
+tokens_cache_read: 5418854
+tokens_cache_write: 119721
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 01: Record the kill of objective 26 Summary

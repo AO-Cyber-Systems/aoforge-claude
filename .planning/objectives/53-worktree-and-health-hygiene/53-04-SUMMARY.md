@@ -48,6 +48,12 @@ verification:
 
 duration: 9min
 completed: 2026-10-04
+tokens_input: 9364683
+tokens_output: 69038
+tokens_cache_read: 9220185
+tokens_cache_write: 144350
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 53 TRD 04: The documented merge sequence passes gate-commits

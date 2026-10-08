@@ -67,6 +67,7 @@ const verbs = require('./planning-verbs.cjs');
 const ev = require('./planning-entity-verbs.cjs');
 const backfill = require('./gh-backfill.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const { EXIT } = storeCli;
 const { STORE } = planningMode;
@@ -108,7 +109,7 @@ function listDir(dir) {
  */
 function frontmatterField(text, key) {
   const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-  const m = fm ? new RegExp(`^${key}:[ \\t]*(.*?)\\s*$`, 'm').exec(fm[1]) : null;
+  const m = fm ? new RegExp(`^${escapeRegExp(key)}:[ \\t]*(.*?)\\s*$`, 'm').exec(fm[1]) : null;
   const v = m ? m[1].replace(/^(['"])(.*)\1$/, '$2').trim() : '';
   if (/^[|>][+-]?$/.test(v)) {
     const block = extractFrontmatter(text.replace(/\r\n/g, '\n'))[key];

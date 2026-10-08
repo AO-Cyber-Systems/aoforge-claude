@@ -43,6 +43,12 @@ verification:
 
 duration: 4min
 completed: 2026-10-04
+tokens_input: 6084599
+tokens_output: 40958
+tokens_cache_read: 5940834
+tokens_cache_write: 143639
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 01: Shared text-escape module Summary

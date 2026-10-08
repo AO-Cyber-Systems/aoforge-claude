@@ -44,6 +44,11 @@
 //    - a 60,001-char TRD → passed:false, over names it, summary counts five dimensions
 //    - a 9,000-char fenced block → passed:true, bulk lists the block
 //    - empty objective → {passed:true, trds:[], over:[], warn:[], severity}
+//
+// 8. 56-03 (ONUM-04): requirement IDs come only from ID-shaped list items (lib/requirement-ids.cjs):
+//    - `**Requirements**: ONUM-01, ONUM-02` (v1.5 colon outside the bold) is read; the uncovered ONUM-02 is reported
+//    - `**Requirements:** none (tech debt; see ...)` yields no IDs → passed:true, note 'no requirements declared'
+//    - `**Requirements:** GWP-01..GWP-03` expands the range; the uncovered GWP-03 is reported
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
@@ -848,5 +853,110 @@ describe('requirement_coverage — ROADMAP header regex escapes the objective nu
     const { result } = runCheck(tmpDir, '14.1');
     assert.strictEqual(result.checks.requirement_coverage.passed, true);
     assert.deepStrictEqual(result.checks.requirement_coverage.missing, []);
+  });
+
+  // TRD 56-02 (ONUM-03): objective_number is the directory's own digits (`04`); a ROADMAP heading written
+  // `### Objective 4:` has no leading zero. Before the fix the section was never found and the check
+  // passed trivially with "no requirements declared".
+  test('04-test with a `### Objective 4:` heading reports the uncovered requirement F2', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '04-test',
+      roadmap_requirements: ['F1', 'F2'],
+      trds: [{ trd: '04-01', requirements: ['F1'], depends_on: [] }],
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n### Objective 4: T\n\n**Requirements:** [F1, F2]\n',
+      'utf-8',
+    );
+    const { result } = runCheck(tmpDir, '4');
+    assert.strictEqual(result.checks.requirement_coverage.passed, false);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['F2']);
+  });
+
+  test('04-test with a `### Objective 04:` heading reports the same uncovered requirement (guard)', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '04-test',
+      roadmap_requirements: ['F1', 'F2'],
+      trds: [{ trd: '04-01', requirements: ['F1'], depends_on: [] }],
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n### Objective 04: T\n\n**Requirements:** [F1, F2]\n',
+      'utf-8',
+    );
+    const { result } = runCheck(tmpDir, '4');
+    assert.strictEqual(result.checks.requirement_coverage.passed, false);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['F2']);
+  });
+});
+
+// ─── 9. 56-03 requirement IDs are ID-shaped (ONUM-04) ────────────────────────
+
+describe('56-03 requirement IDs are ID-shaped', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTmp(); });
+  afterEach(() => { removeTmp(tmpDir); });
+
+  function writeRoadmap(text) {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), text, 'utf-8');
+  }
+
+  // The v1.5 ROADMAP writes `**Requirements**:` (colon outside the bold). The old regex never found the line, so
+  // requirement coverage passed trivially.
+  test('1 `**Requirements**: ONUM-01, ONUM-02` is read and the uncovered ONUM-02 is reported', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      trds: [{ trd: '99-01', requirements: ['ONUM-01'], depends_on: [] }],
+    });
+    writeRoadmap('# Roadmap\n\n### Objective 99: T\n\n**Requirements**: ONUM-01, ONUM-02\n');
+    const { result } = runCheck(tmpDir, '99');
+    assert.strictEqual(result.checks.requirement_coverage.passed, false);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['ONUM-02']);
+  });
+
+  // v1.4 objectives 52-54 declare `none (...)`. That is free text, not a requirement no TRD could cover.
+  test('2 a free-text `none (tech debt; see ...)` line declares no requirements', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      trds: [{ trd: '99-01', requirements: [], depends_on: [] }],
+    });
+    writeRoadmap(
+      '# Roadmap\n\n### Objective 99: T\n\n' +
+        '**Requirements:** none (tech debt; see `.planning/objectives/99-test/OBJECTIVE.md`)\n'
+    );
+    const { result } = runCheck(tmpDir, '99');
+    assert.strictEqual(result.checks.requirement_coverage.passed, true);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, []);
+    assert.strictEqual(result.checks.requirement_coverage.note, 'no requirements declared');
+  });
+
+  test('3 a range `GWP-01..GWP-03` expands and the uncovered GWP-03 is reported', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      trds: [
+        { trd: '99-01', requirements: ['GWP-01'], depends_on: [] },
+        { trd: '99-02', requirements: ['GWP-02'], depends_on: [] },
+      ],
+    });
+    writeRoadmap('# Roadmap\n\n### Objective 99: T\n\n**Requirements:** GWP-01..GWP-03\n');
+    const { result } = runCheck(tmpDir, '99');
+    assert.strictEqual(result.checks.requirement_coverage.passed, false);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['GWP-03']);
+  });
+
+  test('3b a block-form `**Requirements:**` reads the bullets leading IDs only', () => {
+    setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      trds: [{ trd: '99-01', requirements: ['REQ-10-01'], depends_on: [] }],
+    });
+    writeRoadmap(
+      '# Roadmap\n\n### Objective 99: T\n\n**Requirements:**\n' +
+        '- REQ-10-01: TRD frontmatter schema with `platform: [mobile, web]`\n' +
+        '- REQ-10-04: RED-GREEN ordering enforced\n\n**Plans:** 2\n'
+    );
+    const { result } = runCheck(tmpDir, '99');
+    assert.strictEqual(result.checks.requirement_coverage.passed, false);
+    assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['REQ-10-04']);
   });
 });

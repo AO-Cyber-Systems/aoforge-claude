@@ -49,6 +49,12 @@ verification:
 
 duration: 10min
 completed: 2026-10-04
+tokens_input: 8030850
+tokens_output: 41635
+tokens_cache_read: 7901084
+tokens_cache_write: 129630
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 52 TRD 02: Gate remedies Summary

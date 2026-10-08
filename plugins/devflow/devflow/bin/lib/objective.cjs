@@ -2,10 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, normalizeObjectiveName, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
+const { output, error, normalizeObjectiveName, objectiveDirMatches, generateSlugInternal, findPlanFiles, trdKey } = require('./helpers.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const planningMode = require('./planning-mode.cjs');
-const { escapeRegExp, objectiveNumPattern } = require('./text-escape.cjs');
+const { escapeRegExp, objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
+const { roadmapRequirementIds } = require('./requirement-ids.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -13,7 +14,7 @@ function searchObjectiveInDir(baseDir, relBase, normalized) {
   try {
     const entries = fs.readdirSync(baseDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    const match = dirs.find(d => d.startsWith(normalized));
+    const match = dirs.find(d => objectiveDirMatches(d, normalized));
     if (!match) return null;
 
     const dirMatch = match.match(/^(\d+(?:\.\d+)?)-?(.*)/);
@@ -139,7 +140,7 @@ function cmdFindObjective(cwd, objective, raw) {
     const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
 
-    const match = dirs.find(d => d.startsWith(normalized));
+    const match = dirs.find(d => objectiveDirMatches(d, normalized));
     if (!match) {
       output(notFound, raw, '');
       return;
@@ -218,7 +219,8 @@ function cmdObjectivesList(cwd, options, raw) {
     // If filtering by objective number
     if (objective) {
       const normalized = normalizeObjectiveName(objective);
-      const match = dirs.find(d => d.startsWith(normalized));
+      // Archived entries read `04.1-one [v1.2]`: match on the directory name alone.
+      const match = dirs.find(d => objectiveDirMatches(d.replace(/ \[v[\d.]+\]$/, ''), normalized));
       if (!match) {
         output({ files: [], count: 0, objective_dir: null, error: 'Objective not found' }, raw, '');
         return;
@@ -647,7 +649,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   try {
     const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    targetDir = dirs.find(d => d.startsWith(normalized + '-') || d === normalized);
+    targetDir = dirs.find(d => objectiveDirMatches(d, normalized));
   } catch {}
 
   // Check for executed work (SUMMARY.md files).
@@ -738,6 +740,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
 
   // Update ROADMAP.md
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
+  const originalRoadmap = roadmapContent;
 
   // Remove the target objective section
   const targetEscaped = objectiveNumPattern(targetObjective);
@@ -759,9 +762,11 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   if (!isDecimal) {
     const removedInt = parseInt(normalized, 10);
 
-    // Collect all integer objectives > removedInt
+    // Collect all integer objectives > removedInt. Ascending: each number moves down by one exactly once. A descending
+    // pass renamed 5 -> 4 and then 4 -> 3 on the next iteration, collapsing every later objective onto the removed one.
     const maxObjective = 99; // reasonable upper bound
-    for (let oldNum = maxObjective; oldNum > removedInt; oldNum--) {
+    const dependsOnLine = new RegExp(`^[^\\n]*${boldLabelPattern('Depends on')}[^\\n]*$`, 'gim');
+    for (let oldNum = removedInt + 1; oldNum <= maxObjective; oldNum++) {
       const newNum = oldNum - 1;
       const oldStr = String(oldNum);
       const newStr = String(newNum);
@@ -792,15 +797,21 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
         `$1${newStr}. `
       );
 
-      // Depends on references
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(Depends on:\\*\\*\\s*Objective\\s+)${oldStr}\\b`, 'gi'),
-        `$1${newStr}`
+      // Depends on references: every `Objective N` on a `**Depends on:**` or `**Depends on**:` line, including list
+      // items the rule above cannot see (`Objective 4, Objective 5, ...`: a comma is not `[:\s]`).
+      roadmapContent = roadmapContent.replace(dependsOnLine, (line) =>
+        line.replace(new RegExp(`(Objective\\s+)${oldStr}(?!\\.?\\d)`, 'gi'), `$1${newStr}`)
       );
     }
   }
 
-  fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  // roadmap_updated follows the same rule as state_updated below: it reports an actual write, decided by comparing the
+  // text before and after, never "the file exists" or "this command ran" (TOOL-02, PLMB-05). A ROADMAP that never
+  // mentioned the objective is left untouched; the directory renames above are done either way.
+  const roadmapUpdated = roadmapContent !== originalRoadmap;
+  if (roadmapUpdated) {
+    fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  }
 
   // Update STATE.md objective count. state_updated reports an actual write,
   // not whether the file exists (TOOL-02).
@@ -839,7 +850,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
     target_directory: plan.target_directory,
     renamed_directories: renamedDirs,
     renamed_files: renamedFiles,
-    roadmap_updated: true,
+    roadmap_updated: roadmapUpdated,
     state_updated: stateUpdated,
   };
 
@@ -868,9 +879,13 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
   const jobCount = objectiveInfo.jobs.length;
   const summaryCount = objectiveInfo.summaries.length;
 
-  // Update ROADMAP.md: mark objective complete
+  // Update ROADMAP.md: mark objective complete. roadmap_updated follows the same rule as state_updated below: it reports
+  // whether ROADMAP.md was actually written (text compared before and after), never merely whether the file exists
+  // (TOOL-02, PLMB-05). A re-run that changes nothing writes nothing and reports false.
+  let roadmapUpdated = false;
   if (fs.existsSync(roadmapPath)) {
     let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
+    const originalRoadmap = roadmapContent;
 
     // Checkbox: - [ ] Objective N: → - [x] Objective N: (...completed DATE)
     const checkboxPattern = new RegExp(
@@ -894,7 +909,10 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
       `${summaryCount}/${jobCount} jobs complete`
     ));
 
-    fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+    if (roadmapContent !== originalRoadmap) {
+      fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+      roadmapUpdated = true;
+    }
 
     // Update REQUIREMENTS.md traceability for this objective's requirements
     const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
@@ -903,16 +921,18 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
       // keeps a checklist mention of `Objective N` from starting the scan in an earlier section.
       const headerRe = new RegExp(`^#{2,4}\\s*Objective\\s+${objectiveNumPattern(objectiveNum)}\\s*:`, 'im');
       const header = headerRe.exec(roadmapContent);
-      let reqMatch = null;
+      let found = false;
+      let reqIds = [];
       if (header) {
         const rest = roadmapContent.slice(header.index + header[0].length);
         const next = rest.search(/\n#{2,4}\s*Objective\s+\d/i);
         const section = next === -1 ? rest : rest.slice(0, next);
-        reqMatch = section.match(/\*\*Requirements:\*\*\s*([^\n]+)/i);
+        // Same rule as `verify trd-pre` (TRD 56-03): `**Requirements:**` or `**Requirements**:`, IDs from ID-shaped
+        // list items only, so a free-text line such as `none (tech debt; ...)` ticks nothing.
+        ({ found, ids: reqIds } = roadmapRequirementIds(section, { objective: objectiveNum }));
       }
 
-      if (reqMatch) {
-        const reqIds = reqMatch[1].replace(/[\[\]]/g, '').split(/[,\s]+/).map(r => r.trim()).filter(Boolean);
+      if (found && reqIds.length > 0) {
         let reqContent = fs.readFileSync(reqPath, 'utf-8');
 
         for (const reqId of reqIds) {
@@ -1065,7 +1085,7 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     next_objective_name: nextObjectiveName,
     is_last_objective: isLastObjective,
     date: today,
-    roadmap_updated: fs.existsSync(roadmapPath),
+    roadmap_updated: roadmapUpdated,
     state_updated: stateUpdated,
     state_update_reason: stateUpdateReason,
   };

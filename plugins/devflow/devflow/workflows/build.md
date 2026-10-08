@@ -60,6 +60,14 @@ Make the objective directory, plan 1-3 TRDs inline from the description, execute
 mkdir -p ".planning/objectives/${padded_objective}-${objective_slug}"
 ```
 
+**One-line estimate (skip in Quick Build mode):** once the objective number is known, run this as one plain command, with the number written out:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs estimate objective ${OBJECTIVE_NUMBER} --line --raw
+```
+
+Print the line it outputs and keep it for the plan below. An unplanned objective gets a line estimated from history. If the estimate command fails or prints `No estimate:`, show that line (or nothing) and carry on; an estimate never blocks planning or execution.
+
 ## 3. Present Build Plan (EnterPlanMode)
 
 **Skip if:** `--auto` flag or config `workflow.auto_advance` is true.
@@ -75,7 +83,7 @@ Write a plan summarizing:
 - **Pipeline:** Research → Plan → {Check (if enabled)} → Execute → Verify
 - **Agents:** researcher ({researcher_model}), planner ({planner_model}), executor ({executor_model})
 - **Skipped steps:** {list any --skip flags or disabled agents}
-- **Estimated waves:** {based on objective complexity}
+- **Estimate:** {the one-line estimate from step 2, or "none"}
 
 If objective needs clarification (vague goal, no requirements listed), include 2-3 scoping questions in the plan using AskUserQuestion:
 
@@ -102,9 +110,19 @@ Store any user answers as inline context for the planner (no CONTEXT.md file nee
 
 Once the user approves the plan, proceed to research.
 
+**Progress tracking (if available):** right after step 3 (also when step 3 was skipped), create one task per pipeline stage. Delete the Research task when step 4 is skipped and the Check task when `job_checker_enabled` is false. Each stage sets its task `in_progress` as it starts and `completed` as it ends.
+
+```
+TaskCreate(subject="Research Objective {X}", description="Researching the approach for {objective_name}", activeForm="Researching Objective {X}")
+TaskCreate(subject="Plan Objective {X}", description="Generating TRDs for {objective_name}", activeForm="Planning Objective {X}")
+TaskCreate(subject="Check Objective {X} plans", description="Validating the TRDs", activeForm="Checking Objective {X} plans")
+TaskCreate(subject="Execute Objective {X}", description="Executing the TRDs wave by wave", activeForm="Executing Objective {X}")
+TaskCreate(subject="Verify Objective {X}", description="Verifying the objective goal", activeForm="Verifying Objective {X}")
+```
+
 ## 4. Research
 
-**Skip if:** `--skip-research` flag, `research_enabled` is false, or `has_research` is true (existing research).
+**Skip if:** `--skip-research` flag, `research_enabled` is false, or `has_research` is true (existing research). When skipped, delete the Research task (if available): `TaskUpdate(taskId=research_task_id, status="deleted")`.
 
 Display banner:
 ```
@@ -113,9 +131,29 @@ Display banner:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Spawn objective-researcher (same as plan-objective step 6).
+**Progress tracking (if available):** `TaskUpdate(taskId=research_task_id, status="in_progress")`
 
-If `--pause` flag: Display research results and wait for confirmation before proceeding.
+Spawn objective-researcher (same as plan-objective step 6; use the Research task from step 3 instead of creating another).
+
+**Progress tracking (if available):** `TaskUpdate(taskId=research_task_id, status="completed")`
+
+If `--pause` flag: display the research results, then call AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "Pause",
+    question: "Research is done. Continue to planning?",
+    multiSelect: false,
+    options: [
+      { label: "Continue (Recommended)", description: "Go on to generating the TRDs" },
+      { label: "Stop here", description: "Stop the build; resume with /devflow:build {X}" }
+    ]
+  }
+])
+```
+
+If "Stop here": print the command to resume, `/devflow:build ${OBJECTIVE_NUMBER}` (the research is kept, so the build starts at planning), and stop. Without `--pause` there is no question.
 
 ## 5. Generate TRDs
 
@@ -126,13 +164,37 @@ Display banner:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
+**Progress tracking (if available):** `TaskUpdate(taskId=plan_task_id, status="in_progress")`
+
 Spawn planner with full context (same as plan-objective step 9). Handle its return as in plan-objective step 10 (including `## RESEARCH NEEDED`).
 
 Pass any inline discussion answers as additional context in the planner prompt.
 
-If `--pause` flag: Display TRD summary and wait for confirmation.
+Push right away (build has no draft review: that is plan-objective step 13.5, which build does not run). Leave the `**Push:**` line out of the planner prompt, so the planner pushes the TRDs itself, and if its return says `**Pushed:** no`, run `node ~/.claude/devflow/bin/df-tools.cjs plan push "${OBJECTIVE_NUMBER}"` (in local mode it reports `local mode` and does nothing).
+
+**Progress tracking (if available):** `TaskUpdate(taskId=plan_task_id, status="completed")`
+
+If `--pause` flag: display the TRD summary, then call AskUserQuestion:
+
+```
+AskUserQuestion([
+  {
+    header: "Pause",
+    question: "The TRDs are ready. Continue to verification and execution?",
+    multiSelect: false,
+    options: [
+      { label: "Continue (Recommended)", description: "Go on to verify and execute the TRDs" },
+      { label: "Stop here", description: "Stop the build; resume with /devflow:execute-objective {X}" }
+    ]
+  }
+])
+```
+
+If "Stop here": print the command to resume, `/devflow:execute-objective ${OBJECTIVE_NUMBER}` (the TRDs are published, so execution can start from them), and stop. Without `--pause` there is no question.
 
 ## 6. Verify TRDs (quick validation)
+
+**Progress tracking (if available):** when `job_checker_enabled` is false, delete the Check task (`TaskUpdate(taskId=check_task_id, status="deleted")`); otherwise `TaskUpdate(taskId=check_task_id, status="in_progress")`.
 
 Quick validation — NOT the full job-checker loop unless `job_checker_enabled` is true:
 
@@ -143,7 +205,7 @@ for trd in "${OBJECTIVE_DIR}"/*-TRD.md; do
 done
 ```
 
-If `job_checker_enabled` is true: Spawn job-checker (same as plan-objective step 11).
+If `job_checker_enabled` is true: Spawn job-checker (same as plan-objective step 11; use the Check task from step 3 instead of creating another), then `TaskUpdate(taskId=check_task_id, status="completed")` (if available).
 
 ## 7. Execute TRDs
 
@@ -154,12 +216,22 @@ Display banner:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
+**Progress tracking (if available):** `TaskUpdate(taskId=execute_task_id, status="in_progress")`
+
 Delegate to execute-objective workflow (same as /devflow:execute-objective). The execute-objective workflow handles:
 - Wave-based parallel execution
 - Per-task verification with evidence
 - TDD enforcement for type: tdd TRDs
 - Checkpoint handling
 - Auto gap-closure (max 2 cycles)
+
+Before delegating, start the run so the status line has a live estimate. One plain command, number written out:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs estimate start ${OBJECTIVE_NUMBER} --raw
+```
+
+Print the line it outputs. Skip this in Quick Build mode.
 
 ```
 Task(
@@ -174,6 +246,8 @@ If `--pause` flag: Execute one wave at a time, pausing between waves.
 ## 8. Auto-Verify + Complete
 
 After execute-objective returns:
+
+**Progress tracking (if available):** `TaskUpdate(taskId=execute_task_id, status="completed")`, then `TaskUpdate(taskId=verify_task_id, status="in_progress")`.
 
 **First, spawn dedicated verifier as backstop.**
 
@@ -202,6 +276,8 @@ Read status:
 VERIFICATION_STATUS=$(grep "^status:" "${objective_dir}"/*-VERIFICATION.md | cut -d: -f2 | tr -d ' ')
 ```
 
+**Progress tracking (if available):** the Verify stage ends with the verifier's verdict, whatever it is: `TaskUpdate(taskId=verify_task_id, status="completed", description="Verification: {passed | gaps_found | human_needed}")`.
+
 Branch on `$VERIFICATION_STATUS`:
 - `passed` → continue to "If OBJECTIVE COMPLETE" display below
 - `gaps_found` → continue to "If GAPS FOUND" auto-fix loop below
@@ -221,6 +297,7 @@ Display completion:
 
 TRDs: {count} executed
 Duration: {total time}
+Estimate: {output of `node ~/.claude/devflow/bin/df-tools.cjs estimate finish ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails}
 Verification: Passed ✓
 ```
 

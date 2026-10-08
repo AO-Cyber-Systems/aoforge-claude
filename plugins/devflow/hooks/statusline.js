@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Claude Code Statusline - DevFlow Edition
-// Shows: model | current task | directory | context usage
+// Shows: model | current task | directory | watcher status | estimated time remaining | context usage
 
 const fs = require('fs');
 const path = require('path');
@@ -112,13 +112,39 @@ process.stdin.on('end', () => {
       // statusline must NEVER crash on watcher state errors
     }
 
+    // 58-04: Estimate segment (EST-05). `⏱ <objective> W<current>/<total> ~<time> left`
+    // while `df-tools estimate` has a live run. Reads ONE cached state file through the
+    // synced estimate-run-store lib; nothing is computed here and nothing is written. The
+    // segment is the empty string unless a valid, unfinished, fresh run state exists.
+    // Fail-open like the watcher block: no lib, no state or a broken state leaves the rest
+    // of the line unchanged.
+    let estimateStatus = '';
+    try {
+      const estimateLibPath = path.join(homeDir, '.claude', 'devflow', 'bin', 'lib', 'estimate-run-store.cjs');
+      if (fs.existsSync(estimateLibPath)) {
+        const estimateStore = require(estimateLibPath);
+        const projectRoot = estimateStore.findProjectRoot(dir);
+        const seg = projectRoot
+          ? estimateStore.formatStatusSegment(estimateStore.readRunState(projectRoot), Date.now())
+          : '';
+        if (seg) {
+          // red once the wave has run past its P90, gold otherwise
+          const colour = seg.endsWith('over P90') ? '\x1b[31m' : '\x1b[38;5;178m';
+          estimateStatus = `${colour}${seg}\x1b[0m`;
+        }
+      }
+    } catch (e) {
+      // statusline must NEVER crash on estimate state errors
+    }
+
     // Output
     const dirname = path.basename(dir);
     const wsBlock = watcherStatus ? ` │ ${watcherStatus}` : '';
+    const estBlock = estimateStatus ? ` │ ${estimateStatus}` : '';
     if (task) {
-      process.stdout.write(`\x1b[2m${model}\x1b[0m │ \x1b[1m${task}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${ctx}`);
+      process.stdout.write(`\x1b[2m${model}\x1b[0m │ \x1b[1m${task}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${estBlock}${ctx}`);
     } else {
-      process.stdout.write(`\x1b[2m${model}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${ctx}`);
+      process.stdout.write(`\x1b[2m${model}\x1b[0m │ \x1b[2m${dirname}\x1b[0m${wsBlock}${estBlock}${ctx}`);
     }
   } catch (e) {
     // Silent fail - don't break statusline on parse errors

@@ -48,6 +48,12 @@ verification:
 
 duration: 5min
 completed: 2026-10-01
+tokens_input: 4612223
+tokens_output: 37412
+tokens_cache_read: 4499202
+tokens_cache_write: 112929
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 50: GitHub Enforcement and Setup, TRD 02: Commit gate decision Summary

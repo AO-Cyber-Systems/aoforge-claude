@@ -38,6 +38,12 @@ verification:
   test_pairing: true
 duration: 35min
 completed: 2026-10-01
+tokens_input: 19424372
+tokens_output: 78173
+tokens_cache_read: 19182167
+tokens_cache_write: 242013
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 05: `planning import` prices and previews the backfill Summary

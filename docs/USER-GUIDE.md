@@ -183,8 +183,8 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 | `/devflow:security-audit` | OWASP Top 10 scan with confidence tagging | Before a release or after auth/crypto changes |
 | `/devflow:quick` | Ad-hoc task with DevFlow guarantees | Bug fixes, small features, config changes |
 | `/devflow:debug [desc]` | Systematic debugging with persistent state | When something breaks |
-| `/devflow:todo add [desc]` | Capture an idea for later | Think of something during a session |
-| `/devflow:todo list` | List pending todos | Review captured ideas |
+| `/devflow:todo add [desc]` | Capture an idea for later; also adds a `Todo:` item to the session task list when the session has task tools | Think of something during a session |
+| `/devflow:todo list` | Merge the session's todos into the archive, then list pending todos with their in-session status (see [Todos and the session task list](#todos-and-the-session-task-list)) | Review captured ideas |
 | `/devflow:settings` | Configure workflow toggles and model profile | Change model, toggle agents |
 | `/devflow:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
@@ -253,6 +253,130 @@ node ~/.claude/devflow/bin/df-tools.cjs upgrade --global --confirm   # adopt the
 - **Backups** go outside the repo, to `~/.claude/devflow/backups/<repo>-<hash>/<timestamp>/`, before anything is written.
 - **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- DEVFLOW:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. A block refreshes only when the template version rises: version 3 adds the `/devflow:doctor` routing line (and carries the `/devflow:gh-sync` line), so an existing block picks up both at the next global upgrade. If you already have a hand-written DevFlow section, you get a notice and nothing changes until you run `upgrade --global --confirm`.
 - **Backup pruning.** DevFlow installs no scheduler of its own -- pruning runs from the `upgrade-project.js` SessionStart path, throttled to once per 24 hours by a last-prune timestamp. The default policy keeps backups younger than 14 days, and always keeps the newest 5 per repo. It's configurable in `~/.claude/devflow/global-config.json`: `backups.retain_days` and `backups.keep_min`. Run it by hand (or preview it) with `node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune [--dry-run]`; register a repo for pruning without a full upgrade with `upgrade --register`. Both `/devflow:adopt` and `/devflow:new-project` register the repo automatically. Skip pruning entirely with `DEVFLOW_SKIP_PRUNE=1`. If you want an OS-level schedule instead of the once-per-session throttle, add your own cron line, e.g. `0 3 * * * node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune` -- this is opt-in and entirely user-owned; DevFlow never installs it for you.
+
+### Estimation data (`df-tools tokens`, `df-tools calibrate`)
+
+Estimates need measured history. Two commands turn the history DevFlow already keeps (SUMMARY frontmatter, STATE_ARCHIVE metrics and Claude Code transcripts) into numbers a later objective can read.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs tokens trd 57-03                      # token usage of one TRD (read-only)
+node ~/.claude/devflow/bin/df-tools.cjs tokens stamp 57-03 --draft <path>     # add token fields to a SUMMARY draft
+node ~/.claude/devflow/bin/df-tools.cjs tokens backfill                       # dry run: what could be recovered
+node ~/.claude/devflow/bin/df-tools.cjs tokens backfill --write               # stamp the recoverable SUMMARYs
+node ~/.claude/devflow/bin/df-tools.cjs calibrate                             # write ~/.claude/devflow/calibration.json
+node ~/.claude/devflow/bin/df-tools.cjs calibrate --dry-run --raw             # report only, write nothing
+node ~/.claude/devflow/bin/df-tools.cjs calibrate --window <N|all>            # the N most recent objectives (default 10), or all history
+```
+
+- **`tokens`.** Reads the executor transcripts under `~/.claude/projects` (`--root` to point elsewhere, `--repo` for another repository) and sums usage once per API message, so a message split across several transcript lines is not counted twice. `tokens stamp` adds `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, `token_model` and `tokens_source: "live"` to the SUMMARY draft you name. Executors run it before `summary post`, so a new SUMMARY carries token data from the start. It never writes under `.planning/` and exits 0 with `stamped: false` when no transcript is found.
+- **`tokens backfill`.** Covers every SUMMARY of the checkout holding the current directory. It is a dry run unless `--write`, and `--write` goes through `summary post`, so the only change is added `tokens_*` and `token_model` frontmatter lines (`tokens_source: "backfill"`). A second `--write` writes nothing. `--force` restamps a SUMMARY that already has token values; a live stamp is otherwise left as written. Expect many SUMMARYs to stay unrecovered: Claude Code deletes old transcripts, and an older SUMMARY may carry no TRD key. The report counts them by reason (`no_transcript`, `unkeyed`) and exits 0, since unrecoverable history is the normal outcome. Exit 1 means a usage error or a failed write.
+- **`calibrate`.** Builds per-task-class p50 and P90 for minutes, files, tokens and dollars, plus TRD-level figures, the checkpoint and gap-closure probabilities and the agent overhead (the planner, job-checker, verifier, objective-researcher, integration-checker and roadmapper spawns, read from the subagent transcripts), and writes them to `~/.claude/devflow/calibration.json`. The file is the artifact; stdout is one summary line (`changed`, `unchanged` or `dry run`, then TRD, task and token-sample counts and a count per class). The output is deterministic: a rerun on unchanged inputs is byte-identical and reports `unchanged`. It refuses to write, and exits 1, when no DevFlow project is found, so a mistyped path cannot overwrite a good file with zeros.
+- **The recency window (`--window <N|all>`).** Keeps, per project, only the N most recent objectives that have samples (ranked by objective number, so 9 sorts before 10) and drops the TRDs of older ones before every statistic; agent overhead, which comes from transcripts, is not windowed. The default is the most recent 10 objectives, and `--window all` keeps all history. A project with 10 or fewer objectives is unaffected, and a window that drops nothing leaves the file byte-identical. When it does drop something, `calibration.json` gains a `window` block (the window, and per project the first and last kept objective and the kept and dropped counts) and a note. The default came from objective 64: all-history medians were set by slower, larger-TRD eras and the latest objectives run faster than that history, which a recency window addresses; see "What is assumed" for how well that held up. A calibration built before the default existed has no `window` block and reads the same.
+- **Where it looks and writes.** `--paths <dir[,dir]>`, else `DEVFLOW_CALIBRATE_PATHS` (separated by the platform path delimiter), else the checkout holding the current directory. `--out <file>` wins over `DEVFLOW_CALIBRATION_PATH`, which wins over the default `~/.claude/devflow/calibration.json`. `--rates <file>` replaces the bundled rates file. `--root <dir>` points the overhead scan at another Claude Code projects directory (default `~/.claude/projects`); `--no-overhead` skips the scan, and the two cannot be combined.
+- **`calibration.json` top-level keys (version 2).** `samples` (`tasks`, `trds`, `with_tokens`), `task_classes` (one entry per class, plus `all`, each with `samples` and min/p50/p90/max for `minutes`, `files`, `tokens_input`, `tokens_output` and `cost_usd`), `trd_level` (the same figures per TRD), `probabilities` (`checkpoint`, `gap_closure`, each with `n` and `value`), `models` (the rate used per model), `data_as_of` and `inputs_digest` (the date and digest of the inputs, so a changed file is explained by changed inputs), and `window` when a recency window dropped objectives. Version 2 adds `agent_overhead` (one entry per agent type with `samples` and p50/P90 `minutes`, `tokens_input`, `tokens_output` and `cost_usd`), `agent_overhead_sources` (what the transcript scan saw: `scanned`, `spawns`, `matched`, `foreign`, `quick`, `unreadable`) and `objective_level` (the same figures for a whole objective, plus its `trds` and `tasks` counts, which is what an unplanned objective is estimated from). It also records `sources`, `unpriced_models`, `rates_as_of` and the classifier version. On this repository the first version 2 run read 323 TRDs, 746 tasks and 236 TRDs with token data, and measured overhead from 31 verifier, 26 planner, 22 job-checker, 11 objective-researcher, 4 integration-checker and 1 roadmapper spawns.
+- **Rates.** `devflow/references/model-rates.json` holds USD per million tokens for each model id seen in transcripts. Every entry carries its own `source` and `as_of`. To update it, re-read the vendor's pricing page, edit the entry, and set `source` and `as_of` to match what you read; do not copy rates from memory. A model with no entry shows up under `unpriced_models` and its dollars are left out rather than guessed.
+- **Unrecoverable history is normal.** A class with few samples has wide percentiles; `samples` says how much to trust each one.
+
+### Estimates (`df-tools estimate`)
+
+`estimate` turns `calibration.json` into a forecast for a task, a TRD, an objective or a milestone: median and P90 minutes, tokens and dollars, with the sample count behind them and a confidence label. Run `calibrate` first; without a usable calibration every form prints `No estimate: <reason>` (naming `df-tools calibrate`) and exits 0, never a number it cannot back.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs estimate task --files <a[,b]> [--tdd] [--trd-type <t>]   # or --class <name>, or --checkpoint
+node ~/.claude/devflow/bin/df-tools.cjs estimate trd 58-05
+node ~/.claude/devflow/bin/df-tools.cjs estimate objective 58 [--all] [--table|--line]
+node ~/.claude/devflow/bin/df-tools.cjs estimate milestone [v1.5] [--table|--line]
+node ~/.claude/devflow/bin/df-tools.cjs estimate start 58                  # begin a run: estimate the remaining TRDs, write the run state
+node ~/.claude/devflow/bin/df-tools.cjs estimate wave 58 2 --start         # or --done
+node ~/.claude/devflow/bin/df-tools.cjs estimate finish 58                 # close the run, print actual against estimate
+node ~/.claude/devflow/bin/df-tools.cjs estimate backtest 59,60,61,62,63   # estimate vs actual, EST-08 verdict
+```
+
+Every form takes `--raw` for paste-ready text (JSON is the default) and `--calibration <file>` (else `DEVFLOW_CALIBRATION_PATH`, else `~/.claude/devflow/calibration.json`). Exit 1 means a usage error or an objective, TRD or milestone that does not exist. Output from this repository:
+
+```
+Task code_tdd: 6 min (P90 18 min) · tokens 3.6M in / 29K out · $1.35 (P90 $2.20) · n=332, confidence high
+TRD 58-05: 10 min (P90 24 min) · $2.63 (P90 $4.36) · 2 tasks · confidence low
+Objective 58 estimate: 2h 19m median (P90 5h 42m) wall · $32.69 (P90 $48.34) · 10 TRDs estimated in 7 waves · confidence low
+```
+
+- **Method.** The tasks of one TRD move together, so their quantiles add quantile by quantile. TRDs, waves, agent overhead and objectives combine as a correlated sum with rho 0.5. TRDs in the same wave run in parallel, so a wave takes the max of its TRDs. For a planned objective the planner and job-checker have already run (reported as `spent`, never added) and one verifier spawn is added. Gap closure is a mixture with the calibrated probability (8% across this repository's 48 objectives): with that probability one more planner, one TRD and one more verifier follow, so it lifts the P90 more than the median. An unplanned objective is estimated serially from `objective_level` plus a planner, job-checker and verifier, and gap closure is not added because that history already includes it. Every figure is rounded once, at output.
+- **Confidence.** Each task is labelled by the samples behind its class: `high` at 30 or more, `medium` at 10 to 29, `low` at 1 to 9, `none` with no data. A class with fewer than 5 samples falls back to the all-task figures and is capped at `low`. A TRD, objective or milestone takes the weakest component that carries at least 10% of the median, and says which one (`weakest: ...`). An unplanned objective is never better than `low`, since it comes from history and not from a plan.
+- **`objective`.** Counts only TRDs without a SUMMARY (`TRDs left`); `--all` estimates every TRD, done or not, as a backtest (`TRDs estimated`). `--table` prints the wall, agent, token and cost rows with the verifier and gap-closure terms named; `--line` prints one line. Without `--all`, an objective whose TRDs are all done prints `all TRDs done`; with `--all` the text forms show the estimate for a completed objective too. `estimate objective` needs the objective's directory; `milestone` also covers an objective that exists only in the ROADMAP and marks it `unplanned`.
+- **`milestone`.** One row per objective not yet done (`partial`, `planned` or `unplanned`), a total row, and a footer naming the done and cancelled objectives, for example `v1.5 total (7 objectives left) 8h 55m median, P90 20h 03m, $226.43, confidence low` with 55-57 done and 59-64 unplanned.
+- **`backtest`.** `estimate backtest <N[,N...]> [--calibration <file>] [--raw]` checks the estimate against what was measured. For each objective it compares the estimate with the executor minutes (the SUMMARY `duration` of each TRD, or the STATE_ARCHIVE metric row when a SUMMARY has none) and with the cost of the SUMMARY token fields priced from `references/model-rates.json`. An objective is compared only when every one of its TRDs has the actual; one that does not is excluded with the reason and the TRD ids, never given a partial sum. A row is `prospective` when the objective's archived run state recorded the estimate before execution and `reconstructed` when the estimate was rebuilt afterwards with `estimate objective N --all`, which is only as good as the calibration it is given: pass the calibration that existed before the objective started. Wall time is reported from a run state and never judged. The verdict follows rules fixed in code, not set per call: for agent minutes and for cost, the median of the per-objective ratios (p50 over actual) is within 0.70 to 1.30, and the P90 covers at least 80% of the objectives and 80% of the TRDs; EST-08 is `met` only when both metrics pass both rules, and `insufficient` below three compared objectives. The output also lists the task classes whose ratio or coverage is off. JSON is the default; `--raw` prints the markdown report (use it for more than a couple of objectives, since the JSON is large and comes back as an `@file:` pointer).
+- **Where estimates appear.** The planner's PLANNING COMPLETE return and plan-objective's OBJECTIVE PLANNED view carry the `objective --table` output. `/devflow:build` prints the one-line estimate in its build plan and the actual-vs-estimate line when it finishes. Execute-objective's wave reports show each wave's estimate when it starts and its actual and verdict when it ends. The status line shows time remaining while a run is live. All of these are fail-soft: a missing calibration never blocks planning or execution.
+- **Run state.** `start`, `wave --start|--done` and `finish` are the only writers of the run state, one small JSON file per project, `~/.claude/devflow/state/estimates/<repo-key>.json` (override the directory with `DEVFLOW_ESTIMATE_STATE_DIR`). It is never written inside the repository. A run for another objective, a finished one, or one idle for more than 12 hours is not live: `wave --start` begins a new run, and `wave --done` and `finish` say `actual unknown (no run state)`. `wave --done` and `finish` are idempotent: a second call reprints the stored line and writes nothing. The verdict is `at or under median`, `within P90` or `over P90`. A new run records the execution and total estimates and the identity of the calibration it used. `finish`, and a `start` or `wave --start` that replaces a finished run, archive that run to `<state dir>/history/<repo-key>/<objective>-<started_at>.json`, so a later run does not destroy an earlier run's estimate; an unfinished run that is replaced is not archived. The history is what `estimate backtest` reads, and it is outside the repository like the run state.
+- **Status line.** While a run is live the status line adds `⏱ 58 W7/7 ~20m left` (the objective, the current wave of the total, and the remaining median), or `⏱ 58 W7/7 over P90` once the wave has outrun its P90. Nothing is computed per render: it reads the one cached file. After `finish` the segment is gone.
+- **What is assumed.** The correlation of 0.5 is an assumption, not a measurement. A first in-sample backtest of objectives 55 to 57 (the calibration already contains them, so it is optimistic) put the cost medians within 6% of actual and the minutes medians 1.5x to 2.8x above it, and every actual fell under its P90. Objective 64 then tested it out of sample on objectives 59 to 63 (41 TRDs, reconstructed from the calibration built before 59 started), and **EST-08 is not met**: the estimate of agent minutes runs about 1.5 times high (median ratio 1.51, 2 of 5 objectives within ±30%), while cost is close (median ratio 0.86, 4 of 5 within ±30%). The P90 met its 80% target for both: agent minutes covered 5 of 5 objectives and 40 of 41 TRDs, cost 4 of 5 and 34 of 41 (the cost P90 is narrow for `prompt_tdd`, `test` and `prompt` tasks). Read the minutes median as an upper estimate; the bias sits mostly in the `code_tdd`, `prompt_tdd` and `other` classes. The report is `.planning/objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md`, and the recalibration of minutes is a pending todo. Recheck with `estimate backtest` on the next five objectives, whose run history now records the estimate before they execute. **Default changed but EST-08 not met:** objective 64 then re-validated the minutes estimate with a recency window. A window of 10 objectives was chosen on history from before objective 59 (weak support: the sweep over window sizes was not monotone, and only 10 beat all history) and scored once out of sample on 59 to 63, each objective estimated from its own leave-future-out calibration. The agent-minutes median ratio fell from 1.348 to 1.238 and agent-minutes SC2 passes, but 2 of 5 objectives are in band under both methods, the cost median moved from 0.839 to 0.797 (further below 1), and cost SC3 is unchanged at 32 of 41 TRDs (78%, target 80%), so EST-08 is still not met. The pre-registered ship rule made the window the default of `calibrate` and the live `calibration.json` was regenerated with it. Treat that as a small move on five objectives, not as a fix: only the next five objectives, estimated from the calibration that exists before each starts, can confirm it. The window needs a release and a runtime re-sync before the installed `~/.claude/devflow` df-tools has `--window` and `estimate backtest`.
+
+### Parallel wave merges (`df-tools merge-driver`)
+
+Executors in one wave each write `.planning/state.json` and `.planning/STATE_ARCHIVE.md` on their own branch, so the merges back would conflict on both. `/devflow:execute-objective` installs a merge driver once per run, before the first parallel wave's worktrees, so they merge without a conflict.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs merge-driver install            # run from the MAIN checkout
+node ~/.claude/devflow/bin/df-tools.cjs merge-driver install --check    # writes nothing; true or false
+node ~/.claude/devflow/bin/df-tools.cjs merge-driver uninstall          # the undo
+```
+
+- **Where it runs.** Install from the main checkout, where wave merges run, and never inside an executor worktree. The registration is per clone: a block in the common `info/attributes` plus a `merge.devflow-state-json` section in the repo's git config. Nothing is committed, so a fresh clone has no driver until `install` runs there. `install` is idempotent, `uninstall` is idempotent and removes only that block and section, and `install --check` reports `installed: false` afterwards.
+- **What each file does on merge.** `state.json` is merged as JSON. `decisions`, `blockers` and `session_log` keep both sides' additions (ours first, then theirs) and drop an entry one side removed, `metrics` counters sum both deltas (two parallel `+1` jobs make `+2`), a number changed on both sides takes the larger, an ISO date the later, and any other key changed on both sides keeps ours with a note. `STATE_ARCHIVE.md` merges by union, so both sides' new rows are kept. STATE.md, ROADMAP.md and REQUIREMENTS.md still conflict; the wave merge takes ours for those and regenerates them afterwards with `state advance-job --objective N`, `state update-progress` and `roadmap update-job-progress N`, in one commit.
+- **Fail-safe.** The recorded driver is a shell wrapper that runs df-tools only if the binary exists and otherwise falls back to `git merge-file`. A missing binary therefore gives an ordinary text conflict with markers, never an aborted merge. The wrapper points at the main checkout's `plugins/devflow/devflow/bin/df-tools.cjs` or at the `~/.claude/devflow` mirror's, depending on which copy ran `install`, and never at a worktree copy that a later `git worktree remove` would strand. After a plugin update, the next run of `execute-objective` re-points the driver at the mirror (`changed: true` once).
+- **If a merge stops anyway** (the driver was not installed, or the runtime predates it): `node ~/.claude/devflow/bin/df-tools.cjs merge-driver resolve .planning/state.json` (or `.planning/STATE_ARCHIVE.md`) resolves the stopped file from the index stages by the same rules and stages the result, then finish the merge with `git commit --no-edit`. It refuses any other path.
+- **Position after a wave.** `state advance-job --objective N` reads objective N's TRDs and SUMMARYs from disk and writes `Executing objective N — D/T TRDs complete` (`ready for verification` only when D equals T), so it is the same answer however the merges went and is safe to run again. Without `--objective`, a project with no usable position (state.json at 0/0, or no counters) writes nothing and reports `reason: no_position`.
+- **The executor's checkout.** The dispatch names each executor's `CHECKOUT`. Every Bash call starts in the session's directory, not the worktree, so the preflight is `df-tools --cwd <CHECKOUT> exec-context check --repo <REPO_ROOT> --base <WAVE_BASE> --id <plan_id>`, and `exec-context worktree` prints that command as `preflight`. A check that runs elsewhere while a worktree exists for `--id` fails `WRONG CHECKOUT`, takes no claim and prints the `--cwd` command to run.
+- **`milestone complete`.** It counts, lists and archives only the objectives the milestone's ROADMAP bullet names, and reports `objective_numbers`, `cancelled` (in-range objectives whose OBJECTIVE.md says `status: cancelled`), `absent` (numbers in the bullet's range with neither a directory nor a ROADMAP section) and `scope_source` (`milestone bullet`, `roadmap sections` or `objective directories`). `state_updated` is true only when STATE.md changed, and `objective remove` and `objective complete` report `roadmap_updated` the same way, so a repeated `objective complete` reports `false`.
+
+### Telemetry (`df-tools telemetry`)
+
+One local view of where DevFlow is being blocked and what needs attention. Nothing leaves your machine.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs telemetry                                    # planning state, overrides and advisories
+node ~/.claude/devflow/bin/df-tools.cjs telemetry --scan                             # plus a fresh audit of your session transcripts
+node ~/.claude/devflow/bin/df-tools.cjs telemetry --scan --limit 20 --since 2026-09-01 --root <projects dir>
+```
+
+- **`--scan`.** Reads Claude Code session transcripts (by default the newest 150 under `~/.claude/projects`; `--limit 0` reads all of them) and fills the `blocks` object: the total number of blocking events, how many are DevFlow-owned, the share of sessions with a block and the top categories. A `scan` object records the `root`, `limit`, `since` and `files_scanned` that were used, and the advisories gain a line about the blocks. It reads transcripts, not `.planning/`, so it works outside a DevFlow project too. With `--raw` the output is text and starts with `scan: <n> transcripts, <n> blocks (<n> DevFlow-owned)`; without it, JSON.
+- **Flags that need `--scan`.** `--limit`, `--since YYYY-MM-DD` and `--root` only mean something to the scan, so without it they exit 1 with `--limit, --since and --root need --scan`. Every other unknown flag exits 1 as well (`unknown flag: --scna`). Before objective 61, `telemetry` silently ignored `--scan` and every other flag, so a typo looked like a clean result.
+- **Needs an installed plugin carrying objective 61.** An older one ignores the flags.
+
+#### Automatic transcript export
+
+Claude Code deletes old transcripts, and `df-tools transcript-export` keeps a compact one-row-per-session index so longitudinal measurement survives. You no longer have to remember to run it. The `upgrade-project.js` SessionStart hook starts it as a detached background process at most once every 24 hours, in every session, whether or not the directory is a DevFlow project:
+
+- **What it runs.** `df-tools transcript-export --root ~/.claude/projects --out ~/.claude/devflow/transcript-index.jsonl`, using the bundled df-tools. It never passes `--full`, so it never makes a raw copy of the transcripts; run the command by hand with `--full <dir>` when you want one.
+- **The 24-hour stamp.** `~/.claude/devflow/state/transcript-export/last-run.json` holds `{ "last_run_at": <time> }`. The hook writes it before it starts the export, so two sessions that start together run one export. A run younger than 24 hours is skipped, and so is a machine with no `~/.claude/projects`.
+- **Never in your way.** The first run on a large transcript history is slow, which is why it is a background child and not part of session start. Session start prints nothing for it, and a failure to start it is one `[devflow] transcript export skipped: <reason>` line on stderr.
+- **Escape.** `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1` in the environment Claude Code is launched from turns it off. It is independent of `DEVFLOW_SKIP_UPGRADE=1` and `DEVFLOW_SKIP_PRUNE=1`.
+- **Needs an installed plugin carrying objective 61.**
+
+### Progress, plan mode and questions
+
+DevFlow's own prompts use Claude Code's built-ins instead of ad hoc text (objective 62). The rules are in `references/built-ins.md`, the list of every converted prompt is [built-in-sweep.md](built-in-sweep.md), and `builtin-sweep.repo.test.cjs` fails CI when a prompt drifts back.
+
+- **Progress.** `/devflow:micro`, `/devflow:quick`, `/devflow:build`, `/devflow:debug`, `/devflow:plan-objective` and `/devflow:verify-work` show a task list that moves while the flow runs: each stage is `in_progress` when it starts and `completed` when it ends. The subjects are `Micro: <description>`; quick's `Plan: ...`, `Check plan` (`--full`), `Execute: ...` and `Verify` (`--full`); build's `Research`, `Plan`, `Check`, `Execute` and `Verify`; debug's `Gather symptoms`, `Investigate: <slug>`, one `Hypothesis: ...` per continuation round and `Fix: <slug>`; plan-objective's `Research`, `Plan`, `Verify plans` and `Review drafts`; and for verify-work one task per UAT test, then `Diagnose` and `Plan gap closure`.
+- **Turning the task tools on.** Claude Code provides the task tools (TaskCreate, TaskUpdate) by default only on older models. On the others, set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in the environment Claude Code is launched from (Claude Code v2.1.268 and later). Nothing breaks without them: every flow carries on and the `DF ►` banners still show the stage. A headless `claude -p` run listed TaskCreate and TaskUpdate in its tools with the variable set, and did not without it.
+- **Draft reviews in plan mode.** Three flows show the draft in plan mode before anything is published: `/devflow:plan-objective` shows the TRD drafts (step 13.5, after the checker), `/devflow:new-project` shows PROJECT.md, the requirements and the roadmap, and `/devflow:milestone complete` shows the MILESTONES entry and the PROJECT.md update. Approve to publish. Choose "No, keep planning" and give feedback to get a revised draft and a second review. Approving a plan switches Claude Code's permission mode to the one you pick, so check it afterwards. A headless (`-p`) run cannot approve a plan, so run these flows with `--auto` there.
+- **When the review is skipped.** plan-objective skips it under `--auto`, `--gaps` or `workflow.auto_advance`; milestone complete under `--auto` or `workflow.auto_advance`; new-project under `--auto` only. new-project keys on `--auto` alone because it writes `workflow.auto_advance: true` into every new config, so keying on that would remove the roadmap approval for every interactive user. `/devflow:build` still shows its pipeline strategy in plan mode, which is a strategy and not a draft.
+- **Questions.** A discrete choice is an AskUserQuestion: a header of at most 12 characters, 2 to 4 options, the recommended option first and marked `(Recommended)`, and the safe option recommended for anything destructive (`/devflow:objective remove` offers Cancel first). A list longer than 4 shows the first 4 and takes another entry typed under Other. An answer that is open text (a description, a correction, a UAT result) stays plain text. `/devflow:adopt` never asks: it declares `disallowed-tools: AskUserQuestion`.
+- **Never pre-approved.** No skill lists `ExitPlanMode` in `allowed-tools`. Its permission prompt is the plan approval, so pre-approving it could approve a draft you never saw. The repo test fails if a skill declares it.
+- **The CI check and the inventory.** `builtin-sweep.repo.test.cjs` fails on a prose choice outside AskUserQuestion, an AskUserQuestion with no options, a header over 12 characters or more than 4 options, a missing progress call in the six flows, a missing draft review in the three draft flows and a built-in a skill uses without declaring it. There is no baseline and no exceptions list. A line that is not a choice (a free-text question, a quoted example) takes a `<!-- builtin-audit: allow <reason> -->` marker with a reason of 20 or more characters. `docs/built-in-sweep.md` records what each of the 121 prompts became and is held to the tree by the same test.
+- **Needs an installed plugin carrying objective 62.** An older one still asks in prose and shows no progress.
+
+### Todos and the session task list
+
+`/devflow:todo` keeps a todo in two places (objective 63). While you work, the session task list holds it as a `Todo: <title>` item (visible with Ctrl+T), made with TaskCreate, TaskUpdate and TaskList, or with TodoWrite on a session where `CLAUDE_CODE_ENABLE_TASKS=0` brings it back. The todo file under `.planning/todos/` (or the `devflow:todo` GitHub issue in store mode) is the durable archive that outlives the session. Both forms are written by the skill and read back by one merge, so you work with whichever is in front of you.
+
+- **With the task tools.** `/devflow:todo add <x>` adds the session item first and the archive todo second, so a turn cut off between the two is recovered by the sync. `/devflow:todo list` merges the session into the archive first, commits the files that merge changed, shows `(in progress this session)` beside a todo the task list has started and lists session todos not archived yet. "Work on it now" sets the session task in progress and leaves the archive todo pending: finishing the task (TaskUpdate to `completed`) is what completes the archive todo, at the next Stop or the next `list`.
+- **Without them.** The task tools are on by default only on older models; see "Turning the task tools on" in [Progress, plan mode and questions](#progress-plan-mode-and-questions) for `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. With neither tool, `add` and `list` behave as they did before objective 63, and "Work on it now" completes the archive todo at once.
+- **The Stop hook.** `todo-sync.js` runs the merge at every Stop in a DevFlow project, so a todo you finished in the session reaches the archive without a command. It speaks once, as `DevFlow: todo sync: ...` (`archived N todo(s) from this session`, `completed N todo(s)`, `not committed yet: <files>`, or in store mode `queued for GitHub`), says nothing on a second Stop over the same transcript, and on a failure says `todo sync failed: ...; nothing is lost, the session task list still holds them`. It never blocks the Stop and never commits. Set `DEVFLOW_SKIP_TODO_SYNC=1` in the environment Claude Code was launched from to turn it off.
+- **Merging by hand.** `df-tools todo sync --session <id>` (or `--transcript <path>`, repeatable) runs the same merge; `--dry-run` shows what it would add and complete and writes nothing. Local mode writes the same bytes as `todo add` and `todo complete`; store mode queues the issue writes for gh-flush.
+- **Who commits.** The hook leaves the files uncommitted and names them. `/devflow:todo list` commits exactly the files its own sync changed through `df-tools commit`. A hand-run `todo sync` prints an `uncommitted:` line for you to commit; in store mode the writes are queued and `gh-flush.js` sends them.
+- **The merge only moves forward.** A todo goes absent, then pending, then completed. Deleting a session task never removes an archive todo, a completed todo is never reopened, and a todo already in the archive under the same title is not added twice.
+- **Limits.** Tasks made inside a subagent are ignored. A session that shares a task list through `CLAUDE_CODE_TASK_LIST_ID` does not see a completion of a task created in another session, because the merge reads one transcript at a time; complete that todo with `/devflow:todo list` or `df-tools todo complete`.
+- **Needs an installed plugin carrying objective 63.** An older one has no `todo sync` and no hook. The tests show this behaviour on recorded transcripts; the live run in a real session is on the objective's verify-work list.
 
 ### Integration & Release (1.28+)
 
@@ -462,6 +586,8 @@ Opt-in. With `github.store: true` GitHub is the system of record; with it off, D
 - **balanced** -- Opus only for planning (where architecture decisions happen), Sonnet for everything else. The default for good reason.
 - **budget** -- Sonnet for anything that writes code, Haiku for research and verification. Use for high-volume work or less critical objectives.
 
+**Model ids (W063).** The table above names tiers (Opus, Sonnet, Haiku). The concrete model id each tier resolves to is pinned in `plugins/devflow/devflow/references/model-profiles.json` (`df-tools resolve-model <agent>` prints it), and a stale id resolves to a model that never runs. Whether an id is current is read from `references/model-rates.json`, the price table, not from a list kept in the checker: an id is **superseded** when a newer version of the same family is priced there, and **unpriced** when it is not in the table at all (aliases never count as newer). `validate health` (Check 18) reports either as W063, never repaired, and `/devflow:doctor` check 13 appends the same finding to its model-profiles report, for example `models.opus = <id> is superseded by <current> (model-rates.json)`. The fix is to update `models` in `model-profiles.json` and release. A repository test fails CI on the day `model-rates.json` gains a newer model while the pins stay put, so the pins cannot drift unnoticed. This needs an installed plugin carrying objective 61.
+
 ---
 
 ## Usage Examples
@@ -642,15 +768,114 @@ DevFlow installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 |---|---|---|---|
 | `route-intent.js` | UserPromptSubmit | Detects DevFlow projects (`.planning/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-DevFlow repos and explicit `/devflow:` invocations |
 | `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in DevFlow projects; demands `df-tools commit` so atomic per-task commits and STATE.md stay consistent. Merge, rebase and cherry-pick completions are allowed automatically. | Inline `DEVFLOW_ALLOW_RAW_COMMIT=1 git commit …`, or `DEVFLOW_ALLOW_RAW_COMMIT=1` exported before launching Claude Code (see below) |
-| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.planning/.skill-active` marker exists (executor writes this), the editing agent is a DevFlow agent (`agent_type` `devflow:<name>`), user prompt contains an override phrase (`skip devflow`, `just edit`, `bypass devflow`, `force edit`), or env var is set. Always permits `.planning/**` and `*.md` paths. (Prior `DEVFLOW_STRICT_EDITS=1` behavior is now the default.) | `DEVFLOW_SKIP_EDIT_GATE=1` disables the gate entirely |
+| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.planning/.skill-active` marker exists (executor writes this), the editing agent is a DevFlow agent (`agent_type` `devflow:<name>`), user prompt contains an override phrase (`skip devflow`, `just edit`, `bypass devflow`, `force edit`), or env var is set. Always permits `.planning/**` and `*.md` paths. (Prior `DEVFLOW_STRICT_EDITS=1` behavior is now the default.) | `DEVFLOW_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
+| `gate-bash-writes.js` | PreToolUse (Bash) | Applies the Edit gate to Bash. In ambient mode, denies (`strict`) or asks (`warn`, the shipped default) when a command writes a tracked source file: a redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv` or inline python/node. Mentions, `.planning/`, `*.md`, untracked files and paths outside the project are never gated. Same escapes as `gate-edits.js`. Needs an installed plugin carrying objective 60. See [Bash writes and the edit gate](#bash-writes-and-the-edit-gate). | `DEVFLOW_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from (not as an inline prefix), `gates.bashEditGate: off` |
 | `changelog-on-tag.js` | PreToolUse (Bash) | Blocks `git tag -a vX.Y.Z` if `CHANGELOG.md` has no `## [X.Y.Z]` heading. Tells you to run `df-tools changelog update --version vX.Y.Z` first. | `DEVFLOW_SKIP_CHANGELOG_GATE=1` |
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
 | `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. | n/a (warning only) |
 | `gate-executor-stop.js` | SubagentStop | Blocks a `devflow:executor` once when it stops naturally and its TRD has no SUMMARY.md yet, telling it to finish or write the `## Progress` checkpoint. Never blocks twice in a row; fails open. | `DEVFLOW_SKIP_EXECUTOR_STOP_GATE=1` |
+| `gate-skill-requires.js` | UserPromptExpansion, PreToolUse (Skill) | Refuses to start a `/devflow:<skill>` whose `SKILL.md` declares `requires:` a tool that is not on PATH (today `/devflow:gh-sync`, which needs `gh`). A typed command is blocked and a Skill tool call is denied, each with the install hint and a pointer to `/devflow:doctor`. Fails open. Needs an installed plugin carrying objective 61. See [Skills that need a tool](#skills-that-need-a-tool-requires). | `DEVFLOW_SKIP_SKILL_REQUIRES=1` in the environment Claude Code was launched from |
 | `auto-continue.js` | Stop | While a DevFlow skill is active and nothing runs in the background, blocks once when Claude ends its turn right after announcing its own next step ("Writing the predicate.") instead of taking it. Questions and `/devflow:` hand-offs never trigger it. | `DEVFLOW_SKIP_AUTOCONTINUE=1` |
+| `todo-sync.js` | Stop | Merges the session's `/devflow:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with the library behind `df-tools todo sync`: `.planning/todos/` in local mode, a queued `devflow:todo` issue in store mode. Idempotent: a second Stop over the same transcript changes nothing and prints nothing. Says what it did in one message, never commits, never blocks, keeps no state and fails open. Needs an installed plugin carrying objective 63. See [Todos and the session task list](#todos-and-the-session-task-list). | `DEVFLOW_SKIP_TODO_SYNC=1` |
 | `check-update.js` | SessionStart | Background npm registry check for newer DevFlow versions. | n/a |
-| `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits (the runtime-state files migration 0008 untracks don't count), or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade)) as the first step, DevFlow project or not. Notices are emitted once, on the next prompt, by `route-results.js`. | `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only) |
-| `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator. | n/a |
+| `upgrade-project.js` | SessionStart | Upgrades a behind DevFlow project in place: applies the `auto` migrations with the bundled df-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits (the runtime-state files migration 0008 untracks don't count), or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-df-tools-upgrade)) as the first step, DevFlow project or not, then starts a detached background transcript export at most once per 24h (see [Automatic transcript export](#automatic-transcript-export)). Notices are emitted once, on the next prompt, by `route-results.js`. | `DEVFLOW_SKIP_UPGRADE=1` (upgrade only), `DEVFLOW_SKIP_PRUNE=1` (prune only), `DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1` (export only) |
+| `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator and, while an objective builds, estimated time remaining (`⏱ 58 W7/7 ~20m left`) from the estimate run state. | n/a |
+
+### Your own hooks
+
+Hooks you register in your own `settings.json` (or a project's) run beside DevFlow's, not instead of them. Claude Code starts every hook registered for an event at once, gives each the same payload and combines the results: your hook and DevFlow's both run, their context and messages are both kept, and for a tool call the strictest answer wins (deny, then ask, then allow). DevFlow's hooks are written to stay out of the way of that:
+
+- Every DevFlow hook exits 0 and prints nothing or one JSON object, so none shows a hook error notice beside yours. A payload that is not a JSON object (`null`, an array, a string) is ignored rather than crashing a hook.
+- No DevFlow hook sets `continue: false`, and none lifts a deny or block of yours: DevFlow can add a deny or a block of its own, and an allow from DevFlow never overrides your deny.
+- A DevFlow hook's output does not depend on the hook beside it, and two copies of one hook running at once (a plugin registered twice) do not corrupt its state files.
+
+`hooks/hook-coexistence.test.js` checks all of this for every hook in `hooks.json`: it runs each alone and beside nine behaviours (adds context, allows, denies, prints plain text, exits 1, exits 2, prints garbage JSON, runs too long, never reads stdin) against a written model of Claude Code's documented composition rules. A newly registered hook with no entry in that suite fails CI. The model follows the hooks reference at Claude Code 2.1.292; the live check against a real session (your `guard-kube-context.py`-style PreToolUse hook beside DevFlow's) is on the objective's verify-work list. Which of Claude Code's tools, hook events and other surfaces DevFlow uses, and which it does not yet, is in [built-in-integration-status.md](built-in-integration-status.md).
+
+### Bash writes and the edit gate
+
+`gate-edits.js` stops an Edit or Write of tracked source in ambient mode (a DevFlow project with no skill active). A Bash `sed -i`, `cat > file <<'EOF'` or `python3 -c "open(...,'w')"` used to do the same job unchecked. `gate-bash-writes.js` closes that gap (DECISION-001): the same rule, applied to the file a Bash command writes. It is a routing nudge, not a sandbox, and it ships with the next release: the installed plugin must carry objective 60, and an older plugin has no such hook.
+
+**What it gates.** A command that writes a file git tracks, through:
+
+- a redirect (`>`, `>>`, `>|`, with or without a file descriptor), including the redirect on a heredoc opener (`cat > f <<'EOF'`)
+- `tee`, `sed -i`, `perl -i` (and `perl -pi -e`), and the destination of `cp` and `mv` (into a directory it is judged on `<dir>/<name of the source>`)
+- inline interpreter code: python `open(path, 'w'|'a'|'x'|'+')`, `Path(...).write_text` and `write_bytes`, and node `writeFileSync`, `appendFileSync`, `writeFile`, `appendFile` and `createWriteStream`, whether given with `-c`/`-e` or as a heredoc on the interpreter's stdin
+- the same commands behind `env`, `command`, `sudo`, `nohup`, `time`, leading `NAME=value` words, or `bash|sh|zsh|dash -c '...'` (to depth 3)
+
+A relative target is resolved against the session's working directory, following `cd`, `pushd` and `popd` within the command.
+
+**What it never gates.**
+
+- A command that only mentions a write: a heredoc body, a quoted argument, a comment (`grep -n "> src/a.js" README.md`, `echo "x > y"`).
+- Anything under `.planning/`, and any `*.md` file.
+- A file git does not track (untracked or ignored). Git is asked once per command, and only when a candidate inside the project exists.
+- A path outside the project: `/tmp`, the session scratchpad, another repository.
+- A target that cannot be resolved statically (`$VAR`, backticks, `cd -`, an unknown working directory).
+- A directory with no `.planning/` above it (not a DevFlow project).
+
+**Escapes.** They are the Edit gate's own, because the hook calls the same functions:
+
+- a live `.planning/.skill-active` marker, in this project's `.planning/` or the main checkout's
+- a `devflow:*` agent
+- an override phrase in your prompt (`skip devflow`, `just edit`, `bypass devflow`, `force edit`). It is a one-shot marker, and the Bash hook consumes it only when a write would otherwise be gated, so an `ls` never spends it
+- `gates.editGate: off` or `gates.bashEditGate: off` in `.planning/config.json`
+- `DEVFLOW_SKIP_EDIT_GATE=1`, **only in the environment Claude Code was launched from**:
+
+```bash
+# In YOUR terminal, before starting Claude Code
+export DEVFLOW_SKIP_EDIT_GATE=1
+claude
+```
+
+A hook runs in Claude Code's own process, so it never sees a variable set inside the Bash command. `DEVFLOW_SKIP_EDIT_GATE=1 sed -i ...` typed as a prefix does not bypass the gate, and neither does an `export` run by the agent. (`gate-commits.js` differs: it reads an inline `DEVFLOW_ALLOW_RAW_COMMIT=1` prefix out of the command text. The edit gates do not.)
+
+**Severity.** The effective rule is the least severe of `gates.editGate` and `gates.bashEditGate` (`off` < `warn` < `strict`). `strict` denies, `warn` asks you to approve, `off` allows. `gates.editGate` defaults to `strict` and an unknown value counts as `strict`. An unset or invalid `gates.bashEditGate` takes the default below.
+
+| `gates.editGate` | `gates.bashEditGate` | Bash write to a tracked file |
+|---|---|---|
+| `strict` (default) | unset | `ask` (the shipped default, `warn`) |
+| `strict` | `strict` | deny |
+| `strict` | `warn` | ask |
+| `strict` | `off` | allowed |
+| `warn` | `strict` | ask |
+| `warn` | `warn` | ask |
+| `warn` | `off` | allowed |
+| `off` | any | allowed |
+
+To opt in to denying, set `"gates": { "bashEditGate": "strict" }` in `.planning/config.json`.
+
+**The default and how it was decided.** The shipped default is `warn`, the constant `BASH_EDIT_GATE_DEFAULT` in `plugins/devflow/devflow/bin/lib/bash-write-gate.cjs`. The rule is code, not judgment: `strict` is recommended only when the false-positive rate is at most 2% (`FP_THRESHOLD = 0.02`, `recommendDefault`), otherwise `warn`. The rate was measured on 2026-10-06 by replaying the hook's own decision over every retained Claude Code transcript (`df-tools session-audit --limit 0`), with git history at each call's timestamp deciding whether a file was tracked:
+
+| Quantity | Value |
+|---|---|
+| Transcript files / sessions | 2,263 / 2,258 |
+| Bash calls | 138,304 |
+| Excluded (devflow agent / devflow skill / not a DevFlow project) | 81,522 / 29,162 / 9,663 |
+| Ambient Bash calls (the denominator) | 17,957 |
+| Would-deny | 633 (python 489, cp 54, redirect 41, sed-i 32, perl-i 14, mv 3, tee 0, node 0) |
+| False-positive rate | 633 / 17,957 = **0.035251** |
+| Threshold | 0.02 |
+| Recommended and shipped default | `warn` |
+
+The rate is an upper bound: every would-deny counts as a false positive, even where the write is exactly what the rule is meant to stop, so the true rate is lower. The detector needed no fix (`detector_fixes` is empty). The numbers live in `plugins/devflow/devflow/references/bash-edit-gate-evidence.json`, and a test fails CI when that file, the constant and `recommendDefault` disagree.
+
+**Re-measure.** Run `node ~/.claude/devflow/bin/df-tools.cjs session-audit --limit 0`. The `bash_edit_gate` key of the JSON carries the counts, and `--raw` prints it as the last line:
+
+```
+bash_edit_gate: ambient_bash_calls 17957, would_deny 633, false_positive_rate 0.035251 (upper bound), threshold 0.02, recommended_default warn
+```
+
+Transcripts are deleted under the retention window, so a later run covers different calls. When `recommended_default` turns `strict`, change `BASH_EDIT_GATE_DEFAULT` and the evidence file together.
+
+**Known false negatives.** The detector reads command text only:
+
+- a `>` in the middle of a word (`a>b`)
+- git operations (`git mv`, `git checkout -- file`, `git apply`), `patch`, `rm`, `dd` and `install`
+- writes made by `awk`, `xargs` or `find -exec`
+- a heredoc piped into an interpreter (`cat <<EOF | python3 -`), because the heredoc belongs to `cat`
+- a write made by a program the command merely runs (a script file, a formatter), because its code is not in the command
+
+**The `cd` approximation.** Subshell scoping is not modelled: after `(cd sub && echo a > f)`, a later `echo b > g` in the same command is resolved against `sub`. The error is a wrong path, and the tracked-file check usually absorbs it (a path that is not tracked passes).
 
 ### "DevFlow blocked my command — why?"
 
@@ -669,6 +894,24 @@ claude
 An `export DEVFLOW_ALLOW_RAW_COMMIT=1` run by the agent inside a Bash command never works: the hook decides before the command runs and reads only its own environment, which it inherits from the terminal that launched Claude Code. The inline prefix is the only form the agent can use. Completing a merge, rebase or cherry-pick (a `git commit` while `MERGE_HEAD`, `REBASE_HEAD`, `rebase-merge/`, `rebase-apply/` or `CHERRY_PICK_HEAD` exists in the repo's git dir) is allowed automatically and needs no escape.
 
 To turn off a hook entirely, edit `~/.claude/settings.json` and remove its entry from `hooks.PreToolUse` / `hooks.UserPromptSubmit`. Reinstalling DevFlow will re-add it.
+
+### Skills that need a tool (`requires:`)
+
+A skill cannot refuse itself: by the time its body runs, the model is already carrying it out. So a skill that cannot work without an external tool declares that tool in its `SKILL.md` frontmatter, and a hook refuses to start the skill when the tool is missing:
+
+```yaml
+requires:
+  - gh
+```
+
+`requires:` takes a tool name or a list of names (lowercase letters, digits, `.`, `_`, `+` and `-`, no paths). Today only `/devflow:gh-sync` declares one, `gh`. A skill that needs a tool for only some of its subcommands does not declare it, because `requires:` refuses the whole skill.
+
+- **What happens.** `gate-skill-requires.js` checks each declared tool on PATH (a stat of the executable file, nothing is run). A missing tool stops the skill before it starts. A typed `/devflow:gh-sync status` is blocked on `UserPromptExpansion` and the turn ends with the reason on screen. A Skill tool call (Claude invoking `devflow:gh-sync` itself) is denied on `PreToolUse`, and Claude sees the same reason and relays it. The reason names the skill and the tool, gives one install hint (for `gh`: install the GitHub CLI from https://cli.github.com, then run `gh auth login`), and points at `/devflow:doctor` and the escape.
+- **What it leaves alone.** Skills with no `requires:`, other plugins' skills, built-in slash commands such as `/review`, and a skill whose tools are all on PATH pass with no output. The gate is not project-scoped: a missing `gh` breaks `/devflow:gh-sync` in any directory.
+- **Fixing it.** Run `/devflow:doctor`. Its check 14, `skill-requires`, lists every tool the installed skills declare that is not on PATH, with the skill that needs it and the install hint. It only reports, and it never installs anything. Install the tool, then run the skill again.
+- **Escape.** `DEVFLOW_SKIP_SKILL_REQUIRES=1` in the environment Claude Code is launched from, never as an inline prefix on a command, because a hook runs in Claude Code's own process. To back the gate out without the variable, delete its two registrations from the plugin's `hooks/hooks.json`.
+- **Fail open.** Malformed input, a missing library from a partial install, an invalid `requires:` value or any other error lets the skill start. A gate that cannot decide must not stop work.
+- **Needs an installed plugin carrying objective 61.** An older plugin has neither the field nor the hook.
 
 ---
 
@@ -750,7 +993,7 @@ commit on a new branch with the logged escape (gate gh; store mode refuses the d
   git switch -c devflow-store-cache
   DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="store migration" node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
   git push -u origin devflow-store-cache
-  then open a pull request for that branch
+  gh pr create --head devflow-store-cache --fill
   or, on an objective's linked branch (`df-tools gh pr start <objective>`), commit there with: node ~/.claude/devflow/bin/df-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
 ```
 
@@ -975,7 +1218,7 @@ node ~/.claude/devflow/bin/df-tools.cjs gh setup --apply --refresh   # also forg
 node ~/.claude/devflow/bin/df-tools.cjs gh setup --require-wiki      # exit 1 while the wiki has no first page
 ```
 
-Read the dry-run first. A run reads the repository, then lists one line per action as `[created|updated|exists|skipped|manual|conflict|advisory|failed] kind target`, with the `gh` command or the file it would write underneath. `--apply` makes these changes, in order, and attempts every action even when one fails:
+Read the dry-run first. A run reads the repository, then lists one line per action as `[created|updated|exists|skipped|manual|conflict|advisory|failed] kind target`, with the `gh` command or the file it would write underneath. Under the managed workflow action it prints the two pinned lines, `uses:` and `devflow-ref:`, so the ref the checks will run is visible before `--apply`; a workflow the run would re-pin also gets a `was` line for each previous pin. When the plan would write the workflow or the pull request template, the dry run ends with a preview of the follow-up (`After --apply: it writes <files> to the working tree, not committed.`, then the `Commit them through a pull request:` steps below). A current workflow and template print neither. This needs an installed plugin carrying objective 61. `--apply` makes these changes, in order, and attempts every action even when one fails:
 
 - repository settings: wiki on, delete branch on merge;
 - labels: `github.labels` roles (objective, trd, decision, todo, debug, quick, plus in-progress and gaps when configured);
@@ -994,16 +1237,23 @@ commit on a new branch, then merge it through a pull request:
   git switch -c devflow-setup
   node ~/.claude/devflow/bin/df-tools.cjs commit "chore: add the DevFlow checks workflow and pull request template" --files .github/workflows/devflow.yml .github/pull_request_template.md
   git push -u origin devflow-setup
-  then open a pull request for that branch
+  gh pr create --head devflow-setup --fill
 ```
 
 In store mode `df-tools commit` refuses an unlinked branch, so the commit line carries the logged escape (`DEVFLOW_SKIP_GH_GATE=1 DEVFLOW_SKIP_GH_GATE_REASON="gh setup workflow"`) and a last line gives the linked-branch route through `gh pr start`, the same form as step 5 of **Migrating an existing project**.
 
-**Opening the workflow pull request.** The printed steps end at `then open a pull request for that branch` and give no command for it. Open it with the GitHub CLI: `gh pr create --base main --head devflow-setup --title "chore: DevFlow checks workflow" --body "<why>"`, with your default branch for `--base`. The steps also assume that no local `devflow-setup` branch exists. A clone that ran setup before can still have one, and `git switch -c devflow-setup` then fails with `a branch named 'devflow-setup' already exists`. Delete it first. If it was already merged, `git diff --stat <default branch> devflow-setup` prints nothing, and `git branch -D devflow-setup` is safe. Then run the printed steps.
+**Opening the workflow pull request.** The last printed step is a runnable command: `gh pr create --head devflow-setup --fill`. It opens the pull request from the branch you just pushed, against the default branch, and fills the title and body from the commit. The same line ends the steps that migration 0010 and doctor checks 20 and 21 print, so every printed branch-and-pull-request sequence finishes with `gh pr create --head <branch> --fill`. The steps also assume that no local `devflow-setup` branch exists. A clone that ran setup before can still have one, and `git switch -c devflow-setup` then fails with `a branch named 'devflow-setup' already exists`. Delete it first. If it was already merged, `git diff --stat <default branch> devflow-setup` prints nothing, and `git branch -D devflow-setup` is safe. Then run the printed steps.
 
 **Merging the workflow pull request.** The ruleset `gh setup` creates grants the repository-admin role a bypass, so you can merge this one pull request before its required checks can pass. Merge it with the GitHub CLI's own `gh pr merge <number> --admin --squash`. That is GitHub's command, not the `df-tools gh pr merge` verb, which merges objective pull requests. `--apply` prints the same command after the commit steps, with the method taken from `github.pr.merge_method` (`--merge` or `--rebase` when it is set to those, `--squash` otherwise), and names the web UI choice "Merge without waiting for requirements to be met" as the alternative. On the smoke repository the re-run merged its workflow pull request #6 with `gh pr merge 6 --admin --squash` while the merge queue and the required-checks rule were active; `devflow/linked-issue` had failed on it because that pull request closes no issue, and the bypass merged it anyway. Every later pull request goes through the checks and the merge queue, with no bypass.
 
-**Picking up a fixed checks workflow.** The managed caller `.github/workflows/devflow.yml` pins both its `uses:` line and the `devflow-ref:` input to `v<plugin version>`. A repository that set up earlier keeps running the reusable workflow it was pinned to, so a fix to that workflow reaches it in four steps. Upgrade the plugin. Run `gh setup`: the dry run lists the managed workflow as `[update]` with `refresh the managed DevFlow checks workflow`. Run `gh setup --apply`, which writes the file uncommitted. Then commit it and merge the workflow pull request as above. To pin a branch, tag or commit instead, set `github.checks_workflow` to `<owner>/<repo>/.github/workflows/devflow-checks.yml@<ref>`; `devflow-ref` then takes the same `@<ref>`, so the runner script and the reusable workflow come from one ref. The dry run prints the line count of the workflow it would write, not the pinned lines. To see them, run `--apply` and read `grep -n -e "uses:" -e "devflow-ref:" .github/workflows/devflow.yml` before you commit the file.
+**Picking up a fixed checks workflow.** The managed caller `.github/workflows/devflow.yml` pins both its `uses:` line and the `devflow-ref:` input to `v<plugin version>`. A repository that set up earlier keeps running the reusable workflow it was pinned to, so a fix to that workflow reaches it in four steps. Upgrade the plugin. Run `gh setup`: the dry run lists the managed workflow as `[update]` with `refresh the managed DevFlow checks workflow`. Run `gh setup --apply`, which writes the file uncommitted. Then commit it and merge the workflow pull request as above. To pin a branch, tag or commit instead, set `github.checks_workflow` to `<owner>/<repo>/.github/workflows/devflow-checks.yml@<ref>`; `devflow-ref` then takes the same `@<ref>`, so the runner script and the reusable workflow come from one ref. The dry run prints the pinned `uses:` and `devflow-ref:` lines under the workflow action, with a `was` line for each pin it would replace, so you can read the new ref before you run `--apply`. To spot a stale pin without running setup, see **Stale checks-workflow pins (W062)** below.
+
+**Stale checks-workflow pins (W062).** `validate health` (Check 17) and `/devflow:doctor` (check 26, `checks-workflow-pin`) warn when the managed `.github/workflows/devflow.yml` is pinned to a DevFlow release older than the installed plugin, so a fix to the reusable workflow does not wait on someone remembering to re-run setup. Both are local file reads with no `gh` or git call. What they compare, as `major.minor.patch` integers against the installed plugin version (the running one when no plugin is registered):
+
+- the `devflow-ref:` input, always;
+- the `uses:` ref, only when its path is DevFlow's own reusable workflow (`AO-Cyber-Systems/devflow-claude/.github/workflows/devflow-checks.yml`).
+
+What they never warn about: a branch, a tag that is not a release, a commit SHA, a fork's own ref, a workflow without the `# devflow:managed` header (it is yours), and an absent file. A pin newer than the plugin is reported as ahead, not stale. The W062 message names the oldest stale ref and the field that pins it, and its fix is `node ~/.claude/devflow/bin/df-tools.cjs gh setup --apply`, then committing the written file and merging the workflow pull request as above. If `github.checks_workflow` in `.planning/config.json` names an `@ref`, update that first: setup re-renders the configured ref, and so would write the stale pin again. Doctor check 22 defers W062 to check 26, so the problem shows once. W062 is never repaired automatically. This needs an installed plugin carrying objective 61.
 
 **The App (optional).** The checks run on the workflow's own token by default. To run them as a GitHub App, create the App and install it on the repository, then set the repository or organization variable `DEVFLOW_APP_CLIENT_ID` and the secret `DEVFLOW_APP_PRIVATE_KEY`. The workflow mints a token scoped to the one repository (and a read-only one to check out DevFlow). Set `github.app_id` to the App's numeric id and rerun `gh setup --apply` only once those are set: the ruleset then accepts the two checks only from that App, and a status posted by the workflow token would not satisfy it.
 
@@ -1142,11 +1392,12 @@ These exit 1 with the reason and the fix:
 **Known issues.**
 
 - After a backfill, `gh pull --all` can list objective 1's `OBJECTIVE.md` as an orphan even though its issue exists. It is an attention item (exit 2), not a gap; 0011's verification does not refuse on it.
-- Parallel executors in one wave also conflict on `.planning/STATE_ARCHIVE.md` and `.planning/state.json` when their branches merge, not only on STATE.md, ROADMAP.md and REQUIREMENTS.md. The documented planning-file conflict path in `/devflow:execute-objective` covers those three, and aborts the merge for any other conflicted path. A `state.json` conflict needs a JSON-aware merge (keep both `decisions` entries), then `git add` and `git commit --no-edit`. Extending the documented list to those two files is open.
-- The `gh setup` dry run prints the line count of `.github/workflows/devflow.yml`, not its pinned `uses:` and `devflow-ref:` lines. Read them after `--apply` (see **Picking up a fixed checks workflow**). Printing the two lines in the dry run is open.
-- The steps `gh setup --apply` prints end at "then open a pull request for that branch" with no command, and `git switch -c devflow-setup` fails when an earlier run left a local `devflow-setup` branch. Both are covered under **Opening the workflow pull request**; changing the printed steps is open.
+- Fixed in objective 59: the `.planning/state.json` and `.planning/STATE_ARCHIVE.md` conflicts between parallel executors' branches no longer need a hand merge. The merge driver and `merge-driver resolve` cover both files; see **Parallel wave merges** under the Command Reference.
+- `objective remove` renumbers every later objective with a text pass over ROADMAP.md that also rewrites any `NN-NN` token that is a date (a progress row dated `2026-03-15` becomes `2025-02-15` when objective 1 is removed). Run it only on a ROADMAP.md you have committed, and read the diff. Fixing the pass is open.
+- `milestone complete` appends a new MILESTONES.md entry on every run, so running it twice for one version leaves two entries, although `state_updated` is `false` the second time. Skipping the append when the version already has an entry is open.
+- `git switch -c devflow-setup`, the first step `gh setup --apply` prints, fails when an earlier run left a local `devflow-setup` branch. That is covered under **Opening the workflow pull request**; changing the printed steps to cope with it is open.
 - On a draft pull request with unpushed commits, `gh pr merge` refuses with `PR is still a draft; run verification first`, and only `verification post` then names `gh pr sync`. The draft check runs first on purpose (a test pins the order), so the remedy takes two steps. Naming `gh pr sync` in the draft refusal is open.
-- A new store-mode objective issue is titled after the objective's name (`[Objective 2] Goodbye CLI`), but the objective pull request keeps the directory slug in its title (`Objective 2: goodbye-cli`), and an issue created before this fix keeps its slug title: the title is set only when the issue is created. The store footer change makes the next sync of an existing objective send one body update.
+- A store-mode objective issue and its pull request are titled after the objective's name (`[Objective 2] Goodbye CLI` and `Objective 2: Goodbye CLI`), taken from the ROADMAP name, then the `OBJECTIVE.md` heading, then the slug. The title is set only when the issue or pull request is created, so one created before this fix keeps its slug title, and a title you edit by hand is never overwritten by a sync. The store footer change makes the next sync of an existing objective send one body update.
 
 ---
 

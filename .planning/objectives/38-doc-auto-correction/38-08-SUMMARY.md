@@ -45,6 +45,12 @@ verification:
 
 duration: 55min
 completed: 2026-09-28
+tokens_input: 12500584
+tokens_output: 103250
+tokens_cache_read: 12200248
+tokens_cache_write: 300128
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 08: Migration 0007 — fix stale command references in projects Summary

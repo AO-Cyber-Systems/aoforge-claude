@@ -48,6 +48,12 @@ verification:
 # Metrics
 duration: 4min
 completed: 2026-09-27
+tokens_input: 2341442
+tokens_output: 14003
+tokens_cache_read: 2288593
+tokens_cache_write: 52779
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 35 TRD 08: Neutral references Summary

@@ -25,10 +25,12 @@ const path = require('path');
 const { output, execGit } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { boldLabelPattern } = require('./text-escape.cjs');
 const { recordSync, hashFrontmatter } = require('./sync-state.cjs');
 const client = require('./gh-client.cjs');
 const bodyLib = require('./gh-body.cjs');
 const mappingLib = require('./gh-mapping.cjs');
+const objectiveNameLib = require('./objective-name.cjs');
 
 // ─── Test injection + per-process cache (TRD 01-02) ──────────────────────────
 
@@ -633,6 +635,9 @@ function ghStatus(cwd) {
 
 // ─── ROADMAP parsing ─────────────────────────────────────────────────────────
 
+// `**Goal:**` and `**Goal**:` (the v1.5 ROADMAP form) both read.
+const GOAL_RE = new RegExp(boldLabelPattern('Goal') + '\\s*([^\\n]+)', 'i');
+
 function listObjectives(cwd) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) return [];
@@ -648,7 +653,7 @@ function listObjectives(cwd) {
     const next = tail.slice(1).match(/\n#{2,4}\s+Objective\s+\d/i);
     const sectionEnd = next ? headerIdx + 1 + next.index : content.length;
     const section = content.slice(headerIdx, sectionEnd).trim();
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
+    const goalMatch = section.match(GOAL_RE);
     const criteriaMatch = section.match(/\*\*Success Criteria\*\*[^\n]*:\s*\n((?:\s*\d+\.\s*[^\n]+\n?)+)/i);
     const successCriteria = criteriaMatch
       ? criteriaMatch[1].trim().split('\n').map(l => l.replace(/^\s*\d+\.\s*/, '').trim()).filter(Boolean)
@@ -1095,23 +1100,6 @@ function updateProjectFields(issueRef, projectId, fields = {}, opts = {}) {
 }
 
 /**
- * OBJECTIVE.md's title heading without its `Objective N —|:|-` prefix, or null.
- * `objective add` writes `# Objective N: <description>`; a hand-written file may use a dash or no prefix.
- */
-function objectiveHeadingName(objDir) {
-  let text;
-  try {
-    text = fs.readFileSync(path.join(objDir, 'OBJECTIVE.md'), 'utf-8');
-  } catch {
-    return null;
-  }
-  const m = /^#\s+(.+?)\s*$/m.exec(text.replace(/^---\n[\s\S]*?\n---\n/, ''));
-  if (!m) return null;
-  const name = m[1].replace(/^Objective\s+[\d.]+\s*(?:[—–:-]\s*)?/i, '').trim();
-  return name || null;
-}
-
-/**
  * readObjectiveState(objectiveId, projectRoot) — read disk state for one objective.
  * Returns structured state object used by buildIssueBody + buildStickyComment.
  */
@@ -1195,8 +1183,13 @@ function readObjectiveState(objectiveId, projectRoot) {
     number,
     // ROADMAP name, then the OBJECTIVE.md title heading, then the directory slug without its number prefix.
     // A fresh store has no ROADMAP entry (the view is generated from the issues), so the directory name must
-    // never be the title: `[Objective 1] 01-hello-cli`.
-    name: (found && found.name) || objectiveHeadingName(objDir) || String(objectiveId).replace(/^[\d.]+-/, ''),
+    // never be the title: `[Objective 1] 01-hello-cli`. The PR title takes the same chain (objective-name.cjs, STOR-02).
+    name: objectiveNameLib.objectiveDisplayName({
+      roadmapName: found && found.name,
+      objDir,
+      dirName: objectiveId,
+      number,
+    }),
     goal: found ? found.goal : null,
     success_criteria,
     trds: trdEntries.map(({ name, done, brief }) => ({ name, done, brief })),

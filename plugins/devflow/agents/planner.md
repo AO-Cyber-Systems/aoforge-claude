@@ -1154,6 +1154,16 @@ node ~/.claude/devflow/bin/df-tools.cjs commit "docs($OBJECTIVE): create objecti
 ```
 </step>
 
+<step name="estimate">
+Standard mode only (gap-closure and quick returns are unchanged). Once the TRDs are published, run, as one plain command:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs estimate objective {objective} --table --raw
+```
+
+Paste its output verbatim under `**Estimate:**` in the `## PLANNING COMPLETE` return. Do not recompute, reformat or comment on the numbers. If the command fails (an older runtime without `estimate`), write `not available ({first line of the error})`. If it prints a `No estimate:` line, paste that line. An estimate never blocks planning: carry on to `offer_next` either way.
+</step>
+
 <step name="offer_next">
 Return structured planning outcome to orchestrator.
 </step>
@@ -1162,7 +1172,7 @@ Return structured planning outcome to orchestrator.
 
 <structured_returns>
 
-**Return budget: ≤300 tokens.** Detail lives on disk; the orchestrator reads TRD artifacts for full content. DO NOT include task tables, key decisions, file lists, wave breakdowns, or commentary in the return — only the structured fields below.
+**Return budget: ≤300 tokens.** Detail lives on disk; the orchestrator reads TRD artifacts for full content. DO NOT include task tables, key decisions, file lists, wave breakdowns, or commentary in the return — only the structured fields below. The one exception is the estimate table: it is pasted verbatim from `df-tools estimate objective` (about 10 lines) on top of the budget.
 
 ## Planning Complete
 
@@ -1173,6 +1183,8 @@ Return structured planning outcome to orchestrator.
 **Plans:** {N} TRDs in {M} waves at:
 - {paths-list, one per line, no detail}
 **Pushed:** {yes | no — `plan push` not run}
+**Estimate:**
+{verbatim output of `node ~/.claude/devflow/bin/df-tools.cjs estimate objective {objective} --table --raw`; if the command fails, `not available ({first line of the error})`}
 
 Read `{paths}` for wave/confidence/files/dependencies. Run `/devflow:execute-objective {objective}` to begin.
 ```

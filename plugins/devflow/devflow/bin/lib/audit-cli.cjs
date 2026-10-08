@@ -5,7 +5,9 @@
  *
  * Thin CLI front-end for `df-tools context` and `df-tools session-audit`,
  * wiring `lib/context-audit.cjs` (TRD 29-04) and `lib/session-audit.cjs`
- * (TRD 31-03) into the dispatcher for the first time.
+ * (TRD 31-03) into the dispatcher for the first time. It also fronts
+ * `df-tools telemetry` (TRD 61-04): `--scan` feeds a session audit into
+ * `lib/telemetry.cjs`, and any flag it does not understand is an error.
  *
  * `output()`/`error()` (lib/helpers.cjs) call `process.exit`, so logic that
  * needs those semantics can only be tested by spawning a child process. This
@@ -27,8 +29,9 @@ const contextAudit = require('./context-audit.cjs');
 const sessionAudit = require('./session-audit.cjs');
 const transcriptExport = require('./transcript-export.cjs');
 const overrideLib = require('./override.cjs');
+const telemetry = require('./telemetry.cjs');
 
-/** `--limit` default for both commands when the flag is omitted. */
+/** `--limit` default for the scanning commands when the flag is omitted. */
 const DEFAULT_LIMIT = 150;
 
 /**
@@ -110,12 +113,45 @@ function formatContextRaw(summary) {
   ].join('\n');
 }
 
-/** Exactly 2 lines, `\n`-joined. See TRD 39-01 for the fixed shape. */
+/**
+ * 2 fixed lines (TRD 39-01) + the edit_gate line (quick 31); the by-period and
+ * sample lines appear only when denials > 0; the bash_edit_gate line (TRD 60-05)
+ * is always last. `\n`-joined, so 4 lines with no denials. A summary without
+ * `edit_gate_bypass` or `bash_edit_gate` is treated as zeros.
+ */
 function formatSessionAuditRaw(summary) {
-  return [
+  const g = summary.edit_gate_bypass || {};
+  const n = k => Number(g[k]) || 0;
+  const denials = n('denials');
+  const lines = [
     `files_scanned: ${summary.files_scanned}, sessions: ${summary.sessions}, sessions_with_blocks: ${summary.sessions_with_blocks} (${summary.sessions_with_blocks_pct}%)`,
     `verdict: ${summary.verdict}`,
-  ].join('\n');
+    `edit_gate: denials ${denials}, bypasses ${n('bypasses')}, routed ${n('routed')}, abandoned ${n('abandoned')}, bypass_rate ${n('bypass_rate')}`,
+  ];
+  if (denials > 0) {
+    const byPeriod = g.by_period || {};
+    const periods = Object.keys(byPeriod).sort();
+    if (periods.length) {
+      const cells = periods.map(p => {
+        const x = byPeriod[p];
+        return `${p} ${x.denials}/${x.bypasses}/${x.routed}/${x.abandoned}`;
+      });
+      lines.push(`edit_gate_by_period: ${cells.join(', ')} (denials/bypasses/routed/abandoned)`);
+    }
+    for (const s of Array.isArray(g.sample) ? g.sample : []) {
+      lines.push(`edit_gate_bypass_sample: ${s.file} <- ${String(s.command).slice(0, 120)}`);
+    }
+  }
+  const b = summary.bash_edit_gate || {};
+  const bn = k => Number(b[k]) || 0;
+  const rate = typeof b.false_positive_rate === 'number' ? b.false_positive_rate : 'n/a';
+  const threshold = typeof b.threshold === 'number' ? b.threshold : 0.02;
+  const mode = b.recommended_default || 'warn';
+  lines.push(
+    `bash_edit_gate: ambient_bash_calls ${bn('ambient_bash_calls')}, would_deny ${bn('would_deny')}, `
+    + `false_positive_rate ${rate} (upper bound), threshold ${threshold}, recommended_default ${mode}`
+  );
+  return lines.join('\n');
 }
 
 /**
@@ -156,6 +192,54 @@ function runSessionAudit({ argv = [] } = {}) {
     since: parsed.since,
   });
   return { ok: true, result, text: formatSessionAuditRaw(result) };
+}
+
+/**
+ * `df-tools telemetry` — the read-only project view (overrides, stuck-loop state, documentation
+ * staleness) and, with `--scan`, a session audit of blocking events folded into it.
+ *
+ * Every token is either understood or an error, never dropped: `--limit`, `--since` and `--root`
+ * only mean something to the scan, so they are rejected without it. Without `--scan` this is
+ * exactly `collect({planningDir, userHome})`: `blocks` stays null, there is no `scan` key and no
+ * transcript is read, so a status view that calls plain `telemetry` stays fast.
+ *
+ * `--scan` reads transcripts, not `.planning/`, so it still reports blocks outside a DevFlow
+ * project (`collect` handles the null `planningDir`).
+ *
+ * @param {{argv?: string[], cwd: string, userHome?: string}} opts
+ * @returns {{ok:true, result:object, text:string} | {ok:false, message:string}}
+ */
+function runTelemetry({ argv = [], cwd, userHome = os.homedir() }) {
+  const parsed = parseAuditArgs(argv, { values: ['--limit', '--root', '--since'], bools: ['--scan'] });
+  if (!parsed.ok) return parsed;
+  if (!parsed.scan && (parsed.limit !== undefined || parsed.root !== undefined || parsed.since !== undefined)) {
+    return { ok: false, message: '--limit, --since and --root need --scan' };
+  }
+
+  const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
+
+  if (!parsed.scan) {
+    const result = telemetry.collect({ planningDir, userHome });
+    return { ok: true, result, text: result.advisories.join('\n') };
+  }
+
+  const limitCheck = validateLimit(parsed.limit);
+  if (!limitCheck.ok) return limitCheck;
+  if (parsed.since !== undefined && !/^\d{4}-\d{2}-\d{2}/.test(String(parsed.since))) {
+    return { ok: false, message: '--since must be an ISO date (YYYY-MM-DD)' };
+  }
+  const rootResult = resolveRoot(parsed);
+  if (!rootResult.ok) return rootResult;
+  const limit = parsed.limit === undefined ? DEFAULT_LIMIT : parsed.limit;
+  const since = parsed.since === undefined ? null : String(parsed.since);
+
+  const report = sessionAudit.analyze([rootResult.root], { limit: limit || undefined, since: since || undefined });
+  const result = telemetry.collect({ planningDir, sessionReport: report, userHome });
+  result.scan = { root: rootResult.root, limit, since, files_scanned: report.files_scanned };
+  const scanLine =
+    `scan: ${report.files_scanned} transcripts, ${report.total_events} blocks ` +
+    `(${report.devflow_owned_events} DevFlow-owned)`;
+  return { ok: true, result, text: [scanLine, ...result.advisories].join('\n') };
 }
 
 /**
@@ -266,6 +350,7 @@ module.exports = {
   resolveRoot,
   runContext,
   runSessionAudit,
+  runTelemetry,
   formatContextRaw,
   formatSessionAuditRaw,
   DEFAULT_LIMIT,

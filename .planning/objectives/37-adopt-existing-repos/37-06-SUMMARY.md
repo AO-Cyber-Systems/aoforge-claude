@@ -48,6 +48,12 @@ verification:
 metrics:
   duration: "~1 session (verification-only continuation)"
   completed: 2026-09-28
+tokens_input: 11863707
+tokens_output: 68828
+tokens_cache_read: 11591174
+tokens_cache_write: 272295
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 37 TRD 06: Backup-Prune Wiring (SessionStart + CLI) Summary

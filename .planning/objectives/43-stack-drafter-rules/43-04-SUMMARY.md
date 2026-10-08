@@ -39,6 +39,12 @@ metrics:
   completed: 2026-10-03
   tasks: 2
   files: 9
+tokens_input: 11455842
+tokens_output: 79364
+tokens_cache_read: 11247089
+tokens_cache_write: 208607
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 43 TRD 04: Environment and scenario targets get their own key (D4) Summary

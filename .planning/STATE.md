@@ -2,16 +2,16 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
+See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 **Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** v1.4 complete (2026-10-05, plugin v2.13.0 + v2.13.1, merged to `main`). Next: `/plugin update devflow@aocyber`, the live store-mode smoke, the Docs site Cloudflare fix, then plan v1.5 (`/devflow:milestone new`).
+**Current focus:** v1.6 Hardening & Release: roadmap defined (Objectives 65-75); Objective 65 (Release v1.5) is next
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
 
 ## Current Position
 
-**Milestone:** v1.4 complete 2026-10-05 (objectives 42–54, 158 TRDs; 26 killed; archived to .planning/milestones/v1.4-ROADMAP.md; audit passed 58/58). v1.5 not yet planned. Last release v2.13.1 (merge f101acb6); PR #123 (CodeQL #89, d79fed0c) merged, unreleased
+**Milestone:** v1.6 Hardening & Release — started 2026-10-08; roadmap defined (Objectives 65-75, 25/25 requirements mapped); Objective 65 (Release v1.5) is next. v1.5 complete 2026-10-08 (archived to .planning/milestones/v1.5-*; EST-08 not met, accepted).
 **Branch:** `feat/stack-profile-loader` (merged to `main` via #121, #122, #123)
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
@@ -46,7 +46,16 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 **Objective complete:** 54 — CodeQL cleanup (completed 2026-10-04, 10/10 TRDs)
 **Objective complete:** 42, 45, 53 — Codebase-aware stack drafter (15/15), DevFlow doctor (10/10), Worktree and health hygiene (7/7; completed 2026-10-04)
 **Objective complete:** 55 — Store live-smoke fixes (completed 2026-10-05, 8/8 TRDs)
-**Status:** v1.4 milestone complete
+**Objective complete:** 56 — Objective-number correctness (completed 2026-10-05, 5/5 TRDs)
+**Objective complete:** 57 — Estimation data foundation (completed 2026-10-05, 7/7 TRDs)
+**Objective complete:** 58 — Estimation engine and surfacing (completed 2026-10-05, 10/10 TRDs)
+**Objective complete:** 59 — State and merge plumbing (completed 2026-10-05, 7/7 TRDs)
+**Objective complete:** 60 — Edit gate enforces the action (completed 2026-10-06, 7/7 TRDs)
+**Objective complete:** 61 — Store-mode rough edges and observability (completed 2026-10-06, 9/9 TRDs)
+**Objective complete:** 62 — Built-in sweep (completed 2026-10-06, 11/11 TRDs)
+**Objective complete:** 63 — Todo store, hook coexistence and built-in inventory (completed 2026-10-07, 7/7 TRDs)
+**Objective complete:** 64 — Estimate accuracy validation (completed 2026-10-08, 10/10 TRDs)
+**Status:** Executing objective 65 — 1/4 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -253,6 +262,9 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 | 28 | Fix #120: micro commit --files sweeps in unrelated staged changes | 2026-10-03 | 0012a82f | Done | [28-fix-120-micro-commit-files-sweeps-in-unr](./quick/28-fix-120-micro-commit-files-sweeps-in-unr/) |
 | 29 | Fix 8 new CodeQL alerts on release PR #121 (ReDoS, regex injection, table-cell escaping) | 2026-10-04 | 518a25fa | Done | [29-fix-new-codeql-alerts-on-release-pr-121](./quick/29-fix-new-codeql-alerts-on-release-pr-121/) |
 | 30 | in-loop reserved-key guard in config-set (CodeQL #89) | 2026-10-05 | 967bf9dd | devflow-claude | Atomic |
+| 31 | session-audit counts edit-gate bypasses / routed / abandoned (DECISION-001 data) | 2026-10-05 | 60a4def7 | Done | [31-count-edit-gate-bypasses-in-session-audi](./quick/31-count-edit-gate-bypasses-in-session-audi/) |
+| 32 | hook-runner waits for stdout to drain before settling (CI flake on release PR #126) | 2026-10-08 | 1e12f7f0 | Done | [32-fix-hook-runner-stdout-drain-race-causin](./quick/32-fix-hook-runner-stdout-drain-race-causin/) |
+| 33 | Clear the 13 new CodeQL alerts on release PR #126 (mdCell table escaping, exact hint asserts, argv spawn) | 2026-10-08 | 8d4396af | Done | [33-clear-codeql-alerts-on-release-pr-126](./quick/33-clear-codeql-alerts-on-release-pr-126/) |
 
 ## Accumulated Context
 
@@ -262,6 +274,6 @@ See: .planning/PROJECT.md (updated 2026-10-05 after v1.4 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-05T12:54:28.702Z
+Last session: 2026-10-08T02:49:50.425Z
 Resume file: `None`
-Stopped at: Completed 55-08-docs-and-changelog-TRD.md
+Stopped at: Completed 65-01-release-artifacts-and-validation-TRD.md (release commit fad0442b, local only; 65-02 push/PR needs approval)

@@ -19,6 +19,12 @@
  *      git operation with a git commit. It uses the hook's own chainsGitOpAndCommit,
  *      so the guard and the gate parse alike.
  *
+ * TRD 59-06 extends the replay: a conflict on `.planning/state.json` or
+ * `.planning/STATE_ARCHIVE.md` is resolved by `df-tools merge-driver resolve <path>`
+ * (run for real, through THIS repository's df-tools: the home mirror has no
+ * `merge-driver` until release), and with the driver installed in the scratch
+ * repository those two files never conflict at all.
+ *
  * Hand-built fixtures only. Real git, skipped when git is missing. The hook reads
  * process.cwd(), so it is always spawned with cwd = the scratch repo, and
  * DEVFLOW_ALLOW_RAW_COMMIT is deleted from its env so an inherited escape cannot
@@ -35,12 +41,17 @@ const { spawnSync } = require('child_process');
 const gate = require('./gate-commits.js');
 
 const HOOK_PATH = path.join(__dirname, 'gate-commits.js');
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+const REPO_BIN = path.join(__dirname, '..', 'devflow', 'bin', 'df-tools.cjs');
 const WORKFLOWS = path.join(__dirname, '..', 'devflow', 'workflows');
 
 const HAVE_GIT = spawnSync('git', ['--version']).status === 0;
 const SKIP_GIT = HAVE_GIT ? false : 'git is not installed';
 
-const PLANNING_ONLY = ['.planning/STATE.md', '.planning/ROADMAP.md', '.planning/REQUIREMENTS.md'];
+// A conflicted planning path is either taken from the integration branch (regenerated afterwards) or
+// merged by `df-tools merge-driver resolve`. Anything else in the conflict list aborts the merge.
+const TAKE_OURS = ['.planning/STATE.md', '.planning/ROADMAP.md', '.planning/REQUIREMENTS.md'];
+const RESOLVE = ['.planning/state.json', '.planning/STATE_ARCHIVE.md'];
 
 // ---------------------------------------------------------------------------
 // Process helpers
@@ -54,12 +65,28 @@ function gitEnv() {
   env.GIT_CONFIG_NOSYSTEM = '1';
   env.GIT_EDITOR = 'true';
   env.GIT_MERGE_AUTOEDIT = 'no';
+  // A merge driver runs through `sh -c` with git's own environment: keep the node running this test on
+  // PATH so an installed driver really runs instead of silently degrading to `git merge-file`.
+  env.PATH = path.dirname(process.execPath) + path.delimiter + (env.PATH || '');
   return env;
 }
 
-/** Run a plain command line the way the harness would (one command per call). */
-function sh(cmd, cwd) {
-  return spawnSync('sh', ['-c', cmd], { cwd, env: gitEnv(), encoding: 'utf8' });
+// A runnable documented line is plain words (CATEGORIES admits nothing else), so splitting on whitespace and spawning
+// with no shell runs the same command `sh -c` would. Anything a shell would interpret fails here instead of running
+// differently. (CodeQL js/shell-command-constructed-from-input; same approach as 54-04 Case V1.)
+const SAFE_WORD = /^[A-Za-z0-9_@%+=:,./-]+$/;
+
+function argvOf(cmd) {
+  const argv = cmd.trim().split(/\s+/);
+  const bad = argv.filter((w) => !SAFE_WORD.test(w));
+  assert.deepEqual(bad, [], `documented command needs a shell to run: ${cmd}`);
+  assert.ok(!argv[0].includes('='), `documented command starts with an env assignment: ${cmd}`);
+  return argv;
+}
+
+/** Run one command as argv, no shell (one command per call, as the harness does). */
+function runArgv(argv, cwd) {
+  return spawnSync(argv[0], argv.slice(1), { cwd, env: gitEnv(), encoding: 'utf8' });
 }
 
 /** Run git, asserting success. */
@@ -100,9 +127,11 @@ function writeFiles(root, files) {
 /**
  * `branch` and `main` are `{relPath: content}` maps applied on top of a common base
  * that has the DevFlow markers (.planning/ROADMAP.md) plus STATE.md and src/a.js.
+ * `base` adds to (or overrides) that common base, so a file both sides later change
+ * (state.json, STATE_ARCHIVE.md) exists in the base instead of being ADDED by both.
  * Ends checked out on main, clean.
  */
-function mkScratch({ branch = {}, main = {} } = {}) {
+function mkScratch({ base = {}, branch = {}, main = {} } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-merge-seq-')));
   g(root, 'init', '-q', '-b', 'main');
   g(root, 'config', 'user.name', 'Fixture');
@@ -113,6 +142,7 @@ function mkScratch({ branch = {}, main = {} } = {}) {
     '.planning/STATE.md': 'state: base\n',
     '.planning/REQUIREMENTS.md': '- [ ] R1\n',
     'src/a.js': 'module.exports = 1;\n',
+    ...base,
   });
   g(root, 'add', '-A');
   g(root, 'commit', '-q', '-m', 'base');
@@ -128,6 +158,71 @@ function mkScratch({ branch = {}, main = {} } = {}) {
   g(root, 'commit', '-q', '--allow-empty', '-m', 'main moved on');
 
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+}
+
+/** A state.json holding `decisions`, in the bytes writeStateJson writes (JSON.stringify(x, null, 2), no newline). */
+function stateJsonWith(decisions = []) {
+  return JSON.stringify(
+    {
+      current_objective: '07',
+      current_job: 0,
+      total_jobs: 2,
+      progress_pct: 0,
+      status: 'Ready to execute',
+      last_activity: '2026-10-05',
+      metrics: { jobs_completed: 0, jobs_failed: 0, sessions: 0 },
+      decisions,
+      blockers: [],
+      session_log: [],
+    },
+    null,
+    2
+  );
+}
+
+function decisionOf(summary) {
+  return { objective: '07', summary, rationale: null };
+}
+
+/** STATE_ARCHIVE.md in the ARCHIVE_SEED shape, with `rows` appended to the metrics table. */
+function archiveWith(rows = []) {
+  return [
+    '# State Archive',
+    '',
+    'Append-only log. Written by df-tools `add-decision` and `record-metric`.',
+    'STATE.md stays lean; this file grows over time.',
+    '',
+    '## Decisions',
+    '',
+    '- *(none yet)*',
+    '',
+    '## Performance Metrics',
+    '',
+    '| Objective | Duration | Tasks | Files |',
+    '|-----------|----------|-------|-------|',
+    ...rows,
+    '',
+  ].join('\n');
+}
+
+/** The same two-sided append the parallel waves make: main and branch each record one decision and one row. */
+function bothSidesAppended() {
+  return {
+    base: { '.planning/state.json': stateJsonWith([]), '.planning/STATE_ARCHIVE.md': archiveWith([]) },
+    main: {
+      '.planning/state.json': stateJsonWith([decisionOf('decision from main')]),
+      '.planning/STATE_ARCHIVE.md': archiveWith(['| Objective 7 P1 | 5min | 2 tasks | 3 files |']),
+    },
+    branch: {
+      'src/a.js': 'module.exports = 2;\n',
+      '.planning/state.json': stateJsonWith([decisionOf('decision from branch')]),
+      '.planning/STATE_ARCHIVE.md': archiveWith(['| Objective 7 P2 | 7min | 3 tasks | 4 files |']),
+    },
+  };
+}
+
+function readJson(root, rel) {
+  return JSON.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +291,7 @@ const CATEGORIES = [
   ['list', /^git diff --name-only --diff-filter=U$/],
   ['ours', /^git checkout --ours -- <planning_path>$/],
   ['add', /^git add <planning_path>$/],
+  ['resolve', /^node ~\/\.claude\/devflow\/bin\/df-tools\.cjs merge-driver resolve <planning_path>$/],
   ['complete', /^git commit --no-edit$/],
   ['abort', /^git merge --abort$/],
   ['df-tools', /^node ~\/\.claude\/devflow\/bin\/df-tools\.cjs /],
@@ -213,7 +309,8 @@ function classify(cmd) {
 /**
  * Walk the documented commands through the hook and a real repo. Returns which
  * path the merge took. Every command that runs is first required to pass the hook.
- * `df-tools` commands are hook-checked only: the merge is what gate-commits guards,
+ * `merge-driver resolve` runs for real (through the repo's df-tools). Every other
+ * `df-tools` command is hook-checked only: the merge is what gate-commits guards,
  * and df-tools is the sanctioned commit path itself.
  */
 function replay(root, documented, planId = '07-01') {
@@ -222,10 +319,10 @@ function replay(root, documented, planId = '07-01') {
   assert.deepEqual(unknown, [], 'the documented merge sequence holds a command this replay does not know');
   const by = (cat) => cmds.filter((c) => classify(c) === cat);
 
-  const step = (cmd, { run = true } = {}) => {
+  const step = (cmd, { run = true, argv = null } = {}) => {
     const verdict = runHook(cmd, root);
     assert.equal(verdict.denied, false, `gate-commits denied a documented command: ${cmd}\n${verdict.reason}`);
-    return run ? sh(cmd, root) : null;
+    return run ? runArgv(argv || argvOf(cmd), root) : null;
   };
 
   const merges = by('merge');
@@ -239,17 +336,27 @@ function replay(root, documented, planId = '07-01') {
     const conflicted = step(list).stdout.split('\n').map((s) => s.trim()).filter(Boolean);
     assert.ok(conflicted.length > 0, 'the merge failed but git reports no unmerged path');
 
-    if (conflicted.every((p) => PLANNING_ONLY.includes(p))) {
+    if (conflicted.every((p) => TAKE_OURS.includes(p) || RESOLVE.includes(p))) {
       taken = 'planning-conflict';
       const [ours] = by('ours');
       const [add] = by('add');
+      const [resolve] = by('resolve');
       const [complete] = by('complete');
       assert.ok(ours, 'no documented `git checkout --ours -- <planning_path>`');
       assert.ok(add, 'no documented `git add <planning_path>`');
       assert.ok(complete, 'no documented `git commit --no-edit` completion');
       for (const p of conflicted) {
-        step(ours.split('<planning_path>').join(p));
-        step(add.split('<planning_path>').join(p));
+        if (TAKE_OURS.includes(p)) {
+          step(ours.split('<planning_path>').join(p));
+          step(add.split('<planning_path>').join(p));
+          continue;
+        }
+        assert.ok(resolve, `no documented \`node ~/.claude/devflow/bin/df-tools.cjs merge-driver resolve <planning_path>\` for ${p}`);
+        // The hook sees the documented line; the run goes through this repository's df-tools, because the
+        // home mirror has no `merge-driver` until release. `resolve` stages the file itself.
+        const documentedLine = resolve.split('<planning_path>').join(p);
+        const resolved = step(documentedLine, { argv: [process.execPath, REPO_BIN, 'merge-driver', 'resolve', p] });
+        assert.equal(resolved.status, 0, `merge-driver resolve ${p} failed: ${resolved.stderr}${resolved.stdout}`);
       }
       const done = step(complete);
       assert.equal(done.status, 0, `git commit --no-edit failed: ${done.stderr}`);
@@ -369,13 +476,121 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
     }
   });
 
-  test('the documented order is merge, list, then ours/add per path, then the completion commit', () => {
+  test('state.json conflict (driver not installed): `merge-driver resolve` merges it, `git commit --no-edit` completes, both decisions survive', () => {
+    const { base, main, branch } = bothSidesAppended();
+    const { root, cleanup } = mkScratch({
+      base: { '.planning/state.json': base['.planning/state.json'] },
+      main: { '.planning/state.json': main['.planning/state.json'] },
+      branch: { 'src/a.js': branch['src/a.js'], '.planning/state.json': branch['.planning/state.json'] },
+    });
+    try {
+      assert.equal(replay(root, documentedSequence()), 'planning-conflict');
+      assert.equal(parentsOfHead(root), 2, 'HEAD is a merge commit');
+      assert.equal(g(root, 'status', '--porcelain'), '');
+      assert.equal(fs.existsSync(path.join(root, '.git', 'MERGE_HEAD')), false);
+      const summaries = readJson(root, '.planning/state.json').decisions.map((d) => d.summary).sort();
+      assert.deepEqual(summaries, ['decision from branch', 'decision from main']);
+      assert.equal(fs.readFileSync(path.join(root, 'src/a.js'), 'utf8'), 'module.exports = 2;\n', 'the plan\'s code arrived');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('STATE_ARCHIVE.md conflict (driver not installed): resolved by the union strategy, both appended rows present', () => {
+    const { base, main, branch } = bothSidesAppended();
+    const { root, cleanup } = mkScratch({
+      base: { '.planning/STATE_ARCHIVE.md': base['.planning/STATE_ARCHIVE.md'] },
+      main: { '.planning/STATE_ARCHIVE.md': main['.planning/STATE_ARCHIVE.md'] },
+      branch: { 'src/a.js': branch['src/a.js'], '.planning/STATE_ARCHIVE.md': branch['.planning/STATE_ARCHIVE.md'] },
+    });
+    try {
+      assert.equal(replay(root, documentedSequence()), 'planning-conflict');
+      assert.equal(parentsOfHead(root), 2);
+      assert.equal(g(root, 'status', '--porcelain'), '');
+      const archive = fs.readFileSync(path.join(root, '.planning/STATE_ARCHIVE.md'), 'utf8');
+      assert.match(archive, /\| Objective 7 P1 \| 5min \|/);
+      assert.match(archive, /\| Objective 7 P2 \| 7min \|/);
+      assert.doesNotMatch(archive, /^(<{7}|={7}|>{7})/m, 'no conflict markers left behind');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('STATE.md + state.json + STATE_ARCHIVE.md conflicting together: STATE.md takes ours, the other two resolve, the merge completes', () => {
+    const { base, main, branch } = bothSidesAppended();
+    const { root, cleanup } = mkScratch({
+      base,
+      main: { ...main, '.planning/STATE.md': 'state: main\n' },
+      branch: { ...branch, '.planning/STATE.md': 'state: branch\n' },
+    });
+    try {
+      assert.equal(replay(root, documentedSequence()), 'planning-conflict');
+      assert.equal(parentsOfHead(root), 2);
+      assert.equal(g(root, 'status', '--porcelain'), '');
+      assert.equal(fs.readFileSync(path.join(root, '.planning/STATE.md'), 'utf8'), 'state: main\n', 'ours kept');
+      assert.equal(readJson(root, '.planning/state.json').decisions.length, 2);
+      assert.match(fs.readFileSync(path.join(root, '.planning/STATE_ARCHIVE.md'), 'utf8'), /Objective 7 P2/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('abort path: state.json AND src/a.js in conflict resolves nothing and leaves HEAD unchanged', () => {
+    const { root, cleanup } = mkScratch({
+      base: { '.planning/state.json': stateJsonWith([]) },
+      main: { '.planning/state.json': stateJsonWith([decisionOf('decision from main')]), 'src/a.js': 'module.exports = "main";\n' },
+      branch: { '.planning/state.json': stateJsonWith([decisionOf('decision from branch')]), 'src/a.js': 'module.exports = "branch";\n' },
+    });
+    try {
+      const before = g(root, 'rev-parse', 'HEAD');
+      assert.equal(replay(root, documentedSequence()), 'abort');
+      assert.equal(g(root, 'rev-parse', 'HEAD'), before);
+      assert.equal(g(root, 'status', '--porcelain'), '');
+      assert.equal(fs.existsSync(path.join(root, '.git', 'MERGE_HEAD')), false);
+      assert.deepEqual(readJson(root, '.planning/state.json').decisions.map((d) => d.summary), ['decision from main']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('driver installed first (`merge-driver install` in the scratch repo): the same appends take the clean path with no conflict', () => {
+    const { root, cleanup } = mkScratch(bothSidesAppended());
+    try {
+      // Never touch this repository's own git configuration: the install runs in the scratch repo only.
+      assert.notEqual(root, REPO_ROOT);
+      assert.ok(root.startsWith(fs.realpathSync(os.tmpdir())), 'the scratch repo lives under the temp dir');
+      const installed = spawnSync(process.execPath, [REPO_BIN, 'merge-driver', 'install'], {
+        cwd: root,
+        env: gitEnv(),
+        encoding: 'utf8',
+      });
+      assert.equal(installed.status, 0, `merge-driver install failed: ${installed.stderr}${installed.stdout}`);
+      assert.match(g(root, 'check-attr', 'merge', '--', '.planning/state.json'), /devflow-state-json/);
+      assert.match(g(root, 'check-attr', 'merge', '--', '.planning/STATE_ARCHIVE.md'), /union/);
+
+      // The install happened after the commits, so the merge below is the first one that can use the driver.
+      assert.equal(replay(root, documentedSequence()), 'clean');
+      assert.equal(parentsOfHead(root), 2);
+      assert.equal(g(root, 'status', '--porcelain'), '');
+      const summaries = readJson(root, '.planning/state.json').decisions.map((d) => d.summary).sort();
+      assert.deepEqual(summaries, ['decision from branch', 'decision from main']);
+      const archive = fs.readFileSync(path.join(root, '.planning/STATE_ARCHIVE.md'), 'utf8');
+      assert.match(archive, /Objective 7 P1/);
+      assert.match(archive, /Objective 7 P2/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('the documented order is merge, list, then ours/add or resolve per path, then the completion commit', () => {
     const cmds = documentedSequence();
     const idx = (cat) => cmds.findIndex((c) => classify(c) === cat);
     assert.ok(idx('merge') >= 0, 'merge documented');
     assert.ok(idx('list') > idx('merge'), 'list the conflicted paths after the merge');
     assert.ok(idx('ours') > idx('list'), 'take ours after listing');
     assert.ok(idx('add') > idx('ours'), 'git add after checkout --ours');
+    assert.ok(idx('resolve') > idx('list'), '`merge-driver resolve` comes after listing the conflicted paths');
+    assert.ok(idx('complete') > idx('resolve'), 'complete after the resolve');
     assert.ok(idx('complete') > idx('add'), 'complete after the add');
     assert.ok(idx('abort') >= 0, 'the abort path stays documented');
     for (const c of cmds) {

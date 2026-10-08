@@ -48,6 +48,12 @@ verification:
 
 duration: 21min
 completed: 2026-10-01
+tokens_input: 13883729
+tokens_output: 111095
+tokens_cache_read: 13629801
+tokens_cache_write: 253776
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 51 TRD 07: migration 0011, part 2 (drain, verify, hand-off to 0010) Summary

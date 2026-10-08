@@ -12,6 +12,7 @@ allowed-tools:
   - Grep
   - Write
   - Task
+  - AskUserQuestion
 ---
 
 <objective>

@@ -41,6 +41,12 @@ verification:
 
 duration: 20min
 completed: 2026-10-04
+tokens_input: 3090979
+tokens_output: 23280
+tokens_cache_read: 3009043
+tokens_cache_write: 81864
+token_model: "claude-sonnet-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 54 TRD 05: execFileSync in the CLI test files Summary

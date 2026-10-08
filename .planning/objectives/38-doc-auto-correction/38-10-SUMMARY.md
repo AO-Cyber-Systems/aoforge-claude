@@ -25,6 +25,12 @@ decisions:
 metrics:
   duration: "~1h"
   completed: 2026-09-28
+tokens_input: 12802470
+tokens_output: 63536
+tokens_cache_read: 12578194
+tokens_cache_write: 224036
+token_model: "claude-sonnet-5"
+tokens_source: "backfill"
 ---
 
 # Objective 38 TRD 10: Health Check 14 and `df-tools validate docs` Summary

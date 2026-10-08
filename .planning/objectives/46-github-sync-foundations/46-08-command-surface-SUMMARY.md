@@ -45,6 +45,12 @@ decisions:
 metrics:
   duration: "~45 min"
   completed: 2026-09-30
+tokens_input: 14958720
+tokens_output: 78458
+tokens_cache_read: 14744678
+tokens_cache_write: 213862
+token_model: "claude-opus-5-5"
+tokens_source: "backfill"
 ---
 
 # Objective 46 TRD 08: One push command and a consistent command surface Summary
