@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "17"
 type: standard
-wave: 7
+wave: 9
 depends_on: ["72-12", "72-13", "72-14", "72-15", "72-16"]
 files_modified:
   - assets/ao-icon.svg

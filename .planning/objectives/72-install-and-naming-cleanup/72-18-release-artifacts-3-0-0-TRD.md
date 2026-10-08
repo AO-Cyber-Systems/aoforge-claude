@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "18"
 type: standard
-wave: 8
+wave: 10
 depends_on: ["72-17"]
 files_modified:
   - package.json
@@ -20,7 +20,7 @@ must_haves:
     - "package.json, plugins/aoforge/.claude-plugin/plugin.json and marketplace.json (top level and the aoforge entry) all read 3.0.0; the pointer plugin and its marketplace entry read 3.0.0; every sibling plugin whose files changed in objective 72 has a patch bump in its plugin.json and marketplace entry"
     - "CHANGELOG.md's `[Unreleased]` became `## [3.0.0] - <date>`, which opens with a 'DevFlow is now AOForge' section (breaking; name map summary; link to docs/MIGRATING-TO-AOFORGE.md; the pointer release; shims removed in the release after 3.0.0) followed by the previously unreleased entries; past entries and the file header are byte-identical; `aof-tools changelog check 3.0.0` passes"
     - "Validation is green without any live step: full suite, rename guard, doc-refs gate, `gen-pointer-skills --check`, `claude plugin validate` for every plugin and the marketplace, and the installed changelog gate accepts a dry-run `git tag -a v3.0.0`"
-    - "An end-to-end rehearsal on a scratch clone of this repo with a fake HOME seeded from a copy of the real runtime state (backups excluded) shows: the mirror lands in `~/.claude/aoforge/`, the 72 run-state estimate is present there, the upgrade hook moves `.planning/` to `.aoforge/` in one rename commit with the config key renamed, `validate health` has no W066/W067, and `upgrade --global` on a copy of the real global CLAUDE.md shows the outside-block diff without writing it"
+    - "An end-to-end rehearsal on a scratch clone of this repo with a fake HOME seeded from a copy of the real runtime state (backups excluded) shows: the mirror lands in `~/.claude/aoforge/`, the 72 run-state estimate is present there when 72-01's SUMMARY says `run_state: recorded` (on the accepted-unscored path the SUMMARY records `no run state: unscored` instead), the upgrade hook moves `.planning/` to `.aoforge/` in one rename commit with the config key renamed, `validate health` has no W066/W067, and `upgrade --global` on a copy of the real global CLAUDE.md shows the outside-block diff without writing it"
   artifacts:
     - path: CHANGELOG.md
       provides: "the 3.0.0 entry leading with the rename"
@@ -93,8 +93,9 @@ printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git tag -a v3.0.0 -m x
 
 <error_recovery>
 - If the rehearsal's upgrade hook defers (dirty clone), the clone was not clean: re-clone; never force.
-- If the 72 run state is missing in the rehearsal's migrated home, 72-07's copy list is wrong: stop and report, this
-  blocks the release (EST-11 depends on it).
+- Scored path (72-01 `run_state: recorded`): a 72 run state missing from the rehearsal's migrated home means 72-07's
+  copy list is wrong: stop and report, it blocks the release (EST-11 depends on it). Unscored path: record
+  `no run state (unscored, accepted in 72-01)` and continue.
 - A validation failure blocks the release: fix in a commit with a test, or stop and report.
 </error_recovery>
 
@@ -153,8 +154,8 @@ near zero; list any remaining in the SUMMARY).
    legacy stamp); `git -C <scratch>/rehearsal config commit.gpgsign false`.
 2. Seed a fake HOME (gotchas).
 3. `HOME=<fake> CLAUDE_PLUGIN_ROOT=<scratch>/rehearsal/plugins/aoforge node <...>/hooks/sync-runtime.js`; check
-   `<fake>/.claude/aoforge/.plugin-version` = 3.0.0, `.legacy-state-migrated.json`, and the 72 run state under
-   `<fake>/.claude/aoforge/state/estimates/`.
+   `<fake>/.claude/aoforge/.plugin-version` = 3.0.0, `.legacy-state-migrated.json`, and (scored path, per 72-01's
+   `run_state:` line) the 72 run state under `<fake>/.claude/aoforge/state/estimates/`.
 4. In the clone: `HOME=<fake> CLAUDE_PLUGIN_ROOT=... node <...>/hooks/upgrade-project.js`; poll up to 30 s for the
    background commit; check `git log -1 --name-status` (renames + ignore file), `.aoforge/config.json` stamp key, and
    `node plugins/aoforge/aoforge/bin/aof-tools.cjs validate health --raw` (no W066/W067).

@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "25"
 type: standard
-wave: 15
+wave: 17
 depends_on: ["72-24"]
 files_modified:
   - "fleet repositories under ~/dev (their .planning/ -> .aoforge/, config, CLAUDE.md block), each after its own approval"

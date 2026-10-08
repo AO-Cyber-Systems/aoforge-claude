@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "05"
 type: standard
-wave: 3
+wave: 4
 depends_on: ["72-04"]
 files_modified:
   - "plugins/aoforge/aoforge/bin/** (planning pass: libs, aof-tools.cjs, lib tests and fixtures)"
@@ -20,6 +20,7 @@ must_haves:
     - "`validate health` in a legacy project reports W066 `legacy-planning-dir` whose fix names `aof-tools upgrade --apply --only 0012`; with both directories it reports W066 saying `.planning/` is ignored; with only `.aoforge/` there is no W066"
     - "`init plan-objective` / `init execute-objective` in a legacy project carry the W066 line in `advisories_warnings`"
     - "No `path.join(<root>, '.planning'` remains in `plugins/aoforge/aoforge/bin/**` non-test code; project-root discovery in libs goes through `compat.findProjectRoot`"
+    - "Repo tests that read THIS repository's planning tree (requirements-agreement.repo.test.cjs, roadmap-reconcile's repo case, estimate-surfacing.repo.test.cjs and any other `REPO_ROOT` + planning-dir join) resolve it with `compat.planningRoot(REPO_ROOT)`, so they pass before (`.planning/`) and after 72-21's move (`.aoforge/`); the include-based repo gates that keep the planning tree out of their scan set (rg-flag-guard.test.cjs test 3, planning-writes.repo.test.cjs) assert that no path under either name is in it (names from NAMES/LEGACY); builtin-sweep.repo.test.cjs scans skill files only and needs no change"
     - "The full suite passes at the 72-04 baseline"
   artifacts:
     - path: plugins/aoforge/aoforge/bin/lib/planning-layout.legacy.test.cjs
@@ -124,6 +125,11 @@ Residual categories and the fix for each:
   the legacy one.
 - Migrations 0001-0011 keep working on either layout (they take `planningRoot(root)`); 0010's gitignore block is
   72-08's.
+- Repo tests over THIS repository's planning tree: `compat.planningRoot(REPO_ROOT)`, never a literal (this repo stays on
+  `.planning/` until 72-21, then `.aoforge/`; a literal would either fail now or silently skip later). Include-based gates
+  (rg-flag-guard test 3, planning-writes.repo.test.cjs): assert the scan set has no path starting with
+  `NAMES.planningDir + '/'` or `LEGACY.planningDir + '/'` (the codemod would otherwise turn the existing `.planning/`
+  assertion into an `.aoforge/` one and drop the legacy name).
 </codebase_examples>
 
 <anti_patterns>
@@ -181,7 +187,7 @@ RED: cases 1-4 and 7 (header test list with all 8 first). Run: layout `aoforge` 
 
 GREEN: run the codemod (codebase_examples), dry run first, then `--write`. Work through the residual report by
 category until cases 1-4 and 7 pass, then run the full suite and fix fallout. Every fix uses compat or the LEGACY/NAMES
-constants. Commit GREEN (`feat(72-05): libs resolve .aoforge first, .planning as fallback`); split into two commits if
+constants, including the repo-test rules in codebase_examples (planningRoot(REPO_ROOT); both-name scan-set exclusions). Commit GREEN (`feat(72-05): libs resolve .aoforge first, .planning as fallback`); split into two commits if
 the residual fixes are large (mechanical pass, then residuals), each with the suite green.
   </action>
   <verify>node --test plugins/aoforge/aoforge/bin/lib/planning-layout.legacy.test.cjs && node --test 'plugins/aoforge/**/!(micro).test.cjs' 'plugins/aoforge/**/*.test.js' 'scripts/**/*.test.cjs'</verify>

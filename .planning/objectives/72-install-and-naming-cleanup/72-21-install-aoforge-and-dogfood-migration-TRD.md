@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "21"
 type: standard
-wave: 11
+wave: 13
 depends_on: ["72-20"]
 files_modified:
   - ".planning/** -> .aoforge/** (moved by the AOForge upgrade hook with git mv)"
@@ -12,7 +12,8 @@ requirements: [INST-01, INST-03, INST-04, INST-06]
 must_haves:
   truths:
     - "aoforge@aocyber 3.0.0 was installed only after the user's explicit approval, and the session restarted on it: `~/.claude/aoforge/.plugin-version` reads 3.0.0"
-    - "The runtime state migrated: `~/.claude/aoforge/.legacy-state-migrated.json` exists, and the objective 72 run state is under `~/.claude/aoforge/state/estimates/` with the same `started_at` the 72-01 SUMMARY recorded (EST-11 continuity)"
+    - "The runtime state migrated: `~/.claude/aoforge/.legacy-state-migrated.json` exists; when 72-01's SUMMARY says `run_state: recorded`, the objective 72 run state is under `~/.claude/aoforge/state/estimates/` with the same `started_at` (EST-11 continuity); when it says `unscored`, the SUMMARY records that no run state is expected"
+    - "Manual resume check: after the restart, `/aoforge:execute-objective 72` found the objective under `.aoforge/objectives/72-install-and-naming-cleanup/` and resumed at this TRD; the SUMMARY quotes the `objective_dir` that `aof-tools init execute-objective 72` reports in the new session (it must start with `.aoforge/`) and the orchestrator's resume point"
     - "This repository's planning tree is `.aoforge/` (tracked), moved with `git mv` in one commit whose name-status is renames plus ignore-file changes, and `.aoforge/config.json` carries `aoforge.version` 3.0.0 and no legacy stamp key"
     - "`aof-tools validate health` reports no W066/W067, `aof-tools merge-driver install --check` is current, and `ls ~/.claude/skills ~/.claude/agents` shows no `df-*` entry (INST-01 SC1)"
     - "The coexistence notice appeared while devflow@aocyber was still enabled, and devflow@aocyber was then disabled only after the user's explicit approval (`claude plugin list` shows it disabled)"
@@ -48,8 +49,10 @@ Output: AOForge installed and running; this repo migrated; devflow disabled.
 </execution_context>
 
 <context>
-@.planning/objectives/72-install-and-naming-cleanup/72-20-SUMMARY.md
-@.planning/objectives/72-install-and-naming-cleanup/72-01-SUMMARY.md
+Read `72-20-SUMMARY.md` and `72-01-SUMMARY.md` (its `run_state:` line) from the objective directory: use
+`.aoforge/objectives/72-install-and-naming-cleanup/` when it exists, else `.planning/objectives/72-install-and-naming-cleanup/`
+(test `.aoforge/` first). No @-path is hard-coded here because this TRD's own Task 1 runs before the move and Tasks 2-3
+after it. `@~/.claude/devflow/...` in execution_context resolves in both sessions (the old mirror stays in place).
 
 ## The session switch (read before Task 1)
 
@@ -90,7 +93,7 @@ claude plugin disable devflow@aocyber
 - The hook deferred (dirty tree at session start): make the tree clean (commit through `aof-tools commit`), then
   `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --apply --only 0012` and commit the move with
   `aof-tools commit "chore(72-21): move the planning tree to .aoforge" --files .planning .aoforge .gitignore`.
-- The 72 run state is missing under `~/.claude/aoforge/`: this is a home move, not a key change, so `state rekey` does
+- (Scored path) The 72 run state is missing under `~/.claude/aoforge/`: this is a home move, not a key change, so `state rekey` does
   not apply. Run the 72-07 migration (`aof-tools doctor --global --fix` runs it when the marker is missing); if the
   marker exists but the file is absent, copy that one file and record the deviation. Never edit it.
 - `merge-driver install --check` stale: run `aof-tools merge-driver install`.
@@ -106,8 +109,8 @@ claude plugin disable devflow@aocyber
   <action>
 Pre-checks: `claude plugin list` (is aoforge@aocyber installed? then `already done`, go to the restart instruction);
 `git -C /Users/justin/dev/devflow-claude status --porcelain` must be empty (if not, commit the executor's own pending
-bookkeeping through df-tools commit first; anything else -> return blocked naming the files); record the 72 run-state
-`started_at` from `~/.claude/devflow/state/estimates/devflow-claude-d3dccfe9.json`.
+bookkeeping through df-tools commit first; anything else -> return blocked naming the files); if 72-01 recorded a run
+state, record its `started_at` from `~/.claude/devflow/state/estimates/devflow-claude-d3dccfe9.json`.
 
 STOP and present: "Approve installing AOForge 3.0.0? Commands: `claude plugin marketplace update aocyber` then `claude
 plugin install aoforge@aocyber`. Effects: the marketplace refresh may also update devflow@aocyber to its 3.0.0 pointer
@@ -131,9 +134,12 @@ coexistence notice can be checked. Reply `restarted` in the new session."
   <files>.aoforge/** (verification; a deferred move only per error_recovery), .gitignore</files>
   <action>
 In the AOForge session, one plain command per call, recording each result in the SUMMARY:
+0. Resume evidence: `node ~/.claude/aoforge/bin/aof-tools.cjs init execute-objective 72` and quote its `objective_dir`
+   (must start with `.aoforge/`), plus the TRD the orchestrator resumed at.
 1. `cat ~/.claude/aoforge/.plugin-version` (3.0.0); `cat ~/.claude/aoforge/.legacy-state-migrated.json`.
-2. `node -e` printing objective/started_at from `~/.claude/aoforge/state/estimates/devflow-claude-d3dccfe9.json`
-   (= Task 1's record).
+2. Scored path only (72-01 `run_state: recorded`): `node -e` printing objective/started_at from
+   `~/.claude/aoforge/state/estimates/devflow-claude-d3dccfe9.json` (= Task 1's record). Unscored path: record
+   `no run state (unscored)`.
 3. `git -C /Users/justin/dev/devflow-claude log -3 --format='%h %s'`; `git ... show --name-status --format= <move sha> | rg -v '^R100' | head`
    (only ignore files); `test -d .aoforge && test ! -e .planning`; `node -e` on `.aoforge/config.json` (aoforge key,
    no legacy key). Deferred? -> error_recovery.

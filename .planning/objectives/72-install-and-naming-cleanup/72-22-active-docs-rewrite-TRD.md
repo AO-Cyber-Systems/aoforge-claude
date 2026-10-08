@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "22"
 type: standard
-wave: 12
+wave: 14
 depends_on: ["72-21"]
 files_modified:
   - .aoforge/PROJECT.md

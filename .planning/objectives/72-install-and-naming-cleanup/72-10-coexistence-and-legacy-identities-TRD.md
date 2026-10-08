@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "10"
 type: standard
-wave: 5
+wave: 6
 depends_on: ["72-06"]
 files_modified:
   - plugins/aoforge/aoforge/bin/lib/__fixtures__/legacy-plugin-fixtures.cjs
@@ -68,6 +68,9 @@ transcript readers.
 @.planning/objectives/72-install-and-naming-cleanup/72-CONTEXT.md
 
 Project kind `plugin`, work `feature`: TDD strict, test list first, hand-built fixtures, one test at a time.
+
+**Wave placement.** This TRD edits two files other TRDs build on (`compat.cjs`, imported by 72-07/08/12, and
+`hooks/hooks.json`), so it runs alone in wave 6; 72-07, 08, 09, 11, 12 and 14 depend on it and run in wave 7.
 
 **Coexistence design (planner's discretion, locked here).** AOForge side: a SessionStart hook reads
 `~/.claude/plugins/installed_plugins.json` (`plugins["devflow@aocyber"]` entries with `version`) and
@@ -190,7 +193,8 @@ RED: tests 10-16. Run: 10-13, 15, 16 fail; 14 passes. Commit RED.
 
 GREEN: gate-edits uses `compat.isOwnAgentType`; verify-commits and gate-executor-stop compare the executor role with
 `compat.isOwnExecutor(t)` = `isOwnAgentType(t) && t.endsWith(':executor')`, added to compat.cjs with a case in
-compat.legacy.test.cjs (this TRD is the only W5 TRD that edits compat.cjs); agent-overhead's
+compat.legacy.test.cjs (this TRD runs alone in wave 6, before the wave-7 TRDs that import compat.cjs, so no parallel
+TRD sees compat.cjs or hooks.json change under it); agent-overhead's
 prefix regex from NAMES/LEGACY/installPrefix; session-audit's category table gains the legacy gate names and denial
 texts mapped to the same ids, and its skill-prefix test accepts both namespaces. Run the existing suites of every file
 touched and the full suite. Commit GREEN.

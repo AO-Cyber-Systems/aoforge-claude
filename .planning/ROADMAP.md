@@ -273,35 +273,35 @@ TRDs:
   2. `doctor` flags a `df-*` skill or agent that reappears under `~/.claude`.
   3. A repo test fails on `/df-` or `/df:` command forms in user-facing files, with changelogs and archives exempt.
   4. Every user-facing reference found by that test uses `/devflow:<name>`.
-**TRDs**: 26 plans
+**TRDs**: 26 plans (18 waves)
 
 TRDs:
-- [ ] 72-01-rescope-requirements-and-roadmap-TRD.md — (W1) run-state estimate confirmed; INST-01 rewritten, INST-02..06 added; this entry rescoped to the AOForge rename
-- [ ] 72-02-legacy-names-and-compat-TRD.md — (W1) `legacy-names.cjs` (the one name map) and `compat.cjs` shims: env alias, `.aoforge`-first planning root, agent types, dot files
-- [ ] 72-03-rename-codemod-TRD.md — (W1) tested idempotent codemod (`scripts/aoforge-rename.cjs`): names and planning rules, preserves, skips, `unclassified=0` inventory
-- [ ] 72-04-apply-name-rename-TRD.md — (W2) names pass with `git mv` (plugins/aoforge, aof-tools, ...), entry points alias legacy env, rename guard repo test, CLAUDE.md transition note
-- [ ] 72-05-planning-dir-resolver-libs-TRD.md — (W3) libs resolve `.aoforge/` then legacy `.planning/`; legacy-layout contract suite; W066
-- [ ] 72-06-planning-dir-hooks-and-prose-TRD.md — (W4) hooks resolve both layouts; prose names `.aoforge/`; guard covers the planning dir name
-- [ ] 72-07-runtime-home-move-and-rekey-TRD.md — (W5) `~/.claude/devflow` state to `~/.claude/aoforge` (copy, outbox/backups move) from sync-runtime; `aof-tools state rekey`
-- [ ] 72-08-planning-dir-and-config-key-migrations-TRD.md — (W5) migrations 0012 (`git mv` to `.aoforge/`) and 0013 (config key); runner re-resolution; hook commit/defer; W067
-- [ ] 72-09-claude-md-markers-and-global-block-TRD.md — (W5) dual block markers, migration 0014, global template v4, outside-block diff applied only with `--confirm`
-- [ ] 72-10-coexistence-and-legacy-identities-TRD.md — (W5) coexistence-guard SessionStart hook; gates accept `devflow:` agent types; transcript readers keep old names
-- [ ] 72-11-gh-markers-labels-and-checks-TRD.md — (W5) GitHub markers and labels read both namespaces; both status contexts posted; legacy caller flagged
-- [ ] 72-12-file-level-legacy-identities-TRD.md — (W5) `.mcp.json` ownership key, todo metadata key, `~/.devflow/` file fallback, legacy adopt branch
-- [ ] 72-13-legacy-command-forms-gate-TRD.md — (W5) INST-01 repo test: `/df-`, `/df:`, `/devflow:` via NAMESPACE_RENAMES in skill-route; 0007 rewrites projects
-- [ ] 72-14-devflow-pointer-plugin-TRD.md — (W5) final `devflow@aocyber` 3.0.0 pointer: notice hook (no-op beside AOForge) and generated forwarding skills
-- [ ] 72-15-doctor-legacy-checks-TRD.md — (W6) doctor 15 (df-* reappearance), 16 (devflow leftovers), 27 (W066/W067); check 26 legacy callers
-- [ ] 72-16-gh-rebrand-verb-TRD.md — (W6) `aof-tools gh rebrand`: dry-run preview, per-repo apply, idempotent, resumable
-- [ ] 72-17-docs-identity-and-migration-guide-TRD.md — (W7) real gold AO emblem + AOForge wordmark on README and site; migration guide; USER-GUIDE/CLAUDE.md
-- [ ] 72-18-release-artifacts-3-0-0-TRD.md — (W8) 3.0.0 versions and CHANGELOG; validation; full upgrade rehearsal on a scratch clone (no live step)
-- [ ] 72-19-repo-rename-push-and-pr-TRD.md — (W9) checkpoints: rename repo to aoforge-claude, push, open the 3.0.0 PR
-- [ ] 72-20-merge-tag-and-release-TRD.md — (W10) checkpoints: merge, tag v3.0.0; release and marketplace verified
-- [ ] 72-21-install-aoforge-and-dogfood-migration-TRD.md — (W11) checkpoint install + restart; verify state migration and this repo's `.aoforge/` move; disable devflow
-- [ ] 72-22-active-docs-rewrite-TRD.md — (W12) PROJECT/ROADMAP/STATE/REQUIREMENTS and CLAUDE.md in AOForge terms; transition note removed
-- [ ] 72-23-global-claude-md-and-marketplace-TRD.md — (W13) checkpoints: global CLAUDE.md outside-block diff approval; marketplace re-point decision
-- [ ] 72-24-vanity-pr-and-pages-project-TRD.md — (W14) checkpoints: draft vanity-mapping PR (user merges); `aoforge-docs` Pages project + one deploy
-- [ ] 72-25-fleet-sweep-TRD.md — (W15) fleet discovery and preview; one approval per repository (upgrade, store-mode rebrand); nothing pushed
-- [ ] 72-26-checkout-move-and-rekey-TRD.md — (W16) checkpoint: user moves checkout to `~/dev/aoforge-claude`; worktrees, memory and keyed state carried over
+- [ ] 72-01-rescope-requirements-and-roadmap-TRD.md — (W1) run-state estimate gate (`estimate start 72`; decision: frozen-method recalibration or unscored, never silent); INST-01 rewritten, INST-02..06 added; this entry rescoped to the AOForge rename
+- [ ] 72-02-legacy-names-and-compat-TRD.md — (W2) `legacy-names.cjs` (the one name map) and `compat.cjs` shims: env alias, `.aoforge`-first planning root, agent types, dot files
+- [ ] 72-03-rename-codemod-TRD.md — (W2) tested idempotent codemod (`scripts/aoforge-rename.cjs`): names and planning rules, preserves, skips, `unclassified=0` inventory
+- [ ] 72-04-apply-name-rename-TRD.md — (W3) names pass with `git mv` (plugins/aoforge, aof-tools, ...), entry points alias legacy env, rename guard repo test, CLAUDE.md transition note
+- [ ] 72-05-planning-dir-resolver-libs-TRD.md — (W4) libs resolve `.aoforge/` then legacy `.planning/`; legacy-layout contract suite; W066
+- [ ] 72-06-planning-dir-hooks-and-prose-TRD.md — (W5) hooks resolve both layouts; prose names `.aoforge/`; guard covers the planning dir name
+- [ ] 72-07-runtime-home-move-and-rekey-TRD.md — (W7) `~/.claude/devflow` state to `~/.claude/aoforge` (copy, outbox/backups move) from sync-runtime; `aof-tools state rekey`
+- [ ] 72-08-planning-dir-and-config-key-migrations-TRD.md — (W7) migrations 0012 (`git mv` to `.aoforge/`) and 0013 (config key); runner re-resolution; hook commit/defer; W067
+- [ ] 72-09-claude-md-markers-and-global-block-TRD.md — (W7) dual block markers, migration 0014, global template v4, outside-block diff applied only with `--confirm`
+- [ ] 72-10-coexistence-and-legacy-identities-TRD.md — (W6) coexistence-guard SessionStart hook; gates accept `devflow:` agent types; transcript readers keep old names
+- [ ] 72-11-gh-markers-labels-and-checks-TRD.md — (W7) GitHub markers and labels read both namespaces; both status contexts posted; legacy caller flagged
+- [ ] 72-12-file-level-legacy-identities-TRD.md — (W7) `.mcp.json` ownership key, todo metadata key, `~/.devflow/` file fallback, legacy adopt branch
+- [ ] 72-13-legacy-command-forms-gate-TRD.md — (W8) INST-01 repo test: `/df-`, `/df:`, `/devflow:` via NAMESPACE_RENAMES in skill-route; 0007 rewrites projects
+- [ ] 72-14-devflow-pointer-plugin-TRD.md — (W7) final `devflow@aocyber` 3.0.0 pointer: notice hook (no-op beside AOForge) and generated forwarding skills
+- [ ] 72-15-doctor-legacy-checks-TRD.md — (W8) doctor 15 (df-* reappearance), 16 (devflow leftovers), 27 (W066/W067); check 26 legacy callers
+- [ ] 72-16-gh-rebrand-verb-TRD.md — (W8) `aof-tools gh rebrand`: dry-run preview, per-repo apply, idempotent, resumable
+- [ ] 72-17-docs-identity-and-migration-guide-TRD.md — (W9) real gold AO emblem + AOForge wordmark on README and site; migration guide; USER-GUIDE/CLAUDE.md
+- [ ] 72-18-release-artifacts-3-0-0-TRD.md — (W10) 3.0.0 versions and CHANGELOG; validation; full upgrade rehearsal on a scratch clone (no live step)
+- [ ] 72-19-repo-rename-push-and-pr-TRD.md — (W11) checkpoints: rename repo to aoforge-claude, push, open the 3.0.0 PR
+- [ ] 72-20-merge-tag-and-release-TRD.md — (W12) checkpoints: merge, tag v3.0.0; release and marketplace verified
+- [ ] 72-21-install-aoforge-and-dogfood-migration-TRD.md — (W13) checkpoint install + restart; verify state migration and this repo's `.aoforge/` move; disable devflow
+- [ ] 72-22-active-docs-rewrite-TRD.md — (W14) PROJECT/ROADMAP/STATE/REQUIREMENTS and CLAUDE.md in AOForge terms; transition note removed
+- [ ] 72-23-global-claude-md-and-marketplace-TRD.md — (W15) checkpoints: global CLAUDE.md outside-block diff approval; marketplace re-point decision
+- [ ] 72-24-vanity-pr-and-pages-project-TRD.md — (W16) checkpoints: draft vanity-mapping PR (user merges); `aoforge-docs` Pages project + one deploy
+- [ ] 72-25-fleet-sweep-TRD.md — (W17) fleet discovery and preview; one approval per repository (upgrade, store-mode rebrand); nothing pushed
+- [ ] 72-26-checkout-move-and-rekey-TRD.md — (W18) checkpoint: user moves checkout to `~/dev/aoforge-claude`; worktrees, memory and keyed state carried over; follow-up PR for the post-merge commits (push and PR gates)
 
 ### Objective 73: Handoff gaps and result injection
 

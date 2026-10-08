@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "20"
 type: standard
-wave: 10
+wave: 12
 depends_on: ["72-19"]
 files_modified: []
 autonomous: false

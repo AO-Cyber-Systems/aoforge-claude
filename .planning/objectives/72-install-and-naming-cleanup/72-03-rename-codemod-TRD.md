@@ -2,8 +2,8 @@
 objective: 72-install-and-naming-cleanup
 trd: "03"
 type: standard
-wave: 1
-depends_on: []
+wave: 2
+depends_on: ["72-01"]
 files_modified:
   - scripts/aoforge-rename.cjs
   - scripts/aoforge-rename.legacy.test.cjs
@@ -16,7 +16,7 @@ must_haves:
     - "`--rules planning --inventory` on this repo also reports `unclassified=0`"
     - "`--dry-run` (the default) on a scratch git repo prints the planned path moves, per-file rewrite counts and the residual list, and leaves `git status --porcelain` empty"
     - "`--write` on a scratch git repo performs every path move with `git mv` (history follows; the executable bit of a moved script is kept) and rewrites file contents; a second `--dry-run` then reports zero moves and zero rewrites (idempotent)"
-    - "Preserved tokens survive a names rewrite unchanged: `devflowops`, `devFlowOps`, `devflow-desktop`, `devflow.cloud`, fleet repo-name strings in stack fixtures, and every skipped path (`.planning/**`, CHANGELOG.md, NOTICE.md, LICENSE, docs/** except docs/USER-GUIDE.md, `legacy-names.cjs`, `__fixtures__/legacy-*.cjs`, `*.legacy.test.*`, this script and its test)"
+    - "Preserved tokens survive a names rewrite unchanged: `devflowops`, `devFlowOps`, `devflow-desktop`, `devflow.cloud`, fleet repo-name strings in stack fixtures, and every skipped path (`.planning/**`, `.aoforge/**`, CHANGELOG.md, NOTICE.md, LICENSE, docs/** except docs/USER-GUIDE.md, `legacy-names.cjs`, `__fixtures__/legacy-*.cjs`, `*.legacy.test.*`, this script and its test)"
     - "The planning rule turns `path.join(<expr>, '.planning'` and `path.resolve(<expr>, '.planning'` into `planningRoot(<expr>)` forms and injects one `planningRoot` import from `compat.cjs` with the correct relative path; any other `.planning` in non-test code is rewritten to `.aoforge` AND listed as a residual for review"
   artifacts:
     - path: scripts/aoforge-rename.cjs
@@ -106,7 +106,8 @@ Outermost first: the CLI on a scratch git repo, then the pure rules. One at a ti
    `plugins/devflow/hooks/a.js` -> `plugins/aoforge/hooks/a.js`; `.../bin/df-tools.cjs` -> `.../bin/aof-tools.cjs`;
    `.github/workflows/devflow-checks.yml` -> `aoforge-checks.yml`; `templates/github/devflow.yml` -> `aoforge.yml`;
    `site/data/devflow.json` -> `aoforge.json`; `site/content/docs/reference/df-tools.md` -> `aof-tools.md`;
-   `bin/devflow-watch.cjs` -> `bin/aoforge-watch.cjs`; `.planning/x` and `CHANGELOG.md` -> unchanged (skipped).
+   `bin/devflow-watch.cjs` -> `bin/aoforge-watch.cjs`; `.planning/x`, `.aoforge/x` and `CHANGELOG.md` -> unchanged
+   (skipped).
 8. `rewriteNames`, one case each: `/devflow:quick` -> `/aoforge:quick`; `devflow:executor` -> `aoforge:executor`;
    `node ~/.claude/devflow/bin/df-tools.cjs` -> `node ~/.claude/aoforge/bin/aof-tools.cjs`; `DEVFLOW_SKIP_EDIT_GATE` ->
    `AOFORGE_SKIP_EDIT_GATE`; `<!-- DEVFLOW:START v=3 -->` -> `<!-- AOFORGE:START v=3 -->`; `DevFlow builds` ->
@@ -117,7 +118,8 @@ Outermost first: the CLI on a scratch git repo, then the pure rules. One at a ti
    `stack-fleet-tables.cjs`, `'devflow'` and `'devflow-test'` unchanged while `/devflow:quick` in the same file is
    rewritten; in `monorepo-standards/.../doctor.js` the `'.devflow'` entry is unchanged and reported `manual`.
 10. Skips: content of `legacy-names.cjs`, `__fixtures__/legacy-x.cjs`, `a.legacy.test.cjs`, `CHANGELOG.md`,
-    `docs/PROPOSAL-x.md` is never rewritten (`docs/USER-GUIDE.md` is).
+    `docs/PROPOSAL-x.md`, `.planning/STATE.md` and `.aoforge/STATE.md` (the planning tree after 72-21's move) is never
+    rewritten (`docs/USER-GUIDE.md` is).
 11. Binary file (contains a NUL byte) is never rewritten.
 12. `rewritePlanning`: `path.join(ctx.root, '.planning')` -> `planningRoot(ctx.root)`; `path.resolve(root, '.planning',
     'objectives')` -> `path.resolve(planningRoot(root), 'objectives')`; existing `const { x } = require('./compat.cjs')`
@@ -203,7 +205,8 @@ binary `assets/x.bin` with a NUL byte, and an executable `plugins/devflow/devflo
 RED: tests 7-13 (header test list with all 13 cases first). Run: fail (module missing). Commit RED.
 
 GREEN, `scripts/aoforge-rename.cjs` (CommonJS, Node built-ins only):
-- `SKIP` (no content rewrite, no move): `.planning/**`, `CHANGELOG.md`, `NOTICE.md`, `LICENSE*`, `docs/**` except
+- `SKIP` (no content rewrite, no move): `.planning/**` and `.aoforge/**` (the planning tree is history under either
+  name, and 72-21 moves it from one to the other), `CHANGELOG.md`, `NOTICE.md`, `LICENSE*`, `docs/**` except
   `docs/USER-GUIDE.md`, `**/legacy-names.cjs`, `**/__fixtures__/legacy-*`, `**/*.legacy.test.*`,
   `scripts/aoforge-rename*`, `node_modules/**`, `site/public/**`. Skipped files that live under a moved directory are
   still MOVED (git mv moves the directory) but never rewritten.

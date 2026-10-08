@@ -2,8 +2,8 @@
 objective: 72-install-and-naming-cleanup
 trd: "07"
 type: standard
-wave: 5
-depends_on: ["72-06"]
+wave: 7
+depends_on: ["72-06", "72-10"]
 files_modified:
   - plugins/aoforge/aoforge/bin/lib/__fixtures__/legacy-runtime-fixtures.cjs
   - plugins/aoforge/aoforge/bin/lib/runtime-state-migrate.cjs
@@ -149,7 +149,9 @@ same two lines. On macOS `/Users/...` has no symlink component, so the string fo
 - The installed DevFlow 2.15.0 keeps writing to `~/.claude/devflow/` until it is disabled (72-21). The migration runs
   once; anything 2.15.0 writes later stays in the old home. That is why the outbox MOVES (2.15.0 then has nothing to
   flush) and why 72-21 disables the old plugin right after verifying the migration.
-- EST-11: the 72 run state must reach `~/.claude/aoforge/state/estimates/` (test 1 covers the shape).
+- EST-11: when 72-01's SUMMARY says `run_state: recorded`, the 72 run state must reach
+  `~/.claude/aoforge/state/estimates/` (test 1 covers the shape). On the accepted-unscored path there is no 72 run state
+  to carry, and nothing in this TRD depends on one.
 - Live runtime is DevFlow 2.15.0: commit with `node ~/.claude/devflow/bin/df-tools.cjs commit`. Never port 8080.
 </gotchas>
 

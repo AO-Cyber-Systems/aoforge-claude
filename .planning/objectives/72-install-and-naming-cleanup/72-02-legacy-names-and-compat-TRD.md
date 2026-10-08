@@ -2,8 +2,8 @@
 objective: 72-install-and-naming-cleanup
 trd: "02"
 type: standard
-wave: 1
-depends_on: []
+wave: 2
+depends_on: ["72-01"]
 files_modified:
   - plugins/devflow/devflow/bin/lib/legacy-names.cjs
   - plugins/devflow/devflow/bin/lib/legacy-names.legacy.test.cjs
@@ -137,7 +137,7 @@ function projectTree({ layout = 'aoforge', files = {} } = {}) { /* mkdtemp; mkdi
 
 <anti_patterns>
 - No legacy literal in `compat.cjs` (test 16 pins it). Use `LEGACY.planningDir`, `LEGACY.envPrefix`, etc.
-- Do not wire these primitives into any caller here. 72-04/05/06 and the W5 shims adopt them.
+- Do not wire these primitives into any caller here. 72-04/05/06 and the later shim TRDs (72-07..72-14) adopt them.
 - No property-based tests; named cases only. No generated test data.
 - Do not cache `planningDirName` results: a migration moves the directory mid-process (72-08).
 </anti_patterns>

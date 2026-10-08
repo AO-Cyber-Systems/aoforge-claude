@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "15"
 type: standard
-wave: 6
+wave: 8
 depends_on: ["72-07", "72-08", "72-10", "72-11"]
 files_modified:
   - plugins/aoforge/aoforge/bin/lib/__fixtures__/legacy-doctor-fixtures.cjs

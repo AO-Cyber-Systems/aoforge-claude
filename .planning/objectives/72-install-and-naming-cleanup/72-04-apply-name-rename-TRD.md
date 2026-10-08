@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "04"
 type: standard
-wave: 2
+wave: 3
 depends_on: ["72-02", "72-03"]
 files_modified:
   - "plugins/devflow/** (moved to plugins/aoforge/** with git mv)"
@@ -28,7 +28,7 @@ requirements: [INST-02]
 must_haves:
   truths:
     - "`git log --follow --oneline plugins/aoforge/aoforge/bin/aof-tools.cjs` reaches history from before this TRD (the move was a git rename)"
-    - "`node --test plugins/aoforge/aoforge/bin/lib/rename-guard.repo.test.cjs` passes: no tracked file outside the allowlist spells `devflow` (any case, minus the codemod's PRESERVE tokens), `df-tools` or `DF ►`; every allowlist entry has a reason of at least 20 characters and matches at least one tracked path"
+    - "`node --test plugins/aoforge/aoforge/bin/lib/rename-guard.repo.test.cjs` passes: the planning tree is exempt under both names (`.planning/**` and `.aoforge/**`, through the codemod's SKIP), and no other tracked file outside the allowlist spells `devflow` (any case, minus the codemod's PRESERVE tokens), `df-tools` or `DF ►`; every allowlist entry has a reason of at least 20 characters and matches at least one tracked path"
     - "The full suite passes with the same baseline as 71-05 (roadmap-reconcile E2E1 transient only), run as `node --test 'plugins/aoforge/**/!(micro).test.cjs' 'plugins/aoforge/**/*.test.js' 'scripts/**/*.test.cjs'`, and `npm test`'s script names `plugins/aoforge/**`"
     - "`.claude-plugin/marketplace.json` lists plugin `aoforge` with `source: ./plugins/aoforge`; `plugins/aoforge/.claude-plugin/plugin.json` has `name: aoforge`; `claude plugin validate plugins/aoforge` and `claude plugin validate .` exit 0"
     - "Every entry point (`aof-tools.cjs`, `aoforge-watch.cjs`, every hook script registered in hooks.json and the statusLine script) calls `aliasLegacyEnv()` before it reads the environment, and a hook spawned with only the legacy skip variable set (e.g. the legacy form of `AOFORGE_SKIP_EDIT_GATE=1`) behaves as skipped (compat-entry.repo.test.cjs)"
@@ -97,6 +97,9 @@ Read: 72-03-SUMMARY.md (the manual list and both inventory summaries); `scripts/
 4. Every ALLOW entry has a reason >= 20 chars and matches >= 1 tracked path.
 5. Sensitivity: a sample text with one of each token yields three findings; `devflowops` and `devflow.cloud` yield
    none.
+5b. Planning-tree exemption: in a scratch git repo with tracked `.planning/x.md` and `.aoforge/x.md`, each containing the
+   legacy product word, the guard's scan function yields zero findings for both (the tree stays history after 72-21's
+   move), while the same word in a tracked `docs/x.md` yields one.
 6. Token patterns are built from `LEGACY` (the test file itself contains no legacy literal).
 
 **compat-entry.repo.test.cjs**
@@ -168,10 +171,10 @@ require('./lib/compat.cjs').aliasLegacyEnv();                   // bin/aof-tools
   <name>Task 1: The rename guard, RED against today's tree</name>
   <files>plugins/devflow/devflow/bin/lib/rename-guard.repo.test.cjs</files>
   <action>
-Write the guard (tests 1-6, header test list first) at today's path; the codemod moves it in Task 2. Build token
+Write the guard (tests 1-6 and 5b, header test list first) at today's path; the codemod moves it in Task 2. Build token
 patterns from `require('./legacy-names.cjs').LEGACY` and read `PRESERVE`/`SKIP` from
 `require(path.join(REPO_ROOT, 'scripts', 'aoforge-rename.cjs'))`. Use `IS_AOFORGE_CHECKOUT`-style skipping (README.md at
-REPO_ROOT). Run it: test 2 fails with thousands of findings (expected RED); tests 3-6 pass. Commit RED
+REPO_ROOT). Run it: test 2 fails with thousands of findings (expected RED); tests 3-6 and 5b pass. Commit RED
 (`test(72-04): rename guard (RED before the rewrite)`).
   </action>
   <verify>node --test plugins/devflow/devflow/bin/lib/rename-guard.repo.test.cjs (expect test 2 to fail, tests 3-6 to pass)</verify>

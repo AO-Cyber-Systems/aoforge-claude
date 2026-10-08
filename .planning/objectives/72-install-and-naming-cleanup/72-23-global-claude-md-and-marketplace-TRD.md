@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "23"
 type: standard
-wave: 13
+wave: 15
 depends_on: ["72-22"]
 files_modified:
   - "~/.claude/CLAUDE.md (outside this repo; managed block and, after approval, hand-written text)"

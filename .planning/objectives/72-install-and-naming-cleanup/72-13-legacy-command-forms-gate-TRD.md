@@ -2,8 +2,8 @@
 objective: 72-install-and-naming-cleanup
 trd: "13"
 type: standard
-wave: 5
-depends_on: ["72-06"]
+wave: 8
+depends_on: ["72-06", "72-14"]
 files_modified:
   - plugins/aoforge/aoforge/bin/lib/__fixtures__/legacy-command-fixtures.cjs
   - plugins/aoforge/aoforge/bin/lib/skill-route.cjs
@@ -17,7 +17,7 @@ must_haves:
   truths:
     - "skill-route.cjs exports `NAMESPACE_RENAMES` mapping the legacy slash namespaces (`devflow`, `df`, derived from LEGACY) to `aoforge`; DEPRECATION_MAP, REMOVED_COMMANDS and NAMESPACE_RENAMES are together the single rename source and doc-refs declares no mapping of its own"
     - "doc-refs classifies `/devflow:<x>` and `/df:<x>` as `prefix` with replacement `/aoforge:<x>` (or `renamed` with `/aoforge:<mapped>` when `<x>` is in DEPRECATION_MAP), and `/df-<x>` as `prefix` only when `<x>` is a live skill, a DEPRECATION_MAP key or a removed command (so `/df-tools.cjs` and paths are never findings)"
-    - "The doc-refs repo gate fails on any `/df-`, `/df:` or `/devflow:` form in its scan set (and on legacy forms in the sibling plugins), with CHANGELOG, `.planning/`/`.aoforge/` archives, tests and legacy fixtures exempt; it passes on the tree"
+    - "The doc-refs repo gate fails on any `/df-`, `/df:` or `/devflow:` form in its scan set (and on legacy forms in the sibling plugins), with CHANGELOG, `.planning/`/`.aoforge/` archives, tests and legacy fixtures exempt, and the 72-14 pointer plugin exempt by an explicit `plugins/devflow/**` EXEMPT entry; the scan set provably holds no path under `.planning/`, `.aoforge/` or `plugins/devflow/`; it passes on the tree"
     - "Migration 0007 rewrites `/devflow:quick` to `/aoforge:quick` and `/devflow:progress` to `/aoforge:status` inside a project CLAUDE.md managed block and STATE.md outside its Session Log, and leaves a removed command as written"
   artifacts:
     - path: plugins/aoforge/aoforge/bin/lib/skill-route.cjs
@@ -66,6 +66,10 @@ walkFiles); `doc-refs.repo.test.cjs` 1-130 (test list, SCAN_INCLUDE, EXEMPT) and
 
 After 72-04 the TOKEN_RE reads `(aoforge|df)` and the replacements `/aoforge:`; a `/devflow:` form is currently not
 even matched, which is the gap this TRD closes.
+
+Wave placement: this TRD runs after 72-14 (wave 8), so the pointer plugin `plugins/devflow/` exists when its EXEMPT
+entry is added (an EXEMPT pattern must match a real path, test 3 of the gate) and the two TRDs never edit the gate's
+inputs at the same time.
 </context>
 
 ## Test list
@@ -86,8 +90,11 @@ even matched, which is the gap this TRD closes.
 8. Sibling-plugin scan (`plugins/eden-ui-*/**`, `plugins/monorepo-standards/**`, `plugins/aosentry-mcp/**`,
    `plugins/social-media-generator/**`): zero `prefix`/`renamed` findings (unknown names there are other plugins'
    commands and are ignored).
-9. Main gate green on the tree; EXEMPT gains `**/legacy-names.cjs` and `**/__fixtures__/legacy-*` only if they appear
-   in the scan set (tests are already exempt).
+9. Main gate green on the tree; EXEMPT gains an explicit `plugins/devflow/**` entry (reason: the final devflow pointer
+   release must spell the legacy namespace; removed with it in the release after 3.0.0), plus `**/legacy-names.cjs` and
+   `**/__fixtures__/legacy-*` only if they appear in the scan set (tests are already exempt).
+9b. The scan set (SCAN_INCLUDE walked, before EXEMPT) contains no path starting with `.planning/`, `.aoforge/` or
+   `plugins/devflow/`, and the file's "Not scanned by design" comment lists `.aoforge/**` beside `.planning/**`.
 
 **0007-doc-refs-fix.legacy.test.cjs**
 10. Project with a managed block containing `/devflow:quick` and `/devflow:progress`, STATE.md with `/df:quick` above
@@ -162,12 +169,12 @@ codemod already; any other mismatch is a precedence bug.</recovery>
   <name>Task 3: The repo gate over legacy forms, including the sibling plugins</name>
   <files>plugins/aoforge/aoforge/bin/lib/doc-refs.repo.test.cjs</files>
   <action>
-RED: tests 7-9 (extend the header test list as items 15-17, objective 72). Run: 7 and 8 fail until the resolver
+RED: tests 7-9b (extend the header test list as items 15-18, objective 72). Run: 7 and 8 fail until the resolver
 change is in (it is, from Task 2) or until sibling files are fixed; fix any legacy form the gate finds in user-facing
 files (error_recovery). Commit GREEN with the fixes. Run the full suite.
   </action>
   <verify>node --test plugins/aoforge/aoforge/bin/lib/doc-refs.repo.test.cjs</verify>
-  <done>Tests 7-9 pass; the gate is green; full suite at baseline.</done>
+  <done>Tests 7-9b pass; the gate is green; full suite at baseline.</done>
   <recovery>A finding inside a sibling plugin naming its OWN command under the wrong namespace (e.g. a monorepo-standards
 skill written as a legacy-namespace command): rewrite it to that plugin's namespace, not to aoforge, and say so in the
 SUMMARY.</recovery>

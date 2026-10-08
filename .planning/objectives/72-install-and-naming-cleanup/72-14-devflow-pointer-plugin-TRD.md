@@ -2,8 +2,8 @@
 objective: 72-install-and-naming-cleanup
 trd: "14"
 type: standard
-wave: 5
-depends_on: ["72-06"]
+wave: 7
+depends_on: ["72-06", "72-10"]
 files_modified:
   - scripts/gen-pointer-skills.cjs
   - scripts/gen-pointer-skills.legacy.test.cjs
@@ -139,7 +139,7 @@ Code, then disable this plugin with `claude plugin disable devflow@aocyber`. Thi
 - `package.json` `scripts.test` gains `'plugins/devflow/**/*.test.js'`; the full-suite form gains the same glob.
 - The rename guard: add ALLOW entries `plugins/devflow/**` ("the final devflow pointer release; removed in the release
   after 3.0.0") and `scripts/gen-pointer-skills*` ("generates the pointer plugin, which must use the legacy plugin
-  name"). Only this TRD edits the guard in wave 5.
+  name"). Only this TRD edits the guard in wave 7.
 - Live runtime is DevFlow 2.15.0: commit with `node ~/.claude/devflow/bin/df-tools.cjs commit`. Never port 8080.
 </gotchas>
 

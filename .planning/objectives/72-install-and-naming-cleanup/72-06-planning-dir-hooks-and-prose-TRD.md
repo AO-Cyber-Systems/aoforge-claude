@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "06"
 type: standard
-wave: 4
+wave: 5
 depends_on: ["72-05"]
 files_modified:
   - "plugins/aoforge/hooks/** (planning pass + residuals)"

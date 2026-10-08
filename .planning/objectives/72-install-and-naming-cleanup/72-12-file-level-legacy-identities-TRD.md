@@ -2,8 +2,8 @@
 objective: 72-install-and-naming-cleanup
 trd: "12"
 type: standard
-wave: 5
-depends_on: ["72-06"]
+wave: 7
+depends_on: ["72-06", "72-10"]
 files_modified:
   - plugins/aoforge/aoforge/bin/lib/__fixtures__/legacy-identity-fixtures.cjs
   - plugins/aoforge/aoforge/bin/lib/file-identities.legacy.test.cjs

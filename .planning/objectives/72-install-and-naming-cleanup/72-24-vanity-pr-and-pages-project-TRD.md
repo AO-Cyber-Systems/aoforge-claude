@@ -2,7 +2,7 @@
 objective: 72-install-and-naming-cleanup
 trd: "24"
 type: standard
-wave: 14
+wave: 16
 depends_on: ["72-23"]
 files_modified:
   - "AOCyberAI-Ops/vanity modules.yaml (in a scratch clone, outside this repo)"

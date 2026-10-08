@@ -7,11 +7,11 @@ depends_on: []
 files_modified:
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
-autonomous: true
+autonomous: false
 requirements: [INST-01]
 must_haves:
   truths:
-    - "A run-state estimate for objective 72 exists in the estimate state dir with a `started_at` earlier than this TRD's first commit, or the SUMMARY states plainly that it was recorded late and by how many minutes"
+    - "Before any other 72 TRD runs, `estimate start 72` recorded a run state for objective 72 (objective 72, non-null `started_at`, null `finished_at`), or, when no estimate could be made, the user chose at a checkpoint either (a) calibration regenerated with the frozen DECISION-003 method (`--minutes trd_level --window 10 --through 66`, backup first) and the run state then recorded, or (b) objective 72 accepted as unscored; the SUMMARY body carries `run_state: recorded <started_at>` or `run_state: unscored (accepted: <literal reply>)`, and execution never continued silently without one of them"
     - "REQUIREMENTS.md carries INST-01 rewritten to the `/aoforge:` scope and five new requirements INST-02..INST-06 under `### Install and naming (INST)`, each mapped to Objective 72 in the traceability table; the header coverage line counts 30 requirements"
     - "ROADMAP.md's Objective 72 section is titled `Rename to AOForge and naming cleanup`, lists `INST-01, INST-02, INST-03, INST-04, INST-05, INST-06`, and has the six success criteria below; its `TRDs:` list (written at planning time) is unchanged"
     - "The v1.6 milestone list line for 72 and the milestone intro (requirement count, and the sentence that 68-72 are agent-only) match the new scope"
@@ -36,10 +36,11 @@ must_haves:
 72-CONTEXT.md changed the scope of Objective 72 from "install and naming cleanup" to "rename DevFlow to AOForge, plus
 the original INST-01 cleanup". The planning documents still describe the old scope. Rewrite INST-01, add the
 requirements the rename needs (INST-02..INST-06), and rewrite the Objective 72 roadmap entry, through the planning
-verbs. Before that, confirm the run-state estimate that EST-11 scores was recorded before execution started.
+verbs. Before that, as a gate, record the run-state estimate that EST-11 scores: this TRD runs alone in wave 1 and
+every other 72 TRD depends on it, so the estimate exists before any code changes.
 
 Purpose: every later TRD of 72 cites INST-02..INST-06; verification and EST-11 read these documents.
-Output: REQUIREMENTS.md and ROADMAP.md rewritten for 72; the run-state check recorded in the SUMMARY.
+Output: the run state for 72 (or the user's explicit unscored acceptance); REQUIREMENTS.md and ROADMAP.md rewritten.
 </objective>
 
 <execution_context>
@@ -50,7 +51,12 @@ Output: REQUIREMENTS.md and ROADMAP.md rewritten for 72; the run-state check rec
 <context>
 @.planning/objectives/72-install-and-naming-cleanup/72-CONTEXT.md
 
-Project kind `plugin`, work `feature`. This TRD is documentation only (no `tdd` tasks).
+Project kind `plugin`, work `feature`. No `tdd` tasks.
+
+**Gate (Task 1).** It is a `checkpoint:decision` that asks only when `estimate start 72` cannot make an estimate. In yolo
+mode the orchestrator auto-selects a decision's first option, which is (a): local, reversible from the backup, and the
+frozen method, so nothing is fitted to the scored objectives. Option (b) (unscored) is never auto-selected: if (a) does
+not produce an estimate, the task escalates to a `checkpoint:human-action`, which always stops for the user.
 
 Read narrowly:
 - `.planning/REQUIREMENTS.md`: lines 1-10 (header, coverage line), 45-48 (`### Install and naming (INST)`), 85-100
@@ -86,7 +92,8 @@ Run-state file (objective 58, schema v1): `~/.claude/devflow/state/estimates/<re
 - Do not touch Objective 73/74/75 text here (the `devflow-watch` / `devflow-docs` wording there changes in 72-22,
   after the rename ships).
 - Do not mark any requirement complete. Do not change the `TRDs:` list under Objective 72.
-- Do not invent a start time. If the run state is missing, record it now and say it is late.
+- Never invent a start time, never hand-edit the run-state file, and never go past Task 1 without a recorded run state
+  or the user's explicit unscored acceptance.
 </anti_patterns>
 
 <error_recovery>
@@ -106,24 +113,40 @@ Run-state file (objective 58, schema v1): `~/.claude/devflow/state/estimates/<re
 
 <tasks>
 
-<task type="auto">
-  <name>Task 1: Confirm the run-state estimate for 72 was recorded before execution</name>
-  <files>(none: reads ~/.claude/devflow/state/estimates/devflow-claude-d3dccfe9.json)</files>
+<task type="checkpoint:decision" gate="blocking">
+  <name>Task 1: Gate: record the run-state estimate for 72 before anything else runs</name>
+  <files>(none in the repo: writes the run state under ~/.claude/devflow/state/estimates/; option (a) rewrites ~/.claude/devflow/calibration.json after a backup)</files>
   <action>
-Read the run-state file with one `node -e` call that prints `objective`, `started_at`, `finished_at` and the number of
-waves. Then print the time of the first commit of this objective's execution:
-`git log --reverse --format='%H %cI %s' --grep='(72-' | head -1` (empty when this TRD is the first to commit).
+Pre-check (idempotency): one `node -e` call on `~/.claude/devflow/state/estimates/devflow-claude-d3dccfe9.json` printing
+`objective`, `started_at`, `finished_at`. If it already shows objective 72 with a non-null `started_at` and a null
+`finished_at`, record `run_state: recorded <started_at>` and finish this task without asking.
 
-- `objective === 72`, `finished_at === null` and `started_at` earlier than that first commit (or no 72 commit yet):
-  record "run state recorded before execution at <started_at>" for the SUMMARY.
-- Otherwise run `node ~/.claude/devflow/bin/df-tools.cjs estimate start 72 --raw` once, and record in the SUMMARY:
-  "run state was missing; recorded at <time>, <N> minutes after execution started (first 72 commit <sha> at <time>)".
-  Never edit the state file by hand.
+Otherwise run `node ~/.claude/devflow/bin/df-tools.cjs estimate start 72 --raw` once.
+- It records a run state (the state file now shows objective 72): record `run_state: recorded <started_at>` and the
+  printed estimate line. Done; no question.
+- It prints `No estimate: <reason>` (at planning, `estimate objective 72` printed "objective 72 has no minutes data in
+  the calibration"): STOP. Never continue silently. Return `## CHECKPOINT REACHED` (decision) with the reason verbatim
+  and exactly two options:
+  (a) Regenerate the calibration with the frozen DECISION-003 method, then retry: copy
+      `~/.claude/devflow/calibration.json` to `<scratchpad>/calibration.before-72.json` (the backup), run
+      `node ~/.claude/devflow/bin/df-tools.cjs calibrate --minutes trd_level --window 10 --through 66` (the method objective
+      67 froze; nothing from 68 on is fitted), record its `method` block, then run `estimate start 72 --raw` again.
+  (b) Accept objective 72 as unscored for EST-11: record `run_state: unscored (accepted: <literal reply>)`; objective 75
+      then reports 72 as unscored.
+On (a): a retry that records a run state -> record `run_state: recorded <started_at>` and the backup path. A retry that
+still prints `No estimate` -> return a `checkpoint:human-action` (it always stops, even in yolo): "Calibration regenerated
+with the frozen method, but objective 72 still has no estimate (<reason>). Reply `unscored` to accept 72 as unscored,
+`restore` to put the backed-up calibration back and hold, or anything else to hold." Never choose (b) on the user's
+behalf, never edit the state file, never invent a start time.
   </action>
-  <verify>`node -e` on the state file prints `objective 72` and a non-null `started_at`.</verify>
-  <done>The run state for 72 exists and the SUMMARY states when it was recorded relative to execution start.</done>
-  <recovery>If `estimate start` prints `No estimate: <reason>` (calibration missing), record the reason verbatim in
-the SUMMARY and continue; do not run `calibrate` here.</recovery>
+  <instructions>EST-11 scores objective 72 only if its run-state estimate exists before execution. No estimate could be
+made; choose how to proceed.</instructions>
+  <verification>The state file shows objective 72 with a non-null `started_at`, or the SUMMARY records the user's literal
+acceptance of unscored.</verification>
+  <resume-signal>Reply "a" (regenerate with the frozen method and retry), "b" (accept 72 as unscored), or anything else to hold.</resume-signal>
+  <verify>`node -e` on the state file prints objective 72 and a non-null `started_at`, or the SUMMARY carries the line `run_state: unscored (accepted: ...)`</verify>
+  <done>Exactly one of: the run state was recorded before any other 72 TRD ran; or the user accepted 72 as unscored in so
+many words. The SUMMARY body carries the `run_state:` line that 72-07, 72-18, 72-21 and 72-26 read.</done>
 </task>
 
 <task type="auto">
@@ -234,7 +257,7 @@ redo the edit; never commit an out-of-bounds change. Commit with
 <success_criteria>
 - INST-01 is rewritten and INST-02..INST-06 exist and are mapped to 72.
 - The roadmap entry for 72 matches 72-CONTEXT.md's scope.
-- The run-state estimate for 72 is confirmed (or its late recording is stated).
+- The run state for 72 was recorded before any other TRD ran, or the user accepted 72 as unscored in so many words.
 </success_criteria>
 
 <output>
