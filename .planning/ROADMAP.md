@@ -155,7 +155,13 @@ TRDs:
   1. The installed `agents/executor.md` (new plugin version) contains the `tokens stamp ... --draft` step, and a repo test fails if the repository copy lacks it.
   2. A SUMMARY written by an executor in this milestone has `tokens_input` and `tokens_output` in its frontmatter with no backfill run.
   3. A command reports forward-stamp coverage over the TRDs executed in v1.6; the target is at least 95%, and the measured number is printed and recorded (no rounding up).
-**TRDs**: TBD
+**TRDs**: 4 plans
+
+TRDs:
+- [ ] 66-01-tokens-coverage-command-TRD.md — (W1) `df-tools tokens coverage [--milestone|--objective]`: live/counted forward-stamp coverage, exact fraction + floored decimal, missing reasons (stamp_skipped / no_transcript), read-only
+- [ ] 66-02-stop-gate-token-check-TRD.md — (W1) gate-executor-stop blocks once when the final SUMMARY has no tokens_input/tokens_output (the 64-09/64-10 skipped-stamp cause); executor.md self_check sentence
+- [ ] 66-03-continuation-prompt-and-inline-rule-TRD.md — (W2) execute-objective: every TRD runs in an executor (the 65-02/65-03 inline cause), explicit continuation spawn prompt with PLAN_ID/REPO_ROOT, `**Token stamp:**` line in the objective report
+- [ ] 66-04-docs-and-coverage-evidence-TRD.md — (W3) CHANGELOG/USER-GUIDE/CLAUDE.md; SC-1 mutation proof, SC-2 live stamps, SC-3 measured v1.6 coverage recorded verbatim; release recorded as follow-up
 
 ### Objective 67: Minutes recalibration
 
