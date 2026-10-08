@@ -3,6 +3,14 @@ objective: 64-estimate-accuracy-validation
 type: accuracy-report
 requirement: EST-08
 verdict: not met
+verdict_before: not met (frozen calibration, 64-05)
+validation: 64-VALIDATION.md
+diagnosis: 64-DIAGNOSIS.md
+window_objectives: 10
+default_changed: true
+live_calibration_regenerated: true
+live_calibration_sha256_before: 5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea
+live_calibration_sha256_after: 9ef7d1082c6722b6ca783d6b8d192a0999da63ba620e2780dcc67ed98b5ad648
 generated: 2026-10-07
 calibration_sha256: 5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea
 ---
@@ -22,6 +30,110 @@ The classes the verb flags are code_tdd (1.80), prompt_tdd (1.88) and other (2.5
 and prompt (0.53) on the low side for minutes, and prompt_tdd, test, test_tdd and prompt for cost. The follow-up is
 recorded in the pending todos named under "Miscalibrated classes and follow-up".
 
+**Gap closure, added afterwards (plans 64-07 to 64-10): default changed but EST-08 not met.** The numbers above are the
+64-05 result on the frozen calibration and stay as they are. A recency window of 10 objectives was then chosen on
+pre-59 history, scored once on 59-63 out of sample and shipped as the `calibrate` default; EST-08 is still not met. See
+"Gap closure" below.
+
+## Gap closure (plans 64-07 to 64-10): default changed but EST-08 not met
+
+**Default changed but EST-08 not met.** The `calibrate` default is now a recency window of the most recent 10
+objectives, and the live calibration was regenerated with it. The agent-minutes median ratio fell from 1.348 to 1.238
+and agent-minutes SC2 passes, but the number of objectives inside the band stayed at 2 of 5 and cost SC3 is unchanged at
+32 of 41 TRDs (78%, target 80%). EST-08 stays unchecked.
+
+**Why and how.** After 64-05 the user chose to fix the minutes estimate and re-run the backtest, under two locked rules:
+fix the method, not the target (no multiplier fitted to 59-63, no change to the EST-08 thresholds, the inputs or the
+actuals), and validate honestly (a parameter is chosen on a history that excludes 59-63 and is frozen in a committed
+document before 59-63 is scored). 64-07 tested seven suspects on the pre-59 snapshot (`git archive 401a9145^ .planning`,
+commit `cce70b30`) and froze the method in 64-DIAGNOSIS.md; 64-08 built `calibrate --window` and the rolling harness; 64-09
+scored the frozen protocol once, after a positive control reproduced 64-05's old-method rolling table at every printed
+digit; this plan acted on the result.
+
+**Diagnosis (pre-59 evidence only, 64-DIAGNOSIS.md section 3).**
+
+| Suspect | Verdict | Deciding number |
+|---|---|---|
+| S1 older or slower history | supported | Four equal-count eras have median actual 7.0, 20.0, 14.0 and 11.0 min and median ratio 1.50, 0.66, 0.88 and 1.24 while the calibration's median p50 per TRD is 10.5-12.0 in every era: one set of medians serves a non-stationary history |
+| S2 duration source | not supported | 9 of 257 TRDs use a STATE_ARCHIVE metric row; their median ratio is 0.60, the opposite of the bias |
+| S3 executor overhead counted twice | not supported | a characterization test shows `execution.agent_minutes` equals the correlated sum of the TRD minutes exactly; the verifier appears only in `overhead` and `total` |
+| S4 class `other` | supported, small | 9 of 587 tasks; the whole class moves the selection-set total by about 3.2% against a 12% median bias |
+| S5 minutes against task count | supported, second order | median ratio 0.62 (1 task, 12 TRDs), 0.91 (2 tasks, 160), 1.29 (3 tasks, 85); the groups cancel in sample, not a candidate here (the existing todo stays open) |
+| S6 composition of TRDs (rho 0.5) | supported as the amplifier, not shown to be a defect | rolling: median F/P 1.14, median P/A 0.98, median F/A 1.12; in sample F/A is 0.99 |
+| S7 drift in the per-objective ratios | supported | all-history rolling ratio median 0.94 for objectives 46-52 and 1.60 for 53-58; 54, 55, 56 and 57 are 2.15, 1.55, 2.42 and 1.64 |
+
+**The frozen window and how strong its support was.** The pre-registered rule over {all, 10, 15, 20, 30, 40} on
+objectives 46-58 (13 objectives, 109 TRD rows) selected a window of 10 objectives: S = |ln median ratio| of 0.047 against
+0.113 for all history, 6 of 13 objectives in band against 5 of 13. The support is weak and 64-DIAGNOSIS.md says so: the
+sweep was not monotone (15, 20 and 30 were worse than all history at S 0.210, 0.216 and 0.215, 40 slightly worse at
+0.130), the advantage of 0.066 is small against per-objective ratios that run from 0.45 to 2.42, the in-band gain is one
+objective, and the window does not remove the late-objective drift (objectives 53-58 have a median ratio of 1.32 under
+it, 1.60 under all history). **Noise floor** (64-DIAGNOSIS.md section 5, by enumeration of the 1287 five-objective subsets
+of the 13 ratios): an estimator with the all-history spread passes SC2 on a random five-objective sample 58.7% of the
+time and one with window 10's spread 75.1% of the time, so a single five-objective verdict is noisy in both directions.
+
+**Before and after.**
+
+| Run | Calibration | Agent minutes median ratio / in band | P90 objectives / TRDs | Cost median ratio / in band | P90 objectives / TRDs | EST-08 |
+|---|---|---|---|---|---|---|
+| 64-05 primary (reconstructed) | frozen 5cf42c4b, all history | 1.51 / 2 of 5 | 5 of 5 / 40 of 41 | 0.86 / 4 of 5 | 4 of 5 / 34 of 41 | not met |
+| Rolling, old method (64-09 control) | per-cut, `--window all` | 1.348 / 2 of 5 | 5 of 5 / 40 of 41 | 0.839 / 4 of 5 | 4 of 5 / 32 of 41 | not met |
+| Rolling, new method | per-cut, `--window 10` | 1.238 / 2 of 5 | 5 of 5 / 40 of 41 | 0.797 / 3 of 5 | 4 of 5 / 32 of 41 | not met |
+
+Pooled agent-minutes ratio: 1.45 (64-05 primary), 1.274 (rolling old), 1.112 (rolling new). Statuses, rolling old then
+new: agent minutes SC2 fail then pass (1.348, 1.238), agent minutes SC3 pass then pass, cost SC2 pass then pass (0.839,
+0.797), cost SC3 fail then fail (32 of 41 TRDs both times). Each rolling row estimates an objective from its own
+leave-future-out cut (today's code on `git archive <first commit>^ .planning`), the same input 64-05's secondary analysis
+used; the old-method row equals that analysis exactly and is the control. Source: 64-VALIDATION.md sections 2 to 4.
+
+Per objective, full precision (same objectives, same actuals):
+
+| Objective | Minutes ratio old | Minutes ratio new | Cost ratio old | Cost ratio new |
+|---|---|---|---|---|
+| 59 | 1.291 | 0.959 | 0.839 | 0.797 |
+| 60 | 1.348 | 1.238 | 1.071 | 1.009 |
+| 61 | 1.758 | 1.437 | 0.993 | 0.941 |
+| 62 | 1.475 | 1.394 | 0.637 | 0.664 |
+| 63 | 0.739 | 0.697 | 0.715 | 0.665 |
+
+Minutes move toward 1 for 59, 60, 61 and 62 and away from 1 for 63 (0.739 to 0.697). Objectives in band are 59 and 63
+under the old method and 59 and 60 under the new: the count did not change. 61 (1.437) and 62 (1.394) stay above the band.
+
+**Flagged classes, before and after** (64-VALIDATION.md section 5, small samples of 1 to 41 tasks per class). Agent minutes:
+`code_tdd` (biased high, median ratio 1.59 old) is no longer flagged under the window (1.29) and `prompt` (biased low, 0.53)
+is no longer flagged (0.97); `prompt_tdd` stays biased high at 1.88; `test_tdd` becomes biased low (0.79 old, 0.65 new, on 5
+tasks). Cost: `code` is no longer flagged; `test` and `test_tdd` move further below 1 (test 0.78 to 0.53, test_tdd 0.65
+to 0.58) and `test` P90 coverage falls from 69% to 8%.
+
+**Ship decision.** The pre-registered rule (`shipRule`, 64-DIAGNOSIS.md section 7) returned `ship_default: true`: "the
+agent-minutes median ratio is closer to 1 (new 1.238, old 1.348) and no passing status regresses". It was not recomputed
+by hand. What it changed: `DEFAULT_WINDOW_OBJECTIVES` in `calibrator.cjs` went from null (all history) to 10, so
+`calibrate` with no flag keeps the 10 most recent objectives that have samples per project and `--window all` restores all
+history; `scripts/estimate-window-eval.cjs` now passes `window: null` where it cuts its own windows so its frozen selection
+still reproduces; and the live `~/.claude/devflow/calibration.json` was regenerated by TRD 64-10 after 64-VALIDATION.md was
+committed (sha256 `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea` before,
+`9ef7d1082c6722b6ca783d6b8d192a0999da63ba620e2780dcc67ed98b5ad648` after; 80 TRDs, 190 tasks, 79 with tokens, window
+objectives 55 to 64). The frozen copy `~/.claude/devflow/state/backtest/calibration-5cf42c4b.json` and the run history are
+untouched.
+
+**The ship rests on a small move, and the rule weighs two things that went the wrong way.** The minutes median moved by
+0.110 and the number of objectives in band did not move. The cost median moved further below 1 (0.839 to 0.797) and cost
+objectives in band went from 4 of 5 to 3 of 5 (63 leaves the band at 0.665). Objective 63's minutes ratio moved away from 1
+(0.739 to 0.697). The ship rule looks at neither. Cost SC3 (TRD P90 coverage 78%) is the status that keeps EST-08 at not
+met; the window was not designed for it, and objective 62's cost actual ($45.75) is above P90 under both methods.
+
+**Prospective point (reported, never judged).** Objective 63's persisted wall estimate, unchanged by any of this, was
+1h 37m / 4h 50m against an actual of 1h 51m (ratio 0.87, inside P90; run state sha256
+`08f88f9f9a108e10e6804603bb900f37145258415005d858cfac131fa664fdee`).
+
+**What would confirm it.** This is a five-objective, leave-future-out reconstruction on a window chosen with weak support on
+pre-59 history; it is not prospective evidence and `met` would not have been proof either. True prospective confirmation needs
+the next five objectives executed after this one, estimated from the calibration that exists before each starts (the
+regenerated live file) and recorded by the run history that 64-02 now keeps in
+`~/.claude/devflow/state/estimates/history/`, then `df-tools estimate backtest` over them. Follow-ups that stay open: the
+todo `recalibrate-estimate-minutes-est-08-not-met` (now with this evidence) and the forward token stamp todo
+`ship-executor-token-stamp-forward-stamp-8-of-41`, which needs a plugin release and a runtime re-sync, not code.
+
 ## What was compared
 
 **Reconstructed, not prospective, for every number in the verdict.** Objective 63's persisted run state predates
@@ -34,7 +146,9 @@ never judged.
 
 - **Frozen calibration.** `~/.claude/devflow/state/backtest/calibration-5cf42c4b.json`, sha256
   `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea`, identical to the live
-  `~/.claude/devflow/calibration.json`; mtime 2026-10-05 15:48 local, 1h 53m before 59's first commit (`401a9145`, 17:41);
+  `~/.claude/devflow/calibration.json` when this report was written (TRD 64-10 regenerated the live file afterwards, with
+  the 10-objective window, to `9ef7d108…`; the frozen copy is untouched and stays the baseline of every 64-05 number);
+  mtime 2026-10-05 15:48 local, 1h 53m before 59's first commit (`401a9145`, 17:41);
   version 2, `data_as_of` 2026-10-05, 323 TRDs, 746 tasks, 236 with tokens; `inputs_digest`
   `sha256:254f7950caf2a37e8d3159dc80f6e9505de46eecdee5d440f3e3a70121091f89`. It holds no 59-63 data, so it is out of
   sample for all five objectives (64-03 proved hash and age).
@@ -207,7 +321,9 @@ Follow-ups (pending todos created with this report; none changes estimator code 
 - **Recalibrate estimate minutes** (`.planning/todos/pending/recalibrate-estimate-minutes-est-08-not-met.md`): make `calibrate` derive
   minutes from recent history (a recency window, or per-TRD minutes instead of an equal split across tasks) and
   re-check against the bias above, then re-run `df-tools estimate backtest` on the next five objectives, which 64-02's run
-  history now records prospectively.
+  history now records prospectively. Gap closure tried the recency-window half of this (see "Gap closure"): it moved the
+  minutes median from 1.348 to 1.238 and did not meet EST-08, so the todo stays open, with that evidence added; the
+  per-TRD-minutes half (S5) has not been tried.
 - **Forward token stamp reaches 8 of 41 SUMMARYs** (`.planning/todos/pending/ship-executor-token-stamp-forward-stamp-8-of-41.md`):
   ship the current `agents/executor.md` (the repository already has the `tokens stamp` step) so EST-06 stamps every
   SUMMARY and the backtest does not depend on `tokens backfill`.
@@ -220,7 +336,8 @@ These use calibrations that never existed at the time. They are information for 
 ### Rolling leave-future-out
 
 For each objective N: `git archive --format=tar -o <scratch>/cut-N.tar <first commit>^ .planning`, extract, `calibrate
---paths <scratch>/cut-N --no-overhead --out <scratch>/cal-cut-N.json`, `estimate backtest N --calibration
+--paths <scratch>/cut-N --no-overhead --window all --out <scratch>/cal-cut-N.json` (all history was the default when this
+was run; `--window all` keeps it so since TRD 64-10), `estimate backtest N --calibration
 <scratch>/cal-cut-N.json`. The snapshots carry only the token fields stamped at that moment (59 and 60 have none), so
 237 to 243 TRDs with tokens throughout. Executor metrics only (no overhead in these calibrations).
 
@@ -312,16 +429,21 @@ objectives), so the bias on 59-63 is not new: it predates the out-of-sample wind
 
 ## Status
 
-EST-08 stays **unchecked** in `REQUIREMENTS.md`, with the traceability row `Not met: see
-objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md` and the follow-up todo stem. The local `objective
-complete 64` will tick the `- [ ] **EST-08**` box on its own; whoever completes the objective must re-open that checkbox
-or record the decision to accept the verdict.
+**Default changed but EST-08 not met.** EST-08 stays **unchecked** in `REQUIREMENTS.md`, with the traceability row `Not met:
+see objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md and 64-VALIDATION.md` and the follow-up todo stem
+`recalibrate-estimate-minutes-est-08-not-met`, which stays open. The recency window of 10 objectives is the `calibrate`
+default and the live calibration was regenerated with it (hashes under "Gap closure"). The local `objective complete 64`
+will tick the `- [ ] **EST-08**` box on its own; whoever completes the objective must re-open that checkbox or record the
+decision to accept the verdict.
 
 ## Reproduce
 
 All from the repository checkout; `<scratch>` is any scratch directory outside the repository. Nothing here writes
 `~/.claude/devflow/calibration.json` (every `calibrate` has `--out`, every estimate has `--calibration`). The verb must
-run from the repository's `df-tools`, not the installed mirror.
+run from the repository's `df-tools`, not the installed mirror. Since TRD 64-10 `calibrate` windows to the 10 most recent
+objectives by default, so the `calibrate` commands below carry `--window all` to rebuild the all-history calibrations that
+64-05 used. The gap-closure result (the old and new methods side by side, the positive control and the ship rule) is
+reproduced by 64-VALIDATION.md section 10, and the pre-59 selection by 64-DIAGNOSIS.md section 8.
 
 ```
 # hashes (frozen calibration, 63 run state)
@@ -338,11 +460,11 @@ node plugins/devflow/devflow/bin/df-tools.cjs estimate backtest 55,56,57 \
 mkdir -p <scratch>/cut-N
 git archive --format=tar -o <scratch>/cut-N.tar F^ .planning
 tar -xf <scratch>/cut-N.tar -C <scratch>/cut-N
-node plugins/devflow/devflow/bin/df-tools.cjs calibrate --paths <scratch>/cut-N --no-overhead --out <scratch>/cal-cut-N.json --raw
+node plugins/devflow/devflow/bin/df-tools.cjs calibrate --paths <scratch>/cut-N --no-overhead --window all --out <scratch>/cal-cut-N.json --raw
 node plugins/devflow/devflow/bin/df-tools.cjs estimate backtest N --calibration <scratch>/cal-cut-N.json
 
 # window 42-58: copy <scratch>/cut-59/.planning/objectives/4[2-9]-* and 5[0-8]-* and STATE_ARCHIVE.md into <scratch>/win-42-58/.planning/
-node plugins/devflow/devflow/bin/df-tools.cjs calibrate --paths <scratch>/win-42-58 --no-overhead --out <scratch>/cal-win.json --raw
+node plugins/devflow/devflow/bin/df-tools.cjs calibrate --paths <scratch>/win-42-58 --no-overhead --window all --out <scratch>/cal-win.json --raw
 node plugins/devflow/devflow/bin/df-tools.cjs estimate backtest 59,60,61,62,63 --calibration <scratch>/cal-win.json --raw
 ```
 

@@ -35,6 +35,6 @@ New file: version 2, `data_as_of` 2026-10-08, samples 80 TRDs / 190 tasks / 79 w
 
 ## Progress
 
-- [x] Task 1: Apply the ship rule: flip the default to a 10-objective window and regenerate the live calibration — (this commit)
-- [ ] Task 2: Report, EST-08 status, CHANGELOG, USER-GUIDE and CLAUDE.md — next step: draft 64-ACCURACY-REPORT.md with `planning draft`, add the "Gap closure" section after "## Verdict" with the before/after table from 64-VALIDATION.md, then `doc put` it
+- [x] Task 1: Apply the ship rule: flip the default to a 10-objective window and regenerate the live calibration — 23c0eca8
+- [x] Task 2: Report, EST-08 status, CHANGELOG, USER-GUIDE and CLAUDE.md — (this commit)
 - [ ] Task 3: Full test suite — next step: run `roadmap update-job-progress 64`, then `npm test` from the repository root redirected to the scratchpad
