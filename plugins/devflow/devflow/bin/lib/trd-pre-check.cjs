@@ -30,6 +30,7 @@ const { findObjectiveInternal } = require('./objective.cjs');
 const trdBulk = require('./trd-bulk.cjs');
 const { objectiveNumPattern } = require('./text-escape.cjs');
 const { roadmapRequirementIds } = require('./requirement-ids.cjs');
+const { findProjectRoot } = require('./estimate-run-store.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -409,6 +410,26 @@ function checkTrdBudget(trds) {
 
 // ─── cmdVerifyTrdPre ──────────────────────────────────────────────────────────
 
+/**
+ * Where to look for the objective `arg` names, from any cwd inside the project (TRD 70-01).
+ * The job-checker ran `verify trd-pre` from the objective directory and got "Objective not found",
+ * because findObjectiveInternal reads `<cwd>/.planning` only. The walk-up is local to this command:
+ * findObjectiveInternal and normalizeObjectiveName have about 20 other callers.
+ *   - `arg` containing a path separator is a path to an objective directory (relative to cwd, or
+ *     absolute, trailing slash allowed): the root is found from that directory, the name is its basename.
+ *   - otherwise `arg` is an objective number or name, and the root is found from cwd. findProjectRoot
+ *     is inclusive, so a cwd that has its own `.planning/` is itself the root.
+ * With no `.planning/` anywhere above, the root falls back to cwd, so the not-found answer names it.
+ * @returns {{root: string, name: string}}
+ */
+function resolveTarget(cwd, arg) {
+  if (/[\\/]/.test(arg)) {
+    const dir = path.resolve(cwd, arg);
+    return { root: findProjectRoot(dir) || cwd, name: path.basename(dir) };
+  }
+  return { root: findProjectRoot(cwd) || cwd, name: arg };
+}
+
 function cmdVerifyTrdPre(cwd, objective, raw) {
   const startNs = process.hrtime.bigint();
 
@@ -417,18 +438,19 @@ function cmdVerifyTrdPre(cwd, objective, raw) {
     return;
   }
 
-  // Resolve objective directory
-  const objectiveInfo = findObjectiveInternal(cwd, objective);
+  // Resolve objective directory, from anywhere inside the project
+  const { root, name } = resolveTarget(cwd, objective);
+  const objectiveInfo = findObjectiveInternal(root, name);
   if (!objectiveInfo || !objectiveInfo.found) {
     const elapsed_ms = Number(process.hrtime.bigint() - startNs) / 1e6;
-    const result = { error: 'Objective not found', objective, elapsed_ms };
-    output(result, raw, 'Objective not found');
+    const result = { error: 'Objective not found', objective, project_root: root, elapsed_ms };
+    output(result, raw, 'Objective not found', 1);
     return;
   }
 
   const objectiveDir = path.isAbsolute(objectiveInfo.directory)
     ? objectiveInfo.directory
-    : path.join(cwd, objectiveInfo.directory);
+    : path.join(root, objectiveInfo.directory);
 
   const objectiveNum = objectiveInfo.objective_number;
 
@@ -458,7 +480,7 @@ function cmdVerifyTrdPre(cwd, objective, raw) {
   }
 
   // Run all five dimensions
-  const requirement_coverage = checkRequirementCoverage(cwd, objectiveNum, trds);
+  const requirement_coverage = checkRequirementCoverage(root, objectiveNum, trds);
   const task_completeness = checkTaskCompleteness(trds);
   const dependency_correctness = checkDependencyCorrectness(trds);
   const scope_sanity = checkScopeSanity(trds);
@@ -489,4 +511,4 @@ function cmdVerifyTrdPre(cwd, objective, raw) {
   output(result, raw, summaryLine);
 }
 
-module.exports = { cmdVerifyTrdPre };
+module.exports = { cmdVerifyTrdPre, resolveTarget };
