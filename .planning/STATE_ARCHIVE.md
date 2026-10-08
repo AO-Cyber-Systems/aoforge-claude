@@ -238,6 +238,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 70]: verify trd-pre walks up with the exported findProjectRoot inside its own resolveTarget; findObjectiveInternal and normalizeObjectiveName stay cwd-based — those two have about 20 other callers; project_root is added to the not-found result only so the 48-03 success JSON is unchanged
 - [Objective 70]: 70-02: verify-commits.js blocks with a top-level {decision, reason} scoped to agent_type devflow:executor; hooks/__fixtures__/hook-output-schema.js models the Stop/SubagentStop schema and the coexistence contract runs it over every Stop-family hook
 - [Objective 70]: 70-03: SC-4 before column taken from the installed 2.15.0 hook output; the live SubagentStop is a post-release check tracked as a todo, not a pass
+- [Objective 71]: stack verify --run skips a gate with a static service signal (own text, CI job running the same command, test env file for test/e2e) as env_required; --allow-services (with --run only) opts in and the result is marked services=allowed. Detection never probes a port.
+- [Objective 71]: The CI layer of the service policy matches an exact command and cwd (a hand-edited command differing from CI is not matched); the loopback regex uses a lookbehind so [::1]:port is visible.
 
 ## Performance Metrics
 
@@ -402,4 +404,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 70 P01 | 11min | 3 tasks | 8 files |
 | Objective 70 P02 | 6min | 2 tasks | 6 files |
 | Objective 70 P03 | 8min | 2 tasks | 5 files |
+| Objective 71 P03 | 13min | 3 tasks | 6 files |
 
