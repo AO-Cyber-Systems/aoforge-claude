@@ -622,6 +622,64 @@ function renderPlanText(target, plan) {
   return lines.join('\n') + '\n';
 }
 
+/**
+ * ROADMAP.md text with every integer objective above `removedInt` moved down by one: headings, checkboxes, progress-table
+ * numbers, `**Depends on**` lines and `NN-MM` TRD references. Pure; the removed objective's own section, checkbox and row
+ * are deleted by the caller before this runs. Dates, statuses, plan counts, milestone cells and requirement IDs are not
+ * touched (TOOL-03).
+ */
+function renumberRoadmapText(text, removedInt) {
+  let roadmapContent = text;
+
+  // Collect all integer objectives > removedInt. Ascending: each number moves down by one exactly once. A descending
+  // pass renamed 5 -> 4 and then 4 -> 3 on the next iteration, collapsing every later objective onto the removed one.
+  const maxObjective = 99; // reasonable upper bound
+  const dependsOnLine = new RegExp(`^[^\\n]*${boldLabelPattern('Depends on')}[^\\n]*$`, 'gim');
+  for (let oldNum = removedInt + 1; oldNum <= maxObjective; oldNum++) {
+    const newNum = oldNum - 1;
+    const oldStr = String(oldNum);
+    const newStr = String(newNum);
+    const oldPad = oldStr.padStart(2, '0');
+    const newPad = newStr.padStart(2, '0');
+
+    // Objective headings: ## Objective 18: or ### Objective 18: → ## Objective 17: or ### Objective 17:
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(#{2,4}\\s*Objective\\s+)${oldStr}(\\s*:)`, 'gi'),
+      `$1${newStr}$2`
+    );
+
+    // Checkbox items: - [ ] **Objective 18:** → - [ ] **Objective 17:**
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(Objective\\s+)${oldStr}([:\\s])`, 'g'),
+      `$1${newStr}$2`
+    );
+
+    // Job references: 18-01 → 17-01. Bounded (TOOL-03): the old unbounded `${oldPad}-(\d{2})` also matched inside dates, so
+    // removing objective 1 turned a progress row's `2026-03-15` into `2025-02-15` (59-05 Deferred Issues) and any objective
+    // numbered 26 rewrote every `2026-` date. No word character, `.` or `-` may precede the reference (`2026-`, `v1.18-01`,
+    // `AUTH-18-01`), and no digit or `-<digit>` may follow it (`18-0123`, `03-15-2026`). `18-01-slug-TRD.md`, `/18-01-`,
+    // `(18-01)`, `` `18-01` `` and `18-01's` still match.
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(?<![\\w.-])${oldPad}-(\\d{2})(?!\\d|-\\d)`, 'g'),
+      `${newPad}-$1`
+    );
+
+    // Table rows: | 18. → | 17.
+    roadmapContent = roadmapContent.replace(
+      new RegExp(`(\\|\\s*)${oldStr}\\.\\s`, 'g'),
+      `$1${newStr}. `
+    );
+
+    // Depends on references: every `Objective N` on a `**Depends on:**` or `**Depends on**:` line, including list
+    // items the rule above cannot see (`Objective 4, Objective 5, ...`: a comma is not `[:\s]`).
+    roadmapContent = roadmapContent.replace(dependsOnLine, (line) =>
+      line.replace(new RegExp(`(Objective\\s+)${oldStr}(?!\\.?\\d)`, 'gi'), `$1${newStr}`)
+    );
+  }
+
+  return roadmapContent;
+}
+
 function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
   if (!targetObjective) {
     error('objective number required for objective remove');
@@ -760,49 +818,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
 
   // Renumber references in ROADMAP for subsequent objectives
   if (!isDecimal) {
-    const removedInt = parseInt(normalized, 10);
-
-    // Collect all integer objectives > removedInt. Ascending: each number moves down by one exactly once. A descending
-    // pass renamed 5 -> 4 and then 4 -> 3 on the next iteration, collapsing every later objective onto the removed one.
-    const maxObjective = 99; // reasonable upper bound
-    const dependsOnLine = new RegExp(`^[^\\n]*${boldLabelPattern('Depends on')}[^\\n]*$`, 'gim');
-    for (let oldNum = removedInt + 1; oldNum <= maxObjective; oldNum++) {
-      const newNum = oldNum - 1;
-      const oldStr = String(oldNum);
-      const newStr = String(newNum);
-      const oldPad = oldStr.padStart(2, '0');
-      const newPad = newStr.padStart(2, '0');
-
-      // Objective headings: ## Objective 18: or ### Objective 18: → ## Objective 17: or ### Objective 17:
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(#{2,4}\\s*Objective\\s+)${oldStr}(\\s*:)`, 'gi'),
-        `$1${newStr}$2`
-      );
-
-      // Checkbox items: - [ ] **Objective 18:** → - [ ] **Objective 17:**
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(Objective\\s+)${oldStr}([:\\s])`, 'g'),
-        `$1${newStr}$2`
-      );
-
-      // Job references: 18-01 → 17-01
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`${oldPad}-(\\d{2})`, 'g'),
-        `${newPad}-$1`
-      );
-
-      // Table rows: | 18. → | 17.
-      roadmapContent = roadmapContent.replace(
-        new RegExp(`(\\|\\s*)${oldStr}\\.\\s`, 'g'),
-        `$1${newStr}. `
-      );
-
-      // Depends on references: every `Objective N` on a `**Depends on:**` or `**Depends on**:` line, including list
-      // items the rule above cannot see (`Objective 4, Objective 5, ...`: a comma is not `[:\s]`).
-      roadmapContent = roadmapContent.replace(dependsOnLine, (line) =>
-        line.replace(new RegExp(`(Objective\\s+)${oldStr}(?!\\.?\\d)`, 'gi'), `$1${newStr}`)
-      );
-    }
+    roadmapContent = renumberRoadmapText(roadmapContent, parseInt(normalized, 10));
   }
 
   // roadmap_updated follows the same rule as state_updated below: it reports an actual write, decided by comparing the
@@ -1128,4 +1144,5 @@ module.exports = {
   cmdObjectiveInsert,
   cmdObjectiveRemove,
   cmdObjectiveComplete,
+  renumberRoadmapText,
 };
