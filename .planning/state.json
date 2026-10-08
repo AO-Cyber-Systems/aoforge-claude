@@ -1120,6 +1120,16 @@
       "objective": "67",
       "summary": "The through cutoff is applied inside collectProject (directories and metric rows, before any read or count); a directory with no number is out under a cutoff; the window applies after it.",
       "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-03: minutes_basis names the calibration's minutes method on every TRD estimate (even one with no minutes); minutes_samples is the TRD-level count only when a stat exists",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence",
+      "rationale": null
     }
   ],
   "blockers": [],

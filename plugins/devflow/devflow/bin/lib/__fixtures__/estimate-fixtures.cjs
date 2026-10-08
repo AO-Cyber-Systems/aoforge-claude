@@ -175,6 +175,21 @@ function makeCalibration(overrides = {}) {
   return mergeInto(JSON.parse(JSON.stringify(CAL_V2)), overrides);
 }
 
+/**
+ * A hand-built version 3 calibration (TRD 67-03): CAL_V2 with `version: 3` and the `method` block that 67-02's
+ * calibrator writes, `{minutes, window_objectives: 10, through_objective: 66}`. `minutes` is 'task_sum' or 'trd_level'.
+ * `trdMinutes` (a stat, e.g. `{n: 7, p50: 12, p90: 45}`) is merged into `trd_level.minutes`; a full stat such as
+ * EMPTY_STAT replaces the samples. Returns an unfrozen copy.
+ */
+function makeCalibrationV3({ minutes = 'trd_level', trdMinutes } = {}) {
+  const overrides = {
+    version: 3,
+    method: { minutes, window_objectives: 10, through_objective: 66 },
+  };
+  if (trdMinutes !== undefined) overrides.trd_level = { minutes: trdMinutes };
+  return makeCalibration(overrides);
+}
+
 /** Writes `obj` as JSON to `<dir>/calibration.json` and returns the path. */
 function writeCalibrationFile(dir, obj) {
   fs.mkdirSync(dir, { recursive: true });
@@ -391,6 +406,7 @@ module.exports = {
   EMPTY_STAT,
   CAL_V2,
   makeCalibration,
+  makeCalibrationV3,
   writeCalibrationFile,
   taskElement,
   trdText,

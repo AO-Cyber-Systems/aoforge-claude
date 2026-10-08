@@ -170,10 +170,28 @@ function confidenceSentence(confidence, weakest) {
   return who === '' ? `Confidence: ${confidence}.` : `Confidence: ${confidence} (weakest: ${who}).`;
 }
 
+// The minutes method a version 3 calibration names (`method.minutes`), or null when the result has no method block.
+function minutesMethodName(calibration) {
+  const method = calibration && calibration.method;
+  if (method === null || typeof method !== 'object' || Array.isArray(method)) return null;
+  return typeof method.minutes === 'string' && method.minutes !== '' ? method.minutes : null;
+}
+
+// `, minutes trd_level (window 10, through objective 66)`: the method and the parts of its identity that are known, the
+// parentheses left out when none is. Nothing at all for a calibration with no method block (version 1 or 2).
+function minutesMethodPart(calibration) {
+  const name = minutesMethodName(calibration);
+  if (name === null) return '';
+  const known = [];
+  if (isNum(calibration.method.window_objectives)) known.push(`window ${calibration.method.window_objectives}`);
+  if (isNum(calibration.method.through_objective)) known.push(`through objective ${calibration.method.through_objective}`);
+  return `, minutes ${name}${known.length > 0 ? ` (${known.join(', ')})` : ''}`;
+}
+
 function calibrationSentence(calibration) {
   if (!calibration || !calibration.data_as_of) return '';
   const trds = calibration.samples && isNum(calibration.samples.trds) ? `, ${plural(calibration.samples.trds, 'TRD')}` : '';
-  return `Calibration ${calibration.data_as_of}${trds}.`;
+  return `Calibration ${calibration.data_as_of}${trds}${minutesMethodPart(calibration)}.`;
 }
 
 /** The `Note: ` lines: the result's notes, then what the calibration lacked. */
@@ -596,8 +614,10 @@ function calibrationFooter(r) {
   const cal = r.calibration || {};
   const samples = cal.samples || {};
   const count = (n) => (isNum(n) ? n : 'n/a');
+  const name = minutesMethodName(cal);
+  const minutes = name === null ? '' : `minutes ${name}, `;
   return `Calibration ${cal.path || 'n/a'}, data as of ${cal.data_as_of || 'n/a'}, samples ${count(samples.trds)} TRDs / ${count(samples.tasks)} tasks / ${count(samples.with_tokens)} with tokens, `
-    + `inputs_digest ${cal.inputs_digest || 'none'}. Band ${bandText(r.band)}, coverage target ${formatPercent(r.coverage_target)}.`;
+    + `${minutes}inputs_digest ${cal.inputs_digest || 'none'}. Band ${bandText(r.band)}, coverage target ${formatPercent(r.coverage_target)}.`;
 }
 
 /**

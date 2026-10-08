@@ -211,6 +211,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 67]: DECISION-003: frozen minutes method is TRD-level minutes (window 10, through objective 66), task-sum as pre-registered fallback; chosen by the planner agent, not the user
 - [Objective 67]: Calibration v3 method block records the requested minutes method, window and cutoff (even when nothing is dropped) and is part of inputs_digest; the calibrator computes the same statistics for task_sum and trd_level.
 - [Objective 67]: The through cutoff is applied inside collectProject (directories and metric rows, before any read or count); a directory with no number is out under a cutoff; the window applies after it.
+- [Objective 67]: 67-03: minutes_basis names the calibration's minutes method on every TRD estimate (even one with no minutes); minutes_samples is the TRD-level count only when a stat exists
+- [Objective 67]: 67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence
 
 ## Performance Metrics
 
@@ -352,4 +354,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 66 P04 | 9min | 2 tasks | 4 files |
 | Objective 67 P01 | 3min | 2 tasks | 1 files |
 | Objective 67 P02 | 23min | 3 tasks | 10 files |
+| Objective 67 P03 | 10min | 3 tasks | 8 files |
 
