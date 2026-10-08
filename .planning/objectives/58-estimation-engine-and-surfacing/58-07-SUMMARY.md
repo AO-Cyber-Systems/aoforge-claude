@@ -34,7 +34,7 @@ key-decisions:
   - "An empty milestone adds no integration checker: overhead [] and every total metric {p50: 0, p90: 0}"
   - "A missing integration-checker history is listed in `missing` (agent_overhead.integration-checker), adds nothing to the total and caps the confidence at low with a named synthetic weakest, the rule estimate-rollup applies to its own overhead"
 
-requirements-completed: []
+requirements-completed: [EST-03]
 
 verification:
   gates_defined: 2

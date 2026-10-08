@@ -35,7 +35,7 @@ key-decisions:
   - "A --checkpoint task needs no calibration: it is a human wait and never a number"
   - "objective --all marks the result `all: true` and the text says `TRDs estimated`, not `TRDs left`, so a backtest cannot be read as remaining work"
 
-requirements-completed: []
+requirements-completed: [EST-02, EST-03, EST-05]
 
 verification:
   gates_defined: 2

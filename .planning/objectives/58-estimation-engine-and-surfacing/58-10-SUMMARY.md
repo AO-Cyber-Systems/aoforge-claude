@@ -24,7 +24,7 @@ key-decisions:
   - "The backtest compares like with like: executor-only `execution.agent_minutes` and `execution.cost_usd` against SUMMARY durations and priced SUMMARY tokens, since `total` adds verifier and gap-closure overhead no SUMMARY records"
   - "The USER-GUIDE documents the done-objective `--all` text limit and the ROADMAP-only `estimate objective` limit as current behaviour, and the defects are reported in this SUMMARY for gap closure rather than fixed here"
 
-requirements-completed: []
+requirements-completed: [EST-02, EST-03, EST-04, EST-05]
 
 verification:
   gates_defined: 2

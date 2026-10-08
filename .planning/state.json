@@ -1210,6 +1210,11 @@
       "objective": "69",
       "summary": "69-02: a tracked live marker the repository does not ignore is not repairable (untracking would leave it one git add -A from re-tracking, and the repair never edits .gitignore); a tracked stale marker is one E006 carrying the stale reason, never also W064",
       "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Requirements agreement check is scoped to IDs a REQUIREMENTS document defines; other satisfied IDs are reported as skipped, never as findings",
+      "rationale": null
     }
   ],
   "blockers": [

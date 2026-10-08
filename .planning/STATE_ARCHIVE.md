@@ -229,6 +229,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 68]: Dogfood ran only on scratch copies of .planning/ with the repository runtime; each defect SC was also run against the installed pre-68 runtime as a control, so the PASS rows are shown to fail without the fix
 - [Objective 69]: Draft staleness is decided by a per-draft sha256 base record (<draft>.base.json), with mtime only as the fallback for drafts that have no base; planning draft reseeds a stale draft and keeps the old one at <draft>.stale, doc put refuses it
 - [Objective 69]: 69-02: a tracked live marker the repository does not ignore is not repairable (untracking would leave it one git add -A from re-tracking, and the repair never edits .gitignore); a tracked stale marker is one E006 carrying the stale reason, never also W064
+- [Objective 69]: Requirements agreement check is scoped to IDs a REQUIREMENTS document defines; other satisfied IDs are reported as skipped, never as findings
 
 ## Performance Metrics
 
@@ -386,4 +387,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 68 P07 | 10min | 2 tasks | 5 files |
 | Objective 69 P01 | 9min | 3 tasks | 8 files |
 | Objective 69 P02 | 10min | 3 tasks | 7 files |
+| Objective 69 P03 | 9min | 3 tasks | 12 files |
 

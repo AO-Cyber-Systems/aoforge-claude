@@ -29,7 +29,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 - [ ] **TOOL-07**: The v1.5 audit's small CLI defects are fixed. `state update-progress` updates or errors (no silent no-op), `verify trd-pre <N>` resolves an existing objective, and `objective-job-index` reads `gap_closure` from TRD frontmatter.
 - [ ] **TOOL-08**: `verify-commits.js` SubagentStop output matches Claude Code's hook output schema, with a test that pins the shape.
 - [ ] **TOOL-09**: `validate health` and `doctor` flag a `.planning/.skill-active` marker that is tracked in git or stale, and `--repair` / `--fix` resolve it safely.
-- [ ] **TOOL-10**: SUMMARY frontmatter `requirements-completed` agrees with VERIFICATION: a check flags a requirement a VERIFICATION marks satisfied that no SUMMARY lists (the 58 EST-02/EST-04 case), and 58 is corrected.
+- [x] **TOOL-10**: SUMMARY frontmatter `requirements-completed` agrees with VERIFICATION: a check flags a requirement a VERIFICATION marks satisfied that no SUMMARY lists (the 58 EST-02/EST-04 case), and 58 is corrected.
 
 ### Stack drafter (SDR)
 
@@ -83,7 +83,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | TOOL-05 | Objective 68 | Complete |
 | TOOL-06 | Objective 69 | Complete |
 | TOOL-09 | Objective 69 | Pending |
-| TOOL-10 | Objective 69 | Pending |
+| TOOL-10 | Objective 69 | Complete |
 | TOOL-07 | Objective 70 | Pending |
 | TOOL-08 | Objective 70 | Pending |
 | SDR-09 | Objective 71 | Pending |

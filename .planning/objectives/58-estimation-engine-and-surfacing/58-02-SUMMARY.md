@@ -40,7 +40,7 @@ patterns-established:
   - "Overhead sample shape: {agent, project, session, agent_id, minutes, tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, by_model: {<model>: {tokens_input, tokens_output, tokens_cache_read, tokens_cache_write}}}"
   - "tokens_input = input + cache_creation + cache_read (SUMMARY convention, same as the executor index)"
 
-requirements-completed: []
+requirements-completed: [EST-03]
 
 # Verification evidence
 verification:

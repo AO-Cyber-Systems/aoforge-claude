@@ -222,7 +222,7 @@ TRDs:
 TRDs:
 - [x] 69-01-draft-staleness-guard-TRD.md — (W1) draft base records (`<draft>.base.json`); `planning draft` reseeds a stale draft and keeps `.stale`; `doc put` refuses a stale draft naming `planning draft <rel>`
 - [ ] 69-02-skill-marker-health-check-TRD.md — (W1) `lib/skill-marker-health.cjs` + `doctor-git.checkIgnored`; `validate health` Check 19 (E006 tracked, W064 stale) and a `--repair` that untracks/removes only the marker behind the DOC-06 guard
-- [ ] 69-03-requirements-agreement-check-TRD.md — (W1) `lib/requirements-agreement.cjs` (REQUIREMENTS-document scope); repo test RED then GREEN by correcting eight objective 58 SUMMARYs through `summary post`
+- [x] 69-03-requirements-agreement-check-TRD.md — (W1) `lib/requirements-agreement.cjs` (REQUIREMENTS-document scope); repo test RED then GREEN by correcting eight objective 58 SUMMARYs through `summary post`
 - [ ] 69-04-doctor-skill-marker-ownership-TRD.md — (W2) doctor check 23 over skill-marker-health (tracked markers, owns E006/W064); check 22 defers them and counts only its own repairable issues
 - [ ] 69-05-validate-requirements-wiring-TRD.md — (W2) `validate health` Check 20 (W065) and `validate requirements [--objective <N>]` (dispatch, help, flag-spec, probe)
 - [ ] 69-06-dogfood-and-docs-TRD.md — (W3) SC-1..SC-3 on scratch copies plus landed-state evidence; CHANGELOG, USER-GUIDE, CLAUDE.md; skill-active todo completed
