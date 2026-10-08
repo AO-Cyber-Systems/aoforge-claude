@@ -27,7 +27,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 - [x] **TOOL-05**: `milestone-scope.cjs` resolves objective directories through the shared objective-number helpers (`objectiveDirMatches` / `objectiveNumPattern`), with no local parser.
 - [x] **TOOL-06**: `doc put` never publishes stale content. `planning draft` reseeds a draft that is older than the live file, and `doc put` refuses a draft whose base is no longer the live file, naming the fix.
 - [ ] **TOOL-07**: The v1.5 audit's small CLI defects are fixed. `state update-progress` updates or errors (no silent no-op), `verify trd-pre <N>` resolves an existing objective, and `objective-job-index` reads `gap_closure` from TRD frontmatter.
-- [ ] **TOOL-08**: `verify-commits.js` SubagentStop output matches Claude Code's hook output schema, with a test that pins the shape.
+- [x] **TOOL-08**: `verify-commits.js` SubagentStop output matches Claude Code's hook output schema, with a test that pins the shape.
 - [x] **TOOL-09**: `validate health` and `doctor` flag a `.planning/.skill-active` marker that is tracked in git or stale, and `--repair` / `--fix` resolve it safely.
 - [x] **TOOL-10**: SUMMARY frontmatter `requirements-completed` agrees with VERIFICATION: a check flags a requirement a VERIFICATION marks satisfied that no SUMMARY lists (the 58 EST-02/EST-04 case), and 58 is corrected.
 
@@ -85,7 +85,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | TOOL-09 | Objective 69 | Complete |
 | TOOL-10 | Objective 69 | Complete |
 | TOOL-07 | Objective 70 | Pending |
-| TOOL-08 | Objective 70 | Pending |
+| TOOL-08 | Objective 70 | Complete |
 | SDR-09 | Objective 71 | Pending |
 | SDR-10 | Objective 71 | Pending |
 | INST-01 | Objective 72 | Pending |

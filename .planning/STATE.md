@@ -60,7 +60,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 67 — Minutes recalibration (completed 2026-10-08, 9/9 TRDs)
 **Objective complete:** 68 — Milestone and objective verbs (completed 2026-10-08, 7/7 TRDs)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
-**Status:** Objective 69 complete (verified 3/3); Objective 70 (CLI defects and hook shape) is next
+**Status:** Executing objective 70 — 1/3 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -280,6 +280,6 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-08T18:17:48.382Z
+Last session: 2026-10-08T18:47:41.804Z
 Resume file: `None`
-Stopped at: Completed 69-06-dogfood-and-docs-TRD.md
+Stopped at: Completed 70-02-verify-commits-hook-shape-TRD.md

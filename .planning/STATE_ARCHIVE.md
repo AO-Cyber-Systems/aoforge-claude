@@ -234,6 +234,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 69]: Doctor check 23 keeps no .skill-active classification; every action on it goes through skill-marker-health (untrack before unlink, DOC-06 guard, ctx.changedThisRun as exclude)
 - [Objective 69]: validate requirements has no try/catch: an unreadable planning tree is a loud non-zero exit, while findings always exit 0; W065 doubles as requirements-check-failed in validate health
 - [Objective 69]: Health-check docs for E006/W064 and W065 live in one USER-GUIDE section after Upgrading a Project in Place; the guide has no validate row, so validate requirements is on the /devflow:status check row
+- [Objective 70]: 70-02: verify-commits.js blocks with a top-level {decision, reason} scoped to agent_type devflow:executor; hooks/__fixtures__/hook-output-schema.js models the Stop/SubagentStop schema and the coexistence contract runs it over every Stop-family hook
 
 ## Performance Metrics
 
@@ -395,4 +396,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 69 P04 | 10min | 2 tasks | 5 files |
 | Objective 69 P05 | 10min | 2 tasks | 6 files |
 | Objective 69 P06 | 14min | 2 tasks | 4 files |
+| Objective 70 P02 | 6min | 2 tasks | 6 files |
 
