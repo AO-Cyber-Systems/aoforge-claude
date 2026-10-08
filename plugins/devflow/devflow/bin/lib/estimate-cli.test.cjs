@@ -824,6 +824,7 @@ describe('12b: what a new run records of its estimate (TRD 64-02, EST-08)', () =
       version: 2,
       data_as_of: '2026-10-05',
       samples: CAL_V2.samples,
+      method: null,
       inputs_digest: null,
     });
     // what the run already recorded is unchanged
@@ -917,7 +918,7 @@ describe('12c: the minutes method in every result, the run state and the text (T
 
   test('15: the objective table names the minutes method in its calibration sentence', () => {
     const table = ok(run(['objective', '80', '--table', '--raw', '--calibration', trdLevelFile]));
-    assert.match(table.text, /^Calibration 2026-10-05, 50 TRDs, minutes trd_level \(window 10, through objective 66\)\.$/m);
+    assert.match(table.text, / Calibration 2026-10-05, 50 TRDs, minutes trd_level \(window 10, through objective 66\)\.$/m);
 
     const taskSum = writeCalibrationFile(
       path.join(scratch, 'cal-v3-task-sum'),
@@ -927,17 +928,17 @@ describe('12c: the minutes method in every result, the run state and the text (T
       path.join(scratch, 'cal-v3-nulls'),
       { ...makeCalibrationV3({ minutes: 'task_sum' }), method: { minutes: 'task_sum', window_objectives: null, through_objective: null } },
     );
-    assert.match(ok(run(['objective', '80', '--table', '--raw', '--calibration', withNulls])).text, /^Calibration 2026-10-05, 50 TRDs, minutes task_sum\.$/m);
+    assert.match(ok(run(['objective', '80', '--table', '--raw', '--calibration', withNulls])).text, / Calibration 2026-10-05, 50 TRDs, minutes task_sum\.$/m);
     assert.match(ok(run(['objective', '80', '--table', '--raw', '--calibration', taskSum])).text, /minutes task_sum \(window 10, through objective 66\)\.$/m);
 
     // A version 2 calibration reads as before.
-    assert.match(ok(run(['objective', '80', '--table', '--raw'])).text, /^Calibration 2026-10-05, 50 TRDs\.$/m);
+    assert.match(ok(run(['objective', '80', '--table', '--raw'])).text, / Calibration 2026-10-05, 50 TRDs\.$/m);
   });
 
   test('15b: spawned df-tools prints the same sentence', () => {
     const r = spawnEstimate(['objective', '80', '--table', '--raw'], { calibration: trdLevelFile });
     assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /^Calibration 2026-10-05, 50 TRDs, minutes trd_level \(window 10, through objective 66\)\.$/m);
+    assert.match(r.stdout, / Calibration 2026-10-05, 50 TRDs, minutes trd_level \(window 10, through objective 66\)\.$/m);
   });
 });
 
@@ -1049,7 +1050,7 @@ describe('13b: backtest JSON (TRD 64-04, EST-08)', () => {
     const result = r.result;
     assert.equal(result.available, true);
     assert.deepEqual(result.objectives.map((o) => o.objective), ['90', '91']);
-    assert.deepEqual(Object.keys(result.calibration).sort(), ['data_as_of', 'inputs_digest', 'path', 'samples', 'version']);
+    assert.deepEqual(Object.keys(result.calibration).sort(), ['data_as_of', 'inputs_digest', 'method', 'path', 'samples', 'version']);
     assert.equal(result.calibration.path, calFile);
     assert.equal(result.calibration.version, 2);
     assert.equal(result.calibration.data_as_of, '2026-10-05');

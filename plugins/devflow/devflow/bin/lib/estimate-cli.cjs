@@ -16,7 +16,8 @@
  * DEVFLOW_CALIBRATION_PATH, else ~/.claude/devflow/calibration.json.
  *
  * Output: the JSON result by default (rounded once, see estimate-format.roundResult; every result carries `line`, the
- * objective and milestone ones also `table`, plus `calibration: {path, version, data_as_of, samples}`). `--raw` prints the
+ * objective and milestone ones also `table`, plus `calibration: {path, version, data_as_of, samples, method}`, where
+ * `method` is the calibration file's minutes-method block, or null for a version 1 or 2 file). `--raw` prints the
  * text instead: the table for objective and milestone with `--table`, otherwise the one line. The text is what the
  * planner, build and execute-objective prose paste.
  *
@@ -31,7 +32,7 @@
  * (estimate-run-store.archiveRunState; idempotent, and an unfinished run is never archived). If the archive cannot be
  * written the verb fails with `could not archive the run history: ...` and the previous run state is left as it was. The
  * `estimate` block of a new run also records the unrounded `execution` and `total` estimates and the `calibration` they
- * came from (`{path, version, data_as_of, samples, inputs_digest}`), all null when there is no usable calibration.
+ * came from (`{path, version, data_as_of, samples, method, inputs_digest}`), all null when there is no usable calibration.
  *
  * Backtest (TRD 64-04, EST-08): `backtest 59,60,61` estimates every TRD of each listed objective as the engine would before
  * execution (`estimateObjective` with `all: true`), reads what the checkout recorded (`collectProject`), prices it with the
@@ -59,6 +60,8 @@ const milestone = require('./estimate-milestone.cjs');
 const planningMode = require('./planning-mode.cjs');
 const rollup = require('./estimate-rollup.cjs');
 const store = require('./estimate-run-store.cjs');
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 const FORMS = [
   'df-tools estimate task (--files <a[,b]> [--tdd] [--trd-type <t>] | --class <name> | --checkpoint) [--calibration <file>] [--raw]',
@@ -193,7 +196,14 @@ function loadCal(flags, env, base) {
     ok: true,
     cal,
     path: loaded.path,
-    meta: { path: loaded.path, version: cal.version, data_as_of: cal.data_as_of, samples: cal.samples },
+    meta: {
+      path: loaded.path,
+      version: cal.version,
+      data_as_of: cal.data_as_of,
+      samples: cal.samples,
+      // The file's minutes-method block (version 3), or null for one that has none: every result names its method.
+      method: isPlainObject(cal.method) ? cal.method : null,
+    },
   };
 }
 
