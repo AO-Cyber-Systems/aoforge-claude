@@ -143,6 +143,14 @@ function collectKeys(value, into = []) {
   return into;
 }
 
+// Calibration v3 (TRD 67-02) records the REQUESTED window in `method` and in `inputs_digest`, so two builds that asked for
+// different windows differ there even when the window dropped nothing. Everything else is still equal, and this is the
+// text to compare in that case; whole-text equality holds between builds that asked for the same parameters.
+function withoutIdentity(cal) {
+  const { method: _method, inputs_digest: _digest, ...rest } = cal;
+  return stableStringify(rest);
+}
+
 describe('57-05 nearestRank and statBlock', () => {
   test('2: nearest rank returns an observed sample; empty input is null', () => {
     const tenSorted = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -241,7 +249,7 @@ describe('57-05 buildCalibration', () => {
     assert.deepEqual(cal.probabilities.checkpoint, { value: 0.2, n: 5 });
 
     assert.equal(cal.data_as_of, '2026-10-05');
-    assert.equal(cal.version, 2);
+    assert.equal(cal.version, CALIBRATION_VERSION);
     assert.equal(cal.classifier_version, 1);
     assert.deepEqual(cal.unpriced_models, []);
     assert.ok(!collectKeys(cal).includes('generated_at'));
@@ -444,8 +452,8 @@ describe('57-05 deterministic output', () => {
     assert.ok(!text.includes(beta), 'no input path appears in the file');
   });
 
-  test('exports CALIBRATION_VERSION 2, the version the build stamps', () => {
-    assert.equal(CALIBRATION_VERSION, 2);
+  test('exports CALIBRATION_VERSION 3, the version the build stamps', () => {
+    assert.equal(CALIBRATION_VERSION, 3);
     const beta = makeProject(BETA_SPEC);
     assert.equal(buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH }).version, CALIBRATION_VERSION);
   });
@@ -613,7 +621,7 @@ describe('58-03 agent_overhead in calibration v2', () => {
     const beta = makeProject(BETA_SPEC);
     const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
 
-    assert.equal(cal.version, 2);
+    assert.equal(cal.version, CALIBRATION_VERSION);
     assert.deepEqual(Object.keys(cal.agent_overhead).sort(), [...OVERHEAD_AGENTS].sort());
     for (const name of OVERHEAD_AGENTS) {
       assert.deepEqual(cal.agent_overhead[name], {
@@ -838,15 +846,20 @@ describe('64-08 buildCalibration window', () => {
     assert.equal(cal.notes[cal.notes.length - 1],
       'Window: only the 2 most recent objectives with samples (by objective number) are read per project; older objectives are dropped before every statistic. agent_overhead is not windowed.');
     assert.notEqual(cal.inputs_digest, full.inputs_digest);
-    assert.equal(cal.version, 2);
+    assert.equal(cal.version, CALIBRATION_VERSION);
   });
 
-  test('2: a window that drops nothing leaves no trace: same bytes, no key, same notes', () => {
+  test('2: a window that drops nothing leaves no trace: same statistics, no key, same notes', () => {
     const slope = makeProject(slopeSpec());
     const baseline = stableStringify(build([slope]));
-    assert.equal(stableStringify(build([slope], { window: null })), baseline);
-    assert.equal(stableStringify(build([slope], { window: 7 })), baseline);
-    assert.equal(stableStringify(build([slope], { window: 99 })), baseline);
+    // v3: the requested window is the only difference (method and inputs_digest); the same request is the same bytes.
+    assert.equal(stableStringify(build([slope], { window: 10 })), baseline);
+    for (const window of [null, 7, 99]) {
+      const cal = build([slope], { window });
+      assert.equal(withoutIdentity(cal), withoutIdentity(build([slope])), `window ${window}`);
+      assert.equal(cal.method.window_objectives, window, `window ${window} is named in method`);
+      assert.notEqual(cal.inputs_digest, build([slope]).inputs_digest, `window ${window}`);
+    }
     const cal = build([slope], { window: 99 });
     assert.equal(Object.keys(cal).includes('window'), false);
     assert.equal(cal.notes.length, build([slope]).notes.length);
@@ -890,7 +903,8 @@ describe('64-08 buildCalibration window', () => {
 
     const three = build([root], { window: 3 });
     assert.equal(Object.keys(three).includes('window'), false, 'three objectives have outcomes: nothing is dropped');
-    assert.equal(stableStringify(three), stableStringify(build([root])));
+    assert.equal(withoutIdentity(three), withoutIdentity(build([root])), 'v3: only the requested window differs');
+    assert.equal(three.method.window_objectives, 3);
     assert.equal(three.sources[0].trds, 8, '2-b stays between the others, untouched');
     assert.equal(three.sources[0].no_outcome, 2);
   });
@@ -1022,7 +1036,11 @@ describe('64-10 the recency window is the default', () => {
     assert.equal(Object.keys(all).includes('window'), false);
     assert.equal(all.samples.trds, 12);
     assert.equal(all.task_classes.code_tdd.minutes.max, 20, 'the unwindowed build has the old objectives');
-    assert.equal(stableStringify(all), stableStringify(build([wide], { window: 15 })));
+    const wider = build([wide], { window: 15 });
+    assert.equal(withoutIdentity(all), withoutIdentity(wider), 'v3: only the requested window differs');
+    assert.equal(all.method.window_objectives, null);
+    assert.equal(wider.method.window_objectives, 15);
+    assert.equal(stableStringify(wider), stableStringify(build([wide], { window: 15 })), 'the same request is the same bytes');
     assert.notEqual(stableStringify(all), stableStringify(build([wide])), 'the default build is not the unwindowed one');
   });
 
@@ -1037,7 +1055,11 @@ describe('64-10 the recency window is the default', () => {
     const ten = makeProject(wideSpec(10));
     const byDefault = build([ten]);
     assert.equal(Object.keys(byDefault).includes('window'), false);
-    assert.equal(stableStringify(byDefault), stableStringify(build([ten], { window: null })));
+    const unwindowed = build([ten], { window: null });
+    assert.equal(withoutIdentity(byDefault), withoutIdentity(unwindowed), 'v3: only the requested window differs');
+    assert.equal(byDefault.method.window_objectives, 10);
+    assert.equal(unwindowed.method.window_objectives, null);
+    assert.equal(stableStringify(byDefault), stableStringify(build([ten], { window: 10 })), 'the default is window 10');
     assert.equal(byDefault.samples.trds, 10);
     const eleven = makeProject(wideSpec(11, 'eleven'));
     assert.equal(build([eleven]).window.projects[0].dropped_objectives, 1, 'one more than the window drops exactly one');

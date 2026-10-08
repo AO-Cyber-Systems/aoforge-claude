@@ -12,7 +12,15 @@ const path = require('path');
 const ci = require('./calibration-inputs.cjs');
 const { OVERHEAD_AGENTS, collectOverhead } = require('./agent-overhead.cjs');
 
-const CALIBRATION_VERSION = 2;
+// Version 3 (TRD 67-02) adds the `method` block: the minutes method, window and cutoff the build was asked for.
+const CALIBRATION_VERSION = 3;
+
+// How an estimate builds a TRD's minutes (DECISION-003): `task_sum` adds the per-task class distributions of the TRD's
+// auto tasks, `trd_level` takes `trd_level.minutes` whatever the task count. The calibrator computes the same statistics
+// for both and only records the choice; the estimator applies it.
+const MINUTES_METHODS = Object.freeze(['task_sum', 'trd_level']);
+// 67-05 sets this from the pre-registered ship rule of DECISION-003.
+const DEFAULT_MINUTES_METHOD = 'task_sum';
 
 // The recency window `buildCalibration` applies when its caller passes none: the most recent 10 objectives that have
 // samples, per project. Objective 64 froze 10 on pre-59 history (64-DIAGNOSIS.md, weak support: a non-monotone sweep) and
@@ -285,6 +293,16 @@ function applyWindow(projectList, window) {
   };
 }
 
+function assertMinutesMethod(minutes) {
+  if (!MINUTES_METHODS.includes(minutes)) throw new Error(`minutes must be one of ${MINUTES_METHODS.join(', ')}`);
+}
+
+function throughNote(through) {
+  return `Through objective ${through}: objective directories numbered above it, or with no number, are not read, and their STATE_ARCHIVE and state.json metric rows are not counted. agent_overhead comes from transcripts and is not cut.`;
+}
+
+const TRD_LEVEL_MINUTES_NOTE = "Minutes method trd_level: an estimate takes a TRD's minutes from trd_level.minutes whatever its task count; task_classes minutes still describe single tasks (estimate task) and are not summed into a TRD.";
+
 function windowNote(window) {
   return `Window: only the ${window} most recent objectives with samples (by objective number) are read per project; older objectives are dropped before every statistic. agent_overhead is not windowed.`;
 }
@@ -389,7 +407,7 @@ function normalizedOverhead(overheadSamples, counts) {
   };
 }
 
-function inputsDigest(projectList, rates, sources, overhead, windowBlock = null) {
+function inputsDigest(projectList, rates, sources, overhead, windowBlock = null, method = null) {
   const trds = projectList
     .flatMap((project) => project.trds.map((trd) => normalizedTrd(project.label, trd)))
     .sort((a, b) => compareStrings(a.project, b.project)
@@ -403,6 +421,8 @@ function inputsDigest(projectList, rates, sources, overhead, windowBlock = null)
   };
   // Only a window that dropped something is an input: an absent key keeps the digest of an unwindowed build.
   if (windowBlock !== null) payload.window = { objectives: windowBlock.objectives };
+  // The requested method is an input too (TRD 67-02): the same data under another method or cutoff is another calibration.
+  if (method !== null) payload.method = method;
   return `sha256:${crypto.createHash('sha256').update(stableStringify(payload)).digest('hex')}`;
 }
 
@@ -418,16 +438,27 @@ function inputsDigest(projectList, rates, sources, overhead, windowBlock = null)
  * `window` keeps, per project, only the N most recent objectives that have a sample (undefined: DEFAULT_WINDOW_OBJECTIVES,
  * null: all history). It is applied right after the projects are collected, so every block below describes the retained
  * TRDs; agent overhead comes from transcripts and is not windowed. A window that drops nothing changes nothing.
- * @param {{paths:string[], ratesPath?:string, transcriptsRoot?:?string, window?:?number}} options
+ *
+ * `through` (undefined or null: no cutoff) drops, inside collection, every objective directory numbered above it or with
+ * no number, with its metric rows, so a later objective cannot change anything below; the window then applies to what is
+ * left. `minutes` is `task_sum` (undefined) or `trd_level`: the estimator reads it from the `method` block, and no
+ * statistic here depends on it. `method` always records the requested minutes, window and cutoff, and is in `inputs_digest`.
+ * @param {{paths:string[], ratesPath?:string, transcriptsRoot?:?string, window?:?number, minutes?:string, through?:?number}} options
  */
-function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = null, window } = {}) {
+function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = null, window, minutes, through } = {}) {
   const effectiveWindow = window === undefined ? DEFAULT_WINDOW_OBJECTIVES : window;
   assertWindow(effectiveWindow);
+  const effectiveMinutes = minutes === undefined ? DEFAULT_MINUTES_METHOD : minutes;
+  assertMinutesMethod(effectiveMinutes);
+  const effectiveThrough = through === undefined ? null : through;
+  ci.assertThrough(effectiveThrough);
+  const method = { minutes: effectiveMinutes, window_objectives: effectiveWindow, through_objective: effectiveThrough };
   const rates = ci.loadRates(ratesPath);
   if (!rates.ok) throw new Error(rates.error);
 
   const projectRoots = ci.discoverProjects(paths);
-  const windowed = applyWindow(projectRoots.map((root) => ci.collectProject(root)), effectiveWindow);
+  const windowed = applyWindow(
+    projectRoots.map((root) => ci.collectProject(root, { through: effectiveThrough })), effectiveWindow);
   const projectList = windowed.projects;
   const windowBlock = windowed.block;
   const unpricedModels = new Set();
@@ -479,13 +510,20 @@ function buildCalibration({ paths, ratesPath = ci.RATES_PATH, transcriptsRoot = 
     unreadable: overhead.counts.unreadable,
   };
 
+  // Base notes, then the window note, the cutoff note and the minutes note, each only when it applies.
+  const notes = [...NOTES];
+  if (windowBlock !== null) notes.push(windowNote(windowBlock.objectives));
+  if (effectiveThrough !== null) notes.push(throughNote(effectiveThrough));
+  if (effectiveMinutes === 'trd_level') notes.push(TRD_LEVEL_MINUTES_NOTE);
+
   const calibration = {
     version: CALIBRATION_VERSION,
+    method: { ...method },
     classifier_version: ci.CLASSIFIER_VERSION,
     data_as_of: latestCompleted(projectList),
     inputs_digest: inputsDigest(projectList, rates, sources,
-      scanned ? normalizedOverhead(overheadSamples, overheadSources) : null, windowBlock),
-    notes: windowBlock === null ? [...NOTES] : [...NOTES, windowNote(windowBlock.objectives)],
+      scanned ? normalizedOverhead(overheadSamples, overheadSources) : null, windowBlock, method),
+    notes,
     samples: {
       trds: samples.length,
       tasks: tasks.length,
@@ -555,6 +593,8 @@ function writeCalibration(outPath, obj) {
 
 module.exports = {
   CALIBRATION_VERSION,
+  MINUTES_METHODS,
+  DEFAULT_MINUTES_METHOD,
   DEFAULT_WINDOW_OBJECTIVES,
   nearestRank,
   statBlock,
