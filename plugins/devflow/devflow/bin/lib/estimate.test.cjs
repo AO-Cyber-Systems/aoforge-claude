@@ -16,6 +16,7 @@ const {
   EMPTY_STAT,
   CAL_V2,
   makeCalibration,
+  makeCalibrationV3,
   writeCalibrationFile,
 } = require('./__fixtures__/estimate-fixtures.cjs');
 
@@ -89,6 +90,71 @@ test('1b. loadCalibration with no file argument reads the path from the injected
   const absent = est.loadCalibration(undefined, { DEVFLOW_CALIBRATION_PATH: path.join(dir, 'absent.json') });
   assert.equal(absent.ok, false);
   assert.match(absent.reason, /absent\.json/);
+});
+
+test('1c. makeCalibrationV3 is CAL_V2 as version 3 with the method block, and trdMinutes replaces the TRD-level minutes', () => {
+  const v3 = makeCalibrationV3({ minutes: 'trd_level' });
+  assert.equal(v3.version, 3);
+  assert.deepEqual(v3.method, { minutes: 'trd_level', window_objectives: 10, through_objective: 66 });
+  assert.deepEqual(v3.trd_level, CAL_V2.trd_level);
+  assert.equal(v3.task_classes.all.samples, CAL_V2.task_classes.all.samples);
+  assert.equal(makeCalibrationV3({ minutes: 'task_sum' }).method.minutes, 'task_sum');
+  assert.equal(Object.isFrozen(v3), false);
+
+  const thin = makeCalibrationV3({ minutes: 'trd_level', trdMinutes: { n: 7, p50: 12, p90: 45 } });
+  assert.equal(thin.trd_level.minutes.n, 7);
+  assert.equal(thin.trd_level.minutes.p50, 12);
+
+  const empty = makeCalibrationV3({ minutes: 'trd_level', trdMinutes: EMPTY_STAT });
+  assert.deepEqual(empty.trd_level.minutes, EMPTY_STAT);
+  assert.equal(CAL_V2.trd_level.minutes.n, 40, 'the frozen CAL_V2 is not changed');
+});
+
+test('1d. loadCalibration reads version 3 when its minutes method is known, and says why otherwise', (t) => {
+  const dir = tmpDir(t);
+
+  for (const minutes of ['trd_level', 'task_sum']) {
+    const file = writeCalibrationFile(path.join(dir, minutes), makeCalibrationV3({ minutes }));
+    const loaded = est.loadCalibration(file);
+    assert.equal(loaded.ok, true, minutes);
+    assert.equal(loaded.calibration.method.minutes, minutes);
+  }
+
+  const median = writeCalibrationFile(
+    path.join(dir, 'median'),
+    { ...makeCalibrationV3({ minutes: 'trd_level' }), method: { minutes: 'median' } },
+  );
+  const unknown = est.loadCalibration(median);
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.reason, /minutes method "median"/);
+  assert.match(unknown.reason, /df-tools calibrate/);
+
+  const noMethod = writeCalibrationFile(path.join(dir, 'no-method'), makeCalibration({ version: 3 }));
+  const missing = est.loadCalibration(noMethod);
+  assert.equal(missing.ok, false);
+  assert.match(missing.reason, /version 3 without a method block/);
+  assert.match(missing.reason, /df-tools calibrate/);
+
+  const arrayMethod = writeCalibrationFile(path.join(dir, 'array-method'), { ...makeCalibration({ version: 3 }), method: ['trd_level'] });
+  assert.match(est.loadCalibration(arrayMethod).reason, /version 3 without a method block/);
+
+  const v4 = writeCalibrationFile(path.join(dir, 'v4'), makeCalibration({ version: 4 }));
+  const future = est.loadCalibration(v4);
+  assert.equal(future.ok, false);
+  assert.match(future.reason, /reads versions 1, 2 and 3/);
+  assert.match(future.reason, /df-tools calibrate/);
+
+  const v2 = writeCalibrationFile(path.join(dir, 'v2'), CAL_V2);
+  assert.equal(est.loadCalibration(v2).ok, true, 'version 2 needs no method block');
+});
+
+test('1e. minutesMethod is the calibration\'s minutes method, task_sum when it has none', () => {
+  assert.equal(est.minutesMethod(CAL_V2), 'task_sum');
+  assert.equal(est.minutesMethod(makeCalibrationV3({ minutes: 'trd_level' })), 'trd_level');
+  assert.equal(est.minutesMethod(makeCalibrationV3({ minutes: 'task_sum' })), 'task_sum');
+  assert.equal(est.minutesMethod(makeCalibration({ version: 1 })), 'task_sum');
+  assert.deepEqual(est.KNOWN_MINUTES_METHODS, ['task_sum', 'trd_level']);
+  assert.equal(Object.isFrozen(est.KNOWN_MINUTES_METHODS), true);
 });
 
 test('2. confidenceFor maps sample counts to labels and CONFIDENCE_LEVELS is ordered weakest first', () => {
