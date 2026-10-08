@@ -920,7 +920,7 @@ describe('66-02 decide: the token branch', () => {
     assert.match(d.reason, /tokens stamp 77-02 --draft/);
   });
 
-  test('a pure-digit decimal id (12.1-03) is checked like any other', () => {
+  test('a decimal objective id (12.1-03) is checked like any other', () => {
     const root = path.join(tmp, 't13b');
     F.makePlanningRepo(root, { objectiveDir: '12.1-x', trdIds: ['12.1-03'], summaries: ['12.1-03'], summaryKinds: { '12.1-03': 'final_unstamped' } });
     const prompt = F.executorPrompt({ planId: '12.1-03', repoRoot: root });

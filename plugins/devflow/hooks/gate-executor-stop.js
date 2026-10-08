@@ -8,6 +8,15 @@
  * and commit the `## Progress` checkpoint. The hook does that by printing
  * a top-level `{"decision":"block","reason":"..."}`.
  *
+ * Second, once-only reason to block (TRD 66-02, EST-09): the TRD's FINAL SUMMARY
+ * (one with a `## Self-Check` heading) exists but its frontmatter carries no
+ * `tokens_input` / `tokens_output`. Objective 64's 64-09 and 64-10 ran `summary
+ * post` without `tokens stamp` although their transcripts exist, so the stamp
+ * step is now checked where the executor stops. The reason names the exact
+ * `planning draft`, `tokens stamp` and `summary post` commands. A `## Progress`
+ * checkpoint is never blocked, and the hook reads no transcript: whether one
+ * exists is `tokens stamp`'s job.
+ *
  * Verified harness facts (Claude Code 2.1.284, OBJECTIVE.md of objective 44):
  *   - SubagentStop `decision:block` on a natural stop makes the subagent
  *     continue, with `reason` as its next instruction.
@@ -25,9 +34,11 @@
  * shared with the df-tools token reader; this hook requires and re-exports them.
  *
  * Fail-open contract: every path that is not a confident "this executor's TRD
- * has no SUMMARY anywhere" exits 0 with NO output. That includes any error,
- * a non-executor agent, no `.planning/`, an unidentifiable or ambiguous TRD,
- * an unreadable transcript, and a deliberate structured stop.
+ * has no SUMMARY anywhere" or "its final SUMMARY has no token fields" exits 0
+ * with NO output. That includes any error, a non-executor agent, no `.planning/`,
+ * an unidentifiable or ambiguous TRD, an unreadable transcript, a deliberate
+ * structured stop, an unreadable SUMMARY, a checkpoint-only SUMMARY (no
+ * `## Self-Check`) and any final SUMMARY that carries both token fields.
  *
  * Escape hatch: DEVFLOW_SKIP_EXECUTOR_STOP_GATE=1.
  *
@@ -139,13 +150,14 @@ function candidateRoots({ cwd, repoRoot = null, gitWorktrees = () => [], fsImpl 
 }
 
 /**
- * True when any `<root>/.planning/objectives/<dir>/<id>-SUMMARY.md` or
- * `<id>-<slug>-SUMMARY.md` exists (TRD 53-02: the same pairing rule as
- * roadmap-reconcile and the df-tools readers; `<id>-SUMMARY.md` stays the name
- * the executor is told to write). The id is matched whole: `07-010-SUMMARY.md`
- * and `07-01x-SUMMARY.md` do not count for `07-01`.
+ * Every `<root>/.planning/objectives/<dir>/<id>-SUMMARY.md` or
+ * `<id>-<slug>-SUMMARY.md` that exists, as absolute paths in `roots` order
+ * (TRD 66-02; TRD 53-02 set the pairing rule: the same as roadmap-reconcile and
+ * the df-tools readers; `<id>-SUMMARY.md` stays the name the executor is told to
+ * write). The id is matched whole: `07-010-SUMMARY.md` and `07-01x-SUMMARY.md`
+ * do not count for `07-01`. A file reached through two roots is listed once.
  * A root without (or with an unreadable) `.planning/objectives` is skipped.
- * Content is NOT inspected: a `## Progress`-only checkpoint counts as present.
+ * Content is NOT inspected here.
  *
  * Kept light on purpose (fast hook): the only df-tools lib it requires is the
  * dependency-free text-escape.cjs, and the pairing regex is inlined rather than
@@ -154,16 +166,23 @@ function candidateRoots({ cwd, repoRoot = null, gitWorktrees = () => [], fsImpl 
  * @param {string} id
  * @param {string[]} roots
  * @param {object} [fsImpl]
- * @returns {boolean}
+ * @returns {string[]}
  */
-function summaryExists(id, roots, fsImpl = fs) {
-  if (!id || !Array.isArray(roots)) return false;
+function summaryFiles(id, roots, fsImpl = fs) {
+  const out = [];
+  if (!id || !Array.isArray(roots)) return out;
+  const seen = new Set();
+  const add = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    out.push(file);
+  };
   const file = `${id}-SUMMARY.md`;
   // The id is escaped so a decimal id's dot is literal.
   const paired = new RegExp(`^${escapeRegExp(id)}(?:-.+)?-SUMMARY\\.md$`);
   for (const root of roots) {
     if (typeof root !== 'string' || !root) continue;
-    const objectivesDir = path.join(root, '.planning', 'objectives');
+    const objectivesDir = path.resolve(root, '.planning', 'objectives');
     let entries;
     try { entries = fsImpl.readdirSync(objectivesDir); } catch { continue; }
     for (const entry of entries) {
@@ -171,14 +190,61 @@ function summaryExists(id, roots, fsImpl = fs) {
       // Exact-name fast path first: it needs no directory listing, so a fsImpl
       // seam without readdirSync on objective dirs keeps working.
       try {
-        if (fsImpl.existsSync(path.join(dir, file))) return true;
+        if (fsImpl.existsSync(path.join(dir, file))) add(path.join(dir, file));
       } catch { /* fall through to the listing */ }
       try {
-        if (fsImpl.readdirSync(dir).some((f) => paired.test(String(f)))) return true;
+        for (const f of fsImpl.readdirSync(dir)) {
+          if (paired.test(String(f))) add(path.join(dir, String(f)));
+        }
       } catch { /* not a directory, or unreadable: skip entry */ }
     }
   }
-  return false;
+  return out;
+}
+
+/**
+ * True when any SUMMARY of this TRD exists (see `summaryFiles` for the pairing
+ * rule and the skipped roots). Content is NOT inspected: a `## Progress`-only
+ * checkpoint counts as present.
+ *
+ * @param {string} id
+ * @param {string[]} roots
+ * @param {object} [fsImpl]
+ * @returns {boolean}
+ */
+function summaryExists(id, roots, fsImpl = fs) {
+  return summaryFiles(id, roots, fsImpl).length > 0;
+}
+
+// ─── SUMMARY content: final or checkpoint, stamped or not (TRD 66-02) ─────────
+
+/**
+ * True when the SUMMARY's FRONTMATTER (the first `---` ... `---` block) holds
+ * both `tokens_input: <digits>` and `tokens_output: <digits>` lines. The lines
+ * are anchored at the line start without a `#`, so the template's commented
+ * `# tokens_input: N` lines never count. The value's source (`live` or
+ * `backfill`) is not inspected: the gate checks presence only. A line regex
+ * rather than a YAML parser keeps the hook dependency-free.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasTokenFields(text) {
+  if (typeof text !== 'string') return false;
+  const m = /^---\n([\s\S]*?)\n---/.exec(text.replace(/\r\n/g, '\n'));
+  if (!m) return false;
+  return /^tokens_input:[ \t]*\d+[ \t]*$/m.test(m[1]) && /^tokens_output:[ \t]*\d+[ \t]*$/m.test(m[1]);
+}
+
+/**
+ * True for a FINAL SUMMARY: one with a `## Self-Check` heading, which executor.md
+ * adds only once the self-check has run. A `## Progress` checkpoint has none.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isFinalSummary(text) {
+  return typeof text === 'string' && /^## Self-Check\b/m.test(text);
 }
 
 /**
@@ -311,10 +377,55 @@ function blockReason(id, summaryRel = null) {
 }
 
 /**
+ * The repo-relative and `planning draft` forms of a SUMMARY's location, from the
+ * last two segments of its absolute path (`<objective dir>/<file>`): no roots
+ * are recomputed.
+ *
+ * @param {string} file  absolute path of a `<id>-SUMMARY.md`
+ * @returns {{summaryRel: string, draftRel: string}}
+ */
+function summaryLocation(file) {
+  const base = path.basename(file);
+  const dir = path.basename(path.dirname(file));
+  return {
+    summaryRel: ['.planning', 'objectives', dir, base].join('/'),
+    draftRel: ['objectives', dir, base].join('/'),
+  };
+}
+
+/**
+ * The block reason for a final SUMMARY with no token fields (TRD 66-02, EST-09).
+ * It names the three commands that repair it, in order, and says the gate asks
+ * once: the once-guard is `stop_hook_active`, so an executor that cannot stamp
+ * (no transcript, `stamped: false`) is told to stop rather than loop.
+ *
+ * @param {string} id
+ * @param {string} summaryRel  `.planning/objectives/<dir>/<file>`
+ * @param {string} draftRel    `objectives/<dir>/<file>`, the argument of `planning draft`
+ * @returns {string}
+ */
+function tokenBlockReason(id, summaryRel, draftRel) {
+  const df = 'node ~/.claude/devflow/bin/df-tools.cjs';
+  return [
+    `DevFlow: TRD ${id}'s SUMMARY (${summaryRel}) is final but has no tokens_input/tokens_output.`,
+    'Stamp it now, one command per Bash call, passing --cwd <checkout> as for every df-tools call:',
+    `${df} planning draft ${draftRel}`,
+    `${df} tokens stamp ${id} --draft <draft path>`,
+    `${df} summary post ${id} --from <draft path>`,
+    'then commit the SUMMARY with df-tools commit (local mode).',
+    'If tokens stamp reports stamped: false, stop: this gate does not ask twice.',
+    'Never type token numbers by hand.',
+    'Never use port 8080.',
+  ].join(' ');
+}
+
+/**
  * Decide whether to block this SubagentStop. Returns `{block: true, reason}`
  * or null. Checks run cheapest-first, and every one of them fails OPEN:
  *   env skip → agent_type → stop_hook_active → no .planning → deliberate stop
- *   → unreadable transcript → unidentifiable TRD → SUMMARY exists.
+ *   → unreadable transcript → unidentifiable TRD → SUMMARY missing → block (44-04)
+ *   → unreadable SUMMARY → null → no final SUMMARY (checkpoints only) → null
+ *   → any stamped final → null → block (66-02).
  *
  * @param {object} payload  the SubagentStop stdin payload
  * @param {{env?: object, fsImpl?: object, gitWorktrees?: Function, cwd?: string}} [deps]
@@ -344,9 +455,24 @@ function decide(payload, {
   if (!trd) return null;
 
   const roots = candidateRoots({ cwd: start, repoRoot: trd.repoRoot, gitWorktrees: listWorktrees, fsImpl });
-  if (summaryExists(trd.id, roots, fsImpl)) return null;
+  const files = summaryFiles(trd.id, roots, fsImpl);
+  if (files.length === 0) {
+    return { block: true, reason: blockReason(trd.id, summaryRelPath(trd.id, roots, fsImpl)) };
+  }
 
-  return { block: true, reason: blockReason(trd.id, summaryRelPath(trd.id, roots, fsImpl)) };
+  // TRD 66-02: a SUMMARY exists. Look only at the FINAL ones (`## Self-Check`):
+  // a `## Progress` checkpoint is meant to carry no tokens (44-04 semantics).
+  const finals = [];
+  for (const file of files) {
+    let text;
+    try { text = String(fsImpl.readFileSync(file, 'utf8')); } catch { return null; } // fail open
+    if (isFinalSummary(text)) finals.push({ file, stamped: hasTokenFields(text) });
+  }
+  if (finals.length === 0) return null;
+  if (finals.some((x) => x.stamped)) return null;
+
+  const { summaryRel, draftRel } = summaryLocation(finals[0].file); // roots order: cwd's checkout first
+  return { block: true, reason: tokenBlockReason(trd.id, summaryRel, draftRel) };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -376,9 +502,13 @@ module.exports = {
   readFirstUserPrompt,
   candidateRoots,
   summaryExists,
+  summaryFiles,
+  hasTokenFields,
+  isFinalSummary,
   trdDirFor,
   summaryRelPath,
   blockReason,
+  tokenBlockReason,
   isDeliberateStop,
   decide,
   gitWorktrees,

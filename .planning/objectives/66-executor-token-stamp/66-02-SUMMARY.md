@@ -7,5 +7,5 @@ trd: "02"
 
 ## Progress
 - [x] Task 1: Fixture kinds for final, stamped and unstamped SUMMARYs - 9d2629ff
-- [ ] Task 2: Token branch in decide() (tests 1-14) - RED tests committed (this commit); next step: in hooks/gate-executor-stop.js add summaryFiles, hasTokenFields, isFinalSummary, tokenBlockReason, export them, and change decide() to the token branch, then commit feat(66-02)
-- [ ] Task 3: executor.md sentence and prose test 15 - next step: add test 15 to gate-executor-stop.test.js, then the one SubagentStop sentence to the executor.md self_check
+- [x] Task 2: Token branch in decide() (tests 1-14) - 8a077390 (RED), (this commit) (GREEN)
+- [ ] Task 3: executor.md sentence and prose test 15 - next step: add test 15 to gate-executor-stop.test.js (RED, fails until the sentence exists), then the one SubagentStop sentence to the executor.md self_check step 3
