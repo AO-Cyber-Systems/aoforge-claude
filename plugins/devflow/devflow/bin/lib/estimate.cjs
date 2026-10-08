@@ -43,7 +43,10 @@ const CONFIDENCE_LEVELS = Object.freeze(['none', 'low', 'medium', 'high']);
 const MIN_CLASS_SAMPLES = 5;
 const MEDIUM_SAMPLES = 10;
 const HIGH_SAMPLES = 30;
-const SUPPORTED_VERSIONS = Object.freeze([1, 2]);
+const SUPPORTED_VERSIONS = Object.freeze([1, 2, 3]);
+// The minutes methods a version 3 calibration can name (DECISION-003). Kept here on purpose: 67-05 adds the test that
+// it equals the calibrator's own list.
+const KNOWN_MINUTES_METHODS = Object.freeze(['task_sum', 'trd_level']);
 const METRICS = Object.freeze(['minutes', 'tokens_input', 'tokens_output', 'cost_usd']);
 const SHARE_FLOOR = 0.1; // a component must carry this share of the median minutes to lower an overall confidence
 const NO_SAMPLES = 'no samples for ';
@@ -95,9 +98,10 @@ function loadCalibration(file, env = process.env) {
   if (!isPlainObject(calibration)) return unreadable('not a JSON object');
 
   if (!SUPPORTED_VERSIONS.includes(calibration.version)) {
+    const known = `${SUPPORTED_VERSIONS.slice(0, -1).join(', ')} and ${SUPPORTED_VERSIONS[SUPPORTED_VERSIONS.length - 1]}`;
     return {
       ok: false,
-      reason: `calibration file ${target} is calibration version ${String(calibration.version)}, but this estimator reads versions ${SUPPORTED_VERSIONS.join(' and ')}; update DevFlow or run df-tools calibrate`,
+      reason: `calibration file ${target} is calibration version ${String(calibration.version)}, but this estimator reads versions ${known}; update DevFlow or run df-tools calibrate`,
     };
   }
   if (calibration.classifier_version !== ci.CLASSIFIER_VERSION) {
@@ -106,10 +110,24 @@ function loadCalibration(file, env = process.env) {
       reason: `calibration file ${target} was built with classifier version ${String(calibration.classifier_version)}, but this estimator classifies tasks with version ${ci.CLASSIFIER_VERSION}; run df-tools calibrate to rebuild it`,
     };
   }
+  if (calibration.version === 3) {
+    if (!isPlainObject(calibration.method)) return unreadable('version 3 without a method block');
+    if (!KNOWN_MINUTES_METHODS.includes(calibration.method.minutes)) {
+      return {
+        ok: false,
+        reason: `calibration file ${target} names minutes method ${JSON.stringify(calibration.method.minutes)}, which this estimator does not know; update DevFlow or run df-tools calibrate`,
+      };
+    }
+  }
   if (!isPlainObject(calibration.task_classes) || !isPlainObject(calibration.task_classes.all)) {
     return unreadable('no task_classes.all block');
   }
   return { ok: true, calibration, path: target };
+}
+
+/** The minutes method a loaded calibration names (`method.minutes`), 'task_sum' for one that has no method block. */
+function minutesMethod(cal) {
+  return isPlainObject(cal) && isPlainObject(cal.method) ? cal.method.minutes : 'task_sum';
 }
 
 // ─── Task estimates ───────────────────────────────────────────────────────────
@@ -372,9 +390,11 @@ function estimateTrd(cal, cwd, ref) {
 module.exports = {
   CONFIDENCE_LEVELS,
   MIN_CLASS_SAMPLES,
+  KNOWN_MINUTES_METHODS,
   confidenceFor,
   overallConfidence,
   loadCalibration,
+  minutesMethod,
   metricFor,
   estimateTask,
   estimateTrdText,
