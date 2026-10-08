@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 26,
   "progress_pct": 96,
   "status": "executing",
@@ -1329,6 +1329,16 @@
     {
       "objective": "72",
       "summary": "Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-04: hooks alias the legacy env prefix inside a try that tolerates only MODULE_NOT_FOUND (stub plugin trees fail open); aof-tools and aoforge-watch use a plain require",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-04: docs/built-in-sweep.md and docs/built-in-integration-status.md are live docs (codemod LIVE_DOCS); changelog-on-tag falls back to the legacy plugin manifest path on pre-rename commits",
       "rationale": null
     }
   ],

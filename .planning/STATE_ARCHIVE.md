@@ -253,6 +253,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-01 correction: objective 72 accepted as unscored for EST-11 (user reply: unscored); the earlier 'run state already recorded' entry came from the orchestrator's wave-start call and had no objective estimate
 - [Objective 72]: compat.cjs destructures the planning-directory key so the literal source guard holds; findProjectRoot treats ENOTDIR as absence
 - [Objective 72]: Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings
+- [Objective 72]: 72-04: hooks alias the legacy env prefix inside a try that tolerates only MODULE_NOT_FOUND (stub plugin trees fail open); aof-tools and aoforge-watch use a plain require
+- [Objective 72]: 72-04: docs/built-in-sweep.md and docs/built-in-integration-status.md are live docs (codemod LIVE_DOCS); changelog-on-tag falls back to the legacy plugin manifest path on pre-rename commits
 
 ## Performance Metrics
 
@@ -425,4 +427,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P01 | 3min | 3 tasks | 2 files |
 | Objective 72 P02 | 7min | 3 tasks | 5 files |
 | Objective 72 P03 | 30min | 3 tasks | 3 files |
+| Objective 72 P04 | 40min | 3 tasks | 1003 files |
 
