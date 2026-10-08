@@ -1315,6 +1315,11 @@
       "objective": "72",
       "summary": "Run state for 72 already recorded at TRD start (2026-10-08T22:24:56.615Z); estimate line reads No estimate but per-wave p50/P90 exist; no requirement marked complete by 72-01",
       "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-01 correction: objective 72 accepted as unscored for EST-11 (user reply: unscored); the earlier 'run state already recorded' entry came from the orchestrator's wave-start call and had no objective estimate",
+      "rationale": null
     }
   ],
   "blockers": [
