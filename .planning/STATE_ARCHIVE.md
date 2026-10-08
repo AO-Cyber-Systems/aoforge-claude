@@ -246,6 +246,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 71]: 71-02: selfTestDrafts does not import stack-draft.cjs; its marker test is its own so a broken drafter predicate cannot hide its own regression
 - [Objective 71]: 71-02: an OPEN pending:'refresh' row (justinforme and smartWellness lint) is a follow-up, not a drafter gap; it is tolerated only while it drifts and the remove-it ratchet is unchanged
 - [Objective 71]: 71-02: ACCEPTED did not grow; aodex.audit was removed because the 71-01 self-test rule now drafts the govulncheck gate
+- [Objective 71]: A build gate's new untracked unignored files under bin/ build/ dist/ out/ target/ (relative to its cwd) are removed, listed in run.build_outputs and do not halt the root; any other change, non-build key or failed restore still halts
 
 ## Performance Metrics
 
@@ -413,4 +414,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 71 P01 | 10min | 3 tasks | 5 files |
 | Objective 71 P03 | 13min | 3 tasks | 6 files |
 | Objective 71 P02 | 8min | 2 tasks | 3 files |
+| Objective 71 P04 | 7min | 3 tasks | 3 files |
 

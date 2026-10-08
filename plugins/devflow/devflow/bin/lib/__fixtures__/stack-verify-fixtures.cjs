@@ -314,6 +314,32 @@ function gitRepo({ files = {}, modes = {} } = {}) {
 }
 
 /**
+ * componentRepo({ rootFiles = {}, component = 'client' }) -> a git work tree with one commit: a non-Dart
+ * root beside one Flutter component.
+ *
+ * The shape of a monorepo whose root builds a Go binary into an un-ignored `bin/` while a Flutter app lives
+ * in a subdirectory: the root `.gitignore` ignores `.dart_tool/` only (NOT `bin/`, `dist/`, `out/` or
+ * `target/`, so a build's output there is untracked AND unignored). The component has a `pubspec.yaml`,
+ * `lib/main.dart`, its own `.gitignore` (`.dart_tool/`) and a `.dart_tool/package_config.json`, which exists
+ * but is ignored (never committed), so `flutter --no-pub` finds a resolved config there. `rootFiles` adds
+ * (or overrides) tracked files at the root. Every file is written before the single commit, so the work tree
+ * is clean afterwards.
+ */
+function componentRepo({ rootFiles = {}, component = 'client' } = {}) {
+  return gitRepo({
+    files: {
+      'README.md': 'a component fixture\n',
+      '.gitignore': '.dart_tool/\n',
+      [`${component}/pubspec.yaml`]: 'name: client_app\nenvironment:\n  sdk: ^3.0.0\n',
+      [`${component}/lib/main.dart`]: 'void main() {}\n',
+      [`${component}/.gitignore`]: '.dart_tool/\n',
+      [`${component}/.dart_tool/package_config.json`]: '{"configVersion":2,"packages":[]}\n',
+      ...rootFiles,
+    },
+  });
+}
+
+/**
  * serviceWorkflow({ job, services, env, defaultsCwd, runs }) -> the text of a one-job GitHub workflow.
  *
  * `services` is a list of container names, each written as a block `services:` child with an `image:`
@@ -354,6 +380,7 @@ module.exports = {
   stubCalls,
   gitDartRepo,
   gitRepo,
+  componentRepo,
   serviceWorkflow,
   PRE_DIRTY_LINE,
 };

@@ -27,6 +27,9 @@
 //     (`mutated_unknown`, root halted).
 // 12. CLI: `df-tools stack verify --run` shows `mutated` and the halt skip, and `git status
 //     --porcelain` is identical before and after.
+// 13. Build outputs (TRD 71-04, SDR-10): a `build` gate's new, untracked, unignored files under `bin/`
+//     `build/` `dist/` `out/` `target/` (relative to its cwd) are restored, listed in `run.build_outputs`
+//     and do not halt the root; anything else still does. Cases 3-10 in-process, 1-2 through the CLI.
 
 const { describe, test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -36,7 +39,7 @@ const { spawnSync } = require('child_process');
 
 const fx = require('./__fixtures__/stack-verify-fixtures.cjs');
 const profileFx = require('./__fixtures__/stack-profile-fixtures.cjs');
-const { runCommands } = require('./stack-verify.cjs');
+const { runCommands, RUN_POLICY } = require('./stack-verify.cjs');
 
 const DF_TOOLS = path.join(__dirname, '..', 'df-tools.cjs');
 const SKIP = fx.gitAvailable() ? false : 'git is not on PATH';
@@ -284,5 +287,174 @@ describe('CLI: stack verify --run with the effect guard (test 12)', { skip: SKIP
     assert.equal(format.run.skipped, 'side-effect-unsafe');
     assert.equal(porcelain(root), statusBefore);
     assert.ok(read(root, 'analysis_options.yaml').equals(optionsBefore));
+  });
+});
+
+describe('build outputs are restored and do not halt (TRD 71-04)', { skip: SKIP }, () => {
+  const WRITE_BIN_APP = "sh -c 'mkdir -p bin && echo x > bin/app'";
+
+  test('3. a build that writes bin/app: restored, listed in build_outputs, and the next flutter gate still runs', () => {
+    const { root, bin, opts } = setup({ body: ':' });
+    const statusBefore = porcelain(root);
+    const out = runCommands([item('build', WRITE_BIN_APP), item('lint', 'flutter analyze')], opts);
+    assert.deepEqual(out[0].run.mutated, [{ path: 'bin/app', change: 'added' }]);
+    assert.deepEqual(out[0].run.build_outputs, ['bin/app']);
+    assert.equal(out[0].run.restored, true);
+    assert.equal(fs.existsSync(path.join(root, 'bin', 'app')), false, 'the output is removed: the run stays read-only');
+    assert.equal(porcelain(root), statusBefore, 'git does not list the emptied bin/');
+    assert.equal(out[1].run.exit_code, 0);
+    assert.equal(out[1].skipped, undefined);
+    assert.equal(fx.stubCalls(bin, 'flutter').length, 1);
+  });
+
+  test('4. dist/ (two levels deep), out/ and target/ in one build are all outputs', () => {
+    const { bin, opts } = setup({ body: ':' });
+    const cmd = "sh -c 'mkdir -p dist/assets out target && echo a > dist/assets/app.js && echo b > out/x && echo c > target/y'";
+    const out = runCommands([item('build', cmd), item('lint', 'flutter analyze')], opts);
+    assert.deepEqual([...out[0].run.build_outputs].sort(), ['dist/assets/app.js', 'out/x', 'target/y']);
+    assert.equal(out[0].run.mutated.length, 3);
+    assert.equal(out[0].run.restored, true);
+    assert.equal(out[1].run.exit_code, 0);
+    assert.equal(fx.stubCalls(bin, 'flutter').length, 1);
+  });
+
+  test('5a. an output is judged relative to the gate\'s cwd: svc/bin/api from cwd `svc` is an output', () => {
+    const { bin, opts } = setup({ body: ':', files: { 'svc/main.go': 'package main\n' } });
+    const out = runCommands([
+      item('build', "sh -c 'mkdir -p bin && echo x > bin/api'", { cwd: 'svc' }),
+      item('lint', 'flutter analyze'),
+    ], opts);
+    assert.deepEqual(out[0].run.build_outputs, ['svc/bin/api']);
+    assert.equal(out[0].run.restored, true);
+    assert.equal(out[1].run.exit_code, 0);
+    assert.equal(fx.stubCalls(bin, 'flutter').length, 1);
+  });
+
+  test('5b. the same write from cwd `` is not an output (first segment `svc`): it halts', () => {
+    const { bin, opts } = setup({ body: ':', files: { 'svc/main.go': 'package main\n' } });
+    const out = runCommands([
+      item('build', "sh -c 'mkdir -p svc/bin && echo x > svc/bin/api'"),
+      item('lint', 'flutter analyze'),
+    ], opts);
+    assert.deepEqual(out[0].run.mutated, [{ path: 'svc/bin/api', change: 'added' }]);
+    assert.equal('build_outputs' in out[0].run, false);
+    assert.equal(out[1].skipped, 'side-effect-unsafe');
+    assert.match(out[1].run.detail, /svc\/bin\/api/);
+    assert.deepEqual(fx.stubCalls(bin, 'flutter'), []);
+  });
+
+  test('6. an output plus a change to a tracked file: only the output is listed, and the root halts naming the tracked file', () => {
+    const { root, bin, opts } = setup({ body: ':' });
+    const readme = read(root, 'README.md');
+    const out = runCommands([
+      item('build', "sh -c 'mkdir -p bin && echo x > bin/app && echo y >> README.md'"),
+      item('lint', 'flutter analyze'),
+    ], opts);
+    assert.deepEqual(out[0].run.build_outputs, ['bin/app']);
+    assert.deepEqual([...out[0].run.mutated].sort(byPath), [
+      { path: 'README.md', change: 'modified' },
+      { path: 'bin/app', change: 'added' },
+    ]);
+    assert.equal(out[0].run.restored, true);
+    assert.ok(read(root, 'README.md').equals(readme));
+    assert.equal(out[1].skipped, 'side-effect-unsafe');
+    assert.match(out[1].run.detail, /README\.md/);
+    assert.doesNotMatch(out[1].run.detail, /bin\/app/);
+    assert.deepEqual(fx.stubCalls(bin, 'flutter'), []);
+  });
+
+  test('7. a build that writes outside an output directory (src/gen.go): no build_outputs, the root halts', () => {
+    const { root, bin, opts } = setup({ body: ':' });
+    const out = runCommands([
+      item('build', "sh -c 'mkdir -p src && echo x > src/gen.go'"),
+      item('lint', 'flutter analyze'),
+    ], opts);
+    assert.deepEqual(out[0].run.mutated, [{ path: 'src/gen.go', change: 'added' }]);
+    assert.equal('build_outputs' in out[0].run, false);
+    assert.equal(out[0].run.restored, true);
+    assert.equal(fs.existsSync(path.join(root, 'src', 'gen.go')), false);
+    assert.equal(out[1].skipped, 'side-effect-unsafe');
+    assert.match(out[1].run.detail, /src\/gen\.go/);
+    assert.deepEqual(fx.stubCalls(bin, 'flutter'), []);
+  });
+
+  test('8. only `build` writes outputs: a lint key that writes bin/x is a plain mutation and halts', () => {
+    const { bin, opts } = setup({ body: ':' });
+    const out = runCommands([
+      item('lint', "sh -c 'mkdir -p bin && echo x > bin/x'"),
+      item('format', 'flutter analyze'),
+    ], opts);
+    assert.deepEqual(out[0].run.mutated, [{ path: 'bin/x', change: 'added' }]);
+    assert.equal('build_outputs' in out[0].run, false);
+    assert.equal(out[1].skipped, 'side-effect-unsafe');
+    assert.match(out[1].run.detail, /bin\/x/);
+    assert.deepEqual(fx.stubCalls(bin, 'flutter'), []);
+  });
+
+  test('9. a build that writes into a gitignored build/ is not reported at all and does not halt', () => {
+    const { root, bin, opts } = setup({ body: ':' });
+    const out = runCommands([
+      item('build', "sh -c 'mkdir -p build && echo x > build/app'"),
+      item('lint', 'flutter analyze'),
+    ], opts);
+    assert.equal('mutated' in out[0].run, false);
+    assert.equal('build_outputs' in out[0].run, false);
+    assert.equal(fs.existsSync(path.join(root, 'build', 'app')), true, 'ignored output is left alone');
+    assert.equal(out[1].run.exit_code, 0);
+    assert.equal(fx.stubCalls(bin, 'flutter').length, 1);
+  });
+
+  test('10. RUN_POLICY.buildOutputDirs is the five directory names and frozen', () => {
+    assert.deepEqual([...RUN_POLICY.buildOutputDirs], ['bin', 'build', 'dist', 'out', 'target']);
+    assert.ok(Object.isFrozen(RUN_POLICY.buildOutputDirs));
+  });
+});
+
+describe('CLI: build outputs (TRD 71-04)', { skip: SKIP }, () => {
+  /**
+   * An eden-circle-shaped scratch repo: the root `build` is `fakebuild` (writes the untracked, unignored
+   * `bin/app`) and `client/` is a Flutter component with a resolved package config. Non-mutating stubs
+   * `flutter` and `dart` record their calls. `df-tools --cwd <root> stack verify --run <extra>` runs on it.
+   */
+  function verifyRun(extra = []) {
+    const yaml = ['schema: 1', 'extends: general',
+      'commands:',
+      '  build: { run: "fakebuild" }',
+      'components:',
+      '  - { path: "client/", profile: flutter }'].join('\n');
+    const root = track(fx.componentRepo({ rootFiles: { '.planning/STACK.md': profileFx.profileMd({ yaml }) } }));
+    const buildBin = track(fx.mutatingToolBin('fakebuild', 'mkdir -p bin && echo x > bin/app'));
+    const flutterBin = track(fx.mutatingToolBin('flutter', ':'));
+    // The flutter tier's `format` gate is `dart format ...`: stub it so the run never needs a real Dart SDK.
+    const dartBin = track(fx.mutatingToolBin('dart', ':'));
+    const home = track(fx.fakeHome({}));
+    const statusBefore = porcelain(root);
+    const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', root, 'stack', 'verify', '--run', ...extra], {
+      encoding: 'utf-8',
+      env: { ...process.env, PATH: [buildBin, flutterBin, dartBin, process.env.PATH].join(path.delimiter), HOME: home },
+      timeout: 60000,
+    });
+    return { root, flutterBin, r, statusBefore };
+  }
+
+  test('1. --raw: the build line shows `mutated=1 build_outputs=1`, the client gate runs, and the work tree is unchanged', () => {
+    const { root, flutterBin, r, statusBefore } = verifyRun(['--raw']);
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+    const lines = r.stdout.split('\n');
+    assert.ok(lines.includes('build resolved run=0 mutated=1 build_outputs=1'), r.stdout);
+    assert.ok(lines.includes('lint@client/ resolved run=0'), r.stdout);
+    assert.doesNotMatch(r.stdout, /side-effect-unsafe/);
+    assert.ok(fx.stubCalls(flutterBin, 'flutter').length >= 1, 'the client gate ran the stub flutter');
+    assert.equal(porcelain(root), statusBefore);
+    assert.equal(fs.existsSync(path.join(root, 'bin', 'app')), false);
+  });
+
+  test('2. the JSON: run.build_outputs, run.mutated and run.restored on the build result', () => {
+    const { r } = verifyRun();
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+    const build = JSON.parse(r.stdout).results.find((x) => x.key === 'build' && !x.component);
+    assert.deepEqual(build.run.build_outputs, ['bin/app']);
+    assert.deepEqual(build.run.mutated, [{ path: 'bin/app', change: 'added' }]);
+    assert.equal(build.run.restored, true);
   });
 });
