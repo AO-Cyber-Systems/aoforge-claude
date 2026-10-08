@@ -1,5 +1,6 @@
 ---
 work: feature
+status: verifying
 ---
 
 # CLI defects and hook shape
