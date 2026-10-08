@@ -1,8 +1,8 @@
 {
   "current_objective": "66",
-  "current_job": 1,
+  "current_job": 2,
   "total_jobs": 4,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
