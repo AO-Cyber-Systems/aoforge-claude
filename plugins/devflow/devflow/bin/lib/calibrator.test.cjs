@@ -849,7 +849,6 @@ describe('64-08 buildCalibration window', () => {
     const cal = build([slope], { window: 99 });
     assert.equal(Object.keys(cal).includes('window'), false);
     assert.equal(cal.notes.length, build([slope]).notes.length);
-    assert.equal(DEFAULT_WINDOW_OBJECTIVES, null, 'the default stays off in this TRD');
     assert.equal(stableStringify(buildCalibration({ paths: [slope], ratesPath: ci.RATES_PATH })), baseline,
       'omitting transcriptsRoot and window is the same call');
   });
@@ -981,5 +980,69 @@ describe('64-08 buildCalibration window', () => {
     assert.deepEqual(Object.keys(cal).includes('window'), true, 'the window did cut 70-a');
     assert.deepEqual(cal.agent_overhead, full.agent_overhead);
     assert.deepEqual(cal.agent_overhead_sources, full.agent_overhead_sources);
+  });
+});
+
+// ─── 64-10: the window becomes the default ───────────────────────────────────
+// 64-VALIDATION.md (ship_default: true) froze window_objectives 10 in 64-DIAGNOSIS.md. W is written as the literal 10 here.
+// WIDE: 12 = W + 2 objectives, `1-a` and `2-b` at 40min per TRD (task share 20), the other ten at 10min (share 5), each with
+// one TRD of two auto code_tdd tasks. Unwindowed there are four shares of 20 and twenty of 5, so the median cannot tell the
+// two old objectives apart from the rest; the maximum can (20 unwindowed, 5 once they are dropped).
+function wideSpec(count, name = 'wide') {
+  return {
+    name,
+    objectives: Array.from({ length: count }, (_, i) => {
+      const n = i + 1;
+      const dir = `${n}-${String.fromCharCode(96 + n)}`;
+      const duration = n <= 2 ? '40min' : '10min';
+      return { dir, trds: [slopeTrd('01', duration, `2026-09-${String(n).padStart(2, '0')}`)] };
+    }),
+  };
+}
+
+describe('64-10 the recency window is the default', () => {
+  const build = (paths, extra = {}) => buildCalibration({ paths, ratesPath: ci.RATES_PATH, transcriptsRoot: null, ...extra });
+
+  test('2: a build with no window drops the two oldest of twelve objectives', () => {
+    const wide = makeProject(wideSpec(12));
+    const cal = build([wide]);
+    assert.equal(cal.window.objectives, 10);
+    assert.equal(cal.window.projects[0].dropped_objectives, 2);
+    assert.equal(cal.window.projects[0].kept_objectives, 10);
+    assert.equal(cal.window.projects[0].first, '3-c');
+    assert.equal(cal.samples.trds, 10);
+    assert.equal(cal.task_classes.code_tdd.minutes.max, 5, 'the two 40min objectives are out of every statistic');
+    assert.equal(cal.task_classes.code_tdd.minutes.n, 20);
+  });
+
+  test('3: window null keeps all twelve and leaves no trace; a window that drops nothing is the same bytes', () => {
+    const wide = makeProject(wideSpec(12));
+    const all = build([wide], { window: null });
+    assert.equal(Object.keys(all).includes('window'), false);
+    assert.equal(all.samples.trds, 12);
+    assert.equal(all.task_classes.code_tdd.minutes.max, 20, 'the unwindowed build has the old objectives');
+    assert.equal(stableStringify(all), stableStringify(build([wide], { window: 15 })));
+    assert.notEqual(stableStringify(all), stableStringify(build([wide])), 'the default build is not the unwindowed one');
+  });
+
+  test('3b: an explicit window still overrides the default', () => {
+    const wide = makeProject(wideSpec(12));
+    const cal = build([wide], { window: 3 });
+    assert.equal(cal.window.objectives, 3);
+    assert.equal(cal.samples.trds, 3);
+  });
+
+  test('5: ten objectives (exactly the window) are byte-identical with and without the default, with no window key', () => {
+    const ten = makeProject(wideSpec(10));
+    const byDefault = build([ten]);
+    assert.equal(Object.keys(byDefault).includes('window'), false);
+    assert.equal(stableStringify(byDefault), stableStringify(build([ten], { window: null })));
+    assert.equal(byDefault.samples.trds, 10);
+    const eleven = makeProject(wideSpec(11, 'eleven'));
+    assert.equal(build([eleven]).window.projects[0].dropped_objectives, 1, 'one more than the window drops exactly one');
+  });
+
+  test('1: DEFAULT_WINDOW_OBJECTIVES is the window frozen in 64-DIAGNOSIS.md', () => {
+    assert.equal(DEFAULT_WINDOW_OBJECTIVES, 10);
   });
 });

@@ -14,9 +14,11 @@ const { OVERHEAD_AGENTS, collectOverhead } = require('./agent-overhead.cjs');
 
 const CALIBRATION_VERSION = 2;
 
-// The recency window `buildCalibration` applies when its caller passes none: null means all history. Objective 64
-// froze a candidate (64-DIAGNOSIS.md); whether it becomes the default is decided by the pre-registered ship rule (64-10).
-const DEFAULT_WINDOW_OBJECTIVES = null;
+// The recency window `buildCalibration` applies when its caller passes none: the most recent 10 objectives that have
+// samples, per project. Objective 64 froze 10 on pre-59 history (64-DIAGNOSIS.md, weak support: a non-monotone sweep) and
+// the pre-registered ship rule made it the default (64-VALIDATION.md, ship_default true) although EST-08 is still not met.
+// All history stays reachable with `window: null` (`calibrate --window all`).
+const DEFAULT_WINDOW_OBJECTIVES = 10;
 
 const NOTES = Object.freeze([
   "Task values split each TRD's outcome equally across its auto tasks and include the executor's per-TRD overhead pro rata; do not add executor overhead on top.",

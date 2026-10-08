@@ -544,7 +544,7 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
 // ─── 64-08: --window <N|all> ─────────────────────────────────────────────────
 //   11 --window 2 on SLOPE: exit 0, the summary names `window 2 objectives (dropped 10 TRDs)`, the file has window.objectives 2
 //      and samples.trds 4
-//   12 --window all and no flag write byte-identical files (the default is off)
+//   12 --window all and no flag write byte-identical files (SLOPE has fewer objectives than the default window of 64-10)
 //   13 usage errors exit 1, name the flag and write nothing: 0, -3, 2.5, abc, and no value
 //   14 --dry-run --window 2 writes nothing, the result carries `window`, `changed` is computed as for any dry run
 //   15 help, the usage line and the df-tools.cjs header name `--window <N|all>`
@@ -680,5 +680,59 @@ describe('df-tools calibrate --window (end to end)', () => {
     });
     assert.equal(help.status, 0, help.stderr);
     assert.ok(help.stdout.includes('--window <N|all>'), help.stdout);
+  });
+});
+
+// ─── 64-10: the window is the default ────────────────────────────────────────
+//   16 no flag on a project with 12 objectives windows to the most recent 10 and names the window in the summary;
+//      `--window all` keeps all twelve and names none; `--window 3` overrides the default
+//   17 help and the df-tools.cjs header say the default and that `--window all` keeps all history
+// WIDE: objectives 1-a to 12-l, one TRD of two code_tdd tasks each; 1-a and 2-b took 40min (task share 20), the rest 10min.
+const WIDE_SPEC = {
+  name: 'wide',
+  objectives: Array.from({ length: 12 }, (_, i) => {
+    const n = i + 1;
+    const duration = n <= 2 ? '40min' : '10min';
+    return { dir: `${n}-${String.fromCharCode(96 + n)}`, trds: [slopeTrd('01', duration, `2026-09-${String(n).padStart(2, '0')}`)] };
+  }),
+};
+
+describe('df-tools calibrate default window (end to end)', () => {
+  test('16. no flag windows to the most recent 10 objectives; --window all opts out; --window 3 overrides', () => {
+    const sb = sandbox();
+    const wide = project(WIDE_SPEC);
+    const dflt = path.join(sb.tmp, 'a.json');
+    const all = path.join(sb.tmp, 'all.json');
+    const three = path.join(sb.tmp, 'three.json');
+
+    const raw = run(sb, sb.tmp, ['--paths', wide, '--no-overhead', '--out', dflt, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.ok(raw.stdout.includes('window 10 objectives (dropped 2 TRDs)'), raw.stdout);
+    assert.ok(raw.stdout.includes('10 TRDs, 20 tasks'), 'the counts describe the retained TRDs');
+    const written = JSON.parse(fs.readFileSync(dflt, 'utf-8'));
+    assert.equal(written.window.objectives, 10);
+    assert.equal(written.samples.trds, 10);
+    assert.equal(written.task_classes.code_tdd.minutes.max, 5);
+
+    const allRaw = run(sb, sb.tmp, ['--paths', wide, '--window', 'all', '--no-overhead', '--out', all, '--raw']);
+    assert.equal(allRaw.status, 0, allRaw.stderr);
+    assert.equal(allRaw.stdout.includes('window'), false, allRaw.stdout);
+    const allWritten = JSON.parse(fs.readFileSync(all, 'utf-8'));
+    assert.equal(Object.keys(allWritten).includes('window'), false);
+    assert.equal(allWritten.samples.trds, 12);
+    assert.equal(allWritten.task_classes.code_tdd.minutes.max, 20);
+
+    const threeRaw = run(sb, sb.tmp, ['--paths', wide, '--window', '3', '--no-overhead', '--out', three, '--raw']);
+    assert.equal(threeRaw.status, 0, threeRaw.stderr);
+    assert.ok(threeRaw.stdout.includes('window 3 objectives (dropped 9 TRDs)'), threeRaw.stdout);
+    assert.equal(JSON.parse(fs.readFileSync(three, 'utf-8')).samples.trds, 3);
+  });
+
+  test('17. help and the df-tools.cjs header say the default and that --window all keeps all history', () => {
+    const { COMMANDS } = require('./help.cjs');
+    assert.match(COMMANDS.calibrate.details, /default: the most recent 10 objectives with samples per project/);
+    assert.match(COMMANDS.calibrate.details, /--window all/);
+    const header = fs.readFileSync(DF_TOOLS, 'utf-8').split('\n').slice(0, 260).join('\n');
+    assert.match(header, /default: the most recent 10 objectives/);
   });
 });

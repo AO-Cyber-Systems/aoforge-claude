@@ -167,7 +167,8 @@
  *                                       default paths: the checkout holding cwd or DEVFLOW_CALIBRATE_PATHS;
  *                                       --root: transcripts for agent overhead, default ~/.claude/projects;
  *                                       --no-overhead skips that scan;
- *                                       --window <N|all>: keep only the N most recent objectives with samples per project, default off)
+ *                                       --window <N|all>: keep only the N most recent objectives with samples per project;
+ *                                       default: the most recent 10 objectives, --window all keeps all history)
  *   estimate task (--files a[,b] [--tdd] [--trd-type t] | --class c | --checkpoint)
  *                                      Median and P90 minutes, tokens and dollars for one task, with sample count and confidence
  *   estimate trd <trd-id|path>         The composed estimate of one TRD

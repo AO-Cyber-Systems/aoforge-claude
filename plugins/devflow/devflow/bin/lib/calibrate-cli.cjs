@@ -20,8 +20,9 @@
  *           empty and says `scanned: false`). The two flags are exclusive.
  *   window  --window <N|all> (TRD 64-08): keep, per project, only the N most recent objectives that have a sample (by
  *           objective number) and drop the TRDs of older ones before any statistic; `all` means no window. Agent
- *           overhead is not windowed. Off when the flag is absent, so every existing output is unchanged; a window that
- *           drops nothing leaves no trace in the file. N is a positive integer: anything else is a usage error.
+ *           overhead is not windowed. Default (TRD 64-10): the most recent 10 objectives with samples per project when
+ *           the flag is absent, and `--window all` keeps all history; a window that drops nothing (a project of 10 or
+ *           fewer objectives) leaves no trace in the file. N is a positive integer: anything else is a usage error.
  *
  * Deterministic: unchanged inputs give a byte-identical file and `changed: false`; the file is then not rewritten.
  * `--dry-run` builds and reports but writes nothing. stdout is a summary, never the calibration object: the file is
@@ -51,7 +52,7 @@ function usageError(message) {
  * `argv` is everything after `calibrate`. A value flag needs a value that is not itself a flag; unknown flags and stray
  * positionals are usage errors. `--raw` is stripped by the dispatcher before this runs; it is tolerated here.
  *
- * `window` is undefined without the flag (the library default applies), null for `all` (explicitly no window) and a
+ * `window` is undefined without the flag (the library default of 10 objectives applies), null for `all` (explicitly no window) and a
  * positive integer otherwise; any other value is a usage error naming the flag.
  *
  * @returns {{ok:true, flags: Object<string,string>, dryRun: boolean, noOverhead: boolean, window: (undefined|null|number)} | {ok:false, message:string}}

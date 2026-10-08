@@ -689,3 +689,52 @@ describe('report and CLI', () => {
     assert.ok(!/const\s+(BAND|COVERAGE_TARGET)\s*=/.test(source), 'BAND and COVERAGE_TARGET are imported, not redefined');
   });
 });
+
+// ─── TRD 64-10: the calibrator's default window must not apply on top of this tool's own cuts ─────────────────────────
+// `calibrate` windows to the most recent 10 objectives by default since 64-10. This tool cuts a snapshot to the candidate
+// window itself (`all`, 15, 20, 30, 40 ...) and builds the calibration of the cut, so a build with the library default
+// would silently clamp every candidate above 10 to 10 and the frozen selection of 64-DIAGNOSIS.md would no longer
+// reproduce. DEEP: objectives 1-a .. 13-m, one TRD of two code_tdd tasks each, 40min per TRD in 1-7 and 10min in 8-13.
+// Evaluating 13 with `all` (history 1-12: fourteen task shares of 20 and ten of 5) the nearest-rank p50 share is 20, so each
+// TRD is estimated at 40; clamped to the latest 10 objectives (3-12: ten shares of 20 and ten of 5) the p50 share is 5 and
+// the TRD would be estimated at 10.
+describe('64-10 cuts are not windowed twice', () => {
+  let root;
+  before(() => {
+    root = makeCalibrationProject({
+      name: 'deep',
+      objectives: Array.from({ length: 13 }, (_, i) => {
+        const n = i + 1;
+        return { dir: `${n}-${String.fromCharCode(96 + n)}`, trds: [stepTrd('01', n <= 7 ? '40min' : '10min')] };
+      }),
+    });
+  });
+  after(() => removeCalibrationProject(root));
+
+  test('18. rollingSweep: window all over twelve objectives keeps all twelve (TRD p50 40), window 3 keeps three', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-scratch-'));
+    try {
+      const result = evalTool.rollingSweep({ snapshotRoot: root, evalObjectives: ['13-m'], windows: ['all', 15, 3], scratchDir: scratch });
+      const byWindow = (w) => result.find((c) => c.window === w);
+      for (const w of ['all', 15]) {
+        const rows = byWindow(w).objectives[0].rows;
+        assert.equal(rows.length, 1, String(w));
+        near(rows[0].p50, 40, `window ${w} TRD p50 (not clamped to 10 objectives)`);
+        near(rows[0].actual, 10, 'TRD actual');
+      }
+      near(byWindow('all').objectives[0].row.ratio, 4, 'all objective ratio');
+      near(byWindow(3).objectives[0].rows[0].p50, 10, 'window 3 TRD p50');
+      assert.deepEqual(fs.readdirSync(scratch), [], 'the temporary cut directories are removed');
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  test('19. report: the in-sample calibration is the whole snapshot (TRD p50 40 in every era), not its latest 10 objectives', () => {
+    const result = evalTool.report({ snapshotRoot: root, evalObjectives: [13], windows: [3], label: 'deep' });
+    assert.ok(result.eras.length > 0);
+    for (const era of result.eras) near(era.median_p50, 40, `era ${era.era} median p50`);
+    const all = result.candidates.find((c) => c.window === 'all');
+    near(all.objectives[0].rows[0].p50, 40, 'rolling all-history TRD p50');
+  });
+});
