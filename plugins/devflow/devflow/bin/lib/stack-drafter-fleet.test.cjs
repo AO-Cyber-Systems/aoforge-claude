@@ -38,7 +38,7 @@ const { spawnSync } = require('child_process');
 const golden = require('./__fixtures__/stack-golden-fixtures.cjs');
 const tables = require('./__fixtures__/stack-fleet-tables.cjs');
 const { FLEET, ACCEPTED, OPEN } = tables;
-const { compareDrift, formatRow } = require('./__fixtures__/stack-drift-compare.cjs');
+const { compareDrift, formatRow, selfTestDrafts } = require('./__fixtures__/stack-drift-compare.cjs');
 const { parseProfile, resolveFromParsed } = require('./stack-profile.cjs');
 
 const { HAND_ONLY, KEY_ALIASES } = golden;
@@ -318,5 +318,108 @@ describe('assess: the harness classification, on synthetic tables (TRD 43-15)', 
   test('tables of other repos do not leak into this repo', () => {
     const accepted = { other: [{ keys: ['test'], kind: 'conflict', reason: 'why', decided: '2026-10-03', by: 'user' }] };
     assert.equal(assess('r', [conflict('test')], { accepted }).problems.length, 1);
+  });
+
+  // TRD 71-02 (SDR-09): a drafter rule closed the gap, the repo's committed STACK.md predates it, and refreshing
+  // that file is a commit in the repo. The row is a follow-up, not a drafter gap.
+  test('13: an OPEN `pending: refresh` row is reported as refresh pending while it drifts, never failed', () => {
+    const open = { r: [{ keys: ['lint'], pending: 'refresh', reason: 'draft `make lint` vs committed `go vet ./...`' }] };
+    const { problems, notes } = assess('r', [conflict('lint')], { open });
+    assert.deepEqual(problems, []);
+    assert.equal(notes.length, 1);
+    assert.match(notes[0], /refresh pending/);
+    assert.match(notes[0], /lint: committed/);
+    // A plain OPEN row keeps its own wording.
+    const plain = assess('r', [conflict('lint')], { open: { r: [{ keys: ['lint'], reason: 'no rule yet' }] } });
+    assert.equal(plain.notes.length, 1);
+    assert.doesNotMatch(plain.notes[0], /refresh pending/);
+  });
+
+  test('14: a refresh-pending OPEN row that stops drifting fails with "remove it" (the ratchet is unchanged)', () => {
+    const open = { r: [{ keys: ['lint'], pending: 'refresh', reason: 'draft `make lint` vs committed `go vet ./...`' }] };
+    const { problems } = assess('r', [], { open });
+    assert.deepEqual(problems, ['r.lint no longer drifts: remove it from OPEN']);
+  });
+});
+
+describe('selfTestDrafts: a drafted self-test beside its gate (TRD 71-01 guard, TRD 71-02)', () => {
+  const GATE = 'bash scripts/gate.sh';
+  const gateItem = (over = {}) => ({ key: 'audit', command: GATE, cwd: 'go', ...over });
+  const draft = (run, cwd = 'go') => ({ audit: { run, cwd } });
+
+  test('8: a drafted self-test argument beside a same-key, same-cwd gate item is a finding', () => {
+    const run = `${GATE} --self-test`;
+    assert.deepEqual(
+      selfTestDrafts({ commands: draft(run), evidence: [gateItem({ command: run }), gateItem()] }),
+      [{ key: 'audit', run, gate: GATE }],
+    );
+  });
+
+  test('9: a lone self-test, with no gate item in the evidence, is allowed', () => {
+    const run = `${GATE} --self-test`;
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ command: run })] }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [] }), []);
+  });
+
+  test('10: a gate item at another cwd, or for another key, is not the gate', () => {
+    const run = `${GATE} --self-test`;
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ cwd: 'other' })] }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ cwd: undefined })] }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ key: 'lint' })] }), []);
+    // null, '' and a missing cwd are all the repo root, and `./go/` is `go`.
+    assert.equal(selfTestDrafts({ commands: draft(run, null), evidence: [gateItem({ cwd: '' })] }).length, 1);
+    assert.equal(selfTestDrafts({ commands: draft(run, undefined), evidence: [gateItem({ cwd: null })] }).length, 1);
+    assert.equal(selfTestDrafts({ commands: draft(run, './go/'), evidence: [gateItem()] }).length, 1);
+  });
+
+  test('11: --selftest, --self-test=x, --selftest-<case> and a bare `selftest` after the script are self-test arguments', () => {
+    for (const marker of ['--selftest', '--self-test', '--self-test=x', '--selftest-no-divergence', 'selftest', '-self-test']) {
+      const run = `${GATE} ${marker}`;
+      assert.deepEqual(
+        selfTestDrafts({ commands: draft(run), evidence: [gateItem()] }),
+        [{ key: 'audit', run, gate: GATE }],
+        marker,
+      );
+    }
+    // A marker among other arguments: the gate is the run without just that word.
+    const mixed = `${GATE} --fixture f.json --self-test`;
+    assert.deepEqual(
+      selfTestDrafts({ commands: draft(mixed), evidence: [gateItem({ command: `${GATE} --fixture f.json` })] }),
+      [{ key: 'audit', run: mixed, gate: `${GATE} --fixture f.json` }],
+    );
+  });
+
+  test('11: the script name and a runner target named selftest are entry points, not self-test arguments', () => {
+    // Each pairs the run with an item for the run minus that word, so counting the word would be a finding.
+    const shape = (run, base) => selfTestDrafts({ commands: draft(run), evidence: [{ key: 'audit', command: base, cwd: 'go' }] });
+    assert.deepEqual(shape('bash t0/selftest.sh', 'bash'), []);
+    assert.deepEqual(shape('bash selftest', 'bash'), []);
+    assert.deepEqual(shape('make selftest', 'make'), []);
+    assert.deepEqual(shape('just self-test', 'just'), []);
+    // A word the evidence names as the item's target is never a self-test argument.
+    const named = selfTestDrafts({
+      commands: draft('./run.sh selftest'),
+      evidence: [
+        { key: 'audit', command: './run.sh selftest', cwd: 'go', target: { name: 'selftest' } },
+        { key: 'audit', command: './run.sh', cwd: 'go' },
+      ],
+    });
+    assert.deepEqual(named, []);
+  });
+
+  test('12: odd shapes never throw and find nothing', () => {
+    const evidence = [gateItem()];
+    // A bare string is the run (as in the drift comparison); a lone one has no gate.
+    assert.deepEqual(selfTestDrafts({ commands: { audit: `${GATE} --self-test` }, evidence: [] }), []);
+    for (const run of ['discover', 'none', '', undefined, null, 5]) {
+      assert.deepEqual(selfTestDrafts({ commands: { audit: { run, cwd: 'go' } }, evidence }), [], String(run));
+    }
+    assert.deepEqual(selfTestDrafts({ commands: { audit: null }, evidence }), []);
+    assert.deepEqual(selfTestDrafts({ commands: { audit: [] }, evidence }), []);
+    assert.deepEqual(selfTestDrafts({ evidence }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(`${GATE} --self-test`) }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(`${GATE} --self-test`), evidence: [null, 'x', {}, { key: 'audit' }] }), []);
+    assert.deepEqual(selfTestDrafts({}), []);
+    assert.deepEqual(selfTestDrafts(), []);
   });
 });
