@@ -30,7 +30,7 @@ key-decisions:
   - "A TRD with no auto tasks has confidence 'none' (no estimate), distinct from n/a"
   - "autonomous: false marks a TRD human_wait even with no checkpoint task"
 
-requirements-completed: []
+requirements-completed: [EST-02, EST-03]
 
 verification:
   gates_defined: 2
