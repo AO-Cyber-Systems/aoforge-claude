@@ -75,8 +75,12 @@
 // running exactly `go vet ./...` is the repo's declared entry point, so it is verified and kept like any
 // other candidate). Narrowed on the fleet (declaredTarget): its WHOLE body must be the default (no
 // prerequisite, no further invocation) and its name must not restate the default's own command word
-// (`build:` running `go build ./...` is a shorthand and stays inherited). Otherwise the first candidate
-// `verify` calls `resolved` is the run.
+// (`build:` running `go build ./...` is a shorthand and stays inherited). Widened for lint (TRD 71-01, SDR-09):
+// a `lint` target whose body is the default plus one or more UNCONDITIONAL linters of another tool
+// (stack-classify linterToolOf: a lint row, or AUX_LINTERS such as `buf lint`) is the declared entry point too,
+// with a `declared_linters` info note. An extra line with a `||` fallback is optional by its own design and
+// keeps the target inherited; so does any extra line that is not a linter. `buf lint` alone is never a
+// candidate. Otherwise the first candidate `verify` calls `resolved` is the run.
 // Candidates that failed before it are notes. None resolved but candidates existed ->
 // `run: discover`. A `${{ }}` command is `unverifiable` without asking `verify`.
 //
@@ -160,7 +164,7 @@
 // that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
 // other unresolved candidate. Items without a cwdStatus are treated as ok.
 
-const { classifyInvocation, testBreadth, buildBreadth, toolStack, envRole, isDedicatedLinter, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
+const { classifyInvocation, testBreadth, buildBreadth, toolStack, envRole, isDedicatedLinter, linterToolOf, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
 const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
@@ -463,6 +467,8 @@ function restatesCommand(name, run) {
  *     `go build ./...` is a shorthand for that command). `lint:` running `go vet ./...` names an interface
  *     the repo owns, where a stronger linter is added later.
  * Both narrowings were made on the fleet: the reviewed files inherit in each case they exclude.
+ * Widened for `lint` in TRD 71-01 (SDR-09): a body that is the default plus unconditional linters of other
+ * tools is the declared entry point too (declaredLinters).
  */
 function declaredTarget(item, key, defaultRun) {
   const t = item.target;
@@ -472,8 +478,39 @@ function declaredTarget(item, key, defaultRun) {
   const body = Array.isArray(item.bodyInvocations) && item.bodyInvocations.length
     ? item.bodyInvocations
     : [item.resolvesTo].filter(Boolean);
-  if (!body.length || !body.every((b) => bare(b) === want)) return false;
+  if (!body.length) return false;
+  if (!body.every((b) => bare(b) === want)) return declaredLinters(item, key, defaultRun) !== null;
   return !restatesCommand(t.name, defaultRun);
+}
+
+/**
+ * declaredLinters(item, key, defaultRun) -> the extra linter invocations of a `lint` target, or null (TRD 71-01,
+ * SDR-09). A key-named task-runner target with no prerequisite whose body is the tier default (at least one
+ * invocation) plus one or more OTHER invocations, EVERY one of which is
+ *   - a linter of a tool other than the default's own (stack-classify linterToolOf: `buf lint`,
+ *     `golangci-lint run ./...`; a second `go vet -tags x ./...` is the default's tool, not an extra linter), and
+ *   - unconditional: no `||` in its text (stack-shell splits on `&&` and `;`, so a `|| echo …` fallback stays in
+ *     the invocation; a linter behind one is optional by its own design). Two blind spots, both look
+ *     unconditional: a make `-` prefix (stack-runners strips it) and a `command -v X && X` guard without `||`.
+ * `lint` only; null for any other key, any extra line that is not a linter, and a name restating the default.
+ */
+function declaredLinters(item, key, defaultRun) {
+  if (key !== 'lint') return null;
+  const t = item.target;
+  if (!t || typeof t.name !== 'string' || !TASK_RUNNERS.has(item.runner) || !canonicalName(t.name, key)) return null;
+  if (!runnable(defaultRun) || (Array.isArray(t.deps) && t.deps.length)) return null;
+  const body = Array.isArray(item.bodyInvocations) ? item.bodyInvocations : [];
+  const want = bare(defaultRun);
+  if (!body.some((b) => bare(b) === want)) return null;
+  const extras = body.filter((b) => bare(b) !== want);
+  if (!extras.length) return null;
+  const defaultTool = defaultToolOf(defaultRun);
+  for (const b of extras) {
+    if (/\|\|/.test(b)) return null;
+    const tool = linterToolOf(b);
+    if (!tool || tool === defaultTool) return null;
+  }
+  return restatesCommand(t.name, defaultRun) ? null : extras;
 }
 
 /**
@@ -1042,6 +1079,14 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         break;
       }
       notes.push(note(c, key, v.status, v.detail));
+    }
+    // A lint target that runs the default AND unconditional linters of other tools was kept as the entry point
+    // (declaredLinters, TRD 71-01): an info note says what it adds to the default.
+    const addedLinters = chosen ? declaredLinters(chosen, key, parentRun) : null;
+    if (addedLinters) {
+      notes.push(note(chosen, key, 'info',
+        `runs the ${extendsId} default \`${parentRun}\` and ${addedLinters.map((x) => `\`${x}\``).join(', ')}; the target is the lint entry point`,
+        { tag: 'declared_linters' }));
     }
     const alternates = new Set();
     if (chosen && chosen.target && CANONICAL_KEYS.has(key)) {
