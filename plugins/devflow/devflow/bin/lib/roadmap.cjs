@@ -8,7 +8,7 @@ const { findObjectiveInternal } = require('./objective.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const { reconcile } = require('./roadmap-reconcile.cjs');
 const { isStoreMode } = require('./planning-mode.cjs');
-const { objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
+const { objectiveNumPattern, boldLabelPattern, milestoneHeadingPattern } = require('./text-escape.cjs');
 
 // `**Goal:**` and `**Goal**:` (the v1.5 ROADMAP form) both read; one definition for every reader here.
 const GOAL_RE = new RegExp(boldLabelPattern('Goal') + '\\s*([^\\n]+)', 'i');
@@ -507,13 +507,27 @@ const STATE_REL = '.planning/STATE.md';
 const MILESTONE_ARCHIVE_REL = '.planning/milestones';
 
 /**
+ * `1.0` and `v1.0` name one milestone, so both spell it `v1.0`: its archive files, its MILESTONES.md heading and its
+ * STATE.md line. An argument that is not a dotted version (`v2`, `banana`) is kept as given, as it always was.
+ * gh-milestone.cjs requires this module at load, so it is loaded here, not at the top.
+ */
+function canonicalMilestoneVersion(version) {
+  const normalised = require('./gh-milestone.cjs').normaliseVersion(version);
+  return normalised === null ? version : normalised;
+}
+
+/**
  * Everything `milestone complete` would do, decided without touching the disk: no mkdir, no write, no rename.
+ * Re-running is safe because the plan keeps what is already there instead of redoing it: an archive file that exists
+ * (`exists`), a MILESTONES.md that already holds the version's heading (`entry_exists`), and an audit file or objective
+ * directory whose destination is taken (`destination_exists`, with a warning) are listed in `kept` and never touched.
  * @returns {{version: string, name: string, date: string, objectives: number, objective_numbers: string[], jobs: number,
  *   tasks: number, cancelled: string[], absent: string[], scope_source: string, accomplishments: string[],
  *   milestone_entry: ?string, ops: object[], kept: {path: string, reason: string}[], warnings: string[]}}
  *   `ops` are `{op: 'write', path, content, action}` (action: create | append | update) and `{op: 'move', from, to}`.
  */
-function planMilestoneComplete(cwd, version, options) {
+function planMilestoneComplete(cwd, requestedVersion, options) {
+  const version = canonicalMilestoneVersion(requestedVersion);
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
   const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
   const statePath = path.join(cwd, STATE_REL);
@@ -555,33 +569,53 @@ function planMilestoneComplete(cwd, version, options) {
   const kept = [];
   const warnings = [];
 
+  // An archive is written once. An existing file is kept, never refreshed: ROADMAP.md may have been reorganised for the
+  // next milestone since, and overwriting would destroy the archive. A first run that stopped half way is resumed.
+  const archiveOnce = (rel, content) => {
+    if (fs.existsSync(path.join(cwd, rel))) kept.push({ path: rel, reason: 'exists' });
+    else ops.push({ op: 'write', path: rel, content, action: 'create' });
+  };
+
   // Archive ROADMAP.md
   if (fs.existsSync(roadmapPath)) {
-    const rel = `${MILESTONE_ARCHIVE_REL}/${version}-ROADMAP.md`;
-    ops.push({ op: 'write', path: rel, content: fs.readFileSync(roadmapPath, 'utf-8'), action: fs.existsSync(path.join(cwd, rel)) ? 'update' : 'create' });
+    archiveOnce(`${MILESTONE_ARCHIVE_REL}/${version}-ROADMAP.md`, fs.readFileSync(roadmapPath, 'utf-8'));
   }
 
   // Archive REQUIREMENTS.md
   if (fs.existsSync(reqPath)) {
-    const rel = `${MILESTONE_ARCHIVE_REL}/${version}-REQUIREMENTS.md`;
     const archiveHeader = `# Requirements Archive: ${version} ${milestoneName}\n\n**Archived:** ${today}\n**Status:** SHIPPED\n\nFor current requirements, see \`.planning/REQUIREMENTS.md\`.\n\n---\n\n`;
-    ops.push({ op: 'write', path: rel, content: archiveHeader + fs.readFileSync(reqPath, 'utf-8'), action: fs.existsSync(path.join(cwd, rel)) ? 'update' : 'create' });
+    archiveOnce(`${MILESTONE_ARCHIVE_REL}/${version}-REQUIREMENTS.md`, archiveHeader + fs.readFileSync(reqPath, 'utf-8'));
   }
+
+  // A move whose destination is taken is not made: the source stays and a warning names both.
+  const moveOnce = (from, to) => {
+    if (fs.existsSync(path.join(cwd, to))) {
+      kept.push({ path: from, reason: 'destination_exists' });
+      warnings.push(`${from} was not moved: ${to} already exists`);
+    } else {
+      ops.push({ op: 'move', from, to });
+    }
+  };
 
   // Archive audit file if exists
   const auditRel = `.planning/${version}-MILESTONE-AUDIT.md`;
   if (fs.existsSync(path.join(cwd, auditRel))) {
-    ops.push({ op: 'move', from: auditRel, to: `${MILESTONE_ARCHIVE_REL}/${version}-MILESTONE-AUDIT.md` });
+    moveOnce(auditRel, `${MILESTONE_ARCHIVE_REL}/${version}-MILESTONE-AUDIT.md`);
   }
 
-  // Create/append MILESTONES.md entry
+  // Create/append MILESTONES.md entry, unless the file already holds this version's heading: an entry `milestone put`
+  // wrote, one an earlier run appended, or a legacy `## 1.0 ...` one. Then the file is kept byte for byte.
   const accomplishmentsList = accomplishments.map(a => `- ${a}`).join('\n');
   const objectivesLine = objectiveCount > 0
     ? `${objectiveCount} objectives (${objectiveNumbers.join(', ')}), ${totalJobs} plans, ${totalTasks} tasks`
     : '0 objectives, 0 plans, 0 tasks';
-  const milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Objectives completed:** ${objectivesLine}\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n---\n\n`;
-  if (fs.existsSync(milestonesPath)) {
-    ops.push({ op: 'write', path: MILESTONES_REL, content: fs.readFileSync(milestonesPath, 'utf-8') + '\n' + milestoneEntry, action: 'append' });
+  let milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Objectives completed:** ${objectivesLine}\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n---\n\n`;
+  const existingMilestones = fs.existsSync(milestonesPath) ? fs.readFileSync(milestonesPath, 'utf-8') : null;
+  if (existingMilestones !== null && new RegExp(milestoneHeadingPattern(version), 'm').test(existingMilestones)) {
+    kept.push({ path: MILESTONES_REL, reason: 'entry_exists' });
+    milestoneEntry = null;
+  } else if (existingMilestones !== null) {
+    ops.push({ op: 'write', path: MILESTONES_REL, content: existingMilestones + '\n' + milestoneEntry, action: 'append' });
   } else {
     ops.push({ op: 'write', path: MILESTONES_REL, content: `# Milestones\n\n${milestoneEntry}`, action: 'create' });
   }
@@ -602,7 +636,7 @@ function planMilestoneComplete(cwd, version, options) {
     const currentPrefix = '.planning/objectives/';
     const toArchive = scope.objectives.filter(o => o.dir && o.dir.startsWith(currentPrefix) && (o.status_hint === 'dir' || o.status_hint === 'cancelled'));
     for (const o of toArchive) {
-      ops.push({ op: 'move', from: o.dir, to: `${MILESTONE_ARCHIVE_REL}/${version}-objectives/${path.basename(o.dir)}` });
+      moveOnce(o.dir, `${MILESTONE_ARCHIVE_REL}/${version}-objectives/${path.basename(o.dir)}`);
     }
   }
 

@@ -11,5 +11,5 @@ tags: [milestone-complete, dry-run, idempotence]
 
 ## Progress
 - [x] Task 1: Fixture builders for dry-run and re-run projects — 6f6f5f95
-- [x] Task 2: Plan, apply and --dry-run (tests 1-6) — RED 07e1c191, GREEN (this commit)
-- [ ] Task 3: Re-run safety and version normalisation (tests 7-14) — next step: add tests R7-R13 to milestone-complete.test.cjs and TE test 14 to text-escape.test.cjs (RED), then milestoneHeadingPattern in text-escape.cjs and the keep rules (exists / entry_exists / destination_exists) plus normaliseVersion in planMilestoneComplete in roadmap.cjs
+- [x] Task 2: Plan, apply and --dry-run (tests 1-6) — RED 07e1c191, GREEN 21d1841d
+- [x] Task 3: Re-run safety and version normalisation (tests 7-14) — RED cc8012e6, GREEN (this commit)
