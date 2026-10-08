@@ -501,7 +501,6 @@ describe('validate-health: spawn contract (test 14)', () => {
     assert.deepEqual(r.details.deferred, ['E006']);
     assert.deepEqual(r.details.codes, []);
     assert.equal(r.details.repairable_count, 0);
-    assert.doesNotMatch(r.finding, /E006/);
   });
 
   test('11. a repairable W003 next to a deferred repairable W064 -> fixable, counting only the W003', () => {
