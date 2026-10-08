@@ -1,6 +1,6 @@
 {
   "current_objective": "68",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -1175,6 +1175,11 @@
       "objective": "68",
       "summary": "Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case",
       "rationale": "Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer"
+    },
+    {
+      "objective": "68",
+      "summary": "68-06: a store dry run's headline is suppressed when the result has dry_run and prose, so stdout opens with the DRY RUN banner",
+      "rationale": null
     }
   ],
   "blockers": [
