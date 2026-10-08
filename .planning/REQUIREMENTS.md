@@ -72,3 +72,28 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 | Requirement | Objective | Status |
 |---|---|---|
+| REL-01 | Objective 65 | Pending |
+| REL-02 | Objective 65 | Pending |
+| EST-09 | Objective 66 | Pending |
+| EST-10 | Objective 67 | Pending |
+| TOOL-01 | Objective 68 | Pending |
+| TOOL-02 | Objective 68 | Pending |
+| TOOL-03 | Objective 68 | Pending |
+| TOOL-04 | Objective 68 | Pending |
+| TOOL-05 | Objective 68 | Pending |
+| TOOL-06 | Objective 69 | Pending |
+| TOOL-09 | Objective 69 | Pending |
+| TOOL-10 | Objective 69 | Pending |
+| TOOL-07 | Objective 70 | Pending |
+| TOOL-08 | Objective 70 | Pending |
+| SDR-09 | Objective 71 | Pending |
+| SDR-10 | Objective 71 | Pending |
+| INST-01 | Objective 72 | Pending |
+| HND-01 | Objective 73 | Pending |
+| HND-02 | Objective 73 | Pending |
+| HND-03 | Objective 73 | Pending |
+| OPS-01 | Objective 74 | Pending |
+| OPS-02 | Objective 74 | Pending |
+| OPS-03 | Objective 74 | Pending |
+| EST-11 | Objective 75 | Pending |
+| TODO-01 | Objective 75 | Pending |
