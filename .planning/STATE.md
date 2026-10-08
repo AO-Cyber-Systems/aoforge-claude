@@ -59,7 +59,8 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 66 — Executor token stamp (completed 2026-10-08, 4/4 TRDs)
 **Objective complete:** 67 — Minutes recalibration (completed 2026-10-08, 9/9 TRDs)
 **Objective complete:** 68 — Milestone and objective verbs (completed 2026-10-08, 7/7 TRDs)
-**Status:** Objective 69 executed — 6/6 TRDs complete, ready for verification
+**Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
+**Status:** Objective 69 complete (verified 3/3); Objective 70 (CLI defects and hook shape) is next
 
 ## Branch State (post-merge)
 
