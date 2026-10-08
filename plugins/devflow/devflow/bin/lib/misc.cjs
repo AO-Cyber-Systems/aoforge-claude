@@ -299,6 +299,9 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
       hasCheckpoints = true;
     }
 
+    // TRD 70-01: --gaps-only filters on this; absent means a planned (non-gap) TRD.
+    const gapClosure = fm.gap_closure === true || String(fm.gap_closure ?? '').trim().toLowerCase() === 'true';
+
     // Parse files_modified (TRD key; legacy files-modified accepted)
     let filesModified = [];
     const fmFiles = fm.files_modified ?? fm['files-modified'];
@@ -313,6 +316,7 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
       id: jobId,
       wave,
       autonomous,
+      gap_closure: gapClosure,
       objective: fm.objective || null,
       files_modified: filesModified,
       task_count: taskCount,

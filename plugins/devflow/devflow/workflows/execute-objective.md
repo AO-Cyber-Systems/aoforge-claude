@@ -245,9 +245,9 @@ Load plan inventory with wave grouping in one call:
 JOB_INDEX=$(node ~/.claude/devflow/bin/df-tools.cjs objective-job-index "${OBJECTIVE_NUMBER}")
 ```
 
-Parse JSON for: `objective`, `plans[]` (each with `id`, `wave`, `autonomous`, `objective`, `files_modified`, `task_count`, `has_summary`), `waves` (map of wave number → plan IDs), `incomplete`, `has_checkpoints`.
+Parse JSON for: `objective`, `jobs[]` (each with `id`, `wave`, `autonomous`, `gap_closure`, `objective`, `files_modified`, `task_count`, `has_summary`), `waves` (map of wave number → plan IDs), `incomplete`, `has_checkpoints`.
 
-**Filtering:** Skip plans where `has_summary: true`. If `--gaps-only`: also skip non-gap_closure plans. If all filtered: "No matching incomplete jobs" → exit.
+**Filtering:** Skip plans where `has_summary: true`. If `--gaps-only`: also skip jobs whose `gap_closure` is not `true`. If all filtered: "No matching incomplete jobs" → exit.
 
 Report:
 ```
