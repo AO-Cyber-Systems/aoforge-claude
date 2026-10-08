@@ -53,6 +53,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
+try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 const { execFileSync, spawn, spawnSync } = require('child_process');
 
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..');

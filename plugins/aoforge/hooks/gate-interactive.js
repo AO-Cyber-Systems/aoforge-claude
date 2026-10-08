@@ -35,6 +35,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
+try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
 // Patterns for commands that require a TTY. Each `match` regex requires
 // `${CMD_POS}` at the front so we only fire when the interactive command sits

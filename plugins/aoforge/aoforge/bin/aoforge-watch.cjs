@@ -35,6 +35,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+require('./lib/compat.cjs').aliasLegacyEnv();
 const { spawn } = require('child_process');
 
 const state = require('./lib/watcher-state.cjs');

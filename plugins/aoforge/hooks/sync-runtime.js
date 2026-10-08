@@ -28,6 +28,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
+try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
 // Objective 45: load the shared digest module from THIS hook's own plugin tree, not from
 // CLAUDE_PLUGIN_ROOT (a stub plugin root must still load it). Fail-safe: any load error leaves

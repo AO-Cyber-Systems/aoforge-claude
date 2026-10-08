@@ -224,6 +224,10 @@
 
 // ─── Module Imports ───────────────────────────────────────────────────────────
 
+// Objective 72: the legacy environment prefix keeps working for one release (the new prefix
+// wins when both are set). First, so no module below reads the environment before it runs.
+require('./lib/compat.cjs').aliasLegacyEnv();
+
 const { error, parseIncludeFlag } = require('./lib/helpers.cjs');
 const { cmdConfigEnsureSection, cmdConfigSet, cmdConfigGet } = require('./lib/config.cjs');
 const {

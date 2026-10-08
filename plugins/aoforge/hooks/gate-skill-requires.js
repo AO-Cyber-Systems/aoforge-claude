@@ -48,6 +48,8 @@
 
 const fs = require('fs');
 const path = require('path');
+// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
+try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
 const LIB_PATH = path.join(__dirname, '..', 'aoforge', 'bin', 'lib', 'skill-requires.cjs');
 const DEFAULT_SKILLS_DIR = path.join(__dirname, '..', 'skills');
