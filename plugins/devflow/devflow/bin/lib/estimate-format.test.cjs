@@ -867,3 +867,62 @@ describe('9: backtestReport', () => {
     assert.equal(JSON.stringify(FIVE), before);
   });
 });
+
+// ─── Table cells round-trip backslash and pipe (quick 33) ─────────────────────
+
+/**
+ * cellsOf(row) -> the trimmed cells of one markdown table row, split on pipes that are NOT
+ * escaped. On a backslash the next character is skipped (it is escaped); on a pipe a cell closes.
+ * The empty leading and trailing cells (the row's outer pipes) are dropped.
+ */
+function cellsOf(row) {
+  const cells = [];
+  let current = '';
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '\\' && i + 1 < row.length) {
+      current += ch + row[i + 1];
+      i += 1;
+    } else if (ch === '|') {
+      cells.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current);
+  return cells.slice(1, -1).map((c) => c.trim());
+}
+const unescapeCell = (c) => c.replace(/\\(.)/g, '$1');
+
+describe('table cells round-trip backslash and pipe (quick 33)', () => {
+  test('a milestone objective named a\\|b stays one cell, and the cell unescapes to the original label', () => {
+    const result = structuredClone(MS_RESULT);
+    result.objectives[0].name = 'a\\|b';
+    const lines = fmt.milestoneTable(result).split('\n');
+    const header = lines[0];
+    const row = lines.find((line) => line.startsWith('| 80 '));
+    assert.ok(row, lines.join('\n'));
+    assert.equal(cellsOf(header).length, 6);
+    assert.equal(cellsOf(row).length, cellsOf(header).length, row);
+    assert.equal(unescapeCell(cellsOf(row)[0]), '80 a\\|b');
+  });
+
+  test('a backtest objective named a\\|b stays one cell, and the cell unescapes to the original label', () => {
+    const result = structuredClone(FIVE);
+    result.objectives[0].name = 'a\\|b';
+    const label = `${result.objectives[0].objective} a\\|b`;
+    const report = fmt.backtestReport(result);
+    const lines = report.split('\n');
+    const from = lines.indexOf('### Executor estimates against actuals');
+    assert.notEqual(from, -1, report);
+    const section = lines.slice(from + 1);
+    const header = section.find((line) => line.startsWith('| Objective |'));
+    assert.ok(header, report);
+    const row = section.find((line) => line.startsWith(`| ${result.objectives[0].objective} `));
+    assert.ok(row, report);
+    assert.equal(cellsOf(header).length, 11);
+    assert.equal(cellsOf(row).length, cellsOf(header).length, row);
+    assert.equal(unescapeCell(cellsOf(row)[0]), label);
+  });
+});
