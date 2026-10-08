@@ -71,9 +71,22 @@ function gitEnv() {
   return env;
 }
 
-/** Run a plain command line the way the harness would (one command per call). */
-function sh(cmd, cwd) {
-  return spawnSync('sh', ['-c', cmd], { cwd, env: gitEnv(), encoding: 'utf8' });
+// A runnable documented line is plain words (CATEGORIES admits nothing else), so splitting on whitespace and spawning
+// with no shell runs the same command `sh -c` would. Anything a shell would interpret fails here instead of running
+// differently. (CodeQL js/shell-command-constructed-from-input; same approach as 54-04 Case V1.)
+const SAFE_WORD = /^[A-Za-z0-9_@%+=:,./-]+$/;
+
+function argvOf(cmd) {
+  const argv = cmd.trim().split(/\s+/);
+  const bad = argv.filter((w) => !SAFE_WORD.test(w));
+  assert.deepEqual(bad, [], `documented command needs a shell to run: ${cmd}`);
+  assert.ok(!argv[0].includes('='), `documented command starts with an env assignment: ${cmd}`);
+  return argv;
+}
+
+/** Run one command as argv, no shell (one command per call, as the harness does). */
+function runArgv(argv, cwd) {
+  return spawnSync(argv[0], argv.slice(1), { cwd, env: gitEnv(), encoding: 'utf8' });
 }
 
 /** Run git, asserting success. */
@@ -306,10 +319,10 @@ function replay(root, documented, planId = '07-01') {
   assert.deepEqual(unknown, [], 'the documented merge sequence holds a command this replay does not know');
   const by = (cat) => cmds.filter((c) => classify(c) === cat);
 
-  const step = (cmd, { run = true, runAs = cmd } = {}) => {
+  const step = (cmd, { run = true, argv = null } = {}) => {
     const verdict = runHook(cmd, root);
     assert.equal(verdict.denied, false, `gate-commits denied a documented command: ${cmd}\n${verdict.reason}`);
-    return run ? sh(runAs, root) : null;
+    return run ? runArgv(argv || argvOf(cmd), root) : null;
   };
 
   const merges = by('merge');
@@ -342,11 +355,7 @@ function replay(root, documented, planId = '07-01') {
         // The hook sees the documented line; the run goes through this repository's df-tools, because the
         // home mirror has no `merge-driver` until release. `resolve` stages the file itself.
         const documentedLine = resolve.split('<planning_path>').join(p);
-        const repoLine = documentedLine.replace(
-          'node ~/.claude/devflow/bin/df-tools.cjs',
-          `${JSON.stringify(process.execPath)} ${JSON.stringify(REPO_BIN)}`
-        );
-        const resolved = step(documentedLine, { runAs: repoLine });
+        const resolved = step(documentedLine, { argv: [process.execPath, REPO_BIN, 'merge-driver', 'resolve', p] });
         assert.equal(resolved.status, 0, `merge-driver resolve ${p} failed: ${resolved.stderr}${resolved.stdout}`);
       }
       const done = step(complete);
