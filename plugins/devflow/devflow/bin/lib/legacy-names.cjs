@@ -3,8 +3,8 @@
 // The single source of the DevFlow -> AOForge name map (objective 72).
 //
 // NAMES holds the current (AOForge) form of every name; LEGACY holds the old
-// (DevFlow) form. Legacy names may be spelled ONLY here, in
-// bin/lib/__fixtures__/legacy-*.cjs and in *.legacy.test.* files. Every other
+// (DevFlow) form. Legacy names may be spelled ONLY here, in the legacy-*.cjs files of
+// the lib fixtures directory and in *.legacy.test.* files. Every other
 // module builds its legacy strings from LEGACY (see compat.cjs).
 //
 // The shims that read LEGACY are removed in SHIM_REMOVAL.

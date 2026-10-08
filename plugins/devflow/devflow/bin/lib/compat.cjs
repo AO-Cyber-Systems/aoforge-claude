@@ -1,0 +1,170 @@
+'use strict';
+
+// One-release shim primitives for the rename to AOForge (objective 72, INST-03).
+//
+// Each primitive keeps one old surface working next to its new name:
+//   - aliasLegacyEnv     the old environment-variable prefix is still honored
+//   - planningDirName    a project's planning directory may be the new one or the legacy one
+//   - findProjectRoot    a project root is a directory holding either planning directory
+//   - isOwnAgentType     gates treat both agent-type namespaces as their own
+//   - userDotFile        a file under the user's dot directory is read from the old
+//                        location when the new one has none
+//   - runtimeHome        the runtime mirror under ~/.claude, new and old
+//
+// The new name always wins: when both exist, the new one is used. Nothing here caches a
+// result (a migration can move the planning directory mid-process) and nothing here is
+// wired into a caller; later TRDs of the objective adopt these.
+//
+// This module spells no old name. Every one is built from LEGACY in legacy-names.cjs,
+// which is also where SHIM_REMOVAL records when the shims go (the release after 3.0.0).
+
+const fs = require('fs');
+const path = require('path');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+
+// ─── stat helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * stat that reports absence as null. A path below a non-directory (ENOTDIR) is
+ * absence too; any other error propagates.
+ */
+function statOrNull(p, fsImpl) {
+  try {
+    return fsImpl.statSync(p, { throwIfNoEntry: false }) || null;
+  } catch (err) {
+    if (err && err.code === 'ENOTDIR') return null;
+    throw err;
+  }
+}
+
+function isDir(p, fsImpl) {
+  const st = statOrNull(p, fsImpl);
+  return st !== null && st.isDirectory();
+}
+
+function isFile(p, fsImpl) {
+  const st = statOrNull(p, fsImpl);
+  return st !== null && st.isFile();
+}
+
+// ─── environment ──────────────────────────────────────────────────────────────
+
+/**
+ * Copy each old-prefix variable to the new prefix when the new one is unset.
+ * The new-prefix value wins when both are set. The old key is never deleted.
+ *
+ * @param {object} [env=process.env]
+ * @returns {string[]} the sorted names that were set
+ */
+function aliasLegacyEnv(env = process.env) {
+  const aliased = [];
+  for (const key of Object.keys(env)) {
+    if (!key.startsWith(LEGACY.envPrefix)) continue;
+    const suffix = key.slice(LEGACY.envPrefix.length);
+    if (suffix === '' || env[key] === undefined) continue;
+    const target = NAMES.envPrefix + suffix;
+    if (env[target] !== undefined) continue;
+    env[target] = env[key];
+    aliased.push(target);
+  }
+  return aliased.sort();
+}
+
+// ─── planning directory ───────────────────────────────────────────────────────
+
+// Destructured so the literal-name source guard stays meaningful: a dotted access to the
+// directory key would itself contain the legacy directory's spelling as a substring.
+const { planningDir: NEW_PLAN_DIR } = NAMES;
+const { planningDir: OLD_PLAN_DIR } = LEGACY;
+
+function hasNewPlanDir(root, fsImpl) {
+  return isDir(path.join(root, NEW_PLAN_DIR), fsImpl);
+}
+
+function hasOldPlanDir(root, fsImpl) {
+  return isDir(path.join(root, OLD_PLAN_DIR), fsImpl);
+}
+
+/**
+ * The name of a project's planning directory: the new one when it is a directory,
+ * else the legacy one when that is a directory, else the new one (where a new
+ * project is created).
+ */
+function planningDirName(root, fsImpl = fs) {
+  if (hasNewPlanDir(root, fsImpl)) return NEW_PLAN_DIR;
+  if (hasOldPlanDir(root, fsImpl)) return OLD_PLAN_DIR;
+  return NEW_PLAN_DIR;
+}
+
+function planningRoot(root, fsImpl = fs) {
+  return path.join(root, planningDirName(root, fsImpl));
+}
+
+/** True only for a root that has the legacy planning directory and not the new one. */
+function isLegacyPlanning(root, fsImpl = fs) {
+  return !hasNewPlanDir(root, fsImpl) && hasOldPlanDir(root, fsImpl);
+}
+
+/** True when a root holds both planning directories (an unfinished migration). */
+function bothPlanningDirs(root, fsImpl = fs) {
+  return hasNewPlanDir(root, fsImpl) && hasOldPlanDir(root, fsImpl);
+}
+
+/**
+ * The nearest directory, from `start` upward, that holds either planning directory.
+ * `maxUp` bounds how many parents are inspected after `start`.
+ *
+ * @returns {string|null}
+ */
+function findProjectRoot(start, { fsImpl = fs, maxUp = 64 } = {}) {
+  let dir = path.resolve(start);
+  for (let i = 0; i <= maxUp; i++) {
+    if (hasNewPlanDir(dir, fsImpl) || hasOldPlanDir(dir, fsImpl)) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
+// ─── agents ───────────────────────────────────────────────────────────────────
+
+/** True for an agent type in either namespace. */
+function isOwnAgentType(t) {
+  return typeof t === 'string' && (t.startsWith(NAMES.agentNs) || t.startsWith(LEGACY.agentNs));
+}
+
+// ─── user dot directory and runtime home ──────────────────────────────────────
+
+/**
+ * Path of a file under the user's dot directory: the new location when the file
+ * exists there, else the old one when it exists there, else the new location.
+ */
+function userDotFile(home, name, fsImpl = fs) {
+  const current = path.join(home, NAMES.userDotDir, name);
+  if (isFile(current, fsImpl)) return current;
+  const legacy = path.join(home, LEGACY.userDotDir, name);
+  if (isFile(legacy, fsImpl)) return legacy;
+  return current;
+}
+
+function runtimeHome(home) {
+  return path.join(home, '.claude', NAMES.runtimeDir);
+}
+
+function legacyRuntimeHome(home) {
+  return path.join(home, '.claude', LEGACY.runtimeDir);
+}
+
+module.exports = {
+  aliasLegacyEnv,
+  planningDirName,
+  planningRoot,
+  isLegacyPlanning,
+  bothPlanningDirs,
+  findProjectRoot,
+  isOwnAgentType,
+  userDotFile,
+  runtimeHome,
+  legacyRuntimeHome,
+};
