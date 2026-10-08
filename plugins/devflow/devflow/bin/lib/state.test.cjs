@@ -564,6 +564,19 @@ describe('48-13 characterization — local-mode STATE.md mutators write today\'s
     assert.equal(readFile(dir, 'state.json'), sjBytes({ blockers: ['Flaky CI'] }));
   });
 
+  test('2f2. add-blocker and resolve-blocker find a heading written "## Blockers / Concerns" (spaced slash, as this repo\'s STATE.md has it)', () => {
+    const spaced = edit(CHAR_STATE, '### Blockers/Concerns', '## Blockers / Concerns');
+    const dir = tmpProject(spaced);
+    const added = run(['state', 'add-blocker', '--text', 'Disk full'], dir);
+    assert.equal(added.status, 0, added.stderr);
+    assert.deepEqual(added.json, { added: true, blocker: 'Disk full' });
+    assert.equal(readFile(dir, 'STATE.md'), edit(spaced, '- Flaky CI\n', '- Flaky CI\n- Disk full\n'));
+    const resolved = run(['state', 'resolve-blocker', '--text', 'disk full'], dir);
+    assert.equal(resolved.status, 0, resolved.stderr);
+    assert.deepEqual(resolved.json, { resolved: true, blocker: 'disk full' });
+    assert.equal(readFile(dir, 'STATE.md'), spaced);
+  });
+
   test('2g. state record-session → bold session fields rewritten; state.json untouched', () => {
     const dir = charProject();
     const r = run(['state', 'record-session', '--stopped-at', 'halted', '--resume-file', '.planning/X.md'], dir);
