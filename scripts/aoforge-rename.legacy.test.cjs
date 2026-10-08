@@ -40,9 +40,285 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
 
 const rename = require('./aoforge-rename.cjs');
 const { mapPath, rewriteNames, rewritePlanning, classifyToken, isSkipped, processFile } = rename;
+const { scratchRepo } = require('./__fixtures__/legacy-rename-fixtures.cjs');
+
+const SCRIPT = path.join(__dirname, 'aoforge-rename.cjs');
+
+// ─── CLI helpers ─────────────────────────────────────────────────────────────
+
+function cleanEnv() {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (k.startsWith('GIT_')) delete env[k];
+  return env;
+}
+
+/** Run the codemod with cwd = the scratch repo. */
+function run(repo, ...args) {
+  const r = spawnSync(process.execPath, [SCRIPT, ...args], {
+    cwd: repo.root,
+    env: cleanEnv(),
+    encoding: 'utf8',
+  });
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+/** Build a scratch repo, run `fn`, always clean up. */
+function withRepo(fn, extra) {
+  const repo = scratchRepo(extra);
+  try {
+    return fn(repo);
+  } finally {
+    repo.cleanup();
+  }
+}
+
+const read = (repo, rel) => fs.readFileSync(path.join(repo.root, rel), 'utf8');
+const lastLine = (s) => s.trim().split('\n').pop();
+const porcelain = (repo) => repo.git('status', '--porcelain');
+
+// ─── 1. inventory ────────────────────────────────────────────────────────────
+
+test('1. --rules names --inventory lists each distinct token once and ends with unclassified=0', () => {
+  withRepo((repo) => {
+    const r = run(repo, '--rules', 'names', '--inventory');
+    assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+    assert.strictEqual(lastLine(r.stdout), 'unclassified=0');
+    const rows = r.stdout.trim().split('\n').slice(0, -1).map((l) => l.split('\t'));
+    for (const row of rows) assert.strictEqual(row.length, 4, row.join('|'));
+    const keys = rows.map((row) => row.slice(0, 3).join('\t'));
+    assert.strictEqual(new Set(keys).size, keys.length, 'a token/action pair is listed twice');
+    const by = Object.fromEntries(rows.map((row) => [row[0], row]));
+    assert.deepStrictEqual(by['devflow-watch'].slice(1, 3), ['rename', 'aoforge-watch']);
+    assert.strictEqual(by['devflowops'][1], 'preserve');
+    const cloud = rows.find((row) => row[0].includes('devflow.cloud'));
+    assert.strictEqual(cloud[1], 'preserve');
+    assert.strictEqual(by["'devflow-test'"][1], 'preserve');
+    assert.strictEqual(by["'.devflow'"][1], 'manual');
+    assert.ok(Number(by['devflow-watch'][3]) >= 1);
+    assert.strictEqual(porcelain(repo), '', 'an inventory must not touch the tree');
+  });
+});
+
+test('1. --rules planning --inventory also ends with unclassified=0', () => {
+  withRepo((repo) => {
+    const r = run(repo, '--rules', 'planning', '--inventory');
+    assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+    assert.strictEqual(lastLine(r.stdout), 'unclassified=0');
+    assert.match(r.stdout, /^\.planning\/STATE\.md\trename\t\.aoforge\/STATE\.md\t\d+$/m);
+  });
+});
+
+// ─── 2. unclassified ─────────────────────────────────────────────────────────
+
+test('2. an unknown compound makes --inventory exit 1 and names the token', () => {
+  withRepo(
+    (repo) => {
+      const r = run(repo, '--rules', 'names', '--inventory');
+      assert.strictEqual(r.status, 1);
+      assert.match(r.stdout, /^devflowzap\tunclassified\t/m);
+      assert.strictEqual(lastLine(r.stdout), 'unclassified=1');
+    },
+    { 'lib/zap.js': "const x = 'devflowzap';\n" },
+  );
+});
+
+// ─── 3. dry run ──────────────────────────────────────────────────────────────
+
+test('3. the default is a dry run that lists moves, rewrites and residuals and changes nothing', () => {
+  withRepo((repo) => {
+    const r = run(repo, '--rules', 'names');
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^move plugins\/devflow -> plugins\/aoforge$/m);
+    assert.match(r.stdout, /^move plugins\/aoforge\/devflow -> plugins\/aoforge\/aoforge$/m);
+    assert.match(r.stdout, /^move \S*df-tools\.cjs -> \S*aof-tools\.cjs$/m);
+    assert.match(r.stdout, /^move \.github\/workflows\/devflow-checks\.yml -> \.github\/workflows\/aoforge-checks\.yml$/m);
+    assert.match(r.stdout, /^rewrite \S*SKILL\.md \(\d+\)$/m);
+    assert.match(r.stdout, /^rewrite README\.md \(1\)$/m);
+    assert.match(r.stdout, /residuals=\d+$/);
+    assert.strictEqual(porcelain(repo), '');
+  });
+});
+
+test('3. skipped files are not rewritten and are not listed', () => {
+  withRepo((repo) => {
+    const r = run(repo, '--rules', 'names');
+    for (const skipped of ['CHANGELOG.md', 'PROPOSAL-x.md', 'legacy-names.cjs', 'x.legacy.test.cjs', 'x.bin', '.planning/STATE.md']) {
+      assert.ok(!new RegExp(`^rewrite \\S*${skipped.replace('.', '\\.')}`, 'm').test(r.stdout), skipped);
+    }
+    assert.match(r.stdout, /^rewrite docs\/USER-GUIDE\.md \(\d+\)$/m);
+  });
+});
+
+// ─── 4. write ────────────────────────────────────────────────────────────────
+
+test('4. --rules names --write moves with git mv, keeps the executable bit and is idempotent', () => {
+  withRepo((repo) => {
+    const w = run(repo, '--rules', 'names', '--write');
+    assert.strictEqual(w.status, 0, w.stderr + w.stdout);
+
+    const status = porcelain(repo);
+    assert.match(status, /^R/m, status);
+    assert.ok(fs.existsSync(path.join(repo.root, 'plugins/aoforge/aoforge/bin/aof-tools.cjs')));
+    assert.ok(!fs.existsSync(path.join(repo.root, 'plugins/devflow')));
+
+    const stub = repo.git('ls-files', '-s', 'plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/bin/aof-tools');
+    assert.match(stub, /^100755 /, stub);
+
+    assert.match(read(repo, 'README.md'), /^# AOForge$/m);
+    assert.match(read(repo, 'README.md'), /devflowops/);
+    assert.match(read(repo, 'README.md'), /aoforge-claude/);
+    assert.match(read(repo, 'site/hugo.toml'), /devflow\.cloud/);
+    assert.match(read(repo, 'plugins/aoforge/skills/quick/SKILL.md'), /^# AOF ► QUICK$/m);
+    assert.match(read(repo, 'plugins/aoforge/aoforge/bin/aof-tools.cjs'), /AOFORGE_X/);
+    assert.match(read(repo, 'plugins/aoforge/hooks/a.js'), /\.\.\/aoforge\/bin\/lib\/hook-marker-store\.cjs/);
+
+    // skipped and preserved content is byte for byte what it was
+    assert.match(read(repo, 'CHANGELOG.md'), /DevFlow first release/);
+    assert.match(read(repo, 'docs/PROPOSAL-x.md'), /DevFlow proposal/);
+    assert.match(read(repo, '.planning/STATE.md'), /DevFlow state/);
+    assert.match(read(repo, 'plugins/aoforge/aoforge/bin/lib/legacy-names.cjs'), /DevFlow/);
+    assert.match(read(repo, 'plugins/aoforge/aoforge/bin/lib/x.legacy.test.cjs'), /\/devflow:quick/);
+    assert.strictEqual(read(repo, 'assets/x.bin'), 'devflow\u0000DevFlow df-tools .planning');
+    assert.match(
+      read(repo, 'plugins/aoforge/aoforge/bin/lib/__fixtures__/stack-fleet-tables.cjs'),
+      /repo: 'devflow-test'.*\n[\s\S]*\/aoforge:quick/,
+    );
+    assert.match(read(repo, 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js'), /'\.devflow', '\.planning'/);
+
+    const again = run(repo, '--rules', 'names');
+    assert.strictEqual(again.status, 0, again.stderr);
+    assert.match(lastLine(again.stdout), /^moves=0 rewrites=0 /);
+
+    const writeAgain = run(repo, '--rules', 'names', '--write');
+    assert.strictEqual(writeAgain.status, 0, writeAgain.stderr);
+    assert.match(lastLine(writeAgain.stdout), /^moves=0 rewrites=0 /);
+  });
+});
+
+// ─── 5. planning ─────────────────────────────────────────────────────────────
+
+test('5. --rules planning --write after names uses planningRoot with a relative import per file', () => {
+  withRepo((repo) => {
+    assert.strictEqual(run(repo, '--rules', 'names', '--write').status, 0);
+
+    const dry = run(repo, '--rules', 'planning');
+    assert.strictEqual(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /^rewrite plugins\/aoforge\/aoforge\/bin\/lib\/sample\.cjs \(\d+\)$/m);
+
+    const w = run(repo, '--rules', 'planning', '--write');
+    assert.strictEqual(w.status, 0, w.stderr + w.stdout);
+
+    const sample = read(repo, 'plugins/aoforge/aoforge/bin/lib/sample.cjs');
+    assert.match(sample, /path\.join\(planningRoot\(cwd\), 'STATE\.md'\)/);
+    assert.match(sample, /return planningRoot\(cwd\);/);
+    assert.match(sample, /path\.resolve\(planningRoot\(ctx\.root\), 'objectives'\)/);
+    assert.strictEqual((sample.match(/const \{ planningRoot \} = require\('\.\/compat\.cjs'\);/g) || []).length, 1);
+    assert.match(sample, /const CONFIG = '\.aoforge\/config\.json';/);
+    assert.match(sample, /PLANNING_RE = \/\\\/\\\.planning\\\/\/;/, 'a regex literal is left for a human');
+
+    assert.match(read(repo, 'plugins/aoforge/hooks/a.js'), /require\('\.\.\/aoforge\/bin\/lib\/compat\.cjs'\)/);
+    assert.match(read(repo, 'plugins/aoforge/aoforge/bin/aof-tools.cjs'), /require\('\.\/lib\/compat\.cjs'\)/);
+    assert.match(read(repo, 'plugins/aoforge/skills/quick/SKILL.md'), /\.aoforge\/STATE\.md/);
+
+    // history and the planning tree are untouched, so is the monorepo doctor line
+    assert.match(read(repo, '.planning/STATE.md'), /\.planning\/STATE\.md/);
+    assert.match(read(repo, 'CHANGELOG.md'), /\.planning\/STATE\.md/);
+    assert.match(read(repo, 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js'), /'\.planning'/);
+
+    const again = run(repo, '--rules', 'planning');
+    assert.match(lastLine(again.stdout), /^moves=0 rewrites=0 /);
+  });
+});
+
+// ─── 6. report ───────────────────────────────────────────────────────────────
+
+test('6. --report writes { rules, moves, rewrites, residuals } as JSON', () => {
+  withRepo((repo) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aof-report-'));
+    try {
+      const file = path.join(dir, 'report.json');
+      const r = run(repo, '--rules', 'names', '--report', file);
+      assert.strictEqual(r.status, 0, r.stderr);
+      const report = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.strictEqual(report.rules, 'names');
+      assert.ok(Array.isArray(report.moves) && report.moves.length >= 3);
+      assert.deepStrictEqual(report.moves[0], { kind: 'dir', from: 'plugins/devflow', to: 'plugins/aoforge' });
+      assert.ok(Array.isArray(report.rewrites) && report.rewrites.every((x) => x.file && x.count > 0));
+      const doctor = report.residuals.find((x) => x.file.endsWith('monorepo-doctor/lib/doctor.js'));
+      assert.ok(doctor, JSON.stringify(report.residuals));
+      assert.strictEqual(doctor.line, 2);
+      assert.match(doctor.reason, /\.aoforge/);
+      assert.match(doctor.text, /\.devflow/);
+      assert.strictEqual(porcelain(repo), '');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── 6b. --only ──────────────────────────────────────────────────────────────
+
+test('6b. --only restricts moves, rewrites and inventory to the given prefixes', () => {
+  withRepo((repo) => {
+    const site = run(repo, '--rules', 'names', '--only', 'site');
+    assert.strictEqual(site.status, 0, site.stderr);
+    assert.match(lastLine(site.stdout), /^moves=0 rewrites=1 /);
+    assert.match(site.stdout, /^rewrite site\/hugo\.toml \(1\)$/m);
+
+    const two = run(repo, '--rules', 'names', '--only', 'site', '--only', 'README.md');
+    assert.match(lastLine(two.stdout), /^moves=0 rewrites=2 /);
+
+    const inv = run(repo, '--rules', 'names', '--inventory', '--only', 'site');
+    assert.strictEqual(inv.status, 0);
+    assert.ok(!/devflow-watch/.test(inv.stdout));
+    assert.match(inv.stdout, /^\S*devflow\.cloud\S*\tpreserve\t/m);
+  });
+});
+
+test('6b. --rules planning --only leaves files outside the prefix untouched', () => {
+  withRepo((repo) => {
+    assert.strictEqual(run(repo, '--rules', 'names', '--write').status, 0);
+    const w = run(repo, '--rules', 'planning', '--write', '--only', 'plugins/aoforge/aoforge/bin');
+    assert.strictEqual(w.status, 0, w.stderr);
+    assert.match(read(repo, 'plugins/aoforge/aoforge/bin/lib/sample.cjs'), /planningRoot\(cwd\)/);
+    assert.match(read(repo, 'plugins/aoforge/hooks/a.js'), /path\.join\(cwd, '\.planning', '\.skill-active'\)/);
+  });
+});
+
+// ─── CLI argument handling ───────────────────────────────────────────────────
+
+test('an unknown flag, a missing --rules, a bad value or a non-git directory exit 1', () => {
+  withRepo((repo) => {
+    for (const args of [
+      ['--rules', 'names', '--bogus'],
+      ['--inventory'],
+      ['--rules', 'sideways'],
+      ['--rules', 'names', '--report'],
+      ['--rules', 'names', '--only'],
+      ['--rules', 'names', 'positional'],
+      ['--rules', 'names', '--write', '--inventory'],
+    ]) {
+      const r = run(repo, ...args);
+      assert.strictEqual(r.status, 1, args.join(' '));
+      assert.ok(r.stderr.length > 0, args.join(' '));
+    }
+  });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aof-nogit-'));
+  try {
+    const r = run({ root: dir }, '--rules', 'names', '--inventory');
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /git/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 // ─── 7. mapPath ──────────────────────────────────────────────────────────────
 
