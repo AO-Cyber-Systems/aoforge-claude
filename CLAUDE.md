@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+<!-- rename-guard:ignore-start -->
+> **Transition (objective 72):** this file describes the renamed AOForge source tree. Until AOForge 3.0.0 is installed (TRD 72-21) the live runtime is the installed DevFlow 2.15.0 plugin: run `node ~/.claude/devflow/bin/df-tools.cjs`, and this repo's planning tree stays at `.planning/`. 72-22 removes this note.
+<!-- rename-guard:ignore-end -->
+
 ## What This Is
 
 AOForge is a meta-prompting, context engineering, and spec-driven development system for Claude Code. It ships as a Claude Code plugin (`aoforge@aocyber`) installed via `/plugin` or the Claude Desktop plugin UI. Fork of GSD v1.20.4, maintained by AO Cyber Systems.

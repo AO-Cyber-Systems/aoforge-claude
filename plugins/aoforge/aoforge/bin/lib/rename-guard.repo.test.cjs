@@ -89,7 +89,7 @@ const IGNORE_START = ['rename-guard', 'ignore-start'].join(':');
 const IGNORE_END = ['rename-guard', 'ignore-end'].join(':');
 
 /** The only files allowed to hold an ignore region. */
-const IGNORE_REGION_FILES = ['docs/USER-GUIDE.md'];
+const IGNORE_REGION_FILES = ['CLAUDE.md', 'docs/USER-GUIDE.md'];
 
 class RenameGuardError extends Error {}
 
