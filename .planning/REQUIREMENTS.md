@@ -25,7 +25,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 - [x] **TOOL-03**: `objective remove` renumbering preserves the completion dates and other metadata of the objectives it renumbers.
 - [x] **TOOL-04**: `objective complete` reports `next_objective` and `is_last_objective` correctly when later objectives exist in ROADMAP.md.
 - [x] **TOOL-05**: `milestone-scope.cjs` resolves objective directories through the shared objective-number helpers (`objectiveDirMatches` / `objectiveNumPattern`), with no local parser.
-- [ ] **TOOL-06**: `doc put` never publishes stale content. `planning draft` reseeds a draft that is older than the live file, and `doc put` refuses a draft whose base is no longer the live file, naming the fix.
+- [x] **TOOL-06**: `doc put` never publishes stale content. `planning draft` reseeds a draft that is older than the live file, and `doc put` refuses a draft whose base is no longer the live file, naming the fix.
 - [ ] **TOOL-07**: The v1.5 audit's small CLI defects are fixed. `state update-progress` updates or errors (no silent no-op), `verify trd-pre <N>` resolves an existing objective, and `objective-job-index` reads `gap_closure` from TRD frontmatter.
 - [ ] **TOOL-08**: `verify-commits.js` SubagentStop output matches Claude Code's hook output schema, with a test that pins the shape.
 - [ ] **TOOL-09**: `validate health` and `doctor` flag a `.planning/.skill-active` marker that is tracked in git or stale, and `--repair` / `--fix` resolve it safely.
@@ -81,7 +81,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | TOOL-03 | Objective 68 | Complete |
 | TOOL-04 | Objective 68 | Complete |
 | TOOL-05 | Objective 68 | Complete |
-| TOOL-06 | Objective 69 | Pending |
+| TOOL-06 | Objective 69 | Complete |
 | TOOL-09 | Objective 69 | Pending |
 | TOOL-10 | Objective 69 | Pending |
 | TOOL-07 | Objective 70 | Pending |

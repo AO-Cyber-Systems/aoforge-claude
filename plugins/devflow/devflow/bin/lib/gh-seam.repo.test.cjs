@@ -24,7 +24,7 @@ const path = require('path');
 // Objective 48's planning modules (TRD 48-15): they reach GitHub only through the outbox, never ghWrite( or a spawn.
 const PLANNING_MODULES = [
   'planning-mode.cjs', 'planning-paths.cjs', 'planning-ledger.cjs', 'planning-verbs.cjs', 'planning-entity-verbs.cjs',
-  'planning-import.cjs', 'planning-verbs-cli.cjs', 'planning-drift.cjs', 'planning-audit.cjs',
+  'planning-import.cjs', 'planning-verbs-cli.cjs', 'planning-drift.cjs', 'planning-audit.cjs', 'planning-drafts.cjs',
 ];
 
 // objective 51 (TRD 51-08): the backfill migration lives under migrations/; guarded by its lib-relative path.

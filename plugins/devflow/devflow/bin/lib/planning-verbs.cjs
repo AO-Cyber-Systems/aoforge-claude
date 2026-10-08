@@ -67,6 +67,7 @@ const path = require('path');
 
 const planningMode = require('./planning-mode.cjs');
 const planningPaths = require('./planning-paths.cjs');
+const drafts = require('./planning-drafts.cjs');
 const ledger = require('./planning-ledger.cjs');
 const trdBulk = require('./trd-bulk.cjs');
 const outbox = require('./gh-outbox.cjs');
@@ -87,7 +88,7 @@ const { escapeRegExp } = require('./text-escape.cjs');
 const { EXIT, UNQUEUED_MARK } = storeCli;
 const { LOCAL, STORE } = planningMode;
 
-const DRAFTS_DIR = 'devflow-drafts';
+const { DRAFTS_DIR } = drafts;
 const NO_ISSUE_RE = /has no issue yet/;
 
 // gh-hierarchy's TRD_FILE_RE and resolveObjectiveDir, which it does not export: the same regex and the same
@@ -940,8 +941,13 @@ function docRefusal(rel, c) {
 }
 
 /**
- * docPut(root, {rel, text, message?, noFlush, noWait}) — `doc put`: any planning document with a wiki page
+ * docPut(root, {rel, text, from?, message?, noFlush, noWait}) — `doc put`: any planning document with a wiki page
  * (gh-wiki.pageForCachePath) that no other verb owns. Store mode queues a wiki-push of its page.
+ *
+ * `from` is where `text` was read from: the absolute path of the file, or '-' for stdin. A draft (planning-drafts.cjs)
+ * is refused as `stale draft` when the live file changed after it was seeded, before anything is written, queued or
+ * sent to gh. After a successful write the draft's base follows the published text. stdin and a file outside the
+ * drafts tree have no base and publish as before.
  */
 function docPut(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
@@ -955,7 +961,10 @@ function docPut(root, opts = {}) {
   if (ghWiki.pageForCachePath(rel) === null || c.verb !== 'doc put') return fail(docRefusal(rel, c), { rel });
   if (typeof o.text !== 'string') return fail('doc put needs the document text', { rel });
   const message = typeof o.message === 'string' && o.message.trim() !== '' ? o.message : `devflow: doc put ${rel}`;
-  return writeThrough(root, {
+  // Before writeThrough: a stale draft must not reach the cache file, the outbox or gh.
+  const chk = drafts.checkDraftBase(root, rel, o.from);
+  if (!chk.ok) return fail(chk.error, { rel }, { refused: chk.refused });
+  const r = writeThrough(root, {
     rel,
     text: o.text,
     verb: 'doc put',
@@ -963,6 +972,14 @@ function docPut(root, opts = {}) {
     noFlush: o.noFlush === true,
     noWait: o.noWait === true,
   });
+  if (!r.ok) return r;
+  try {
+    drafts.recordPublished(root, rel, o.from, o.text);
+  } catch (e) {
+    // The publish already happened; the draft will read as stale, and reseeding it is harmless.
+    return { ...r, warnings: [...(r.warnings || []), `draft base not updated for ${rel}: ${e.message}`] };
+  }
+  return r;
 }
 
 // ─── Drafts (D-13) ───────────────────────────────────────────────────────────
@@ -970,19 +987,12 @@ function docPut(root, opts = {}) {
 /**
  * draftPath(root, rel) — where an agent edits a planning file before handing it to a verb with `--from`:
  * `<os.tmpdir()>/devflow-drafts/<repoKey(main)>/<rel>`. The directory is created; the draft is seeded with the
- * current cache file when it exists and the draft does not (an existing draft is never overwritten).
- * Throws TypeError for an unsafe rel.
+ * current cache file when it does not exist. An edited draft whose base is still the live file is never overwritten;
+ * a stale one is reseeded and the replaced draft kept at `<draft>.stale` (planning-drafts.prepareDraft, which the
+ * CLI calls directly to report the reseed). Throws TypeError for an unsafe rel.
  */
 function draftPath(root, rel) {
-  const r = safeRel(rel);
-  const main = mainRoot(root) || path.resolve(String(root));
-  const file = path.join(os.tmpdir(), DRAFTS_DIR, outbox.repoKey(main), ...r.split('/'));
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  if (!fs.existsSync(file)) {
-    const cache = planningFile(main, r);
-    if (fs.existsSync(cache)) fs.copyFileSync(cache, file);
-  }
-  return file;
+  return drafts.prepareDraft(root, rel).path;
 }
 
 module.exports = {

@@ -41,6 +41,7 @@ const fs = require('fs');
 const path = require('path');
 
 const verbs = require('./planning-verbs.cjs');
+const drafts = require('./planning-drafts.cjs');
 const entity = require('./planning-entity-verbs.cjs');
 const planningImport = require('./planning-import.cjs');
 const backfill = require('./gh-backfill.cjs');
@@ -94,8 +95,8 @@ const flushOpts = (args) => ({ noFlush: has(args, '--no-flush'), noWait: has(arg
 
 const FROM_USAGE =
   'missing --from <path|->: pass the content as a file (--from <path>) or on stdin (--from -). ' +
-  'To change an existing planning file, `df-tools planning draft <rel>` prints a draft path seeded with it; ' +
-  'edit the draft, then pass it with --from.';
+  'To change an existing planning file, `df-tools planning draft <rel>` prints a draft path seeded with it ' +
+  '(reseeded when the live file has changed since); edit the draft, then pass it with --from.';
 
 /**
  * readFrom(args, {cwd?, stdin?}) — the verb's input: `--from <path>` (resolved against cwd) or `--from -` (stdin;
@@ -180,11 +181,11 @@ function unknown(group, sub, available, raw) {
   return report(group, usageResult(`Unknown ${group} subcommand${sub ? `: ${sub}` : ''}. Available: ${available}`), raw);
 }
 
-/** Read `--from` and run `fn(text)`, or report the usage error. */
+/** Read `--from` and run `fn(text, from)` (`from`: the absolute path read, or '-'), or report the usage error. */
 function withInput(verb, cwd, args, raw, io, fn) {
   const input = readFrom(args, { cwd, ...io });
   if (input.error) return report(verb, usageResult(input.error), raw);
-  return report(verb, fn(input.text), raw);
+  return report(verb, fn(input.text, input.from), raw);
 }
 
 function needs(verb, raw, usage) {
@@ -262,8 +263,8 @@ function cmdDoc(cwd, args, raw, io = {}) {
   const pos = positionals(rest);
   if (sub === 'put') {
     if (pos.length < 1) return needs('doc put', raw, 'doc put <rel-under-.planning> --from <path|-> [--message <text>]');
-    return withInput('doc put', cwd, rest, raw, io, (text) =>
-      verbs.docPut(cwd, { rel: pos[0], text, message: flagValue(rest, '--message'), ...flushOpts(rest) }));
+    return withInput('doc put', cwd, rest, raw, io, (text, from) =>
+      verbs.docPut(cwd, { rel: pos[0], text, from, message: flagValue(rest, '--message'), ...flushOpts(rest) }));
   }
   return unknown('doc', sub, 'put', raw);
 }
@@ -469,14 +470,26 @@ function cmdPlanningVerb(cwd, args, raw) {
   }
   if (sub === 'draft') {
     if (pos.length < 1) return needs('planning draft', raw, 'planning draft <rel-under-.planning>');
-    let file;
+    let res;
     try {
-      file = verbs.draftPath(cwd, pos[0]);
+      res = drafts.prepareDraft(cwd, pos[0]);
     } catch (e) {
       return report('planning draft', usageResult(e.message), raw);
     }
-    if (raw) process.stdout.write(`${JSON.stringify({ ok: true, rel: pos[0], path: file }, null, 2)}\n`);
-    else process.stdout.write(`${file}\n`);
+    if (raw) {
+      const { path: file, seeded, reseeded, stale_copy } = res;
+      process.stdout.write(`${JSON.stringify({ ok: true, rel: pos[0], path: file, seeded, reseeded, stale_copy }, null, 2)}\n`);
+    } else {
+      // stdout is only the path: callers capture it with DRAFT=$(df-tools planning draft <rel>).
+      process.stdout.write(`${res.path}\n`);
+      if (res.reseeded) {
+        line(
+          'stderr',
+          `planning draft: reseeded ${res.path} from .planning/${pos[0]}: the live file changed after the draft was ` +
+            `seeded. Your previous draft is at ${res.stale_copy}.`,
+        );
+      }
+    }
     return finish(EXIT.OK);
   }
   if (sub === 'import') {
