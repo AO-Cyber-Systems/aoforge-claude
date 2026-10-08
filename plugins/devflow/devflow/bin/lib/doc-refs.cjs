@@ -297,6 +297,7 @@ module.exports = {
   rewriteText,
   liveSkillNames,
   walkFiles,
+  globToRegExp: _globToRegExp,
   TOKEN_RE,
   DocRefsError,
   scanLegacyAgentPaths,
