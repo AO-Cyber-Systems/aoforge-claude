@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 1,
+  "current_job": 2,
   "total_jobs": 26,
   "progress_pct": 95,
   "status": "executing",
@@ -1319,6 +1319,11 @@
     {
       "objective": "72",
       "summary": "72-01 correction: objective 72 accepted as unscored for EST-11 (user reply: unscored); the earlier 'run state already recorded' entry came from the orchestrator's wave-start call and had no objective estimate",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings",
       "rationale": null
     }
   ],

@@ -280,7 +280,7 @@ TRDs:
 TRDs:
 - [x] 72-01-rescope-requirements-and-roadmap-TRD.md — (W1) run-state estimate gate (`estimate start 72`; decision: frozen-method recalibration or unscored, never silent); INST-01 rewritten, INST-02..06 added; this entry rescoped to the AOForge rename
 - [ ] 72-02-legacy-names-and-compat-TRD.md — (W2) `legacy-names.cjs` (the one name map) and `compat.cjs` shims: env alias, `.aoforge`-first planning root, agent types, dot files
-- [ ] 72-03-rename-codemod-TRD.md — (W2) tested idempotent codemod (`scripts/aoforge-rename.cjs`): names and planning rules, preserves, skips, `unclassified=0` inventory
+- [x] 72-03-rename-codemod-TRD.md — (W2) tested idempotent codemod (`scripts/aoforge-rename.cjs`): names and planning rules, preserves, skips, `unclassified=0` inventory
 - [ ] 72-04-apply-name-rename-TRD.md — (W3) names pass with `git mv` (plugins/aoforge, aof-tools, ...), entry points alias legacy env, rename guard repo test, CLAUDE.md transition note
 - [ ] 72-05-planning-dir-resolver-libs-TRD.md — (W4) libs resolve `.aoforge/` then legacy `.planning/`; legacy-layout contract suite; W066
 - [ ] 72-06-planning-dir-hooks-and-prose-TRD.md — (W5) hooks resolve both layouts; prose names `.aoforge/`; guard covers the planning dir name
@@ -356,7 +356,7 @@ TRDs:
 | 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
-| 72. Install and naming cleanup | v1.6 | 1/26 | In Progress | - |
+| 72. Install and naming cleanup | v1.6 | 2/26 | In Progress | - |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
