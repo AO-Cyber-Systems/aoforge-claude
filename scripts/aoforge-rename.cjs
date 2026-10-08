@@ -192,7 +192,8 @@ const PRESERVE = {
     {
       id: 'fleet-repo-names',
       files: isFleetFile,
-      re: /(['"])devflow(?:-test)?\1/g,
+      // not after `'.claude',`: that is the runtime directory ~/.claude/devflow/stacks, which is renamed
+      re: /(?<!\.claude['"],\s*)(['"])devflow(?:-test)?\1/g,
       reason: 'fleet repository names in the stack fixtures are data about other repositories',
     },
   ],
@@ -260,8 +261,18 @@ const restore = (text, saved) => text.replace(PLACEHOLDER_RE, (_, i) => saved[Nu
 
 // ─── NAME_RULES ──────────────────────────────────────────────────────────────
 
-/** Most specific first. Each `to` is a constant; the replacements never match a later rule. */
+/**
+ * Most specific first. The replacements never match a later rule.
+ * `silent` rules change text without counting as a rename (the article fix).
+ */
 const NAME_RULES = [
+  {
+    id: 'article',
+    // "a DevFlow project" -> "an AOForge project": the new names start with a vowel sound
+    re: /\b([Aa]) (?=[`*_"'(]{0,2}(?:DevFlow|Devflow|DEVFLOW|devflow|df-tools|DF-TOOLS))/g,
+    to: (m, a) => `${a}n `,
+    silent: true,
+  },
   { id: 'slash-command', re: /\/devflow:/g, to: '/aoforge:' },
   { id: 'agent-type', re: /\bdevflow:(?=[a-z])/g, to: 'aoforge:' },
   { id: 'cli', re: /df-tools/g, to: 'aof-tools' },
@@ -276,9 +287,9 @@ const NAME_RULES = [
 function applyNameRules(text) {
   let count = 0;
   for (const rule of NAME_RULES) {
-    text = text.replace(rule.re, () => {
-      count++;
-      return rule.to;
+    text = text.replace(rule.re, (...args) => {
+      if (!rule.silent) count++;
+      return typeof rule.to === 'function' ? rule.to(...args) : rule.to;
     });
   }
   return { text, count };
@@ -338,8 +349,26 @@ function occurrenceKind(text, index) {
     if (/[ntr]/.test(prev) && text[index - 2] === '\\' && text[index - 3] !== '\\') return 'path';
     return 'property';
   }
-  if (prev === ')' || prev === ']' || prev === '}' || prev === '.') return 'ambiguous';
+  // `:(exclude).planning` is a git pathspec; `${root}.planning` is text after an interpolation
+  if (prev === ')') return /:\([a-z,]+\)$/.test(text.slice(Math.max(0, index - 16), index)) ? 'path' : 'ambiguous';
+  if (prev === '}') return closesInterpolation(text, index - 1) ? 'path' : 'ambiguous';
+  if (prev === ']' || prev === '.') return 'ambiguous';
   return 'path';
+}
+
+/** True when the `}` at `closeIndex` closes a `${` on the same line. */
+function closesInterpolation(text, closeIndex) {
+  let depth = 0;
+  for (let i = closeIndex - 1; i >= 0; i--) {
+    const c = text[i];
+    if (c === '\n') return false;
+    if (c === '}') depth++;
+    else if (c === '{') {
+      if (depth === 0) return text[i - 1] === '$';
+      depth--;
+    }
+  }
+  return false;
 }
 
 const importsPlanningRootFromCompat =
@@ -553,12 +582,24 @@ function isGlued(str, start, end) {
   return false;
 }
 
+/**
+ * Glued spellings that are known and fine. Each is renamed by the blind rules like any other
+ * occurrence; listing it here only stops the glue check from calling it unclassified.
+ */
+const KNOWN_GLUED = [
+  {
+    token: 'devflowx',
+    reason: 'negative test vector: gate tests feed `devflowx:y` to prove the agent-type match needs the exact prefix',
+  },
+];
+
 function classifyNameToken(token, rel) {
   const saved = [];
   const masked = maskText(token, rel, 'names', saved, null);
+  const known = KNOWN_GLUED.some((k) => k.token === token);
 
   for (const m of masked.matchAll(LEGACY_WORD)) {
-    if (isGlued(masked, m.index, m.index + m[0].length)) {
+    if (!known && isGlued(masked, m.index, m.index + m[0].length)) {
       return { action: 'unclassified', reason: `"${m[0]}" is glued to other letters; no rule covers this spelling` };
     }
   }
@@ -945,6 +986,7 @@ module.exports = {
   NAME_RULES,
   PLANNING_RULES,
   PRESERVE,
+  KNOWN_GLUED,
   SKIP,
   isSkipped,
   mapPath,

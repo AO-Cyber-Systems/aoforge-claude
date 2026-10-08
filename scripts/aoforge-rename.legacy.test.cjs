@@ -390,6 +390,21 @@ test('8. rewriteNames rewrites each name form', () => {
   }
 });
 
+test('8. rewriteNames fixes the indefinite article before the new vowel sound', () => {
+  const cases = [
+    ['Not a DevFlow project', 'Not an AOForge project'],
+    ['A DevFlow project', 'An AOForge project'],
+    ['a devflow-claude checkout', 'an aoforge-claude checkout'],
+    ['a `df-tools` command', 'an `aof-tools` command'],
+    ['a DEVFLOW_X variable', 'an AOFORGE_X variable'],
+    ['data devflow', 'data aoforge'], // "data" ends in a, but is not the article
+    ['a devflowops thing', 'a devflowops thing'], // preserved: not renamed, so no change
+  ];
+  for (const [from, to] of cases) assert.strictEqual(rewriteNames(from, 'x.md').text, to, from);
+  const once = rewriteNames('a DevFlow', 'x.md').text;
+  assert.strictEqual(rewriteNames(once, 'x.md').text, once);
+});
+
 test('8. rewriteNames counts replacements and reports no residuals for plain text', () => {
   const r = rewriteNames('DevFlow and DevFlow use devflow', 'x.md');
   assert.strictEqual(r.text, 'AOForge and AOForge use aoforge');
@@ -430,6 +445,16 @@ test('9. fleet repo names are preserved in stack fixtures, other names still cha
   // the basename scope survives the plugin directory move
   const moved = 'plugins/devflow/devflow/bin/lib/stack-evidence.test.cjs';
   assert.strictEqual(rewriteNames("'devflow-test'", moved).text, "'devflow-test'");
+});
+
+test('9. in stack tests the runtime directory under ~/.claude is still renamed', () => {
+  const rel = 'plugins/devflow/devflow/bin/lib/stack-profile.test.cjs';
+  const src = "path.join(home, '.claude', 'devflow', 'stacks', 'dart.md')";
+  assert.strictEqual(
+    rewriteNames(src, rel).text,
+    "path.join(home, '.claude', 'aoforge', 'stacks', 'dart.md')",
+  );
+  assert.strictEqual(classifyToken("'devflow'", rel).action, 'preserve');
 });
 
 test('9. the monorepo doctor skip list is left alone and reported manual', () => {
@@ -645,6 +670,23 @@ test('12. escaped newline and tab before .planning still count as a path', () =>
   assert.strictEqual(r.text, "const s = 'a\\n.aoforge/STATE.md\\t.aoforge/x';\n");
 });
 
+test('12. a git pathspec exclude and a template interpolation still name the directory', () => {
+  const spec = rewritePlanning("const args = ['--', ':(exclude).planning'];\n", LIB);
+  assert.strictEqual(spec.text, "const args = ['--', ':(exclude).aoforge'];\n");
+  assert.strictEqual(spec.residuals.length, 1);
+  const tpl = rewritePlanning('const p = `${root}.planning${path.sep}`;\n', LIB);
+  assert.strictEqual(tpl.text, 'const p = `${root}.aoforge${path.sep}`;\n');
+  assert.strictEqual(tpl.residuals.length, 1);
+});
+
+test('12. a dot after a closing bracket that is not an interpolation stays ambiguous and untouched', () => {
+  const src = 'const x = list.map(f).planning;\nconst y = a[0].planning;\n';
+  const r = rewritePlanning(src, LIB);
+  assert.strictEqual(r.text, src);
+  assert.strictEqual(r.residuals.length, 2);
+  assert.match(r.residuals[0].reason, /ambiguous/);
+});
+
 test('12. no compat file in reach: .aoforge text and a residual, no import', () => {
   const src = "const path = require('path');\nconst d = path.join(cwd, '.planning');\n";
   const r = rewritePlanning(src, 'plugins/other/lib/x.js', { compatPath: null });
@@ -700,6 +742,12 @@ test('13. classifyToken refuses a glued or unknown spelling', () => {
   assert.strictEqual(classifyToken('devflowzap').action, 'unclassified');
   assert.strictEqual(classifyToken('xdevflow').action, 'unclassified');
   assert.strictEqual(classifyToken('devFlow').action, 'unclassified');
+});
+
+test('13. classifyToken accepts the one known glued spelling, a negative test vector', () => {
+  // gate-edits tests feed `devflowx:y` to prove the agent-type match needs the exact prefix
+  assert.deepStrictEqual(classifyToken('devflowx'), { action: 'rename', target: 'aoforgex' });
+  assert.strictEqual(classifyToken('devflowxy').action, 'unclassified');
 });
 
 test('13. classifyToken honours file-scoped entries, which match the quoted form', () => {
