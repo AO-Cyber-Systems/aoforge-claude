@@ -8,7 +8,7 @@ const path = require('path');
 
 const ci = require('./calibration-inputs.cjs');
 const {
-  makeCalibrationProject, removeCalibrationProject, cloneSpec, ALPHA_SPEC,
+  makeCalibrationProject, removeCalibrationProject, cloneSpec, ALPHA_SPEC, FUTURE_SPEC, pastSpec,
 } = require('./__fixtures__/calibration-fixtures.cjs');
 const fx = require('./__fixtures__/transcript-fixtures.cjs');
 const { OVERHEAD_AGENTS } = require('./agent-overhead.cjs');
@@ -17,6 +17,7 @@ const calibrator = require('./calibrator.cjs');
 const {
   nearestRank, statBlock, sampleCost, buildCalibration,
   stableStringify, writeCalibration, defaultCalibrationPath, CALIBRATION_VERSION, DEFAULT_WINDOW_OBJECTIVES,
+  MINUTES_METHODS, DEFAULT_MINUTES_METHOD,
 } = calibrator;
 
 const projects = [];
@@ -1044,5 +1045,134 @@ describe('64-10 the recency window is the default', () => {
 
   test('1: DEFAULT_WINDOW_OBJECTIVES is the window frozen in 64-DIAGNOSIS.md', () => {
     assert.equal(DEFAULT_WINDOW_OBJECTIVES, 10);
+  });
+});
+
+describe('67-02 calibration v3: method identity and the cutoff', () => {
+  const build = (paths, extra = {}) => buildCalibration({ paths, ratesPath: ci.RATES_PATH, transcriptsRoot: null, ...extra });
+  // The blocks that are statistics (not identity): equal for the two minutes methods, and for a cutoff that drops nothing.
+  const STAT_KEYS = ['samples', 'sources', 'trd_level', 'task_classes', 'objective_level', 'probabilities', 'agent_overhead', 'data_as_of'];
+  const statsOf = (cal) => Object.fromEntries(STAT_KEYS.map((key) => [key, cal[key]]));
+  const THROUGH_NOTE = 'Through objective 66: objective directories numbered above it, or with no number, are not read, and their STATE_ARCHIVE and state.json metric rows are not counted. agent_overhead comes from transcripts and is not cut.';
+  const TRD_LEVEL_NOTE = "Minutes method trd_level: an estimate takes a TRD's minutes from trd_level.minutes whatever its task count; task_classes minutes still describe single tasks (estimate task) and are not summed into a TRD.";
+
+  test('6: objectives 67-72 and a no-number directory leave a through-66 calibration byte-identical, for both methods', () => {
+    const future = makeProject(FUTURE_SPEC);
+    const past = makeProject(pastSpec());
+    for (const minutes of ['task_sum', 'trd_level']) {
+      for (const window of [undefined, null]) {
+        const label = `minutes ${minutes}, window ${window}`;
+        const futureCal = build([future], { through: 66, minutes, window });
+        const pastCal = build([past], { through: 66, minutes, window });
+        assert.equal(stableStringify(futureCal), stableStringify(pastCal), label);
+        assert.equal(futureCal.samples.trds, 3, label);
+        // Control: without the cutoff the same data does change the file, so the equality above is the cutoff's work.
+        const futureAll = build([future], { minutes, window });
+        const pastAll = build([past], { minutes, window });
+        assert.notEqual(stableStringify(futureAll), stableStringify(pastAll), `${label}: control`);
+        assert.equal(futureAll.samples.trds, 10, `${label}: control`);
+        assert.equal(pastAll.samples.trds, 3, `${label}: control`);
+      }
+    }
+    const out = path.join(tmpDir(), 'calibration.json');
+    assert.equal(writeCalibration(out, build([future], { through: 66 })).changed, true);
+    assert.equal(writeCalibration(out, build([past], { through: 66 })).changed, false,
+      'the same file: a through-66 calibration of the past rewrites nothing');
+  });
+
+  test('7: a default build is version 3 and names the requested method, window and cutoff', () => {
+    const past = makeProject(pastSpec());
+    const byDefault = build([past]);
+    assert.equal(byDefault.version, 3);
+    assert.deepEqual(byDefault.method, { minutes: 'task_sum', window_objectives: 10, through_objective: null });
+    assert.deepEqual(build([past], { window: null }).method,
+      { minutes: 'task_sum', window_objectives: null, through_objective: null });
+    assert.deepEqual(build([past], { window: 7, through: 66, minutes: 'trd_level' }).method,
+      { minutes: 'trd_level', window_objectives: 7, through_objective: 66 });
+    assert.deepEqual(build([past], { through: 0 }).method.through_objective, 0, 'a cutoff of 0 is a cutoff, not an absent one');
+    assert.deepEqual(Object.keys(byDefault.method), ['minutes', 'window_objectives', 'through_objective']);
+  });
+
+  test('8: task_sum and trd_level builds share every statistic and differ in method, notes and digest', () => {
+    const past = makeProject(pastSpec());
+    const taskSum = build([past], { minutes: 'task_sum' });
+    const trdLevel = build([past], { minutes: 'trd_level' });
+    assert.deepEqual(statsOf(taskSum), statsOf(trdLevel));
+    assert.notEqual(taskSum.inputs_digest, trdLevel.inputs_digest);
+    assert.notDeepEqual(taskSum.method, trdLevel.method);
+    assert.equal(trdLevel.notes[trdLevel.notes.length - 1], TRD_LEVEL_NOTE);
+    assert.equal(trdLevel.notes.length, taskSum.notes.length + 1);
+    assert.deepEqual(trdLevel.notes.slice(0, taskSum.notes.length), taskSum.notes);
+    assert.equal(taskSum.notes.includes(TRD_LEVEL_NOTE), false, 'task_sum carries no minutes note');
+    const { method: _m1, inputs_digest: _d1, notes: _n1, ...restSum } = taskSum;
+    const { method: _m2, inputs_digest: _d2, notes: _n2, ...restLevel } = trdLevel;
+    assert.deepEqual(restSum, restLevel, 'nothing else differs');
+  });
+
+  test('9: a through-66 build reads no 67-72 date or minutes and says so in its notes', () => {
+    const future = makeProject(FUTURE_SPEC);
+    const cal = build([future], { through: 66 });
+    assert.equal(cal.data_as_of, '2026-10-03');
+    assert.equal(cal.trd_level.minutes.max, 20, 'no 90-minute TRD');
+    assert.equal(cal.samples.trds, 3);
+    assert.equal(cal.notes.includes(THROUGH_NOTE), true);
+    assert.equal(cal.notes[cal.notes.length - 1], THROUGH_NOTE);
+    assert.equal(build([future]).data_as_of, '2026-10-27', 'control: without the cutoff the latest date is the future one');
+    assert.equal(build([future]).notes.some((note) => note.startsWith('Through objective')), false);
+  });
+
+  test('9: the notes append in order: base, window, through, minutes', () => {
+    const future = makeProject(FUTURE_SPEC);
+    const base = build([future], { window: null }).notes;
+    const cal = build([future], { window: 2, through: 66, minutes: 'trd_level' });
+    assert.equal(cal.notes.length, base.length + 3);
+    assert.deepEqual(cal.notes.slice(0, base.length), base);
+    assert.match(cal.notes[base.length], /^Window: only the 2 most recent objectives/);
+    assert.match(cal.notes[base.length + 1], /^Through objective 66: /);
+    assert.equal(cal.notes[base.length + 2], TRD_LEVEL_NOTE);
+  });
+
+  test('10: unchanged inputs and options are byte-identical; the cutoff and the minutes method change only identity', () => {
+    const past = makeProject(pastSpec());
+    for (const extra of [{}, { minutes: 'trd_level' }, { through: 66 }, { through: 66, minutes: 'trd_level', window: 2 }]) {
+      assert.equal(stableStringify(build([past], extra)), stableStringify(build([past], extra)), JSON.stringify(extra));
+    }
+    const cut = build([past], { through: 66 });
+    const open = build([past], { through: null });
+    assert.deepEqual(statsOf(cut), statsOf(open), 'a cutoff that drops nothing changes no statistic');
+    assert.notDeepEqual(cut.method, open.method);
+    assert.notEqual(cut.inputs_digest, open.inputs_digest, 'the method block is an input');
+    assert.equal(stableStringify(build([past], { through: undefined })), stableStringify(open), 'undefined is null');
+  });
+
+  test('11: the window applies after the cutoff', () => {
+    const future = makeProject(FUTURE_SPEC);
+    const cal = build([future], { through: 66, window: 2 });
+    assert.equal(cal.window.projects[0].first, '65-b');
+    assert.equal(cal.window.projects[0].last, '66-c');
+    assert.equal(cal.samples.trds, 2);
+    assert.deepEqual(cal.method, { minutes: 'task_sum', window_objectives: 2, through_objective: 66 });
+  });
+
+  test('12: a minutes value other than task_sum or trd_level is an error, null and the wrong case included', () => {
+    const past = makeProject(pastSpec());
+    for (const bad of ['trd-level', 'TRD_LEVEL', '', null, 5]) {
+      assert.throws(() => build([past], { minutes: bad }), /minutes must be one of task_sum, trd_level/, String(bad));
+    }
+    assert.doesNotThrow(() => build([past], { minutes: undefined }));
+  });
+
+  test('12: a bad through is an error naming it', () => {
+    const past = makeProject(pastSpec());
+    for (const bad of [-1, NaN, Infinity, '66', true]) {
+      assert.throws(() => build([past], { through: bad }), /through must be a non-negative number or null/, String(bad));
+    }
+  });
+
+  test('13: MINUTES_METHODS, DEFAULT_MINUTES_METHOD and CALIBRATION_VERSION', () => {
+    assert.deepEqual([...MINUTES_METHODS], ['task_sum', 'trd_level']);
+    assert.equal(Object.isFrozen(MINUTES_METHODS), true);
+    assert.equal(DEFAULT_MINUTES_METHOD, 'task_sum');
+    assert.equal(CALIBRATION_VERSION, 3);
   });
 });
