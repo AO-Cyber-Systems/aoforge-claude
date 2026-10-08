@@ -217,6 +217,28 @@ function objectiveDirMatches(dirName, normalized) {
   return dirName === normalized || dirName.startsWith(normalized + '-');
 }
 
+// The same boundary objectiveDirMatches uses: a number alone, or a number then `-` and a non-empty slug. `04x` and
+// `v1.2-objectives` are not objective directories.
+const OBJECTIVE_DIR_RE = /^(\d+(?:\.\d+)?)(?:-(.+))?$/;
+
+/**
+ * The leading number and slug of an objective directory name: `{number, slug}` (`'04.1-one'` -> `{number: '04.1', slug:
+ * 'one'}`; `'04'` -> `{number: '04', slug: null}`), or null when the name is not shaped like one. It proposes a number;
+ * objectiveDirMatches(name, normalizeObjectiveName(number)) confirms the directory belongs to it (an unpadded `4-d`
+ * parses as 4 but is not the directory of objective `04`).
+ */
+function parseObjectiveDirName(dirName) {
+  const m = OBJECTIVE_DIR_RE.exec(dirName);
+  return m ? { number: m[1], slug: m[2] === undefined ? null : m[2] } : null;
+}
+
+/** An objective number as written ('04', '4.1') in the one form used to compare and list objectives: no leading zeros on the integer part (`'00'` is `'0'`), the decimal part as written. */
+function canonicalObjectiveNumber(n) {
+  const [int, dec] = String(n).split('.');
+  const whole = String(parseInt(int, 10));
+  return dec === undefined ? whole : `${whole}.${dec}`;
+}
+
 function generateSlugInternal(text) {
   if (!text) return null;
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -287,6 +309,8 @@ module.exports = {
   isTaskDoc,
   normalizeObjectiveName,
   objectiveDirMatches,
+  parseObjectiveDirName,
+  canonicalObjectiveNumber,
   generateSlugInternal,
   isGitIgnored,
   execGit,
