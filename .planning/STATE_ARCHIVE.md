@@ -214,6 +214,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 67]: 67-03: minutes_basis names the calibration's minutes method on every TRD estimate (even one with no minutes); minutes_samples is the TRD-level count only when a stat exists
 - [Objective 67]: 67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence
 - [Objective 67]: 67-04: the pre-registered ship rule returned ship_default true (reason: the new method meets EST-08; improved false, minutes median 1.021 old vs 1.051 new), so the frozen minutes method is trd_level, window 10, through objective 66
+- [Objective 67]: 67-05: calibrate default minutes method is trd_level, set by 67-VALIDATION.md (ship_default true, method_selected trd_level); the docs state that the rule fired on the new method's verdict, not on the median (1.021 task_sum, 1.051 trd_level)
 
 ## Performance Metrics
 
@@ -357,4 +358,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 67 P02 | 23min | 3 tasks | 10 files |
 | Objective 67 P03 | 10min | 3 tasks | 8 files |
 | Objective 67 P04 | 9min | 3 tasks | 1 files |
+| Objective 67 P05 | 12min | 2 tasks | 9 files |
 

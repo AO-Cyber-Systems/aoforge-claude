@@ -1,6 +1,6 @@
 {
   "current_objective": "67",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 9,
   "progress_pct": 99,
   "status": "executing",
@@ -1134,6 +1134,11 @@
     {
       "objective": "67",
       "summary": "67-04: the pre-registered ship rule returned ship_default true (reason: the new method meets EST-08; improved false, minutes median 1.021 old vs 1.051 new), so the frozen minutes method is trd_level, window 10, through objective 66",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-05: calibrate default minutes method is trd_level, set by 67-VALIDATION.md (ship_default true, method_selected trd_level); the docs state that the rule fired on the new method's verdict, not on the median (1.021 task_sum, 1.051 trd_level)",
       "rationale": null
     }
   ],
