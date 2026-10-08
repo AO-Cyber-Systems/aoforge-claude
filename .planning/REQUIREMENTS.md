@@ -20,7 +20,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### df-tools correctness (TOOL)
 
-- [ ] **TOOL-01**: `milestone complete` takes `--dry-run`, which reports what it would write and writes nothing. Every df-tools verb that writes rejects unknown flags instead of ignoring them.
+- [x] **TOOL-01**: `milestone complete` takes `--dry-run`, which reports what it would write and writes nothing. Every df-tools verb that writes rejects unknown flags instead of ignoring them.
 - [ ] **TOOL-02**: Re-running `milestone complete` for the same version does not duplicate its MILESTONES.md entry or archive files.
 - [ ] **TOOL-03**: `objective remove` renumbering preserves the completion dates and other metadata of the objectives it renumbers.
 - [ ] **TOOL-04**: `objective complete` reports `next_objective` and `is_last_objective` correctly when later objectives exist in ROADMAP.md.
@@ -76,7 +76,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | REL-02 | Objective 65 | Complete |
 | EST-09 | Objective 66 (built; coverage 6/8 = 0.75, re-measured by 75) | Pending |
 | EST-10 | Objective 67 | Complete |
-| TOOL-01 | Objective 68 | Pending |
+| TOOL-01 | Objective 68 | Complete |
 | TOOL-02 | Objective 68 | Pending |
 | TOOL-03 | Objective 68 | Pending |
 | TOOL-04 | Objective 68 | Pending |

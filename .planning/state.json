@@ -1,9 +1,9 @@
 {
-  "current_objective": "67",
-  "current_job": 9,
-  "total_jobs": 9,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "68",
+  "current_job": 1,
+  "total_jobs": 7,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1155,6 +1155,11 @@
       "objective": "67",
       "summary": "EST-11 calibration frozen by the installed 2.15.0 runtime (trd_level, window 10, through 66, sha256 f4d1ffa9); state add-blocker/resolve-blocker now accept a spaced '## Blockers / Concerns' heading via a shared BLOCKERS_SECTION_RE instead of hand-editing STATE.md",
       "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case",
+      "rationale": "Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer"
     }
   ],
   "blockers": [
