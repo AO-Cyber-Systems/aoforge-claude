@@ -162,3 +162,51 @@ describe('trdKey() — the NN-MM pairing key of a TRD/JOB/SUMMARY file name', ()
     assert.strictEqual(trdKey('07-010-SUMMARY.md'), '07-010');
   });
 });
+
+// ─── parseObjectiveDirName / canonicalObjectiveNumber (TRD 68-02) ─────────────
+// One parse of an objective directory's leading number, on the boundary objectiveDirMatches uses, plus the
+// no-leading-zeros form used to compare numbers. milestone-scope.cjs resolves directories through them.
+
+describe('parseObjectiveDirName() — the leading number and slug of an objective directory name', () => {
+  const { parseObjectiveDirName, objectiveDirMatches, normalizeObjectiveName } = helpers;
+
+  test('splits a padded name into its number and slug', () => {
+    assert.deepStrictEqual(parseObjectiveDirName('04-d'), { number: '04', slug: 'd' });
+    assert.deepStrictEqual(parseObjectiveDirName('04.1-one'), { number: '04.1', slug: 'one' });
+    assert.deepStrictEqual(parseObjectiveDirName('04'), { number: '04', slug: null });
+    assert.deepStrictEqual(parseObjectiveDirName('40-decoy'), { number: '40', slug: 'decoy' });
+    assert.deepStrictEqual(parseObjectiveDirName('100-big'), { number: '100', slug: 'big' });
+  });
+
+  test('returns null for a name that is not an objective directory', () => {
+    for (const name of ['notes', '04x', '.gitkeep', 'v1.2-objectives', '', '-04']) {
+      assert.strictEqual(parseObjectiveDirName(name), null, `parseObjectiveDirName(${JSON.stringify(name)})`);
+    }
+  });
+
+  test('agrees with objectiveDirMatches for padded names and documents why an unpadded name is not an objective directory', () => {
+    for (const name of ['04-d', '04.1-one', '04', '40-decoy', '100-big']) {
+      const r = parseObjectiveDirName(name);
+      assert.ok(objectiveDirMatches(name, normalizeObjectiveName(r.number)), `${name} should match its own number`);
+    }
+    assert.strictEqual(parseObjectiveDirName('4-d').number, '4');
+    assert.strictEqual(objectiveDirMatches('4-d', '04'), false);
+  });
+});
+
+describe('canonicalObjectiveNumber() — a number without leading zeros on its integer part', () => {
+  const { canonicalObjectiveNumber } = helpers;
+
+  test('drops leading zeros from the integer part and keeps the decimal part as written', () => {
+    assert.strictEqual(canonicalObjectiveNumber('04'), '4');
+    assert.strictEqual(canonicalObjectiveNumber('4'), '4');
+    assert.strictEqual(canonicalObjectiveNumber('040'), '40');
+    assert.strictEqual(canonicalObjectiveNumber('04.1'), '4.1');
+    assert.strictEqual(canonicalObjectiveNumber('4.10'), '4.10');
+  });
+
+  test('keeps a lone zero', () => {
+    assert.strictEqual(canonicalObjectiveNumber('0'), '0');
+    assert.strictEqual(canonicalObjectiveNumber('00'), '0');
+  });
+});

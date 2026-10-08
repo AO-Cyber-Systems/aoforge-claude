@@ -1160,6 +1160,16 @@
       "objective": "68",
       "summary": "milestone complete is a read-only plan plus an executor of that plan; an existing archive file or MILESTONES.md heading is kept on a re-run, never refreshed",
       "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "milestone-scope counts a directory as objective N only when objectiveDirMatches(name, normalizeObjectiveName(N)) holds, so unpadded 4-d and hyphen-less 04x are not objectives (find-objective parity, TOOL-05)",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "Single decimals in a milestone bullet match by text, not float, so Objectives 4.1 does not select 04.10-ten; ranges and sort order stay numeric (float 4.10 == 4.1 deferred)",
+      "rationale": null
     }
   ],
   "blockers": [
