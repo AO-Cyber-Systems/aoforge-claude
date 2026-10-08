@@ -500,6 +500,17 @@ function verifyCommand(command, { root, cwd = '', env = process.env, home = os.h
 //
 // A skip detail names the signal (file, job, service, variable, scheme, host:port) and the flag, and never
 // echoes a URL, a password or an env value. A deny (`git push`, port 8080, ...) still outranks `env_required`.
+//
+// Build outputs (TRD 71-04, SDR-10). In the objective 43 follow-up run eden-circle's `make build` wrote
+// `bin/circle-api`, which is untracked and not gitignored. The guard removed it, then halted the root, so every
+// later Dart/Flutter gate was skipped `side-effect-unsafe`, including the `client/` Flutter gates a Go binary
+// cannot affect. A file a `build` gate creates in a conventional output directory is the build doing its job.
+// So a `build` gate's NEW, untracked, unignored files under `bin/ build/ dist/ out/ target/` (the first path
+// segment, relative to the gate's cwd; `RUN_POLICY.buildOutputDirs`) are removed like any other change (the run
+// stays read-only; the emptied directory stays, and git does not list an empty directory), are listed in JSON
+// `run.build_outputs` (also in `run.mutated`), and `--raw` appends ` build_outputs=<n>`. They do NOT halt the
+// root. Anything else still does: a changed or staged tracked file, a write outside an output directory, any
+// non-`build` key, or an output that could not be removed. A gitignored output is not reported at all.
 
 /** `<tool> ... <verb>` on one shell line: stops at a pipe, `;`, `&` or newline. */
 const toolVerb = (tool, verbs) => new RegExp(`\\b(?:${tool})\\b[^|;&\\n]*?\\b(?:${verbs})\\b`);
@@ -524,6 +535,8 @@ const RUN_POLICY = Object.freeze({
   defaultKeys: Object.freeze(['format', 'lint', 'typecheck', 'build']),
   optInKeys: Object.freeze(['test', 'e2e', 'audit', 'sast', 'lint_helm', 'lint_docker']),
   neverKeys: Object.freeze(['codegen', 'deps']),
+  // TRD 71-04: the directories whose NEW files a `build` gate may leave (first segment, relative to its cwd).
+  buildOutputDirs: Object.freeze(['bin', 'build', 'dist', 'out', 'target']),
   effectReasons: Object.freeze(Object.values(EFFECT_REASONS)),
   // Order matters: the first regex that matches a line names the refusal.
   deny: Object.freeze([
@@ -1363,10 +1376,27 @@ function runOne(it, ctx, opts) {
 }
 
 /**
+ * isBuildOutput(it, d) -> boolean. True for a delta entry that is a `build` gate's product (TRD 71-04): the
+ * gate's key is `build`, the path is `added` (new to HEAD, so untracked), and relative to the gate's cwd it
+ * stays inside the cwd and starts with one of `RUN_POLICY.buildOutputDirs`. A `modified` or `deleted` path is
+ * never an output, and neither is anything under another key.
+ */
+function isBuildOutput(it, d) {
+  if (!it || it.key !== 'build' || !d || d.change !== 'added') return false;
+  const rel = path.posix.relative(rootRelative(it.cwd), String(d.path));
+  if (rel === '' || rel === '..' || rel.startsWith('../') || path.posix.isAbsolute(rel)) return false;
+  return RUN_POLICY.buildOutputDirs.includes(rel.split('/')[0]);
+}
+
+/**
  * Diff the work tree against `before`, restore whatever the command changed, and record it on `run`:
  * `mutated: [{path, change}]`, `restored` (true only if EVERY path was put back and a third snapshot
  * agrees), `unrestored: [path]` when not. An after-snapshot that cannot be taken (git failed mid-run) is
  * `mutated_unknown`. Either way the root is halted for the remaining Dart/Flutter gates.
+ *
+ * The one exception (TRD 71-04): a `build` gate's new files under an output directory are also listed in
+ * `build_outputs` and do not halt the root. Any other changed path, or a restore that did not fully succeed,
+ * still halts it, and the halt names the first path that is NOT an output.
  */
 function guardEffects(it, ctx, opts, before, run) {
   const deps = { fs: ctx.fs, git: opts.git };
@@ -1387,7 +1417,10 @@ function guardEffects(it, ctx, opts, before, run) {
   run.mutated = delta;
   run.restored = result.restored && left !== null && left.length === 0;
   if (unrestored.length) run.unrestored = unrestored;
-  ctx.halted = { key: it.key, path: delta[0].path };
+  const outputs = delta.filter((d) => isBuildOutput(it, d)).map((d) => d.path);
+  const others = delta.filter((d) => !isBuildOutput(it, d));
+  if (outputs.length) run.build_outputs = outputs;
+  if (others.length || !run.restored) ctx.halted = { key: it.key, path: (others[0] || delta[0]).path };
 }
 
 /**
@@ -1404,6 +1437,10 @@ function guardEffects(it, ctx, opts, before, run) {
  * Dart/Flutter items for this root are skipped `side-effect-unsafe`. Outside a git work tree a
  * Dart/Flutter item is refused `side-effect-unproven`. `git` (default spawnSync) runs the snapshots and is
  * separate from `spawn`, which only ever runs the gate commands.
+ *
+ * Build outputs (71-04): a `build` gate's new, untracked, unignored files under `bin/ build/ dist/ out/ target/`
+ * (relative to its cwd) are removed like any change, listed in `run.build_outputs`, and do NOT halt the root;
+ * any other change, or an output that could not be removed, halts as above.
  *
  * Service-backed gates (71-03): a gate whose text, CI job or (test/e2e) env file names a service is skipped
  * `env_required` and never spawned, unless `allowServices` is true; then it runs and `run.services_allowed`
