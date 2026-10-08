@@ -803,6 +803,17 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W064', `skill-marker-check-failed: ${e.message}`, 'Run `df-tools doctor` to see why', false);
   }
 
+  // ─── Check 20: requirements-completed agrees with VERIFICATION (objective 69, TOOL-10) ─────
+  // W065: a requirement an objective's VERIFICATION marks SATISFIED that no SUMMARY in that objective lists in
+  // requirements-completed (requirements-agreement.cjs; only IDs defined in a REQUIREMENTS document). Advisory and never
+  // repairable: choosing the SUMMARY is a reviewed `summary post`. A check that cannot run is never silent.
+  try {
+    const ra = options.requirementsAgreement || require('./requirements-agreement.cjs');
+    for (const f of ra.scan(planningDir).findings) addIssue('warning', 'W065', ra.findingMessage(f), ra.findingFix(f), false);
+  } catch (e) {
+    addIssue('warning', 'W065', `requirements-check-failed: ${e.message}`, 'Run `df-tools validate requirements` to see why', false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
@@ -921,9 +932,35 @@ function cmdValidateDocs(cwd, raw) {
   output({ issues, checked }, raw, rawText);
 }
 
+// ─── validate requirements (TRD 69-05, TOOL-10) ─────────────────────────────
+//
+// The read-only, network-free form of validate health Check 20: full `validate health` does a best-effort `git fetch` in
+// Check 11, so this drives the same requirements-agreement scan with no other check attached. `objective` limits it to
+// one objective (matched by number, as the other objective-scoped commands do). Advisory like `validate docs`: every
+// outcome, findings included, exits 0, and scripts read the JSON.
+function cmdValidateRequirements(cwd, { objective } = {}, raw) {
+  const planningDir = path.join(cwd, '.planning');
+  if (!fs.existsSync(planningDir)) {
+    output({ findings: [], checked: {}, note: 'no .planning/' }, raw, 'no .planning/');
+    return;
+  }
+
+  const ra = require('./requirements-agreement.cjs');
+  const { checked, findings, skipped } = ra.scan(planningDir, { objective });
+  const rendered = findings.map((f) => ({ ...f, message: ra.findingMessage(f), fix: ra.findingFix(f) }));
+
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const rawText = rendered.length
+    ? rendered.map((f) => `W065 ${f.message}\n  fix: ${f.fix}`).join('\n')
+    : `requirements-completed agrees with VERIFICATION (${plural(checked.objectives, 'objective')}, ${plural(checked.requirements, 'requirement')} checked)`;
+
+  output({ findings: rendered, checked, skipped }, raw, rawText);
+}
+
 module.exports = {
   cmdValidateConsistency,
   cmdValidateHealth,
   cmdValidateDocs,
+  cmdValidateRequirements,
   compareSemver,
 };

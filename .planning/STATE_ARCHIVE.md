@@ -232,6 +232,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 69]: Requirements agreement check is scoped to IDs a REQUIREMENTS document defines; other satisfied IDs are reported as skipped, never as findings
 - [Objective 69]: Check 22 recounts repairable over non-deferred issues (validate's repairable_count includes deferred E006/W064, which made a stale marker alone trigger check 22's --repair ahead of check 23)
 - [Objective 69]: Doctor check 23 keeps no .skill-active classification; every action on it goes through skill-marker-health (untrack before unlink, DOC-06 guard, ctx.changedThisRun as exclude)
+- [Objective 69]: validate requirements has no try/catch: an unreadable planning tree is a loud non-zero exit, while findings always exit 0; W065 doubles as requirements-check-failed in validate health
 
 ## Performance Metrics
 
@@ -391,4 +392,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 69 P02 | 10min | 3 tasks | 7 files |
 | Objective 69 P03 | 9min | 3 tasks | 12 files |
 | Objective 69 P04 | 10min | 2 tasks | 5 files |
+| Objective 69 P05 | 10min | 2 tasks | 6 files |
 

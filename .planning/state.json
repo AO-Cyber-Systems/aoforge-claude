@@ -1225,6 +1225,11 @@
       "objective": "69",
       "summary": "Doctor check 23 keeps no .skill-active classification; every action on it goes through skill-marker-health (untrack before unlink, DOC-06 guard, ctx.changedThisRun as exclude)",
       "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "validate requirements has no try/catch: an unreadable planning tree is a loud non-zero exit, while findings always exit 0; W065 doubles as requirements-check-failed in validate health",
+      "rationale": null
     }
   ],
   "blockers": [

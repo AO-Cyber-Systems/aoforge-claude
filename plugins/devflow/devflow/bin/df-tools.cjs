@@ -68,6 +68,7 @@
  * Validation:
  *   validate consistency               Check objective numbering, disk/roadmap sync
  *   validate health [--repair]         Check .planning/ integrity, optionally repair
+ *   validate requirements [--objective N]  SUMMARY requirements-completed vs VERIFICATION
  *
  * Progress:
  *   progress [json|table|bar]          Render progress in various formats
@@ -259,7 +260,7 @@ const { cmdUiSpec, cmdUiSheet, cmdUiLock } = require('./lib/ui-spec-cli.cjs');
 const { cmdDetectNovelDomain } = require('./lib/novel-domain.cjs');
 const { cmdDetectBrownfieldMap } = require('./lib/brownfield-detector.cjs');
 const { cmdDetectFlutterUIScope } = require('./lib/flutter-ui-scope.cjs');
-const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs } = require('./lib/validate.cjs');
+const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs, cmdValidateRequirements } = require('./lib/validate.cjs');
 const {
   cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject,
   cmdInitNewMilestone, cmdInitQuick, cmdInitResume, cmdInitVerifyWork, cmdInitObjectiveOp,
@@ -885,8 +886,13 @@ async function main() {
         cmdValidateHealth(cwd, { repair: repairFlag }, raw);
       } else if (subcommand === 'docs') {
         cmdValidateDocs(cwd, raw);
+      } else if (subcommand === 'requirements') {
+        const i = args.indexOf('--objective');
+        const eq = args.find((a) => a.startsWith('--objective='));
+        const objective = eq ? eq.slice('--objective='.length) : (i >= 0 ? args[i + 1] : null);
+        cmdValidateRequirements(cwd, { objective }, raw);
       } else {
-        error('Unknown validate subcommand. Available: consistency, health, docs');
+        error('Unknown validate subcommand. Available: consistency, health, docs, requirements');
       }
       break;
     }
