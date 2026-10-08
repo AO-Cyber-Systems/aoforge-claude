@@ -13,6 +13,7 @@
 // whose headline metric is null.
 
 const { MIN_OBJECTIVES, REPRODUCE_TOLERANCE } = require('./estimate-backtest.cjs');
+const { mdCell } = require('./text-escape.cjs');
 
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -339,7 +340,6 @@ function milestoneTable(r) {
   const wall = r.total && r.total.wall_minutes;
   if (!wall) return milestoneNoMinutes(r);
 
-  const cell = (text) => String(text).replace(/\|/g, '\\|');
   const lines = [
     '| Objective | Status | Wall median | Wall P90 | Cost median | Confidence |',
     '|---|---|---|---|---|---|',
@@ -347,7 +347,7 @@ function milestoneTable(r) {
   for (const o of left) {
     const w = o.total && o.total.wall_minutes;
     const c = o.total && o.total.cost_usd;
-    lines.push(`| ${cell(`${o.number} ${o.name}`)} | ${statusText(o)} | ${formatMinutes(w && w.p50)} | ${formatMinutes(w && w.p90)} | ${formatUsd(c && c.p50)} | ${o.confidence} |`);
+    lines.push(`| ${mdCell(`${o.number} ${o.name}`)} | ${statusText(o)} | ${formatMinutes(w && w.p50)} | ${formatMinutes(w && w.p90)} | ${formatUsd(c && c.p50)} | ${o.confidence} |`);
   }
   const cost = r.total.cost_usd;
   lines.push(`| **${r.version} total (${plural(left.length, 'objective')} left)** | | **${formatMinutes(wall.p50)}** | **${formatMinutes(wall.p90)}** | **${formatUsd(cost && cost.p50)}** | **${r.confidence}** |`);
@@ -449,10 +449,9 @@ function backtestLine(r) {
   return `Backtest ${objectives}: ${parts.join(' · ')}`;
 }
 
-const cellText = (text) => String(text).replace(/\|/g, '\\|');
 const tableRow = (cells) => `| ${cells.join(' | ')} |`;
 const tableRule = (columns) => `|${'---|'.repeat(columns)}`;
-const objectiveLabel = (o) => cellText(o.name ? `${o.objective} ${o.name}` : o.objective);
+const objectiveLabel = (o) => mdCell(o.name ? `${o.objective} ${o.name}` : o.objective);
 const percentOrNa = (share) => (isNum(share) ? formatPercent(share) : 'n/a');
 const showOrNa = (show, value) => (isNum(value) ? show(value) : 'n/a');
 /** `1h 40m / 5h 00m` for a stat with a median, `n/a` without one. */
@@ -563,7 +562,7 @@ function classSection(r) {
       tableRow(['Class', 'Tasks', 'Median ratio', 'P90 coverage', 'Verdict']),
       tableRule(5),
       ...rows.map((c) => tableRow([
-        cellText(c.class), c.tasks, ratioText(c.median_ratio), percentOrNa(c.coverage),
+        mdCell(c.class), c.tasks, ratioText(c.median_ratio), percentOrNa(c.coverage),
         c.verdict === 'miscalibrated' ? `miscalibrated: ${(c.flags || []).join(', ')}` : c.verdict,
       ])),
     ];
