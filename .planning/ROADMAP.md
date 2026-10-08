@@ -254,7 +254,14 @@ TRDs:
   2. For a repo whose lint target runs `buf lint`, the drafted lint coverage includes it; rows these rules close are removed from ACCEPTED in `stack-fleet-tables.cjs` and the fleet harness guards them.
   3. `stack verify --run` skips a service-backed test, or requires an explicit opt-in, and reports it as `env_required`; it never reaches a local database silently.
   4. A build that writes an untracked, unignored output directory is restored or reported, and it does not halt unrelated components' gates.
-**TRDs**: TBD
+**TRDs**: 5 plans
+
+TRDs:
+- [ ] 71-01-drafter-self-test-and-declared-linters-TRD.md — (W1) realshape builders; a `--self-test` step never fills a key beside its gate (`self_test` note); a `lint` target running the tier default plus unconditional linters (`buf lint` via AUX_LINTERS/`linterToolOf`) is kept; read-only fleet check
+- [ ] 71-02-fleet-tables-and-guards-TRD.md — (W2) `aodex.audit` leaves ACCEPTED; justinforme/smartWellness `lint` become OPEN `pending: 'refresh'` rows; per-repo `selfTestDrafts` guard; real-fleet harness green
+- [ ] 71-03-verify-service-policy-TRD.md — (W1) CI steps carry `services`/`envNames`; `stack verify --run` skips a service-backed gate `env_required` (text, CI job, test env file); `--allow-services` opt-in, marked `services=allowed`
+- [ ] 71-04-verify-build-outputs-TRD.md — (W2) a `build`'s new untracked files under bin/build/dist/out/target are removed, listed as `build_outputs` and do not halt other components' Dart/Flutter gates
+- [ ] 71-05-dogfood-and-docs-TRD.md — (W3) SC-1..SC-4 before/after (fleet read-only, `--run` on scratch clones with stubs); CHANGELOG, CLAUDE.md, USER-GUIDE, stack guide, workflows, help; todos
 
 ### Objective 72: Install and naming cleanup
 
