@@ -1549,6 +1549,131 @@ function ciVariantComponentShape() {
   }, { modes: { 'scripts/vuln-gate.sh': 0o755, 'go/scripts/db-backed-tests.sh': 0o755, 'scripts/print-skips.sh': 0o755 } });
 }
 
+// ─── a gate script that also tests itself (TRD 71-01, SDR-09) ─────────────────
+
+/**
+ * selfTestGateShape() — a Go root (tier root, no task runner) whose CI runs one vulnerability gate script
+ * twice: first `bash scripts/vuln-gate.sh --self-test` (the script's own fixtures check, no scanner), then,
+ * in the next step after `go install …/govulncheck@latest`, `bash scripts/vuln-gate.sh` (the real gate).
+ * The script's body runs `govulncheck -format json ./... > "$TMP"` and a `jq` filter only on the gate path.
+ *
+ * Competing audit candidates: the self-test step and the gate step, same entry point, same source (ci),
+ * same cwd and rank. Reviewed: audit is the gate step (`bash scripts/vuln-gate.sh`), the self-test is a
+ * `self_test` note. Source order alone would pick the self-test, which scans nothing.
+ */
+function selfTestGateShape() {
+  return makeWhole({
+    'go.mod': goMod('ledgerline'),
+    'main.go': GO_MAIN,
+    'scripts/vuln-gate.sh': [
+      '#!/usr/bin/env bash',
+      '# Vulnerability gate. --self-test checks the filter against canned findings and scans nothing.',
+      'set -uo pipefail',
+      'TMP="$(mktemp)"',
+      "trap 'rm -f \"$TMP\"' EXIT",
+      '',
+      'self_test() {',
+      '  printf \'%s\\n\' \'{"finding":{"osv":"GO-2099-0002"}}\' > "$TMP"',
+      '  if [ "$(jq -r \'.finding.osv\' "$TMP")" != "GO-2099-0002" ]; then',
+      '    echo "vuln-gate: self-test failed" >&2',
+      '    exit 1',
+      '  fi',
+      '  echo "vuln-gate: self-test ok"',
+      '}',
+      '',
+      'gate() {',
+      '  govulncheck -format json ./... > "$TMP"',
+      '  if jq -e \'select(.finding != null)\' "$TMP" > /dev/null; then',
+      '    echo "vuln-gate: findings reported" >&2',
+      '    exit 1',
+      '  fi',
+      '  echo "vuln-gate: clean"',
+      '}',
+      '',
+      'case "${1:-}" in',
+      '  --self-test) self_test ;;',
+      '  "") gate ;;',
+      '  *) echo "unknown argument" >&2; exit 2 ;;',
+      'esac',
+      '',
+    ].join('\n'),
+    '.github/workflows/ci.yml': wf([
+      'name: ci',
+      'on: [pull_request]',
+      'jobs:',
+      '  vulnerabilities:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: actions/setup-go@v5',
+      '      - name: vuln gate self-test',
+      '        run: bash scripts/vuln-gate.sh --self-test',
+      '      - name: vuln gate',
+      '        run: |',
+      '          go install example.invalid/vuln/cmd/govulncheck@latest',
+      '          bash scripts/vuln-gate.sh',
+    ]),
+  }, { modes: { 'scripts/vuln-gate.sh': 0o755 } });
+}
+
+// ─── lint targets that add linters (TRD 71-01, SDR-09) ────────────────────────
+
+/**
+ * protoLintTargetShape() — a Go root with a `buf.yaml` module whose Makefile `lint:` target runs the go
+ * tier's lint default (`go vet ./...`) and then `buf lint`, unconditionally. `build:` and `test:` restate
+ * their tier-default command words, so they stay inherited. No CI.
+ *
+ * Competing lint candidates: the runner target `make lint` (body = the tier default plus an unconditional
+ * linter of another tool). Reviewed: lint `make lint`, so an agent that runs the entry point also lints
+ * the proto module; the draft carries a `declared_linters` info note.
+ */
+function protoLintTargetShape() {
+  return makeWhole({
+    'go.mod': goMod('ledgerline'),
+    'main.go': GO_MAIN,
+    'buf.yaml': 'version: v2\nmodules:\n  - path: proto\n',
+    'proto/ledger/v1/ledger.proto': 'syntax = "proto3";\npackage ledger.v1;\n',
+    Makefile: mk([
+      '.PHONY: build test lint',
+      '',
+      'build:',
+      '\tgo build ./...',
+      '',
+      'test:',
+      '\tgo test ./...',
+      '',
+      'lint:',
+      '\tgo vet ./...',
+      '\tbuf lint',
+    ]),
+  });
+}
+
+/**
+ * guardedLinterTargetShape() — a Go root whose Makefile `lint:` target runs `go vet ./...` and then a
+ * guarded `golangci-lint run` behind `|| echo …` (the linter is optional by the Makefile's own design: it
+ * prints that it only ran go vet when the linter is missing). No CI.
+ *
+ * Reviewed: lint stays inherited at the tier default; an optional extra line does not make the target the
+ * entry point.
+ */
+function guardedLinterTargetShape() {
+  return makeWhole({
+    'go.mod': goMod('ledgerline'),
+    'main.go': GO_MAIN,
+    Makefile: mk([
+      '.PHONY: test lint',
+      '',
+      'test:',
+      '\tgo test ./...',
+      '',
+      'lint:',
+      '\tgo vet ./...',
+      '\t@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || echo "golangci-lint not installed; ran go vet only"',
+    ]),
+  });
+}
+
 const tools = (...extra) => [...DEFAULT_TOOLCHAIN, ...extra];
 
 const REALSHAPE = Object.freeze({
@@ -1803,4 +1928,7 @@ module.exports = {
   toolDirectPrimaryShape,
   imageBuildRootShape,
   workspaceRunnerShape,
+  selfTestGateShape,
+  protoLintTargetShape,
+  guardedLinterTargetShape,
 };
