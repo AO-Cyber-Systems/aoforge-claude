@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Objective 70 (TOOL-07, TOOL-08): three df-tools commands that reported success while doing nothing now do their job or
+fail, and verify-commits.js blocks in the shape Claude Code reads. `state update-progress` writes the Progress line or
+exits 1, `verify trd-pre` finds the objective from anywhere in the project, `objective-job-index` reports `gap_closure`,
+and the SubagentStop block is a top-level `{decision, reason}` checked against a cited schema model. Entries that need an
+installed plugin take effect once the installed plugin carries objective 70.
+
 Objective 69 (TOOL-06, TOOL-09, TOOL-10): a draft can no longer publish stale content, and health and doctor catch a
 tracked or stale skill marker and a satisfied requirement that no SUMMARY lists. `planning draft` reseeds a draft whose
 live file changed and `doc put` refuses one, `validate health` and `doctor` report a committed or abandoned
@@ -81,6 +87,22 @@ ROADMAP.md. Entries that need an installed plugin take effect once the installed
   marker alone no longer makes check 22 fixable. Needs an installed plugin carrying objective 69.
 
 ### Fixed
+- `state update-progress` writes the Progress line or exits 1 (objective 70, TOOL-07; `lib/state.cjs`). It rewrites a
+  plain template `Progress:` line under `## Current Position`, adds a `**Progress:**` line there when there is none, and
+  exits 1 with an `Error:` line, leaving STATE.md and state.json untouched, when neither is possible or STATE.md is
+  missing. It used to print `updated: false` and exit 0, so a STATE.md like this repository's never got a bar (70-01).
+- `verify trd-pre <N|path>` finds the project root from any directory inside it and accepts an objective directory path
+  (objective 70, TOOL-07; `lib/trd-pre-check.cjs`). A missing objective exits 1 with `error: "Objective not found"` and
+  `project_root`. It used to resolve against the cwd only and print `Objective not found` with exit 0, so a caller saw
+  success for an objective it simply had not found (70-01).
+- `objective-job-index` reports `gap_closure` (a boolean, from TRD frontmatter) on every job (objective 70, TOOL-07;
+  `lib/misc.cjs`), which `execute-objective --gaps-only` filters on; the execute-objective step now names the `jobs[]`
+  key it reads (it said `plans[]`) (70-01).
+- `verify-commits.js` prints its SubagentStop block as top-level `{decision, reason}` and blocks only `devflow:executor`
+  (objective 70, TOOL-08). It was nested in `hookSpecificOutput`, which Claude Code does not read for SubagentStop, so the
+  retry never fired, and it applied to every agent type. `hooks/__fixtures__/hook-output-schema.js` models the documented
+  Stop and SubagentStop schema with a citation per rule, and `verify-commits.test.js` and the `hook-coexistence.test.js`
+  contract check the real stdout against it (70-02).
 - Objective 58's SUMMARY frontmatter lists EST-02 and EST-04 (objective 69, TOOL-10). Eight 58 SUMMARYs were corrected so
   `requirements-completed` equals each TRD's `requirements` field; `58-VERIFICATION.md` marked both satisfied while no
   SUMMARY listed them. `requirements-agreement.repo.test.cjs` keeps this repository's `.planning/` in agreement.

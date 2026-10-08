@@ -48,7 +48,7 @@ Skill `@path` references (`@~/.claude/devflow/...`) do not interpolate `${CLAUDE
 
 The central CLI utility used by ~50 skill and agent files. CommonJS module invoked as `node ~/.claude/devflow/bin/df-tools.cjs <command> [args]` (skills resolve the path via the home mirror). A global `--cwd <dir>` flag, valid before any command name, `chdir`s before dispatch so a command can target a path other than the caller's cwd (used by `/devflow:adopt [path]`). Provides:
 
-- **State operations** — `state load`, `state update`, `state get`, `state patch`, `state-snapshot`, `state advance-job [--objective N]` (with `--objective`, position and Status come from the objective's TRD and SUMMARY files on disk)
+- **State operations** — `state load`, `state update`, `state get`, `state patch`, `state-snapshot`, `state advance-job [--objective N]` (with `--objective`, position and Status come from the objective's TRD and SUMMARY files on disk); `state update-progress` rewrites or adds the Progress line under `## Current Position`, else exits 1
 - **Objective operations** — `objective next-decimal`, `objective add/insert/remove/complete`; `milestone complete <v> --dry-run` previews and a re-run keeps the existing entry and archives. Every writing command rejects an unknown flag with exit 1 before it runs (`lib/flag-guard.cjs` + `lib/flag-spec.cjs`, kept complete by `flag-spec.repo.test.cjs`).
 - **Roadmap operations** — `roadmap get-objective`, `roadmap analyze`, `roadmap update-job-progress`
 - **Compound init commands** — `init execute-objective`, `init plan-objective`, `init new-project`, etc.
@@ -117,7 +117,7 @@ Node.js hooks declared in `plugins/devflow/hooks/hooks.json` and auto-registered
 **Observability (warn-only):**
 - `statusline.js` — StatusLine (declared in plugin.json `statusLine`); renders model, task, context usage and, while an objective builds, estimated time remaining from the estimate run state
 - `verify-completion.js` — Stop; checks SUMMARY.md evidence
-- `verify-commits.js` — SubagentStop; warns on no commits in last 10min
+- `verify-commits.js` — SubagentStop; warns on no commits in last 10min, and in autonomous mode blocks a `devflow:executor` stop once per agent (top-level `{decision, reason}`, objective 70)
 - Their autonomous retry and resume markers live in `~/.claude/devflow/state/hook-markers/<repo-key>/` (`lib/hook-marker-store.cjs`; override `DEVFLOW_HOOK_MARKER_DIR`). `hooks/planning-writes.audit.test.js` fails CI if any hook writes a runtime dotfile into `.planning/`; the allowlist is `.skill-active`, `.edit-override` and `.devflow-notices.json`.
 - `gh-flush.js` — PostToolUse(Bash) + Stop; store mode only: flushes the outbox after `df-tools commit` and at Stop, reports pending/halted writes on both and cache drift (W055) at Stop only; never blocks, fails open. Escape: `DEVFLOW_SKIP_GH_FLUSH_HOOK=1`
 - `todo-sync.js` — Stop; merges the session's `/devflow:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with `todo sync`'s library (`.planning/todos/`, or queued for the GitHub store); idempotent, never blocks, keeps no state, fails open. Escape: `DEVFLOW_SKIP_TODO_SYNC=1`

@@ -298,6 +298,8 @@ U-2 sets the linked-bulk thresholds (warning only); D-06 sets the budget severit
    ```bash
    node ~/.claude/devflow/bin/df-tools.cjs verify trd-pre "$OBJECTIVE_NUMBER"
    ```
+   It finds the objective from any directory inside the project, and accepts the objective directory's path. A non-zero exit with `Objective not found` means the objective does not exist: report the command and its output instead of measuring file sizes yourself.
+
    `checks.trd_budget` is `{passed, trds:[{trd, chars, status, bulk:[...]}], over:[{trd, chars}], warn:[{trd, chars}], severity:{store, local}}`. `chars` is the encoded issue body (the TRD file plus its two `devflow:` header lines), never the file length, so measure nothing yourself.
 2. Pick the severity for an `over` TRD from `.planning/config.json`:
    ```bash

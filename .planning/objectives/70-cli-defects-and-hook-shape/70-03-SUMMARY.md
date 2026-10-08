@@ -17,11 +17,11 @@ requirements-completed: [TOOL-07, TOOL-08]
 
 # Objective 70 TRD 03: Dogfood and docs Summary
 
-Checkpoint: Task 1 (dogfood) done, Task 2 (docs and full suite) next.
+Checkpoint: both tasks done, final SUMMARY sections and state updates remaining.
 
 ## Progress
-- [x] Task 1: Dogfood SC-1..SC-4 on the repository df-tools and scratch copies — (this commit)
-- [ ] Task 2: CHANGELOG, CLAUDE.md, USER-GUIDE, job-checker, follow-up todo, full suite — next step: add the objective 70 paragraph and four Fixed entries to /Users/justin/dev/devflow-claude/CHANGELOG.md under `## [Unreleased]`
+- [x] Task 1: Dogfood SC-1..SC-4 on the repository df-tools and scratch copies — 0a004ccf
+- [x] Task 2: CHANGELOG, CLAUDE.md, USER-GUIDE, job-checker, follow-up todo, full suite — (this commit)
 
 ## Evidence (SC-1 to SC-4)
 
