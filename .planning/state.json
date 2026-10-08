@@ -1,8 +1,8 @@
 {
   "current_objective": "67",
-  "current_job": 1,
+  "current_job": 2,
   "total_jobs": 9,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
@@ -1109,6 +1109,16 @@
     {
       "objective": "67",
       "summary": "DECISION-003: frozen minutes method is TRD-level minutes (window 10, through objective 66), task-sum as pre-registered fallback; chosen by the planner agent, not the user",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "Calibration v3 method block records the requested minutes method, window and cutoff (even when nothing is dropped) and is part of inputs_digest; the calibrator computes the same statistics for task_sum and trd_level.",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "The through cutoff is applied inside collectProject (directories and metric rows, before any read or count); a directory with no number is out under a cutoff; the window applies after it.",
       "rationale": null
     }
   ],
