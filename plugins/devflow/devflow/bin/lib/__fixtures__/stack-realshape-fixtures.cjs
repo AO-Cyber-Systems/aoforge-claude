@@ -1620,8 +1620,9 @@ function selfTestGateShape() {
 
 /**
  * protoLintTargetShape() — a Go root with a `buf.yaml` module whose Makefile `lint:` target runs the go
- * tier's lint default (`go vet ./...`) and then `buf lint`, unconditionally. `build:` and `test:` restate
- * their tier-default command words, so they stay inherited. No CI.
+ * tier's lint default (`go vet ./...`) and then `buf lint`, unconditionally. `build:` and `test:` run the
+ * go tier's own defaults (`go build ./...`, `go test -race ./...`) under names that restate their command
+ * words, so they stay inherited. No CI.
  *
  * Competing lint candidates: the runner target `make lint` (body = the tier default plus an unconditional
  * linter of another tool). Reviewed: lint `make lint`, so an agent that runs the entry point also lints
@@ -1640,7 +1641,7 @@ function protoLintTargetShape() {
       '\tgo build ./...',
       '',
       'test:',
-      '\tgo test ./...',
+      '\tgo test -race ./...',
       '',
       'lint:',
       '\tgo vet ./...',
@@ -1665,7 +1666,7 @@ function guardedLinterTargetShape() {
       '.PHONY: test lint',
       '',
       'test:',
-      '\tgo test ./...',
+      '\tgo test -race ./...',
       '',
       'lint:',
       '\tgo vet ./...',
@@ -1807,6 +1808,8 @@ const REALSHAPE = Object.freeze({
         test: { run: 'make test' },
         codegen: { run: 'make proto' },
         deps: { run: 'make gen-sdk' },
+        // TRD 71-01: the lint target runs go vet and buf lint, so it is the lint entry point (SDR-09)
+        lint: { run: 'make lint' },
       },
     },
     absent: [],
@@ -1926,6 +1929,37 @@ const REALSHAPE = Object.freeze({
     extraAllowed: [],
     noEvidence: [],
     noteStatuses: { present: ['self_test'], absent: [] },
+  },
+  // TRD 71-01 (SDR-09): `lint:` runs go vet and then buf lint, unconditionally: it is the lint entry point.
+  // `test:` and `build:` restate their command words and stay inherited.
+  protoLintTargetShape: {
+    build: protoLintTargetShape,
+    tools: tools('buf'),
+    expect: {
+      extends: 'go',
+      components: [],
+      commands: {
+        lint: { run: 'make lint' },
+      },
+    },
+    absent: [],
+    extraAllowed: [],
+    noEvidence: [],
+    noteTags: { present: ['declared_linters'], absent: [] },
+  },
+  // TRD 71-01 (SDR-09): the extra golangci-lint line is optional by the target's own `|| echo`: inherited.
+  guardedLinterTargetShape: {
+    build: guardedLinterTargetShape,
+    tools: tools(),
+    expect: {
+      extends: 'go',
+      components: [],
+      commands: {},
+    },
+    absent: ['lint'],
+    extraAllowed: [],
+    noEvidence: [],
+    noteTags: { present: [], absent: ['declared_linters'] },
   },
 });
 
