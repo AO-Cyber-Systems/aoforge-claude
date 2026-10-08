@@ -237,7 +237,12 @@ TRDs:
   2. `verify trd-pre <N>` resolves an objective that exists on disk instead of reporting "Objective not found".
   3. `objective-job-index` reports `gap_closure` read from TRD frontmatter.
   4. A `verify-commits.js` SubagentStop result is valid against Claude Code's hook output schema, and a test pins that shape.
-**TRDs**: TBD
+**TRDs**: 3 plans
+
+TRDs:
+- [ ] 70-01-cli-defects-TRD.md — (W1) fixture builders; `state update-progress` rewrites the plain line, inserts under `## Current Position` or exits 1; `verify trd-pre` resolves from any cwd inside the project or a path, not-found exits 1; `objective-job-index` `gap_closure`
+- [ ] 70-02-verify-commits-hook-shape-TRD.md — (W1) cited Stop/SubagentStop schema model (`hooks/__fixtures__/hook-output-schema.js`); top-level `{decision, reason}` scoped to `devflow:executor`; shape-pinning test; coexistence contract uses the model
+- [ ] 70-03-dogfood-and-docs-TRD.md — (W2) SC-1..SC-4 before/after on scratch copies and read-only live commands; CHANGELOG, CLAUDE.md, USER-GUIDE, job-checker; live-SubagentStop todo; full suite
 
 ### Objective 71: Stack drafter and verify policy
 
