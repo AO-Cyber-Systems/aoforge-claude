@@ -764,3 +764,243 @@ describe('e2e: gate-executor-stop.js as a SubagentStop hook', () => {
     assertSilent(runHook('', { cwd: root }), 'empty');
   });
 });
+
+// ─── TRD 66-02: a final SUMMARY without token fields (EST-09) ─────────────────
+//
+// 64-09 and 64-10 ran `summary post` without `tokens stamp`. The gate that
+// already sends an executor back once when its TRD has no SUMMARY now does the
+// same when the FINAL SUMMARY (one with a `## Self-Check` heading) carries no
+// tokens_input/tokens_output. A `## Progress` checkpoint is never blocked.
+
+/**
+ * A fixture project whose 77-02 SUMMARY is of the given fixture kind (none when
+ * `kind` is null), plus a transcript whose first prompt dispatches 77-02.
+ */
+function makeTokenScenario(root, { kind = 'final_unstamped', promptOpts = {}, transcriptOpts = {} } = {}) {
+  F.makePlanningRepo(root, {
+    summaries: kind ? ['77-02'] : [],
+    summaryKinds: kind ? { '77-02': kind } : {},
+  });
+  const prompt = F.executorPrompt({ planId: '77-02', repoRoot: root, ...promptOpts });
+  const transcript = F.writeAgentTranscript(path.join(root, 'transcripts'), prompt, transcriptOpts);
+  const payload = F.subagentStopPayload({ cwd: root, agent_transcript_path: transcript });
+  return { root, payload, objectiveDir: path.join(root, '.planning', 'objectives', '77-x') };
+}
+
+describe('66-02 e2e: final SUMMARY without token fields', () => {
+  let tmp;
+  before(() => { tmp = mkTmp('ges-66-e2e-'); });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  test('1. final SUMMARY with no token fields gives one top-level block naming the stamp commands', () => {
+    const { root, payload } = makeTokenScenario(path.join(tmp, 't1'));
+    const r = runHook(payload, { cwd: root });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual(Object.keys(out).sort(), ['decision', 'reason'], 'top-level shape, no hookSpecificOutput');
+    assert.equal(out.decision, 'block');
+    assert.match(out.reason, /77-02/);
+    assert.match(out.reason, /tokens_input/);
+    assert.match(out.reason, /tokens stamp 77-02 --draft/);
+    assert.match(out.reason, /summary post 77-02 --from/);
+    assert.match(out.reason, /planning draft objectives\/77-x\/77-02-SUMMARY\.md/);
+    assert.match(out.reason, /stamped: false/);
+    assert.match(out.reason, /never type token numbers by hand/i);
+    assert.match(out.reason, /8080/);
+  });
+
+  test('2. final SUMMARY with live token fields gives no output', () => {
+    const { root, payload } = makeTokenScenario(path.join(tmp, 't2'), { kind: 'final_stamped' });
+    assertSilent(runHook(payload, { cwd: root }), 'stamped final summary');
+  });
+
+  test('3. the same unstamped final SUMMARY with stop_hook_active gives no output (the once-guard)', () => {
+    const { root, payload } = makeTokenScenario(path.join(tmp, 't3'));
+    assert.equal(JSON.parse(runHook(payload, { cwd: root }).stdout).decision, 'block', 'control');
+    assertSilent(runHook({ ...payload, stop_hook_active: true }, { cwd: root }), 'stop_hook_active');
+  });
+});
+
+describe('66-02 decide: the token branch', () => {
+  let tmp;
+  before(() => { tmp = mkTmp('ges-66-decide-'); });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  const deps = (extra = {}) => ({ env: {}, gitWorktrees: () => [], ...extra });
+
+  test('4. final + backfill-stamped gives null: the gate checks presence, not source', () => {
+    const { payload } = makeTokenScenario(path.join(tmp, 't4'), { kind: 'final_backfill' });
+    assert.equal(decide(payload, deps()), null);
+  });
+
+  test('5. a ## Progress checkpoint with no token fields gives null (44-04 semantics kept)', () => {
+    const { payload } = makeTokenScenario(path.join(tmp, 't5'), { kind: 'checkpoint' });
+    assert.equal(decide(payload, deps()), null);
+  });
+
+  test('6. only commented template lines (# tokens_input: N) still blocks', () => {
+    const { payload } = makeTokenScenario(path.join(tmp, 't6'), { kind: 'final_template_comments' });
+    const d = decide(payload, deps());
+    assert.equal(d.block, true);
+    assert.match(d.reason, /tokens stamp 77-02 --draft/);
+  });
+
+  test('7. tokens_input without tokens_output blocks: both fields are required', () => {
+    const { payload } = makeTokenScenario(path.join(tmp, 't7'), { kind: 'final_input_only' });
+    assert.equal(decide(payload, deps()).block, true);
+  });
+
+  test('8. a slugged <id>-<slug>-SUMMARY.md is found and named in the planning draft path', () => {
+    const unstamped = makeTokenScenario(path.join(tmp, 't8-block'), { kind: null });
+    fs.writeFileSync(path.join(unstamped.objectiveDir, '77-02-fixture-SUMMARY.md'), F.summaryText('final_unstamped', '77-02'));
+    const d = decide(unstamped.payload, deps());
+    assert.equal(d.block, true);
+    assert.ok(d.reason.includes('planning draft objectives/77-x/77-02-fixture-SUMMARY.md'), d.reason);
+
+    const stamped = makeTokenScenario(path.join(tmp, 't8-pass'), { kind: null });
+    fs.writeFileSync(path.join(stamped.objectiveDir, '77-02-fixture-SUMMARY.md'), F.summaryText('final_stamped', '77-02'));
+    assert.equal(decide(stamped.payload, deps()), null);
+  });
+
+  test('9. two roots: any stamped final passes, an unstamped final in a worktree alone blocks', () => {
+    const main = makeTokenScenario(path.join(tmp, 't9-main'), { kind: 'final_unstamped' });
+    const stampedWt = F.makePlanningRepo(path.join(tmp, 't9-wt-stamped'), {
+      trdIds: [], summaries: ['77-02'], summaryKinds: { '77-02': 'final_stamped' },
+    });
+    assert.equal(decide(main.payload, deps({ gitWorktrees: () => [stampedWt] })), null, 'stamped worktree final passes');
+    assert.equal(decide(main.payload, deps({ gitWorktrees: () => [] })).block, true, 'control: main alone blocks');
+
+    const bare = makeTokenScenario(path.join(tmp, 't9-bare'), { kind: null });
+    const unstampedWt = F.makePlanningRepo(path.join(tmp, 't9-wt-unstamped'), {
+      trdIds: [], summaries: ['77-02'], summaryKinds: { '77-02': 'final_unstamped' },
+    });
+    const d = decide(bare.payload, deps({ gitWorktrees: () => [unstampedWt] }));
+    assert.equal(d.block, true, 'unstamped final in the worktree, none in main');
+    assert.match(d.reason, /planning draft objectives\/77-x\/77-02-SUMMARY\.md/);
+  });
+
+  test('10. a deliberate stop with an unstamped final gives null', () => {
+    const { payload } = makeTokenScenario(path.join(tmp, 't10'));
+    assert.equal(decide({ ...payload, last_assistant_message: '## CHECKPOINT REACHED\n\n**Type:** human-verify' }, deps()), null);
+  });
+
+  test('11. DEVFLOW_SKIP_EXECUTOR_STOP_GATE=1 with an unstamped final gives null', () => {
+    const { payload } = makeTokenScenario(path.join(tmp, 't11'));
+    assert.equal(decide(payload, deps({ env: { DEVFLOW_SKIP_EXECUTOR_STOP_GATE: '1' } })), null);
+  });
+
+  test('12. an unreadable SUMMARY gives null and does not throw', () => {
+    const { payload } = makeTokenScenario(path.join(tmp, 't12'));
+    const fsImpl = {
+      ...fs,
+      readFileSync: (p, ...rest) => {
+        if (String(p).endsWith('-SUMMARY.md')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+        return fs.readFileSync(p, ...rest);
+      },
+    };
+    assert.doesNotThrow(() => decide(payload, deps({ fsImpl })));
+    assert.equal(decide(payload, deps({ fsImpl })), null);
+    assert.equal(decide(payload, deps()).block, true, 'control: readable, it blocks');
+  });
+
+  test('13. a continuation-shaped first prompt identifies the TRD and the gate applies', () => {
+    const root = path.join(tmp, 't13');
+    const { payload } = makeTokenScenario(root, {
+      promptOpts: {
+        extra: [
+          'Execute TRD 77-02 (continuation after a checkpoint)',
+          '<completed_tasks>',
+          '| 1 | Fixture kinds | abc1234 | fixtures.js |',
+          '</completed_tasks>',
+        ].join('\n'),
+      },
+    });
+    const d = decide(payload, deps());
+    assert.equal(d.block, true);
+    assert.match(d.reason, /tokens stamp 77-02 --draft/);
+  });
+
+  test('a pure-digit decimal id (12.1-03) is checked like any other', () => {
+    const root = path.join(tmp, 't13b');
+    F.makePlanningRepo(root, { objectiveDir: '12.1-x', trdIds: ['12.1-03'], summaries: ['12.1-03'], summaryKinds: { '12.1-03': 'final_unstamped' } });
+    const prompt = F.executorPrompt({ planId: '12.1-03', repoRoot: root });
+    const transcript = F.writeAgentTranscript(path.join(root, 'transcripts'), prompt);
+    const payload = F.subagentStopPayload({ cwd: root, agent_transcript_path: transcript });
+    const d = decide(payload, deps());
+    assert.equal(d.block, true);
+    assert.match(d.reason, /planning draft objectives\/12\.1-x\/12\.1-03-SUMMARY\.md/);
+  });
+});
+
+describe('66-02 helpers: hasTokenFields, isFinalSummary, summaryFiles', () => {
+  let tmp;
+  before(() => { tmp = mkTmp('ges-66-helpers-'); });
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  test('14a. hasTokenFields: true only when the frontmatter holds both numeric fields', () => {
+    const has = (text) => require('./gate-executor-stop.js').hasTokenFields(text);
+    assert.equal(has(F.summaryText('final_stamped', '77-02')), true);
+    assert.equal(has(F.summaryText('final_backfill', '77-02')), true, 'source is not inspected');
+    assert.equal(has(F.summaryText('final_unstamped', '77-02')), false);
+    assert.equal(has(F.summaryText('final_template_comments', '77-02')), false, 'commented lines never count');
+    assert.equal(has(F.summaryText('final_input_only', '77-02')), false);
+    assert.equal(has(F.summaryText('checkpoint', '77-02')), false, 'no frontmatter');
+    assert.equal(has('---\ntokens_input: 5\ntokens_output: x\n---\n'), false, 'a non-numeric value');
+    assert.equal(has('---\ntokens_input: 5\n---\n\ntokens_output: 6\n'), false, 'a field in the body is not frontmatter');
+    assert.equal(has('---\r\ntokens_input: 5\r\ntokens_output: 6\r\n---\r\n'), true, 'CRLF frontmatter');
+    assert.equal(has('---\ntokens_input:   5  \ntokens_output:\t6\t\n---\n'), true, 'blanks around the number');
+    assert.equal(has(undefined), false);
+    assert.equal(has(null), false);
+  });
+
+  test('14b. isFinalSummary: true iff a line starts with the ## Self-Check heading', () => {
+    const fin = (text) => require('./gate-executor-stop.js').isFinalSummary(text);
+    assert.equal(fin(F.summaryText('final_unstamped', '77-02')), true);
+    assert.equal(fin('## Self-Check\n'), true, 'bare heading');
+    assert.equal(fin(F.summaryText('checkpoint', '77-02')), false);
+    assert.equal(fin('see the ## Self-Check section\n'), false, 'a mention is not a heading');
+    assert.equal(fin('## Self-Checked\n'), false, 'a different word');
+    assert.equal(fin(undefined), false);
+  });
+
+  test('14c. summaryFiles: absolute, de-duplicated, whole-id, exact and slugged names across roots', () => {
+    const { summaryFiles } = require('./gate-executor-stop.js');
+    const make = (name, files) => {
+      const root = path.join(tmp, name);
+      const dir = path.join(root, '.planning', 'objectives', '77-x');
+      fs.mkdirSync(dir, { recursive: true });
+      for (const f of files) fs.writeFileSync(path.join(dir, f), '# x\n');
+      return { root, dir };
+    };
+    const a = make('a', ['77-02-SUMMARY.md', '77-02-fixture-SUMMARY.md', '77-020-SUMMARY.md', '77-02x-SUMMARY.md', '77-03-SUMMARY.md', '77-02-TRD.md']);
+    const b = make('b', ['77-02-other-SUMMARY.md']);
+    const got = summaryFiles('77-02', [a.root, b.root, a.root]);
+    assert.deepEqual(
+      [...got].sort(),
+      [path.join(a.dir, '77-02-SUMMARY.md'), path.join(a.dir, '77-02-fixture-SUMMARY.md'), path.join(b.dir, '77-02-other-SUMMARY.md')].sort(),
+    );
+    assert.ok(got.every((f) => path.isAbsolute(f)), 'absolute paths');
+    assert.equal(new Set(got).size, got.length, 'no duplicates');
+    assert.ok(got.indexOf(path.join(b.dir, '77-02-other-SUMMARY.md')) > got.indexOf(path.join(a.dir, '77-02-SUMMARY.md')), 'roots order is kept');
+
+    assert.deepEqual(summaryFiles('77-02', []), []);
+    assert.deepEqual(summaryFiles('', [a.root]), []);
+    assert.deepEqual(summaryFiles('77-02', null), []);
+    assert.deepEqual(summaryFiles('77-02', [path.join(tmp, 'missing')]), []);
+  });
+
+  test('14d. summaryFiles: a decimal id is matched literally', () => {
+    const { summaryFiles } = require('./gate-executor-stop.js');
+    const dir = path.join(tmp, 'dec', '.planning', 'objectives', '12.1-x');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of ['12.1-03-x-SUMMARY.md', '1201-03-SUMMARY.md', '12x1-03-SUMMARY.md']) fs.writeFileSync(path.join(dir, f), '# x\n');
+    assert.deepEqual(summaryFiles('12.1-03', [path.join(tmp, 'dec')]), [path.join(dir, '12.1-03-x-SUMMARY.md')]);
+  });
+
+  test('14e. summaryExists still agrees with summaryFiles', () => {
+    const { summaryFiles } = require('./gate-executor-stop.js');
+    const root = F.makePlanningRepo(path.join(tmp, 'agree'), { summaries: ['77-02'] });
+    assert.equal(summaryExists('77-02', [root]), summaryFiles('77-02', [root]).length > 0);
+    assert.equal(summaryExists('77-03', [root]), summaryFiles('77-03', [root]).length > 0);
+  });
+});
