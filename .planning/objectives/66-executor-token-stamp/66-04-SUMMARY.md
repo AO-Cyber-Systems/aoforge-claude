@@ -35,6 +35,12 @@ verification:
 
 duration: 8min
 completed: 2026-10-08
+tokens_input: 4404877
+tokens_output: 24072
+tokens_cache_read: 4308663
+tokens_cache_write: 96128
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 66 TRD 04: Documentation and the SC-1/SC-2/SC-3 evidence Summary
@@ -43,7 +49,7 @@ completed: 2026-10-08
 
 ## Progress
 - [x] Task 1: CHANGELOG, USER-GUIDE and CLAUDE.md entries - 838de92b
-- [x] Task 2: SC-1, SC-2 and SC-3 evidence, the measured coverage, and the full suite - (this commit)
+- [x] Task 2: SC-1, SC-2 and SC-3 evidence, the measured coverage, and the full suite - 2b527190
 
 ## Accomplishments
 
@@ -189,3 +195,8 @@ Otherwise none. The TRD's wording "measured before the 66-04 SUMMARY existed" wa
 - Auto-fix cycles used: 0
 - Must-haves verified: 5/5 (docs in all three files with the installed-plugin note; SC-1 line quoted, control pass and mutation fail; SC-2 three live stamps and no backfill; SC-3 verbatim output with exact fraction, floored decimal, `met` false and the arithmetic; EST-09 Pending and the release recorded as a follow-up)
 - Gate failures: none in this TRD's files. E2E1 cleared by `roadmap update-job-progress 66`.
+
+## Self-Check: PASSED
+
+- FOUND: CHANGELOG.md, docs/USER-GUIDE.md, CLAUDE.md (each contains `tokens coverage`), and .planning/REQUIREMENTS.md (EST-09 back to Pending)
+- FOUND commits: 838de92b, 2b527190

@@ -117,7 +117,7 @@ Ship v1.5, close what it left open, and clear the backlog. Requirements: `.plann
 Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 code that later objectives build on and measure. 66 (token stamp) needs that runtime. 67 (recalibration) is frozen before it is scored. Objectives 68-72 are the first five executed after 67 and are the objectives EST-11 scores, so they are all agent-only work (no human wait time in their minutes) and each records a run-state estimate (`estimate start`) before it runs. 73 (live handoff demo) and 74 (user-action operations) run after the scored five for the same reason. 75 goes last: it closes EST-11 once 68-72 have executed, and sweeps every pending todo.
 
 - [x] **Objective 65: Release v1.5** - Version bump, CHANGELOG release section, merge to `main`, tag, and the installed runtime carrying the v1.5 libs and hooks (completed 2026-10-08)
-- [ ] **Objective 66: Executor token stamp** - Every new executor SUMMARY carries `tokens_input` / `tokens_output`, with measured forward-stamp coverage
+- [x] **Objective 66: Executor token stamp** - Every new executor SUMMARY carries `tokens_input` / `tokens_output`, with measured forward-stamp coverage (completed 2026-10-08)
 - [ ] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on
 - [ ] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection
 - [ ] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check
@@ -161,7 +161,7 @@ TRDs:
 - [x] 66-01-tokens-coverage-command-TRD.md — (W1) `df-tools tokens coverage [--milestone|--objective]`: live/counted forward-stamp coverage, exact fraction + floored decimal, missing reasons (stamp_skipped / no_transcript), read-only
 - [x] 66-02-stop-gate-token-check-TRD.md — (W1) gate-executor-stop blocks once when the final SUMMARY has no tokens_input/tokens_output (the 64-09/64-10 skipped-stamp cause); executor.md self_check sentence
 - [x] 66-03-continuation-prompt-and-inline-rule-TRD.md — (W2) execute-objective: every TRD runs in an executor (the 65-02/65-03 inline cause), explicit continuation spawn prompt with PLAN_ID/REPO_ROOT, `**Token stamp:**` line in the objective report
-- [ ] 66-04-docs-and-coverage-evidence-TRD.md — (W3) CHANGELOG/USER-GUIDE/CLAUDE.md; SC-1 mutation proof, SC-2 live stamps, SC-3 measured v1.6 coverage recorded verbatim; release recorded as follow-up
+- [x] 66-04-docs-and-coverage-evidence-TRD.md — (W3) CHANGELOG/USER-GUIDE/CLAUDE.md; SC-1 mutation proof, SC-2 live stamps, SC-3 measured v1.6 coverage recorded verbatim; release recorded as follow-up
 
 ### Objective 67: Minutes recalibration
 
@@ -280,7 +280,7 @@ TRDs:
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55–64 (10 objectives) | v1.5 | 81/81 | Complete (EST-08 not met, accepted) | 2026-10-08 |
 | 65. Release v1.5 | v1.6 | 4/4 | Complete | 2026-10-08 |
-| 66. Executor token stamp | v1.6 | 3/4 | In Progress | - |
+| 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 67. Minutes recalibration | v1.6 | 0/? | Not started | - |
 | 68. Milestone and objective verbs | v1.6 | 0/? | Not started | - |
 | 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |

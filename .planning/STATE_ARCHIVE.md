@@ -207,6 +207,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 66]: tokens coverage counts a SUMMARY with no token fields as missing whether or not it has a Self-Check; only a Progress checkpoint without Self-Check is in_progress (listed, not counted)
 - [Objective 66]: The SubagentStop gate checks token field presence in a final SUMMARY's frontmatter (not source) and blocks once via stop_hook_active; no marker file
 - [Objective 66]: PLAN_ID: lines in executor spawn prompts carry the short {trd_id} ({objective_number}-{plan_number}); the slug {plan_id} stays on exec-context --id, worktree and branch names
+- [Objective 66]: EST-09 stays Pending: measured v1.6 forward-stamp coverage is 5/7 = 0.714285 (target 95% not met); 65-02 and 65-03 ran inline and can never be stamped, so 95% needs at least 40 counted TRDs with 38 live
 
 ## Performance Metrics
 
@@ -345,4 +346,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 66 P01 | 14min | 3 tasks | 7 files |
 | Objective 66 P02 | 11min | 3 tasks | 4 files |
 | Objective 66 P03 | 8min | 2 tasks | 2 files |
+| Objective 66 P04 | 9min | 2 tasks | 4 files |
 
