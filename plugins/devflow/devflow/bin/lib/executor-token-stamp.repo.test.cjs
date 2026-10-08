@@ -125,6 +125,27 @@ function valuesFor(repo) {
 
 const linesOf = (text) => text.split('\n').map((l) => l.trim());
 
+// The tokens subcommands named by tokens-cli.cjs USAGE: `tokens <trd ... | stamp ... | backfill ... | coverage [...]>`.
+const TOKENS_SUBCOMMANDS = (() => {
+  const { USAGE } = require('./tokens-cli.cjs');
+  const open = USAGE.indexOf('<');
+  const close = USAGE.indexOf('> [--objective-dir');
+  assert.ok(open !== -1 && close > open, 'tokens-cli.cjs USAGE lists its subcommands between < and > [--objective-dir');
+  return USAGE.slice(open + 1, close).split('|').map((part) => part.trim().split(/\s/)[0]).filter((w) => /^[a-z]+$/.test(w));
+})();
+
+// Findings for every `df-tools.cjs tokens ...` call in a text: an unknown subcommand, or a composed command line.
+function tokensCallProblems(text, allowed) {
+  const problems = [];
+  text.split('\n').forEach((line, i) => {
+    for (const m of line.matchAll(/df-tools\.cjs tokens\s+([A-Za-z_-]+)/g)) {
+      if (!allowed.includes(m[1])) problems.push(`line ${i + 1}: unknown tokens subcommand "${m[1]}"`);
+    }
+    if (/df-tools\.cjs tokens/.test(line) && /&&|\||\$\(/.test(line)) problems.push(`line ${i + 1}: tokens call is not one plain command`);
+  });
+  return problems;
+}
+
 describe('executor token stamp coverage (TRD 66-03)', { skip: !IS_DEVFLOW_CHECKOUT && 'not a devflow-claude checkout' }, () => {
   test('1. checkpoint_handling says every TRD runs in an executor, and why', () => {
     const step = checkpointHandling();
@@ -246,5 +267,35 @@ describe('executor token stamp coverage (TRD 66-03)', { skip: !IS_DEVFLOW_CHECKO
     assert.ok(post !== -1, 'the prompt names summary post {trd_id} --from');
     assert.ok(stamp < post, 'tokens stamp comes before summary post');
     assert.ok(prompt.includes('## Self-Check'), 'the prompt mentions ## Self-Check');
+  });
+
+  test('8. aggregate_results shows the token stamp coverage line as one plain command', () => {
+    assert.ok(TOKENS_SUBCOMMANDS.includes('coverage'), `tokens-cli.cjs USAGE no longer names coverage: ${TOKENS_SUBCOMMANDS}`);
+    const aggregate = between(workflow(), '<step name="aggregate_results">', '</step>');
+    const line = 'node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --objective ${OBJECTIVE_NUMBER} --raw';
+    assert.ok(aggregate.includes(line), 'aggregate_results names the tokens coverage command for the objective');
+    assert.match(aggregate, /\*\*Token stamp:\*\*/, 'a **Token stamp:** line in the report template');
+    assert.deepEqual(tokensCallProblems(workflow(), TOKENS_SUBCOMMANDS), [], 'every df-tools.cjs tokens call in the workflow');
+    assert.match(aggregate, /omit the line/i, 'a fail-soft clause');
+    assert.match(aggregate, /never .*backfill/i, 'a no-backfill clause');
+  });
+
+  test('9. sensitivity: the matcher flags an unknown subcommand and a piped call, and passes the real line', () => {
+    const real = 'node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --objective ${OBJECTIVE_NUMBER} --raw';
+    assert.deepEqual(tokensCallProblems(real, TOKENS_SUBCOMMANDS), []);
+    assert.deepEqual(tokensCallProblems('node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --objective 1 --raw', TOKENS_SUBCOMMANDS), []);
+
+    const unknown = tokensCallProblems('node ~/.claude/devflow/bin/df-tools.cjs tokens coverge --objective 1 --raw', TOKENS_SUBCOMMANDS);
+    assert.equal(unknown.length, 1);
+    assert.match(unknown[0], /unknown tokens subcommand "coverge"/);
+
+    const piped = tokensCallProblems('node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --objective 1 --raw | head -1', TOKENS_SUBCOMMANDS);
+    assert.equal(piped.length, 1);
+    assert.match(piped[0], /not one plain command/);
+
+    const chained = tokensCallProblems('node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --raw && echo done', TOKENS_SUBCOMMANDS);
+    assert.equal(chained.length, 1);
+    const substituted = tokensCallProblems('X=$(node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --raw)', TOKENS_SUBCOMMANDS);
+    assert.equal(substituted.length, 1);
   });
 });
