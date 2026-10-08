@@ -18,12 +18,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const ci = require('../plugins/devflow/devflow/bin/lib/calibration-inputs.cjs');
-const calibrator = require('../plugins/devflow/devflow/bin/lib/calibrator.cjs');
-const est = require('../plugins/devflow/devflow/bin/lib/estimate.cjs');
-const em = require('../plugins/devflow/devflow/bin/lib/estimate-math.cjs');
-const { BAND, COVERAGE_TARGET, median } = require('../plugins/devflow/devflow/bin/lib/estimate-backtest.cjs');
-const { findPlanFiles, trdKey } = require('../plugins/devflow/devflow/bin/lib/helpers.cjs');
+const ci = require('../plugins/aoforge/aoforge/bin/lib/calibration-inputs.cjs');
+const calibrator = require('../plugins/aoforge/aoforge/bin/lib/calibrator.cjs');
+const est = require('../plugins/aoforge/aoforge/bin/lib/estimate.cjs');
+const em = require('../plugins/aoforge/aoforge/bin/lib/estimate-math.cjs');
+const { BAND, COVERAGE_TARGET, median } = require('../plugins/aoforge/aoforge/bin/lib/estimate-backtest.cjs');
+const { findPlanFiles, trdKey } = require('../plugins/aoforge/aoforge/bin/lib/helpers.cjs');
 
 // ─── Constants of the pre-registered rule ─────────────────────────────────────
 

@@ -1,0 +1,1037 @@
+'use strict';
+
+// gh-cache.cjs (TRD 47-10, GST-07) — rebuild the `.planning/` cache from GitHub alone.
+//
+// GitHub is the system of record: objective and TRD issues, their comments, and the wiki (or
+// `docs/aoforge/`) pages. This module reads all of it into one MODEL, lays the model out in the canonical
+// `.planning/` tree, and writes only what changed. It never deletes, never overwrites a hand-kept file and
+// never overwrites a cache file the user edited since the last sync.
+//
+// The pure half (this file's first section) has no gh calls and no fs access:
+//
+//   materialize(model)        the canonical layout: { files:{rel:text}, rejected, no_dir, orphan_trds, notes, ... }
+//   renderRoadmap(model)      the generated ROADMAP.md (also the wiki `Roadmap` page: ONE renderer)
+//   renderState(model)        the generated STATE.md
+//   renderMilestones(list)    the generated MILESTONES.md from CLOSED native milestones (null when none closed)
+//
+// MODEL (what readRemoteModel returns; a hand-built literal works the same in tests):
+//   { ok:true, repo, pages:{ [page]: text }, pages_report,
+//     objectives:[{ id, number, rest_id, title, name, state:'open'|'closed', milestone, body, updated_at, comments }],
+//     trds:[{ id, number, rest_id, title, state, body, updated_at, comments }],
+//     todos / debugs / quicks:[{ id, role, number, rest_id, title, state, body, updated_at, comments }]   (48-07)
+//     decisions:[{ id, number, rest_id, title, state, body, updated_at, comments }],
+//     milestones:[{ number, title, state, description, due_on, closed_at }], milestones_report, problems }
+//   `id` of an objective is canonical (`7`, `2.1`); a TRD's authoritative id is the one in its body header; an
+//   entity's is the one in its entity body header (48-02); a decision's is its `aoforge:id` marker (`7-01-d1`).
+//
+// LAYOUT (relative to `.planning/`):
+//   PROJECT.md, REQUIREMENTS.md, codebase/<NAME>.md   wiki pages (gh-wiki's page table, one place)
+//   objectives/<dir>/OBJECTIVE.md, <NN>-CONTEXT.md, <NN>-RESEARCH.md        wiki pages
+//   objectives/<dir>/<aoforge:file>                   a TRD issue body (gh-trd.decodeTrdBody)
+//   objectives/<dir>/<file of the summary comment>    gh-comments.decodeFileComment(kind 'summary')
+//   objectives/<dir>/<file of the verification cmt>   decodeFileComment(kind 'verification') on the objective
+//   todos/{pending,completed,done}/<f>, debug/[resolved/]<f>, quick/<N>-<slug>/<N>-JOB.md
+//                                                     an entity issue body (gh-trd.decodeEntityBody); the header path
+//                                                     must classify (planning-paths) as that entity's own file, and
+//                                                     the issue state picks pending|completed / debug|resolved
+//   quick/<N>-<slug>/<file of the summary comment>    the quick issue's `summary` comment
+//   decisions/<id>.md                                 a Decision issue: question + `## Answer` from its answer comment
+//   ROADMAP.md, STATE.md, MILESTONES.md               generated views (GENERATED_HEADER)
+// `<dir>` is the objective's `aoforge:dir` marker; a marker or file name that is not one safe path segment
+// belonging to its owner is REJECTED and reported, so nothing is ever written outside `.planning/`.
+//
+// Reads only. Every gh read goes through gh-client (`ghPaginate`: list-and-scan with full pagination, never
+// a search query); local writes go through sync-state's atomicWrite.
+//
+// WRITE RULES (D-26), per target path relative to `.planning/`:
+//   absent                                        -> write
+//   bytes equal                                   -> skip (no mtime churn)
+//   differs, local hash equals the cache index    -> write (GitHub wins: the local copy is untouched)
+//   differs otherwise                             -> local_modified (skip and report; --force writes)
+//   a GENERATED_FILES path without GENERATED_HEADER -> hand_maintained (skip and report; never forced)
+// The cache index (gh-outbox readCacheIndex/writeCacheIndex) holds the content hash of each file as of the
+// last sync; `recordCacheBaseline` is how a push records the same thing.
+
+const fs = require('fs');
+const path = require('path');
+const ghTrd = require('./gh-trd.cjs');
+const ghBody = require('./gh-body.cjs');
+const ghComments = require('./gh-comments.cjs');
+const ghWiki = require('./gh-wiki.cjs');
+const ghMapping = require('./gh-mapping.cjs');
+const ghCapability = require('./gh-capability.cjs');
+const client = require('./gh-client.cjs');
+const outbox = require('./gh-outbox.cjs');
+const flushLib = require('./gh-outbox-flush.cjs');
+const milestoneStore = require('./gh-milestone-store.cjs');
+const planningPaths = require('./planning-paths.cjs');
+const { atomicWrite } = require('./sync-state.cjs');
+const { extractFrontmatter } = require('./frontmatter.cjs');
+
+const GENERATED_HEADER = '<!-- generated by aoforge; do not edit -->';
+const GENERATED_FILES = Object.freeze(['ROADMAP.md', 'STATE.md', 'MILESTONES.md']);
+const ROADMAP_PAGE = 'Roadmap';
+const NO_MILESTONE = 'Unscheduled';
+
+// ─── Small helpers ────────────────────────────────────────────────────────────
+
+const str = (v) => (typeof v === 'string' ? v : '');
+const NAT = (a, b) => a.localeCompare(b, 'en', { numeric: true });
+
+function requireModel(model) {
+  if (!model || typeof model !== 'object') throw new TypeError('expected a remote model');
+  if (model.ok === false) throw new TypeError(`the remote model could not be read: ${model.error || 'unknown error'}`);
+  return model;
+}
+
+/** `7` / `2.1` from a TRD id such as `7-01` / `2.1-03`, or null. */
+function objectivePartOf(trdId) {
+  const m = /^(\d+(?:\.\d+)?)-\d+$/.exec(String(trdId));
+  return m ? m[1] : null;
+}
+
+/** Does `dir` (`07-store-demo`) belong to objective `id` (`7`)? One safe segment led by the objective number. */
+function dirBelongsTo(dir, id) {
+  const m = /^(\d+(?:\.\d+)?)(?:-|$)/.exec(String(dir));
+  return m !== null && ghMapping.toObjectiveId(m[1]) === id;
+}
+
+/**
+ * Does a file name belong to its owner? A TRD id (`7-01`) needs the file to lead with that id as written on
+ * disk (`07-01-...`); an objective id (`7`) needs the leading objective number to match (`07-VERIFICATION.md`).
+ */
+function fileBelongsTo(file, id) {
+  const m = /^(\d+(?:\.\d+)?)(?:-(\d+))?/.exec(String(file));
+  if (!m) return false;
+  const trdPart = /^\d+(?:\.\d+)?-(\d+)$/.exec(String(id));
+  if (trdPart === null) return ghMapping.toObjectiveId(m[1]) === id;
+  return ghMapping.toObjectiveId(m[1]) === objectivePartOf(id) && m[2] === trdPart[1];
+}
+
+const objectiveName = (o) => {
+  if (typeof o.name === 'string' && o.name !== '') return o.name;
+  const m = /^\[Objective\s+[\d.]+\]\s*(.*)$/.exec(str(o.title));
+  return m ? m[1] : str(o.title);
+};
+
+const isClosed = (issue) => String(issue && issue.state).toLowerCase() === 'closed';
+
+// ─── The shared view (one reader of the model for both renderers) ─────────────
+
+function trdView(trd) {
+  const d = ghTrd.decodeTrdBody(str(trd.body));
+  if (!d.ok) return null;
+  const fm = extractFrontmatter(d.text);
+  const lead = /^(\d+(?:\.\d+)?-\d+)(?:-|\.|$)/.exec(d.file);
+  const nameMatch = /^\d+(?:\.\d+)?-\d+-(.+)-TRD\.md$/.exec(d.file);
+  let depends = [];
+  if (Array.isArray(fm.depends_on)) depends = fm.depends_on.map(String).filter(Boolean);
+  else if (typeof fm.depends_on === 'string' && fm.depends_on.trim() !== '') depends = fm.depends_on.split(',').map((s) => s.trim()).filter(Boolean);
+  return {
+    id: d.id,
+    label: lead ? lead[1] : d.id,
+    name: nameMatch ? nameMatch[1] : null,
+    wave: typeof fm.wave === 'string' && /^\d+$/.test(fm.wave) ? fm.wave : null,
+    depends,
+    number: trd.number,
+    done: isClosed(trd),
+  };
+}
+
+const trdOrder = (a, b) => parseInt(a.id.slice(a.id.lastIndexOf('-') + 1), 10) - parseInt(b.id.slice(b.id.lastIndexOf('-') + 1), 10)
+  || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** Objectives in numeric order, each with its TRDs (by id prefix) in TRD order. */
+function buildView(model) {
+  requireModel(model);
+  const byObjective = new Map();
+  for (const trd of Array.isArray(model.trds) ? model.trds : []) {
+    const v = trdView(trd);
+    const obj = v && objectivePartOf(v.id);
+    if (obj === null || obj === undefined) continue;
+    if (!byObjective.has(obj)) byObjective.set(obj, []);
+    byObjective.get(obj).push(v);
+  }
+  return (Array.isArray(model.objectives) ? model.objectives : [])
+    .slice()
+    .sort((a, b) => ghMapping.compareIds(a.id, b.id))
+    .map((o) => {
+      const trds = (byObjective.get(o.id) || []).slice().sort(trdOrder);
+      return {
+        id: o.id,
+        number: o.number,
+        name: objectiveName(o),
+        state: isClosed(o) ? 'closed' : 'open',
+        milestone: typeof o.milestone === 'string' && o.milestone !== '' ? o.milestone : null,
+        trds,
+        done: trds.filter((t) => t.done).length,
+      };
+    });
+}
+
+// ─── Renderers (pure; no timestamps, so an unchanged remote renders the same bytes) ──
+
+function trdLine(t) {
+  const meta = [];
+  if (t.wave !== null) meta.push(`wave ${t.wave}`);
+  meta.push(`#${t.number}`);
+  if (t.depends.length > 0) meta.push(`blocked by ${t.depends.join(', ')}`);
+  return `- [${t.done ? 'x' : ' '}] ${t.label}${t.name ? ` ${t.name}` : ''} (${meta.join(', ')})`;
+}
+
+/**
+ * renderRoadmap(model) — ROADMAP.md as a view of the issues, grouped by milestone (natural order, no
+ * milestone last) then numeric objective id. The wiki `Roadmap` page is this same string.
+ */
+function renderRoadmap(model) {
+  const objectives = buildView(model);
+  const lines = [GENERATED_HEADER, '# Roadmap'];
+  if (objectives.length === 0) {
+    lines.push('', '_No objectives yet._');
+    return `${lines.join('\n')}\n`;
+  }
+  const groups = new Map();
+  for (const o of objectives) {
+    const key = o.milestone === null ? NO_MILESTONE : o.milestone;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(o);
+  }
+  const titles = [...groups.keys()].sort((a, b) => {
+    if (a === NO_MILESTONE && b !== NO_MILESTONE) return 1;
+    if (b === NO_MILESTONE && a !== NO_MILESTONE) return -1;
+    return NAT(a, b);
+  });
+  for (const title of titles) {
+    lines.push('', `## ${title}`);
+    for (const o of groups.get(title)) {
+      lines.push('', `### Objective ${o.id}: ${o.name}  (#${o.number}, ${o.state})`);
+      if (o.trds.length === 0) lines.push('TRDs: none yet');
+      else {
+        lines.push('TRDs:');
+        for (const t of o.trds) lines.push(trdLine(t));
+      }
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** renderState(model) — STATE.md: position is the lowest-numbered open objective; done/total TRDs per objective. */
+function renderState(model) {
+  const objectives = buildView(model);
+  const lines = [GENERATED_HEADER, '# State', '', '## Current Position', ''];
+  const current = objectives.find((o) => o.state === 'open');
+  if (current) {
+    lines.push(
+      `Objective ${current.id}: ${current.name} (#${current.number})`,
+      `Status: ${current.state}`,
+      `Progress: ${current.done}/${current.trds.length} TRDs done`,
+    );
+  } else {
+    lines.push('No open objectives.');
+  }
+  lines.push('', '## Objectives', '');
+  if (objectives.length === 0) lines.push('_No objectives yet._');
+  for (const o of objectives) {
+    lines.push(`- Objective ${o.id}: ${o.name} - ${o.done}/${o.trds.length} TRDs done (${o.state})`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * renderMilestones(milestones) — MILESTONES.md as a view of the CLOSED native milestones (gh-milestone-store
+ * listMilestones rows), newest `closed_at` first: `## <title> (Shipped: <YYYY-MM-DD>)` then the description.
+ * Open milestones are omitted. -> the text, or null when no milestone is closed (nothing to write).
+ */
+function renderMilestones(milestones) {
+  const closed = (Array.isArray(milestones) ? milestones : [])
+    .filter((m) => m && typeof m === 'object' && String(m.state).toLowerCase() === 'closed');
+  if (closed.length === 0) return null;
+  const at = (m) => str(m.closed_at);
+  closed.sort((a, b) => (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : (Number(b.number) || 0) - (Number(a.number) || 0)));
+  const lines = [GENERATED_HEADER, '# Milestones'];
+  for (const m of closed) {
+    const day = /^\d{4}-\d{2}-\d{2}/.exec(at(m));
+    lines.push('', `## ${str(m.title)} (Shipped: ${day ? day[0] : 'unknown'})`);
+    const description = ghTrd.normalise(str(m.description)).trim();
+    if (description !== '') lines.push('', description);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+// ─── Materialisation (pure) ───────────────────────────────────────────────────
+
+/** Entity roles (48-02) and the model list each one is read into. */
+const ENTITY_LISTS = Object.freeze([['todo', 'todos'], ['debug', 'debugs'], ['quick', 'quicks']]);
+
+/** A Decision id (`7-01-d1`, the `<trd>-d<k>` form gh-hierarchy openDecision builds). */
+const DECISION_ID_RE = /^\d+(?:\.\d+)?-\d+-d\d+$/;
+
+/** planning-paths.classify, or null for a path it refuses. */
+function classifyOrNull(rel) {
+  try {
+    return planningPaths.classify(rel);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where an entity file lives given its issue state (U-3: issue state is authoritative). A closed todo under
+ * `pending/` goes to `completed/` (the `todo complete` location; a legacy `done/` header stays), an open one under
+ * `completed/` or `done/` goes back to `pending/`; `debug/` <-> `debug/resolved/` likewise. Quick never moves.
+ * `file` has already classified as this role's file, so its shape is known.
+ */
+function placeByState(role, file, closed) {
+  const seg = file.split('/');
+  const name = seg[seg.length - 1];
+  if (role === 'todo') {
+    if (closed && seg[1] === 'pending') return `todos/completed/${name}`;
+    if (!closed && seg[1] !== 'pending') return `todos/pending/${name}`;
+  } else if (role === 'debug') {
+    if (closed && seg.length === 2) return `debug/resolved/${name}`;
+    if (!closed && seg.length === 3) return `debug/${name}`;
+  }
+  return file;
+}
+
+// gh-body's marker grammar (46/47) knows objective, TRD and decision ids only. Entity comments use the same first
+// line, `<!-- aoforge:id=<id> kind=<kind> -->`, so an id gh-body refuses is matched here with the entity grammar.
+const ENTITY_COMMENT_MARKER_RE = /^<!--\s*aoforge:id=((?:todo|debug)-[a-z0-9][a-z0-9._-]{0,99}|quick-\d+)\s+kind=([a-z-]+)\s*-->$/;
+
+function bodyKnowsId(id) {
+  try {
+    ghBody.markerLine(id);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * gh-comments.decodeFileComment for any id: gh-body's own reader when it knows the id, else the same parts,
+ * join and `aoforge:file` line read through the entity marker grammar. Same result shape.
+ */
+function fileCommentOf(comments, id, kind) {
+  if (bodyKnowsId(id)) return ghComments.decodeFileComment(comments, id, kind);
+  const parts = [];
+  for (const c of Array.isArray(comments) ? comments : []) {
+    if (!c || typeof c.body !== 'string') continue;
+    const s = ghTrd.normalise(c.body);
+    const nl = s.indexOf('\n');
+    const m = ENTITY_COMMENT_MARKER_RE.exec((nl === -1 ? s : s.slice(0, nl)).trim());
+    if (m && m[1] === id && m[2] === kind) parts.push(nl === -1 ? '' : s.slice(nl + 1));
+  }
+  if (parts.length === 0) return { ok: false, notFound: true, error: `no ${kind} comment found for ${id}` };
+  const joined = ghTrd.joinParts(parts);
+  if (!joined.ok) return { ok: false, missing: joined.missing, error: `${kind} comment for ${id}: ${joined.error}` };
+  const nl = joined.text.indexOf('\n');
+  const file = ghTrd.parseFileLine(nl === -1 ? joined.text : joined.text.slice(0, nl));
+  if (file === null) return { ok: false, error: `${kind} comment for ${id} has no valid aoforge:file line` };
+  return { ok: true, file, text: nl === -1 ? '' : joined.text.slice(nl + 1) };
+}
+
+/** `{id, question}` of a Decision issue whose FIRST line is its `aoforge:id` marker, else null. */
+function decisionOf(issue) {
+  const s = ghTrd.normalise(str(issue.body));
+  const nl = s.indexOf('\n');
+  const first = (nl === -1 ? s : s.slice(0, nl)).trim();
+  const marker = ghBody.extractMarker(first);
+  if (marker === null || marker.kind !== null || !DECISION_ID_RE.test(marker.id) || !/^<!--[\s\S]*-->$/.test(first)) return null;
+  return { id: marker.id, question: (nl === -1 ? '' : s.slice(nl + 1)).replace(/^\n+/, '') };
+}
+
+/**
+ * materialize(model) — the canonical `.planning/` layout for a remote model.
+ *
+ * -> { files:{rel:text}, sources:{rel:baseKey}, rejected:[{kind,reason,...}], no_dir:[{id,number}],
+ *      orphan_trds:[{id,number}], unmapped_pages:[page], notes:[string] }
+ * `notes` names each todo / debug file the issue state moved away from its header path.
+ *
+ * `files` never holds ROADMAP.md / STATE.md (generated views: renderRoadmap / renderState) and never the
+ * `Roadmap` wiki page. `sources` names the outbox base key of every file that comes from an issue or a
+ * comment (`7-01`, `7-01#summary`, `7#verification`, `todo-<stem>`, `quick-12#summary`, `7-01-d1`). CRLF is
+ * normalised; nothing is trimmed (a decision file is composed: question + `## Answer` section).
+ */
+function materialize(model) {
+  requireModel(model);
+  const files = {};
+  const sources = {};
+  const rejected = [];
+  const noDir = [];
+  const orphanTrds = [];
+  const unmapped = [];
+
+  const put = (rel, text, what, key) => {
+    if (Object.prototype.hasOwnProperty.call(files, rel)) {
+      rejected.push({ kind: what.kind, ...what.ref, reason: `${rel} collides with a file already provided` });
+      return;
+    }
+    files[rel] = text;
+    if (key) sources[rel] = key;
+  };
+
+  // Objective directories come from the aoforge:dir marker, the only place GitHub stores them.
+  const objectives = Array.isArray(model.objectives) ? model.objectives : [];
+  const dirOf = {};
+  for (const o of objectives) {
+    const dir = ghBody.parseDirMarker(str(o.body));
+    if (dir === null) {
+      noDir.push({ id: o.id, number: o.number });
+    } else if (!dirBelongsTo(dir, o.id)) {
+      rejected.push({ kind: 'dir', id: o.id, number: o.number, reason: `aoforge:dir "${dir}" does not start with objective ${o.id}` });
+    } else {
+      dirOf[o.id] = dir;
+    }
+  }
+  const objectiveDirs = Object.values(dirOf);
+
+  // Wiki / docs pages, through the one page table.
+  const pages = model.pages && typeof model.pages === 'object' ? model.pages : {};
+  for (const page of Object.keys(pages).sort()) {
+    if (page === ROADMAP_PAGE) continue;
+    const rel = ghWiki.cachePathForPage(page, { objectiveDirs });
+    if (rel === null) {
+      unmapped.push(page);
+      continue;
+    }
+    put(rel, ghTrd.normalise(str(pages[page])), { kind: 'page', ref: { page } });
+  }
+
+  // TRD files and SUMMARY comments.
+  for (const trd of Array.isArray(model.trds) ? model.trds : []) {
+    const d = ghTrd.decodeTrdBody(str(trd.body));
+    if (!d.ok) {
+      rejected.push({ kind: 'trd', number: trd.number, reason: d.error });
+      continue;
+    }
+    const objective = objectivePartOf(d.id);
+    if (objective === null || !Object.prototype.hasOwnProperty.call(dirOf, objective)) {
+      orphanTrds.push({ id: d.id, number: trd.number });
+      continue;
+    }
+    if (!fileBelongsTo(d.file, d.id)) {
+      rejected.push({ kind: 'trd', id: d.id, number: trd.number, reason: `file "${d.file}" does not start with the id prefix of TRD ${d.id}` });
+      continue;
+    }
+    const base = `objectives/${dirOf[objective]}`;
+    put(`${base}/${d.file}`, d.text, { kind: 'trd', ref: { id: d.id, number: trd.number } }, d.id);
+
+    const s = ghComments.decodeFileComment(Array.isArray(trd.comments) ? trd.comments : [], d.id, 'summary');
+    if (s.ok) {
+      if (fileBelongsTo(s.file, d.id)) {
+        put(`${base}/${s.file}`, s.text, { kind: 'summary', ref: { id: d.id, number: trd.number } }, `${d.id}#summary`);
+      } else {
+        rejected.push({ kind: 'summary', id: d.id, number: trd.number, reason: `file "${s.file}" does not start with the id prefix of TRD ${d.id}` });
+      }
+    } else if (!s.notFound) {
+      rejected.push({ kind: 'summary', id: d.id, number: trd.number, reason: s.error });
+    }
+  }
+
+  // VERIFICATION comments sit on the objective issue.
+  for (const o of objectives) {
+    if (!Object.prototype.hasOwnProperty.call(dirOf, o.id)) continue;
+    const v = ghComments.decodeFileComment(Array.isArray(o.comments) ? o.comments : [], o.id, 'verification');
+    if (v.ok) {
+      if (fileBelongsTo(v.file, o.id)) {
+        put(`objectives/${dirOf[o.id]}/${v.file}`, v.text, { kind: 'verification', ref: { id: o.id, number: o.number } }, `${o.id}#verification`);
+      } else {
+        rejected.push({ kind: 'verification', id: o.id, number: o.number, reason: `file "${v.file}" does not start with objective ${o.id}` });
+      }
+    } else if (!v.notFound) {
+      rejected.push({ kind: 'verification', id: o.id, number: o.number, reason: v.error });
+    }
+  }
+
+  // Entity issues (48-07, U-3): the header path is trusted only when it classifies as THIS entity's own file.
+  const notes = [];
+  for (const [role, list] of ENTITY_LISTS) {
+    for (const issue of Array.isArray(model[list]) ? model[list] : []) {
+      const d = ghTrd.decodeEntityBody(str(issue.body));
+      if (!d.ok) {
+        rejected.push({ kind: role, number: issue.number, reason: d.error });
+        continue;
+      }
+      const c = classifyOrNull(d.file);
+      const e = c && c.class === 'cache' ? c.entity : null;
+      if (!e || e.role !== role || e.id !== d.id || (role === 'quick' && e.part !== 'job')) {
+        rejected.push({ kind: role, id: d.id, number: issue.number, reason: `file "${d.file}" is not the ${role} file of ${d.id}` });
+        continue;
+      }
+      const closed = isClosed(issue);
+      const rel = placeByState(role, d.file, closed);
+      if (rel !== d.file) notes.push(`${d.id} (#${issue.number}) is ${closed ? 'closed' : 'open'}: placed at ${rel}, not ${d.file}`);
+      put(rel, d.text, { kind: role, ref: { id: d.id, number: issue.number } }, d.id);
+      if (role !== 'quick') continue;
+
+      const s = fileCommentOf(Array.isArray(issue.comments) ? issue.comments : [], d.id, 'summary');
+      if (s.ok) {
+        const srel = `${rel.slice(0, rel.lastIndexOf('/'))}/${s.file}`;
+        const sc = classifyOrNull(srel);
+        if (sc && sc.class === 'cache' && sc.entity && sc.entity.id === d.id && sc.entity.part === 'summary') {
+          put(srel, s.text, { kind: 'quick-summary', ref: { id: d.id, number: issue.number } }, `${d.id}#summary`);
+        } else {
+          rejected.push({ kind: 'quick-summary', id: d.id, number: issue.number, reason: `file "${s.file}" is not the summary of ${d.id}` });
+        }
+      } else if (!s.notFound) {
+        rejected.push({ kind: 'quick-summary', id: d.id, number: issue.number, reason: s.error });
+      }
+    }
+  }
+
+  // Decision issues: decisions/<id>.md = the question, plus `## Answer` from the `answer` comment when there is one.
+  for (const issue of Array.isArray(model.decisions) ? model.decisions : []) {
+    const dec = decisionOf(issue);
+    if (dec === null) {
+      rejected.push({ kind: 'decision', number: issue.number, reason: 'no aoforge:id decision marker on the first line of the body' });
+      continue;
+    }
+    const comments = Array.isArray(issue.comments) ? issue.comments : [];
+    let answer = null;
+    const asFile = ghComments.decodeFileComment(comments, dec.id, 'answer');
+    if (asFile.ok) answer = asFile.text;
+    else if (!asFile.notFound) {
+      const joined = joinedCommentText(comments, dec.id, 'answer');
+      if (joined !== null) answer = joined.text;
+      else rejected.push({ kind: 'decision-answer', id: dec.id, number: issue.number, reason: asFile.error });
+    }
+    const text = answer === null ? dec.question : `${dec.question.trimEnd()}\n\n## Answer\n\n${answer.trimEnd()}\n`;
+    put(`decisions/${dec.id}.md`, text, { kind: 'decision', ref: { id: dec.id, number: issue.number } }, dec.id);
+  }
+
+  return { files, sources, rejected, no_dir: noDir, orphan_trds: orphanTrds, unmapped_pages: unmapped, notes };
+}
+
+// ─── Remote model (reads only) ────────────────────────────────────────────────
+
+/** Labels listed for the model; `config.github.labels.<role>` overrides each (entity labels from 48-02 ENTITY_ROLES). */
+const DEFAULT_LABELS = Object.freeze({
+  objective: 'aoforge:objective',
+  trd: 'aoforge:trd',
+  decision: 'aoforge:decision',
+  ...Object.fromEntries(ENTITY_LISTS.map(([role]) => [role, outbox.ENTITY_ROLES[role].label])),
+});
+
+const failureText = (r) => r.error || r.stderr || r.stdout || 'gh api failed';
+const stateOf = (issue) => (isClosed(issue) ? 'closed' : 'open');
+const restIdOf = (issue) => (Number.isInteger(issue.id) ? issue.id : null);
+
+/** Every issue carrying `label` (open and closed), pull requests dropped, ascending by number. */
+function listLabelled(repo, label) {
+  const r = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+  if (!r.ok) return { ok: false, error: `could not list ${label} issues: ${failureText(r)}` };
+  const items = r.items
+    .filter((i) => i && typeof i === 'object' && !i.pull_request && Number.isInteger(i.number))
+    .sort((a, b) => a.number - b.number);
+  return { ok: true, items };
+}
+
+/** Every comment of an issue, across all pages (the first page alone is defect 8 of objective 46). */
+function readComments(repo, number) {
+  const r = client.ghPaginate(`repos/${repo}/issues/${number}/comments`);
+  if (!r.ok) return { ok: false, error: `could not read the comments of issue #${number}: ${failureText(r)}` };
+  const items = r.items
+    .filter((c) => c && typeof c.body === 'string')
+    .map((c) => ({ id: c.id, body: c.body, updated_at: typeof c.updated_at === 'string' ? c.updated_at : null }));
+  return { ok: true, items };
+}
+
+function issueFields(issue) {
+  return {
+    number: issue.number,
+    rest_id: restIdOf(issue),
+    title: str(issue.title),
+    state: stateOf(issue),
+    body: str(issue.body),
+    updated_at: typeof issue.updated_at === 'string' ? issue.updated_at : null,
+  };
+}
+
+/**
+ * The pages section of the model. A wiki that cannot be read (never created, unreachable, no access) is
+ * REPORTED and the pages skipped: the issue-derived files still materialise.
+ * -> { pages:{page:text}, report:{mode, skipped, message?, ahead?, dirty?, updated?, offline?, auth?, uninitialised?} }
+ */
+function readPages(root, probeIssue, opts) {
+  const skip = (extra) => ({ pages: {}, report: { mode: null, skipped: true, ...extra } });
+
+  let mode = opts.pagesMode || null;
+  if (mode === null) {
+    const caps = ghCapability.detectCapabilities(root, { probeIssue });
+    if (!caps.ok) return skip({ message: `could not tell whether the wiki is available: ${caps.error}` });
+    const modes = ghCapability.resolveModes(caps);
+    if (modes.pages === 'blocked') return skip({ message: modes.pages_message });
+    mode = modes.pages;
+  }
+
+  const report = { mode, skipped: false };
+  let store;
+  if (mode === 'docs') {
+    store = ghWiki.openStore(root, { mode: 'docs' });
+  } else {
+    const cloned = ghWiki.ensureClone(root);
+    if (!cloned.ok) {
+      return skip({
+        mode, message: `the wiki could not be read: ${cloned.error}`, offline: cloned.offline === true, auth: cloned.auth === true, uninitialised: cloned.uninitialised === true,
+      });
+    }
+    store = ghWiki.openStore(root, { mode: 'wiki' });
+    const fetched = store.fetch();
+    if (!fetched.ok) {
+      return skip({
+        mode, message: `the wiki could not be fetched: ${fetched.error}`, offline: fetched.offline === true, auth: fetched.auth === true, uninitialised: fetched.uninitialised === true,
+      });
+    }
+    report.ahead = fetched.ahead || 0;
+    report.dirty = fetched.dirty === true;
+    report.updated = fetched.updated === true;
+  }
+
+  const pages = {};
+  for (const page of store.listPages()) {
+    const text = store.readPage(page);
+    if (text !== null) pages[page] = text;
+  }
+  return { pages, report };
+}
+
+/**
+ * readRemoteModel(root, opts) — the whole planning hierarchy as GitHub holds it (see the MODEL comment at
+ * the top). Flat on purpose: `renderRoadmap(readRemoteModel(root))` is the call 47-12 makes.
+ *
+ * `opts.pagesMode` ('wiki' | 'docs') skips the capability probe for a caller that already knows.
+ *
+ * -> { ok:true, repo, pages, pages_report, objectives, trds, todos, debugs, quicks, decisions, milestones,
+ *       milestones_report, problems }
+ *  | { ok:false, error }                       a read failed (nothing partial is returned)
+ *  | { ok:false, skipped:true, reason, error } github is not enabled (no gh call was made)
+ *
+ * `problems`: duplicate_objectives {id:[numbers]} (an id two issues claim is left OUT, never guessed),
+ * unmarked_objectives [numbers], undecodable_trds [numbers] (labelled aoforge:trd but not an AOForge body),
+ * undecodable_entities [numbers] (labelled todo / debug / quick but not an AOForge entity body).
+ *
+ * Comments are read for objectives, TRDs, quick tasks (their summary) and decisions (their answer); todo and debug
+ * issues carry their whole file in the body. Native milestones come from gh-milestone-store.listMilestones (a read);
+ * a list that fails is REPORTED in `milestones_report` ({skipped, message?, offline?}) and never fails the model.
+ */
+function readRemoteModel(root, opts = {}) {
+  const gate = client.requireEnabled(root);
+  if (gate.skipped) return { ok: false, skipped: true, reason: gate.reason, error: gate.reason };
+  const repo = gate.repo;
+  const labels = { ...DEFAULT_LABELS, ...(gate.labels || {}) };
+
+  const objectiveList = listLabelled(repo, labels.objective);
+  if (!objectiveList.ok) return objectiveList;
+  const trdList = listLabelled(repo, labels.trd);
+  if (!trdList.ok) return trdList;
+  const decisionList = listLabelled(repo, labels.decision);
+  if (!decisionList.ok) return decisionList;
+  const entityLists = {};
+  for (const [role] of ENTITY_LISTS) {
+    const listed = listLabelled(repo, labels[role]);
+    if (!listed.ok) return listed;
+    entityLists[role] = listed.items;
+  }
+
+  const problems = { duplicate_objectives: {}, unmarked_objectives: [], undecodable_trds: [], undecodable_entities: [] };
+
+  const index = ghBody.indexByMarker(objectiveList.items.map((i) => ({ number: i.number, body: str(i.body) })));
+  problems.duplicate_objectives = index.duplicates;
+  problems.unmarked_objectives = index.unmarked;
+  const byNumber = new Map(objectiveList.items.map((i) => [i.number, i]));
+  const objectives = [];
+  for (const [id, number] of Object.entries(index.byId)) {
+    const issue = byNumber.get(number);
+    const comments = readComments(repo, number);
+    if (!comments.ok) return comments;
+    const named = /^\[Objective\s+[\d.]+\]\s*(.*)$/.exec(str(issue.title));
+    objectives.push({
+      id,
+      ...issueFields(issue),
+      name: named ? named[1] : str(issue.title),
+      milestone: issue.milestone && typeof issue.milestone.title === 'string' ? issue.milestone.title : null,
+      comments: comments.items,
+    });
+  }
+  objectives.sort((a, b) => ghMapping.compareIds(a.id, b.id));
+
+  const trds = [];
+  for (const issue of trdList.items) {
+    const decoded = ghTrd.decodeTrdBody(str(issue.body));
+    if (!decoded.ok) {
+      problems.undecodable_trds.push(issue.number);
+      continue;
+    }
+    const comments = readComments(repo, issue.number);
+    if (!comments.ok) return comments;
+    trds.push({ id: decoded.id, ...issueFields(issue), comments: comments.items });
+  }
+
+  const entities = {};
+  for (const [role] of ENTITY_LISTS) {
+    entities[role] = [];
+    for (const issue of entityLists[role]) {
+      const decoded = ghTrd.decodeEntityBody(str(issue.body));
+      if (!decoded.ok) {
+        if (!problems.undecodable_entities.includes(issue.number)) problems.undecodable_entities.push(issue.number);
+        continue;
+      }
+      let comments = [];
+      if (role === 'quick') {
+        const read = readComments(repo, issue.number);
+        if (!read.ok) return read;
+        comments = read.items;
+      }
+      entities[role].push({ id: decoded.id, role, ...issueFields(issue), comments });
+    }
+  }
+  problems.undecodable_entities.sort((a, b) => a - b);
+
+  const decisions = [];
+  for (const issue of decisionList.items) {
+    const fields = issueFields(issue);
+    const dec = decisionOf(fields);
+    let comments = [];
+    if (dec !== null) {
+      const read = readComments(repo, issue.number);
+      if (!read.ok) return read;
+      comments = read.items;
+    }
+    decisions.push({ id: dec === null ? null : dec.id, ...fields, comments });
+  }
+
+  const listed = milestoneStore.listMilestones(root);
+  const milestones = listed.ok ? listed.milestones : [];
+  const milestonesReport = listed.ok
+    ? { skipped: false }
+    : { skipped: true, message: `the milestones could not be listed: ${listed.error || listed.reason || 'unknown error'}`, offline: listed.offline === true };
+
+  const pageRead = readPages(root, objectives.length > 0 ? objectives[0].number : undefined, opts);
+  return {
+    ok: true,
+    repo,
+    pages: pageRead.pages,
+    pages_report: pageRead.report,
+    objectives,
+    trds,
+    todos: entities.todo,
+    debugs: entities.debug,
+    quicks: entities.quick,
+    decisions,
+    milestones,
+    milestones_report: milestonesReport,
+    problems,
+  };
+}
+
+// ─── Cache writer ─────────────────────────────────────────────────────────────
+
+function safeRel(rel) {
+  if (typeof rel !== 'string' || rel === '' || rel.startsWith('/') || rel.includes('\0') || rel.includes('\\')) return false;
+  return rel.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
+}
+
+function requireSafe(rel) {
+  if (!safeRel(rel)) throw new Error(`unsafe cache path ${JSON.stringify(rel)}: it must stay inside .planning/`);
+  return rel;
+}
+
+/** The text of a file, or null when it does not exist. Any other failure propagates. */
+function readLocal(file) {
+  try {
+    return fs.readFileSync(file, 'utf-8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
+/**
+ * listOwnedLocal(root) — the local files the store owns: every `cache`-class path under `.planning/` per
+ * planning-paths.classify (documents, objective files incl. UAT/EVIDENCE docs, todos, debug, quick, decisions,
+ * research, milestones), except the wiki clone (`wiki/**`, read through the page store, never a cache file).
+ * Config, runtime files and the generated views (ROADMAP / STATE / MILESTONES) are not the store's and are never
+ * called orphans. Sorted. (48-07: replaces the 47 list, which it contains.)
+ */
+function listOwnedLocal(root) {
+  return planningPaths.listByClass(path.join(root, '.planning')).cache.filter((rel) => !rel.startsWith('wiki/'));
+}
+
+/**
+ * writeCache(root, files, {force, skipPageOrphans}) — write `files` ({rel:text}) under `.planning/` by the
+ * D-26 rules (see the header). Nothing is ever deleted: a local store file absent from `files` is an orphan.
+ *
+ * -> { written, skipped, local_modified, hand_maintained, orphans, errors }   (arrays of relative paths)
+ * Throws for a path that would leave `.planning/`, before anything is written.
+ */
+function writeCache(root, files, opts = {}) {
+  const rels = Object.keys(files).sort();
+  for (const rel of rels) requireSafe(rel);
+
+  const planning = path.join(root, '.planning');
+  const before = outbox.readCacheIndex(root);
+  const index = { ...before };
+  const result = { written: [], skipped: [], local_modified: [], hand_maintained: [], orphans: [], errors: [] };
+
+  for (const rel of rels) {
+    const text = files[rel];
+    const target = path.join(planning, rel);
+    let existing;
+    try {
+      existing = readLocal(target);
+    } catch (e) {
+      result.errors.push(`${rel}: ${e.message}`);
+      continue;
+    }
+
+    const write = () => {
+      atomicWrite(target, text);
+      index[rel] = ghTrd.contentHash(text);
+      result.written.push(rel);
+    };
+
+    if (existing === null) {
+      write();
+    } else if (GENERATED_FILES.includes(rel)) {
+      if (!existing.startsWith(GENERATED_HEADER)) result.hand_maintained.push(rel);
+      else if (existing === text) {
+        index[rel] = ghTrd.contentHash(text);
+        result.skipped.push(rel);
+      } else write();
+    } else if (existing === text) {
+      index[rel] = ghTrd.contentHash(text);
+      result.skipped.push(rel);
+    } else if (opts.force === true || before[rel] === ghTrd.contentHash(existing)) {
+      write();
+    } else {
+      result.local_modified.push(rel);
+    }
+  }
+
+  if (JSON.stringify(index) !== JSON.stringify(before)) {
+    const saved = outbox.writeCacheIndex(root, index);
+    if (!saved.ok) result.errors.push(`cache index: ${saved.error}`);
+  }
+
+  const provided = new Set(rels);
+  result.orphans = listOwnedLocal(root).filter((rel) => {
+    if (provided.has(rel) || GENERATED_FILES.includes(rel)) return false;
+    return !(opts.skipPageOrphans === true && ghWiki.pageForCachePath(rel) !== null);
+  });
+  return result;
+}
+
+/**
+ * recordCacheBaseline(root, relPaths) — record the current local content hash of each file as "in sync with
+ * GitHub". 47-12 calls this after a push flush, so a later pull overwrites those files only when GitHub
+ * changed and the user did not.
+ * -> { recorded:[rel], missing:[rel], invalid:[rel] }
+ */
+function recordCacheBaseline(root, relPaths) {
+  const planning = path.join(root, '.planning');
+  const before = outbox.readCacheIndex(root);
+  const index = { ...before };
+  const out = { recorded: [], missing: [], invalid: [] };
+  for (const rel of Array.isArray(relPaths) ? relPaths : []) {
+    if (!safeRel(rel)) {
+      out.invalid.push(rel);
+      continue;
+    }
+    const text = readLocal(path.join(planning, rel));
+    if (text === null) {
+      out.missing.push(rel);
+      continue;
+    }
+    index[rel] = ghTrd.contentHash(text);
+    out.recorded.push(rel);
+  }
+  if (JSON.stringify(index) !== JSON.stringify(before)) outbox.writeCacheIndex(root, index);
+  return out;
+}
+
+// ─── Outbox base refresh ──────────────────────────────────────────────────────
+
+const BODY_WRITING_OPS = new Set(['upsert-issue', 'patch-body', 'patch-issue', 'set-fields']);
+
+/** Base keys with an op still to run: `<id>` for ops that write the issue, `<id>#<kind>` for a comment. */
+function pendingBaseKeys(root) {
+  const keys = new Set();
+  const { journal } = outbox.readJournal(root);
+  for (const op of journal.ops) {
+    if (op.status === 'done') continue;
+    const t = op.target || {};
+    if (op.kind === 'upsert-comment' && t.id && t.kind) keys.add(`${t.id}#${t.kind}`);
+    else if (BODY_WRITING_OPS.has(op.kind) && t.id) keys.add(t.id);
+  }
+  return keys;
+}
+
+function joinedCommentText(comments, id, kind) {
+  const found = ghBody.findCommentsByMarker(comments, id, kind);
+  if (found.length === 0) return null;
+  const joined = ghTrd.joinParts(found.map((f) => {
+    const s = ghTrd.normalise(f.comment.body);
+    const nl = s.indexOf('\n');
+    return nl === -1 ? '' : s.slice(nl + 1);
+  }));
+  if (!joined.ok) return null;
+  return { text: joined.text, updated_at: found[found.length - 1].comment.updated_at || null };
+}
+
+/**
+ * refreshBases(root, model, {skip}) — record, for every pulled issue and file comment, the remote state the
+ * outbox compares against before it writes (gh-outbox-flush's remote-edit check). A target with an op still
+ * pending keeps its old base (so that write still detects a remote edit), and so does any key in `skip`.
+ * -> { refreshed:[key], skipped_pending:[key], skipped_local:[key], errors:[string] }
+ */
+function refreshBases(root, model, opts = {}) {
+  const skip = opts.skip instanceof Set ? opts.skip : new Set();
+  const pending = pendingBaseKeys(root);
+  const out = { refreshed: [], skipped_pending: [], skipped_local: [], errors: [] };
+
+  const guarded = (key, fn) => {
+    if (pending.has(key)) out.skipped_pending.push(key);
+    else if (skip.has(key)) out.skipped_local.push(key);
+    else {
+      const r = fn();
+      if (r.ok) out.refreshed.push(key);
+      else out.errors.push(`base ${key}: ${r.error}`);
+    }
+  };
+  const issueBase = (key, entity) => guarded(key, () => {
+    if (!Number.isInteger(entity.rest_id)) return { ok: false, error: 'the issue has no REST id' };
+    return outbox.setBase(root, key, flushLib.baseFromIssue(
+      { number: entity.number, id: entity.rest_id, body: entity.body, updated_at: entity.updated_at },
+      outbox.getBase(root, key),
+    ));
+  });
+  const commentBase = (key, entity, id, kind) => {
+    const joined = joinedCommentText(Array.isArray(entity.comments) ? entity.comments : [], id, kind);
+    if (joined === null) return;
+    guarded(key, () => {
+      if (!Number.isInteger(entity.rest_id)) return { ok: false, error: 'the issue has no REST id' };
+      return outbox.setBase(root, key, {
+        issue_number: entity.number, issue_id: entity.rest_id, body_hash: ghTrd.contentHash(joined.text), updated_at: joined.updated_at,
+      });
+    });
+  };
+
+  for (const o of Array.isArray(model.objectives) ? model.objectives : []) {
+    issueBase(o.id, o);
+    commentBase(`${o.id}#verification`, o, o.id, 'verification');
+  }
+  for (const t of Array.isArray(model.trds) ? model.trds : []) {
+    issueBase(t.id, t);
+    commentBase(`${t.id}#summary`, t, t.id, 'summary');
+  }
+  return out;
+}
+
+// ─── pullAll ──────────────────────────────────────────────────────────────────
+
+const listOf = (items, mapper) => items.map(mapper).join(', ');
+
+/**
+ * pullAll(root, {force}) — `gh pull --all`: gate, read the remote model, materialise it (plus the generated
+ * ROADMAP.md and STATE.md, and MILESTONES.md when a milestone is closed), write the changes, then refresh the
+ * outbox bases. Reads GitHub only.
+ *
+ * -> { ok:true, written, skipped, local_modified, hand_maintained, orphans, rejected, no_dir, orphan_trds,
+ *      unmapped_pages, duplicates, pages, milestones, bases, notes, attention:[string], errors }
+ * MILESTONES.md is written only when a native milestone is closed (renderMilestones is non-null).
+ *  | { ok:false, error } | { ok:false, skipped:true, reason, error }
+ * `attention` is non-empty when a human should look (exit 2 in the command): locally modified or hand-kept
+ * files left alone, orphans, rejected or unplaceable items, or pages that could not be read.
+ */
+function pullAll(root, opts = {}) {
+  const model = readRemoteModel(root, opts);
+  if (!model.ok) return model;
+
+  const mat = materialize(model);
+  const files = { ...mat.files, 'ROADMAP.md': renderRoadmap(model), 'STATE.md': renderState(model) };
+  const milestonesText = renderMilestones(model.milestones);
+  if (milestonesText !== null) files['MILESTONES.md'] = milestonesText;
+  const milestonesReport = model.milestones_report || { skipped: false };
+  const undecodableEntities = Array.isArray(model.problems.undecodable_entities) ? model.problems.undecodable_entities : [];
+
+  let written;
+  try {
+    written = writeCache(root, files, { force: opts.force === true, skipPageOrphans: model.pages_report.skipped });
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+
+  const skipKeys = new Set();
+  for (const rel of [...written.local_modified, ...written.hand_maintained]) {
+    if (Object.prototype.hasOwnProperty.call(mat.sources, rel)) skipKeys.add(mat.sources[rel]);
+  }
+  const bases = refreshBases(root, model, { skip: skipKeys });
+
+  const attention = [];
+  if (written.local_modified.length > 0) {
+    attention.push(`${written.local_modified.length} cache file(s) modified locally since the last sync were not overwritten (local_modified; --force takes GitHub's version): ${written.local_modified.join(', ')}`);
+  }
+  if (written.hand_maintained.length > 0) {
+    attention.push(`${written.hand_maintained.join(', ')} is hand-maintained (no generated header) and was left alone (hand_maintained)`);
+  }
+  if (written.orphans.length > 0) {
+    attention.push(`${written.orphans.length} local file(s) GitHub does not have were kept (orphans): ${written.orphans.join(', ')}`);
+  }
+  if (model.pages_report.skipped) attention.push(`wiki pages skipped: ${model.pages_report.message}`);
+  if (mat.rejected.length > 0) attention.push(`${mat.rejected.length} item(s) rejected: ${listOf(mat.rejected, (r) => `${r.kind}${r.id ? ` ${r.id}` : ''}: ${r.reason}`)}`);
+  if (mat.no_dir.length > 0) attention.push(`objective(s) without an aoforge:dir marker were not placed: ${listOf(mat.no_dir, (o) => `${o.id} (#${o.number})`)}`);
+  if (mat.orphan_trds.length > 0) attention.push(`TRD(s) with no placeable objective were skipped: ${listOf(mat.orphan_trds, (t) => `${t.id} (#${t.number})`)}`);
+  const duplicates = model.problems.duplicate_objectives;
+  if (Object.keys(duplicates).length > 0) {
+    attention.push(`objective id(s) claimed by more than one issue were skipped: ${listOf(Object.entries(duplicates), ([id, nums]) => `${id} (${nums.map((n) => `#${n}`).join(', ')})`)}`);
+  }
+  if (model.problems.undecodable_trds.length > 0) {
+    attention.push(`issue(s) labelled as TRDs but not AOForge bodies were skipped: ${model.problems.undecodable_trds.map((n) => `#${n}`).join(', ')}`);
+  }
+  if (undecodableEntities.length > 0) {
+    attention.push(`issue(s) labelled as todo, debug or quick entities but not AOForge entity bodies were skipped: ${undecodableEntities.map((n) => `#${n}`).join(', ')}`);
+  }
+  if (milestonesReport.skipped) attention.push(`MILESTONES.md not refreshed: ${milestonesReport.message}`);
+
+  const notes = [];
+  if (model.pages_report.ahead > 0) notes.push(`the wiki clone is ${model.pages_report.ahead} commit(s) ahead of GitHub; pages were read from the local clone (a pending wiki push will publish them)`);
+  if (model.pages_report.dirty) notes.push('the wiki clone has uncommitted page changes; it was not reset and pages were read as they are');
+  notes.push(...(Array.isArray(mat.notes) ? mat.notes : []));
+
+  return {
+    ok: true,
+    written: written.written,
+    skipped: written.skipped,
+    local_modified: written.local_modified,
+    hand_maintained: written.hand_maintained,
+    orphans: written.orphans,
+    rejected: mat.rejected,
+    no_dir: mat.no_dir,
+    orphan_trds: mat.orphan_trds,
+    unmapped_pages: mat.unmapped_pages,
+    duplicates,
+    pages: model.pages_report,
+    milestones: milestonesReport,
+    bases,
+    notes,
+    attention,
+    errors: [...written.errors, ...bases.errors],
+  };
+}
+
+module.exports = {
+  GENERATED_HEADER,
+  GENERATED_FILES,
+  ROADMAP_PAGE,
+  NO_MILESTONE,
+  materialize,
+  renderRoadmap,
+  renderState,
+  renderMilestones,
+  readRemoteModel,
+  writeCache,
+  recordCacheBaseline,
+  refreshBases,
+  pullAll,
+  listOwnedLocal,
+};

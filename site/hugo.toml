@@ -1,18 +1,18 @@
 baseURL = "https://devflow.cloud/"
 languageCode = "en-us"
-title = "DevFlow"
+title = "AOForge"
 enableGitInfo = false
 enableRobotsTXT = true
 
 # Reference tables are generated from the plugin source by
-# scripts/gen-docs-data.cjs into site/data/devflow.json. Run it before `hugo`.
+# scripts/gen-docs-data.cjs into site/data/aoforge.json. Run it before `hugo`.
 
 [params]
   description = "A meta-prompting, context engineering and spec-driven development system for Claude Code. Solves context rot."
   tagline = "Ship features, not context windows."
-  repo = "https://github.com/AO-Cyber-Systems/devflow-claude"
-  issues = "https://github.com/AO-Cyber-Systems/devflow-claude/issues"
-  changelog = "https://github.com/AO-Cyber-Systems/devflow-claude/blob/main/CHANGELOG.md"
+  repo = "https://github.com/AO-Cyber-Systems/aoforge-claude"
+  issues = "https://github.com/AO-Cyber-Systems/aoforge-claude/issues"
+  changelog = "https://github.com/AO-Cyber-Systems/aoforge-claude/blob/main/CHANGELOG.md"
   org = "AO Cyber Systems"
   orgURL = "https://aocyber.ai"
   typekit = "qwz2ubp"

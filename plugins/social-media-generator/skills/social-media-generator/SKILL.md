@@ -20,7 +20,7 @@ Set the backend based on what is found:
 - If **both** are available: prefer AOSentry for simple generation, Replicate for specific model selection
 - If **neither** is available: inform the user:
   > "AI image generation is not available. To enable it, install one of:
-  > - **AOSentry MCP** plugin (from the devflow marketplace) — provides image generation, editing, and analysis
+  > - **AOSentry MCP** plugin (from the aoforge marketplace) — provides image generation, editing, and analysis
   > - **Replicate MCP** — run `npx replicate-mcp@latest` with a `REPLICATE_API_TOKEN`
   >
   > Without image generation, I can still create HTML/CSS templates with placeholder backgrounds. Want to proceed with CSS-only designs?"

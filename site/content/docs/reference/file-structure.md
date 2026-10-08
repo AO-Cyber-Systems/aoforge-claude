@@ -53,7 +53,7 @@ Rarely touched, but they explain otherwise-confusing behaviour.
 
 | File | Written by | Purpose |
 |---|---|---|
-| `.skill-active` | `df-tools skill-active --start` | Its presence is what lets `gate-edits` allow edits. Carries `expires_at`, 8h default. |
+| `.skill-active` | `aof-tools skill-active --start` | Its presence is what lets `gate-edits` allow edits. Carries `expires_at`, 8h default. |
 | `.edit-override` | `route-intent` | Records an override phrase in your prompt. Single-turn, consumed by `gate-edits`. |
 | `.gh-mapping.json` | `gh sync-objectives` | Objective number → GitHub issue number. **Commit this.** |
 | `.migrate-backup-*/` | intent-model migration | Full backup taken before any migration writes |
@@ -61,8 +61,8 @@ Rarely touched, but they explain otherwise-confusing behaviour.
 ## Outside the project
 
 ```text
-~/.claude/devflow/
-  bin/                    df-tools and its lib (mirrored from the plugin)
+~/.claude/aoforge/
+  bin/                    aof-tools and its lib (mirrored from the plugin)
   workflows/              workflow bodies
   references/             runtime reference docs
   templates/              templates copied into projects
@@ -71,7 +71,7 @@ Rarely touched, but they explain otherwise-confusing behaviour.
   audit.log               Stop-hook JSONL audit entries
   transcript-index.jsonl  transcript-export output
 
-.devflow-handoff/
+.aoforge-handoff/
   pending/                queued interactive commands
   done/                   completed results awaiting injection
 
@@ -80,7 +80,7 @@ Rarely touched, but they explain otherwise-confusing behaviour.
 
 ## Templates
 
-Files copied into `.planning/` by `df-tools template`:
+Files copied into `.planning/` by `aof-tools template`:
 
 | Template | Becomes |
 |---|---|

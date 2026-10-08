@@ -9,12 +9,12 @@ lede: "Changing which agents run, which models they use, and how much the workfl
 Both are user-typed only — Claude cannot fire them, because they rewrite
 `config.json` and change cost characteristics for everything downstream.
 
-## /devflow:set-profile
+## /aoforge:set-profile
 
 ```text
-/devflow:set-profile quality
-/devflow:set-profile balanced
-/devflow:set-profile budget
+/aoforge:set-profile quality
+/aoforge:set-profile balanced
+/aoforge:set-profile budget
 ```
 
 Switches the model tier for every agent at once. The mapping is not uniform — each
@@ -26,10 +26,10 @@ everywhere":
 See [model profiles](/docs/configuration/model-profiles/) for how resolution works
 and why some agents stay on a larger model even in budget.
 
-## /devflow:settings
+## /aoforge:settings
 
 ```text
-/devflow:settings
+/aoforge:settings
 ```
 
 Interactive configuration of `.planning/config.json`: which workflow agents run,

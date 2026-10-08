@@ -28,21 +28,21 @@ Each parallel executor gets its own git worktree, so concurrent jobs cannot coll
 on the working tree. The orchestrator provisions them itself:
 
 ```bash
-df-tools exec-context worktree --repo <repo> --id <plan-id> --base <wave-base>
+aof-tools exec-context worktree --repo <repo> --id <plan-id> --base <wave-base>
 ```
 
 The repo and the base are both stated. They used to be inferred — the `executor`
 agent declared `isolation: worktree` and let the harness resolve it, which took the
 repo from the *controller session's* cwd (a dispatch into one repository could land
 in another) and the base from the *default branch* (so wave 2 started without wave
-1's commits). Each executor now runs `df-tools exec-context check --repo ... --base ...`
+1's commits). Each executor now runs `aof-tools exec-context check --repo ... --base ...`
 first and stops loudly on either mismatch
-([#86](https://github.com/AO-Cyber-Systems/devflow-claude/issues/86)).
+([#86](https://github.com/AO-Cyber-Systems/aoforge-claude/issues/86)).
 
-{{< callout title="The worktree guard is not a DevFlow hook" type="warn" >}}
+{{< callout title="The worktree guard is not an AOForge hook" type="warn" >}}
 Claude Code's harness has its own worktree-isolation guard that refuses compound
 Bash commands it cannot statically verify — including commands with no git in them.
-No `DEVFLOW_*` escape hatch applies to it, because it is not DevFlow's. Executors
+No `AOFORGE_*` escape hatch applies to it, because it is not AOForge's. Executors
 mitigate it by emitting one plain command per Bash call.
 {{< /callout >}}
 
@@ -120,7 +120,7 @@ continues with other work.
 Resolve it when you get to it:
 
 ```text
-/devflow:decide DECISION-003 option-b
+/aoforge:decide DECISION-003 option-b
 ```
 
 Execution resumes from where it parked. Enable the queue with

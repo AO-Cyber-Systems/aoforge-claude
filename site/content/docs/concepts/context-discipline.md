@@ -4,7 +4,7 @@ weight: 70
 lede: "Measured guidance on keeping an agent's window small. The lever is behaviour, not configuration."
 ---
 
-DevFlow's context guidance comes from an audit of roughly 93 million tokens of
+AOForge's context guidance comes from an audit of roughly 93 million tokens of
 real message blocks. The figures below are measured, not estimated.
 
 ## Where the window actually goes
@@ -77,7 +77,7 @@ pressure, and they run on their own.
 reach for them when you are already deep in a task. Read narrowly from the start
 instead.
 
-The exception is DevFlow's own rhythm: `/clear` **between** major commands is
+The exception is AOForge's own rhythm: `/clear` **between** major commands is
 safe and encouraged, because [state lives on disk](/docs/concepts/state/).
 
 ## Policy: leave the caps alone
@@ -94,13 +94,13 @@ Stated deliberately rather than inherited as defaults:
 ## Measuring it yourself
 
 ```bash
-df-tools context --limit 150
+aof-tools context --limit 150
 ```
 
 Recomputes the whole composition from your own session transcripts.
 
 {{< callout title="How images are priced" >}}
-`df-tools context` prices images per block at roughly 1,500 tokens, **not** by
+`aof-tools context` prices images per block at roughly 1,500 tokens, **not** by
 base64 length. Counting base64 characters overstates image cost by about 25× — it
 was the one real error in the original audit.
 {{< /callout >}}
@@ -108,9 +108,9 @@ was the one real error in the original audit.
 ## Related telemetry
 
 ```bash
-df-tools session-audit --limit 150   # blocking-event classification
-df-tools telemetry                   # status-facing view with advisories
-df-tools transcript-export           # compact per-session index before retention deletes transcripts
+aof-tools session-audit --limit 150   # blocking-event classification
+aof-tools telemetry                   # status-facing view with advisories
+aof-tools transcript-export           # compact per-session index before retention deletes transcripts
 ```
 
 See [telemetry and auditing](/docs/guides/telemetry/).

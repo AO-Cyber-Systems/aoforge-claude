@@ -18,7 +18,7 @@
 *.p12
 *.keystore
 
-# ---- DevFlow runtime ------------------------------------------------
+# ---- AOForge runtime ------------------------------------------------
 .planning/.skill-active
 .planning/.cache/
 .planning/.migrate-backup-*/

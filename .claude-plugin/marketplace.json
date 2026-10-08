@@ -9,14 +9,14 @@
   },
   "plugins": [
     {
-      "name": "devflow",
+      "name": "aoforge",
       "description": "Meta-prompting, context engineering, and spec-driven development system. 34 skills, 13 agents, wave-based parallelization, atomic commits, design-craft references, and persistent state across context resets.",
       "version": "2.15.0",
       "author": {
         "name": "AO Cyber Systems",
         "email": "dev@aocodex.ai"
       },
-      "source": "./plugins/devflow",
+      "source": "./plugins/aoforge",
       "category": "development"
     },
     {

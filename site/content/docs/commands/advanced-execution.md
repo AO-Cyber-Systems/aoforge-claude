@@ -6,17 +6,17 @@ lede: "Parallel worktrees, chained skills, and handing TTY-bound commands to you
 
 {{< commands group="workstreams,flow,handoff" >}}
 
-## /devflow:workstreams
+## /aoforge:workstreams
 
 Runs independent *objectives* in parallel using git worktrees, then merges them
 back. This is a level above wave parallelism — waves parallelise jobs inside one
 objective; workstreams parallelise whole objectives.
 
 ```text
-/devflow:workstreams setup      # provision worktrees for independent objectives
-/devflow:workstreams status     # what's running where
-/devflow:workstreams run        # execute across the workstreams
-/devflow:workstreams merge      # merge completed streams back
+/aoforge:workstreams setup      # provision worktrees for independent objectives
+/aoforge:workstreams status     # what's running where
+/aoforge:workstreams run        # execute across the workstreams
+/aoforge:workstreams merge      # merge completed streams back
 ```
 
 Configuration:
@@ -35,39 +35,39 @@ Configuration:
 are not eligible, because the merge would conflict. Under the hood:
 
 ```bash
-df-tools workstreams analyze     # which objectives can run independently
-df-tools workstreams provision   # create the worktrees and branches
-df-tools workstreams reconcile   # resolve state after merges
+aof-tools workstreams analyze     # which objectives can run independently
+aof-tools workstreams provision   # create the worktrees and branches
+aof-tools workstreams reconcile   # resolve state after merges
 ```
 
 {{< callout title="User-typed only, and genuinely advanced" type="warn" >}}
-`/devflow:workstreams` carries `disable-model-invocation: true`. It creates and
+`/aoforge:workstreams` carries `disable-model-invocation: true`. It creates and
 merges git worktrees, and a bad merge strategy across three concurrent streams is
 a real mess to unpick. Use it when you have several genuinely independent
 objectives and the wall-clock saving matters.
 {{< /callout >}}
 
-## /devflow:flow
+## /aoforge:flow
 
 Chains skills into one request.
 
 ```text
-/devflow:flow build objective 4 then sync to github
-/devflow:flow research, plan, then build objective 6
+/aoforge:flow build objective 4 then sync to github
+/aoforge:flow research, plan, then build objective 6
 ```
 
 It parses the described sequence and invokes each skill in order, passing state
 between them. Use it when you already know the sequence and would rather not type
 three commands and wait between each.
 
-## /devflow:handoff
+## /aoforge:handoff
 
 Hands a command that needs a TTY or your shell environment over to your actual
 shell.
 
 ```text
-/devflow:handoff gh auth login
-/devflow:handoff mise install
+/aoforge:handoff gh auth login
+/aoforge:handoff mise install
 ```
 
 ### Why this exists
@@ -84,8 +84,8 @@ both its flow and yours.
 ### With the watcher running
 
 ```bash
-devflow-watch start     # start the daemon for this project
-devflow-watch status
+aoforge-watch start     # start the daemon for this project
+aoforge-watch status
 ```
 
 Now the `gate-interactive` hook intercepts those commands, queues them, and denies

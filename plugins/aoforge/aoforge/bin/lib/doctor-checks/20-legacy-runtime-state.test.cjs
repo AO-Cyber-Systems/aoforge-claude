@@ -1,0 +1,428 @@
+'use strict';
+
+// Tests for doctor check 20-legacy-runtime-state (TRD 45-06, tests 4-9b; DOC-05 + DOC-06).
+// TRD 51-04 test 6 (G6): the printed commit follow-up in store mode vs local mode.
+// TRD 52-01 test 10: the store-mode follow-up is the commit-steps builder's store form and names `gh pr start`.
+//
+// no_llm_test_data: every project is a hand-built fixture under the OS temp dir. `userHome` is a
+// fake home from the fixtures, so backups land under <fake home>/.claude/aoforge/backups and never
+// in the real ~/.claude. Every git call the test makes goes through gitEnv(home).
+
+const { test, describe } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+const legacy = require('./20-legacy-runtime-state.cjs');
+const doctor = require('../doctor.cjs');
+const upgrade = require('../upgrade.cjs');
+const steps = require('../commit-steps.cjs');
+const { makeDoctorProject, makeDoctorHome } = require('../__fixtures__/doctor-fixtures.cjs');
+const {
+  gitEnv, makeTrackedRuntimeStateProject, snapshot, diffSnapshots,
+} = require('../__fixtures__/upgrade-fixtures.cjs');
+
+const NOW = new Date('2026-09-30T12:00:00.000Z');
+const COMMIT_CMD = 'node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: untrack AOForge runtime state" --files';
+
+function git(root, home, ...args) {
+  return execFileSync('git', ['-C', root, ...args], {
+    env: gitEnv(home),
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function lines(text) {
+  return text.split('\n').filter(Boolean);
+}
+
+function lsFiles(root, home) {
+  return lines(git(root, home, 'ls-files'));
+}
+
+function staged(root, home) {
+  return lines(git(root, home, 'diff', '--cached', '--name-only'));
+}
+
+function write(root, rel, content) {
+  const abs = path.join(root, rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, content, 'utf-8');
+}
+
+function exists(root, rel) {
+  return fs.existsSync(path.join(root, rel));
+}
+
+function ctxFor(root, home) {
+  return doctor.buildContext({ projectRoot: root, userHome: home, env: gitEnv(home), now: NOW });
+}
+
+function backupsDir(home) {
+  return path.join(home, '.claude', 'aoforge', 'backups');
+}
+
+function stageUnrelated(root, home) {
+  write(root, 'src/app.txt', 'unrelated user work\n');
+  git(root, home, 'add', '--', 'src/app.txt');
+}
+
+/** The aodex shape: two tracked progress-guard files (root + nested) and an unignored awareness cache. */
+function aodexFixture() {
+  const home = makeDoctorHome();
+  const { root } = makeTrackedRuntimeStateProject({
+    home,
+    tracked: ['.planning/.progress-guard.json', 'flutter/.planning/.progress-guard.json'],
+    untrackedPresent: ['.planning/.awareness-cache.json'],
+  });
+  return { root, home };
+}
+
+const AODEX_PATHS = [
+  '.planning/.awareness-cache.json',
+  '.planning/.progress-guard.json',
+  'flutter/.planning/.progress-guard.json',
+];
+
+describe('legacy-runtime-state: contract', () => {
+  test('is a project check with a fix, in the 20-29 range', () => {
+    assert.equal(legacy.id, 'legacy-runtime-state');
+    assert.equal(legacy.scope, 'project');
+    assert.equal(typeof legacy.title, 'string');
+    assert.equal(typeof legacy.run, 'function');
+    assert.equal(typeof legacy.fix, 'function');
+    assert.deepEqual(doctor.contractIssues(legacy), []);
+  });
+
+  test('no project root → ok', () => {
+    const home = makeDoctorHome();
+    const ctx = doctor.buildContext({ projectRoot: null, userHome: home, env: gitEnv(home), now: NOW });
+    assert.equal(legacy.run(ctx).severity, 'ok');
+  });
+
+  test('a clean stamped project → ok, not fixable', () => {
+    const { root, home } = makeDoctorProject();
+    const r = legacy.run(ctxFor(root, home));
+    assert.equal(r.severity, 'ok');
+    assert.equal(r.fixable, false);
+  });
+
+  test('.aoforge-notices.json is a legitimate in-tree file and is never flagged', () => {
+    const { root, home } = makeDoctorProject();
+    write(root, '.planning/.aoforge-notices.json', '{\n  "notices": []\n}\n');
+    const r = legacy.run(ctxFor(root, home));
+    assert.equal(r.severity, 'ok');
+  });
+});
+
+describe('legacy-runtime-state: tracked runtime state (tests 4-5)', () => {
+  test('4. aodex shape → error naming all three paths, fixable', () => {
+    const { root, home } = aodexFixture();
+    const r = legacy.run(ctxFor(root, home));
+    assert.equal(r.severity, 'error');
+    assert.equal(r.fixable, true);
+    for (const p of AODEX_PATHS) assert.ok(r.finding.includes(p), `finding names ${p}: ${r.finding}`);
+    assert.deepEqual(r.details.tracked, ['.planning/.progress-guard.json', 'flutter/.planning/.progress-guard.json']);
+    assert.deepEqual(r.details.unignored, ['.planning/.awareness-cache.json']);
+  });
+
+  test('4. through the engine the result stays fixable (the module exports fix)', () => {
+    const { root, home } = aodexFixture();
+    const report = doctor.runDoctor({ projectRoot: root, userHome: home, env: gitEnv(home), now: NOW, checks: [legacy] });
+    assert.equal(report.checks[0].id, 'legacy-runtime-state');
+    assert.equal(report.checks[0].severity, 'error');
+    assert.equal(report.checks[0].fixable, true);
+  });
+
+  test('5. the fix untracks + ignores all three, deletes the working copies, backs up, prints the commit command', () => {
+    const { root, home } = aodexFixture();
+    const nestedBefore = fs.readFileSync(path.join(root, 'flutter/.planning/.progress-guard.json'), 'utf-8');
+    const ctx = ctxFor(root, home);
+    const result = legacy.run(ctx);
+    const res = legacy.fix(ctx, result);
+
+    assert.equal(res.applied, true, JSON.stringify(res));
+    // Untracked (index only) and ignored.
+    const tracked = lsFiles(root, home);
+    for (const p of AODEX_PATHS) assert.ok(!tracked.includes(p), `${p} no longer tracked`);
+    const ignored = lines(git(root, home, '-c', `core.excludesFile=${os.devNull}`, 'check-ignore', '--no-index', '--', ...AODEX_PATHS));
+    assert.deepEqual(ignored.sort(), AODEX_PATHS);
+    // Working copies gone.
+    for (const p of AODEX_PATHS) assert.equal(exists(root, p), false, `${p} deleted`);
+    // The index holds only the doctor's own staged removals.
+    assert.deepEqual(staged(root, home), ['.planning/.progress-guard.json', 'flutter/.planning/.progress-guard.json']);
+
+    // Backup under <home>/.claude/aoforge/backups/<repo-key>/ with root .planning/ and the nested copy.
+    const keyDir = path.join(backupsDir(home), upgrade.repoKey(root));
+    assert.ok(res.backup.startsWith(keyDir + path.sep), `${res.backup} under ${keyDir}`);
+    assert.equal(fs.existsSync(path.join(res.backup, '.planning', '.progress-guard.json')), true);
+    assert.equal(fs.existsSync(path.join(res.backup, '.planning', '.awareness-cache.json')), true);
+    assert.equal(fs.existsSync(path.join(res.backup, '.planning', 'ROADMAP.md')), true);
+    assert.equal(
+      fs.readFileSync(path.join(res.backup, 'nested', 'flutter', '.planning', '.progress-guard.json'), 'utf-8'),
+      nestedBefore,
+    );
+
+    // changed + the exact follow-up commit command.
+    assert.deepEqual(res.changed, ['.gitignore', ...AODEX_PATHS]);
+    assert.ok(
+      res.notes.includes(`${COMMIT_CMD} .gitignore .planning/.progress-guard.json flutter/.planning/.progress-guard.json`),
+      res.notes,
+    );
+
+    // Re-run → ok.
+    const again = legacy.run(ctxFor(root, home));
+    assert.equal(again.severity, 'ok', again.finding);
+    assert.equal(again.fixable, false);
+  });
+});
+
+describe('legacy-runtime-state: DOC-06 staged-changes guard (tests 6-7)', () => {
+  test('6. SC5: an unrelated staged file → not fixable, fix refused, nothing changes', () => {
+    const { root, home } = aodexFixture();
+    stageUnrelated(root, home);
+    const before = snapshot(root);
+    const ctx = ctxFor(root, home);
+
+    const r = legacy.run(ctx);
+    assert.equal(r.severity, 'error');
+    assert.equal(r.fixable, false);
+    assert.equal(typeof r.fix_command, 'string');
+    assert.match(r.fix_command, /doctor --fix/);
+    assert.match(r.finding, /staged changes present: src\/app\.txt/);
+
+    const res = legacy.fix(ctx, r);
+    assert.equal(res.applied, false);
+    assert.match(res.refused, /staged changes/);
+
+    const tracked = lsFiles(root, home);
+    assert.ok(tracked.includes('.planning/.progress-guard.json'));
+    assert.ok(tracked.includes('flutter/.planning/.progress-guard.json'));
+    assert.deepEqual(staged(root, home), ['src/app.txt']);
+    assert.deepEqual(diffSnapshots(before, snapshot(root)), []);
+    assert.equal(fs.existsSync(backupsDir(home)), false, 'a refused fix makes no backup');
+  });
+
+  test('7. .gitignore with unstaged user edits → refused the same way', () => {
+    const home = makeDoctorHome();
+    const { root } = makeTrackedRuntimeStateProject({
+      home,
+      tracked: ['.planning/.progress-guard.json'],
+      untrackedPresent: ['.planning/.awareness-cache.json'],
+      gitignore: 'node_modules/\n',
+    });
+    fs.appendFileSync(path.join(root, '.gitignore'), 'dist/\n', 'utf-8');
+    const before = snapshot(root);
+    const ctx = ctxFor(root, home);
+
+    const r = legacy.run(ctx);
+    assert.equal(r.fixable, false);
+    assert.equal(typeof r.fix_command, 'string');
+
+    const res = legacy.fix(ctx, r);
+    assert.equal(res.applied, false);
+    assert.match(res.refused, /\.gitignore/);
+    assert.deepEqual(diffSnapshots(before, snapshot(root)), []);
+    assert.ok(lsFiles(root, home).includes('.planning/.progress-guard.json'));
+    assert.deepEqual(staged(root, home), []);
+  });
+});
+
+describe('legacy-runtime-state: dead files (tests 8-9)', () => {
+  test('8. ignored + untracked but present → warn, fixable even with staged work; fix deletes it', () => {
+    const home = makeDoctorHome();
+    const { root } = makeTrackedRuntimeStateProject({
+      home,
+      tracked: [],
+      untrackedPresent: ['.planning/.progress-guard.json'],
+      gitignore: '.planning/.progress-guard.json\n',
+    });
+    stageUnrelated(root, home); // no index change is needed, so the guard is not consulted
+    const gitignoreBefore = fs.readFileSync(path.join(root, '.gitignore'), 'utf-8');
+    const ctx = ctxFor(root, home);
+
+    const r = legacy.run(ctx);
+    assert.equal(r.severity, 'warn');
+    assert.equal(r.fixable, true);
+    assert.ok(r.finding.includes('.planning/.progress-guard.json'));
+
+    const res = legacy.fix(ctx, r);
+    assert.equal(res.applied, true);
+    assert.equal(exists(root, '.planning/.progress-guard.json'), false);
+    assert.deepEqual(res.changed, ['.planning/.progress-guard.json']);
+    assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf-8'), gitignoreBefore);
+    assert.deepEqual(staged(root, home), ['src/app.txt']);
+    assert.doesNotMatch(res.notes, /aof-tools\.cjs commit/, 'nothing to commit → no commit command');
+
+    assert.equal(legacy.run(ctxFor(root, home)).severity, 'ok');
+  });
+
+  test('9. not a git repo, dead file present → warn; the fix deletes it', () => {
+    const { root, home } = makeDoctorProject({ git: false });
+    write(root, '.planning/.awareness-cache.json', '{\n  "branches": []\n}\n');
+    const ctx = ctxFor(root, home);
+
+    const r = legacy.run(ctx);
+    assert.equal(r.severity, 'warn');
+    assert.equal(r.fixable, true);
+
+    const res = legacy.fix(ctx, r);
+    assert.equal(res.applied, true);
+    assert.equal(exists(root, '.planning/.awareness-cache.json'), false);
+    assert.equal(fs.existsSync(path.join(res.backup, '.planning', '.awareness-cache.json')), true);
+    assert.equal(legacy.run(ctxFor(root, home)).severity, 'ok');
+  });
+});
+
+describe('legacy-runtime-state: commit follow-up by planning mode (TRD 51-04 test 6, G6)', () => {
+  // The exact pre-51-04 notes for the aodex fix. Local mode must keep printing this byte for byte.
+  const LOCAL_NOTES =
+    'untracked: .planning/.progress-guard.json, flutter/.planning/.progress-guard.json; ' +
+    'deleted: .planning/.awareness-cache.json, .planning/.progress-guard.json, flutter/.planning/.progress-guard.json; ' +
+    `commit with: ${COMMIT_CMD} .gitignore .planning/.progress-guard.json flutter/.planning/.progress-guard.json`;
+  const FILES = '.gitignore .planning/.progress-guard.json flutter/.planning/.progress-guard.json';
+
+  /** Turn GitHub store mode on in the fixture's (unstaged) config.json: planning-mode reads it from disk. */
+  function storeOn(root) {
+    const file = path.join(root, '.planning', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    cfg.github = { enabled: true, store: true, repo: 'acme/widgets' };
+    fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf-8');
+  }
+
+  test('6. local mode → the notes are byte-identical to the pre-51-04 text (COMMIT_COMMAND unchanged)', () => {
+    assert.equal(legacy.COMMIT_COMMAND, COMMIT_CMD);
+    const { root, home } = aodexFixture();
+    const ctx = ctxFor(root, home);
+    const res = legacy.fix(ctx, legacy.run(ctx));
+    assert.equal(res.applied, true, JSON.stringify(res));
+    assert.equal(res.notes, LOCAL_NOTES);
+    assert.doesNotMatch(res.notes, /AOFORGE_SKIP_GH_GATE/);
+  });
+
+  test('6b. store mode → branch, logged-escape commit of the same files, push, PR; never the bare refused command', () => {
+    const { root, home } = aodexFixture();
+    storeOn(root);
+    const ctx = ctxFor(root, home);
+    const res = legacy.fix(ctx, legacy.run(ctx));
+    assert.equal(res.applied, true, JSON.stringify(res));
+
+    const n = res.notes;
+    assert.ok(n.startsWith(LOCAL_NOTES.slice(0, LOCAL_NOTES.indexOf('commit with:'))), `untracked/deleted parts unchanged: ${n}`);
+    assert.doesNotMatch(n, /commit with: node /, 'the bare command store mode refuses is gone');
+    const sw = n.indexOf('git switch -c aoforge-untrack-runtime-state');
+    const esc = n.indexOf(`AOFORGE_SKIP_GH_GATE=1 AOFORGE_SKIP_GH_GATE_REASON="untrack AOForge runtime state" ${COMMIT_CMD} ${FILES}`);
+    const push = n.indexOf('git push -u origin aoforge-untrack-runtime-state');
+    assert.ok(sw >= 0 && esc > sw && push > esc, `branch, then escaped commit, then push: ${n}`);
+    assert.match(n, /pull request/);
+    assert.match(n, /gate gh/, 'says the escape is logged');
+
+    // 52-01: the builder's store form, appended last, with the gh pr start route for a linked branch.
+    const expected = steps.branchCommitSteps({
+      branch: 'aoforge-untrack-runtime-state', reason: 'untrack AOForge runtime state', command: `${COMMIT_CMD} ${FILES}`,
+    });
+    assert.ok(n.endsWith(`; ${expected}`), n);
+    assert.match(n, /aof-tools gh pr start <objective>/);
+    assert.ok(n.endsWith(`commit there with: ${COMMIT_CMD} ${FILES}`), n);
+  });
+
+  test('6d (52-01). commitNote(root, files) is exported: local text in local mode, the builder\'s store form in store mode', () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor20-local-'));
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor20-store-'));
+    try {
+      write(local, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
+      write(store, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: true } })}\n`);
+      const files = ['.gitignore', '.planning/.progress-guard.json'];
+      assert.equal(legacy.commitNote(local, files), `commit with: ${COMMIT_CMD} ${files.join(' ')}`);
+      assert.equal(legacy.commitNote(store, files), steps.branchCommitSteps({
+        branch: 'aoforge-untrack-runtime-state', reason: 'untrack AOForge runtime state', command: `${COMMIT_CMD} ${files.join(' ')}`,
+      }));
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+      fs.rmSync(store, { recursive: true, force: true });
+    }
+  });
+
+  test('6c. store mode with nothing to commit → no commit steps at all', () => {
+    const home = makeDoctorHome();
+    const { root } = makeTrackedRuntimeStateProject({
+      home,
+      tracked: [],
+      untrackedPresent: ['.planning/.progress-guard.json'],
+      gitignore: '.planning/.progress-guard.json\n',
+    });
+    storeOn(root);
+    const ctx = ctxFor(root, home);
+    const res = legacy.fix(ctx, legacy.run(ctx));
+    assert.equal(res.applied, true);
+    assert.equal(res.notes, 'deleted: .planning/.progress-guard.json; nothing to commit (working files only)');
+  });
+});
+
+describe('legacy-runtime-state: in-tree autonomous hook markers (tests 9a-9b)', () => {
+  test('9a. untracked leftover retry/resume markers → warn naming both; fix backs up, deletes; re-run ok', () => {
+    const home = makeDoctorHome();
+    const { root } = makeTrackedRuntimeStateProject({ home, tracked: [] });
+    write(root, '.planning/.autonomous-retry-agent1', '1\n');
+    write(root, 'flutter/.planning/.autonomous-resume-10', '2\n');
+    const ctx = ctxFor(root, home);
+
+    const r = legacy.run(ctx);
+    assert.equal(r.severity, 'warn');
+    assert.equal(r.fixable, true);
+    assert.ok(r.finding.includes('.planning/.autonomous-retry-agent1'), r.finding);
+    assert.ok(r.finding.includes('flutter/.planning/.autonomous-resume-10'), r.finding);
+
+    const res = legacy.fix(ctx, r);
+    assert.equal(res.applied, true);
+    assert.equal(fs.readFileSync(path.join(res.backup, '.planning', '.autonomous-retry-agent1'), 'utf-8'), '1\n');
+    assert.equal(
+      fs.readFileSync(path.join(res.backup, 'nested', 'flutter', '.planning', '.autonomous-resume-10'), 'utf-8'),
+      '2\n',
+    );
+    assert.equal(exists(root, '.planning/.autonomous-retry-agent1'), false);
+    assert.equal(exists(root, 'flutter/.planning/.autonomous-resume-10'), false);
+    assert.equal(exists(root, '.gitignore'), false, 'markers need no ignore rule; 0008 is not involved');
+    assert.equal(legacy.run(ctxFor(root, home)).severity, 'ok');
+  });
+
+  test('9b. a tracked resume marker → error; the fix untracks (index only) and deletes it', () => {
+    const home = makeDoctorHome();
+    const { root } = makeTrackedRuntimeStateProject({ home, tracked: ['.planning/.autonomous-resume-10'] });
+    const ctx = ctxFor(root, home);
+
+    const r = legacy.run(ctx);
+    assert.equal(r.severity, 'error');
+    assert.equal(r.fixable, true);
+    assert.ok(r.finding.includes('.planning/.autonomous-resume-10'));
+
+    const res = legacy.fix(ctx, r);
+    assert.equal(res.applied, true);
+    assert.ok(!lsFiles(root, home).includes('.planning/.autonomous-resume-10'));
+    assert.deepEqual(staged(root, home), ['.planning/.autonomous-resume-10']);
+    assert.equal(exists(root, '.planning/.autonomous-resume-10'), false);
+    assert.ok(res.notes.includes(`${COMMIT_CMD} .planning/.autonomous-resume-10`), res.notes);
+    assert.ok(res.changed.includes('.planning/.autonomous-resume-10'));
+    assert.equal(legacy.run(ctxFor(root, home)).severity, 'ok');
+  });
+
+  test('9b. with an unrelated staged file the marker fix is refused and nothing changes', () => {
+    const home = makeDoctorHome();
+    const { root } = makeTrackedRuntimeStateProject({ home, tracked: ['.planning/.autonomous-resume-10'] });
+    stageUnrelated(root, home);
+    const before = snapshot(root);
+    const ctx = ctxFor(root, home);
+
+    const r = legacy.run(ctx);
+    assert.equal(r.fixable, false);
+    const res = legacy.fix(ctx, r);
+    assert.equal(res.applied, false);
+    assert.match(res.refused, /staged changes/);
+    assert.ok(lsFiles(root, home).includes('.planning/.autonomous-resume-10'));
+    assert.deepEqual(staged(root, home), ['src/app.txt']);
+    assert.deepEqual(diffSnapshots(before, snapshot(root)), []);
+  });
+});

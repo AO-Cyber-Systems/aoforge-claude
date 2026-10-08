@@ -1,0 +1,1538 @@
+/**
+ * Tests for gate-edits PreToolUse hook — strict DENY mode
+ *
+ * Decision matrix:
+ *
+ *   shouldGate() — 11 core scenarios (pure function, unchanged)
+ *   hasOverridePhrase() — phrase detection + null-safety (re-exports from shared lib)
+ *   hasSkillActiveMarker() — 3 fs-interaction scenarios
+ *   subprocess e2e — realistic PreToolUse payloads (no user_message/prompt keys)
+ *   env var escape — 1 test
+ *   export re-export shape — 1 test
+ *
+ * Payload contract (TRD 24-01, 24-RESEARCH.md finding 1):
+ *   Real PreToolUse payloads carry ONLY: session_id, transcript_path, cwd,
+ *   permission_mode, hook_event_name, tool_name, tool_input.
+ *   user_message and prompt fields do NOT exist in the real harness payload.
+ */
+
+'use strict';
+
+const { describe, test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { spawnSync } = require('child_process');
+
+const HOOK_PATH = path.join(__dirname, 'gate-edits.js');
+const {
+  shouldGate,
+  hasSkillActiveMarker,
+  hasOverridePhrase,
+  OVERRIDE_PHRASES,
+} = require('./gate-edits.js');
+
+// ---------------------------------------------------------------------------
+// Realistic PreToolUse payload builder (locked contract from 24-RESEARCH.md)
+// Has NO user_message and NO prompt keys — guards against regression.
+// ---------------------------------------------------------------------------
+
+function realPreToolUsePayload({ tool_name, file_path, cwd }) {
+  return {
+    session_id: 'test-session',
+    transcript_path: '/tmp/transcript.jsonl',
+    cwd: cwd || '/tmp',
+    permission_mode: 'default',
+    hook_event_name: 'PreToolUse',
+    tool_name,
+    tool_input: { file_path },
+  };
+}
+
+// Verify the payload helper itself has no user_message/prompt keys
+test('realPreToolUsePayload has no user_message or prompt keys (contract guard)', () => {
+  const payload = realPreToolUsePayload({ tool_name: 'Edit', file_path: '/tmp/a.ts', cwd: '/tmp' });
+  assert.ok(!('user_message' in payload), 'payload must not contain user_message');
+  assert.ok(!('prompt' in payload), 'payload must not contain prompt');
+});
+
+// ---------------------------------------------------------------------------
+// Decision matrix: shouldGate()
+// ---------------------------------------------------------------------------
+
+describe('shouldGate decision matrix', () => {
+  const base = {
+    tool: 'Edit',
+    filePath: '/proj/src/foo.ts',
+    planningDir: '/proj/.planning',
+    skillActive: false,
+    overrideActive: false,
+  };
+
+  // Test 1
+  test('DENY: ambient + Edit + no marker + no override + non-planning + non-md path', () => {
+    const result = shouldGate(base);
+    assert.equal(result.decision, 'deny');
+    assert.match(result.reason, /ambient mode/i);
+  });
+
+  // Test 2
+  test('ALLOW: ambient + Edit + skill-active marker (regardless of override)', () => {
+    const result = shouldGate({ ...base, skillActive: true });
+    assert.equal(result.decision, 'allow');
+    assert.match(result.reason, /skill-active/i);
+  });
+
+  // Test 3
+  test('ALLOW: ambient + Edit + override phrase (regardless of marker)', () => {
+    const result = shouldGate({ ...base, overrideActive: true });
+    assert.equal(result.decision, 'allow');
+    assert.match(result.reason, /override/i);
+  });
+
+  // Test 4
+  test('ALLOW: any path matching /.planning/ (planning artifact override)', () => {
+    const result = shouldGate({ ...base, filePath: '/proj/.planning/STATE.md' });
+    assert.equal(result.decision, 'allow');
+    assert.match(result.reason, /planning artifact/i);
+  });
+
+  // Test 5
+  test('ALLOW: any path matching .md$ (docs override)', () => {
+    const result = shouldGate({ ...base, filePath: '/proj/README.md' });
+    assert.equal(result.decision, 'allow');
+    assert.match(result.reason, /markdown doc/i);
+  });
+
+  // Test 6
+  test('NOOP: planningDir null (non-AOForge project)', () => {
+    const result = shouldGate({ ...base, planningDir: null });
+    assert.equal(result.decision, 'noop');
+  });
+
+  // Test 7
+  test('NOOP: non-modifying tools (Read, Grep, Glob, Bash) are never gated', () => {
+    for (const tool of ['Read', 'Grep', 'Glob', 'Bash', 'LS']) {
+      const result = shouldGate({ ...base, tool });
+      assert.equal(result.decision, 'noop', `Expected noop for tool=${tool}`);
+    }
+  });
+
+  // Test 8
+  test('NOOP: empty filePath', () => {
+    const result = shouldGate({ ...base, filePath: '' });
+    assert.equal(result.decision, 'noop');
+  });
+
+  // Additional: Write and MultiEdit also gated
+  test('DENY: Write tool in ambient mode', () => {
+    assert.equal(shouldGate({ ...base, tool: 'Write' }).decision, 'deny');
+  });
+
+  test('DENY: MultiEdit tool in ambient mode', () => {
+    assert.equal(shouldGate({ ...base, tool: 'MultiEdit' }).decision, 'deny');
+  });
+
+  // ALLOW: both skill-active AND override active
+  test('ALLOW: both skillActive and overrideActive → allow (skill-active wins)', () => {
+    const result = shouldGate({ ...base, skillActive: true, overrideActive: true });
+    assert.equal(result.decision, 'allow');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Override phrase detection: hasOverridePhrase() — re-export from shared lib
+// ---------------------------------------------------------------------------
+
+describe('hasOverridePhrase — phrase detection (re-export from lib/edit-override.js)', () => {
+  // Tests: each phrase detects case-insensitively
+  for (const phrase of ['skip aoforge', 'just edit', 'bypass aoforge', 'force edit']) {
+    test(`detects "${phrase}" (lowercase)`, () => {
+      assert.equal(hasOverridePhrase(`Please ${phrase} the bug`), true);
+    });
+
+    test(`detects "${phrase.toUpperCase()}" (uppercase)`, () => {
+      assert.equal(hasOverridePhrase(`Please ${phrase.toUpperCase()} the bug`), true);
+    });
+
+    test(`detects "${phrase}" (mixed case)`, () => {
+      const mixed = phrase.split('').map((c, i) => i % 2 === 0 ? c.toUpperCase() : c).join('');
+      assert.equal(hasOverridePhrase(`do this: ${mixed}`), true);
+    });
+  }
+
+  test('returns false for null', () => {
+    assert.equal(hasOverridePhrase(null), false);
+  });
+
+  test('returns false for undefined', () => {
+    assert.equal(hasOverridePhrase(undefined), false);
+  });
+
+  test('returns false for empty string', () => {
+    assert.equal(hasOverridePhrase(''), false);
+  });
+
+  test('returns false for non-matching string', () => {
+    assert.equal(hasOverridePhrase('Fix the login bug'), false);
+    assert.equal(hasOverridePhrase('edit this file for me'), false);
+    assert.equal(hasOverridePhrase('skip this check'), false);
+  });
+
+  test('OVERRIDE_PHRASES array contains all 4 phrases', () => {
+    assert.equal(Array.isArray(OVERRIDE_PHRASES), true);
+    assert.equal(OVERRIDE_PHRASES.length, 4);
+    assert.ok(OVERRIDE_PHRASES.includes('skip aoforge'));
+    assert.ok(OVERRIDE_PHRASES.includes('just edit'));
+    assert.ok(OVERRIDE_PHRASES.includes('bypass aoforge'));
+    assert.ok(OVERRIDE_PHRASES.includes('force edit'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Export shape test (test 11): gate-edits re-exports OVERRIDE_PHRASES and hasOverridePhrase
+// ---------------------------------------------------------------------------
+
+describe('gate-edits export re-export shape', () => {
+  test('exports OVERRIDE_PHRASES (length 4) via re-export from shared lib', () => {
+    assert.ok(Array.isArray(OVERRIDE_PHRASES));
+    assert.equal(OVERRIDE_PHRASES.length, 4);
+  });
+
+  test('exports hasOverridePhrase that behaves identically to the shared lib', () => {
+    assert.equal(typeof hasOverridePhrase, 'function');
+    assert.equal(hasOverridePhrase('skip aoforge'), true);
+    assert.equal(hasOverridePhrase('not a phrase'), false);
+    assert.equal(hasOverridePhrase(null), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Skill-active marker: hasSkillActiveMarker() — fs interaction
+// ---------------------------------------------------------------------------
+
+describe('hasSkillActiveMarker — fs interaction', () => {
+  test('returns true when .skill-active file exists', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-marker-'));
+    try {
+      fs.mkdirSync(path.join(tmp, '.planning'));
+      fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+        skill: 'build',
+        started_at: new Date().toISOString(),
+        pid: process.pid,
+      }));
+      assert.equal(hasSkillActiveMarker(path.join(tmp, '.planning')), true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('returns false when marker file absent', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-no-marker-'));
+    try {
+      fs.mkdirSync(path.join(tmp, '.planning'));
+      assert.equal(hasSkillActiveMarker(path.join(tmp, '.planning')), false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('returns false when planningDir is null', () => {
+    assert.equal(hasSkillActiveMarker(null), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subprocess e2e helpers
+// ---------------------------------------------------------------------------
+
+// Run the hook as a subprocess with given payload and env
+function runHook(payload, { cwd, extraEnv = {} } = {}) {
+  const tmp = cwd || fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-e2e-'));
+  const result = spawnSync(process.execPath, [HOOK_PATH], {
+    cwd: tmp,
+    input: JSON.stringify(payload),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      AOFORGE_SKIP_EDIT_GATE: undefined, // ensure gate is active unless overridden
+      ...extraEnv,
+    },
+  });
+  return { tmp, result };
+}
+
+// Create tmp dir with .planning/ (ambient AOForge project)
+function makeTmp(withSkillMarker = false) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-'));
+  fs.mkdirSync(path.join(tmp, '.planning'));
+  if (withSkillMarker) {
+    fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+      skill: 'build', started_at: new Date().toISOString(), pid: process.pid,
+    }));
+  }
+  return tmp;
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: e2e DENY — ambient project, realistic Edit payload (no user_message/prompt), no marker
+// ---------------------------------------------------------------------------
+
+describe('subprocess e2e — DENY in ambient + no marker + realistic payload', () => {
+  test('emits permissionDecision: deny with ambient mode reason (no user_message key)', () => {
+    const tmp = makeTmp(false);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/foo.ts'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.ok(result.stdout.length > 0, 'Expected JSON output (DENY)');
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+      assert.match(out.hookSpecificOutput.permissionDecisionReason, /ambient mode/i);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test 8: e2e ALLOW — ambient project + fresh .edit-override marker
+// ---------------------------------------------------------------------------
+
+describe('subprocess e2e — ALLOW with fresh .edit-override marker', () => {
+  test('empty stdout AND marker file no longer exists after run', () => {
+    const tmp = makeTmp(false);
+    try {
+      const markerPath = path.join(tmp, '.planning', '.edit-override');
+      fs.writeFileSync(markerPath, JSON.stringify({ created_at: new Date().toISOString() }));
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/foo.ts'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout (allow via fresh marker)');
+      assert.equal(fs.existsSync(markerPath), false, 'Marker should be consumed (deleted)');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test 9: e2e DENY — ambient project + stale .edit-override marker (10 min old, TTL 5 min)
+// ---------------------------------------------------------------------------
+
+describe('subprocess e2e — DENY with stale .edit-override marker', () => {
+  test('deny output AND marker file deleted after run', () => {
+    const tmp = makeTmp(false);
+    try {
+      const markerPath = path.join(tmp, '.planning', '.edit-override');
+      fs.writeFileSync(markerPath, JSON.stringify({ created_at: new Date().toISOString() }));
+      // Backdate mtime to 10 minutes ago (past 5-min TTL)
+      const tenMinAgo = (Date.now() - 10 * 60 * 1000) / 1000;
+      fs.utimesSync(markerPath, tenMinAgo, tenMinAgo);
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/foo.ts'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.ok(result.stdout.length > 0, 'Expected JSON output (DENY for stale marker)');
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+      assert.equal(fs.existsSync(markerPath), false, 'Stale marker should also be deleted');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test 10: e2e regression — all other escape hatches still work (realistic payloads)
+// ---------------------------------------------------------------------------
+
+describe('subprocess e2e — ALLOW with skill-active marker (realistic payload)', () => {
+  test('no stdout when skill-active marker present', () => {
+    const tmp = makeTmp(true);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/foo.ts'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout (allow via skill-active)');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('subprocess e2e — non-ambient (no .planning) NOOP (realistic payload)', () => {
+  test('empty stdout when no .planning dir (non-AOForge project)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-noplan-'));
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/foo.ts'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout (no .planning = no-op)');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('subprocess e2e — Read tool NOOP (realistic payload)', () => {
+  test('empty stdout for Read tool in ambient project', () => {
+    const tmp = makeTmp(false);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Read',
+        file_path: path.join(tmp, 'src/foo.ts'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout for Read tool');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('subprocess e2e — .md path allowed (realistic payload)', () => {
+  test('empty stdout when editing a .md file', () => {
+    const tmp = makeTmp(false);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'README.md'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout for .md file');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('subprocess e2e — .planning path allowed (realistic payload)', () => {
+  test('empty stdout when editing a .planning/** path', () => {
+    const tmp = makeTmp(false);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, '.planning', 'STATE.md'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout for .planning/ path');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('env var escape hatch', () => {
+  test('AOFORGE_SKIP_EDIT_GATE=1 disables gate even in ambient mode without marker', () => {
+    const tmp = makeTmp(false);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/foo.ts'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, {
+        cwd: tmp,
+        extraEnv: { AOFORGE_SKIP_EDIT_GATE: '1' },
+      });
+      assert.equal(result.stdout, '', 'Expected empty stdout when escape hatch is active');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gates.editGate config knob (TRD 25-02) — .planning/config.json → warn|strict|off
+// ---------------------------------------------------------------------------
+
+describe('gates.editGate config — warn/strict/off', () => {
+  const { readEditGateMode, VALID_EDIT_GATE_MODES } = require('./gate-edits.js');
+
+  // ---- Unit: readEditGateMode() — pure fs, tmpdirs ----
+
+  test('readEditGateMode(null) → strict', () => {
+    assert.equal(readEditGateMode(null), 'strict');
+  });
+
+  test('planningDir with no config.json → strict', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
+    try {
+      fs.mkdirSync(path.join(tmp, '.planning'));
+      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('config.json with malformed JSON → strict', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
+    try {
+      fs.mkdirSync(path.join(tmp, '.planning'));
+      fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), '{ not valid json');
+      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('config.json without gates key → strict', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
+    try {
+      fs.mkdirSync(path.join(tmp, '.planning'));
+      fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), JSON.stringify({ mode: 'yolo' }));
+      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('gates.editGate: "banana" (unknown enum) → strict', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
+    try {
+      fs.mkdirSync(path.join(tmp, '.planning'));
+      fs.writeFileSync(
+        path.join(tmp, '.planning', 'config.json'),
+        JSON.stringify({ gates: { editGate: 'banana' } })
+      );
+      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('gates.editGate: "warn" → warn; "off" → off; "strict" → strict', () => {
+    for (const mode of ['warn', 'off', 'strict']) {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
+      try {
+        fs.mkdirSync(path.join(tmp, '.planning'));
+        fs.writeFileSync(
+          path.join(tmp, '.planning', 'config.json'),
+          JSON.stringify({ gates: { editGate: mode } })
+        );
+        assert.equal(readEditGateMode(path.join(tmp, '.planning')), mode, `Expected ${mode} to round-trip`);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('VALID_EDIT_GATE_MODES contains exactly strict, warn, off', () => {
+    assert.ok(VALID_EDIT_GATE_MODES instanceof Set);
+    assert.deepEqual([...VALID_EDIT_GATE_MODES].sort(), ['off', 'strict', 'warn']);
+  });
+
+  // ---- Subprocess e2e — ambient tmpdir, no markers, realistic Edit payload on a .cjs path ----
+
+  function makeTmpWithGateConfig(mode, { skillActive = false } = {}) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-cfg-'));
+    fs.mkdirSync(path.join(tmp, '.planning'));
+    if (mode !== undefined) {
+      fs.writeFileSync(
+        path.join(tmp, '.planning', 'config.json'),
+        JSON.stringify({ gates: { editGate: mode } })
+      );
+    }
+    if (skillActive) {
+      fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+        skill: 'build', started_at: new Date().toISOString(), pid: process.pid,
+      }));
+    }
+    return tmp;
+  }
+
+  test('e2e: editGate "warn" → permissionDecision "ask" with standard reason text', () => {
+    const tmp = makeTmpWithGateConfig('warn');
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/x.cjs'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.ok(result.stdout.length > 0, 'Expected JSON output (ask)');
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+      assert.match(out.hookSpecificOutput.permissionDecisionReason, /ambient mode/i);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: editGate "off" → empty stdout (no output at all)', () => {
+    const tmp = makeTmpWithGateConfig('off');
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/x.cjs'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout when editGate is off');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: editGate "strict" → permissionDecision "deny" (parity with no-config default)', () => {
+    const tmp = makeTmpWithGateConfig('strict');
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/x.cjs'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.ok(result.stdout.length > 0, 'Expected JSON output (deny)');
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: editGate "warn" + .skill-active marker present → empty stdout (allow precedence unaffected by mode)', () => {
+    const tmp = makeTmpWithGateConfig('warn', { skillActive: true });
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/x.cjs'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'Expected empty stdout — skill-active allow wins regardless of mode');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: no config.json at all → deny (parity check; pre-existing e2e must stay green untouched)', () => {
+    const tmp = makeTmp(false); // no config.json written
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(tmp, 'src/x.cjs'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.ok(result.stdout.length > 0);
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 27-01 / 27-02 — worktree marker visibility + outside-project exemption
+//
+// Regression guard for the Autonomy Blocker Audit (2026-08-18):
+//   F-02 — `.planning/.skill-active` is gitignored, so a linked worktree checks
+//          out every tracked `.planning` file but NEVER the marker. Resolving
+//          only from cwd denied every worktree-isolated agent (77.2% of all
+//          edit-gate denials).
+//   F-03 — 20.6% of denials targeted the session scratchpad / /private/tmp,
+//          which AOForge cannot commit and therefore has no reason to gate.
+// ---------------------------------------------------------------------------
+
+const { isOutsideProject, sharedPlanningDir } = require('./gate-edits.js');
+
+function git(args, cwd) {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+  return r.stdout;
+}
+
+// Build a real repo + linked worktree. Returns null when git is unavailable.
+function makeRepoWithWorktree({ markerInMain }) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-wt-'));
+  const main = path.join(root, 'main');
+  fs.mkdirSync(main);
+  try {
+    git(['init', '-q', '-b', 'main'], main);
+    git(['config', 'user.email', 't@t.test'], main);
+    git(['config', 'user.name', 'T'], main);
+    fs.mkdirSync(path.join(main, '.planning'));
+    fs.writeFileSync(path.join(main, '.planning', 'ROADMAP.md'), '# roadmap\n');
+    fs.writeFileSync(path.join(main, '.gitignore'), '.planning/.skill-active\n');
+    fs.mkdirSync(path.join(main, 'src'));
+    fs.writeFileSync(path.join(main, 'src', 'x.cjs'), '// x\n');
+    git(['add', '-A'], main);
+    git(['commit', '-qm', 'init'], main);
+
+    const wt = path.join(root, 'wt');
+    git(['worktree', 'add', '-q', '-b', 'agent', wt], main);
+
+    if (markerInMain) {
+      fs.writeFileSync(
+        path.join(main, '.planning', '.skill-active'),
+        JSON.stringify({ skill: 'build', started_at: new Date().toISOString(), pid: 1 })
+      );
+    }
+    return { root, main, wt };
+  } catch (e) {
+    fs.rmSync(root, { recursive: true, force: true });
+    return null; // git missing / sandboxed — caller skips
+  }
+}
+
+describe('TRD 27-01 — worktree-isolated agents see the main checkout marker', () => {
+  test('worktree checks out .planning/ but NOT the gitignored marker (the bug)', () => {
+    const env = makeRepoWithWorktree({ markerInMain: true });
+    if (!env) return; // git unavailable
+    try {
+      assert.ok(fs.existsSync(path.join(env.wt, '.planning', 'ROADMAP.md')),
+        'worktree should have tracked .planning files');
+      assert.equal(fs.existsSync(path.join(env.wt, '.planning', '.skill-active')), false,
+        'worktree must NOT have the gitignored marker — this is the root cause');
+    } finally {
+      fs.rmSync(env.root, { recursive: true, force: true });
+    }
+  });
+
+  test('sharedPlanningDir() resolves a worktree back to the MAIN checkout .planning', () => {
+    const env = makeRepoWithWorktree({ markerInMain: true });
+    if (!env) return;
+    try {
+      const resolved = sharedPlanningDir(env.wt);
+      assert.ok(resolved, 'expected a resolved shared planning dir');
+      assert.equal(fs.realpathSync(resolved), fs.realpathSync(path.join(env.main, '.planning')));
+    } finally {
+      fs.rmSync(env.root, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: edit inside a worktree is ALLOWED when the main checkout holds the marker', () => {
+    const env = makeRepoWithWorktree({ markerInMain: true });
+    if (!env) return;
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(env.wt, 'src/x.cjs'),
+        cwd: env.wt,
+      });
+      const { result } = runHook(payload, { cwd: env.wt });
+      assert.equal(result.stdout, '',
+        'worktree agent must not be denied while a skill is active in the main checkout');
+    } finally {
+      fs.rmSync(env.root, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: edit inside a worktree is still DENIED when no marker exists anywhere', () => {
+    const env = makeRepoWithWorktree({ markerInMain: false });
+    if (!env) return;
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Edit',
+        file_path: path.join(env.wt, 'src/x.cjs'),
+        cwd: env.wt,
+      });
+      const { result } = runHook(payload, { cwd: env.wt });
+      assert.ok(result.stdout.length > 0, 'ambient worktree edit must still be denied');
+      assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'deny');
+    } finally {
+      fs.rmSync(env.root, { recursive: true, force: true });
+    }
+  });
+
+  test('an expired marker does not hold the gate open', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-ttl-'));
+    try {
+      fs.mkdirSync(path.join(tmp, '.planning'));
+      fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+        skill: 'build',
+        started_at: '2026-01-01T00:00:00Z',
+        pid: 1,
+        expires_at: '2026-01-01T00:01:00Z',
+      }));
+      assert.equal(hasSkillActiveMarker(path.join(tmp, '.planning'), null, Date.now()), false);
+      // ...but is honoured while still inside its window
+      assert.equal(
+        hasSkillActiveMarker(path.join(tmp, '.planning'), null, Date.parse('2026-01-01T00:00:30Z')),
+        true
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('TRD 27-02 — targets outside the project root are not gated', () => {
+  test('isOutsideProject() distinguishes in-project from scratchpad paths', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-out-'));
+    try {
+      assert.equal(isOutsideProject(tmp, path.join(tmp, 'src/a.cjs')), false, 'in-project');
+      assert.equal(isOutsideProject(tmp, '/private/tmp/claude-501/scratchpad/s.sh'), true, 'scratchpad');
+      // relative paths are ambiguous → stay gated (conservative)
+      assert.equal(isOutsideProject(tmp, 'src/a.cjs'), false, 'relative stays gated');
+      assert.equal(isOutsideProject(null, '/x/y.cjs'), false, 'no root → gate applies');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: writing to the session scratchpad is ALLOWED with no marker', () => {
+    const tmp = makeTmp(false);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Write',
+        file_path: '/private/tmp/claude-501/some-session/scratchpad/analysis.cjs',
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.equal(result.stdout, '', 'scratchpad writes must not be gated');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('e2e: in-project source write is still DENIED with no marker (no over-widening)', () => {
+    const tmp = makeTmp(false);
+    try {
+      const payload = realPreToolUsePayload({
+        tool_name: 'Write',
+        file_path: path.join(tmp, 'src/newfile.cjs'),
+        cwd: tmp,
+      });
+      const { result } = runHook(payload, { cwd: tmp });
+      assert.ok(result.stdout.length > 0, 'in-project ambient write must still be denied');
+      assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'deny');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 44-03 (AUT-04, DF-03) — AOForge's own agents are identified by the
+// PreToolUse payload's `agent_type`, not by a `.skill-active` marker they may
+// never see. 114 denials of AOForge's own agents in 44-EVIDENCE §2.1.
+//
+// Only the exact, case-sensitive `aoforge:` prefix with a non-empty agent name
+// is trusted. `agent_id` presence alone proves nothing (any subagent has one).
+// ---------------------------------------------------------------------------
+
+const { preToolUsePayload, makeAoforgeProject } = require('./__fixtures__/gate-fixtures.js');
+
+function makeAgentTmp(mode) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-agent-')));
+  makeAoforgeProject(root);
+  if (mode !== undefined) {
+    fs.writeFileSync(
+      path.join(root, '.planning', 'config.json'),
+      JSON.stringify({ gates: { editGate: mode } })
+    );
+  }
+  return root;
+}
+
+/** 'none' when the hook printed nothing (allowed / noop), else the decision. */
+function hookDecision(result) {
+  assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+  if (!result.stdout || result.stdout.trim() === '') return 'none';
+  return JSON.parse(result.stdout).hookSpecificOutput.permissionDecision;
+}
+
+describe('TRD 44-03 — gate-edits allows aoforge:* agents (subprocess e2e)', () => {
+  test('test 1: aoforge:executor Write to src/a.js, AOForge project, no marker → allowed (no output)', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Write',
+        filePath: path.join(root, 'src', 'a.js'),
+        agentType: 'aoforge:executor',
+        agentId: 'a-fixture-1',
+        cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'none', `expected allow, got: ${result.stdout}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 1b: aoforge agent Edit and MultiEdit are allowed too', () => {
+    const root = makeAgentTmp();
+    try {
+      for (const tool of ['Edit', 'MultiEdit']) {
+        const payload = preToolUsePayload({
+          tool, filePath: path.join(root, 'src', 'a.js'), agentType: 'aoforge:verifier', cwd: root,
+        });
+        const { result } = runHook(payload, { cwd: root });
+        assert.equal(hookDecision(result), 'none', `${tool}: expected allow, got: ${result.stdout}`);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 2a: agent_type general-purpose → deny', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Write',
+        filePath: path.join(root, 'src', 'a.js'),
+        agentType: 'general-purpose',
+        agentId: 'a-fixture-2',
+        cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'deny');
+      assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /ambient mode/i);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 2b: no agent_type (main thread) → deny (regression)', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({ tool: 'Write', filePath: path.join(root, 'src', 'a.js'), cwd: root });
+      assert.ok(!('agent_type' in payload), 'fixture must omit agent_type when not given');
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'deny');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 2c: agent_id without an aoforge agent_type is NOT trusted → deny', () => {
+    const root = makeAgentTmp();
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Write', filePath: path.join(root, 'src', 'a.js'), agentId: 'a-only-id', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'deny');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 4a: editGate "warn" + aoforge agent → allowed (never ask)', () => {
+    const root = makeAgentTmp('warn');
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Edit', filePath: path.join(root, 'src', 'a.js'), agentType: 'aoforge:executor', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'none', `expected allow, got: ${result.stdout}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 4b: editGate "warn" + general-purpose → still ask (control)', () => {
+    const root = makeAgentTmp('warn');
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Edit', filePath: path.join(root, 'src', 'a.js'), agentType: 'general-purpose', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'ask');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 4c: editGate "off" + aoforge agent → noop (unchanged)', () => {
+    const root = makeAgentTmp('off');
+    try {
+      const payload = preToolUsePayload({
+        tool: 'Edit', filePath: path.join(root, 'src', 'a.js'), agentType: 'aoforge:executor', cwd: root,
+      });
+      const { result } = runHook(payload, { cwd: root });
+      assert.equal(hookDecision(result), 'none');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('TRD 44-03 — shouldGate agentType + isAoforgeAgent (unit)', () => {
+  const gateEdits = require('./gate-edits.js');
+  const base = {
+    tool: 'Edit',
+    filePath: '/proj/src/foo.ts',
+    planningDir: '/proj/.planning',
+    skillActive: false,
+    overrideActive: false,
+  };
+
+  test('test 3: agentType aoforge:verifier → allow "aoforge agent"', () => {
+    const result = gateEdits.shouldGate({ ...base, agentType: 'aoforge:verifier' });
+    assert.equal(result.decision, 'allow');
+    assert.equal(result.reason, 'aoforge agent');
+  });
+
+  const UNTRUSTED = [
+    ['aoforgex:y', 'aoforgex:y'],
+    ['x:aoforge:y', 'x:aoforge:y'],
+    ['aoforge: (empty name)', 'aoforge:'],
+    ['AOFORGE:executor (case)', 'AOFORGE:executor'],
+    ['42 (number)', 42],
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['general-purpose', 'general-purpose'],
+    ['Explore', 'Explore'],
+  ];
+  for (const [label, agentType] of UNTRUSTED) {
+    test(`test 3: agentType ${label} → deny`, () => {
+      assert.equal(gateEdits.shouldGate({ ...base, agentType }).decision, 'deny');
+    });
+  }
+
+  test('isAoforgeAgent: exported, exact case-sensitive prefix with a non-empty name', () => {
+    assert.equal(typeof gateEdits.isAoforgeAgent, 'function');
+    assert.equal(gateEdits.isAoforgeAgent('aoforge:executor'), true);
+    assert.equal(gateEdits.isAoforgeAgent('aoforge:x'), true);
+    for (const [, t] of UNTRUSTED) {
+      assert.equal(gateEdits.isAoforgeAgent(t), false, `isAoforgeAgent(${JSON.stringify(t)})`);
+    }
+  });
+
+  test('placement: planning / markdown / noop / outside-project results are unchanged for an aoforge agent', () => {
+    const a = { agentType: 'aoforge:executor' };
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, filePath: '/proj/.planning/x.cjs' }).reason, 'planning artifact');
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, filePath: '/proj/README.md' }).reason, 'markdown doc');
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, planningDir: null }).decision, 'noop');
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, tool: 'Read' }).decision, 'noop');
+    assert.equal(
+      gateEdits.shouldGate({ ...base, ...a, filePath: '/elsewhere/x.cjs' }).reason,
+      'target outside project root'
+    );
+  });
+
+  test('placement: the aoforge-agent allow comes before the skill-active allow', () => {
+    const result = gateEdits.shouldGate({ ...base, agentType: 'aoforge:executor', skillActive: true });
+    assert.equal(result.decision, 'allow');
+    assert.equal(result.reason, 'aoforge agent');
+  });
+
+  test('44-05 contract: hasSkillActiveMarker / findPlanningDir / sharedPlanningDir keep their names and arity', () => {
+    assert.equal(typeof gateEdits.hasSkillActiveMarker, 'function');
+    assert.equal(gateEdits.hasSkillActiveMarker.length, 3);
+    assert.equal(typeof gateEdits.findPlanningDir, 'function');
+    assert.equal(gateEdits.findPlanningDir.length, 1);
+    assert.equal(typeof gateEdits.sharedPlanningDir, 'function');
+    assert.equal(gateEdits.sharedPlanningDir.length, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 48-08 — store mode (github.store: true): cached and generated planning
+// files are read-only through Edit/Write/MultiEdit; the reason names the verb.
+// Store off, the gate is exactly what it was.
+// ---------------------------------------------------------------------------
+
+describe('48-08 store-mode cache deny', () => {
+  const gateEdits = require('./gate-edits.js');
+  const P = '/p/.planning';
+  const TRD = `${P}/objectives/07-x/07-01-a-TRD.md`;
+  const store = {
+    tool: 'Write',
+    filePath: TRD,
+    planningDir: P,
+    skillActive: false,
+    overrideActive: false,
+    storeMode: true,
+  };
+
+  /** Every path this suite touches, for the store-off parity check. */
+  const ALL_PLANNING_PATHS = [
+    TRD,
+    `${P}/objectives/07-x/OBJECTIVE.md`,
+    `${P}/objectives/07-x/07-01-SUMMARY.md`,
+    `${P}/objectives/07-x/07-VERIFICATION.md`,
+    `${P}/objectives/07-x/07-RESEARCH.md`,
+    `${P}/research/a.md`,
+    `${P}/todos/pending/a.md`,
+    `${P}/debug/x.md`,
+    `${P}/quick/1-x/1-JOB.md`,
+    `${P}/decisions/pending/DECISION-001.md`,
+    `${P}/ROADMAP.md`,
+    `${P}/STATE.md`,
+    `${P}/MILESTONES.md`,
+    `${P}/config.json`,
+    `${P}/STACK.md`,
+    `${P}/.skill-active`,
+    `${P}/state.json`,
+    `${P}/.trd-progress/07-01.md`,
+    `${P}/quick/1-x/DECISION-001.md`,
+  ];
+
+  test('test 1 (SC2): Write of a TRD in store mode is denied naming `plan put-trd`', () => {
+    const r = gateEdits.shouldGate(store);
+    assert.equal(r.decision, 'deny');
+    assert.match(r.reason, /plan put-trd/);
+    assert.match(r.reason, /objectives\/07-x\/07-01-a-TRD\.md is a read-only cache of GitHub in store mode/);
+    assert.match(r.reason, /github\.store: true/);
+    assert.match(r.reason, /W055/);
+  });
+
+  test('test 2: neither a skill marker nor an aoforge agent bypasses the cache deny; the override phrase does', () => {
+    const marker = gateEdits.shouldGate({ ...store, skillActive: true });
+    assert.equal(marker.decision, 'deny');
+    assert.match(marker.reason, /plan put-trd/);
+
+    const agent = gateEdits.shouldGate({ ...store, agentType: 'aoforge:executor' });
+    assert.equal(agent.decision, 'deny');
+    assert.match(agent.reason, /plan put-trd/);
+
+    const both = gateEdits.shouldGate({ ...store, skillActive: true, agentType: 'aoforge:planner' });
+    assert.equal(both.decision, 'deny');
+
+    assert.deepEqual(gateEdits.shouldGate({ ...store, overrideActive: true }), {
+      decision: 'allow',
+      reason: 'planning artifact',
+    });
+  });
+
+  test('test 3: the same TRD path with storeMode false is today\'s planning-artifact allow', () => {
+    assert.deepEqual(gateEdits.shouldGate({ ...store, storeMode: false }), {
+      decision: 'allow',
+      reason: 'planning artifact',
+    });
+  });
+
+  test('test 4: every cache class names its verb', () => {
+    const cases = [
+      ['objectives/07-x/OBJECTIVE.md', /objective put/],
+      ['objectives/07-x/07-01-SUMMARY.md', /summary post/],
+      ['objectives/07-x/07-VERIFICATION.md', /verification post/],
+      ['objectives/07-x/07-RESEARCH.md', /doc put/],
+      ['research/a.md', /doc put/],
+      ['todos/pending/a.md', /todo add/],
+      ['debug/x.md', /debug put/],
+      ['quick/1-x/1-JOB.md', /quick put/],
+      ['decisions/pending/DECISION-001.md', /decision open/],
+    ];
+    for (const [rel, verb] of cases) {
+      const r = gateEdits.shouldGate({ ...store, filePath: `${P}/${rel}` });
+      assert.equal(r.decision, 'deny', rel);
+      assert.match(r.reason, verb, rel);
+      assert.ok(r.reason.startsWith(`${rel} is a read-only cache`), `${rel}: ${r.reason}`);
+    }
+  });
+
+  test('test 5: generated views (ROADMAP/STATE/MILESTONES) are denied naming `gh pull --all`', () => {
+    for (const rel of ['ROADMAP.md', 'STATE.md', 'MILESTONES.md']) {
+      const r = gateEdits.shouldGate({ ...store, filePath: `${P}/${rel}` });
+      assert.equal(r.decision, 'deny', rel);
+      assert.match(r.reason, /gh pull --all/, rel);
+      assert.ok(r.reason.startsWith(`${rel} is`), `${rel}: ${r.reason}`);
+    }
+  });
+
+  test('test 6: tracked config and runtime paths stay allowed in store mode', () => {
+    for (const rel of [
+      'config.json',
+      'STACK.md',
+      '.skill-active',
+      'state.json',
+      '.trd-progress/07-01.md',
+      'quick/1-x/DECISION-001.md',
+    ]) {
+      assert.deepEqual(
+        gateEdits.shouldGate({ ...store, filePath: `${P}/${rel}` }),
+        { decision: 'allow', reason: 'planning artifact' },
+        rel
+      );
+    }
+  });
+
+  test('test 7: Edit and MultiEdit are denied like Write; Read is a noop', () => {
+    for (const tool of ['Edit', 'MultiEdit']) {
+      const r = gateEdits.shouldGate({ ...store, tool });
+      assert.equal(r.decision, 'deny', tool);
+      assert.match(r.reason, /plan put-trd/, tool);
+    }
+    assert.deepEqual(gateEdits.shouldGate({ ...store, tool: 'Read' }), { decision: 'noop' });
+  });
+
+  test('test 8: a worktree path classifies against the nearest .planning', () => {
+    const r = gateEdits.shouldGate({
+      ...store,
+      filePath: '/wt/.planning/objectives/07-x/07-01-a-TRD.md',
+      planningDir: '/wt/.planning',
+      sharedDir: '/main/.planning',
+    });
+    assert.equal(r.decision, 'deny');
+    assert.match(r.reason, /^objectives\/07-x\/07-01-a-TRD\.md is a read-only cache/);
+    assert.match(r.reason, /plan put-trd 07 07-01-a-TRD\.md/);
+  });
+
+  test('test 8b: from a worktree, an edit of the MAIN checkout\'s cache file is denied too (sharedDir)', () => {
+    const r = gateEdits.shouldGate({
+      ...store,
+      filePath: '/main/.planning/STATE.md',
+      planningDir: '/wt/.planning',
+      sharedDir: '/main/.planning',
+    });
+    assert.equal(r.decision, 'deny');
+    assert.match(r.reason, /^STATE\.md is/);
+    assert.match(r.reason, /gh pull --all/);
+  });
+
+  test('test 8c: a .planning/ path of some other project falls through to today\'s allow', () => {
+    assert.deepEqual(
+      gateEdits.shouldGate({ ...store, filePath: '/other/.planning/objectives/07-x/07-01-a-TRD.md' }),
+      { decision: 'allow', reason: 'planning artifact' }
+    );
+  });
+
+  test('test 9: a non-planning file in store mode keeps today\'s decision', () => {
+    const code = { ...store, filePath: '/p/src/a.cjs' };
+    const ambient = gateEdits.shouldGate(code);
+    assert.equal(ambient.decision, 'deny');
+    assert.match(ambient.reason, /ambient mode/);
+    assert.deepEqual(gateEdits.shouldGate({ ...code, skillActive: true }), {
+      decision: 'allow',
+      reason: 'skill-active marker present',
+    });
+    assert.deepEqual(gateEdits.shouldGate({ ...code, agentType: 'aoforge:executor' }), {
+      decision: 'allow',
+      reason: 'aoforge agent',
+    });
+    assert.deepEqual(gateEdits.shouldGate({ ...store, filePath: '/p/docs/a.md' }), {
+      decision: 'allow',
+      reason: 'markdown doc',
+    });
+  });
+
+  test('test 10 (D-10 regression): aoforge:executor writing a code file is allowed, store off and on', () => {
+    for (const storeMode of [false, true]) {
+      assert.deepEqual(
+        gateEdits.shouldGate({
+          tool: 'Write',
+          filePath: '/p/src/a.cjs',
+          planningDir: P,
+          skillActive: false,
+          overrideActive: false,
+          agentType: 'aoforge:executor',
+          storeMode,
+        }),
+        { decision: 'allow', reason: 'aoforge agent' },
+        `storeMode=${storeMode}`
+      );
+    }
+  });
+
+  test('store-off invariant: storeMode false and storeMode absent give identical decisions for every path', () => {
+    const variants = [
+      {},
+      { skillActive: true },
+      { agentType: 'aoforge:executor' },
+      { overrideActive: true },
+      { tool: 'Edit' },
+      { tool: 'MultiEdit' },
+      { tool: 'Read' },
+    ];
+    const paths = [...ALL_PLANNING_PATHS, '/p/src/a.cjs', '/p/docs/a.md', '/elsewhere/x.cjs', ''];
+    for (const filePath of paths) {
+      for (const v of variants) {
+        const legacy = { tool: 'Write', filePath, planningDir: P, skillActive: false, overrideActive: false, ...v };
+        const expected = gateEdits.shouldGate(legacy);
+        assert.deepEqual(gateEdits.shouldGate({ ...legacy, storeMode: false }), expected, `${filePath} ${JSON.stringify(v)}`);
+        assert.deepEqual(gateEdits.shouldGate({ ...legacy, storeMode: undefined }), expected, `${filePath} ${JSON.stringify(v)}`);
+      }
+    }
+    // And every planning path is still the plain planning-artifact allow, exactly as before 48-08.
+    for (const filePath of ALL_PLANNING_PATHS) {
+      assert.deepEqual(
+        gateEdits.shouldGate({ tool: 'Write', filePath, planningDir: P, skillActive: false, overrideActive: false, storeMode: false }),
+        { decision: 'allow', reason: 'planning artifact' },
+        filePath
+      );
+    }
+  });
+
+  test('store-off invariant: the planning libs are never consulted when storeMode is false', () => {
+    const explode = () => { throw new Error('planning libs must not be touched with store off'); };
+    gateEdits._setPlanningLibs({ isStoreMode: explode, classify: explode, relToPlanning: explode });
+    try {
+      for (const filePath of ALL_PLANNING_PATHS) {
+        assert.deepEqual(
+          gateEdits.shouldGate({ ...store, filePath, storeMode: false }),
+          { decision: 'allow', reason: 'planning artifact' },
+          filePath
+        );
+      }
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+  });
+
+  test('test 13: a throwing classifier fails open to today\'s behaviour', () => {
+    const paths = require('../aoforge/bin/lib/planning-paths.cjs');
+    gateEdits._setPlanningLibs({
+      isStoreMode: () => true,
+      relToPlanning: paths.relToPlanning,
+      classify: () => { throw new Error('classifier exploded'); },
+    });
+    try {
+      assert.deepEqual(gateEdits.shouldGate(store), { decision: 'allow', reason: 'planning artifact' });
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+  });
+
+  test('test 13b: a throwing relToPlanning or unavailable libs fail open too', () => {
+    gateEdits._setPlanningLibs({
+      isStoreMode: () => true,
+      relToPlanning: () => { throw new Error('rel exploded'); },
+      classify: () => ({ class: 'cache', hint: 'x' }),
+    });
+    try {
+      assert.deepEqual(gateEdits.shouldGate(store), { decision: 'allow', reason: 'planning artifact' });
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+
+    gateEdits._setPlanningLibs(null);
+    try {
+      assert.deepEqual(gateEdits.shouldGate(store), { decision: 'allow', reason: 'planning artifact' });
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+    }
+  });
+
+  test('_setPlanningLibs(undefined) restores the real libs', () => {
+    gateEdits._setPlanningLibs(null);
+    gateEdits._setPlanningLibs(undefined);
+    assert.equal(gateEdits.shouldGate(store).decision, 'deny');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 48-08 — main() reads store mode from the MAIN checkout (spawn level)
+// ---------------------------------------------------------------------------
+
+const STORE_ON = { github: { enabled: true, store: true, repo: 'o/r' } };
+
+/** A temp AOForge project whose `.planning/config.json` is `config` (omitted when undefined). */
+function makeStoreProject(config) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-store-')));
+  fs.mkdirSync(path.join(root, '.planning', 'objectives', '07-x'), { recursive: true });
+  if (config !== undefined) {
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+  }
+  return root;
+}
+
+/** Spawn the hook in `root` with a clean env: no AOFORGE_SKIP_EDIT_GATE, HOME inside the temp dir. */
+function runStoreHook(root, { tool = 'Write', filePath, agentType, extraEnv = {} }) {
+  const payload = realPreToolUsePayload({ tool_name: tool, file_path: filePath, cwd: root });
+  if (agentType) payload.agent_type = agentType;
+  return runHook(payload, { cwd: root, extraEnv: { HOME: root, ...extraEnv } }).result;
+}
+
+const trdOf = (root) => path.join(root, '.planning', 'objectives', '07-x', '07-01-a-TRD.md');
+
+describe('48-08 gate main() in store mode (subprocess)', () => {
+  test('test 11 (SC2): store on → Write of a TRD emits deny naming `plan put-trd`', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      const result = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(result), 'deny', result.stdout);
+      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+      assert.match(reason, /plan put-trd/);
+      assert.match(reason, /^objectives\/07-x\/07-01-a-TRD\.md is a read-only cache of GitHub in store mode/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 11b (SC2): a live skill marker and an aoforge:executor agent are still denied', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      fs.writeFileSync(
+        path.join(root, '.planning', '.skill-active'),
+        JSON.stringify({ skill: 'build', started_at: new Date().toISOString(), pid: process.pid })
+      );
+      for (const tool of ['Write', 'Edit', 'MultiEdit']) {
+        const result = runStoreHook(root, { tool, filePath: trdOf(root), agentType: 'aoforge:executor' });
+        assert.equal(hookDecision(result), 'deny', `${tool}: ${result.stdout}`);
+        assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /plan put-trd/);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 11c: store on → config.json and runtime paths allowed; aoforge:executor code write allowed (D-10)', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      for (const rel of ['config.json', 'STACK.md', 'state.json', '.trd-progress/07-01.md']) {
+        const result = runStoreHook(root, { filePath: path.join(root, '.planning', rel) });
+        assert.equal(hookDecision(result), 'none', `${rel}: ${result.stdout}`);
+      }
+      const code = runStoreHook(root, { filePath: path.join(root, 'src', 'a.cjs'), agentType: 'aoforge:executor' });
+      assert.equal(hookDecision(code), 'none', code.stdout);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12: gates.editGate warn turns the cache deny into ask', () => {
+    const root = makeStoreProject({ ...STORE_ON, gates: { editGate: 'warn' } });
+    try {
+      const result = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(result), 'ask', result.stdout);
+      assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /plan put-trd/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12b: AOFORGE_SKIP_EDIT_GATE=1 and gates.editGate off still disable the gate', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      const skipped = runStoreHook(root, { filePath: trdOf(root), extraEnv: { AOFORGE_SKIP_EDIT_GATE: '1' } });
+      assert.equal(hookDecision(skipped), 'none', skipped.stdout);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    const off = makeStoreProject({ ...STORE_ON, gates: { editGate: 'off' } });
+    try {
+      const result = runStoreHook(off, { filePath: trdOf(off) });
+      assert.equal(hookDecision(result), 'none', result.stdout);
+    } finally {
+      fs.rmSync(off, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12c: a fresh .edit-override marker allows one cache edit', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      const marker = path.join(root, '.planning', '.edit-override');
+      fs.writeFileSync(marker, JSON.stringify({ created_at: new Date().toISOString() }));
+      const first = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(first), 'none', first.stdout);
+      assert.equal(fs.existsSync(marker), false, 'override marker is single-use');
+      const second = runStoreHook(root, { filePath: trdOf(root) });
+      assert.equal(hookDecision(second), 'deny', second.stdout);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('test 12d (store-off invariant): no output for every cache path when store is off', () => {
+    const offConfigs = [
+      undefined, // no config.json at all
+      {}, // no github block
+      { github: { enabled: true, store: false, repo: 'o/r' } }, // TRD test 12: store:false
+      { github: { enabled: false, store: true, repo: 'o/r' } }, // enabled false wins
+      { github: { enabled: false } }, // this repo's own shape
+      { github: { enabled: 'true', store: 'true' } }, // strict booleans only
+    ];
+    const rels = ['objectives/07-x/07-01-a-TRD.md', 'objectives/07-x/OBJECTIVE.md', 'ROADMAP.md', 'STATE.md', 'todos/pending/a.md'];
+    for (const config of offConfigs) {
+      const root = makeStoreProject(config);
+      try {
+        for (const rel of rels) {
+          const result = runStoreHook(root, { filePath: path.join(root, '.planning', rel) });
+          assert.equal(hookDecision(result), 'none', `${JSON.stringify(config)} ${rel}: ${result.stdout}`);
+        }
+        // Code files keep today's ambient deny with store off.
+        const code = runStoreHook(root, { filePath: path.join(root, 'src', 'a.cjs') });
+        assert.equal(hookDecision(code), 'deny', `${JSON.stringify(config)} code`);
+        assert.match(JSON.parse(code.stdout).hookSpecificOutput.permissionDecisionReason, /ambient mode/);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('mode is read from the MAIN checkout config, not the worktree\'s', (t) => {
+    const fx = makeRepoWithWorktree({ markerInMain: false });
+    if (!fx) {
+      t.skip('git unavailable');
+      return;
+    }
+    try {
+      // Main on, worktree's own config off → the worktree's TRD edit is denied.
+      fs.writeFileSync(path.join(fx.main, '.planning', 'config.json'), JSON.stringify(STORE_ON));
+      fs.writeFileSync(path.join(fx.wt, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+      const wtTrd = path.join(fx.wt, '.planning', 'objectives', '07-x', '07-01-a-TRD.md');
+      const denied = runStoreHook(fx.wt, { filePath: wtTrd, agentType: 'aoforge:executor' });
+      assert.equal(hookDecision(denied), 'deny', denied.stdout);
+      assert.match(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecisionReason, /plan put-trd 07 07-01-a-TRD\.md/);
+
+      // The main checkout's generated file, edited from the worktree, is denied too.
+      const mainState = runStoreHook(fx.wt, { filePath: path.join(fx.main, '.planning', 'STATE.md') });
+      assert.equal(hookDecision(mainState), 'deny', mainState.stdout);
+      assert.match(JSON.parse(mainState.stdout).hookSpecificOutput.permissionDecisionReason, /gh pull --all/);
+
+      // Main off, worktree's own config on → store off: allowed as today.
+      fs.writeFileSync(path.join(fx.main, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+      fs.writeFileSync(path.join(fx.wt, '.planning', 'config.json'), JSON.stringify(STORE_ON));
+      const allowed = runStoreHook(fx.wt, { filePath: wtTrd });
+      assert.equal(hookDecision(allowed), 'none', allowed.stdout);
+    } finally {
+      fs.rmSync(fx.root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('48-08 readStoreMode', () => {
+  const gateEdits = require('./gate-edits.js');
+
+  test('true only when the main checkout has github.enabled and github.store true', () => {
+    const on = makeStoreProject(STORE_ON);
+    const off = makeStoreProject({ github: { enabled: false, store: true } });
+    try {
+      assert.equal(gateEdits.readStoreMode(on), true);
+      assert.equal(gateEdits.readStoreMode(path.join(on, 'src')), true);
+      assert.equal(gateEdits.readStoreMode(off), false);
+    } finally {
+      fs.rmSync(on, { recursive: true, force: true });
+      fs.rmSync(off, { recursive: true, force: true });
+    }
+  });
+
+  test('test 13 (fail open): a throwing isStoreMode or unavailable libs read as store off', () => {
+    const on = makeStoreProject(STORE_ON);
+    try {
+      gateEdits._setPlanningLibs({
+        isStoreMode: () => { throw new Error('mode exploded'); },
+        classify: () => { throw new Error('classifier exploded'); },
+        relToPlanning: () => null,
+      });
+      assert.equal(gateEdits.readStoreMode(on), false);
+      gateEdits._setPlanningLibs(null);
+      assert.equal(gateEdits.readStoreMode(on), false);
+      gateEdits._setPlanningLibs({ isStoreMode: () => 'store', classify: () => null, relToPlanning: () => null });
+      assert.equal(gateEdits.readStoreMode(on), false, 'only a literal true counts');
+    } finally {
+      gateEdits._setPlanningLibs(undefined);
+      fs.rmSync(on, { recursive: true, force: true });
+    }
+  });
+
+  test('a missing directory reads as store off without throwing', () => {
+    assert.equal(gateEdits.readStoreMode(path.join(os.tmpdir(), 'gate-edits-no-such-dir-48-08')), false);
+  });
+});

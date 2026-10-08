@@ -721,7 +721,7 @@ function main() {
   ];
   // A wall-clock ceiling on the WHOLE run, on top of the per-test one above.
   // --test-timeout is not enough: handoff-e2e.test.cjs has been observed to leak
-  // a devflow-watch daemon whose surviving handles stop node exiting the file, so
+  // an aoforge-watch daemon whose surviving handles stop node exiting the file, so
   // the per-test timeout fires and the runner still never returns (issue #93).
   // Without this, that wedge burns the job's entire budget and reports as an
   // unattributable GitHub-level timeout with no test output at all.
@@ -760,7 +760,7 @@ function main() {
       `${PER_TEST_TIMEOUT_MS / 1000}s.\n` +
       `  NOT MEASURED: why. A SIGKILL here is consistent with at least three causes ` +
       `and this gate distinguished none of them:\n` +
-      `    - the known wedge in issue #93 — handoff-e2e.test.cjs leaks a devflow-watch\n` +
+      `    - the known wedge in issue #93 — handoff-e2e.test.cjs leaks an aoforge-watch\n` +
       `      daemon whose open handles stop node exiting that file, and the per-test\n` +
       `      --test-timeout cannot reach it. Tell by: the spec output stops inside\n` +
       `      handoff-e2e.test.cjs and stays there.\n` +

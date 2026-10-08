@@ -10,7 +10,7 @@ The model receives the denial reason and usually corrects itself. When you need 
 override deliberately:
 
 ```bash
-DEVFLOW_ALLOW_RAW_COMMIT=1 git commit -m "..."
+AOFORGE_ALLOW_RAW_COMMIT=1 git commit -m "..."
 ```
 
 Every gate and its escape hatch is listed on
@@ -21,8 +21,8 @@ If you are overriding the same gate repeatedly, log it so the friction is
 measurable rather than anecdotal:
 
 ```bash
-df-tools override --gate edits --reason "..."
-df-tools override --list
+aof-tools override --gate edits --reason "..."
+aof-tools override --list
 ```
 
 ### A gate fired on text that only *mentions* a command
@@ -32,23 +32,23 @@ prose about `git commit` is not gated. `changelog-on-tag` and `gate-interactive`
 do not yet do this, so writing documentation containing a version-tag command or
 an auth command inside a heredoc can trip them.
 
-Escape with `DEVFLOW_SKIP_CHANGELOG_GATE=1` or
-`DEVFLOW_SKIP_INTERACTIVE_GATE=1` respectively.
+Escape with `AOFORGE_SKIP_CHANGELOG_GATE=1` or
+`AOFORGE_SKIP_INTERACTIVE_GATE=1` respectively.
 
 ## "Project already initialized"
 
-`/devflow:new-project` found an existing `.planning/PROJECT.md`. That is a safety
+`/aoforge:new-project` found an existing `.planning/PROJECT.md`. That is a safety
 check. To genuinely start over, delete `.planning/` first. To add a new phase of
-work to an existing project, use `/devflow:milestone new` instead.
+work to an existing project, use `/aoforge:milestone new` instead.
 
 ## Quality is dropping in a long session
 
-That is context rot, and the fix is the one DevFlow is built around:
+That is context rot, and the fix is the one AOForge is built around:
 
 ```text
-/devflow:status pause
+/aoforge:status pause
 /clear
-/devflow:status resume
+/aoforge:status resume
 ```
 
 Clearing between major commands is the intended rhythm, not an emergency measure.
@@ -60,14 +60,14 @@ Almost always the planner making an assumption you would have corrected in
 seconds. Two cheap fixes, both before any code is written:
 
 ```text
-/devflow:list-objective-assumptions 4    # see the intent, no files created
-/devflow:discuss-objective 4             # record your preferences into CONTEXT.md
+/aoforge:list-objective-assumptions 4    # see the intent, no files created
+/aoforge:discuss-objective 4             # record your preferences into CONTEXT.md
 ```
 
 Then re-plan. Also check whether the `(kind, work)` resolution is what you expect:
 
 ```bash
-df-tools intent resolve --objective 4
+aof-tools intent resolve --objective 4
 ```
 
 ## Execution produced stubs instead of real code
@@ -77,12 +77,12 @@ one context window produces scaffolding and `TODO` comments, because that is wha
 fits.
 
 Re-plan with smaller scope. If the objective itself is too big, split it with
-`/devflow:objective add` — though note that `remove` renumbers, so prefer adding a
+`/aoforge:objective add` — though note that `remove` renumbers, so prefer adding a
 narrower objective over restructuring existing ones.
 
 ## A subagent reported failure but the work was done
 
-A known Claude Code classification quirk. DevFlow's orchestrators spot-check actual
+A known Claude Code classification quirk. AOForge's orchestrators spot-check actual
 output before reporting failure, but if you see a failure message, check `git log`
 before re-running anything — the work may have succeeded and re-running will
 duplicate it.
@@ -93,7 +93,7 @@ subagent that finished without producing any commits.
 ## I lost track of where I am
 
 ```text
-/devflow:status
+/aoforge:status
 ```
 
 Reads every state file and tells you your position and next action.
@@ -101,8 +101,8 @@ Reads every state file and tells you your position and next action.
 ## The roadmap disagrees with reality
 
 ```text
-/devflow:sync-roadmap --dry-run
-/devflow:sync-roadmap
+/aoforge:sync-roadmap --dry-run
+/aoforge:sync-roadmap
 ```
 
 Reconciles checkbox state against on-disk `SUMMARY.md` presence. Use
@@ -111,21 +111,21 @@ Reconciles checkbox state against on-disk `SUMMARY.md` presence. Use
 For deeper drift:
 
 ```bash
-df-tools validate consistency
-df-tools validate health --repair
+aof-tools validate consistency
+aof-tools validate health --repair
 ```
 
 ## Costs are too high
 
 In order of impact:
 
-1. **Use a smaller entry point.** `/devflow:micro` and `/devflow:quick` exist
-   precisely so `/devflow:build` is not the answer to a one-line fix.
-2. **Switch profile:** `/devflow:set-profile budget`.
-3. **Turn off agents you do not need** via `/devflow:settings` —
+1. **Use a smaller entry point.** `/aoforge:micro` and `/aoforge:quick` exist
+   precisely so `/aoforge:build` is not the answer to a one-line fix.
+2. **Switch profile:** `/aoforge:set-profile budget`.
+3. **Turn off agents you do not need** via `/aoforge:settings` —
    `workflow.research` and `workflow.job_check` are the two worth disabling on
    familiar ground. Keep `verifier`.
-4. **Measure it:** `df-tools context --limit 150` shows where the window actually
+4. **Measure it:** `aof-tools context --limit 150` shows where the window actually
    goes.
 
 ## Working on something sensitive
@@ -150,8 +150,8 @@ Your project's `.planning/` is never touched by an update.
 
 ## Skills reference a file I cannot find
 
-Look in `~/.claude/devflow/`, not in the plugin directory. Skills use
-`@~/.claude/devflow/...` paths, populated by the `sync-runtime` hook at session
+Look in `~/.claude/aoforge/`, not in the plugin directory. Skills use
+`@~/.claude/aoforge/...` paths, populated by the `sync-runtime` hook at session
 start. If the mirror looks stale, start a new session — it re-mirrors whenever the
 bundled version differs from `.plugin-version`.
 
@@ -159,12 +159,12 @@ bundled version differs from `.plugin-version`.
 
 `guard-no-progress` warns at three identical tool calls and escalates to `ask` at
 five. If you see that escalation, the agent is genuinely stuck — redirect it rather
-than approving. Disable with `DEVFLOW_SKIP_PROGRESS_GUARD=1` if it misfires.
+than approving. Disable with `AOFORGE_SKIP_PROGRESS_GUARD=1` if it misfires.
 
 ## "This agent is isolated in the worktree…"
 
-That is **Claude Code's** harness guard, not DevFlow's. It refuses compound Bash
+That is **Claude Code's** harness guard, not AOForge's. It refuses compound Bash
 commands it cannot statically verify, including commands with no git in them, and
-no `DEVFLOW_*` variable affects it.
+no `AOFORGE_*` variable affects it.
 
 The workaround is one plain command per Bash call.

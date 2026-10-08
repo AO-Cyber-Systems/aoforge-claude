@@ -1,21 +1,21 @@
 ---
 title: "Contributing"
 weight: 90
-lede: "Working on DevFlow itself: layout, tests, conventions and the release gate."
+lede: "Working on AOForge itself: layout, tests, conventions and the release gate."
 ---
 
-DevFlow is MIT licensed and developed in the open at
-[AO-Cyber-Systems/devflow-claude](https://github.com/AO-Cyber-Systems/devflow-claude).
+AOForge is MIT licensed and developed in the open at
+[AO-Cyber-Systems/aoforge-claude](https://github.com/AO-Cyber-Systems/aoforge-claude).
 
 ## Development install
 
 ```bash
-git clone https://github.com/AO-Cyber-Systems/devflow-claude.git
+git clone https://github.com/AO-Cyber-Systems/aoforge-claude.git
 ```
 
 ```text
-/plugin marketplace add /absolute/path/to/devflow-claude
-/plugin install devflow@aocyber
+/plugin marketplace add /absolute/path/to/aoforge-claude
+/plugin install aoforge@aocyber
 ```
 
 The plugin directory is the source of truth for distribution; there is no npm
@@ -31,9 +31,9 @@ Node's native test runner against `.test.cjs` and `.test.js` files adjacent to
 their source. There is no lint command.
 
 ```text
-plugins/devflow/devflow/bin/df-tools.test.cjs
-plugins/devflow/devflow/bin/lib/*.test.cjs
-plugins/devflow/hooks/*.test.js
+plugins/aoforge/aoforge/bin/aof-tools.test.cjs
+plugins/aoforge/aoforge/bin/lib/*.test.cjs
+plugins/aoforge/hooks/*.test.js
 ```
 
 Hooks are tested like any other module — they are plain Node scripts reading JSON
@@ -43,22 +43,22 @@ on stdin.
 
 | Adding | Goes in |
 |---|---|
-| A slash command | `plugins/devflow/skills/<name>/SKILL.md` |
-| A subagent | `plugins/devflow/agents/<name>.md` |
-| A hook | `plugins/devflow/hooks/<purpose>.js` + registration in `hooks.json` |
-| CLI functionality | `plugins/devflow/devflow/bin/lib/<module>.cjs` + a dispatch case |
-| A runtime doc agents read | `plugins/devflow/devflow/references/<name>.md` |
-| A file copied into user projects | `plugins/devflow/devflow/templates/` |
+| A slash command | `plugins/aoforge/skills/<name>/SKILL.md` |
+| A subagent | `plugins/aoforge/agents/<name>.md` |
+| A hook | `plugins/aoforge/hooks/<purpose>.js` + registration in `hooks.json` |
+| CLI functionality | `plugins/aoforge/aoforge/bin/lib/<module>.cjs` + a dispatch case |
+| A runtime doc agents read | `plugins/aoforge/aoforge/references/<name>.md` |
+| A file copied into user projects | `plugins/aoforge/aoforge/templates/` |
 
 See [plugin layout](/docs/architecture/plugin-layout/) for the full structure.
 
 ## Conventions
 
-- **CommonJS `.cjs`** throughout `df-tools`. It is a CLI, not a library.
+- **CommonJS `.cjs`** throughout `aof-tools`. It is a CLI, not a library.
 - **Synchronous file I/O** — `readFileSync` / `writeFileSync`.
 - **Prompt structure** is YAML frontmatter plus XML-like semantic tags
   (`<objective>`, `<step name="...">`, `<execution_context>`).
-- **`@path` references** always use `@~/.claude/devflow/...`, never
+- **`@path` references** always use `@~/.claude/aoforge/...`, never
   `${CLAUDE_PLUGIN_ROOT}` — it does not interpolate there.
 - **`hooks.json` commands** always use `${CLAUDE_PLUGIN_ROOT}`.
 - **Workflow frontmatter** carries `status: active | legacy | stub`.
@@ -72,7 +72,7 @@ hooks, CLI surface, model profiles — are **generated from the plugin source**
 rather than hand-written, so they cannot drift:
 
 ```bash
-node scripts/gen-docs-data.cjs     # → site/data/devflow.json
+node scripts/gen-docs-data.cjs     # → site/data/aoforge.json
 cd site && hugo server             # local preview
 ```
 
@@ -87,7 +87,7 @@ Three files must carry matching versions:
 
 ```text
 package.json
-plugins/devflow/.claude-plugin/plugin.json
+plugins/aoforge/.claude-plugin/plugin.json
 .claude-plugin/marketplace.json
 ```
 
@@ -98,12 +98,12 @@ Full walkthrough: [changelog and releases](/docs/guides/releases/).
 ## Reporting problems
 
 Issues and feature requests:
-[github.com/AO-Cyber-Systems/devflow-claude/issues](https://github.com/AO-Cyber-Systems/devflow-claude/issues).
+[github.com/AO-Cyber-Systems/aoforge-claude/issues](https://github.com/AO-Cyber-Systems/aoforge-claude/issues).
 
 For a gate that misfires, include the output of:
 
 ```bash
-df-tools session-audit --limit 50
+aof-tools session-audit --limit 50
 ```
 
 A false-positive rate is far more actionable than a description of one occurrence.

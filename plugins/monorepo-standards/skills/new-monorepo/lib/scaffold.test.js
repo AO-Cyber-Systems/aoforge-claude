@@ -32,7 +32,7 @@ test('scaffold: stamps full layout with all areas', () => {
   assert.ok(fs.existsSync(path.join(target, 'CLAUDE.md')));
   assert.ok(fs.existsSync(path.join(target, 'README.md')));
   assert.ok(fs.existsSync(path.join(target, '.gitignore')));
-  assert.ok(fs.existsSync(path.join(target, '.devflow', 'no-binaries.yml')));
+  assert.ok(fs.existsSync(path.join(target, '.aoforge', 'no-binaries.yml')));
   // Workflows
   for (const a of ['go', 'flutter', 'admin', 'proto']) {
     assert.ok(
@@ -139,7 +139,7 @@ test('scaffold: result passes monorepo-doctor audit', () => {
   const { audit } = require('../../monorepo-doctor/lib/doctor.js');
   const r = audit(target);
   // The scaffold writes assets/ via no scaffold? No — it doesn't.
-  // .github / .devflow are in ALWAYS_IGNORE_TOPLEVEL.
+  // .github / .aoforge are in ALWAYS_IGNORE_TOPLEVEL.
   assert.strictEqual(r.hasClaudeMd, true);
   assert.deepStrictEqual(r.layoutMissing, []);
   assert.deepStrictEqual(r.missingAreaClaudeMd, []);

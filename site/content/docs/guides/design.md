@@ -1,15 +1,15 @@
 ---
 title: "Design craft"
 weight: 35
-lede: "Seven references that give DevFlow's design skills taste: reading a brief, tuning dials, a catalogue of generated-look patterns, a mechanical pre-flight gate, and a redesign protocol."
+lede: "Seven references that give AOForge's design skills taste: reading a brief, tuning dials, a catalogue of generated-look patterns, a mechanical pre-flight gate, and a redesign protocol."
 ---
 
-DevFlow's design skills already enforce correctness: brand tokens, dark mode,
+AOForge's design skills already enforce correctness: brand tokens, dark mode,
 contrast, semantic markup, performance budgets. Correctness does not buy taste. A
 surface can pass every one of those checks and still look generated, because the
 model reached for a default instead of making a decision.
 
-Seven references close that gap. They ship in the DevFlow runtime, so every design
+Seven references close that gap. They ship in the AOForge runtime, so every design
 skill loads the same judgement:
 
 | Reference | Covers | Loaded by |
@@ -23,7 +23,7 @@ skill loads the same judgement:
 | `full-output.md` | Output-completeness enforcement | The `executor` agent |
 
 ```text
-~/.claude/devflow/references/
+~/.claude/aoforge/references/
 ```
 
 That last one is not a design concern. It applies to every agent that writes
@@ -34,13 +34,13 @@ files, and it is wired into the executor.
 | Skill | Plugin | What it gained |
 |---|---|---|
 | `eden-web:frontend-design` | `eden-ui-web` | Design read, redesign detection, tells audit, pre-flight gate |
-| `eden-flutter:frontend-design` | `eden-ui-flutter` | Same, with `/devflow:ui-eval` as the evidence step |
+| `eden-flutter:frontend-design` | `eden-ui-flutter` | Same, with `/aoforge:ui-eval` as the evidence step |
 | `eden-web:brand-builder` | `eden-ui-web` | Records a per-brand design posture the others inherit |
-| `executor` (agent) | `devflow` | `<output_completeness>`: scope locking and a placeholder ban |
+| `executor` (agent) | `aoforge` | `<output_completeness>`: scope locking and a placeholder ban |
 
 The design skills live in companion plugins from the same marketplace. The
-references live in the `devflow` plugin runtime because that is the one every
-install has, and because `@~/.claude/devflow/references/...` resolves at runtime
+references live in the `aoforge` plugin runtime because that is the one every
+install has, and because `@~/.claude/aoforge/references/...` resolves at runtime
 where a repo-relative path does not.
 
 ## The four moves
@@ -66,7 +66,7 @@ a questionnaire is a way of avoiding the decision.
 | `MOTION` | static | choreographed |
 | `DENSITY` | gallery-airy | instrument-panel |
 
-Derived from the surface kind, then bounded by two DevFlow-specific rules:
+Derived from the surface kind, then bounded by two AOForge-specific rules:
 
 - **The brand outranks the dials.** A deliberately restrained brand caps
   `EXPRESSION` even on a landing page. `brand-builder` now records a design
@@ -116,7 +116,7 @@ and re-check. Three of its items need actual rendering — both themes, the
 320/768/1280 breakpoints, and evidence capture — because reasoning about markup
 is not checking.
 
-For Flutter, [`/devflow:ui-eval`](/docs/guides/ui-eval/) is the stronger evidence
+For Flutter, [`/aoforge:ui-eval`](/docs/guides/ui-eval/) is the stronger evidence
 path: it scores every declared state offline and writes output the verifier
 consumes, which catches the usual gap of a widget test that exercises the happy
 path and ignores loading, empty and error.
@@ -149,29 +149,29 @@ directions:
 
 ## Attribution
 
-DevFlow's design guidance is **derived from
+AOForge's design guidance is **derived from
 [taste-skill](https://github.com/Leonxlnx/taste-skill)** by Leonxlnx, used under
 the MIT License. This is derivation, not inspiration: structure, many rules, and
 specific thresholds are adapted from that project, and the MIT license text and
 copyright notice are reproduced in
-[`NOTICE.md`](https://github.com/AO-Cyber-Systems/devflow-claude/blob/main/NOTICE.md)
+[`NOTICE.md`](https://github.com/AO-Cyber-Systems/aoforge-claude/blob/main/NOTICE.md)
 as that license requires. Every derived file carries an attribution header.
 
 Nothing is copied verbatim and no taste-skill files are redistributed. The
 material was adapted rather than vendored:
 
-- **Stack.** taste-skill targets React, Next.js and Motion; DevFlow targets Hugo
+- **Stack.** taste-skill targets React, Next.js and Motion; AOForge targets Hugo
   plus Tailwind and `eden-ui-flutter`, so framework-specific rules were rewritten
   or generalised.
-- **Dials** were renamed and their derivation bounded by DevFlow's
+- **Dials** were renamed and their derivation bounded by AOForge's
   brand-per-project model and the [intent model](/docs/concepts/intent-model/).
 - **Accessibility floors** were separated out as non-negotiable and calibrated
   against WCAG 2.2, including the inline-link exemption a flat 44×44 rule gets
   wrong.
 - **Named typefaces, exact banned hex values and vendor install commands** were
-  dropped in favour of stack-neutral principles, since DevFlow projects carry
+  dropped in favour of stack-neutral principles, since AOForge projects carry
   their own brands.
 
 taste-skill is worth reading directly for a much larger pattern catalogue, its
-research notes on model truncation, and a set of style-variant skills DevFlow
+research notes on model truncation, and a set of style-variant skills AOForge
 does not mirror.

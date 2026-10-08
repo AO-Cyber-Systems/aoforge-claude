@@ -40,10 +40,10 @@ Output: Working Hugo templates (build), actionable findings with fixes (review),
 
 <execution_context>
 @plugins/eden-ui-web/references/hugo-conventions.md
-@~/.claude/devflow/references/design-craft.md
-@~/.claude/devflow/references/design-tells.md
-@~/.claude/devflow/references/design-preflight.md
-@~/.claude/devflow/references/design-stack-web.md
+@~/.claude/aoforge/references/design-craft.md
+@~/.claude/aoforge/references/design-tells.md
+@~/.claude/aoforge/references/design-preflight.md
+@~/.claude/aoforge/references/design-stack-web.md
 </execution_context>
 
 <context>
@@ -89,7 +89,7 @@ If no brand is configured, suggest running the `brand-builder` skill first.
    diverges. If you can infer it, declare the read and proceed.
 
 2. **Detect greenfield vs redesign** — If this page already exists in any
-   form, stop and load `~/.claude/devflow/references/design-redesign.md`. Misclassifying a
+   form, stop and load `~/.claude/aoforge/references/design-redesign.md`. Misclassifying a
    redesign as a greenfield build is the largest single source of bad redesign
    work: it silently changes IA, slugs, nav labels and analytics identifiers.
 

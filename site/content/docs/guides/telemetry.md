@@ -10,8 +10,8 @@ and writes to your own filesystem. Nothing is transmitted.
 ## Context composition
 
 ```bash
-df-tools context --limit 150
-df-tools context --root /path/to/projects --raw
+aof-tools context --limit 150
+aof-tools context --root /path/to/projects --raw
 ```
 
 Recomputes where the context window actually goes, from your own transcripts: tool
@@ -19,7 +19,7 @@ results versus tool-call inputs versus assistant text versus images, plus per-to
 call counts and averages.
 
 {{< callout title="Images are priced per block" >}}
-`df-tools context` prices images at roughly 1,500 tokens per block rather than by
+`aof-tools context` prices images at roughly 1,500 tokens per block rather than by
 base64 length. Counting base64 characters overstates image cost by about 25× —
 that was the one real error in the original context audit.
 {{< /callout >}}
@@ -30,8 +30,8 @@ the numbers.
 ## Session audit
 
 ```bash
-df-tools session-audit --limit 150
-df-tools session-audit --since 2026-08-01
+aof-tools session-audit --limit 150
+aof-tools session-audit --since 2026-08-01
 ```
 
 Classifies blocking events across sessions: where agents got stuck, what stopped
@@ -41,7 +41,7 @@ anecdote.
 
 The JSON also carries an `edit_gate_bypass` block that gives every edit-gate denial
 exactly one outcome. A denial is *bypassed* when a later Bash command in the same
-session writes the denied file, *routed* when the agent goes through a DevFlow skill,
+session writes the denied file, *routed* when the agent goes through an AOForge skill,
 a skill marker or a user override phrase instead, and *abandoned* when neither
 happens. With `--raw` the same counts appear as an `edit_gate:` line, followed by a
 per-month line and a few bypassing commands when there were any denials.
@@ -49,8 +49,8 @@ per-month line and a few bypassing commands when there were any denials.
 ## Telemetry view
 
 ```bash
-df-tools telemetry
-df-tools telemetry --scan --limit 150
+aof-tools telemetry
+aof-tools telemetry --scan --limit 150
 ```
 
 One status-facing view with advisories, combining planning state with session
@@ -59,30 +59,30 @@ block, and a `scan` block recording the root, limit and `--since` date used).
 `--limit`, `--since YYYY-MM-DD` and `--root` only mean something to the scan, so
 they are rejected without it, and an unknown flag is an error instead of being
 ignored. With `--raw` the first line reads
-`scan: <n> transcripts, <n> blocks (<n> DevFlow-owned)`.
+`scan: <n> transcripts, <n> blocks (<n> AOForge-owned)`.
 
 ## Transcript export
 
 ```bash
-df-tools transcript-export
-df-tools transcript-export --out ~/devflow-index.jsonl --full ~/transcript-archive --limit 500
+aof-tools transcript-export
+aof-tools transcript-export --out ~/aoforge-index.jsonl --full ~/transcript-archive --limit 500
 ```
 
 Writes a compact per-session index before retention deletes the underlying
-transcripts. Default output is `~/.claude/devflow/transcript-index.jsonl`.
+transcripts. Default output is `~/.claude/aoforge/transcript-index.jsonl`.
 
-You do not need to remember to run it. A DevFlow session start runs it in a
+You do not need to remember to run it. An AOForge session start runs it in a
 detached background process at most once every 24 hours, with the default paths and
 no raw copy, so the index keeps up with transcripts as they age out. Set
-`DEVFLOW_SKIP_TRANSCRIPT_EXPORT=1` in the environment Claude Code is launched from
+`AOFORGE_SKIP_TRANSCRIPT_EXPORT=1` in the environment Claude Code is launched from
 to turn that off. Run the command yourself with `--full <dir>` when you also want
 a raw copy of the transcripts, which the automatic run never makes.
 
 ## Override log
 
 ```bash
-df-tools override --gate edits --reason "hand-fixing a generated file"
-df-tools override --list --limit 20
+aof-tools override --gate edits --reason "hand-fixing a generated file"
+aof-tools override --list --limit 20
 ```
 
 Structured, logged gate overrides. The point is not bureaucracy — a gate that is
@@ -92,13 +92,13 @@ makes the case instead of an argument about it.
 ## The audit log
 
 The `verify-completion` Stop hook emits a JSONL entry per completion to
-`~/.claude/devflow/audit.log`, or to `DEVFLOW_AUDIT_LOG_PATH` if set. It is
+`~/.claude/aoforge/audit.log`, or to `AOFORGE_AUDIT_LOG_PATH` if set. It is
 best-effort and never blocks the Stop event.
 
 ## Benchmarks and duplication
 
 ```bash
-df-tools benchmark          # timing across recorded runs
-df-tools dup-detect         # duplicated planning artifacts
-df-tools survey decimal-objectives --root <path>
+aof-tools benchmark          # timing across recorded runs
+aof-tools dup-detect         # duplicated planning artifacts
+aof-tools survey decimal-objectives --root <path>
 ```

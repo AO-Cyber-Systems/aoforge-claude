@@ -25,8 +25,8 @@ Output: Brand configuration files in the project's `assets/css/` and `data/brand
 
 <execution_context>
 @plugins/eden-ui-web/references/brand-presets.md
-@~/.claude/devflow/references/design-craft.md
-@~/.claude/devflow/references/design-stack-web.md
+@~/.claude/aoforge/references/design-craft.md
+@~/.claude/aoforge/references/design-stack-web.md
 </execution_context>
 
 <context>

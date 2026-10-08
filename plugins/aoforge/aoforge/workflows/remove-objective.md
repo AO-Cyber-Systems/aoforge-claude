@@ -1,0 +1,210 @@
+---
+status: active
+---
+<purpose>
+Remove an unstarted future objective from the project roadmap, delete its directory, renumber all subsequent objectives to maintain a clean linear sequence, and commit the change. The git commit serves as the historical record of removal.
+</purpose>
+
+<required_reading>
+Read all files referenced by the invoking prompt's execution_context before starting.
+</required_reading>
+
+<process>
+
+<step name="parse_arguments">
+Parse the command arguments:
+- Argument is the objective number to remove (integer). Legacy decimal directories created before v1.2 (e.g. `12.1`) are still accepted for removal; decimal objectives are no longer created.
+- Example: `/aoforge:objective remove 17` → objective = 17
+- Example: `/aoforge:objective remove 9` → objective = 9
+
+If no argument provided:
+
+```
+ERROR: Objective number required
+Usage: /aoforge:objective remove <objective-number>
+Example: /aoforge:objective remove 17
+```
+
+Exit.
+</step>
+
+<step name="init_context">
+Load objective operation context:
+
+```bash
+INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init objective-op "${target}")
+```
+
+Extract: `objective_found`, `objective_dir`, `objective_number`, `commit_docs`, `roadmap_exists`.
+
+Also read STATE.md and ROADMAP.md content for parsing current position.
+</step>
+
+<step name="validate_future_objective">
+Verify the objective is a future objective (not started):
+
+1. Compare target objective to current objective from STATE.md
+2. Target must be > current objective number
+
+If target <= current objective:
+
+```
+ERROR: Cannot remove Objective {target}
+
+Only future objectives can be removed:
+- Current objective: {current}
+- Objective {target} is current or completed
+
+To abandon current work, use /aoforge:status pause instead.
+```
+
+Exit.
+</step>
+
+<step name="confirm_removal">
+Present the removal summary:
+
+```
+Removing Objective {target}: {Name}
+
+This will:
+- Delete: .planning/objectives/{target}-{slug}/
+- Renumber all subsequent objectives
+- Revise: ROADMAP.md, STATE.md
+```
+
+Then confirm. Cancel is the recommended option: removal deletes the directory and renumbers every later objective.
+
+```
+AskUserQuestion([
+  {
+    header: "Remove?",
+    question: "Remove Objective {target} ({Name})? Its directory is deleted and every later objective is renumbered.",
+    multiSelect: false,
+    options: [
+      { label: "Cancel (Recommended)", description: "Keep the roadmap as it is" },
+      { label: "Remove objective {target}", description: "Preview the removal plan, then delete and renumber" }
+    ]
+  }
+])
+```
+
+On "Cancel", exit without changing anything. On "Remove objective {target}", continue to preview_removal.
+</step>
+
+<step name="preview_removal">
+**Run the dry run first and show the user the real plan.**
+
+`objective remove` is dry-run by default: without `--confirm` it deletes and renames nothing, prints the full plan to stderr, and exits 0.
+
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs objective remove "${target}"
+```
+
+The plan names the directory that would be deleted and every `old -> new` directory and file rename. Show it to the user verbatim — this is what backs the confirmation above with a machine-checked preview instead of a narrated one.
+
+If the objective has executed jobs (SUMMARY.md files), aof-tools errors here regardless of `--confirm`. Add `--force` only if the user confirms removing executed work:
+
+```
+AskUserQuestion([
+  {
+    header: "Executed",
+    question: "Objective {target} has executed jobs with SUMMARY.md files. Remove it and its executed work anyway?",
+    multiSelect: false,
+    options: [
+      { label: "Cancel (Recommended)", description: "Keep the objective and its executed work" },
+      { label: "Force remove", description: "Re-run the preview with --force, then remove with --force --confirm" }
+    ]
+  }
+])
+```
+
+On "Cancel", exit without changing anything. On "Force remove":
+
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs objective remove "${target}" --force
+```
+</step>
+
+<step name="execute_removal">
+**Delegate the entire removal operation to aof-tools.** Only after the user has seen the dry-run plan, re-run it with `--confirm`:
+
+```bash
+RESULT=$(node ~/.claude/aoforge/bin/aof-tools.cjs objective remove "${target}" --confirm)
+```
+
+Store mode refuses deletes (D-19); close the objective with `node ~/.claude/aoforge/bin/aof-tools.cjs objective set-status <id> cancelled` instead.
+
+`--confirm` executes exactly the plan the dry run printed. For an objective with executed jobs, both flags are required — `--force` overrides the summaries refusal, `--confirm` authorizes the cascade:
+
+```bash
+RESULT=$(node ~/.claude/aoforge/bin/aof-tools.cjs objective remove "${target}" --force --confirm)
+```
+
+The CLI handles:
+- Deleting the objective directory
+- Renumbering all subsequent directories (in reverse order to avoid conflicts)
+- Renaming all files inside renumbered directories (JOB.md, SUMMARY.md, etc.)
+- Updating ROADMAP.md (removing section, renumbering all objective references, updating dependencies)
+- Updating STATE.md (decrementing objective count)
+
+Extract from result: `removed`, `directory_deleted`, `renamed_directories`, `renamed_files`, `roadmap_updated`, `state_updated`.
+
+Both modes also return `dry_run`, `confirmed` and `mutated`. Check `mutated: true` before reporting success — a run without `--confirm` returns `mutated: false` and has changed nothing. `partial: true` on a confirmed run means the rename cascade aborted part-way and the tree needs fixing by hand.
+</step>
+
+<step name="commit">
+Stage and commit the removal:
+
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: remove objective {target} ({original-phase-name})" --files .planning/
+```
+
+The commit message preserves the historical record of what was removed.
+</step>
+
+<step name="completion">
+Present completion summary:
+
+```
+Objective {target} ({original-name}) removed.
+
+Changes:
+- Deleted: .planning/objectives/{target}-{slug}/
+- Renumbered: {N} directories and {M} files
+- Updated: ROADMAP.md, STATE.md
+- Committed: chore: remove objective {target} ({original-name})
+
+---
+
+## What's Next
+
+Would you like to:
+- `/aoforge:status` — see updated roadmap status
+- Continue with current objective
+- Review roadmap
+
+---
+```
+</step>
+
+</process>
+
+<anti_patterns>
+
+- Don't pass `--confirm` before showing the user the dry-run plan
+- Don't remove completed objectives (have SUMMARY.md files) without --force
+- Don't remove current or past objectives
+- Don't manually renumber — use `aof-tools objective remove` which handles all renumbering
+- Don't add "removed objective" notes to STATE.md — git commit is the record
+- Don't modify completed objective directories
+</anti_patterns>
+
+<success_criteria>
+Objective removal is complete when:
+
+- [ ] Target objective validated as future/unstarted
+- [ ] `aof-tools objective remove` executed successfully
+- [ ] Changes committed with descriptive message
+- [ ] User informed of changes
+</success_criteria>

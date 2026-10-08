@@ -8,23 +8,23 @@ lede: "The commands that plan, build and verify. These are the ones you use dail
 
 ## Choosing a tier
 
-The single biggest cost lever in DevFlow is picking the right entry point.
+The single biggest cost lever in AOForge is picking the right entry point.
 
 | Scope | Command | What runs |
 |---|---|---|
-| Sub-30 LOC, one file | `/devflow:micro` | No agents. ~2k token floor. |
-| Under 5 files, under 200 LOC, no new abstractions | `/devflow:quick` | One executor. No planner, no verifier. |
-| Multi-file feature, more than one subsystem | `/devflow:build` | Full plan → execute → verify |
-| Something is broken | `/devflow:debug` | Structured investigation with persistent state |
+| Sub-30 LOC, one file | `/aoforge:micro` | No agents. ~2k token floor. |
+| Under 5 files, under 200 LOC, no new abstractions | `/aoforge:quick` | One executor. No planner, no verifier. |
+| Multi-file feature, more than one subsystem | `/aoforge:build` | Full plan → execute → verify |
+| Something is broken | `/aoforge:debug` | Structured investigation with persistent state |
 
-## /devflow:build
+## /aoforge:build
 
 The workhorse. Chains planning, execution and verification with gates in between.
 
 ```text
-/devflow:build 4
-/devflow:build "add rate limiting to the public API"
-/devflow:build 4 --pause --model budget
+/aoforge:build 4
+/aoforge:build "add rate limiting to the public API"
+/aoforge:build 4 --pause --model budget
 ```
 
 {{< triggers name="build" >}}
@@ -41,14 +41,14 @@ The workhorse. Chains planning, execution and verification with gates in between
 The last four override the [intent model](/docs/concepts/intent-model/) resolution
 for this run without changing any files.
 
-## /devflow:plan-objective
+## /aoforge:plan-objective
 
 Planning on its own, when you want to review before committing to execution.
 
 ```text
-/devflow:plan-objective 4
-/devflow:plan-objective 4 --research --depth comprehensive
-/devflow:plan-objective 4 --gaps          # plan gap-closure work after verification
+/aoforge:plan-objective 4
+/aoforge:plan-objective 4 --research --depth comprehensive
+/aoforge:plan-objective 4 --gaps          # plan gap-closure work after verification
 ```
 
 Runs `objective-researcher` → `planner` → `job-checker`. The job-checker is the
@@ -56,22 +56,22 @@ part worth knowing about: it reads the plan *before* it executes and asks whethe
 running it would actually achieve the objective's goal. Disable it with
 `workflow.job_check: false` if you find it redundant on a familiar project.
 
-## /devflow:execute-objective
+## /aoforge:execute-objective
 
 Execution on its own, against plans that already exist.
 
 ```text
-/devflow:execute-objective 4
-/devflow:execute-objective 4 --gaps-only   # only the gap-closure jobs
+/aoforge:execute-objective 4
+/aoforge:execute-objective 4 --gaps-only   # only the gap-closure jobs
 ```
 
 Groups jobs into [waves](/docs/concepts/waves/) and dispatches each to an
 `executor` in a fresh window and its own git worktree.
 
-## /devflow:verify-work
+## /aoforge:verify-work
 
 ```text
-/devflow:verify-work 4
+/aoforge:verify-work 4
 ```
 
 Tests against the objective's goal, not against the task list. Produces
@@ -79,36 +79,36 @@ Tests against the objective's goal, not against the task list. Produces
 Playwright, Flutter through Maestro.
 
 If it finds gaps, the objective's status becomes `gaps_found`; plan the follow-up
-with `/devflow:plan-objective 4 --gaps`.
+with `/aoforge:plan-objective 4 --gaps`.
 
-## /devflow:quick
+## /aoforge:quick
 
 ```text
-/devflow:quick "add a --json flag to the status command"
-/devflow:quick --full     # forces the full quick pipeline
+/aoforge:quick "add a --json flag to the status command"
+/aoforge:quick --full     # forces the full quick pipeline
 ```
 
 One executor, atomic commits, no planning ceremony. If the change turns out to be
-bigger than the cutoff, it tells you and suggests `/devflow:build`.
+bigger than the cutoff, it tells you and suggests `/aoforge:build`.
 
-## /devflow:micro
+## /aoforge:micro
 
 ```text
-/devflow:micro "rename userId to accountId in auth.go"
+/aoforge:micro "rename userId to accountId in auth.go"
 ```
 
 The cheapest path. No agents at all. It has its own commit flow:
 
 ```bash
-df-tools micro start "<description>"
-df-tools micro commit [--files <path>...]
-df-tools micro abort
+aof-tools micro start "<description>"
+aof-tools micro commit [--files <path>...]
+aof-tools micro abort
 ```
 
-## /devflow:debug
+## /aoforge:debug
 
 ```text
-/devflow:debug "login redirects to 404 after password reset"
+/aoforge:debug "login redirects to 404 after password reset"
 ```
 
 A different loop from build. The `debugger` agent works a structured scientific

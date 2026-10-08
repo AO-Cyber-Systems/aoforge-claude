@@ -6,8 +6,8 @@
     "name": "AO Cyber Systems",
     "email": "dev@aocodex.ai"
   },
-  "homepage": "https://github.com/AO-Cyber-Systems/devflow-claude",
-  "repository": "https://github.com/AO-Cyber-Systems/devflow-claude",
+  "homepage": "https://github.com/AO-Cyber-Systems/aoforge-claude",
+  "repository": "https://github.com/AO-Cyber-Systems/aoforge-claude",
   "license": "MIT",
   "keywords": ["ai-gateway", "media", "image-generation", "tts", "transcription", "guardrails"]
 }

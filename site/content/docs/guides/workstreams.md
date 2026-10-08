@@ -8,7 +8,7 @@ Wave parallelism runs independent *jobs* inside one objective. Workstreams run
 independent *objectives* — each in its own git worktree and branch.
 
 {{< callout title="User-typed only" type="warn" >}}
-`/devflow:workstreams` carries `disable-model-invocation: true`. Claude cannot fire
+`/aoforge:workstreams` carries `disable-model-invocation: true`. Claude cannot fire
 it. Creating and merging concurrent worktrees is not something to trigger by
 accident.
 {{< /callout >}}
@@ -16,10 +16,10 @@ accident.
 ## The cycle
 
 ```text
-/devflow:workstreams setup     # analyse independence, provision worktrees
-/devflow:workstreams status    # what's running where
-/devflow:workstreams run       # execute across streams
-/devflow:workstreams merge     # merge completed streams back
+/aoforge:workstreams setup     # analyse independence, provision worktrees
+/aoforge:workstreams status    # what's running where
+/aoforge:workstreams run       # execute across streams
+/aoforge:workstreams merge     # merge completed streams back
 ```
 
 ## Setup analyses independence first
@@ -29,9 +29,9 @@ analysis and excludes objectives that touch the same modules, because the merge
 would conflict and you would spend more time resolving than you saved.
 
 ```bash
-df-tools workstreams analyze     # which objectives are independent
-df-tools workstreams provision   # create worktrees and branches
-df-tools workstreams reconcile   # resolve planning state after merges
+aof-tools workstreams analyze     # which objectives are independent
+aof-tools workstreams provision   # create worktrees and branches
+aof-tools workstreams reconcile   # resolve planning state after merges
 ```
 
 ## Configuration
@@ -71,13 +71,13 @@ wall-clock time matters — a milestone where the frontend, the API and the
 migration tooling do not touch each other.
 
 They do not pay off for two objectives, or for objectives that share modules. Use
-wave parallelism inside a single `/devflow:build` instead; you get most of the
+wave parallelism inside a single `/aoforge:build` instead; you get most of the
 concurrency with none of the merge overhead.
 
 ## After merging
 
 ```bash
-df-tools workstreams reconcile
+aof-tools workstreams reconcile
 ```
 
 Planning state was updated inside each worktree. Reconcile merges those updates —
@@ -87,6 +87,6 @@ checkout's `.planning/`.
 Follow it with a consistency check:
 
 ```text
-/devflow:status check
-/devflow:sync-roadmap --dry-run
+/aoforge:status check
+/aoforge:sync-roadmap --dry-run
 ```

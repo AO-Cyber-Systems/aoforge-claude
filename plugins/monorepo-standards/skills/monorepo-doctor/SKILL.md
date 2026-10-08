@@ -65,7 +65,7 @@ Show the full report to the user verbatim. Do not summarise unless they ask — 
 
 **4. Suggest next steps.**
 
-If the report shows issues, suggest the user invoke `/devflow:new-monorepo` (template scaffold) or `/devflow:quick` to fix each issue category. Do not auto-fix without confirmation.
+If the report shows issues, suggest the user invoke `/aoforge:new-monorepo` (template scaffold) or `/aoforge:quick` to fix each issue category. Do not auto-fix without confirmation.
 
 </process>
 
@@ -79,7 +79,7 @@ If the report shows issues, suggest the user invoke `/devflow:new-monorepo` (tem
 **Do NOT use for:**
 - Linting code style (use language-native linters)
 - Validating CI workflows (separate skill)
-- DevFlow `.planning/` state checks (use `/devflow:status check`)
+- AOForge `.planning/` state checks (use `/aoforge:status check`)
 </when_to_use>
 
 <output_format>

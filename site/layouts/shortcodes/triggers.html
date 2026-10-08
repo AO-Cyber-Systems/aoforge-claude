@@ -1,5 +1,5 @@
 {{- /* Natural-language phrases that route to a given skill. Param: name */ -}}
-{{- $d := site.Data.devflow -}}
+{{- $d := site.Data.aoforge -}}
 {{- $name := .Get "name" -}}
 {{- range $d.skills -}}
   {{- if eq .name $name -}}

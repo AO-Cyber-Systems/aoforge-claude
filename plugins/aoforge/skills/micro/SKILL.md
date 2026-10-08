@@ -1,0 +1,41 @@
+---
+name: micro
+description: |
+  Sub-30-LOC, single-file changes. The cheapest AOForge path (~2k tokens). Use for typo fixes, single-line bug fixes, prop renames, dependency bumps, missing semicolons.
+  Triggers on: "fix typo", "rename X to Y", "1-line fix", "single-file change", "tiny", "trivial"
+argument-hint: "<description>"
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+  - TaskCreate
+  - TaskUpdate
+---
+<objective>
+Execute sub-30-LOC, single-file changes with atomic-commit guarantees and STATE.md tracking (local mode), in a single context window.
+
+Micro is the FLOOR of the AOForge ladder:
+- No planner, no executor, no verifier — Claude makes the edit inline
+- No JOB.md, no TRD.md, no SUMMARY.md
+- No CLAUDE.md / playbook absorption (mirrors /aoforge:quick's no-ceremony posture)
+- Commit format: `chore(micro): {description}`
+- STATE.md "Quick Tasks Completed" table receives an entry on commit (local mode only), recorded by `aof-tools micro commit` (never a hand edit). With `github.store` on, STATE.md is a generated view and micro leaves it unchanged
+
+Cost target: ~2k tokens (skill body + aof-tools output). For changes that exceed sub-30-LOC or touch multiple files, prefer /aoforge:quick (<5 files, <200 LOC) or /aoforge:build (multi-file features).
+</objective>
+
+<execution_context>
+@~/.claude/aoforge/workflows/micro.md
+</execution_context>
+
+<context>
+@.planning/STATE.md
+$ARGUMENTS
+</context>
+
+<process>
+Execute the micro workflow from @~/.claude/aoforge/workflows/micro.md end-to-end.
+Honour the no-ceremony promise: no agent spawns, no SUMMARY.md, no planning artefacts.
+</process>

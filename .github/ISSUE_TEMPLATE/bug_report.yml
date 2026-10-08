@@ -10,8 +10,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: DevFlow Version
-      description: "Run: npm list -g devflow-cc"
+      label: AOForge Version
+      description: "Run: npm list -g aoforge-cc"
       placeholder: "e.g., 1.18.0"
     validations:
       required: true
@@ -45,7 +45,7 @@ body:
       label: Steps to reproduce
       description: How can we reproduce this?
       placeholder: |
-        1. Run /devflow:...
+        1. Run /aoforge:...
         2. ...
     validations:
       required: true

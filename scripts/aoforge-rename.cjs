@@ -42,7 +42,7 @@
  *
  * Nothing is rewritten in: the planning tree itself (`.planning/**`, `.aoforge/**`,
  * history under either name), CHANGELOG.md, NOTICE.md, LICENSE*, docs/** except
- * docs/USER-GUIDE.md, legacy-names.cjs, `__fixtures__/legacy-*`, `*.legacy.test.*`,
+ * LIVE_DOCS (the user guide and the two built-in inventories), legacy-names.cjs, `__fixtures__/legacy-*`, `*.legacy.test.*`,
  * this script and its test, node_modules and site/public. A skipped file that lives
  * under a moved directory is still moved (the directory moves as a whole).
  *
@@ -58,6 +58,14 @@ const posix = path.posix;
 const base = (rel) => rel.slice(rel.lastIndexOf('/') + 1);
 
 // ─── SKIP: content that is never rewritten ───────────────────────────────────
+
+/** The docs/ files that describe the current tree; every other docs/ file is history. */
+const LIVE_DOCS = new Set([
+  'docs/USER-GUIDE.md',
+  // builtin-sweep.repo.test.cjs and builtin-status.repo.test.cjs check every path these cite
+  'docs/built-in-sweep.md',
+  'docs/built-in-integration-status.md',
+]);
 
 const SKIP = [
   {
@@ -77,8 +85,8 @@ const SKIP = [
   },
   {
     id: 'docs-history',
-    why: 'design documents are history; the user guide is the one live doc',
-    test: (r) => r.startsWith('docs/') && r !== 'docs/USER-GUIDE.md',
+    why: 'design documents are history; the user guide and the built-in inventories (pinned to the tree by repo tests) are live',
+    test: (r) => r.startsWith('docs/') && !LIVE_DOCS.has(r),
   },
   {
     id: 'legacy-names',

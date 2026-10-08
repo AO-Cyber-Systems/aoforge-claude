@@ -1,0 +1,33 @@
+# aoforge:managed — written by aof-tools gh setup; edits are overwritten
+#
+# Runs AOForge's required checks (aoforge/linked-issue, aoforge/planning-consistency) on every
+# pull request and in the merge queue, and closes anything a merge left open. The logic lives in
+# the reusable workflow named on the `uses:` line below; this file only wires the triggers.
+#
+# There are no path or branch filters here, on purpose: a required check that a filter stops from
+# running never reports a status, and the merge then waits on it forever. `merge_group` is
+# required for the same reason - a merge queue only merges after its entry reports the checks.
+#
+# The App variable and secret are optional. When they are unset the checks run on the workflow's
+# own token, which the permissions below are sized for.
+name: AOForge
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, closed]
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+  statuses: write
+
+jobs:
+  aoforge:
+    uses: {{checks_workflow}}
+    with:
+      aoforge-ref: {{aoforge_ref}}
+      app-client-id: ${{ vars.AOFORGE_APP_CLIENT_ID }}
+    secrets:
+      app-private-key: ${{ secrets.AOFORGE_APP_PRIVATE_KEY }}

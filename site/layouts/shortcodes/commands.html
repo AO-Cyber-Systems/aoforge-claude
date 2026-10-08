@@ -1,6 +1,6 @@
 {{- /* Renders the skill table from generated data.
        Params: group (comma-separated skill names) — omit for all. */ -}}
-{{- $d := site.Data.devflow -}}
+{{- $d := site.Data.aoforge -}}
 {{- $only := .Get "group" -}}
 {{- $skills := $d.skills -}}
 {{- if $only -}}

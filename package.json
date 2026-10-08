@@ -1,5 +1,5 @@
 {
-  "name": "@ao-cyber-systems/devflow-cc",
+  "name": "@ao-cyber-systems/aoforge-cc",
   "version": "2.15.0",
   "private": true,
   "description": "A meta-prompting, context engineering and spec-driven development system for Claude Code by AO Cyber Systems.",
@@ -10,23 +10,23 @@
     "meta-prompting",
     "context-engineering",
     "spec-driven-development",
-    "devflow"
+    "aoforge"
   ],
   "author": "AO Cyber Systems",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AO-Cyber-Systems/devflow-claude.git"
+    "url": "git+https://github.com/AO-Cyber-Systems/aoforge-claude.git"
   },
-  "homepage": "https://github.com/AO-Cyber-Systems/devflow-claude",
+  "homepage": "https://github.com/AO-Cyber-Systems/aoforge-claude",
   "bugs": {
-    "url": "https://github.com/AO-Cyber-Systems/devflow-claude/issues"
+    "url": "https://github.com/AO-Cyber-Systems/aoforge-claude/issues"
   },
   "engines": {
     "node": ">=16.7.0"
   },
   "scripts": {
-    "test": "node --test 'plugins/devflow/**/*.test.cjs' 'plugins/devflow/**/*.test.js' 'scripts/**/*.test.cjs'",
+    "test": "node --test 'plugins/aoforge/**/*.test.cjs' 'plugins/aoforge/**/*.test.js' 'scripts/**/*.test.cjs'",
     "postinstall": "node -e \"const fs=require('fs'),path=require('path');const dirs=['darwin-arm64','darwin-x64','linux-x64','linux-arm64'];for(const d of dirs){const p=path.join('node_modules/node-pty/prebuilds',d,'spawn-helper');if(fs.existsSync(p)){try{fs.chmodSync(p,0o755);}catch{}}}\"",
     "docs:data": "node scripts/gen-docs-data.cjs",
     "docs:build": "npm run docs:data && hugo --source site --minify",

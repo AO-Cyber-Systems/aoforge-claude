@@ -5,18 +5,18 @@ lede: "Where everything lives in the repository, and how the pieces reference ea
 ---
 
 ```text
-plugins/devflow/
+plugins/aoforge/
 ├── .claude-plugin/plugin.json    manifest — name, version, statusLine
 ├── skills/<name>/SKILL.md        user-invocable slash commands
 ├── agents/<agent>.md             subagent prompts
 ├── hooks/
 │   ├── hooks.json                event registrations, auto-loaded
-│   ├── sync-runtime.js           SessionStart: mirrors devflow/ → ~/.claude/devflow/
+│   ├── sync-runtime.js           SessionStart: mirrors aoforge/ → ~/.claude/aoforge/
 │   └── *.js                      the rest of the hooks
-└── devflow/                      runtime, mirrored to ~/.claude/devflow/
-    ├── bin/df-tools.cjs          the central CLI
-    ├── bin/lib/*.cjs             df-tools internals
-    ├── workflows/<name>.md       workflow bodies, referenced via @~/.claude/devflow/...
+└── aoforge/                      runtime, mirrored to ~/.claude/aoforge/
+    ├── bin/aof-tools.cjs          the central CLI
+    ├── bin/lib/*.cjs             aof-tools internals
+    ├── workflows/<name>.md       workflow bodies, referenced via @~/.claude/aoforge/...
     ├── references/<name>.md      static docs agents read at runtime
     └── templates/<name>.md       files copied into user projects' .planning/
 ```
@@ -37,12 +37,12 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, ...
 
 <objective>...</objective>
 <execution_context>
-  @~/.claude/devflow/workflows/build.md
+  @~/.claude/aoforge/workflows/build.md
 </execution_context>
 <process>...</process>
 ```
 
-Skills are deliberately thin. They load state through `df-tools`, then dispatch
+Skills are deliberately thin. They load state through `aof-tools`, then dispatch
 agents with the `Task` tool. Keeping the orchestrating session small is what lets
 it stay coherent across a long build.
 
@@ -51,12 +51,12 @@ The `description` field does double duty: it is what a human reads, and its
 
 ## The @path convention
 
-Skills and agents reference shared files with `@~/.claude/devflow/...`. Those
+Skills and agents reference shared files with `@~/.claude/aoforge/...`. Those
 references are resolved by Claude Code and **do not** interpolate
 `${CLAUDE_PLUGIN_ROOT}` — which is why the runtime mirror exists.
 
 {{< callout title="The rule that follows" type="warn" >}}
-In `@path` references, always use `@~/.claude/devflow/...`. Never
+In `@path` references, always use `@~/.claude/aoforge/...`. Never
 `${CLAUDE_PLUGIN_ROOT}` — it does not interpolate there and the reference silently
 resolves to nothing.
 
@@ -66,7 +66,7 @@ plugin directory, not the mirror.
 
 ## Workflows, references, templates
 
-**Workflows** (`devflow/workflows/`) are the executable bodies skills pull in.
+**Workflows** (`aoforge/workflows/`) are the executable bodies skills pull in.
 Every one carries a `status` on frontmatter:
 
 | Status | Meaning |
@@ -75,12 +75,12 @@ Every one carries a `status` on frontmatter:
 | `legacy` | superseded, kept for cross-reference |
 | `stub` | placeholder, not yet implemented |
 
-**References** (`devflow/references/`) are static documents agents read during
+**References** (`aoforge/references/`) are static documents agents read during
 execution — TDD posture, git conventions, checkpoint handling, verification
 patterns, anti-patterns, the defaults table.
 
-**Templates** (`devflow/templates/`) are copied into user projects' `.planning/`
-directories by `df-tools`.
+**Templates** (`aoforge/templates/`) are copied into user projects' `.planning/`
+directories by `aof-tools`.
 
 ## The marketplace
 
@@ -88,15 +88,15 @@ directories by `df-tools`.
 and every plugin it ships. Users add it by repo slug:
 
 ```text
-/plugin marketplace add AO-Cyber-Systems/devflow-claude
+/plugin marketplace add AO-Cyber-Systems/aoforge-claude
 ```
 
 ## Conventions
 
 | Area | Convention |
 |---|---|
-| Module format | CommonJS (`.cjs`) — `df-tools` is a CLI, not a library |
-| File I/O | Synchronous throughout `df-tools` |
+| Module format | CommonJS (`.cjs`) — `aof-tools` is a CLI, not a library |
+| File I/O | Synchronous throughout `aof-tools` |
 | Naming | Skills `<name>/SKILL.md`, agents `<agent-name>.md`, hooks `<purpose>.js` |
 | Prompt structure | YAML frontmatter plus XML-like semantic tags |
 | Commits | `{type}({scope}): {description}` — feat, fix, test, refactor, perf, chore, docs |
@@ -108,7 +108,7 @@ Three files must carry matching versions on every release:
 
 ```text
 package.json
-plugins/devflow/.claude-plugin/plugin.json
+plugins/aoforge/.claude-plugin/plugin.json
 .claude-plugin/marketplace.json
 ```
 

@@ -13,7 +13,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const evalTool = require('./estimate-window-eval.cjs');
-const lib = path.join(__dirname, '..', 'plugins', 'devflow', 'devflow', 'bin', 'lib');
+const lib = path.join(__dirname, '..', 'plugins', 'aoforge', 'aoforge', 'bin', 'lib');
 const { makeCalibrationProject, removeCalibrationProject } = require(path.join(lib, '__fixtures__', 'calibration-fixtures.cjs'));
 const { makeEstimateProject, removeEstimateProject, makeCalibration } = require(path.join(lib, '__fixtures__', 'estimate-fixtures.cjs'));
 const em = require(path.join(lib, 'estimate-math.cjs'));
@@ -668,7 +668,7 @@ describe('report and CLI', () => {
   test('11b. the CLI refuses any path under ~/.claude', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-home-'));
     try {
-      const target = path.join(home, '.claude', 'devflow', 'out.json');
+      const target = path.join(home, '.claude', 'aoforge', 'out.json');
       const r = run(['report', '--snapshot', root, '--eval', '6-6', '--grid', '2', '--json', target], { HOME: home });
       assert.equal(r.status, 1);
       assert.match(r.stderr, /\.claude/);

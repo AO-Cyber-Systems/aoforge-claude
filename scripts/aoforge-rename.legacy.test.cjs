@@ -507,6 +507,15 @@ test('10. isSkipped does not skip docs/USER-GUIDE.md or ordinary files', () => {
   }
 });
 
+test('10. isSkipped does not skip the live built-in inventories that repo tests pin to the tree', () => {
+  // builtin-sweep.repo.test.cjs and builtin-status.repo.test.cjs check that every path these
+  // two files cite exists, so they must follow the renamed tree (TRD 72-04).
+  for (const rel of ['docs/built-in-sweep.md', 'docs/built-in-integration-status.md']) {
+    assert.strictEqual(isSkipped(rel), false, rel);
+  }
+  assert.strictEqual(isSkipped('docs/built-in-other.md'), true, 'only the two named inventories are live');
+});
+
 test('10. a skipped file is never rewritten', () => {
   const buf = Buffer.from("const LEGACY = { cli: 'df-tools', dir: '.planning' };\n");
   for (const rules of ['names', 'planning']) {

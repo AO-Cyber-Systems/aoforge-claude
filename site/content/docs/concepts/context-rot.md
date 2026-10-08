@@ -1,7 +1,7 @@
 ---
 title: "Context rot"
 weight: 10
-lede: "The problem DevFlow exists to solve, and why the answer is structural rather than a prompting trick."
+lede: "The problem AOForge exists to solve, and why the answer is structural rather than a prompting trick."
 ---
 
 ## What it is
@@ -34,7 +34,7 @@ was written down somewhere. Otherwise you have just deleted your project's memor
 **Better prompting** helps at the margin and does nothing about the mechanism. You
 cannot prompt your way out of a full window.
 
-## DevFlow's answer
+## AOForge's answer
 
 Keep the important state *outside* the context window in the first place, and give
 every unit of work a fresh one.
@@ -46,7 +46,7 @@ decisions and their rationale, open blockers, and the position in the plan. None
 of it is in the conversation, so losing the conversation costs nothing.
 
 `/clear` becomes a routine hygiene step rather than an act of destruction. Run
-`/devflow:status resume` afterwards and you are back where you were.
+`/aoforge:status resume` afterwards and you are back where you were.
 
 ### 2. Every job gets a clean window
 
@@ -58,7 +58,7 @@ subagent with a *fresh* context window containing only:
 - whatever references that job actually needs
 
 The executor for job 3 never sees the 40,000 tokens of research the planner read.
-That is the whole trick, and it is why DevFlow parallelises so aggressively: a
+That is the whole trick, and it is why AOForge parallelises so aggressively: a
 wave of three jobs is three clean windows, not one dirty one.
 
 ### 3. Work is atomic and committed as it goes
@@ -70,12 +70,12 @@ transcript.
 ### 4. The orchestrator stays thin
 
 Skills are deliberately not where the work happens. A skill loads state via
-`df-tools`, decides what to dispatch, and spawns agents. Keeping the orchestrating
+`aof-tools`, decides what to dispatch, and spawns agents. Keeping the orchestrating
 session small is what lets it stay coherent across a long build.
 
 ## The measured version
 
-DevFlow's context guidance is not folklore. It comes from an audit of roughly 93
+AOForge's context guidance is not folklore. It comes from an audit of roughly 93
 million tokens of real message blocks:
 
 | Component | Share of window | Who produces it |
@@ -92,6 +92,6 @@ would have done.
 See [context discipline](/docs/concepts/context-discipline/) for what follows
 from that.
 
-> DevFlow is built so that no agent ever has to work in a dirty context window.
+> AOForge is built so that no agent ever has to work in a dirty context window.
 > Everything else — the state files, the waves, the atomic commits — is downstream
 > of that one commitment.

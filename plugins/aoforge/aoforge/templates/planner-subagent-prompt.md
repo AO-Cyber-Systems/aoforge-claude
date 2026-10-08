@@ -1,0 +1,117 @@
+# Planner Subagent Prompt Template
+
+Template for spawning planner agent. The agent contains all planning expertise - this template provides planning context only.
+
+---
+
+## Template
+
+```markdown
+<planning_context>
+
+**Objective:** {objective_number}
+**Mode:** {standard | gap_closure}
+
+**Project State:**
+@.planning/STATE.md
+
+**Roadmap:**
+@.planning/ROADMAP.md
+
+**Requirements (if exists):**
+@.planning/REQUIREMENTS.md
+
+**Objective Context (if exists):**
+@.planning/objectives/{objective_dir}/{phase_num}-CONTEXT.md
+
+**Research (if exists):**
+@.planning/objectives/{objective_dir}/{phase_num}-RESEARCH.md
+
+**Gap Closure (if --gaps mode):**
+@.planning/objectives/{objective_dir}/{phase_num}-VERIFICATION.md
+@.planning/objectives/{objective_dir}/{phase_num}-UAT.md
+
+</planning_context>
+
+<downstream_consumer>
+Output consumed by /aoforge:execute-objective
+Plans must be executable prompts with:
+- Frontmatter (wave, depends_on, files_modified, autonomous)
+- Tasks in XML format
+- Verification criteria
+- must_haves for goal-backward verification
+</downstream_consumer>
+
+<quality_gate>
+Before returning PLANNING COMPLETE:
+- [ ] Each TRD published with `node ~/.claude/aoforge/bin/aof-tools.cjs plan put-trd <objective> <file> --from <draft> --no-push`, then one `plan push <objective>`
+- [ ] Each job has valid frontmatter
+- [ ] Tasks are specific and actionable
+- [ ] Dependencies correctly identified
+- [ ] Waves assigned for parallel execution
+- [ ] must_haves derived from objective goal
+</quality_gate>
+```
+
+---
+
+## Placeholders
+
+| Placeholder | Source | Example |
+|-------------|--------|---------|
+| `{objective_number}` | From roadmap/arguments | `5` or `2.1` |
+| `{objective_dir}` | Objective directory name | `05-user-profiles` |
+| `{objective}` | Objective prefix | `05` |
+| `{standard \| gap_closure}` | Mode flag | `standard` |
+
+---
+
+## Usage
+
+**From /aoforge:plan-objective (standard mode):**
+```python
+Task(
+  prompt=filled_template,
+  subagent_type="planner",
+  description="Plan Objective {objective}"
+)
+```
+
+**From /aoforge:plan-objective --gaps (gap closure mode):**
+```python
+Task(
+  prompt=filled_template,  # with mode: gap_closure
+  subagent_type="planner",
+  description="Plan gaps for Objective {objective}"
+)
+```
+
+---
+
+## Continuation
+
+For checkpoints, spawn fresh agent with:
+
+```markdown
+<objective>
+Continue planning for Objective {objective_number}: {objective_name}
+</objective>
+
+<prior_state>
+Objective directory: @.planning/objectives/{objective_dir}/
+Existing jobs: @.planning/objectives/{objective_dir}/*-JOB.md
+</prior_state>
+
+<checkpoint_response>
+**Type:** {checkpoint_type}
+**Response:** {user_response}
+</checkpoint_response>
+
+<mode>
+Continue: {standard | gap_closure}
+</mode>
+```
+
+---
+
+**Note:** Planning methodology, task breakdown, dependency analysis, wave assignment, TDD detection, and goal-backward derivation are baked into the planner agent. This template only passes context.
