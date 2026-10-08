@@ -249,6 +249,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 71]: A build gate's new untracked unignored files under bin/ build/ dist/ out/ target/ (relative to its cwd) are removed, listed in run.build_outputs and do not halt the root; any other change, non-build key or failed restore still halts
 - [Objective 71]: CLAUDE.md names lint targets and build gates in plain text, not backticks: dispatch-completeness reads the first word of every backtick span in a Core Tool bullet as a df-tools command
 - [Objective 71]: justinforme and smartWellness committed STACK.md lint refresh is a recorded todo, not an edit: it is a commit in each fleet repo and needs the user
+- [Objective 72]: Run state for 72 already recorded at TRD start (2026-10-08T22:24:56.615Z); estimate line reads No estimate but per-wave p50/P90 exist; no requirement marked complete by 72-01
 
 ## Performance Metrics
 
@@ -418,4 +419,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 71 P02 | 8min | 2 tasks | 3 files |
 | Objective 71 P04 | 7min | 3 tasks | 3 files |
 | Objective 71 P05 | 8min | 2 tasks | 7 files |
+| Objective 72 P01 | 3min | 3 tasks | 2 files |
 

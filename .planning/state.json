@@ -1,9 +1,9 @@
 {
-  "current_objective": "71",
-  "current_job": 5,
-  "total_jobs": 5,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "72",
+  "current_job": 1,
+  "total_jobs": 26,
+  "progress_pct": 95,
+  "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1309,6 +1309,11 @@
     {
       "objective": "71",
       "summary": "justinforme and smartWellness committed STACK.md lint refresh is a recorded todo, not an edit: it is a commit in each fleet repo and needs the user",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "Run state for 72 already recorded at TRD start (2026-10-08T22:24:56.615Z); estimate line reads No estimate but per-wave p50/P90 exist; no requirement marked complete by 72-01",
       "rationale": null
     }
   ],
