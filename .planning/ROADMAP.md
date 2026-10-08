@@ -112,9 +112,9 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 
 ### 🚧 v1.6 Hardening & Release (In Progress)
 
-Ship v1.5, close what it left open, and clear the backlog. Requirements: `.planning/REQUIREMENTS.md` (25 mapped to Objectives 65-75). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; DevFlow never enters a secret value.
+Ship v1.5, close what it left open, and clear the backlog. Requirements: `.planning/REQUIREMENTS.md` (30 mapped to Objectives 65-75). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; DevFlow never enters a secret value.
 
-Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 code that later objectives build on and measure. 66 (token stamp) needs that runtime. 67 (recalibration) is frozen before it is scored. Objectives 68-72 are the first five executed after 67 and are the objectives EST-11 scores, so they are all agent-only work (no human wait time in their minutes) and each records a run-state estimate (`estimate start`) before it runs. 73 (live handoff demo) and 74 (user-action operations) run after the scored five for the same reason. 75 goes last: it closes EST-11 once 68-72 have executed, and sweeps every pending todo.
+Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 code that later objectives build on and measure. 66 (token stamp) needs that runtime. 67 (recalibration) is frozen before it is scored. Objectives 68-72 are the first five executed after 67 and are the objectives EST-11 scores, and each records a run-state estimate (`estimate start`) before it runs. 68-71 are agent-only work; 72 is scored in full, including the wait time of its rollout checkpoints (accepted 2026-10-08). 73 (live handoff demo) and 74 (user-action operations) run after the scored five because their minutes are dominated by human wait time. 75 goes last: it closes EST-11 once 68-72 have executed, and sweeps every pending todo.
 
 - [x] **Objective 65: Release v1.5** - Version bump, CHANGELOG release section, merge to `main`, tag, and the installed runtime carrying the v1.5 libs and hooks (completed 2026-10-08)
 - [x] **Objective 66: Executor token stamp** - Every new executor SUMMARY carries `tokens_input` / `tokens_output`, with measured forward-stamp coverage (completed 2026-10-08)
@@ -123,7 +123,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check (completed 2026-10-08)
 - [x] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema (completed 2026-10-08)
 - [x] **Objective 71: Stack drafter and verify policy** - govulncheck gate preference, buf lint drafting, `stack verify --run` policy for services and artifacts (completed 2026-10-08)
-- [ ] **Objective 72: Install and naming cleanup** - No legacy `df-*` remnants, doctor flags a reappearance, a repo test on old command forms
+- [ ] **Objective 72: Rename to AOForge and naming cleanup** - DevFlow becomes AOForge with one-release shims and in-place migrations, ships as 3.0.0, the user's setup and fleet move over, and no legacy `df-*` remains
 - [ ] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
 - [ ] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped
@@ -263,16 +263,18 @@ TRDs:
 - [x] 71-04-verify-build-outputs-TRD.md — (W2) a `build`'s new untracked files under bin/build/dist/out/target are removed, listed as `build_outputs` and do not halt other components' Dart/Flutter gates
 - [x] 71-05-dogfood-and-docs-TRD.md — (W3) SC-1..SC-4 before/after (fleet read-only, `--run` on scratch clones with stubs); CHANGELOG, CLAUDE.md, USER-GUIDE, stack guide, workflows, help; todos
 
-### Objective 72: Install and naming cleanup
+### Objective 72: Rename to AOForge and naming cleanup
 
-**Goal**: Slash-command naming is consistent and the legacy `df-*` install is gone and stays gone. Scored by EST-11.
-**Requirements**: INST-01
+**Goal**: DevFlow becomes AOForge everywhere it is a name, old names keep working for one release, every project and the user's setup move over in place, and the legacy `df-*` install is gone and stays gone. Scored by EST-11 (all of it, including checkpoint wait time).
+**Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05, INST-06
 **Depends on**: Objective 71 (execution order)
 **Success Criteria** (what must be TRUE):
-  1. `ls ~/.claude/skills ~/.claude/agents` shows no `df-*` entries (they are moved to backup, never deleted).
-  2. `doctor` flags a `df-*` skill or agent that reappears under `~/.claude`.
-  3. A repo test fails on `/df-` or `/df:` command forms in user-facing files, with changelogs and archives exempt.
-  4. Every user-facing reference found by that test uses `/devflow:<name>`.
+  1. `ls ~/.claude/skills ~/.claude/agents` shows no `df-*` entries (moved to backup, never deleted), and `doctor` flags one that reappears.
+  2. A repo test fails on `/df-`, `/df:` or `/devflow:` command forms in user-facing files (changelogs and archives exempt) and on any legacy DevFlow name outside the compatibility module, the history allowlist and the pointer plugin; every user-facing reference uses `/aoforge:<name>`.
+  3. With only old names present (`DEVFLOW_*` set, a `.planning/` project with a `devflow{}` stamp, an old CLAUDE.md block, `devflow:` agent types and GitHub markers), every tool still works, `validate health` names the migration, and nothing is duplicated.
+  4. A session start in a clean `.planning/` project moves it to `.aoforge/` with `git mv` and commits only the move; a dirty or mid-merge tree is skipped; config, CLAUDE.md and (after a dry run and approval) store-mode GitHub artefacts are renamed.
+  5. 3.0.0 is tagged on `main` with the three version files in step and a CHANGELOG entry leading with the rename; the `devflow@aocyber` pointer release tells users to install `aoforge@aocyber`; aoforge flags an enabled devflow plugin.
+  6. After approval of each step: this repo runs on `.aoforge/`, the global CLAUDE.md routes to `/aoforge:`, the repo is `aoforge-claude`, the checkout is `~/dev/aoforge-claude` with memory and run state carried over, the vanity PR is open for review, the Pages project is `aoforge-docs`, and each fleet repo was upgraded behind its own checkpoint.
 **TRDs**: 26 plans (18 waves)
 
 TRDs:

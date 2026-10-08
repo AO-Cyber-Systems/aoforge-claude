@@ -44,7 +44,7 @@ completed: 2026-10-08
 
 ## Progress
 - [x] Task 1: Gate: record the run-state estimate for 72 before anything else runs — (no repo files; run state already recorded)
-- [x] Task 2: Rewrite INST-01 and add INST-02..INST-06 in REQUIREMENTS.md — (this commit)
-- [ ] Task 3: Rewrite the Objective 72 roadmap entry — next step: Edit the list line, the v1.6 intro paragraph and the `### Objective 72:` section of /Users/justin/dev/devflow-claude/.planning/ROADMAP.md in targeted hunks, then check `git diff -U0 .planning/ROADMAP.md`.
+- [x] Task 2: Rewrite INST-01 and add INST-02..INST-06 in REQUIREMENTS.md — bf12644a
+- [x] Task 3: Rewrite the Objective 72 roadmap entry — (this commit)
 
 run_state: recorded 2026-10-08T22:24:56.615Z
