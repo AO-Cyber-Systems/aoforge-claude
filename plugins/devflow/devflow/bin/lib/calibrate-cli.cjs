@@ -5,7 +5,7 @@
  *
  * Thin CLI front end for the calibrator (lib/calibrator.cjs, TRD 57-05):
  *
- *   df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--dry-run] [--raw]
+ *   df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--dry-run] [--raw]
  *       Builds the per-task-class medians and P90s (minutes, tokens, dollars) from SUMMARY frontmatter, STATE_ARCHIVE
  *       metrics and model-rates.json, and writes calibration.json. Version 2 also measures what one spawn of each
  *       non-executor agent costs (planner, verifier, ...) from subagent transcripts.
@@ -18,6 +18,10 @@
  *   root    --root (relative to cwd), else ~/.claude/projects resolved when the command runs: the Claude Code projects
  *           directory the agent-overhead spawns are read from. `--no-overhead` skips the scan (agent_overhead is then
  *           empty and says `scanned: false`). The two flags are exclusive.
+ *   window  --window <N|all> (TRD 64-08): keep, per project, only the N most recent objectives that have a sample (by
+ *           objective number) and drop the TRDs of older ones before any statistic; `all` means no window. Agent
+ *           overhead is not windowed. Off when the flag is absent, so every existing output is unchanged; a window that
+ *           drops nothing leaves no trace in the file. N is a positive integer: anything else is a usage error.
  *
  * Deterministic: unchanged inputs give a byte-identical file and `changed: false`; the file is then not rewritten.
  * `--dry-run` builds and reports but writes nothing. stdout is a summary, never the calibration object: the file is
@@ -34,9 +38,9 @@ const path = require('path');
 const calibrator = require('./calibrator.cjs');
 const planningMode = require('./planning-mode.cjs');
 
-const USAGE = 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--dry-run] [--raw]';
+const USAGE = 'df-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--dry-run] [--raw]';
 
-const VALUE_FLAGS = ['paths', 'out', 'rates', 'root'];
+const VALUE_FLAGS = ['paths', 'out', 'rates', 'root', 'window'];
 const BOOL_FLAGS = ['dry-run', 'no-overhead'];
 
 function usageError(message) {
@@ -47,7 +51,10 @@ function usageError(message) {
  * `argv` is everything after `calibrate`. A value flag needs a value that is not itself a flag; unknown flags and stray
  * positionals are usage errors. `--raw` is stripped by the dispatcher before this runs; it is tolerated here.
  *
- * @returns {{ok:true, flags: Object<string,string>, dryRun: boolean, noOverhead: boolean} | {ok:false, message:string}}
+ * `window` is undefined without the flag (the library default applies), null for `all` (explicitly no window) and a
+ * positive integer otherwise; any other value is a usage error naming the flag.
+ *
+ * @returns {{ok:true, flags: Object<string,string>, dryRun: boolean, noOverhead: boolean, window: (undefined|null|number)} | {ok:false, message:string}}
  */
 function parseArgs(argv) {
   const flags = {};
@@ -70,7 +77,17 @@ function parseArgs(argv) {
   if (flags.root !== undefined && bools['no-overhead']) {
     return usageError('--root and --no-overhead cannot be used together: --no-overhead reads no transcripts');
   }
-  return { ok: true, flags, dryRun: bools['dry-run'] === true, noOverhead: bools['no-overhead'] === true };
+  let window;
+  if (flags.window !== undefined) {
+    if (flags.window === 'all') {
+      window = null;
+    } else if (/^[1-9]\d*$/.test(flags.window) && Number.isSafeInteger(Number(flags.window))) {
+      window = Number(flags.window);
+    } else {
+      return usageError(`--window must be a positive integer or all, got ${JSON.stringify(flags.window)}`);
+    }
+  }
+  return { ok: true, flags, dryRun: bools['dry-run'] === true, noOverhead: bools['no-overhead'] === true, window };
 }
 
 /** Non-empty trimmed pieces of `text` split on `sep`, each resolved against `base`. */
@@ -120,6 +137,13 @@ function overheadAgents(agentOverhead) {
   return out;
 }
 
+/** ` · window 2 objectives (dropped 10 TRDs)` when the calibration was cut by a window, else the empty string. */
+function windowText(block) {
+  if (!block) return '';
+  const dropped = block.projects.reduce((n, p) => n + p.dropped_trds, 0);
+  return ` · window ${block.objectives} objectives (dropped ${dropped} TRDs)`;
+}
+
 /** Would writing `obj` to `file` change it? True when the file is absent or its bytes differ. */
 function wouldChange(file, obj) {
   try {
@@ -138,7 +162,7 @@ function wouldChange(file, obj) {
 function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) return parsed;
-  const { flags, dryRun, noOverhead } = parsed;
+  const { flags, dryRun, noOverhead, window } = parsed;
 
   const base = path.resolve(cwd);
   const where = resolvePaths(flags, env, base);
@@ -157,7 +181,7 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
 
   let calibration;
   try {
-    calibration = calibrator.buildCalibration({ paths: where.paths, ratesPath, transcriptsRoot });
+    calibration = calibrator.buildCalibration({ paths: where.paths, ratesPath, transcriptsRoot, window });
   } catch (err) {
     return { ok: false, message: err.message };
   }
@@ -199,13 +223,14 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
     classes,
     sources: calibration.sources,
     data_as_of: calibration.data_as_of,
+    window: calibration.window || null,
     inputs_digest: calibration.inputs_digest,
     unpriced_models: calibration.unpriced_models,
     overhead,
   };
   const slot = dryRun ? 'dry run' : changed ? 'changed' : 'unchanged';
   const s = calibration.samples;
-  const text = `calibration ${out}: ${slot} · ${s.trds} TRDs, ${s.tasks} tasks, ${s.with_tokens} with tokens · classes ${classList(classes)} · overhead ${src.scanned ? classList(agents) : 'skipped'}`;
+  const text = `calibration ${out}: ${slot} · ${s.trds} TRDs, ${s.tasks} tasks, ${s.with_tokens} with tokens · classes ${classList(classes)} · overhead ${src.scanned ? classList(agents) : 'skipped'}${windowText(calibration.window)}`;
   return { ok: true, result, text, exit: 0 };
 }
 

@@ -675,7 +675,7 @@ describe('df-tools calibrate --window (end to end)', () => {
     assert.ok(header.includes('--window <N|all>'), 'the df-tools.cjs header comment names the flag');
 
     const sb = sandbox();
-    const help = spawnSync(process.execPath, [DF_TOOLS, '--cwd', sb.tmp, 'help', 'calibrate'], {
+    const help = spawnSync(process.execPath, [DF_TOOLS, '--cwd', sb.tmp, 'calibrate', '--help'], {
       cwd: sb.tmp, env: { ...process.env, HOME: sb.home }, encoding: 'utf-8', timeout: 60000,
     });
     assert.equal(help.status, 0, help.stderr);
