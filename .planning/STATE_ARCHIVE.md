@@ -223,6 +223,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 68]: Single decimals in a milestone bullet match by text, not float, so Objectives 4.1 does not select 04.10-ten; ranges and sort order stay numeric (float 4.10 == 4.1 deferred)
 - [Objective 68]: Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case — Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer
 - [Objective 68]: objective remove TRD-reference rule is bounded ((?<![\w.-])NN-(\d{2})(?!\d|-\d)); nextObjective picks the smallest later number over directories and ROADMAP sections, cancelled directories excluded, directory spelling wins
+- [Objective 68]: decision-queue gets explicit per-subcommand FLAG_SPEC rules, not ownParser: its parser accepts any unknown --x as a boolean (decision-queue list --zz-unknown exits 0)
+- [Objective 68]: A placeholder (<x>, {x}, ${X}) stays one non-flag token in the documented-invocation scan so a value flag still consumes it and the next flag is still checked
 
 ## Performance Metrics
 
@@ -375,4 +377,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 68 P02 | 7min | 3 tasks | 5 files |
 | Objective 68 P03 | 15min | 3 tasks | 6 files |
 | Objective 68 P04 | 9min | 3 tasks | 4 files |
+| Objective 68 P05 | 15min | 2 tasks | 4 files |
 

@@ -1180,6 +1180,16 @@
       "objective": "68",
       "summary": "objective remove TRD-reference rule is bounded ((?<![\\w.-])NN-(\\d{2})(?!\\d|-\\d)); nextObjective picks the smallest later number over directories and ROADMAP sections, cancelled directories excluded, directory spelling wins",
       "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "decision-queue gets explicit per-subcommand FLAG_SPEC rules, not ownParser: its parser accepts any unknown --x as a boolean (decision-queue list --zz-unknown exits 0)",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "A placeholder (<x>, {x}, ${X}) stays one non-flag token in the documented-invocation scan so a value flag still consumes it and the next flag is still checked",
+      "rationale": null
     }
   ],
   "blockers": [
