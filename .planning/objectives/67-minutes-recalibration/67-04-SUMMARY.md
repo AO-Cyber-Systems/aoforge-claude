@@ -12,8 +12,8 @@ In progress: positive controls PC1 and PC2 passed on the task-sum path; the once
 
 ## Progress
 - [x] Task 1: Positive controls PC1 and PC2 on the task-sum path — f0e46e5f
-- [x] Task 2: Score once: old (task_sum) against new (trd_level) on cuts of 46-66 of the decision snapshot — (this commit)
-- [ ] Task 3: Write and commit 67-VALIDATION.md — next step: run /private/tmp/claude-501/-Users-justin-dev-devflow-claude/479a0889-ce59-4c31-8887-a62c6f15eab4/scratchpad/s67-04/assemble.cjs (already run; draft at the planning draft path), then `doc put objectives/67-minutes-recalibration/67-VALIDATION.md --from <draft>` and commit it.
+- [x] Task 2: Score once: old (task_sum) against new (trd_level) on cuts of 46-66 of the decision snapshot — 5de8dec8
+- [x] Task 3: Write and commit 67-VALIDATION.md — (this commit)
 
 ## Positive controls (Task 1)
 
