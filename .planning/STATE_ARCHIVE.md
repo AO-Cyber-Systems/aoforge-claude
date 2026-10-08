@@ -236,6 +236,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 69]: Health-check docs for E006/W064 and W065 live in one USER-GUIDE section after Upgrading a Project in Place; the guide has no validate row, so validate requirements is on the /devflow:status check row
 - [Objective 70]: setProgressLine is a pure helper: bold (file-wide), then plain inside ## Current Position, then insertion; null means exit 1 before any write — update-progress must never exit 0 without changing the figure; a Progress line in another section is never rewritten
 - [Objective 70]: verify trd-pre walks up with the exported findProjectRoot inside its own resolveTarget; findObjectiveInternal and normalizeObjectiveName stay cwd-based — those two have about 20 other callers; project_root is added to the not-found result only so the 48-03 success JSON is unchanged
+- [Objective 70]: 70-02: verify-commits.js blocks with a top-level {decision, reason} scoped to agent_type devflow:executor; hooks/__fixtures__/hook-output-schema.js models the Stop/SubagentStop schema and the coexistence contract runs it over every Stop-family hook
 
 ## Performance Metrics
 
@@ -398,4 +399,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 69 P05 | 10min | 2 tasks | 6 files |
 | Objective 69 P06 | 14min | 2 tasks | 4 files |
 | Objective 70 P01 | 11min | 3 tasks | 8 files |
+| Objective 70 P02 | 6min | 2 tasks | 6 files |
 
