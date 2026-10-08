@@ -306,6 +306,8 @@ const {
 } = require('./lib/help.cjs');
 const { cmdGenerateUAT } = require('./lib/uat-generator.cjs');
 const { extractCwdFlag } = require('./lib/cwd-flag.cjs');
+const { checkFlags, formatUnknownFlag } = require('./lib/flag-guard.cjs');
+const { FLAG_SPEC } = require('./lib/flag-spec.cjs');
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
@@ -356,6 +358,16 @@ async function main() {
   if (!command) {
     process.stderr.write(topLevelUsage());
     process.exit(1);
+  }
+
+  // ── A writing command rejects a flag it does not know (TOOL-01) ─────────────
+  // The same shape as the `--help` pre-switch above (issue #87): answered ONCE, here, before any subcommand runs, so no
+  // arm can ignore a typo and carry on writing (`milestone complete v1.0 --dry-runn` used to archive the milestone) and
+  // the next command added is guarded without remembering to. FLAG_SPEC (lib/flag-spec.cjs) lists what each writer
+  // accepts; a command help.cjs does not mark `mutates: true`, or that has no entry, is not checked here.
+  if (HELP_TABLE[command] && HELP_TABLE[command].mutates) {
+    const unknownFlag = checkFlags(args, FLAG_SPEC);
+    if (unknownFlag) error(formatUnknownFlag(unknownFlag));
   }
 
   switch (command) {
