@@ -10,6 +10,19 @@
  * agent (per-agent marker file) to give the subagent a retry with actionable
  * feedback. The second SubagentStop for the same agent always allows stop.
  *
+ * Output shape (objective 70, TRD 70-02, TOOL-08): the block is the TOP-LEVEL
+ * {"decision":"block","reason":"…"} of "Stop decision control"
+ * (https://code.claude.com/docs/en/hooks, checked 2026-10-08): "SubagentStop hooks
+ * use the same decision control format as Stop hooks". Before objective 70 it was
+ * nested as hookSpecificOutput.{hookEventName,decision,reason}; the docs allow only
+ * hookEventName and additionalContext inside hookSpecificOutput, so that block never
+ * took effect. hooks/__fixtures__/hook-output-schema.js models the schema and
+ * verify-commits.test.js pins the shape against it.
+ *
+ * Scope: only agent_type "devflow:executor" is blocked. SubagentStop has no matcher
+ * in hooks.json, and planners, checkers, Explore and internal agents commit nothing
+ * by design. Now that the block is effective it would otherwise stop all of them.
+ *
  * The marker lives OUTSIDE the repo (objective 45, TRD 45-10, SC1): in the hook
  * marker store, $DEVFLOW_HOOK_MARKER_DIR else
  * ~/.claude/devflow/state/hook-markers/<repo-key>/autonomous-retry-<agent>.
@@ -32,6 +45,11 @@ const path = require('path');
 const store = require('../devflow/bin/lib/hook-marker-store.cjs');
 
 const RETRY_PREFIX = 'autonomous-retry-';
+
+/** The agent type the retry-once block applies to; same value as gate-executor-stop.js. */
+const EXECUTOR_AGENT_TYPE = 'devflow:executor';
+
+const BLOCK_REASON = 'DevFlow autonomous mode: executor produced no commits in the last 10 minutes during mid-execution work. Retry once: re-read your TRD/plan file, check git status for uncommitted work, commit completed tasks atomically, and write SUMMARY.md. If genuinely blocked, return a structured failure report instead of stopping silently. Never use port 8080 for anything — use 8091.';
 
 // ─── DevFlow project detection ────────────────────────────────────────────────
 
@@ -168,6 +186,11 @@ function main() {
     if (isAutonomousMode(planningDir)) {
       // ── Autonomous retry-once path ──────────────────────────────────────
       const payload = parsePayload();
+
+      // Only the executor is expected to commit. Planners, checkers, Explore and
+      // internal agents commit nothing by design, and SubagentStop has no matcher.
+      if (payload.agent_type !== EXECUTOR_AGENT_TYPE) return;
+
       const agentId = String(payload.agent_id || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
       const marker = retryMarkerPath(planningDir, agentId);
 
@@ -182,13 +205,7 @@ function main() {
       fs.mkdirSync(path.dirname(marker), { recursive: true });
       fs.writeFileSync(marker, String(Date.now()), 'utf8');
 
-      process.stdout.write(JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'SubagentStop',
-          decision: 'block',
-          reason: 'DevFlow autonomous mode: executor produced no commits in the last 10 minutes during mid-execution work. Retry once: re-read your TRD/plan file, check git status for uncommitted work, commit completed tasks atomically, and write SUMMARY.md. If genuinely blocked, return a structured failure report instead of stopping silently. Never use port 8080 for anything — use 8091.',
-        },
-      }));
+      process.stdout.write(JSON.stringify({ decision: 'block', reason: BLOCK_REASON }));
     } else {
       // ── Non-autonomous warn-only path (preserved verbatim) ───────────────
       console.error('\n⚠ DevFlow: No git commits found in last 10 minutes.');
@@ -203,6 +220,7 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
+  EXECUTOR_AGENT_TYPE,
   findPlanningDir,
   hasRecentCommits,
   isMidExecution,
