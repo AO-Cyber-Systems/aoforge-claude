@@ -523,4 +523,51 @@ describe('48-12 store mode: milestones', () => {
     assert.equal(exists('milestones/v1.5.md'), false);
     assert.equal(S.remote.headSha(), head, 'no wiki commit');
   });
+
+  test('68-06 #4: milestoneComplete({dryRun}) names the close and the archives, with no gh call and no write', () => {
+    const put = ev.milestonePut(S.root, { version: 'v1.4', text: MILESTONE_ENTRY });
+    assertStoreClean(put, 'milestones/v1.4.md');
+    fs.mkdirSync(planning('milestones'), { recursive: true });
+    fs.writeFileSync(planning('milestones/v1.4-ROADMAP.md'), '# Roadmap archive v1.4\n');
+    fs.writeFileSync(planning('milestones/v1.4-REQUIREMENTS.md'), '# Requirements archive v1.4\n');
+    fs.writeFileSync(planning('milestones/v1.5-ROADMAP.md'), '# Another version\n');
+
+    const title = milestoneStore.milestoneTitleFor(S.root, 'v1.4');
+    const calls = S.fake.calls().length;
+    const writes = S.fake.writes().length;
+    const journalOf = () => (journalExists() ? fs.readFileSync(outbox.journalPath(S.root), 'utf8') : null);
+    const journal = journalOf();
+    const ledgerBefore = JSON.stringify(ledgerEntries());
+    const index = JSON.stringify(cacheIndex());
+    const head = S.remote.headSha();
+
+    const r = ev.milestoneComplete(S.root, { version: 'v1.4', dryRun: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0);
+    assert.equal(r.mode, 'store');
+    assert.equal(r.dry_run, true);
+    assert.equal(r.version, 'v1.4');
+    assert.equal(r.milestone_title, title);
+    assert.equal(r.would_close, true);
+    assert.deepEqual(r.would_publish, ['milestones/v1.4-REQUIREMENTS.md', 'milestones/v1.4-ROADMAP.md']);
+    assert.deepEqual(r.warnings, []);
+    assert.equal(Object.hasOwn(r, 'rel'), false, 'no rel: the headline must not claim a write');
+
+    assert.equal(S.fake.calls().length, calls, 'zero gh calls, reads included');
+    assert.equal(S.fake.writes().length, writes);
+    assert.equal(S.fake.milestones.find((x) => x.title === title).state, 'open', 'the native milestone is still open');
+    assert.equal(journalOf(), journal, 'journal unchanged');
+    assert.equal(JSON.stringify(ledgerEntries()), ledgerBefore, 'ledger unchanged');
+    assert.equal(JSON.stringify(cacheIndex()), index, 'cache index unchanged');
+    assert.equal(S.remote.headSha(), head, 'no wiki commit');
+  });
+
+  test('68-06 #5: a non-version still fails with the version error under dryRun', () => {
+    const calls = S.fake.calls().length;
+    const r = ev.milestoneComplete(S.root, { version: 'nope', dryRun: true });
+    assert.equal(r.ok, false);
+    assert.equal(r.exit, 1);
+    assert.match(r.error, /not a milestone version/);
+    assert.equal(S.fake.calls().length, calls);
+  });
 });
