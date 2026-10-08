@@ -1,6 +1,6 @@
 {
   "current_objective": "67",
-  "current_job": 7,
+  "current_job": 8,
   "total_jobs": 9,
   "progress_pct": 100,
   "status": "executing",
@@ -1144,6 +1144,11 @@
     {
       "objective": "67",
       "summary": "Release 2.15.0 lead paragraph restates the CHANGELOG's own wording (pre-registered rule, installed plugin at 2.15.0) instead of inventing a /plugin update instruction; release commit carries exactly five files, SUMMARY goes in the docs commit",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-08: Docs site deploy failure on MERGE_SHA (Cloudflare Pages project devflow-docs not found, code 8000007) recorded as an objective 74 OPS-03 follow-up, not rolled back",
       "rationale": null
     }
   ],
