@@ -1,5 +1,6 @@
 ---
 work: feature
+status: complete
 ---
 
 # Stack drafter and verify policy

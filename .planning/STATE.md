@@ -61,6 +61,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 68 — Milestone and objective verbs (completed 2026-10-08, 7/7 TRDs)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
+**Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
 **Status:** Objective 71 executed — 5/5 TRDs complete, ready for verification
 
 ## Branch State (post-merge)
