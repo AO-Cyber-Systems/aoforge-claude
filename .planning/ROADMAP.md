@@ -159,7 +159,7 @@ TRDs:
 
 TRDs:
 - [ ] 66-01-tokens-coverage-command-TRD.md — (W1) `df-tools tokens coverage [--milestone|--objective]`: live/counted forward-stamp coverage, exact fraction + floored decimal, missing reasons (stamp_skipped / no_transcript), read-only
-- [ ] 66-02-stop-gate-token-check-TRD.md — (W1) gate-executor-stop blocks once when the final SUMMARY has no tokens_input/tokens_output (the 64-09/64-10 skipped-stamp cause); executor.md self_check sentence
+- [x] 66-02-stop-gate-token-check-TRD.md — (W1) gate-executor-stop blocks once when the final SUMMARY has no tokens_input/tokens_output (the 64-09/64-10 skipped-stamp cause); executor.md self_check sentence
 - [ ] 66-03-continuation-prompt-and-inline-rule-TRD.md — (W2) execute-objective: every TRD runs in an executor (the 65-02/65-03 inline cause), explicit continuation spawn prompt with PLAN_ID/REPO_ROOT, `**Token stamp:**` line in the objective report
 - [ ] 66-04-docs-and-coverage-evidence-TRD.md — (W3) CHANGELOG/USER-GUIDE/CLAUDE.md; SC-1 mutation proof, SC-2 live stamps, SC-3 measured v1.6 coverage recorded verbatim; release recorded as follow-up
 
@@ -280,7 +280,7 @@ TRDs:
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55–64 (10 objectives) | v1.5 | 81/81 | Complete (EST-08 not met, accepted) | 2026-10-08 |
 | 65. Release v1.5 | v1.6 | 4/4 | Complete | 2026-10-08 |
-| 66. Executor token stamp | v1.6 | 0/? | Not started | - |
+| 66. Executor token stamp | v1.6 | 1/4 | In Progress | - |
 | 67. Minutes recalibration | v1.6 | 0/? | Not started | - |
 | 68. Milestone and objective verbs | v1.6 | 0/? | Not started | - |
 | 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |

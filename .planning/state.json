@@ -1,9 +1,9 @@
 {
-  "current_objective": "65",
-  "current_job": 4,
+  "current_objective": "66",
+  "current_job": 1,
   "total_jobs": 4,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1084,6 +1084,11 @@
     {
       "objective": "65",
       "summary": "65-04: installed 2.14.0 verified after update and restart; remaining doctor warnings (plugin-cache, legacy-runtime-state, guard-state, W006 66-75) classified as unrelated to mirror lag and left in report mode",
+      "rationale": null
+    },
+    {
+      "objective": "66",
+      "summary": "The SubagentStop gate checks token field presence in a final SUMMARY's frontmatter (not source) and blocks once via stop_hook_active; no marker file",
       "rationale": null
     }
   ],
