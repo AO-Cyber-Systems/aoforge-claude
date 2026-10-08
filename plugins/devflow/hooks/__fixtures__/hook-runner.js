@@ -254,6 +254,10 @@ function composeEvent(event, outcomes) {
  * Run one handler. A handler is either
  *   {name, script?, args?, cwd?, env?, timeoutMs?}   a node child: `node [script] [...args]`
  *   {name, inProcess: async () => ({code, stdout, stderr}), timeoutMs?}
+ *
+ * A node child settles when its output has ended (`close`), never at a fixed delay after `exit`. If the streams
+ * have not ended EXIT_DRAIN_GRACE_MS after `exit` (a pipe leaked to a process that outlives the hook), it settles
+ * with the output read so far and the runner drops the pipes. A timeout settles at once.
  */
 function runHandler(handler, stdinData, opts) {
   const startedAt = Date.now();
@@ -294,10 +298,19 @@ function runHandler(handler, stdinData, opts) {
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
 
+    // Drop our end of both pipes. A pipe leaked to a process that outlives the hook would otherwise keep this
+    // process alive for as long as that process holds it.
+    const release = () => {
+      child.stdout.destroy();
+      child.stderr.destroy();
+    };
+
     // "All matching hooks run in parallel": nothing here waits on another handler.
+    // A timeout settles at once and never waits for `close`.
     timer = setTimeout(() => {
       child.kill('SIGKILL');
       settle({ timedOut: true });
+      release();
     }, timeoutMs);
 
     // A handler that never reads stdin makes the write fail with EPIPE; that is not the hook's failure.
@@ -308,8 +321,20 @@ function runHandler(handler, stdinData, opts) {
     let exitCode = null;
     child.on('exit', (code, signal) => {
       exitCode = code === null ? (signal ? 1 : 0) : code;
-      // The streams normally close with the process; a hook that leaks a pipe to a detached child must not hang us.
-      setTimeout(() => settle({ code: exitCode, stdout, stderr }), 150).unref();
+      // The process is gone, so its timeout no longer applies, and a hook that exits but leaks a pipe is not timed out.
+      clearTimeout(timer);
+      // `exit` can arrive before the pipes have drained, and on a loaded runner a short timer fires before the
+      // pending data is read. `close` is the real end of output, so settle here only when both streams have
+      // already ended. Otherwise `close` settles, and the grace only bounds a pipe leaked to a process that
+      // outlives the hook.
+      if (child.stdout.readableEnded && child.stderr.readableEnded) {
+        settle({ code: exitCode, stdout, stderr });
+        return;
+      }
+      setTimeout(() => {
+        settle({ code: exitCode, stdout, stderr });
+        release();
+      }, EXIT_DRAIN_GRACE_MS).unref();
     });
     child.on('close', (code, signal) => {
       settle({ code: code === null ? (signal ? 1 : 0) : code, stdout, stderr });
@@ -318,7 +343,8 @@ function runHandler(handler, stdinData, opts) {
 }
 
 /**
- * Spawn every handler at once with the same stdin payload.
+ * Spawn every handler at once with the same stdin payload. Each result carries the child's full output: it is
+ * returned once the streams end, or EXIT_DRAIN_GRACE_MS after exit for a leaked pipe (see runHandler).
  *
  * @param {Array<object>} handlers
  * @param {object|string} payload an object is sent as JSON; a string is sent verbatim (degraded-input runs)
