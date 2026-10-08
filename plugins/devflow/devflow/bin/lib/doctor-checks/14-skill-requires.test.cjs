@@ -84,7 +84,7 @@ describe('14-skill-requires check', () => {
     assert.equal(r.fixable, false);
     assert.ok(r.finding.includes('gh'), r.finding);
     assert.ok(r.finding.includes('/devflow:gh-sync'), r.finding);
-    assert.ok(r.fix_command.includes('https://cli.github.com'), r.fix_command);
+    assert.equal(r.fix_command, INSTALL_HINTS.gh);
     assert.deepEqual(r.details.missing, [{ tool: 'gh', skills: ['gh-sync'], hint: INSTALL_HINTS.gh }]);
     assert.deepEqual(r.details.checked, [{ tool: 'gh', skills: ['gh-sync'], found: null }]);
   });
@@ -104,7 +104,7 @@ describe('14-skill-requires check', () => {
     assert.deepEqual(r.details.missing, [{ tool: 'docker', skills: ['builder'], hint: INSTALL_HINTS.docker }]);
     assert.deepEqual(r.details.checked.map(c => c.tool), ['docker', 'gh']);
     assert.ok(r.finding.includes('docker'), r.finding);
-    assert.ok(!r.fix_command.includes('cli.github.com'), r.fix_command);
+    assert.equal(r.fix_command, INSTALL_HINTS.docker);
   });
 
   test('10. two skills that need the same missing tool give one entry listing both', () => {
@@ -122,16 +122,14 @@ describe('14-skill-requires check', () => {
     });
     assert.ok(r.finding.includes('/devflow:alpha'), r.finding);
     assert.ok(r.finding.includes('/devflow:zeta'), r.finding);
-    assert.ok(r.fix_command.includes('https://docs.docker.com/get-docker/'), r.fix_command);
+    assert.equal(r.fix_command, INSTALL_HINTS.docker);
   });
 
   test('10b. several missing tools join their hints in the fix command', () => {
     const home = homeWithSkills({ a: 'requires: [gh]\n', b: 'requires: [docker]\n' });
     const r = check.run(ctxFor(home, { PATH: binEmpty }));
     assert.deepEqual(r.details.missing.map(m => m.tool), ['docker', 'gh']);
-    assert.ok(r.fix_command.includes('https://docs.docker.com/get-docker/'), r.fix_command);
-    assert.ok(r.fix_command.includes('https://cli.github.com'), r.fix_command);
-    assert.ok(r.fix_command.includes('; '), r.fix_command);
+    assert.equal(r.fix_command, `docker: ${INSTALL_HINTS.docker}; gh: ${INSTALL_HINTS.gh}`);
   });
 
   test('10c. an unknown tool gets the generic hint', () => {
@@ -173,7 +171,10 @@ describe('14-skill-requires check', () => {
     assert.equal(r.severity, 'warn');
     assert.ok(r.finding.includes('/devflow:gh-sync'), r.finding);
     assert.ok(r.finding.includes('Gh CLI'), r.finding);
-    assert.ok(r.fix_command.includes('https://cli.github.com'), r.fix_command);
+    assert.equal(
+      r.fix_command,
+      `${INSTALL_HINTS.gh}; correct requires: in the named SKILL.md (a tool name or a list of tool names) and release`,
+    );
   });
 
   test('13a. no installed plugin and no override is ok, and says there is nothing to check', () => {

@@ -291,7 +291,7 @@ describe('refusalReason', () => {
     for (const needle of [
       '/devflow:gh-sync',
       'gh',
-      'https://cli.github.com',
+      sr.INSTALL_HINTS.gh,
       'gh auth login',
       '/devflow:doctor',
       'skill-requires',
@@ -307,8 +307,7 @@ describe('refusalReason', () => {
     const text = sr.refusalReason('build', ['gh', 'docker']);
     assert.ok(text.startsWith('/devflow:build needs gh and docker on PATH'), text);
     assert.ok(text.includes('they are not installed'), text);
-    assert.ok(text.includes('https://cli.github.com'), text);
-    assert.ok(text.includes('https://docs.docker.com/get-docker/'), text);
+    assert.ok(text.includes(`not installed: gh: ${sr.INSTALL_HINTS.gh}; docker: ${sr.INSTALL_HINTS.docker}. `), text);
   });
 
   test('6c. three missing tools read as a list', () => {
@@ -332,8 +331,8 @@ describe('refusalReason', () => {
     for (const tool of ['gh', 'docker', 'flutter', 'go']) {
       assert.equal(typeof sr.INSTALL_HINTS[tool], 'string', tool);
     }
-    assert.ok(sr.INSTALL_HINTS.flutter.includes('https://docs.flutter.dev/get-started/install'));
-    assert.ok(sr.INSTALL_HINTS.go.includes('https://go.dev/dl/'));
+    assert.equal(sr.INSTALL_HINTS.flutter, 'install Flutter (https://docs.flutter.dev/get-started/install)');
+    assert.equal(sr.INSTALL_HINTS.go, 'install Go (https://go.dev/dl/)');
   });
 
   test('6g. bad arguments never throw', () => {
