@@ -803,6 +803,17 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W064', `skill-marker-check-failed: ${e.message}`, 'Run `df-tools doctor` to see why', false);
   }
 
+  // ─── Check 20: requirements-completed agrees with VERIFICATION (objective 69, TOOL-10) ─────
+  // W065: a requirement an objective's VERIFICATION marks SATISFIED that no SUMMARY in that objective lists in
+  // requirements-completed (requirements-agreement.cjs; only IDs defined in a REQUIREMENTS document). Advisory and never
+  // repairable: choosing the SUMMARY is a reviewed `summary post`. A check that cannot run is never silent.
+  try {
+    const ra = options.requirementsAgreement || require('./requirements-agreement.cjs');
+    for (const f of ra.scan(planningDir).findings) addIssue('warning', 'W065', ra.findingMessage(f), ra.findingFix(f), false);
+  } catch (e) {
+    addIssue('warning', 'W065', `requirements-check-failed: ${e.message}`, 'Run `df-tools validate requirements` to see why', false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
