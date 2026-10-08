@@ -14,5 +14,5 @@ completed: 2026-10-08
 
 ## Progress
 - [x] Task 1: Hand-built coverage fixtures — a1e39b06
-- [x] Task 2: token-coverage.cjs library (tests 8-14) — RED 151c9fee, GREEN (this commit)
-- [ ] Task 3: tokens coverage subcommand, help and header (tests 1-7), smoke run — next step: append the `66-01 tokens coverage (end to end)` describe (tests 1-7) to plugins/devflow/devflow/bin/lib/tokens-cli.test.cjs and commit it red
+- [x] Task 2: token-coverage.cjs library (tests 8-14) — RED 151c9fee, GREEN c2de67b7
+- [ ] Task 3: tokens coverage subcommand, help and header (tests 1-7), smoke run — RED test commit (this commit); next step: add the coverage subcommand (runCoverage, readRootFor, USAGE) to plugins/devflow/devflow/bin/lib/tokens-cli.cjs, then help.cjs and the df-tools.cjs header
