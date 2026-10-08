@@ -11,5 +11,5 @@ tags: [aoforge-rename, codemod]
 
 ## Progress
 - [x] Task 1: Fixture builders: sample files and a scratch repo shaped like this one — fcaf94a0
-- [x] Task 2: Pure rules: paths, names, planning, preserves, skips — e2de11cf (RED), (this commit) (GREEN)
-- [ ] Task 3: CLI (inventory, dry run, write, report) and a clean inventory of this repo — next step: add CLI tests 1-6b to scripts/aoforge-rename.legacy.test.cjs, run red, commit, then add inventory() and main(argv) to scripts/aoforge-rename.cjs
+- [x] Task 2: Pure rules: paths, names, planning, preserves, skips — 6e6df03b (RED e2de11cf)
+- [ ] Task 3: CLI (inventory, dry run, write, report) and a clean inventory of this repo — ca5ee0a1 (RED), (this commit) (GREEN CLI); next step: run `node scripts/aoforge-rename.cjs --rules names --inventory` and `--rules planning --inventory` in the worktree root, read each unclassified token's lines, add rules to PRESERVE/NAME_RULES and a pure test per new rule shape until both print unclassified=0

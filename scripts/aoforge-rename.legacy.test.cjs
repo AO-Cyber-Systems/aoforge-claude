@@ -140,8 +140,8 @@ test('3. the default is a dry run that lists moves, rewrites and residuals and c
     assert.match(r.stdout, /^move \S*df-tools\.cjs -> \S*aof-tools\.cjs$/m);
     assert.match(r.stdout, /^move \.github\/workflows\/devflow-checks\.yml -> \.github\/workflows\/aoforge-checks\.yml$/m);
     assert.match(r.stdout, /^rewrite \S*SKILL\.md \(\d+\)$/m);
-    assert.match(r.stdout, /^rewrite README\.md \(1\)$/m);
-    assert.match(r.stdout, /residuals=\d+$/);
+    assert.match(r.stdout, /^rewrite README\.md \(2\)$/m); // the title and the repo URL; devflowops is preserved
+    assert.match(r.stdout, /residuals=\d+\s*$/);
     assert.strictEqual(porcelain(repo), '');
   });
 });

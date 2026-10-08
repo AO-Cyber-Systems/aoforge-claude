@@ -50,7 +50,9 @@
  * `git mv` so history and the executable bit follow the file.
  */
 
+const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const posix = path.posix;
 const base = (rel) => rel.slice(rel.lastIndexOf('/') + 1);
@@ -627,6 +629,317 @@ function classifyToken(token, rel = '', rules = 'names') {
   return classifyNameToken(token, rel);
 }
 
+// ─── inventory ───────────────────────────────────────────────────────────────
+
+/** A run of token characters that contains a legacy word (case-insensitive). */
+const NAME_TOKEN = /[A-Za-z0-9_.~/@-]*(?:devflow|df-tools)[A-Za-z0-9_.~/@-]*/gi;
+const PLANNING_TOKEN = /[A-Za-z0-9_.~/@-]*\.planning[A-Za-z0-9_.~/@-]*/g;
+const BANNER = /DF ►/g;
+
+/**
+ * Spans of `text` covered by a file-scoped entry (quoted names the token regex cannot see).
+ * @returns {{ start: number, end: number, kind: string, reason: string, text: string }[]}
+ */
+function scopedSpans(text, rel, rules) {
+  const spans = [];
+  const collect = (patterns, kind) => {
+    for (const p of patterns) {
+      if (p.rules && p.rules !== rules) continue;
+      if (!p.files || !p.files(rel)) continue;
+      for (const m of text.matchAll(p.re)) {
+        spans.push({ start: m.index, end: m.index + m[0].length, kind, reason: p.reason, text: m[0] });
+      }
+    }
+  };
+  collect(PRESERVE.manual, 'manual');
+  collect(PRESERVE.scoped, 'preserve');
+  return spans;
+}
+
+/**
+ * Strip what the broad token regex picks up that is not part of the name: the digits of an ANSI
+ * `ESC[1m` sequence and the letter of a regex or string escape (`\b`, `\n`).
+ */
+function trimToken(text, index, token) {
+  const prev = text[index - 1];
+  if (prev === '[') return token.replace(/^\d{1,3}m(?=[A-Za-z.])/, '');
+  if (prev === '\\') return token.replace(/^[bntr](?=df-tools|devflow|\.planning)/i, '');
+  return token;
+}
+
+/**
+ * Classify every legacy token in `entries`.
+ * @param {{ rel: string, text: string|null }[]} entries  text is null for files that are not rewritten as text
+ * @param {'names'|'planning'} rules
+ * @returns {{ rows: { token: string, action: string, detail: string, count: number }[], unclassified: number }}
+ */
+function inventory(entries, rules) {
+  const rows = new Map();
+  const add = (token, cls) => {
+    const detail = cls.action === 'rename' ? cls.target : cls.reason || '';
+    const key = `${token}\t${cls.action}\t${detail}`;
+    const row = rows.get(key);
+    if (row) row.count++;
+    else rows.set(key, { token, action: cls.action, detail, count: 1 });
+  };
+
+  for (const { rel, text } of entries) {
+    if (rules === 'names' && !isPathExempt(rel)) {
+      const mapped = mapPath(rel);
+      const masked = maskText(mapped, base(mapped), 'names', [], null);
+      if (/devflow|df-tools/i.test(masked)) {
+        add(`path:${rel}`, { action: 'unclassified', reason: 'the path still names the old product after the path rules' });
+      }
+    }
+    if (text === null || isSkipped(rel)) continue;
+
+    const spans = scopedSpans(text, rel, rules);
+    const covering = (start, end) => spans.find((s) => s.start <= start && end <= s.end);
+    const code = fileKind(rel) === 'code';
+
+    if (rules === 'names') {
+      for (const m of text.matchAll(NAME_TOKEN)) {
+        const token = trimToken(text, m.index, m[0]);
+        const start = m.index + (m[0].length - token.length);
+        const span = covering(start, start + token.length);
+        if (span) add(span.text, { action: span.kind, reason: span.reason });
+        else add(token, classifyNameToken(token, rel));
+      }
+      const banners = (text.match(BANNER) || []).length;
+      for (let i = 0; i < banners; i++) add('DF ►', { action: 'rename', target: 'AOF ►' });
+    } else {
+      for (const m of text.matchAll(PLANNING_TOKEN)) {
+        const token = trimToken(text, m.index, m[0]);
+        const start = m.index + (m[0].length - token.length);
+        const span = covering(start, start + token.length);
+        if (span) add(span.text, { action: span.kind, reason: span.reason });
+        else add(token, classifyPlanningSpan(text, start, start + token.length, code));
+      }
+    }
+  }
+
+  const list = [...rows.values()].sort((a, b) => {
+    if (a.token !== b.token) return a.token < b.token ? -1 : 1;
+    if (a.action !== b.action) return a.action < b.action ? -1 : 1;
+    return a.detail < b.detail ? -1 : a.detail > b.detail ? 1 : 0;
+  });
+  return { rows: list, unclassified: list.filter((r) => r.action === 'unclassified').length };
+}
+
+// ─── move planning ───────────────────────────────────────────────────────────
+
+const underPrefix = (p, prefix) => p === prefix || p.startsWith(prefix.replace(/\/+$/, '') + '/');
+const matchesOnly = (only, p) => only.length === 0 || only.some((o) => underPrefix(p, o));
+
+/**
+ * The moves to run, in order, and the moves that cannot run.
+ * A directory move happens only when an `--only` prefix covers the whole directory; file moves
+ * follow the files that match.
+ */
+function planMoves(files, only) {
+  const moves = [];
+  const conflicts = [];
+  let cur = files.slice();
+
+  for (const r of dirMoves()) {
+    if (!cur.some((f) => f.startsWith(r.from + '/'))) continue;
+    if (!matchesOnly(only, r.from) || (only.length && !only.some((o) => underPrefix(r.from, o)))) continue;
+    if (cur.some((f) => f.startsWith(r.to + '/'))) {
+      conflicts.push({ from: r.from, to: r.to, reason: `cannot move ${r.from} -> ${r.to}: the target already holds tracked files` });
+      continue;
+    }
+    moves.push({ kind: 'dir', from: r.from, to: r.to });
+    cur = cur.map((f) => (f.startsWith(r.from + '/') ? r.to + f.slice(r.from.length) : f));
+  }
+
+  const taken = new Set(cur);
+  for (const f of cur) {
+    if (isPathExempt(f) || !matchesOnly(only, f)) continue;
+    const i = f.lastIndexOf('/');
+    const to = f.slice(0, i + 1) + rewriteNames(f.slice(i + 1), f.slice(i + 1)).text;
+    if (to === f) continue;
+    if (taken.has(to)) {
+      conflicts.push({ from: f, to, reason: `cannot rename ${f} -> ${to}: the target already exists` });
+      continue;
+    }
+    taken.add(to);
+    moves.push({ kind: 'file', from: f, to });
+  }
+  return { moves, conflicts };
+}
+
+/** Where `file` ends up after `moves` have run in order. */
+function applyMoves(file, moves) {
+  let p = file;
+  for (const m of moves) {
+    if (m.kind === 'dir') {
+      if (p.startsWith(m.from + '/')) p = m.to + p.slice(m.from.length);
+    } else if (p === m.from) {
+      p = m.to;
+    }
+  }
+  return p;
+}
+
+// ─── CLI ─────────────────────────────────────────────────────────────────────
+
+const USAGE = `usage: node scripts/aoforge-rename.cjs --rules names|planning [--inventory | --dry-run | --write]
+                                      [--report <file>] [--only <prefix>]...
+
+  --rules names|planning   which pass to run (required)
+  --inventory              classify every legacy token; exit 1 if any is unclassified
+  --dry-run                print the planned moves and rewrites, change nothing (default)
+  --write                  git mv the paths, then rewrite the contents
+  --report <file>          also write { rules, moves, rewrites, residuals } as JSON
+  --only <prefix>          restrict to tracked files under this path prefix (repeatable)
+`;
+
+class UsageError extends Error {}
+
+function parseArgs(argv) {
+  const o = { rules: null, inventory: false, write: false, dryRun: false, report: null, only: [] };
+  const value = (i, flag) => {
+    if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) throw new UsageError(`${flag} needs a value`);
+    return argv[i + 1];
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    switch (a) {
+      case '--rules':
+        o.rules = value(i, a);
+        i++;
+        break;
+      case '--report':
+        o.report = value(i, a);
+        i++;
+        break;
+      case '--only':
+        o.only.push(value(i, a));
+        i++;
+        break;
+      case '--inventory':
+        o.inventory = true;
+        break;
+      case '--write':
+        o.write = true;
+        break;
+      case '--dry-run':
+        o.dryRun = true;
+        break;
+      default:
+        throw new UsageError(a.startsWith('--') ? `unknown flag: ${a}` : `unexpected argument: ${a}`);
+    }
+  }
+  if (o.rules !== 'names' && o.rules !== 'planning') throw new UsageError('--rules names|planning is required');
+  if (o.write && o.dryRun) throw new UsageError('--write and --dry-run are mutually exclusive');
+  if (o.inventory && (o.write || o.dryRun)) throw new UsageError('--inventory cannot be combined with --write or --dry-run');
+  return o;
+}
+
+/** Tracked regular files under `cwd`, as posix paths relative to it. */
+function trackedFiles(cwd) {
+  const r = spawnSync('git', ['ls-files', '-z'], { cwd, maxBuffer: 1 << 28 });
+  if (r.error || r.status !== 0) {
+    const why = r.error ? r.error.message : String(r.stderr).trim();
+    throw new Error(`git ls-files failed in ${cwd}: ${why}`);
+  }
+  return r.stdout
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+    .filter((f) => {
+      try {
+        return fs.lstatSync(path.join(cwd, f)).isFile();
+      } catch {
+        return false;
+      }
+    });
+}
+
+function gitMove(cwd, from, to) {
+  const r = spawnSync('git', ['mv', from, to], { cwd, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`git mv ${from} ${to} failed: ${(r.stderr || r.error || '').toString().trim()}`);
+}
+
+const clip = (s, n = 140) => (s.length > n ? `${s.slice(0, n - 3)}...` : s);
+
+/**
+ * Run the codemod.
+ * @param {string[]} argv
+ * @param {{ cwd?: string, out?: (s: string) => void, err?: (s: string) => void }} [io]
+ * @returns {number} the exit code
+ */
+function main(argv = process.argv.slice(2), io = {}) {
+  const cwd = io.cwd || process.cwd();
+  const out = io.out || ((s) => process.stdout.write(s));
+  const err = io.err || ((s) => process.stderr.write(s));
+
+  let o;
+  try {
+    o = parseArgs(argv);
+  } catch (e) {
+    if (!(e instanceof UsageError)) throw e;
+    err(`aoforge-rename: ${e.message}\n${USAGE}`);
+    return 1;
+  }
+
+  try {
+    const files = trackedFiles(cwd);
+    const { moves, conflicts } = o.rules === 'names' ? planMoves(files, o.only) : { moves: [], conflicts: [] };
+    const entries = files.map((orig) => ({ orig, cur: applyMoves(orig, moves) }));
+    const selected = entries.filter((e) => matchesOnly(o.only, e.orig) || matchesOnly(o.only, e.cur));
+
+    if (o.inventory) {
+      const inv = inventory(
+        selected.map((e) => {
+          const buf = fs.readFileSync(path.join(cwd, e.orig));
+          const text = isBinary(buf) ? null : buf.toString('utf8');
+          return { rel: e.orig, text: text !== null && Buffer.from(text, 'utf8').equals(buf) ? text : null };
+        }),
+        o.rules,
+      );
+      for (const r of inv.rows) out(`${r.token}\t${r.action}\t${r.detail}\t${r.count}\n`);
+      out(`unclassified=${inv.unclassified}\n`);
+      return inv.unclassified > 0 ? 1 : 0;
+    }
+
+    if (o.write) {
+      for (const m of moves) gitMove(cwd, m.from, m.to);
+    }
+
+    const present = new Set(entries.map((e) => e.cur));
+    const rewrites = [];
+    const residuals = conflicts.map((c) => ({ file: c.from, line: 0, text: '', reason: c.reason }));
+    for (const e of selected) {
+      const buf = fs.readFileSync(path.join(cwd, o.write ? e.cur : e.orig));
+      const conv = /^plugins\/([^/]+)\//.exec(e.cur);
+      const compat = conv ? `plugins/${conv[1]}/${conv[1]}/bin/lib/compat.cjs` : null;
+      const r = processFile(e.cur, buf, o.rules, { compatPath: compat && present.has(compat) ? compat : null });
+      if (r.skipped) continue;
+      for (const x of r.residuals) residuals.push({ file: e.cur, line: x.line, text: x.text, reason: x.reason });
+      if (r.changed) {
+        rewrites.push({ file: e.cur, count: r.count });
+        if (o.write) fs.writeFileSync(path.join(cwd, e.cur), r.text);
+      }
+    }
+    rewrites.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+    residuals.sort((a, b) => (a.file !== b.file ? (a.file < b.file ? -1 : 1) : a.line - b.line));
+
+    for (const m of moves) out(`move ${m.from} -> ${m.to}\n`);
+    for (const r of rewrites) out(`rewrite ${r.file} (${r.count})\n`);
+    for (const r of residuals) out(`residual ${r.file}:${r.line} ${r.reason}${r.text ? ` | ${clip(r.text)}` : ''}\n`);
+    out(`moves=${moves.length} rewrites=${rewrites.length} residuals=${residuals.length}\n`);
+
+    if (o.report) {
+      fs.writeFileSync(o.report, `${JSON.stringify({ rules: o.rules, moves, rewrites, residuals }, null, 2)}\n`);
+    }
+    return 0;
+  } catch (e) {
+    err(`aoforge-rename: ${e.message}\n`);
+    return 1;
+  }
+}
+
 module.exports = {
   PATH_RULES,
   NAME_RULES,
@@ -639,7 +952,12 @@ module.exports = {
   rewritePlanning,
   processFile,
   classifyToken,
+  inventory,
+  planMoves,
+  main,
   occurrenceKind,
   fileKind,
   base,
 };
+
+if (require.main === module) process.exitCode = main();
