@@ -243,6 +243,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 71]: A lint target adding linters is the entry point only when every extra line is an unconditional (no ||) linter of a tool other than the default's; optional linters keep lint inherited
 - [Objective 71]: stack verify --run skips a gate with a static service signal (own text, CI job running the same command, test env file for test/e2e) as env_required; --allow-services (with --run only) opts in and the result is marked services=allowed. Detection never probes a port.
 - [Objective 71]: The CI layer of the service policy matches an exact command and cwd (a hand-edited command differing from CI is not matched); the loopback regex uses a lookbehind so [::1]:port is visible.
+- [Objective 71]: 71-02: selfTestDrafts does not import stack-draft.cjs; its marker test is its own so a broken drafter predicate cannot hide its own regression
+- [Objective 71]: 71-02: an OPEN pending:'refresh' row (justinforme and smartWellness lint) is a follow-up, not a drafter gap; it is tolerated only while it drifts and the remove-it ratchet is unchanged
+- [Objective 71]: 71-02: ACCEPTED did not grow; aodex.audit was removed because the 71-01 self-test rule now drafts the govulncheck gate
 
 ## Performance Metrics
 
@@ -409,4 +412,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 70 P03 | 8min | 2 tasks | 5 files |
 | Objective 71 P01 | 10min | 3 tasks | 5 files |
 | Objective 71 P03 | 13min | 3 tasks | 6 files |
+| Objective 71 P02 | 8min | 2 tasks | 3 files |
 

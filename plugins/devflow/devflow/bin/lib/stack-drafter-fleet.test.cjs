@@ -17,8 +17,13 @@
 //                    ACCEPTED is exactly the user-accepted rows, each with kind, reason, date and
 //                    by: 'user' (the accepted HAND_ONLY keys are imported, not copied); OPEN entries
 //                    have keys and a reason
-//  16  assess        the classification (`assess`) is checked on synthetic tables, because OPEN is empty
-//                    today and its ratchet would otherwise never run
+//  16  assess        the classification (`assess`) is checked on synthetic tables, because the real OPEN rows
+//                    all drift today and the ratchet's failing branch would otherwise never run. An OPEN entry with `pending: 'refresh'`
+//                    is reported as "refresh pending" (TRD 71-02): a drafter rule closed the gap and the repo's
+//                    committed STACK.md predates it. It is tolerated while it drifts and fails once it stops
+//  17  self-test     per repo, no drafted command carries a self-test argument while the draft's evidence
+//      guard         holds the gate that runs the same entry point without one (`selfTestDrafts`, TRD 71-02,
+//                    guarding the 71-01 rule). Its predicate is written apart from the drafter's on purpose
 //
 // Real environment on purpose: process.env (the real PATH and HOME) reaches `stack init` and the tier
 // resolution, as in the 43-07 dry run. The golden and realshape suites use stubs; this one does not.
@@ -38,7 +43,7 @@ const { spawnSync } = require('child_process');
 const golden = require('./__fixtures__/stack-golden-fixtures.cjs');
 const tables = require('./__fixtures__/stack-fleet-tables.cjs');
 const { FLEET, ACCEPTED, OPEN } = tables;
-const { compareDrift, formatRow } = require('./__fixtures__/stack-drift-compare.cjs');
+const { compareDrift, formatRow, selfTestDrafts } = require('./__fixtures__/stack-drift-compare.cjs');
 const { parseProfile, resolveFromParsed } = require('./stack-profile.cjs');
 
 const { HAND_ONLY, KEY_ALIASES } = golden;
@@ -79,7 +84,7 @@ function parseInitOutput(stdout) {
   return JSON.parse(text);
 }
 
-/** stackInit(repo) -> { ok, fm } | { ok: false, error }. No --write, no --run; real env. */
+/** stackInit(repo) -> { ok, fm, evidence } | { ok: false, error }. No --write, no --run; real env. */
 function stackInit(repo) {
   const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'init'], {
     encoding: 'utf-8',
@@ -95,7 +100,7 @@ function stackInit(repo) {
     return { ok: false, error: `stack init printed no parseable JSON: ${e.message}` };
   }
   if (!json || typeof json.text !== 'string') return { ok: false, error: 'stack init JSON has no `text`' };
-  return { ok: true, fm: parseProfile(json.text).frontmatter };
+  return { ok: true, fm: parseProfile(json.text).frontmatter, evidence: Array.isArray(json.evidence) ? json.evidence : [] };
 }
 
 /** The resolved commands of the tier a file `extends` (real HOME), i.e. what it inherits. */
@@ -129,7 +134,12 @@ function assess(repo, rows, { accepted = {}, open = {} } = {}) {
     if (acc) {
       notes.push(`${repo}: accepted by ${acc.by} ${acc.decided} (${row.kind}): ${formatRow(row)}`);
     } else if (openEntries.some((entry) => entry.keys.includes(row.key))) {
-      notes.push(`${repo}: OPEN (${row.kind}): ${formatRow(row)}`);
+      // A refresh-pending row is a follow-up (a drafter rule closed the gap; the repo's committed file predates it),
+      // not a drafter gap. It is tolerated exactly like any OPEN row, and the ratchet below still applies.
+      const open = openEntries.find((entry) => entry.keys.includes(row.key));
+      notes.push(open.pending === 'refresh'
+        ? `${repo}: OPEN, refresh pending (${row.kind}): ${formatRow(row)}`
+        : `${repo}: OPEN (${row.kind}): ${formatRow(row)}`);
     } else if (row.kind === 'conflict') {
       problems.push(`new conflict: ${formatRow(row)}`);
     } else {
@@ -201,6 +211,14 @@ describe('stack init against the real fleet (TRD 43-08)', { skip: fleetSkipReaso
       for (const note of notes) t.diagnostic(note);
 
       assert.equal(problems.length, 0, `${repo}:\n  ${problems.join('\n  ')}`);
+
+      // 17: the 71-01 self-test rule holds on the real fleet. Removing a more-specific row from ACCEPTED guards
+      // nothing (only conflicts fail), so this is what fails when a draft fills a key with a self-test step.
+      assert.deepEqual(
+        selfTestDrafts({ commands: draft.commands, evidence: init.evidence }),
+        [],
+        `${repo}: a drafted self-test sits beside its gate`,
+      );
     });
   }
 });
@@ -217,9 +235,10 @@ describe('fleet tables (TRD 43-08 guards)', () => {
   });
 
   // The user-accepted rows, pinned: ACCEPTED grows only by a user decision, and this list is where that shows.
-  // 43-15 (`accept-all`, 2026-10-03) added every row after devcluster's two.
+  // 43-15 (`accept-all`, 2026-10-03) added every row after devcluster's two. 71-02 removed aodex.audit: the 71-01
+  // self-test rule drafts the gate step, so the row that excused the self-test pick describes a draft that is gone.
   const ACCEPTED_ROWS = [
-    'EdenDocs.deps', 'ao-terminal.deps', 'aocore.test', 'aodex.audit', 'aodex.lint', 'aofamily.build', 'aofamily.deps',
+    'EdenDocs.deps', 'ao-terminal.deps', 'aocore.test', 'aodex.lint', 'aofamily.build', 'aofamily.deps',
     'aofamily.lint', 'devcluster.lint', 'devcluster.test', 'eden-biz.e2e', 'justinforme.e2e', 'politihub.lint',
   ];
 
@@ -259,6 +278,13 @@ describe('fleet tables (TRD 43-08 guards)', () => {
         const id = `OPEN.${repo} [${(entry.keys || []).join(', ')}]`;
         assert.ok(Array.isArray(entry.keys) && entry.keys.length > 0 && entry.keys.every((k) => typeof k === 'string' && k), `${id}: keys`);
         assert.ok(typeof entry.reason === 'string' && entry.reason.length > 0, `${id}: reason`);
+        // 71-02: `pending` is optional and has one value. A refresh-pending row says what the draft is and what the
+        // committed file still holds, so the follow-up commit in the repo can be made without re-deriving either.
+        if (entry.pending !== undefined) {
+          assert.equal(entry.pending, 'refresh', `${id}: pending must be 'refresh' when present`);
+          assert.match(entry.reason, /draft/, `${id}: a refresh-pending reason names the draft`);
+          assert.match(entry.reason, /committed/, `${id}: a refresh-pending reason names the committed value`);
+        }
         for (const key of entry.keys) {
           count += 1;
           assert.ok(!seen.has(key), `${id}: ${key} is listed twice for ${repo}`);
@@ -318,5 +344,108 @@ describe('assess: the harness classification, on synthetic tables (TRD 43-15)', 
   test('tables of other repos do not leak into this repo', () => {
     const accepted = { other: [{ keys: ['test'], kind: 'conflict', reason: 'why', decided: '2026-10-03', by: 'user' }] };
     assert.equal(assess('r', [conflict('test')], { accepted }).problems.length, 1);
+  });
+
+  // TRD 71-02 (SDR-09): a drafter rule closed the gap, the repo's committed STACK.md predates it, and refreshing
+  // that file is a commit in the repo. The row is a follow-up, not a drafter gap.
+  test('13: an OPEN `pending: refresh` row is reported as refresh pending while it drifts, never failed', () => {
+    const open = { r: [{ keys: ['lint'], pending: 'refresh', reason: 'draft `make lint` vs committed `go vet ./...`' }] };
+    const { problems, notes } = assess('r', [conflict('lint')], { open });
+    assert.deepEqual(problems, []);
+    assert.equal(notes.length, 1);
+    assert.match(notes[0], /refresh pending/);
+    assert.match(notes[0], /lint: committed/);
+    // A plain OPEN row keeps its own wording.
+    const plain = assess('r', [conflict('lint')], { open: { r: [{ keys: ['lint'], reason: 'no rule yet' }] } });
+    assert.equal(plain.notes.length, 1);
+    assert.doesNotMatch(plain.notes[0], /refresh pending/);
+  });
+
+  test('14: a refresh-pending OPEN row that stops drifting fails with "remove it" (the ratchet is unchanged)', () => {
+    const open = { r: [{ keys: ['lint'], pending: 'refresh', reason: 'draft `make lint` vs committed `go vet ./...`' }] };
+    const { problems } = assess('r', [], { open });
+    assert.deepEqual(problems, ['r.lint no longer drifts: remove it from OPEN']);
+  });
+});
+
+describe('selfTestDrafts: a drafted self-test beside its gate (TRD 71-01 guard, TRD 71-02)', () => {
+  const GATE = 'bash scripts/gate.sh';
+  const gateItem = (over = {}) => ({ key: 'audit', command: GATE, cwd: 'go', ...over });
+  const draft = (run, cwd = 'go') => ({ audit: { run, cwd } });
+
+  test('8: a drafted self-test argument beside a same-key, same-cwd gate item is a finding', () => {
+    const run = `${GATE} --self-test`;
+    assert.deepEqual(
+      selfTestDrafts({ commands: draft(run), evidence: [gateItem({ command: run }), gateItem()] }),
+      [{ key: 'audit', run, gate: GATE }],
+    );
+  });
+
+  test('9: a lone self-test, with no gate item in the evidence, is allowed', () => {
+    const run = `${GATE} --self-test`;
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ command: run })] }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [] }), []);
+  });
+
+  test('10: a gate item at another cwd, or for another key, is not the gate', () => {
+    const run = `${GATE} --self-test`;
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ cwd: 'other' })] }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ cwd: undefined })] }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(run), evidence: [gateItem({ key: 'lint' })] }), []);
+    // null, '' and a missing cwd are all the repo root, and `./go/` is `go`.
+    assert.equal(selfTestDrafts({ commands: draft(run, null), evidence: [gateItem({ cwd: '' })] }).length, 1);
+    assert.equal(selfTestDrafts({ commands: { audit: { run } }, evidence: [gateItem({ cwd: null })] }).length, 1);
+    assert.equal(selfTestDrafts({ commands: draft(run, './go/'), evidence: [gateItem()] }).length, 1);
+  });
+
+  test('11: --selftest, --self-test=x, --selftest-<case> and a bare `selftest` after the script are self-test arguments', () => {
+    for (const marker of ['--selftest', '--self-test', '--self-test=x', '--selftest-no-divergence', 'selftest', '-self-test']) {
+      const run = `${GATE} ${marker}`;
+      assert.deepEqual(
+        selfTestDrafts({ commands: draft(run), evidence: [gateItem()] }),
+        [{ key: 'audit', run, gate: GATE }],
+        marker,
+      );
+    }
+    // A marker among other arguments: the gate is the run without just that word.
+    const mixed = `${GATE} --fixture f.json --self-test`;
+    assert.deepEqual(
+      selfTestDrafts({ commands: draft(mixed), evidence: [gateItem({ command: `${GATE} --fixture f.json` })] }),
+      [{ key: 'audit', run: mixed, gate: `${GATE} --fixture f.json` }],
+    );
+  });
+
+  test('11: the script name and a runner target named selftest are entry points, not self-test arguments', () => {
+    // Each pairs the run with an item for the run minus that word, so counting the word would be a finding.
+    const shape = (run, base) => selfTestDrafts({ commands: draft(run), evidence: [{ key: 'audit', command: base, cwd: 'go' }] });
+    assert.deepEqual(shape('bash t0/selftest.sh', 'bash'), []);
+    assert.deepEqual(shape('bash selftest', 'bash'), []);
+    assert.deepEqual(shape('make selftest', 'make'), []);
+    assert.deepEqual(shape('just self-test', 'just'), []);
+    // A word the evidence names as the item's target is never a self-test argument.
+    const named = selfTestDrafts({
+      commands: draft('./run.sh selftest'),
+      evidence: [
+        { key: 'audit', command: './run.sh selftest', cwd: 'go', target: { name: 'selftest' } },
+        { key: 'audit', command: './run.sh', cwd: 'go' },
+      ],
+    });
+    assert.deepEqual(named, []);
+  });
+
+  test('12: odd shapes never throw and find nothing', () => {
+    const evidence = [gateItem()];
+    // A bare string is the run (as in the drift comparison); a lone one has no gate.
+    assert.deepEqual(selfTestDrafts({ commands: { audit: `${GATE} --self-test` }, evidence: [] }), []);
+    for (const run of ['discover', 'none', '', undefined, null, 5]) {
+      assert.deepEqual(selfTestDrafts({ commands: { audit: { run, cwd: 'go' } }, evidence }), [], String(run));
+    }
+    assert.deepEqual(selfTestDrafts({ commands: { audit: null }, evidence }), []);
+    assert.deepEqual(selfTestDrafts({ commands: { audit: [] }, evidence }), []);
+    assert.deepEqual(selfTestDrafts({ evidence }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(`${GATE} --self-test`) }), []);
+    assert.deepEqual(selfTestDrafts({ commands: draft(`${GATE} --self-test`), evidence: [null, 'x', {}, { key: 'audit' }] }), []);
+    assert.deepEqual(selfTestDrafts({}), []);
+    assert.deepEqual(selfTestDrafts(), []);
   });
 });

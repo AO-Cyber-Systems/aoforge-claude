@@ -13,7 +13,14 @@
 //             them from stack-golden-fixtures.cjs (HAND_ONLY).
 //   OPEN      differences nobody has accepted and no drafter rule closes yet. The harness reports each
 //             with t.diagnostic and does not fail on it, but it is a RATCHET: an OPEN key that no longer
-//             drifts fails with "remove it". OPEN rows keep the objective at gaps_found for the verifier.
+//             drifts fails with "remove it". OPEN rows keep the objective at gaps_found for the verifier,
+//             except a `pending: 'refresh'` row (below).
+//             An OPEN entry may carry `pending: 'refresh'` (TRD 71-02): a drafter rule closed the gap and the
+//             repo's committed STACK.md predates it. Refreshing that file is a commit in the repo and needs the
+//             user, tracked as a todo. Such a row is a follow-up, not a drafter gap: the harness reports it as
+//             "refresh pending", and the ratchet still applies. If the rule regresses the row stops drifting
+//             and fails with "remove it", and once the repo's file is refreshed the row is removed. Its reason
+//             names the draft and the committed value.
 //
 // Both are { <repo>: [ entry, ... ] }, one entry per (repo, reason):
 //   keys     the row keys (`extends`, `components` and command keys, in the draft's spelling)
@@ -24,10 +31,13 @@
 //   reason   what the draft says against what the committed file says, and why it stays
 //   decided  ACCEPTED only: the date of the user decision (YYYY-MM-DD)
 //   by       ACCEPTED only: 'user'
+//   pending  OPEN only, optional: 'refresh' (see OPEN above); no other value
 //
 // KNOWN_DRIFT (the 43-08 ratchet of today's conflicts) is gone. Its rows were closed by 43-09..43-14
 // drafter rules and refreshes, or decided by the user at the 43-15 checkpoint (`accept-all`, 2026-10-03,
-// recorded verbatim in 43-ROLLOUT.md `## Gap closure cycle 1`).
+// recorded verbatim in 43-ROLLOUT.md `## Gap closure cycle 1`). `aodex.audit` left ACCEPTED in TRD 71-02: TRD 71-01's
+// self-test rule now drafts the govulncheck gate step, so the row that excused the self-test pick described a draft
+// that no longer exists. The harness guards that rule with a per-repo self-test check, not with this table.
 //
 // No fleet repo's file body is stored here beyond the one-line command values in `reason`.
 
@@ -77,14 +87,6 @@ const ACCEPTED = {
   // The more-specific rows: the draft carries a command where the committed file says `discover` (or has no
   // key). Nothing needs fixing to use the draft; the user accepted each as the current state.
   aodex: [
-    {
-      keys: ['audit'],
-      kind: 'more_specific',
-      reason: 'the draft picks the govulncheck self-test step, not the gate: `bash scripts/check-govulncheck.sh --self-test` (cwd go) '
-        + 'vs committed `discover`. A self-test scans nothing. Known drafter limitation, a follow-up for a future rule',
-      decided: DECIDED,
-      by: 'user',
-    },
     {
       keys: ['lint'],
       kind: 'more_specific',
@@ -141,8 +143,28 @@ const ACCEPTED = {
   ],
 };
 
-// Nothing is OPEN: the 43-15 decision was accept-all. The table stays so that a future gap has a place to
-// be recorded without a new mechanism: { <repo>: [ { keys: ['<key>'], reason: '<why no rule closes it yet>' } ] }.
-const OPEN = {};
+// The 43-15 decision was accept-all, so nothing was OPEN until TRD 71-01. Its declared-linters rule (SDR-09) drafts
+// `make lint` where the Makefile `lint:` target runs `go vet ./...` AND `buf lint`; two fleet repos' committed files
+// (reviewed 2026-09-29) inherit `go vet ./...`. The drafter is right and the committed files are stale, so these are
+// the two TRD 71-02 rows, both `pending: 'refresh'`. The table keeps its shape for a future gap:
+// { <repo>: [ { keys: ['<key>'], reason: '<why no rule closes it yet>' } ] }.
+const OPEN = {
+  justinforme: [
+    {
+      keys: ['lint'],
+      pending: 'refresh',
+      reason: 'TRD 71-01 (SDR-09): the draft `make lint` runs go vet AND buf lint; the committed file (reviewed 2026-09-29) '
+        + 'inherits `go vet ./...`. The drafter is right; refreshing the committed file is a commit in justinforme and needs the user',
+    },
+  ],
+  smartWellness: [
+    {
+      keys: ['lint'],
+      pending: 'refresh',
+      reason: 'TRD 71-01 (SDR-09): the draft `make lint` runs go vet AND buf lint; the committed file (reviewed 2026-09-29) '
+        + 'inherits `go vet ./...`. The drafter is right; refreshing the committed file is a commit in smartWellness and needs the user',
+    },
+  ],
+};
 
 module.exports = { FLEET, ACCEPTED, OPEN };
