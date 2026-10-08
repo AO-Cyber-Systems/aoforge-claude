@@ -204,7 +204,7 @@ TRDs:
 - [x] 68-02-milestone-scope-shared-helpers-TRD.md — (W1) `parseObjectiveDirName` / `canonicalObjectiveNumber` in helpers.cjs; milestone-scope.cjs resolves directories through `objectiveDirMatches`, no DIR_RE/canonical(); exports `roadmapSections`
 - [x] 68-03-unknown-flag-guard-TRD.md — (W1) dispatcher guard (`lib/flag-guard.cjs`) + `lib/flag-spec.cjs` for the planning and state writers; spawn probes assert exit 1, the named flag, no write
 - [x] 68-04-objective-remove-and-complete-TRD.md — (W2) bounded NN-MM renumber rule keeps dates and metadata; `nextObjective` reads directories and ROADMAP sections for local and store `objective complete`
-- [ ] 68-05-flag-spec-every-writer-TRD.md — (W2) spec entries for the remaining writing commands; repo test: spec = help.cjs `mutates`, a probe per entry, exemption reasons, documented invocations accepted
+- [x] 68-05-flag-spec-every-writer-TRD.md — (W2) spec entries for the remaining writing commands; repo test: spec = help.cjs `mutates`, a probe per entry, exemption reasons, documented invocations accepted
 - [x] 68-06-store-milestone-dry-run-TRD.md — (W2) store-mode `milestone complete --dry-run` with zero gh calls; `milestone put` shares the MILESTONES.md heading rule
 - [ ] 68-07-dogfood-and-docs-TRD.md — (W3) SC-1..SC-5 on scratch copies of this repo's `.planning/`; CHANGELOG, USER-GUIDE, CLAUDE.md, df-tools header; objective-complete todo completed
 
@@ -302,7 +302,7 @@ TRDs:
 | 65. Release v1.5 | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 67. Minutes recalibration | v1.6 | 9/9 | Complete | 2026-10-08 |
-| 68. Milestone and objective verbs | v1.6 | 4/7 | In Progress | - |
+| 68. Milestone and objective verbs | v1.6 | 6/7 | In Progress | - |
 | 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |
 | 70. CLI defects and hook shape | v1.6 | 0/? | Not started | - |
 | 71. Stack drafter and verify policy | v1.6 | 0/? | Not started | - |
