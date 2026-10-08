@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-10-07
+
+Milestone v1.5 Gate & Plumbing (objectives 56–64; objective 55 shipped in 2.13.2). The edit gate now covers Bash writes
+to tracked source (`gate-bash-writes.js`, `gates.bashEditGate`, shipped default `warn`), a `/devflow:<skill>` whose
+required tool is not on PATH is refused (`gate-skill-requires.js`), and `/devflow:todo` keeps its todos in the session
+task list with a Stop-hook sync into the archive (`todo-sync.js`). `df-tools estimate` and `df-tools calibrate` print
+minutes, tokens and dollars, and `estimate backtest` compares them with measured runs; the minutes accuracy target
+(EST-08) is **not met**. Entries that need an installed plugin take effect once the installed plugin is at 2.14.0.
+
 ### Added
 - `/devflow:todo` keeps its todos in the session task list (objective 63). `add` puts a `Todo: <title>` item in the list
   with TaskCreate (or TodoWrite when `CLAUDE_CODE_ENABLE_TASKS=0` brings it back) and then writes the archive; `list` reads
