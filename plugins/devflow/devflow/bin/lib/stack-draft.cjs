@@ -75,8 +75,12 @@
 // running exactly `go vet ./...` is the repo's declared entry point, so it is verified and kept like any
 // other candidate). Narrowed on the fleet (declaredTarget): its WHOLE body must be the default (no
 // prerequisite, no further invocation) and its name must not restate the default's own command word
-// (`build:` running `go build ./...` is a shorthand and stays inherited). Otherwise the first candidate
-// `verify` calls `resolved` is the run.
+// (`build:` running `go build ./...` is a shorthand and stays inherited). Widened for lint (TRD 71-01, SDR-09):
+// a `lint` target whose body is the default plus one or more UNCONDITIONAL linters of another tool
+// (stack-classify linterToolOf: a lint row, or AUX_LINTERS such as `buf lint`) is the declared entry point too,
+// with a `declared_linters` info note. An extra line with a `||` fallback is optional by its own design and
+// keeps the target inherited; so does any extra line that is not a linter. `buf lint` alone is never a
+// candidate. Otherwise the first candidate `verify` calls `resolved` is the run.
 // Candidates that failed before it are notes. None resolved but candidates existed ->
 // `run: discover`. A `${{ }}` command is `unverifiable` without asking `verify`.
 //
@@ -119,6 +123,14 @@
 // sqlc gen-sdk`, which also runs `dart pub get` and `dart analyze`, loses codegen to `make proto`; a one-shot
 // `task init` that also tidies loses deps to the CI install line. With no pure candidate nothing changes.
 //
+// Self-test steps (TRD 71-01, SDR-09). Before ranking, for every key, a candidate whose command passes a
+// self-test argument (`--self-test`, `--selftest`, a `--selftest-<case>` / `--self-test=<x>` variant, or a bare
+// `selftest` word; never the program, a shell's script or the runner target name) to an entry point that
+// another candidate of the same tier runs WITHOUT one, at the same cwd, is a `self_test` note: it checks the
+// gate's own fixtures and scans nothing, so it never fills the key while the gate step exists. A declared row is
+// the user's own. With no such gate sibling the self-test stays a candidate (an offline self-test may be the
+// only gate a repo has).
+//
 // Partial drift checks (TRD 43-11). R5 above holds only for a check of the GENERATOR: G = the best-ranked
 // codegen generator, and a check whose writer (stack-evidence `driftWriter`) is one of G's legs (`target.legs`)
 // rather than G itself is a `partial_check` note; it neither fills run nor turns G into apply.
@@ -152,7 +164,7 @@
 // that verifies as `cwd_missing` (never inherited there), so it ends as `discover` + a note like any
 // other unresolved candidate. Items without a cwdStatus are treated as ok.
 
-const { classifyInvocation, testBreadth, buildBreadth, toolStack, envRole, isDedicatedLinter, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
+const { classifyInvocation, testBreadth, buildBreadth, toolStack, envRole, isDedicatedLinter, linterToolOf, TIER_STACKS, NEUTRAL_STACK } = require('./stack-classify.cjs');
 
 const SOURCE_RANK = Object.freeze({ declared: 0, runner: 1, ci: 2, manifest: 3, docs: 4, detected: 5 });
 const CANONICAL_KEYS = new Set(['build', 'test', 'lint']);
@@ -386,6 +398,52 @@ function writesAs(writer, item) {
   return body.some((b) => bare(b) === want);
 }
 
+// TRD 71-01 (SDR-09): an argument that asks a gate script to test itself rather than gate.
+const SELF_TEST_ARG = /^(?:--?self-?test(?:[-=].*)?|self-?test)$/i;
+/** Programs that run a script file: the word after them is the script, never an argument. */
+const SCRIPT_SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
+
+/** The words of an item's command with redirections removed, never empty. */
+const commandWords = (item) => bare(item.command).split(' ').filter(Boolean);
+
+/**
+ * selfTestIndexes(item) -> the positions (in commandWords) of the self-test words of the item's command: never
+ * the program, a shell's script, or a word equal to the runner target / script name (`make selftest`, `bash
+ * t0-conformance/selftest.sh` are entry points, not self-test arguments). Surrounding quotes are ignored.
+ */
+function selfTestIndexes(item) {
+  const words = commandWords(item);
+  const first = words[0] ? words[0].split('/').pop() : '';
+  const name = nameOf(item);
+  const found = [];
+  for (let i = SCRIPT_SHELLS.has(first) ? 2 : 1; i < words.length; i++) {
+    const w = words[i].replace(/^["']+|["']+$/g, '');
+    if (name && w === name) continue;
+    if (SELF_TEST_ARG.test(w)) found.push(i);
+  }
+  return found;
+}
+
+/** selfTestArgs(item) -> the self-test words of the item's command (see selfTestIndexes). */
+function selfTestArgs(item) {
+  const words = commandWords(item);
+  return selfTestIndexes(item).map((i) => words[i].replace(/^["']+|["']+$/g, ''));
+}
+
+/**
+ * sameEntryPoint(a, b) -> true when `a` and `b` run the same entry point at the same cwd: the same named
+ * target or script (nameOf), else the same command once a's self-test words are removed (TRD 71-01).
+ */
+function sameEntryPoint(a, b) {
+  if (trimDir(a.cwd) !== trimDir(b.cwd)) return false;
+  const na = nameOf(a);
+  const nb = nameOf(b);
+  if (na && nb) return na === nb;
+  const drop = new Set(selfTestIndexes(a));
+  const stripped = commandWords(a).filter((_, i) => !drop.has(i)).join(' ');
+  return stripped === bare(b.command);
+}
+
 /**
  * restatesCommand(name, run) -> true when a target's name (form suffix aside) is the default run's own
  * tool or subcommand word: `build:` running `go build ./...`, `test:` running `flutter test`. Such a target
@@ -409,6 +467,8 @@ function restatesCommand(name, run) {
  *     `go build ./...` is a shorthand for that command). `lint:` running `go vet ./...` names an interface
  *     the repo owns, where a stronger linter is added later.
  * Both narrowings were made on the fleet: the reviewed files inherit in each case they exclude.
+ * Widened for `lint` in TRD 71-01 (SDR-09): a body that is the default plus unconditional linters of other
+ * tools is the declared entry point too (declaredLinters).
  */
 function declaredTarget(item, key, defaultRun) {
   const t = item.target;
@@ -418,8 +478,39 @@ function declaredTarget(item, key, defaultRun) {
   const body = Array.isArray(item.bodyInvocations) && item.bodyInvocations.length
     ? item.bodyInvocations
     : [item.resolvesTo].filter(Boolean);
-  if (!body.length || !body.every((b) => bare(b) === want)) return false;
+  if (!body.length) return false;
+  if (!body.every((b) => bare(b) === want)) return declaredLinters(item, key, defaultRun) !== null;
   return !restatesCommand(t.name, defaultRun);
+}
+
+/**
+ * declaredLinters(item, key, defaultRun) -> the extra linter invocations of a `lint` target, or null (TRD 71-01,
+ * SDR-09). A key-named task-runner target with no prerequisite whose body is the tier default (at least one
+ * invocation) plus one or more OTHER invocations, EVERY one of which is
+ *   - a linter of a tool other than the default's own (stack-classify linterToolOf: `buf lint`,
+ *     `golangci-lint run ./...`; a second `go vet -tags x ./...` is the default's tool, not an extra linter), and
+ *   - unconditional: no `||` in its text (stack-shell splits on `&&` and `;`, so a `|| echo …` fallback stays in
+ *     the invocation; a linter behind one is optional by its own design). Two blind spots, both look
+ *     unconditional: a make `-` prefix (stack-runners strips it) and a `command -v X && X` guard without `||`.
+ * `lint` only; null for any other key, any extra line that is not a linter, and a name restating the default.
+ */
+function declaredLinters(item, key, defaultRun) {
+  if (key !== 'lint') return null;
+  const t = item.target;
+  if (!t || typeof t.name !== 'string' || !TASK_RUNNERS.has(item.runner) || !canonicalName(t.name, key)) return null;
+  if (!runnable(defaultRun) || (Array.isArray(t.deps) && t.deps.length)) return null;
+  const body = Array.isArray(item.bodyInvocations) ? item.bodyInvocations : [];
+  const want = bare(defaultRun);
+  if (!body.some((b) => bare(b) === want)) return null;
+  const extras = body.filter((b) => bare(b) !== want);
+  if (!extras.length) return null;
+  const defaultTool = defaultToolOf(defaultRun);
+  for (const b of extras) {
+    if (/\|\|/.test(b)) return null;
+    const tool = linterToolOf(b);
+    if (!tool || tool === defaultTool) return null;
+  }
+  return restatesCommand(t.name, defaultRun) ? null : extras;
 }
 
 /**
@@ -851,6 +942,22 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         return false;
       });
     }
+    // A self-test step (TRD 71-01, SDR-09): a candidate passing a self-test argument to an entry point that a
+    // sibling candidate runs WITHOUT one is a test of that gate, not the gate. A `self_test` note; a declared row
+    // is the user's own; with no gate sibling nothing changes (an offline self-test may be the only gate a repo has).
+    const gates = pool.filter((c) => !selfTestArgs(c).length);
+    const selfTestSeen = new Set();
+    pool = pool.filter((c) => {
+      if (c.source === 'declared' || !selfTestArgs(c).length) return true;
+      const gate = gates.find((g) => sameEntryPoint(c, g));
+      if (!gate) return true;
+      if (!selfTestSeen.has(c.command)) {
+        selfTestSeen.add(c.command);
+        const label = nameOf(c) || commandWords(c)[0];
+        notes.push(note(c, key, 'self_test', `a self-test of \`${label}\` (${selfTestArgs(c).join(' ')}); the step \`${gate.command}\` runs it as the gate, so this never fills ${key}`));
+      }
+      return false;
+    });
     // The governing default's tool decides the dedicated-linter rank for lint (TRD 43-12, linterOf).
     const formTool = defaultToolOf(formRun);
     let ranked = rank(pool, key, formTool);
@@ -972,6 +1079,14 @@ function assembleDraft({ areas = [], evidence = [], tierCommands = {}, verify = 
         break;
       }
       notes.push(note(c, key, v.status, v.detail));
+    }
+    // A lint target that runs the default AND unconditional linters of other tools was kept as the entry point
+    // (declaredLinters, TRD 71-01): an info note says what it adds to the default.
+    const addedLinters = chosen ? declaredLinters(chosen, key, parentRun) : null;
+    if (addedLinters) {
+      notes.push(note(chosen, key, 'info',
+        `runs the ${extendsId} default \`${parentRun}\` and ${addedLinters.map((x) => `\`${x}\``).join(', ')}; the target is the lint entry point`,
+        { tag: 'declared_linters' }));
     }
     const alternates = new Set();
     if (chosen && chosen.target && CANONICAL_KEYS.has(key)) {

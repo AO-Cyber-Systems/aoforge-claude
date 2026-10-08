@@ -61,7 +61,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 68 — Milestone and objective verbs (completed 2026-10-08, 7/7 TRDs)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
-**Status:** Objective 70 complete — verified 4/4; next: Objective 71 (Stack drafter and verify policy)
+**Status:** Executing objective 71 — 1/5 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -281,6 +281,6 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-08T18:59:10.307Z
+Last session: 2026-10-08T19:44:10.731Z
 Resume file: `None`
-Stopped at: Completed 70-03-dogfood-and-docs-TRD.md
+Stopped at: Completed 71-01-drafter-self-test-and-declared-linters-TRD.md

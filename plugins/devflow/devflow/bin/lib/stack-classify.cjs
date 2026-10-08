@@ -1127,6 +1127,32 @@ function isDedicatedLinter(tool) {
   return typeof tool === 'string' && DEDICATED_LINTERS.has(tool);
 }
 
+// Linters that lint a non-language artifact and never fill a key by themselves (TRD 71-01, SDR-09). Closed and
+// frozen. NOT in CLASSIFY_TABLE: `buf lint` stays unclassified, so it is never a candidate (it would otherwise
+// rank first as a dedicated linter in a CI that runs it before `go vet`) and never changes stack-evidence's
+// unitKeys. Only linterToolOf reads this, for the extra lines of a lint target.
+const AUX_LINTERS = Object.freeze([
+  Object.freeze({ tool: 'buf', match: (a) => is(a, 'buf', 'lint'), lints: 'proto' }),
+]);
+
+/**
+ * linterToolOf(inv) -> the tool when `inv` is a lint invocation, else null: a CLASSIFY_TABLE lint / lint_* row
+ * (`go vet ./...` -> go, `golangci-lint run ./...` -> golangci-lint, `helm lint chart/` -> helm), else an
+ * AUX_LINTERS entry (`buf lint` -> buf). `inv` is an invocation object or a shell string, as for toolStack.
+ */
+function linterToolOf(inv) {
+  const c = classifyInvocation(inv);
+  if (c && typeof c.key === 'string' && (c.key === 'lint' || c.key.startsWith('lint_'))) return c.tool || null;
+  for (const call of toInvocations(inv)) {
+    let i = 0;
+    while (i < call.argv.length - 1 && LEADING_NOISE.test(call.argv[i])) i++;
+    const argv = call.argv.slice(i);
+    const hit = AUX_LINTERS.find((l) => l.match(argv));
+    if (hit) return hit.tool;
+  }
+  return null;
+}
+
 module.exports = {
   CLASSIFY_TABLE,
   TOOL_STACKS,
@@ -1143,6 +1169,8 @@ module.exports = {
   lookupUses,
   lookupUsesCli,
   isDedicatedLinter,
+  linterToolOf,
+  AUX_LINTERS,
   testBreadth,
   TEST_BREADTH,
   BREADTH_REASONS,

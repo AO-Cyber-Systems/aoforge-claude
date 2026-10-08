@@ -1116,3 +1116,45 @@ describe('K31 buildBreadth (TRD 43-13 test 3)', () => {
     }
   });
 });
+
+// TRD 71-01 (SDR-09). The drafter reads a lint target's extra lines through linterToolOf: a lint row of the
+// classification table (go vet, golangci-lint, helm lint ...), or a linter of a non-language artifact that is
+// deliberately NOT in the table (`buf lint`: AUX_LINTERS). `buf lint` therefore still classifies to nothing.
+// (The TRD called this K31; that name was taken by buildBreadth in 43-13.)
+describe('K32 linterToolOf and AUX_LINTERS (TRD 71-01)', () => {
+  const linterToolOf = (inv) => (typeof classify.linterToolOf === 'function' ? classify.linterToolOf(inv) : undefined);
+
+  test('K32a: a lint invocation gives its tool, whether the table or AUX_LINTERS knows it', () => {
+    const cases = [
+      ['buf lint', 'buf'],
+      ['buf lint --path proto/x', 'buf'],
+      ['golangci-lint run ./...', 'golangci-lint'],
+      ['go vet ./...', 'go'],
+      ['helm lint chart/', 'helm'],
+    ];
+    for (const [inv, tool] of cases) assert.equal(linterToolOf(inv), tool, inv);
+  });
+
+  test('K32b: anything that is not a lint invocation, and junk, give null', () => {
+    for (const inv of ['buf generate', 'go test ./...', 'make lint', '', null]) {
+      assert.equal(linterToolOf(inv), null, String(inv));
+    }
+  });
+
+  test('K32c: `buf lint` stays out of the classification table', () => {
+    assert.equal(classifyInvocation('buf lint'), null);
+    assert.equal(CLASSIFY_TABLE.some((r) => r.tool === 'buf' && r.key === 'lint'), false);
+  });
+
+  test('K32d: AUX_LINTERS is a closed list, frozen with each entry', () => {
+    const aux = classify.AUX_LINTERS;
+    assert.ok(Array.isArray(aux) && aux.length >= 1, 'AUX_LINTERS is exported');
+    assert.ok(Object.isFrozen(aux));
+    for (const entry of aux) {
+      assert.ok(Object.isFrozen(entry), JSON.stringify(entry));
+      assert.equal(typeof entry.tool, 'string');
+      assert.equal(typeof entry.match, 'function');
+    }
+    assert.ok(aux.some((e) => e.tool === 'buf'));
+  });
+});

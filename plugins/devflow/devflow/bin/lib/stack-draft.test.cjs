@@ -1730,11 +1730,13 @@ describe('assembleDraft declared targets equal to the tier default (DT1-DT5, TRD
 
   // Fleet narrowing 1 (43-12 GREEN): "body equals the default" is the WHOLE body. A target that runs the default
   // and more, or has a prerequisite, keeps 42-07's first-invocation judgement (the reviewed files inherit it).
-  test('DT5: a key-named target that runs the default AND more, or has a prerequisite, is inherited as before (42-07)', () => {
+  // Re-baselined in 71-01 (SDR-09): for `lint` only, a target running the default plus UNCONDITIONAL linters of
+  // another tool (`buf lint`) is the lint entry point (DL1-DL7); the prerequisite case is unchanged.
+  test('DT5: a key-named target that runs the default AND an unconditional linter fills lint; with a prerequisite it is inherited as before (42-07)', () => {
     const more = run([
       ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint'), bodyInvocations: ['go vet ./...', 'buf lint'] }),
     ]);
-    assert.equal('lint' in more.commands, false, JSON.stringify(more.commands));
+    assert.deepStrictEqual(more.commands.lint, { run: 'make lint' }, JSON.stringify(more.commands));
     const prereq = run([
       ev('lint', 'make lint', { source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: { ...tgt('lint'), deps: ['generate'] }, bodyInvocations: ['go vet ./...'] }),
     ]);
@@ -2003,5 +2005,168 @@ describe('assembleDraft runtime-assigned variables rank after plain commands (RT
       ev('test', LIGHT, { tool: 'go', cwd: 'svc', area: 'svc/' }),
     ], areas);
     assert.deepStrictEqual(d.commands.test, { run: LIGHT, scoped: 'go test -race {packages}', cwd: 'svc' });
+  });
+});
+
+// TRD 71-01 (SDR-09): a candidate that passes a self-test argument to an entry point another candidate runs
+// WITHOUT one is a test of that gate, not the gate (`bash scripts/vuln-gate.sh --self-test` beside `bash
+// scripts/vuln-gate.sh`). It is a `self_test` note for every key, whatever the tier. With no gate sibling, or
+// a sibling with another entry point or cwd, or a declared row, nothing is filtered.
+describe('assembleDraft self-test steps never fill a key beside their gate (ST1-ST7, TRD 71-01)', () => {
+  const GATE = 'bash scripts/vuln-gate.sh';
+  const script = (key, command, invokedName, extra = {}) => ev(key, command, { runner: 'script', tool: 'govulncheck', invokedName, ...extra });
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+  const selfNotes = (d) => d.notes.filter((n) => n.status === 'self_test');
+
+  test('ST1: at a tier root the gate step fills audit and the self-test is a self_test note naming the gate', () => {
+    const d = run([
+      script('audit', `${GATE} --self-test`, 'vuln-gate'),
+      script('audit', GATE, 'vuln-gate'),
+    ]);
+    assert.deepStrictEqual(d.commands.audit, { run: GATE }, JSON.stringify(d.commands.audit));
+    const notes = selfNotes(d);
+    assert.equal(notes.length, 1, JSON.stringify(d.notes));
+    assert.equal(notes[0].key, 'audit');
+    assert.equal(notes[0].candidate, `${GATE} --self-test`);
+    assert.match(notes[0].detail, /bash scripts\/vuln-gate\.sh/);
+  });
+
+  test('ST2: in a general root\'s primary component the gate keeps the component cwd', () => {
+    const AREAS = [
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+      { dir: 'go/', kinds: ['go'], tier: 'go', flags: [] },
+    ];
+    const at = { cwd: 'go', area: 'go/' };
+    const d = run([
+      ev('lint', 'go vet ./...', { ...at, tool: 'go' }),
+      ev('test', 'go test ./...', { ...at, tool: 'go' }),
+      script('audit', `${GATE} --self-test`, 'vuln-gate', at),
+      script('audit', GATE, 'vuln-gate', at),
+    ], AREAS);
+    assert.deepStrictEqual(d.commands.audit, { run: GATE, cwd: 'go' }, JSON.stringify(d.commands.audit));
+    assert.equal(selfNotes(d).length, 1, JSON.stringify(d.notes));
+  });
+
+  test('ST3: a self-test with no gate sibling still fills its key; a declared row is untouched', () => {
+    const lone = run([script('audit', './gate.sh --self-test', 'gate')]);
+    assert.equal(lone.commands.audit.run, './gate.sh --self-test', JSON.stringify(lone.commands));
+    assert.equal(selfNotes(lone).length, 0);
+    const offline = run([ev('test', 'bash t0-conformance/selftest.sh', { runner: 'script', invokedName: 'selftest' })], NO_AREAS);
+    assert.equal(offline.commands.test.run, 'bash t0-conformance/selftest.sh', JSON.stringify(offline.commands));
+    assert.equal(selfNotes(offline).length, 0);
+  });
+
+  test('ST4: a sibling with a different entry point is no gate for the self-test: the ranking decides as before', () => {
+    const d = run([
+      script('audit', `${GATE} --self-test`, 'vuln-gate'),
+      script('audit', 'bash scripts/other-gate.sh', 'other-gate'),
+    ]);
+    assert.equal(d.commands.audit.run, `${GATE} --self-test`, JSON.stringify(d.commands.audit));
+    assert.equal(selfNotes(d).length, 0, JSON.stringify(d.notes));
+  });
+
+  test('ST5: every self-test spelling is filtered; a target word (`make selftest`) is never read as an argument', () => {
+    for (const marker of ['--selftest', '--self-test=fixtures', '--selftest-no-divergence', 'selftest']) {
+      const selfCmd = `${GATE} ${marker}`;
+      const d = run([script('audit', selfCmd, 'vuln-gate'), script('audit', GATE, 'vuln-gate')]);
+      assert.deepStrictEqual(d.commands.audit, { run: GATE }, `${marker}: ${JSON.stringify(d.commands.audit)}`);
+      assert.deepStrictEqual(selfNotes(d).map((n) => n.candidate), [selfCmd], `${marker}: ${JSON.stringify(d.notes)}`);
+    }
+    const tgt = (name, order) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [] });
+    const make = (command, name, order) => ev('test', command, {
+      source: 'runner', sourceFile: 'Makefile', runner: 'make', target: tgt(name, order), bodyStacks: [],
+    });
+    const d = run([make('make selftest', 'selftest', 0), make('make test', 'test', 1)], NO_AREAS);
+    assert.equal(selfNotes(d).length, 0, JSON.stringify(d.notes));
+    assert.equal(d.commands.test.run, 'make test', JSON.stringify(d.commands.test));
+  });
+
+  test('ST6: a declared row carrying a self-test argument is the user\'s own and is kept', () => {
+    const d = run([
+      script('audit', `${GATE} --self-test`, 'vuln-gate', { source: 'declared', sourceFile: '.planning/codebase/STACK.md' }),
+      script('audit', GATE, 'vuln-gate'),
+    ]);
+    assert.equal(d.commands.audit.run, `${GATE} --self-test`, JSON.stringify(d.commands.audit));
+    assert.equal(selfNotes(d).length, 0, JSON.stringify(d.notes));
+  });
+
+  test('ST7: the rule is key-agnostic (test), and a sibling at another cwd is not a pair', () => {
+    const d = run([
+      ev('test', './ci/check.sh --self-test', { runner: 'script', invokedName: 'check' }),
+      ev('test', './ci/check.sh', { runner: 'script', invokedName: 'check' }),
+    ], NO_AREAS);
+    assert.equal(d.commands.test.run, './ci/check.sh', JSON.stringify(d.commands.test));
+    assert.deepStrictEqual(selfNotes(d).map((n) => n.key), ['test']);
+
+    const apart = run([
+      ev('test', './ci/check.sh --self-test', { runner: 'script', invokedName: 'check', cwd: 'a' }),
+      ev('test', './ci/check.sh', { runner: 'script', invokedName: 'check', cwd: 'b' }),
+    ], NO_AREAS);
+    assert.equal(selfNotes(apart).length, 0, JSON.stringify(apart.notes));
+  });
+});
+
+// TRD 71-01 (SDR-09), widening 43-12's narrowing 1 for `lint`: a key-named task-runner target with no
+// prerequisite whose body is the tier default plus one or more UNCONDITIONAL linters of another tool
+// (stack-classify linterToolOf: `buf lint`, `golangci-lint run ./...`) is the repo's lint entry point, with a
+// `declared_linters` info note. An extra line with a `||` fallback, an extra line that is not a linter, a
+// target with a prerequisite and a second invocation of the default's own tool keep the key inherited.
+describe('assembleDraft lint targets that add linters (DL1-DL7, TRD 71-01)', () => {
+  const tgt = (name, extra = {}) => ({ name, deps: [], isDefault: false, dependedOn: false, order: 0, legs: [], ...extra });
+  const lintTarget = (body, targetExtra = {}) => ev('lint', 'make lint', {
+    source: 'runner', sourceFile: 'Makefile', runner: 'make', tool: 'go', resolvesTo: 'go vet ./...', target: tgt('lint', targetExtra), bodyInvocations: body,
+  });
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+  const declaredNotes = (d) => d.notes.filter((n) => n.tag === 'declared_linters');
+  const inherited = (d) => {
+    assert.equal('lint' in d.commands, false, JSON.stringify(d.commands));
+    assert.ok(d.inheritedKeys.includes('lint'), JSON.stringify(d.inheritedKeys));
+    assert.equal(declaredNotes(d).length, 0, JSON.stringify(d.notes));
+  };
+
+  test('DL1: the default plus `buf lint` makes `make lint` the lint entry point, with an info note naming both', () => {
+    const d = run([lintTarget(['go vet ./...', 'buf lint'])]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'make lint' }, JSON.stringify(d.commands));
+    assert.equal(d.inheritedKeys.includes('lint'), false);
+    const notes = declaredNotes(d);
+    assert.equal(notes.length, 1, JSON.stringify(d.notes));
+    assert.equal(notes[0].key, 'lint');
+    assert.equal(notes[0].status, 'info');
+    assert.equal(notes[0].tag, 'declared_linters');
+    assert.match(notes[0].detail, /go vet \.\/\.\./);
+    assert.match(notes[0].detail, /buf lint/);
+  });
+
+  test('DL2: the default plus an unconditional `golangci-lint run ./...` is the entry point too', () => {
+    const d = run([lintTarget(['go vet ./...', 'golangci-lint run ./...'])]);
+    assert.deepStrictEqual(d.commands.lint, { run: 'make lint' }, JSON.stringify(d.commands));
+    assert.equal(declaredNotes(d).length, 1);
+  });
+
+  test('DL3: an extra linter behind a `||` fallback is optional by its own design: lint stays inherited', () => {
+    inherited(run([lintTarget(['go vet ./...', 'golangci-lint run || echo "not installed"'])]));
+  });
+
+  test('DL4: an extra line that is not a linter keeps lint inherited', () => {
+    inherited(run([lintTarget(['go vet ./...', 'buf lint', 'go build ./...'])]));
+  });
+
+  test('DL5: a prerequisite keeps lint inherited (43-12 narrowing 1)', () => {
+    inherited(run([lintTarget(['go vet ./...', 'buf lint'], { deps: ['generate'] })]));
+  });
+
+  test('DL6: a second invocation of the default\'s own tool is no extra linter', () => {
+    inherited(run([lintTarget(['go vet ./...', 'go vet -tags integration ./...'])]));
+  });
+
+  test('DL7: an unresolved `make lint` beside the CI default line leaves lint inherited, with the failure as a note', () => {
+    const d = assembleDraft({
+      areas: ROOT_GO,
+      evidence: [lintTarget(['go vet ./...', 'buf lint']), ev('lint', 'go vet ./...', { tool: 'go' })],
+      tierCommands: TIERS,
+      verify: (cmd) => (cmd === 'make lint' ? { status: 'binary_missing', detail: 'make is not installed' } : { status: 'resolved' }),
+    });
+    inherited(d);
+    assert.ok(d.notes.some((n) => n.key === 'lint' && n.candidate === 'make lint' && n.status === 'binary_missing'), JSON.stringify(d.notes));
   });
 });
