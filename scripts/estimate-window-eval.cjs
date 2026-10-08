@@ -313,6 +313,404 @@ function noiseFloor(ratios, k) {
   return { subsets, in_band: hits, share: hits / subsets };
 }
 
+// ─── Diagnostic tables ────────────────────────────────────────────────────────
+
+const mean = (values) => (values.length === 0 ? null : sum(values) / values.length);
+
+/**
+ * TRD rows (ordered by objective) split into `count` consecutive eras of equal size (sizes differ by at most one; the
+ * first eras take the extra rows). No hand-picked boundary. Each era names its first and last objective.
+ * @param {{objective:string, actual:number, p50:number}[]} rows
+ */
+function eraTable(rows, count) {
+  const list = rows || [];
+  const eras = Math.min(count, list.length);
+  const out = [];
+  let start = 0;
+  for (let e = 0; e < eras; e += 1) {
+    const size = Math.floor(list.length / eras) + (e < list.length % eras ? 1 : 0);
+    const group = list.slice(start, start + size);
+    start += size;
+    out.push({
+      era: e + 1,
+      from: group[0].objective,
+      to: group[group.length - 1].objective,
+      n: group.length,
+      median_actual: median(group.map((r) => r.actual)),
+      mean_actual: mean(group.map((r) => r.actual)),
+      median_p50: median(group.map((r) => r.p50)),
+      median_ratio: median(group.map((r) => r.p50 / r.actual)),
+      pooled_ratio: sum(group.map((r) => r.actual)) > 0 ? sum(group.map((r) => r.p50)) / sum(group.map((r) => r.actual)) : null,
+    });
+  }
+  return out;
+}
+
+const TASK_COUNT_GROUPS = Object.freeze(['1', '2', '3', '4+']);
+
+/** TRD rows grouped by their auto task count (1, 2, 3, 4+); a group with no rows is omitted. */
+function taskCountTable(rows) {
+  const groups = new Map(TASK_COUNT_GROUPS.map((g) => [g, []]));
+  for (const r of rows || []) {
+    if (!(r.k >= 1)) continue;
+    groups.get(r.k >= 4 ? '4+' : String(r.k)).push(r);
+  }
+  return TASK_COUNT_GROUPS.filter((g) => groups.get(g).length > 0).map((group) => {
+    const list = groups.get(group);
+    return {
+      group,
+      n: list.length,
+      median_actual: median(list.map((r) => r.actual)),
+      median_p50: median(list.map((r) => r.p50)),
+      median_ratio: median(list.map((r) => r.p50 / r.actual)),
+    };
+  });
+}
+
+function isCheckpointTask(task) {
+  return typeof task.type === 'string' && task.type.startsWith('checkpoint');
+}
+
+function compareTrds(a, b) {
+  const na = objectiveNumber(a.objective_dir);
+  const nb = objectiveNumber(b.objective_dir);
+  return (na === null ? Infinity : na) - (nb === null ? Infinity : nb)
+    || compareStrings(a.objective_dir, b.objective_dir)
+    || (Number(a.trd) - Number(b.trd))
+    || compareStrings(a.id, b.id);
+}
+
+/**
+ * Class `other` (tasks with no `<files>`): every such task of an autonomous TRD with minutes as `{id, minutes, k,
+ * share}` in TRD order (share = TRD minutes / auto tasks, the calibrator's per-task sample), the class's n, p50 and P90
+ * from `cal`, and how many of its samples sit in TRDs of LONG_TRD_MINUTES or more.
+ */
+function otherClassTable(project, cal) {
+  const tasks = [];
+  for (const trd of [...project.trds].sort(compareTrds)) {
+    if (!trd.autonomous || trd.minutes === null) continue;
+    const auto = trd.tasks.filter((task) => !isCheckpointTask(task));
+    for (const task of auto) {
+      if (ci.classifyTask({ files: task.files, tdd: task.tdd, type: task.type, trdType: trd.trd_type }) !== 'other') continue;
+      tasks.push({ id: trd.id, minutes: trd.minutes, k: auto.length, share: trd.minutes / auto.length });
+    }
+  }
+  const block = cal && cal.task_classes && cal.task_classes.other && cal.task_classes.other.minutes;
+  return {
+    tasks,
+    n: block && isNum(block.n) ? block.n : 0,
+    p50: block && isNum(block.p50) ? block.p50 : null,
+    p90: block && isNum(block.p90) ? block.p90 : null,
+    in_long_trds: tasks.filter((t) => t.minutes >= LONG_TRD_MINUTES).length,
+    long_trd_minutes: LONG_TRD_MINUTES,
+  };
+}
+
+/**
+ * Autonomous TRDs with minutes by where the minutes came from (`summary` duration or STATE_ARCHIVE `metric` row): count
+ * and median minutes. With `rows` (in-sample TRD rows) each source also gets the median p50 / actual ratio.
+ */
+function durationSourceTable(project, rows = null) {
+  const bySource = new Map([['summary', []], ['metric', []]]);
+  for (const trd of project.trds) {
+    if (!trd.autonomous || trd.minutes === null || !bySource.has(trd.duration_source)) continue;
+    bySource.get(trd.duration_source).push(trd);
+  }
+  const ratioById = rows === null ? null : new Map(rows.map((r) => [r.id, r.p50 / r.actual]));
+  return ['summary', 'metric'].filter((source) => bySource.get(source).length > 0).map((source) => {
+    const list = bySource.get(source);
+    const entry = { source, n: list.length, median_minutes: median(list.map((t) => t.minutes)) };
+    if (ratioById !== null) entry.median_ratio = median(list.map((t) => ratioById.get(t.id)));
+    return entry;
+  });
+}
+
+/**
+ * How TRDs compose into an objective. For objective rows with the sum of TRD medians P, the composed (correlated sum)
+ * median F and the actual A: the median and pooled F / P (inflation of the correlated sum over the sum of medians),
+ * P / A and F / A.
+ * @param {{sum_p50:number, p50:number, actual:number}[]} objectiveRows
+ */
+function compositionTable(objectiveRows) {
+  const list = (objectiveRows || []).filter((r) => r && isNum(r.sum_p50) && r.sum_p50 > 0 && isNum(r.p50) && isNum(r.actual) && r.actual > 0);
+  const pooled = (num, den) => (sum(list.map(den)) > 0 ? sum(list.map(num)) / sum(list.map(den)) : null);
+  return {
+    n: list.length,
+    median_inflation: median(list.map((r) => r.p50 / r.sum_p50)),
+    median_sum_over_actual: median(list.map((r) => r.sum_p50 / r.actual)),
+    pooled_sum_over_actual: pooled((r) => r.sum_p50, (r) => r.actual),
+    median_composed_over_actual: median(list.map((r) => r.p50 / r.actual)),
+    pooled_composed_over_actual: pooled((r) => r.p50, (r) => r.actual),
+  };
+}
+
+/** `{class: minutes.n}` for every task class but `all`, sorted by class name. */
+function classCounts(cal) {
+  const classes = cal && cal.task_classes ? cal.task_classes : {};
+  const out = {};
+  for (const name of Object.keys(classes).sort()) {
+    if (name === 'all') continue;
+    const n = classes[name] && classes[name].minutes ? classes[name].minutes.n : 0;
+    out[name] = isNum(n) ? n : 0;
+  }
+  return out;
+}
+
+// ─── The report ───────────────────────────────────────────────────────────────
+
+/** The calibration's class counts for the cut a run at `before` would see with `window`. */
+function cutClassCounts({ snapshotRoot, before, window, project }) {
+  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-cut-'));
+  try {
+    cutProject({ snapshotRoot, before, window, dest, project });
+    return classCounts(calibrator.buildCalibration({ paths: [dest], transcriptsRoot: null }));
+  } finally {
+    fs.rmSync(dest, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Everything 64-DIAGNOSIS.md quotes, as one plain object (unrounded numbers, no path, no timestamp).
+ * @param {{snapshotRoot:string, evalObjectives:number[], windows:number[], label:string}} options
+ *   `evalObjectives` are objective numbers; those with an autonomous TRD that has minutes are the selection set.
+ */
+function report({ snapshotRoot, evalObjectives, windows, label }) {
+  const project = ci.collectProject(snapshotRoot);
+
+  // In sample: the whole snapshot's calibration against its own TRDs (suspects S1, S2, S4, S5, S6).
+  const inCal = calibrator.buildCalibration({ paths: [snapshotRoot], transcriptsRoot: null });
+  const inRows = [];
+  const inObjectiveRows = [];
+  for (const dir of rankObjectives(project.objectives)) {
+    const rows = trdRows(inCal, snapshotRoot, project, dir);
+    if (rows.length === 0) continue;
+    for (const r of rows) inRows.push({ objective: dir, ...r });
+    inObjectiveRows.push(objectiveRow(rows));
+  }
+
+  const withMinutes = new Set(project.trds.filter((t) => t.autonomous && t.minutes !== null).map((t) => t.objective_dir));
+  const evalDirs = rankObjectives([...withMinutes]).filter((dir) => evalObjectives.includes(objectiveNumber(dir)));
+  if (evalDirs.length === 0) throw new Error('no objective of the snapshot with TRD minutes matches the evaluation objectives');
+
+  const candidates = rollingSweep({ snapshotRoot, evalObjectives: evalDirs, windows: ['all', ...windows] });
+  const selection = selectWindow(candidates.map((c) => c.summary));
+  const ratiosOf = (c) => c.objectives.map((o) => o.row).filter(Boolean).map((r) => r.ratio).filter(isNum);
+  const allCandidate = candidates.find((c) => c.window === 'all');
+  const chosen = selection.window === null ? null : candidates.find((c) => c.window === selection.window);
+
+  const last = evalDirs[evalDirs.length - 1];
+  const before = objectiveNumber(last);
+  return {
+    label,
+    eval: { numbers: [...evalObjectives], objectives: evalDirs },
+    grid: [...windows],
+    eras: eraTable(inRows, 4),
+    task_count: taskCountTable(inRows),
+    other_class: otherClassTable(project, inCal),
+    duration_source: durationSourceTable(project, inRows),
+    composition: {
+      in_sample: compositionTable(inObjectiveRows),
+      rolling_all: compositionTable(allCandidate.objectives.map((o) => o.row)),
+    },
+    candidates,
+    selection,
+    noise_floor: {
+      k: SC2_SAMPLE,
+      all: noiseFloor(ratiosOf(allCandidate), SC2_SAMPLE),
+      chosen: chosen === null ? null : { window: chosen.window, ...noiseFloor(ratiosOf(chosen), SC2_SAMPLE) },
+    },
+    class_counts: {
+      objective: before,
+      w10: cutClassCounts({ snapshotRoot, before, window: 10, project }),
+      w5: cutClassCounts({ snapshotRoot, before, window: 5, project }),
+    },
+  };
+}
+
+// ─── Markdown ─────────────────────────────────────────────────────────────────
+
+const f1 = (v) => (isNum(v) ? v.toFixed(1) : 'n/a');
+const f2 = (v) => (isNum(v) ? v.toFixed(2) : 'n/a');
+const f3 = (v) => (isNum(v) ? v.toFixed(3) : 'n/a');
+const pct = (v) => (isNum(v) ? `${(v * 100).toFixed(1)}%` : 'n/a');
+const objectiveLabel = (dir) => {
+  const n = objectiveNumber(dir);
+  return n === null ? dir : String(n);
+};
+
+function table(headers, rows) {
+  if (rows.length === 0) return ['(none)'];
+  return [
+    `| ${headers.join(' | ')} |`,
+    `|${headers.map(() => '---').join('|')}|`,
+    ...rows.map((cells) => `| ${cells.join(' | ')} |`),
+  ];
+}
+
+/** The report as markdown: ratios with 2 decimals, S with 3. */
+function formatReport(result) {
+  const lines = [];
+  const section = (title, ...body) => lines.push(`### ${title}`, '', ...body, '');
+
+  section('Eras (S1)',
+    'In-sample TRDs (the whole snapshot\'s calibration against its own TRDs), in objective order, in equal-count eras.', '',
+    ...table(['Era', 'Objectives', 'TRDs', 'Median actual', 'Mean actual', 'Median p50', 'Median ratio', 'Pooled ratio'],
+      result.eras.map((e) => [e.era, e.from === e.to ? objectiveLabel(e.from) : `${objectiveLabel(e.from)} to ${objectiveLabel(e.to)}`,
+        e.n, f1(e.median_actual), f1(e.mean_actual), f1(e.median_p50), f2(e.median_ratio), f2(e.pooled_ratio)])));
+
+  section('Task count (S5)',
+    ...table(['Tasks per TRD', 'TRDs', 'Median actual', 'Median p50', 'Median ratio'],
+      result.task_count.map((g) => [g.group, g.n, f1(g.median_actual), f1(g.median_p50), f2(g.median_ratio)])));
+
+  const other = result.other_class;
+  section('Class other (S4)',
+    `Class other: n ${other.n}, p50 ${f1(other.p50)}, P90 ${f1(other.p90)} minutes per task; ${other.in_long_trds} of its ${other.tasks.length} tasks sit in TRDs of ${other.long_trd_minutes} minutes or more.`, '',
+    ...table(['TRD', 'TRD minutes', 'Tasks (k)', 'Share'], other.tasks.map((t) => [t.id, f1(t.minutes), t.k, f1(t.share)])));
+
+  section('Duration source (S2)',
+    ...table(['Source', 'TRDs', 'Median minutes', 'Median ratio'],
+      result.duration_source.map((d) => [d.source, d.n, f1(d.median_minutes), f2(d.median_ratio)])));
+
+  const compositionRow = (name, c) => [name, c.n, f2(c.median_inflation), f2(c.median_sum_over_actual), f2(c.pooled_sum_over_actual),
+    f2(c.median_composed_over_actual), f2(c.pooled_composed_over_actual)];
+  section('Composition (S6)',
+    'P is the sum of the TRD medians, F the correlated-sum median of the objective, A the actual.', '',
+    ...table(['Basis', 'Objectives', 'Median F/P', 'Median P/A', 'Pooled P/A', 'Median F/A', 'Pooled F/A'],
+      [compositionRow('in sample', result.composition.in_sample), compositionRow('rolling, all history', result.composition.rolling_all)]));
+
+  const sel = result.selection;
+  section('Selection',
+    `Evaluation objectives: ${result.eval.objectives.map(objectiveLabel).join(', ')}.`, '',
+    ...table(['Window', 'S', 'In band', 'Obj coverage', 'TRD coverage', 'TRD bias', 'Median ratio', 'Per-objective ratios'],
+      result.candidates.map((c) => [c.window, f3(c.summary.s), `${c.summary.in_band} of ${c.summary.n_objectives}`,
+        f2(c.summary.obj_coverage), f2(c.summary.trd_coverage), f3(c.summary.trd_bias), f2(c.summary.median_ratio),
+        c.objectives.map((o) => `${objectiveLabel(o.objective)}: ${o.row ? f2(o.row.ratio) : 'n/a'}`).join(', ')])), '',
+    `decision: ${sel.decision}`,
+    ...(sel.decision === 'build_window' ? [`window_objectives: ${sel.window}`] : []), '',
+    ...table(['Window', 'Eligible', 'Failed conditions'], sel.reasons.map((r) => [r.window, r.eligible ? 'yes' : 'no', r.failed.join('; ') || 'none'])));
+
+  const nf = result.noise_floor;
+  const floorRow = (name, f) => [name, f.subsets, f.in_band === undefined ? 'n/a' : f.in_band, pct(f.share)];
+  section('Noise floor',
+    `Share of the ${nf.k}-objective subsets of the per-objective ratios whose median lies in the band (the SC2 test on a random sample).`, '',
+    ...table(['Ratios of', `${nf.k}-subsets`, 'Median in band', 'Share'],
+      [floorRow('all history', nf.all), ...(nf.chosen ? [floorRow(`window ${nf.chosen.window}`, nf.chosen)] : [])]));
+
+  const counts = result.class_counts;
+  const names = [...new Set([...Object.keys(counts.w10), ...Object.keys(counts.w5)])].sort();
+  const cell = (map, name) => {
+    const n = name in map ? map[name] : 0;
+    return n < est.MIN_CLASS_SAMPLES ? `${n} (below ${est.MIN_CLASS_SAMPLES})` : String(n);
+  };
+  section('Class sample counts',
+    `Task classes with minutes samples in the calibration at the cut before objective ${counts.objective}.`, '',
+    ...table(['Class', 'W=10', 'W=5'], names.map((name) => [name, cell(counts.w10, name), cell(counts.w5, name)])));
+
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`;
+}
+
+// ─── CLI ──────────────────────────────────────────────────────────────────────
+
+const USAGE = 'usage: estimate-window-eval.cjs report --snapshot <dir> [--eval 46-58|46,47,...] [--grid 10,15,20,30,40] [--label text] [--json <file>] [--raw]';
+const DEFAULT_EVAL = '46-58';
+const DEFAULT_GRID = '10,15,20,30,40';
+const VALUE_FLAGS = new Set(['--snapshot', '--eval', '--grid', '--label', '--json']);
+
+class UsageError extends Error {}
+
+function realpathOrSelf(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p; // a path that does not exist yet is compared as written
+  }
+}
+
+/** True when `p` is `<home>/.claude` or inside it (also through a symlink). `home` defaults to the user's home. */
+function isUnderClaudeHome(p, home = os.homedir()) {
+  const claudes = new Set([path.join(path.resolve(home), '.claude')]);
+  claudes.add(realpathOrSelf([...claudes][0]));
+  const resolved = path.resolve(p);
+  return [resolved, realpathOrSelf(resolved)].some((candidate) => [...claudes].some((c) => candidate === c || candidate.startsWith(c + path.sep)));
+}
+
+function parseNumberList(text, flag) {
+  if (!/^\d+(,\d+)*$/.test(text)) throw new UsageError(`${flag} must be a comma-separated list of positive integers, got "${text}"`);
+  const values = text.split(',').map(Number);
+  if (values.some((v) => v < 1)) throw new UsageError(`${flag} must be positive integers, got "${text}"`);
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
+function parseEval(text) {
+  const range = /^(\d+)-(\d+)$/.exec(text);
+  if (range) {
+    const lo = Number(range[1]);
+    const hi = Number(range[2]);
+    if (lo > hi) throw new UsageError(`--eval range ${text} runs backwards`);
+    return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  }
+  return parseNumberList(text, '--eval');
+}
+
+function parseArgs(argv) {
+  if (argv.length === 0) throw new UsageError('no subcommand');
+  const [command, ...rest] = argv;
+  if (command !== 'report') throw new UsageError(`unknown subcommand "${command}"`);
+  const options = { snapshot: null, eval: DEFAULT_EVAL, grid: DEFAULT_GRID, label: 'snapshot', json: null, raw: false };
+  for (let i = 0; i < rest.length; i += 1) {
+    const arg = rest[i];
+    if (arg === '--raw') {
+      options.raw = true;
+    } else if (VALUE_FLAGS.has(arg)) {
+      const value = rest[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new UsageError(`${arg} needs a value`);
+      options[arg.slice(2)] = value;
+      i += 1;
+    } else {
+      throw new UsageError(arg.startsWith('--') ? `unknown flag ${arg}` : `unexpected argument "${arg}"`);
+    }
+  }
+  if (options.snapshot === null) throw new UsageError('report needs --snapshot <dir>');
+  options.evalList = parseEval(options.eval);
+  options.gridList = parseNumberList(options.grid, '--grid');
+  return options;
+}
+
+function isProjectDir(dir) {
+  try {
+    return fs.statSync(path.join(dir, '.planning', 'objectives')).isDirectory();
+  } catch {
+    return false; // absent or unreadable: not a snapshot
+  }
+}
+
+/** Runs the CLI; returns the exit code (0 ok, 1 usage or run error). `io` may carry stdout and stderr writers. */
+function main(argv, io = {}) {
+  const out = io.stdout || process.stdout;
+  const err = io.stderr || process.stderr;
+  try {
+    const options = parseArgs(argv);
+    for (const [flag, value] of [['--snapshot', options.snapshot], ['--json', options.json]]) {
+      if (value !== null && isUnderClaudeHome(value)) throw new UsageError(`${flag} refuses a path under ~/.claude`);
+    }
+    if (!isProjectDir(options.snapshot)) throw new UsageError('--snapshot must be a directory that holds .planning/objectives');
+
+    const result = report({ snapshotRoot: path.resolve(options.snapshot), evalObjectives: options.evalList, windows: options.gridList, label: options.label });
+    const json = `${JSON.stringify(result, null, 2)}\n`;
+    if (options.json !== null) fs.writeFileSync(options.json, json);
+    out.write(options.raw ? formatReport(result) : json);
+    return 0;
+  } catch (e) {
+    err.write(`estimate-window-eval: ${e.message}\n`);
+    if (e instanceof UsageError) err.write(`${USAGE}\n`);
+    return 1;
+  }
+}
+
+if (require.main === module) {
+  process.exitCode = main(process.argv.slice(2));
+}
+
 module.exports = {
   S_TIE,
   SC2_SAMPLE,
@@ -328,4 +726,15 @@ module.exports = {
   rollingSweep,
   selectWindow,
   noiseFloor,
+  eraTable,
+  taskCountTable,
+  otherClassTable,
+  durationSourceTable,
+  compositionTable,
+  classCounts,
+  report,
+  formatReport,
+  isUnderClaudeHome,
+  parseArgs,
+  main,
 };
