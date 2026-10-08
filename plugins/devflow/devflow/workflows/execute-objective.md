@@ -1091,13 +1091,14 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
 </step>
 
 <step name="aggregate_results">
-After all waves:
+After all waves, print the report below. Its **Token stamp:** line is the share of this objective's TRDs whose SUMMARY carries a live token stamp. A `missing` entry is reported as it is, with its reason. The orchestrator never runs `tokens backfill --write` to raise the number: EST-09 counts only live stamps made at publish time, and a miss is worth seeing the day it happens.
 
 ```markdown
 ## Objective {X}: {Name} Execution Complete
 
 **Waves:** {N} | **Jobs:** {M}/{total} complete
 **Time:** {output of `node ~/.claude/devflow/bin/df-tools.cjs estimate finish ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails}
+**Token stamp:** {output of `node ~/.claude/devflow/bin/df-tools.cjs tokens coverage --objective ${OBJECTIVE_NUMBER} --raw`; omit the line if it fails or the runtime has no `tokens coverage`}
 
 | Wave | Plans | Status |
 |------|-------|--------|
