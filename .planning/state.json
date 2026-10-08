@@ -1170,6 +1170,11 @@
       "objective": "68",
       "summary": "Single decimals in a milestone bullet match by text, not float, so Objectives 4.1 does not select 04.10-ten; ranges and sort order stay numeric (float 4.10 == 4.1 deferred)",
       "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case",
+      "rationale": "Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer"
     }
   ],
   "blockers": [

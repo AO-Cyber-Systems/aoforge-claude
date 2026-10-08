@@ -202,7 +202,7 @@ TRDs:
 TRDs:
 - [x] 68-01-milestone-complete-dry-run-and-rerun-TRD.md — (W1) `milestone complete` split into a read-only plan and its executor; `--dry-run` (local); re-run keeps the entry and archives, `1.0` = `v1.0`; `milestoneHeadingPattern` in text-escape.cjs
 - [ ] 68-02-milestone-scope-shared-helpers-TRD.md — (W1) `parseObjectiveDirName` / `canonicalObjectiveNumber` in helpers.cjs; milestone-scope.cjs resolves directories through `objectiveDirMatches`, no DIR_RE/canonical(); exports `roadmapSections`
-- [ ] 68-03-unknown-flag-guard-TRD.md — (W1) dispatcher guard (`lib/flag-guard.cjs`) + `lib/flag-spec.cjs` for the planning and state writers; spawn probes assert exit 1, the named flag, no write
+- [x] 68-03-unknown-flag-guard-TRD.md — (W1) dispatcher guard (`lib/flag-guard.cjs`) + `lib/flag-spec.cjs` for the planning and state writers; spawn probes assert exit 1, the named flag, no write
 - [ ] 68-04-objective-remove-and-complete-TRD.md — (W2) bounded NN-MM renumber rule keeps dates and metadata; `nextObjective` reads directories and ROADMAP sections for local and store `objective complete`
 - [ ] 68-05-flag-spec-every-writer-TRD.md — (W2) spec entries for the remaining writing commands; repo test: spec = help.cjs `mutates`, a probe per entry, exemption reasons, documented invocations accepted
 - [ ] 68-06-store-milestone-dry-run-TRD.md — (W2) store-mode `milestone complete --dry-run` with zero gh calls; `milestone put` shares the MILESTONES.md heading rule
