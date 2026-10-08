@@ -2005,3 +2005,101 @@ describe('assembleDraft runtime-assigned variables rank after plain commands (RT
     assert.deepStrictEqual(d.commands.test, { run: LIGHT, scoped: 'go test -race {packages}', cwd: 'svc' });
   });
 });
+
+// TRD 71-01 (SDR-09): a candidate that passes a self-test argument to an entry point another candidate runs
+// WITHOUT one is a test of that gate, not the gate (`bash scripts/vuln-gate.sh --self-test` beside `bash
+// scripts/vuln-gate.sh`). It is a `self_test` note for every key, whatever the tier. With no gate sibling, or
+// a sibling with another entry point or cwd, or a declared row, nothing is filtered.
+describe('assembleDraft self-test steps never fill a key beside their gate (ST1-ST7, TRD 71-01)', () => {
+  const GATE = 'bash scripts/vuln-gate.sh';
+  const script = (key, command, invokedName, extra = {}) => ev(key, command, { runner: 'script', tool: 'govulncheck', invokedName, ...extra });
+  const run = (evidence, areas = ROOT_GO) => assembleDraft({ areas, evidence, tierCommands: TIERS, verify: resolvedAll });
+  const selfNotes = (d) => d.notes.filter((n) => n.status === 'self_test');
+
+  test('ST1: at a tier root the gate step fills audit and the self-test is a self_test note naming the gate', () => {
+    const d = run([
+      script('audit', `${GATE} --self-test`, 'vuln-gate'),
+      script('audit', GATE, 'vuln-gate'),
+    ]);
+    assert.deepStrictEqual(d.commands.audit, { run: GATE }, JSON.stringify(d.commands.audit));
+    const notes = selfNotes(d);
+    assert.equal(notes.length, 1, JSON.stringify(d.notes));
+    assert.equal(notes[0].key, 'audit');
+    assert.equal(notes[0].candidate, `${GATE} --self-test`);
+    assert.match(notes[0].detail, /bash scripts\/vuln-gate\.sh/);
+  });
+
+  test('ST2: in a general root\'s primary component the gate keeps the component cwd', () => {
+    const AREAS = [
+      { dir: 'app/', kinds: ['dart', 'flutter'], tier: 'flutter', flags: [] },
+      { dir: 'go/', kinds: ['go'], tier: 'go', flags: [] },
+    ];
+    const at = { cwd: 'go', area: 'go/' };
+    const d = run([
+      ev('lint', 'go vet ./...', { ...at, tool: 'go' }),
+      ev('test', 'go test ./...', { ...at, tool: 'go' }),
+      script('audit', `${GATE} --self-test`, 'vuln-gate', at),
+      script('audit', GATE, 'vuln-gate', at),
+    ], AREAS);
+    assert.deepStrictEqual(d.commands.audit, { run: GATE, cwd: 'go' }, JSON.stringify(d.commands.audit));
+    assert.equal(selfNotes(d).length, 1, JSON.stringify(d.notes));
+  });
+
+  test('ST3: a self-test with no gate sibling still fills its key; a declared row is untouched', () => {
+    const lone = run([script('audit', './gate.sh --self-test', 'gate')]);
+    assert.equal(lone.commands.audit.run, './gate.sh --self-test', JSON.stringify(lone.commands));
+    assert.equal(selfNotes(lone).length, 0);
+    const offline = run([ev('test', 'bash t0-conformance/selftest.sh', { runner: 'script', invokedName: 'selftest' })], NO_AREAS);
+    assert.equal(offline.commands.test.run, 'bash t0-conformance/selftest.sh', JSON.stringify(offline.commands));
+    assert.equal(selfNotes(offline).length, 0);
+  });
+
+  test('ST4: a sibling with a different entry point is no gate for the self-test: the ranking decides as before', () => {
+    const d = run([
+      script('audit', `${GATE} --self-test`, 'vuln-gate'),
+      script('audit', 'bash scripts/other-gate.sh', 'other-gate'),
+    ]);
+    assert.equal(d.commands.audit.run, `${GATE} --self-test`, JSON.stringify(d.commands.audit));
+    assert.equal(selfNotes(d).length, 0, JSON.stringify(d.notes));
+  });
+
+  test('ST5: every self-test spelling is filtered; a target word (`make selftest`) is never read as an argument', () => {
+    for (const marker of ['--selftest', '--self-test=fixtures', '--selftest-no-divergence', 'selftest']) {
+      const selfCmd = `${GATE} ${marker}`;
+      const d = run([script('audit', selfCmd, 'vuln-gate'), script('audit', GATE, 'vuln-gate')]);
+      assert.deepStrictEqual(d.commands.audit, { run: GATE }, `${marker}: ${JSON.stringify(d.commands.audit)}`);
+      assert.deepStrictEqual(selfNotes(d).map((n) => n.candidate), [selfCmd], `${marker}: ${JSON.stringify(d.notes)}`);
+    }
+    const tgt = (name, order) => ({ name, deps: [], isDefault: false, dependedOn: false, order, legs: [] });
+    const make = (command, name, order) => ev('test', command, {
+      source: 'runner', sourceFile: 'Makefile', runner: 'make', target: tgt(name, order), bodyStacks: [],
+    });
+    const d = run([make('make selftest', 'selftest', 0), make('make test', 'test', 1)], NO_AREAS);
+    assert.equal(selfNotes(d).length, 0, JSON.stringify(d.notes));
+    assert.equal(d.commands.test.run, 'make test', JSON.stringify(d.commands.test));
+  });
+
+  test('ST6: a declared row carrying a self-test argument is the user\'s own and is kept', () => {
+    const d = run([
+      script('audit', `${GATE} --self-test`, 'vuln-gate', { source: 'declared', sourceFile: '.planning/codebase/STACK.md' }),
+      script('audit', GATE, 'vuln-gate'),
+    ]);
+    assert.equal(d.commands.audit.run, `${GATE} --self-test`, JSON.stringify(d.commands.audit));
+    assert.equal(selfNotes(d).length, 0, JSON.stringify(d.notes));
+  });
+
+  test('ST7: the rule is key-agnostic (test), and a sibling at another cwd is not a pair', () => {
+    const d = run([
+      ev('test', './ci/check.sh --self-test', { runner: 'script', invokedName: 'check' }),
+      ev('test', './ci/check.sh', { runner: 'script', invokedName: 'check' }),
+    ], NO_AREAS);
+    assert.equal(d.commands.test.run, './ci/check.sh', JSON.stringify(d.commands.test));
+    assert.deepStrictEqual(selfNotes(d).map((n) => n.key), ['test']);
+
+    const apart = run([
+      ev('test', './ci/check.sh --self-test', { runner: 'script', invokedName: 'check', cwd: 'a' }),
+      ev('test', './ci/check.sh', { runner: 'script', invokedName: 'check', cwd: 'b' }),
+    ], NO_AREAS);
+    assert.equal(selfNotes(apart).length, 0, JSON.stringify(apart.notes));
+  });
+});

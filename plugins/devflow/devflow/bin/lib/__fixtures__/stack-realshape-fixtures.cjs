@@ -1911,6 +1911,22 @@ const REALSHAPE = Object.freeze({
     // narrow_fallback: every CI build is a single binary, so build is the go tier default (43-13).
     noteTags: { present: ['narrow_fallback'], absent: [] },
   },
+  // TRD 71-01 (SDR-09): the gate script runs once with --self-test and once without; the gate is the audit.
+  selfTestGateShape: {
+    build: selfTestGateShape,
+    tools: tools('bash', 'jq'),
+    expect: {
+      extends: 'go',
+      components: [],
+      commands: {
+        audit: { run: 'bash scripts/vuln-gate.sh' },
+      },
+    },
+    absent: [],
+    extraAllowed: [],
+    noEvidence: [],
+    noteStatuses: { present: ['self_test'], absent: [] },
+  },
 });
 
 module.exports = {
