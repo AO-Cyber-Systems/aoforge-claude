@@ -1004,3 +1004,26 @@ describe('66-02 helpers: hasTokenFields, isFinalSummary, summaryFiles', () => {
     assert.equal(summaryExists('77-03', [root]), summaryFiles('77-03', [root]).length > 0);
   });
 });
+
+// ─── 15. executor.md tells the executor about the gate (repo checkout only) ───
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+const IS_DEVFLOW_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
+
+describe('66-02 prose: executor.md <self_check> and the SubagentStop gate', { skip: !IS_DEVFLOW_CHECKOUT && 'not a devflow-claude checkout' }, () => {
+  test('15. <self_check> keeps stamp before post, and says the SubagentStop gate sends the executor back once', () => {
+    const executor = fs.readFileSync(path.join(REPO_ROOT, 'plugins', 'devflow', 'agents', 'executor.md'), 'utf8');
+    const open = executor.indexOf('<self_check>');
+    const close = executor.indexOf('</self_check>', open);
+    assert.ok(open >= 0 && close > open, 'executor.md has a <self_check> block');
+    const selfCheck = executor.slice(open, close);
+
+    const stamp = selfCheck.indexOf('df-tools.cjs tokens stamp {objective}-{trd} --draft');
+    const post = selfCheck.indexOf('summary post {objective}-{trd} --from');
+    assert.ok(stamp >= 0, 'self_check names the tokens stamp command');
+    assert.ok(post > stamp, 'the stamp command precedes the summary post command');
+    assert.match(selfCheck, /SubagentStop/, 'self_check mentions the SubagentStop gate');
+    // "post it once" is already in step 3's heading, so tie `once` to the gate's own sentence.
+    assert.match(selfCheck, /SubagentStop[^.\n]*\bonce\b/, 'self_check says the gate sends the executor back once');
+  });
+});
