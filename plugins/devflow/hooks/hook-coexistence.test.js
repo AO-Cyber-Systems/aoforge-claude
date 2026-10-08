@@ -26,6 +26,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 
 const runner = require('./__fixtures__/hook-runner.js');
+const { STOP_FAMILY_EVENTS, stopFamilyProblems } = require('./__fixtures__/hook-output-schema.js');
 const fx = require('./__fixtures__/coexistence-fixtures.js');
 const todoTranscripts = require('../devflow/bin/lib/__fixtures__/todo-transcript-fixtures.cjs');
 
@@ -486,11 +487,8 @@ const RUNS = {
   },
   'verify-commits.js@SubagentStop': {
     label: 'autonomous, mid-execution, no recent commits',
-    // FINDING (63-05): this hook nests decision and reason inside hookSpecificOutput, a shape the hooks
-    // reference does not define for SubagentStop (it reads a top-level decision), so under the documented
-    // model its nudge composes to nothing. Its own tests pin the nested shape, so it is left alone here
-    // and recorded in the SUMMARY. 'output' proves the hook reached its branch and spoke.
-    expect: 'output',
+    // The hook blocks with a top-level {decision, reason} since objective 70 (TRD 70-02), so it composes to a block.
+    expect: 'block',
     writesState: true, // the retry marker under hook-markers/
     payload: fx.subagentStop(),
   },
@@ -716,6 +714,8 @@ function contractProblems(event, r) {
     }
   }
   if (json.decision !== undefined && json.decision !== 'block') problems.push(`unknown decision "${json.decision}"`);
+  // Stop and SubagentStop: the documented schema also checks the keys inside hookSpecificOutput (TRD 70-02).
+  if (STOP_FAMILY_EVENTS.includes(event)) problems.push(...stopFamilyProblems(event, json));
   for (const where of longStrings(json)) problems.push(`string over ${STRING_LIMIT} characters at ${where}`);
   return problems;
 }

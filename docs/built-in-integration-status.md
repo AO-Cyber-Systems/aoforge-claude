@@ -81,7 +81,7 @@ Statuses: adopted (a shipped flow, agent or hook uses it; Where says where) · p
 | `PermissionDenied` | not adopted | | | |
 | `Notification` | not adopted | | | |
 | `SubagentStart` | not adopted | | | |
-| `SubagentStop` | adopted | `plugins/devflow/hooks/hooks.json`, `plugins/devflow/hooks/verify-commits.js`, `plugins/devflow/hooks/gate-executor-stop.js` | pre-62 | verify-commits.js nests its retry `decision` inside `hookSpecificOutput`, which the hooks reference does not read for this event (63-05 finding, open). |
+| `SubagentStop` | adopted | `plugins/devflow/hooks/hooks.json`, `plugins/devflow/hooks/verify-commits.js`, `plugins/devflow/hooks/gate-executor-stop.js` | pre-62 | verify-commits.js and gate-executor-stop.js block with a top-level `decision`/`reason`; verify-commits.js nested them in `hookSpecificOutput` until objective 70 (63-05 finding, closed). |
 | `TaskCreated` | candidate | | | Instant todo capture in sessions with the Task tools. See Candidates. |
 | `TaskCompleted` | candidate | | | Instant todo completion; todo-sync runs at Stop today. See Candidates. |
 | `Stop` | adopted | `plugins/devflow/hooks/hooks.json`, `plugins/devflow/hooks/verify-completion.js`, `plugins/devflow/hooks/auto-continue.js`, `plugins/devflow/hooks/gh-flush.js`, `plugins/devflow/hooks/todo-sync.js` | 63 | todo-sync.js (63-03) merges the session's todos into the archive; the other three predate 62. |
@@ -136,7 +136,7 @@ One line each: what, why, and the follow-up. Capture a follow-up with `/devflow:
 - `mcp__ccd_session__mark_chapter` (Phase J J5): mark phase boundaries in long sessions. Not in the public tools reference; confirm it exists in the session before adopting.
 - `mcp__ccd_session__spawn_task` (Phase J J5): the verifier spins off an out-of-scope concern as its own task. Same caveat.
 - `mcp__ccd_session_mgmt__list_sessions` (Phase J J5): resume could surface earlier sessions. Same caveat.
-- Cleanup, not adoption: rename the legacy `Task` to `Agent` and `SlashCommand` to `Skill` in frontmatter and prose; move execute-objective from the deprecated `TaskOutput` to `Read` on the output file; fix verify-commits.js's nested `decision` once checked against a live SubagentStop.
+- Cleanup, not adoption: rename the legacy `Task` to `Agent` and `SlashCommand` to `Skill` in frontmatter and prose; move execute-objective from the deprecated `TaskOutput` to `Read` on the output file.
 
 ## Review procedure
 

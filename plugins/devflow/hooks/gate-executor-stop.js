@@ -24,8 +24,8 @@
  *     once-guard, so this hook never keeps a marker or counter file.
  *   - A `maxTurns` stop does NOT fire SubagentStop at all. That path is handled
  *     by execute-objective's INCOMPLETE outcome (TRD 44-01), not here.
- *   - The block shape is TOP-LEVEL `{decision, reason}`. It is deliberately not
- *     the `hookSpecificOutput`-nested form used by verify-commits.js.
+ *   - The block shape is TOP-LEVEL `{decision, reason}`, the same shape
+ *     verify-commits.js uses since objective 70.
  *
  * TRD identification reads ONLY the first user prompt of the agent transcript
  * (`agent_transcript_path`), bounded to the first 1 MiB. Later tool output

@@ -10,5 +10,5 @@ tags: [hooks, SubagentStop, verify-commits, schema, TOOL-08]
 (In progress: checkpoint draft.)
 
 ## Progress
-- [x] Task 1: Cited SubagentStop schema model, a shape-pinning test, and a top-level block scoped to the executor — RED d0da9584, GREEN (this commit)
-- [ ] Task 2: The cross-hook contract uses the validator; the 63-05 finding and its doc trail are closed — next step: in plugins/devflow/hooks/hook-coexistence.test.js set RUNS verify-commits.js@SubagentStop to expect 'block' and call stopFamilyProblems from contractProblems, then run the file
+- [x] Task 1: Cited SubagentStop schema model, a shape-pinning test, and a top-level block scoped to the executor — RED d0da9584, GREEN 597d3f95
+- [x] Task 2: The cross-hook contract uses the validator; the 63-05 finding and its doc trail are closed — (this commit)
