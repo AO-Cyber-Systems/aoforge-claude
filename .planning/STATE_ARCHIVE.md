@@ -243,6 +243,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 71]: A lint target adding linters is the entry point only when every extra line is an unconditional (no ||) linter of a tool other than the default's; optional linters keep lint inherited
 - [Objective 71]: stack verify --run skips a gate with a static service signal (own text, CI job running the same command, test env file for test/e2e) as env_required; --allow-services (with --run only) opts in and the result is marked services=allowed. Detection never probes a port.
 - [Objective 71]: The CI layer of the service policy matches an exact command and cwd (a hand-edited command differing from CI is not matched); the loopback regex uses a lookbehind so [::1]:port is visible.
+- [Objective 71]: A build gate's new untracked unignored files under bin/ build/ dist/ out/ target/ (relative to its cwd) are removed, listed in run.build_outputs and do not halt the root; any other change, non-build key or failed restore still halts
 
 ## Performance Metrics
 
@@ -409,4 +410,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 70 P03 | 8min | 2 tasks | 5 files |
 | Objective 71 P01 | 10min | 3 tasks | 5 files |
 | Objective 71 P03 | 13min | 3 tasks | 6 files |
+| Objective 71 P04 | 7min | 3 tasks | 3 files |
 

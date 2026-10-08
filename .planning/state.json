@@ -1,8 +1,8 @@
 {
   "current_objective": "71",
-  "current_job": 2,
+  "current_job": 3,
   "total_jobs": 5,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
@@ -1279,6 +1279,11 @@
     {
       "objective": "71",
       "summary": "The CI layer of the service policy matches an exact command and cwd (a hand-edited command differing from CI is not matched); the loopback regex uses a lookbehind so [::1]:port is visible.",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "A build gate's new untracked unignored files under bin/ build/ dist/ out/ target/ (relative to its cwd) are removed, listed in run.build_outputs and do not halt the root; any other change, non-build key or failed restore still halts",
       "rationale": null
     }
   ],
