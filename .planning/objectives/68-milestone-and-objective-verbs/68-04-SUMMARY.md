@@ -10,4 +10,4 @@ tags: [objective-remove, objective-complete, renumber, next-objective]
 ## Progress
 - [x] Task 1: Fixture builders for dated ROADMAPs and next-objective projects — a85acf07
 - [x] Task 2: The renumber pass leaves dates and metadata alone (tests 1-7) — RED 6baf8408, GREEN (this commit)
-- [ ] Task 3: One next-objective lookup over directories and ROADMAP sections (tests 8-15) — RED committed (this commit); next step: add exported nextObjective(root, objectiveNum) to objective.cjs and replace nextObjectiveDir (storeObjectiveComplete) and the inline scan in cmdObjectiveComplete with it
+- [x] Task 3: One next-objective lookup over directories and ROADMAP sections (tests 8-15) — RED 5cccf0bd, GREEN (this commit)
