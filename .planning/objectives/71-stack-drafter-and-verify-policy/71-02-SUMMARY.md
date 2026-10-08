@@ -20,4 +20,4 @@ started: 2026-10-08T19:48:16Z
 
 ## Progress
 - [x] Task 1: `selfTestDrafts` guard and refresh-pending OPEN rows, on synthetic data — 8c779238 (RED), (this commit) (GREEN)
-- [ ] Task 2: Tables updated, per-repo self-test guard wired, real-fleet run green — next step: in stack-drafter-fleet.test.cjs drop `'aodex.audit'` from `ACCEPTED_ROWS`, add the OPEN `pending` guard, return `evidence` from `stackInit` and assert `selfTestDrafts(...)` per repo; run against ~/dev for RED
+- [ ] Task 2: Tables updated, per-repo self-test guard wired, real-fleet run green — RED committed (this commit); next step: in stack-fleet-tables.cjs delete the aodex `audit` ACCEPTED entry, add the two `pending: 'refresh'` OPEN entries (justinforme, smartWellness `lint`) and amend the header, then run the harness against ~/dev for GREEN

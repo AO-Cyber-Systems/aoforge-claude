@@ -84,7 +84,7 @@ function parseInitOutput(stdout) {
   return JSON.parse(text);
 }
 
-/** stackInit(repo) -> { ok, fm } | { ok: false, error }. No --write, no --run; real env. */
+/** stackInit(repo) -> { ok, fm, evidence } | { ok: false, error }. No --write, no --run; real env. */
 function stackInit(repo) {
   const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'init'], {
     encoding: 'utf-8',
@@ -100,7 +100,7 @@ function stackInit(repo) {
     return { ok: false, error: `stack init printed no parseable JSON: ${e.message}` };
   }
   if (!json || typeof json.text !== 'string') return { ok: false, error: 'stack init JSON has no `text`' };
-  return { ok: true, fm: parseProfile(json.text).frontmatter };
+  return { ok: true, fm: parseProfile(json.text).frontmatter, evidence: Array.isArray(json.evidence) ? json.evidence : [] };
 }
 
 /** The resolved commands of the tier a file `extends` (real HOME), i.e. what it inherits. */
@@ -211,6 +211,14 @@ describe('stack init against the real fleet (TRD 43-08)', { skip: fleetSkipReaso
       for (const note of notes) t.diagnostic(note);
 
       assert.equal(problems.length, 0, `${repo}:\n  ${problems.join('\n  ')}`);
+
+      // 17: the 71-01 self-test rule holds on the real fleet. Removing a more-specific row from ACCEPTED guards
+      // nothing (only conflicts fail), so this is what fails when a draft fills a key with a self-test step.
+      assert.deepEqual(
+        selfTestDrafts({ commands: draft.commands, evidence: init.evidence }),
+        [],
+        `${repo}: a drafted self-test sits beside its gate`,
+      );
     });
   }
 });
@@ -227,9 +235,10 @@ describe('fleet tables (TRD 43-08 guards)', () => {
   });
 
   // The user-accepted rows, pinned: ACCEPTED grows only by a user decision, and this list is where that shows.
-  // 43-15 (`accept-all`, 2026-10-03) added every row after devcluster's two.
+  // 43-15 (`accept-all`, 2026-10-03) added every row after devcluster's two. 71-02 removed aodex.audit: the 71-01
+  // self-test rule drafts the gate step, so the row that excused the self-test pick describes a draft that is gone.
   const ACCEPTED_ROWS = [
-    'EdenDocs.deps', 'ao-terminal.deps', 'aocore.test', 'aodex.audit', 'aodex.lint', 'aofamily.build', 'aofamily.deps',
+    'EdenDocs.deps', 'ao-terminal.deps', 'aocore.test', 'aodex.lint', 'aofamily.build', 'aofamily.deps',
     'aofamily.lint', 'devcluster.lint', 'devcluster.test', 'eden-biz.e2e', 'justinforme.e2e', 'politihub.lint',
   ];
 
@@ -269,6 +278,13 @@ describe('fleet tables (TRD 43-08 guards)', () => {
         const id = `OPEN.${repo} [${(entry.keys || []).join(', ')}]`;
         assert.ok(Array.isArray(entry.keys) && entry.keys.length > 0 && entry.keys.every((k) => typeof k === 'string' && k), `${id}: keys`);
         assert.ok(typeof entry.reason === 'string' && entry.reason.length > 0, `${id}: reason`);
+        // 71-02: `pending` is optional and has one value. A refresh-pending row says what the draft is and what the
+        // committed file still holds, so the follow-up commit in the repo can be made without re-deriving either.
+        if (entry.pending !== undefined) {
+          assert.equal(entry.pending, 'refresh', `${id}: pending must be 'refresh' when present`);
+          assert.match(entry.reason, /draft/, `${id}: a refresh-pending reason names the draft`);
+          assert.match(entry.reason, /committed/, `${id}: a refresh-pending reason names the committed value`);
+        }
         for (const key of entry.keys) {
           count += 1;
           assert.ok(!seen.has(key), `${id}: ${key} is listed twice for ${repo}`);
