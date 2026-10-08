@@ -34,7 +34,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 ### Stack drafter (SDR)
 
 - [x] **SDR-09**: The drafter prefers a real govulncheck gate step over a `--self-test` step in the same workflow, and drafts buf lint coverage where the repo uses buf.
-- [ ] **SDR-10**: `stack verify --run` has a stated policy for service-backed tests (they never silently reach a local database or service; they are skipped or need an explicit opt-in) and for build artifacts (created artifacts are restored or reported).
+- [x] **SDR-10**: `stack verify --run` has a stated policy for service-backed tests (they never silently reach a local database or service; they are skipped or need an explicit opt-in) and for build artifacts (created artifacts are restored or reported).
 
 ### Handoff (HND)
 
@@ -87,7 +87,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | TOOL-07 | Objective 70 | Complete |
 | TOOL-08 | Objective 70 | Complete |
 | SDR-09 | Objective 71 | Complete |
-| SDR-10 | Objective 71 | Pending |
+| SDR-10 | Objective 71 | Complete |
 | INST-01 | Objective 72 | Pending |
 | HND-01 | Objective 73 | Pending |
 | HND-02 | Objective 73 | Pending |

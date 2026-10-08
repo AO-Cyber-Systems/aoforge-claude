@@ -325,7 +325,7 @@ TRDs:
 | 68. Milestone and objective verbs | v1.6 | 7/7 | Complete | 2026-10-08 |
 | 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
-| 71. Stack drafter and verify policy | v1.6 | 1/5 | In Progress | - |
+| 71. Stack drafter and verify policy | v1.6 | 2/5 | In Progress | - |
 | 72. Install and naming cleanup | v1.6 | 0/? | Not started | - |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
