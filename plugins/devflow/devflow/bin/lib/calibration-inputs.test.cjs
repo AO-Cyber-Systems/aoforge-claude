@@ -318,7 +318,9 @@ describe('57-02 classifyTask', () => {
 
 // ─── collectProject / discoverProjects ────────────────────────────────────────
 
-const { makeCalibrationProject, removeCalibrationProject, cloneSpec, ALPHA_SPEC } = require('./__fixtures__/calibration-fixtures.cjs');
+const {
+  makeCalibrationProject, removeCalibrationProject, cloneSpec, ALPHA_SPEC, FUTURE_SPEC, pastSpec,
+} = require('./__fixtures__/calibration-fixtures.cjs');
 
 const builtProjects = [];
 function build(spec) {
@@ -645,5 +647,68 @@ describe('64-08 recency window helpers', () => {
     const before = JSON.stringify(project);
     ci.windowObjectives(project, 1);
     assert.equal(JSON.stringify(project), before);
+  });
+});
+
+describe('67-02 collection cutoff (through)', () => {
+  const dirsOf = (names) => names.map((dir) => ({ dir, trds: [] }));
+
+  test('1: through 66 keeps 64-66 and counts only their metric rows; without it all ten directories and rows stay', () => {
+    const root = build(FUTURE_SPEC);
+    const cut = ci.collectProject(root, { through: 66 });
+    assert.deepEqual(cut.objectives, ['64-a', '65-b', '66-c']);
+    assert.equal(cut.trds.length, 3);
+    assert.equal(cut.metrics.rows, 3, 'the 67-72 archive rows and the state.json entry are not counted');
+    const whole = ci.collectProject(root);
+    assert.equal(whole.objectives.length, 10);
+    assert.equal(whole.trds.length, 10);
+    assert.equal(whole.metrics.rows, 10, 'nine archive rows and one state.json entry');
+  });
+
+  test('2: the cut happens before anything is read: a project with the future equals the project without it', () => {
+    const cut = ci.collectProject(build(FUTURE_SPEC), { through: 66 });
+    const past = ci.collectProject(build(pastSpec()), { through: 66 });
+    assert.equal(cut.label, 'future');
+    assert.equal(past.label, 'future');
+    assert.deepEqual(cut.objectives, past.objectives);
+    assert.deepEqual(cut.trds, past.trds);
+    assert.deepEqual(cut.metrics, past.metrics);
+    assert.deepEqual(cut.counts, past.counts, 'the summaries and unkeyed counts of the dropped directories are not counted either');
+    assert.equal(cut.label, past.label);
+  });
+
+  test('3: a decimal number above through and a directory with no number are dropped; without through all are kept', () => {
+    const root = build({ name: 'decimals', objectives: dirsOf(['12-a', '12.1-b', '13-c', 'misc']) });
+    assert.deepEqual(ci.collectProject(root, { through: 12 }).objectives, ['12-a']);
+    assert.deepEqual(ci.collectProject(root, { through: 12.1 }).objectives, ['12-a', '12.1-b']);
+    assert.deepEqual(ci.collectProject(root).objectives, ['12-a', '12.1-b', '13-c', 'misc']);
+    assert.deepEqual(ci.collectProject(root, {}).objectives, ['12-a', '12.1-b', '13-c', 'misc']);
+    assert.deepEqual(ci.collectProject(root, { through: null }).objectives, ['12-a', '12.1-b', '13-c', 'misc']);
+  });
+
+  test('4: through 0 keeps a 0-x directory and drops 1-y', () => {
+    const root = build({ name: 'zero', objectives: dirsOf(['0-x', '1-y']) });
+    assert.deepEqual(ci.collectProject(root, { through: 0 }).objectives, ['0-x']);
+  });
+
+  test('5: assertThrough rejects negatives, NaN, Infinity and non-numbers; accepts null, undefined and finite numbers', () => {
+    for (const bad of [-1, NaN, Infinity, '66', true]) {
+      assert.throws(() => ci.assertThrough(bad), /through must be a non-negative number or null/, String(bad));
+    }
+    for (const good of [null, undefined, 0, 66, 12.5]) {
+      assert.doesNotThrow(() => ci.assertThrough(good), String(good));
+    }
+    assert.throws(() => ci.collectProject(build({ name: 'bad', objectives: [] }), { through: -1 }),
+      /through must be a non-negative number or null/, 'collectProject validates before reading');
+  });
+
+  test('5: withinThrough takes a directory name or a metric-row token, and a name with no number is out under a cutoff', () => {
+    assert.equal(ci.withinThrough('66-c', 66), true);
+    assert.equal(ci.withinThrough('68', 66), false);
+    assert.equal(ci.withinThrough('66', 66), true);
+    assert.equal(ci.withinThrough('12.1-b', 12), false);
+    assert.equal(ci.withinThrough('notes-x', 66), false);
+    assert.equal(ci.withinThrough('notes-x', null), true);
+    assert.equal(ci.withinThrough('notes-x', undefined), true);
   });
 });
