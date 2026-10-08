@@ -211,16 +211,46 @@ function extractInvocations(text) {
  */
 const EXEMPT = [];
 
-function scanFindings() {
+/** Every documented invocation `spec` would reject, as { file, line, source, argv, flag, label, accepted }. */
+function scanFindings(spec = FLAG_SPEC) {
   const findings = [];
   for (const file of scanFiles()) {
     const text = fs.readFileSync(path.join(REPO_ROOT, file), 'utf8');
     for (const inv of extractInvocations(text)) {
-      const verdict = checkFlags(inv.argv, FLAG_SPEC);
+      const verdict = checkFlags(inv.argv, spec);
       if (verdict) findings.push({ file, line: inv.line, source: inv.source, argv: inv.argv, ...verdict });
     }
   }
   return findings;
+}
+
+// The three structural gates as pure functions, so each can be shown to fail on a broken input (the sensitivity controls).
+
+/** Writing commands without an entry, and entries for commands the dispatcher never guards. */
+function completenessGaps(commands, spec) {
+  const writing = Object.keys(commands).filter((name) => commands[name].mutates).sort();
+  const specced = Object.keys(spec).sort();
+  return { missing: writing.filter((n) => !specced.includes(n)), extra: specced.filter((n) => !writing.includes(n)) };
+}
+
+/** Labels of the rules that switch the check off without saying why. */
+function rulesWithoutReason(spec) {
+  return specEntries(spec)
+    .filter((e) => e.rule.anyFlags || e.rule.ownParser || e.rule.tailFrom !== undefined)
+    .filter((e) => typeof e.rule.reason !== 'string' || e.rule.reason.trim() === '')
+    .map((e) => e.label);
+}
+
+/** The exemptions that have no reason or no longer suppress a finding. */
+function exemptionProblems(exempt, findings) {
+  const problems = [];
+  for (const e of exempt) {
+    if (typeof e.reason !== 'string' || e.reason.trim().length < 10) problems.push(`${e.file} "${e.contains}": needs a reason`);
+    else if (!findings.some((f) => f.file === e.file && f.source.includes(e.contains))) {
+      problems.push(`${e.file} "${e.contains}": no longer matches a finding (fixed, or the text changed): remove the entry`);
+    }
+  }
+  return problems;
 }
 
 const isExempt = (finding) => EXEMPT.some((e) => e.file === finding.file && finding.source.includes(e.contains));
@@ -230,10 +260,7 @@ const describeFinding = (f) => `${f.file}:${f.line}  ${f.flag} is not accepted b
 
 describe('FLAG_SPEC is complete, probed and in step with the documented invocations (TOOL-01)', () => {
   test('4. FLAG_SPEC keys are exactly the commands help.cjs marks mutates: true', () => {
-    const writing = Object.keys(COMMANDS).filter((name) => COMMANDS[name].mutates).sort();
-    const specced = Object.keys(FLAG_SPEC).sort();
-    const missing = writing.filter((name) => !specced.includes(name));
-    const extra = specced.filter((name) => !writing.includes(name));
+    const { missing, extra } = completenessGaps(COMMANDS, FLAG_SPEC);
     assert.deepEqual(missing, [], `writing commands without a FLAG_SPEC entry (add one to flag-spec.cjs): ${missing.join(', ')}`);
     assert.deepEqual(extra, [], `FLAG_SPEC entries for commands help.cjs does not mark mutates: true (the dispatcher never runs them): ${extra.join(', ')}`);
   });
@@ -246,11 +273,31 @@ describe('FLAG_SPEC is complete, probed and in step with the documented invocati
   });
 
   test('6. every anyFlags, ownParser and tailFrom rule states its reason', () => {
-    const offenders = specEntries(FLAG_SPEC)
-      .filter((e) => e.rule.anyFlags || e.rule.ownParser || e.rule.tailFrom !== undefined)
-      .filter((e) => typeof e.rule.reason !== 'string' || e.rule.reason.trim() === '')
-      .map((e) => e.label);
+    const offenders = rulesWithoutReason(FLAG_SPEC);
     assert.deepEqual(offenders, [], `rules that switch the check off without a reason: ${offenders.join(', ')}`);
+  });
+
+  describe('sensitivity: each gate fails on a broken input', () => {
+    test('4. a writing command with no entry, and an entry for a read-only command, are both reported', () => {
+      const commands = { writer: { mutates: true }, reader: {}, covered: { mutates: true } };
+      assert.deepEqual(completenessGaps(commands, { covered: {}, reader: {} }), { missing: ['writer'], extra: ['reader'] });
+    });
+
+    test('6. an ownParser, anyFlags or tailFrom rule with a blank or missing reason is reported', () => {
+      const spec = {
+        a: { ownParser: true, reason: '  ' },
+        b: { subcommands: { c: { tailFrom: 2 }, d: { anyFlags: true, reason: 'field names' }, e: { values: ['--x'] } } },
+      };
+      assert.deepEqual(rulesWithoutReason(spec), ['a', 'b c']);
+    });
+
+    test('9. an exemption with no reason, or one that matches no finding, is reported', () => {
+      const findings = [{ file: 'a.md', source: 'run df-tools foo --bar now' }];
+      assert.deepEqual(exemptionProblems([{ file: 'a.md', contains: '--bar', reason: 'prose, not an invocation' }], findings), []);
+      assert.equal(exemptionProblems([{ file: 'a.md', contains: '--bar', reason: '' }], findings).length, 1);
+      assert.equal(exemptionProblems([{ file: 'a.md', contains: '--gone', reason: 'prose, not an invocation' }], findings).length, 1);
+      assert.equal(exemptionProblems([{ file: 'b.md', contains: '--bar', reason: 'prose, not an invocation' }], findings).length, 1);
+    });
   });
 
   describe('8. the extractor', () => {
@@ -317,14 +364,20 @@ describe('FLAG_SPEC is complete, probed and in step with the documented invocati
       );
     });
 
+    test('7. sensitivity: a spec that lacks a flag the docs use is reported with file:line', () => {
+      // The spec is deeply frozen; a structured clone is a plain copy to break. `exec-context check --base` is documented in
+      // the executor agent, the execute-objective and quick workflows and the user guide.
+      const broken = structuredClone(FLAG_SPEC);
+      broken['exec-context'].subcommands.check.values = broken['exec-context'].subcommands.check.values.filter((f) => f !== '--base');
+      const findings = scanFindings(broken).filter((f) => f.label === 'exec-context check' && f.flag === '--base');
+      assert.ok(findings.length >= 3, `expected the documented --base calls to be reported, got ${findings.length}`);
+      assert.ok(findings.every((f) => Number.isInteger(f.line) && f.line > 0 && f.file.length > 0));
+      assert.ok(findings.some((f) => f.file === 'plugins/devflow/agents/executor.md'), 'the executor agent documents --base');
+      assert.deepEqual(scanFindings(FLAG_SPEC).filter((f) => f.label === 'exec-context check'), [], 'the real spec accepts them');
+    });
+
     test('9. every EXEMPT entry has a reason and still suppresses a finding', () => {
-      const raw = scanFindings();
-      const problems = [];
-      for (const e of EXEMPT) {
-        if (typeof e.reason !== 'string' || e.reason.trim().length < 10) problems.push(`${e.file} "${e.contains}": needs a reason`);
-        else if (!raw.some((f) => f.file === e.file && f.source.includes(e.contains))) problems.push(`${e.file} "${e.contains}": no longer matches a finding (fixed, or the text changed): remove the entry`);
-      }
-      assert.deepEqual(problems, []);
+      assert.deepEqual(exemptionProblems(EXEMPT, scanFindings()), []);
     });
   });
 });
