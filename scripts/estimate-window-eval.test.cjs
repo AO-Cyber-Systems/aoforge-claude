@@ -380,3 +380,312 @@ describe('trdRows', () => {
   });
 });
 
+// ─── Task 2: tables, report and CLI ──────────────────────────────────────────
+
+function row(objective, id, k, actual, p50, p90 = p50 * 2) {
+  return { objective, id, k, actual, p50, p90 };
+}
+
+describe('eraTable', () => {
+  const rows = [
+    row('1-a', '1-01', 1, 10, 20), row('1-a', '1-02', 1, 20, 20),
+    row('1-a', '1-03', 1, 10, 10), row('2-b', '2-01', 1, 10, 5),
+    row('2-b', '2-02', 1, 4, 6), row('3-c', '3-01', 1, 8, 6),
+    row('3-c', '3-02', 1, 30, 20), row('4-d', '4-01', 1, 10, 20),
+  ];
+
+  test('12. eight rows split into four equal-count eras with hand-computed statistics', () => {
+    const eras = evalTool.eraTable(rows, 4);
+    assert.equal(eras.length, 4);
+    assert.deepEqual(eras.map((e) => e.n), [2, 2, 2, 2]);
+    assert.deepEqual(eras.map((e) => [e.from, e.to]), [['1-a', '1-a'], ['1-a', '2-b'], ['2-b', '3-c'], ['3-c', '4-d']]);
+    const [e1, e2, e3, e4] = eras;
+    near(e1.median_actual, 15, 'e1 median actual');
+    near(e1.mean_actual, 15, 'e1 mean actual');
+    near(e1.median_p50, 20, 'e1 median p50');
+    near(e1.median_ratio, 1.5, 'e1 median ratio');
+    near(e1.pooled_ratio, 40 / 30, 'e1 pooled');
+    near(e2.median_actual, 10, 'e2 median actual');
+    near(e2.median_p50, 7.5, 'e2 median p50');
+    near(e2.median_ratio, 0.75, 'e2 median ratio');
+    near(e2.pooled_ratio, 15 / 20, 'e2 pooled');
+    near(e3.mean_actual, 6, 'e3 mean actual');
+    near(e3.median_ratio, (6 / 4 + 6 / 8) / 2, 'e3 median ratio');
+    near(e3.pooled_ratio, 12 / 12, 'e3 pooled');
+    near(e4.median_actual, 20, 'e4 median actual');
+    near(e4.median_ratio, (20 / 30 + 2) / 2, 'e4 median ratio');
+    near(e4.pooled_ratio, 40 / 40, 'e4 pooled');
+  });
+
+  test('12b. sizes differ by at most one; fewer rows than eras give fewer eras; no rows give none', () => {
+    assert.deepEqual(evalTool.eraTable(rows.slice(0, 5), 4).map((e) => e.n), [2, 1, 1, 1]);
+    assert.deepEqual(evalTool.eraTable(rows.slice(0, 2), 4).map((e) => e.n), [1, 1]);
+    assert.deepEqual(evalTool.eraTable([], 4), []);
+  });
+});
+
+describe('taskCountTable', () => {
+  test('13. k = 1..5 gives groups 1, 2, 3 and 4+; a group with no rows is omitted', () => {
+    const rows = [row('a', 'a-01', 1, 10, 5), row('a', 'a-02', 2, 20, 10), row('a', 'a-03', 3, 10, 20),
+      row('a', 'a-04', 4, 10, 10), row('a', 'a-05', 5, 30, 30)];
+    const t = evalTool.taskCountTable(rows);
+    assert.deepEqual(t.map((g) => g.group), ['1', '2', '3', '4+']);
+    assert.deepEqual(t.map((g) => g.n), [1, 1, 1, 2]);
+    near(t[0].median_ratio, 0.5, 'k=1 ratio');
+    near(t[1].median_actual, 20, 'k=2 actual');
+    near(t[2].median_p50, 20, 'k=3 p50');
+    near(t[2].median_ratio, 2, 'k=3 ratio');
+    near(t[3].median_actual, 20, 'k=4+ median actual');
+    near(t[3].median_p50, 20, 'k=4+ median p50');
+    near(t[3].median_ratio, 1, 'k=4+ median ratio');
+    assert.deepEqual(evalTool.taskCountTable([rows[0], rows[2]]).map((g) => g.group), ['1', '3']);
+    assert.deepEqual(evalTool.taskCountTable([]), []);
+  });
+});
+
+describe('otherClassTable', () => {
+  test('14. each filesless task by TRD id with its share, the class figures, and the samples in TRDs of 45 minutes or more', () => {
+    const root = makeCalibrationProject({
+      name: 'other',
+      objectives: [
+        {
+          dir: '9-a',
+          trds: [
+            plainTrd('02', '4min', [{ name: 'Task 1: smoke', files: [] }]),
+            plainTrd('01', '90min', [{ name: 'Task 1: smoke', files: [] }, { name: 'Task 2: code', files: ['lib/x.cjs'] }]),
+          ],
+        },
+      ],
+    });
+    try {
+      const project = ci.collectProject(root);
+      const cal = calibrator.buildCalibration({ paths: [root], transcriptsRoot: null });
+      const t = evalTool.otherClassTable(project, cal);
+      assert.deepEqual(t.tasks, [
+        { id: '9-01', minutes: 90, k: 2, share: 45 },
+        { id: '9-02', minutes: 4, k: 1, share: 4 },
+      ]);
+      assert.equal(t.n, 2);
+      assert.equal(t.p50, 4);
+      assert.equal(t.p90, 45);
+      assert.equal(t.in_long_trds, 1);
+      assert.equal(t.long_trd_minutes, 45);
+    } finally {
+      removeCalibrationProject(root);
+    }
+  });
+
+  test('14b. a calibration without the class reports zero samples', () => {
+    const t = evalTool.otherClassTable({ trds: [] }, { task_classes: { all: {} } });
+    assert.deepEqual(t, { tasks: [], n: 0, p50: null, p90: null, in_long_trds: 0, long_trd_minutes: 45 });
+  });
+});
+
+describe('durationSourceTable', () => {
+  test('15. counts and median minutes per duration source; a TRD with only a STATE_ARCHIVE row is `metric`', () => {
+    const root = makeCalibrationProject({
+      name: 'source',
+      objectives: [{ dir: '55-a', trds: [plainTrd('01', '10min'), plainTrd('02', '20min'), plainTrd('03', null)] }],
+      stateArchiveRows: ['| Objective 55 P03 | 30min | 1 tasks | 1 files |'],
+    });
+    try {
+      const project = ci.collectProject(root);
+      const t = evalTool.durationSourceTable(project);
+      assert.deepEqual(t, [
+        { source: 'summary', n: 2, median_minutes: 15 },
+        { source: 'metric', n: 1, median_minutes: 30 },
+      ]);
+      const withRatios = evalTool.durationSourceTable(project, [
+        { id: '55-01', actual: 10, p50: 20 }, { id: '55-02', actual: 20, p50: 20 }, { id: '55-03', actual: 30, p50: 15 },
+      ]);
+      near(withRatios[0].median_ratio, 1.5, 'summary ratio');
+      near(withRatios[1].median_ratio, 0.5, 'metric ratio');
+    } finally {
+      removeCalibrationProject(root);
+    }
+  });
+});
+
+describe('compositionTable', () => {
+  test('16. the inflation of the correlated sum over the sum of medians, and the sum of medians against the actual', () => {
+    const rows = [
+      { sum_p50: 20, p50: 22, actual: 10 },
+      { sum_p50: 30, p50: 33, actual: 40 },
+      { sum_p50: 10, p50: 15, actual: 10 },
+    ];
+    const t = evalTool.compositionTable(rows);
+    assert.equal(t.n, 3);
+    near(t.median_inflation, 1.1, 'median F/P');
+    near(t.median_sum_over_actual, 1, 'median P/A');
+    near(t.pooled_sum_over_actual, 60 / 60, 'pooled P/A');
+    near(t.median_composed_over_actual, 1.5, 'median F/A');
+    near(t.pooled_composed_over_actual, 70 / 60, 'pooled F/A');
+    assert.equal(evalTool.compositionTable([]).n, 0);
+    assert.equal(evalTool.compositionTable([]).median_inflation, null);
+  });
+});
+
+describe('characterization of the objective rollup (suspect S3)', () => {
+  test('17. execution.agent_minutes is the correlated sum of the TRD minutes: no executor overhead is in it', () => {
+    const root = makeEstimateProject({
+      name: 'char',
+      objectives: [{
+        dir: '90-obj',
+        objectiveMd: '# Objective 90: obj\n',
+        trds: [
+          { nn: '01', slug: 'a', tasks: [{ name: 'Task 1: a', tdd: true, files: CODE_TDD }], summary: null },
+          { nn: '02', slug: 'b', tasks: [{ name: 'Task 1: b', files: ['docs/b.md'] }], summary: null },
+        ],
+      }],
+    });
+    try {
+      const cal = makeCalibration();
+      assert.ok(cal.agent_overhead.planner.samples > 0 && cal.agent_overhead.verifier.samples > 0);
+      const r = rollup.estimateObjective(cal, root, '90', { all: true });
+      assert.equal(r.trds.total, 2);
+
+      const dir = path.join(root, '.planning', 'objectives', '90-obj');
+      const dists = fs.readdirSync(dir).filter((f) => f.endsWith('-TRD.md')).sort()
+        .map((f) => em.fitQuantiles(est.estimateTrdText(cal, fs.readFileSync(path.join(dir, f), 'utf-8')).minutes));
+      assert.equal(dists.length, 2);
+      assert.deepEqual(r.execution.agent_minutes, em.summarize(em.sumCorrelated(dists)));
+
+      // The verifier is in `total` and in `overhead`, not in `execution`.
+      assert.ok(r.total.agent_minutes.p50 > r.execution.agent_minutes.p50);
+      assert.ok(r.overhead.some((e) => e.agent === 'verifier'));
+    } finally {
+      removeEstimateProject(root);
+    }
+  });
+});
+
+describe('classCounts', () => {
+  test('18. minutes.n of every class but all, sorted by name', () => {
+    const counts = evalTool.classCounts(makeCalibration());
+    assert.deepEqual(counts, { code_tdd: 32, config: 2, doc: 12, prompt: 6 });
+    assert.deepEqual(Object.keys(counts), ['code_tdd', 'config', 'doc', 'prompt']);
+    assert.deepEqual(evalTool.classCounts({ task_classes: {} }), {});
+  });
+});
+
+describe('report and CLI', () => {
+  let root;
+  let outDir;
+  before(() => {
+    root = makeCalibrationProject(stepSpec());
+    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-out-'));
+  });
+  after(() => {
+    removeCalibrationProject(root);
+    fs.rmSync(outDir, { recursive: true, force: true });
+  });
+
+  const run = (args, env = {}) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf-8', env: { ...process.env, ...env } });
+
+  test('report() returns one plain object with the documented keys and the step-change selection', () => {
+    const result = evalTool.report({ snapshotRoot: root, evalObjectives: [6], windows: [2], label: 'fixture' });
+    assert.deepEqual(Object.keys(result), ['label', 'eval', 'grid', 'eras', 'task_count', 'other_class', 'duration_source',
+      'composition', 'candidates', 'selection', 'noise_floor', 'class_counts']);
+    assert.equal(result.label, 'fixture');
+    assert.deepEqual(result.grid, [2]);
+    assert.equal(result.selection.decision, 'build_window');
+    assert.equal(result.selection.window, 2);
+    assert.deepEqual(result.candidates.map((c) => c.window), ['all', 2]);
+    assert.equal(result.eras.length, 4);
+    assert.deepEqual(result.noise_floor.all, { subsets: 0, share: null });
+    assert.equal(result.noise_floor.chosen.window, 2);
+    assert.deepEqual(Object.keys(result.class_counts), ['objective', 'w10', 'w5']);
+    assert.ok(!JSON.stringify(result).includes(root), 'the snapshot path is not in the result');
+  });
+
+  test('9. the report subcommand prints markdown with the selection, and writes the JSON', () => {
+    const jsonFile = path.join(outDir, 'd.json');
+    const r = run(['report', '--snapshot', root, '--eval', '6-6', '--grid', '2', '--label', 'fixture', '--json', jsonFile, '--raw']);
+    assert.equal(r.status, 0, r.stderr);
+    for (const heading of ['### Eras (S1)', '### Task count (S5)', '### Class other (S4)', '### Duration source (S2)',
+      '### Composition (S6)', '### Selection', '### Noise floor', '### Class sample counts']) {
+      assert.ok(r.stdout.includes(heading), `missing heading ${heading}`);
+    }
+    const order = ['### Eras (S1)', '### Task count (S5)', '### Class other (S4)', '### Duration source (S2)',
+      '### Composition (S6)', '### Selection', '### Noise floor', '### Class sample counts'].map((h) => r.stdout.indexOf(h));
+    assert.deepEqual([...order].sort((a, b) => a - b), order, 'the sections are in the documented order');
+    assert.match(r.stdout, /decision: build_window/);
+    assert.match(r.stdout, /window_objectives: 2/);
+    assert.match(r.stdout, /^\| all \|.*\b4\.00\b/m);
+    assert.match(r.stdout, /^\| 2 \|.*\b1\.00\b/m);
+    const parsed = JSON.parse(fs.readFileSync(jsonFile, 'utf-8'));
+    assert.equal(parsed.selection.decision, 'build_window');
+    assert.equal(parsed.selection.window, 2);
+    assert.equal(fs.readFileSync(jsonFile, 'utf-8').endsWith('}\n'), true);
+  });
+
+  test('9b. without --raw the JSON is printed', () => {
+    const r = run(['report', '--snapshot', root, '--eval', '6', '--grid', '2']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(JSON.parse(r.stdout).selection.window, 2);
+  });
+
+  test('10. two copies of the fixture in different directories write byte-identical JSON with no path and no date', () => {
+    const other = makeCalibrationProject(stepSpec());
+    try {
+      assert.notEqual(path.dirname(other), path.dirname(root));
+      const a = path.join(outDir, 'a.json');
+      const b = path.join(outDir, 'b.json');
+      assert.equal(run(['report', '--snapshot', root, '--eval', '6-6', '--grid', '2', '--label', 'fixture', '--json', a, '--raw']).status, 0);
+      assert.equal(run(['report', '--snapshot', other, '--eval', '6-6', '--grid', '2', '--label', 'fixture', '--json', b, '--raw']).status, 0);
+      const textA = fs.readFileSync(a, 'utf-8');
+      assert.equal(textA, fs.readFileSync(b, 'utf-8'));
+      assert.ok(!textA.includes(path.dirname(root)) && !textA.includes(path.dirname(other)));
+      assert.ok(!textA.includes(os.tmpdir()));
+      assert.ok(!/\d{4}-\d{2}-\d{2}/.test(textA), 'no ISO date');
+    } finally {
+      removeCalibrationProject(other);
+    }
+  });
+
+  test('11. usage errors exit 1 with a message', () => {
+    const cases = [
+      [],
+      ['bogus'],
+      ['report'],
+      ['report', '--snapshot', root, '--grid', '0'],
+      ['report', '--snapshot', root, '--grid', 'abc'],
+      ['report', '--snapshot', root, '--eval', '7-3'],
+      ['report', '--snapshot', root, '--eval', 'x'],
+      ['report', '--snapshot', root, '--bogus'],
+      ['report', '--snapshot', root, 'extra'],
+      ['report', '--snapshot'],
+      ['report', '--snapshot', outDir],
+    ];
+    for (const args of cases) {
+      const r = run(args);
+      assert.equal(r.status, 1, `args ${JSON.stringify(args)} should exit 1, got ${r.status}`);
+      assert.ok(r.stderr.length > 0, `args ${JSON.stringify(args)} should explain itself`);
+    }
+    assert.match(run([]).stderr, /usage/i);
+  });
+
+  test('11b. the CLI refuses any path under ~/.claude', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-home-'));
+    try {
+      const target = path.join(home, '.claude', 'devflow', 'out.json');
+      const r = run(['report', '--snapshot', root, '--eval', '6-6', '--grid', '2', '--json', target], { HOME: home });
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /\.claude/);
+      assert.equal(fs.existsSync(target), false);
+      assert.equal(evalTool.isUnderClaudeHome(path.join(home, '.claude', 'x'), home), true);
+      assert.equal(evalTool.isUnderClaudeHome(path.join(home, '.claude'), home), true);
+      assert.equal(evalTool.isUnderClaudeHome(path.join(home, '.claudex', 'x'), home), false);
+      assert.equal(evalTool.isUnderClaudeHome(path.join(home, 'work'), home), false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('the script never writes a calibration', () => {
+    const source = fs.readFileSync(SCRIPT, 'utf-8');
+    assert.ok(!/\bwriteCalibration\b/.test(source.replace(/^\s*\/\/.*$/gm, '')), 'writeCalibration is not used');
+    assert.ok(!/defaultCalibrationPath/.test(source.replace(/^\s*\/\/.*$/gm, '')), 'defaultCalibrationPath is not used');
+    assert.ok(!/const\s+(BAND|COVERAGE_TARGET)\s*=/.test(source), 'BAND and COVERAGE_TARGET are imported, not redefined');
+  });
+});
