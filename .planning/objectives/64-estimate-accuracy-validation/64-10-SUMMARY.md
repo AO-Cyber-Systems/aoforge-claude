@@ -2,39 +2,169 @@
 objective: 64-estimate-accuracy-validation
 trd: "10"
 subsystem: estimation
-tags: [estimate, calibrate, EST-08, recency-window, ship-decision, gap-closure]
+tags: [estimate, calibrate, EST-08, recency-window, ship-decision, accuracy-report, gap-closure]
+
+requires:
+  - objective: 64-estimate-accuracy-validation (64-07)
+    provides: the frozen decision build_window (window_objectives 10), the validation protocol and the ship rule in 64-DIAGNOSIS.md
+  - objective: 64-estimate-accuracy-validation (64-08)
+    provides: calibrate --window and scripts/estimate-rolling-backtest.cjs (rollingBacktest, shipRule)
+  - objective: 64-estimate-accuracy-validation (64-09)
+    provides: 64-VALIDATION.md, est08 "not met" and ship_default "true"
+
+provides:
+  - "calibrate windows to the most recent 10 objectives by default (DEFAULT_WINDOW_OBJECTIVES 10); --window all keeps all history"
+  - "the live ~/.claude/devflow/calibration.json regenerated with the window"
+  - "64-ACCURACY-REPORT.md gap-closure section: 64-05 results and the rolling old/new result side by side"
+  - "EST-08 recorded as not met with the re-validation noted; the follow-up todo stays open"
+
+affects: []
+
+tech-stack:
+  added: []
+  patterns:
+    - "an evaluation tool that cuts its own windows passes window: null so the library default is not applied twice"
+
+key-files:
+  created: []
+  modified:
+    - plugins/devflow/devflow/bin/lib/calibrator.cjs
+    - plugins/devflow/devflow/bin/lib/calibrator.test.cjs
+    - plugins/devflow/devflow/bin/lib/calibrate-cli.cjs
+    - plugins/devflow/devflow/bin/lib/calibrate-cli.test.cjs
+    - plugins/devflow/devflow/bin/lib/help.cjs
+    - plugins/devflow/devflow/bin/df-tools.cjs
+    - scripts/estimate-window-eval.cjs
+    - scripts/estimate-window-eval.test.cjs
+    - .planning/objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md
+    - .planning/REQUIREMENTS.md
+    - CHANGELOG.md
+    - docs/USER-GUIDE.md
+    - CLAUDE.md
+
+key-decisions:
+  - "ship_default was applied exactly as 64-VALIDATION.md recorded it (true); it was not recomputed. EST-08 stays not met and is not ticked."
+  - "The live calibration was regenerated (5cf42c4b... to 9ef7d108...) because the default flipped; the frozen copy and the run history were not touched."
+
 requirements-completed: []
+
+verification:
+  gates_defined: 1
+  gates_passed: 1
+  auto_fix_cycles: 0
+  tdd_evidence: true
+  test_pairing: true
+
+duration: 14min
+completed: 2026-10-08
 ---
 
 # Objective 64 TRD 10: Ship decision, accuracy report and full suite Summary
 
-**DEFAULT CHANGED BUT EST-08 NOT MET.** (in progress)
+**DEFAULT CHANGED BUT EST-08 NOT MET.** The pre-registered ship rule returned `ship_default: true` (agent-minutes median ratio 1.348 to 1.238, no passing status regressed), so `calibrate` now windows to the 10 most recent objectives by default and the live calibration was regenerated; EST-08 is still not met (cost SC3 is 32 of 41 TRDs, 78% against 80%) and stays unchecked.
 
-## Deviations from Plan
+## What the ship rule did
 
-**1. [Rule 1 - Bug] `scripts/estimate-window-eval.cjs` windowed its own cuts a second time once the default flipped**
-- **Found during:** Task 1, scanning every caller of `buildCalibration` after flipping the default.
-- **Issue:** the tool cuts a snapshot to each candidate window itself (`cutProject`: `all`, 10, 15, 20, 30, 40) and then built the calibration of the cut with no `window`. With `DEFAULT_WINDOW_OBJECTIVES` at 10, every candidate above 10 (and `all`) would be clamped to 10 objectives, and the in-sample calibration of `report()` would no longer be the whole snapshot. The frozen selection digest of 64-DIAGNOSIS.md (`selection_output_sha256`) would no longer reproduce.
-- **Fix:** `window: null` at the three call sites (`rollingSweep`, `cutClassCounts`, the in-sample `inCal` of `report`), RED first: tests 18 and 19 in `scripts/estimate-window-eval.test.cjs` failed with TRD p50 10 where 40 is correct, and pass after. No threshold, input or actual changed; `estimate-backtest.cjs` is untouched. `scripts/estimate-rolling-backtest.cjs` only reads calibration files and needed nothing.
-- **Files modified:** `scripts/estimate-window-eval.cjs`, `scripts/estimate-window-eval.test.cjs`.
-- **Commit:** see Task 1.
-
-**2. [Test list item 5] Existing tests needing `window: null`:** none. Every existing window test uses SLOPE (7 objectives, below the window), so they pass untouched. The one assertion that said the opposite, `DEFAULT_WINDOW_OBJECTIVES === null` ("the default stays off in this TRD") in `calibrator.test.cjs` test 2, was removed and replaced by test 1 of the new 64-10 block (`=== 10`).
+- `ship_default` from the committed `64-VALIDATION.md` (one commit, `13785e72`): **true**. `est08`: **not met**. `harness_control`: reproduced. `window_objectives`: 10. Applied as recorded, not recomputed.
+- **Default flipped:** `DEFAULT_WINDOW_OBJECTIVES` null to 10 in `calibrator.cjs`. `calibrate` with no flag keeps the 10 most recent objectives that have samples per project; `--window all` keeps all history; `--window N` overrides. A project of 10 or fewer objectives is byte-identical with and without the default.
+- **EST-08 status as written:** NOT met. The checklist box stays unchecked, the traceability row reads `Not met: see ... 64-ACCURACY-REPORT.md and 64-VALIDATION.md; follow-up todo recalibrate-estimate-minutes-est-08-not-met`, and the todo stays open. `requirements mark-complete` was not run.
+- **What 64-09 flagged, stated here because the ship rule does not weigh it:** the ship rests on a small move (objectives in band stayed 2 of 5). The cost median moved further below 1 (0.839 to 0.797), cost objectives in band fell from 4 of 5 to 3 of 5, and objective 63's minutes ratio moved away from 1 (0.739 to 0.697). Within +-30%, minutes: 2 of 5 under both methods. Five leave-future-out objectives, weak pre-59 support for the window, not prospective.
 
 ## Live calibration: REGENERATED by this TRD (Task 1)
 
-The live calibration `~/.claude/devflow/calibration.json` was regenerated by TRD 64-10 Task 1, after 64-VALIDATION.md was committed (`13785e72`), with the repository df-tools (`node plugins/devflow/devflow/bin/df-tools.cjs calibrate --raw`, default paths, default out, default transcripts root).
+The live calibration `~/.claude/devflow/calibration.json` was regenerated by TRD 64-10 Task 1 after 64-VALIDATION.md was committed (`13785e72`), with the repository df-tools (`node plugins/devflow/devflow/bin/df-tools.cjs calibrate --raw`, default paths, default out, default transcripts root; `DEVFLOW_CALIBRATION_PATH` and `DEVFLOW_CALIBRATE_PATHS` were unset).
 
 | | sha256 |
 |---|---|
 | Before | `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea` |
 | After | `9ef7d1082c6722b6ca783d6b8d192a0999da63ba620e2780dcc67ed98b5ad648` |
-| Frozen copy `~/.claude/devflow/state/backtest/calibration-5cf42c4b.json` (not touched) | `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea` |
+| Frozen copy `~/.claude/devflow/state/backtest/calibration-5cf42c4b.json` (not touched, re-checked at the end) | `5cf42c4bc6141962329b1a1ac5bfdbda64ca78689dcc871c5d41352ff5a1fbea` |
 
 New file: version 2, `data_as_of` 2026-10-08, samples 80 TRDs / 190 tasks / 79 with tokens, `inputs_digest` `sha256:288b10f2a84bca18879bf4e430f9ffa1d522d8bba7693409e50ed6ec0120e890`, window block `{objectives: 10, projects: [{project: devflow-claude, first: 55-store-live-smoke-fixes, last: 64-estimate-accuracy-validation, kept_objectives: 10, dropped_objectives: 50, dropped_trds: 371}]}`. Smoke: `estimate trd 64-10 --raw` printed `TRD 64-10: 11 min (P90 22 min) · $3.43 (P90 $5.77) · 3 tasks · confidence medium` from the repository df-tools and from the installed mirror (which ignores the `window` key). Nothing under `~/.claude/devflow/state/estimates/history/` was touched.
 
 ## Progress
 
 - [x] Task 1: Apply the ship rule: flip the default to a 10-objective window and regenerate the live calibration — 23c0eca8
-- [x] Task 2: Report, EST-08 status, CHANGELOG, USER-GUIDE and CLAUDE.md — (this commit)
-- [ ] Task 3: Full test suite — next step: run `roadmap update-job-progress 64`, then `npm test` from the repository root redirected to the scratchpad
+- [x] Task 2: Report, EST-08 status, CHANGELOG, USER-GUIDE and CLAUDE.md — 3bca7d6f
+- [x] Task 3: Full test suite — no commit (evidence only; see Task Evidence)
+
+## Performance
+
+- **Duration:** 14min
+- **Started:** 2026-10-08T01:27:56Z
+- **Completed:** 2026-10-08T01:42:00Z
+- **Tasks:** 3
+- **Files modified:** 13 (8 code, 5 docs and planning)
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] `scripts/estimate-window-eval.cjs` windowed its own cuts a second time once the default flipped**
+- **Found during:** Task 1, scanning every caller of `buildCalibration` after flipping the default.
+- **Issue:** the tool cuts a snapshot to each candidate window itself (`cutProject`: `all`, 10, 15, 20, 30, 40) and then built the calibration of the cut with no `window`. With the default at 10, every candidate above 10 (and `all`) would have been clamped to 10 objectives, and the in-sample calibration of `report()` would no longer be the whole snapshot, so the frozen selection digest of 64-DIAGNOSIS.md (`selection_output_sha256`) would no longer reproduce.
+- **Fix:** `window: null` at the three call sites (`rollingSweep`, `cutClassCounts`, the in-sample `inCal` of `report`), RED first: tests 18 and 19 in `scripts/estimate-window-eval.test.cjs` failed with a TRD p50 of 10 where 40 is correct, and pass after. No threshold, input or actual changed; `estimate-backtest.cjs` is untouched. `scripts/estimate-rolling-backtest.cjs` only reads calibration files and needed nothing. I did not re-run the pre-59 selection (that belongs to the 64-09 protocol, which was not to be re-run); the two tests are the evidence.
+- **Files modified:** `scripts/estimate-window-eval.cjs`, `scripts/estimate-window-eval.test.cjs`.
+- **Commit:** 23c0eca8.
+
+**2. [Rule 1 - Bug] The report's reproduction commands would have silently windowed**
+- **Found during:** Task 2.
+- **Issue:** `64-ACCURACY-REPORT.md` "Reproduce" and "Rolling leave-future-out" ran `calibrate` with no `--window`; since the default flipped, those commands build 10-objective calibrations, not the all-history ones 64-05 used.
+- **Fix:** `--window all` added to the three `calibrate` commands in the report, with a sentence saying why.
+- **Commit:** 3bca7d6f.
+
+**3. [Rule 3 - Blocking] Stale REQUIREMENTS.md draft**
+- **Found during:** Task 2. `planning draft REQUIREMENTS.md` returned a pre-existing draft (it is never replaced) that predated the EST, GATE, PLMB and other ticks; publishing it would have reverted about 40 checkboxes and traceability rows.
+- **Fix:** I deleted that one OS-temp draft file, re-ran `planning draft`, confirmed with `diff` that it equalled the current file, then applied the two EST-08 hunks. `git diff -U0` on the published file shows exactly two changed lines. The report draft was checked the same way (`git diff` shows only the intended hunks).
+
+### Test list item 5
+
+No existing test needed `window: null`: every existing window test uses a 7-objective fixture, below the window. The one assertion that said the opposite, `DEFAULT_WINDOW_OBJECTIVES === null` (`the default stays off in this TRD`) in `calibrator.test.cjs` test 2, was removed and replaced by test 1 of the new 64-10 block (`=== 10`).
+
+## TDD Evidence
+
+| Phase | Command | Exit Code | Expected |
+|---|---|---|---|
+| RED (calibrator, CLI) | `node --test plugins/devflow/devflow/bin/lib/calibrator.test.cjs plugins/devflow/devflow/bin/lib/calibrate-cli.test.cjs` | 1 | FAIL (correct): tests 16, 17 (CLI) and 1, 2, 3, 5 (calibrator) failed with the default still null |
+| GREEN (calibrator, CLI, dispatch) | `node --test .../calibrator.test.cjs .../calibrate-cli.test.cjs .../dispatch-completeness.test.cjs` | 0 | PASS (correct): 98 tests |
+| RED (eval tool) | `node --test scripts/estimate-window-eval.test.cjs` | 1 | FAIL (correct): tests 18 and 19, TRD p50 10 where 40 expected |
+| GREEN (eval tool) | `node --test scripts/estimate-window-eval.test.cjs` | 0 | PASS (correct): 41 tests |
+
+Order followed the test list: 4 (CLI end to end), 2, 3, 5, 1; hand-built fixtures only (WIDE: 12 objectives, `1-a` and `2-b` at 40min, the rest at 10min, one TRD of two code_tdd tasks each; a 10- and an 11-objective fixture for the boundary).
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: ship rule, default and live calibration | `node --test` calibrator, calibrate-cli, dispatch-completeness, estimate-window-eval, estimate-rolling-backtest (172 tests); live hash changed; `estimate trd 64-10 --raw` prints an estimate; frozen copy `5cf42c4b...` | 0 | PASS |
+| 2: report, EST-08, docs | `rg` for `^verdict:`, `^verdict_before:`, `^## Gap closure`, `EST-08`, `--window`; `node --test` doc-refs.repo, dispatch-completeness, planning-writes.repo (31 tests) | 0 | PASS |
+| 3: full suite | `npm test` | 0 | PASS (11071 tests, 11037 pass, 0 fail, 34 skipped) |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test | `npm test` | 0 | PASS |
+
+`npm test` from the repository root (the main checkout), one run, 92.9 s: **tests 11071, suites 1785, pass 11037, fail 0, cancelled 0, skipped 34, todo 0**. No failure to classify as pre-existing and no re-run was needed. `roadmap update-job-progress 64` ran before the run (it ticked the 64-10 box and left `.planning/ROADMAP.md` modified, committed with the final docs commit), so the roadmap-reconcile self-test passed on that first run. The suite did not alter either calibration file: after it the live file is still `9ef7d108...` and the frozen copy `5cf42c4b...`.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0 (three deviations handled inline, none needed a retry)
+- Must-haves verified: 6/6 (ship decision applied from the committed doc; live calibration regenerated only after the VALIDATION commit and said so with both hashes; report keeps 64-05 beside the new result; EST-08 recorded as not met; CHANGELOG, USER-GUIDE and CLAUDE.md updated with doc-refs and dispatch-completeness green; full suite)
+- Gate failures: none
+- `git diff --stat` across this TRD (`18689c89..HEAD`) names no `estimate-backtest.cjs`.
+
+## Issues for the orchestrator
+
+1. **EST-08 is not met; `objective complete 64` will tick it anyway.** It ticks `- [ ] **EST-08**` for every requirement on the objective's ROADMAP line regardless of a verdict. Whoever completes objective 64 must re-open that checkbox (traceability row already reads `Not met`) or record the decision to accept the verdict. The todo `recalibrate-estimate-minutes-est-08-not-met` stays open; its remaining untested half is per-TRD minutes (suspect S5).
+2. **The live calibration was regenerated** (`5cf42c4b...` to `9ef7d108...`, window 55 to 64). The frozen baseline copy and the run history are untouched. To undo: `calibrate --window all`, or copy the frozen copy back.
+3. **`--window` and `estimate backtest` reach the installed mirror (`~/.claude/devflow`) only after a plugin release and a runtime re-sync.** The mirror reads the regenerated file fine (it ignores the `window` key), but it has no `--window` flag until then. The CHANGELOG entries are under `[Unreleased]`.
+4. **Open todo `ship-executor-token-stamp-forward-stamp-8-of-41`** needs a plugin release and a runtime re-sync, not code.
+5. **True prospective confirmation needs the next five objectives**, estimated from the calibration that exists before each starts (now the regenerated live file) and recorded by the run history from 64-02, then `df-tools estimate backtest` over them. The result here is five leave-future-out objectives, weak support for the window, and not prospective.
+6. **`scripts/estimate-window-eval.cjs` was touched** (three `window: null` arguments, Rule 1) although the TRD's file list names only the six lib files; see Deviations. Any other caller that builds a calibration from a pre-cut directory has the same exposure; none other exists in the repository (checked with `rg buildCalibration`).
+7. **The `.gitkeep` files for objectives 26-31, 53-55 are untracked and predate this run; they were not committed.**
+
+## Self-Check: PASSED
+
+All 13 files in `key-files.modified` exist; commits `23c0eca8` and `3bca7d6f` exist; the live calibration hashes to `9ef7d108...` (as recorded) and the frozen copy to `5cf42c4b...`; `64-ACCURACY-REPORT.md`, `CHANGELOG.md` and this SUMMARY each say "default changed but EST-08 not met" at the head of the relevant section; the EST-08 checkbox is unchecked; `npm test` exits 0.

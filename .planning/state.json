@@ -1,9 +1,9 @@
 {
   "current_objective": "64",
-  "current_job": 9,
+  "current_job": 10,
   "total_jobs": 10,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-07",
   "metrics": {
     "jobs_completed": 0,
@@ -1069,6 +1069,11 @@
     {
       "objective": "64",
       "summary": "64-09: frozen rolling validation on 59-63 ran once: new method (window 10) EST-08 not met (cost SC3 32/41 TRDs under P90 unchanged), minutes median 1.348 to 1.238, ship rule ship_default true",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "Ship rule applied as recorded (ship_default true): calibrate defaults to a 10-objective window and the live calibration was regenerated, but EST-08 stays not met (cost SC3 32 of 41 TRDs, 78%)",
       "rationale": null
     }
   ],
