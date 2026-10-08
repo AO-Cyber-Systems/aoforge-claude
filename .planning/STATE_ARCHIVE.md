@@ -209,6 +209,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 66]: PLAN_ID: lines in executor spawn prompts carry the short {trd_id} ({objective_number}-{plan_number}); the slug {plan_id} stays on exec-context --id, worktree and branch names
 - [Objective 66]: EST-09 stays Pending: measured v1.6 forward-stamp coverage is 5/7 = 0.714285 (target 95% not met); 65-02 and 65-03 ran inline and can never be stamped, so 95% needs at least 40 counted TRDs with 38 live
 - [Objective 67]: DECISION-003: frozen minutes method is TRD-level minutes (window 10, through objective 66), task-sum as pre-registered fallback; chosen by the planner agent, not the user
+- [Objective 67]: 67-03: minutes_basis names the calibration's minutes method on every TRD estimate (even one with no minutes); minutes_samples is the TRD-level count only when a stat exists
+- [Objective 67]: 67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence
 
 ## Performance Metrics
 
@@ -349,4 +351,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 66 P03 | 8min | 2 tasks | 2 files |
 | Objective 66 P04 | 9min | 2 tasks | 4 files |
 | Objective 67 P01 | 3min | 2 tasks | 1 files |
+| Objective 67 P03 | 10min | 3 tasks | 8 files |
 

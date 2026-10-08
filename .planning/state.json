@@ -1,8 +1,8 @@
 {
   "current_objective": "67",
-  "current_job": 1,
+  "current_job": 2,
   "total_jobs": 9,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
@@ -1109,6 +1109,16 @@
     {
       "objective": "67",
       "summary": "DECISION-003: frozen minutes method is TRD-level minutes (window 10, through objective 66), task-sum as pre-registered fallback; chosen by the planner agent, not the user",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-03: minutes_basis names the calibration's minutes method on every TRD estimate (even one with no minutes); minutes_samples is the TRD-level count only when a stat exists",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-03: under trd_level a TRD with no TRD-level minutes samples has null minutes, never the task sum; a thin TRD-level sample caps the TRD confidence",
       "rationale": null
     }
   ],
