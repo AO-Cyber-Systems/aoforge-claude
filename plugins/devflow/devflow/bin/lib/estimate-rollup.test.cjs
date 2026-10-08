@@ -8,10 +8,12 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
+const em = require('./estimate-math.cjs');
 const rollup = require('./estimate-rollup.cjs');
 const {
   CAL_V2,
   makeCalibration,
+  makeCalibrationV3,
   makeEstimateProject,
   removeEstimateProject,
   ROLLUP_SPEC,
@@ -277,4 +279,61 @@ test('objectiveOverhead returns an entry per agent with data and names the agent
   const none = rollup.objectiveOverhead(CAL_V1, ['verifier']);
   assert.deepEqual(none.entries, []);
   assert.deepEqual(none.missing, ['agent_overhead.verifier']);
+});
+
+// ─── TRD-level minutes (TRD 67-03, EST-10) ────────────────────────────────────
+
+test('9. trd_level: an objective composes its TRDs\' TRD-level minutes as a correlated sum, whatever their task counts', (t) => {
+  const task = (n, files, tdd) => ({ name: `Task ${n}: t${n}`, files, tdd });
+  const levelRoot = makeEstimateProject({
+    name: 'rollup-trd-level',
+    config: { parallelization: { enabled: true } },
+    objectives: [
+      {
+        dir: '85-level',
+        objectiveMd: '# Objective 85: level\n',
+        trds: [
+          {
+            nn: '01',
+            slug: 'one',
+            frontmatter: { type: 'standard', wave: 1, depends_on: [] },
+            tasks: [task(1, ['lib/a.cjs', 'lib/a.test.cjs'], true)],
+          },
+          {
+            nn: '02',
+            slug: 'three',
+            frontmatter: { type: 'standard', wave: 1, depends_on: [] },
+            tasks: [
+              task(1, ['lib/b.cjs', 'lib/b.test.cjs'], true),
+              task(2, ['lib/c.cjs'], true),
+              task(3, ['lib/d.cjs'], true),
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  t.after(() => removeEstimateProject(levelRoot));
+
+  const trdLevelCal = makeCalibrationV3({ minutes: 'trd_level' });
+  const taskSumCal = makeCalibrationV3({ minutes: 'task_sum' });
+
+  const level = rollup.estimateObjective(trdLevelCal, levelRoot, '85', { all: true });
+  assert.deepEqual(level.trd_estimates.map((e) => e.id), ['85-01', '85-02']);
+  assert.deepEqual(level.trd_estimates.map((e) => e.minutes), [{ p50: 12, p90: 45 }, { p50: 12, p90: 45 }]);
+  assert.deepEqual(level.trd_estimates.map((e) => e.minutes_basis), ['trd_level', 'trd_level']);
+
+  const expected = em.summarize(em.sumCorrelated([em.fitQuantiles({ p50: 12, p90: 45 }), em.fitQuantiles({ p50: 12, p90: 45 })]));
+  assert.ok(Math.abs(expected.p50 - 26.244139884112773) < 1e-9, 'the independent anchor from the TRD');
+  assert.ok(Math.abs(expected.p90 - 87.62100705046149) < 1e-9, 'the independent anchor from the TRD');
+  assert.ok(Math.abs(level.execution.agent_minutes.p50 - expected.p50) < 1e-9, `agent minutes p50 ${level.execution.agent_minutes.p50}`);
+  assert.ok(Math.abs(level.execution.agent_minutes.p90 - expected.p90) < 1e-9, `agent minutes p90 ${level.execution.agent_minutes.p90}`);
+
+  // The method changes only minutes: under task_sum the same objective is estimated from the task quantile sums, and its
+  // tokens and cost are the same numbers.
+  const sum = rollup.estimateObjective(taskSumCal, levelRoot, '85', { all: true });
+  assert.notDeepEqual(sum.execution.agent_minutes, level.execution.agent_minutes);
+  assert.deepEqual(sum.execution.tokens_input, level.execution.tokens_input);
+  assert.deepEqual(sum.execution.tokens_output, level.execution.tokens_output);
+  assert.deepEqual(sum.execution.cost_usd, level.execution.cost_usd);
 });

@@ -24,11 +24,19 @@
 //
 // A TRD estimate is
 //   {id, path, wave, depends_on, autonomous, gap_closure, trd_type, tasks: [{name, ...task estimate}], minutes,
-//    tokens_input, tokens_output, cost_usd, confidence, weakest, human_wait, notes, missing}
+//    tokens_input, tokens_output, cost_usd, minutes_basis, minutes_samples, confidence, weakest, human_wait, notes,
+//    missing}
 // where each metric is `{p50, p90}` (no n) or null and `missing` lists the null ones. A TRD's confidence is the lowest
 // label among the tasks worth at least 10% of its median minutes (overallConfidence) and `weakest` is that task's
 // component `{name, label, p50, class, n}`. 58-06 and 58-07 build on both shapes, and on the component shape
 // `{name, label, p50, class?, n?, status?}` that overallConfidence takes.
+//
+// Minutes method (TRD 67-03, DECISION-003). A version 3 calibration carries `method: {minutes, window_objectives,
+// through_objective}`. With `method.minutes: 'trd_level'` a TRD with at least one auto task has exactly the
+// calibration's `trd_level.minutes` p50 and P90 as its minutes (null, and listed in `missing`, when that block has no
+// samples), whatever its task count or classes; `minutes_basis` says which method made the number and `minutes_samples`
+// is the TRD-level sample count behind it (null otherwise). Its confidence is also capped by that count. Tokens and cost
+// stay the per-task sum under both methods. A calibration with no method block (version 1 or 2) is 'task_sum'.
 
 const fs = require('fs');
 const path = require('path');
@@ -306,13 +314,25 @@ function estimateTrdText(cal, text, where = {}) {
   const humanWait = !fm.autonomous || tasks.some((t) => t.human_wait);
 
   const totals = {};
-  const missing = [];
   for (const metric of METRICS) {
     totals[metric] = auto.length === 0
       ? null
       : em.summarize(em.sumComonotonic(auto.map((t) => em.fitQuantiles(t[metric]))));
-    if (totals[metric] === null) missing.push(metric);
   }
+
+  // Under the trd_level method (DECISION-003) a TRD's minutes are the calibration's TRD-level distribution as it stands,
+  // whatever the task count or classes: no factor, no refit. Tokens and cost stay the per-task sum above. No TRD-level
+  // sample means no minutes; the task sum is not a fallback.
+  const minutesBasis = minutesMethod(cal) === 'trd_level' ? 'trd_level' : 'task_sum';
+  let levelStat = null;
+  if (minutesBasis === 'trd_level' && auto.length > 0) {
+    levelStat = usableStat(cal.trd_level, 'minutes');
+    totals.minutes = levelStat === null ? null : { p50: levelStat.p50, p90: levelStat.p90 };
+    if (levelStat !== null) {
+      notes.push(`minutes from TRD-level history (n=${levelStat.n} TRDs), not the sum of task minutes`);
+    }
+  }
+  const missing = METRICS.filter((metric) => totals[metric] === null);
 
   // A missing metric is reported once for the TRD, not once per task.
   for (const t of tasks) {
@@ -331,6 +351,16 @@ function estimateTrdText(cal, text, where = {}) {
       class: t.class,
       n: t.samples,
     })));
+    // The TRD-level minutes are one more component, and a thin sample behind them caps the whole TRD.
+    if (levelStat !== null) {
+      const levelLabel = confidenceFor(levelStat.n);
+      if (CONFIDENCE_LEVELS.indexOf(levelLabel) < CONFIDENCE_LEVELS.indexOf(verdict.confidence)) {
+        verdict = {
+          confidence: levelLabel,
+          weakest: { name: 'TRD-level minutes', label: levelLabel, p50: levelStat.p50, class: null, n: levelStat.n },
+        };
+      }
+    }
   }
 
   return {
@@ -343,6 +373,8 @@ function estimateTrdText(cal, text, where = {}) {
     trd_type: fm.type,
     tasks,
     ...totals,
+    minutes_basis: minutesBasis,
+    minutes_samples: levelStat === null ? null : levelStat.n,
     confidence: verdict.confidence,
     weakest: verdict.weakest,
     human_wait: humanWait,
