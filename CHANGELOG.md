@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Objective 66 (EST-09, forward-stamp coverage). Entries that need an installed plugin take effect once the installed
+plugin carries objective 66; the 2.14.0 runtime has none of them.
+
+### Added
+- `df-tools tokens coverage [--milestone <v> | --objective <N>]` (objective 66, EST-09; `lib/token-coverage.cjs`). It
+  reports forward-stamp coverage (`tokens_source: "live"` over the counted TRD SUMMARYs) as an exact fraction and a
+  decimal floored at 6 places, and checks the 95% target with integers. It separates backfilled, unlabeled, missing and
+  in-progress SUMMARYs, gives each missing one a reason (`stamp_skipped` when an executor transcript exists, otherwise
+  `no_transcript`), and is read-only. The default scope is the current milestone.
+
+### Changed
+- `gate-executor-stop.js` also blocks a `devflow:executor` once when its final SUMMARY (the one with `## Self-Check`)
+  has no `tokens_input`/`tokens_output`, naming the exact `planning draft`, `tokens stamp` and `summary post` commands
+  (objective 66; the 64-09 and 64-10 executors skipped the stamp). A checkpoint SUMMARY, a stamped or backfilled final
+  and a second stop (`stop_hook_active`) stay silent. Needs an installed plugin carrying objective 66.
+- `execute-objective` runs every TRD in an executor, checkpoint-only TRDs included, and never writes a TRD's SUMMARY
+  itself (objective 66; 65-02 and 65-03 ran inline, so `tokens stamp` can never recover their usage). The objective
+  report gains a `**Token stamp:**` line from `tokens coverage --objective <N> --raw`, and the orchestrator never runs
+  `tokens backfill --write` to raise it. Needs an installed plugin carrying objective 66.
+- `agents/executor.md` `<self_check>` tells the executor that the SubagentStop gate sends it back once if the stamp was
+  skipped (objective 66).
+
+### Fixed
+- `execute-objective` pointed continuation spawns at a `continuation-prompt.md` template that does not exist (objective
+  66). The continuation prompt is now inline and carries `PLAN_ID:` and `REPO_ROOT:`, so a continuation's tokens count
+  toward its TRD and the stop gate recognises it.
+- The `PLAN_ID:` line of the executor and continuation prompts carried the slug id (`66-01-tokens-coverage-command`),
+  which `trd-identify.identifyTrd` cannot read, so the stop gate failed open and the stamp could not be attributed
+  (objective 66). The line now takes the short `{trd_id}` (`{objective_number}-{plan_number}`); `exec-context --id` keeps
+  the slug. Needs an installed plugin carrying objective 66.
+
 ## [2.14.0] - 2026-10-07
 
 Milestone v1.5 Gate & Plumbing (objectives 56–64; objective 55 shipped in 2.13.2). The edit gate now covers Bash writes
