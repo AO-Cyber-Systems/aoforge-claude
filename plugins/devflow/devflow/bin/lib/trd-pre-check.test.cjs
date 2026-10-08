@@ -49,6 +49,14 @@
 //    - `**Requirements**: ONUM-01, ONUM-02` (v1.5 colon outside the bold) is read; the uncovered ONUM-02 is reported
 //    - `**Requirements:** none (tech debt; see ...)` yields no IDs → passed:true, note 'no requirements declared'
 //    - `**Requirements:** GWP-01..GWP-03` expands the range; the uncovered GWP-03 is reported
+//
+// 9. 70-01 (TOOL-07): `verify trd-pre` resolves from anywhere inside the project
+//    - cwd = the objective dir, arg `99` → checks deep-equal the run from the root; no `error`
+//    - cwd = `<root>/src/deep` (no `.planning/`) → resolves
+//    - requirement coverage from a nested cwd reads the root ROADMAP (`missing` ['F2'] from both)
+//    - arg = `.planning/objectives/99-test` from the root, `<abs objective dir>/` from os.tmpdir() → both resolve
+//    - a cwd with its own `.planning/` is used as-is (no walk past it) → not found, project_root = that cwd
+//    - not found → exit 1, JSON error 'Objective not found' + project_root; --raw → stdout `Objective not found`, exit 1
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
@@ -103,6 +111,39 @@ function runCheck(cwd, objective) {
   }
 
   return { result: JSON.parse(captured), exitCode };
+}
+
+/** Like runCheck but with raw = true: returns the unparsed stdout and the exit code. */
+function runCheckRaw(cwd, objective) {
+  let captured = '';
+  let exitCode = 0;
+
+  const origWrite = process.stdout.write.bind(process.stdout);
+  const origExit = process.exit.bind(process);
+
+  process.stdout.write = (data) => {
+    captured += String(data);
+    return true;
+  };
+  process.exit = (code) => {
+    exitCode = code || 0;
+    throw new Error(`__process_exit_${code || 0}__`);
+  };
+
+  try {
+    cmdVerifyTrdPre(cwd, objective, true);
+  } catch (e) {
+    if (!e.message.startsWith('__process_exit_')) {
+      process.stdout.write = origWrite;
+      process.exit = origExit;
+      throw e;
+    }
+  } finally {
+    process.stdout.write = origWrite;
+    process.exit = origExit;
+  }
+
+  return { stdout: captured, exitCode };
 }
 
 // ─── 1. requirement_coverage ──────────────────────────────────────────────────
@@ -558,8 +599,8 @@ describe('e2e — cmdVerifyTrdPre', () => {
       process.stderr.write = origStderr;
       process.exit = origExit;
     }
-    assert.ok(exitCode !== 0 || captured.includes('error') || captured.includes('Error'),
-      'should report error for non-existent objective');
+    assert.equal(exitCode, 1, 'a missing objective exits 1 (TRD 70-01)');
+    assert.ok(captured.includes('Objective not found'), captured);
   });
 
   test('malformed TRD frontmatter → does not crash, TRD reported with error', () => {
@@ -958,5 +999,99 @@ describe('56-03 requirement IDs are ID-shaped', () => {
     const { result } = runCheck(tmpDir, '99');
     assert.strictEqual(result.checks.requirement_coverage.passed, false);
     assert.deepStrictEqual(result.checks.requirement_coverage.missing, ['REQ-10-04']);
+  });
+});
+
+// ─── 9. resolution from inside the project (TRD 70-01) ────────────────────────
+
+describe('resolution from inside the project (TRD 70-01)', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTmp(); });
+  afterEach(() => { removeTmp(tmpDir); });
+
+  // One TRD covering F1 of a roadmap that asks for F1 and F2.
+  function coverF1Only() {
+    return setupObjectiveDir(tmpDir, {
+      objective: '99-test',
+      roadmap_requirements: ['F1', 'F2'],
+      trds: [{ trd: '99-01', requirements: ['F1'], depends_on: [] }],
+    });
+  }
+
+  test('10. cwd = the objective directory resolves the same checks as the root', () => {
+    const objectiveDir = coverF1Only();
+    const fromRoot = runCheck(tmpDir, '99');
+    const fromObjective = runCheck(objectiveDir, '99');
+    assert.ok(!('error' in fromObjective.result), JSON.stringify(fromObjective.result));
+    assert.deepStrictEqual(fromObjective.result.checks, fromRoot.result.checks);
+    assert.equal(fromObjective.exitCode, 0);
+  });
+
+  test('11. cwd = a directory two levels below the root (no .planning/ of its own) resolves', () => {
+    coverF1Only();
+    const deep = path.join(tmpDir, 'src', 'deep');
+    fs.mkdirSync(deep, { recursive: true });
+    const fromRoot = runCheck(tmpDir, '99');
+    const fromDeep = runCheck(deep, '99');
+    assert.ok(!('error' in fromDeep.result), JSON.stringify(fromDeep.result));
+    assert.deepStrictEqual(fromDeep.result.checks, fromRoot.result.checks);
+  });
+
+  test('12. requirement coverage from a nested cwd reads the root ROADMAP', () => {
+    const objectiveDir = coverF1Only();
+    const fromRoot = runCheck(tmpDir, '99');
+    const fromObjective = runCheck(objectiveDir, '99');
+    assert.deepStrictEqual(fromRoot.result.checks.requirement_coverage.missing, ['F2']);
+    assert.deepStrictEqual(fromObjective.result.checks.requirement_coverage.missing, ['F2']);
+  });
+
+  test('13a. a relative path to the objective directory resolves from the root', () => {
+    coverF1Only();
+    const r = runCheck(tmpDir, path.join('.planning', 'objectives', '99-test'));
+    assert.ok(!('error' in r.result), JSON.stringify(r.result));
+    assert.equal(r.result.checks.requirement_coverage.missing.length, 1);
+  });
+
+  test('13b. an absolute path with a trailing slash resolves from any cwd', () => {
+    const objectiveDir = coverF1Only();
+    const fromRoot = runCheck(tmpDir, '99');
+    const r = runCheck(os.tmpdir(), objectiveDir + path.sep);
+    assert.ok(!('error' in r.result), JSON.stringify(r.result));
+    assert.deepStrictEqual(r.result.checks, fromRoot.result.checks);
+  });
+
+  test('14. a cwd that has its own .planning/ is used as-is: no walk past it', () => {
+    coverF1Only();
+    const inner = path.join(tmpDir, 'inner');
+    fs.mkdirSync(path.join(inner, '.planning', 'objectives'), { recursive: true });
+    const { result, exitCode } = runCheck(inner, '99');
+    assert.equal(result.error, 'Objective not found');
+    assert.equal(result.project_root, inner);
+    assert.equal(exitCode, 1);
+  });
+
+  test('15a. not found exits 1 with the resolved project_root', () => {
+    coverF1Only();
+    const deep = path.join(tmpDir, 'src', 'deep');
+    fs.mkdirSync(deep, { recursive: true });
+    const { result, exitCode } = runCheck(deep, '98');
+    assert.equal(exitCode, 1);
+    assert.equal(result.error, 'Objective not found');
+    assert.equal(result.objective, '98');
+    assert.equal(result.project_root, tmpDir);
+  });
+
+  test('15b. --raw prints Objective not found and exits 1', () => {
+    coverF1Only();
+    const { stdout, exitCode } = runCheckRaw(tmpDir, '98');
+    assert.equal(exitCode, 1);
+    assert.equal(stdout, 'Objective not found');
+  });
+
+  test('15c. a path argument to a missing objective directory exits 1', () => {
+    coverF1Only();
+    const { result, exitCode } = runCheck(tmpDir, path.join('.planning', 'objectives', '98-nope'));
+    assert.equal(exitCode, 1);
+    assert.equal(result.error, 'Objective not found');
   });
 });

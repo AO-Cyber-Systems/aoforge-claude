@@ -140,6 +140,51 @@ function sessionReplacePlainField(content, label, newValue) {
   return content.slice(0, start) + replaced + content.slice(end);
 }
 
+// Sets the progress bar in STATE.md content (TRD 70-01). Pure: returns
+// { content, how } or null when there is nowhere to put the line.
+//   bold     a `**Progress:**` field anywhere in the file (the pre-70-01 behaviour,
+//            kept byte for byte)
+//   plain    a `Progress:` line inside `## Current Position` (the bundled template)
+//   inserted a new `**Progress:** <bar>` line after the last non-blank line of
+//            `## Current Position`, before the first following heading of any level
+// A `Progress:` line in any other section is never rewritten. null means the file
+// has no Progress line and no `## Current Position` heading to add one under.
+function setProgressLine(content, bar) {
+  const bold = /(\*\*Progress:\*\*\s*).*/i;
+  if (bold.test(content)) {
+    return { content: content.replace(bold, `$1${bar}`), how: 'bold' };
+  }
+
+  const heading = content.match(/^## Current Position[ \t]*$/m);
+  if (!heading) return null;
+  // Slice after the heading line's end, so `^` cannot match at offset 0 of the slice.
+  const start = heading.index + heading[0].length;
+  const nextHeading = content.slice(start).search(/^#{1,6}[ \t]/m);
+  const end = nextHeading === -1 ? content.length : start + nextHeading;
+  const section = content.slice(start, end);
+
+  const plain = /^(Progress:[ \t]*)(.*)$/im;
+  if (plain.test(section)) {
+    // Replacer function: the bar is data, not a replacement pattern.
+    const replaced = section.replace(plain, (_, prefix) => prefix + bar);
+    return { content: content.slice(0, start) + replaced + content.slice(end), how: 'plain' };
+  }
+
+  const line = `**Progress:** ${bar}`;
+  const body = section.replace(/\s+$/, '');
+  let tail = section.slice(body.length);
+  let inserted;
+  if (body === '') {
+    // Heading straight into the next heading (or EOF): a blank line on both sides.
+    inserted = `\n\n${line}`;
+    tail = end === content.length ? '\n' : '\n\n';
+  } else {
+    inserted = `${body}\n${line}`;
+    if (!tail.includes('\n')) tail = '\n';
+  }
+  return { content: content.slice(0, start) + inserted + tail + content.slice(end), how: 'inserted' };
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 function cmdStateLoad(cwd, raw) {
@@ -459,10 +504,11 @@ function cmdStateRecordMetric(cwd, options, raw) {
   }
 }
 
+// Recomputes the progress bar from SUMMARY/TRD counts and updates, or inserts, the Progress line (exit 1 when there is nowhere to put it).
 function cmdStateUpdateProgress(cwd, raw) {
   const store = storeMode(cwd);
   const statePath = path.join(cwd, '.planning', 'STATE.md');
-  if (!store && !fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
+  if (!store && !fs.existsSync(statePath)) error('STATE.md not found at .planning/STATE.md');
 
   // Count summaries across all objectives
   const objectivesDir = path.join(cwd, '.planning', 'objectives');
@@ -491,18 +537,21 @@ function cmdStateUpdateProgress(cwd, raw) {
     return;
   }
 
-  let content = fs.readFileSync(statePath, 'utf-8');
-  const progressPattern = /(\*\*Progress:\*\*\s*).*/i;
-  if (progressPattern.test(content)) {
-    content = content.replace(progressPattern, `$1${progressStr}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
-    writeStateJson(cwd, { progress_pct: percent });
-    output({ updated: true, percent, completed: totalSummaries, total: totalJobs, bar: progressStr }, raw, progressStr);
-  } else {
-    // No markdown field — still persist to JSON
-    writeStateJson(cwd, { progress_pct: percent });
-    output({ updated: false, reason: 'Progress field not found in STATE.md' }, raw, 'false');
+  // Decide the outcome before the first write: the error path leaves STATE.md and state.json alone.
+  const result = setProgressLine(fs.readFileSync(statePath, 'utf-8'), progressStr);
+  if (!result) {
+    error('STATE.md has no Progress line and no "## Current Position" heading to add one under');
   }
+  fs.writeFileSync(statePath, result.content, 'utf-8');
+  writeStateJson(cwd, { progress_pct: percent });
+  output({
+    updated: true,
+    ...(result.how === 'inserted' ? { inserted: true } : {}),
+    percent,
+    completed: totalSummaries,
+    total: totalJobs,
+    bar: progressStr,
+  }, raw, progressStr);
 }
 
 function cmdStateAddDecision(cwd, options, raw) {
@@ -792,4 +841,5 @@ module.exports = {
   cmdStateRecordSession,
   cmdStateSnapshot,
   sessionReplacePlainField,
+  setProgressLine,
 };
