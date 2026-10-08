@@ -119,7 +119,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 65: Release v1.5** - Version bump, CHANGELOG release section, merge to `main`, tag, and the installed runtime carrying the v1.5 libs and hooks (completed 2026-10-08)
 - [x] **Objective 66: Executor token stamp** - Every new executor SUMMARY carries `tokens_input` / `tokens_output`, with measured forward-stamp coverage (completed 2026-10-08)
 - [x] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on (completed 2026-10-08)
-- [ ] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection
+- [x] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection (completed 2026-10-08)
 - [ ] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check
 - [ ] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema
 - [ ] **Objective 71: Stack drafter and verify policy** - govulncheck gate preference, buf lint drafting, `stack verify --run` policy for services and artifacts
@@ -206,7 +206,7 @@ TRDs:
 - [x] 68-04-objective-remove-and-complete-TRD.md — (W2) bounded NN-MM renumber rule keeps dates and metadata; `nextObjective` reads directories and ROADMAP sections for local and store `objective complete`
 - [x] 68-05-flag-spec-every-writer-TRD.md — (W2) spec entries for the remaining writing commands; repo test: spec = help.cjs `mutates`, a probe per entry, exemption reasons, documented invocations accepted
 - [x] 68-06-store-milestone-dry-run-TRD.md — (W2) store-mode `milestone complete --dry-run` with zero gh calls; `milestone put` shares the MILESTONES.md heading rule
-- [ ] 68-07-dogfood-and-docs-TRD.md — (W3) SC-1..SC-5 on scratch copies of this repo's `.planning/`; CHANGELOG, USER-GUIDE, CLAUDE.md, df-tools header; objective-complete todo completed
+- [x] 68-07-dogfood-and-docs-TRD.md — (W3) SC-1..SC-5 on scratch copies of this repo's `.planning/`; CHANGELOG, USER-GUIDE, CLAUDE.md, df-tools header; objective-complete todo completed
 
 ### Objective 69: Drafts, health and doctor
 
@@ -302,7 +302,7 @@ TRDs:
 | 65. Release v1.5 | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 67. Minutes recalibration | v1.6 | 9/9 | Complete | 2026-10-08 |
-| 68. Milestone and objective verbs | v1.6 | 6/7 | In Progress | - |
+| 68. Milestone and objective verbs | v1.6 | 7/7 | Complete | 2026-10-08 |
 | 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |
 | 70. CLI defects and hook shape | v1.6 | 0/? | Not started | - |
 | 71. Stack drafter and verify policy | v1.6 | 0/? | Not started | - |
