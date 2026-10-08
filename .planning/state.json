@@ -1,9 +1,9 @@
 {
-  "current_objective": "68",
-  "current_job": 7,
-  "total_jobs": 7,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "69",
+  "current_job": 1,
+  "total_jobs": 6,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1199,6 +1199,11 @@
     {
       "objective": "68",
       "summary": "Dogfood ran only on scratch copies of .planning/ with the repository runtime; each defect SC was also run against the installed pre-68 runtime as a control, so the PASS rows are shown to fail without the fix",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Draft staleness is decided by a per-draft sha256 base record (<draft>.base.json), with mtime only as the fallback for drafts that have no base; planning draft reseeds a stale draft and keeps the old one at <draft>.stale, doc put refuses it",
       "rationale": null
     }
   ],

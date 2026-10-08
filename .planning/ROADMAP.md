@@ -220,7 +220,7 @@ TRDs:
 **TRDs**: 6 plans
 
 TRDs:
-- [ ] 69-01-draft-staleness-guard-TRD.md — (W1) draft base records (`<draft>.base.json`); `planning draft` reseeds a stale draft and keeps `.stale`; `doc put` refuses a stale draft naming `planning draft <rel>`
+- [x] 69-01-draft-staleness-guard-TRD.md — (W1) draft base records (`<draft>.base.json`); `planning draft` reseeds a stale draft and keeps `.stale`; `doc put` refuses a stale draft naming `planning draft <rel>`
 - [ ] 69-02-skill-marker-health-check-TRD.md — (W1) `lib/skill-marker-health.cjs` + `doctor-git.checkIgnored`; `validate health` Check 19 (E006 tracked, W064 stale) and a `--repair` that untracks/removes only the marker behind the DOC-06 guard
 - [ ] 69-03-requirements-agreement-check-TRD.md — (W1) `lib/requirements-agreement.cjs` (REQUIREMENTS-document scope); repo test RED then GREEN by correcting eight objective 58 SUMMARYs through `summary post`
 - [ ] 69-04-doctor-skill-marker-ownership-TRD.md — (W2) doctor check 23 over skill-marker-health (tracked markers, owns E006/W064); check 22 defers them and counts only its own repairable issues
@@ -311,7 +311,7 @@ TRDs:
 | 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 67. Minutes recalibration | v1.6 | 9/9 | Complete | 2026-10-08 |
 | 68. Milestone and objective verbs | v1.6 | 7/7 | Complete | 2026-10-08 |
-| 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |
+| 69. Drafts, health and doctor | v1.6 | 1/6 | In Progress | - |
 | 70. CLI defects and hook shape | v1.6 | 0/? | Not started | - |
 | 71. Stack drafter and verify policy | v1.6 | 0/? | Not started | - |
 | 72. Install and naming cleanup | v1.6 | 0/? | Not started | - |
