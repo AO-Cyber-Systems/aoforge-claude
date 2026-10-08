@@ -251,6 +251,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 71]: justinforme and smartWellness committed STACK.md lint refresh is a recorded todo, not an edit: it is a commit in each fleet repo and needs the user
 - [Objective 72]: Run state for 72 already recorded at TRD start (2026-10-08T22:24:56.615Z); estimate line reads No estimate but per-wave p50/P90 exist; no requirement marked complete by 72-01
 - [Objective 72]: 72-01 correction: objective 72 accepted as unscored for EST-11 (user reply: unscored); the earlier 'run state already recorded' entry came from the orchestrator's wave-start call and had no objective estimate
+- [Objective 72]: compat.cjs destructures the planning-directory key so the literal source guard holds; findProjectRoot treats ENOTDIR as absence
 
 ## Performance Metrics
 
@@ -421,4 +422,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 71 P04 | 7min | 3 tasks | 3 files |
 | Objective 71 P05 | 8min | 2 tasks | 7 files |
 | Objective 72 P01 | 3min | 3 tasks | 2 files |
+| Objective 72 P02 | 7min | 3 tasks | 5 files |
 
