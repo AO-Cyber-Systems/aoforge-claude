@@ -198,6 +198,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 64]: 64-04: estimate backtest joins actuals on the directory name (estimateObjective dir is a relative path); duplicate objectives in the list are a usage error; the wall section compares the execution-only estimate.wall_minutes
 - [Objective 64]: EST-08 not met on out-of-sample evidence (agent minutes median ratio 1.51); no estimator code, threshold or input changed to pass it; follow-up todos recorded
 - [Objective 64]: Docs quote the primary EST-08 verdict only (not met); the 42-58 window diagnostic is not presented as a result
+- [Objective 64]: 64-07 frozen: decision build_window, window_objectives 10 (pre-registered rolling-origin rule on pre-59 objectives 46-58; weak evidence, non-monotone sweep); selection_output_sha256 fdf60e66...
 
 ## Performance Metrics
 
@@ -327,4 +328,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 64 P04 | 14min | 2 tasks | 9 files |
 | Objective 64 P05 | 9min | 3 tasks | 5 files |
 | Objective 64 P06 | 8min | 2 tasks | 3 files |
+| Objective 64 P07 | 20min | 3 tasks | 3 files |
 

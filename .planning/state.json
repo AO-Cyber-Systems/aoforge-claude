@@ -1,9 +1,9 @@
 {
   "current_objective": "64",
-  "current_job": 6,
-  "total_jobs": 6,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_job": 7,
+  "total_jobs": 10,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-07",
   "metrics": {
     "jobs_completed": 0,
@@ -1054,6 +1054,11 @@
     {
       "objective": "64",
       "summary": "Docs quote the primary EST-08 verdict only (not met); the 42-58 window diagnostic is not presented as a result",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "64-07 frozen: decision build_window, window_objectives 10 (pre-registered rolling-origin rule on pre-59 objectives 46-58; weak evidence, non-monotone sweep); selection_output_sha256 fdf60e66...",
       "rationale": null
     }
   ],
