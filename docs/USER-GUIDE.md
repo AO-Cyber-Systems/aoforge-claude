@@ -190,8 +190,8 @@ A `df-tools` command that writes (the ones `df-tools --help` marks with `*`) exi
 | `/devflow:settings` | Configure workflow toggles and model profile | Change model, toggle agents |
 | `/devflow:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
 | `/devflow:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
-| `/devflow:status check [--migrate]` | Validate `.planning/` integrity and fix issues; `--migrate` upgrades the project in place (runs `df-tools upgrade`) | Planning files feel stale or corrupt, after a DevFlow update, or when `validate health` reports W040 |
-| `/devflow:doctor [--fix] [--global] [path]` | Diagnose the DevFlow environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale markers and backups, resolved decisions whose multi-line answer a pre-52 writer flattened (check 33)); read-only unless `--fix`, which applies only safe, reversible repairs | DevFlow behaves oddly, after a plugin update, or a repo shows `.planning` runtime files changing |
+| `/devflow:status check [--migrate]` | Validate `.planning/` integrity and fix issues; `--migrate` upgrades the project in place (runs `df-tools upgrade`) | Planning files feel stale or corrupt, after a DevFlow update, or when `validate health` reports W040 (`df-tools validate requirements [--objective <N>]` runs the W065 requirements check alone; see [Health checks](#health-checks-for-the-skill-marker-and-requirements-e006-w064-w065)) |
+| `/devflow:doctor [--fix] [--global] [path]` | Diagnose the DevFlow environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale or git-tracked skill markers (check 23) and backups, resolved decisions whose multi-line answer a pre-52 writer flattened (check 33)); read-only unless `--fix`, which applies only safe, reversible repairs | DevFlow behaves oddly, after a plugin update, or a repo shows `.planning` runtime files changing |
 
 ### Adopting an Existing Repo (`/devflow:adopt`)
 
@@ -255,6 +255,44 @@ node ~/.claude/devflow/bin/df-tools.cjs upgrade --global --confirm   # adopt the
 - **Backups** go outside the repo, to `~/.claude/devflow/backups/<repo>-<hash>/<timestamp>/`, before anything is written.
 - **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/devflow/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- DEVFLOW:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. A block refreshes only when the template version rises: version 3 adds the `/devflow:doctor` routing line (and carries the `/devflow:gh-sync` line), so an existing block picks up both at the next global upgrade. If you already have a hand-written DevFlow section, you get a notice and nothing changes until you run `upgrade --global --confirm`.
 - **Backup pruning.** DevFlow installs no scheduler of its own -- pruning runs from the `upgrade-project.js` SessionStart path, throttled to once per 24 hours by a last-prune timestamp. The default policy keeps backups younger than 14 days, and always keeps the newest 5 per repo. It's configurable in `~/.claude/devflow/global-config.json`: `backups.retain_days` and `backups.keep_min`. Run it by hand (or preview it) with `node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune [--dry-run]`; register a repo for pruning without a full upgrade with `upgrade --register`. Both `/devflow:adopt` and `/devflow:new-project` register the repo automatically. Skip pruning entirely with `DEVFLOW_SKIP_PRUNE=1`. If you want an OS-level schedule instead of the once-per-session throttle, add your own cron line, e.g. `0 3 * * * node ~/.claude/devflow/bin/df-tools.cjs upgrade --prune` -- this is opt-in and entirely user-owned; DevFlow never installs it for you.
+
+### Health checks for the skill marker and requirements (E006, W064, W065)
+
+`validate health` and `/devflow:doctor` look at two things that go wrong quietly. Both need an installed plugin carrying objective 69.
+
+**Skill-active marker (E006, W064).** `.planning/.skill-active` is the marker a running skill leaves so the edit gate lets it write source. Two failures keep the gate open when no skill is running, and `validate health` (Check 19) and `/devflow:doctor` (check 23, `skill-markers`) report both:
+
+- **Tracked (E006, an error).** git has the marker in its index. Once committed, it holds the gate open in every clone and checkout, permanently.
+- **Stale (W064, a warning).** The marker is untracked but left behind by a skill that crashed or lost its context. It counts as stale when `expires_at` has passed, when the file is unparseable (empty, truncated, or not a JSON object), or when it has no `expires_at` and is older than the 8-hour TTL (measured from `started_at`, else the file's modification time). Staleness fails closed: an unparseable marker is stale, never live. The process id inside the marker is never used, because it belongs to the short-lived df-tools process that wrote the file and is always dead.
+
+A tracked marker that is also stale is one E006 finding that mentions the staleness, not two findings. A check that cannot run is reported as W064 `skill-marker-check-failed`, so it is never silent.
+
+`validate health --repair` and `doctor --fix` change this one file and nothing else:
+
+| Marker | Repair |
+|---|---|
+| untracked, live | nothing (no finding) |
+| untracked, stale | removes the file |
+| tracked, stale | `git rm --cached`, then removes the file |
+| tracked, missing from the working tree | `git rm --cached` |
+| tracked, live, ignored by the repository | `git rm --cached`, keeps the file |
+| tracked, live, not ignored | nothing; the fix says to add `.planning/.skill-active` to `.gitignore` first |
+
+The last row is refused because untracking would leave the file one `git add -A` from being tracked again, and the repair never edits `.gitignore`. Any change to the index is also refused while an unrelated change is staged or `.gitignore` has uncommitted changes: `df-tools commit` refuses when anything outside `--files` is staged, so the repair would otherwise end up swept into your work. Doctor names what is in the way, for example `commit or unstage your changes (staged changes present: notes.txt), then re-run doctor --fix`. Neither command commits. After an untrack, commit the removal:
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs commit "chore: untrack .planning/.skill-active" --files .planning/.skill-active
+```
+
+Doctor check 23 owns both codes. Check 22 (`validate-health`) defers E006 and W064 to it and counts only its own repairable issues, so a marker shows once.
+
+**Requirements agreement (W065).** An objective's `VERIFICATION.md` says which requirements it satisfied, and each SUMMARY lists the ones its TRD completed in `requirements-completed`. W065 (`validate health`, Check 20) is raised for a requirement the VERIFICATION marks SATISFIED that no SUMMARY of that objective lists, so the traceability the audit reads is not missing a link. A requirement marked NOT SATISFIED, PARTIALLY SATISFIED, BLOCKED or NEEDS HUMAN is not counted as satisfied. Only IDs that a REQUIREMENTS document defines are checked (the checkbox lines of `.planning/REQUIREMENTS.md` or of a `.planning/milestones/*-REQUIREMENTS.md` archive). Older VERIFICATION files use other ID families, such as `SC-1` or `AC-1` for their own success criteria, and flagging those would only be noise; they are listed as skipped.
+
+```bash
+node ~/.claude/devflow/bin/df-tools.cjs validate requirements [--objective <N>]
+```
+
+prints the same findings without running the other health checks and without any network call. The default output is JSON (`findings`, `checked`, `skipped`); `--raw` prints one `W065` line and a `fix:` line per finding, or `requirements-completed agrees with VERIFICATION (<n> objective(s), <m> requirement(s) checked)` when nothing disagrees. `--objective <N>` limits the scan to one objective; `validate health` always scans all of them. A finding exits 0, because W065 is advisory and is never repaired. Each finding names the TRDs whose `requirements` field lists the ID and the fix: run `df-tools planning draft` on that TRD's SUMMARY, add the ID to `requirements-completed` in the draft, and publish it with `df-tools summary post <trd> --from <draft>`. A scan that cannot run is reported as W065 `requirements-check-failed`.
 
 ### Estimation data (`df-tools tokens`, `df-tools calibrate`)
 
@@ -1093,6 +1131,8 @@ Capabilities are detected per repository and cached under `<DEVFLOW_GH_CACHE_DIR
 
 Every planning file has one df-tools verb that writes it. Skills and agents call the verb; nobody edits the file by hand. Content comes from `--from <path>` (or `-` for stdin), usually a copy made with `planning draft <rel>`, which prints a temp path seeded with the current file.
 
+**Drafts stay current.** Each draft has a base record beside it (`<draft>.base.json`, the sha256 of the live text it was seeded from). If the live file changes after you seeded the draft, because another verb published it, `planning draft <rel>` rewrites the draft from the live file, keeps the draft it replaced at `<draft>.stale` so none of your edits are lost, and says so on stderr (`planning draft: reseeded ... Your previous draft is at ....stale`). Stdout is still only the path, and `--raw` adds `seeded`, `reseeded` and `stale_copy`. `doc put --from <draft>` checks the same record first. A stale draft is refused with exit 1 (`doc put: refused (stale draft). Nothing was written.`) before anything is written, and the error names the fix, `df-tools planning draft <rel>`: reseed, re-apply your edits from the `.stale` copy, and run `doc put` again. In store mode a refused draft queues no GitHub write. Publishing the same unchanged draft a second time is not refused. The check has limits: only `doc put` makes it; standard input (`--from -`) and a file outside the drafts tree that has no base record are not checked; and a draft made before objective 69 has no base record, so it is judged by modification time (older than the live file means stale), which cannot catch a legacy draft you edited after the live file changed.
+
 **Store off (the default).** Each verb writes the same `.planning/` file, byte for byte, that the old flow wrote, makes no `gh` calls, and `.planning/` stays tracked in git. Nothing changes for a project that never sets `github.store`.
 
 **Turning it on.** Use migration 0011 (see **Migrating an existing project**); it also handles a project with nothing to import. The manual route below still works, but it skips the preflight, the live-write budget bookkeeping and the verification that 0011 runs. Set both keys in `.planning/config.json`, then run the first-run steps once from the main checkout:
@@ -1407,6 +1447,8 @@ These exit 1 with the reason and the fix:
 - `git switch -c devflow-setup`, the first step `gh setup --apply` prints, fails when an earlier run left a local `devflow-setup` branch. That is covered under **Opening the workflow pull request**; changing the printed steps to cope with it is open.
 - On a draft pull request with unpushed commits, `gh pr merge` refuses with `PR is still a draft; run verification first`, and only `verification post` then names `gh pr sync`. The draft check runs first on purpose (a test pins the order), so the remedy takes two steps. Naming `gh pr sync` in the draft refusal is open.
 - A store-mode objective issue and its pull request are titled after the objective's name (`[Objective 2] Goodbye CLI` and `Objective 2: Goodbye CLI`), taken from the ROADMAP name, then the `OBJECTIVE.md` heading, then the slug. The title is set only when the issue or pull request is created, so one created before this fix keeps its slug title, and a title you edit by hand is never overwritten by a sync. The store footer change makes the next sync of an existing objective send one body update.
+- `hooks/gate-edits.js` still treats an unparseable `.planning/.skill-active` as live (it fails open) and never expires a marker that has no `expires_at`. `validate health` and `doctor` report and remove such markers (E006, W064; see **Health checks for the skill marker and requirements**), but until one of them runs, the gate stays open for them. Only the project's own `.planning/.skill-active` is checked: a nested `**/.planning/.skill-active` copy is not.
+- W065 checks only requirement IDs that a REQUIREMENTS document defines. A satisfied ID outside any such document (the objectives that predate v1.5 use their own ID families in VERIFICATION) is not checked, and `validate requirements` lists it as skipped.
 
 ---
 

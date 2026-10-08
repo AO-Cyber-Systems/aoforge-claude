@@ -6,12 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Objective 69 (TOOL-06, TOOL-09, TOOL-10): a draft can no longer publish stale content, and health and doctor catch a
+tracked or stale skill marker and a satisfied requirement that no SUMMARY lists. `planning draft` reseeds a draft whose
+live file changed and `doc put` refuses one, `validate health` and `doctor` report a committed or abandoned
+`.planning/.skill-active`, and `validate requirements` finds a requirement a VERIFICATION marks satisfied that no
+SUMMARY lists. Entries that need an installed plugin take effect once the installed plugin carries objective 69.
+
 Objective 68 (TOOL-01 to TOOL-05): the milestone and objective verbs stop doing damage on a repeat, a typo or a date.
 `milestone complete` can be previewed and re-run, a misspelled flag on any writing command is refused before anything
 runs, `objective remove` no longer rewrites dates, and `objective complete` sees an objective that exists only in
 ROADMAP.md. Entries that need an installed plugin take effect once the installed plugin carries objective 68.
 
 ### Added
+- `validate health` Check 19 reports a tracked or stale `.planning/.skill-active` (objective 69, TOOL-09;
+  `lib/skill-marker-health.cjs`). E006 `skill-marker-tracked` (an error) when the marker is in the git index, because a
+  committed marker holds the edit gate open in every clone and checkout. W064 `skill-marker-stale` (a warning) when an
+  untracked marker is expired, unparseable, or has no `expires_at` and is older than 8 hours; classification fails
+  closed, so an unparseable marker is stale, never live. W064 `skill-marker-check-failed` when the check cannot run.
+  `--repair` untracks the marker (`git rm --cached`) and removes it when stale, or only untracks a live one the
+  repository ignores. A live tracked marker the repository does not ignore is refused and the fix names `.gitignore`,
+  because untracking it would leave it one `git add -A` from being tracked again. An unrelated staged change or a dirty
+  `.gitignore` refuses the repair through the DOC-06 index guard. Nothing but the marker is touched and nothing is
+  committed; the fix text gives the `df-tools commit` command. Needs an installed plugin carrying objective 69.
+- `validate health` Check 20 reports W065 `requirements-unlisted` (objective 69, TOOL-10;
+  `lib/requirements-agreement.cjs`): a requirement an objective's VERIFICATION marks satisfied that no SUMMARY of that
+  objective lists in `requirements-completed`. Only IDs a REQUIREMENTS document defines (`REQUIREMENTS.md` or
+  `milestones/*-REQUIREMENTS.md`) are checked, so the older SC-N, AC-N and similar ID families are skipped. The finding
+  names the TRDs whose `requirements` field lists the ID and the fix (`planning draft` on that SUMMARY, then
+  `summary post`). Advisory and never repaired; a scan that cannot run is W065 `requirements-check-failed`. Needs an
+  installed plugin carrying objective 69.
+- `validate requirements [--objective <N>]` (objective 69, TOOL-10): the same W065 scan as a read-only, network-free
+  command. It prints JSON (`findings`, `checked`, `skipped`), or with `--raw` one `W065` line and a `fix:` line per
+  finding, or `requirements-completed agrees with VERIFICATION (<n> objective(s), <m> requirement(s) checked)`. Findings
+  exit 0. `--objective` takes a number and also accepts `--objective=<N>`. Needs an installed plugin carrying objective
+  69.
+- `doctor-git.checkIgnored(root, paths, opts)` (objective 69, TOOL-09): asks git whether the repository's own ignore
+  rules cover a path, with the user's global excludes off, so a tracked file still reports its rule.
 - `milestone complete --dry-run` (`milestone complete <version> --dry-run`; objective 68, TOOL-01; `lib/roadmap.cjs`,
   `lib/planning-entity-verbs.cjs`). `milestone complete` is now a read-only plan (`planMilestoneComplete`) and an
   executor of that plan (`applyMilestonePlan`), so the dry run and the real run cannot drift. The dry run prints
@@ -31,7 +61,29 @@ ROADMAP.md. Entries that need an installed plugin take effect once the installed
   `df-tools` invocation in the plugin's own prose uses a flag the spec does not accept. `--help` still prints usage.
   Needs an installed plugin carrying objective 68.
 
+### Changed
+- `planning draft <rel>` reseeds a stale draft and `doc put` refuses one (objective 69, TOOL-06;
+  `lib/planning-drafts.cjs`). Each draft has a sidecar `<draft>.base.json` holding the sha256 of the live text it was
+  seeded from. When the live file has changed since, `planning draft` rewrites the draft from the live file, keeps the
+  replaced draft at `<draft>.stale` so no edit is lost, and prints a `reseeded` notice on stderr; stdout is still the
+  draft path only, and `--raw` adds `seeded`, `reseeded` and `stale_copy`. `doc put --from <draft>` exits 1 with
+  `refused (stale draft)` before anything is written (no file, no outbox operation, no `gh` call in store mode), and the
+  error names `df-tools planning draft <rel>`. Publishing the same unchanged draft again is not refused. Only `doc put`
+  checks the base; stdin and a file outside the drafts tree with no base record are not checked, and a draft made before
+  this release has no base and is judged by modification time (older than the live file means stale). Needs an
+  installed plugin carrying objective 69.
+- Doctor check 23 (`skill-markers`) handles a tracked `.planning/.skill-active` and owns E006 and W064 (objective 69,
+  TOOL-09; `lib/doctor-checks/23-skill-markers.cjs`). A tracked marker is an error naming E006, an untracked stale one a
+  warning naming W064. `doctor --fix` untracks the marker (and removes it when stale) behind the same index guard,
+  touches nothing else, and puts the `df-tools commit` command in its notes. It refuses while an unrelated change is
+  staged, and refuses a live tracked marker the repository does not ignore. Check 22 (`validate-health`) now defers
+  E006 and W064 to check 23 and counts only its own repairable issues, so the problem is reported once and a stale
+  marker alone no longer makes check 22 fixable. Needs an installed plugin carrying objective 69.
+
 ### Fixed
+- Objective 58's SUMMARY frontmatter lists EST-02 and EST-04 (objective 69, TOOL-10). Eight 58 SUMMARYs were corrected so
+  `requirements-completed` equals each TRD's `requirements` field; `58-VERIFICATION.md` marked both satisfied while no
+  SUMMARY listed them. `requirements-agreement.repo.test.cjs` keeps this repository's `.planning/` in agreement.
 - `milestone complete` run twice for one version no longer leaves two MILESTONES.md entries or overwrites its archives
   (objective 68, TOOL-02). An existing archive file is kept (`exists`), an existing entry is kept byte for byte
   (`entry_exists`, whether it came from an earlier run, from `milestone put` or from a legacy `## 1.0` heading), and an

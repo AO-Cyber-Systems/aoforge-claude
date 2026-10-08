@@ -68,11 +68,30 @@ completed: 2026-10-08
 - **Doctor exit codes.** `doctor` and `doctor --fix` exited 0 in every run above, including a run with an error-severity check.
 
 ## Progress
-- [x] Task 1: Dogfood SC-1..SC-3 on scratch copies and record landed state — (this commit)
-- [ ] Task 2: CHANGELOG, USER-GUIDE, CLAUDE.md and the todo — next step: edit the `## [Unreleased]` section of /Users/justin/dev/devflow-claude/CHANGELOG.md (an objective 69 lead paragraph above objective 68's, then Added/Changed/Fixed entries)
+- [x] Task 1: Dogfood SC-1..SC-3 on scratch copies and record landed state — 32b4c450
+- [x] Task 2: CHANGELOG, USER-GUIDE, CLAUDE.md and the todo — (this commit)
+
+## What was built
+
+- `CHANGELOG.md` `[Unreleased]`: an objective 69 lead paragraph above objective 68's; Added (E006/W064 Check 19, W065 Check 20, `validate requirements`, `doctor-git.checkIgnored`); a new Changed heading (`planning draft` reseed and `doc put` refusal, doctor check 23 and check 22); Fixed (objective 58 SUMMARY frontmatter).
+- `docs/USER-GUIDE.md`: a new section **Health checks for the skill marker and requirements (E006, W064, W065)** (what makes a marker tracked or stale, the repair table, the DOC-06 guard, the commit command, check 23 owning both codes, the W065 rule, its REQUIREMENTS-document scope, `validate requirements [--objective <N>]`); a **Drafts stay current** paragraph in the planning write path (base record, reseed and `.stale`, the stderr notice, the `doc put` refusal and its limits); the `/devflow:status check` and `/devflow:doctor` Command Reference rows; two Known issues bullets.
+- `CLAUDE.md`: one clause per change in the **Validation**, **Planning verbs** and **Doctor** bullets.
+- The skill-active todo moved to `.planning/todos/completed/` with `df-tools todo complete`.
 
 ## Task Evidence
 
 | Task | Verify Command | Exit Code | Status |
 |---|---|---|---|
 | 1: Dogfood SC-1..SC-3 and landed state | the Dogfood Evidence table above (one row per command, every expected value matched) | 0 | PASS |
+| 2: docs | `rg -c "validate requirements" CHANGELOG.md docs/USER-GUIDE.md CLAUDE.md` printed 2, 3 and 1; `rg -c "E006" docs/USER-GUIDE.md CLAUDE.md` printed 6 and 2; `test -f .planning/todos/completed/2026-07-31-harden-df-tools-health-for-tracked-and-stale-skill-active-markers.md` | 0 | PASS |
+| 2: doc repo tests | `node --test` on doc-refs.repo, planning-writes.repo, dispatch-completeness, hook-inventory, requirements-agreement.repo (38 tests) | 0 | PASS |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| test (scoped) | `node --test plugins/devflow/devflow/bin/lib/{doc-refs.repo,planning-writes.repo,dispatch-completeness,hook-inventory,requirements-agreement.repo}.test.cjs` (38 tests, 0 fail) | 0 | PASS |
+| test (full) | `npm test` in the main checkout: 11406 tests, 11371 pass, 1 fail, 34 skipped | 1 | PASS against baseline: the one failure is `roadmap-reconcile.test.cjs` E2E1 (below) |
+| lint / typecheck / build | none in the stack profile | n/a | not_available |
+
+`E2E1` ("reconcile dry-run against this repo ROADMAP shows zero drift") reports `trd_summary_exists` for `69-06`: this TRD's checkpoint SUMMARY exists beside an unticked ROADMAP checkbox. It is the same transient 69-02, 69-04 and 69-05 recorded, and it clears once `roadmap update-job-progress 69` runs after the final post. The `devflow-watch` and handoff daemon tests that fail in worktrees passed in this main checkout.

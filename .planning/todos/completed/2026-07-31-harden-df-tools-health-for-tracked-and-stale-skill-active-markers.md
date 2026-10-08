@@ -1,3 +1,4 @@
+completed: 2026-10-08
 ---
 created: 2026-07-31T17:03:29.282Z
 title: Harden df-tools health for tracked and stale skill-active markers
