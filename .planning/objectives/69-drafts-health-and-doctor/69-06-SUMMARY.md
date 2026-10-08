@@ -13,17 +13,30 @@ tech-stack:
   patterns: ["dogfood on mktemp copies through --cwd / --path / TMPDIR, never the live .planning/"]
 key-files:
   created: []
-  modified: []
-key-decisions: []
+  modified:
+    - CHANGELOG.md
+    - docs/USER-GUIDE.md
+    - CLAUDE.md
+    - .planning/todos/completed/2026-07-31-harden-df-tools-health-for-tracked-and-stale-skill-active-markers.md
+key-decisions:
+  - "The E006/W064 and W065 paragraphs live in one new USER-GUIDE section, Health checks for the skill marker and requirements, after Upgrading a Project in Place: the guide has no single place holding the W062 and W063 paragraphs (they sit in Model Profiles and the GitHub enforcement section), and a reader looking for E006 or W065 should find both codes in one place."
+  - "The USER-GUIDE Command Reference has no `validate` row, so `validate requirements [--objective <N>]` is added to the `/devflow:status check` row (which already names `validate health`) and documented in the new section."
+  - "help.cjs is not touched: this TRD forbids source changes. Its `planning draft` text is still true but no longer complete (it omits the reseed); recorded as a follow-up."
 requirements-completed: [TOOL-06, TOOL-09, TOOL-10]
 verification:
   gates_defined: 1
-  gates_passed: 0
+  gates_passed: 1
   auto_fix_cycles: 0
   tdd_evidence: false
   test_pairing: false
-duration: in progress
+duration: 14min
 completed: 2026-10-08
+tokens_input: 16373902
+tokens_output: 60926
+tokens_cache_read: 16209126
+tokens_cache_write: 164536
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 69 TRD 06: Dogfood and docs Summary
@@ -69,7 +82,7 @@ completed: 2026-10-08
 
 ## Progress
 - [x] Task 1: Dogfood SC-1..SC-3 on scratch copies and record landed state — 32b4c450
-- [x] Task 2: CHANGELOG, USER-GUIDE, CLAUDE.md and the todo — (this commit)
+- [x] Task 2: CHANGELOG, USER-GUIDE, CLAUDE.md and the todo — ebc12ca0
 
 ## What was built
 
@@ -95,3 +108,46 @@ completed: 2026-10-08
 | lint / typecheck / build | none in the stack profile | n/a | not_available |
 
 `E2E1` ("reconcile dry-run against this repo ROADMAP shows zero drift") reports `trd_summary_exists` for `69-06`: this TRD's checkpoint SUMMARY exists beside an unticked ROADMAP checkbox. It is the same transient 69-02, 69-04 and 69-05 recorded, and it clears once `roadmap update-job-progress 69` runs after the final post. The `devflow-watch` and handoff daemon tests that fail in worktrees passed in this main checkout.
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+None to code: this TRD forbids source and test changes, and none were made.
+
+### Adjustments inside the TRD's scope
+
+**1. [Evidence] The first `doctor --fix` run was repeated on a cleaner scratch repository**
+- **Found during:** Task 1, SC-2
+- **Issue:** The scratch repository's `git add -A` tracked `.planning/.awareness-cache.json` and `.planning/.progress-guard.json` (runtime state this repository gitignores), so `doctor --fix` also applied the `legacy-runtime-state` fix beside `skill-markers`. The TRD's error_recovery anticipates a second repair and asks for its cause to be removed before repeating.
+- **Fix:** removed the two files from the scratch commit and repeated the doctor sequence. The recorded run shows one fix entry, `skill-markers`, and a git state of `D  .planning/.skill-active` plus `?? notes.txt`. The first run is described under "Notes on the dogfood runs".
+- **Files modified:** none in the repository
+- **Commit:** n/a
+
+**2. [Docs placement] E006/W064 and W065 are in a new USER-GUIDE section, not beside the W062/W063 paragraphs**
+- **Found during:** Task 2
+- **Issue:** The W063 paragraph sits in Model Profiles and the W062 paragraph in the GitHub enforcement section, so there is no single "beside" for the new paragraphs, and the guide has no `validate` row in the Command Reference to extend.
+- **Fix:** one new section (**Health checks for the skill marker and requirements (E006, W064, W065)**) after **Upgrading a Project in Place**, linked from the `/devflow:status check` row, which also carries `validate requirements [--objective <N>]`.
+- **Files modified:** docs/USER-GUIDE.md
+- **Commit:** ebc12ca0
+
+## Issues Encountered
+
+- **Follow-up, not done here:** `plugins/devflow/devflow/bin/lib/help.cjs` still describes `planning draft <rel>` as printing "a draft path seeded with the current file" (lines 25 and 359). It is true but omits the reseed and the `.stale` copy. 69-01 left it for this TRD; the TRD forbids source changes, so it stays open for a later change.
+- **Defects found by the dogfood:** none. Every criterion matched its expected value on the first run, apart from the scratch-repository artifact above.
+
+## Discovered commands
+
+None. Every command came from the stack profile (`npm test`, scoped `node --test {files}`).
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 5/5. Draft refusal, reseed and re-publish (SC-1 rows); E006 repairable, `--repair` leaving `D  .planning/.skill-active` with HEAD unmoved, and doctor's refusal then marker-only fix (SC-2 rows); no finding on this repository and exactly EST-02 and EST-04 on the reverted 58 copy (SC-3 rows); all ten commits ancestors of HEAD and 15 files present (Landed rows); CHANGELOG, USER-GUIDE and CLAUDE.md describe the behaviour and the todo is in `todos/completed/` (task 2 verify).
+- Gate failures: `roadmap-reconcile.test.cjs` E2E1 only, the checkpoint-flow transient described above.
+
+## Self-Check: PASSED
+
+- Commits found in `git log`: 32b4c450, ebc12ca0.
+- Modified files present: CHANGELOG.md, docs/USER-GUIDE.md, CLAUDE.md; `todos/completed/2026-07-31-harden-df-tools-health-for-tracked-and-stale-skill-active-markers.md` present and the pending copy gone.
+- Scratch evidence directory used throughout: `/private/tmp/claude-501/-Users-justin-dev-devflow-claude/363d3551-9eb1-4828-8e49-0d9566d36b8e/scratchpad/dogfood.fp9NOG`; the live `.planning/` and the live drafts tree were not a dogfood target.

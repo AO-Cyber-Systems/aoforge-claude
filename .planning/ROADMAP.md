@@ -120,7 +120,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 66: Executor token stamp** - Every new executor SUMMARY carries `tokens_input` / `tokens_output`, with measured forward-stamp coverage (completed 2026-10-08)
 - [x] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on (completed 2026-10-08)
 - [x] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection (completed 2026-10-08)
-- [ ] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check
+- [x] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check (completed 2026-10-08)
 - [ ] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema
 - [ ] **Objective 71: Stack drafter and verify policy** - govulncheck gate preference, buf lint drafting, `stack verify --run` policy for services and artifacts
 - [ ] **Objective 72: Install and naming cleanup** - No legacy `df-*` remnants, doctor flags a reappearance, a repo test on old command forms
@@ -225,7 +225,7 @@ TRDs:
 - [x] 69-03-requirements-agreement-check-TRD.md — (W1) `lib/requirements-agreement.cjs` (REQUIREMENTS-document scope); repo test RED then GREEN by correcting eight objective 58 SUMMARYs through `summary post`
 - [x] 69-04-doctor-skill-marker-ownership-TRD.md — (W2) doctor check 23 over skill-marker-health (tracked markers, owns E006/W064); check 22 defers them and counts only its own repairable issues
 - [x] 69-05-validate-requirements-wiring-TRD.md — (W2) `validate health` Check 20 (W065) and `validate requirements [--objective <N>]` (dispatch, help, flag-spec, probe)
-- [ ] 69-06-dogfood-and-docs-TRD.md — (W3) SC-1..SC-3 on scratch copies plus landed-state evidence; CHANGELOG, USER-GUIDE, CLAUDE.md; skill-active todo completed
+- [x] 69-06-dogfood-and-docs-TRD.md — (W3) SC-1..SC-3 on scratch copies plus landed-state evidence; CHANGELOG, USER-GUIDE, CLAUDE.md; skill-active todo completed
 
 ### Objective 70: CLI defects and hook shape
 
@@ -311,7 +311,7 @@ TRDs:
 | 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 67. Minutes recalibration | v1.6 | 9/9 | Complete | 2026-10-08 |
 | 68. Milestone and objective verbs | v1.6 | 7/7 | Complete | 2026-10-08 |
-| 69. Drafts, health and doctor | v1.6 | 5/6 | In Progress | - |
+| 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
 | 70. CLI defects and hook shape | v1.6 | 0/? | Not started | - |
 | 71. Stack drafter and verify policy | v1.6 | 0/? | Not started | - |
 | 72. Install and naming cleanup | v1.6 | 0/? | Not started | - |

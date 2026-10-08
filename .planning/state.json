@@ -1,9 +1,9 @@
 {
   "current_objective": "69",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 6,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-08",
   "metrics": {
     "jobs_completed": 0,
@@ -1229,6 +1229,11 @@
     {
       "objective": "69",
       "summary": "validate requirements has no try/catch: an unreadable planning tree is a loud non-zero exit, while findings always exit 0; W065 doubles as requirements-check-failed in validate health",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Health-check docs for E006/W064 and W065 live in one USER-GUIDE section after Upgrading a Project in Place; the guide has no validate row, so validate requirements is on the /devflow:status check row",
       "rationale": null
     }
   ],
