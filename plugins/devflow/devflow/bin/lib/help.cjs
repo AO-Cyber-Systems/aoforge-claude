@@ -226,8 +226,8 @@ const COMMANDS = {
     details: VERB_DETAILS,
   },
   'validate': {
-    usage: 'df-tools validate <consistency|health [--repair]|docs> [--raw]',
-    summary: 'Check .planning/ integrity, objective numbering, and documentation staleness.',
+    usage: 'df-tools validate <consistency|health [--repair]|docs|requirements [--objective <N>]> [--raw]',
+    summary: 'Check .planning/ integrity, objective numbering, documentation staleness, and SUMMARY/VERIFICATION requirement agreement.',
     mutates: true,
   },
   'doctor': {

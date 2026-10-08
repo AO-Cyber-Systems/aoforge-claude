@@ -172,6 +172,7 @@ const FLAG_SPEC = deepFreeze({
       consistency: {},
       docs: {},
       health: { bools: ['--repair'] },
+      requirements: { values: ['--objective'] },
     },
   },
 
