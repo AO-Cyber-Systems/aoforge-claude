@@ -74,7 +74,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 |---|---|---|
 | REL-01 | Objective 65 | Complete |
 | REL-02 | Objective 65 | Complete |
-| EST-09 | Objective 66 | Pending |
+| EST-09 | Objective 66 (built; coverage 6/8 = 0.75, re-measured by 75) | Pending |
 | EST-10 | Objective 67 | Pending |
 | TOOL-01 | Objective 68 | Pending |
 | TOOL-02 | Objective 68 | Pending |
