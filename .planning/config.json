@@ -75,12 +75,12 @@
     "status_line": false
   },
   "devflow": {
-    "version": "2.14.0",
+    "version": "2.15.0",
     "migrations_applied": [
       "0001",
       "0004",
       "0009"
     ],
-    "upgraded_at": "2026-10-08T11:37:55.378Z"
+    "upgraded_at": "2026-10-08T15:17:10.019Z"
   }
 }
