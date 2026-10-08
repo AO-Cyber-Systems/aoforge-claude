@@ -39,6 +39,7 @@ const decisionQueue = require('./decision-queue.cjs');
 const checkTodos = require('./check-todos.cjs');
 const milestoneStore = require('./gh-milestone-store.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { MILESTONES_LEGACY_UNPREFIXED, MILESTONES_PATCH_ONLY } = require('./__fixtures__/milestone-complete-fixtures.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
@@ -363,6 +364,36 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     assert.equal(readRel('MILESTONES.md'), `# Milestones\n\n${revised}`);
     assert.equal(ev.milestoneComplete(S.root, { version: 'v1.4' }).delegate, 'milestone complete');
     assertLocalInvariant();
+  });
+
+  test('68-06 #6: milestone put v1.0 replaces a legacy `## 1.0` entry instead of adding a second', () => {
+    fs.writeFileSync(planning('MILESTONES.md'), MILESTONES_LEGACY_UNPREFIXED);
+    const text = '## v1.0 Revised (Shipped: 2026-10-08)\n\nRevised notes.\n';
+    const r = ev.milestonePut(S.root, { version: 'v1.0', text });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const out = readRel('MILESTONES.md');
+    assert.equal(out.match(/^## +v?1\.0(?:\s|$)/gm).length, 1, `exactly one entry for the version:\n${out}`);
+    assert.ok(out.includes('## v1.0 Revised'), out);
+    assert.ok(!out.includes('## 1.0 Old'), 'the legacy section was replaced');
+    assert.ok(!out.includes('Old A shipped'), 'its body went with it');
+    assertLocalInvariant();
+  });
+
+  test('68-06 #7: milestone put v1.0 inserts beside a v1.0.1 entry and leaves it byte-identical', () => {
+    fs.writeFileSync(planning('MILESTONES.md'), MILESTONES_PATCH_ONLY);
+    const text = '## v1.0 Initial (Shipped: 2025-01-01)\n\nInitial notes.\n';
+    const r = ev.milestonePut(S.root, { version: 'v1.0', text });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const patch = MILESTONES_PATCH_ONLY.slice(MILESTONES_PATCH_ONLY.indexOf('## v1.0.1'));
+    assert.equal(readRel('MILESTONES.md'), `# Milestones\n\n${text}\n${patch}`);
+    assertLocalInvariant();
+  });
+
+  test('68-06 #8: entryWithHeading keeps a text whose first line already heads the version, either spelling', () => {
+    assert.equal(ev.entryWithHeading('## 1.0 Old\n\nx', 'v1.0'), '## 1.0 Old\n\nx');
+    assert.equal(ev.entryWithHeading('## v1.0 New\n\nx', 'v1.0'), '## v1.0 New\n\nx');
+    assert.equal(ev.entryWithHeading('## v1.0.1 Patch\n\nx', 'v1.0'), '## v1.0\n\n## v1.0.1 Patch\n\nx');
+    assert.equal(ev.entryWithHeading('Shipped it.', 'v1.0'), '## v1.0\n\nShipped it.');
   });
 
   test('entityIdFor delegates to planning-paths', () => {

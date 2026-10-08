@@ -719,5 +719,6 @@ module.exports = {
   milestoneComplete,
   docsPut,
   spliceMilestoneEntry,
+  entryWithHeading,
   removeThrough,
 };
