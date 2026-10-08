@@ -1,6 +1,6 @@
 {
   "current_objective": "64",
-  "current_job": 8,
+  "current_job": 9,
   "total_jobs": 10,
   "progress_pct": 100,
   "status": "executing",
@@ -1064,6 +1064,11 @@
     {
       "objective": "64",
       "summary": "64-08: calibrate --window is opt-in (null default); the window is applied to a filtered copy of each project right after collectProject and leaves no trace (key, note, digest) when it drops nothing; the rolling harness requires --new to name the same objectives as --old",
+      "rationale": null
+    },
+    {
+      "objective": "64",
+      "summary": "64-09: frozen rolling validation on 59-63 ran once: new method (window 10) EST-08 not met (cost SC3 32/41 TRDs under P90 unchanged), minutes median 1.348 to 1.238, ship rule ship_default true",
       "rationale": null
     }
   ],
