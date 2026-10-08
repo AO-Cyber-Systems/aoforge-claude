@@ -51,7 +51,7 @@ const client = require('./gh-client.cjs');
 const decisionQueue = require('./decision-queue.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const { generateSlugInternal } = require('./helpers.cjs');
-const { escapeRegExp } = require('./text-escape.cjs');
+const { milestoneHeadingPattern } = require('./text-escape.cjs');
 
 const { EXIT } = storeCli;
 const { LOCAL, STORE } = planningMode;
@@ -510,8 +510,10 @@ function decisionAnswer(root, opts = {}) {
 // ─── Milestones ──────────────────────────────────────────────────────────────
 
 /**
- * MILESTONES.md with the `## <version> ...` section replaced by `entry`, or inserted after the `# Milestones` heading
- * (and its blank lines). A missing file becomes `# Milestones\n\n<entry>`. Sections end at the next `## ` line.
+ * MILESTONES.md with the version's section replaced by `entry`, or inserted after the `# Milestones` heading (and its
+ * blank lines). A missing file becomes `# Milestones\n\n<entry>`. Sections end at the next `## ` line. A section is the
+ * version's when `text-escape.milestoneHeadingPattern` says so, the rule `milestone complete` uses too (TOOL-02):
+ * `## 1.0` and `## v1.0` are one version, `## v1.0.1` is another.
  */
 function spliceMilestoneEntry(existing, version, entry) {
   const body = entry.replace(/\r\n/g, '\n').replace(/\s+$/, '');
@@ -524,7 +526,7 @@ function spliceMilestoneEntry(existing, version, entry) {
     offsets.push(off);
     off += l.length + 1;
   }
-  const head = new RegExp(`^## +${escapeRegExp(version)}(?:\\s|$)`);
+  const head = new RegExp(milestoneHeadingPattern(version));
   const start = lines.findIndex((l) => head.test(l));
   if (start !== -1) {
     const nextRel = lines.slice(start + 1).findIndex((l) => /^## /.test(l));
@@ -544,10 +546,13 @@ function spliceMilestoneEntry(existing, version, entry) {
   return lead + body + (rest === '' ? '\n' : '\n\n') + rest;
 }
 
-/** The milestone entry text with a `## <version>` heading guaranteed (so the local section can be found again). */
+/**
+ * The milestone entry text with a heading for the version guaranteed (so the local section can be found again). A first
+ * line that already heads the version by the shared rule (`## 1.0 ...` or `## v1.0 ...`, TOOL-02) is kept as written.
+ */
 function entryWithHeading(text, version) {
   const first = text.replace(/\r\n/g, '\n').split('\n').find((l) => l.trim() !== '') || '';
-  return new RegExp(`^## +${escapeRegExp(version)}(?:\\s|$)`).test(first) ? text : `## ${version}\n\n${text}`;
+  return new RegExp(milestoneHeadingPattern(version)).test(first) ? text : `## ${version}\n\n${text}`;
 }
 
 /**
@@ -609,10 +614,28 @@ function docsPut(main, rels, o = {}) {
   return flushNow(main, base, { noWait: o.noWait === true });
 }
 
+/** The `milestones/<version>-*.md` archives in the cache: what `milestone complete` publishes (and previews). */
+function milestoneArchives(main, version) {
+  return listDir(path.join(main, '.planning', 'milestones'))
+    .filter((f) => f.startsWith(`${version}-`) && f.endsWith('.md'))
+    .map((f) => `milestones/${f}`);
+}
+
+/** The `--dry-run` text of a store-mode `milestone complete`: the banner, the milestone and the archives. */
+function milestoneDryRunProse(title, wouldPublish) {
+  return [
+    'DRY RUN — nothing has been modified.',
+    `Would close milestone ${title}`,
+    `Would publish: ${wouldPublish.length > 0 ? wouldPublish.join(', ') : '(none)'}`,
+  ].join('\n');
+}
+
 /**
- * milestoneComplete(root, {version, noFlush, noWait}) — `milestone complete`. Local: `{delegate:'milestone complete'}`
- * (today's cmdMilestoneComplete). Store: close the native milestone, then doc put every `milestones/<version>-*.md`
- * archive as one wiki-push.
+ * milestoneComplete(root, {version, dryRun, noFlush, noWait}) — `milestone complete`. Local: `{delegate:'milestone
+ * complete'}` (today's cmdMilestoneComplete). Store: close the native milestone, then doc put every
+ * `milestones/<version>-*.md` archive as one wiki-push. Store with `dryRun: true` (TOOL-01): report the milestone it
+ * would close and the archives it would publish from the config and the cache alone — no gh call (reads included), no
+ * outbox op, no ledger entry, no cache write — so it also works offline.
  */
 function milestoneComplete(root, opts = {}) {
   const o = optsOf(opts);
@@ -623,13 +646,27 @@ function milestoneComplete(root, opts = {}) {
   if (ctx.mode === LOCAL) {
     return { ok: true, mode: ctx.mode, rel: null, path: null, warnings: [], version, delegate: 'milestone complete', exit: EXIT.OK };
   }
+  if (o.dryRun === true) {
+    const title = milestoneStore.milestoneTitleFor(ctx.main, version);
+    const wouldPublish = milestoneArchives(ctx.main, version);
+    return {
+      ok: true,
+      mode: ctx.mode,
+      dry_run: true,
+      version,
+      milestone_title: title,
+      would_close: true,
+      would_publish: wouldPublish,
+      warnings: [],
+      prose: milestoneDryRunProse(title, wouldPublish),
+      exit: EXIT.OK,
+    };
+  }
   const closed = milestoneStore.closeMilestone(ctx.main, version);
   if (!closed || closed.ok !== true) {
     return fail(`milestone ${version} not closed: ${(closed && closed.error) || 'unknown error'}`, { mode: ctx.mode }, { offline: Boolean(closed && closed.offline), version });
   }
-  const archives = listDir(path.join(ctx.main, '.planning', 'milestones'))
-    .filter((f) => f.startsWith(`${version}-`) && f.endsWith('.md'))
-    .map((f) => `milestones/${f}`);
+  const archives = milestoneArchives(ctx.main, version);
   const r = docsPut(ctx.main, archives, { message: `devflow: milestone ${version} archives`, ...flushFlags(o) });
   return { ...r, version, milestone: { number: closed.number, title: closed.title, updated: closed.updated === true } };
 }
@@ -687,5 +724,6 @@ module.exports = {
   milestoneComplete,
   docsPut,
   spliceMilestoneEntry,
+  entryWithHeading,
   removeThrough,
 };

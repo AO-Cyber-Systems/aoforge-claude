@@ -225,6 +225,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 68]: objective remove TRD-reference rule is bounded ((?<![\w.-])NN-(\d{2})(?!\d|-\d)); nextObjective picks the smallest later number over directories and ROADMAP sections, cancelled directories excluded, directory spelling wins
 - [Objective 68]: decision-queue gets explicit per-subcommand FLAG_SPEC rules, not ownParser: its parser accepts any unknown --x as a boolean (decision-queue list --zz-unknown exits 0)
 - [Objective 68]: A placeholder (<x>, {x}, ${X}) stays one non-flag token in the documented-invocation scan so a value flag still consumes it and the next flag is still checked
+- [Objective 68]: 68-06: a store dry run's headline is suppressed when the result has dry_run and prose, so stdout opens with the DRY RUN banner
 
 ## Performance Metrics
 
@@ -378,4 +379,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 68 P03 | 15min | 3 tasks | 6 files |
 | Objective 68 P04 | 9min | 3 tasks | 4 files |
 | Objective 68 P05 | 15min | 2 tasks | 4 files |
+| Objective 68 P06 | 8 min | 2 tasks | 4 files |
 

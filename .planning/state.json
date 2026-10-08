@@ -1190,6 +1190,11 @@
       "objective": "68",
       "summary": "A placeholder (<x>, {x}, ${X}) stays one non-flag token in the documented-invocation scan so a value flag still consumes it and the next flag is still checked",
       "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "68-06: a store dry run's headline is suppressed when the result has dry_run and prose, so stdout opens with the DRY RUN banner",
+      "rationale": null
     }
   ],
   "blockers": [

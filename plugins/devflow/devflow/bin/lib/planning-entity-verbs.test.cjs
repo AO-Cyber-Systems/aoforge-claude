@@ -39,6 +39,7 @@ const decisionQueue = require('./decision-queue.cjs');
 const checkTodos = require('./check-todos.cjs');
 const milestoneStore = require('./gh-milestone-store.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { MILESTONES_LEGACY_UNPREFIXED, MILESTONES_PATCH_ONLY } = require('./__fixtures__/milestone-complete-fixtures.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
@@ -365,6 +366,36 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     assertLocalInvariant();
   });
 
+  test('68-06 #6: milestone put v1.0 replaces a legacy `## 1.0` entry instead of adding a second', () => {
+    fs.writeFileSync(planning('MILESTONES.md'), MILESTONES_LEGACY_UNPREFIXED);
+    const text = '## v1.0 Revised (Shipped: 2026-10-08)\n\nRevised notes.\n';
+    const r = ev.milestonePut(S.root, { version: 'v1.0', text });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const out = readRel('MILESTONES.md');
+    assert.equal(out.match(/^## +v?1\.0(?:\s|$)/gm).length, 1, `exactly one entry for the version:\n${out}`);
+    assert.ok(out.includes('## v1.0 Revised'), out);
+    assert.ok(!out.includes('## 1.0 Old'), 'the legacy section was replaced');
+    assert.ok(!out.includes('Old A shipped'), 'its body went with it');
+    assertLocalInvariant();
+  });
+
+  test('68-06 #7: milestone put v1.0 inserts beside a v1.0.1 entry and leaves it byte-identical', () => {
+    fs.writeFileSync(planning('MILESTONES.md'), MILESTONES_PATCH_ONLY);
+    const text = '## v1.0 Initial (Shipped: 2025-01-01)\n\nInitial notes.\n';
+    const r = ev.milestonePut(S.root, { version: 'v1.0', text });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const patch = MILESTONES_PATCH_ONLY.slice(MILESTONES_PATCH_ONLY.indexOf('## v1.0.1'));
+    assert.equal(readRel('MILESTONES.md'), `# Milestones\n\n${text}\n${patch}`);
+    assertLocalInvariant();
+  });
+
+  test('68-06 #8: entryWithHeading keeps a text whose first line already heads the version, either spelling', () => {
+    assert.equal(ev.entryWithHeading('## 1.0 Old\n\nx', 'v1.0'), '## 1.0 Old\n\nx');
+    assert.equal(ev.entryWithHeading('## v1.0 New\n\nx', 'v1.0'), '## v1.0 New\n\nx');
+    assert.equal(ev.entryWithHeading('## v1.0.1 Patch\n\nx', 'v1.0'), '## v1.0\n\n## v1.0.1 Patch\n\nx');
+    assert.equal(ev.entryWithHeading('Shipped it.', 'v1.0'), '## v1.0\n\nShipped it.');
+  });
+
   test('entityIdFor delegates to planning-paths', () => {
     assert.equal(ev.entityIdFor('todos/pending/2026-10-01-fix-thing.md'), 'todo-2026-10-01-fix-thing');
     assert.equal(ev.entityIdFor('debug/resolved/x.md'), 'debug-x');
@@ -522,5 +553,52 @@ describe('48-12 store mode: milestones', () => {
     assert.equal(S.fake.writes().length, writes, 'zero writes offline');
     assert.equal(exists('milestones/v1.5.md'), false);
     assert.equal(S.remote.headSha(), head, 'no wiki commit');
+  });
+
+  test('68-06 #4: milestoneComplete({dryRun}) names the close and the archives, with no gh call and no write', () => {
+    const put = ev.milestonePut(S.root, { version: 'v1.4', text: MILESTONE_ENTRY });
+    assertStoreClean(put, 'milestones/v1.4.md');
+    fs.mkdirSync(planning('milestones'), { recursive: true });
+    fs.writeFileSync(planning('milestones/v1.4-ROADMAP.md'), '# Roadmap archive v1.4\n');
+    fs.writeFileSync(planning('milestones/v1.4-REQUIREMENTS.md'), '# Requirements archive v1.4\n');
+    fs.writeFileSync(planning('milestones/v1.5-ROADMAP.md'), '# Another version\n');
+
+    const title = milestoneStore.milestoneTitleFor(S.root, 'v1.4');
+    const calls = S.fake.calls().length;
+    const writes = S.fake.writes().length;
+    const journalOf = () => (journalExists() ? fs.readFileSync(outbox.journalPath(S.root), 'utf8') : null);
+    const journal = journalOf();
+    const ledgerBefore = JSON.stringify(ledgerEntries());
+    const index = JSON.stringify(cacheIndex());
+    const head = S.remote.headSha();
+
+    const r = ev.milestoneComplete(S.root, { version: 'v1.4', dryRun: true });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.exit, 0);
+    assert.equal(r.mode, 'store');
+    assert.equal(r.dry_run, true);
+    assert.equal(r.version, 'v1.4');
+    assert.equal(r.milestone_title, title);
+    assert.equal(r.would_close, true);
+    assert.deepEqual(r.would_publish, ['milestones/v1.4-REQUIREMENTS.md', 'milestones/v1.4-ROADMAP.md']);
+    assert.deepEqual(r.warnings, []);
+    assert.equal(Object.hasOwn(r, 'rel'), false, 'no rel: the headline must not claim a write');
+
+    assert.equal(S.fake.calls().length, calls, 'zero gh calls, reads included');
+    assert.equal(S.fake.writes().length, writes);
+    assert.equal(S.fake.milestones.find((x) => x.title === title).state, 'open', 'the native milestone is still open');
+    assert.equal(journalOf(), journal, 'journal unchanged');
+    assert.equal(JSON.stringify(ledgerEntries()), ledgerBefore, 'ledger unchanged');
+    assert.equal(JSON.stringify(cacheIndex()), index, 'cache index unchanged');
+    assert.equal(S.remote.headSha(), head, 'no wiki commit');
+  });
+
+  test('68-06 #5: a non-version still fails with the version error under dryRun', () => {
+    const calls = S.fake.calls().length;
+    const r = ev.milestoneComplete(S.root, { version: 'nope', dryRun: true });
+    assert.equal(r.ok, false);
+    assert.equal(r.exit, 1);
+    assert.match(r.error, /not a milestone version/);
+    assert.equal(S.fake.calls().length, calls);
   });
 });

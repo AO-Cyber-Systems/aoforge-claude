@@ -318,6 +318,62 @@ describe('df-tools planning verbs, store project (offline gh)', { skip: gitAvail
   });
 });
 
+describe('68-06 store-mode milestone complete --dry-run', { skip: gitAvailable() ? false : 'git is not available' }, () => {
+  const ARCHIVE = 'milestones/v1.0-ROADMAP.md';
+
+  function storeWithArchive() {
+    const c = cliProject({ store: true });
+    fs.mkdirSync(c.p.planning('milestones'), { recursive: true });
+    fs.writeFileSync(c.p.planning(ARCHIVE), '# Roadmap archive v1.0\n');
+    return c;
+  }
+
+  test('1. --raw: exit 0 offline, reports what it would close and publish, zero gh calls, nothing written', () => {
+    const c = storeWithArchive();
+    try {
+      const before = c.p.snapshot();
+      const res = okRaw(c, ['milestone', 'complete', 'v1.0', '--dry-run']);
+      assert.equal(res.ok, true);
+      assert.equal(res.mode, 'store');
+      assert.equal(res.dry_run, true);
+      assert.equal(res.would_close, true);
+      assert.equal(res.version, 'v1.0');
+      assert.deepEqual(res.would_publish, [ARCHIVE]);
+      assert.deepEqual(c.p.ghCalls(), [], 'zero gh calls, reads included');
+      assert.deepEqual(c.p.journalOps(), [], 'no outbox op');
+      assert.deepEqual(c.p.ledgerEntries(), {}, 'no ledger entry');
+      assert.deepEqual(c.p.snapshot(), before, 'the cache is byte-identical');
+    } finally {
+      c.cleanup();
+    }
+  });
+
+  test('2. control: the same command without --dry-run reaches gh and exits 1 offline', () => {
+    const c = storeWithArchive();
+    try {
+      const r = c.run(['milestone', 'complete', 'v1.0']);
+      assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
+      assert.ok(c.p.ghCalls().length > 0, 'the real run reaches gh');
+    } finally {
+      c.cleanup();
+    }
+  });
+
+  test('3. prose: the DRY RUN banner, the milestone it would close and the archives it would publish', () => {
+    const c = storeWithArchive();
+    try {
+      const r = c.run(['milestone', 'complete', 'v1.0', '--dry-run']);
+      assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+      assert.equal(r.stdout.split('\n')[0], 'DRY RUN — nothing has been modified.', 'no "done" headline above the banner');
+      assert.match(r.stdout, /Would close milestone v1\.0/);
+      assert.ok(r.stdout.includes(`Would publish: ${ARCHIVE}`), r.stdout);
+      assert.deepEqual(c.p.ghCalls(), []);
+    } finally {
+      c.cleanup();
+    }
+  });
+});
+
 describe('51-05 planning import --dry-run prints the backfill plan', () => {
   test('6. preview prose: estimate, history and the will-stay-local table; --raw carries estimate; zero gh calls', () => {
     const project = makeBackfillProject({ objectives: 2, git: false });
