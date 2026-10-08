@@ -6,7 +6,7 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { escapeRegExp, objectiveNumPattern, boldLabelPattern, mdCell } = require('./text-escape.cjs');
+const { escapeRegExp, objectiveNumPattern, boldLabelPattern, mdCell, milestoneHeadingPattern } = require('./text-escape.cjs');
 
 // Splits a rendered GFM table row on pipes that are NOT escaped: a backslash skips the next char, so
 // an even run of backslashes before a pipe leaves the pipe live and an odd run protects it.
@@ -205,5 +205,35 @@ describe('mdCell', () => {
     const cells = splitRow(row);
     assert.equal(cells.length, 2, `row ${row} must split into exactly two cells, got ${JSON.stringify(cells)}`);
     assert.equal(cells[1], 'z');
+  });
+});
+
+describe('milestoneHeadingPattern', () => {
+  const heading = (version) => new RegExp(milestoneHeadingPattern(version), 'm');
+
+  test('TE-25 milestoneHeadingPattern: v1.0 matches the headings that name v1.0', () => {
+    const re = heading('v1.0');
+    assert.ok(re.test('## v1.0 Now'), 'the heading milestone complete and milestone put write');
+    assert.ok(re.test('## 1.0 Old'), 'a legacy heading without the v prefix');
+    assert.ok(re.test('## v1.0'), 'a heading that ends right after the version');
+    assert.ok(re.test('##  v1.0 X'), 'extra spaces after the hashes');
+    assert.ok(re.test('# Milestones\n\n## v1.0 Now (Shipped: 2026-01-01)\n\n---\n'), 'a heading in the middle of the file');
+  });
+
+  test('TE-26 milestoneHeadingPattern: v1.0 does not match another version or another heading level', () => {
+    const re = heading('v1.0');
+    assert.ok(!re.test('## v1.0.1 X'), 'a patch release is a different version');
+    assert.ok(!re.test('## v1.00'), 'trailing digits make a different version');
+    assert.ok(!re.test('### v1.0'), 'a level-3 heading is not an entry');
+    assert.ok(!re.test('## v10.0'), 'leading digits make a different version');
+    assert.ok(!re.test('## v1x0'), 'the dot is a literal dot, not any character');
+    assert.ok(!re.test('text ## v1.0 X'), 'the heading starts the line');
+  });
+
+  test('TE-27 milestoneHeadingPattern: 1.0 and v1.0 name the same milestone', () => {
+    assert.equal(milestoneHeadingPattern('1.0'), milestoneHeadingPattern('v1.0'));
+    assert.equal(milestoneHeadingPattern('V1.0'), milestoneHeadingPattern('v1.0'));
+    assert.ok(heading('1.0').test('## v1.0 Now'));
+    assert.ok(!heading('1.0').test('## v1.0.1 X'));
   });
 });

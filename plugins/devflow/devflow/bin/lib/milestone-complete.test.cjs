@@ -28,6 +28,15 @@
 //     D5  parity: a real run's written/moved/kept equal the dry run's would_*
 //     D6  a STATE.md that would not change is not planned
 //
+//   `milestone complete` run twice (TRD 68-01, task 3)
+//     R7  one MILESTONES.md entry and the first run's archive bytes survive a second run
+//     R8  an archive is never overwritten, even when ROADMAP.md changed in between
+//     R9  1.0 and v1.0 name one milestone: one entry, one archive set
+//     R10 an entry `milestone put` wrote survives byte for byte
+//     R11 a legacy `## 1.0` entry counts; a `## v1.0.1` entry does not
+//     R12 --archive-objectives twice moves nothing; an occupied destination is kept, not a crash
+//     R13 an audit file with an occupied destination stays where it is
+//
 // Nothing here touches the repository's own .planning/: every project is a temp dir from the fixture builder.
 
 const { test, afterEach } = require('node:test');
@@ -44,6 +53,9 @@ const {
   ROADMAP_SECTIONS_ONLY,
   STATE_NARRATIVE,
   AUDIT_V1_0,
+  MILESTONES_WITH_PUT_ENTRY,
+  MILESTONES_LEGACY_UNPREFIXED,
+  MILESTONES_PATCH_ONLY,
   templateSummary,
   makeMilestoneProject,
   planningTree,
@@ -361,6 +373,121 @@ test('D6. a STATE.md the replacement would leave unchanged is not in would_write
   const { json } = complete(p, ['v1.0', '--dry-run']);
   assert.ok(!json.would_write.some((w) => w.path === '.planning/STATE.md'), JSON.stringify(json.would_write));
   assert.ok(json.would_write.some((w) => w.path === MILESTONES), 'the other writes are still planned');
+});
+
+// ─── milestone complete, run again (TRD 68-01) ────────────────────────────────
+
+const ARCHIVE = '.planning/milestones';
+const entryLines = (text, version) => {
+  const digits = version.replace(/^v/, '').replace(/\./g, '\\.');
+  return text.split('\n').filter((l) => new RegExp(`^## v?${digits}(?:\\s|$)`).test(l));
+};
+/** The bytes of every file under .planning/milestones/, keyed by project-relative path. */
+const archiveBytes = (p) => {
+  const tree = planningTree(p.root);
+  return Object.fromEntries(Object.keys(tree.files).filter((f) => f.startsWith('milestones/')).sort().map((f) => [f, p.read(`.planning/${f}`)]));
+};
+
+test('R7. a second run leaves one MILESTONES.md entry and the first run\'s archive files untouched', () => {
+  const p = project();
+  const first = complete(p, ['v1.0', '--name', 'Now']).json;
+  assert.equal(first.milestones_updated, true);
+  assert.equal(first.milestones_reason, null);
+  const milestonesAfterOne = p.read(MILESTONES);
+  const archiveAfterOne = archiveBytes(p);
+  const dirsAfterOne = planningTree(p.root).dirs;
+
+  const second = complete(p, ['v1.0', '--name', 'Now']).json;
+  assert.equal(second.milestones_updated, false);
+  assert.equal(second.milestones_reason, 'entry_exists');
+  assert.equal(entryLines(p.read(MILESTONES), 'v1.0').length, 1);
+  assert.equal(p.read(MILESTONES), milestonesAfterOne);
+  assert.deepEqual(archiveBytes(p), archiveAfterOne);
+  assert.deepEqual(planningTree(p.root).dirs, dirsAfterOne);
+});
+
+test('R8. an existing archive is kept even when ROADMAP.md changed after the first run', () => {
+  const p = project();
+  complete(p, ['v1.0', '--name', 'Now']);
+  const archived = p.read(`${ARCHIVE}/v1.0-ROADMAP.md`);
+  p.write('.planning/ROADMAP.md', `${ROADMAP_TWO_MILESTONES}\n## Reorganised for the next milestone\n`);
+
+  const second = complete(p, ['v1.0', '--name', 'Now']).json;
+  assert.equal(p.read(`${ARCHIVE}/v1.0-ROADMAP.md`), archived);
+  assert.ok(second.kept.some((k) => k.path === `${ARCHIVE}/v1.0-ROADMAP.md` && k.reason === 'exists'), JSON.stringify(second.kept));
+  assert.ok(!second.written.includes(`${ARCHIVE}/v1.0-ROADMAP.md`));
+});
+
+test('R9. 1.0 and v1.0 name the same milestone: one entry, one archive set', () => {
+  const p = project();
+  const first = complete(p, ['1.0', '--name', 'Now']).json;
+  assert.equal(first.version, 'v1.0');
+  complete(p, ['v1.0', '--name', 'Now']);
+  assert.equal(entryLines(p.read(MILESTONES), 'v1.0').length, 1);
+  assert.ok(p.read(MILESTONES).includes('## v1.0 Now (Shipped:'));
+  assert.deepEqual(Object.keys(archiveBytes(p)).sort(), ['milestones/v1.0-REQUIREMENTS.md', 'milestones/v1.0-ROADMAP.md']);
+  assert.ok(!p.exists(`${ARCHIVE}/1.0-ROADMAP.md`) && !p.exists(`${ARCHIVE}/1.0-REQUIREMENTS.md`), 'no 1.0-* archive file');
+});
+
+test('R10. an entry `milestone put` wrote survives a later complete byte for byte', () => {
+  const p = project(TWO_MILESTONE_SPEC, { files: { [MILESTONES]: MILESTONES_WITH_PUT_ENTRY } });
+  const { json } = complete(p, ['v1.0', '--name', 'Now']);
+  assert.equal(p.read(MILESTONES), MILESTONES_WITH_PUT_ENTRY);
+  assert.equal(json.milestones_updated, false);
+  assert.equal(json.milestones_reason, 'entry_exists');
+  assert.ok(json.kept.some((k) => k.path === MILESTONES && k.reason === 'entry_exists'), JSON.stringify(json.kept));
+  assert.equal(complete(p, ['v1.0', '--name', 'Now', '--dry-run']).json.milestone_entry, null);
+});
+
+test('R11. a legacy unprefixed entry counts as v1.0; a v1.0.1 entry does not', () => {
+  const legacy = project(TWO_MILESTONE_SPEC, { files: { [MILESTONES]: MILESTONES_LEGACY_UNPREFIXED } });
+  const kept = complete(legacy, ['v1.0', '--name', 'Now']).json;
+  assert.equal(legacy.read(MILESTONES), MILESTONES_LEGACY_UNPREFIXED);
+  assert.equal(kept.milestones_reason, 'entry_exists');
+
+  const patch = project(TWO_MILESTONE_SPEC, { files: { [MILESTONES]: MILESTONES_PATCH_ONLY } });
+  const appended = complete(patch, ['v1.0', '--name', 'Now']).json;
+  assert.equal(appended.milestones_updated, true);
+  assert.equal(appended.milestones_reason, null);
+  const text = patch.read(MILESTONES);
+  assert.ok(text.startsWith(MILESTONES_PATCH_ONLY), 'the patch entry is kept');
+  assert.equal(entryLines(text, 'v1.0').length, 1, 'the v1.0 entry is appended once');
+  assert.ok(text.includes('## v1.0.1 Patch'));
+});
+
+test('R12. --archive-objectives twice moves nothing the second time; an occupied destination is kept, not a crash', () => {
+  const p = project();
+  const first = complete(p, ['v1.0', '--archive-objectives']).json;
+  assert.equal(first.moved.length, 3);
+  const second = complete(p, ['v1.0', '--archive-objectives']).json;
+  assert.deepEqual(second.moved, []);
+  assert.equal(second.objectives, 2, 'the archived directories still count');
+  for (const dir of ['04-d', '05-e', '06-f']) assert.ok(p.exists(`${ARCHIVE}/v1.0-objectives/${dir}`), `${dir} stays archived`);
+
+  const clash = project(TWO_MILESTONE_SPEC, { files: { [`${ARCHIVE}/v1.0-objectives/04-d/OBJECTIVE.md`]: '# Already archived\n' } });
+  const r = completeRaw(clash, ['v1.0', '--archive-objectives']);
+  assert.equal(r.status, 0, r.stderr);
+  const json = JSON.parse(r.stdout);
+  assert.ok(clash.exists('.planning/objectives/04-d'), '04-d stays current');
+  assert.equal(clash.read(`${ARCHIVE}/v1.0-objectives/04-d/OBJECTIVE.md`), '# Already archived\n');
+  assert.ok(json.kept.some((k) => k.path === '.planning/objectives/04-d' && k.reason === 'destination_exists'), JSON.stringify(json.kept));
+  assert.equal(json.warnings.length, 1, JSON.stringify(json.warnings));
+  assert.ok(json.warnings[0].includes('04-d'), json.warnings[0]);
+  assert.deepEqual(sortedMoves(json.moved), sortedMoves([
+    { from: '.planning/objectives/05-e', to: `${ARCHIVE}/v1.0-objectives/05-e` },
+    { from: '.planning/objectives/06-f', to: `${ARCHIVE}/v1.0-objectives/06-f` },
+  ]));
+});
+
+test('R13. an audit file whose destination exists stays where it is', () => {
+  const destination = `${ARCHIVE}/v1.0-MILESTONE-AUDIT.md`;
+  const p = project(TWO_MILESTONE_SPEC, { files: { [AUDIT]: AUDIT_V1_0, [destination]: '# Earlier audit\n' } });
+  const { json } = complete(p, ['v1.0']);
+  assert.equal(p.read(AUDIT), AUDIT_V1_0);
+  assert.equal(p.read(destination), '# Earlier audit\n');
+  assert.ok(json.kept.some((k) => k.path === AUDIT && k.reason === 'destination_exists'), JSON.stringify(json.kept));
+  assert.ok(json.warnings.some((w) => w.includes('v1.0-MILESTONE-AUDIT.md')), JSON.stringify(json.warnings));
+  assert.deepEqual(json.moved, []);
 });
 
 // templateSummary is exercised through the fixture project above; this guards the helper's contract directly.
