@@ -543,6 +543,11 @@ function cmdStateAddDecision(cwd, options, raw) {
   }
 }
 
+// The Blockers section of STATE.md, shared by add-blocker and resolve-blocker so they always find the same one.
+// The heading may be `Blockers`, `Concerns` or `Blockers/Concerns`, with optional spaces around the slash
+// (this repo's own STATE.md says `## Blockers / Concerns`; the template says `### Blockers/Concerns`).
+const BLOCKERS_SECTION_RE = /(###?\s*(?:Blockers|Blockers[ \t]*\/[ \t]*Concerns|Concerns)\s*\n)([\s\S]*?)(?=\n###?|\n##[^#]|$)/i;
+
 function cmdStateAddBlocker(cwd, text, raw) {
   if (storeMode(cwd)) {
     if (!text) { output({ error: 'text required' }, raw); return; }
@@ -558,7 +563,7 @@ function cmdStateAddBlocker(cwd, text, raw) {
   let content = fs.readFileSync(statePath, 'utf-8');
   const entry = `- ${text}`;
 
-  const sectionPattern = /(###?\s*(?:Blockers|Blockers\/Concerns|Concerns)\s*\n)([\s\S]*?)(?=\n###?|\n##[^#]|$)/i;
+  const sectionPattern = BLOCKERS_SECTION_RE;
   const match = content.match(sectionPattern);
 
   if (match) {
@@ -592,7 +597,7 @@ function cmdStateResolveBlocker(cwd, text, raw) {
 
   let content = fs.readFileSync(statePath, 'utf-8');
 
-  const sectionPattern = /(###?\s*(?:Blockers|Blockers\/Concerns|Concerns)\s*\n)([\s\S]*?)(?=\n###?|\n##[^#]|$)/i;
+  const sectionPattern = BLOCKERS_SECTION_RE;
   const match = content.match(sectionPattern);
 
   if (match) {
