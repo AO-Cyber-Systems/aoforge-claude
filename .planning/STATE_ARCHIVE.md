@@ -202,6 +202,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 64]: 64-08: calibrate --window is opt-in (null default); the window is applied to a filtered copy of each project right after collectProject and leaves no trace (key, note, digest) when it drops nothing; the rolling harness requires --new to name the same objectives as --old
 - [Objective 64]: 64-09: frozen rolling validation on 59-63 ran once: new method (window 10) EST-08 not met (cost SC3 32/41 TRDs under P90 unchanged), minutes median 1.348 to 1.238, ship rule ship_default true
 - [Objective 64]: Ship rule applied as recorded (ship_default true): calibrate defaults to a 10-objective window and the live calibration was regenerated, but EST-08 stays not met (cost SC3 32 of 41 TRDs, 78%)
+- [Objective 65]: 65-01: release 2.14.0 dated 2026-10-07 (local date +%F); lead paragraph only restates [Unreleased]/MILESTONES facts; REL-01 stays open until the merge and tag (65-02, 65-03)
 
 ## Performance Metrics
 
@@ -335,4 +336,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 64 P08 | 14min | 3 tasks | 11 files |
 | Objective 64 P09 | 7min | 2 tasks | 1 files |
 | Objective 64 P10 | 15min | 3 tasks | 13 files |
+| Objective 65 P01 | 13min | 2 tasks | 5 files |
 

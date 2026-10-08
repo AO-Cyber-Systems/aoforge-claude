@@ -141,7 +141,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 **TRDs**: 4 plans
 
 TRDs:
-- [ ] 65-01-release-artifacts-and-validation-TRD.md — (W1) bump package.json/plugin.json/marketplace.json to 2.14.0, promote CHANGELOG [Unreleased] to [2.14.0] by hand, regenerate docs data, signed release commit; `npm test`, tag-gate dry run, notes preview, manifest/health/doctor baseline, merge-tree clean (local only)
+- [x] 65-01-release-artifacts-and-validation-TRD.md — (W1) bump package.json/plugin.json/marketplace.json to 2.14.0, promote CHANGELOG [Unreleased] to [2.14.0] by hand, regenerate docs data, signed release commit; `npm test`, tag-gate dry run, notes preview, manifest/health/doctor baseline, merge-tree clean (local only)
 - [ ] 65-02-push-branch-and-open-release-pr-TRD.md — (W2) approval gate: push the branch; approval gate: open the release PR; wait for green PR CI
 - [ ] 65-03-merge-tag-and-github-release-TRD.md — (W3) approval gate: merge the PR (merge commit); approval gate: annotated tag v2.14.0 on the merge commit and push it; verify the release.yml GitHub release and the main runs
 - [ ] 65-04-installed-runtime-verification-TRD.md — (W4) human action: plugin update and Claude Code restart; verify the mirror has the v1.5 libs, the installed hooks are registered, and doctor/health show no mirror lag
@@ -273,7 +273,7 @@ TRDs:
 | 27–41 (15 objectives) | v1.3 | 107/109 | Complete (27-03, 28-06 deferred) | 2026-09-28 |
 | 42–54, 26 (13 objectives + 26 killed) | v1.4 | 158/158 | Complete | 2026-10-05 |
 | 55–64 (10 objectives) | v1.5 | 81/81 | Complete (EST-08 not met, accepted) | 2026-10-08 |
-| 65. Release v1.5 | v1.6 | 0/? | Not started | - |
+| 65. Release v1.5 | v1.6 | 1/4 | In Progress | - |
 | 66. Executor token stamp | v1.6 | 0/? | Not started | - |
 | 67. Minutes recalibration | v1.6 | 0/? | Not started | - |
 | 68. Milestone and objective verbs | v1.6 | 0/? | Not started | - |

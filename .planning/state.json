@@ -1,9 +1,9 @@
 {
-  "current_objective": "64",
-  "current_job": 10,
-  "total_jobs": 10,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "65",
+  "current_job": 1,
+  "total_jobs": 4,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-07",
   "metrics": {
     "jobs_completed": 0,
@@ -1074,6 +1074,11 @@
     {
       "objective": "64",
       "summary": "Ship rule applied as recorded (ship_default true): calibrate defaults to a 10-objective window and the live calibration was regenerated, but EST-08 stays not met (cost SC3 32 of 41 TRDs, 78%)",
+      "rationale": null
+    },
+    {
+      "objective": "65",
+      "summary": "65-01: release 2.14.0 dated 2026-10-07 (local date +%F); lead paragraph only restates [Unreleased]/MILESTONES facts; REL-01 stays open until the merge and tag (65-02, 65-03)",
       "rationale": null
     }
   ],
