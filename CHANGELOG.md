@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-10-08
+
+Milestone v1.6, objectives 66 and 67 (objective 65 shipped 2.14.0). Executor SUMMARYs stamp their own token usage: the
+SubagentStop gate sends an executor back once when its final SUMMARY has no `tokens_input`/`tokens_output`,
+`execute-objective` runs every TRD in an executor, and `tokens coverage` reports forward-stamp coverage (EST-09). The
+minutes method is chosen by a pre-registered rule (EST-10): `calibrate --minutes` and `--through`, calibration version 3
+with a `method` block, and `trd_level` as the default minutes method, where the rule returned `ship_default: true`.
+EST-11, on objectives 68 to 72, is the prospective test. The 2.14.0 runtime refuses a version 3 calibration, and entries
+that need an installed plugin take effect once the installed plugin is at 2.15.0.
+
 Objectives 66 (EST-09, forward-stamp coverage) and 67 (EST-10, minutes recalibration). Entries that need an installed
 plugin take effect once the installed plugin carries the objective; the 2.14.0 runtime has none of them, and it
 refuses a version 3 calibration.
