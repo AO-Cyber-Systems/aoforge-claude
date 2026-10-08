@@ -247,7 +247,8 @@ awk -v ver="2.14.0" '$0 ~ "^## \\[" ver "\\]" { flag=1; next } flag && /^## \[/ 
 - Heading order: `rg -n '^## \[' CHANGELOG.md | head -3` prints `7:## [Unreleased]`, then `9:## [2.14.0] - YYYY-MM-DD`, then the `## [2.13.2]` line.
 - Unreleased is empty: the first non-blank line after line 7 is the `## [2.14.0]` heading.
 - `git show --stat --format=%s HEAD` lists exactly the five files, and the subject is the chore(release) line.
-- `git log -1 --format=%G?` prints `G` (signed).
+- Signed: `git cat-file -p HEAD`, piped to `rg -c '^gpgsig'`, prints `1`. Do not use `%G?`: on this machine it prints `N`
+  even for a signed commit, because `gpg.ssh.allowedSignersFile` is not configured.
   </verify>
   <done>One signed release commit on feat/stack-profile-loader changes exactly the five files. All four version fields read
 2.14.0, and the marketplace skill count matches the tree. CHANGELOG has an empty `[Unreleased]` followed by
