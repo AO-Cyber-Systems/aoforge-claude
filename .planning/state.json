@@ -1,6 +1,6 @@
 {
   "current_objective": "68",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 7,
   "progress_pct": 99,
   "status": "executing",
@@ -1175,6 +1175,16 @@
       "objective": "68",
       "summary": "Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case",
       "rationale": "Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer"
+    },
+    {
+      "objective": "68",
+      "summary": "decision-queue gets explicit per-subcommand FLAG_SPEC rules, not ownParser: its parser accepts any unknown --x as a boolean (decision-queue list --zz-unknown exits 0)",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "A placeholder (<x>, {x}, ${X}) stays one non-flag token in the documented-invocation scan so a value flag still consumes it and the next flag is still checked",
+      "rationale": null
     }
   ],
   "blockers": [
