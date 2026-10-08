@@ -226,6 +226,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 ## Blockers / Concerns
 
 - **`feature/v1.1-coordination` is duplicative** — same content as `feature/v1.1`. Should be deleted to avoid confusion. Its worktree at `/Users/markemerson/Source/devflow-claude-v11` can be removed.
+- EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72
 
 ### Quick Tasks Completed
 

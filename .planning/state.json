@@ -1152,6 +1152,8 @@
       "rationale": null
     }
   ],
-  "blockers": [],
+  "blockers": [
+    "EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72"
+  ],
   "session_log": []
 }
