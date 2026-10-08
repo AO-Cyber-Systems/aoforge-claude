@@ -8,6 +8,7 @@
 // human output). Large output arrives as `@file:<tmp path>`, which is followed.
 //
 // Codes another doctor check owns are DEFERRED, never double-reported. One line per owner:
+//   E006 / W064  skill-active marker — skill-markers (check 23), TRD 69-04
 //   E020 / I022  mirror vs. installed plugin — runtime-mirror
 //   W040         project behind — pending-migrations
 //   W057-W061    store sync health — gh-store-sync, TRD 50-07
@@ -16,8 +17,9 @@
 // They are listed in details.deferred and never set the severity.
 //
 //   remaining errors → error; remaining warnings → warn; else ok
-//   fixable when validate health reports repairable_count > 0 and `.planning/` has no uncommitted
-//   changes (fix = the same command with --repair). Info codes never affect severity.
+//   fixable when a non-deferred error or warning is repairable (validate's repairable_count also counts
+//   the deferred ones, so it is recounted here) and `.planning/` has no uncommitted changes (fix = the
+//   same command with --repair). Info codes never affect severity.
 
 const fs = require('fs');
 const { spawnSync } = require('child_process');
@@ -25,7 +27,7 @@ const { spawnSync } = require('child_process');
 const dg = require('../doctor-git.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
 
-const DEFERRED = ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063'];
+const DEFERRED = ['E006', 'E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063', 'W064'];
 const DF_TOOLS = 'node ~/.claude/devflow/bin/df-tools.cjs';
 const HEALTH_COMMAND = `${DF_TOOLS} validate health`;
 const REPAIR_COMMAND = `${DF_TOOLS} validate health --repair`;
@@ -69,7 +71,10 @@ function classify(json) {
   const warnings = json.warnings.filter((i) => !isDeferred(i));
   const info = Array.isArray(json.info) ? json.info : [];
   const deferred = uniqueSorted([...json.errors, ...json.warnings, ...info].filter(isDeferred).map((i) => i.code));
-  const repairable = Number(json.repairable_count) || 0;
+  // Only this check's own issues count: validate's repairable_count includes the deferred ones (the
+  // skill-marker E006/W064), and running --repair for a problem this check does not report would
+  // change files behind another check's back.
+  const repairable = [...errors, ...warnings].filter((i) => i && i.repairable === true).length;
   return { errors, warnings, info, deferred, repairable };
 }
 

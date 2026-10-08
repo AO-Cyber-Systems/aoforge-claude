@@ -318,10 +318,10 @@ describe('validate-health: contract', () => {
     assert.deepEqual(doctor.contractIssues(health), []);
     // Codes another check owns, so the validate-health check defers them: E020/I022 (10-runtime-mirror),
     // W040 (21-pending-migrations), W057-W061 (25-gh-store-sync, TRD 50-07), W062 (26-checks-workflow-pin, TRD 61-01),
-    // W063 (13-model-profiles, TRD 61-07).
+    // W063 (13-model-profiles, TRD 61-07), E006 / W064 (23-skill-markers, TRD 69-04).
     assert.deepEqual(
       health.DEFERRED,
-      ['E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063'],
+      ['E006', 'E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063', 'W064'],
     );
   });
 });
@@ -475,6 +475,56 @@ describe('validate-health: spawn contract (test 14)', () => {
     assert.equal(r.severity, 'ok', r.finding);
     assert.deepEqual(r.details.deferred, ['W063']);
     assert.deepEqual(r.details.codes, []);
+  });
+
+  test('10. only E006 (a tracked skill marker, repairable) -> ok, not fixable: check 23 owns it and check 22 does not count its repair', () => {
+    const home = makeDoctorHome();
+    const { root } = makeDoctorProject({ home, git: false });
+    const ctx = ctxFor(root, home);
+    ctx.exec = () => ({
+      status: 0,
+      stdout: healthJson({
+        status: 'broken',
+        errors: [{
+          code: 'E006',
+          message: 'skill-marker-tracked: .planning/.skill-active is tracked in git',
+          fix: 'Run `df-tools doctor --fix`',
+          repairable: true,
+        }],
+        repairable_count: 1,
+      }),
+      stderr: '',
+    });
+    const r = health.run(ctx);
+    assert.equal(r.severity, 'ok', r.finding);
+    assert.equal(r.fixable, false);
+    assert.deepEqual(r.details.deferred, ['E006']);
+    assert.deepEqual(r.details.codes, []);
+    assert.equal(r.details.repairable_count, 0);
+  });
+
+  test('11. a repairable W003 next to a deferred repairable W064 -> fixable, counting only the W003', () => {
+    const home = makeDoctorHome();
+    const { root } = makeDoctorProject({ home, git: false });
+    const ctx = ctxFor(root, home);
+    ctx.exec = () => ({
+      status: 0,
+      stdout: healthJson({
+        status: 'degraded',
+        warnings: [
+          { code: 'W003', message: 'config.json missing', fix: 'x', repairable: true },
+          { code: 'W064', message: 'skill-marker-stale: .planning/.skill-active', fix: 'x', repairable: true },
+        ],
+        repairable_count: 2,
+      }),
+      stderr: '',
+    });
+    const r = health.run(ctx);
+    assert.equal(r.severity, 'warn', r.finding);
+    assert.equal(r.fixable, true, r.finding);
+    assert.deepEqual(r.details.codes, ['W003']);
+    assert.deepEqual(r.details.deferred, ['W064']);
+    assert.equal(r.details.repairable_count, 1);
   });
 
   test('a failing or unparseable spawn → error result, not a throw', () => {

@@ -47,7 +47,7 @@ Reserved so parallel TRDs never collide:
 | Range | Owner | Checks |
 |-------|-------|--------|
 | `10-19` | TRD 45-05 | global install checks: `10-runtime-mirror`, `11-plugin-cache`, `12-hooks-registry`, `13-model-profiles` (TRD 61-07; owns W063, which `22` defers), `14-skill-requires` (TRD 61-02; report-only, reads the installed plugin's `requires:` declarations, which the `gate-skill-requires.js` hook enforces) |
-| `20-29` | TRD 45-06 | project checks: `20-legacy-runtime-state`, `21-pending-migrations`, `22-validate-health`, `23-skill-markers`, `24-store-cache-tracked`, `25-gh-store-sync` (TRD 50-07; owns W057-W061, which `22` defers), `26-checks-workflow-pin` (TRD 61-01; owns W062, which `22` defers) |
+| `20-29` | TRD 45-06 | project checks: `20-legacy-runtime-state`, `21-pending-migrations`, `22-validate-health`, `23-skill-markers` (TRD 69-04: tracked markers too; owns E006/W064, which `22` defers; the tracked fix is an index change behind the DOC-06 guard), `24-store-cache-tracked`, `25-gh-store-sync` (TRD 50-07; owns W057-W061, which `22` defers), `26-checks-workflow-pin` (TRD 61-01; owns W062, which `22` defers) |
 | `30-39` | TRD 45-07 | state-hygiene checks: `30-guard-state`, `31-awareness-state`, `32-backups`, `33-decision-resolution` (TRD 53-06; finds resolved decisions whose multi-line `resolution` the pre-52 writer flattened, and repairs the recoverable ones with a backup. Report-only in store mode) |
 
 ## Rules the engine enforces
