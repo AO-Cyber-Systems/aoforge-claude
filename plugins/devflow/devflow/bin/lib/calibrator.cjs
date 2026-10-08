@@ -19,8 +19,8 @@ const CALIBRATION_VERSION = 3;
 // auto tasks, `trd_level` takes `trd_level.minutes` whatever the task count. The calibrator computes the same statistics
 // for both and only records the choice; the estimator applies it.
 const MINUTES_METHODS = Object.freeze(['task_sum', 'trd_level']);
-// 67-05 sets this from the pre-registered ship rule of DECISION-003.
-const DEFAULT_MINUTES_METHOD = 'task_sum';
+// set by 67-VALIDATION.md (ship_default true, DECISION-003 V4)
+const DEFAULT_MINUTES_METHOD = 'trd_level';
 
 // The recency window `buildCalibration` applies when its caller passes none: the most recent 10 objectives that have
 // samples, per project. Objective 64 froze 10 on pre-59 history (64-DIAGNOSIS.md, weak support: a non-monotone sweep) and

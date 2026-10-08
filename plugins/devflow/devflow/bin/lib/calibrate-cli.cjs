@@ -25,9 +25,9 @@
  *           the flag is absent, and `--window all` keeps all history; a window that drops nothing (a project of 10 or
  *           fewer objectives) leaves no trace in the file. N is a positive integer: anything else is a usage error.
  *   minutes --minutes <task_sum|trd_level> (TRD 67-02): how an estimate builds a TRD's minutes, recorded in `method` and
- *           in the digest. `task_sum` (default) adds the per-task class distributions of its auto tasks; `trd_level` takes
- *           `trd_level.minutes` whatever the task count. The statistics in the file are the same either way: the
- *           estimator applies the method. Anything else is a usage error.
+ *           in the digest. `task_sum` adds the per-task class distributions of its auto tasks; `trd_level` (default since
+ *           objective 67) takes `trd_level.minutes` whatever the task count. The statistics in the file are the same
+ *           either way: the estimator applies the method. Anything else is a usage error.
  *   through --through <N> (TRD 67-02): objectives numbered above N, and directories with no number, are not read, and
  *           their STATE_ARCHIVE and state.json metric rows are not counted, so a later objective cannot change the file.
  *           The window then applies to what is left. N is an objective number (digits, optionally a decimal part).

@@ -172,7 +172,7 @@
  *                                       --no-overhead skips that scan;
  *                                       --window <N|all>: keep only the N most recent objectives with samples per project;
  *                                       default: the most recent 10 objectives, --window all keeps all history;
- *                                       --minutes <task_sum|trd_level>: how an estimate builds a TRD's minutes (default task_sum);
+ *                                       --minutes <task_sum|trd_level>: how an estimate builds a TRD's minutes (default trd_level);
  *                                       --through <N>: drop objectives numbered above N before anything is read or counted;
  *                                       the file names both in its `method` block)
  *   estimate task (--files a[,b] [--tdd] [--trd-type t] | --class c | --checkpoint)

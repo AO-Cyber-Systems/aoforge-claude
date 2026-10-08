@@ -619,7 +619,8 @@ function overheadRoot(repo, { verifierSpawn = fx.VERIFIER_SPAWN } = {}) {
 describe('58-03 agent_overhead in calibration v2', () => {
   test('7: without a transcripts root, agent_overhead has the six agents, all empty, and nothing was scanned', () => {
     const beta = makeProject(BETA_SPEC);
-    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH });
+    // 67-05: pinned to task_sum so the note count stays the base notes (trd_level appends a sixth, asserted in 67-02/8).
+    const cal = buildCalibration({ paths: [beta], ratesPath: ci.RATES_PATH, minutes: 'task_sum' });
 
     assert.equal(cal.version, CALIBRATION_VERSION);
     assert.deepEqual(Object.keys(cal.agent_overhead).sort(), [...OVERHEAD_AGENTS].sort());
@@ -829,11 +830,12 @@ describe('64-08 buildCalibration window', () => {
 
   test('1: window 2 keeps the two latest objectives and every statistic follows', () => {
     const slope = makeProject(slopeSpec());
-    const full = build([slope]);
+    // 67-05: pinned to task_sum, so the window note is the last note (under trd_level the minutes note follows it).
+    const full = build([slope], { minutes: 'task_sum' });
     assert.equal(full.task_classes.code_tdd.minutes.p50, 20);
     assert.equal(full.samples.trds, 14);
 
-    const cal = build([slope], { window: 2 });
+    const cal = build([slope], { window: 2, minutes: 'task_sum' });
     assert.equal(cal.task_classes.code_tdd.minutes.p50, 5);
     assert.equal(cal.samples.trds, 4);
     assert.equal(cal.trd_level.samples, 4);
@@ -1106,9 +1108,12 @@ describe('67-02 calibration v3: method identity and the cutoff', () => {
     const past = makeProject(pastSpec());
     const byDefault = build([past]);
     assert.equal(byDefault.version, 3);
-    assert.deepEqual(byDefault.method, { minutes: 'task_sum', window_objectives: 10, through_objective: null });
+    // 67-05: the default minutes method is trd_level (67-VALIDATION.md ship_default true).
+    assert.deepEqual(byDefault.method, { minutes: 'trd_level', window_objectives: 10, through_objective: null });
     assert.deepEqual(build([past], { window: null }).method,
-      { minutes: 'task_sum', window_objectives: null, through_objective: null });
+      { minutes: 'trd_level', window_objectives: null, through_objective: null });
+    assert.deepEqual(build([past], { minutes: 'task_sum' }).method,
+      { minutes: 'task_sum', window_objectives: 10, through_objective: null }, 'task_sum stays reachable');
     assert.deepEqual(build([past], { window: 7, through: 66, minutes: 'trd_level' }).method,
       { minutes: 'trd_level', window_objectives: 7, through_objective: 66 });
     assert.deepEqual(build([past], { through: 0 }).method.through_objective, 0, 'a cutoff of 0 is a cutoff, not an absent one');
@@ -1133,11 +1138,12 @@ describe('67-02 calibration v3: method identity and the cutoff', () => {
 
   test('9: a through-66 build reads no 67-72 date or minutes and says so in its notes', () => {
     const future = makeProject(FUTURE_SPEC);
-    const cal = build([future], { through: 66 });
+    const cal = build([future], { through: 66, minutes: 'task_sum' });
     assert.equal(cal.data_as_of, '2026-10-03');
     assert.equal(cal.trd_level.minutes.max, 20, 'no 90-minute TRD');
     assert.equal(cal.samples.trds, 3);
     assert.equal(cal.notes.includes(THROUGH_NOTE), true);
+    // 67-05: pinned to task_sum, so the through note is last (the order with a minutes note is the next test).
     assert.equal(cal.notes[cal.notes.length - 1], THROUGH_NOTE);
     assert.equal(build([future]).data_as_of, '2026-10-27', 'control: without the cutoff the latest date is the future one');
     assert.equal(build([future]).notes.some((note) => note.startsWith('Through objective')), false);
@@ -1145,7 +1151,8 @@ describe('67-02 calibration v3: method identity and the cutoff', () => {
 
   test('9: the notes append in order: base, window, through, minutes', () => {
     const future = makeProject(FUTURE_SPEC);
-    const base = build([future], { window: null }).notes;
+    // 67-05: the base is the task_sum notes (no minutes note), which is what the order below is measured from.
+    const base = build([future], { window: null, minutes: 'task_sum' }).notes;
     const cal = build([future], { window: 2, through: 66, minutes: 'trd_level' });
     assert.equal(cal.notes.length, base.length + 3);
     assert.deepEqual(cal.notes.slice(0, base.length), base);
@@ -1173,7 +1180,7 @@ describe('67-02 calibration v3: method identity and the cutoff', () => {
     assert.equal(cal.window.projects[0].first, '65-b');
     assert.equal(cal.window.projects[0].last, '66-c');
     assert.equal(cal.samples.trds, 2);
-    assert.deepEqual(cal.method, { minutes: 'task_sum', window_objectives: 2, through_objective: 66 });
+    assert.deepEqual(cal.method, { minutes: 'trd_level', window_objectives: 2, through_objective: 66 });
   });
 
   test('12: a minutes value other than task_sum or trd_level is an error, null and the wrong case included', () => {
@@ -1194,7 +1201,37 @@ describe('67-02 calibration v3: method identity and the cutoff', () => {
   test('13: MINUTES_METHODS, DEFAULT_MINUTES_METHOD and CALIBRATION_VERSION', () => {
     assert.deepEqual([...MINUTES_METHODS], ['task_sum', 'trd_level']);
     assert.equal(Object.isFrozen(MINUTES_METHODS), true);
-    assert.equal(DEFAULT_MINUTES_METHOD, 'task_sum');
+    assert.equal(DEFAULT_MINUTES_METHOD, 'trd_level', '67-05: set by 67-VALIDATION.md (ship_default true); 67-05/2 pins it to the validation');
     assert.equal(CALIBRATION_VERSION, 3);
+  });
+});
+
+// ─── 67-05: the default minutes method is the one the pre-registered ship rule chose ─────────────────────────────────
+//   1 the estimator and the calibrator name the same minutes methods
+//   2 DEFAULT_MINUTES_METHOD is pinned to 67-VALIDATION.md's method_selected (ship_default true -> trd_level)
+//   3 a default build is the trd_level build, byte for byte, and not the task_sum one
+describe('67-05 the default minutes method is the one 67-VALIDATION.md shipped', () => {
+  const build = (paths, extra = {}) => buildCalibration({ paths, ratesPath: ci.RATES_PATH, transcriptsRoot: null, ...extra });
+
+  test('1: estimate.KNOWN_MINUTES_METHODS deep-equals calibrator.MINUTES_METHODS', () => {
+    const estimate = require('./estimate.cjs');
+    assert.deepEqual([...estimate.KNOWN_MINUTES_METHODS], [...MINUTES_METHODS],
+      'the estimator accepts exactly the methods the calibrator can record');
+  });
+
+  test('2: DEFAULT_MINUTES_METHOD is trd_level, the method DECISION-003 froze and 67-VALIDATION.md shipped', () => {
+    assert.equal(DEFAULT_MINUTES_METHOD, 'trd_level',
+      '67-VALIDATION.md ship_default true, method_selected trd_level: the default is the shipped method');
+    assert.ok(MINUTES_METHODS.includes(DEFAULT_MINUTES_METHOD), 'the default is a method the calibrator knows');
+  });
+
+  test('3: a default build of the past fixture has method.minutes trd_level and is byte-identical to --minutes trd_level', () => {
+    const past = makeProject(pastSpec());
+    const byDefault = build([past]);
+    assert.equal(byDefault.method.minutes, 'trd_level');
+    assert.equal(stableStringify(byDefault), stableStringify(build([past], { minutes: 'trd_level' })));
+    assert.notEqual(stableStringify(byDefault), stableStringify(build([past], { minutes: 'task_sum' })),
+      'control: task_sum is still reachable and is a different calibration');
+    assert.equal(build([past], { minutes: 'task_sum' }).method.minutes, 'task_sum', 'task_sum stays opt-in');
   });
 });
