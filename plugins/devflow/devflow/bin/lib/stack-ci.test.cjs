@@ -412,12 +412,15 @@ describe('C11 reader robustness', () => {
     const [step] = _parseWorkflowText('on: [push]\njobs:\n  j:\n    steps:\n      - name: n\n        run: go vet ./...\n', 'wf.yml');
     // `checkouts` and `external` joined the contract in TRD 42-14 (D1); `envSubstituted` in TRD 43-09;
     // `runtimeVars` in TRD 43-13 (re-baselined: the names a run block assigns at run time).
-    assert.deepEqual(Object.keys(step).sort(), ['checkouts', 'continueOnError', 'cwd', 'envSubstituted', 'external', 'file', 'invocations', 'job', 'name', 'runtimeVars', 'scheduled', 'uses']);
+    // `services` and `envNames` in TRD 71-03 (the job's service containers; the env names in scope).
+    assert.deepEqual(Object.keys(step).sort(), ['checkouts', 'continueOnError', 'cwd', 'envNames', 'envSubstituted', 'external', 'file', 'invocations', 'job', 'name', 'runtimeVars', 'scheduled', 'services', 'uses']);
     assert.equal(step.file, 'wf.yml');
     assert.deepEqual(step.checkouts, []);
     assert.equal(step.external, false);
     assert.deepEqual(step.envSubstituted, []);
     assert.deepEqual(step.runtimeVars, []);
+    assert.deepEqual(step.services, []);
+    assert.deepEqual(step.envNames, []);
   });
 });
 
@@ -745,5 +748,75 @@ describe('C17 expandsAny matches a name literally (TRD 56-01 test 7)', () => {
     assert.equal(expandsAny('x $AB', ['A']), false);
     assert.equal(expandsAny("x '$A'", ['A']), false);
     assert.equal(expandsAny('x $A', []), false);
+  });
+});
+
+// TRD 71-03 (SDR-10): `stack verify --run` asks the CI job that runs a gate whether the job needs a service.
+// 18. A job's `services:` names are on each of its steps; another job's steps have none.
+// 19. `envNames`: workflow, job and step env names in scope, sorted, runtime values included.
+// 20. A service container's own `env:` and a `services:` key under a step's `with:` are not job state.
+describe('C18 job services and env names (TRD 71-03)', () => {
+  const vfx = require('./__fixtures__/stack-verify-fixtures.cjs');
+
+  test('C18a: each step of a job with services carries the sorted service names; another job has none', () => {
+    const text = `${vfx.serviceWorkflow({ job: 'suite', services: ['redis', 'postgres'], runs: ['svc-suite --all'] })}`
+      + '  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: svc-lint\n';
+    const steps = _parseWorkflowText(text, 'ci.yml');
+    const suite = steps.filter((s) => s.job === 'suite');
+    assert.equal(suite.length, 2); // checkout + run
+    for (const s of suite) assert.deepEqual(s.services, ['postgres', 'redis']);
+    const lint = steps.filter((s) => s.job === 'lint');
+    assert.equal(lint.length, 1);
+    assert.deepEqual(lint[0].services, []);
+  });
+
+  test('C18b: envNames is the sorted union of workflow, job and step env names', () => {
+    const yml = [
+      'on: [push]',
+      'env:',
+      '  A: one',
+      'jobs:',
+      '  j:',
+      '    env:',
+      '      B: two',
+      '      D: ${{ secrets.D }}',
+      '    steps:',
+      '      - name: own',
+      '        env: { C: x }',
+      '        run: tool',
+      '      - name: sibling',
+      '        run: tool',
+      '',
+    ].join('\n');
+    const steps = _parseWorkflowText(yml, 'x');
+    assert.deepEqual(byName(steps, 'own').envNames, ['A', 'B', 'C', 'D']);
+    assert.deepEqual(byName(steps, 'sibling').envNames, ['A', 'B', 'D']);
+  });
+
+  test('C18c: a service container\'s own env is not a step env name', () => {
+    const text = vfx.serviceWorkflow({ services: ['postgres'], env: { DATABASE_URL: 'x' }, runs: ['tool'] });
+    const steps = _parseWorkflowText(text, 'ci.yml');
+    assert.ok(steps.length >= 2);
+    for (const s of steps) {
+      assert.deepEqual(s.services, ['postgres']);
+      assert.deepEqual(s.envNames, ['DATABASE_URL']);
+    }
+  });
+
+  test('C18d: `services:` under a step\'s `with:` is not a job service', () => {
+    const yml = [
+      'on: [push]',
+      'jobs:',
+      '  j:',
+      '    steps:',
+      '      - uses: some/action@v1',
+      '        with:',
+      '          services: postgres',
+      '      - run: tool',
+      '',
+    ].join('\n');
+    const steps = _parseWorkflowText(yml, 'x');
+    assert.equal(steps.length, 2);
+    for (const s of steps) assert.deepEqual(s.services, []);
   });
 });

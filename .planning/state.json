@@ -1270,6 +1270,16 @@
       "objective": "71",
       "summary": "A lint target adding linters is the entry point only when every extra line is an unconditional (no ||) linter of a tool other than the default's; optional linters keep lint inherited",
       "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "stack verify --run skips a gate with a static service signal (own text, CI job running the same command, test env file for test/e2e) as env_required; --allow-services (with --run only) opts in and the result is marked services=allowed. Detection never probes a port.",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "The CI layer of the service policy matches an exact command and cwd (a hand-edited command differing from CI is not matched); the loopback regex uses a lookbehind so [::1]:port is visible.",
+      "rationale": null
     }
   ],
   "blockers": [
