@@ -540,3 +540,145 @@ describe('df-tools calibrate agent overhead (end to end)', () => {
     assert.equal(fs.existsSync(sb.defaultOut), false);
   });
 });
+
+// ─── 64-08: --window <N|all> ─────────────────────────────────────────────────
+//   11 --window 2 on SLOPE: exit 0, the summary names `window 2 objectives (dropped 10 TRDs)`, the file has window.objectives 2
+//      and samples.trds 4
+//   12 --window all and no flag write byte-identical files (the default is off)
+//   13 usage errors exit 1, name the flag and write nothing: 0, -3, 2.5, abc, and no value
+//   14 --dry-run --window 2 writes nothing, the result carries `window`, `changed` is computed as for any dry run
+//   15 help, the usage line and the df-tools.cjs header name `--window <N|all>`
+// SLOPE is a literal copy of the one in calibrator.test.cjs: objectives 1-a to 7-g, TRDs 01 and 02, two code_tdd tasks each,
+// 40min per TRD in objectives 1-5 and 10min in 6-7.
+
+function slopeTrd(nn, duration, completed) {
+  return {
+    nn, slug: 'work',
+    tasks: [
+      { name: 'Task 1: x', type: 'auto', tdd: true, files: ['lib/x.cjs', 'lib/x.test.cjs'] },
+      { name: 'Task 2: y', type: 'auto', tdd: true, files: ['lib/x.cjs', 'lib/x.test.cjs'] },
+    ],
+    summary: { duration, completed },
+  };
+}
+
+const SLOPE_SPEC = {
+  name: 'slope',
+  objectives: ['1-a', '2-b', '3-c', '4-d', '5-e', '6-f', '7-g'].map((dir) => {
+    const n = Number(dir.split('-')[0]);
+    const duration = n <= 5 ? '40min' : '10min';
+    return { dir, trds: [slopeTrd('01', duration, `2026-09-0${n}`), slopeTrd('02', duration, `2026-09-0${n}`)] };
+  }),
+};
+
+describe('df-tools calibrate --window (end to end)', () => {
+  test('11. --window 2 keeps the two latest objectives; the summary and the file say so', () => {
+    const sb = sandbox();
+    const slope = project(SLOPE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+
+    const raw = run(sb, sb.tmp, ['--paths', slope, '--window', '2', '--no-overhead', '--out', out, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.ok(raw.stdout.includes('window 2 objectives (dropped 10 TRDs)'), raw.stdout);
+    assert.equal(raw.stdout.replace(/\n$/, '').includes('\n'), false, '--raw is still one line');
+    assert.ok(raw.stdout.includes('4 TRDs, 8 tasks'), 'the counts describe the retained TRDs');
+
+    const written = JSON.parse(fs.readFileSync(out, 'utf-8'));
+    assert.equal(written.window.objectives, 2);
+    assert.equal(written.samples.trds, 4);
+    assert.equal(written.task_classes.code_tdd.minutes.p50, 5);
+
+    const result = okJson(sb, sb.tmp, ['--paths', slope, '--window', '2', '--no-overhead', '--out', out]);
+    assert.equal(result.changed, false, 'the same command again changes nothing');
+    assert.deepEqual(result.window, {
+      objectives: 2,
+      projects: [{ project: 'slope', first: '6-f', last: '7-g', kept_objectives: 2, dropped_objectives: 5, dropped_trds: 10 }],
+    });
+    assert.equal(result.samples.trds, 4);
+  });
+
+  test('12. --window all and no flag write byte-identical files, and the text has no window part', () => {
+    const sb = sandbox();
+    const slope = project(SLOPE_SPEC);
+    const plain = path.join(sb.tmp, 'plain.json');
+    const all = path.join(sb.tmp, 'all.json');
+
+    const plainResult = okJson(sb, sb.tmp, ['--paths', slope, '--no-overhead', '--out', plain]);
+    const allResult = okJson(sb, sb.tmp, ['--paths', slope, '--window', 'all', '--no-overhead', '--out', all]);
+    assert.equal(fs.readFileSync(all, 'utf-8'), fs.readFileSync(plain, 'utf-8'));
+    assert.equal(plainResult.window, null);
+    assert.equal(allResult.window, null);
+    assert.equal(allResult.samples.trds, 14);
+    assert.equal(JSON.parse(fs.readFileSync(plain, 'utf-8')).task_classes.code_tdd.minutes.p50, 20);
+
+    const text = run(sb, sb.tmp, ['--paths', slope, '--window', 'all', '--no-overhead', '--out', all, '--raw']).stdout;
+    assert.equal(text.includes('window'), false);
+  });
+
+  test('12b. a window large enough to drop nothing is the same file as no flag', () => {
+    const sb = sandbox();
+    const slope = project(SLOPE_SPEC);
+    const plain = path.join(sb.tmp, 'plain.json');
+    const big = path.join(sb.tmp, 'big.json');
+    okJson(sb, sb.tmp, ['--paths', slope, '--no-overhead', '--out', plain]);
+    const result = okJson(sb, sb.tmp, ['--paths', slope, '--window', '50', '--no-overhead', '--out', big]);
+    assert.equal(fs.readFileSync(big, 'utf-8'), fs.readFileSync(plain, 'utf-8'));
+    assert.equal(result.window, null);
+  });
+
+  test('13. a bad window exits 1, names --window and the usage line, and writes nothing', () => {
+    const sb = sandbox();
+    const slope = project(SLOPE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+    for (const bad of [['--window', '0'], ['--window', '-3'], ['--window', '2.5'], ['--window', 'abc'], ['--window', ''], ['--window']]) {
+      const r = run(sb, sb.tmp, ['--paths', slope, '--no-overhead', '--out', out, ...bad]);
+      assert.equal(r.status, 1, `${bad.join(' ')}: ${r.stdout}`);
+      assert.match(r.stderr, /--window/, bad.join(' '));
+      assert.match(r.stderr, USAGE, bad.join(' '));
+      assert.equal(/unknown flag/.test(r.stderr), false, `${bad.join(' ')}: --window is a known flag`);
+      assert.match(r.stderr, bad.length === 1 ? /--window needs a value/ : /--window must be a positive integer or all/, bad.join(' '));
+      assert.equal(fs.existsSync(out), false, `${bad.join(' ')} wrote a file`);
+    }
+    assert.equal(fs.existsSync(sb.defaultOut), false);
+  });
+
+  test('14. --dry-run --window 2 writes nothing, reports the window, and computes changed as for any dry run', () => {
+    const sb = sandbox();
+    const slope = project(SLOPE_SPEC);
+    const out = path.join(sb.tmp, 'c.json');
+
+    const fresh = okJson(sb, sb.tmp, ['--paths', slope, '--window', '2', '--no-overhead', '--out', out, '--dry-run']);
+    assert.equal(fresh.dry_run, true);
+    assert.equal(fresh.changed, true, 'no file yet: a write would change it');
+    assert.equal(fresh.window.objectives, 2);
+    assert.equal(fresh.samples.trds, 4);
+    assert.equal(fs.existsSync(out), false);
+
+    okJson(sb, sb.tmp, ['--paths', slope, '--window', '2', '--no-overhead', '--out', out]);
+    const same = okJson(sb, sb.tmp, ['--paths', slope, '--window', '2', '--no-overhead', '--out', out, '--dry-run']);
+    assert.equal(same.changed, false, 'the file already holds this window');
+    const other = okJson(sb, sb.tmp, ['--paths', slope, '--window', '3', '--no-overhead', '--out', out, '--dry-run']);
+    assert.equal(other.changed, true, 'another window would change the file');
+    assert.equal(JSON.parse(fs.readFileSync(out, 'utf-8')).window.objectives, 2, 'the dry run left the file alone');
+  });
+
+  test('15. help, the usage line and the df-tools header name --window <N|all>', () => {
+    const { COMMANDS } = require('./help.cjs');
+    const cli = require('./calibrate-cli.cjs');
+    assert.ok(cli.USAGE.includes('[--window <N|all>]'), cli.USAGE);
+    assert.ok(COMMANDS.calibrate.usage.includes('[--window <N|all>]'), COMMANDS.calibrate.usage);
+    assert.ok(COMMANDS.calibrate.details.includes('--window'), 'details explain the flag');
+    assert.match(COMMANDS.calibrate.details, /N most recent objectives/);
+    assert.match(COMMANDS.calibrate.details, /all/);
+
+    const header = fs.readFileSync(DF_TOOLS, 'utf-8').split('\n').slice(0, 260).join('\n');
+    assert.ok(header.includes('--window <N|all>'), 'the df-tools.cjs header comment names the flag');
+
+    const sb = sandbox();
+    const help = spawnSync(process.execPath, [DF_TOOLS, '--cwd', sb.tmp, 'help', 'calibrate'], {
+      cwd: sb.tmp, env: { ...process.env, HOME: sb.home }, encoding: 'utf-8', timeout: 60000,
+    });
+    assert.equal(help.status, 0, help.stderr);
+    assert.ok(help.stdout.includes('--window <N|all>'), help.stdout);
+  });
+});
