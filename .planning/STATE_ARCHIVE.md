@@ -204,6 +204,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 64]: Ship rule applied as recorded (ship_default true): calibrate defaults to a 10-objective window and the live calibration was regenerated, but EST-08 stays not met (cost SC3 32 of 41 TRDs, 78%)
 - [Objective 65]: 65-01: release 2.14.0 dated 2026-10-07 (local date +%F); lead paragraph only restates [Unreleased]/MILESTONES facts; REL-01 stays open until the merge and tag (65-02, 65-03)
 - [Objective 65]: 65-04: installed 2.14.0 verified after update and restart; remaining doctor warnings (plugin-cache, legacy-runtime-state, guard-state, W006 66-75) classified as unrelated to mirror lag and left in report mode
+- [Objective 66]: tokens coverage counts a SUMMARY with no token fields as missing whether or not it has a Self-Check; only a Progress checkpoint without Self-Check is in_progress (listed, not counted)
 
 ## Performance Metrics
 
@@ -339,4 +340,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 64 P10 | 15min | 3 tasks | 13 files |
 | Objective 65 P01 | 13min | 2 tasks | 5 files |
 | Objective 65 P04 | 8min | 2 tasks | 1 files |
+| Objective 66 P01 | 14min | 3 tasks | 7 files |
 
