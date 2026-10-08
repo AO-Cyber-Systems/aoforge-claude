@@ -785,6 +785,24 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W063', `model-id-check-failed: ${e.message}`, 'Run `df-tools doctor` to see why', false);
   }
 
+  // ─── Check 19: .planning/.skill-active marker (objective 69, TOOL-09) ─────
+  // E006 a tracked marker (holds the edit gate open in every clone), W064 a stale untracked one. Repairable when
+  // skill-marker-health's plan says so; the repair untracks and/or removes that one file behind the DOC-06 index
+  // guard. Doctor check 23 owns both codes; check 22 defers them. A check that cannot run is never silent.
+  let skillMarker = null;
+  const skillMarkerNowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  try {
+    skillMarker = options.skillMarkerHealth || require('./skill-marker-health.cjs');
+    const state = skillMarker.inspect(cwd, { nowMs: skillMarkerNowMs, env: process.env });
+    const plan = skillMarker.planRepair(cwd, state, { env: process.env });
+    for (const f of skillMarker.findings(state, plan)) {
+      addIssue(f.severity, f.code, f.message, f.fix, f.repairable);
+      if (f.repairable && !repairs.includes('repairSkillMarker')) repairs.push('repairSkillMarker');
+    }
+  } catch (e) {
+    addIssue('warning', 'W064', `skill-marker-check-failed: ${e.message}`, 'Run `df-tools doctor` to see why', false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
@@ -825,6 +843,15 @@ function cmdValidateHealth(cwd, options, raw) {
             // Rename JOB.md -> TRD.md and log it in STATE.md via migration 0002.
             const res = m0002.apply(migrationCtx);
             repairActions.push({ action: repair, success: true, migrated: res.notes.migrated });
+            break;
+          }
+          case 'repairSkillMarker': {
+            // Untrack and/or remove the one marker file (skill-marker-health owns the guard and the re-check).
+            // `path` is relative to .planning/, which is how doctor check 22 builds its `changed` list.
+            const res = skillMarker.repair(cwd, { nowMs: skillMarkerNowMs, env: process.env });
+            if ((res.untracked || []).length) repairActions.push({ action: 'untrackSkillMarker', success: true, path: '.skill-active' });
+            if ((res.removed || []).length) repairActions.push({ action: 'removeStaleSkillMarker', success: true, path: '.skill-active' });
+            if (res.refused) repairActions.push({ action: 'repairSkillMarker', success: false, error: res.refused });
             break;
           }
         }
