@@ -12,16 +12,27 @@
 //  16. Positive controls: known flags still work (`--flag=value`, multi-word values, a global --raw, `state patch --<field>`).
 //  17. `milestone complete --help --zz-unknown` still prints usage and exits 0 (help is answered first).
 //  18. A non-writing command is untouched: `find-objective 1 --zz-unknown` behaves as before (exit 0).
+//
+// TRD 68-05 widens test 15 to the whole spec (every writing command, group 1 and group 2) and adds:
+//  19. The spawn loop skips exactly the entries whose rule is `anyFlags` or `tailFrom` (`handoff create`, `state patch`):
+//      their acceptance is flag-guard.test.cjs test 9 (pure, no spawn), so no handoff record is ever queued by a test.
+//      An `ownParser` entry is probed like any other, and must exit 1 naming the flag (its module's own message).
+//  20. Positive controls for group 2: known flags are not reported (`migrate plan --dry-run`, `changelog update --dry-run
+//      --version v9.9.9`, `planning mode`, `exec-context check --repo <root>`).
 
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { flagProbeProject, PROBES, specEntries } = require('./__fixtures__/flag-guard-fixtures.cjs');
+const { FLAG_SPEC } = require('./flag-spec.cjs');
 
 const UNKNOWN = '--zz-unknown';
 
-// Entries the loop in test 15 cannot probe with an unknown flag: every `--x` is a field name there.
-const SKIPPED_BY_RULE = ['state patch'];
+// Entries the loop in test 15 cannot probe with an unknown flag: every `--x` is a field name in `state patch`, and the
+// tokens of `handoff create` after the verb carry the user's command (the arm extracts `--inputs-json` from them).
+const SKIPPED_BY_RULE = ['handoff create', 'state patch'];
+
+const RULES = new Map(specEntries(FLAG_SPEC).map((e) => [e.label, e.rule]));
 
 describe('writing commands reject an unknown flag (TOOL-01)', () => {
   let project;
@@ -42,30 +53,39 @@ describe('writing commands reject an unknown flag (TOOL-01)', () => {
     for (const [label, argv] of Object.entries(PROBES)) {
       if (SKIPPED_BY_RULE.includes(label)) continue;
       const treeBefore = project.tree();
+      const ghBefore = project.ghCalls().length;
       const r = project.run([...argv, UNKNOWN]);
       const problems = [];
       if (r.status !== 1) problems.push(`exit ${r.status}, expected 1`);
-      const expected = `unknown flag ${UNKNOWN} for \`${label}\``;
+      // A guard rejection names the entry; an `ownParser` entry is rejected by its module, in its own words.
+      const ownParser = Boolean((RULES.get(label) || {}).ownParser);
+      const expected = ownParser ? UNKNOWN : `unknown flag ${UNKNOWN} for \`${label}\``;
       if (!r.stderr.includes(expected)) problems.push(`stderr lacks "${expected}": ${JSON.stringify(r.stderr.slice(0, 160))}`);
       if (JSON.stringify(project.tree()) !== JSON.stringify(treeBefore)) problems.push('the tree changed');
-      if (project.ghCalls().length > 0) problems.push('gh was called');
+      // A delta, so one probe that reaches gh is reported once and does not taint every probe after it.
+      if (project.ghCalls().length > ghBefore) problems.push('gh was called');
       if (problems.length > 0) failures.push(`${label}: ${problems.join('; ')}`);
     }
     assert.deepEqual(failures, [], `\n${failures.join('\n')}`);
   });
 
-  test('15b. PROBES and FLAG_SPEC cover the same entries, and only the skipped ones are anyFlags', () => {
-    const { FLAG_SPEC } = require('./flag-spec.cjs');
+  test('15b. PROBES and FLAG_SPEC cover the same entries', () => {
     const entries = specEntries(FLAG_SPEC);
     assert.deepEqual(entries.map((e) => e.label).sort(), Object.keys(PROBES).sort());
-    const unprobeable = entries.filter((e) => e.rule.anyFlags || e.rule.ownParser).map((e) => e.label).sort();
-    assert.deepEqual(unprobeable, SKIPPED_BY_RULE);
     for (const e of entries) {
       if (e.rule.anyFlags || e.rule.ownParser || e.rule.tailFrom !== undefined) {
         assert.equal(typeof e.rule.reason, 'string', `${e.label} needs a reason`);
         assert.notEqual(e.rule.reason.trim(), '', `${e.label} needs a reason`);
       }
     }
+  });
+
+  test('19. the spawn loop skips exactly the anyFlags and tailFrom entries', () => {
+    const skipped = specEntries(FLAG_SPEC)
+      .filter((e) => e.rule.anyFlags || e.rule.tailFrom !== undefined)
+      .map((e) => e.label)
+      .sort();
+    assert.deepEqual(skipped, SKIPPED_BY_RULE);
   });
 
   describe('16. known flags still work', () => {
@@ -120,5 +140,27 @@ describe('writing commands reject an unknown flag (TOOL-01)', () => {
     const r = project.run(['find-objective', '1', UNKNOWN]);
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(r.stderr, /unknown flag/);
+  });
+
+  describe('20. known flags of the group-2 commands are not reported', () => {
+    const accepted = (r) => assert.doesNotMatch(r.stderr, /unknown flag/);
+
+    test('migrate plan --dry-run', () => {
+      accepted(project.run(['migrate', 'plan', '--dry-run']));
+    });
+
+    test('changelog update --dry-run --version v9.9.9', () => {
+      accepted(project.run(['changelog', 'update', '--dry-run', '--version', 'v9.9.9']));
+    });
+
+    test('planning mode', () => {
+      const r = project.run(['planning', 'mode']);
+      accepted(r);
+      assert.equal(r.status, 0, r.stderr);
+    });
+
+    test('exec-context check --repo <root>', () => {
+      accepted(project.run(['exec-context', 'check', '--repo', project.root]));
+    });
   });
 });
