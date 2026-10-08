@@ -264,6 +264,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 | 30 | in-loop reserved-key guard in config-set (CodeQL #89) | 2026-10-05 | 967bf9dd | devflow-claude | Atomic |
 | 31 | session-audit counts edit-gate bypasses / routed / abandoned (DECISION-001 data) | 2026-10-05 | 60a4def7 | Done | [31-count-edit-gate-bypasses-in-session-audi](./quick/31-count-edit-gate-bypasses-in-session-audi/) |
 | 32 | hook-runner waits for stdout to drain before settling (CI flake on release PR #126) | 2026-10-08 | 1e12f7f0 | Done | [32-fix-hook-runner-stdout-drain-race-causin](./quick/32-fix-hook-runner-stdout-drain-race-causin/) |
+| 33 | Clear the 13 new CodeQL alerts on release PR #126 (mdCell table escaping, exact hint asserts, argv spawn) | 2026-10-08 | 8d4396af | Done | [33-clear-codeql-alerts-on-release-pr-126](./quick/33-clear-codeql-alerts-on-release-pr-126/) |
 
 ## Accumulated Context
 
