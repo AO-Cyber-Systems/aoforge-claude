@@ -13,6 +13,8 @@
 //   on: / schedule:                              -> `scheduled`
 //   defaults: run: working-directory:            -> workflow cwd
 //   jobs: <job>: defaults: run: working-directory:, continue-on-error:, steps:
+//   jobs: <job>: services: <name>:               -> step.services (block spelling only; a flow `services: { … }` is not read)
+//   env: / jobs: <job>: env: / step env:         -> step.envNames (names; the literals also feed run-line substitution)
 //   - name: / uses: / run: (inline, `|` or `>`) / working-directory: / continue-on-error:
 //
 // Anything else is skipped, never thrown on: `_parseWorkflowText` returns whatever it could read.
@@ -462,6 +464,7 @@ function parseDoc(doc, file, { root = null, repoName = null } = {}) {
     if (!jobEnv.has(job)) jobEnv.set(job, {});
     return jobEnv.get(job);
   };
+  const jobServices = new Map(); // TRD 71-03: job -> the names under its block `services:`
   const rawSteps = [];
   let cur = null;
   let stepsDash = null; // indent of the current job's `steps:` list dashes
@@ -523,7 +526,10 @@ function parseDoc(doc, file, { root = null, repoName = null } = {}) {
           else if (p.length === 2 && key === 'steps') stepsDash = null;
           else if (p.length === 2 && key === 'env') mergeFlowEnv(jobEnvOf(job), value);
           else if (p.length === 3 && p[2] === 'env') setEnv(jobEnvOf(job), key, value, block);
-          else if (p.length === 4 && p[2] === 'defaults' && p[3] === 'run' && key === 'working-directory') {
+          else if (p.length === 3 && p[2] === 'services' && key) {
+            if (!jobServices.has(job)) jobServices.set(job, []);
+            jobServices.get(job).push(key);
+          } else if (p.length === 4 && p[2] === 'defaults' && p[3] === 'run' && key === 'working-directory') {
             jobCwd.set(job, scalar(value) || null);
           }
         }
@@ -612,7 +618,12 @@ function parseDoc(doc, file, { root = null, repoName = null } = {}) {
       inv.external = n.external;
     }
     const { cwd, external } = normaliseWorkingDirectory(rawCwd, ctx);
-    const step = { file, job: s.job, name: s.name, uses: s.uses, cwd, external, checkouts, continueOnError, scheduled, invocations, envSubstituted, runtimeVars };
+    // TRD 71-03: the job's service containers and the env names in scope (workflow, job, step). Names only: a
+    // runtime-valued entry (`${{ secrets.X }}`) is a null literal above and still counts as a name here. A
+    // service container's own `env:` is deeper than the job's and never reaches `envNames`.
+    const services = [...new Set(jobServices.get(s.job) || [])].sort();
+    const envNames = Object.keys({ ...wfEnv, ...(jobEnv.get(s.job) || {}), ...s.env }).sort();
+    const step = { file, job: s.job, name: s.name, uses: s.uses, cwd, external, checkouts, continueOnError, scheduled, invocations, envSubstituted, runtimeVars, services, envNames };
     // An action's own `with: working-directory` (TRD 43-12), normalised like a step cwd; null is the repo root.
     if (typeof s.withCwd === 'string' && s.withCwd.trim() !== '') {
       const w = normaliseWorkingDirectory(s.withCwd, ctx);
@@ -661,7 +672,9 @@ function _parseWorkflowText(text, file, opts = {}) {
  * its own normalised `cwd` + `external`. `scheduled` is per WORKFLOW. A `uses:` step is recorded
  * with `uses` set and `invocations: []`. A step whose `with:` sets `working-directory` also carries
  * `with: { 'working-directory': <normalised dir, null for the root> }` (and `withExternal: true` when that
- * dir is in another checkout); it never changes `cwd` (TRD 43-12).
+ * dir is in another checkout); it never changes `cwd` (TRD 43-12). Every step also carries `services` (the
+ * names under its job's block `services:`, sorted, `[]` when the job has none) and `envNames` (the workflow,
+ * job and step `env:` names in scope, sorted; a service container's own `env:` is not one), TRD 71-03.
  */
 function parseWorkflows(root) {
   const dir = path.join(root, '.github', 'workflows');
