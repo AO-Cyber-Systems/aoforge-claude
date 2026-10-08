@@ -11,9 +11,9 @@ requirements-completed: []
 In progress: positive controls PC1 and PC2 passed on the task-sum path; the once-only score has not run yet.
 
 ## Progress
-- [x] Task 1: Positive controls PC1 and PC2 on the task-sum path — (this commit)
-- [ ] Task 2: Score once: old (task_sum) against new (trd_level) on cuts of 46-66 of the decision snapshot — next step: write snap.tar from DECISION_SHA d888f557 into scratchpad s67-04, run the leak check, then write and run cuts.sh (calibrate --through N-1 for N 46-66, both minutes methods).
-- [ ] Task 3: Write and commit 67-VALIDATION.md — next step: planning draft + Write the document from score.json and score.md, then doc put and commit.
+- [x] Task 1: Positive controls PC1 and PC2 on the task-sum path — f0e46e5f
+- [x] Task 2: Score once: old (task_sum) against new (trd_level) on cuts of 46-66 of the decision snapshot — (this commit)
+- [ ] Task 3: Write and commit 67-VALIDATION.md — next step: run /private/tmp/claude-501/-Users-justin-dev-devflow-claude/479a0889-ce59-4c31-8887-a62c6f15eab4/scratchpad/s67-04/assemble.cjs (already run; draft at the planning draft path), then `doc put objectives/67-minutes-recalibration/67-VALIDATION.md --from <draft>` and commit it.
 
 ## Positive controls (Task 1)
 
@@ -38,5 +38,9 @@ PC2: five window-10 cut calibrations with `--minutes task_sum`, scored by `estim
 | summary minutes: median / pooled / in band / P90 objectives / TRDs covered | 1.238 / 1.112 / 2 / 1 (5 of 5) / 0.9756 (40 of 41) | 1.238 / 1.112 / 2 / 1 (5 of 5) / 0.9756 (40 of 41) | yes |
 | summary cost: median / pooled / in band / P90 objectives / TRDs covered | 0.797 / 0.787 / 3 / 0.8 (4 of 5) / 0.7805 (32 of 41) | 0.797 / 0.787 / 3 / 0.8 (4 of 5) / 0.7805 (32 of 41) | yes |
 | verdict est08 | not met | not met | yes |
+
+## Score (Task 2)
+
+Snapshot of DECISION_SHA d888f55790f4b7144a33c514767467627bced9ba: 70 objective directories, last `67-minutes-recalibration`, leak check `^(6[89]|7[0-2])-` printed nothing; 21 of 21 eval objectives (46-66) present. 42 calibrations (`--through N-1 --window 10 --no-overhead`, `task_sum` and `trd_level`); check script exit 0. `score.sh` ran once (exit 0, no mechanical error). `ship`: est08_old `met`, est08_new `met`, minutes_median_old 1.021, minutes_median_new 1.051, improved `false`, regressions `[]`, ship_default `true`, reason "the new method meets EST-08". method_selected `trd_level`.
 
 After Task 1: `git status --short plugins scripts` printed nothing; `~/.claude/devflow/calibration.json` still hashes to `9ef7d1082c6722b6ca783d6b8d192a0999da63ba620e2780dcc67ed98b5ad648`.
