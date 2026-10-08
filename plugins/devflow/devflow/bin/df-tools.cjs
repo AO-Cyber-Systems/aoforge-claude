@@ -161,6 +161,8 @@
  *   tokens backfill [--write] [--force]  Recover token usage for historical SUMMARYs from surviving transcripts
  *     [--repo p] [--root dir]            (dry run unless --write: counts recovered/unrecovered by reason, changes no file;
  *                                         --write stamps through summary post; --force restamps already stamped SUMMARYs)
+ *   tokens coverage [--milestone v | --objective N]  Forward-stamp coverage (live/counted) of TRD SUMMARYs; read-only
+ *     [--repo p] [--root dir]            (default scope: the current milestone; exit 0 for every report)
  *   calibrate [--paths a,b] [--out f]  Build per-task-class medians/P90s (minutes, tokens, dollars) into calibration.json
  *     [--rates f] [--root dir | --no-overhead] [--window <N|all>] [--dry-run]
  *                                      (default out: DEVFLOW_CALIBRATION_PATH or ~/.claude/devflow/calibration.json;
