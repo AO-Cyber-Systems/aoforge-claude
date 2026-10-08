@@ -1,7 +1,7 @@
 # Requirements: v1.6 Hardening & Release
 
 **Defined:** 2026-10-08
-**Coverage:** 0/25 complete
+**Coverage:** 0/30 complete
 
 Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-MILESTONE-AUDIT.md`), the eight pending todos in `.planning/todos/pending/`, and the three operational decisions carried since v1.3. Live, outward-facing steps (merge, tag, push, repository settings, secrets, Cloudflare) run only after explicit per-action user approval; DevFlow never enters a secret value.
 
@@ -42,9 +42,14 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 - [ ] **HND-02**: Handoff results reach the session without a manual paste. The draft `inject-handoff-results.js` is completed and registered (or replaced), and it is covered by the hook coexistence suite.
 - [ ] **HND-03**: A TTY-required command (auth login, token paste, sudo prompt) goes from detection to handoff to result in context end to end, demonstrated live with the `devflow-watch` daemon.
 
-### Install and naming (INST)
+### Install, naming and the AOForge rename (INST)
 
-- [ ] **INST-01**: No legacy `df-*` skills or agents remain under `~/.claude`, and doctor flags any that reappear. Every user-facing reference uses the `/devflow:<name>` form; a repo test fails on the old `/df-` or `/df:` forms outside changelogs and archives.
+- [ ] **INST-01**: No legacy `df-*` skills or agents remain under `~/.claude` (they are moved to a backup, never deleted), and `doctor` flags any that reappear. Every user-facing reference uses the `/aoforge:<name>` form; a repo test fails on the `/df-`, `/df:` and `/devflow:` command forms in user-facing files, with changelogs and archives exempt.
+- [ ] **INST-02**: DevFlow is renamed AOForge everywhere it is a name: the plugin `aoforge@aocyber`, the `/aoforge:` slash namespace, `aoforge:<agent>` agent types, the `aof-tools` CLI, the `~/.claude/aoforge/` runtime, `AOFORGE_*` environment variables, the `.aoforge/` project directory, the `aoforge{}` config stamp, the `AOF ►` banner and the external names (`aoforge-claude`, `aoforge-docs`, `aoforge-checks.yml`, `aoforge-watch`, `aoforge/adopt`). A repo test fails on a legacy name outside the compatibility module, the history allowlist and the pointer plugin.
+- [ ] **INST-03**: Old names keep working for exactly one release: `DEVFLOW_*` variables are honoured (`AOFORGE_*` wins), `~/.claude/devflow/` state migrates to `~/.claude/aoforge/` with a backup first, gates accept `devflow:` agent types, every tool resolves `.aoforge/` first and falls back to `.planning/` with a W-code advisory naming the migration, old CLAUDE.md block markers and GitHub markers and labels are recognised so nothing is duplicated, and readers accept the `devflow{}` config key.
+- [ ] **INST-04**: Projects move forward in place: an auto migration moves `.planning/` to `.aoforge/` with `git mv` from the SessionStart upgrade hook (skipped on a dirty tree or mid-merge/rebase, backup first, store-mode cache handled), config `devflow{}` becomes `aoforge{}`, CLAUDE.md managed blocks and routing text are rewritten to AOForge, and store-mode GitHub artefacts (labels, hidden markers, wiki pages, wording, check contexts) are renamed by a verb that previews with a dry run and applies one repository at a time after approval.
+- [ ] **INST-05**: AOForge ships as 3.0.0: the three version files agree, the CHANGELOG 3.0.0 entry leads with the rename and links the migration guide, a final `devflow@aocyber` pointer release tells users to install `aoforge@aocyber` and forwards its skills to `/aoforge:`, an installed devflow plugin is detected and the user told to disable it (pointer hooks no-op beside aoforge), and the README and docs site show the real gold AO emblem with an AOForge wordmark.
+- [ ] **INST-06**: The user's setup is moved over, each live step only after explicit approval: this repository's planning tree is `.aoforge/` with its active docs in AOForge wording; the global CLAUDE.md block routes to `/aoforge:` (hand-written text changes only after a shown diff is approved); the GitHub repository is `aoforge-claude`; the local checkout is `~/dev/aoforge-claude` with its remote, Claude memory and keyed runtime state carried over; a vanity-mapping PR is drafted for review; the Pages project is `aoforge-docs`; and every fleet repository using DevFlow is upgraded with one checkpoint per repository.
 
 ### Operations (OPS): decisions carried since v1.3
 
@@ -89,6 +94,11 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | SDR-09 | Objective 71 | Complete |
 | SDR-10 | Objective 71 | Complete |
 | INST-01 | Objective 72 | Pending |
+| INST-02 | Objective 72 | Pending |
+| INST-03 | Objective 72 | Pending |
+| INST-04 | Objective 72 | Pending |
+| INST-05 | Objective 72 | Pending |
+| INST-06 | Objective 72 | Pending |
 | HND-01 | Objective 73 | Pending |
 | HND-02 | Objective 73 | Pending |
 | HND-03 | Objective 73 | Pending |
