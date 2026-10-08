@@ -282,6 +282,6 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-08T20:06:02.653Z
-Resume file: `None`
-Stopped at: Completed 71-05-dogfood-and-docs-TRD.md
+Last session: 2026-10-08T20:17:37.416Z
+Resume file: `.planning/objectives/72-install-and-naming-cleanup/72-CONTEXT.md`
+Stopped at: Objective 72 context gathered
