@@ -51,7 +51,7 @@ const client = require('./gh-client.cjs');
 const decisionQueue = require('./decision-queue.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const { generateSlugInternal } = require('./helpers.cjs');
-const { escapeRegExp } = require('./text-escape.cjs');
+const { milestoneHeadingPattern } = require('./text-escape.cjs');
 
 const { EXIT } = storeCli;
 const { LOCAL, STORE } = planningMode;
@@ -510,8 +510,10 @@ function decisionAnswer(root, opts = {}) {
 // ─── Milestones ──────────────────────────────────────────────────────────────
 
 /**
- * MILESTONES.md with the `## <version> ...` section replaced by `entry`, or inserted after the `# Milestones` heading
- * (and its blank lines). A missing file becomes `# Milestones\n\n<entry>`. Sections end at the next `## ` line.
+ * MILESTONES.md with the version's section replaced by `entry`, or inserted after the `# Milestones` heading (and its
+ * blank lines). A missing file becomes `# Milestones\n\n<entry>`. Sections end at the next `## ` line. A section is the
+ * version's when `text-escape.milestoneHeadingPattern` says so, the rule `milestone complete` uses too (TOOL-02):
+ * `## 1.0` and `## v1.0` are one version, `## v1.0.1` is another.
  */
 function spliceMilestoneEntry(existing, version, entry) {
   const body = entry.replace(/\r\n/g, '\n').replace(/\s+$/, '');
@@ -524,7 +526,7 @@ function spliceMilestoneEntry(existing, version, entry) {
     offsets.push(off);
     off += l.length + 1;
   }
-  const head = new RegExp(`^## +${escapeRegExp(version)}(?:\\s|$)`);
+  const head = new RegExp(milestoneHeadingPattern(version));
   const start = lines.findIndex((l) => head.test(l));
   if (start !== -1) {
     const nextRel = lines.slice(start + 1).findIndex((l) => /^## /.test(l));
@@ -544,10 +546,13 @@ function spliceMilestoneEntry(existing, version, entry) {
   return lead + body + (rest === '' ? '\n' : '\n\n') + rest;
 }
 
-/** The milestone entry text with a `## <version>` heading guaranteed (so the local section can be found again). */
+/**
+ * The milestone entry text with a heading for the version guaranteed (so the local section can be found again). A first
+ * line that already heads the version by the shared rule (`## 1.0 ...` or `## v1.0 ...`, TOOL-02) is kept as written.
+ */
 function entryWithHeading(text, version) {
   const first = text.replace(/\r\n/g, '\n').split('\n').find((l) => l.trim() !== '') || '';
-  return new RegExp(`^## +${escapeRegExp(version)}(?:\\s|$)`).test(first) ? text : `## ${version}\n\n${text}`;
+  return new RegExp(milestoneHeadingPattern(version)).test(first) ? text : `## ${version}\n\n${text}`;
 }
 
 /**

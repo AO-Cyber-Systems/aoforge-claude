@@ -22,5 +22,5 @@ key-files:
 Work in progress.
 
 ## Progress
-- [x] Task 1: Store-mode dry run of milestone complete — (this commit)
-- [ ] Task 2: milestone put uses the shared heading rule — next step: add tests 6-8 to planning-entity-verbs.test.cjs (local describe), then switch spliceMilestoneEntry/entryWithHeading to milestoneHeadingPattern in planning-entity-verbs.cjs
+- [x] Task 1: Store-mode dry run of milestone complete — 3a038783
+- [x] Task 2: milestone put uses the shared heading rule — (this commit)
