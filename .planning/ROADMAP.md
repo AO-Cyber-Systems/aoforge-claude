@@ -138,7 +138,13 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
   2. After the user approves each live step, `feat/stack-profile-loader` is merged to `main` and the tag sits on the merge commit. Build and validation of the release artifacts happen without any live step; merge, tag and push each stop at a checkpoint.
   3. After the release and a session restart, `~/.claude/devflow/` holds the v1.5 libs and hooks (todo-sync, checks-pin, estimate-backtest, skill-requires, builtin-audit, gate-bash-writes, gate-skill-requires, todo-sync Stop hook).
   4. `doctor` and `validate health` report no mirror lag.
-**TRDs**: TBD
+**TRDs**: 4 plans
+
+TRDs:
+- [ ] 65-01-release-artifacts-and-validation-TRD.md — (W1) bump package.json/plugin.json/marketplace.json to 2.14.0, promote CHANGELOG [Unreleased] to [2.14.0] by hand, regenerate docs data, signed release commit; `npm test`, tag-gate dry run, notes preview, manifest/health/doctor baseline, merge-tree clean (local only)
+- [ ] 65-02-push-branch-and-open-release-pr-TRD.md — (W2) approval gate: push the branch; approval gate: open the release PR; wait for green PR CI
+- [ ] 65-03-merge-tag-and-github-release-TRD.md — (W3) approval gate: merge the PR (merge commit); approval gate: annotated tag v2.14.0 on the merge commit and push it; verify the release.yml GitHub release and the main runs
+- [ ] 65-04-installed-runtime-verification-TRD.md — (W4) human action: plugin update and Claude Code restart; verify the mirror has the v1.5 libs, the installed hooks are registered, and doctor/health show no mirror lag
 
 ### Objective 66: Executor token stamp
 
