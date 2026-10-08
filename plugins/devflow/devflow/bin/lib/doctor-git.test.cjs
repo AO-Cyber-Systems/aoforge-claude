@@ -12,7 +12,7 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 const dg = require('./doctor-git.cjs');
 const { makeDoctorProject, makeDoctorHome } = require('./__fixtures__/doctor-fixtures.cjs');
@@ -228,5 +228,36 @@ describe('doctor-git: lsFiles / rmCached', () => {
     assert.equal(git(root, home, 'ls-files', '--', '.planning/.autonomous-resume-10'), '');
     assert.equal(fs.existsSync(path.join(root, '.planning/.autonomous-resume-10')), true);
     assert.deepEqual(dg.stagedPaths(root, { env: gitEnv(home) }), ['.planning/.autonomous-resume-10']);
+  });
+});
+
+describe('doctor-git: checkIgnored (69-02, test 17)', () => {
+  const MARKER = '.planning/.skill-active';
+
+  test('a repository .gitignore rule is reported, and only the ignored paths are', () => {
+    const { root, home } = makeDoctorProject();
+    commitGitignore(root, home, `${MARKER}\n`);
+    const ignored = dg.checkIgnored(root, [MARKER, '.planning/STATE.md'], { env: gitEnv(home) });
+    assert.ok(ignored instanceof Set);
+    assert.deepEqual([...ignored], [MARKER]);
+  });
+
+  test('a rule that exists only in the user global excludes file is NOT reported', () => {
+    const { root, home } = makeDoctorProject();
+    const excludes = path.join(home, 'global-excludes');
+    fs.writeFileSync(excludes, `${MARKER}\n`, 'utf-8');
+    fs.writeFileSync(path.join(home, '.gitconfig'), `[core]\n\texcludesFile = ${excludes}\n`, 'utf-8');
+    // Control: with the global file honoured, git itself does ignore the marker.
+    const control = spawnSync('git', ['-C', root, 'check-ignore', '--no-index', '-q', '--', MARKER], {
+      env: gitEnv(home), stdio: 'ignore',
+    });
+    assert.equal(control.status, 0, 'the fixture really does ignore the marker through the global excludes file');
+    assert.equal(dg.checkIgnored(root, [MARKER], { env: gitEnv(home) }).size, 0);
+  });
+
+  test('nothing matching gives an empty set and does not throw', () => {
+    const { root, home } = makeDoctorProject();
+    assert.equal(dg.checkIgnored(root, [MARKER], { env: gitEnv(home) }).size, 0);
+    assert.equal(dg.checkIgnored(root, [], { env: gitEnv(home) }).size, 0);
   });
 });
