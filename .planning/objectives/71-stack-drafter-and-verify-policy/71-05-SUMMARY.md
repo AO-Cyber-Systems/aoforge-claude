@@ -20,9 +20,24 @@ key-files:
     - plugins/devflow/devflow/workflows/adopt.md
     - plugins/devflow/devflow/workflows/map-codebase.md
     - plugins/devflow/devflow/bin/lib/help.cjs
-key-decisions: []
+key-decisions:
+  - "CLAUDE.md names the lint target and build gate in plain text, not backticks: dispatch-completeness reads the first word of every backtick span in a Core Tool bullet as a df-tools command"
+  - "The justinforme and smartWellness committed-file refresh is a recorded todo, not an edit: it is a commit in each fleet repo and needs the user"
 requirements-completed: [SDR-09, SDR-10]
+verification:
+  gates_defined: 2
+  gates_passed: 2
+  auto_fix_cycles: 1
+  tdd_evidence: false
+  test_pairing: false
+duration: 8min
 completed: 2026-10-08
+tokens_input: 10677000
+tokens_output: 43356
+tokens_cache_read: 10527005
+tokens_cache_write: 149833
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 71 TRD 05: Dogfood SC-1..SC-4 and document the policy Summary
@@ -31,7 +46,7 @@ Each success criterion of objective 71 is shown as a before (installed runtime) 
 
 ## Progress
 - [x] Task 1: Dogfood SC-1..SC-4 (before on the installed runtime, after on the repository) and record landed state — ab375aef
-- [x] Task 2: CHANGELOG, CLAUDE.md, USER-GUIDE, stack guide, workflows, help usage, todos; full suite — (this commit)
+- [x] Task 2: CHANGELOG, CLAUDE.md, USER-GUIDE, stack guide, workflows, help usage, todos; full suite — 9f963080
 
 ## Landed state
 
@@ -114,3 +129,10 @@ The one full-suite failure is `roadmap-reconcile.test.cjs` E2E1 (the 70-03 basel
 - Auto-fix cycles used: 1 (the CLAUDE.md wording, Rule 3)
 - Must-haves verified: 7/7 (SC-1 to SC-4 before/after rows; 71-01..71-04 ancestors of HEAD; CHANGELOG, CLAUDE.md, USER-GUIDE and stack guide state the rules; adopt.md and map-codebase.md carry the `env_required` sentence; `stack --help` lists `verify` with `--allow-services`; two todos completed and one added)
 - Gate failures: None in scope (1 documented baseline transient, E2E1, cleared by the roadmap step)
+
+## Self-Check: PASSED
+
+- FOUND: CHANGELOG.md (`Objective 71` lead paragraph), CLAUDE.md, docs/USER-GUIDE.md, templates/stack.md, workflows/adopt.md, workflows/map-codebase.md, bin/lib/help.cjs (`--allow-services` in each doc and the usage line; `env_required` in both workflows)
+- FOUND: both completed todos under `.planning/todos/completed/`, the refresh todo under `.planning/todos/pending/`
+- FOUND commits: ab375aef, 9f963080 (`git log --oneline -4`)
+- Fleet checkouts aodex, justinforme, smartWellness and dfip: HEAD plus `git status --porcelain=v1 -uall` hashes identical before and after (Task 1 and the repeated harness runs); scratch trades and eden-circle clones have an empty `git status --porcelain`
