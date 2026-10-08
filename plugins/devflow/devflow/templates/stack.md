@@ -149,7 +149,13 @@ runner and manifests, verifies each command it would write, and drafts what it c
 - `df-tools stack verify` checks every command statically (binary resolves, runner target exists).
   `--run` executes only safe keys (`format`, `lint`, `typecheck`, `build`); `--include test,audit`
   opts heavier keys in. It never runs `codegen`, `deps`, an `apply` form or any push/deploy/apply
-  command.
+  command. A gate whose command, task-runner body or script names a database or service (a
+  `postgres://`-style URL, a `DATABASE_URL` or `*_DSN`-style variable, a loopback `host:port`), whose
+  CI job runs it with `services:` or such variables, or (`test`, `e2e`) a `.env.test` file naming one,
+  is skipped `env_required`; `--allow-services` runs it against whatever is listening. A `build`'s
+  new untracked files under `bin/`, `build/`, `dist/`, `out/` or `target/` are removed and listed as
+  `build_outputs`, and do not stop later Flutter or Dart gates, while any other change is put back
+  and does.
 - `.mcp.json` is opt-in per repo. `df-tools stack mcp` previews the servers `agent_tooling.mcp` would
   add; `stack mcp --write` writes them as managed entries and leaves every other entry alone.
   Nothing else (not `stack init`, not `upgrade`) writes it.

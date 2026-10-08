@@ -432,7 +432,7 @@ DevFlow's own prompts use Claude Code's built-ins instead of ad hoc text (object
 |---------|---------|-------------|
 | `/devflow:gh-sync [migrate\|status\|flush\|pull\|setup\|release <tag>\|<objective>\|--all]` | Operate the GitHub store: migrate a project onto it, status, flush the outbox, rebuild the cache, set the repository up, release notes. With the store off, mirror objectives to issues | To move a project onto GitHub, or when GitHub drifts |
 | `/devflow:workstreams [analyze\|provision\|reconcile]` | Parallel git worktrees for independent objectives | Multi-objective parallelism across worktrees |
-| `df-tools stack init\|validate\|resolve\|context\|command` | Declare and check the project stack profile (`.planning/STACK.md`) | After map-codebase, or when CI commands change |
+| `df-tools stack init\|validate\|resolve\|context\|command\|verify` | Declare and check the project stack profile (`.planning/STACK.md`); `verify --run` runs safe gates, and service-backed gates are skipped `env_required` unless `--allow-services` | After map-codebase, or when CI commands change |
 
 ---
 

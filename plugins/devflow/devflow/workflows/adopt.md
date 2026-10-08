@@ -156,7 +156,9 @@ node ~/.claude/devflow/bin/df-tools.cjs --cwd "$TARGET" stack verify --run --raw
 5. Record each discrepancy as one `{field, value, confidence, evidence}` entry appended to
    `$TARGET/.planning/.adopt-inferences.json` — confidence `medium` (a failing key, a layout
    mismatch) or `low` (advisory) — so it lands in the report's needs-review rows.
-   NEVER edit STACK.md silently: this step only records findings.
+   NEVER edit STACK.md silently: this step only records findings. A gate skipped `env_required`
+   (it needs a database or other service) is a finding too: record it as a `low` confidence entry,
+   and never re-run it with `--allow-services` from this workflow.
 6. `.mcp.json` is opt-in per repo: a finding may suggest `stack mcp --write`; never run it here.
 7. Start no server; the port rule in <rules> applies if one is ever needed.
 

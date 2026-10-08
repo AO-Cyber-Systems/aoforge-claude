@@ -1,3 +1,4 @@
+completed: 2026-10-08
 ---
 created: 2026-10-04T14:00:00.000Z
 title: stack verify --run policy for service-backed tests and build artifacts

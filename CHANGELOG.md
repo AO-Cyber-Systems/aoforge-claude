@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Objective 71 (SDR-09, SDR-10): the stack drafter drafts the gate that actually scans, and `stack verify --run` has a
+stated policy for tests that need services and builds that write artifacts. A `--self-test` step is skipped when the gate
+step exists, a `lint` target that runs the tier default plus unconditional linters such as `buf lint` is kept as the lint
+entry point, a service-backed gate is skipped `env_required` unless `--allow-services`, and a build's own output is
+removed and listed as `build_outputs` without stopping other components' gates. Entries that need an installed plugin
+take effect once the installed plugin carries objective 71.
+
 Objective 70 (TOOL-07, TOOL-08): three df-tools commands that reported success while doing nothing now do their job or
 fail, and verify-commits.js blocks in the shape Claude Code reads. `state update-progress` writes the Progress line or
 exits 1, `verify trd-pre` finds the objective from anywhere in the project, `objective-job-index` reports `gap_closure`,
@@ -24,6 +31,17 @@ runs, `objective remove` no longer rewrites dates, and `objective complete` sees
 ROADMAP.md. Entries that need an installed plugin take effect once the installed plugin carries objective 68.
 
 ### Added
+- `stack verify --run` skips a gate that needs a service as `env_required`, and `--allow-services` runs it (objective 71,
+  SDR-10, TRD 71-03; `lib/stack-verify.cjs`, `lib/flag-spec.cjs`). A service signal is the gate's own text (a
+  `postgres://`-style URL, a `DATABASE_URL` or `*_DSN` variable, a loopback `host:port`, in the command, one level of
+  task-runner body or a wrapper script), a CI job that runs the same command with `services:` or such variables, or, for
+  `test` and `e2e`, a `.env.test` file naming one. Detection is static: nothing connects to a port, and the skip detail
+  names files, jobs, services and variables, never a URL or a value. `--allow-services` (valid only with `--run`) runs the
+  gate against whatever is listening, lists the signals in `run.services_allowed` and appends ` services=allowed` to the
+  `--raw` line; a deny-listed command still wins. Needs an installed plugin carrying objective 71.
+- CI steps carry the `services` of their job and the `envNames` in scope (objective 71, SDR-10, TRD 71-03;
+  `lib/stack-ci.cjs`), which is what the CI layer of the service policy reads. Needs an installed plugin carrying
+  objective 71.
 - `validate health` Check 19 reports a tracked or stale `.planning/.skill-active` (objective 69, TOOL-09;
   `lib/skill-marker-health.cjs`). E006 `skill-marker-tracked` (an error) when the marker is in the git index, because a
   committed marker holds the edit gate open in every clone and checkout. W064 `skill-marker-stale` (a warning) when an
@@ -68,6 +86,24 @@ ROADMAP.md. Entries that need an installed plugin take effect once the installed
   Needs an installed plugin carrying objective 68.
 
 ### Changed
+- The stack drafter never fills a key with a `--self-test` step while the gate step exists (objective 71, SDR-09, TRD
+  71-01; `lib/stack-draft.cjs`). A candidate with self-test words (`--self-test`, `--selftest`, `--self-test=<x>`, a
+  bare `selftest`) is recorded as a `self_test` note when a sibling step runs the same entry point at the same cwd
+  without them, so `aodex` drafts `audit` as `bash scripts/check-govulncheck.sh`. A lone self-test and a declared row are
+  unchanged. A `lint` target that runs the tier default plus unconditional linters of other tools (`buf lint`,
+  `golangci-lint run ./...`) is the lint entry point (`lib/stack-classify.cjs`, a `declared_linters` info note), so
+  justinforme and smartWellness draft `lint: make lint`; an optional linter (`|| echo ...`) keeps `lint` inherited.
+  Needs an installed plugin carrying objective 71.
+- `aodex.audit` left the fleet ACCEPTED table, and justinforme and smartWellness `lint` are OPEN rows marked
+  `pending: 'refresh'` (objective 71, SDR-09, TRD 71-02; `lib/__fixtures__/stack-fleet-tables.cjs`,
+  `stack-drafter-fleet.test.cjs`). The harness reports a refresh-pending row as a note while it drifts and keeps the
+  ratchet that fails a row once it stops drifting. A per-repo `selfTestDrafts` guard fails any fleet draft that fills a
+  key with a self-test beside its gate.
+- A `build` gate's own output no longer halts the Dart and Flutter gates of other components (objective 71, SDR-10, TRD
+  71-04; `lib/stack-verify.cjs`). New untracked, unignored files under `bin/`, `build/`, `dist/`, `out/` or `target/`
+  (judged relative to the gate's cwd) are removed and listed in `run.build_outputs`; `--raw` appends
+  ` build_outputs=<n>` after ` mutated=<n>`. Any other change is put back and still halts. Needs an installed plugin
+  carrying objective 71.
 - `planning draft <rel>` reseeds a stale draft and `doc put` refuses one (objective 69, TOOL-06;
   `lib/planning-drafts.cjs`). Each draft has a sidecar `<draft>.base.json` holding the sha256 of the live text it was
   seeded from. When the live file has changed since, `planning draft` rewrites the draft from the live file, keeps the

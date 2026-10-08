@@ -373,7 +373,9 @@ restart, so their absence is normal — never block on them.
 4. Otherwise, or additionally (safe keys only):
    `node ~/.claude/devflow/bin/df-tools.cjs stack verify --run --raw`
 5. Give the user each discrepancy as a note: the key, what the profile says, what the code shows.
-   NEVER edit STACK.md silently — any change goes through the user.
+   NEVER edit STACK.md silently — any change goes through the user. A gate skipped `env_required`
+   (it needs a database or other service) is a finding: tell the user, and never re-run it with
+   `--allow-services` from this workflow.
 6. `.mcp.json` is opt-in per repo: suggest `stack mcp --write`; never run it here.
 7. Start no server; if one is ever needed, use port 8091, never 8080.
 

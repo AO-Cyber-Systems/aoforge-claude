@@ -1,3 +1,4 @@
+completed: 2026-10-08
 ---
 created: 2026-10-03T18:00:00.000Z
 title: Stack drafter rules for govulncheck self-test steps and buf lint coverage

@@ -337,7 +337,7 @@ const COMMANDS = {
     mutates: true,
   },
   'stack': {
-    usage: 'df-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force]> [--raw]',
+    usage: 'df-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force] | verify [--run] [--include a,b] [--keys a,b] [--timeout <s>] [--draft] [--allow-services]> [--raw]',
     summary: 'Resolve, validate and slice the project stack profile (.planning/STACK.md over bundled general).',
     mutates: true,
   },
