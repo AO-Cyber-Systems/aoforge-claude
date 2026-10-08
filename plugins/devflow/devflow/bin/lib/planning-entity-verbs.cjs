@@ -609,10 +609,28 @@ function docsPut(main, rels, o = {}) {
   return flushNow(main, base, { noWait: o.noWait === true });
 }
 
+/** The `milestones/<version>-*.md` archives in the cache: what `milestone complete` publishes (and previews). */
+function milestoneArchives(main, version) {
+  return listDir(path.join(main, '.planning', 'milestones'))
+    .filter((f) => f.startsWith(`${version}-`) && f.endsWith('.md'))
+    .map((f) => `milestones/${f}`);
+}
+
+/** The `--dry-run` text of a store-mode `milestone complete`: the banner, the milestone and the archives. */
+function milestoneDryRunProse(title, wouldPublish) {
+  return [
+    'DRY RUN — nothing has been modified.',
+    `Would close milestone ${title}`,
+    `Would publish: ${wouldPublish.length > 0 ? wouldPublish.join(', ') : '(none)'}`,
+  ].join('\n');
+}
+
 /**
- * milestoneComplete(root, {version, noFlush, noWait}) — `milestone complete`. Local: `{delegate:'milestone complete'}`
- * (today's cmdMilestoneComplete). Store: close the native milestone, then doc put every `milestones/<version>-*.md`
- * archive as one wiki-push.
+ * milestoneComplete(root, {version, dryRun, noFlush, noWait}) — `milestone complete`. Local: `{delegate:'milestone
+ * complete'}` (today's cmdMilestoneComplete). Store: close the native milestone, then doc put every
+ * `milestones/<version>-*.md` archive as one wiki-push. Store with `dryRun: true` (TOOL-01): report the milestone it
+ * would close and the archives it would publish from the config and the cache alone — no gh call (reads included), no
+ * outbox op, no ledger entry, no cache write — so it also works offline.
  */
 function milestoneComplete(root, opts = {}) {
   const o = optsOf(opts);
@@ -623,13 +641,27 @@ function milestoneComplete(root, opts = {}) {
   if (ctx.mode === LOCAL) {
     return { ok: true, mode: ctx.mode, rel: null, path: null, warnings: [], version, delegate: 'milestone complete', exit: EXIT.OK };
   }
+  if (o.dryRun === true) {
+    const title = milestoneStore.milestoneTitleFor(ctx.main, version);
+    const wouldPublish = milestoneArchives(ctx.main, version);
+    return {
+      ok: true,
+      mode: ctx.mode,
+      dry_run: true,
+      version,
+      milestone_title: title,
+      would_close: true,
+      would_publish: wouldPublish,
+      warnings: [],
+      prose: milestoneDryRunProse(title, wouldPublish),
+      exit: EXIT.OK,
+    };
+  }
   const closed = milestoneStore.closeMilestone(ctx.main, version);
   if (!closed || closed.ok !== true) {
     return fail(`milestone ${version} not closed: ${(closed && closed.error) || 'unknown error'}`, { mode: ctx.mode }, { offline: Boolean(closed && closed.offline), version });
   }
-  const archives = listDir(path.join(ctx.main, '.planning', 'milestones'))
-    .filter((f) => f.startsWith(`${version}-`) && f.endsWith('.md'))
-    .map((f) => `milestones/${f}`);
+  const archives = milestoneArchives(ctx.main, version);
   const r = docsPut(ctx.main, archives, { message: `devflow: milestone ${version} archives`, ...flushFlags(o) });
   return { ...r, version, milestone: { number: closed.number, title: closed.title, updated: closed.updated === true } };
 }

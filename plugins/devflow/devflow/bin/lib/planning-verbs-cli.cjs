@@ -148,6 +148,7 @@ function headline(verb, res) {
   }
   if (res.refused) return `${verb}: refused (${res.refused}). Nothing was written.`;
   if (res.ok === false) return null;
+  if (res.dry_run === true && res.prose) return null; // a dry run's prose opens with its own DRY RUN banner
   if (res.skipped) return `${verb}: nothing to do (${res.skipped}).`;
   let what = 'done';
   if (res.from && res.rel) what = `moved .planning/${res.from} -> .planning/${res.rel}`;
@@ -408,7 +409,7 @@ function cmdMilestoneVerb(cwd, args, raw, io = {}) {
   }
   if (sub === 'complete') {
     if (planningMode.isStoreMode(cwd)) {
-      return report('milestone complete', entity.milestoneComplete(cwd, { version: args[1], ...flushOpts(rest) }), raw);
+      return report('milestone complete', entity.milestoneComplete(cwd, { version: args[1], dryRun: has(rest, '--dry-run'), ...flushOpts(rest) }), raw);
     }
     const options = { name: milestoneName(args), archiveObjectives: has(args, '--archive-objectives'), dryRun: has(args, '--dry-run') };
     return require('./roadmap.cjs').cmdMilestoneComplete(cwd, args[1], options, raw);

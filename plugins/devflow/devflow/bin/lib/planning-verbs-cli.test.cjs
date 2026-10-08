@@ -364,7 +364,7 @@ describe('68-06 store-mode milestone complete --dry-run', { skip: gitAvailable()
     try {
       const r = c.run(['milestone', 'complete', 'v1.0', '--dry-run']);
       assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-      assert.ok(r.stdout.includes('DRY RUN — nothing has been modified.'), r.stdout);
+      assert.equal(r.stdout.split('\n')[0], 'DRY RUN — nothing has been modified.', 'no "done" headline above the banner');
       assert.match(r.stdout, /Would close milestone v1\.0/);
       assert.ok(r.stdout.includes(`Would publish: ${ARCHIVE}`), r.stdout);
       assert.deepEqual(c.p.ghCalls(), []);
