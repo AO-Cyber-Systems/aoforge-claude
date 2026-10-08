@@ -12,6 +12,10 @@
 // an objective directory or a `### Objective N:` section in ROADMAP.md; the others (killed or never created) are
 // `absent`.
 //
+// Objective directories resolve through helpers.cjs (the objective 56 rule, TRD 68-02 / TOOL-05): a directory is the
+// directory of objective N only when helpers.objectiveDirMatches(name, normalizeObjectiveName(N)) holds, which is the
+// test `find-objective` applies. So `04-d` is objective 4, while an unpadded `4-d` or a hyphen-less `04x` is not.
+//
 // roadmap.cjs requires this module lazily (inside cmdMilestoneComplete), because this module requires roadmap.cjs.
 
 const fs = require('fs');
@@ -20,6 +24,12 @@ const path = require('path');
 const { parseMilestoneBullets, pickMilestone } = require('./roadmap.cjs');
 const { getArchivedObjectiveDirs } = require('./objective.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const {
+  objectiveDirMatches,
+  normalizeObjectiveName,
+  parseObjectiveDirName,
+  canonicalObjectiveNumber,
+} = require('./helpers.cjs');
 
 // A single number or an `A–B` range (en dash, em dash or hyphen); decimals are objective numbers like 4.1.
 const NUM = String.raw`\d+(?:\.\d+)?`;
@@ -29,16 +39,9 @@ const ITEM = String.raw`${NUM}(?:\s*[–—-]\s*${NUM})?`;
 const OBJECTIVES_TEXT_RE = new RegExp(String.raw`\bObjectives?\s+(${ITEM}(?:\s*,\s*${ITEM})*)`, 'i');
 const ITEM_RE = new RegExp(String.raw`^(${NUM})(?:\s*[–—-]\s*(${NUM}))?$`);
 const SECTION_RE = /^#{2,4}[ \t]*Objective[ \t]+(\d+(?:\.\d+)?):[ \t]*(.+?)[ \t]*$/gim;
-const DIR_RE = /^(\d+(?:\.\d+)?)-?(.*)$/;
 
 // A range wider than this is a typo, not a milestone; enumerating it would hang the estimate.
 const MAX_RANGE_WIDTH = 1000;
-
-/** A number as written ('04', '4.1') in the one form used to compare and list objectives: no leading zeros on the integer part. */
-function canonical(text) {
-  const [int, dec] = String(text).split('.');
-  return dec === undefined ? String(parseInt(int, 10)) : `${parseInt(int, 10)}.${dec}`;
-}
 
 const byNumber = (a, b) => parseFloat(a) - parseFloat(b);
 
@@ -67,9 +70,28 @@ function milestoneObjectiveNumbers(rest) {
   return ranges.length === 0 && singles.length === 0 ? null : { ranges, singles };
 }
 
-/** True when `n` lies in one of `ranges` (inclusive) or equals one of `singles`. */
-function inScope(n, { ranges, singles }) {
-  return singles.includes(n) || ranges.some(([lo, hi]) => n >= lo && n <= hi);
+/**
+ * The canonical numbers of the single (non-range) items of a bullet's "Objectives ..." text, as written: `4.10` stays
+ * `'4.10'`. The float in milestoneObjectiveNumbers' `singles` cannot tell 4.10 from 4.1, so a single is matched here by
+ * its text (ranges stay numeric).
+ * @param {string} rest  the bullet's `rest`
+ * @returns {Set<string>}
+ */
+function singleKeys(rest) {
+  const keys = new Set();
+  const m = OBJECTIVES_TEXT_RE.exec(String(rest));
+  if (!m) return keys;
+  for (const item of m[1].split(',')) {
+    const parts = ITEM_RE.exec(item.trim());
+    if (parts && parts[2] === undefined) keys.add(canonicalObjectiveNumber(parts[1]));
+  }
+  return keys;
+}
+
+/** True when the objective numbered `key` (canonical) is one of the exact `keys` or lies in one of `ranges` (inclusive). */
+function inScope(key, { ranges }, keys) {
+  const n = parseFloat(key);
+  return keys.has(key) || ranges.some(([lo, hi]) => n >= lo && n <= hi);
 }
 
 // The integers of the scope, as the numbers a reader would look for a directory or section of.
@@ -89,7 +111,7 @@ function scopeIntegers({ ranges, singles }) {
 function roadmapSections(text) {
   const sections = new Map();
   for (const m of text.matchAll(SECTION_RE)) {
-    const key = canonical(m[1]);
+    const key = canonicalObjectiveNumber(m[1]);
     if (!sections.has(key)) sections.set(key, m[2]);
   }
   return sections;
@@ -99,11 +121,13 @@ function roadmapSections(text) {
 function objectiveDirectories(cwd) {
   const found = new Map();
   const add = (name, rel) => {
-    const m = DIR_RE.exec(name);
-    if (!m) return;
-    const key = canonical(m[1]);
+    const parsed = parseObjectiveDirName(name);
+    if (!parsed) return;
+    // parseObjectiveDirName proposes the number; objectiveDirMatches confirms it, exactly as find-objective does.
+    if (!objectiveDirMatches(name, normalizeObjectiveName(parsed.number))) return;
+    const key = canonicalObjectiveNumber(parsed.number);
     if (found.has(key)) return;
-    found.set(key, { dir: rel.split(path.sep).join('/'), slug: m[2] || null });
+    found.set(key, { dir: rel.split(path.sep).join('/'), slug: parsed.slug });
   };
   const current = path.join(cwd, '.planning', 'objectives');
   let entries = [];
@@ -175,7 +199,8 @@ function selectMilestoneObjectives(cwd, { version } = {}) {
     candidates = [...sections.keys()];
   } else {
     const known = new Set([...sections.keys(), ...dirs.keys()]);
-    candidates = [...known].filter((n) => inScope(parseFloat(n), scope));
+    const exact = singleKeys(bullet.rest);
+    candidates = [...known].filter((n) => inScope(n, scope, exact));
     for (const n of scopeIntegers(scope)) {
       if (!known.has(n)) absent.push(n);
     }
@@ -244,6 +269,7 @@ function currentDirObjectives(cwd) {
 
 module.exports = {
   milestoneObjectiveNumbers,
+  roadmapSections,
   selectMilestoneObjectives,
   sectionObjectives,
   currentDirObjectives,
