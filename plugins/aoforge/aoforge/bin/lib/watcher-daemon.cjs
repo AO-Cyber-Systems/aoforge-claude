@@ -121,8 +121,11 @@ function _resolveSecrets(secrets, handoffId, stashGetter) {
 }
 
 /**
- * Build a chunk-handler that scans the accumulated PTY/pipe buffer for any
- * unconsumed prompt regex. On match it writes the resolved value + CR via
+ * Build a chunk-handler that scans the accumulated buffer of LIVE output for
+ * any unconsumed prompt regex. It is fed live bytes only: processOnce attaches it
+ * with `{ liveOnly: true }`, so what it sees is what the running command printed
+ * while it ran, never the replay of captured output after it has exited (a late
+ * match there is not a prompt and must not be answered). On match it writes the resolved value + CR via
  * sessionInjector. On duplicate match (already consumed) or on first match
  * after a resolution failure, it injects Ctrl+C and reports an error.
  *
@@ -275,7 +278,9 @@ async function processOnce(pending, deps) {
       (s) => session.injectInput(s),
       (msg) => { if (!detectorErr) detectorErr = msg; },
     );
-    session.attachDataListener(detector);
+    // Live window only (TRD 73-03, gap 3): the detector must never see a tool's
+    // error text replayed after the command has exited, nor sentinel lines.
+    session.attachDataListener(detector, { liveOnly: true });
   }
 
   // TRD 20-01: dispatch-start notification (if notifier injected).

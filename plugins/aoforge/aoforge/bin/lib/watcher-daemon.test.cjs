@@ -1106,4 +1106,51 @@ describe('processOnce — objective 73: late match (gap 3)', () => {
     });
     assert.deepStrictEqual(session._listenerOpts, [{ liveOnly: true }]);
   });
+
+  // The two guards below pin the other half of the fix: a prompt that really is
+  // live is still answered, and a failure to resolve it still stops the dispatch
+  // promptly. They passed on the first run against the new code, as designed.
+  const LIVE_PROMPT_CMD = "printf 'Enter your access token: ' > /dev/tty; read TOK; echo \"got=$TOK\"";
+
+  test('LM-4: a resolved secret at a live PTY prompt is consumed by the command and redacted from the done record', ptySkip73, async () => {
+    const token = 't73-token-abcdef123';
+    process.env.AOFORGE_T73_SET = token;
+    writePending(root, 'h-lm4', LIVE_PROMPT_CMD, ACCESS_TOKEN_SECRET('AOFORGE_T73_SET'));
+    const { session, injected } = await spiedSession({ interactive: true });
+    try {
+      const done = await daemon.processOnce(daemon.readPending(root)[0], {
+        session, allowlist: [{ label: 'test:printf', match: /^printf\b/ }], projectRoot: root,
+      });
+      assert.equal(done.status, 'done', `stderr ${JSON.stringify(done.stderr)}`);
+      assert.match(done.stdout, /got=\*\*\*REDACTED\*\*\*/);
+      assert.ok(!JSON.stringify(done).includes(token), 'the raw token appears nowhere in the done record');
+      assert.ok(injected.includes(token + '\r'), `the token was not injected: ${injected.length} writes`);
+    } finally {
+      await session.kill();
+    }
+  });
+
+  test('LM-5: an unresolvable secret at a live PTY prompt fails the dispatch promptly, without waiting for a timeout', ptySkip73, async () => {
+    delete process.env.AOFORGE_T73_UNSET;
+    // The prompt and the reader are a child process, as a real tool (doctl, gh) is. Ctrl+C then
+    // kills the child, and nothing is in flight in the shell when it arrives. The shell's own
+    // `read` builtin would swallow it (the dispatch script holds `trap ':' INT` and bash 3.2,
+    // macOS /bin/bash, does not interrupt `read` for a trapped signal), and a prompt printed by
+    // the shell itself races the fork of the reader.
+    const childReader = `sh -c 'printf "Enter your access token: " > /dev/tty; read TOK; echo got=$TOK'`;
+    writePending(root, 'h-lm5', childReader, ACCESS_TOKEN_SECRET('AOFORGE_T73_UNSET'));
+    const { session } = await spiedSession({ interactive: true });
+    try {
+      const t0 = Date.now();
+      const done = await daemon.processOnce(daemon.readPending(root)[0], {
+        session, allowlist: [{ label: 'test:sh', match: /^sh\b/ }], projectRoot: root, timeoutMs: 8000,
+      });
+      const elapsed = Date.now() - t0;
+      assert.ok(elapsed < 5000, `expected a failure in under 5 s, took ${elapsed} ms (status ${done.status})`);
+      assert.equal(done.status, 'failed');
+      assert.match(done.stderr, /secret resolution failed/);
+    } finally {
+      await session.kill();
+    }
+  });
 });

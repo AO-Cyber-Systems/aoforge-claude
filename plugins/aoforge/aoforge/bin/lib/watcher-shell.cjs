@@ -61,6 +61,20 @@
  *    for the whole script lets a Ctrl+C kill only the command. The file is
  *    removed when the dispatch settles; kill() removes the directory.
  *
+ * Live window (objective 73, TRD 73-03, gap 3). A data listener attached with
+ * `{ liveOnly: true }` receives only the bytes the running command produces
+ * while it runs, never sentinel text and never the replay that follows it:
+ *
+ *   in-band protocol   the bytes after the BEGIN line, up to DELIM
+ *   replay protocol    the bytes from the start of the dispatch, up to BEGIN
+ *                      (the replay of captured output comes after BEGIN)
+ *
+ * `makeLiveFilter` is that rule as a pure function; the session builds one per
+ * dispatch and feeds it every chunk. The prompt detector listens this way so a
+ * tool's error text, replayed after it has exited, can never be taken for a
+ * prompt that is still waiting. A listener attached without options is unchanged
+ * and sees every chunk.
+ *
  * On PTY mode the line separator is `\r` (carriage return — PTY input
  * convention). On pipe mode it stays `\n`. `splitDispatchOutput` is
  * transport-agnostic: it scans for BEGIN/DELIM/END from the buffer head, so
@@ -119,6 +133,73 @@ function sentinelMarkers(id) {
   };
 }
 
+/**
+ * Length of the longest suffix of `text` that is a proper prefix of `marker`:
+ * the bytes that might be the start of a marker whose remainder has not arrived.
+ */
+function heldSuffixLength(text, marker) {
+  const max = Math.min(text.length, marker.length - 1);
+  for (let n = max; n > 0; n -= 1) {
+    if (marker.startsWith(text.slice(text.length - n))) return n;
+  }
+  return 0;
+}
+
+/**
+ * The live window of one dispatch, as a pure stateful filter (TRD 73-03).
+ *
+ * Feed it every chunk the shell emits during the dispatch, in arrival order;
+ * each call returns the part of that chunk that is live output, possibly ''.
+ *
+ *   protocol 'inband'  phases before -> live -> after. The window opens after
+ *                      the newline that ends the BEGIN line and closes at DELIM.
+ *   protocol 'replay'  phases live -> after. The window is open from the start
+ *                      and closes at BEGIN.
+ *
+ * A marker can be split across chunks, so the longest tail of the pending text
+ * that is a proper prefix of the marker being waited for is held back until the
+ * next chunk says whether it was one. Held-back text that turns out not to be a
+ * marker is emitted in full then. Only a few bytes are ever held.
+ *
+ * @param {{begin: string, delim: string, protocol?: 'inband'|'replay'}} spec
+ * @returns {(chunk: string) => string}
+ */
+function makeLiveFilter({ begin, delim, protocol } = {}) {
+  const inband = protocol === 'inband';
+  let phase = inband ? 'before' : 'live';
+  let pending = '';
+  return function filter(chunk) {
+    if (phase === 'after' || !chunk) return '';
+    pending += chunk;
+    if (phase === 'before') {
+      const b = pending.indexOf(begin);
+      if (b === -1) {
+        pending = pending.slice(pending.length - heldSuffixLength(pending, begin));
+        return '';
+      }
+      const nl = pending.indexOf('\n', b);
+      if (nl === -1) {
+        pending = pending.slice(b); // BEGIN seen, its line not finished yet
+        return '';
+      }
+      pending = pending.slice(nl + 1);
+      phase = 'live';
+    }
+    const marker = inband ? delim : begin;
+    const m = pending.indexOf(marker);
+    if (m !== -1) {
+      const out = pending.slice(0, m);
+      pending = '';
+      phase = 'after';
+      return out;
+    }
+    const hold = heldSuffixLength(pending, marker);
+    const out = pending.slice(0, pending.length - hold);
+    pending = pending.slice(pending.length - hold);
+    return out;
+  };
+}
+
 class ShellSessionClosed extends Error {
   constructor(msg) {
     super(msg || 'shell session closed');
@@ -145,7 +226,7 @@ class ShellSession extends EventEmitter {
     this._closed = false;
     this._stdoutBuf = '';
     this._stderrBuf = '';
-    this._activeDispatch = null; // { id, beginRx, endRx, resolve, timeout }
+    this._activeDispatch = null; // { id, begin, delim, end, endRx, resolve, timer, scriptFile, live }
     this._readyProbe = null;     // { token, resolve, abort, timer, settled } — PTY only
     // TRD 73-01: private 0700 directory holding the per-dispatch script files of
     // the in-band PTY protocol. Created on the first such dispatch, removed by
@@ -155,6 +236,7 @@ class ShellSession extends EventEmitter {
     // Daemon attaches a detector that scans the data stream for prompt
     // regexes and writes resolved secrets back to the shell. Both PTY mode
     // (single onData stream) and pipe mode (stdout + stderr) feed listeners.
+    // TRD 73-03: entries are { fn, liveOnly }.
     this._extDataListeners = [];
   }
 
@@ -164,10 +246,17 @@ class ShellSession extends EventEmitter {
    * stderr). Used by the daemon to detect interactive prompts in the
    * accumulated buffer and inject resolved secrets via injectInput().
    *
+   * With `{ liveOnly: true }` (TRD 73-03) the listener instead receives only the
+   * active dispatch's live window (see the header, "Live window"): never sentinel
+   * text, never replayed output, and nothing at all outside a dispatch. Without
+   * options it sees every chunk, exactly as before.
+   *
    * @param {(chunk: string) => void} fn
+   * @param {{liveOnly?: boolean}} [opts]
    */
-  attachDataListener(fn) {
-    if (typeof fn === 'function') this._extDataListeners.push(fn);
+  attachDataListener(fn, opts) {
+    if (typeof fn !== 'function') return;
+    this._extDataListeners.push({ fn, liveOnly: !!(opts && opts.liveOnly) });
   }
 
   /**
@@ -176,7 +265,7 @@ class ShellSession extends EventEmitter {
    * @param {(chunk: string) => void} fn
    */
   detachDataListener(fn) {
-    this._extDataListeners = this._extDataListeners.filter((x) => x !== fn);
+    this._extDataListeners = this._extDataListeners.filter((x) => x.fn !== fn);
   }
 
   /**
@@ -196,11 +285,19 @@ class ShellSession extends EventEmitter {
   }
 
   _emitExtData(chunk) {
+    // TRD 73-03: the active dispatch's live-window filter sees EVERY chunk, once,
+    // whether or not a liveOnly listener is attached yet, so a listener attached
+    // mid-dispatch starts from the right phase. Its result is shared by all
+    // liveOnly listeners.
+    const d = this._activeDispatch;
+    const live = d && !d.settled && d.live ? d.live(chunk) : '';
     if (this._extDataListeners.length === 0) return;
     // Snapshot listeners before iterating: a listener may detach itself.
     const listeners = this._extDataListeners.slice();
-    for (const fn of listeners) {
-      try { fn(chunk); } catch { /* listener errors must not break dispatch */ }
+    for (const l of listeners) {
+      const data = l.liveOnly ? live : chunk;
+      if (!data) continue;
+      try { l.fn(data); } catch { /* listener errors must not break dispatch */ }
     }
   }
 
@@ -511,6 +608,9 @@ class ShellSession extends EventEmitter {
         settled: false,
         timer: null,
         scriptFile,
+        // TRD 73-03: where this dispatch's live window is depends on the protocol it
+        // runs under; dropped with the dispatch when it settles.
+        live: makeLiveFilter({ begin, delim, protocol: useScript ? 'inband' : 'replay' }),
       };
       d.timer = setTimeout(() => {
         if (d.settled) return;
@@ -724,6 +824,7 @@ module.exports = {
   ShellSessionClosed,
   splitDispatchOutput,
   sentinelMarkers,
+  makeLiveFilter,
   stripBracketedPaste,
   stripAnsi,
   UnsupportedShell,

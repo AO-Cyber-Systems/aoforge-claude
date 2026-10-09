@@ -14,6 +14,6 @@ affects: [73-05 attended watch terminal]
 **In progress.**
 
 ## Progress
-- [x] Task 1: RED, the late-match regressions and the live-only listener tests - (this commit)
-- [ ] Task 2: GREEN, makeLiveFilter, liveOnly listeners and the live-only detector - next step: add makeLiveFilter and the { fn, liveOnly } listener list to watcher-shell.cjs, then pass { liveOnly: true } in processOnce
-- [ ] Task 3: The e2e tests assert instead of skipping, and the gates
+- [x] Task 1: RED, the late-match regressions and the live-only listener tests - 34bce9ad
+- [x] Task 2: GREEN, makeLiveFilter, liveOnly listeners and the live-only detector - (this commit)
+- [ ] Task 3: The e2e tests assert instead of skipping, and the gates - next step: rewrite MA-6-synth, MA-7 and MA-6 in handoff-e2e.test.cjs (plain asserts, waitForDoneRecord), delete isArchitecturalGap and tryWaitForDoneRecord, then run the file and the full suite
