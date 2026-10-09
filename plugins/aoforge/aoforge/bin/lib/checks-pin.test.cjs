@@ -67,10 +67,15 @@ describe('checks-pin: one definition of the workflow constants', () => {
     assert.equal(ghSetup.WORKFLOW_PATH, pin.WORKFLOW_PATH, 'gh-setup still exports WORKFLOW_PATH, now from checks-pin');
   });
 
-  test('checks-pin.cjs requires only fs and path, and gh-setup.cjs no longer defines the constants', () => {
+  test('checks-pin.cjs requires only fs, path and two leaf modules, and gh-setup.cjs no longer defines the constants', () => {
     const own = fs.readFileSync(path.join(__dirname, 'checks-pin.cjs'), 'utf-8');
     const required = [...own.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]).sort();
-    assert.deepEqual(required, ['fs', 'path']);
+    // legacy-names.cjs and text-escape.cjs require nothing of their own, so no cycle through gh-setup is possible
+    // (TRD 72-11: the legacy caller's names come from legacy-names.cjs, never spelled here).
+    assert.deepEqual(required, ['./legacy-names.cjs', './text-escape.cjs', 'fs', 'path']);
+    for (const leaf of ['legacy-names.cjs', 'text-escape.cjs']) {
+      assert.doesNotMatch(fs.readFileSync(path.join(__dirname, leaf), 'utf-8'), /\brequire\(/, `${leaf} stays a leaf module`);
+    }
 
     const setup = fs.readFileSync(path.join(__dirname, 'gh-setup.cjs'), 'utf-8');
     for (const name of ['WORKFLOW_PATH', 'MANAGED_HEADER', 'DEFAULT_CHECKS_WORKFLOW']) {
@@ -124,7 +129,7 @@ describe('parseWorkflowPins', () => {
   });
 
   test('4. non-string input -> the empty answer, never throws', () => {
-    const empty = { managed: false, uses: null, uses_path: null, uses_ref: null, aoforge_ref: null, lines: [] };
+    const empty = { managed: false, legacy: false, uses: null, uses_path: null, uses_ref: null, aoforge_ref: null, lines: [] };
     for (const input of [undefined, null, 42, {}, ['uses: x@v1.0.0']]) {
       assert.deepEqual(pin.parseWorkflowPins(input), empty, `input ${JSON.stringify(input)}`);
     }

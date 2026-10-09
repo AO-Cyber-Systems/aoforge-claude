@@ -8,4 +8,4 @@ trd: "11"
 ## Progress
 - [x] Task 1: Fixture builder: legacy GitHub artefacts — 41c00fbb
 - [x] Task 2: Body markers and label lookups read both namespaces — 19880e6c (RED), 98c4297a (GREEN)
-- [ ] Task 3: Check contexts, PR marker and caller pin — RED (this commit); next step: GREEN in gh-check-cli.cjs (postStatus over both context namespaces, findObjectiveIssue label union, reconcile edits an existing reconcile comment of either namespace) and checks-pin.cjs (legacy header, slug, workflow file, ref input and caller path; `legacy` flag; legacy W062 fix)
+- [x] Task 3: Check contexts, PR marker and caller pin — abe55c3c (RED), (this commit) (GREEN)

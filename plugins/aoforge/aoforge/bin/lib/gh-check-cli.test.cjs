@@ -94,6 +94,12 @@ function seedPr({ body = '' } = {}) {
   return JSON.parse(r.stdout).number;
 }
 
+/**
+ * The statuses posted on `sha` under the AOForge contexts, newest first. Each verdict is also posted under its legacy
+ * twin for one release (TRD 72-11; gh-checks.legacy.test.cjs covers that); these tests judge the AOForge one.
+ */
+const own = (s) => (fake.statuses[s] || []).filter((x) => x.context.startsWith('aoforge/'));
+
 const HEAD_CLOSES = sha('1');
 const HEAD_NO_CLOSES = sha('2');
 const GROUP_HEAD = sha('3');
@@ -112,7 +118,7 @@ describe('linked-issue: pull_request events', () => {
     assert.equal(r.code, 1);
     assert.equal(r.state, 'failure');
 
-    const posted = fake.statuses[HEAD_NO_CLOSES];
+    const posted = own(HEAD_NO_CLOSES);
     assert.equal(posted.length, 1);
     assert.equal(posted[0].state, 'failure');
     assert.equal(posted[0].context, 'aoforge/linked-issue');
@@ -127,7 +133,7 @@ describe('linked-issue: pull_request events', () => {
     const r = run('linked-issue', prEvent('Closes #5'), { GITHUB_EVENT_NAME: 'pull_request' });
     assert.equal(r.code, 0);
     assert.equal(r.state, 'success');
-    const posted = fake.statuses[HEAD_CLOSES];
+    const posted = own(HEAD_CLOSES);
     assert.equal(posted.length, 1);
     assert.equal(posted[0].state, 'success');
     assert.equal(posted[0].context, CONTEXTS.linkedIssue);
@@ -139,7 +145,7 @@ describe('linked-issue: pull_request events', () => {
     assert.equal(seedPr(), 5);
     const r = run('linked-issue', prEvent('Closes #5'));
     assert.equal(r.code, 1);
-    const posted = fake.statuses[HEAD_CLOSES][0];
+    const posted = own(HEAD_CLOSES)[0];
     assert.equal(posted.state, 'failure');
     assert.match(posted.description, /#5/);
     assert.match(posted.description, /pull request/);
@@ -150,7 +156,7 @@ describe('linked-issue: pull_request events', () => {
     const r = run('linked-issue', prEvent('Closes #99'));
     assert.equal(r.code, 1);
     assert.equal(r.state, 'failure');
-    const posted = fake.statuses[HEAD_CLOSES][0];
+    const posted = own(HEAD_CLOSES)[0];
     assert.equal(posted.state, 'failure');
     assert.match(posted.description, /#99/);
   });
@@ -169,8 +175,8 @@ describe('linked-issue: pull_request events', () => {
     seedUntil(12);
     const r = run('linked-issue', fixture('pull_request-closes'), { GITHUB_REPOSITORY: undefined });
     assert.equal(r.code, 0);
-    assert.equal(fake.statuses[HEAD_CLOSES][0].state, 'success');
-    assert.equal(fake.statuses[HEAD_CLOSES][0].target_url, 'https://github.com/acme/widgets/actions/runs/777');
+    assert.equal(own(HEAD_CLOSES)[0].state, 'success');
+    assert.equal(own(HEAD_CLOSES)[0].target_url, 'https://github.com/acme/widgets/actions/runs/777');
   });
 
   test('3e. no target_url when the run id is unknown, and the repo default branch is looked up when the event lacks it', () => {
@@ -179,7 +185,7 @@ describe('linked-issue: pull_request events', () => {
     delete payload.repository.default_branch;
     const r = run('linked-issue', payload, { GITHUB_RUN_ID: undefined });
     assert.equal(r.code, 0);
-    assert.equal(fake.statuses[HEAD_CLOSES][0].target_url, null);
+    assert.equal(own(HEAD_CLOSES)[0].target_url, null);
   });
 });
 
@@ -192,7 +198,7 @@ describe('linked-issue: merge_group events', () => {
     const r = run('linked-issue', groupEvent(7), { GITHUB_EVENT_NAME: 'merge_group' });
     assert.equal(r.code, 0);
     assert.deepEqual(Object.keys(fake.statuses), [GROUP_HEAD], 'posted on the group head sha only');
-    const posted = fake.statuses[GROUP_HEAD][0];
+    const posted = own(GROUP_HEAD)[0];
     assert.equal(posted.context, 'aoforge/linked-issue');
     assert.equal(posted.state, 'success');
   });
@@ -202,7 +208,7 @@ describe('linked-issue: merge_group events', () => {
     assert.equal(seedPr({ body: 'just a refactor' }), 7);
     const r = run('linked-issue', groupEvent(7), { GITHUB_EVENT_NAME: 'merge_group' });
     assert.equal(r.code, 1);
-    const posted = fake.statuses[GROUP_HEAD][0];
+    const posted = own(GROUP_HEAD)[0];
     assert.equal(posted.state, 'failure');
     assert.equal(posted.context, CONTEXTS.linkedIssue);
   });
@@ -213,7 +219,7 @@ describe('linked-issue: merge_group events', () => {
     });
     assert.equal(r.code, 1);
     assert.equal(r.state, 'error');
-    const posted = fake.statuses[GROUP_HEAD][0];
+    const posted = own(GROUP_HEAD)[0];
     assert.equal(posted.state, 'error');
     assert.match(posted.description, /some-branch/);
   });
@@ -221,8 +227,8 @@ describe('linked-issue: merge_group events', () => {
   test('4d. the queue names a PR that is gone (404): error status on the group sha, exit 1', () => {
     const r = run('linked-issue', groupEvent(40), { GITHUB_EVENT_NAME: 'merge_group' });
     assert.equal(r.code, 1);
-    assert.equal(fake.statuses[GROUP_HEAD][0].state, 'error');
-    assert.match(fake.statuses[GROUP_HEAD][0].description, /#40|40/);
+    assert.equal(own(GROUP_HEAD)[0].state, 'error');
+    assert.match(own(GROUP_HEAD)[0].description, /#40|40/);
   });
 });
 
@@ -243,7 +249,7 @@ describe('linked-issue: failures never throw', () => {
     const r = run('linked-issue', prEvent('Closes #5'));
     assert.equal(r.code, 1);
     assert.equal(r.state, 'error');
-    const posted = fake.statuses[HEAD_CLOSES][0];
+    const posted = own(HEAD_CLOSES)[0];
     assert.equal(posted.state, 'error');
     assert.equal(posted.context, CONTEXTS.linkedIssue);
     assert.match(posted.description, /#5/);
@@ -352,7 +358,7 @@ describe('planning-consistency', () => {
     const r = run('planning-consistency', prEvent('Closes #1'), { GITHUB_EVENT_NAME: 'pull_request' });
     assert.equal(r.code, 0);
     assert.equal(r.state, 'success');
-    const posted = fake.statuses[HEAD_CLOSES];
+    const posted = own(HEAD_CLOSES);
     assert.equal(posted.length, 1);
     assert.equal(posted[0].context, 'aoforge/planning-consistency');
     assert.equal(posted[0].context, CONTEXTS.planningConsistency);
@@ -383,7 +389,7 @@ describe('planning-consistency', () => {
     const r = run('planning-consistency', prEvent(objectivePrBody(1, 2)), { GITHUB_EVENT_NAME: 'pull_request' });
     assert.equal(r.code, 1);
     assert.equal(r.state, 'failure');
-    const posted = fake.statuses[HEAD_CLOSES][0];
+    const posted = own(HEAD_CLOSES)[0];
     assert.equal(posted.state, 'failure');
     assert.equal(posted.context, CONTEXTS.planningConsistency);
     assert.match(posted.description, /#3/);
@@ -395,7 +401,7 @@ describe('planning-consistency', () => {
     const r = run('planning-consistency', prEvent(objectivePrBody(1, 2, 3)));
     assert.equal(r.code, 0);
     assert.equal(r.state, 'success');
-    assert.equal(fake.statuses[HEAD_CLOSES][0].state, 'success');
+    assert.equal(own(HEAD_CLOSES)[0].state, 'success');
   });
 
   test('6c. a PR that forgets to close the objective issue names it (found by its label and marker)', () => {
@@ -403,8 +409,8 @@ describe('planning-consistency', () => {
     seedObjectiveGraph();
     const r = run('planning-consistency', prEvent(objectivePrBody(2, 3)));
     assert.equal(r.code, 1);
-    assert.match(fake.statuses[HEAD_CLOSES][0].description, /#1/);
-    assert.match(fake.statuses[HEAD_CLOSES][0].description, /not closed/);
+    assert.match(own(HEAD_CLOSES)[0].description, /#1/);
+    assert.match(own(HEAD_CLOSES)[0].description, /not closed/);
   });
 
   test('6d. without the sub-issues API the linked TRDs come from the objective\'s `trds` task list', () => {
@@ -415,7 +421,7 @@ describe('planning-consistency', () => {
     fake.seedIssue({ title: 'TRD 50-02', body: TRD_BODY(2) });
     const r = run('planning-consistency', prEvent(objectivePrBody(1, 2)));
     assert.equal(r.code, 1);
-    assert.match(fake.statuses[HEAD_CLOSES][0].description, /#3/);
+    assert.match(own(HEAD_CLOSES)[0].description, /#3/);
   });
 
   test('6e. a merge_group event reads the PR named by the queue ref and posts on the group head sha', () => {
@@ -428,8 +434,8 @@ describe('planning-consistency', () => {
     const r = run('planning-consistency', payload, { GITHUB_EVENT_NAME: 'merge_group' });
     assert.equal(r.code, 0);
     assert.deepEqual(Object.keys(fake.statuses), [GROUP_HEAD]);
-    assert.equal(fake.statuses[GROUP_HEAD][0].context, CONTEXTS.planningConsistency);
-    assert.equal(fake.statuses[GROUP_HEAD][0].state, 'success');
+    assert.equal(own(GROUP_HEAD)[0].context, CONTEXTS.planningConsistency);
+    assert.equal(own(GROUP_HEAD)[0].state, 'success');
   });
 
   test('6f. a failed sub-issue read is an `error` status, not a verdict', () => {
@@ -439,8 +445,8 @@ describe('planning-consistency', () => {
     const r = run('planning-consistency', prEvent(objectivePrBody(1, 2, 3)));
     assert.equal(r.code, 1);
     assert.equal(r.state, 'error');
-    assert.equal(fake.statuses[HEAD_CLOSES][0].state, 'error');
-    assert.match(fake.statuses[HEAD_CLOSES][0].description, /sub-issues/);
+    assert.equal(own(HEAD_CLOSES)[0].state, 'error');
+    assert.match(own(HEAD_CLOSES)[0].description, /sub-issues/);
   });
 
   test('6g. a closed pull_request posts nothing', () => {

@@ -65,6 +65,9 @@ function run(name, payload) {
 
 const prEvent = (body) => fixture('pull_request-closes', (p) => { p.pull_request.body = body; });
 
+/** The statuses posted on `sha` in the order they were POSTed (the fake keeps them newest first, as GitHub lists them). */
+const postedInOrder = (sha) => [...(fake.statuses[sha] || [])].reverse();
+
 beforeEach(() => {
   envh = hermeticEnv();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-checks-legacy-'));
@@ -86,7 +89,7 @@ describe('9. every status is posted under the AOForge context, then the legacy o
   test('9a. planning-consistency', () => {
     const r = run('planning-consistency', prEvent('Closes #1'));
     assert.equal(r.code, 0);
-    const posted = fake.statuses[HEAD];
+    const posted = postedInOrder(HEAD);
     assert.deepEqual(posted.map((s) => s.context), ['aoforge/planning-consistency', `${OLD}/planning-consistency`]);
     assert.equal(posted[0].context, check.CONTEXTS.planningConsistency);
     assert.equal(posted[1].state, posted[0].state);
@@ -99,7 +102,7 @@ describe('9. every status is posted under the AOForge context, then the legacy o
     fake.seedIssue({ title: 'issue 1' });
     const r = run('linked-issue', prEvent('Closes #1'));
     assert.equal(r.code, 0);
-    const posted = fake.statuses[HEAD];
+    const posted = postedInOrder(HEAD);
     assert.deepEqual(posted.map((s) => [s.context, s.state]), [['aoforge/linked-issue', 'success'], [`${OLD}/linked-issue`, 'success']]);
   });
 });

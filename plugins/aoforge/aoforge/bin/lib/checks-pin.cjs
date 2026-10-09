@@ -34,11 +34,22 @@
 //
 // Consumers: validate health Check 17 (W062), doctor check 26 `checks-workflow-pin`, the `gh setup` dry run (TRD 61-06
 // prints parseWorkflowPins(text).lines), and gh-setup.cjs, which imports WORKFLOW_PATH, MANAGED_HEADER and
-// DEFAULT_CHECKS_WORKFLOW from here. This module requires only fs and path and must never require gh-setup.cjs or any
-// gh-* module: gh-setup requires this one, and a circular require hands back a half-built module.exports.
+// DEFAULT_CHECKS_WORKFLOW from here. This module requires only fs, path and the two leaf modules legacy-names.cjs and
+// text-escape.cjs, and must never require gh-setup.cjs or any gh-* module: gh-setup requires this one, and a circular
+// require hands back a half-built module.exports.
+//
+// The legacy caller (TRD 72-11, INST-03). A repository set up before the rename has `.github/workflows/<legacy
+// caller>` with the legacy managed header, the legacy repository slug and reusable-workflow file on its `uses:` line
+// and the legacy ref input. It keeps calling the legacy workflow at its old pin (the commit stays reachable through
+// GitHub's rename redirect). It is read like a new caller (same pin fields, compared the same way) and flagged
+// `legacy: true`: its W062 fix is the rebrand (72-16), which rewrites slug, file name, input and pin together. A pin
+// bump is never applied to it in place, and `gh setup` (which writes WORKFLOW_PATH and matches MANAGED_HEADER only)
+// never treats it as its own. The new caller wins when both files exist.
 
 const fs = require('fs');
 const path = require('path');
+const { LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 /** The managed workflow, relative to the repository root. */
 const WORKFLOW_PATH = '.github/workflows/aoforge.yml';
@@ -47,17 +58,27 @@ const MANAGED_HEADER = /^#\s*aoforge:managed\b/;
 /** AOForge's reusable checks workflow, without its @ref. */
 const DEFAULT_CHECKS_WORKFLOW = 'AO-Cyber-Systems/aoforge-claude/.github/workflows/aoforge-checks.yml';
 
+// The pre-rename caller: its file, header, reusable workflow and ref input. Read only, never written.
+const LEGACY_WORKFLOW_PATH = `.github/workflows/${LEGACY.checksCaller}`;
+const LEGACY_MANAGED_HEADER = new RegExp(`^#\\s*${escapeRegExp(LEGACY.markerNs)}:managed\\b`);
+const LEGACY_CHECKS_WORKFLOW = `AO-Cyber-Systems/${LEGACY.repo}/.github/workflows/${LEGACY.checksWorkflow}`;
+const LEGACY_REF_LINE = new RegExp(`^\\s*${escapeRegExp(LEGACY.slug)}-ref:\\s*(\\S+)`);
+
 const W062 = 'W062';
 const FIX =
   'Run `aof-tools gh setup --apply` to re-pin it, then merge the workflow pull request it prints. If github.checks_workflow in '
   + '.aoforge/config.json names an @ref, update that first: setup re-renders the configured ref.';
+// A legacy caller is never re-pinned in place: setup would add a second caller beside it.
+const FIX_LEGACY =
+  'This caller predates the AOForge rename. Do not re-pin it with gh setup, which would add a second caller beside it. '
+  + 'Run `aof-tools gh rebrand` (a dry run first): it rewrites the repository slug, workflow file, input name and pin together.';
 
 const USES_LINE = /^\s*uses:\s*(\S+)/;
 const AOFORGE_REF_LINE = /^\s*aoforge-ref:\s*(\S+)/;
 const RELEASE_REF = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
 function emptyPins() {
-  return { managed: false, uses: null, uses_path: null, uses_ref: null, aoforge_ref: null, lines: [] };
+  return { managed: false, legacy: false, uses: null, uses_path: null, uses_ref: null, aoforge_ref: null, lines: [] };
 }
 
 /** Strip one pair of matching surrounding quotes. */
@@ -74,14 +95,21 @@ function unquote(value) {
  * managed by gh setup. `uses_path`/`uses_ref` split `uses` at its LAST `@` (no `@` -> `uses_ref: null`). `lines` holds
  * the matched lines, trimmed, in file order. Never throws: anything but a string gives the empty answer.
  *
+ * The legacy caller is read the same way (its managed header, and its ref input as `aoforge_ref`) and sets `legacy`:
+ * true when the header, the `uses:` path or the ref input is the legacy one.
+ *
  * @param {string} text
- * @returns {{managed:boolean, uses:string|null, uses_path:string|null, uses_ref:string|null, aoforge_ref:string|null, lines:string[]}}
+ * @returns {{managed:boolean, legacy:boolean, uses:string|null, uses_path:string|null, uses_ref:string|null,
+ *            aoforge_ref:string|null, lines:string[]}}
  */
 function parseWorkflowPins(text) {
   const out = emptyPins();
   if (typeof text !== 'string') return out;
   const all = text.split(/\r?\n/);
-  out.managed = all.slice(0, 5).some((l) => MANAGED_HEADER.test(l));
+  const head = all.slice(0, 5);
+  const legacyHeader = head.some((l) => LEGACY_MANAGED_HEADER.test(l));
+  out.managed = legacyHeader || head.some((l) => MANAGED_HEADER.test(l));
+  let legacyRef = false;
 
   let usesLine = null;
   let refLine = null;
@@ -95,10 +123,11 @@ function parseWorkflowPins(text) {
       }
     }
     if (refLine === null) {
-      const m = AOFORGE_REF_LINE.exec(all[i]);
+      const m = AOFORGE_REF_LINE.exec(all[i]) || LEGACY_REF_LINE.exec(all[i]);
       if (m) {
         refLine = i;
         out.aoforge_ref = unquote(m[1]);
+        legacyRef = !AOFORGE_REF_LINE.test(all[i]);
       }
     }
   }
@@ -108,6 +137,7 @@ function parseWorkflowPins(text) {
     out.uses_path = at >= 0 ? out.uses.slice(0, at) : out.uses;
     out.uses_ref = at >= 0 ? out.uses.slice(at + 1) : null;
   }
+  out.legacy = legacyHeader || legacyRef || out.uses_path === LEGACY_CHECKS_WORKFLOW;
   out.lines = [usesLine, refLine].filter((i) => i !== null).sort((a, b) => a - b).map((i) => all[i].trim());
   return out;
 }
@@ -155,7 +185,9 @@ function pinStatus(pins, installedVersion) {
   if (!want) return answer('not-comparable');
 
   const candidates = [{ field: 'aoforge-ref', ref: p.aoforge_ref }];
-  if (p.uses_path === DEFAULT_CHECKS_WORKFLOW) candidates.push({ field: 'uses', ref: p.uses_ref });
+  if (p.uses_path === DEFAULT_CHECKS_WORKFLOW || p.uses_path === LEGACY_CHECKS_WORKFLOW) {
+    candidates.push({ field: 'uses', ref: p.uses_ref });
+  }
   const compared = candidates.filter((c) => parseReleaseRef(c.ref) !== null);
   if (compared.length === 0) return answer('not-comparable');
 
@@ -166,32 +198,36 @@ function pinStatus(pins, installedVersion) {
 }
 
 /**
- * Read the managed workflow from a repository root. A local file read: no gh, no git.
+ * Read the managed workflow from a repository root: WORKFLOW_PATH, else the legacy caller. A local file read: no gh,
+ * no git.
  *
  * @param {string} root
- * @returns {{state:'absent'} | {state:'present', text:string, pins:object}}
+ * @returns {{state:'absent'} | {state:'present', path:string, text:string, pins:object}}
  * @throws for a path that exists but cannot be read (a directory, no permission); callers report it
  */
 function readWorkflowPin(root) {
-  let text;
-  try {
-    text = fs.readFileSync(path.join(root, WORKFLOW_PATH), 'utf-8');
-  } catch (e) {
-    if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return { state: 'absent' };
-    throw e;
+  for (const rel of [WORKFLOW_PATH, LEGACY_WORKFLOW_PATH]) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(root, rel), 'utf-8');
+    } catch (e) {
+      if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) continue;
+      throw e;
+    }
+    return { state: 'present', path: rel, text, pins: parseWorkflowPins(text) };
   }
-  return { state: 'present', text, pins: parseWorkflowPins(text) };
+  return { state: 'absent' };
 }
 
-/** The one-line W062 message: the oldest stale ref and the stale fields that pin it. */
-function staleMessage(stale, installed) {
+/** The one-line W062 message: the oldest stale ref and the stale fields that pin it, in the caller at `rel`. */
+function staleMessage(stale, installed, rel = WORKFLOW_PATH) {
   let oldest = stale[0];
   for (const s of stale) {
     if (compareRelease(parseReleaseRef(s.ref), parseReleaseRef(oldest.ref)) < 0) oldest = s;
   }
   const base = parseReleaseRef(oldest.ref);
   const fields = stale.filter((s) => compareRelease(parseReleaseRef(s.ref), base) === 0).map((s) => s.field);
-  return `checks-pin-stale: ${WORKFLOW_PATH} pins AOForge ${oldest.ref} (${fields.join(', ')}), older than the installed plugin ${installed}`;
+  return `checks-pin-stale: ${rel} pins AOForge ${oldest.ref} (${fields.join(', ')}), older than the installed plugin ${installed}`;
 }
 
 /**
@@ -206,13 +242,15 @@ function collectPinFindings({ projectRoot, installedVersion } = {}) {
   if (read.state === 'absent') return { applicable: false, state: 'absent', findings: [] };
 
   const status = pinStatus(read.pins, installedVersion);
+  const legacy = read.pins.legacy === true;
   const findings = status.state === 'stale'
-    ? [{ code: W062, message: staleMessage(status.stale, status.installed), fix: FIX }]
+    ? [{ code: W062, message: staleMessage(status.stale, status.installed, read.path), fix: legacy ? FIX_LEGACY : FIX }]
     : [];
   return {
     applicable: true,
     state: status.state,
-    path: WORKFLOW_PATH,
+    path: read.path,
+    legacy,
     pins: read.pins,
     installed: status.installed,
     compared: status.compared,

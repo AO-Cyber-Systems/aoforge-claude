@@ -10,7 +10,9 @@
  * Pure module: no gh calls, no git, no fs, no child_process, no process.env. The runner (50-08) fetches the
  * PR, the referenced issues and the commits, hands them in as plain data and posts the returned result as a
  * commit status. Nothing here can reach GitHub, so every rule is unit-testable with hand-written objects.
- * The only dependency allowed here is gh-body.cjs (itself pure), for the `aoforge:id=` / `aoforge:pr=` readers.
+ * The only dependency allowed here is gh-body.cjs (itself pure), for the `aoforge:id=` / `aoforge:pr=` readers. They
+ * also read the legacy marker namespace (TRD 72-11), so a PR opened before the rebrand is still an objective PR here.
+ * CONTEXTS stays AOForge-only: gh-check-cli posts each verdict under the legacy twin as well, for one release.
  *
  * Result shape of both checks:
  *   { state: 'success' | 'failure', description, details: [string] }
