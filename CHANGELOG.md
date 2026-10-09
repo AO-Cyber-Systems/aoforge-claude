@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`gh rebrand` reads large repositories** (objective 72, INST-04). Every `gh` call now gets a 256 MiB output buffer
+  (Node's default is 1 MiB) and a paginated read gets 5 minutes instead of 30 seconds, so a dry run no longer fails
+  with `spawnSync gh ENOBUFS` on a repository whose issue list is larger than 1 MiB. A read that still overflows or
+  times out says so (`ENOBUFS` or `ETIMEDOUT`) after the read and the repository it was for.
+
 ## [3.0.0] - 2026-10-08
 
 DevFlow is now AOForge. 3.0.0 is objective 72 (INST-01 to INST-06), the rename, together with objectives 68 to 71,
