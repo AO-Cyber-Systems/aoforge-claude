@@ -8,10 +8,16 @@
  *   Daemon LIVE (Approach B):
  *     Detects an interactive or shell-flow command, writes a pending handoff
  *     record, denies the Bash tool with reason "queued for daemon — continue
- *     with other work." The daemon picks up the record, runs it in the user's
- *     interactive shell, writes a done record, and the route-results.js hook
- *     injects the result into Claude's next turn. Claude never instructs
- *     the user to paste anything.
+ *     with other work." The pending record carries the payload's session_id
+ *     and agent_id (null for the main loop). The daemon picks up the record,
+ *     runs it in the user's aoforge-watch terminal (the user answers any
+ *     prompt there), writes a done record that carries the same address, and
+ *     inject-handoff-results.js delivers the result to the context that asked:
+ *     after Claude's next tool call (PostToolUse) or when the turn ends (Stop,
+ *     which waits briefly for a command still running). route-results.js stays
+ *     the catch-all on the user's next prompt. The deny reason tells Claude
+ *     this, and to tell the user in one line where the command is waiting.
+ *     Claude never instructs the user to paste anything.
  *
  *   Daemon ABSENT (Approach A — fallback):
  *     Same detection + pending record, but the deny reason instructs Claude
@@ -236,6 +242,10 @@ function writePendingRecord(cmd, cwd, reason, opts = {}) {
       timeout_ms: typeof opts.timeoutMs === 'number' ? opts.timeoutMs : 600000,
       created_at: new Date().toISOString(),
       status: 'pending',
+      // The address of the hook payload that queued this command (null: the main loop). The daemon's done record
+      // spreads this record, so inject-handoff-results.js can deliver the result to the context that asked for it.
+      session_id: typeof opts.sessionId === 'string' && opts.sessionId ? opts.sessionId : null,
+      agent_id: typeof opts.agentId === 'string' && opts.agentId ? opts.agentId : null,
     };
     fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(record, null, 2));
     return id;
@@ -260,7 +270,7 @@ function buildDenyReason({ id, cmd, hit, watcherLive, watcherInfo }) {
   if (watcherLive) {
     return [
       `This command needs the user's shell (${hit.reason}; category: ${hit.category}).`,
-      `It has been queued to the aoforge-watch PTY-backed daemon (pid ${watcherInfo && watcherInfo.pid}). Continue with other work — the daemon will run it via a real PTY and inject the result into your next turn automatically. Do NOT instruct the user to paste anything; do NOT retry the Bash tool.`,
+      `It has been queued to the aoforge-watch PTY-backed daemon (pid ${watcherInfo && watcherInfo.pid}). Continue with other work — the daemon will run it via a real PTY in the user's aoforge-watch terminal, and if it prompts, the user answers there. Tell the user in one line that \`${cmd}\` is waiting in their aoforge-watch terminal. Its result is delivered into your context automatically after your next tool call, or when you end your turn (the Stop hook waits briefly for it). Do NOT instruct the user to paste anything; do NOT retry the Bash tool.`,
       `(handoff id: ${id} — record at .aoforge-handoff/pending/${id}.json)`,
       'Escape hatch: set AOFORGE_SKIP_INTERACTIVE_GATE=1 if this is a false positive.',
     ].join(' ');
@@ -296,6 +306,8 @@ function main() {
   const watcherLive = isWatcherLive();
   const id = writePendingRecord(cmd, process.cwd(), hit.reason, {
     shell: watcherInfo && watcherInfo.shell,
+    sessionId: input.session_id,
+    agentId: input.agent_id,
   });
 
   deny(buildDenyReason({ id, cmd, hit, watcherLive, watcherInfo }));

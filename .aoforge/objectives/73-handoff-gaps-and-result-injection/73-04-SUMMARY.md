@@ -12,5 +12,5 @@ requirements-completed: [HND-02]
 
 ## Progress
 - [x] Task 1: RED, the hook's test list on the fixtures — 45900882
-- [x] Task 2: GREEN, the hook rewritten on the library — (this commit)
-- [ ] Task 3: gate-interactive records the address and tells Claude how the result returns — next step: write test list items 15-17 in gate-interactive.test.js RED, then edit writePendingRecord and buildDenyReason
+- [x] Task 2: GREEN, the hook rewritten on the library — 67ef1906
+- [x] Task 3: gate-interactive records the address and tells Claude how the result returns — (this commit)
