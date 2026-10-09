@@ -397,6 +397,16 @@ function _objectiveBranchFields(root, config, objectiveInfo, objective) {
   return { objective_branch: rendered, pr_number: number };
 }
 
+/**
+ * W066 (objective 72, INST-03): a project still on the legacy planning directory, or holding both, gets the same
+ * one-line advisory `validate health` reports, so the planner and the executor see the migration too.
+ */
+function _pushLegacyPlanningAdvisory(cwd, warnings) {
+  const layout = require('./planning-layout.cjs');
+  const issue = layout.legacyPlanningIssue(cwd);
+  if (issue) warnings.push(layout.advisoryLine(issue));
+}
+
 function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
   if (!objective) {
     error('objective required for init execute-objective');
@@ -492,6 +502,7 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
   result.advisories_warnings = [];
   if (ctPreviewExec.warning) result.advisories_warnings.push(ctPreviewExec.warning);
   if (awPreviewExec.warning) result.advisories_warnings.push(awPreviewExec.warning);
+  _pushLegacyPlanningAdvisory(cwd, result.advisories_warnings);
 
   // TRD 22-01: surface branch resolution + mismatch note
   result.branch_spec = branchSpec;
@@ -631,6 +642,7 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
   result.advisories_warnings = [];
   if (ctPreviewPlan.warning) result.advisories_warnings.push(ctPreviewPlan.warning);
   if (awPreviewPlan.warning) result.advisories_warnings.push(awPreviewPlan.warning);
+  _pushLegacyPlanningAdvisory(cwd, result.advisories_warnings);
 
   // TRD 22-01: surface branch resolution + mismatch note
   result.branch_spec = branchSpec;

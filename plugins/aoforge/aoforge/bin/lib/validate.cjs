@@ -815,6 +815,15 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W065', `requirements-check-failed: ${e.message}`, 'Run `aof-tools validate requirements` to see why', false);
   }
 
+  // ─── Check 21: Legacy planning directory (objective 72, INST-03) ─────────
+  // W066: the project still has only the legacy planning directory (AOForge reads it for one release; migration 0012
+  // moves it), or has both (the legacy one is ignored). Advisory and never repairable here: the move is the
+  // migration's, with its backup and its commit (planning-layout.cjs).
+  {
+    const issue = require('./planning-layout.cjs').legacyPlanningIssue(cwd);
+    if (issue) addIssue('warning', issue.code, issue.message, issue.fix, false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {

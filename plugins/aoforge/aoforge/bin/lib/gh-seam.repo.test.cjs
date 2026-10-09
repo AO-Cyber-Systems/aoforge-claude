@@ -25,6 +25,8 @@ const path = require('path');
 const PLANNING_MODULES = [
   'planning-mode.cjs', 'planning-paths.cjs', 'planning-ledger.cjs', 'planning-verbs.cjs', 'planning-entity-verbs.cjs',
   'planning-import.cjs', 'planning-verbs-cli.cjs', 'planning-drift.cjs', 'planning-audit.cjs', 'planning-drafts.cjs',
+  // TRD 72-05: the W066 legacy-planning-dir advisory; it never reaches GitHub
+  'planning-layout.cjs',
 ];
 
 // objective 51 (TRD 51-08): the backfill migration lives under migrations/; guarded by its lib-relative path.
