@@ -11,7 +11,7 @@ requirements: [INST-05, INST-06]
 ## Progress
 - [x] Task 1: Approval gate: rename the GitHub repository to aoforge-claude: no commit (live GitHub op + local remote config only)
 - [x] Task 2: Approval gate: push feat/stack-profile-loader: no commit (live push only); PUSHED_SHA 02da68293312e1812270259fde88668f72a9c848
-- [ ] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: FAILED. PR #128 opened; `test (npm test, gated)` and `CodeQL` are red. Gap fix (local only, see "Gap fix" below): the hook-coexistence race is fixed in 9f149c8b; the `milestone-complete.test.cjs:382` escaping fix is in (this commit); the full-suite run is pending. next step: run the full suite without micro.test.cjs (`node --test` over package.json's globs), record the counts in "Gap fix", and commit the SUMMARY; then the two re-flagged alerts (#95/#146 equivalents) are dismissed again on the PR by the user, a new push approval, then `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch` until green
+- [ ] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: FAILED. PR #128 opened; `test (npm test, gated)` and `CodeQL` are red. Gap fix (local only, see "Gap fix" below): the hook-coexistence race is fixed in 9f149c8b; the `milestone-complete.test.cjs:382` escaping fix is in 17d02395; the full suite has been run (see "Gap fix"). Blocker before any push: E2E1 (roadmap-reconcile self-test) now fails, because this checkpoint SUMMARY exists while the ROADMAP 72-19 box is unticked. It passed in CI at 02da6829 only because no 72-19 SUMMARY existed there. next step: the user decides how E2E1 goes green before the push (tick 72-19 in ROADMAP.md with `roadmap update-job-progress 72` right before pushing, or teach the reconcile that a SUMMARY without `## Self-Check` is a checkpoint); then the two re-flagged alerts (#95/#146 equivalents) are dismissed again on the PR by the user, a new push approval, then `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch` until green
 
 ## Approvals (literal replies)
 
@@ -167,4 +167,25 @@ Files: `plugins/aoforge/hooks/__fixtures__/coexistence-fixtures.js`, `plugins/ao
 | `node --test milestone-complete.test.cjs regex-escape.repo.test.cjs` (macOS) | 34/34 pass, exit 0 |
 | CodeQL | not run locally (`codeql` CLI not installed). The alert closes only on the next CodeQL analysis of a pushed head, and nothing is pushed |
 
-Files: `plugins/aoforge/aoforge/bin/lib/milestone-complete.test.cjs`. Commit: (this commit).
+Files: `plugins/aoforge/aoforge/bin/lib/milestone-complete.test.cjs`. Commit: 17d02395 `test(72-19): escape the milestone version with the shared escapeRegExp in entryLines`.
+
+### Full suite after both fixes
+
+| Run | Environment | Result |
+|---|---|---|
+| `node --test` over package.json's four globs (386 files) minus `micro.test.cjs` (385 files) | macOS, node 24.13.1, Apple Git 2.54.0 | tests 11942, pass 11906, fail 1, skipped 35, 90 s. The 1 failure is E2E1 (below) |
+| `node --test scripts/ci-unit-gate.test.cjs` then `node scripts/ci-unit-gate.cjs` (the CI steps, after `npm ci`) | container: ubuntu:24.04, git 2.55.0, node 26.11.1 (CI's versions), run as root | gate self-test 88/88. Gate: 386 files, 11964 reported / 11920 executed, failures 2, skipped 44, 128 s, FAIL. No hook-coexistence failure and no ENOENT; the 10 CI failures are gone. The 2 failures are E2E1 (below) and verify-completion `returns ok:false on filesystem error (unwritable path)`. That one is a root-in-container artifact: root can write the chmod-protected path. Run as uid 1000, the file passes 42/42, and it passed in the real CI run |
+
+No temp-dir flake occurred. PW-9 skipped (no pwsh on either machine), and its allowlist entry stays as it is.
+
+**E2E1 (`roadmap-reconcile.test.cjs:1029`, "reconcile dry-run against this repo ROADMAP shows zero drift"): the known baseline, and a push blocker.** The drift is one `trd_summary_exists` item. `.planning/ROADMAP.md` line 299 is `- [ ] 72-19-repo-rename-push-and-pr-TRD.md` while `72-19-SUMMARY.md` exists. It is not caused by either fix. The checkpoint SUMMARY was first committed in 72bb78be, and at the pushed head 02da6829 it did not exist; E2E1 passed in CI run 37922745685. So the next push would fail CI's `test` gate on E2E1. That is an undeclared failure, and adding it to `.github/known-test-failures.json` would be wrong. ROADMAP.md was deliberately left unticked: running `roadmap update-job-progress 72` would mark 72-19 done before its checks are green, and the TRD is not complete. The user decides how E2E1 goes green before the push. See the Task 3 next step.
+
+### Gap fix commits (local, not pushed)
+
+| Hash | Message |
+|---|---|
+| 9f149c8b | fix(72-19): turn off git auto-maintenance in hook test template repos |
+| 17d02395 | test(72-19): escape the milestone version with the shared escapeRegExp in entryLines |
+| (this commit) | docs(72-19): record the gap fix for the red PR #128 checks |
+
+Not run: `state add-blocker` (the installed 2.15.0 runtime cannot find the `## Blockers / Concerns` heading; see Issues Encountered). No state, roadmap or requirements updates, because the TRD is not complete. No `## Self-Check`: 72-19 completes only after an approved push and green checks on PR #128.
